@@ -1,0 +1,16 @@
+[package]
+name = "backspace"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "GPUI desktop shell for the Backspace agent harness"
+
+[[bin]]
+name = "backspace"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+backspace-core = { path = "../core" }
+# Pins the matching gpui-pre release, platform layer, components and icons.
+gpui-kit = "0.6.6"

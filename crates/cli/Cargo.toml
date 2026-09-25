@@ -1,0 +1,13 @@
+[package]
+name = "backspace-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "backspace-cli"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+backspace-core = { path = "../core" }

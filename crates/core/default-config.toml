@@ -1,0 +1,94 @@
+# Backspace config. Copy to ./backspace.toml or ~/.config/backspace/config.toml
+# (`backspace-cli init-config` does it) and edit. A config file replaces this
+# default wholesale: no hidden merging, what you see is what runs.
+
+[router]
+# "jev" asks TypeSafe Jev to pick model + effort per agent; falls back to
+# "heuristic" automatically when the key is missing or the call fails.
+backend = "jev"
+jev_endpoint = "https://api.typesafe.ai/v1/systemone"
+jev_model = "jev-latest"
+jev_api_key_env = "TYPESAFE_API_KEY"
+jev_usd_per_mtok = 0.042
+# Floor for the main agent: planning a whole project on "low" is false economy.
+main_min_effort = "high"
+# Optional hard pins, bypassing the router:
+# pin_main = "claude-opus-5"
+# pin_sub = "claude-sonnet-5"
+
+[orchestrator]
+max_parallel_calls = 4      # concurrent in-flight inference requests
+max_subagents = 16          # hard cap per project, the cost guardrail
+auto_approve = false        # true = no human gate (you asked for a gate; keep it)
+bash_timeout_secs = 120
+
+[providers.anthropic]
+kind = "anthropic"
+base_url = "https://api.anthropic.com"
+api_key_env = "ANTHROPIC_API_KEY"
+
+# Any OpenAI-compatible endpoint works: OpenRouter, Ollama, vLLM, Groq...
+[providers.openrouter]
+kind = "openai"
+base_url = "https://openrouter.ai/api/v1"
+api_key_env = "OPENROUTER_API_KEY"
+
+# [providers.ollama]
+# kind = "openai"
+# base_url = "http://localhost:11434/v1"
+# api_key_env = "OLLAMA_API_KEY"   # unset is fine for local
+
+# `description` is what Jev reads when choosing. Write it like a hiring note:
+# what the model is good at and when it is the wrong call.
+[[models]]
+id = "claude-haiku-4-5"
+provider = "anthropic"
+tier = 1
+description = "fast and cheap; mechanical edits, boilerplate, file scaffolding, summaries, simple scripts; wrong call for design or debugging"
+input_usd_per_mtok = 1.0
+output_usd_per_mtok = 5.0
+max_output_tokens = 16000
+efforts = []
+
+[[models]]
+id = "claude-sonnet-5"
+provider = "anthropic"
+tier = 2
+description = "the usual choice for everyday coding and tool use; features, components, tests, refactors of moderate size; good value"
+input_usd_per_mtok = 2.0
+output_usd_per_mtok = 10.0
+max_output_tokens = 16000
+efforts = ["low", "medium", "high", "xhigh", "max"]
+
+[[models]]
+id = "claude-opus-5"
+provider = "anthropic"
+tier = 3
+description = "strong reasoning for architecture, planning, cross-cutting changes, hard debugging and integration of many parts"
+input_usd_per_mtok = 5.0
+output_usd_per_mtok = 25.0
+max_output_tokens = 16000
+efforts = ["low", "medium", "high", "xhigh", "max"]
+
+[[models]]
+id = "claude-fable-5-1"
+provider = "anthropic"
+tier = 4
+description = "most capable and most expensive; only for the hardest long-horizon reasoning where cheaper models would fail"
+input_usd_per_mtok = 10.0
+output_usd_per_mtok = 50.0
+max_output_tokens = 16000
+efforts = ["low", "medium", "high", "xhigh", "max"]
+
+# Example non-Anthropic entry. Verify the model id on openrouter.ai/models
+# before enabling; ids there change often.
+# [[models]]
+# id = "or-flash"
+# provider = "openrouter"
+# model = "deepseek/deepseek-chat"
+# tier = 1
+# description = "very cheap general model for bulk boilerplate and docs"
+# input_usd_per_mtok = 0.3
+# output_usd_per_mtok = 1.0
+# max_output_tokens = 8000
+# efforts = []
