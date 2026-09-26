@@ -41,6 +41,24 @@ pub struct OrchestratorConfig {
     pub max_subagents: usize,
     pub auto_approve: bool,
     pub bash_timeout_secs: u64,
+    /// Delegation depth. Main is 0; `2` lets main's reports hire their own.
+    #[serde(default = "default_max_depth")]
+    pub max_depth: usize,
+    /// Deliverables from agents at depth <= this go to the human; deeper ones
+    /// are reviewed by the agent that spawned them.
+    #[serde(default = "default_human_review_depth")]
+    pub human_review_depth: usize,
+    /// Hard stop for the whole project, router calls included.
+    #[serde(default)]
+    pub max_project_usd: Option<f64>,
+}
+
+fn default_max_depth() -> usize {
+    2
+}
+
+fn default_human_review_depth() -> usize {
+    1
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]

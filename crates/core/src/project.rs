@@ -51,6 +51,8 @@ pub struct Deliverable {
 pub struct AgentRecord {
     pub id: AgentId,
     pub role: AgentRole,
+    pub parent: Option<AgentId>,
+    pub depth: usize,
     pub key: String,
     pub title: String,
     pub brief: String,
@@ -62,6 +64,8 @@ pub struct AgentRecord {
     pub input_tokens: u64,
     pub output_tokens: u64,
     pub deliverable: Option<Deliverable>,
+    /// Spend cap for this agent and everything it spawns.
+    pub budget_usd: Option<f64>,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
@@ -96,6 +100,26 @@ impl ProjectState {
         self.approvals
             .iter()
             .filter(|a| a.state == ApprovalState::Pending)
+    }
+
+    /// This agent's spend plus every descendant's.
+    pub fn subtree_cost(&self, id: AgentId) -> f64 {
+        self.agents
+            .iter()
+            .filter(|a| self.ancestry(a.id).contains(&id))
+            .map(|a| a.cost_usd)
+            .sum()
+    }
+
+    /// `id` followed by its parent, grandparent, ... up to main.
+    pub fn ancestry(&self, id: AgentId) -> Vec<AgentId> {
+        let mut chain = vec![id];
+        let mut cur = id;
+        while let Some(p) = self.agents[cur].parent {
+            chain.push(p);
+            cur = p;
+        }
+        chain
     }
 
     pub fn subagent_count(&self) -> usize {

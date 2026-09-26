@@ -21,6 +21,9 @@ max_parallel_calls = 4      # concurrent in-flight inference requests
 max_subagents = 16          # hard cap per project, the cost guardrail
 auto_approve = false        # true = no human gate (you asked for a gate; keep it)
 bash_timeout_secs = 120
+max_depth = 2               # main=0 -> its reports=1 -> their reports=2
+human_review_depth = 1      # deeper deliverables are reviewed by their manager
+# max_project_usd = 20.0    # hard stop for the whole project
 
 [providers.anthropic]
 kind = "anthropic"

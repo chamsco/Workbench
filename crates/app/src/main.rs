@@ -119,7 +119,11 @@ impl Backspace {
                     .overflow_y_scroll()
                     .p_2()
                     .gap_1()
-                    .children(s.agents.iter().map(|a| self.agent_row(a, &t, cx))),
+                    .children(
+                        tree_order(s)
+                            .into_iter()
+                            .map(|id| self.agent_row(&s.agents[id], &t, cx)),
+                    ),
             )
     }
 
@@ -130,7 +134,13 @@ impl Backspace {
             .as_ref()
             .map(|d| format!("{} · {}", d.model, d.effort))
             .unwrap_or_else(|| "not routed yet".into());
-        let indent = if a.id == MAIN { px(0.) } else { px(12.) };
+        let indent = px(14. * a.depth as f32);
+        let spent = self.snap.subtree_cost(a.id);
+        let money = match a.budget_usd {
+            Some(b) => format!("${spent:.3} / ${b:.2}"),
+            None if spent > a.cost_usd => format!("${spent:.3} tree"),
+            None => format!("${:.3}", a.cost_usd),
+        };
         v_flex()
             .id(("agent", id))
             .pl(indent + px(8.))
@@ -166,7 +176,7 @@ impl Backspace {
                     .text_xs()
                     .text_color(t.muted_foreground)
                     .child(route)
-                    .child(format!("${:.3}", a.cost_usd)),
+                    .child(money),
             )
     }
 
@@ -379,6 +389,19 @@ impl Render for Backspace {
             .child(self.log_view(cx))
             .child(self.approvals(cx))
     }
+}
+
+/// Depth-first, so each agent sits directly under its manager.
+fn tree_order(s: &ProjectState) -> Vec<usize> {
+    fn walk(s: &ProjectState, id: usize, out: &mut Vec<usize>) {
+        out.push(id);
+        for child in s.agents.iter().filter(|a| a.parent == Some(id)) {
+            walk(s, child.id, out);
+        }
+    }
+    let mut out = Vec::with_capacity(s.agents.len());
+    walk(s, MAIN, &mut out);
+    out
 }
 
 fn status_color(s: AgentStatus, t: &Theme) -> Hsla {

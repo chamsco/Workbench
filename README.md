@@ -55,6 +55,21 @@ cargo test                                                 # core + e2e (mock mo
    back into that agent's conversation; it revises and resubmits.
 5. The main agent integrates, verifies, and submits the final deliverable.
 
+### Nested teams (after Paperclip)
+
+- Any agent above `max_depth` (default 2) gets `spawn_agents` and `revise_agent`:
+  main → leads → their reports.
+- **Review follows the org chart.** Deliverables from depth ≤ `human_review_depth`
+  (default 1) come to you; deeper ones go to the agent that spawned them, which
+  must verify and can reopen a report with `revise_agent`. You review leads,
+  not every leaf.
+- **Goal ancestry.** Every brief carries the chain of goals above it, up to the
+  project goal.
+- **Budgets.** `budget_usd` on a spawn caps that agent *and its whole subtree*;
+  `max_project_usd` caps the project. When a cap is hit the agent is told to
+  wrap up, then stopped two turns later.
+- Dependencies are sibling-only, which keeps the wait graph acyclic.
+
 State is written to `<workspace>/.backspace/state.json` as a record of the run.
 
 ## Known limits
@@ -63,6 +78,5 @@ State is written to `<workspace>/.backspace/state.json` as a record of the run.
   outside it; bash does not. Run it in a container or VM for untrusted goals.
 - Not resumable: closing the app ends in-flight agents. `state.json` is a log,
   not a checkpoint.
-- Sub-agents cannot spawn their own sub-agents (one level of delegation).
 - Non-streaming requests; long single turns show up only when they finish.
 - The heuristic router is crude by design; routing quality comes from Jev.

@@ -1,7 +1,9 @@
-//! One project = one main agent you talk to, plus the sub-agents it spawns.
-//! Every deliverable passes through a human approval gate unless
-//! `auto_approve` is on. Rejection feedback goes back into the same agent's
-//! conversation, so it revises instead of restarting.
+//! One project = one main agent you talk to, plus a tree of agents under it.
+//! Any agent above `max_depth` can hire reports. Deliverables from the top
+//! `human_review_depth` levels go to the human; deeper ones go to the agent
+//! that spawned them, which can send them back with `revise_agent`. Either
+//! way, feedback lands in the same conversation, so agents revise instead of
+//! restarting.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -35,6 +37,8 @@ struct Inner {
     state: Mutex<ProjectState>,
     verdicts: Mutex<HashMap<usize, oneshot::Sender<Verdict>>>,
     done: Mutex<HashMap<AgentId, watch::Receiver<bool>>>,
+    /// Finished sub-agent conversations, kept so a manager can reopen them.
+    parked: Mutex<HashMap<AgentId, Conversation>>,
     limiter: Semaphore,
     changed: async_channel::Sender<()>,
 }
@@ -62,6 +66,8 @@ impl Harness {
         let main = AgentRecord {
             id: MAIN,
             role: AgentRole::Main,
+            parent: None,
+            depth: 0,
             key: "main".into(),
             title: "Main agent".into(),
             brief: String::new(),
@@ -73,6 +79,7 @@ impl Harness {
             input_tokens: 0,
             output_tokens: 0,
             deliverable: None,
+            budget_usd: None,
         };
         let (changed_tx, changed_rx) = async_channel::bounded(1);
         let inner = Arc::new(Inner {
@@ -94,6 +101,7 @@ impl Harness {
             }),
             verdicts: Mutex::new(HashMap::new()),
             done: Mutex::new(HashMap::new()),
+            parked: Mutex::new(HashMap::new()),
             changed: changed_tx,
             cfg,
             http,
@@ -182,7 +190,11 @@ impl Inner {
         }
     }
 
-    fn system_prompt(&self, role: AgentRole, decision: &Decision) -> String {
+    fn can_spawn(&self, depth: usize) -> bool {
+        depth < self.cfg.orchestrator.max_depth
+    }
+
+    fn system_prompt(&self, role: AgentRole, depth: usize, decision: &Decision) -> String {
         let remaining = self
             .cfg
             .orchestrator
@@ -192,6 +204,15 @@ impl Inner {
             AgentRole::Main => format!(include_str!("prompts/main.md"), remaining = remaining),
             AgentRole::Sub => include_str!("prompts/sub.md").to_string(),
         };
+        if role == AgentRole::Sub && self.can_spawn(depth) {
+            s.push_str("\n\n");
+            s.push_str(&format!(
+                include_str!("prompts/manager.md"),
+                remaining = remaining,
+                depth = depth,
+                max_depth = self.cfg.orchestrator.max_depth,
+            ));
+        }
         s.push_str(&format!(
             "\n\nYou are running on {} at {} effort. Your working directory is the project workspace.",
             decision.model, decision.effort
@@ -213,7 +234,8 @@ enum TurnEnd {
 
 struct Conversation {
     id: AgentId,
-    role: AgentRole,
+    can_spawn: bool,
+    budget_warned_at: Option<usize>,
     decision: Decision,
     system: String,
     messages: Vec<Message>,
@@ -231,16 +253,14 @@ async fn main_loop(inner: Arc<Inner>, mut inbox: mpsc::UnboundedReceiver<String>
                 Ok(d) => {
                     announce_route(&inner, MAIN, &d);
                     inner.agent(MAIN, |a| a.brief = text.clone());
-                    let mut tools = file_tools();
-                    tools.push(spawn_tool());
-                    tools.push(deliver_tool());
                     convo = Some(Conversation {
                         id: MAIN,
-                        role: AgentRole::Main,
-                        system: inner.system_prompt(AgentRole::Main, &d),
+                        can_spawn: true,
+                        budget_warned_at: None,
+                        tools: agent_tools(true),
+                        system: inner.system_prompt(AgentRole::Main, 0, &d),
                         decision: d,
                         messages: vec![],
-                        tools,
                     });
                 }
                 Err(e) => {
@@ -294,64 +314,117 @@ fn run_sub(inner: Arc<Inner>, id: AgentId) -> BoxFuture<'static, Result<Delivera
             }
         }
 
-        let (brief, dep_context) = {
+        let (brief, context, depth) = {
             let s = inner.state.lock().unwrap();
             let me = &s.agents[id];
-            let ctx: Vec<String> = me
+            let deps: Vec<String> = me
                 .depends_on
                 .iter()
                 .map(|d| {
                     let a = &s.agents[*d];
                     match &a.deliverable {
                         Some(del) if a.status == AgentStatus::Approved => format!(
-                            "## Dependency `{}` ({}), approved\n{}\nFiles: {}",
-                            a.key, a.title, del.summary, del.files.join(", ")
+                            "## Dependency `{}` ({}), accepted\n{}\nFiles: {}",
+                            a.key,
+                            a.title,
+                            del.summary,
+                            del.files.join(", ")
                         ),
-                        _ => format!("## Dependency `{}` ({}) FAILED; work around it or report the gap.", a.key, a.title),
+                        _ => format!(
+                            "## Dependency `{}` ({}) FAILED; work around it or report the gap.",
+                            a.key, a.title
+                        ),
                     }
                 })
                 .collect();
-            (format!("# {}\n\n{}", me.title, me.brief), ctx.join("\n\n"))
+            // Goal ancestry: every agent knows why its task exists, all the way
+            // up to the project goal.
+            let chain: Vec<String> = s
+                .ancestry(id)
+                .into_iter()
+                .skip(1)
+                .rev()
+                .map(|a| {
+                    let a = &s.agents[a];
+                    format!("- {}: {}", a.title, truncate(&a.brief, 600))
+                })
+                .collect();
+            let mut ctx = format!(
+                "# Why this task exists (project goal first)\n\n{}",
+                chain.join("\n")
+            );
+            if !deps.is_empty() {
+                ctx.push_str("\n\n# What your dependencies delivered\n\n");
+                ctx.push_str(&deps.join("\n\n"));
+            }
+            if let Some(b) = me.budget_usd {
+                ctx.push_str(&format!(
+                    "\n\nYour budget, including anything you delegate: ${b:.2}."
+                ));
+            }
+            (format!("# {}\n\n{}", me.title, me.brief), ctx, me.depth)
         };
 
         inner.set_status(id, AgentStatus::Running);
-        let decision = inner.router.route(AgentRole::Sub, &brief, &dep_context).await?;
+        let decision = inner.router.route(AgentRole::Sub, &brief, &context).await?;
         announce_route(&inner, id, &decision);
 
-        let mut first = brief.clone();
-        if !dep_context.is_empty() {
-            first.push_str("\n\n# What your dependencies delivered\n\n");
-            first.push_str(&dep_context);
-        }
+        let first = format!("{brief}\n\n{context}");
         inner.log(id, LogKind::User, first.clone());
-        let mut tools = file_tools();
-        tools.push(deliver_tool());
+        let can_spawn = inner.can_spawn(depth);
         let mut c = Conversation {
             id,
-            role: AgentRole::Sub,
-            system: inner.system_prompt(AgentRole::Sub, &decision),
+            can_spawn,
+            budget_warned_at: None,
+            system: inner.system_prompt(AgentRole::Sub, depth, &decision),
             decision,
             messages: vec![Message::user_text(first)],
-            tools,
+            tools: agent_tools(can_spawn),
         };
-
-        for _nudge in 0..2 {
-            match drive(&inner, &mut c).await? {
-                TurnEnd::Delivered(d) => return Ok(d),
-                TurnEnd::Replied => {
-                    let nudge = "You ended your turn without calling submit_deliverable. Finish the task, then call submit_deliverable.";
-                    inner.log(id, LogKind::System, nudge);
-                    c.messages.push(Message::user_text(nudge));
-                }
-            }
-        }
-        bail!("agent stopped without submitting a deliverable")
+        let res = finish(&inner, &mut c).await;
+        inner.parked.lock().unwrap().insert(id, c);
+        res
     }
     .boxed()
 }
 
+/// Drive a sub-agent until it delivers, nudging it if it stops early.
+async fn finish(inner: &Arc<Inner>, c: &mut Conversation) -> Result<Deliverable> {
+    for _nudge in 0..2 {
+        match drive(inner, c).await? {
+            TurnEnd::Delivered(d) => return Ok(d),
+            TurnEnd::Replied => {
+                let nudge = "You ended your turn without calling submit_deliverable. Finish the task, then call submit_deliverable.";
+                inner.log(c.id, LogKind::System, nudge);
+                c.messages.push(Message::user_text(nudge));
+            }
+        }
+    }
+    bail!("agent stopped without submitting a deliverable")
+}
+
+/// `Some(reason)` when the project or any budget covering this agent is spent.
+fn over_budget(inner: &Inner, id: AgentId) -> Option<String> {
+    let s = inner.state.lock().unwrap();
+    if let Some(max) = inner.cfg.orchestrator.max_project_usd {
+        if s.total_cost_usd >= max {
+            return Some(format!("project budget ${max:.2} spent"));
+        }
+    }
+    s.ancestry(id).into_iter().find_map(|a| {
+        let budget = s.agents[a].budget_usd?;
+        let spent = s.subtree_cost(a);
+        (spent >= budget).then(|| {
+            format!(
+                "budget of `{}` spent (${spent:.2} of ${budget:.2})",
+                s.agents[a].key
+            )
+        })
+    })
+}
+
 /// Run the model/tool loop until the agent replies without tools or gets a
-/// deliverable approved.
+/// deliverable accepted.
 async fn drive(inner: &Arc<Inner>, c: &mut Conversation) -> Result<TurnEnd> {
     let spec = inner
         .cfg
@@ -369,6 +442,18 @@ async fn drive(inner: &Arc<Inner>, c: &mut Conversation) -> Result<TurnEnd> {
         }
         if turn > budget + 3 {
             bail!("exceeded turn budget ({budget})");
+        }
+        if let Some(reason) = over_budget(inner, c.id) {
+            match c.budget_warned_at {
+                None => {
+                    let msg = format!("{reason}. Stop starting new work: submit what you have now and list what is left undone.");
+                    inner.log(c.id, LogKind::System, msg.clone());
+                    c.messages.push(Message::user_text(msg));
+                    c.budget_warned_at = Some(turn);
+                }
+                Some(t) if turn > t + 2 => bail!("{reason}"),
+                Some(_) => {}
+            }
         }
 
         let completion = {
@@ -438,7 +523,7 @@ async fn drive(inner: &Arc<Inner>, c: &mut Conversation) -> Result<TurnEnd> {
                 LogKind::ToolCall,
                 format!("{name} {}", truncate(&input.to_string(), 400)),
             );
-            run_tool(inner, c.id, c.role, name, input)
+            run_tool(inner, c.id, c.can_spawn, name, input)
         }))
         .await;
 
@@ -447,9 +532,9 @@ async fn drive(inner: &Arc<Inner>, c: &mut Conversation) -> Result<TurnEnd> {
         for ((call_id, _, _), res) in calls.iter().zip(results) {
             let (content, is_error) = match res {
                 Ok(ToolOutcome::Text(t)) => (t, false),
-                Ok(ToolOutcome::Delivered(d)) => {
+                Ok(ToolOutcome::Delivered(d, note)) => {
                     delivered = Some(d);
-                    ("Approved by the user.".to_string(), false)
+                    (note, false)
                 }
                 Err(e) => (format!("error: {e:#}"), true),
             };
@@ -485,20 +570,19 @@ fn has_tool_use(content: &[Block]) -> bool {
 
 enum ToolOutcome {
     Text(String),
-    Delivered(Deliverable),
+    Delivered(Deliverable, String),
 }
 
 async fn run_tool(
     inner: &Arc<Inner>,
     id: AgentId,
-    role: AgentRole,
+    can_spawn: bool,
     name: &str,
     input: &Value,
 ) -> Result<ToolOutcome> {
     match name {
-        "spawn_agents" if role == AgentRole::Main => {
-            spawn_batch(inner, input).await.map(ToolOutcome::Text)
-        }
+        "spawn_agents" if can_spawn => spawn_batch(inner, id, input).await.map(ToolOutcome::Text),
+        "revise_agent" if can_spawn => revise(inner, id, input).await.map(ToolOutcome::Text),
         "submit_deliverable" => submit(inner, id, input).await,
         _ => inner.ws.run(name, input).await.map(ToolOutcome::Text),
     }
@@ -520,9 +604,18 @@ async fn submit(inner: &Arc<Inner>, id: AgentId, input: &Value) -> Result<ToolOu
             .unwrap_or_default(),
     };
 
+    let depth = inner.state.lock().unwrap().agents[id].depth;
+    if depth > inner.cfg.orchestrator.human_review_depth {
+        inner.agent(id, |a| a.deliverable = Some(deliverable.clone()));
+        return Ok(ToolOutcome::Delivered(
+            deliverable,
+            "Sent to your manager for review. If they request changes, you will be reopened."
+                .into(),
+        ));
+    }
     if inner.cfg.orchestrator.auto_approve {
         inner.agent(id, |a| a.deliverable = Some(deliverable.clone()));
-        return Ok(ToolOutcome::Delivered(deliverable));
+        return Ok(ToolOutcome::Delivered(deliverable, "Auto-approved.".into()));
     }
 
     let (tx, rx) = oneshot::channel();
@@ -547,7 +640,10 @@ async fn submit(inner: &Arc<Inner>, id: AgentId, input: &Value) -> Result<ToolOu
         Verdict::Approved => {
             inner.update(|s| s.approvals[approval_id].state = ApprovalState::Approved);
             inner.set_status(id, AgentStatus::Running);
-            Ok(ToolOutcome::Delivered(deliverable))
+            Ok(ToolOutcome::Delivered(
+                deliverable,
+                "Approved by the user.".into(),
+            ))
         }
         Verdict::Rejected(feedback) => {
             inner.update(|s| {
@@ -563,7 +659,7 @@ async fn submit(inner: &Arc<Inner>, id: AgentId, input: &Value) -> Result<ToolOu
     }
 }
 
-async fn spawn_batch(inner: &Arc<Inner>, input: &Value) -> Result<String> {
+async fn spawn_batch(inner: &Arc<Inner>, parent: AgentId, input: &Value) -> Result<String> {
     let specs = input["agents"]
         .as_array()
         .context("`agents` must be an array")?;
@@ -577,11 +673,18 @@ async fn spawn_batch(inner: &Arc<Inner>, input: &Value) -> Result<String> {
             bail!("sub-agent cap reached: {} requested, {remaining} left. Merge tasks or do small ones yourself.", specs.len());
         }
         let first_new = s.agents.len();
-        let mut keys: HashMap<String, AgentId> =
-            s.agents.iter().map(|a| (a.key.clone(), a.id)).collect();
+        let depth = s.agents[parent].depth + 1;
+        // Keys are project-wide; dependencies are sibling-only, which keeps
+        // the wait graph acyclic (a parent never waits on its own waiter).
+        let mut siblings: HashMap<String, AgentId> = s
+            .agents
+            .iter()
+            .filter(|a| a.parent == Some(parent))
+            .map(|a| (a.key.clone(), a.id))
+            .collect();
         for (i, spec) in specs.iter().enumerate() {
             let key = spec["key"].as_str().context("each agent needs a `key`")?.to_string();
-            if keys.insert(key.clone(), first_new + i).is_some() {
+            if s.agents.iter().any(|a| a.key == key) || siblings.insert(key.clone(), first_new + i).is_some() {
                 bail!("duplicate agent key `{key}`");
             }
         }
@@ -593,7 +696,7 @@ async fn spawn_batch(inner: &Arc<Inner>, input: &Value) -> Result<String> {
                 .map(|d| d.iter().filter_map(|k| k.as_str()).collect::<Vec<_>>())
                 .unwrap_or_default()
                 .into_iter()
-                .map(|k| keys.get(k).copied().ok_or_else(|| anyhow!("unknown dependency `{k}`")))
+                .map(|k| siblings.get(k).copied().ok_or_else(|| anyhow!("unknown dependency `{k}` (only siblings can be dependencies)")))
                 .collect::<Result<Vec<_>>>()?;
             if depends_on.iter().any(|d| *d >= id) {
                 bail!("agent `{}` may only depend on agents listed before it", spec["key"]);
@@ -601,6 +704,8 @@ async fn spawn_batch(inner: &Arc<Inner>, input: &Value) -> Result<String> {
             s.agents.push(AgentRecord {
                 id,
                 role: AgentRole::Sub,
+                parent: Some(parent),
+                depth,
                 key: spec["key"].as_str().unwrap().to_string(),
                 title: spec["title"].as_str().unwrap_or("untitled").to_string(),
                 brief: spec["brief"].as_str().context("each agent needs a `brief`")?.to_string(),
@@ -612,6 +717,7 @@ async fn spawn_batch(inner: &Arc<Inner>, input: &Value) -> Result<String> {
                 input_tokens: 0,
                 output_tokens: 0,
                 deliverable: None,
+                budget_usd: spec["budget_usd"].as_f64(),
             });
             ids.push(id);
         }
@@ -640,30 +746,100 @@ async fn spawn_batch(inner: &Arc<Inner>, input: &Value) -> Result<String> {
 
     let mut report = Vec::new();
     for (id, h) in ids.iter().zip(handles) {
-        let (key, title) = inner.agent(*id, |a| (a.key.clone(), a.title.clone()));
-        report.push(match h.await {
-            Ok(Ok(d)) => format!(
-                "## `{key}` {title}: APPROVED\n{}\nFiles: {}",
-                d.summary,
-                d.files.join(", ")
-            ),
-            Ok(Err(e)) => format!("## `{key}` {title}: FAILED\n{e:#}"),
-            Err(e) => format!("## `{key}` {title}: CRASHED\n{e}"),
-        });
+        let res = h.await.map_err(|e| anyhow!("crashed: {e}")).and_then(|r| r);
+        report.push(report_line(inner, *id, res));
     }
     Ok(report.join("\n\n"))
+}
+
+fn report_line(inner: &Inner, id: AgentId, res: Result<Deliverable>) -> String {
+    let (key, title, depth, cost) = inner.agent(id, |a| {
+        (a.key.clone(), a.title.clone(), a.depth, a.cost_usd)
+    });
+    let s = inner.state.lock().unwrap();
+    let spent = s.subtree_cost(id).max(cost);
+    drop(s);
+    match res {
+        Ok(d) if depth > inner.cfg.orchestrator.human_review_depth => format!(
+            "## `{key}` {title}: SUBMITTED FOR YOUR REVIEW (${spent:.3})\n{}\nFiles: {}\nVerify it (read the files, run the checks). If it falls short, call revise_agent with specific feedback.",
+            d.summary,
+            d.files.join(", ")
+        ),
+        Ok(d) => format!("## `{key}` {title}: APPROVED by the user (${spent:.3})\n{}\nFiles: {}", d.summary, d.files.join(", ")),
+        Err(e) => format!("## `{key}` {title}: FAILED (${spent:.3})\n{e:#}"),
+    }
+}
+
+/// Reopen one of the caller's own reports with feedback and wait for its
+/// revised deliverable.
+async fn revise(inner: &Arc<Inner>, caller: AgentId, input: &Value) -> Result<String> {
+    let key = input["key"].as_str().context("missing `key`")?;
+    let feedback = input["feedback"].as_str().context("missing `feedback`")?;
+    let id = {
+        let s = inner.state.lock().unwrap();
+        s.agents
+            .iter()
+            .find(|a| a.key == key && a.parent == Some(caller))
+            .map(|a| a.id)
+            .ok_or_else(|| anyhow!("`{key}` is not one of your reports"))?
+    };
+    let mut c = inner
+        .parked
+        .lock()
+        .unwrap()
+        .remove(&id)
+        .ok_or_else(|| anyhow!("`{key}` is still running or cannot be reopened"))?;
+
+    let msg = format!("Your manager requested changes: {feedback}\nAddress this, then call submit_deliverable again.");
+    inner.log(id, LogKind::User, msg.clone());
+    c.messages.push(Message::user_text(msg));
+    c.budget_warned_at = None;
+    inner.set_status(id, AgentStatus::Running);
+
+    let res = finish(inner, &mut c).await;
+    inner.parked.lock().unwrap().insert(id, c);
+    match &res {
+        Ok(_) => inner.set_status(id, AgentStatus::Approved),
+        Err(e) => {
+            inner.log(id, LogKind::Error, format!("{e:#}"));
+            inner.set_status(id, AgentStatus::Failed);
+        }
+    }
+    Ok(report_line(inner, id, res))
+}
+
+fn agent_tools(can_spawn: bool) -> Vec<ToolDef> {
+    let mut tools = file_tools();
+    if can_spawn {
+        tools.push(spawn_tool());
+        tools.push(revise_tool());
+    }
+    tools.push(deliver_tool());
+    tools
+}
+
+fn revise_tool() -> ToolDef {
+    ToolDef {
+        name: "revise_agent",
+        description: "Send one of your own reports back with feedback. Reopens its conversation, blocks until it resubmits, and returns the revised deliverable.",
+        schema: json!({"type": "object", "properties": {
+            "key": {"type": "string"},
+            "feedback": {"type": "string", "description": "what is wrong and what done looks like"}
+        }, "required": ["key", "feedback"]}),
+    }
 }
 
 fn spawn_tool() -> ToolDef {
     ToolDef {
         name: "spawn_agents",
-        description: "Spawn sub-agents that run in parallel (respecting depends_on) and block until all have an approved deliverable or failed. Returns each one's deliverable summary. Each agent is routed to its own model and effort level based on its brief.",
+        description: "Spawn reports that run in parallel (respecting depends_on) and block until each has delivered or failed. Returns each one's deliverable summary. Each agent is routed to its own model and effort level based on its brief.",
         schema: json!({"type": "object", "properties": {
             "agents": {"type": "array", "items": {"type": "object", "properties": {
                 "key": {"type": "string", "description": "short unique id, e.g. `api`"},
                 "title": {"type": "string"},
                 "brief": {"type": "string", "description": "self-contained task: goal, files owned, interfaces to honor, how to verify"},
-                "depends_on": {"type": "array", "items": {"type": "string"}, "description": "keys of agents that must finish first"}
+                "depends_on": {"type": "array", "items": {"type": "string"}, "description": "keys of sibling agents that must finish first"},
+                "budget_usd": {"type": "number", "description": "optional spend cap for this agent and anything it delegates"}
             }, "required": ["key", "title", "brief"]}}
         }, "required": ["agents"]}),
     }
@@ -672,7 +848,7 @@ fn spawn_tool() -> ToolDef {
 fn deliver_tool() -> ToolDef {
     ToolDef {
         name: "submit_deliverable",
-        description: "Submit your finished work for human review. Blocks until the user approves or rejects with feedback.",
+        description: "Submit your finished work for review (by the user, or by your manager if you are deep in the tree). Blocks until accepted or returned with feedback.",
         schema: json!({"type": "object", "properties": {
             "summary": {"type": "string", "description": "what was built, how it connects to the rest, how to run/verify it"},
             "files": {"type": "array", "items": {"type": "string"}}
