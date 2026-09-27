@@ -49,6 +49,7 @@ pub fn file_tools() -> Vec<ToolDef> {
     ]
 }
 
+#[derive(Clone)]
 pub struct Workspace {
     pub root: PathBuf,
     pub bash_timeout: Duration,
@@ -133,27 +134,31 @@ impl Workspace {
                 Ok(format!("edited {}", self.rel(&path)))
             }
             "bash" => {
-                let cmd = s("command")?;
-                let child = tokio::process::Command::new("bash")
-                    .arg("-lc")
-                    .arg(&cmd)
-                    .current_dir(&self.root)
-                    .stdin(std::process::Stdio::null())
-                    .kill_on_drop(true)
-                    .output();
-                let out = tokio::time::timeout(self.bash_timeout, child)
-                    .await
-                    .map_err(|_| anyhow!("timed out after {}s", self.bash_timeout.as_secs()))??;
-                let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
-                text.push_str(&String::from_utf8_lossy(&out.stderr));
-                Ok(cap(format!(
-                    "{}\n[exit {}]",
-                    text.trim_end(),
-                    out.status.code().unwrap_or(-1)
-                )))
+                let (code, text) = self.sh(&s("command")?).await?;
+                Ok(format!("{text}\n[exit {code}]"))
             }
             other => bail!("unknown tool {other}"),
         }
+    }
+
+    /// Run a shell command in the workspace: (exit code, capped output).
+    pub async fn sh(&self, cmd: &str) -> Result<(i32, String)> {
+        let child = tokio::process::Command::new("bash")
+            .arg("-lc")
+            .arg(cmd)
+            .current_dir(&self.root)
+            .stdin(std::process::Stdio::null())
+            .kill_on_drop(true)
+            .output();
+        let out = tokio::time::timeout(self.bash_timeout, child)
+            .await
+            .map_err(|_| anyhow!("timed out after {}s", self.bash_timeout.as_secs()))??;
+        let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
+        text.push_str(&String::from_utf8_lossy(&out.stderr));
+        Ok((
+            out.status.code().unwrap_or(-1),
+            cap(text.trim_end().to_string()),
+        ))
     }
 
     fn rel(&self, p: &Path) -> String {

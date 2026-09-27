@@ -24,6 +24,22 @@ bash_timeout_secs = 120
 max_depth = 2               # main=0 -> its reports=1 -> their reports=2
 human_review_depth = 1      # deeper deliverables are reviewed by their manager
 # max_project_usd = 20.0    # hard stop for the whole project
+isolation = "worktree"      # "worktree": a git branch + worktree per ticket; "shared": no git
+
+# Start cheap, climb on evidence (failed check, rejection, loop, turn budget).
+# Caps apply to where a worker *starts*; escalation can go past them.
+[escalation]
+start_max_effort = "medium"
+start_max_tier = 2
+max_steps = 3
+loop_repeats = 3
+
+[workflow]
+grill = true                # main agent interviews you in rounds before planning
+plan_approval = true        # you approve each ticket batch before work starts
+main_skills = ["grilling", "to-tickets"]   # injected; every skill stays loadable via `skill`
+worker_skills = []
+triage_skills = ["triage"]
 
 [providers.anthropic]
 kind = "anthropic"

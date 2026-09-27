@@ -12,6 +12,10 @@ pub const DEFAULT_CONFIG: &str = include_str!("../default-config.toml");
 pub struct Config {
     pub router: RouterConfig,
     pub orchestrator: OrchestratorConfig,
+    #[serde(default)]
+    pub escalation: EscalationConfig,
+    #[serde(default)]
+    pub workflow: WorkflowConfig,
     pub providers: BTreeMap<String, ProviderConfig>,
     pub models: Vec<ModelSpec>,
 }
@@ -51,6 +55,65 @@ pub struct OrchestratorConfig {
     /// Hard stop for the whole project, router calls included.
     #[serde(default)]
     pub max_project_usd: Option<f64>,
+    #[serde(default)]
+    pub isolation: Isolation,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Isolation {
+    /// Each ticket agent gets its own git worktree and branch.
+    #[default]
+    Worktree,
+    /// Everyone edits the workspace directly. Only for throwaway experiments.
+    Shared,
+}
+
+/// Start cheap, climb on evidence. Workers begin at most at these caps; a
+/// failed check, a rejection, a detected loop or an exhausted turn budget
+/// moves them one rung up (effort first, then a stronger model).
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct EscalationConfig {
+    pub start_max_effort: Effort,
+    pub start_max_tier: u8,
+    pub max_steps: usize,
+    /// Identical consecutive tool calls that count as a loop.
+    pub loop_repeats: usize,
+}
+
+impl Default for EscalationConfig {
+    fn default() -> Self {
+        Self {
+            start_max_effort: Effort::Medium,
+            start_max_tier: 2,
+            max_steps: 3,
+            loop_repeats: 3,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct WorkflowConfig {
+    /// Main agent grills you in rounds before planning (mattpocock `grilling`).
+    pub grill: bool,
+    /// Every ticket batch from the main agent needs your approval before work.
+    pub plan_approval: bool,
+    /// Skills injected into each role's system prompt. Others stay loadable.
+    pub main_skills: Vec<String>,
+    pub worker_skills: Vec<String>,
+    pub triage_skills: Vec<String>,
+}
+
+impl Default for WorkflowConfig {
+    fn default() -> Self {
+        Self {
+            grill: true,
+            plan_approval: true,
+            main_skills: vec!["grilling".into(), "to-tickets".into()],
+            worker_skills: vec![],
+            triage_skills: vec!["triage".into()],
+        }
+    }
 }
 
 fn default_max_depth() -> usize {
