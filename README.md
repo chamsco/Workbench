@@ -24,6 +24,25 @@ crates/cli    headless shell (logs to stdout, approvals on stdin)
 crates/app    GPUI desktop app (gpui-kit / gpui-component)
 ```
 
+## Desktop app
+
+A project sidebar (agent tree or ticket board, with a run-status card at the
+bottom), view tabs in the title bar, and one to three split panes chosen with
+the layout switch. Any view opens in the focused pane: an agent's session
+(terminal-style log with a status line), the review queue, the ticket board,
+or an agent's worktree with file preview.
+
+**Every review starts with a diagram the harness draws from its own data**,
+never one the agent drew:
+
+- *Plan*: the ticket graph in waves, how many run in parallel, which tickets
+  have no check.
+- *Ticket*: the blockers it built on, the model path (including escalations),
+  the check that passed, where it merges, and exact per-file line counts.
+- *Final*: every ticket with its state and route, plus anything left open.
+
+![Diagram-first review](docs/review.png)
+
 ## Principles (after Pi)
 
 - **Four tools**: `read`, `write`, `edit`, `bash`. Everything else goes through bash.

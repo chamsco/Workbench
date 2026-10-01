@@ -1,12 +1,21 @@
-//! Backspace desktop shell. Three columns: agent tree | selected agent's log |
-//! review queue and ticket board. You talk to the main agent; everything else
-//! is review.
+//! Backspace desktop workbench.
+//!
+//! A project sidebar on the left (agent tree or ticket board, run status at
+//! the bottom), horizontal view tabs in the title bar, and one to three
+//! split panes. Any view opens in the focused pane: an agent's session, the
+//! review queue, the ticket board, or an agent's worktree. Every review card
+//! leads with a diagram the harness draws from its own data.
 //!
 //!   backspace [workspace]     (defaults to the current directory)
 
-use std::path::PathBuf;
-use std::rc::Rc;
+mod diagram_view;
 
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::rc::Rc;
+use std::time::{Duration, Instant};
+
+use backspace_core::diagram;
 use backspace_core::{
     AgentKind, AgentRecord, AgentStatus, Approval, ApprovalKind, Harness, LogKind, ProjectState,
     TicketState, MAIN,
@@ -17,67 +26,98 @@ use gpui_kit::component::{h_flex, v_flex, ActiveTheme, Root, Theme, ThemeMode};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 
-#[derive(Clone, Copy, PartialEq)]
-enum Tab {
+/// gpui takes one family name, not a CSS stack, so pick a face each OS ships.
+const MONO: &str = if cfg!(target_os = "macos") {
+    "Menlo"
+} else if cfg!(target_os = "windows") {
+    "Consolas"
+} else {
+    "DejaVu Sans Mono"
+};
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum View {
+    Agent(usize),
     Review,
+    Tickets,
+    Files(usize),
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Side {
+    Agents,
     Tickets,
 }
 
-struct Backspace {
+struct Entry {
+    depth: usize,
+    name: String,
+    path: PathBuf,
+    dir: bool,
+}
+
+struct Workbench {
     harness: Rc<Harness>,
     snap: ProjectState,
-    selected: usize,
+    /// Views open as title-bar tabs.
+    tabs: Vec<View>,
+    /// What each split pane shows; its length is the layout (1–3).
+    panes: Vec<View>,
+    focused: usize,
+    side: Side,
     composer: Entity<InputState>,
     feedback: Entity<InputState>,
     new_ticket: Entity<InputState>,
-    tab: Tab,
+    file_filter: Entity<InputState>,
+    trees: HashMap<usize, (Instant, Vec<Entry>)>,
+    preview: Option<(PathBuf, String)>,
     _subs: Vec<Subscription>,
     _refresh: Task<()>,
 }
 
-impl Backspace {
+fn on_enter(
+    input: &Entity<InputState>,
+    window: &mut Window,
+    cx: &mut Context<Workbench>,
+    f: impl Fn(&mut Workbench, String) -> bool + 'static,
+) -> Subscription {
+    cx.subscribe_in(
+        input,
+        window,
+        move |this, input, ev: &InputEvent, window, cx| {
+            if let InputEvent::PressEnter { .. } = ev {
+                let text = input.read(cx).value().trim().to_string();
+                if !text.is_empty() && f(this, text) {
+                    input.update(cx, |s, cx| s.set_value("", window, cx));
+                }
+                cx.notify();
+            }
+        },
+    )
+}
+
+impl Workbench {
     fn new(harness: Harness, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let harness = Rc::new(harness);
-        let composer = cx.new(|cx| {
-            InputState::new(window, cx)
-                .placeholder("Describe the goal, or reply to the main agent…")
-        });
-        let feedback =
-            cx.new(|cx| InputState::new(window, cx).placeholder("Feedback (required to reject)"));
+        let input = |p: &'static str, window: &mut Window, cx: &mut Context<Self>| {
+            cx.new(|cx| InputState::new(window, cx).placeholder(p))
+        };
+        let composer = input("Describe the goal, or answer the main agent…", window, cx);
+        let feedback = input("Feedback for the agent (needed to reject)", window, cx);
+        let new_ticket = input("File a ticket — title: what is wrong or wanted", window, cx);
+        let file_filter = input("Filter files", window, cx);
 
-        let new_ticket = cx.new(|cx| {
-            InputState::new(window, cx).placeholder("File a ticket: title: what is wrong or wanted")
-        });
-
-        let mut subs = vec![cx.subscribe_in(
-            &composer,
-            window,
-            |this, input, ev: &InputEvent, window, cx| {
-                if let InputEvent::PressEnter { .. } = ev {
-                    let text = input.read(cx).value().trim().to_string();
-                    if !text.is_empty() {
-                        this.harness.send(text);
-                        input.update(cx, |s, cx| s.set_value("", window, cx));
-                        this.selected = MAIN;
-                    }
-                }
-            },
-        )];
-        subs.push(cx.subscribe_in(
-            &new_ticket,
-            window,
-            |this, input, ev: &InputEvent, window, cx| {
-                if let InputEvent::PressEnter { .. } = ev {
-                    let text = input.read(cx).value().trim().to_string();
-                    let (title, body) = text.split_once(':').unwrap_or((&text, &text));
-                    if !title.trim().is_empty()
-                        && this.harness.file_ticket(title.trim(), body.trim()).is_ok()
-                    {
-                        input.update(cx, |s, cx| s.set_value("", window, cx));
-                    }
-                }
-            },
-        ));
+        let subs = vec![
+            on_enter(&composer, window, cx, |this, text| {
+                this.harness.send(text);
+                true
+            }),
+            on_enter(&new_ticket, window, cx, |this, text| {
+                let (title, body) = text.split_once(':').unwrap_or((&text, &text));
+                this.harness.file_ticket(title.trim(), body.trim()).is_ok()
+            }),
+            cx.observe(&file_filter, |_, _, cx| cx.notify()),
+        ];
 
         let changes = harness.changes();
         let refresh = cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
@@ -95,111 +135,303 @@ impl Backspace {
         Self {
             snap: harness.snapshot(),
             harness,
-            selected: MAIN,
+            tabs: vec![View::Agent(MAIN), View::Review, View::Tickets],
+            panes: vec![View::Agent(MAIN), View::Review],
+            focused: 0,
+            side: Side::Agents,
             composer,
             feedback,
             new_ticket,
-            tab: Tab::Review,
+            file_filter,
+            trees: HashMap::new(),
+            preview: None,
             _subs: subs,
             _refresh: refresh,
         }
     }
 
-    fn sidebar(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let t = cx.theme().clone();
-        let s = &self.snap;
-        let pending = s.pending_approvals().count();
+    fn open(&mut self, v: View, cx: &mut Context<Self>) {
+        if !self.tabs.contains(&v) {
+            self.tabs.push(v);
+        }
+        if let Some(i) = self.panes.iter().position(|p| *p == v) {
+            self.focused = i;
+        } else {
+            self.panes[self.focused] = v;
+        }
+        cx.notify();
+    }
+
+    /// Open beside the focused pane, splitting if there is room.
+    fn open_beside(&mut self, v: View, cx: &mut Context<Self>) {
+        if !self.tabs.contains(&v) {
+            self.tabs.push(v);
+        }
+        if self.panes.len() < 3 {
+            self.panes.insert(self.focused + 1, v);
+            self.focused += 1;
+        } else {
+            self.focused = (self.focused + 1) % self.panes.len();
+            self.panes[self.focused] = v;
+        }
+        cx.notify();
+    }
+
+    fn close_tab(&mut self, v: View, cx: &mut Context<Self>) {
+        if v == View::Agent(MAIN) {
+            return;
+        }
+        self.tabs.retain(|t| *t != v);
+        for p in self.panes.iter_mut().filter(|p| **p == v) {
+            *p = View::Agent(MAIN);
+        }
+        cx.notify();
+    }
+
+    fn set_layout(&mut self, n: usize, cx: &mut Context<Self>) {
+        let defaults = [View::Agent(MAIN), View::Review, View::Files(MAIN)];
+        while self.panes.len() < n {
+            let next = defaults
+                .iter()
+                .find(|d| !self.panes.contains(d))
+                .copied()
+                .unwrap_or(View::Tickets);
+            if !self.tabs.contains(&next) {
+                self.tabs.push(next);
+            }
+            self.panes.push(next);
+        }
+        self.panes.truncate(n);
+        self.focused = self.focused.min(n - 1);
+        cx.notify();
+    }
+
+    fn title(&self, v: View) -> String {
+        match v {
+            View::Agent(MAIN) => "Main agent".into(),
+            View::Agent(id) => self
+                .snap
+                .agents
+                .get(id)
+                .map(|a| a.title.clone())
+                .unwrap_or_default(),
+            View::Review => format!("Review ({})", self.snap.pending_approvals().count()),
+            View::Tickets => "Tickets".into(),
+            View::Files(id) => match self.snap.agents.get(id).and_then(|a| a.ticket.clone()) {
+                Some(k) => format!("{k} worktree"),
+                None => "Primary worktree".into(),
+            },
+        }
+    }
+
+    fn tree(&mut self, id: usize) -> &Vec<Entry> {
+        let root = self
+            .snap
+            .agents
+            .get(id)
+            .and_then(|a| a.worktree.clone())
+            .unwrap_or_else(|| self.snap.workspace.clone());
+        let stale = self
+            .trees
+            .get(&id)
+            .is_none_or(|(at, _)| at.elapsed() > Duration::from_secs(2));
+        if stale {
+            let mut out = Vec::new();
+            scan(&root, 0, &mut out);
+            self.trees.insert(id, (Instant::now(), out));
+        }
+        &self.trees[&id].1
+    }
+
+    // ------------------------------------------------------------- chrome
+
+    fn titlebar(&self, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
+        let pending = self.snap.pending_approvals().count();
+        h_flex()
+            .h(px(40.))
+            .px_3()
+            .gap_3()
+            .flex_none()
+            .child(
+                div()
+                    .w(px(220.))
+                    .flex_none()
+                    .text_sm()
+                    .font_weight(FontWeight::BOLD)
+                    .child("⌫ backspace"),
+            )
+            .child(
+                h_flex()
+                    .id("tabs")
+                    .flex_1()
+                    .min_w_0()
+                    .justify_center()
+                    .gap_1()
+                    .overflow_x_scroll()
+                    .children(self.tabs.iter().copied().enumerate().map(|(i, v)| {
+                        let shown = self.panes.contains(&v);
+                        let active = self.panes.get(self.focused) == Some(&v);
+                        h_flex()
+                            .id(("tab", i))
+                            .flex_none()
+                            .gap_1()
+                            .px_2p5()
+                            .py_1()
+                            .rounded_md()
+                            .text_xs()
+                            .cursor_pointer()
+                            .border_1()
+                            .border_color(if active {
+                                t.foreground.opacity(0.5)
+                            } else {
+                                t.border
+                            })
+                            .when(shown, |d| d.bg(t.list_active))
+                            .when(!shown, |d| d.text_color(t.muted_foreground))
+                            .hover(|d| d.bg(t.list_hover))
+                            .on_click(cx.listener(move |this, _, _, cx| this.open(v, cx)))
+                            .child(self.title(v))
+                            .when(v == View::Review && pending > 0, |d| {
+                                d.child(div().size(px(6.)).rounded_full().bg(t.warning))
+                            })
+                            .when(v != View::Agent(MAIN), |d| {
+                                d.child(
+                                    div()
+                                        .id(("close-tab", i))
+                                        .text_color(t.muted_foreground)
+                                        .hover(|d| d.text_color(t.foreground))
+                                        .on_click(cx.listener(move |this, _, _, cx| {
+                                            cx.stop_propagation();
+                                            this.close_tab(v, cx)
+                                        }))
+                                        .child("×"),
+                                )
+                            })
+                    })),
+            )
+            .child(h_flex().gap_1().flex_none().children((1..=3).map(|n| {
+                let on = self.panes.len() == n;
+                div()
+                    .id(("layout", n))
+                    .w(px(26.))
+                    .h(px(20.))
+                    .p(px(3.))
+                    .rounded_sm()
+                    .cursor_pointer()
+                    .border_1()
+                    .border_color(if on {
+                        t.foreground.opacity(0.6)
+                    } else {
+                        t.border
+                    })
+                    .on_click(cx.listener(move |this, _, _, cx| this.set_layout(n, cx)))
+                    .child(h_flex().size_full().gap(px(2.)).children((0..n).map(|_| {
+                        div().flex_1().h_full().rounded(px(1.)).bg(if on {
+                            t.foreground.opacity(0.6)
+                        } else {
+                            t.muted_foreground.opacity(0.5)
+                        })
+                    })))
+            })))
+            .child(
+                div().w(px(150.)).flex_none().flex().justify_end().child(
+                    div()
+                        .px_2()
+                        .py_0p5()
+                        .rounded_full()
+                        .border_1()
+                        .border_color(t.border)
+                        .text_xs()
+                        .font_family(MONO)
+                        .child(format!("${:.3}", self.snap.total_cost_usd)),
+                ),
+            )
+    }
+
+    fn sidebar(&self, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
+        let seg = |id: &'static str, label: &'static str, side: Side, cx: &mut Context<Self>| {
+            div()
+                .id(id)
+                .px_2()
+                .py_0p5()
+                .rounded_md()
+                .text_xs()
+                .cursor_pointer()
+                .when(self.side == side, |d| d.bg(t.list_active))
+                .when(self.side != side, |d| d.text_color(t.muted_foreground))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.side = side;
+                    cx.notify();
+                }))
+                .child(label)
+        };
         v_flex()
             .w(px(260.))
-            .h_full()
             .flex_none()
-            .bg(t.sidebar)
-            .border_r_1()
-            .border_color(t.border)
+            .h_full()
+            .pt_1()
             .child(
-                v_flex()
-                    .p_3()
-                    .gap_1()
-                    .border_b_1()
-                    .border_color(t.border)
+                h_flex()
+                    .px_3()
+                    .py_2()
+                    .gap_2()
                     .child(
                         div()
                             .text_lg()
                             .font_weight(FontWeight::BOLD)
-                            .child("⌫ backspace"),
+                            .truncate()
+                            .child(self.snap.name.clone()),
                     )
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(t.muted_foreground)
-                            .child(s.name.clone()),
-                    )
-                    .child(
-                        h_flex()
-                            .flex_wrap()
-                            .gap_x_3()
-                            .text_xs()
-                            .text_color(t.muted_foreground)
-                            .child(format!("${:.4} total", s.total_cost_usd))
-                            .child(format!("${:.4} router", s.router_cost_usd))
-                            .child(format!("{pending} to review")),
-                    ),
+                    .child(div().flex_1())
+                    .child(seg("side-agents", "Agents", Side::Agents, cx))
+                    .child(seg("side-tickets", "Tickets", Side::Tickets, cx)),
             )
             .child(
                 v_flex()
-                    .id("agents")
+                    .id("side-list")
                     .flex_1()
+                    .min_h_0()
                     .overflow_y_scroll()
-                    .p_2()
-                    .gap_1()
-                    .children(
-                        tree_order(s)
-                            .into_iter()
-                            .map(|id| self.agent_row(&s.agents[id], &t, cx)),
-                    ),
+                    .px_1p5()
+                    .gap_px()
+                    .map(|d| match self.side {
+                        Side::Agents => d.children(
+                            tree_order(&self.snap)
+                                .into_iter()
+                                .map(|id| self.agent_row(&self.snap.agents[id], t, cx)),
+                        ),
+                        Side::Tickets => d.children(self.ticket_groups(t, cx)),
+                    }),
             )
+            .child(self.run_card(t, cx))
     }
 
     fn agent_row(&self, a: &AgentRecord, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
         let id = a.id;
-        let route = a
-            .decision
-            .as_ref()
-            .map(|d| format!("{} · {}", d.model, d.effort))
-            .unwrap_or_else(|| "not routed yet".into());
-        let indent = px(14. * a.depth as f32);
-        let spent = self.snap.subtree_cost(a.id);
-        let money = match a.budget_usd {
-            Some(b) => format!("${spent:.3} / ${b:.2}"),
-            None if spent > a.cost_usd => format!("${spent:.3} tree"),
-            None => format!("${:.3}", a.cost_usd),
-        };
+        let open = self.panes.contains(&View::Agent(id));
         v_flex()
             .id(("agent", id))
-            .pl(indent + px(8.))
+            .pl(px(10. + 14. * a.depth as f32))
             .pr_2()
-            .py_1p5()
+            .py_1()
             .rounded_md()
             .cursor_pointer()
-            .when(self.selected == id, |d| d.bg(t.list_active))
+            .when(open, |d| d.bg(t.list_active))
             .hover(|d| d.bg(t.list_hover))
-            .on_click(cx.listener(move |this, _, _, cx| {
-                this.selected = id;
-                cx.notify();
-            }))
+            .on_click(cx.listener(move |this, _, _, cx| this.open(View::Agent(id), cx)))
             .child(
                 h_flex()
                     .gap_2()
                     .child(
                         div()
-                            .size(px(8.))
+                            .size(px(7.))
+                            .flex_none()
                             .rounded_full()
                             .bg(status_color(a.status, t)),
                     )
                     .child(
                         div()
                             .text_sm()
-                            .font_weight(FontWeight::MEDIUM)
                             .min_w_0()
                             .truncate()
                             .when(a.kind == AgentKind::Triage, |d| {
@@ -217,334 +449,425 @@ impl Backspace {
                     }),
             )
             .child(
-                h_flex()
-                    .justify_between()
-                    .text_xs()
+                div()
+                    .pl(px(15.))
+                    .text_size(px(11.))
+                    .font_family(MONO)
                     .text_color(t.muted_foreground)
-                    .child(route)
-                    .child(money),
+                    .truncate()
+                    .child(diagram::route_line(a)),
             )
     }
 
-    fn log_view(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let t = cx.theme().clone();
-        let a = &self.snap.agents[self.selected.min(self.snap.agents.len() - 1)];
-        let is_main = a.id == MAIN;
-        let empty = is_main && a.log.is_empty();
+    fn ticket_groups(&self, t: &Theme, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let groups: [(&str, &[TicketState]); 5] = [
+            (
+                "Needs you",
+                &[
+                    TicketState::Proposed,
+                    TicketState::InReview,
+                    TicketState::ReadyForHuman,
+                    TicketState::NeedsInfo,
+                ],
+            ),
+            ("Running", &[TicketState::Queued, TicketState::InProgress]),
+            (
+                "Ready",
+                &[TicketState::ReadyForAgent, TicketState::NeedsTriage],
+            ),
+            ("Done", &[TicketState::Done]),
+            ("Closed", &[TicketState::Failed, TicketState::Wontfix]),
+        ];
+        let mut out = Vec::new();
+        for (name, states) in groups {
+            let rows: Vec<_> = self
+                .snap
+                .tickets
+                .iter()
+                .filter(|x| states.contains(&x.state))
+                .collect();
+            if rows.is_empty() {
+                continue;
+            }
+            out.push(
+                div()
+                    .px_2()
+                    .pt_2()
+                    .pb_1()
+                    .text_xs()
+                    .text_color(t.muted_foreground)
+                    .child(format!("{name} · {}", rows.len()))
+                    .into_any_element(),
+            );
+            for tk in rows {
+                let assignee = tk.assignee;
+                out.push(
+                    h_flex()
+                        .id(("side-ticket", tk.num))
+                        .px_2()
+                        .py_1()
+                        .gap_2()
+                        .rounded_md()
+                        .cursor_pointer()
+                        .hover(|d| d.bg(t.list_hover))
+                        .on_click(cx.listener(move |this, _, _, cx| match assignee {
+                            Some(a) => this.open(View::Agent(a), cx),
+                            None => this.open(View::Tickets, cx),
+                        }))
+                        .child(
+                            div()
+                                .text_xs()
+                                .font_family(MONO)
+                                .text_color(t.muted_foreground)
+                                .child(format!("{:02}", tk.num)),
+                        )
+                        .child(div().text_sm().min_w_0().truncate().child(tk.title.clone()))
+                        .child(div().flex_1())
+                        .child(
+                            div()
+                                .text_size(px(10.5))
+                                .text_color(t.muted_foreground)
+                                .child(tk.state.label()),
+                        )
+                        .into_any_element(),
+                );
+            }
+        }
+        if out.is_empty() {
+            out.push(
+                div()
+                    .p_3()
+                    .text_sm()
+                    .text_color(t.muted_foreground)
+                    .child("No tickets yet.")
+                    .into_any_element(),
+            );
+        }
+        out
+    }
 
+    fn run_card(&self, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
+        let s = &self.snap;
+        let running = s
+            .agents
+            .iter()
+            .filter(|a| a.status == AgentStatus::Running)
+            .count();
+        let pending = s.pending_approvals().count();
+        let row = |label: String, value: String, c: Hsla| {
+            h_flex()
+                .gap_2()
+                .text_xs()
+                .child(div().size(px(6.)).rounded_full().bg(c))
+                .child(div().flex_1().child(label))
+                .child(
+                    div()
+                        .font_family(MONO)
+                        .text_color(t.muted_foreground)
+                        .child(value),
+                )
+        };
+        v_flex()
+            .id("run-card")
+            .m_2()
+            .p_2p5()
+            .gap_1p5()
+            .rounded_lg()
+            .border_1()
+            .border_color(t.border)
+            .bg(t.background)
+            .cursor_pointer()
+            .on_click(cx.listener(|this, _, _, cx| this.open(View::Review, cx)))
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(t.muted_foreground)
+                    .child("This run"),
+            )
+            .child(row("Agents running".into(), running.to_string(), t.info))
+            .child(row(
+                "Waiting on you".into(),
+                pending.to_string(),
+                if pending > 0 {
+                    t.warning
+                } else {
+                    t.muted_foreground
+                },
+            ))
+            .child(row(
+                "Spent".into(),
+                format!(
+                    "${:.3} · router ${:.3}",
+                    s.total_cost_usd, s.router_cost_usd
+                ),
+                t.success,
+            ))
+    }
+
+    // -------------------------------------------------------------- panes
+
+    fn pane(
+        &mut self,
+        i: usize,
+        t: &Theme,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let v = self.panes[i];
+        let focused = i == self.focused;
+        let title = self.title(v);
+        let agent_id = match v {
+            View::Agent(id) => Some(id),
+            _ => None,
+        };
+        let body = match v {
+            View::Agent(id) => self.agent_view(id, t, cx).into_any_element(),
+            View::Review => self.review_view(t, cx).into_any_element(),
+            View::Tickets => self.tickets_view(t, cx).into_any_element(),
+            View::Files(id) => self.files_view(id, t, window, cx).into_any_element(),
+        };
+        let closable = self.panes.len() > 1;
         v_flex()
             .flex_1()
-            .h_full()
             .min_w_0()
-            .child(
-                h_flex()
-                    .px_4()
-                    .py_2()
-                    .gap_3()
-                    .border_b_1()
-                    .border_color(t.border)
-                    .child(div().font_weight(FontWeight::BOLD).child(a.title.clone()))
-                    .child(div().text_xs().text_color(t.muted_foreground).child(status_label(a.status)))
-                    .child(div().text_xs().text_color(t.muted_foreground).child(format!(
-                        "{} in / {} out tokens",
-                        a.input_tokens, a.output_tokens
-                    ))),
+            .h_full()
+            .rounded_lg()
+            .border_1()
+            .border_color(if focused {
+                t.foreground.opacity(0.28)
+            } else {
+                t.border
+            })
+            .bg(t.background)
+            .overflow_hidden()
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |this, _: &MouseDownEvent, _, cx| {
+                    if this.focused != i {
+                        this.focused = i;
+                        cx.notify();
+                    }
+                }),
             )
             .child(
-                v_flex()
-                    .id(("log", a.id))
-                    .flex_1()
-                    .overflow_y_scroll()
-                    .p_4()
+                h_flex()
+                    .h(px(34.))
+                    .flex_none()
+                    .px_3()
                     .gap_2()
-                    .when(empty, |d| {
-                        d.justify_center().items_center().child(
+                    .border_b_1()
+                    .border_color(t.border)
+                    .child(
+                        div()
+                            .text_xs()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .truncate()
+                            .child(title),
+                    )
+                    .child(div().flex_1())
+                    .when_some(agent_id, |d, id| {
+                        d.child(
                             div()
+                                .id(("files-btn", i))
+                                .text_xs()
                                 .text_color(t.muted_foreground)
-                                .child("State a goal. The main agent interviews you, proposes tickets for you to approve, then runs them on their own branches and brings you the results."),
+                                .cursor_pointer()
+                                .hover(|d| d.text_color(t.foreground))
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.open_beside(View::Files(id), cx)
+                                }))
+                                .child("open files →"),
                         )
                     })
-                    .children(a.log.iter().map(|e| {
-                        let (label, color) = match e.kind {
-                            LogKind::User => ("you", t.primary),
-                            LogKind::Assistant => ("agent", t.foreground),
-                            LogKind::ToolCall => ("tool", t.info),
-                            LogKind::ToolResult => ("result", t.muted_foreground),
-                            LogKind::System => ("system", t.warning),
-                            LogKind::Error => ("error", t.danger),
-                        };
-                        let mono = matches!(e.kind, LogKind::ToolCall | LogKind::ToolResult);
-                        v_flex()
-                            .gap_0p5()
-                            .child(div().text_xs().text_color(color).child(label))
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .when(mono, |d| d.font_family("monospace").text_color(t.muted_foreground))
-                                    .child(e.text.clone()),
-                            )
-                    })),
+                    .when(closable, |d| {
+                        d.child(
+                            div()
+                                .id(("close-pane", i))
+                                .text_sm()
+                                .text_color(t.muted_foreground)
+                                .cursor_pointer()
+                                .hover(|d| d.text_color(t.foreground))
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.panes.remove(i);
+                                    this.focused = this.focused.min(this.panes.len() - 1);
+                                    cx.notify();
+                                }))
+                                .child("×"),
+                        )
+                    }),
+            )
+            .child(div().flex_1().min_h_0().child(body))
+            .into_any_element()
+    }
+
+    fn agent_view(&self, id: usize, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
+        let Some(a) = self.snap.agents.get(id) else {
+            return v_flex().into_any_element();
+        };
+        let is_main = id == MAIN;
+        let empty = is_main && !a.log.iter().any(|e| e.kind == LogKind::User);
+        let status = {
+            let mut parts = vec![format!("[{}]", diagram::route_line(a))];
+            if let Some(k) = &a.ticket {
+                parts.push(k.clone());
+            }
+            if let Some(b) = &a.branch {
+                parts.push(format!("⎇ {b}"));
+            }
+            parts.push(format!("${:.3}", self.snap.subtree_cost(id)));
+            parts.push(format!("{}↓ {}↑", a.input_tokens, a.output_tokens));
+            parts.push(status_label(a.status).to_string());
+            parts.join("  ·  ")
+        };
+        v_flex()
+            .size_full()
+            .child(
+                v_flex()
+                    .id(("log", id))
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scroll()
+                    .px_3()
+                    .py_2()
+                    .gap_1p5()
+                    .font_family(MONO)
+                    .text_size(px(12.5))
+                    .when(empty, |d| d.justify_center().child(self.welcome(t, cx)))
+                    .children(a.log.iter().map(|e| log_line(e.kind, &e.text, t))),
             )
             .when(is_main, |d| {
                 d.child(
                     div()
-                        .p_3()
+                        .px_3()
+                        .pt_2()
                         .border_t_1()
                         .border_color(t.border)
                         .child(Input::new(&self.composer)),
                 )
             })
-    }
-
-    fn right_panel(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let t = cx.theme().clone();
-        let pending = self.snap.pending_approvals().count();
-        let open = self
-            .snap
-            .tickets
-            .iter()
-            .filter(|x| !x.state.is_settled())
-            .count();
-        let tab = |id: &'static str, label: String, which: Tab, cx: &mut Context<Self>| {
-            div()
-                .id(id)
-                .px_2()
-                .py_1()
-                .rounded_md()
-                .cursor_pointer()
-                .font_weight(FontWeight::BOLD)
-                .when(self.tab == which, |d| d.bg(t.list_active))
-                .when(self.tab != which, |d| d.text_color(t.muted_foreground))
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.tab = which;
-                    cx.notify();
-                }))
-                .child(label)
-        };
-        v_flex()
-            .w(px(380.))
-            .h_full()
-            .flex_none()
-            .border_l_1()
-            .border_color(t.border)
             .child(
-                h_flex()
+                div()
                     .px_3()
                     .py_1p5()
-                    .gap_1()
-                    .border_b_1()
-                    .border_color(t.border)
-                    .child(tab(
-                        "tab-review",
-                        format!("Review ({pending})"),
-                        Tab::Review,
-                        cx,
-                    ))
-                    .child(tab(
-                        "tab-tickets",
-                        format!("Tickets ({open} open)"),
-                        Tab::Tickets,
-                        cx,
-                    )),
+                    .text_size(px(11.))
+                    .font_family(MONO)
+                    .text_color(t.muted_foreground)
+                    .truncate()
+                    .child(status),
             )
-            .map(|d| match self.tab {
-                Tab::Review => d.child(self.review(&t, cx)),
-                Tab::Tickets => d.child(self.tickets(&t, cx)),
-            })
+            .into_any_element()
     }
 
-    fn review(&self, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
+    fn welcome(&self, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
+        let card = |id: &'static str, title: &'static str, sub: &'static str| {
+            v_flex()
+                .id(id)
+                .w(px(180.))
+                .p_3()
+                .gap_1()
+                .rounded_lg()
+                .border_1()
+                .border_color(t.border)
+                .bg(t.muted.opacity(0.3))
+                .cursor_pointer()
+                .hover(|d| d.border_color(t.foreground.opacity(0.4)))
+                .font_family(t.font_family.clone())
+                .child(
+                    div()
+                        .text_sm()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child(title),
+                )
+                .child(div().text_xs().text_color(t.muted_foreground).child(sub))
+        };
+        v_flex()
+            .items_center()
+            .gap_4()
+            .py_8()
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(t.muted_foreground)
+                    .font_family(t.font_family.clone())
+                    .child(
+                        "Type a goal below. The main agent interviews you, then proposes tickets.",
+                    ),
+            )
+            .child(
+                h_flex()
+                    .flex_wrap()
+                    .justify_center()
+                    .gap_2()
+                    .child(
+                        card("w-review", "Review queue", "Plans and work waiting on you").on_click(
+                            cx.listener(|this, _, _, cx| this.open_beside(View::Review, cx)),
+                        ),
+                    )
+                    .child(
+                        card("w-tickets", "Tickets", "Board, and file a ticket").on_click(
+                            cx.listener(|this, _, _, cx| this.open_beside(View::Tickets, cx)),
+                        ),
+                    )
+                    .child(
+                        card("w-files", "Worktree", "Browse the project files").on_click(
+                            cx.listener(|this, _, _, cx| this.open_beside(View::Files(MAIN), cx)),
+                        ),
+                    ),
+            )
+    }
+
+    fn review_view(&self, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
         let pending: Vec<&Approval> = self.snap.pending_approvals().collect();
         v_flex()
-            .flex_1()
-            .min_h_0()
+            .size_full()
             .child(
                 v_flex()
-                    .id("approvals")
+                    .id("review-list")
                     .flex_1()
+                    .min_h_0()
                     .overflow_y_scroll()
                     .p_3()
-                    .gap_3()
-                    .when(pending.is_empty(), |d| {
-                        d.child(
-                            div()
-                                .text_sm()
-                                .text_color(t.muted_foreground)
-                                .child("Nothing waiting on you."),
-                        )
-                    })
-                    .children(pending.into_iter().map(|ap| self.approval_card(ap, t, cx))),
+                    .gap_4()
+                    .when(pending.is_empty(), |d| d.child(div().p_2().text_sm().text_color(t.muted_foreground).child("Nothing waiting on you.")))
+                    .children(pending.into_iter().map(|ap| self.review_card(ap, t, cx))),
             )
             .child(
                 v_flex()
                     .p_3()
-                    .gap_2()
+                    .gap_1()
                     .border_t_1()
                     .border_color(t.border)
-                    .child(div().text_xs().text_color(t.muted_foreground).child(
-                        "Rejection feedback goes back to the agent, which revises one rung up the model ladder.",
-                    ))
+                    .child(div().text_xs().text_color(t.muted_foreground).child("Rejecting sends this feedback into the agent's conversation and moves it one rung up the model ladder."))
                     .child(Input::new(&self.feedback)),
             )
     }
 
-    fn tickets(&self, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
-        let order = [
-            TicketState::NeedsTriage,
-            TicketState::NeedsInfo,
-            TicketState::ReadyForHuman,
-            TicketState::Proposed,
-            TicketState::ReadyForAgent,
-            TicketState::Queued,
-            TicketState::InProgress,
-            TicketState::InReview,
-            TicketState::Failed,
-            TicketState::Done,
-            TicketState::Wontfix,
-        ];
-        let mut rows: Vec<&backspace_core::Ticket> = self.snap.tickets.iter().collect();
-        rows.sort_by_key(|x| (order.iter().position(|s| *s == x.state), x.num));
-        v_flex()
-            .flex_1()
-            .min_h_0()
-            .child(
-                v_flex()
-                    .id("tickets")
-                    .flex_1()
-                    .overflow_y_scroll()
-                    .p_3()
-                    .gap_2()
-                    .when(rows.is_empty(), |d| {
-                        d.child(
-                            div().text_sm().text_color(t.muted_foreground).child(
-                                "No tickets yet. The main agent creates them from your goal.",
-                            ),
-                        )
-                    })
-                    .children(rows.into_iter().map(|tk| {
-                        let assignee = tk.assignee;
-                        let color = match tk.state {
-                            TicketState::Done => t.success,
-                            TicketState::Failed => t.danger,
-                            TicketState::InProgress | TicketState::InReview => t.info,
-                            TicketState::NeedsTriage
-                            | TicketState::NeedsInfo
-                            | TicketState::ReadyForHuman => t.warning,
-                            _ => t.muted_foreground,
-                        };
-                        v_flex()
-                            .id(("ticket", tk.num))
-                            .p_2()
-                            .gap_0p5()
-                            .rounded_md()
-                            .border_1()
-                            .border_color(t.border)
-                            .when(assignee.is_some(), |d| {
-                                d.cursor_pointer().hover(|d| d.bg(t.list_hover))
-                            })
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                if let Some(a) = assignee {
-                                    this.selected = a;
-                                    cx.notify();
-                                }
-                            }))
-                            .child(
-                                h_flex()
-                                    .justify_between()
-                                    .child(
-                                        div()
-                                            .text_sm()
-                                            .font_weight(FontWeight::MEDIUM)
-                                            .child(format!("{:02} {}", tk.num, tk.title)),
-                                    )
-                                    .child(
-                                        div().text_xs().text_color(color).child(tk.state.label()),
-                                    ),
-                            )
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(t.muted_foreground)
-                                    .child(format!(
-                                        "{} · {} criteria{}{}",
-                                        tk.key,
-                                        tk.acceptance.len(),
-                                        if tk.check.is_some() { " · check" } else { "" },
-                                        if tk.blocked_by.is_empty() {
-                                            String::new()
-                                        } else {
-                                            format!(" · after {}", tk.blocked_by.join(", "))
-                                        }
-                                    )),
-                            )
-                    })),
-            )
-            .child(
-                div()
-                    .p_3()
-                    .border_t_1()
-                    .border_color(t.border)
-                    .child(Input::new(&self.new_ticket)),
-            )
-    }
-
-    fn approval_card(&self, ap: &Approval, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
+    fn review_card(&self, ap: &Approval, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
         let id = ap.id;
-        let agent = &self.snap.agents[ap.agent];
-        let is_plan = ap.kind == ApprovalKind::Plan;
-        let is_final = ap.agent == MAIN && !is_plan;
-        let label = if is_plan {
-            format!("plan · {} tickets", ap.tickets.len())
-        } else if is_final {
-            "final deliverable".to_string()
-        } else {
-            format!("ticket {}", ap.tickets.join(", "))
+        let agent = ap.agent;
+        let d = diagram::for_approval(&self.snap, ap);
+        let kind = match ap.kind {
+            ApprovalKind::Plan => format!("Plan · {} tickets", ap.tickets.len()),
+            ApprovalKind::Deliverable if ap.agent == MAIN => "Final deliverable".into(),
+            ApprovalKind::Deliverable => format!("Ticket {}", ap.tickets.join(", ")),
         };
         v_flex()
-            .p_3()
             .gap_2()
-            .rounded_lg()
-            .border_1()
-            .border_color(if is_final || is_plan {
-                t.primary
-            } else {
-                t.border
-            })
-            .bg(t.background)
             .child(
                 h_flex()
-                    .justify_between()
+                    .gap_2()
+                    .child(div().text_xs().text_color(t.warning).child(kind))
                     .child(
                         div()
                             .text_sm()
-                            .font_weight(FontWeight::BOLD)
-                            .child(if is_plan {
-                                "Proposed plan".to_string()
-                            } else {
-                                agent.title.clone()
-                            }),
-                    )
-                    .child(div().text_xs().text_color(t.muted_foreground).child(label)),
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .truncate()
+                            .child(self.snap.agents[agent].title.clone()),
+                    ),
             )
+            // Diagram first: the shape of the work before the words about it.
+            .child(diagram_view::card(&d, t, id, MONO))
             .child(div().text_sm().child(ap.deliverable.summary.clone()))
-            .when(!ap.deliverable.files.is_empty(), |d| {
-                d.child(
-                    div()
-                        .text_xs()
-                        .font_family("monospace")
-                        .text_color(t.muted_foreground)
-                        .child(ap.deliverable.files.join("\n")),
-                )
-            })
-            .when_some(ap.deliverable.diff_stat.clone(), |d, stat| {
-                d.child(
-                    div()
-                        .text_xs()
-                        .font_family("monospace")
-                        .text_color(t.muted_foreground)
-                        .child(stat),
-                )
-            })
             .child(
                 h_flex()
                     .gap_2()
@@ -568,32 +891,337 @@ impl Backspace {
                                     .update(cx, |s, cx| s.set_value("", window, cx));
                             })),
                     )
-                    .child(
-                        Button::new(("open", id))
-                            .ghost()
-                            .label("Log")
-                            .on_click(cx.listener({
-                                let agent = ap.agent;
-                                move |this, _, _, cx| {
-                                    this.selected = agent;
-                                    cx.notify();
+                    .child(Button::new(("log", id)).ghost().label("Session").on_click(
+                        cx.listener(move |this, _, _, cx| this.open_beside(View::Agent(agent), cx)),
+                    ))
+                    .when(ap.kind == ApprovalKind::Deliverable && agent != MAIN, |d| {
+                        d.child(Button::new(("files", id)).ghost().label("Files").on_click(
+                            cx.listener(move |this, _, _, cx| {
+                                this.open_beside(View::Files(agent), cx)
+                            }),
+                        ))
+                    }),
+            )
+    }
+
+    fn tickets_view(&self, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
+        v_flex()
+            .size_full()
+            .child(
+                v_flex()
+                    .id("ticket-board")
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scroll()
+                    .p_3()
+                    .gap_2()
+                    .children(self.snap.tickets.iter().map(|tk| {
+                        let assignee = tk.assignee;
+                        v_flex()
+                            .id(("ticket", tk.num))
+                            .p_2()
+                            .gap_0p5()
+                            .rounded_md()
+                            .border_1()
+                            .border_color(t.border)
+                            .when(assignee.is_some(), |d| {
+                                d.cursor_pointer().hover(|d| d.bg(t.list_hover))
+                            })
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                if let Some(a) = assignee {
+                                    this.open(View::Agent(a), cx)
                                 }
-                            })),
+                            }))
+                            .child(
+                                h_flex()
+                                    .gap_2()
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .font_family(MONO)
+                                            .text_color(t.muted_foreground)
+                                            .child(format!("{:02}", tk.num)),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_sm()
+                                            .font_weight(FontWeight::MEDIUM)
+                                            .min_w_0()
+                                            .truncate()
+                                            .child(tk.title.clone()),
+                                    )
+                                    .child(div().flex_1())
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(ticket_color(tk.state, t))
+                                            .child(tk.state.label()),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(t.muted_foreground)
+                                    .child(format!(
+                                        "{} · {} criteria{}{}",
+                                        tk.key,
+                                        tk.acceptance.len(),
+                                        if tk.check.is_some() {
+                                            " · check"
+                                        } else {
+                                            " · no check"
+                                        },
+                                        if tk.blocked_by.is_empty() {
+                                            String::new()
+                                        } else {
+                                            format!(" · after {}", tk.blocked_by.join(", "))
+                                        }
+                                    )),
+                            )
+                    })),
+            )
+            .child(
+                div()
+                    .p_3()
+                    .border_t_1()
+                    .border_color(t.border)
+                    .child(Input::new(&self.new_ticket)),
+            )
+    }
+
+    fn files_view(
+        &mut self,
+        id: usize,
+        t: &Theme,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let filter = self.file_filter.read(cx).value().to_lowercase();
+        let preview = self.preview.clone();
+        let rows: Vec<(usize, String, PathBuf, bool)> = self
+            .tree(id)
+            .iter()
+            .filter(|e| filter.is_empty() || e.name.to_lowercase().contains(&filter))
+            .take(400)
+            .map(|e| (e.depth, e.name.clone(), e.path.clone(), e.dir))
+            .collect();
+        v_flex()
+            .size_full()
+            .child(div().p_2().child(Input::new(&self.file_filter)))
+            .child(
+                v_flex()
+                    .id(("tree", id))
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scroll()
+                    .px_2()
+                    .font_family(MONO)
+                    .text_size(px(12.))
+                    .children(
+                        rows.into_iter()
+                            .enumerate()
+                            .map(|(n, (depth, name, path, dir))| {
+                                let p = path.clone();
+                                h_flex()
+                                    .id(("file", n))
+                                    .pl(px(6. + depth as f32 * 14.))
+                                    .py(px(2.))
+                                    .gap_1p5()
+                                    .rounded_sm()
+                                    .cursor_pointer()
+                                    .hover(|d| d.bg(t.list_hover))
+                                    .when(
+                                        preview.as_ref().is_some_and(|(pp, _)| *pp == path),
+                                        |d| d.bg(t.list_active),
+                                    )
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        if !dir {
+                                            let text = std::fs::read_to_string(&p)
+                                                .map(|s| {
+                                                    s.lines()
+                                                        .take(300)
+                                                        .collect::<Vec<_>>()
+                                                        .join("\n")
+                                                })
+                                                .unwrap_or_else(|_| {
+                                                    "(binary or unreadable)".into()
+                                                });
+                                            this.preview = Some((p.clone(), text));
+                                            cx.notify();
+                                        }
+                                    }))
+                                    .child(
+                                        div()
+                                            .text_color(if dir {
+                                                t.muted_foreground
+                                            } else {
+                                                t.info
+                                            })
+                                            .child(if dir { "▸" } else { "·" }),
+                                    )
+                                    .child(div().truncate().child(name))
+                            }),
+                    ),
+            )
+            .when_some(preview, |d, (path, text)| {
+                d.child(
+                    v_flex()
+                        .h(px(260.))
+                        .flex_none()
+                        .border_t_1()
+                        .border_color(t.border)
+                        .child(
+                            div()
+                                .px_3()
+                                .py_1()
+                                .text_xs()
+                                .text_color(t.muted_foreground)
+                                .truncate()
+                                .child(path.display().to_string()),
+                        )
+                        .child(
+                            div()
+                                .id("preview")
+                                .flex_1()
+                                .min_h_0()
+                                .overflow_y_scroll()
+                                .px_3()
+                                .pb_2()
+                                .font_family(MONO)
+                                .text_size(px(11.5))
+                                .whitespace_normal()
+                                .child(text),
+                        ),
+                )
+            })
+    }
+}
+
+impl Render for Workbench {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let t = cx.theme().clone();
+        if self.focused >= self.panes.len() {
+            self.focused = 0;
+        }
+        let panes: Vec<AnyElement> = (0..self.panes.len())
+            .map(|i| self.pane(i, &t, window, cx))
+            .collect();
+        v_flex()
+            .size_full()
+            .bg(t.sidebar)
+            .text_color(t.foreground)
+            .child(self.titlebar(&t, cx))
+            .child(
+                h_flex()
+                    .flex_1()
+                    .min_h_0()
+                    .child(self.sidebar(&t, cx))
+                    .child(
+                        h_flex()
+                            .flex_1()
+                            .min_w_0()
+                            .h_full()
+                            .p_1p5()
+                            .pl_0()
+                            .gap_1p5()
+                            .children(panes),
                     ),
             )
     }
 }
 
-impl Render for Backspace {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let t = cx.theme().clone();
-        h_flex()
-            .size_full()
-            .bg(t.background)
-            .text_color(t.foreground)
-            .child(self.sidebar(cx))
-            .child(self.log_view(cx))
-            .child(self.right_panel(cx))
+fn log_line(kind: LogKind, text: &str, t: &Theme) -> AnyElement {
+    let (glyph, color) = match kind {
+        LogKind::User => ("›", t.foreground),
+        LogKind::Assistant => ("●", t.foreground),
+        LogKind::ToolCall => ("⎿", t.info),
+        LogKind::ToolResult => (" ", t.muted_foreground),
+        LogKind::System => ("※", t.warning),
+        LogKind::Error => ("✗", t.danger),
+    };
+    let body = match kind {
+        // Tool output is context, not reading material: keep it short.
+        LogKind::ToolResult => {
+            let lines: Vec<&str> = text.lines().collect();
+            if lines.len() > 6 {
+                format!(
+                    "{}\n… {} more lines",
+                    lines[..6].join("\n"),
+                    lines.len() - 6
+                )
+            } else {
+                text.to_string()
+            }
+        }
+        _ => text.to_string(),
+    };
+    h_flex()
+        .items_start()
+        .gap_2()
+        .when(kind == LogKind::User, |d| {
+            d.px_1()
+                .py_0p5()
+                .rounded_sm()
+                .bg(t.foreground.opacity(0.9))
+                .text_color(t.background)
+        })
+        .child(
+            div()
+                .w(px(10.))
+                .flex_none()
+                .text_color(if kind == LogKind::User {
+                    t.background
+                } else {
+                    color
+                })
+                .child(glyph),
+        )
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .whitespace_normal()
+                .when(
+                    matches!(
+                        kind,
+                        LogKind::ToolCall | LogKind::ToolResult | LogKind::System
+                    ),
+                    |d| d.text_color(color),
+                )
+                .child(body),
+        )
+        .into_any_element()
+}
+
+/// Depth-first walk, skipping build output and VCS internals.
+fn scan(dir: &Path, depth: usize, out: &mut Vec<Entry>) {
+    if depth > 4 || out.len() > 2000 {
+        return;
+    }
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return;
+    };
+    let mut items: Vec<_> = rd.flatten().collect();
+    items.sort_by_key(|e| (!e.path().is_dir(), e.file_name()));
+    for e in items {
+        let name = e.file_name().to_string_lossy().into_owned();
+        if matches!(
+            name.as_str(),
+            ".git" | "target" | "node_modules" | ".backspace" | "dist" | ".astro"
+        ) {
+            continue;
+        }
+        let path = e.path();
+        let dir = path.is_dir();
+        out.push(Entry {
+            depth,
+            name,
+            path: path.clone(),
+            dir,
+        });
+        if dir {
+            scan(&path, depth + 1, out);
+        }
     }
 }
 
@@ -625,9 +1253,22 @@ fn status_label(s: AgentStatus) -> &'static str {
         AgentStatus::Idle => "idle",
         AgentStatus::Queued => "queued",
         AgentStatus::Running => "running",
-        AgentStatus::AwaitingApproval => "awaiting your review",
+        AgentStatus::AwaitingApproval => "waiting for review",
         AgentStatus::Approved => "approved",
         AgentStatus::Failed => "failed",
+    }
+}
+
+fn ticket_color(s: TicketState, t: &Theme) -> Hsla {
+    match s {
+        TicketState::Done => t.success,
+        TicketState::Failed => t.danger,
+        TicketState::InProgress | TicketState::InReview | TicketState::Queued => t.info,
+        TicketState::NeedsTriage
+        | TicketState::NeedsInfo
+        | TicketState::ReadyForHuman
+        | TicketState::Proposed => t.warning,
+        _ => t.muted_foreground,
     }
 }
 
@@ -643,7 +1284,7 @@ fn main() -> anyhow::Result<()> {
         .run(move |cx: &mut App| {
             gpui_kit::init(cx);
             Theme::change(ThemeMode::Dark, None, cx);
-            let bounds = Bounds::centered(None, size(px(1400.), px(880.)), cx);
+            let bounds = Bounds::centered(None, size(px(1440.), px(900.)), cx);
             cx.open_window(
                 WindowOptions {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
@@ -654,7 +1295,7 @@ fn main() -> anyhow::Result<()> {
                     ..Default::default()
                 },
                 |window, cx| {
-                    let view = cx.new(|cx| Backspace::new(harness, window, cx));
+                    let view = cx.new(|cx| Workbench::new(harness, window, cx));
                     cx.new(|cx| Root::new(view, window, cx))
                 },
             )

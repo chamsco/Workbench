@@ -2,6 +2,7 @@
 //! the GPUI app and the CLI are thin shells over [`Harness`].
 
 pub mod config;
+pub mod diagram;
 pub mod effort;
 pub mod git;
 pub mod harness;

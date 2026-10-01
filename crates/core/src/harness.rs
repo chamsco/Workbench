@@ -868,6 +868,8 @@ async fn submit(inner: &Arc<Inner>, c: &Conversation, input: &Value) -> Result<T
             })
             .unwrap_or_default(),
         diff_stat: None,
+        changes: vec![],
+        check_passed: None,
     };
     let (depth, parent) = {
         let s = inner.state.lock().unwrap();
@@ -895,6 +897,9 @@ async fn submit(inner: &Arc<Inner>, c: &Conversation, input: &Value) -> Result<T
             .await
             .ok()
             .filter(|d| !d.is_empty());
+        deliverable.changes = git::numstat(&dir, &parent_branch, &branch)
+            .await
+            .unwrap_or_default();
     }
 
     // 2. The ticket's check gates review. Failing it is escalation evidence.
@@ -909,6 +914,7 @@ async fn submit(inner: &Arc<Inner>, c: &Conversation, input: &Value) -> Result<T
                 "check failed".into(),
             ));
         }
+        deliverable.check_passed = Some(check);
     }
     inner.agent(c.id, |a| a.deliverable = Some(deliverable.clone()));
 
@@ -1048,6 +1054,8 @@ async fn create_tickets(inner: &Arc<Inner>, caller: AgentId, input: &Value) -> R
             summary,
             files: vec![],
             diff_stat: None,
+            changes: vec![],
+            check_passed: None,
         },
         tickets: keys.clone(),
         state: ApprovalState::Pending,
@@ -1609,6 +1617,8 @@ fn triage(inner: &Arc<Inner>, c: &Conversation, input: &Value) -> Result<ToolOut
         summary: format!("{key} → {}", state.label()),
         files: vec![],
         diff_stat: None,
+        changes: vec![],
+        check_passed: None,
     };
     Ok(ToolOutcome::Delivered(d, "Triage recorded.".into()))
 }

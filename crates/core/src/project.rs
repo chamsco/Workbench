@@ -52,13 +52,26 @@ pub enum AgentKind {
     Triage,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct Deliverable {
     pub summary: String,
     pub files: Vec<String>,
     /// `git diff --stat` against the parent branch, when isolated.
     #[serde(default)]
     pub diff_stat: Option<String>,
+    /// Exact per-file line counts against the parent branch.
+    #[serde(default)]
+    pub changes: Vec<FileChange>,
+    /// The ticket check that passed before this reached review.
+    #[serde(default)]
+    pub check_passed: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct FileChange {
+    pub path: String,
+    pub added: u32,
+    pub removed: u32,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

@@ -404,6 +404,19 @@ fn flat_project_with_gates_escalation_and_merges() {
         .find(|x| x.ticket.as_deref() == Some("b"))
         .unwrap();
     assert!(b.escalations.is_empty());
+    let bd = b.deliverable.as_ref().unwrap();
+    assert_eq!(
+        bd.check_passed.as_deref(),
+        Some("grep -q A a.txt && grep -q B b.txt")
+    );
+    assert_eq!(
+        bd.changes,
+        vec![backspace_core::FileChange {
+            path: "b.txt".into(),
+            added: 1,
+            removed: 0
+        }]
+    );
     assert!(b
         .deliverable
         .as_ref()

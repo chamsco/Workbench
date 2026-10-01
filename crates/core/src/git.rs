@@ -107,6 +107,28 @@ pub async fn diff_stat(dir: &Path, base: &str, branch: &str) -> Result<String> {
     git(dir, &["diff", "--stat", &format!("{base}...{branch}")]).await
 }
 
+/// Per-file added/removed lines of `branch` against where it forked from
+/// `base`. Binary files count as 0/0.
+pub async fn numstat(
+    dir: &Path,
+    base: &str,
+    branch: &str,
+) -> Result<Vec<crate::project::FileChange>> {
+    let out = git(dir, &["diff", "--numstat", &format!("{base}...{branch}")]).await?;
+    Ok(out
+        .lines()
+        .filter_map(|l| {
+            let mut it = l.splitn(3, '\t');
+            let (a, r, p) = (it.next()?, it.next()?, it.next()?);
+            Some(crate::project::FileChange {
+                path: p.to_string(),
+                added: a.parse().unwrap_or(0),
+                removed: r.parse().unwrap_or(0),
+            })
+        })
+        .collect())
+}
+
 pub enum Merge {
     Merged,
     /// Conflicting files; the merge was aborted and `into` is unchanged.
