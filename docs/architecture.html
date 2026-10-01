@@ -1,0 +1,613 @@
+<title>Backspace Architecture Map</title>
+<meta name="description" content="Zoomable map of the Backspace harness: from your goal to merged work.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a drafting table. One pannable sheet of zones, a slim control bar on top, an inspector on the right (bottom sheet on phones). */
+:root {
+  --paper: #eef1ee;
+  --zone: #e2e8e5;
+  --card: #fafcfa;
+  --ink: #1b2830;
+  --muted: #59696f;
+  --line: #a9b7b5;
+  --amber: #a85f00;
+  --amber-bg: #fbecd0;
+  --teal: #0b6e66;
+  --teal-bg: #d8eeea;
+  --red: #b42318;
+  --red-bg: #f9e0dc;
+  --indigo: #4338ca;
+  --indigo-bg: #e3e3f8;
+  --focus: #2b6fd6;
+  --display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", sans-serif;
+  --body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0f161b; --zone: #141e24; --card: #182229; --ink: #dbe4e2; --muted: #8e9fa2; --line: #3a4b52;
+    --amber: #f0a83a; --amber-bg: #3a2a10; --teal: #45c4b4; --teal-bg: #0f2f2c; --red: #f2786b; --red-bg: #3a1916;
+    --indigo: #a3a3f7; --indigo-bg: #23244a; --focus: #7aa7ff; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #0f161b; --zone: #141e24; --card: #182229; --ink: #dbe4e2; --muted: #8e9fa2; --line: #3a4b52;
+  --amber: #f0a83a; --amber-bg: #3a2a10; --teal: #45c4b4; --teal-bg: #0f2f2c; --red: #f2786b; --red-bg: #3a1916;
+  --indigo: #a3a3f7; --indigo-bg: #23244a; --focus: #7aa7ff; color-scheme: dark;
+}
+html, body { height: 100%; }
+body { background: var(--paper); color: var(--ink); font-family: var(--body); margin: 0; overflow: hidden; }
+.app { display: grid; grid-template-rows: auto 1fr; height: 100%; }
+.bar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px;
+  padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--paper);
+}
+.bar h1 { font-family: var(--display); font-weight: 800; font-size: 19px; margin: 0; letter-spacing: -0.01em; white-space: nowrap; }
+.bar h1 span { color: var(--muted); font-weight: 600; }
+.zones { display: flex; flex-wrap: wrap; gap: 4px; flex: 1; min-width: 0; }
+.chip, .ctl {
+  font: 500 12.5px var(--body); color: var(--ink); background: var(--card); border: 1px solid var(--line);
+  border-radius: 999px; padding: 4px 10px; cursor: pointer; white-space: nowrap;
+}
+.ctl { border-radius: 6px; min-width: 30px; }
+.chip:hover, .ctl:hover { border-color: var(--ink); }
+.chip:focus-visible, .ctl:focus-visible, .node:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.ctls { display: flex; gap: 4px; align-items: center; }
+.main { display: grid; grid-template-columns: 1fr 340px; min-height: 0; }
+.stage { position: relative; min-width: 0; min-height: 0; overflow: hidden; touch-action: none; cursor: grab; }
+.stage.dragging { cursor: grabbing; }
+svg#map { width: 100%; height: 100%; display: block; user-select: none; }
+.hint { position: absolute; left: 16px; bottom: 12px; font: 12px var(--body); color: var(--muted); pointer-events: none; }
+
+/* ---- drawing */
+.zone-bg { fill: var(--zone); stroke: var(--line); stroke-width: 1; }
+.zone-title { font: 800 30px var(--display); fill: var(--ink); letter-spacing: -0.01em; }
+.zone-sub { font: 15px var(--body); fill: var(--muted); }
+.far .zone-title { font-size: 64px; }
+.far .zone-sub, .far .nsub, .far .elabel, .far .ntag { display: none; }
+.node { cursor: pointer; }
+.node rect.box { fill: var(--card); stroke: var(--line); stroke-width: 1.4; }
+.node.human rect.box { fill: var(--amber-bg); stroke: var(--amber); }
+.node.auto rect.box { fill: var(--card); stroke: var(--amber); stroke-dasharray: 6 4; }
+.node.git rect.box { fill: var(--teal-bg); stroke: var(--teal); }
+.node.fail rect.box { fill: var(--red-bg); stroke: var(--red); }
+.node.model rect.box { fill: var(--indigo-bg); stroke: var(--indigo); }
+.node.file rect.box { fill: var(--card); stroke: var(--line); }
+.node:hover rect.box { stroke-width: 2.4; }
+.node.sel rect.box { stroke: var(--focus); stroke-width: 3; }
+.ntag { font: 600 10.5px var(--body); letter-spacing: 0.08em; fill: var(--muted); text-transform: uppercase; }
+.node.human .ntag, .node.auto .ntag { fill: var(--amber); }
+.node.git .ntag { fill: var(--teal); }
+.node.fail .ntag { fill: var(--red); }
+.node.model .ntag { fill: var(--indigo); }
+.ntitle { font: 600 17px var(--body); fill: var(--ink); }
+.nsub { font: 13px var(--body); fill: var(--muted); }
+.nmono { font: 13px var(--mono); fill: var(--ink); }
+.edge { fill: none; stroke: var(--muted); stroke-width: 1.6; }
+.edge.fail { stroke: var(--red); stroke-dasharray: 7 5; }
+.edge.human { stroke: var(--amber); }
+.edge.git { stroke: var(--teal); }
+.edge.async { stroke-dasharray: 3 5; }
+.edge.dim { opacity: 0.18; }
+.edge.hot { stroke-width: 3; }
+.elabel rect { fill: var(--paper); }
+.elabel text { font: 12.5px var(--body); fill: var(--ink); }
+.elabel.fail text { fill: var(--red); }
+.elabel.human text { fill: var(--amber); }
+.elabel.git text { fill: var(--teal); }
+.elabel.dim { opacity: 0.25; }
+.ah { fill: var(--muted); }
+.ah.fail { fill: var(--red); } .ah.human { fill: var(--amber); } .ah.git { fill: var(--teal); }
+
+/* ---- inspector */
+.panel { border-left: 1px solid var(--line); background: var(--card); overflow-y: auto; padding: 18px 18px 24px; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.panel h2 { font: 800 22px/1.15 var(--display); margin: 0; text-wrap: balance; }
+.panel .kind { font: 600 11px var(--body); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.panel p { margin: 0; line-height: 1.55; font-size: 14px; }
+.panel ul { margin: 0; padding-left: 18px; line-height: 1.55; font-size: 14px; }
+.ref { font: 12.5px var(--mono); background: var(--zone); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; line-height: 1.6; overflow-x: auto; }
+.tour { display: flex; align-items: center; gap: 8px; border-top: 1px solid var(--line); padding-top: 12px; margin-top: auto; }
+.tour .count { font: 12.5px var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; flex: 1; }
+.legend { display: grid; grid-template-columns: 22px 1fr; gap: 6px 10px; align-items: center; font-size: 13px; }
+.sw { width: 22px; height: 14px; border-radius: 3px; border: 1.5px solid var(--line); background: var(--card); }
+.sw.human { background: var(--amber-bg); border-color: var(--amber); }
+.sw.auto { border: 1.5px dashed var(--amber); }
+.sw.git { background: var(--teal-bg); border-color: var(--teal); }
+.sw.fail { background: var(--red-bg); border-color: var(--red); }
+.sw.model { background: var(--indigo-bg); border-color: var(--indigo); }
+.ln { height: 0; border-top: 2px solid var(--muted); }
+.ln.fail { border-top: 2px dashed var(--red); }
+.ln.async { border-top: 2px dotted var(--muted); }
+
+@media (max-width: 760px) {
+  .main { grid-template-columns: 1fr; grid-template-rows: 1fr auto; }
+  .panel { border-left: 0; border-top: 1px solid var(--line); max-height: 42vh; }
+  .bar h1 span { display: none; }
+  .hint { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="app">
+  <header class="bar">
+    <h1>Backspace <span>architecture</span></h1>
+    <nav class="zones" id="zones" aria-label="Jump to a zone"></nav>
+    <div class="ctls">
+      <button class="ctl" id="zoomOut" aria-label="Zoom out">−</button>
+      <button class="ctl" id="zoomIn" aria-label="Zoom in">+</button>
+      <button class="ctl" id="fit">Fit</button>
+    </div>
+  </header>
+  <div class="main">
+    <div class="stage" id="stage">
+      <svg id="map" role="img" aria-label="Map of the Backspace harness: you, the main agent, a ticket's life, escalation, triage, model calls, nested teams, files on disk and ticket states."></svg>
+      <div class="hint">Drag to move · scroll or pinch to zoom · click a box for details</div>
+    </div>
+    <aside class="panel" id="panel" aria-live="polite"></aside>
+  </div>
+</div>
+
+<script>
+// ---------------------------------------------------------------- content
+// Coordinates are world units. Kinds: step, human (you decide), auto (automatic gate),
+// git, fail (failure / escalation), model (inference), file (on disk).
+const ZONES = [
+  { id: "you", title: "You", sub: "the desktop app (or CLI)", x: 40, y: 40, w: 520, h: 1340 },
+  { id: "main", title: "Main agent", sub: "from goal to final deliverable", x: 640, y: 40, w: 840, h: 1340 },
+  { id: "ticket", title: "One ticket's life", sub: "runs once per ticket, all in parallel", x: 1560, y: 40, w: 1000, h: 1340 },
+  { id: "ladder", title: "Escalation ladder", sub: "start cheap, climb on evidence", x: 2640, y: 40, w: 840, h: 660 },
+  { id: "triage", title: "Triage", sub: "tickets nobody planned", x: 2640, y: 740, w: 840, h: 640 },
+  { id: "disk", title: "On disk", sub: "the workspace folder", x: 40, y: 1460, w: 520, h: 700 },
+  { id: "models", title: "Model calls", sub: "router, slots, providers", x: 640, y: 1460, w: 840, h: 700 },
+  { id: "nested", title: "Nested teams", sub: "review follows the org chart", x: 1560, y: 1460, w: 1000, h: 700 },
+  { id: "states", title: "Ticket states", sub: "what the board shows", x: 2640, y: 1460, w: 840, h: 700 },
+];
+
+const W = 380, H = 96;
+const N = [
+  // ---- You
+  { id: "a_comp", z: "you", x: 90, y: 160, w: 420, kind: "step", tag: "You type", title: "Composer", sub: "goal, answers, steering",
+    body: "Your first message is the project goal. Later messages answer grilling rounds or steer the main agent. Messages queue while it is busy, for example while it waits inside work_tickets.",
+    ref: "app/src/main.rs  composer\ncore/src/harness.rs:187  Harness::send" },
+  { id: "a_review", z: "you", x: 90, y: 600, w: 420, kind: "human", tag: "You decide", title: "Review tab", sub: "approve, or reject with feedback",
+    body: "Every pending approval: plan batches from the main agent, deliverables from depth-1 tickets, and the final deliverable. Cards show the summary, files and git diff stat. Rejecting needs feedback text, which goes back into that same agent's conversation.",
+    ref: "core/src/harness.rs:831  await_verdict\ncore/src/harness.rs:191  Harness::approve / reject" },
+  { id: "a_tickets", z: "you", x: 90, y: 900, w: 420, kind: "step", tag: "You browse", title: "Tickets tab", sub: "board by state · file a ticket",
+    body: "All tickets sorted by state. Typing \"title: description\" and Enter files a ticket owned by the main agent, which starts a triage agent for it.",
+    ref: "core/src/harness.rs:201  Harness::file_ticket" },
+  { id: "a_config", z: "you", x: 90, y: 1170, w: 420, kind: "file", tag: "You configure", title: "backspace.toml · AGENTS.md", sub: "models, prices, caps · project rules",
+    body: "Config is the first of: $BACKSPACE_CONFIG, ./backspace.toml, ~/.config/backspace/config.toml, the built-in default. A file replaces the default whole; nothing is merged. AGENTS.md in the workspace is appended to every agent's system prompt.",
+    ref: "core/src/config.rs:189  Config::load\ncore/default-config.toml" },
+
+  // ---- Main agent
+  { id: "b_open", z: "main", x: 870, y: 150, kind: "git", tag: "Startup", title: "Harness::open", sub: "config · git snapshot · skills · runtime",
+    body: "Loads config and skills, then in worktree mode makes the workspace a git repo: git init if needed, .backspace/ ignores itself, and any uncommitted work is committed as \"backspace: snapshot before run\". The checked-out branch becomes the main agent's branch. The harness runs its own tokio runtime, so the UI only makes plain sync calls.",
+    ref: "core/src/harness.rs:108  Harness::open\ncore/src/git.rs:40  ensure_repo" },
+  { id: "b_route", z: "main", x: 870, y: 290, kind: "model", tag: "Model choice", title: "Route the main agent", sub: "floor: high effort · never escalates",
+    body: "The router picks a model and effort from the goal. router.main_min_effort (default high) is a floor. The main agent is not capped at the start and never escalates; only ticket workers do.",
+    ref: "core/src/harness.rs:434  main_loop\ncore/src/router.rs:39  Router::route" },
+  { id: "b_grill", z: "main", x: 870, y: 430, kind: "step", tag: "Skill: grilling", title: "Grill rounds", sub: "numbered questions + recommended answers",
+    body: "The grilling skill is injected into the main agent's prompt. Each round is a set of numbered questions, each with the agent's recommended answer. The agent ends its turn and waits; you answer in the composer, and \"go\" accepts every recommendation. Set workflow.grill = false to skip.",
+    ref: "core/src/prompts/main.md\ncore/skills/grilling/SKILL.md" },
+  { id: "b_plan", z: "main", x: 870, y: 570, kind: "step", tag: "Skill: to-tickets", title: "PLAN.md → create_tickets", sub: "vertical slices with checks",
+    body: "The agent writes PLAN.md in the root checkout, then calls create_tickets. Each ticket has a key (it names the git branch), what to build, acceptance criteria, an optional check command, blocked_by (only its own earlier tickets) and an optional budget. Tickets are saved in state and mirrored to .backspace/tickets/NN-key.md.",
+    ref: "core/src/harness.rs:972  create_tickets\ncore/src/ticket.rs:98  Ticket::from_json" },
+  { id: "b_gate", z: "main", x: 870, y: 710, kind: "human", tag: "You decide", title: "Plan approval", sub: "create_tickets blocks until you answer",
+    body: "Approve: every ticket in the batch becomes ready-for-agent. Reject: the batch is deleted and your feedback is returned to the agent, which re-plans and calls create_tickets again. Only the main agent's batches need this (workflow.plan_approval); a lead's sub-tickets don't.",
+    ref: "core/src/harness.rs:972  create_tickets (plan branch)" },
+  { id: "b_work", z: "main", x: 870, y: 850, kind: "step", tag: "Dispatch", title: "work_tickets", sub: "one worker per ticket, in parallel",
+    body: "Checks the tickets are yours and ready, that their blockers are settled or in the same batch, and that max_subagents allows it. Creates one worker per ticket (ticket state queued), starts them all, and blocks until every one settles. It returns one report line per ticket, plus any open tickets that were filed and triaged meanwhile.",
+    ref: "core/src/harness.rs:1081  work_tickets" },
+  { id: "b_verify", z: "main", x: 870, y: 990, kind: "step", tag: "Integrate", title: "Verify the merged result", sub: "build and test in the root checkout",
+    body: "By now every accepted ticket has been merged onto your checked-out branch. The agent builds and tests there, fixes small gaps itself, reopens a ticket with revise_ticket, or creates follow-up tickets (back to plan approval).",
+    ref: "core/src/prompts/main.md  step 6" },
+  { id: "b_final", z: "main", x: 870, y: 1130, kind: "human", tag: "You decide", title: "Final deliverable", sub: "submit_deliverable from the main agent",
+    body: "The main agent's summary goes to the Review tab. Approve it and the project is done; reject it and the feedback goes back into the main agent's conversation.",
+    ref: "core/src/harness.rs:856  submit" },
+
+  // ---- One ticket
+  { id: "c_queue", z: "ticket", x: 1720, y: 150, kind: "step", tag: "Queued", title: "Wait for blockers", sub: "holds no model slot while waiting",
+    body: "Each ticket has a watch channel that flips when it settles. A worker waits on its blockers' channels before doing anything, so it starts from a branch that already contains their merged work.",
+    ref: "core/src/harness.rs:1234  run_worker" },
+  { id: "c_route", z: "ticket", x: 1720, y: 290, kind: "model", tag: "Model choice", title: "Route, then cap", sub: "router's pick → start cheap",
+    body: "The router suggests a model and effort from the ticket brief. cap_start clamps it to escalation.start_max_effort (medium) and start_max_tier (2), unless the model is pinned in config. The agent log shows what the router asked for and where the worker actually started.",
+    ref: "core/src/harness.rs:361  cap_start" },
+  { id: "c_tree", z: "ticket", x: 1720, y: 430, kind: "git", tag: "Git", title: "Own branch + worktree", sub: "backspace/<key> from the parent's branch",
+    body: "git worktree add .backspace/worktrees/<key> -b backspace/<key> <parent branch>. The parent is your branch for the main agent's tickets, or a lead's branch for nested ones. All git calls go through one lock because worktrees share one ref store.",
+    ref: "core/src/git.rs:79  add_worktree\ncore/src/harness.rs:1234  run_worker" },
+  { id: "c_drive", z: "ticket", x: 1720, y: 570, kind: "step", tag: "Agent loop", title: "Model ↔ tools", sub: "until it calls submit_deliverable",
+    body: "Each turn: one model call, which holds one of max_parallel_calls slots, then all requested tools in parallel. Tools: read, write, edit, bash (working directory = the worktree), skill, file_ticket, and create/work/revise_ticket when it may delegate. The brief carries the goal chain and its blockers' summaries.",
+    ref: "core/src/harness.rs:609  drive\ncore/src/harness.rs:796  run_tool" },
+  { id: "c_submit", z: "ticket", x: 1720, y: 710, kind: "git", tag: "Git", title: "submit_deliverable", sub: "commit + diff stat",
+    body: "The harness commits everything in the worktree as \"<key>: <summary>\" and computes git diff --stat against the parent branch, which the review card shows.",
+    ref: "core/src/harness.rs:856  submit\ncore/src/git.rs:96  commit_all" },
+  { id: "c_check", z: "ticket", x: 1720, y: 850, kind: "auto", tag: "Automatic gate", title: "Run the ticket's check", sub: "must exit 0 before anyone reviews",
+    body: "The ticket's check command runs in the worktree. A non-zero exit sends \"CHECK FAILED\" plus the output back to the agent, nothing reaches review, and it counts as evidence for escalation. Tickets without a check skip this gate.",
+    ref: "core/src/harness.rs:856  submit (step 2)" },
+  { id: "c_review", z: "ticket", x: 1720, y: 990, kind: "human", tag: "Review", title: "You, or the manager", sub: "depth 1 → Review tab · deeper → lead",
+    body: "Tickets at depth ≤ human_review_depth (1) wait in your Review tab. Deeper tickets pass straight through and are reviewed by the agent that planned them, after the merge, which can reopen them with revise_ticket. A rejection puts the feedback into the same conversation and escalates one rung.",
+    ref: "core/src/harness.rs:856  submit (step 3)" },
+  { id: "c_merge", z: "ticket", x: 1720, y: 1130, kind: "git", tag: "Git", title: "Merge into the parent branch", sub: "git merge --no-ff backspace/<key>",
+    body: "Merged into the parent's checkout: your branch for depth-1 tickets. On a conflict the merge is aborted and the agent is told to run git merge <parent> in its own worktree, resolve, commit and resubmit. That is not counted as the agent's failure, so it does not escalate.",
+    ref: "core/src/git.rs:117  merge" },
+  { id: "c_settle", z: "ticket", x: 1720, y: 1260, h: 90, kind: "step", tag: "Done", title: "Settle", sub: "ticket done · dependents unblock · outcome logged",
+    body: "Ticket → done (or failed). Its watch channel flips, which releases tickets blocked on it. A line goes to .backspace/outcomes.jsonl with the final model, escalations, cost and outcome: the data for learning routing later. The conversation is parked so revise_ticket can reopen it.",
+    ref: "core/src/harness.rs:1191  settle" },
+  { id: "c_esc", z: "ticket", x: 2190, y: 760, w: 330, kind: "fail", tag: "Escalation", title: "Escalate one rung", sub: "same conversation, stronger setting",
+    body: "Moves the worker one rung up the ladder (see the Escalation zone) and resets its turn counter. The conversation continues; nothing is restarted. At most escalation.max_steps (3) rungs. The main agent and triage agents never escalate.",
+    ref: "core/src/harness.rs:502  escalate" },
+
+  // ---- Ladder
+  { id: "d_r0", z: "ladder", x: 2690, y: 540, w: 330, h: 90, kind: "model", tag: "Rung 0", title: "Start", sub: "router's pick, capped: medium · tier ≤ 2",
+    body: "Where every worker begins: the router's suggestion clamped by escalation.start_max_effort and start_max_tier.", ref: "core/src/harness.rs:361  cap_start" },
+  { id: "d_r1", z: "ladder", x: 2870, y: 420, w: 330, h: 90, kind: "model", tag: "Rung", title: "+ effort", sub: "while below high, if the model has the knob",
+    body: "First move: the same model at the next effort level, as long as the current effort is below high and the model actually supports a higher level. Models without an effort setting skip this.", ref: "core/src/harness.rs:502  escalate" },
+  { id: "d_r2", z: "ladder", x: 3050, y: 300, w: 330, h: 90, kind: "model", tag: "Rung", title: "Stronger model", sub: "cheapest model of a higher tier",
+    body: "Next: switch to the cheapest usable model with a higher tier, at effort medium or above. The conversation carries over to the new model.", ref: "core/src/harness.rs:502  escalate" },
+  { id: "d_r3", z: "ladder", x: 3050, y: 180, w: 330, h: 90, kind: "model", tag: "Top", title: "+ effort up to max", sub: "then stop: report the failure",
+    body: "With no stronger model left, raise effort up to max. Past that, or after max_steps rungs, the agent keeps its setting and either finishes or fails its ticket.", ref: "core/src/harness.rs:502  escalate" },
+  { id: "d_trig", z: "ladder", x: 2690, y: 150, w: 330, h: 150, kind: "fail", tag: "Evidence", title: "What moves a worker up",
+    lines: ["check failed", "rejected / revise_ticket", "same tool call 3× in a row", "turn budget used up"],
+    body: "Only these four count. Each one moves the worker one rung. Merge conflicts do not count; they are not the agent's fault.",
+    ref: "core/src/harness.rs:609  drive (loop + budget)\ncore/src/harness.rs:856  submit (check, rejection)" },
+
+  // ---- Triage
+  { id: "e_file", z: "triage", x: 2690, y: 860, w: 360, kind: "step", tag: "Filed", title: "file_ticket", sub: "from any agent, or the Tickets tab",
+    body: "An agent that finds a bug outside its scope files it instead of fixing it. The ticket is owned by the filer's manager (the main agent for depth-1 workers) and starts as needs-triage.",
+    ref: "core/src/harness.rs:1447  file_ticket" },
+  { id: "e_agent", z: "triage", x: 2690, y: 1000, w: 360, kind: "model", tag: "Triage agent", title: "Verify and classify", sub: "read + bash only · low effort",
+    body: "A cheap, read-only agent with the triage skill. It reproduces the claim, checks for duplicates against existing tickets, and rewrites the ticket as an agent brief. It does not count toward max_subagents.",
+    ref: "core/src/harness.rs:1484  run_triage\ncore/skills/triage/SKILL.md" },
+  { id: "e_out", z: "triage", x: 2690, y: 1140, w: 360, kind: "step", tag: "triage_ticket", title: "Decision", sub: "ready-for-agent · ready-for-human · needs-info · wontfix",
+    body: "The triage agent ends by calling triage_ticket with a state and notes, and optionally new acceptance criteria and a check.",
+    ref: "core/src/harness.rs:1568  triage" },
+  { id: "e_report", z: "triage", x: 3110, y: 1140, w: 320, kind: "step", tag: "Next", title: "Owner decides", sub: "listed in its next work_tickets report",
+    body: "Triaged tickets are not dispatched automatically. They appear in the owner's next work_tickets report, and the owner decides whether they belong in this goal. If the main agent is idle, tell it to work the new tickets.",
+    ref: "core/src/harness.rs:1081  work_tickets (open tickets)" },
+
+  // ---- Disk
+  { id: "h_tree", z: "disk", x: 90, y: 1580, w: 420, h: 520, kind: "file", tag: "Workspace", title: "your-project/",
+    lines: ["AGENTS.md", "backspace.toml", "PLAN.md", "…your code (main agent's branch)", ".backspace/          ← ignored by git", "  state.json         record of the run", "  tickets/NN-key.md  one per ticket", "  worktrees/<key>/   one checkout per ticket", "  outcomes.jsonl     route + cost per ticket", "  skills/<name>/     your skill overrides"],
+    body: "Everything Backspace writes lives under .backspace/, which contains a .gitignore of \"*\" so it never touches your history. state.json is a record, not a checkpoint: closing the app ends in-flight agents. Worktrees stay after the run so tickets can be reopened; each holds its own copy of dependencies.",
+    ref: "core/src/git.rs:40  ensure_repo\ncore/src/harness.rs:265  save" },
+
+  // ---- Models
+  { id: "f_router", z: "models", x: 700, y: 1580, w: 340, kind: "model", tag: "Router", title: "Router.route", sub: "model + effort for one agent",
+    body: "Called once per agent: main, each worker, each triage agent. Picks from models whose provider has a key (or runs on localhost).", ref: "core/src/router.rs:39  route" },
+  { id: "f_jev", z: "models", x: 1100, y: 1520, w: 340, kind: "model", tag: "TYPESAFE_API_KEY set", title: "Jev", sub: "choice: model · score: effort",
+    body: "One request to TypeSafe's System One model with two questions: a choice over your model descriptions and a score on the effort rubric. Answers come back in about a quarter second at roughly $0.04 per million tokens. Untested against the live API so far.", ref: "core/src/router.rs:80  jev" },
+  { id: "f_heur", z: "models", x: 1100, y: 1650, w: 340, kind: "model", tag: "No key, or Jev failed", title: "Heuristic", sub: "keywords → effort → cheapest fit",
+    body: "Keyword rules pick an effort level; the effort sets the minimum tier; the cheapest model of that tier wins. Crude on purpose.", ref: "core/src/router.rs:168  heuristic" },
+  { id: "f_slots", z: "models", x: 700, y: 1800, w: 340, kind: "step", tag: "Concurrency", title: "Inference slots", sub: "max_parallel_calls = 4",
+    body: "A semaphore around each model call. Agents waiting for blockers, reviews or children hold no slot, so nested waits cannot deadlock it.", ref: "core/src/harness.rs:609  drive (limiter)" },
+  { id: "f_anth", z: "models", x: 1100, y: 1800, w: 340, h: 90, kind: "model", tag: "Anthropic", title: "Messages API", sub: "adaptive thinking + output_config.effort",
+    body: "Claude models: effort is clamped to what the model accepts (ultra is sent as max). Thinking blocks are echoed back verbatim. The stable prefix is cached.", ref: "core/src/provider.rs:168  anthropic_body" },
+  { id: "f_oai", z: "models", x: 1100, y: 1920, w: 340, h: 90, kind: "model", tag: "OpenAI-compatible", title: "Chat Completions", sub: "reasoning_effort · OpenRouter, Ollama, vLLM",
+    body: "Everything else: OpenRouter, Ollama, vLLM, Groq. Tool calls are translated to and from the shared message format.", ref: "core/src/provider.rs:265  openai_body" },
+  { id: "f_cost", z: "models", x: 700, y: 1960, w: 340, h: 90, kind: "step", tag: "Spend", title: "Cost meter", sub: "tokens × config prices",
+    body: "Every completion adds cost to its agent and the project total; budget_usd caps an agent plus everything under it, max_project_usd caps the project.", ref: "core/src/harness.rs:588  over_budget" },
+
+  // ---- Nested
+  { id: "g_main", z: "nested", x: 1880, y: 1560, w: 340, h: 90, kind: "step", tag: "Depth 0", title: "Main agent", sub: "works in your checkout",
+    body: "Plans the top-level tickets and reviews nothing itself at depth 1: you do.", ref: "core/src/harness.rs:434  main_loop" },
+  { id: "g_lead", z: "nested", x: 1880, y: 1730, w: 340, h: 90, kind: "git", tag: "Depth 1 · you review", title: "Lead ticket", sub: "own worktree · may create sub-tickets",
+    body: "A depth-1 worker below max_depth gets create_tickets, work_tickets and revise_ticket. Its sub-tickets fork from its branch and merge back into it. Its own deliverable comes to you.", ref: "core/src/prompts/manager.md" },
+  { id: "g_leaf1", z: "nested", x: 1640, y: 1940, w: 300, h: 90, kind: "git", tag: "Depth 2 · lead reviews", title: "Report", sub: "forked from the lead's branch",
+    body: "Never reaches your Review tab. Merged into the lead's branch on submit; the lead verifies it in its worktree and can reopen it with revise_ticket, which also escalates it.", ref: "core/src/harness.rs:1410  revise" },
+  { id: "g_leaf2", z: "nested", x: 2160, y: 1940, w: 300, h: 90, kind: "git", tag: "Depth 2 · lead reviews", title: "Report", sub: "max_depth = 2: cannot delegate",
+    body: "At max_depth an agent gets no delegation tools. Goal ancestry still reaches it: its brief lists the lead's goal and the project goal.", ref: "core/src/harness.rs:279  can_spawn" },
+
+  // ---- States
+  { id: "i_prop", z: "states", x: 2690, y: 1580, w: 200, h: 70, kind: "human", tag: "", title: "proposed", sub: "", body: "In a plan you have not approved yet.", ref: "core/src/ticket.rs" },
+  { id: "i_ready", z: "states", x: 2690, y: 1700, w: 200, h: 70, kind: "step", tag: "", title: "ready-for-agent", sub: "", body: "Approved, or triaged as ready. Can be dispatched.", ref: "core/src/ticket.rs" },
+  { id: "i_queued", z: "states", x: 2690, y: 1820, w: 200, h: 70, kind: "step", tag: "", title: "queued", sub: "", body: "Dispatched, waiting for its blockers.", ref: "core/src/ticket.rs" },
+  { id: "i_prog", z: "states", x: 2690, y: 1940, w: 200, h: 70, kind: "step", tag: "", title: "in-progress", sub: "", body: "Its worker is running.", ref: "core/src/ticket.rs" },
+  { id: "i_review", z: "states", x: 2960, y: 1940, w: 200, h: 70, kind: "human", tag: "", title: "in-review", sub: "", body: "Waiting in your Review tab.", ref: "core/src/ticket.rs" },
+  { id: "i_done", z: "states", x: 3230, y: 1940, w: 200, h: 70, kind: "git", tag: "", title: "done", sub: "", body: "Accepted and merged into the parent branch.", ref: "core/src/ticket.rs" },
+  { id: "i_failed", z: "states", x: 2960, y: 1820, w: 200, h: 70, kind: "fail", tag: "", title: "failed", sub: "", body: "The worker gave up or ran out of budget. It can be dispatched again.", ref: "core/src/ticket.rs" },
+  { id: "i_triage", z: "states", x: 2960, y: 1580, w: 200, h: 70, kind: "step", tag: "", title: "needs-triage", sub: "", body: "Filed, waiting for its triage agent.", ref: "core/src/ticket.rs" },
+  { id: "i_side", z: "states", x: 3230, y: 1580, w: 200, h: 110, kind: "file", tag: "", title: "parked",
+    lines: ["needs-info", "ready-for-human", "wontfix"], body: "Triage outcomes that no agent works on: they wait for you or are closed.", ref: "core/src/ticket.rs" },
+];
+
+// [from, to, label, kind, fromSide, toSide]  sides: t r b l, optionally ":0.3" along the side
+const E = [
+  ["b_open", "b_route", "", "", "b", "t"],
+  ["b_route", "b_grill", "", "", "b", "t"],
+  ["b_grill", "b_plan", "goal is clear", "", "b", "t"],
+  ["b_plan", "b_gate", "", "", "b", "t"],
+  ["b_gate", "b_work", "approved", "human", "b", "t"],
+  ["b_gate", "b_plan", "rejected: re-plan", "fail", "r:0.5", "r:0.5"],
+  ["b_work", "b_verify", "all tickets settled", "", "b", "t"],
+  ["b_verify", "b_final", "", "", "b", "t"],
+  ["b_verify", "b_plan", "follow-up tickets", "async", "l:0.5", "l:0.5"],
+  ["a_comp", "b_grill", "goal · answers", "", "r:0.35", "l:0.35"],
+  ["b_grill", "a_comp", "questions", "", "l:0.7", "r:0.7"],
+  ["b_gate", "a_review", "plan to approve", "human", "l:0.5", "r:0.25"],
+  ["b_final", "a_review", "final summary", "human", "l:0.5", "r:0.75"],
+  ["b_work", "c_queue", "one worker per ticket", "", "r:0.3", "l:0.5"],
+  ["c_settle", "b_work", "report line", "async", "l:0.5", "r:0.75"],
+  ["c_queue", "c_route", "blockers settled", "", "b", "t"],
+  ["c_route", "c_tree", "", "", "b", "t"],
+  ["c_tree", "c_drive", "", "", "b", "t"],
+  ["c_drive", "c_submit", "", "", "b", "t"],
+  ["c_submit", "c_check", "", "", "b", "t"],
+  ["c_check", "c_review", "exit 0", "", "b", "t"],
+  ["c_review", "c_merge", "accepted", "human", "b", "t"],
+  ["c_merge", "c_settle", "merged", "git", "b", "t"],
+  ["c_check", "c_esc", "exit ≠ 0", "fail", "r:0.5", "b:0.25"],
+  ["c_review", "c_esc", "rejected", "fail", "r:0.5", "b:0.7"],
+  ["c_drive", "c_esc", "loop · out of turns", "fail", "r:0.55", "t:0.2", [-40, 40]],
+  ["c_esc", "c_drive", "next rung, same conversation", "fail", "t:0.85", "r:0.2", [30, -14]],
+  ["c_merge", "c_drive", "conflict: merge parent, resubmit", "git", "l:0.5", "l:0.5"],
+  ["c_review", "a_review", "", "human", "l:0.8", "r:0.5"],
+  ["d_r0", "d_r1", "", "fail", "r:0.5", "b:0.3"],
+  ["d_r1", "d_r2", "", "fail", "r:0.5", "b:0.3"],
+  ["d_r2", "d_r3", "", "fail", "t", "b"],
+  ["d_trig", "d_r1", "each one = one rung", "fail", "r:0.6", "t:0.4"],
+  ["e_file", "e_agent", "needs-triage", "", "b", "t"],
+  ["e_agent", "e_out", "", "", "b", "t"],
+  ["e_out", "e_report", "ready-for-agent", "", "r", "l"],
+  ["f_router", "f_jev", "key set", "", "r:0.35", "l:0.5"],
+  ["f_router", "f_heur", "no key / error", "", "r:0.75", "l:0.5"],
+  ["f_router", "f_slots", "then every turn", "", "b", "t"],
+  ["f_slots", "f_anth", "", "", "r:0.5", "l:0.5"],
+  ["f_slots", "f_oai", "", "", "r:0.8", "l:0.5"],
+  ["f_slots", "f_cost", "usage", "", "b", "t"],
+  ["g_main", "g_lead", "work_tickets", "", "b", "t"],
+  ["g_lead", "g_main", "merge after you approve", "git", "r:0.5", "r:0.5"],
+  ["g_lead", "g_leaf1", "sub-ticket", "", "b:0.3", "t:0.6"],
+  ["g_lead", "g_leaf2", "sub-ticket", "", "b:0.7", "t:0.4"],
+  ["g_leaf1", "g_lead", "merge · lead reviews", "git", "l:0.3", "l:0.7"],
+  ["i_prop", "i_ready", "plan approved", "human", "b", "t"],
+  ["i_ready", "i_queued", "work_tickets", "", "b", "t"],
+  ["i_queued", "i_prog", "blockers done", "", "b", "t"],
+  ["i_prog", "i_review", "submitted", "", "r", "l"],
+  ["i_review", "i_done", "approved + merged", "git", "r", "l"],
+  ["i_review", "i_prog", "", "fail", "t:0.3", "t:0.7"],
+  ["i_prog", "i_failed", "gave up", "fail", "r:0.2", "b:0.3"],
+  ["i_failed", "i_queued", "re-dispatch", "", "l:0.5", "r:0.5"],
+  ["i_triage", "i_ready", "triaged", "", "l:0.5", "r:0.4"],
+  ["i_triage", "i_side", "", "", "r", "l"],
+];
+
+const TOUR = ["a_comp", "b_open", "b_route", "b_grill", "b_plan", "b_gate", "b_work", "c_queue", "c_route", "c_tree", "c_drive",
+  "c_submit", "c_check", "c_esc", "c_review", "c_merge", "c_settle", "b_verify", "b_final"];
+
+const KIND_LABEL = { step: "Step", human: "You decide", auto: "Automatic gate", git: "Git", fail: "Failure path", model: "Model call", file: "On disk" };
+
+// ---------------------------------------------------------------- render
+const SVGNS = "http://www.w3.org/2000/svg";
+const svg = document.getElementById("map");
+const byId = {};
+N.forEach(n => { n.w = n.w || W; n.h = n.h || (n.lines ? 60 + n.lines.length * 21 : H); byId[n.id] = n; });
+
+function el(tag, attrs, parent) {
+  const e = document.createElementNS(SVGNS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(e);
+  return e;
+}
+
+function anchor(n, spec) {
+  const [side, f] = spec.split(":");
+  const t = f === undefined ? 0.5 : parseFloat(f);
+  switch (side) {
+    case "t": return { x: n.x + n.w * t, y: n.y, dx: 0, dy: -1 };
+    case "b": return { x: n.x + n.w * t, y: n.y + n.h, dx: 0, dy: 1 };
+    case "l": return { x: n.x, y: n.y + n.h * t, dx: -1, dy: 0 };
+    default: return { x: n.x + n.w, y: n.y + n.h * t, dx: 1, dy: 0 };
+  }
+}
+
+function render() {
+  svg.innerHTML = "";
+  const defs = el("defs", {}, svg);
+  ["", "fail", "human", "git"].forEach(k => {
+    const m = el("marker", { id: "ah" + k, viewBox: "0 0 10 10", refX: "9", refY: "5", markerWidth: "7", markerHeight: "7", orient: "auto-start-reverse" }, defs);
+    el("path", { d: "M0,0 L10,5 L0,10 z", class: "ah " + k }, m);
+  });
+  const world = el("g", { id: "world" }, svg);
+
+  ZONES.forEach(z => {
+    el("rect", { x: z.x, y: z.y, width: z.w, height: z.h, rx: 18, class: "zone-bg" }, world);
+    const t = el("text", { x: z.x + 28, y: z.y + 52, class: "zone-title" }, world); t.textContent = z.title;
+    const s = el("text", { x: z.x + 30, y: z.y + 78, class: "zone-sub" }, world); s.textContent = z.sub;
+  });
+
+  const edgeLayer = el("g", {}, world), labelLayer = el("g", {}, world), nodeLayer = el("g", {}, world);
+  E.forEach(([a, b, label, kind, fs, ts, off], i) => {
+    const A = anchor(byId[a], fs), B = anchor(byId[b], ts);
+    const dist = Math.hypot(B.x - A.x, B.y - A.y);
+    const k = Math.max(40, Math.min(160, dist * 0.45));
+    const c1 = { x: A.x + A.dx * k, y: A.y + A.dy * k }, c2 = { x: B.x + B.dx * k, y: B.y + B.dy * k };
+    const d = `M${A.x},${A.y} C${c1.x},${c1.y} ${c2.x},${c2.y} ${B.x},${B.y}`;
+    const markerKind = kind === "async" ? "" : kind;
+    const p = el("path", { d, class: "edge " + (kind || ""), "marker-end": `url(#ah${markerKind})`, "data-a": a, "data-b": b }, edgeLayer);
+    if (label) {
+      const [ox, oy] = off || [0, 0];
+      const mx = ox + 0.125 * A.x + 0.375 * c1.x + 0.375 * c2.x + 0.125 * B.x;
+      const my = oy + 0.125 * A.y + 0.375 * c1.y + 0.375 * c2.y + 0.125 * B.y;
+      const g = el("g", { class: "elabel " + (kind || ""), "data-a": a, "data-b": b }, labelLayer);
+      const w = label.length * 6.9 + 14;
+      el("rect", { x: mx - w / 2, y: my - 11, width: w, height: 22, rx: 5 }, g);
+      const t = el("text", { x: mx, y: my + 4.5, "text-anchor": "middle" }, g); t.textContent = label;
+    }
+  });
+
+  N.forEach(n => {
+    const g = el("g", { class: "node " + n.kind, tabindex: "0", role: "button", "aria-label": n.title, "data-id": n.id }, nodeLayer);
+    el("rect", { x: n.x, y: n.y, width: n.w, height: n.h, rx: 10, class: "box" }, g);
+    const small = n.h <= 72;
+    let y = n.y + (small ? n.h / 2 + 6 : 26);
+    if (n.tag && !small) { const t = el("text", { x: n.x + 16, y, class: "ntag" }, g); t.textContent = n.tag; y += 24; }
+    const t = el("text", { x: n.x + (small ? n.w / 2 : 16), y, class: "ntitle", "text-anchor": small ? "middle" : "start" }, g); t.textContent = n.title;
+    if (n.sub) { const s = el("text", { x: n.x + 16, y: y + 22, class: "nsub" }, g); s.textContent = n.sub; }
+    if (n.lines) n.lines.forEach((l, i) => { const s = el("text", { x: n.x + 16, y: y + 26 + i * 21, class: n.kind === "file" ? "nmono" : "nsub" }, g); s.textContent = l; });
+    g.addEventListener("click", ev => { if (!moved) select(n.id); });
+    g.addEventListener("keydown", ev => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); select(n.id, true); } });
+  });
+}
+
+// ---------------------------------------------------------------- camera
+const WORLD = { x: 0, y: 0, w: 3520, h: 2200 };
+let view = { ...WORLD };
+const stage = document.getElementById("stage");
+
+function apply() {
+  svg.setAttribute("viewBox", `${view.x} ${view.y} ${view.w} ${view.h}`);
+  const scale = stage.clientWidth / view.w;
+  svg.classList.toggle("far", scale < 0.42);
+}
+function fitTo(r, pad = 40, animate = true) {
+  const sw = stage.clientWidth || 1, sh = stage.clientHeight || 1, ar = sw / sh;
+  let w = r.w + pad * 2, h = r.h + pad * 2;
+  if (w / h > ar) h = w / ar; else w = h * ar;
+  const target = { x: r.x + r.w / 2 - w / 2, y: r.y + r.h / 2 - h / 2, w, h };
+  animate ? tween(target) : (view = target, apply());
+}
+let anim = 0;
+function tween(target) {
+  cancelAnimationFrame(anim);
+  const from = { ...view }, t0 = performance.now();
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const dur = reduce ? 0 : 420;
+  const step = now => {
+    const t = dur ? Math.min(1, (now - t0) / dur) : 1, e = 1 - Math.pow(1 - t, 3);
+    for (const k of ["x", "y", "w", "h"]) view[k] = from[k] + (target[k] - from[k]) * e;
+    apply();
+    if (t < 1) anim = requestAnimationFrame(step);
+  };
+  anim = requestAnimationFrame(step);
+}
+function zoomAt(factor, cx, cy) {
+  const r = svg.getBoundingClientRect();
+  const px = view.x + ((cx - r.left) / r.width) * view.w, py = view.y + ((cy - r.top) / r.height) * view.h;
+  const nw = Math.min(WORLD.w * 2.5, Math.max(260, view.w * factor)), f = nw / view.w;
+  view = { x: px - (px - view.x) * f, y: py - (py - view.y) * f, w: nw, h: view.h * f };
+  apply();
+}
+
+let moved = false;
+const pointers = new Map();
+let last = null, pinch = null;
+stage.addEventListener("pointerdown", e => {
+  pointers.set(e.pointerId, e); moved = false; cancelAnimationFrame(anim);
+  if (pointers.size === 1) last = { x: e.clientX, y: e.clientY };
+  if (pointers.size === 2) { const [p, q] = [...pointers.values()]; pinch = Math.hypot(p.clientX - q.clientX, p.clientY - q.clientY); }
+});
+stage.addEventListener("pointermove", e => {
+  if (!pointers.has(e.pointerId)) return;
+  pointers.set(e.pointerId, e);
+  if (pointers.size === 2 && pinch) {
+    const [p, q] = [...pointers.values()], d = Math.hypot(p.clientX - q.clientX, p.clientY - q.clientY);
+    zoomAt(pinch / d, (p.clientX + q.clientX) / 2, (p.clientY + q.clientY) / 2); pinch = d; moved = true; return;
+  }
+  if (!last) return;
+  const dx = e.clientX - last.x, dy = e.clientY - last.y;
+  if (!moved && Math.hypot(dx, dy) < 4) return;
+  if (!moved) { stage.setPointerCapture(e.pointerId); stage.classList.add("dragging"); }
+  moved = true;
+  const r = svg.getBoundingClientRect();
+  view.x -= dx * view.w / r.width; view.y -= dy * view.h / r.height; apply();
+  last = { x: e.clientX, y: e.clientY };
+});
+const up = e => { pointers.delete(e.pointerId); if (pointers.size < 2) pinch = null; if (!pointers.size) { last = null; stage.classList.remove("dragging"); setTimeout(() => moved = false, 0); } };
+stage.addEventListener("pointerup", up); stage.addEventListener("pointercancel", up);
+stage.addEventListener("wheel", e => { e.preventDefault(); zoomAt(Math.exp(e.deltaY * (e.ctrlKey ? 0.01 : 0.0015)), e.clientX, e.clientY); }, { passive: false });
+document.getElementById("zoomIn").onclick = () => { const r = svg.getBoundingClientRect(); zoomAt(0.75, r.left + r.width / 2, r.top + r.height / 2); };
+document.getElementById("zoomOut").onclick = () => { const r = svg.getBoundingClientRect(); zoomAt(1.33, r.left + r.width / 2, r.top + r.height / 2); };
+document.getElementById("fit").onclick = () => fitTo(WORLD, 20);
+addEventListener("keydown", e => {
+  if (e.target.closest && e.target.closest("button, input")) return;
+  const s = view.w * 0.08;
+  if (e.key === "ArrowLeft") { view.x -= s; apply(); } else if (e.key === "ArrowRight") { view.x += s; apply(); }
+  else if (e.key === "ArrowUp") { view.y -= s; apply(); } else if (e.key === "ArrowDown") { view.y += s; apply(); }
+  else if (e.key === "+" || e.key === "=") document.getElementById("zoomIn").click();
+  else if (e.key === "-") document.getElementById("zoomOut").click();
+  else if (e.key === "0") fitTo(WORLD, 20);
+});
+addEventListener("resize", () => apply());
+
+// ---------------------------------------------------------------- inspector
+const panel = document.getElementById("panel");
+let tourIdx = -1;
+function esc(s) { return s.replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c])); }
+
+function overview() {
+  tourIdx = -1;
+  document.querySelectorAll(".node.sel").forEach(n => n.classList.remove("sel"));
+  highlight(null);
+  panel.innerHTML = `
+    <div class="kind">How to read this</div>
+    <h2>From your goal to merged work</h2>
+    <p>The middle two zones are the spine: the main agent turns your goal into tickets, and every ticket runs the same life in its own git worktree, in parallel. Amber boxes wait for you. Red paths are failures that push a worker up the escalation ladder.</p>
+    <div class="legend">
+      <span class="sw human"></span><span>You decide (Review tab)</span>
+      <span class="sw auto"></span><span>Automatic gate (the ticket's check)</span>
+      <span class="sw git"></span><span>Git: branches, commits, merges</span>
+      <span class="sw model"></span><span>Model choice or model call</span>
+      <span class="sw fail"></span><span>Failure and escalation</span>
+      <span class="ln"></span><span>Next step</span>
+      <span class="ln fail"></span><span>Goes back after a failure</span>
+      <span class="ln async"></span><span>Reported later</span>
+    </div>
+    <p>Click any box for what it does and where it lives in the code, or walk the main path step by step.</p>
+    <div class="tour"><span class="count">${TOUR.length} steps</span><button class="ctl" id="start">Walk the main path →</button></div>`;
+  document.getElementById("start").onclick = () => go(0);
+}
+
+function go(i) {
+  tourIdx = Math.max(0, Math.min(TOUR.length - 1, i));
+  select(TOUR[tourIdx], true);
+}
+
+function select(id, fly) {
+  const n = byId[id];
+  const inTour = TOUR.indexOf(id);
+  if (inTour === -1) tourIdx = -1; else tourIdx = inTour;
+  document.querySelectorAll(".node.sel").forEach(x => x.classList.remove("sel"));
+  const g = svg.querySelector(`.node[data-id="${id}"]`); g && g.classList.add("sel");
+  highlight(id);
+  if (fly) fitTo({ x: n.x - 160, y: n.y - 120, w: n.w + 320, h: n.h + 240 }, 20);
+  const outs = E.filter(e => e[0] === id && e[2]).map(e => `<li>${esc(e[2])} → ${esc(byId[e[1]].title)}</li>`).join("");
+  panel.innerHTML = `
+    <div class="kind">${esc(KIND_LABEL[n.kind])}${n.tag && n.tag !== KIND_LABEL[n.kind] ? " · " + esc(n.tag) : ""}</div>
+    <h2>${esc(n.title)}</h2>
+    <p>${esc(n.body)}</p>
+    ${outs ? `<div><div class="kind">Leads to</div><ul>${outs}</ul></div>` : ""}
+    <div><div class="kind">In the code</div><div class="ref">${esc(n.ref).replace(/\n/g, "<br>")}</div></div>
+    <div class="tour">
+      ${tourIdx >= 0 ? `<button class="ctl" id="prev" ${tourIdx === 0 ? "disabled" : ""}>←</button><span class="count">Step ${tourIdx + 1} of ${TOUR.length}</span><button class="ctl" id="next" ${tourIdx === TOUR.length - 1 ? "disabled" : ""}>Next →</button>`
+      : `<span class="count">Not on the main path</span><button class="ctl" id="walk">Walk the main path</button>`}
+      <button class="ctl" id="close" aria-label="Back to overview">×</button>
+    </div>`;
+  const q = s => document.getElementById(s);
+  q("prev") && (q("prev").onclick = () => go(tourIdx - 1));
+  q("next") && (q("next").onclick = () => go(tourIdx + 1));
+  q("walk") && (q("walk").onclick = () => go(0));
+  q("close").onclick = overview;
+}
+
+function highlight(id) {
+  svg.querySelectorAll(".edge, .elabel").forEach(e => {
+    const on = id && (e.dataset.a === id || e.dataset.b === id);
+    e.classList.toggle("dim", !!id && !on);
+    e.classList.toggle("hot", !!on);
+  });
+}
+
+// ---------------------------------------------------------------- boot
+const zonesNav = document.getElementById("zones");
+ZONES.forEach(z => {
+  const b = document.createElement("button");
+  b.className = "chip"; b.textContent = z.title;
+  b.onclick = () => fitTo(z, 30);
+  zonesNav.appendChild(b);
+});
+render();
+overview();
+requestAnimationFrame(() => fitTo({ x: 600, y: 20, w: 1990, h: 1380 }, 20, false));
+</script>

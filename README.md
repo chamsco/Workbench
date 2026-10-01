@@ -14,6 +14,8 @@ starting point: agents start cheap and climb the ladder on evidence of failure.
 
 ![Backspace reviewing a project (mock model)](docs/screenshot.png)
 
+**Architecture map:** open [`docs/architecture.html`](docs/architecture.html) in a browser for a zoomable map of the whole flow, with the code location of every step.
+
 ## Layout
 
 ```
