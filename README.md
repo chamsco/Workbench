@@ -14,6 +14,10 @@ starting point: agents start cheap and climb the ladder on evidence of failure.
 
 ![Backspace reviewing a project (mock model)](docs/screenshot.png)
 
+**Design target:** [`design/workbench.html`](design/workbench.html) is a single-file, clickable replica of where the desktop app is heading: frosted macOS window, environment tabs (terminals up to 2x2, live worktree previews, diagram review, PLAN.md), resizable splits, light and dark.
+
+![Workbench design](docs/workbench-design.png)
+
 **Architecture map:** open [`docs/architecture.html`](docs/architecture.html) in a browser for a zoomable map of the whole flow, with the code location of every step.
 
 ## Layout
