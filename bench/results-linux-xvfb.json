@@ -1,0 +1,100 @@
+{
+  "host": {
+    "os": "Linux-6.18.44-fc-v51-x86_64-with-glibc2.39",
+    "machine": "x86_64",
+    "python": "3.11.15",
+    "display": ":99"
+  },
+  "binary_mb": {
+    "gpui": 59.0,
+    "tauri": 17.8
+  },
+  "runs": {
+    "gpui": [
+      {
+        "startup_ms": 391,
+        "idle_cpu_pct": 1.0,
+        "idle_rss_mb": 189.0,
+        "idle_pss_mb": 166.0,
+        "work_cpu_s": 39.18,
+        "work_wall_s": 15.6,
+        "work_peak_rss_mb": 249.4,
+        "work_peak_pss_mb": 207.1
+      },
+      {
+        "startup_ms": 411,
+        "idle_cpu_pct": 1.1,
+        "idle_rss_mb": 189.8,
+        "idle_pss_mb": 166.8,
+        "work_cpu_s": 38.43,
+        "work_wall_s": 15.8,
+        "work_peak_rss_mb": 269.7,
+        "work_peak_pss_mb": 211.8
+      },
+      {
+        "startup_ms": 364,
+        "idle_cpu_pct": 0.9,
+        "idle_rss_mb": 189.4,
+        "idle_pss_mb": 166.4,
+        "work_cpu_s": 38.32,
+        "work_wall_s": 15.9,
+        "work_peak_rss_mb": 265.2,
+        "work_peak_pss_mb": 207.9
+      }
+    ],
+    "tauri": [
+      {
+        "startup_ms": 2233,
+        "idle_cpu_pct": 0.4,
+        "idle_rss_mb": 379.1,
+        "idle_pss_mb": 226.0,
+        "work_cpu_s": 13.37,
+        "work_wall_s": 11.8,
+        "work_peak_rss_mb": 501.9,
+        "work_peak_pss_mb": 310.8
+      },
+      {
+        "startup_ms": 2197,
+        "idle_cpu_pct": 0.3,
+        "idle_rss_mb": 379.5,
+        "idle_pss_mb": 226.4,
+        "work_cpu_s": 13.22,
+        "work_wall_s": 11.7,
+        "work_peak_rss_mb": 470.3,
+        "work_peak_pss_mb": 299.6
+      },
+      {
+        "startup_ms": 2124,
+        "idle_cpu_pct": 0.5,
+        "idle_rss_mb": 379.4,
+        "idle_pss_mb": 226.3,
+        "work_cpu_s": 13.0,
+        "work_wall_s": 11.7,
+        "work_peak_rss_mb": 471.8,
+        "work_peak_pss_mb": 298.9
+      }
+    ]
+  },
+  "median": {
+    "gpui": {
+      "startup_ms": 391,
+      "idle_cpu_pct": 1.0,
+      "idle_rss_mb": 189.4,
+      "idle_pss_mb": 166.4,
+      "work_cpu_s": 38.43,
+      "work_wall_s": 15.8,
+      "work_peak_rss_mb": 265.2,
+      "work_peak_pss_mb": 207.9
+    },
+    "tauri": {
+      "startup_ms": 2197,
+      "idle_cpu_pct": 0.4,
+      "idle_rss_mb": 379.4,
+      "idle_pss_mb": 226.3,
+      "work_cpu_s": 13.22,
+      "work_wall_s": 11.7,
+      "work_peak_rss_mb": 471.8,
+      "work_peak_pss_mb": 299.6
+    }
+  }
+}

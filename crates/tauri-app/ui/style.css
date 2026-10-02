@@ -365,3 +365,4 @@ input { font: inherit; color: inherit; }
 .nothing { color: var(--fg-3); padding: 14px; font-size: 12.5px; }
 /* The desk is a still backdrop in the native shells (GPUI paints it static too). */
 .native .blob { animation: none; }
+.dot.acc { background: var(--accent); }

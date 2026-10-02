@@ -25,16 +25,31 @@ starting point: agents start cheap and climb the ladder on evidence of failure.
 ```
 crates/core   harness: router, providers, tools, tickets, git worktrees, skills
 crates/cli    headless shell (logs to stdout, approvals on stdin)
-crates/app    GPUI desktop app (gpui-kit / gpui-component)
+crates/app    desktop shell, GPUI (native)
+crates/tauri-app  desktop shell, Tauri 2 (the design's HTML in the system webview)
+design/       workbench.html: the design both shells reproduce
+bench/        GPUI vs Tauri benchmark (see bench/README.md)
 ```
 
 ## Desktop app
 
-A project sidebar (agent tree or ticket board, with a run-status card at the
-bottom), view tabs in the title bar, and one to three split panes chosen with
-the layout switch. Any view opens in the focused pane: an agent's session
-(terminal-style log with a status line), the review queue, the ticket board,
-or an agent's worktree with file preview.
+Two shells draw the same design (`design/workbench.html`) over the same
+in-process harness. Pick one after reading the benchmark in `bench/README.md`:
+
+- `backspace` (GPUI): native, starts about 5× faster and uses less memory.
+  It has no web engine, so the Browser tab shows a text snapshot of the
+  page and opens the page itself in your browser.
+- `backspace-tauri` (Tauri 2): the design's HTML/CSS/JS in the system
+  webview, with live dev-server previews inside the app.
+
+The frosted sidebar holds Projects, Agents and Tickets, with a run card at
+the bottom. Environment tabs in the title bar switch between:
+
+- Terminals: one, two, or a 2×2 grid of agent sessions and worktrees, with
+  drag-to-resize splits.
+- Browser: dev-server previews.
+- Diagram: the review canvas.
+- PLAN.md.
 
 **Every review starts with a diagram the harness draws from its own data**,
 never one the agent drew:
@@ -65,7 +80,8 @@ Needs Rust ≥ 1.98 (gpui-pre uses APIs that 1.94 rejects). On Linux:
 ```sh
 export ANTHROPIC_API_KEY=...     # and/or OPENROUTER_API_KEY
 export TYPESAFE_API_KEY=...      # optional: Jev routing
-cargo run --release -p backspace -- ~/projects/my-app     # GUI
+cargo run --release -p backspace -- ~/projects/my-app     # GUI (GPUI)
+cargo run --release -p backspace-tauri -- ~/projects/my-app   # GUI (Tauri; Linux needs libwebkit2gtk-4.1-dev)
 cargo run --release -p backspace-cli -- ~/projects/my-app "build ..."
 cargo test                                                 # core + e2e (mock model)
 ```

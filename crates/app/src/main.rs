@@ -19,6 +19,7 @@ use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use backspace_core::diagram::{self, Diagram};
@@ -242,6 +243,7 @@ struct Workbench {
     plan: Option<(Instant, Option<String>)>,
     last_pending: usize,
 
+    desk: Option<((u32, u32, Hsla), Arc<Image>)>,
     spin: usize,
     started: Instant,
     focus_handle: FocusHandle,
@@ -401,6 +403,7 @@ impl Workbench {
             ticket_form: false,
             plan: None,
             last_pending: 0,
+            desk: None,
             spin: 0,
             started: Instant::now(),
             focus_handle,
@@ -764,47 +767,68 @@ fn mascot(c: Hsla) -> impl IntoElement {
     .flex_none()
 }
 
-/// The desk behind the glass: the replica's three blurred blobs, drawn as
-/// stacked translucent discs (gpui has no blur filter for shapes).
-fn desk(p: Pal) -> impl IntoElement {
-    canvas(
-        |_, _, _| (),
-        move |b, _, window, _| {
-            let vw = f32::from(b.size.width) / 100.;
-            let vh = f32::from(b.size.height);
-            // (diameter, left, top) in vw, from .blob.a/.b/.c; c sits on the bottom.
-            let blobs = [
-                (52., -10., Some(-14.), p.blobs[0]),
-                (46., 100. - 12. - 46., Some(-6.), p.blobs[1]),
-                (60., 26., None, p.blobs[2]),
-            ];
-            const N: usize = 16;
-            let a = 0.85 * (1. - 0.15_f32.powf(1. / N as f32));
-            for (d, l, tp, c) in blobs {
+/// The desk behind the glass: the replica's three `blur(70px)` blobs over
+/// the base colour, rendered once per window size at quarter resolution
+/// (blurred content loses nothing) and drawn as a single image, so frames
+/// do not re-rasterise it.
+fn desk_image(p: &Pal, w: f32, h: f32) -> Arc<Image> {
+    const SCALE: f32 = 4.;
+    let (iw, ih) = (
+        (w / SCALE).ceil().max(1.) as usize,
+        (h / SCALE).ceil().max(1.) as usize,
+    );
+    let vw = w / 100.;
+    let rgb = |c: Hsla| {
+        let c = c.to_rgb();
+        [c.r, c.g, c.b]
+    };
+    // (diameter, left, top) in vw, from .blob.a/.b/.c; c hangs off the bottom.
+    let blobs = [
+        (52., -10., Some(-14.), rgb(p.blobs[0])),
+        (46., 100. - 12. - 46., Some(-6.), rgb(p.blobs[1])),
+        (60., 26., None, rgb(p.blobs[2])),
+    ];
+    let base = rgb(p.desk_base);
+    let sigma = 70.;
+    // 24-bit BMP, bottom-up rows padded to 4 bytes.
+    let row = (iw * 3 + 3) & !3;
+    let mut bmp = Vec::with_capacity(54 + row * ih);
+    let size = (54 + row * ih) as u32;
+    bmp.extend_from_slice(b"BM");
+    bmp.extend_from_slice(&size.to_le_bytes());
+    bmp.extend_from_slice(&[0, 0, 0, 0, 54, 0, 0, 0, 40, 0, 0, 0]);
+    bmp.extend_from_slice(&(iw as i32).to_le_bytes());
+    bmp.extend_from_slice(&(ih as i32).to_le_bytes());
+    bmp.extend_from_slice(&[1, 0, 24, 0]);
+    bmp.extend_from_slice(&[0; 24]);
+    for y in (0..ih).rev() {
+        let py = (y as f32 + 0.5) * SCALE;
+        let mut line = Vec::with_capacity(row);
+        for x in 0..iw {
+            let px_ = (x as f32 + 0.5) * SCALE;
+            let mut c = base;
+            for (d, l, t, bc) in &blobs {
                 let r = d * vw / 2.;
                 let cx0 = l * vw + r;
-                let cy0 = match tp {
+                let cy0 = match t {
                     Some(t) => t * vw + r,
-                    None => vh + 34. * vw - r,
+                    None => h + 34. * vw - r,
                 };
-                for i in 0..N {
-                    let rr = (r + 70. - i as f32 * 140. / N as f32).max(1.);
-                    window.paint_quad(
-                        fill(
-                            Bounds::new(
-                                point(b.origin.x + px(cx0 - rr), b.origin.y + px(cy0 - rr)),
-                                size(px(2. * rr), px(2. * rr)),
-                            ),
-                            c.opacity(a),
-                        )
-                        .corner_radii(px(rr)),
-                    );
+                let dist = ((px_ - cx0).powi(2) + (py - cy0).powi(2)).sqrt();
+                // A Gaussian-blurred disc's edge: ~ 0.5 * erfc((d - r) / (σ√2)).
+                let a = 0.85 * 0.5 * (1. - ((dist - r) / sigma * 1.13).tanh());
+                for i in 0..3 {
+                    c[i] = c[i] * (1. - a) + bc[i] * a;
                 }
             }
-        },
-    )
-    .absolute()
-    .size_full()
+            for i in [2, 1, 0] {
+                line.push((c[i].clamp(0., 1.) * 255.).round() as u8);
+            }
+        }
+        line.resize(row, 0);
+        bmp.extend_from_slice(&line);
+    }
+    Arc::new(Image::from_bytes(ImageFormat::Bmp, bmp))
 }
 
 // ------------------------------------------------------------------ render
@@ -815,6 +839,17 @@ impl Render for Workbench {
         let w = hair(window);
         let t = self.started.elapsed().as_secs_f32();
         let win_bounds = self.win_bounds.clone();
+        let vs = window.viewport_size();
+        let key = (
+            f32::from(vs.width) as u32,
+            f32::from(vs.height) as u32,
+            self.pal.desk_base,
+        );
+        if self.desk.as_ref().is_none_or(|(k, _)| *k != key) {
+            let img = desk_image(&self.pal, key.0 as f32, key.1 as f32);
+            self.desk = Some((key, img));
+        }
+        let desk = self.desk.as_ref().unwrap().1.clone();
         let env = match self.env {
             Env::Terminals => self.terminals(w, cx),
             Env::Browser => self.browser(w, cx),
@@ -875,7 +910,10 @@ impl Render for Workbench {
             .text_size(px(13.))
             .line_height(relative(1.4))
             .text_color(p.fg)
-            .when(!GLASS, |d| d.bg(p.desk_base).child(desk(p)))
+            .when(!GLASS, |d| {
+                d.bg(p.desk_base)
+                    .child(img(desk).absolute().size_full().object_fit(ObjectFit::Fill))
+            })
             .child(
                 canvas(move |b, _, _| win_bounds.set(b), |_, _, _, _| {})
                     .absolute()
@@ -1306,7 +1344,7 @@ impl Workbench {
             .filter(|a| a.branch.is_some() && a.id != MAIN)
             .count();
         let pending = self.pending();
-        let row = |c: Hsla, l: &str, v: String| {
+        let row = |d: Div, l: &str, v: String| {
             div()
                 .w_full()
                 .flex()
@@ -1315,7 +1353,7 @@ impl Workbench {
                 .h(px(24.))
                 .px(px(3.))
                 .text_size(px(12.))
-                .child(dot(c, None))
+                .child(d)
                 .child(div().truncate().child(l.to_string()))
                 .child(
                     div()
@@ -1342,15 +1380,22 @@ impl Workbench {
                     .mb(px(4.))
                     .child(format!("This run · {}", s.name)),
             )
-            .child(row(p.accent, "Agents running", running.to_string()))
             .child(row(
-                if pending > 0 { p.amber } else { p.fg4 },
+                dot(
+                    p.accent,
+                    (running > 0).then(|| self.started.elapsed().as_secs_f32()),
+                ),
+                "Agents running",
+                running.to_string(),
+            ))
+            .child(row(
+                dot(if pending > 0 { p.amber } else { p.fg4 }, None),
                 "Waiting on you",
                 pending.to_string(),
             ))
-            .child(row(p.green, "Worktrees", wts.to_string()))
+            .child(row(dot(p.green, None), "Worktrees", wts.to_string()))
             .child(row(
-                p.fg4,
+                dot(p.fg4, None),
                 "Spent",
                 format!(
                     "${:.3} · router ${:.3}",

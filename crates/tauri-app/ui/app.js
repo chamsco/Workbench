@@ -131,7 +131,7 @@ function renderCard() {
   const wts = snap.agents.filter(a => a.branch && a.id !== MAIN).length;
   const row = (c, l, v) => `<div class="port"><span class="dot ${c}"></span><span class="pl">${l}</span><span class="pn" style="margin-left:auto;color:var(--fg-3)">${v}</span></div>`;
   $("#ports").innerHTML = `<div class="ports-h">This run · ${esc(snap.name)}</div>` +
-    row("run", "Agents running", run) + row(pending().length ? "wait" : "", "Waiting on you", pending().length) +
+    row(run ? "run" : "acc", "Agents running", run) + row(pending().length ? "wait" : "", "Waiting on you", pending().length) +
     row("done", "Worktrees", wts) + row("", "Spent", `$${snap.total_cost_usd.toFixed(3)} · router $${snap.router_cost_usd.toFixed(3)}`);
 }
 
