@@ -5,10 +5,13 @@
 
 use std::collections::HashMap;
 
+use serde::Serialize;
+
 use crate::project::{AgentRecord, Approval, ApprovalKind, FileChange, ProjectState, MAIN};
 use crate::ticket::{Ticket, TicketState};
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Tone {
     Neutral,
     /// Finished and merged.
@@ -20,7 +23,7 @@ pub enum Tone {
     Fail,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize)]
 pub struct Node {
     pub label: String,
     pub sub: String,
@@ -31,7 +34,7 @@ pub struct Node {
     pub row: usize,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize)]
 pub struct Diagram {
     pub title: String,
     /// One-line facts shown above the drawing, e.g. ("waves", "2").

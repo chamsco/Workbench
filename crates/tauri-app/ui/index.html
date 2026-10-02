@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Backspace</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="desk">
+  <div class="blob a"></div><div class="blob b"></div><div class="blob c"></div>
+  <div class="win" id="win">
+    <div class="lights" aria-hidden="true"><span>×</span><span>−</span><span>+</span></div>
+    <aside class="side" id="side" aria-label="Projects and agents">
+      <div class="side-top" data-tauri-drag-region>
+        <button class="ib" id="sideClose" aria-label="Hide sidebar" data-icon="sidebar"></button>
+      </div>
+      <div class="side-head">
+        <div class="brand"><span class="logo" data-icon="bksp"></span>Local</div>
+        <span class="crumb" data-icon="chev"></span><span class="crumb" data-icon="home"></span>
+        <div class="seg" role="group" aria-label="Sidebar view" id="seg"></div>
+      </div>
+      <div class="list" id="list"></div>
+      <div class="ports" id="ports"></div>
+      <div class="side-foot">
+        <button class="ib on" aria-label="Home" data-icon="home"></button>
+        <button class="ib" aria-label="Windows" data-icon="window"></button>
+        <span style="flex:1"></span>
+        <button class="ib" aria-label="Settings" data-icon="gear"></button>
+      </div>
+    </aside>
+    <div class="gutter-side" id="sideGut" role="separator" aria-orientation="vertical" aria-label="Resize sidebar"></div>
+    <div class="mainc">
+      <header class="tbar" data-tauri-drag-region>
+        <div class="left"><button class="ib" id="sideOpen" aria-label="Show sidebar" data-icon="sidebar" hidden></button></div>
+        <div style="display:flex;align-items:center;min-width:0">
+          <nav class="tabs" id="tabs" role="tablist" aria-label="Environments"></nav>
+          <div class="lay" id="lay" role="group" aria-label="Terminal layout"></div>
+        </div>
+        <div class="right">
+          <button class="ib" id="themeBtn" aria-label="Theme"></button>
+          <button class="cta" id="cta"></button>
+        </div>
+      </header>
+      <section class="env" id="env-terminals"><div class="grid" id="grid"></div></section>
+      <section class="env" id="env-browser" hidden></section>
+      <section class="env" id="env-diagram" hidden></section>
+      <section class="env" id="env-docs" hidden></section>
+      <section class="env" id="env-new" hidden></section>
+    </div>
+    <div class="scrim" id="scrim"></div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
