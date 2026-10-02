@@ -531,9 +531,10 @@ TAURI.event.listen("state", () => { if (!queued) { queued = true; requestAnimati
 addEventListener("resize", () => { setSide(!narrow()); if (S.env === "diagram") { view = null; renderDiagram(); } });
 
 (async () => {
-  const platform = await invoke("platform");
-  document.documentElement.classList.add("native", platform);
+  const boot = await invoke("boot");
+  document.documentElement.classList.add("native", boot.platform);
+  if ([1, 2, 4].includes(boot.layout)) S.layout = boot.layout;
   snap = await invoke("snapshot");
   applyTheme(); renderSeg(); renderCard(); setSide(!narrow()); setEnv("terminals");
-  window.__bootedAt = performance.now();
+  requestAnimationFrame(() => requestAnimationFrame(() => invoke("ready")));
 })();

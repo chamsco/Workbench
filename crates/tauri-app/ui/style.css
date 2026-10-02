@@ -363,3 +363,5 @@ input { font: inherit; color: inherit; }
 .doc pre { font: 12.5px/1.5 var(--font-mono); background: var(--hover); padding: 10px 12px; border-radius: 8px; overflow-x: auto; }
 .doc ul { padding-left: 20px; }
 .nothing { color: var(--fg-3); padding: 14px; font-size: 12.5px; }
+/* The desk is a still backdrop in the native shells (GPUI paints it static too). */
+.native .blob { animation: none; }

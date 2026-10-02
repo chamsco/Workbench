@@ -71,15 +71,34 @@ fn read_file(h: State<Harness>, path: String) -> Res<String> {
     Ok(String::from_utf8_lossy(cut).into_owned())
 }
 
+/// Platform class for the stylesheet, plus the bench's starting layout.
 #[tauri::command]
-fn platform() -> &'static str {
-    if cfg!(target_os = "macos") {
+fn boot() -> serde_json::Value {
+    let platform = if cfg!(target_os = "macos") {
         "mac"
     } else if cfg!(windows) {
         "win"
     } else {
         "linux"
+    };
+    let layout = std::env::var("BACKSPACE_LAYOUT")
+        .ok()
+        .and_then(|v| v.parse::<u8>().ok());
+    serde_json::json!({ "platform": platform, "layout": layout })
+}
+
+/// The UI's first frame with data is on screen; bench/ times launch to this.
+#[tauri::command]
+fn ready() {
+    if let Ok(path) = std::env::var("BACKSPACE_READY_FILE") {
+        let _ = std::fs::write(path, now_ms().to_string());
     }
+}
+
+fn now_ms() -> u128 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis())
 }
 
 /// Depth-first walk, skipping build output and VCS internals.
@@ -138,7 +157,8 @@ fn main() -> anyhow::Result<()> {
             diagram,
             list_files,
             read_file,
-            platform
+            boot,
+            ready
         ])
         .setup(move |app| {
             let win = app.get_webview_window("main").expect("main window");
