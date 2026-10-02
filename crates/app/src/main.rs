@@ -1,10 +1,12 @@
 //! Backspace desktop workbench.
 //!
 //! A project sidebar on the left (agent tree or ticket board, run status at
-//! the bottom), horizontal view tabs in the title bar, and one to three
-//! split panes. Any view opens in the focused pane: an agent's session, the
-//! review queue, the ticket board, or an agent's worktree. Every review card
-//! leads with a diagram the harness draws from its own data.
+//! the bottom), horizontal view tabs in the title bar, and one to four split
+//! panes (a row of up to three, or a 2x2 grid), all resizable by dragging the
+//! gaps between them. Any view opens in the focused pane: an agent's session,
+//! the review queue, the ticket board, or an agent's worktree. Every review
+//! card leads with a diagram the harness draws from its own data. Light, dark
+//! or follow-the-system theme; frosted window background on macOS.
 //!
 //!   backspace [workspace]     (defaults to the current directory)
 
@@ -20,6 +22,7 @@ use backspace_core::{
     AgentKind, AgentRecord, AgentStatus, Approval, ApprovalKind, Harness, LogKind, ProjectState,
     TicketState, MAIN,
 };
+use gpui_kit::base::{h_resizable, resizable_panel, v_resizable, ResizeHandleRenderer};
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::{h_flex, v_flex, ActiveTheme, Root, Theme, ThemeMode};
@@ -34,6 +37,81 @@ const MONO: &str = if cfg!(target_os = "macos") {
 } else {
     "DejaVu Sans Mono"
 };
+
+/// macOS blurs what is behind a translucent window; elsewhere a translucent
+/// background would just show the desktop unblurred, so stay opaque.
+const GLASS: bool = cfg!(target_os = "macos");
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum ThemePref {
+    System,
+    Light,
+    Dark,
+}
+
+impl ThemePref {
+    fn path() -> Option<PathBuf> {
+        std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config/backspace/ui.toml"))
+    }
+
+    fn load() -> Self {
+        let value = Self::path()
+            .and_then(|p| std::fs::read_to_string(p).ok())
+            .and_then(|s| {
+                s.lines().find_map(|l| {
+                    let (k, v) = l.split_once('=')?;
+                    (k.trim() == "theme").then(|| v.trim().trim_matches('"').to_string())
+                })
+            });
+        match value.as_deref() {
+            Some("light") => Self::Light,
+            Some("dark") => Self::Dark,
+            _ => Self::System,
+        }
+    }
+
+    /// ui.toml only holds UI preferences, so rewriting it whole is fine.
+    fn save(self) {
+        if let Some(p) = Self::path() {
+            if let Some(dir) = p.parent() {
+                let _ = std::fs::create_dir_all(dir);
+            }
+            let _ = std::fs::write(p, format!("theme = \"{}\"\n", self.name()));
+        }
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            Self::System => "system",
+            Self::Light => "light",
+            Self::Dark => "dark",
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::System => "Auto",
+            Self::Light => "Light",
+            Self::Dark => "Dark",
+        }
+    }
+
+    fn next(self) -> Self {
+        match self {
+            Self::System => Self::Light,
+            Self::Light => Self::Dark,
+            Self::Dark => Self::System,
+        }
+    }
+
+    fn apply(self, window: &mut Window, cx: &mut App) {
+        match self {
+            Self::System => Theme::sync_system_appearance(Some(window), cx),
+            Self::Light => Theme::change(ThemeMode::Light, Some(window), cx),
+            Self::Dark => Theme::change(ThemeMode::Dark, Some(window), cx),
+        }
+    }
+}
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum View {
@@ -61,7 +139,8 @@ struct Workbench {
     snap: ProjectState,
     /// Views open as title-bar tabs.
     tabs: Vec<View>,
-    /// What each split pane shows; its length is the layout (1–3).
+    /// What each split pane shows; its length is the layout (1–3 in a row,
+    /// 4 as a 2x2 grid).
     panes: Vec<View>,
     focused: usize,
     side: Side,
@@ -71,6 +150,7 @@ struct Workbench {
     file_filter: Entity<InputState>,
     trees: HashMap<usize, (Instant, Vec<Entry>)>,
     preview: Option<(PathBuf, String)>,
+    theme_pref: ThemePref,
     _subs: Vec<Subscription>,
     _refresh: Task<()>,
 }
@@ -107,6 +187,9 @@ impl Workbench {
         let new_ticket = input("File a ticket — title: what is wrong or wanted", window, cx);
         let file_filter = input("Filter files", window, cx);
 
+        let theme_pref = ThemePref::load();
+        theme_pref.apply(window, cx);
+
         let subs = vec![
             on_enter(&composer, window, cx, |this, text| {
                 this.harness.send(text);
@@ -117,6 +200,12 @@ impl Workbench {
                 this.harness.file_ticket(title.trim(), body.trim()).is_ok()
             }),
             cx.observe(&file_filter, |_, _, cx| cx.notify()),
+            cx.observe_window_appearance(window, |this, window, cx| {
+                if this.theme_pref == ThemePref::System {
+                    Theme::sync_system_appearance(Some(window), cx);
+                    cx.notify();
+                }
+            }),
         ];
 
         let changes = harness.changes();
@@ -145,6 +234,7 @@ impl Workbench {
             file_filter,
             trees: HashMap::new(),
             preview: None,
+            theme_pref,
             _subs: subs,
             _refresh: refresh,
         }
@@ -167,7 +257,7 @@ impl Workbench {
         if !self.tabs.contains(&v) {
             self.tabs.push(v);
         }
-        if self.panes.len() < 3 {
+        if self.panes.len() < 4 {
             self.panes.insert(self.focused + 1, v);
             self.focused += 1;
         } else {
@@ -189,7 +279,12 @@ impl Workbench {
     }
 
     fn set_layout(&mut self, n: usize, cx: &mut Context<Self>) {
-        let defaults = [View::Agent(MAIN), View::Review, View::Files(MAIN)];
+        let defaults = [
+            View::Agent(MAIN),
+            View::Review,
+            View::Files(MAIN),
+            View::Tickets,
+        ];
         while self.panes.len() < n {
             let next = defaults
                 .iter()
@@ -309,8 +404,14 @@ impl Workbench {
                             })
                     })),
             )
-            .child(h_flex().gap_1().flex_none().children((1..=3).map(|n| {
+            .child(h_flex().gap_1().flex_none().children((1..=4).map(|n| {
                 let on = self.panes.len() == n;
+                let ink = if on {
+                    t.foreground.opacity(0.6)
+                } else {
+                    t.muted_foreground.opacity(0.5)
+                };
+                let cell = move || div().flex_1().rounded(px(1.)).bg(ink);
                 div()
                     .id(("layout", n))
                     .w(px(26.))
@@ -325,14 +426,34 @@ impl Workbench {
                         t.border
                     })
                     .on_click(cx.listener(move |this, _, _, cx| this.set_layout(n, cx)))
-                    .child(h_flex().size_full().gap(px(2.)).children((0..n).map(|_| {
-                        div().flex_1().h_full().rounded(px(1.)).bg(if on {
-                            t.foreground.opacity(0.6)
-                        } else {
-                            t.muted_foreground.opacity(0.5)
-                        })
-                    })))
+                    .child(if n == 4 {
+                        v_flex()
+                            .size_full()
+                            .gap(px(2.))
+                            .child(
+                                h_flex()
+                                    .flex_1()
+                                    .gap(px(2.))
+                                    .child(cell().h_full())
+                                    .child(cell().h_full()),
+                            )
+                            .child(
+                                h_flex()
+                                    .flex_1()
+                                    .gap(px(2.))
+                                    .child(cell().h_full())
+                                    .child(cell().h_full()),
+                            )
+                            .into_any_element()
+                    } else {
+                        h_flex()
+                            .size_full()
+                            .gap(px(2.))
+                            .children((0..n).map(|_| cell().h_full()))
+                            .into_any_element()
+                    })
             })))
+            .child(self.theme_toggle(t, cx))
             .child(
                 div().w(px(150.)).flex_none().flex().justify_end().child(
                     div()
@@ -346,6 +467,39 @@ impl Workbench {
                         .child(format!("${:.3}", self.snap.total_cost_usd)),
                 ),
             )
+    }
+
+    /// A half-filled circle drawn with divs (no glyph to go missing in a
+    /// font), plus the current preference.
+    fn theme_toggle(&self, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
+        h_flex()
+            .id("theme")
+            .flex_none()
+            .gap_1p5()
+            .px_2()
+            .h(px(20.))
+            .rounded_sm()
+            .border_1()
+            .border_color(t.border)
+            .cursor_pointer()
+            .text_xs()
+            .hover(|d| d.bg(t.list_hover))
+            .on_click(cx.listener(|this, _, window, cx| {
+                this.theme_pref = this.theme_pref.next();
+                this.theme_pref.save();
+                this.theme_pref.apply(window, cx);
+                cx.notify();
+            }))
+            .child(
+                h_flex()
+                    .size(px(10.))
+                    .rounded_full()
+                    .border_1()
+                    .border_color(t.foreground)
+                    .overflow_hidden()
+                    .child(div().w_1_2().h_full().bg(t.foreground)),
+            )
+            .child(self.theme_pref.label())
     }
 
     fn sidebar(&self, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
@@ -366,9 +520,7 @@ impl Workbench {
                 .child(label)
         };
         v_flex()
-            .w(px(260.))
-            .flex_none()
-            .h_full()
+            .size_full()
             .pt_1()
             .child(
                 h_flex()
@@ -558,10 +710,13 @@ impl Workbench {
             h_flex()
                 .gap_2()
                 .text_xs()
-                .child(div().size(px(6.)).rounded_full().bg(c))
-                .child(div().flex_1().child(label))
+                .child(div().size(px(6.)).flex_none().rounded_full().bg(c))
+                .child(div().flex_none().child(label))
+                .child(div().flex_1())
                 .child(
                     div()
+                        .min_w_0()
+                        .truncate()
                         .font_family(MONO)
                         .text_color(t.muted_foreground)
                         .child(value),
@@ -628,9 +783,7 @@ impl Workbench {
         };
         let closable = self.panes.len() > 1;
         v_flex()
-            .flex_1()
-            .min_w_0()
-            .h_full()
+            .size_full()
             .rounded_lg()
             .border_1()
             .border_color(if focused {
@@ -638,7 +791,7 @@ impl Workbench {
             } else {
                 t.border
             })
-            .bg(t.background)
+            .bg(t.background.opacity(if GLASS { 0.9 } else { 1. }))
             .overflow_hidden()
             .on_mouse_down(
                 MouseButton::Left,
@@ -856,7 +1009,7 @@ impl Workbench {
             .child(
                 h_flex()
                     .gap_2()
-                    .child(div().text_xs().text_color(t.warning).child(kind))
+                    .child(div().text_xs().text_color(ink(t.warning, t)).child(kind))
                     .child(
                         div()
                             .text_sm()
@@ -1106,27 +1259,84 @@ impl Render for Workbench {
         let panes: Vec<AnyElement> = (0..self.panes.len())
             .map(|i| self.pane(i, &t, window, cx))
             .collect();
+
+        // Gaps between panes are the drag handles: invisible until dragged.
+        let handle: ResizeHandleRenderer = Rc::new(|ctx, _, cx| {
+            let c = if ctx.is_active() {
+                cx.theme().foreground.opacity(0.35)
+            } else {
+                transparent_black()
+            };
+            let line = div().flex_none().bg(c);
+            Some(
+                match ctx.axis() {
+                    Axis::Horizontal => line.h_full().w(px(2.)),
+                    Axis::Vertical => line.w_full().h(px(2.)),
+                }
+                .into_any_element(),
+            )
+        });
+        let cell = |el: AnyElement| resizable_panel().p(px(3.)).child(el);
+        let area = if panes.len() == 4 {
+            let mut it = panes.into_iter();
+            let mut next = || it.next().unwrap();
+            let (a, b, c, d) = (next(), next(), next(), next());
+            h_resizable("grid")
+                .with_handle_appearance(handle.clone())
+                .child(
+                    resizable_panel().child(
+                        v_resizable("grid-left")
+                            .with_handle_appearance(handle.clone())
+                            .child(cell(a))
+                            .child(cell(c)),
+                    ),
+                )
+                .child(
+                    resizable_panel().child(
+                        v_resizable("grid-right")
+                            .with_handle_appearance(handle.clone())
+                            .child(cell(b))
+                            .child(cell(d)),
+                    ),
+                )
+                .into_any_element()
+        } else {
+            // One id per layout so each remembers its own split sizes.
+            h_resizable(("row", panes.len()))
+                .with_handle_appearance(handle.clone())
+                .children(panes.into_iter().map(cell))
+                .into_any_element()
+        };
+
         v_flex()
             .size_full()
-            .bg(t.sidebar)
+            .bg(t.sidebar.opacity(if GLASS { 0.72 } else { 1. }))
             .text_color(t.foreground)
             .child(self.titlebar(&t, cx))
             .child(
-                h_flex()
-                    .flex_1()
-                    .min_h_0()
-                    .child(self.sidebar(&t, cx))
-                    .child(
-                        h_flex()
-                            .flex_1()
-                            .min_w_0()
-                            .h_full()
-                            .p_1p5()
-                            .pl_0()
-                            .gap_1p5()
-                            .children(panes),
-                    ),
+                div().flex_1().min_h_0().child(
+                    h_resizable("workbench")
+                        .with_handle_appearance(handle)
+                        .child(
+                            resizable_panel()
+                                .size(px(260.))
+                                .size_range(px(236.)..px(440.))
+                                .flex_none()
+                                .child(self.sidebar(&t, cx)),
+                        )
+                        .child(resizable_panel().pr(px(3.)).pb(px(3.)).child(area)),
+                ),
             )
+    }
+}
+
+/// Theme accents are tuned for dark backgrounds; on light ones amber and
+/// cyan text fades out, so pull their lightness down for text use.
+fn ink(c: Hsla, t: &Theme) -> Hsla {
+    if t.is_dark() {
+        c
+    } else {
+        hsla(c.h, c.s, c.l.min(0.4), c.a)
     }
 }
 
@@ -1134,10 +1344,10 @@ fn log_line(kind: LogKind, text: &str, t: &Theme) -> AnyElement {
     let (glyph, color) = match kind {
         LogKind::User => ("›", t.foreground),
         LogKind::Assistant => ("●", t.foreground),
-        LogKind::ToolCall => ("⎿", t.info),
+        LogKind::ToolCall => ("⎿", ink(t.info, t)),
         LogKind::ToolResult => (" ", t.muted_foreground),
-        LogKind::System => ("※", t.warning),
-        LogKind::Error => ("✗", t.danger),
+        LogKind::System => ("※", ink(t.warning, t)),
+        LogKind::Error => ("✗", ink(t.danger, t)),
     };
     let body = match kind {
         // Tool output is context, not reading material: keep it short.
@@ -1283,7 +1493,6 @@ fn main() -> anyhow::Result<()> {
         .with_assets(gpui_kit::assets::Assets)
         .run(move |cx: &mut App| {
             gpui_kit::init(cx);
-            Theme::change(ThemeMode::Dark, None, cx);
             let bounds = Bounds::centered(None, size(px(1440.), px(900.)), cx);
             cx.open_window(
                 WindowOptions {
@@ -1292,6 +1501,11 @@ fn main() -> anyhow::Result<()> {
                         title: Some("Backspace".into()),
                         ..Default::default()
                     }),
+                    window_background: if GLASS {
+                        WindowBackgroundAppearance::Blurred
+                    } else {
+                        WindowBackgroundAppearance::Opaque
+                    },
                     ..Default::default()
                 },
                 |window, cx| {

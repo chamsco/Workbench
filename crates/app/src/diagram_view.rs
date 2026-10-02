@@ -159,7 +159,11 @@ pub fn card(d: &Diagram, t: &Theme, id: usize, mono: &'static str) -> impl IntoE
                 h_flex()
                     .gap_1p5()
                     .text_xs()
-                    .text_color(t.warning)
+                    .text_color(if t.is_dark() {
+                        t.warning
+                    } else {
+                        hsla(t.warning.h, t.warning.s, t.warning.l.min(0.4), 1.)
+                    })
                     .child("!")
                     .child(div().min_w_0().child(w.clone()))
             })))
