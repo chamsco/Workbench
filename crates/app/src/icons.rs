@@ -113,23 +113,6 @@ const PATHS: &[(&str, &str)] = &[
         r##"<path d="M8 2.6v8M4.6 7.4 8 10.8l3.4-3.4M3 13.4h10"/>"##,
     ),
     ("check", r##"<path d="m3.4 8.4 3 3 6.2-6.6"/>"##),
-    // Layout pickers: filled, 16x12.
-    (
-        "lay2",
-        r##"<rect x="1" y="1" width="6" height="10" rx="1.5"/><rect x="9" y="1" width="6" height="10" rx="1.5"/>"##,
-    ),
-    (
-        "lay1",
-        r##"<rect x="1" y="1" width="14" height="10" rx="1.5"/>"##,
-    ),
-    (
-        "lay3",
-        r##"<rect x="1" y="1" width="4" height="10" rx="1.2"/><rect x="6" y="1" width="4" height="10" rx="1.2"/><rect x="11" y="1" width="4" height="10" rx="1.2"/>"##,
-    ),
-    (
-        "lay4",
-        r##"<rect x="1" y="1" width="6" height="4.2" rx="1"/><rect x="9" y="1" width="6" height="4.2" rx="1"/><rect x="1" y="6.8" width="6" height="4.2" rx="1"/><rect x="9" y="6.8" width="6" height="4.2" rx="1"/>"##,
-    ),
 ];
 
 pub fn path(name: &str) -> SharedString {
@@ -147,15 +130,9 @@ impl AssetSource for Assets {
             let Some((_, body)) = PATHS.iter().find(|(n, _)| *n == name) else {
                 return Ok(None);
             };
-            let svg = if name.starts_with("lay") {
-                format!(
-                    r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 12" fill="#000">{body}</svg>"##
-                )
-            } else {
-                format!(
-                    r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" stroke="#000" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round">{body}</svg>"##
-                )
-            };
+            let svg = format!(
+                r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" stroke="#000" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round">{body}</svg>"##
+            );
             return Ok(Some(Cow::Owned(svg.into_bytes())));
         }
         gpui_kit::assets::Assets.load(path)

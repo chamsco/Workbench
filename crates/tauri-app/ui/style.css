@@ -537,3 +537,30 @@ input { font: inherit; color: inherit; }
   .rcard { position: static; width: auto; max-height: 55%; margin: 0 8px 8px; box-shadow: none; }
   .chooser .card { width: 130px; }
 }
+
+/* ---- layout tree: canvases sit at computed rects and glide between them */
+.grid.tree { display: block; position: relative; }
+.grid.tree > .pane, .grid.tree > .drop-ph { position: absolute; transition: left .18s cubic-bezier(.2,.8,.2,1), top .18s cubic-bezier(.2,.8,.2,1), width .18s cubic-bezier(.2,.8,.2,1), height .18s cubic-bezier(.2,.8,.2,1); }
+.grid.tree.still > .pane, .grid.tree.still > .drop-ph { transition: none; }
+.gut.abs { position: absolute; grid-row: auto; grid-column: auto; }
+.drop-ph { box-sizing: border-box; border: 1.5px dashed var(--fg-3); border-radius: 9px; background: color-mix(in srgb, var(--pane) 45%, transparent); display: grid; place-items: center; pointer-events: none; }
+.drop-ph svg { width: 44px; height: 44px; stroke: var(--fg-3); stroke-width: 1.2; fill: none; stroke-linecap: round; }
+.grid.tree > .pane.dragging { z-index: 50; transition: none; opacity: .9; box-shadow: 0 18px 40px rgba(0,0,0,.28); pointer-events: none; transform: scale(.97); }
+.drag-shield { position: fixed; inset: 0; z-index: 40; cursor: grabbing; }
+.pane .ph { cursor: grab; }
+body.dragging-any, body.dragging-any * { cursor: grabbing !important; user-select: none; }
+.tab.tph { border: 1.5px dashed var(--fg-3); background: transparent; color: var(--fg-3); justify-content: center; }
+.tab.tph svg { width: 12px; height: 12px; }
+.tab.tdragging { position: absolute; z-index: 60; pointer-events: none; box-shadow: 0 6px 16px rgba(0,0,0,.2); }
+.tab.drop-to { box-shadow: 0 0 0 1.5px var(--blue); background: var(--pill-on); }
+.tab.nope { animation: nope .4s; }
+@keyframes nope { 25% { transform: translateX(-3px); } 75% { transform: translateX(3px); } }
+.lays { flex-wrap: wrap; }
+.lays button { flex: 1 0 22%; }
+.tabs { position: relative; }
+.drop-ph[hidden] { display: none; }
+@media (max-width: 760px) {
+  .grid.tree > .pane { position: relative; left: auto !important; top: auto !important; width: auto !important; height: auto !important; }
+  .gut.abs, .drop-ph { display: none; }
+}
+.grid.tree > .pane.dragging.to-tab { transform: scale(.6); transform-origin: top left; }

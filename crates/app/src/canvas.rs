@@ -940,198 +940,6 @@ impl Workbench {
             .into_any_element()
     }
 
-    // -------------------------------------------------------------- grid
-
-    fn gutter(&self, id: &'static str, d: Drag, cx: &mut Context<Self>) -> Stateful<Div> {
-        let p = self.pal;
-        let vertical = d != Drag::Rows;
-        let line = if self.drag == Some(d) {
-            p.pane_edge_on
-        } else {
-            transparent_black()
-        };
-        div()
-            .id(id)
-            .flex_none()
-            .relative()
-            .group(id)
-            .map(|el| {
-                if vertical {
-                    el.w(px(6.)).h_full().cursor_col_resize()
-                } else {
-                    el.h(px(6.)).w_full().cursor_row_resize()
-                }
-            })
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(move |this, _, _, _| this.drag = Some(d)),
-            )
-            .on_click(cx.listener(|this, e: &ClickEvent, _, cx| {
-                if e.click_count() == 2 {
-                    let t = this.tab_mut();
-                    t.cols.clear();
-                    t.rows = 0.56;
-                    this.save_tabs();
-                    cx.notify();
-                }
-            }))
-            .child(
-                div()
-                    .absolute()
-                    .rounded(px(2.))
-                    .bg(line)
-                    .group_hover(id, |s| s.bg(p.pane_edge_on))
-                    .map(|el| {
-                        if vertical {
-                            el.top(relative(0.3))
-                                .bottom(relative(0.3))
-                                .left(px(2.))
-                                .w(px(2.))
-                        } else {
-                            el.left(relative(0.3))
-                                .right(relative(0.3))
-                                .top(px(2.))
-                                .h(px(2.))
-                        }
-                    }),
-            )
-    }
-
-    /// The active tab's canvases: one, two or three side by side, or 2x2.
-    pub(crate) fn grid(
-        &mut self,
-        w: Pixels,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        let count = self.tab().panes.len();
-        if self.focus >= count {
-            self.focus = 0;
-        }
-        if self.max.is_some_and(|m| m >= count) {
-            self.max = None;
-        }
-        let n = if self.max.is_some() { 1 } else { count };
-        let shown: Vec<usize> = match self.max {
-            Some(m) => vec![m],
-            None => (0..n).collect(),
-        };
-        let mut panes: Vec<AnyElement> =
-            shown.iter().map(|&i| self.pane(i, w, window, cx)).collect();
-        let gb = self.grid_bounds.clone();
-        let measure = canvas(move |b, _, _| gb.set(b), |_, _, _, _| {})
-            .absolute()
-            .size_full();
-        // The stylesheet's `calc((100% - gutters) * ratio)`, from last frame's size.
-        let size = self.grid_bounds.get().size;
-        let (cols, rows) = self.splits(n);
-        let gutters = if n == 3 { 12. } else { 6. };
-        let span = |total: Pixels, ratio: f32| -> DefiniteLength {
-            if total > px(0.) {
-                px((f32::from(total) - gutters) * ratio).into()
-            } else {
-                relative(ratio)
-            }
-        };
-        let cell = |el: AnyElement| div().size_full().flex().child(el);
-        let grid = match n {
-            1 => div().size_full().flex().child(panes.remove(0)),
-            2 => {
-                let (a, b) = (panes.remove(0), panes.remove(0));
-                div()
-                    .size_full()
-                    .flex()
-                    .child(
-                        div()
-                            .w(span(size.width, cols[0]))
-                            .h_full()
-                            .flex_none()
-                            .flex()
-                            .child(a),
-                    )
-                    .child(self.gutter("gut-v", Drag::Col(0), cx))
-                    .child(div().flex_1().min_w_0().h_full().flex().child(b))
-            }
-            3 => {
-                let mut it = panes.into_iter();
-                let (a, b, c) = (it.next().unwrap(), it.next().unwrap(), it.next().unwrap());
-                div()
-                    .size_full()
-                    .flex()
-                    .child(
-                        div()
-                            .w(span(size.width, cols[0]))
-                            .h_full()
-                            .flex_none()
-                            .flex()
-                            .child(a),
-                    )
-                    .child(self.gutter("gut-v", Drag::Col(0), cx))
-                    .child(
-                        div()
-                            .w(span(size.width, cols[1] - cols[0]))
-                            .h_full()
-                            .flex_none()
-                            .flex()
-                            .child(b),
-                    )
-                    .child(self.gutter("gut-v2", Drag::Col(1), cx))
-                    .child(div().flex_1().min_w_0().h_full().flex().child(c))
-            }
-            _ => {
-                let mut it = panes.into_iter();
-                let mut next = || cell(it.next().unwrap());
-                let (a, b, c, d) = (next(), next(), next(), next());
-                let cw = span(size.width, cols[0]);
-                let row = |l: Div, r: Div, g: Stateful<Div>| {
-                    div()
-                        .w_full()
-                        .flex()
-                        .child(div().w(cw).h_full().flex_none().flex().child(l))
-                        .child(g)
-                        .child(div().flex_1().min_w_0().h_full().flex().child(r))
-                };
-                let (g1, g2, gh) = (
-                    self.gutter("gut-v1", Drag::Col(0), cx),
-                    self.gutter("gut-v2", Drag::Col(0), cx),
-                    self.gutter("gut-h", Drag::Rows, cx),
-                );
-                let rh = if size.height > px(0.) {
-                    DefiniteLength::from(px((f32::from(size.height) - 6.) * rows))
-                } else {
-                    relative(rows)
-                };
-                div()
-                    .size_full()
-                    .flex()
-                    .flex_col()
-                    .child(row(a, b, g1).h(rh).flex_none())
-                    .child(gh)
-                    .child(row(c, d, g2).flex_1().min_h_0())
-            }
-        };
-        div()
-            .size_full()
-            .relative()
-            .child(measure)
-            .child(grid)
-            .into_any_element()
-    }
-
-    /// Column split fractions and the 2x2 row split for `n` canvases.
-    pub(crate) fn splits(&self, n: usize) -> (Vec<f32>, f32) {
-        let t = self.tab();
-        let want = if n == 3 { 2 } else { 1 };
-        let cols = if t.cols.len() == want {
-            t.cols.clone()
-        } else if n == 3 {
-            vec![1. / 3., 2. / 3.]
-        } else {
-            vec![0.5]
-        };
-        (cols, if t.rows > 0. { t.rows } else { 0.56 })
-    }
-
     fn pane_title(&self, spec: &PaneSpec) -> String {
         let a = self.snap.agents.get(spec.agent);
         match spec.kind.as_str() {
@@ -1154,7 +962,7 @@ impl Workbench {
         }
     }
 
-    fn pane(
+    pub(crate) fn pane(
         &mut self,
         slot: usize,
         w: Pixels,
@@ -1175,6 +983,13 @@ impl Workbench {
         };
         let agent_id = spec.agent;
         let head = div()
+            .id(("phead", slot))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |this, e: &MouseDownEvent, _, _| {
+                    this.press_pane(slot, e.position)
+                }),
+            )
             .h(px(30.))
             .flex_none()
             .flex()

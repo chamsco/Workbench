@@ -13,13 +13,14 @@
 //! GPUI has no web engine, so a browser canvas shows a text snapshot of the
 //! page and opens the real thing in the system browser.
 
+mod arrange;
 mod canvas;
 mod icons;
 mod pal;
 mod stage;
 mod ui;
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -28,6 +29,7 @@ use std::time::{Duration, Instant};
 
 use backspace_core::files::FileEntry;
 use backspace_core::fleet::{Backend, Fleet, MachineInfo};
+use backspace_core::layout::{Node, PRESETS};
 use backspace_core::prefs::{PaneSpec, Prefs, TabSpec};
 use backspace_core::remote::Link;
 use backspace_core::update::UpdateInfo;
@@ -61,9 +63,8 @@ pub(crate) enum Viewport {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Drag {
     Side,
-    /// Column gutter 0 or 1 (three canvases have two).
-    Col(usize),
-    Rows,
+    /// A gutter of the active tab's layout, by index.
+    Gut(usize),
 }
 
 pub(crate) type FitKey = (usize, usize, f32, f32, f32);
@@ -115,6 +116,12 @@ pub(crate) struct Workbench {
     side_w: f32,
     pub(crate) drag: Option<Drag>,
     pub(crate) grid_bounds: Rc<Cell<Bounds<Pixels>>>,
+    pub(crate) gutters: Vec<backspace_core::layout::Gutter>,
+    pub(crate) pdrag: Option<arrange::PaneDrag>,
+    pub(crate) tdrag: Option<arrange::TabDrag>,
+    pub(crate) tab_dragged: bool,
+    pub(crate) anim: arrange::Anim,
+    pub(crate) tab_bounds: Rc<RefCell<Vec<Bounds<Pixels>>>>,
     win_bounds: Rc<Cell<Bounds<Pixels>>>,
 
     pub(crate) composer: Entity<InputState>,
@@ -335,6 +342,12 @@ impl Workbench {
             side_w: 264.,
             drag: None,
             grid_bounds: Rc::default(),
+            gutters: Vec::new(),
+            pdrag: None,
+            tdrag: None,
+            tab_dragged: false,
+            anim: Default::default(),
+            tab_bounds: Rc::default(),
             win_bounds: Rc::default(),
             composer,
             panes,
@@ -692,11 +705,18 @@ impl Workbench {
         cx.notify();
     }
 
-    fn create_tab(&mut self, name: String, n: usize, window: &mut Window, cx: &mut Context<Self>) {
+    fn create_tab(
+        &mut self,
+        name: String,
+        preset: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let name = Some(name.trim().to_string()).filter(|s| !s.is_empty());
-        self.prefs
-            .tabs
-            .push(TabSpec::new(name, vec![PaneSpec::default(); n]));
+        let (id, _, n) = PRESETS[preset];
+        let mut t = TabSpec::new(name, vec![PaneSpec::default(); n]);
+        t.layout = Some(Node::preset(id));
+        self.prefs.tabs.push(t);
         self.pop = None;
         let last = self.prefs.tabs.len() - 1;
         self.switch_tab(last, window, cx);
@@ -763,8 +783,8 @@ impl Workbench {
             self.max = None;
         } else if self.tab().panes.len() > 1 {
             let t = self.tab_mut();
+            t.layout = t.tree().remove(slot).map(|n| n.renumber(slot));
             t.panes.remove(slot);
-            t.cols.clear();
         } else {
             self.tab_mut().panes[0] = PaneSpec::default();
         }
@@ -779,10 +799,29 @@ impl Workbench {
         if self.tab().panes.len() >= 4 {
             return;
         }
+        // Split the focused canvas along its longer side.
+        let full = self.grid_bounds.get().size;
+        let tree = self.tab().tree();
+        let (leaves, _) = tree.layout(
+            backspace_core::layout::Rect {
+                x: 0.,
+                y: 0.,
+                w: f32::from(full.width).max(1000.),
+                h: f32::from(full.height).max(600.),
+            },
+            6.,
+        );
+        let focus = self.focus;
+        let (target, r) = leaves
+            .iter()
+            .find(|l| l.0 == focus)
+            .copied()
+            .unwrap_or(leaves[0]);
         let t = self.tab_mut();
+        let n = t.panes.len();
+        t.layout = Some(tree.add_beside(target, r, n));
         t.panes.push(spec);
-        t.cols.clear();
-        self.focus = self.tab().panes.len() - 1;
+        self.focus = n;
         self.max = None;
         self.settings = false;
         self.save_tabs();
@@ -939,7 +978,7 @@ impl Render for Workbench {
             .relative()
             .flex()
             .flex_col()
-            .child(self.tbar(w, cx))
+            .child(self.tbar(w, window, cx))
             .child(
                 div()
                     .flex_1()
@@ -1010,7 +1049,9 @@ impl Render for Workbench {
             .on_key_down(cx.listener(|this, e: &KeyDownEvent, window, cx| {
                 let key = e.keystroke.key.as_str();
                 if key == "escape" {
-                    if this.renaming.is_some() {
+                    if this.pdrag.take().is_some() || this.tdrag.take().is_some() {
+                        this.anim.xs.clear();
+                    } else if this.renaming.is_some() {
                         this.commit_rename(None, cx);
                     } else if this.pop.is_some() {
                         this.pop = None;
@@ -1053,28 +1094,20 @@ impl Render for Workbench {
                 }
             }))
             .on_mouse_move(cx.listener(|this, e: &MouseMoveEvent, _, cx| {
-                if let Some(d) = this.drag {
-                    let b = this.grid_bounds.get();
-                    let fx = f32::from(e.position.x - b.origin.x) / f32::from(b.size.width).max(1.);
-                    let fy =
-                        f32::from(e.position.y - b.origin.y) / f32::from(b.size.height).max(1.);
-                    let n = this.tab().panes.len();
-                    let (mut cols, _) = this.splits(n);
+                if !e.dragging() {
+                    // A release outside the window: forget the press.
+                    this.pdrag = None;
+                    this.tdrag = None;
+                }
+                if this.move_pane(e.position) || this.move_tab(e.position) {
+                    cx.notify();
+                } else if let Some(d) = this.drag {
                     match d {
                         Drag::Side => {
                             let left = this.win_bounds.get().origin.x;
                             this.side_w = f32::from(e.position.x - left).clamp(220., 380.);
                         }
-                        Drag::Col(0) => {
-                            let hi = if n == 3 { cols[1] - 0.12 } else { 0.8 };
-                            cols[0] = fx.clamp(0.15, hi);
-                            this.tab_mut().cols = cols;
-                        }
-                        Drag::Col(_) => {
-                            cols[1] = fx.clamp(cols[0] + 0.12, 0.85);
-                            this.tab_mut().cols = cols;
-                        }
-                        Drag::Rows => this.tab_mut().rows = fy.clamp(0.2, 0.8),
+                        Drag::Gut(i) => this.drag_gutter(i, e.position),
                     }
                     cx.notify();
                 } else if let Some((slot, last)) = this.pan {
@@ -1090,10 +1123,12 @@ impl Render for Workbench {
             }))
             .on_mouse_up(
                 MouseButton::Left,
-                cx.listener(|this, _, _, cx| {
+                cx.listener(|this, _, window, cx| {
                     if this.drag.take().is_some_and(|d| d != Drag::Side) {
                         this.save_tabs();
                     }
+                    this.drop_pane(window, cx);
+                    this.drop_tab(cx);
                     this.pan = None;
                     cx.notify();
                 }),
@@ -1569,7 +1604,7 @@ impl Workbench {
 
     // -------------------------------------------------------------- title bar
 
-    fn tbar(&mut self, w: Pixels, cx: &mut Context<Self>) -> impl IntoElement {
+    fn tbar(&mut self, w: Pixels, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let p = self.pal;
         let pending = self.pending();
         let tickets = self.snap.tickets.len();
@@ -1600,7 +1635,6 @@ impl Workbench {
             .map(|(i, t)| {
                 let sel = i == self.prefs.active_tab && !self.settings;
                 let badge = pending > 0 && t.panes.iter().any(|p| p.kind == "diagram");
-                let n = t.panes.len().clamp(1, 4);
                 let el = pill(("tab", i).into(), sel);
                 if self.renaming == Some(i) {
                     return el
@@ -1616,48 +1650,86 @@ impl Workbench {
                         )
                         .into_any_element();
                 }
-                el.on_click(cx.listener(move |this, e: &ClickEvent, window, cx| {
-                    if e.click_count() == 2 {
-                        this.start_rename(i, window, cx);
-                    } else {
-                        this.commit_rename(None, cx);
-                        this.switch_tab(i, window, cx);
-                    }
-                }))
-                .on_mouse_down(
-                    MouseButton::Right,
-                    cx.listener(move |this, e: &MouseDownEvent, _, cx| {
-                        this.pop = Some((Pop::TabMenu(i), e.position));
-                        cx.stop_propagation();
-                        cx.notify();
-                    }),
-                )
-                .map(|d| match &t.name {
-                    Some(name) => d.child(name.clone()),
-                    None => d.child(
-                        svg()
-                            .path(icons::path(&format!("lay{n}")))
-                            .w(px(16.))
-                            .h(px(12.))
-                            .text_color((if sel { p.fg } else { p.fg3 }).opacity(0.85)),
-                    ),
-                })
-                .when(badge, |d| {
-                    d.child(
-                        div()
-                            .absolute()
-                            .top(px(-3.))
-                            .right(px(-3.))
-                            .size(px(7.))
-                            .rounded_full()
-                            .bg(p.blue)
-                            .border(px(1.5))
-                            .border_color(p.glass),
+                let tb = self.tab_bounds.clone();
+                let drop_to = self.pdrag.as_ref().is_some_and(|d| d.tab_to == Some(i));
+                el.when(drop_to, |d| d.bg(p.pill_on).border_color(p.blue))
+                    .child(
+                        canvas(
+                            move |b, _, _| {
+                                let mut v = tb.borrow_mut();
+                                if v.len() <= i {
+                                    v.resize(i + 1, Bounds::default());
+                                }
+                                v[i] = b;
+                            },
+                            |_, _, _, _| {},
+                        )
+                        .absolute()
+                        .size_full(),
                     )
-                })
-                .into_any_element()
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(move |this, e: &MouseDownEvent, _, _| {
+                            this.press_tab(i, e.position)
+                        }),
+                    )
+                    .on_click(cx.listener(move |this, e: &ClickEvent, window, cx| {
+                        if std::mem::take(&mut this.tab_dragged) {
+                            return;
+                        }
+                        if e.click_count() == 2 {
+                            this.start_rename(i, window, cx);
+                        } else {
+                            this.commit_rename(None, cx);
+                            this.switch_tab(i, window, cx);
+                        }
+                    }))
+                    .on_mouse_down(
+                        MouseButton::Right,
+                        cx.listener(move |this, e: &MouseDownEvent, _, cx| {
+                            this.pop = Some((Pop::TabMenu(i), e.position));
+                            cx.stop_propagation();
+                            cx.notify();
+                        }),
+                    )
+                    .map(|d| match &t.name {
+                        Some(name) => d.child(name.clone()),
+                        None => d.child(arrange::tree_icon(
+                            &t.tree(),
+                            16.,
+                            12.,
+                            (if sel { p.fg } else { p.fg3 }).opacity(0.85),
+                        )),
+                    })
+                    .when(badge, |d| {
+                        d.child(
+                            div()
+                                .absolute()
+                                .top(px(-3.))
+                                .right(px(-3.))
+                                .size(px(7.))
+                                .rounded_full()
+                                .bg(p.blue)
+                                .border(px(1.5))
+                                .border_color(p.glass),
+                        )
+                    })
+                    .into_any_element()
             })
             .collect();
+        let plus = pill("newtab".into(), false)
+            .px(px(6.))
+            .on_click(cx.listener(|this, e: &ClickEvent, window, cx| {
+                this.pop = Some((Pop::NewTab(1), e.position()));
+                this.new_name.update(cx, |s, cx| {
+                    s.set_value("", window, cx);
+                    s.focus(window, cx)
+                });
+                cx.notify();
+            }))
+            .child(icon("plus", 14., p.fg2))
+            .into_any_element();
+        let strip = self.tab_strip(tabs, plus, window);
         let (upd_label, upd_icon, upd_new, upd_url) = match &self.upd {
             Upd::Checking => ("Checking…".to_string(), None, false, None),
             Upd::Done(Ok(u)) if u.newer => (
@@ -1686,27 +1758,7 @@ impl Workbench {
                     },
                 )))
             })
-            .child(
-                div()
-                    .flex()
-                    .gap(px(4.))
-                    .items_center()
-                    .min_w_0()
-                    .children(tabs)
-                    .child(
-                        pill("newtab".into(), false)
-                            .px(px(6.))
-                            .on_click(cx.listener(|this, e: &ClickEvent, window, cx| {
-                                this.pop = Some((Pop::NewTab(2), e.position()));
-                                this.new_name.update(cx, |s, cx| {
-                                    s.set_value("", window, cx);
-                                    s.focus(window, cx)
-                                });
-                                cx.notify();
-                            }))
-                            .child(icon("plus", 14., p.fg2)),
-                    ),
-            )
+            .child(strip)
             .child(div().flex_1())
             .child(ib("addcanvas", "plus", &p, false).on_click(cx.listener(
                 |this, e: &ClickEvent, _, cx| {
@@ -1868,9 +1920,11 @@ impl Workbench {
             Pop::NewTab(n) => {
                 let lay = |k: usize| {
                     let on = k == n;
+                    let (id, name, _) = PRESETS[k];
                     div()
                         .id(("lay", k))
                         .flex_1()
+                        .min_w(px(52.))
                         .h(px(44.))
                         .rounded(px(8.))
                         .flex()
@@ -1890,21 +1944,16 @@ impl Workbench {
                             this.new_name.update(cx, |s, cx| s.focus(window, cx));
                             cx.notify()
                         }))
-                        .child(
-                            svg()
-                                .path(icons::path(&format!("lay{k}")))
-                                .w(px(22.))
-                                .h(px(16.))
-                                .text_color(if on { p.fg } else { p.fg3 }),
-                        )
-                        .child(if k == 4 {
-                            "2×2".to_string()
-                        } else {
-                            k.to_string()
-                        })
+                        .child(arrange::tree_icon(
+                            &Node::preset(id),
+                            22.,
+                            16.,
+                            if on { p.fg } else { p.fg3 },
+                        ))
+                        .child(name)
                 };
                 div()
-                    .w(px(260.))
+                    .w(px(280.))
                     .child(label("New tab"))
                     .child(
                         div()
@@ -1931,7 +1980,8 @@ impl Workbench {
                             .gap(px(6.))
                             .mx(px(4.))
                             .mb(px(10.))
-                            .children((1..=4).map(lay)),
+                            .flex_wrap()
+                            .children((0..PRESETS.len()).map(lay)),
                     )
                     .child(
                         div().flex().justify_end().mx(px(4.)).mb(px(2.)).child(

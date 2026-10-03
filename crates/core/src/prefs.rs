@@ -66,9 +66,9 @@ pub struct TabSpec {
     /// None: the tab shows its layout icon instead of a name.
     pub name: Option<String>,
     pub panes: Vec<PaneSpec>,
-    /// Split positions as fractions: columns, then the 2x2 row split.
-    pub cols: Vec<f32>,
-    pub rows: f32,
+    /// How the panes are arranged; None (older prefs) means the default
+    /// for their count.
+    pub layout: Option<crate::layout::Node>,
 }
 
 impl Default for TabSpec {
@@ -76,8 +76,7 @@ impl Default for TabSpec {
         Self {
             name: None,
             panes: vec![PaneSpec::default()],
-            cols: vec![],
-            rows: 0.56,
+            layout: None,
         }
     }
 }
@@ -88,6 +87,14 @@ impl TabSpec {
             name,
             panes,
             ..Self::default()
+        }
+    }
+
+    /// The layout to draw: the saved one if it still matches the panes.
+    pub fn tree(&self) -> crate::layout::Node {
+        match &self.layout {
+            Some(t) if t.valid_for(self.panes.len()) => t.clone(),
+            _ => crate::layout::Node::default_for(self.panes.len()),
         }
     }
 

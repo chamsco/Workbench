@@ -42,13 +42,6 @@ const P = {
   down: '<path d="M8 2.6v8M4.6 7.4 8 10.8l3.4-3.4M3 13.4h10"/>',
 };
 const icon = (n, cls = "") => `<svg class="ic ${cls}" viewBox="0 0 16 16" aria-hidden="true">${P[n]}</svg>`;
-const LAY = {
-  1: '<rect x="1" y="1" width="14" height="10" rx="1.5"/>',
-  2: '<rect x="1" y="1" width="6" height="10" rx="1.5"/><rect x="9" y="1" width="6" height="10" rx="1.5"/>',
-  3: '<rect x="1" y="1" width="4" height="10" rx="1.2"/><rect x="6" y="1" width="4" height="10" rx="1.2"/><rect x="11" y="1" width="4" height="10" rx="1.2"/>',
-  4: '<rect x="1" y="1" width="6" height="4.2" rx="1"/><rect x="9" y="1" width="6" height="4.2" rx="1"/><rect x="1" y="6.8" width="6" height="4.2" rx="1"/><rect x="9" y="6.8" width="6" height="4.2" rx="1"/>',
-};
-const layIcon = n => `<svg class="lay-ic" viewBox="0 0 16 12" aria-hidden="true">${LAY[n]}</svg>`;
 $$("[data-icon]").forEach(el => (el.innerHTML = icon(el.dataset.icon)));
 
 // ------------------------------------------------------------------ state
@@ -78,6 +71,103 @@ let saveT = null;
 function saveTabs() {
   clearTimeout(saveT);
   saveT = setTimeout(() => invoke("set_tabs", { tabs: prefs.tabs, active: prefs.active_tab }), 250);
+}
+
+
+// ------------------------------------------------------------------ layout tree
+// Mirrors core::layout: {leaf: i} | {dir: "row"|"col", ratio, a, b}. Rust
+// owns the format (prefs.json); this copy draws it and applies drags.
+const PH = -1;
+const L = {
+  leaf: i => ({ leaf: i }),
+  split: (dir, ratio, a, b) => ({ dir, ratio, a, b }),
+  defaultFor(n) {
+    const l = L.leaf, s = L.split;
+    if (n <= 1) return l(0);
+    if (n === 2) return s("row", 0.5, l(0), l(1));
+    if (n === 3) return s("row", 1 / 3, l(0), s("row", 0.5, l(1), l(2)));
+    return s("col", 0.56, s("row", 0.5, l(0), l(1)), s("row", 0.5, l(2), l(3)));
+  },
+  preset(id) {
+    const l = L.leaf, s = L.split;
+    if (id === "top1") return s("col", 0.5, l(0), s("row", 0.5, l(1), l(2)));
+    if (id === "bottom1") return s("col", 0.5, s("row", 0.5, l(0), l(1)), l(2));
+    if (id === "left1") return s("row", 0.5, l(0), s("col", 0.5, l(1), l(2)));
+    return L.defaultFor(+id || 1);
+  },
+  leaves: t => ("leaf" in t ? [t.leaf] : [...L.leaves(t.a), ...L.leaves(t.b)]),
+  valid(t, n) {
+    if (!t || typeof t !== "object") return false;
+    const l = L.leaves(t).slice().sort((a, b) => a - b);
+    return l.length === n && l.every((v, i) => v === i);
+  },
+  layout(t, r, gap, path = [], out = { leaves: [], gutters: [] }) {
+    if ("leaf" in t) { out.leaves.push({ leaf: t.leaf, r }); return out; }
+    let ra, g, rb;
+    if (t.dir === "row") {
+      const wa = Math.max(0, (r.w - gap) * t.ratio);
+      ra = { ...r, w: wa }; g = { ...r, x: r.x + wa, w: gap }; rb = { ...r, x: r.x + wa + gap, w: Math.max(0, r.w - gap - wa) };
+    } else {
+      const ha = Math.max(0, (r.h - gap) * t.ratio);
+      ra = { ...r, h: ha }; g = { ...r, y: r.y + ha, h: gap }; rb = { ...r, y: r.y + ha + gap, h: Math.max(0, r.h - gap - ha) };
+    }
+    out.gutters.push({ path: path.slice(), dir: t.dir, r: g, span: r });
+    L.layout(t.a, ra, gap, [...path, false], out);
+    L.layout(t.b, rb, gap, [...path, true], out);
+    return out;
+  },
+  setRatio(t, path, v) {
+    if (!path.length) { if (!("leaf" in t)) t.ratio = Math.min(0.9, Math.max(0.1, v)); return; }
+    L.setRatio(path[0] ? t.b : t.a, path.slice(1), v);
+  },
+  remove(t, x) {
+    if ("leaf" in t) return t.leaf === x ? null : t;
+    const a = L.remove(t.a, x), b = L.remove(t.b, x);
+    return a && b ? { ...t, a, b } : a || b;
+  },
+  insert(t, target, side, nw) {
+    if ("leaf" in t) {
+      if (t.leaf !== target) return t;
+      const T = L.leaf(target), N = L.leaf(nw);
+      return { left: L.split("row", 0.5, N, T), right: L.split("row", 0.5, T, N), top: L.split("col", 0.5, N, T), bottom: L.split("col", 0.5, T, N) }[side] || N;
+    }
+    return { ...t, a: L.insert(t.a, target, side, nw), b: L.insert(t.b, target, side, nw) };
+  },
+  map: (t, f) => ("leaf" in t ? L.leaf(f(t.leaf)) : { ...t, a: L.map(t.a, f), b: L.map(t.b, f) }),
+  rename: (t, from, to) => L.map(t, l => (l === from ? to : l)),
+  swap: (t, x, y) => L.map(t, l => (l === x ? y : l === y ? x : l)),
+  renumber: (t, removed) => L.map(t, l => (l > removed ? l - 1 : l)),
+  // The tree after dropping `d` on `side` of `target`, showing it as `shown`.
+  moved(t, d, target, side, shown) {
+    if (d === target) return L.rename(t, d, shown);
+    if (side === "center") return L.rename(L.swap(t, d, target), d, shown);
+    const rest = L.remove(t, d);
+    return rest ? L.insert(rest, target, side, shown) : L.rename(t, d, shown);
+  },
+  // Outer quarter on each side splits there; the middle swaps.
+  zone(r, x, y) {
+    const dx = (x - r.x) / Math.max(1, r.w), dy = (y - r.y) / Math.max(1, r.h);
+    const e = [[dx, "left"], [1 - dx, "right"], [dy, "top"], [1 - dy, "bottom"]].sort((a, b) => a[0] - b[0])[0];
+    return e[0] < 0.25 ? e[1] : "center";
+  },
+};
+const PRESETS = [["1", "1", 1], ["2", "2", 2], ["3", "3", 3], ["4", "2×2", 4], ["top1", "1 over 2", 3], ["bottom1", "2 over 1", 3], ["left1", "1 | 2", 3]];
+const tree = t => (L.valid(t.layout, t.panes.length) ? t.layout : L.defaultFor(t.panes.length));
+// A tab's actual arrangement in 16x12, for unnamed tabs and the presets.
+function treeIcon(t, cls = "lay-ic") {
+  const { leaves } = L.layout(t, { x: 1, y: 1, w: 14, h: 10 }, 1.6);
+  return `<svg class="${cls}" viewBox="0 0 16 12" aria-hidden="true">${leaves.map(({ r }) => `<rect x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}" rx="1.1"/>`).join("")}</svg>`;
+}
+// Slide elements from where they were to where a DOM change put them.
+function flip(els, mutate) {
+  const before = new Map(els.map(e => [e, e.getBoundingClientRect().left]));
+  mutate();
+  els.forEach(e => {
+    const dx = before.get(e) - e.getBoundingClientRect().left;
+    if (!dx) return;
+    e.style.transition = "none"; e.style.transform = `translateX(${dx}px)`;
+    requestAnimationFrame(() => { e.style.transition = "transform .16s ease"; e.style.transform = ""; });
+  });
 }
 
 // ------------------------------------------------------------------ theme + chrome
@@ -192,21 +282,61 @@ function renderTabs() {
   const n = pending().length;
   $("#tabs").innerHTML = prefs.tabs.map((t, i) => {
     const badge = n && t.panes.some(p => p.kind === "diagram") ? '<span class="badge"></span>' : "";
-    const label = t.name ? esc(t.name) : layIcon(t.panes.length);
-    return `<button class="tab" role="tab" aria-selected="${i === prefs.active_tab}" data-tab="${i}" aria-label="${esc(t.name || t.panes.length + " canvases")}, right-click to rename">${label}${badge}</button>`;
+    const label = t.name ? esc(t.name) : treeIcon(tree(t));
+    return `<button class="tab" role="tab" aria-selected="${i === prefs.active_tab}" data-tab="${i}" aria-label="${esc(t.name || t.panes.length + " canvases")}, drag to move, right-click to rename">${label}${badge}</button>`;
   }).join("") + `<button class="tab plus" id="newTab" data-popper aria-label="New tab" title="New tab (⌘T)">${icon("plus")}</button>`;
   $$("#tabs [data-tab]").forEach(b => {
     const i = +b.dataset.tab;
-    b.onclick = () => switchTab(i);
+    b.onclick = () => { if (S.dragged) { S.dragged = false; return; } switchTab(i); };
     b.ondblclick = () => renameTab(i);
     b.oncontextmenu = e => { e.preventDefault(); tabMenu(b, i); };
+    b.addEventListener("pointerdown", e => tabDrag(e, b, i));
   });
   $("#newTab").onclick = e => newTabPop(e.currentTarget);
   renderCta();
 }
+// Drag a tab along the bar: the others slide apart around a dotted slot.
+function tabDrag(e, el, i) {
+  if (e.button !== 0 || el.classList.contains("editing")) return;
+  const sx = e.clientX, sy = e.clientY;
+  let d = null;
+  const begin = () => {
+    const others = $$("#tabs [data-tab]").filter(x => x !== el);
+    const mids = others.map(x => { const r = x.getBoundingClientRect(); return r.left + r.width / 2; });
+    const r = el.getBoundingClientRect();
+    const ph = document.createElement("span");
+    ph.className = "tab tph"; ph.style.width = r.width + "px"; ph.innerHTML = icon("plus");
+    el.before(ph);
+    el.classList.add("tdragging");
+    const tr = $("#tabs").getBoundingClientRect();
+    el.style.width = r.width + "px"; el.style.top = r.top - tr.top + "px";
+    document.body.classList.add("dragging-any");
+    return { others, mids, ph, tl: tr.left, dx: sx - r.left, idx: others.findIndex((_, k) => k >= i) < 0 ? others.length : i };
+  };
+  const move = ev => {
+    if (!d) { if (Math.hypot(ev.clientX - sx, ev.clientY - sy) < 5) return; d = begin(); }
+    el.style.left = ev.clientX - d.tl - d.dx + "px";
+    const idx = d.mids.filter(m => m < ev.clientX).length;
+    if (idx === d.idx) return;
+    d.idx = idx;
+    flip(d.others, () => (idx < d.others.length ? d.others[idx].before(d.ph) : $("#newTab").before(d.ph)));
+  };
+  const up = () => {
+    removeEventListener("pointermove", move); removeEventListener("pointerup", up);
+    if (!d) return;
+    S.dragged = true; setTimeout(() => (S.dragged = false), 0);
+    document.body.classList.remove("dragging-any");
+    const active = prefs.tabs[prefs.active_tab];
+    const [t] = prefs.tabs.splice(i, 1);
+    prefs.tabs.splice(d.idx, 0, t);
+    prefs.active_tab = prefs.tabs.indexOf(active);
+    S.pane.clear(); saveTabs(); renderTabs(); renderGrid();
+  };
+  addEventListener("pointermove", move); addEventListener("pointerup", up);
+}
 function switchTab(i) {
   if (i === prefs.active_tab && !S.settings) return;
-  prefs.active_tab = i; S.focus = 0; S.max = null; closeSettings();
+  prefs.active_tab = i; S.focus = 0; S.max = null; S.pane.clear(); closeSettings();
   saveTabs(); renderTabs(); renderGrid(); renderList();
 }
 function tabMenu(anchor, i) {
@@ -236,16 +366,17 @@ function renameTab(i) {
   inp.onclick = e => e.stopPropagation();
 }
 function newTabPop(anchor) {
-  let n = 2;
-  const lays = () => [1, 2, 3, 4].map(k => `<button aria-pressed="${k === n}" data-n="${k}" aria-label="${k} canvas${k > 1 ? "es" : ""}"><svg viewBox="0 0 16 12">${LAY[k]}</svg>${k === 4 ? "2×2" : k}</button>`).join("");
+  let pick = "2";
+  const lays = () => PRESETS.map(([id, label]) => `<button aria-pressed="${id === pick}" data-p="${id}" aria-label="${label}">${treeIcon(L.preset(id), "")}${label}</button>`).join("");
   openPop(anchor, `<h5>New tab</h5><label class="field"><input id="ntName" placeholder="Name (optional)" maxlength="40"></label>
     <h5>Canvases</h5><div class="lays" id="ntLays">${lays()}</div>
     <div class="row-end"><button class="btn primary" id="ntGo">Create</button></div>`, pop => {
-    const wireLays = () => $$("[data-n]", pop).forEach(b => (b.onclick = () => { n = +b.dataset.n; $("#ntLays", pop).innerHTML = lays(); wireLays(); }));
+    const wireLays = () => $$("[data-p]", pop).forEach(b => (b.onclick = () => { pick = b.dataset.p; $("#ntLays", pop).innerHTML = lays(); wireLays(); }));
     wireLays();
     const go = () => {
       const name = $("#ntName", pop).value.trim() || null;
-      prefs.tabs.push({ name, panes: Array.from({ length: n }, () => ({ kind: "empty", agent: 0, url: null })), cols: [], rows: 0.56 });
+      const n = PRESETS.find(p => p[0] === pick)[2];
+      prefs.tabs.push({ name, panes: Array.from({ length: n }, () => ({ kind: "empty", agent: 0, url: null })), layout: L.preset(pick) });
       closePop(); switchTab(prefs.tabs.length - 1);
     };
     $("#ntGo", pop).onclick = go;
@@ -268,7 +399,12 @@ $("#addCanvas").onclick = e => {
 function addCanvas(spec) {
   closePop();
   const t = tab(); if (t.panes.length >= 4) return;
-  t.panes.push({ agent: 0, url: null, ...spec }); t.cols = []; S.focus = t.panes.length - 1; S.max = null;
+  // Split the focused canvas along its longer side.
+  const g = $("#grid"), tr = tree(t), n = t.panes.length;
+  const { leaves } = L.layout(tr, { x: 0, y: 0, w: g.clientWidth || 1000, h: g.clientHeight || 600 }, 6);
+  const f = leaves.find(l => l.leaf === S.focus) || leaves[0];
+  t.layout = L.insert(tr, f.leaf, f.r.w >= f.r.h ? "right" : "bottom", n);
+  t.panes.push({ agent: 0, url: null, ...spec }); S.focus = n; S.max = null;
   saveTabs(); closeSettings(); renderTabs(); renderGrid();
 }
 
@@ -480,6 +616,7 @@ function buildPane(p, slot) {
     ${p.kind !== "empty" ? `<button class="ib" data-act="swap" aria-label="Show something else here" title="Show something else here">${icon("window")}</button>` : ""}
     ${tab().panes.length > 1 ? `<button class="ib" data-act="max" aria-label="Maximize canvas">${icon("expand")}</button>` : ""}
     <button class="ib" data-act="close" aria-label="Close canvas">${icon("close")}</button></header>`;
+  el.querySelector(".ph").addEventListener("pointerdown", e => { if (!e.target.closest("button")) paneDrag(e, el, slot); });
   el.addEventListener("pointerdown", () => { if (S.focus !== slot) { S.focus = slot; $$(".pane").forEach(x => x.classList.toggle("on", +x.dataset.slot === slot)); renderList(); } });
   const act = (k, f) => { const b = el.querySelector(`[data-act=${k}]`); if (b) b.onclick = f; };
   act("max", () => { S.max = S.max == null ? slot : null; renderGrid(); });
@@ -488,7 +625,7 @@ function buildPane(p, slot) {
   act("close", () => {
     const t = tab();
     if (S.max != null) S.max = null;
-    else if (t.panes.length > 1) { t.panes.splice(slot, 1); t.cols = []; S.pane.clear(); }
+    else if (t.panes.length > 1) { t.layout = L.renumber(L.remove(tree(t), slot), slot); t.panes.splice(slot, 1); S.pane.clear(); }
     else t.panes[0] = { kind: "empty", agent: 0, url: null };
     S.focus = Math.min(S.focus, t.panes.length - 1); saveTabs(); renderTabs(); renderGrid();
   });
@@ -534,22 +671,49 @@ function chooser(slot, body) {
   $$("[data-a]", body).forEach(b => (b.onclick = () => setPane(slot, { kind: "agent", agent: +b.dataset.a, url: null })));
 }
 
+// Canvases sit absolutely at the rectangles of the tab's layout tree, so a
+// new arrangement (a drag preview, a resize) is a style change the browser
+// animates rather than a rebuild.
 function renderGrid() {
   const g = $("#grid"), t = tab();
   if (S.focus >= t.panes.length) S.focus = 0;
-  const n = S.max != null ? 1 : t.panes.length;
-  const shown = S.max != null ? [[t.panes[S.max], S.max]] : t.panes.map((p, i) => [p, i]);
-  const cols = t.cols && t.cols.length ? t.cols : n === 3 ? [1 / 3, 2 / 3] : [0.5];
-  g.className = "grid L" + n;
-  g.style.setProperty("--cx", cols[0]); g.style.setProperty("--ry", t.rows || 0.56);
-  g.style.setProperty("--c1", cols[0]); g.style.setProperty("--c2", cols[1] ?? 2 / 3);
+  g.className = "grid tree still";
   g.innerHTML = "";
-  const areas = { 1: ["1 / 1"], 2: ["1 / 1", "1 / 3"], 3: ["1 / 1", "1 / 3", "1 / 5"], 4: ["1 / 1", "1 / 3", "3 / 1", "3 / 3"] }[n];
-  shown.forEach(([p, slot], i) => { const el = buildPane(p, slot); el.style.gridArea = areas[i]; g.appendChild(el); });
-  if (n >= 2) g.appendChild(gutter("v"));
-  if (n === 3) g.appendChild(gutter("v2"));
-  if (n === 4) g.appendChild(gutter("h"));
+  S.els = new Map();
+  t.panes.forEach((p, slot) => {
+    if (S.max != null && slot !== S.max) return;
+    const el = buildPane(p, slot);
+    g.appendChild(el); S.els.set(slot, el);
+  });
+  const ph = document.createElement("div");
+  ph.className = "drop-ph"; ph.hidden = true;
+  ph.innerHTML = `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3.2v9.6M3.2 8h9.6"/></svg>`;
+  g.appendChild(ph); S.ph = ph;
+  position(tree(t));
+  requestAnimationFrame(() => g.classList.remove("still"));
 }
+function position(tr) {
+  const g = $("#grid"), W = g.clientWidth, H = g.clientHeight;
+  const { leaves, gutters } = S.max != null
+    ? { leaves: [{ leaf: S.max, r: { x: 0, y: 0, w: W, h: H } }], gutters: [] }
+    : L.layout(tr, { x: 0, y: 0, w: W, h: H }, 6);
+  S.ph.hidden = true;
+  leaves.forEach(({ leaf, r }) => {
+    const el = leaf === PH ? S.ph : S.els.get(leaf);
+    if (!el) return;
+    el.hidden = false;
+    Object.assign(el.style, { left: r.x + "px", top: r.y + "px", width: r.w + "px", height: r.h + "px" });
+  });
+  $$(".gut", g).forEach(x => x.remove());
+  if (!S.drag) gutters.forEach(gt => g.appendChild(gutter(gt)));
+}
+new ResizeObserver(() => {
+  if (!S.els || S.drag) return;
+  const g = $("#grid");
+  g.classList.add("still"); position(tree(tab()));
+  requestAnimationFrame(() => g.classList.remove("still"));
+}).observe($("#grid"));
+
 // Live updates touch only transcripts, status lines and review canvases, so
 // typing and scroll positions survive.
 function refreshPanes() {
@@ -574,28 +738,108 @@ function refreshPanes() {
     if (p.kind === "empty") chooser(slot, body);
   });
 }
-function gutter(dir) {
+function gutter(gt) {
   const d = document.createElement("div");
-  d.className = "gut " + (dir === "v2" ? "v v2" : dir); d.setAttribute("role", "separator");
+  d.className = "gut abs " + (gt.dir === "row" ? "v" : "h");
+  d.setAttribute("role", "separator");
+  Object.assign(d.style, { left: gt.r.x + "px", top: gt.r.y + "px", width: gt.r.w + "px", height: gt.r.h + "px" });
   const t = tab();
   d.addEventListener("pointerdown", e => {
     e.preventDefault(); d.setPointerCapture(e.pointerId); d.classList.add("drag");
-    const r = $("#grid").getBoundingClientRect(), n = t.panes.length;
-    if (!t.cols || !t.cols.length) t.cols = n === 3 ? [1 / 3, 2 / 3] : [0.5];
+    const g = $("#grid"), gr = g.getBoundingClientRect();
+    if (!L.valid(t.layout, t.panes.length)) t.layout = tree(t);
+    g.classList.add("still");
     const move = ev => {
-      const fx = (ev.clientX - r.left) / r.width, fy = (ev.clientY - r.top) / r.height;
-      if (dir === "v") t.cols[0] = Math.min(n === 3 ? t.cols[1] - 0.12 : 0.8, Math.max(0.15, fx));
-      else if (dir === "v2") t.cols[1] = Math.min(0.85, Math.max(t.cols[0] + 0.12, fx));
-      else t.rows = Math.min(0.8, Math.max(0.2, fy));
-      const g = $("#grid");
-      g.style.setProperty("--cx", t.cols[0]); g.style.setProperty("--c1", t.cols[0]); g.style.setProperty("--c2", t.cols[1] ?? 2 / 3); g.style.setProperty("--ry", t.rows);
+      const x = ev.clientX - gr.left, y = ev.clientY - gr.top, sp = gt.span;
+      L.setRatio(t.layout, gt.path, gt.dir === "row" ? (x - sp.x) / sp.w : (y - sp.y) / sp.h);
+      const { leaves } = L.layout(t.layout, { x: 0, y: 0, w: g.clientWidth, h: g.clientHeight }, 6);
+      leaves.forEach(({ leaf, r }) => { const el = S.els.get(leaf); if (el) Object.assign(el.style, { left: r.x + "px", top: r.y + "px", width: r.w + "px", height: r.h + "px" }); });
+      const me = L.layout(t.layout, { x: 0, y: 0, w: g.clientWidth, h: g.clientHeight }, 6).gutters.find(x => x.path.join() === gt.path.join());
+      if (me) Object.assign(d.style, { left: me.r.x + "px", top: me.r.y + "px", width: me.r.w + "px", height: me.r.h + "px" });
     };
-    const up = () => { d.classList.remove("drag"); d.removeEventListener("pointermove", move); d.removeEventListener("pointerup", up); saveTabs(); };
+    const up = () => { d.removeEventListener("pointermove", move); d.removeEventListener("pointerup", up); saveTabs(); position(t.layout); g.classList.remove("still"); };
     d.addEventListener("pointermove", move); d.addEventListener("pointerup", up);
   });
-  d.addEventListener("dblclick", () => { t.cols = []; t.rows = 0.56; saveTabs(); renderGrid(); });
+  d.addEventListener("dblclick", () => { if (!L.valid(t.layout, t.panes.length)) t.layout = tree(t); L.setRatio(t.layout, gt.path, 0.5); saveTabs(); position(t.layout); });
   return d;
 }
+// Drag a canvas by its header. The others reflow around a dotted "+" slot
+// where it will land: the middle of a canvas swaps with it, an edge splits
+// it there; dropping on another tab moves the canvas into that tab.
+function paneDrag(e, el, slot) {
+  if (e.button !== 0 || S.max != null || matchMedia("(max-width: 760px)").matches) return;
+  const sx = e.clientX, sy = e.clientY;
+  let d = null;
+  const begin = () => {
+    const g = $("#grid"), gr = g.getBoundingClientRect(), t = tab(), base = tree(t);
+    const { leaves } = L.layout(base, { x: 0, y: 0, w: gr.width, h: gr.height }, 6);
+    const shield = document.createElement("div");
+    shield.className = "drag-shield"; document.body.appendChild(shield);
+    const r = el.getBoundingClientRect();
+    el.classList.add("dragging");
+    // A small card under the pointer, so it doesn't hide where it can land.
+    const w = Math.min(r.width, 320), h = Math.min(r.height, 200);
+    el.style.width = w + "px"; el.style.height = h + "px";
+    S.drag = { slot, base, leaves, gr, key: "", shield, ox: Math.min(sx - r.left, w - 40), oy: Math.min(sy - r.top, 16), tabTo: null };
+    position(L.moved(base, slot, slot, "center", PH));
+    return S.drag;
+  };
+  const move = ev => {
+    if (!d) { if (Math.hypot(ev.clientX - sx, ev.clientY - sy) < 5) return; d = begin(); }
+    el.style.left = ev.clientX - d.gr.left - d.ox + "px"; el.style.top = ev.clientY - d.gr.top - d.oy + "px";
+    // Over another tab: drop moves the canvas there.
+    const overTab = $$("#tabs [data-tab]").find(b => { const r = b.getBoundingClientRect(); return ev.clientX >= r.left && ev.clientX <= r.right && ev.clientY >= r.top && ev.clientY <= r.bottom; });
+    const ti = overTab ? +overTab.dataset.tab : null;
+    d.tabTo = ti != null && ti !== prefs.active_tab ? ti : null;
+    $$("#tabs [data-tab]").forEach(b => b.classList.toggle("drop-to", +b.dataset.tab === d.tabTo));
+    el.classList.toggle("to-tab", d.tabTo != null);
+    if (d.tabTo != null) {
+      // Tuck the card under the pointer so the tab stays visible, and show
+      // this tab without the canvas that is leaving it.
+      el.style.left = ev.clientX - d.gr.left - 12 + "px"; el.style.top = ev.clientY - d.gr.top + 14 + "px";
+      if (d.key !== "away") { d.key = "away"; d.target = null; position(L.remove(d.base, slot) || d.base); }
+      return;
+    }
+    // Hit-test the arrangement as it was, so the target doesn't move under the pointer.
+    const x = ev.clientX - d.gr.left, y = ev.clientY - d.gr.top;
+    const hit = d.leaves.find(l => x >= l.r.x && x < l.r.x + l.r.w && y >= l.r.y && y < l.r.y + l.r.h);
+    if (!hit) return;
+    const side = hit.leaf === slot ? "center" : L.zone(hit.r, x, y);
+    const key = hit.leaf + side;
+    if (key === d.key) return;
+    d.key = key; d.target = hit.leaf; d.side = side;
+    position(L.moved(d.base, slot, hit.leaf, side, PH));
+  };
+  const end = drop => {
+    removeEventListener("pointermove", move); removeEventListener("pointerup", up); removeEventListener("keydown", esc_);
+    if (!d) return;
+    d.shield.remove();
+    $$("#tabs .drop-to").forEach(b => b.classList.remove("drop-to"));
+    // Land from where the pointer let go: the transition starts there.
+    el.classList.remove("dragging", "to-tab");
+    S.drag = null;
+    const t = tab();
+    if (drop && d.tabTo != null) { moveToTab(slot, d.tabTo); return; }
+    if (drop && d.target != null) { t.layout = L.moved(d.base, slot, d.target, d.side, slot); S.focus = slot; saveTabs(); renderTabs(); }
+    position(tree(t));
+  };
+  const up = () => end(true);
+  const esc_ = ev => { if (ev.key === "Escape") end(false); };
+  addEventListener("pointermove", move); addEventListener("pointerup", up); addEventListener("keydown", esc_);
+}
+function moveToTab(slot, ti) {
+  const from = tab(), to = prefs.tabs[ti];
+  if (to.panes.length >= 4) { renderGrid(); flash($(`#tabs [data-tab="${ti}"]`)); return; }
+  const spec = from.panes[slot];
+  if (from.panes.length > 1) { from.layout = L.renumber(L.remove(tree(from), slot), slot); from.panes.splice(slot, 1); }
+  else from.panes[0] = { kind: "empty", agent: 0, url: null };
+  const n = to.panes.length, tt = tree(to);
+  to.panes.push(spec);
+  to.layout = L.split("row", n / (n + 1), tt, L.leaf(n));
+  S.pane.clear(); S.focus = n;
+  prefs.active_tab = ti; S.max = null; saveTabs(); renderTabs(); renderGrid(); renderList();
+}
+function flash(el) { if (!el) return; el.classList.add("nope"); setTimeout(() => el.classList.remove("nope"), 500); }
 // Show something in this tab: focus a canvas already showing it, else take over the focused one.
 function openView(spec) {
   closeSettings();
@@ -852,7 +1096,7 @@ addEventListener("resize", () => { setSide(!narrow()); });
   prefs = await invoke("prefs");
   if ([1, 2, 3, 4].includes(boot.layout)) {
     // bench/: a fixed starting tab with that many canvases.
-    prefs.tabs.unshift({ name: "Bench", panes: [{ kind: "agent", agent: 0, url: null }, { kind: "files", agent: 0, url: null }, { kind: "agent", agent: 1, url: null }, { kind: "agent", agent: 2, url: null }].slice(0, boot.layout), cols: [], rows: 0.56 });
+    prefs.tabs.unshift({ name: "Bench", panes: [{ kind: "agent", agent: 0, url: null }, { kind: "files", agent: 0, url: null }, { kind: "agent", agent: 1, url: null }, { kind: "agent", agent: 2, url: null }].slice(0, boot.layout), layout: null });
     prefs.active_tab = 0;
   }
   applyTheme(); renderSeg(); setSide(!narrow());

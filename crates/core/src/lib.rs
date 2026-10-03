@@ -8,6 +8,7 @@ pub mod files;
 pub mod fleet;
 pub mod git;
 pub mod harness;
+pub mod layout;
 pub mod prefs;
 pub mod project;
 pub mod provider;

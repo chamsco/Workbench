@@ -46,12 +46,20 @@ one after reading the benchmark in `bench/README.md`:
 past it (tabs of canvases, machines, settings).
 
 - **Tabs** sit on the left of the title bar. Each holds one to four
-  canvases (2×2 at four). `+` opens a new tab with a name and a layout;
-  unnamed tabs show their layout icon. Right-click or double-click a tab to
-  rename, duplicate or close it.
+  canvases. `+` opens a new tab with a name and a layout (1, 2, 3, 2×2,
+  1 over 2, 2 over 1, 1 | 2); unnamed tabs show their actual arrangement.
+  Drag a tab to reorder. Right-click or double-click a tab to rename,
+  duplicate or close it.
 - **Canvases** show an agent session, a worktree, a browser, the diagram
-  review or PLAN.md. The `+` on the right adds one; an empty canvas offers a
-  picker. Drag the gaps to resize.
+  review or PLAN.md. The `+` on the right adds one (it splits the focused
+  canvas); an empty canvas offers a picker. Drag the gaps to resize,
+  double-click a gap to even it out.
+- **Arranging:** drag a canvas by its header. A dotted `+` slot shows where
+  it will land and the other canvases slide out of the way as you move.
+  Over the middle of another canvas it swaps places with it; over an edge
+  (the outer quarter) it splits that canvas on that side. Drop it on another
+  tab to move it there. Esc cancels. The arrangement is a split tree
+  (`crates/core/src/layout.rs`), saved per tab in prefs.json.
 - **Tickets** open in a drawer from the review pill (top right): hover a
   moment, or click to pin. File tickets there, and open one for its details.
 - **Machines** switch from the sidebar foot (laptop = this machine, cloud =
