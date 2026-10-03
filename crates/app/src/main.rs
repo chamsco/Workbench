@@ -35,22 +35,50 @@ use gpui_kit::*;
 use pal::Pal;
 use stage::Cam;
 
-/// gpui takes one family name, not a CSS stack: the faces WebKit resolves
-/// `-apple-system` / `ui-monospace` to on each OS.
+/// gpui takes one family name, not a CSS stack: the system faces on macOS
+/// (SF Pro, Menlo) and Windows (Segoe UI); elsewhere the bundled Inter (the
+/// closest open match to SF Pro) and JetBrains Mono, which the Tauri shell
+/// bundles too.
 const MONO: &str = if cfg!(target_os = "macos") {
     "Menlo"
-} else if cfg!(target_os = "windows") {
-    "Consolas"
 } else {
-    "DejaVu Sans Mono"
+    "JetBrains Mono"
 };
 const UI: &str = if cfg!(target_os = "macos") {
     ".SystemUIFont"
 } else if cfg!(target_os = "windows") {
     "Segoe UI"
 } else {
-    "DejaVu Sans"
+    "Inter"
 };
+
+/// The faces registered at startup (shared with crates/tauri-app/ui/fonts).
+fn bundled_fonts() -> Vec<std::borrow::Cow<'static, [u8]>> {
+    macro_rules! font {
+        ($f:literal) => {
+            std::borrow::Cow::Borrowed(
+                &include_bytes!(concat!("../../tauri-app/ui/fonts/", $f, ".ttf"))[..],
+            )
+        };
+    }
+    let mut v = vec![
+        font!("JetBrainsMono-Regular"),
+        font!("JetBrainsMono-Medium"),
+        font!("JetBrainsMono-Bold"),
+        font!("JetBrainsMono-Italic"),
+    ];
+    if !cfg!(any(target_os = "macos", target_os = "windows")) {
+        v.extend([
+            font!("Inter-Regular"),
+            font!("Inter-Medium"),
+            font!("Inter-SemiBold"),
+            font!("Inter-Bold"),
+            font!("Inter-Italic"),
+        ]);
+    }
+    v
+}
+
 /// Width of two monospace cells at 12px, for hanging indents.
 const CH2: f32 = 14.4;
 
@@ -3430,6 +3458,9 @@ fn main() -> anyhow::Result<()> {
         .with_assets(icons::Assets)
         .run(move |cx: &mut App| {
             gpui_kit::init(cx);
+            if let Err(e) = cx.text_system().add_fonts(bundled_fonts()) {
+                eprintln!("bundled fonts: {e}");
+            }
             let bounds = Bounds::centered(None, size(px(1440.), px(900.)), cx);
             cx.open_window(
                 WindowOptions {

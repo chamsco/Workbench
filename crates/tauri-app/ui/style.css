@@ -1,9 +1,20 @@
+/* Bundled faces: where the OS has no SF Pro / Segoe UI, Inter (the closest open
+   match to SF Pro's metrics) and JetBrains Mono stand in. */
+@font-face { font-family: "Inter"; src: url("fonts/Inter-Regular.ttf") format("truetype"); font-weight: 400; font-style: normal; font-display: block; }
+@font-face { font-family: "Inter"; src: url("fonts/Inter-Medium.ttf") format("truetype"); font-weight: 500; font-style: normal; font-display: block; }
+@font-face { font-family: "Inter"; src: url("fonts/Inter-SemiBold.ttf") format("truetype"); font-weight: 600; font-style: normal; font-display: block; }
+@font-face { font-family: "Inter"; src: url("fonts/Inter-Bold.ttf") format("truetype"); font-weight: 700; font-style: normal; font-display: block; }
+@font-face { font-family: "Inter"; src: url("fonts/Inter-Italic.ttf") format("truetype"); font-weight: 400; font-style: italic; font-display: block; }
+@font-face { font-family: "JetBrains Mono"; src: url("fonts/JetBrainsMono-Regular.ttf") format("truetype"); font-weight: 400; font-style: normal; font-display: block; }
+@font-face { font-family: "JetBrains Mono"; src: url("fonts/JetBrainsMono-Medium.ttf") format("truetype"); font-weight: 500; font-style: normal; font-display: block; }
+@font-face { font-family: "JetBrains Mono"; src: url("fonts/JetBrainsMono-Bold.ttf") format("truetype"); font-weight: 700; font-style: normal; font-display: block; }
+@font-face { font-family: "JetBrains Mono"; src: url("fonts/JetBrainsMono-Italic.ttf") format("truetype"); font-weight: 400; font-style: italic; font-display: block; }
 
 /* Layout: a macOS window floating on a desktop. Frosted sidebar | main column with
    environment tabs in the title bar over the active environment: Terminals (1, 2 or a
    resizable 2x2), Browser (live worktree previews), Diagram (review canvas), PLAN.md. */
 :root {
-  --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", "Segoe UI", system-ui, sans-serif;
+  --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", "Inter", system-ui, sans-serif;
   --font-mono: ui-monospace, "SF Mono", Menlo, "JetBrains Mono", Consolas, monospace;
   --desk-base: #efe3ec;
   --blob-a: #ff9ec2; --blob-b: #ffb27d; --blob-c: #a99bff;
@@ -60,7 +71,7 @@
 
 [hidden] { display: none !important; }
 html, body { height: 100%; }
-body { margin: 0; background: var(--desk-base); color: var(--fg); font: 13px/1.4 var(--font-ui); overflow: hidden; -webkit-font-smoothing: antialiased; }
+body { margin: 0; background: var(--desk-base); color: var(--fg); font: 13px/1.4 var(--font-ui); overflow: hidden; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
 button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
 input { font: inherit; color: inherit; }
 :focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; border-radius: 4px; }
