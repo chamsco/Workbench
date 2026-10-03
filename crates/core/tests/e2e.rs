@@ -497,3 +497,83 @@ fn filed_tickets_get_triaged() {
     assert_eq!(triager.decision.as_ref().unwrap().effort, Effort::Low);
     std::fs::remove_dir_all(&ws).unwrap();
 }
+
+#[test]
+fn a_remote_machine_is_followed_and_driven() {
+    use backspace_core::fleet::Fleet;
+    use backspace_core::prefs::Prefs;
+    use backspace_core::remote::Link;
+
+    std::env::set_var(
+        "BACKSPACE_PREFS",
+        std::env::temp_dir().join(format!("bs-prefs-{}.json", std::process::id())),
+    );
+    let (server, ws_a) = open_project("remote-a");
+    let port = TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let addr = format!("127.0.0.1:{port}");
+    let _serving = server.serve(&addr, "s3cret").unwrap();
+
+    let (viewer, ws_b) = open_project("remote-b");
+    let fleet = Fleet::new(viewer, Prefs::default()).unwrap();
+    let err = fleet
+        .add_machine("box", &addr, "wrong")
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("refused the token"), "{err}");
+    assert_eq!(fleet.add_machine("box", &addr, "s3cret").unwrap(), 1);
+    assert_eq!(fleet.current(), 1);
+
+    // Wait for the long-poll to deliver the remote project.
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while fleet.machines()[1].link != Link::Online || fleet.snapshot().agents.is_empty() {
+        assert!(Instant::now() < deadline, "{:?}", fleet.machines()[1].link);
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert_eq!(
+        fleet.snapshot().name,
+        ws_a.file_name().unwrap().to_str().unwrap()
+    );
+
+    // A ticket filed from this machine is triaged on the remote one, and the
+    // result comes back through the follower.
+    let key = fleet
+        .backend()
+        .file_ticket("Crash on empty input", "The parser panics on an empty file")
+        .unwrap();
+    assert!(key.contains("crash-on-empty-input-1"), "{key}");
+    while fleet
+        .snapshot()
+        .tickets
+        .first()
+        .is_none_or(|t| t.state == TicketState::NeedsTriage)
+    {
+        assert!(
+            Instant::now() < deadline + Duration::from_secs(20),
+            "triage never arrived"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert_eq!(
+        fleet.snapshot().tickets[0].state,
+        TicketState::ReadyForAgent
+    );
+    assert_eq!(
+        server.snapshot().tickets[0].state,
+        TicketState::ReadyForAgent
+    );
+    // Files come from the remote worktree.
+    let files = fleet.backend().list_files(0);
+    assert!(
+        files.iter().any(|f| f.name == "backspace.toml"),
+        "{files:?}"
+    );
+
+    fleet.remove_machine(1);
+    assert_eq!(fleet.current(), 0);
+    let _ = std::fs::remove_dir_all(&ws_a);
+    let _ = std::fs::remove_dir_all(&ws_b);
+}

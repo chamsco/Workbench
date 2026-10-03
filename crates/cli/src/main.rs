@@ -2,6 +2,10 @@
 //!
 //!   backspace-cli init-config            write the default config to ./backspace.toml
 //!   backspace-cli <workspace> "<goal>"   run a project
+//!   backspace-cli serve <workspace> [addr]
+//!                                        share a harness so other machines
+//!                                        can follow it (default 127.0.0.1:7420;
+//!                                        token from BACKSPACE_TOKEN or printed)
 
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
@@ -20,8 +24,33 @@ fn main() -> Result<()> {
             println!("wrote backspace.toml");
             Ok(())
         }
+        [cmd, ws, rest @ ..] if cmd == "serve" && rest.len() <= 1 => serve(
+            PathBuf::from(ws),
+            rest.first().map_or("127.0.0.1:7420", |s| s.as_str()),
+        ),
         [ws, goal @ ..] if !goal.is_empty() => run(PathBuf::from(ws), goal.join(" ")),
-        _ => bail!("usage: backspace-cli init-config | backspace-cli <workspace> <goal>"),
+        _ => bail!(
+            "usage: backspace-cli init-config | backspace-cli <workspace> <goal> | backspace-cli serve <workspace> [addr]"
+        ),
+    }
+}
+
+/// Run a harness headless and share it; approvals come from whoever follows.
+fn serve(ws: PathBuf, addr: &str) -> Result<()> {
+    let h = Harness::open(ws)?;
+    let token =
+        std::env::var("BACKSPACE_TOKEN").unwrap_or_else(|_| backspace_core::remote::new_token());
+    let _serving = h.serve(addr, &token)?;
+    let name = h.snapshot().name;
+    println!("serving `{name}` on http://{addr}");
+    println!("token: {token}");
+    println!("add it in Backspace: Settings → Machines → Add (address http://{addr})");
+    if !addr.starts_with("127.") && !addr.starts_with("localhost") {
+        println!("note: plain HTTP. Prefer a private network or an SSH tunnel.");
+    }
+    let changes = h.changes();
+    loop {
+        let _ = h.block_on(changes.recv());
     }
 }
 

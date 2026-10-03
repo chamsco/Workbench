@@ -1,75 +1,186 @@
-//! Tauri shell for the Backspace harness. The UI in `ui/` is the
-//! design/workbench.html replica; this file only exposes the harness to it:
-//! commands for reads and actions, and a "state" event whenever it changes.
+//! Tauri shell for the Backspace harness. The UI in `ui/` draws; this file
+//! exposes the machines (`Fleet`: this harness plus followed remotes) to it:
+//! commands for reads and actions, and a "state" event whenever anything
+//! changes.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+use std::sync::Arc;
 
 use backspace_core::diagram::{self, Diagram};
+use backspace_core::files::FileEntry;
+use backspace_core::fleet::{Fleet, MachineInfo};
+use backspace_core::prefs::{Prefs, TabSpec};
+use backspace_core::update::UpdateInfo;
 use backspace_core::{Harness, ProjectState};
 use tauri::{Emitter, Manager, State};
 
 type Res<T> = Result<T, String>;
+type F<'a> = State<'a, Arc<Fleet>>;
 
-#[tauri::command]
-fn snapshot(h: State<Harness>) -> ProjectState {
-    h.snapshot()
+fn err(e: impl std::fmt::Display) -> String {
+    e.to_string()
 }
 
 #[tauri::command]
-fn send(h: State<Harness>, text: String) {
-    h.send(text);
+fn snapshot(f: F) -> ProjectState {
+    f.snapshot()
 }
 
 #[tauri::command]
-fn approve(h: State<Harness>, id: usize) {
-    h.approve(id);
+fn send(f: F, text: String) {
+    f.backend().send(text);
 }
 
 #[tauri::command]
-fn reject(h: State<Harness>, id: usize, feedback: String) {
-    h.reject(id, feedback);
+fn approve(f: F, id: usize) {
+    f.backend().approve(id);
 }
 
 #[tauri::command]
-fn file_ticket(h: State<Harness>, title: String, body: String) -> Res<String> {
-    h.file_ticket(&title, &body).map_err(|e| e.to_string())
+fn reject(f: F, id: usize, feedback: String) {
+    f.backend().reject(id, feedback);
 }
 
 #[tauri::command]
-fn diagram(h: State<Harness>, id: usize) -> Res<Diagram> {
-    let s = h.snapshot();
+fn file_ticket(f: F, title: String, body: String) -> Res<String> {
+    f.backend().file_ticket(&title, &body).map_err(err)
+}
+
+#[tauri::command]
+fn diagram(f: F, id: usize) -> Res<Diagram> {
+    let s = f.snapshot();
     let ap = s.approvals.get(id).ok_or("no such approval")?;
     Ok(diagram::for_approval(&s, ap))
 }
 
-/// (depth, name, path, is_dir) rows of an agent's worktree.
 #[tauri::command]
-fn list_files(h: State<Harness>, agent: usize) -> Vec<(usize, String, String, bool)> {
-    let s = h.snapshot();
-    let root = s
-        .agents
-        .get(agent)
-        .and_then(|a| a.worktree.clone())
-        .unwrap_or(s.workspace);
-    let mut out = vec![];
-    scan(&root, 0, &mut out);
-    out
+async fn list_files(f: F<'_>, agent: usize) -> Res<Vec<FileEntry>> {
+    let b = f.backend();
+    tauri::async_runtime::spawn_blocking(move || b.list_files(agent))
+        .await
+        .map_err(err)
 }
 
-/// Text of a file inside the project (worktrees live under it too).
 #[tauri::command]
-fn read_file(h: State<Harness>, path: String) -> Res<String> {
-    let root = h.snapshot().workspace;
-    let p = PathBuf::from(&path)
-        .canonicalize()
-        .map_err(|e| e.to_string())?;
-    if !p.starts_with(&root) {
-        return Err("outside the project".into());
-    }
-    let bytes = std::fs::read(&p).map_err(|e| e.to_string())?;
-    let cut = &bytes[..bytes.len().min(256 * 1024)];
-    Ok(String::from_utf8_lossy(cut).into_owned())
+async fn read_file(f: F<'_>, path: String) -> Res<String> {
+    let b = f.backend();
+    tauri::async_runtime::spawn_blocking(move || b.read_file(&path))
+        .await
+        .map_err(err)?
+        .map_err(err)
 }
+
+// ---------------------------------------------------------------- machines
+
+#[tauri::command]
+fn machines(f: F) -> Vec<MachineInfo> {
+    f.machines()
+}
+
+#[tauri::command]
+fn select_machine(f: F, index: usize) {
+    f.select(index);
+}
+
+#[tauri::command]
+async fn add_machine(f: F<'_>, name: String, url: String, token: String) -> Res<usize> {
+    let f = f.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || f.add_machine(&name, &url, &token))
+        .await
+        .map_err(err)?
+        .map_err(err)
+}
+
+#[tauri::command]
+fn remove_machine(f: F, index: usize) {
+    f.remove_machine(index);
+}
+
+#[derive(serde::Serialize)]
+struct ShareStatus {
+    enabled: bool,
+    addr: String,
+    token: String,
+    sharing: bool,
+    error: Option<String>,
+}
+
+#[tauri::command]
+fn share_status(f: F) -> ShareStatus {
+    let p = f.prefs().share;
+    ShareStatus {
+        enabled: p.enabled,
+        addr: p.addr,
+        token: p.token,
+        sharing: f.sharing(),
+        error: f.share_error(),
+    }
+}
+
+#[tauri::command]
+fn set_share(f: F, enabled: bool, addr: String, new_token: bool) -> Res<()> {
+    f.set_share(enabled, Some(&addr), new_token).map_err(err)
+}
+
+// ---------------------------------------------------------------- prefs, updates
+
+#[tauri::command]
+fn prefs(f: F) -> Prefs {
+    f.prefs()
+}
+
+#[tauri::command]
+fn set_tabs(f: F, tabs: Vec<TabSpec>, active: usize) {
+    // Bench runs keep their scripted tab out of the user's prefs.
+    if std::env::var_os("BACKSPACE_LAYOUT").is_some() {
+        return;
+    }
+    f.update_prefs(|p| {
+        if !tabs.is_empty() {
+            p.active_tab = active.min(tabs.len() - 1);
+            p.tabs = tabs;
+        }
+    });
+}
+
+#[tauri::command]
+fn set_theme(f: F, theme: String) {
+    f.update_prefs(|p| p.theme = theme);
+}
+
+#[tauri::command]
+fn set_check_updates(f: F, on: bool) {
+    f.update_prefs(|p| p.check_updates = on);
+}
+
+#[tauri::command]
+async fn check_update(f: F<'_>) -> Res<UpdateInfo> {
+    let f = f.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || f.check_update())
+        .await
+        .map_err(err)?
+        .map_err(err)
+}
+
+/// Opens http(s) links in the system browser; nothing else.
+#[tauri::command]
+fn open_url(url: String) -> Res<()> {
+    if !(url.starts_with("http://") || url.starts_with("https://")) {
+        return Err("only web links open from here".into());
+    }
+    let mut cmd = if cfg!(target_os = "macos") {
+        std::process::Command::new("open")
+    } else if cfg!(windows) {
+        let mut c = std::process::Command::new("cmd");
+        c.args(["/C", "start", ""]);
+        c
+    } else {
+        std::process::Command::new("xdg-open")
+    };
+    cmd.arg(&url).spawn().map(|_| ()).map_err(err)
+}
+
+// ---------------------------------------------------------------- boot
 
 /// Platform class for the stylesheet, plus the bench's starting layout.
 #[tauri::command]
@@ -84,47 +195,18 @@ fn boot() -> serde_json::Value {
     let layout = std::env::var("BACKSPACE_LAYOUT")
         .ok()
         .and_then(|v| v.parse::<u8>().ok());
-    serde_json::json!({ "platform": platform, "layout": layout })
+    let bench = std::env::var_os("BACKSPACE_READY_FILE").is_some();
+    serde_json::json!({ "platform": platform, "layout": layout, "bench": bench })
 }
 
 /// The UI's first frame with data is on screen; bench/ times launch to this.
 #[tauri::command]
 fn ready() {
     if let Ok(path) = std::env::var("BACKSPACE_READY_FILE") {
-        let _ = std::fs::write(path, now_ms().to_string());
-    }
-}
-
-fn now_ms() -> u128 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_millis())
-}
-
-/// Depth-first walk, skipping build output and VCS internals.
-fn scan(dir: &Path, depth: usize, out: &mut Vec<(usize, String, String, bool)>) {
-    if depth > 4 || out.len() > 2000 {
-        return;
-    }
-    let Ok(rd) = std::fs::read_dir(dir) else {
-        return;
-    };
-    let mut items: Vec<_> = rd.flatten().collect();
-    items.sort_by_key(|e| (!e.path().is_dir(), e.file_name()));
-    for e in items {
-        let name = e.file_name().to_string_lossy().into_owned();
-        if matches!(
-            name.as_str(),
-            ".git" | "target" | "node_modules" | ".backspace" | "dist" | ".astro"
-        ) {
-            continue;
-        }
-        let path = e.path();
-        let dir = path.is_dir();
-        out.push((depth, name, path.to_string_lossy().into_owned(), dir));
-        if dir {
-            scan(&path, depth + 1, out);
-        }
+        let ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_millis());
+        let _ = std::fs::write(path, ms.to_string());
     }
 }
 
@@ -144,10 +226,11 @@ fn main() -> anyhow::Result<()> {
     if let Ok(goal) = std::env::var("BACKSPACE_GOAL") {
         harness.send(goal);
     }
-    let changes = harness.changes();
+    let fleet = Fleet::new(harness, Prefs::load())?;
+    let changes = fleet.changes();
 
     tauri::Builder::default()
-        .manage(harness)
+        .manage(fleet)
         .invoke_handler(tauri::generate_handler![
             snapshot,
             send,
@@ -157,6 +240,18 @@ fn main() -> anyhow::Result<()> {
             diagram,
             list_files,
             read_file,
+            machines,
+            select_machine,
+            add_machine,
+            remove_machine,
+            share_status,
+            set_share,
+            prefs,
+            set_tabs,
+            set_theme,
+            set_check_updates,
+            check_update,
+            open_url,
             boot,
             ready
         ])
@@ -167,7 +262,7 @@ fn main() -> anyhow::Result<()> {
                 use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial};
                 let _ = apply_vibrancy(&win, NSVisualEffectMaterial::Sidebar, None, None);
             }
-            // The harness coalesces changes; the UI coalesces again per frame.
+            // The fleet coalesces changes; the UI coalesces again per frame.
             std::thread::spawn(move || {
                 while changes.recv_blocking().is_ok() {
                     let _ = win.emit("state", ());

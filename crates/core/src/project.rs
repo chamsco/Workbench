@@ -142,6 +142,20 @@ pub struct ProjectState {
 }
 
 impl ProjectState {
+    /// A project with nothing in it yet (a remote machine before it answers).
+    pub fn empty(name: &str) -> ProjectState {
+        ProjectState {
+            name: name.to_string(),
+            workspace: PathBuf::new(),
+            agents: vec![],
+            approvals: vec![],
+            tickets: vec![],
+            total_cost_usd: 0.0,
+            router_cost_usd: 0.0,
+            config_source: None,
+        }
+    }
+
     pub fn pending_approvals(&self) -> impl Iterator<Item = &Approval> {
         self.approvals
             .iter()

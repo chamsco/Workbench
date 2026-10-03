@@ -56,6 +56,8 @@ struct Inner {
     /// Worktrees share one ref store; git runs one command sequence at a time.
     git: tokio::sync::Mutex<()>,
     changed: async_channel::Sender<()>,
+    /// Bumped on every change; remote followers long-poll on it.
+    version: watch::Sender<u64>,
 }
 
 pub struct Harness {
@@ -167,6 +169,7 @@ impl Harness {
             parked: Mutex::new(HashMap::new()),
             git: tokio::sync::Mutex::new(()),
             changed: changed_tx,
+            version: watch::channel(1).0,
             base_branch,
             root,
             cfg,
@@ -218,6 +221,44 @@ impl Harness {
         self.rt.block_on(f)
     }
 
+    /// The project's root (the primary worktree).
+    pub fn root(&self) -> &Path {
+        &self.inner.root
+    }
+
+    pub fn list_files(&self, agent: usize) -> Vec<crate::files::FileEntry> {
+        let root = {
+            let s = self.inner.state.lock().unwrap();
+            s.agents
+                .get(agent)
+                .and_then(|a| a.worktree.clone())
+                .unwrap_or_else(|| s.workspace.clone())
+        };
+        crate::files::scan(&root)
+    }
+
+    pub fn read_file(&self, path: &str) -> Result<String> {
+        crate::files::read_within(&self.inner.root, path)
+    }
+
+    /// Share this harness over HTTP (see `remote`). Stops when the handle
+    /// is aborted or the harness is dropped.
+    pub fn serve(&self, addr: &str, token: &str) -> Result<tokio::task::AbortHandle> {
+        let api: Arc<dyn crate::remote::Api> = Arc::new(Served {
+            inner: self.inner.clone(),
+            to_main: self.to_main.clone(),
+        });
+        // Bind first so a busy port is reported, not swallowed by the task.
+        let probe = self.rt.block_on(tokio::net::TcpListener::bind(addr));
+        drop(probe.with_context(|| format!("binding {addr}"))?);
+        let task = self.rt.spawn(crate::remote::serve(
+            api,
+            addr.to_string(),
+            token.to_string(),
+        ));
+        Ok(task.abort_handle())
+    }
+
     fn resolve(&self, approval: usize, verdict: Verdict) {
         if let Some(tx) = self.inner.verdicts.lock().unwrap().remove(&approval) {
             let _ = tx.send(verdict);
@@ -225,11 +266,63 @@ impl Harness {
     }
 }
 
+struct Served {
+    inner: Arc<Inner>,
+    to_main: mpsc::UnboundedSender<String>,
+}
+
+impl crate::remote::Api for Served {
+    fn version(&self) -> watch::Receiver<u64> {
+        self.inner.version.subscribe()
+    }
+    fn snapshot(&self) -> ProjectState {
+        self.inner.state.lock().unwrap().clone()
+    }
+    fn send(&self, text: String) {
+        let _ = self.to_main.send(text);
+    }
+    fn resolve(&self, id: usize, feedback: Option<String>) {
+        let verdict = match feedback {
+            None => Verdict::Approved,
+            Some(f) => Verdict::Rejected(f),
+        };
+        if let Some(tx) = self.inner.verdicts.lock().unwrap().remove(&id) {
+            let _ = tx.send(verdict);
+        }
+    }
+    fn file_ticket(&self, title: &str, body: &str) -> Result<String> {
+        file_ticket(
+            &self.inner,
+            MAIN,
+            MAIN,
+            &json!({"title": title, "what_to_build": body}),
+        )
+    }
+    fn list_files(&self, agent: usize) -> Vec<crate::files::FileEntry> {
+        let root = {
+            let s = self.inner.state.lock().unwrap();
+            s.agents
+                .get(agent)
+                .and_then(|a| a.worktree.clone())
+                .unwrap_or_else(|| s.workspace.clone())
+        };
+        crate::files::scan(&root)
+    }
+    fn read_file(&self, path: &str) -> Result<String> {
+        crate::files::read_within(&self.inner.root, path)
+    }
+}
+
 impl Inner {
     fn update<R>(&self, f: impl FnOnce(&mut ProjectState) -> R) -> R {
         let r = f(&mut self.state.lock().unwrap());
-        let _ = self.changed.try_send(());
+        self.touch();
         r
+    }
+
+    fn touch(&self) {
+        let _ = self.changed.try_send(());
+        self.version.send_modify(|v| *v += 1);
     }
 
     fn agent<R>(&self, id: AgentId, f: impl FnOnce(&mut AgentRecord) -> R) -> R {
@@ -1525,7 +1618,7 @@ fn run_triage(inner: Arc<Inner>, key: String) -> BoxFuture<'static, ()> {
         }) else {
             return;
         };
-        let _ = inner.changed.try_send(());
+        inner.touch();
 
         let res: Result<Deliverable> = async {
             let mut d = inner
