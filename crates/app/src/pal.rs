@@ -8,8 +8,6 @@ pub struct Pal {
     pub desk_base: Hsla,
     pub blobs: [Hsla; 3],
     pub glass: Hsla,
-    pub glass_side: Hsla,
-    pub glass_main: Hsla,
     pub pane: Hsla,
     pub pane_edge: Hsla,
     pub pane_edge_on: Hsla,
@@ -40,6 +38,8 @@ pub struct Pal {
     pub page_line: Hsla,
     pub page_accent: Hsla,
     pub page_desk: Hsla,
+    /// Floating sheets (drawer, popovers, settings): glass you can read over canvases.
+    pub sheet: Hsla,
 }
 
 fn c(hex: u32) -> Hsla {
@@ -58,8 +58,6 @@ impl Pal {
             desk_base: c(0xefe3ec),
             blobs: [c(0xff9ec2), c(0xffb27d), c(0xa99bff)],
             glass: ca(252, 249, 252, 0.56),
-            glass_side: ca(255, 255, 255, 0.26),
-            glass_main: ca(246, 243, 247, 0.5),
             pane: ca(255, 255, 255, 0.84),
             pane_edge: ca(24, 18, 30, 0.10),
             pane_edge_on: ca(24, 18, 30, 0.30),
@@ -90,6 +88,7 @@ impl Pal {
             page_line: c(0xebe8ee),
             page_accent: c(0x5b47d6),
             page_desk: ca(236, 233, 239, 0.75),
+            sheet: ca(250, 248, 251, 0.94),
         }
     }
 
@@ -98,8 +97,6 @@ impl Pal {
             desk_base: c(0x160f17),
             blobs: [c(0x8a2f5e), c(0x8c4524), c(0x3b2f8f)],
             glass: ca(36, 30, 38, 0.58),
-            glass_side: ca(70, 58, 72, 0.2),
-            glass_main: ca(20, 17, 22, 0.48),
             pane: ca(17, 15, 19, 0.8),
             pane_edge: ca(255, 255, 255, 0.08),
             pane_edge_on: ca(255, 255, 255, 0.24),
@@ -130,6 +127,7 @@ impl Pal {
             page_line: c(0x2a2830),
             page_accent: c(0x9d8cff),
             page_desk: ca(10, 9, 12, 0.5),
+            sheet: ca(32, 28, 35, 0.94),
         }
     }
 }

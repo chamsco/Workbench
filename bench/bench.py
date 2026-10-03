@@ -146,7 +146,8 @@ def sample(pid, since):
 def launch(app, ws, port, env_extra, tmp):
     ready = tmp / "ready"
     ready.unlink(missing_ok=True)
-    env = dict(os.environ, BACKSPACE_READY_FILE=str(ready), **env_extra)
+    # Own prefs file: no followed machines, no update check, user prefs untouched.
+    env = dict(os.environ, BACKSPACE_READY_FILE=str(ready), BACKSPACE_PREFS=str(tmp / "prefs.json"), **env_extra)
     t0 = time.time()
     proc = subprocess.Popen([str(APPS[app]), str(ws)], env=env,
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,

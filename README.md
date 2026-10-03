@@ -33,23 +33,51 @@ bench/        GPUI vs Tauri benchmark (see bench/README.md)
 
 ## Desktop app
 
-Two shells draw the same design (`design/workbench.html`) over the same
-in-process harness. Pick one after reading the benchmark in `bench/README.md`:
+Two shells draw the same interface over the same in-process harness. Pick
+one after reading the benchmark in `bench/README.md`:
 
 - `backspace` (GPUI): native, starts about 5× faster and uses less memory.
-  It has no web engine, so the Browser tab shows a text snapshot of the
+  It has no web engine, so a browser canvas shows a text snapshot of the
   page and opens the page itself in your browser.
-- `backspace-tauri` (Tauri 2): the design's HTML/CSS/JS in the system
-  webview, with live dev-server previews inside the app.
+- `backspace-tauri` (Tauri 2): HTML/CSS/JS in the system webview, with live
+  dev-server previews inside the app.
 
-The frosted sidebar holds Projects, Agents and Tickets, with a run card at
-the bottom. Environment tabs in the title bar switch between:
+`design/workbench.html` is the original static mock; the shells have moved
+past it (tabs of canvases, machines, settings).
 
-- Terminals: one, two, or a 2×2 grid of agent sessions and worktrees, with
-  drag-to-resize splits.
-- Browser: dev-server previews.
-- Diagram: the review canvas.
-- PLAN.md.
+- **Tabs** sit on the left of the title bar. Each holds one to four
+  canvases (2×2 at four). `+` opens a new tab with a name and a layout;
+  unnamed tabs show their layout icon. Right-click or double-click a tab to
+  rename, duplicate or close it.
+- **Canvases** show an agent session, a worktree, a browser, the diagram
+  review or PLAN.md. The `+` on the right adds one; an empty canvas offers a
+  picker. Drag the gaps to resize.
+- **Tickets** open in a drawer from the review pill (top right): hover a
+  moment, or click to pin. File tickets there, and open one for its details.
+- **Machines** switch from the sidebar foot (laptop = this machine, cloud =
+  a followed one; `+` adds one). The sidebar title shows which machine you
+  are looking at.
+- **Settings** (gear) cover the theme, machines, sharing this machine, and
+  update checks. The update pill reads "Up to date" or "Download & Update".
+
+Tabs, theme and machines live in `~/.config/backspace/prefs.json`, shared by
+both shells (`BACKSPACE_PREFS` overrides the path).
+
+### Following other machines
+
+Run the harness headless on any machine and share it:
+
+```sh
+BACKSPACE_TOKEN=... backspace-cli serve ~/projects/my-app 127.0.0.1:7420
+```
+
+Then add it from Settings → Machines with its address and token. You see its
+agents, tickets and reviews live, and can talk to its main agent and
+approve or reject from your machine. A desktop shell can share its own
+harness the same way (Settings → Share this machine). The API is plain HTTP
+with a bearer token, so keep it on localhost behind an SSH tunnel
+(`ssh -L 7420:127.0.0.1:7420 box`) or on a private network such as
+Tailscale.
 
 **Every review starts with a diagram the harness draws from its own data**,
 never one the agent drew:
@@ -83,6 +111,7 @@ export TYPESAFE_API_KEY=...      # optional: Jev routing
 cargo run --release -p backspace -- ~/projects/my-app     # GUI (GPUI)
 cargo run --release -p backspace-tauri -- ~/projects/my-app   # GUI (Tauri; Linux needs libwebkit2gtk-4.1-dev)
 cargo run --release -p backspace-cli -- ~/projects/my-app "build ..."
+cargo run --release -p backspace-cli -- serve ~/projects/my-app     # share it
 cargo test                                                 # core + e2e (mock model)
 ```
 

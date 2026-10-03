@@ -92,6 +92,26 @@ const PATHS: &[(&str, &str)] = &[
         "bksp",
         r##"<path d="M5.2 3.2h7.6a1 1 0 0 1 1 1v7.6a1 1 0 0 1-1 1H5.2L1.8 8z"/><path d="m7.6 6 4 4M11.6 6l-4 4"/>"##,
     ),
+    (
+        "pc",
+        r##"<rect x="2.4" y="3" width="11.2" height="7.6" rx="1.2"/><path d="M1.4 13h13.2"/>"##,
+    ),
+    (
+        "cloud",
+        r##"<path d="M4.6 12.4h7a2.8 2.8 0 0 0 .4-5.57A4 4 0 0 0 4.3 6.2a3.1 3.1 0 0 0 .3 6.2z"/>"##,
+    ),
+    (
+        "pin",
+        r##"<path d="M6 2.6h4M6.6 2.6v4L4.6 9h6.8l-2-2.4v-4M8 9v4.4"/>"##,
+    ),
+    (
+        "copy",
+        r##"<rect x="5.4" y="5.4" width="8" height="8" rx="1.4"/><path d="M10.6 5.4V3.4a.8.8 0 0 0-.8-.8H3.4a.8.8 0 0 0-.8.8v6.4a.8.8 0 0 0 .8.8h2"/>"##,
+    ),
+    (
+        "down",
+        r##"<path d="M8 2.6v8M4.6 7.4 8 10.8l3.4-3.4M3 13.4h10"/>"##,
+    ),
     ("check", r##"<path d="m3.4 8.4 3 3 6.2-6.6"/>"##),
     // Layout pickers: filled, 16x12.
     (
@@ -101,6 +121,10 @@ const PATHS: &[(&str, &str)] = &[
     (
         "lay1",
         r##"<rect x="1" y="1" width="14" height="10" rx="1.5"/>"##,
+    ),
+    (
+        "lay3",
+        r##"<rect x="1" y="1" width="4" height="10" rx="1.2"/><rect x="6" y="1" width="4" height="10" rx="1.2"/><rect x="11" y="1" width="4" height="10" rx="1.2"/>"##,
     ),
     (
         "lay4",

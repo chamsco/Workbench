@@ -1,100 +1,100 @@
 {
   "host": {
-    "os": "Linux-6.18.44-fc-v51-x86_64-with-glibc2.39",
+    "os": "Linux-6.18.44-fc-v64-x86_64-with-glibc2.39",
     "machine": "x86_64",
     "python": "3.11.15",
     "display": ":99"
   },
   "binary_mb": {
-    "gpui": 59.0,
-    "tauri": 17.8
+    "gpui": 63.3,
+    "tauri": 20.4
   },
   "runs": {
     "gpui": [
       {
-        "startup_ms": 391,
+        "startup_ms": 338,
+        "idle_cpu_pct": 1.4,
+        "idle_rss_mb": 192.9,
+        "idle_pss_mb": 169.7,
+        "work_cpu_s": 28.47,
+        "work_wall_s": 14.1,
+        "work_peak_rss_mb": 277.2,
+        "work_peak_pss_mb": 206.2
+      },
+      {
+        "startup_ms": 312,
         "idle_cpu_pct": 1.0,
-        "idle_rss_mb": 189.0,
-        "idle_pss_mb": 166.0,
-        "work_cpu_s": 39.18,
-        "work_wall_s": 15.6,
-        "work_peak_rss_mb": 249.4,
-        "work_peak_pss_mb": 207.1
+        "idle_rss_mb": 192.6,
+        "idle_pss_mb": 169.3,
+        "work_cpu_s": 29.13,
+        "work_wall_s": 14.0,
+        "work_peak_rss_mb": 271.3,
+        "work_peak_pss_mb": 212.4
       },
       {
-        "startup_ms": 411,
-        "idle_cpu_pct": 1.1,
-        "idle_rss_mb": 189.8,
-        "idle_pss_mb": 166.8,
-        "work_cpu_s": 38.43,
-        "work_wall_s": 15.8,
-        "work_peak_rss_mb": 269.7,
-        "work_peak_pss_mb": 211.8
-      },
-      {
-        "startup_ms": 364,
-        "idle_cpu_pct": 0.9,
-        "idle_rss_mb": 189.4,
-        "idle_pss_mb": 166.4,
-        "work_cpu_s": 38.32,
-        "work_wall_s": 15.9,
-        "work_peak_rss_mb": 265.2,
-        "work_peak_pss_mb": 207.9
+        "startup_ms": 344,
+        "idle_cpu_pct": 1.0,
+        "idle_rss_mb": 192.8,
+        "idle_pss_mb": 169.5,
+        "work_cpu_s": 29.04,
+        "work_wall_s": 13.9,
+        "work_peak_rss_mb": 264.6,
+        "work_peak_pss_mb": 209.0
       }
     ],
     "tauri": [
       {
-        "startup_ms": 2233,
-        "idle_cpu_pct": 0.4,
-        "idle_rss_mb": 379.1,
-        "idle_pss_mb": 226.0,
-        "work_cpu_s": 13.37,
-        "work_wall_s": 11.8,
-        "work_peak_rss_mb": 501.9,
-        "work_peak_pss_mb": 310.8
-      },
-      {
-        "startup_ms": 2197,
-        "idle_cpu_pct": 0.3,
-        "idle_rss_mb": 379.5,
-        "idle_pss_mb": 226.4,
-        "work_cpu_s": 13.22,
-        "work_wall_s": 11.7,
-        "work_peak_rss_mb": 470.3,
-        "work_peak_pss_mb": 299.6
-      },
-      {
-        "startup_ms": 2124,
+        "startup_ms": 1520,
         "idle_cpu_pct": 0.5,
-        "idle_rss_mb": 379.4,
-        "idle_pss_mb": 226.3,
-        "work_cpu_s": 13.0,
-        "work_wall_s": 11.7,
-        "work_peak_rss_mb": 471.8,
-        "work_peak_pss_mb": 298.9
+        "idle_rss_mb": 383.8,
+        "idle_pss_mb": 230.6,
+        "work_cpu_s": 12.73,
+        "work_wall_s": 11.6,
+        "work_peak_rss_mb": 476.9,
+        "work_peak_pss_mb": 298.5
+      },
+      {
+        "startup_ms": 1367,
+        "idle_cpu_pct": 0.3,
+        "idle_rss_mb": 389.9,
+        "idle_pss_mb": 236.6,
+        "work_cpu_s": 12.72,
+        "work_wall_s": 11.5,
+        "work_peak_rss_mb": 474.6,
+        "work_peak_pss_mb": 302.9
+      },
+      {
+        "startup_ms": 1531,
+        "idle_cpu_pct": 0.4,
+        "idle_rss_mb": 389.9,
+        "idle_pss_mb": 236.8,
+        "work_cpu_s": 12.83,
+        "work_wall_s": 11.6,
+        "work_peak_rss_mb": 476.6,
+        "work_peak_pss_mb": 296.6
       }
     ]
   },
   "median": {
     "gpui": {
-      "startup_ms": 391,
+      "startup_ms": 338,
       "idle_cpu_pct": 1.0,
-      "idle_rss_mb": 189.4,
-      "idle_pss_mb": 166.4,
-      "work_cpu_s": 38.43,
-      "work_wall_s": 15.8,
-      "work_peak_rss_mb": 265.2,
-      "work_peak_pss_mb": 207.9
+      "idle_rss_mb": 192.8,
+      "idle_pss_mb": 169.5,
+      "work_cpu_s": 29.04,
+      "work_wall_s": 14.0,
+      "work_peak_rss_mb": 271.3,
+      "work_peak_pss_mb": 209.0
     },
     "tauri": {
-      "startup_ms": 2197,
+      "startup_ms": 1520,
       "idle_cpu_pct": 0.4,
-      "idle_rss_mb": 379.4,
-      "idle_pss_mb": 226.3,
-      "work_cpu_s": 13.22,
-      "work_wall_s": 11.7,
-      "work_peak_rss_mb": 471.8,
-      "work_peak_pss_mb": 299.6
+      "idle_rss_mb": 389.9,
+      "idle_pss_mb": 236.6,
+      "work_cpu_s": 12.73,
+      "work_wall_s": 11.6,
+      "work_peak_rss_mb": 476.6,
+      "work_peak_pss_mb": 298.5
     }
   }
 }

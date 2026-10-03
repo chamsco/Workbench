@@ -31,14 +31,18 @@ number on Linux.
 
 | metric | GPUI | Tauri |
 |---|---:|---:|
-| binary (MB) | 59.0 | 17.8 (+ system WebKitGTK) |
-| startup to first frame (ms) | **391** | 2197 |
+| binary (MB) | 63.3 | 20.4 (+ system WebKitGTK) |
+| startup to first frame (ms) | **338** | 1520 |
 | idle CPU (%) | 1.0 | **0.4** |
-| idle memory, PSS (MB) | **166** | 226 |
-| idle memory, RSS (MB) | **189** | 379 |
-| workload CPU (s) | 38.4 | **13.2** |
-| workload wall (s) | 15.8 | **11.7** |
-| workload peak PSS (MB) | **208** | 300 |
+| idle memory, PSS (MB) | **170** | 237 |
+| idle memory, RSS (MB) | **193** | 390 |
+| workload CPU (s) | 29.0 | **12.7** |
+| workload wall (s) | 14.0 | **11.6** |
+| workload peak PSS (MB) | **209** | 299 |
+
+Re-run after the tabs/machines redesign (both shells now go through the
+same `Fleet` layer). The per-thread split below is from the first run; the
+shape held.
 
 Where the workload CPU went (`threads.py`):
 
@@ -55,8 +59,8 @@ Where the workload CPU went (`threads.py`):
   uses a CPU raster path with damage tracking, which suits this machine.
   The wall time is longer for GPUI for the same reason: llvmpipe takes the
   cores that the harness and mock need.
-- **What carries over to real hardware:** startup (5.6× faster for GPUI),
-  memory (about 26% less PSS idle and 31% less at peak), and GPUI's own
+- **What carries over to real hardware:** startup (4.5× faster for GPUI),
+  memory (about 28% less PSS idle and 30% less at peak), and GPUI's own
   main-thread cost (2.2 s across the run). Whether GPUI also wins on
   workload CPU depends on the GPU taking over llvmpipe's 36 s. That is
   likely, but these numbers do not show it. Run the bench on the Mac

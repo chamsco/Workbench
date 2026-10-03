@@ -1,31 +1,38 @@
-//! Backspace workbench, GPUI edition: a pixel-for-pixel port of
-//! design/workbench.html (the same layout the Tauri shell renders), drawn
-//! natively. Frosted sidebar and main column; environment tabs in the title
-//! bar switch between Terminals (1, 2 or a resizable 2x2 of agent sessions
-//! and worktrees), Browser (dev-server previews), Diagram (review canvas)
-//! and PLAN.md.
+//! Backspace workbench, GPUI edition: the same design the Tauri shell
+//! renders, drawn natively.
+//!
+//! Tabs on the left of the title bar each hold up to four canvases (2x2 at
+//! four): an agent session, a worktree, a browser, the diagram review or
+//! PLAN.md; a new canvas starts as a picker. Tickets open in a drawer off the
+//! review pill; machines (this one plus followed remotes) switch from the
+//! sidebar foot; settings sit behind the gear. Tabs, theme and machines
+//! persist in the prefs file the Tauri build shares.
 //!
 //!   backspace [workspace]     (defaults to the current directory)
 //!
-//! GPUI has no web engine, so the Browser environment shows a text snapshot
-//! of the page and opens the real thing in the system browser.
+//! GPUI has no web engine, so a browser canvas shows a text snapshot of the
+//! page and opens the real thing in the system browser.
 
+mod canvas;
 mod icons;
 mod pal;
 mod stage;
+mod ui;
 
 use std::cell::Cell;
-use std::collections::HashMap;
-use std::io::{Read, Write};
-use std::path::{Path, PathBuf};
+use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use backspace_core::diagram::{self, Diagram};
+use backspace_core::files::FileEntry;
+use backspace_core::fleet::{Backend, Fleet, MachineInfo};
+use backspace_core::prefs::{PaneSpec, Prefs, TabSpec};
+use backspace_core::remote::Link;
+use backspace_core::update::UpdateInfo;
 use backspace_core::{
-    AgentKind, AgentRecord, AgentStatus, Approval, ApprovalKind, ApprovalState, Harness, LogKind,
-    ProjectState, TicketState, MAIN,
+    AgentKind, AgentRecord, AgentStatus, Harness, ProjectState, Ticket, TicketState, MAIN,
 };
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::{Root, Theme, ThemeMode};
@@ -34,246 +41,118 @@ use gpui_kit::*;
 
 use pal::Pal;
 use stage::Cam;
-
-/// gpui takes one family name, not a CSS stack: the system faces on macOS
-/// (SF Pro, Menlo) and Windows (Segoe UI); elsewhere the bundled Inter (the
-/// closest open match to SF Pro) and JetBrains Mono, which the Tauri shell
-/// bundles too.
-const MONO: &str = if cfg!(target_os = "macos") {
-    "Menlo"
-} else {
-    "JetBrains Mono"
-};
-const UI: &str = if cfg!(target_os = "macos") {
-    ".SystemUIFont"
-} else if cfg!(target_os = "windows") {
-    "Segoe UI"
-} else {
-    "Inter"
-};
-
-/// The faces registered at startup (shared with crates/tauri-app/ui/fonts).
-fn bundled_fonts() -> Vec<std::borrow::Cow<'static, [u8]>> {
-    macro_rules! font {
-        ($f:literal) => {
-            std::borrow::Cow::Borrowed(
-                &include_bytes!(concat!("../../tauri-app/ui/fonts/", $f, ".ttf"))[..],
-            )
-        };
-    }
-    let mut v = vec![
-        font!("JetBrainsMono-Regular"),
-        font!("JetBrainsMono-Medium"),
-        font!("JetBrainsMono-Bold"),
-        font!("JetBrainsMono-Italic"),
-    ];
-    if !cfg!(any(target_os = "macos", target_os = "windows")) {
-        v.extend([
-            font!("Inter-Regular"),
-            font!("Inter-Medium"),
-            font!("Inter-SemiBold"),
-            font!("Inter-Bold"),
-            font!("Inter-Italic"),
-        ]);
-    }
-    v
-}
-
-/// Width of two monospace cells at 12px, for hanging indents.
-const CH2: f32 = 14.4;
-
-/// macOS blurs what is behind a translucent window; elsewhere the replica's
-/// desk (base colour plus soft blobs) is painted behind the glass instead.
-const GLASS: bool = cfg!(target_os = "macos");
-
-const SPIN: [&str; 10] = ["·", "✢", "✳", "✶", "✻", "✽", "✻", "✶", "✳", "✢"];
-
-// ------------------------------------------------------------------ prefs
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum ThemePref {
-    Auto,
-    Light,
-    Dark,
-}
-
-impl ThemePref {
-    fn path() -> Option<PathBuf> {
-        std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config/backspace/ui.toml"))
-    }
-
-    fn load() -> Self {
-        let value = Self::path()
-            .and_then(|p| std::fs::read_to_string(p).ok())
-            .and_then(|s| {
-                s.lines().find_map(|l| {
-                    let (k, v) = l.split_once('=')?;
-                    (k.trim() == "theme").then(|| v.trim().trim_matches('"').to_string())
-                })
-            });
-        match value.as_deref() {
-            Some("light") => Self::Light,
-            Some("dark") => Self::Dark,
-            _ => Self::Auto,
-        }
-    }
-
-    /// ui.toml only holds UI preferences, so rewriting it whole is fine.
-    fn save(self) {
-        if let Some(p) = Self::path() {
-            if let Some(dir) = p.parent() {
-                let _ = std::fs::create_dir_all(dir);
-            }
-            let name = match self {
-                Self::Auto => "system",
-                Self::Light => "light",
-                Self::Dark => "dark",
-            };
-            let _ = std::fs::write(p, format!("theme = \"{name}\"\n"));
-        }
-    }
-
-    fn next(self) -> Self {
-        match self {
-            Self::Auto => Self::Light,
-            Self::Light => Self::Dark,
-            Self::Dark => Self::Auto,
-        }
-    }
-
-    fn icon(self) -> &'static str {
-        match self {
-            Self::Auto => "auto",
-            Self::Light => "sun",
-            Self::Dark => "moon",
-        }
-    }
-
-    fn dark(self, window: &Window) -> bool {
-        match self {
-            Self::Light => false,
-            Self::Dark => true,
-            Self::Auto => matches!(
-                window.appearance(),
-                WindowAppearance::Dark | WindowAppearance::VibrantDark
-            ),
-        }
-    }
-}
+use ui::*;
 
 // ------------------------------------------------------------------ model
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Env {
-    Terminals,
-    Browser,
-    Diagram,
-    Docs,
-    New,
-}
-
-const ENVS: [(Env, &str); 4] = [
-    (Env::Terminals, "Terminals"),
-    (Env::Browser, "Browser"),
-    (Env::Diagram, "Diagram"),
-    (Env::Docs, "PLAN.md"),
-];
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Slot {
-    Agent(usize),
-    Files(usize),
-}
-
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum SideView {
+pub(crate) enum SideView {
     Projects,
     Agents,
-    Tickets,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Viewport {
+pub(crate) enum Viewport {
     Desktop,
     Tablet,
     Phone,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Drag {
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Drag {
     Side,
-    Cols,
+    /// Column gutter 0 or 1 (three canvases have two).
+    Col(usize),
     Rows,
 }
 
-struct Entry {
-    depth: usize,
-    name: String,
-    path: PathBuf,
-    dir: bool,
+pub(crate) type FitKey = (usize, usize, f32, f32, f32);
+
+/// What a canvas slot remembers while its tab is showing.
+pub(crate) struct PaneState {
+    pub(crate) scroll: ScrollHandle,
+    pub(crate) seen: usize,
+    pub(crate) filter: Entity<InputState>,
+    pub(crate) url: Entity<InputState>,
+    pub(crate) feedback: Entity<InputState>,
+    pub(crate) preview: Option<(String, String)>,
+    pub(crate) viewport: Viewport,
+    pub(crate) cam: Option<Cam>,
+    /// Inputs of the last automatic fit; a change refits until the user pans.
+    pub(crate) fitted: Option<FitKey>,
+    pub(crate) user_cam: bool,
+    pub(crate) fb_err: bool,
+    pub(crate) bounds: Rc<Cell<Bounds<Pixels>>>,
+    pub(crate) stage_bounds: Rc<Cell<Bounds<Pixels>>>,
+    pub(crate) card_bounds: Rc<Cell<Bounds<Pixels>>>,
 }
 
-/// What a dev-server URL answered, for the Browser environment.
-struct Page {
-    status: String,
-    title: String,
-    text: Vec<String>,
-    ms: u128,
+#[derive(Clone, Copy, PartialEq)]
+enum Pop {
+    NewTab(usize),
+    TabMenu(usize),
+    AddCanvas,
 }
 
-type FitKey = (usize, usize, f32, f32, f32);
+enum Upd {
+    Idle,
+    Checking,
+    Done(Result<UpdateInfo, String>),
+}
 
-struct Workbench {
-    harness: Rc<Harness>,
-    snap: ProjectState,
-    pal: Pal,
-    theme_pref: ThemePref,
+pub(crate) struct Workbench {
+    fleet: Arc<Fleet>,
+    pub(crate) snap: ProjectState,
+    machines: Vec<MachineInfo>,
+    pub(crate) pal: Pal,
+    prefs: Prefs,
+    bench: bool,
 
-    env: Env,
-    layout: usize,
-    slots: [Slot; 4],
-    focus: usize,
-    max: Option<usize>,
-    cols: f32,
-    rows: f32,
+    pub(crate) focus: usize,
+    pub(crate) max: Option<usize>,
     side: SideView,
     side_open: bool,
     side_w: f32,
-    drag: Option<Drag>,
-    grid_bounds: Rc<Cell<Bounds<Pixels>>>,
+    pub(crate) drag: Option<Drag>,
+    pub(crate) grid_bounds: Rc<Cell<Bounds<Pixels>>>,
     win_bounds: Rc<Cell<Bounds<Pixels>>>,
 
-    composer: Entity<InputState>,
-    filters: [Entity<InputState>; 4],
-    url: Entity<InputState>,
-    feedback: Entity<InputState>,
-    ticket: Entity<InputState>,
-    scrolls: [ScrollHandle; 4],
-    seen_len: [usize; 4],
-    trees: HashMap<usize, (Instant, Vec<Entry>)>,
-    file_preview: [Option<(PathBuf, String)>; 4],
-
-    previews: Vec<String>,
-    btab: usize,
-    viewport: Viewport,
-    pages: HashMap<String, Result<Page, String>>,
-
-    review: Option<usize>,
-    cam: Option<Cam>,
-    /// Inputs of the last automatic fit; a change refits until the user pans.
-    fitted: Option<FitKey>,
-    user_cam: bool,
-    pan: Option<Point<Pixels>>,
-    stage_bounds: Rc<Cell<Bounds<Pixels>>>,
-    card_bounds: Rc<Cell<Bounds<Pixels>>>,
-    fb_err: bool,
-    ticket_form: bool,
-    plan: Option<(Instant, Option<String>)>,
+    pub(crate) composer: Entity<InputState>,
+    pub(crate) panes: Vec<PaneState>,
+    pub(crate) pages: HashMap<String, Result<ui::Page, String>>,
+    trees: HashMap<(usize, usize), (Instant, Vec<FileEntry>)>,
+    loading: HashSet<(usize, usize)>,
+    plan: Option<(usize, Instant, Option<String>)>,
+    pub(crate) review: Option<usize>,
+    pub(crate) pan: Option<(usize, Point<Pixels>)>,
     last_pending: usize,
 
+    pop: Option<(Pop, Point<Pixels>)>,
+    new_name: Entity<InputState>,
+    renaming: Option<usize>,
+    rename: Entity<InputState>,
+
+    drawer: bool,
+    pinned: bool,
+    hov_cta: bool,
+    hov_drawer: bool,
+    drawer_task: Option<Task<()>>,
+    ticket_sel: Option<String>,
+    ticket_input: Entity<InputState>,
+    ticket_err: Option<String>,
+
+    settings: bool,
+    m_name: Entity<InputState>,
+    m_url: Entity<InputState>,
+    m_tok: Entity<InputState>,
+    m_err: Option<String>,
+    m_busy: bool,
+    share_addr: Entity<InputState>,
+    upd: Upd,
+
     desk: Option<((u32, u32, Hsla), Arc<Image>)>,
-    spin: usize,
-    started: Instant,
+    pub(crate) spin: usize,
+    pub(crate) started: Instant,
     focus_handle: FocusHandle,
     _subs: Vec<Subscription>,
     _tasks: Vec<Task<()>>,
@@ -283,7 +162,7 @@ fn on_enter(
     input: &Entity<InputState>,
     window: &mut Window,
     cx: &mut Context<Workbench>,
-    f: impl Fn(&mut Workbench, String, &mut Context<Workbench>) -> bool + 'static,
+    f: impl Fn(&mut Workbench, String, &mut Window, &mut Context<Workbench>) -> bool + 'static,
 ) -> Subscription {
     cx.subscribe_in(
         input,
@@ -291,7 +170,7 @@ fn on_enter(
         move |this, input, ev: &InputEvent, window, cx| {
             if let InputEvent::PressEnter { .. } = ev {
                 let text = input.read(cx).value().trim().to_string();
-                if !text.is_empty() && f(this, text, cx) {
+                if f(this, text, window, cx) {
                     input.update(cx, |s, cx| s.set_value("", window, cx));
                 }
                 cx.notify();
@@ -301,59 +180,98 @@ fn on_enter(
 }
 
 impl Workbench {
-    fn new(harness: Harness, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let harness = Rc::new(harness);
+    fn new(fleet: Arc<Fleet>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let input = |p: &'static str, window: &mut Window, cx: &mut Context<Self>| {
             cx.new(|cx| InputState::new(window, cx).placeholder(p))
         };
         let composer = input("Describe the goal, or answer the main agent", window, cx);
-        let filters = [
-            input("Search", window, cx),
-            input("Search", window, cx),
-            input("Search", window, cx),
-            input("Search", window, cx),
-        ];
-        let url = input("http://localhost:5173", window, cx);
-        let feedback = input("Feedback for the agent (needed to reject)", window, cx);
-        let ticket = input("Title: what is wrong or wanted", window, cx);
+        let new_name = input("Name (optional)", window, cx);
+        let rename = input("Tab name", window, cx);
+        let ticket_input = input("File a ticket: title: what is wrong or wanted", window, cx);
+        let m_name = input("Name, e.g. Cloud", window, cx);
+        let m_url = input("http://10.0.0.5:7420", window, cx);
+        let m_tok = input("Token", window, cx);
+        let share_addr = input("127.0.0.1:7420", window, cx);
 
-        let theme_pref = ThemePref::load();
         let mut subs = vec![
-            on_enter(&composer, window, cx, |this, text, _| {
-                this.harness.send(text);
+            on_enter(&composer, window, cx, |this, text, _, _| {
+                if text.is_empty() {
+                    return false;
+                }
+                this.backend().send(text);
                 true
             }),
-            on_enter(&url, window, cx, |this, text, cx| {
-                this.go(text, cx);
+            on_enter(&new_name, window, cx, |this, text, window, cx| {
+                if let Some((Pop::NewTab(n), _)) = this.pop {
+                    this.create_tab(text, n, window, cx);
+                }
+                true
+            }),
+            on_enter(&rename, window, cx, |this, text, _, cx| {
+                this.commit_rename(Some(text), cx);
                 false
             }),
-            on_enter(&ticket, window, cx, |this, text, _| {
-                let (title, body) = text.split_once(':').unwrap_or((&text, &text));
-                let ok = this.harness.file_ticket(title.trim(), body.trim()).is_ok();
-                if ok {
-                    this.ticket_form = false;
-                    this.side = SideView::Tickets;
-                    this.env = Env::Terminals;
-                }
-                ok
+            on_enter(&ticket_input, window, cx, |this, text, _, cx| {
+                this.file_ticket(text, cx);
+                true
             }),
-            cx.observe(&feedback, |this, _, cx| {
-                this.fb_err = false;
-                cx.notify()
+            on_enter(&m_tok, window, cx, |this, _, _, cx| {
+                this.add_machine(cx);
+                false
             }),
             cx.observe_window_appearance(window, |this, window, cx| {
                 this.apply_theme(window, cx);
             }),
         ];
-        for f in &filters {
-            subs.push(cx.observe(f, |_, _, cx| cx.notify()));
+
+        let mut panes = vec![];
+        for slot in 0..4 {
+            let url = input("http://localhost:5173", window, cx);
+            let filter = input("Search", window, cx);
+            let feedback = input("Feedback for the agent (needed to reject)", window, cx);
+            subs.push(on_enter(&url, window, cx, move |this, text, _, cx| {
+                if text.is_empty() {
+                    return false;
+                }
+                let u = if text.starts_with("http://") || text.starts_with("https://") {
+                    text
+                } else {
+                    format!("http://{text}")
+                };
+                if let Some(p) = this.tab_mut().panes.get_mut(slot) {
+                    p.url = Some(u.clone());
+                }
+                this.save_tabs();
+                this.fetch(u, cx);
+                false
+            }));
+            subs.push(cx.observe(&filter, |_, _, cx| cx.notify()));
+            subs.push(cx.observe(&feedback, move |this, _, cx| {
+                this.panes[slot].fb_err = false;
+                cx.notify()
+            }));
+            panes.push(PaneState {
+                scroll: ScrollHandle::new(),
+                seen: usize::MAX,
+                filter,
+                url,
+                feedback,
+                preview: None,
+                viewport: Viewport::Desktop,
+                cam: None,
+                fitted: None,
+                user_cam: false,
+                fb_err: false,
+                bounds: Rc::default(),
+                stage_bounds: Rc::default(),
+                card_bounds: Rc::default(),
+            });
         }
 
-        let changes = harness.changes();
+        let changes = fleet.changes();
         let refresh = cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
             while changes.recv().await.is_ok() {
-                let alive = this.update(cx, |this, cx| this.refresh(cx));
-                if alive.is_err() {
+                if this.update(cx, |this, cx| this.refresh(cx)).is_err() {
                     break;
                 }
             }
@@ -382,25 +300,36 @@ impl Workbench {
             },
         );
 
+        let mut prefs = fleet.prefs();
+        let bench = std::env::var_os("BACKSPACE_READY_FILE").is_some();
+        // bench/: a fixed first tab with that many canvases.
+        if let Some(n) = std::env::var("BACKSPACE_LAYOUT")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .filter(|n| (1..=4).contains(n))
+        {
+            let panes = vec![
+                PaneSpec::agent(MAIN),
+                PaneSpec::files(MAIN),
+                PaneSpec::agent(1),
+                PaneSpec::agent(2),
+            ];
+            prefs
+                .tabs
+                .insert(0, TabSpec::new(Some("Bench".into()), panes[..n].to_vec()));
+            prefs.active_tab = 0;
+        }
         let focus_handle = cx.focus_handle();
         window.focus(&focus_handle, cx);
         let mut this = Self {
-            snap: harness.snapshot(),
-            harness,
+            snap: fleet.snapshot(),
+            machines: fleet.machines(),
+            fleet,
             pal: Pal::light(),
-            theme_pref,
-            env: Env::Terminals,
-            layout: 2,
-            slots: [
-                Slot::Agent(MAIN),
-                Slot::Files(MAIN),
-                Slot::Agent(MAIN),
-                Slot::Files(MAIN),
-            ],
+            prefs,
+            bench,
             focus: 0,
             max: None,
-            cols: 0.5,
-            rows: 0.56,
             side: SideView::Projects,
             side_open: true,
             side_w: 264.,
@@ -408,29 +337,34 @@ impl Workbench {
             grid_bounds: Rc::default(),
             win_bounds: Rc::default(),
             composer,
-            filters,
-            url,
-            feedback,
-            ticket,
-            scrolls: Default::default(),
-            seen_len: [usize::MAX; 4],
-            trees: HashMap::new(),
-            file_preview: Default::default(),
-            previews: vec![],
-            btab: 0,
-            viewport: Viewport::Desktop,
+            panes,
             pages: HashMap::new(),
-            review: None,
-            cam: None,
-            fitted: None,
-            user_cam: false,
-            pan: None,
-            stage_bounds: Rc::default(),
-            card_bounds: Rc::default(),
-            fb_err: false,
-            ticket_form: false,
+            trees: HashMap::new(),
+            loading: HashSet::new(),
             plan: None,
+            review: None,
+            pan: None,
             last_pending: 0,
+            pop: None,
+            new_name,
+            renaming: None,
+            rename,
+            drawer: false,
+            pinned: false,
+            hov_cta: false,
+            hov_drawer: false,
+            drawer_task: None,
+            ticket_sel: None,
+            ticket_input,
+            ticket_err: None,
+            settings: false,
+            m_name,
+            m_url,
+            m_tok,
+            m_err: None,
+            m_busy: false,
+            share_addr,
+            upd: Upd::Idle,
             desk: None,
             spin: 0,
             started: Instant::now(),
@@ -438,14 +372,11 @@ impl Workbench {
             _subs: subs,
             _tasks: vec![refresh, tick],
         };
-        if let Some(n) = std::env::var("BACKSPACE_LAYOUT")
-            .ok()
-            .and_then(|v| v.parse::<usize>().ok())
-            .filter(|n| [1, 2, 4].contains(n))
-        {
-            this.layout = n;
-        }
         this.apply_theme(window, cx);
+        this.load_pane_inputs(window, cx);
+        if this.prefs.check_updates && !this.bench {
+            this.check_update(cx);
+        }
         // bench/ times launch to the first frame with data on screen.
         if let Ok(path) = std::env::var("BACKSPACE_READY_FILE") {
             cx.on_next_frame(window, move |_, _, _| {
@@ -458,9 +389,225 @@ impl Workbench {
         this
     }
 
+    // -------------------------------------------------------------- data
+
+    pub(crate) fn backend(&self) -> Arc<dyn Backend> {
+        self.fleet.backend()
+    }
+
+    fn machine(&self) -> MachineInfo {
+        self.machines
+            .iter()
+            .find(|m| m.selected)
+            .cloned()
+            .unwrap_or_else(|| self.machines[0].clone())
+    }
+
+    fn refresh(&mut self, cx: &mut Context<Self>) {
+        self.snap = self.fleet.snapshot();
+        self.machines = self.fleet.machines();
+        // A new review is queued up front, the way a notification would be.
+        let pending: Vec<usize> = self.snap.pending_approvals().map(|a| a.id).collect();
+        if pending.len() > self.last_pending {
+            self.review = pending.last().copied();
+            for p in &mut self.panes {
+                p.cam = None;
+                p.user_cam = false;
+            }
+        }
+        self.last_pending = pending.len();
+        cx.notify();
+    }
+
+    pub(crate) fn pending(&self) -> usize {
+        self.snap.pending_approvals().count()
+    }
+
+    /// Where the current machine can't show its project yet.
+    pub(crate) fn offline_note(&self) -> Option<AnyElement> {
+        let m = self.machine();
+        let p = self.pal;
+        if m.local || (m.link == Link::Online && !self.snap.agents.is_empty()) {
+            return None;
+        }
+        let (head, body) = match &m.link {
+            Link::Offline { error } => (
+                format!("{} is offline.", m.name),
+                format!("{error}. Retrying every few seconds."),
+            ),
+            _ => (format!("Connecting to {}…", m.name), String::new()),
+        };
+        Some(
+            div()
+                .m(px(8.))
+                .p(px(10.))
+                .rounded(px(9.))
+                .bg(p.pane)
+                .border_1()
+                .border_color(p.pane_edge)
+                .text_size(px(12.))
+                .text_color(p.fg2)
+                .child(
+                    div()
+                        .font_weight(FontWeight::BOLD)
+                        .text_color(p.fg)
+                        .child(head),
+                )
+                .when(!body.is_empty(), |d| d.child(body))
+                .into_any_element(),
+        )
+    }
+
+    /// A worktree listing; fetched off the UI thread (remote machines answer
+    /// over the network) and kept for two seconds.
+    pub(crate) fn tree(&mut self, id: usize, cx: &mut Context<Self>) -> Vec<FileEntry> {
+        let key = (self.fleet.current(), id);
+        let stale = self
+            .trees
+            .get(&key)
+            .is_none_or(|(at, _)| at.elapsed() > Duration::from_secs(2));
+        if stale && self.loading.insert(key) {
+            let b = self.backend();
+            let task = cx.background_spawn(async move { b.list_files(id) });
+            cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+                let rows = task.await;
+                let _ = this.update(cx, |this, cx| {
+                    this.loading.remove(&key);
+                    this.trees.insert(key, (Instant::now(), rows));
+                    cx.notify();
+                });
+            })
+            .detach();
+        }
+        self.trees
+            .get(&key)
+            .map(|(_, v)| v.clone())
+            .unwrap_or_default()
+    }
+
+    pub(crate) fn read_preview(&mut self, slot: usize, path: String, cx: &mut Context<Self>) {
+        let b = self.backend();
+        let p = path.clone();
+        let task = cx.background_spawn(async move { b.read_file(&p) });
+        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            let text = task.await.unwrap_or_else(|e| e.to_string());
+            let _ = this.update(cx, |this, cx| {
+                this.panes[slot].preview = Some((path, text));
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    pub(crate) fn plan_text(&mut self, cx: &mut Context<Self>) -> Option<String> {
+        let m = self.fleet.current();
+        let stale = self
+            .plan
+            .as_ref()
+            .is_none_or(|(pm, at, _)| *pm != m || at.elapsed() > Duration::from_millis(1500));
+        if stale && !self.snap.workspace.as_os_str().is_empty() {
+            // Mark it fresh now so one read is in flight at a time.
+            let old = self
+                .plan
+                .take()
+                .filter(|(pm, _, _)| *pm == m)
+                .and_then(|p| p.2);
+            self.plan = Some((m, Instant::now(), old));
+            let b = self.backend();
+            let path = self
+                .snap
+                .workspace
+                .join("PLAN.md")
+                .to_string_lossy()
+                .into_owned();
+            let task = cx.background_spawn(async move { b.read_file(&path).ok() });
+            cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+                let text = task.await;
+                let _ = this.update(cx, |this, cx| {
+                    if this.plan.as_ref().and_then(|p| p.2.as_ref()) != text.as_ref() {
+                        this.plan = Some((m, Instant::now(), text));
+                        cx.notify();
+                    }
+                });
+            })
+            .detach();
+        }
+        self.plan.as_ref().and_then(|(_, _, t)| t.clone())
+    }
+
+    pub(crate) fn fetch(&mut self, url: String, cx: &mut Context<Self>) {
+        self.pages.remove(&url);
+        let task = cx.background_spawn({
+            let url = url.clone();
+            async move { probe(&url) }
+        });
+        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            let page = task.await;
+            let _ = this.update(cx, |this, cx| {
+                this.pages.insert(url, page);
+                cx.notify();
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
+    fn file_ticket(&mut self, text: String, cx: &mut Context<Self>) {
+        if text.is_empty() {
+            return;
+        }
+        let (title, body) = text.split_once(':').unwrap_or((&text, &text));
+        let (title, body) = (title.trim().to_string(), body.trim().to_string());
+        let b = self.backend();
+        let task = cx.background_spawn(async move { b.file_ticket(&title, &body) });
+        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            let res = task.await;
+            let _ = this.update(cx, |this, cx| {
+                this.ticket_err = res.err().map(|e| e.to_string());
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    fn check_update(&mut self, cx: &mut Context<Self>) {
+        self.upd = Upd::Checking;
+        let fleet = self.fleet.clone();
+        let task = cx.background_spawn(async move { fleet.check_update() });
+        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            let res = task.await.map_err(|e| e.to_string());
+            let _ = this.update(cx, |this, cx| {
+                this.upd = Upd::Done(res);
+                cx.notify();
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
+    pub(crate) fn zoom_center(&mut self, slot: usize, f: f32, cx: &mut Context<Self>) {
+        let ps = &mut self.panes[slot];
+        let b = ps.stage_bounds.get();
+        let (sw, sh) = (f32::from(b.size.width), f32::from(b.size.height));
+        if let Some(cam) = ps.cam.as_mut() {
+            cam.zoom(f, sw / 2., sh / 2., sw);
+            ps.user_cam = true;
+            cx.notify();
+        }
+    }
+
+    // -------------------------------------------------------------- theme
+
     /// Pick the palette, and keep gpui-kit's inputs in the same colours.
     fn apply_theme(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let dark = self.theme_pref.dark(window);
+        let dark = match self.prefs.theme.as_str() {
+            "light" => false,
+            "dark" => true,
+            _ => matches!(
+                window.appearance(),
+                WindowAppearance::Dark | WindowAppearance::VibrantDark
+            ),
+        };
         self.pal = if dark { Pal::dark() } else { Pal::light() };
         Theme::change(
             if dark {
@@ -481,119 +628,238 @@ impl Workbench {
         cx.notify();
     }
 
-    fn refresh(&mut self, cx: &mut Context<Self>) {
-        self.snap = self.harness.snapshot();
-        // A new review is queued up front, the way a notification would be.
-        let pending: Vec<usize> = self.snap.pending_approvals().map(|a| a.id).collect();
-        if pending.len() > self.last_pending && self.env != Env::Diagram {
-            self.review = pending.last().copied();
-            self.cam = None;
-            self.user_cam = false;
+    fn set_theme(&mut self, theme: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.prefs.theme = theme.into();
+        let t = theme.to_string();
+        self.fleet.update_prefs(|p| p.theme = t);
+        self.apply_theme(window, cx);
+    }
+
+    // -------------------------------------------------------------- tabs
+
+    pub(crate) fn tab(&self) -> &TabSpec {
+        &self.prefs.tabs[self.prefs.active_tab]
+    }
+
+    pub(crate) fn tab_mut(&mut self) -> &mut TabSpec {
+        let i = self.prefs.active_tab;
+        &mut self.prefs.tabs[i]
+    }
+
+    pub(crate) fn save_tabs(&self) {
+        // Bench runs keep their scripted tab out of the user's prefs.
+        if std::env::var_os("BACKSPACE_LAYOUT").is_some() {
+            return;
         }
-        self.last_pending = pending.len();
+        let (tabs, active) = (self.prefs.tabs.clone(), self.prefs.active_tab);
+        self.fleet.update_prefs(|p| {
+            p.tabs = tabs;
+            p.active_tab = active;
+        });
+    }
+
+    /// Per-slot state follows the tab: reset it and load browser addresses.
+    fn load_pane_inputs(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let urls: Vec<Option<String>> = self.tab().panes.iter().map(|p| p.url.clone()).collect();
+        for (slot, ps) in self.panes.iter_mut().enumerate() {
+            ps.preview = None;
+            ps.cam = None;
+            ps.fitted = None;
+            ps.user_cam = false;
+            ps.seen = usize::MAX;
+            let u = urls.get(slot).cloned().flatten().unwrap_or_default();
+            ps.url.update(cx, |s, cx| s.set_value(u, window, cx));
+        }
+        for u in urls.into_iter().flatten() {
+            if !self.pages.contains_key(&u) {
+                self.fetch(u, cx);
+            }
+        }
+    }
+
+    fn switch_tab(&mut self, i: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if i >= self.prefs.tabs.len() {
+            return;
+        }
+        self.settings = false;
+        if i != self.prefs.active_tab {
+            self.prefs.active_tab = i;
+            self.focus = 0;
+            self.max = None;
+            self.load_pane_inputs(window, cx);
+            self.save_tabs();
+        }
         cx.notify();
     }
 
-    fn pending(&self) -> usize {
-        self.snap.pending_approvals().count()
+    fn create_tab(&mut self, name: String, n: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let name = Some(name.trim().to_string()).filter(|s| !s.is_empty());
+        self.prefs
+            .tabs
+            .push(TabSpec::new(name, vec![PaneSpec::default(); n]));
+        self.pop = None;
+        let last = self.prefs.tabs.len() - 1;
+        self.switch_tab(last, window, cx);
     }
 
-    fn set_env(&mut self, e: Env, cx: &mut Context<Self>) {
-        self.env = e;
+    fn close_tab(&mut self, i: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if self.prefs.tabs.len() < 2 {
+            return;
+        }
+        self.prefs.tabs.remove(i);
+        let active = self.prefs.active_tab;
+        let next = if active >= i {
+            active.saturating_sub(1)
+        } else {
+            active
+        };
+        self.prefs.active_tab = next.min(self.prefs.tabs.len() - 1);
+        self.focus = 0;
+        self.max = None;
+        self.load_pane_inputs(window, cx);
+        self.save_tabs();
         cx.notify();
     }
 
-    fn open(&mut self, v: Slot, cx: &mut Context<Self>) {
-        match self.slots[..self.layout].iter().position(|s| *s == v) {
+    fn start_rename(&mut self, i: usize, window: &mut Window, cx: &mut Context<Self>) {
+        self.pop = None;
+        self.renaming = Some(i);
+        let name = self.prefs.tabs[i].name.clone().unwrap_or_default();
+        self.rename.update(cx, |s, cx| {
+            s.set_value(name, window, cx);
+            s.focus(window, cx);
+        });
+        cx.notify();
+    }
+
+    fn commit_rename(&mut self, name: Option<String>, cx: &mut Context<Self>) {
+        if let Some(i) = self.renaming.take() {
+            if let (Some(name), Some(t)) = (name, self.prefs.tabs.get_mut(i)) {
+                t.name = Some(name.trim().to_string()).filter(|s| !s.is_empty());
+                self.save_tabs();
+            }
+        }
+        cx.notify();
+    }
+
+    pub(crate) fn set_pane(
+        &mut self,
+        slot: usize,
+        spec: PaneSpec,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(p) = self.tab_mut().panes.get_mut(slot) {
+            *p = spec;
+        }
+        self.focus = slot;
+        self.save_tabs();
+        self.load_pane_inputs(window, cx);
+        cx.notify();
+    }
+
+    pub(crate) fn close_pane(&mut self, slot: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if self.max.is_some() {
+            self.max = None;
+        } else if self.tab().panes.len() > 1 {
+            let t = self.tab_mut();
+            t.panes.remove(slot);
+            t.cols.clear();
+        } else {
+            self.tab_mut().panes[0] = PaneSpec::default();
+        }
+        self.focus = self.focus.min(self.tab().panes.len() - 1);
+        self.save_tabs();
+        self.load_pane_inputs(window, cx);
+        cx.notify();
+    }
+
+    fn add_canvas(&mut self, spec: PaneSpec, window: &mut Window, cx: &mut Context<Self>) {
+        self.pop = None;
+        if self.tab().panes.len() >= 4 {
+            return;
+        }
+        let t = self.tab_mut();
+        t.panes.push(spec);
+        t.cols.clear();
+        self.focus = self.tab().panes.len() - 1;
+        self.max = None;
+        self.settings = false;
+        self.save_tabs();
+        self.load_pane_inputs(window, cx);
+        cx.notify();
+    }
+
+    /// Show something in this tab: focus a canvas already showing it, else
+    /// take over the focused one.
+    pub(crate) fn open(&mut self, spec: PaneSpec, cx: &mut Context<Self>) {
+        self.settings = false;
+        let same = |p: &PaneSpec| {
+            p.kind == spec.kind
+                && (!matches!(spec.kind.as_str(), "agent" | "files") || p.agent == spec.agent)
+        };
+        match self.tab().panes.iter().position(same) {
             Some(i) => self.focus = i,
-            None => self.slots[self.focus] = v,
+            None => {
+                let f = self.focus;
+                self.tab_mut().panes[f] = spec;
+                self.panes[f].seen = usize::MAX;
+                self.panes[f].preview = None;
+                self.save_tabs();
+            }
         }
         self.max = None;
-        self.env = Env::Terminals;
         cx.notify();
     }
 
-    /// A slot that repeats an earlier one takes the busiest agent not on
-    /// screen yet (the replica's fillSlots).
-    fn fill_slots(&mut self, n: usize) {
-        let rank = |a: &AgentRecord| match a.status {
-            AgentStatus::Running => 0,
-            AgentStatus::AwaitingApproval => 1,
-            AgentStatus::Failed => 2,
-            _ => 3,
-        };
-        let mut seen: Vec<Slot> = vec![];
-        for i in 0..n {
-            if seen.contains(&self.slots[i]) {
-                let mut cands: Vec<&AgentRecord> = self
-                    .snap
-                    .agents
-                    .iter()
-                    .filter(|a| a.id != MAIN && !seen.contains(&Slot::Agent(a.id)))
-                    .collect();
-                cands.sort_by_key(|a| rank(a));
-                self.slots[i] = match cands.first() {
-                    Some(a) => Slot::Agent(a.id),
-                    None => Slot::Files(
-                        self.snap
-                            .agents
-                            .iter()
-                            .find(|a| a.branch.is_some() && !seen.contains(&Slot::Files(a.id)))
-                            .map_or(MAIN, |a| a.id),
-                    ),
-                };
-                if seen.contains(&self.slots[i]) {
-                    self.slots[i] = Slot::Agent(MAIN);
-                }
+    fn show_diagram(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        for ti in 0..self.prefs.tabs.len() {
+            if let Some(pi) = self.prefs.tabs[ti]
+                .panes
+                .iter()
+                .position(|p| p.kind == "diagram")
+            {
+                self.switch_tab(ti, window, cx);
+                self.focus = pi;
+                cx.notify();
+                return;
             }
-            seen.push(self.slots[i]);
         }
+        self.open(PaneSpec::of("diagram"), cx);
     }
 
-    fn tree(&mut self, id: usize) -> &Vec<Entry> {
-        let root = self
-            .snap
-            .agents
-            .get(id)
-            .and_then(|a| a.worktree.clone())
-            .unwrap_or_else(|| self.snap.workspace.clone());
-        let stale = self
-            .trees
-            .get(&id)
-            .is_none_or(|(at, _)| at.elapsed() > Duration::from_secs(2));
-        if stale {
-            let mut out = Vec::new();
-            scan(&root, 0, &mut out);
-            self.trees.insert(id, (Instant::now(), out));
-        }
-        &self.trees[&id].1
+    // -------------------------------------------------------------- machines
+
+    fn select_machine(&mut self, i: usize, window: &mut Window, cx: &mut Context<Self>) {
+        self.fleet.select(i);
+        self.review = None;
+        self.ticket_sel = None;
+        self.load_pane_inputs(window, cx);
+        self.refresh(cx);
     }
 
-    fn go(&mut self, text: String, cx: &mut Context<Self>) {
-        let u = if text.starts_with("http://") || text.starts_with("https://") {
-            text
-        } else {
-            format!("http://{text}")
-        };
-        if self.btab < self.previews.len() {
-            self.previews[self.btab] = u.clone();
-        } else {
-            self.previews.push(u.clone());
-            self.btab = self.previews.len() - 1;
+    fn add_machine(&mut self, cx: &mut Context<Self>) {
+        if self.m_busy {
+            return;
         }
-        self.fetch(u, cx);
-    }
-
-    fn fetch(&mut self, url: String, cx: &mut Context<Self>) {
-        self.pages.remove(&url);
-        let task = cx.background_spawn({
-            let url = url.clone();
-            async move { probe(&url) }
-        });
+        let name = self.m_name.read(cx).value().to_string();
+        let url = self.m_url.read(cx).value().to_string();
+        let tok = self.m_tok.read(cx).value().to_string();
+        self.m_busy = true;
+        self.m_err = None;
+        let fleet = self.fleet.clone();
+        let task = cx.background_spawn(async move { fleet.add_machine(&name, &url, &tok) });
         cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
-            let page = task.await;
+            let res = task.await;
             let _ = this.update(cx, |this, cx| {
-                this.pages.insert(url, page);
+                this.m_busy = false;
+                match res {
+                    Ok(_) => {
+                        this.review = None;
+                        this.refresh(cx);
+                    }
+                    Err(e) => this.m_err = Some(e.to_string()),
+                }
                 cx.notify();
             });
         })
@@ -601,262 +867,43 @@ impl Workbench {
         cx.notify();
     }
 
-    fn plan_text(&mut self) -> Option<String> {
-        let stale = self
-            .plan
-            .as_ref()
-            .is_none_or(|(at, _)| at.elapsed() > Duration::from_secs(1));
-        if stale {
-            let text = std::fs::read_to_string(self.snap.workspace.join("PLAN.md")).ok();
-            self.plan = Some((Instant::now(), text));
+    fn set_share(&mut self, enabled: bool, new_token: bool, cx: &mut Context<Self>) {
+        let addr = self.share_addr.read(cx).value().to_string();
+        let _ = self.fleet.set_share(enabled, Some(&addr), new_token);
+        cx.notify();
+    }
+
+    // -------------------------------------------------------------- drawer
+
+    /// Opens after a short hover on the review pill, stays while the pointer
+    /// is on the pill or the drawer, closes a little after it leaves.
+    fn hover_drawer(&mut self, cta: bool, on: bool, cx: &mut Context<Self>) {
+        if cta {
+            self.hov_cta = on;
+        } else {
+            self.hov_drawer = on;
         }
-        self.plan.as_ref().and_then(|(_, t)| t.clone())
-    }
-
-    fn zoom_center(&mut self, f: f32, cx: &mut Context<Self>) {
-        let b = self.stage_bounds.get();
-        let (sw, sh) = (f32::from(b.size.width), f32::from(b.size.height));
-        if let Some(cam) = self.cam.as_mut() {
-            cam.zoom(f, sw / 2., sh / 2., sw);
-            self.user_cam = true;
-            cx.notify();
+        let want = self.hov_cta || self.hov_drawer || self.pinned;
+        if want == self.drawer {
+            self.drawer_task = None;
+            return;
         }
-    }
-}
-
-// ------------------------------------------------------------------ primitives
-
-/// The replica's 0.5px hairline: one device pixel.
-fn hair(window: &Window) -> Pixels {
-    px(1. / window.scale_factor().max(1.))
-}
-
-trait Hair: Styled + Sized {
-    fn hair_all(mut self, w: Pixels, c: Hsla) -> Self {
-        let s = self.style();
-        s.border_widths.top = Some(w.into());
-        s.border_widths.right = Some(w.into());
-        s.border_widths.bottom = Some(w.into());
-        s.border_widths.left = Some(w.into());
-        self.border_color(c)
-    }
-    fn hair_b(mut self, w: Pixels, c: Hsla) -> Self {
-        self.style().border_widths.bottom = Some(w.into());
-        self.border_color(c)
-    }
-    fn hair_t(mut self, w: Pixels, c: Hsla) -> Self {
-        self.style().border_widths.top = Some(w.into());
-        self.border_color(c)
-    }
-    fn hair_r(mut self, w: Pixels, c: Hsla) -> Self {
-        self.style().border_widths.right = Some(w.into());
-        self.border_color(c)
-    }
-}
-impl<T: Styled> Hair for T {}
-
-fn icon(name: &str, size: f32, color: Hsla) -> Svg {
-    svg()
-        .path(icons::path(name))
-        .size(px(size))
-        .flex_none()
-        .text_color(color)
-}
-
-/// `.ib`: a 24px square button around `content`.
-fn ib_with(
-    id: impl Into<ElementId>,
-    content: impl IntoElement,
-    p: &Pal,
-    on: bool,
-) -> Stateful<Div> {
-    div()
-        .id(id)
-        .size(px(24.))
-        .flex_none()
-        .flex()
-        .items_center()
-        .justify_center()
-        .rounded(px(6.))
-        .cursor_pointer()
-        .text_color(p.fg3)
-        .when(on, |d| d.bg(p.sel))
-        .hover(|d| d.bg(p.hover))
-        .child(content)
-}
-
-/// `.ib` with one of the line icons.
-fn ib(id: impl Into<ElementId>, name: &str, p: &Pal, on: bool) -> Stateful<Div> {
-    ib_with(id, icon(name, 14., if on { p.fg } else { p.fg3 }), p, on)
-}
-
-/// `.dot`, with the CSS pulse (opacity 1 → 0.35 → 1 over 1.4s) for running.
-fn dot(c: Hsla, pulse: Option<f32>) -> Div {
-    let a = pulse.map_or(1., |t| {
-        let ph = (t % 1.4) / 1.4;
-        1. - 0.65 * (1. - (2. * ph - 1.).abs())
-    });
-    div()
-        .size(px(6.))
-        .flex_none()
-        .rounded_full()
-        .bg(c.opacity(c.a * a))
-}
-
-fn status_dot(p: &Pal, s: AgentStatus, t: f32) -> Div {
-    match s {
-        AgentStatus::Running => dot(p.accent, Some(t)),
-        AgentStatus::AwaitingApproval => dot(p.amber, None),
-        AgentStatus::Approved => dot(p.green, None),
-        AgentStatus::Failed => dot(p.red, None),
-        _ => dot(p.fg4, None),
-    }
-}
-
-/// Text with per-span colours (StyledText highlights).
-fn rich(parts: &[(&str, Option<Hsla>)]) -> StyledText {
-    let mut s = String::new();
-    let mut hl = vec![];
-    for (t, c) in parts {
-        let start = s.len();
-        s.push_str(t);
-        if let Some(c) = c {
-            hl.push((
-                start..s.len(),
-                HighlightStyle {
-                    color: Some(*c),
-                    ..Default::default()
-                },
-            ));
-        }
-    }
-    StyledText::new(s).with_highlights(hl)
-}
-
-fn route(a: &AgentRecord) -> String {
-    let now = a.decision.as_ref().map_or("not routed".to_string(), |d| {
-        format!("{} @ {}", d.model, d.effort)
-    });
-    match a.escalations.first().and_then(|e| e.split(" → ").next()) {
-        Some(start) => format!("{start} → {now} ↑{}", a.escalations.len()),
-        None => now,
-    }
-}
-
-fn btn(id: impl Into<ElementId>, label: &str, p: &Pal, w: Pixels) -> Stateful<Div> {
-    div()
-        .id(id)
-        .h(px(28.))
-        .px(px(14.))
-        .flex()
-        .items_center()
-        .rounded(px(7.))
-        .font_weight(FontWeight::MEDIUM)
-        .cursor_pointer()
-        .bg(p.pill_on)
-        .hair_all(w, p.pane_edge)
-        .child(label.to_string())
-}
-
-/// The pixel mascot: 12x7 cells of 4px, accent coloured.
-fn mascot(c: Hsla) -> impl IntoElement {
-    const ROWS: [&str; 7] = [
-        "...XXXXXXXXX",
-        "..XXXXXXXXXX",
-        ".XXXX.XX.XXX",
-        "XXXXXXXXXXXX",
-        ".XXXXXXXXXXX",
-        "..XX.XXXX.XX",
-        "...XXXXXXXXX",
-    ];
-    canvas(
-        |_, _, _| (),
-        move |b, _, window, _| {
-            for (y, row) in ROWS.iter().enumerate() {
-                for (x, ch) in row.chars().enumerate() {
-                    if ch == 'X' {
-                        window.paint_quad(fill(
-                            Bounds::new(
-                                point(
-                                    b.origin.x + px(x as f32 * 4.),
-                                    b.origin.y + px(y as f32 * 4.),
-                                ),
-                                size(px(4.), px(4.)),
-                            ),
-                            c,
-                        ));
+        let delay = if want { 320 } else { 450 };
+        self.drawer_task = Some(cx.spawn(
+            async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+                cx.background_executor()
+                    .timer(Duration::from_millis(delay))
+                    .await;
+                let _ = this.update(cx, |this, cx| {
+                    let want = this.hov_cta || this.hov_drawer || this.pinned;
+                    if want != this.drawer {
+                        this.drawer = want;
+                        cx.notify();
                     }
-                }
-            }
-        },
-    )
-    .w(px(48.))
-    .h(px(28.))
-    .flex_none()
-}
-
-/// The desk behind the glass: the replica's three `blur(70px)` blobs over
-/// the base colour, rendered once per window size at quarter resolution
-/// (blurred content loses nothing) and drawn as a single image, so frames
-/// do not re-rasterise it.
-fn desk_image(p: &Pal, w: f32, h: f32) -> Arc<Image> {
-    const SCALE: f32 = 4.;
-    let (iw, ih) = (
-        (w / SCALE).ceil().max(1.) as usize,
-        (h / SCALE).ceil().max(1.) as usize,
-    );
-    let vw = w / 100.;
-    let rgb = |c: Hsla| {
-        let c = c.to_rgb();
-        [c.r, c.g, c.b]
-    };
-    // (diameter, left, top) in vw, from .blob.a/.b/.c; c hangs off the bottom.
-    let blobs = [
-        (52., -10., Some(-14.), rgb(p.blobs[0])),
-        (46., 100. - 12. - 46., Some(-6.), rgb(p.blobs[1])),
-        (60., 26., None, rgb(p.blobs[2])),
-    ];
-    let base = rgb(p.desk_base);
-    let sigma = 70.;
-    // 24-bit BMP, bottom-up rows padded to 4 bytes.
-    let row = (iw * 3 + 3) & !3;
-    let mut bmp = Vec::with_capacity(54 + row * ih);
-    let size = (54 + row * ih) as u32;
-    bmp.extend_from_slice(b"BM");
-    bmp.extend_from_slice(&size.to_le_bytes());
-    bmp.extend_from_slice(&[0, 0, 0, 0, 54, 0, 0, 0, 40, 0, 0, 0]);
-    bmp.extend_from_slice(&(iw as i32).to_le_bytes());
-    bmp.extend_from_slice(&(ih as i32).to_le_bytes());
-    bmp.extend_from_slice(&[1, 0, 24, 0]);
-    bmp.extend_from_slice(&[0; 24]);
-    for y in (0..ih).rev() {
-        let py = (y as f32 + 0.5) * SCALE;
-        let mut line = Vec::with_capacity(row);
-        for x in 0..iw {
-            let px_ = (x as f32 + 0.5) * SCALE;
-            let mut c = base;
-            for (d, l, t, bc) in &blobs {
-                let r = d * vw / 2.;
-                let cx0 = l * vw + r;
-                let cy0 = match t {
-                    Some(t) => t * vw + r,
-                    None => h + 34. * vw - r,
-                };
-                let dist = ((px_ - cx0).powi(2) + (py - cy0).powi(2)).sqrt();
-                // A Gaussian-blurred disc's edge: ~ 0.5 * erfc((d - r) / (σ√2)).
-                let a = 0.85 * 0.5 * (1. - ((dist - r) / sigma * 1.13).tanh());
-                for i in 0..3 {
-                    c[i] = c[i] * (1. - a) + bc[i] * a;
-                }
-            }
-            for i in [2, 1, 0] {
-                line.push((c[i].clamp(0., 1.) * 255.).round() as u8);
-            }
-        }
-        line.resize(row, 0);
-        bmp.extend_from_slice(&line);
+                });
+            },
+        ));
     }
-    Arc::new(Image::from_bytes(ImageFormat::Bmp, bmp))
 }
 
 // ------------------------------------------------------------------ render
@@ -878,21 +925,20 @@ impl Render for Workbench {
             self.desk = Some((key, img));
         }
         let desk = self.desk.as_ref().unwrap().1.clone();
-        let env = match self.env {
-            Env::Terminals => self.terminals(w, cx),
-            Env::Browser => self.browser(w, cx),
-            Env::Diagram => self.diagram_env(w, window, cx),
-            Env::Docs => self.docs(w),
-            Env::New => self.new_env(w, cx),
+        let body = if self.settings {
+            self.settings_page(w, window, cx)
+        } else {
+            self.grid(w, window, cx)
         };
+        let drawer = self.drawer.then(|| self.drawer_el(w, cx));
 
         let main = div()
             .flex_1()
             .min_w_0()
             .min_h_0()
+            .relative()
             .flex()
             .flex_col()
-            .bg(p.glass_main)
             .child(self.tbar(w, cx))
             .child(
                 div()
@@ -901,10 +947,12 @@ impl Render for Workbench {
                     .relative()
                     .px(px(6.))
                     .pb(px(6.))
-                    .child(env),
-            );
+                    .child(body),
+            )
+            .children(drawer);
 
         let side = self.side_open.then(|| self.sidebar(w, t, cx));
+        // Sidebar and main column share one sheet of glass: no divider.
         let win = div()
             .size_full()
             .relative()
@@ -928,6 +976,7 @@ impl Render for Workbench {
                         ),
                 )
             });
+        let pop = self.pop.map(|(pop, at)| self.popover(pop, at, w, cx));
 
         div()
             .id("root")
@@ -948,16 +997,53 @@ impl Render for Workbench {
                     .size_full(),
             )
             .child(win)
-            .on_key_down(cx.listener(|this, e: &KeyDownEvent, _, cx| {
+            .children(pop)
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, _, cx| {
+                    if this.pop.is_some() {
+                        this.pop = None;
+                        cx.notify();
+                    }
+                }),
+            )
+            .on_key_down(cx.listener(|this, e: &KeyDownEvent, window, cx| {
+                let key = e.keystroke.key.as_str();
+                if key == "escape" {
+                    if this.renaming.is_some() {
+                        this.commit_rename(None, cx);
+                    } else if this.pop.is_some() {
+                        this.pop = None;
+                    } else if this.settings {
+                        this.settings = false;
+                    } else if this.drawer {
+                        this.drawer = false;
+                        this.pinned = false;
+                    }
+                    cx.notify();
+                    return;
+                }
                 let m = e.keystroke.modifiers;
                 if !(m.platform || m.control) {
                     return;
                 }
-                match e.keystroke.key.as_str() {
-                    k @ ("1" | "2" | "3" | "4") => {
+                match key {
+                    k if k.len() == 1 && k.as_bytes()[0].is_ascii_digit() && k != "0" => {
                         let i: usize = k.parse().unwrap();
-                        this.set_env(ENVS[i - 1].0, cx);
+                        this.switch_tab(i - 1, window, cx);
                         cx.stop_propagation();
+                    }
+                    "t" => {
+                        this.pop = Some((Pop::NewTab(2), point(px(320.), px(32.))));
+                        this.new_name.update(cx, |s, cx| {
+                            s.set_value("", window, cx);
+                            s.focus(window, cx)
+                        });
+                        cx.notify();
+                    }
+                    "," => {
+                        this.settings = true;
+                        cx.notify();
                     }
                     "\\" => {
                         this.side_open = !this.side_open;
@@ -968,43 +1054,61 @@ impl Render for Workbench {
             }))
             .on_mouse_move(cx.listener(|this, e: &MouseMoveEvent, _, cx| {
                 if let Some(d) = this.drag {
+                    let b = this.grid_bounds.get();
+                    let fx = f32::from(e.position.x - b.origin.x) / f32::from(b.size.width).max(1.);
+                    let fy =
+                        f32::from(e.position.y - b.origin.y) / f32::from(b.size.height).max(1.);
+                    let n = this.tab().panes.len();
+                    let (mut cols, _) = this.splits(n);
                     match d {
                         Drag::Side => {
                             let left = this.win_bounds.get().origin.x;
                             this.side_w = f32::from(e.position.x - left).clamp(220., 380.);
                         }
-                        Drag::Cols => {
-                            let b = this.grid_bounds.get();
-                            this.cols = (f32::from(e.position.x - b.origin.x)
-                                / f32::from(b.size.width))
-                            .clamp(0.2, 0.8);
+                        Drag::Col(0) => {
+                            let hi = if n == 3 { cols[1] - 0.12 } else { 0.8 };
+                            cols[0] = fx.clamp(0.15, hi);
+                            this.tab_mut().cols = cols;
                         }
-                        Drag::Rows => {
-                            let b = this.grid_bounds.get();
-                            this.rows = (f32::from(e.position.y - b.origin.y)
-                                / f32::from(b.size.height))
-                            .clamp(0.2, 0.8);
+                        Drag::Col(_) => {
+                            cols[1] = fx.clamp(cols[0] + 0.12, 0.85);
+                            this.tab_mut().cols = cols;
                         }
+                        Drag::Rows => this.tab_mut().rows = fy.clamp(0.2, 0.8),
                     }
                     cx.notify();
-                } else if let (Some(last), Some(cam)) = (this.pan, this.cam.as_mut()) {
-                    let d = e.position - last;
-                    cam.x -= f32::from(d.x) / cam.k;
-                    cam.y -= f32::from(d.y) / cam.k;
-                    this.pan = Some(e.position);
-                    this.user_cam = true;
-                    cx.notify();
+                } else if let Some((slot, last)) = this.pan {
+                    if let Some(cam) = this.panes[slot].cam.as_mut() {
+                        let d = e.position - last;
+                        cam.x -= f32::from(d.x) / cam.k;
+                        cam.y -= f32::from(d.y) / cam.k;
+                        this.pan = Some((slot, e.position));
+                        this.panes[slot].user_cam = true;
+                        cx.notify();
+                    }
                 }
             }))
             .on_mouse_up(
                 MouseButton::Left,
                 cx.listener(|this, _, _, cx| {
-                    if this.drag.take().is_some() || this.pan.take().is_some() {
-                        cx.notify();
+                    if this.drag.take().is_some_and(|d| d != Drag::Side) {
+                        this.save_tabs();
                     }
+                    this.pan = None;
+                    cx.notify();
                 }),
             )
     }
+}
+
+fn shadow(a: f32, y: f32, blur: f32) -> Vec<BoxShadow> {
+    vec![BoxShadow {
+        color: hsla(0., 0., 0., a),
+        offset: point(px(0.), px(y)),
+        blur_radius: px(blur),
+        spread_radius: px(0.),
+        inset: false,
+    }]
 }
 
 impl Workbench {
@@ -1012,12 +1116,17 @@ impl Workbench {
 
     fn sidebar(&mut self, w: Pixels, t: f32, cx: &mut Context<Self>) -> impl IntoElement {
         let p = self.pal;
+        let m = self.machine();
         let seg = [
             (SideView::Projects, "folder", "Projects"),
             (SideView::Agents, "sparkle", "Agents"),
-            (SideView::Tickets, "ticket", "Tickets"),
         ];
         let rows = self.side_rows(t, cx);
+        let link = match &m.link {
+            Link::Online => p.green,
+            Link::Connecting => p.amber,
+            Link::Offline { .. } => p.red,
+        };
         div()
             .w(px(self.side_w))
             .flex_none()
@@ -1025,8 +1134,6 @@ impl Workbench {
             .flex()
             .flex_col()
             .overflow_hidden()
-            .bg(p.glass_side)
-            .hair_r(w, p.pane_edge)
             .child(
                 div()
                     .h(px(38.))
@@ -1059,20 +1166,12 @@ impl Workbench {
                             .gap(px(7.))
                             .font_weight(FontWeight::BOLD)
                             .text_size(px(16.))
-                            .child(
-                                div()
-                                    .size(px(18.))
-                                    .rounded(px(5.))
-                                    .bg(p.fg)
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .child(icon("bksp", 12., p.desk_base)),
-                            )
-                            .child("Local"),
+                            .child(icon(if m.local { "pc" } else { "cloud" }, 18., p.fg))
+                            .child(m.name.clone())
+                            .when(!m.local, |d| {
+                                d.child(div().size(px(7.)).ml(px(2.)).rounded_full().bg(link))
+                            }),
                     )
-                    .child(icon("chev", 14., p.fg3))
-                    .child(icon("home", 14., p.fg3))
                     .child(div().w_full().flex().gap(px(2.)).mt(px(6.)).children(
                         seg.into_iter().map(|(k, ic, l)| {
                             let on = self.side == k;
@@ -1107,6 +1206,7 @@ impl Workbench {
                     .pt(px(2.))
                     .px(px(6.))
                     .pb(px(8.))
+                    .children(self.offline_note())
                     .children(rows),
             )
             .child(self.run_card(w))
@@ -1118,10 +1218,85 @@ impl Workbench {
                     .items_center()
                     .gap(px(4.))
                     .px(px(10.))
-                    .child(ib("home", "home", &p, true))
-                    .child(ib("windows", "window", &p, false))
                     .child(div().flex_1())
-                    .child(ib("gear", "gear", &p, false)),
+                    .child(self.machine_switch(cx))
+                    .child(div().flex_1())
+                    .child(ib("gear", "gear", &p, self.settings).on_click(cx.listener(
+                        |this, _, _, cx| {
+                            this.settings = !this.settings;
+                            cx.notify()
+                        },
+                    ))),
+            )
+    }
+
+    /// This machine and every followed one; a dot flags offline, connecting,
+    /// or work going on on a machine you are not looking at.
+    fn machine_switch(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
+        let p = self.pal;
+        div()
+            .flex()
+            .gap(px(2.))
+            .p(px(2.))
+            .rounded(px(9.))
+            .bg(p.hover)
+            .children(self.machines.iter().map(|m| {
+                let i = m.index;
+                let busy = (m.running > 0 || m.pending > 0) && !m.selected;
+                let mark = match &m.link {
+                    Link::Offline { .. } => Some(p.red),
+                    Link::Connecting => Some(p.amber),
+                    Link::Online if busy => Some(p.accent),
+                    _ => None,
+                };
+                div()
+                    .id(("mach", i))
+                    .relative()
+                    .w(px(26.))
+                    .h(px(24.))
+                    .rounded(px(7.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .cursor_pointer()
+                    .when(m.selected, |d| d.bg(p.pill_on).shadow(shadow(0.08, 1., 2.)))
+                    .on_click(
+                        cx.listener(move |this, _, window, cx| this.select_machine(i, window, cx)),
+                    )
+                    .child(icon(
+                        if m.local { "pc" } else { "cloud" },
+                        14.,
+                        if m.selected { p.fg } else { p.fg3 },
+                    ))
+                    .when_some(mark, |d, c| {
+                        d.child(
+                            div()
+                                .absolute()
+                                .top(px(3.))
+                                .right(px(3.))
+                                .size(px(5.))
+                                .rounded_full()
+                                .bg(c),
+                        )
+                    })
+            }))
+            .child(
+                div()
+                    .id("mach-add")
+                    .w(px(26.))
+                    .h(px(24.))
+                    .rounded(px(7.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .cursor_pointer()
+                    .hover(|d| d.bg(p.sel))
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.settings = true;
+                        this.m_name.update(cx, |s, cx| s.focus(window, cx));
+                        cx.notify()
+                    }))
+                    .child(icon("plus", 14., p.fg3)),
             )
     }
 
@@ -1152,9 +1327,13 @@ impl Workbench {
     ) -> Stateful<Div> {
         let p = self.pal;
         let id = a.id;
-        let sel = self.env == Env::Terminals && self.slots[self.focus] == Slot::Agent(id);
+        let sel = self
+            .tab()
+            .panes
+            .get(self.focus)
+            .is_some_and(|s| s.kind == "agent" && s.agent == id);
         self.row(("agent", id), indent, sel)
-            .on_click(cx.listener(move |this, _, _, cx| this.open(Slot::Agent(id), cx)))
+            .on_click(cx.listener(move |this, _, _, cx| this.open(PaneSpec::agent(id), cx)))
             .child(icon("sparkle", 14., p.accent))
             .child(
                 div()
@@ -1186,16 +1365,9 @@ impl Workbench {
         let p = self.pal;
         let s = &self.snap;
         let mut out: Vec<AnyElement> = vec![];
-        let label = |text: String| {
-            div()
-                .pt(px(10.))
-                .px(px(10.))
-                .pb(px(4.))
-                .text_size(px(11.))
-                .text_color(p.fg3)
-                .child(text)
-                .into_any_element()
-        };
+        if s.agents.is_empty() {
+            return out;
+        }
         match self.side {
             SideView::Projects => {
                 out.push(
@@ -1218,21 +1390,26 @@ impl Workbench {
                             .into_any_element(),
                     );
                 }
-                for (i, u) in self.previews.iter().enumerate() {
-                    out.push(
-                        self.row(("pv", i), 22., false)
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.btab = i;
-                                this.set_env(Env::Browser, cx)
-                            }))
-                            .child(icon("globe", 14., p.blue))
-                            .child(div().min_w_0().truncate().child(format!(
-                                "Preview · {}",
-                                u.trim_start_matches("http://")
-                                    .trim_start_matches("https://")
-                            )))
-                            .into_any_element(),
-                    );
+                for (ti, tab) in self.prefs.tabs.iter().enumerate() {
+                    for (pi, pane) in tab.panes.iter().enumerate() {
+                        let Some(u) = pane.url.as_ref().filter(|_| pane.kind == "browser") else {
+                            continue;
+                        };
+                        out.push(
+                            self.row(("pv", ti * 4 + pi), 22., false)
+                                .on_click(cx.listener(move |this, _, window, cx| {
+                                    this.switch_tab(ti, window, cx);
+                                    this.focus = pi;
+                                }))
+                                .child(icon("globe", 14., p.blue))
+                                .child(div().min_w_0().truncate().child(format!(
+                                    "Preview · {}",
+                                    u.trim_start_matches("http://")
+                                        .trim_start_matches("https://")
+                                )))
+                                .into_any_element(),
+                        );
+                    }
                 }
                 let wts: Vec<&AgentRecord> = s
                     .agents
@@ -1257,11 +1434,9 @@ impl Workbench {
                         let id = a.id;
                         out.push(
                             self.row(("wt", id), 22., false)
-                                .on_click(
-                                    cx.listener(move |this, _, _, cx| {
-                                        this.open(Slot::Files(id), cx)
-                                    }),
-                                )
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.open(PaneSpec::files(id), cx)
+                                }))
                                 .child(icon("branch", 14., p.fg3))
                                 .child(
                                     div()
@@ -1282,7 +1457,16 @@ impl Workbench {
                 }
             }
             SideView::Agents => {
-                out.push(label(format!("{} · {} agents", s.name, s.agents.len())));
+                out.push(
+                    div()
+                        .pt(px(10.))
+                        .px(px(10.))
+                        .pb(px(4.))
+                        .text_size(px(11.))
+                        .text_color(p.fg3)
+                        .child(format!("{} · {} agents", s.name, s.agents.len()))
+                        .into_any_element(),
+                );
                 for id in tree_order(s) {
                     let a = &s.agents[id];
                     out.push(self.agent_row(a, 8., t, cx).into_any_element());
@@ -1298,60 +1482,6 @@ impl Workbench {
                             .child(format!("{} · ${:.3}", route(a), s.subtree_cost(id)))
                             .into_any_element(),
                     );
-                }
-            }
-            SideView::Tickets => {
-                use TicketState::*;
-                let groups: [(&str, &[TicketState]); 5] = [
-                    ("Needs you", &[Proposed, InReview, ReadyForHuman, NeedsInfo]),
-                    ("Running", &[Queued, InProgress]),
-                    ("Ready", &[ReadyForAgent, NeedsTriage]),
-                    ("Done", &[Done]),
-                    ("Closed", &[Failed, Wontfix]),
-                ];
-                for (name, states) in groups {
-                    let rows: Vec<_> = s
-                        .tickets
-                        .iter()
-                        .filter(|x| states.contains(&x.state))
-                        .collect();
-                    if rows.is_empty() {
-                        continue;
-                    }
-                    out.push(label(format!("{name} · {}", rows.len())));
-                    for tk in rows {
-                        let assignee = tk.assignee;
-                        out.push(
-                            self.row(("tk", tk.num), 8., false)
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    if let Some(a) = assignee {
-                                        this.open(Slot::Agent(a), cx)
-                                    }
-                                }))
-                                .child(
-                                    div()
-                                        .font_family(MONO)
-                                        .text_size(px(11.5))
-                                        .text_color(p.fg3)
-                                        .child(format!("{:02}", tk.num)),
-                                )
-                                .child(div().min_w_0().truncate().child(tk.title.clone()))
-                                .child(
-                                    div()
-                                        .ml_auto()
-                                        .text_size(px(11.))
-                                        .text_color(p.fg3)
-                                        .child(tk.state.label().replace('_', "-")),
-                                )
-                                .into_any_element(),
-                        );
-                    }
-                }
-                if s.tickets.is_empty() {
-                    out.push(nothing(
-                        &p,
-                        "No tickets yet. The main agent creates them from your goal.",
-                    ));
                 }
             }
         }
@@ -1393,6 +1523,11 @@ impl Workbench {
                         .child(v),
                 )
         };
+        let name = if s.name.is_empty() {
+            self.machine().name
+        } else {
+            s.name.clone()
+        };
         div()
             .mx(px(8.))
             .my(px(6.))
@@ -1406,7 +1541,7 @@ impl Workbench {
                     .text_size(px(11.))
                     .text_color(p.fg3)
                     .mb(px(4.))
-                    .child(format!("This run · {}", s.name)),
+                    .child(format!("This run · {name}")),
             )
             .child(row(
                 dot(
@@ -1437,7 +1572,8 @@ impl Workbench {
     fn tbar(&mut self, w: Pixels, cx: &mut Context<Self>) -> impl IntoElement {
         let p = self.pal;
         let pending = self.pending();
-        let tab = |id: &'static str, sel: bool| {
+        let tickets = self.snap.tickets.len();
+        let pill = |id: ElementId, sel: bool| {
             div()
                 .id(id)
                 .relative()
@@ -1453,1994 +1589,1235 @@ impl Workbench {
                 .bg(if sel { p.pill_on } else { p.pill })
                 .hair_all(w, p.pill_edge)
                 .text_color(if sel { p.fg } else { p.fg2 })
-                .when(sel, |d| {
-                    d.shadow(vec![BoxShadow {
-                        color: hsla(0., 0., 0., 0.08),
-                        offset: point(px(0.), px(1.)),
-                        blur_radius: px(2.),
-                        spread_radius: px(0.),
-                        inset: false,
-                    }])
-                })
+                .when(sel, |d| d.shadow(shadow(0.08, 1., 2.)))
                 .hover(|d| d.text_color(p.fg))
         };
-        let lays = [(2, "lay2"), (1, "lay1"), (4, "lay4")];
+        let tabs: Vec<AnyElement> = self
+            .prefs
+            .tabs
+            .iter()
+            .enumerate()
+            .map(|(i, t)| {
+                let sel = i == self.prefs.active_tab && !self.settings;
+                let badge = pending > 0 && t.panes.iter().any(|p| p.kind == "diagram");
+                let n = t.panes.len().clamp(1, 4);
+                let el = pill(("tab", i).into(), sel);
+                if self.renaming == Some(i) {
+                    return el
+                        .border_color(p.blue)
+                        .child(
+                            div().w(px(110.)).child(
+                                Input::new(&self.rename)
+                                    .appearance(false)
+                                    .text_size(px(11.5))
+                                    .h(px(18.))
+                                    .p_0(),
+                            ),
+                        )
+                        .into_any_element();
+                }
+                el.on_click(cx.listener(move |this, e: &ClickEvent, window, cx| {
+                    if e.click_count() == 2 {
+                        this.start_rename(i, window, cx);
+                    } else {
+                        this.commit_rename(None, cx);
+                        this.switch_tab(i, window, cx);
+                    }
+                }))
+                .on_mouse_down(
+                    MouseButton::Right,
+                    cx.listener(move |this, e: &MouseDownEvent, _, cx| {
+                        this.pop = Some((Pop::TabMenu(i), e.position));
+                        cx.stop_propagation();
+                        cx.notify();
+                    }),
+                )
+                .map(|d| match &t.name {
+                    Some(name) => d.child(name.clone()),
+                    None => d.child(
+                        svg()
+                            .path(icons::path(&format!("lay{n}")))
+                            .w(px(16.))
+                            .h(px(12.))
+                            .text_color((if sel { p.fg } else { p.fg3 }).opacity(0.85)),
+                    ),
+                })
+                .when(badge, |d| {
+                    d.child(
+                        div()
+                            .absolute()
+                            .top(px(-3.))
+                            .right(px(-3.))
+                            .size(px(7.))
+                            .rounded_full()
+                            .bg(p.blue)
+                            .border(px(1.5))
+                            .border_color(p.glass),
+                    )
+                })
+                .into_any_element()
+            })
+            .collect();
+        let (upd_label, upd_icon, upd_new, upd_url) = match &self.upd {
+            Upd::Checking => ("Checking…".to_string(), None, false, None),
+            Upd::Done(Ok(u)) if u.newer => (
+                "Download & Update".to_string(),
+                Some("down"),
+                true,
+                Some(u.url.clone()),
+            ),
+            Upd::Done(Ok(_)) => ("Up to date".to_string(), Some("check"), false, None),
+            _ => ("Check for updates".to_string(), Some("reload"), false, None),
+        };
         div()
             .h(px(38.))
             .flex_none()
             .flex()
             .items_center()
-            .gap(px(8.))
-            .px(px(10.))
-            .when(!self.side_open && GLASS, |d| d.pl(px(84.)))
+            .gap(px(6.))
+            .pl(px(if !self.side_open && GLASS { 84. } else { 4. }))
+            .pr(px(10.))
             .window_control_area(WindowControlArea::Drag)
-            .child(
-                div()
-                    .flex_1()
-                    .flex()
-                    .gap(px(2.))
-                    .when(!self.side_open, |d| {
-                        d.child(ib("side-open", "sidebar", &p, false).on_click(cx.listener(
-                            |this, _, _, cx| {
-                                this.side_open = true;
-                                cx.notify()
-                            },
-                        )))
-                    }),
-            )
+            .when(!self.side_open, |d| {
+                d.child(ib("side-open", "sidebar", &p, false).on_click(cx.listener(
+                    |this, _, _, cx| {
+                        this.side_open = true;
+                        cx.notify()
+                    },
+                )))
+            })
             .child(
                 div()
                     .flex()
+                    .gap(px(4.))
                     .items_center()
                     .min_w_0()
+                    .children(tabs)
                     .child(
-                        div()
-                            .flex()
-                            .gap(px(4.))
-                            .items_center()
-                            .children(ENVS.iter().map(|&(e, l)| {
-                                tab(l, self.env == e)
-                                    .on_click(
-                                        cx.listener(move |this, _, _, cx| this.set_env(e, cx)),
-                                    )
-                                    .child(l)
-                                    .when(e == Env::Diagram && pending > 0, |d| {
-                                        d.child(
-                                            div()
-                                                .absolute()
-                                                .top(px(-3.))
-                                                .right(px(-3.))
-                                                .size(px(7.))
-                                                .rounded_full()
-                                                .bg(p.blue)
-                                                .border(px(1.5))
-                                                .border_color(p.glass),
-                                        )
-                                    })
+                        pill("newtab".into(), false)
+                            .px(px(6.))
+                            .on_click(cx.listener(|this, e: &ClickEvent, window, cx| {
+                                this.pop = Some((Pop::NewTab(2), e.position()));
+                                this.new_name.update(cx, |s, cx| {
+                                    s.set_value("", window, cx);
+                                    s.focus(window, cx)
+                                });
+                                cx.notify();
                             }))
-                            .child(
-                                tab("plus", self.env == Env::New)
-                                    .px(px(6.))
-                                    .on_click(
-                                        cx.listener(|this, _, _, cx| this.set_env(Env::New, cx)),
-                                    )
-                                    .child(icon("plus", 14., p.fg2)),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .gap(px(3.))
-                            .ml(px(6.))
-                            .children(lays.map(|(n, ic)| {
-                                let on = self.env == Env::Terminals
-                                    && self.layout == n
-                                    && self.max.is_none();
-                                div()
-                                    .id(ic)
-                                    .w(px(24.))
-                                    .h(px(20.))
-                                    .rounded(px(5.))
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .cursor_pointer()
-                                    .hair_all(w, if on { p.pill_edge } else { transparent_black() })
-                                    .when(on, |d| d.bg(p.pill_on))
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        this.layout = n;
-                                        this.max = None;
-                                        this.focus = this.focus.min(n - 1);
-                                        this.set_env(Env::Terminals, cx)
-                                    }))
-                                    .child(
-                                        svg()
-                                            .path(icons::path(ic))
-                                            .w(px(16.))
-                                            .h(px(12.))
-                                            .text_color(
-                                                (if on { p.fg } else { p.fg3 }).opacity(0.85),
-                                            ),
-                                    )
-                            })),
+                            .child(icon("plus", 14., p.fg2)),
                     ),
             )
+            .child(div().flex_1())
+            .child(ib("addcanvas", "plus", &p, false).on_click(cx.listener(
+                |this, e: &ClickEvent, _, cx| {
+                    this.pop = Some((Pop::AddCanvas, e.position()));
+                    cx.notify();
+                },
+            )))
             .child(
                 div()
-                    .flex_1()
+                    .id("cta")
+                    .h(px(22.))
+                    .px(px(10.))
+                    .rounded_full()
+                    .text_size(px(11.5))
+                    .border_1()
+                    .border_color(p.fg2)
                     .flex()
-                    .justify_end()
                     .items_center()
                     .gap(px(6.))
-                    .child(
-                        ib("theme", self.theme_pref.icon(), &p, false).on_click(cx.listener(
-                            |this, _, window, cx| {
-                                this.theme_pref = this.theme_pref.next();
-                                this.theme_pref.save();
-                                this.apply_theme(window, cx);
-                            },
-                        )),
+                    .whitespace_nowrap()
+                    .cursor_pointer()
+                    .when(self.drawer, |d| d.bg(p.sel))
+                    .hover(|d| d.bg(p.hover))
+                    .on_hover(
+                        cx.listener(|this, on: &bool, _, cx| this.hover_drawer(true, *on, cx)),
                     )
-                    .child(
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.drawer_task = None;
+                        this.pinned = !this.pinned || !this.drawer;
+                        this.drawer = this.pinned;
+                        cx.notify();
+                    }))
+                    .map(|d| {
+                        if pending > 0 {
+                            d.child(dot(p.amber, None))
+                                .child(format!("{pending} to review"))
+                        } else {
+                            d.child(icon("check", 14., p.fg)).child("Nothing to review")
+                        }
+                    })
+                    .when(tickets > 0, |d| {
+                        d.child(
+                            div()
+                                .text_color(p.fg3)
+                                .child(format!("· {tickets} tickets")),
+                        )
+                    }),
+            )
+            .when(
+                self.prefs.check_updates || !matches!(self.upd, Upd::Idle),
+                |d| {
+                    d.child(
                         div()
-                            .id("cta")
+                            .id("upd")
                             .h(px(22.))
                             .px(px(10.))
                             .rounded_full()
                             .text_size(px(11.5))
                             .border_1()
-                            .border_color(p.fg2)
+                            .border_color(if upd_new { p.fg2 } else { p.pill_edge })
+                            .text_color(if upd_new { p.fg } else { p.fg3 })
+                            .when(upd_new, |d| d.font_weight(FontWeight::MEDIUM))
                             .flex()
                             .items_center()
-                            .gap(px(6.))
+                            .gap(px(5.))
                             .whitespace_nowrap()
                             .cursor_pointer()
-                            .hover(|d| d.bg(p.hover))
-                            .on_click(cx.listener(|this, _, _, cx| this.set_env(Env::Diagram, cx)))
-                            .map(|d| {
-                                if pending > 0 {
-                                    d.child(dot(p.amber, None))
-                                        .child(format!("{pending} to review"))
-                                } else {
-                                    d.child(icon("check", 14., p.fg)).child("Nothing to review")
-                                }
-                            }),
-                    ),
-            )
-    }
-
-    // -------------------------------------------------------------- terminals
-
-    fn gutter(&self, id: &'static str, d: Drag, cx: &mut Context<Self>) -> Stateful<Div> {
-        let p = self.pal;
-        let vertical = d == Drag::Cols;
-        let line = if self.drag == Some(d) {
-            p.pane_edge_on
-        } else {
-            transparent_black()
-        };
-        div()
-            .id(id)
-            .flex_none()
-            .relative()
-            .group(id)
-            .map(|el| {
-                if vertical {
-                    el.w(px(6.)).h_full().cursor_col_resize()
-                } else {
-                    el.h(px(6.)).w_full().cursor_row_resize()
-                }
-            })
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(move |this, _, _, _| this.drag = Some(d)),
-            )
-            .on_click(cx.listener(|this, e: &ClickEvent, _, cx| {
-                if e.click_count() == 2 {
-                    this.cols = 0.5;
-                    this.rows = 0.56;
-                    cx.notify();
-                }
-            }))
-            .child(
-                div()
-                    .absolute()
-                    .rounded(px(2.))
-                    .bg(line)
-                    .group_hover(id, |s| s.bg(p.pane_edge_on))
-                    .map(|el| {
-                        if vertical {
-                            el.top(relative(0.3))
-                                .bottom(relative(0.3))
-                                .left(px(2.))
-                                .w(px(2.))
-                        } else {
-                            el.left(relative(0.3))
-                                .right(relative(0.3))
-                                .top(px(2.))
-                                .h(px(2.))
-                        }
-                    }),
-            )
-    }
-
-    fn terminals(&mut self, w: Pixels, cx: &mut Context<Self>) -> AnyElement {
-        let n = if self.max.is_some() { 1 } else { self.layout };
-        if self.max.is_none() {
-            self.fill_slots(n);
-        }
-        let shown: Vec<usize> = match self.max {
-            Some(m) => vec![m],
-            None => (0..n).collect(),
-        };
-        let mut panes: Vec<AnyElement> = shown.iter().map(|&i| self.pane(i, w, cx)).collect();
-        let gb = self.grid_bounds.clone();
-        let measure = canvas(move |b, _, _| gb.set(b), |_, _, _, _| {})
-            .absolute()
-            .size_full();
-        let cell = |el: AnyElement| div().size_full().flex().child(el);
-        // The stylesheet's `calc((100% - 6px) * ratio)`, from last frame's size.
-        let gb = self.grid_bounds.get().size;
-        let split = |total: Pixels, ratio: f32| -> DefiniteLength {
-            if total > px(0.) {
-                px(f32::from(total - px(6.)) * ratio).into()
-            } else {
-                relative(ratio)
-            }
-        };
-        let (cw, rh) = (split(gb.width, self.cols), split(gb.height, self.rows));
-        let grid = match n {
-            1 => div().size_full().flex().child(panes.remove(0)),
-            2 => {
-                let (a, b) = (panes.remove(0), panes.remove(0));
-                div()
-                    .size_full()
-                    .flex()
-                    .child(div().w(cw).h_full().flex_none().flex().child(a))
-                    .child(self.gutter("gut-v", Drag::Cols, cx))
-                    .child(div().flex_1().min_w_0().h_full().flex().child(b))
-            }
-            _ => {
-                let mut it = panes.into_iter();
-                let mut next = || cell(it.next().unwrap());
-                let (a, b, c, d) = (next(), next(), next(), next());
-                let row = |l: Div, r: Div, g: Stateful<Div>| {
-                    div()
-                        .w_full()
-                        .flex()
-                        .child(div().w(cw).h_full().flex_none().flex().child(l))
-                        .child(g)
-                        .child(div().flex_1().min_w_0().h_full().flex().child(r))
-                };
-                let (g1, g2, gh) = (
-                    self.gutter("gut-v1", Drag::Cols, cx),
-                    self.gutter("gut-v2", Drag::Cols, cx),
-                    self.gutter("gut-h", Drag::Rows, cx),
-                );
-                div()
-                    .size_full()
-                    .flex()
-                    .flex_col()
-                    .child(row(a, b, g1).h(rh).flex_none())
-                    .child(gh)
-                    .child(row(c, d, g2).flex_1().min_h_0())
-            }
-        };
-        div()
-            .size_full()
-            .relative()
-            .child(measure)
-            .child(grid)
-            .into_any_element()
-    }
-
-    fn pane(&mut self, slot: usize, w: Pixels, cx: &mut Context<Self>) -> AnyElement {
-        let p = self.pal;
-        let v = self.slots[slot];
-        let on = slot == self.focus;
-        let (id, files) = match v {
-            Slot::Agent(id) => (id, false),
-            Slot::Files(id) => (id, true),
-        };
-        let Some(a) = self.snap.agents.get(id).cloned() else {
-            return div().into_any_element();
-        };
-        let title = if files {
-            a.ticket
-                .as_ref()
-                .map_or("Primary worktree".into(), |k| format!("{k} worktree"))
-        } else if id == MAIN {
-            format!("Main agent · {}", self.snap.name)
-        } else {
-            a.title.clone()
-        };
-        let head = div()
-            .h(px(30.))
-            .flex_none()
-            .flex()
-            .items_center()
-            .gap(px(7.))
-            .pl(px(10.))
-            .pr(px(6.))
-            .text_size(px(12.))
-            .hair_b(w, p.pane_edge)
-            .child(if files {
-                icon("folder", 14., p.fg3)
-            } else {
-                icon("sparkle", 14., p.accent)
-            })
-            .child(
-                div()
-                    .font_weight(FontWeight::MEDIUM)
-                    .min_w_0()
-                    .truncate()
-                    .child(title),
-            )
-            .child(div().flex_1())
-            .when(!files, |d| {
-                d.child(
-                    ib(("pf", slot), "folder", &p, false)
-                        .size(px(22.))
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.slots[slot] = Slot::Files(id);
-                            cx.notify()
-                        })),
-                )
-            })
-            .child(
-                ib(("pm", slot), "expand", &p, false)
-                    .size(px(22.))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.max = if this.max.is_none() { Some(slot) } else { None };
-                        cx.notify()
-                    })),
-            )
-            .child(
-                ib(("pc", slot), "close", &p, false)
-                    .size(px(22.))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        if this.max.is_some() {
-                            this.max = None;
-                        } else if this.layout > 1 {
-                            let x = this.slots[slot];
-                            for i in slot..3 {
-                                this.slots[i] = this.slots[i + 1];
-                            }
-                            this.slots[3] = x;
-                            this.layout = if this.layout == 4 { 2 } else { 1 };
-                        }
-                        this.focus = 0;
-                        cx.notify()
-                    })),
-            );
-        let body = if files {
-            self.files_body(slot, id, w, cx).into_any_element()
-        } else {
-            self.agent_body(slot, &a, w).into_any_element()
-        };
-        div()
-            .id(("pane", slot))
-            .size_full()
-            .min_w_0()
-            .min_h_0()
-            .flex()
-            .flex_col()
-            .rounded(px(9.))
-            .bg(p.pane)
-            .hair_all(w, if on { p.pane_edge_on } else { p.pane_edge })
-            .overflow_hidden()
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(move |this, _, _, cx| {
-                    if this.focus != slot {
-                        this.focus = slot;
-                        cx.notify();
-                    }
-                }),
-            )
-            .child(head)
-            .child(body)
-            .into_any_element()
-    }
-
-    fn agent_body(&mut self, slot: usize, a: &AgentRecord, w: Pixels) -> impl IntoElement {
-        let p = self.pal;
-        // Stay pinned to the tail unless the reader scrolled up; a pane that
-        // just opened (or changed agent) starts at the tail.
-        let sh = &self.scrolls[slot];
-        let near_bottom = -sh.offset().y >= sh.max_offset().y - px(40.);
-        if near_bottom || self.seen_len[slot] != a.id {
-            sh.scroll_to_bottom();
-        }
-        self.seen_len[slot] = a.id;
-        let s = &self.snap;
-
-        let path = a
-            .worktree
-            .clone()
-            .unwrap_or_else(|| s.workspace.clone())
-            .display()
-            .to_string();
-        let routed = match &a.decision {
-            Some(d) if d.confidence > 0. => format!(
-                "{} · routed by {} ({}% confident)",
-                route(a),
-                d.source,
-                (d.confidence * 100.).round()
-            ),
-            Some(d) => format!("{} · routed by {}", route(a), d.source),
-            None => route(a),
-        };
-        let banner = div()
-            .flex()
-            .gap(px(14.))
-            .items_center()
-            .mt(px(4.))
-            .child(mascot(p.accent))
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .min_w_0()
-                    .line_height(relative(1.45))
-                    .child(
-                        div()
-                            .font_weight(FontWeight::BOLD)
-                            .child("Backspace v0.1.0"),
+                            .hover(|d| d.bg(p.hover).text_color(p.fg))
+                            .on_click(cx.listener(move |this, _, _, cx| match &upd_url {
+                                Some(u) => cx.open_url(u),
+                                None => this.check_update(cx),
+                            }))
+                            .when_some(upd_icon, |d, ic| {
+                                d.child(icon(ic, 14., if upd_new { p.fg } else { p.fg3 }))
+                            })
+                            .child(upd_label),
                     )
-                    .child(div().text_color(p.term_dim).child(routed))
-                    .child(div().text_color(p.term_dim).child(path)),
-            );
-        let spin = SPIN[self.spin];
-        let mut lines: Vec<AnyElement> = vec![];
-        // CSS collapses adjacent margins: each gap is the larger of the two.
-        let mut prev_mb = 14.; // the banner's margin-bottom
-        for e in &a.log {
-            let (mt, mb) = log_margins(e.kind, &e.text);
-            lines.push(
-                div()
-                    .mt(px(mt.max(prev_mb)))
-                    .child(log_el(e.kind, &e.text, &p))
-                    .into_any_element(),
-            );
-            prev_mb = mb;
-        }
-        let tail_gap = |mt: f32| px(mt.max(prev_mb));
-        match a.status {
-            AgentStatus::Running => lines.push(
-                div()
-                    .mt(tail_gap(10.))
-                    .text_color(p.accent)
-                    .child(format!(
-                        "{spin} Working… ({} · ↓ {} tokens)",
-                        a.decision
-                            .as_ref()
-                            .map_or("routing".into(), |d| d.model.clone()),
-                        thousands(a.input_tokens)
-                    ))
-                    .into_any_element(),
-            ),
-            AgentStatus::AwaitingApproval => lines.push(
-                div()
-                    .mt(tail_gap(10.))
-                    .text_color(p.accent)
-                    .child(format!("{spin} Waiting for your review…"))
-                    .into_any_element(),
-            ),
-            _ => {}
-        }
-        if a.id == MAIN && !a.log.iter().any(|e| e.kind == LogKind::User) {
-            lines.push(
-                div()
-                    .mt(tail_gap(8.))
-                    .child(note(
-                        &p,
-                        "Type a goal below. The main agent interviews you, then proposes tickets for you to approve.",
-                    ))
-                    .into_any_element(),
-            );
-        }
-
-        let total = s.total_cost_usd.max(0.000001);
-        let sub = s.subtree_cost(a.id);
-        let share = (sub / total).min(1.);
-        let filled = (share * 10.).round() as usize;
-        let model = a.decision.as_ref().map_or("not routed".into(), |d| {
-            format!("{} @ {}", d.model, d.effort)
-        });
-        let branch = a.branch.clone().unwrap_or_else(|| "-".into());
-        let hint: StyledText = if a.id == MAIN {
-            rich(&[
-                ("▸▸ plan approval on ", None),
-                ("(review in Diagram)", Some(p.blue)),
-                (" · ⌘1–4 switch tabs", None),
-            ])
-        } else {
-            let text = match a.ticket.as_ref().and_then(|k| s.ticket(k)) {
-                Some(tk) => format!(
-                    "▸▸ check: {} · {}",
-                    tk.check.clone().unwrap_or_else(|| "none".into()),
-                    tk.state.label().replace('_', "-")
-                ),
-                None => format!("▸▸ {:?}", a.status).to_lowercase(),
-            };
-            StyledText::new(text)
-        };
-        let name = s.name.clone();
-        let prompt = if a.id == MAIN {
-            div()
-                .flex_1()
-                .min_w_0()
-                .child(
-                    Input::new(&self.composer)
-                        .appearance(false)
-                        .font_family(MONO)
-                        .text_size(px(12.))
-                        .h(px(18.))
-                        .p_0(),
-                )
-                .into_any_element()
-        } else {
-            div()
-                .text_color(p.fg4)
-                .child("Only the main agent takes messages")
-                .into_any_element()
-        };
-        let footer = div()
-            .flex_none()
-            .px(px(12.))
-            .pb(px(7.))
-            .font_family(MONO)
-            .text_size(px(12.))
-            .line_height(relative(1.5))
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(8.))
-                    .py(px(5.))
-                    .hair_t(w, p.pane_edge)
-                    .hair_b(w, p.pane_edge)
-                    .text_color(p.term_fg)
-                    .child(div().text_color(p.term_dim).child("❯"))
-                    .child(prompt),
+                },
             )
-            .child(
-                div()
-                    .mt(px(4.))
-                    .text_color(p.term_dim)
-                    .truncate()
-                    .child(rich(&[
-                        (&format!("[{model}] "), None),
-                        (&format!("▣ {name}"), Some(p.blue)),
-                        (" | ", None),
-                        (&format!("⎇ {branch}"), Some(p.green)),
-                    ])),
-            )
-            .child(div().text_color(p.term_dim).truncate().child(rich(&[
-                (&"█".repeat(filled), Some(p.green)),
-                (&"░".repeat(10 - filled), Some(p.green)),
-                (&format!(" {}% of spend | ", (share * 100.).round()), None),
-                (&format!("${sub:.3}"), Some(p.amber)),
-                (
-                    &format!(
-                        " | {}↓ {}↑",
-                        thousands(a.input_tokens),
-                        thousands(a.output_tokens)
-                    ),
-                    None,
-                ),
-            ])))
-            .child(div().text_color(p.accent).truncate().child(hint));
-        div()
-            .flex_1()
-            .min_h_0()
-            .flex()
-            .flex_col()
-            .child(
-                div()
-                    .id(("tb", slot))
-                    .flex_1()
-                    .min_h_0()
-                    .overflow_y_scroll()
-                    .track_scroll(&self.scrolls[slot])
-                    .pt(px(10.))
-                    .px(px(12.))
-                    .pb(px(6.))
-                    .font_family(MONO)
-                    .text_size(px(12.))
-                    .line_height(relative(1.55))
-                    .text_color(p.term_fg)
-                    .child(banner)
-                    .children(lines),
-            )
-            .child(footer)
     }
 
-    fn files_body(
+    // -------------------------------------------------------------- popovers
+
+    fn popover(
         &mut self,
-        slot: usize,
-        id: usize,
+        pop: Pop,
+        at: Point<Pixels>,
         w: Pixels,
         cx: &mut Context<Self>,
-    ) -> impl IntoElement {
+    ) -> AnyElement {
         let p = self.pal;
-        let filter = self.filters[slot].read(cx).value().to_lowercase();
-        let label = match self.snap.agents.get(id).and_then(|a| a.ticket.clone()) {
-            Some(k) => format!("{k} worktree"),
-            None => "Primary worktree".into(),
+        let item = |id: ElementId, ic: &'static str, label: String, ic_color: Hsla| {
+            div()
+                .id(id)
+                .w_full()
+                .h(px(28.))
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .px(px(8.))
+                .rounded(px(6.))
+                .whitespace_nowrap()
+                .cursor_pointer()
+                .hover(|d| d.bg(p.sel))
+                .child(icon(ic, 14., ic_color))
+                .child(label)
         };
-        let rows: Vec<(usize, String, PathBuf, bool)> = self
-            .tree(id)
-            .iter()
-            .filter(|e| filter.is_empty() || e.name.to_lowercase().contains(&filter))
-            .take(400)
-            .map(|e| (e.depth, e.name.clone(), e.path.clone(), e.dir))
-            .collect();
-        let preview = self.file_preview[slot].clone();
-        let ext_color = |name: &str, dir: bool| {
-            if dir {
-                p.fg3
-            } else if name.ends_with(".html") || name.ends_with(".htm") {
-                p.red
-            } else if name.ends_with(".py") {
-                p.blue
-            } else if name.ends_with(".sql") {
-                p.amber
-            } else if name.ends_with(".md") {
-                p.violet
-            } else {
-                p.fg
+        let label = |s: &'static str| {
+            div()
+                .mt(px(4.))
+                .mx(px(8.))
+                .mb(px(6.))
+                .text_size(px(11.))
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(p.fg3)
+                .child(s)
+        };
+        let rule = || div().my(px(5.)).mx(px(4.)).h(w).bg(p.pane_edge);
+        let content: AnyElement = match pop {
+            Pop::TabMenu(i) => {
+                let many = self.prefs.tabs.len() > 1;
+                div()
+                    .min_w(px(200.))
+                    .child(
+                        item("pm-rename".into(), "doc", "Rename".into(), p.fg3)
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.start_rename(i, window, cx)
+                            }))
+                            .child(
+                                div()
+                                    .ml_auto()
+                                    .pl(px(12.))
+                                    .text_size(px(11.))
+                                    .text_color(p.fg4)
+                                    .child("double-click"),
+                            ),
+                    )
+                    .child(
+                        item("pm-dup".into(), "copy", "Duplicate".into(), p.fg3).on_click(
+                            cx.listener(move |this, _, window, cx| {
+                                this.pop = None;
+                                let t = this.prefs.tabs[i].clone();
+                                this.prefs.tabs.insert(i + 1, t);
+                                this.switch_tab(i + 1, window, cx);
+                            }),
+                        ),
+                    )
+                    .child(rule())
+                    .child(
+                        item("pm-close".into(), "close", "Close tab".into(), p.fg3)
+                            .when(!many, |d| d.opacity(0.45))
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.pop = None;
+                                this.close_tab(i, window, cx);
+                            })),
+                    )
+                    .into_any_element()
+            }
+            Pop::NewTab(n) => {
+                let lay = |k: usize| {
+                    let on = k == n;
+                    div()
+                        .id(("lay", k))
+                        .flex_1()
+                        .h(px(44.))
+                        .rounded(px(8.))
+                        .flex()
+                        .flex_col()
+                        .items_center()
+                        .justify_center()
+                        .gap(px(2.))
+                        .cursor_pointer()
+                        .hair_all(w, if on { p.fg3 } else { p.pane_edge })
+                        .when(on, |d| d.bg(p.pill_on))
+                        .text_size(px(10.5))
+                        .text_color(if on { p.fg } else { p.fg3 })
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            if let Some((Pop::NewTab(_), at)) = this.pop {
+                                this.pop = Some((Pop::NewTab(k), at));
+                            }
+                            this.new_name.update(cx, |s, cx| s.focus(window, cx));
+                            cx.notify()
+                        }))
+                        .child(
+                            svg()
+                                .path(icons::path(&format!("lay{k}")))
+                                .w(px(22.))
+                                .h(px(16.))
+                                .text_color(if on { p.fg } else { p.fg3 }),
+                        )
+                        .child(if k == 4 {
+                            "2×2".to_string()
+                        } else {
+                            k.to_string()
+                        })
+                };
+                div()
+                    .w(px(260.))
+                    .child(label("New tab"))
+                    .child(
+                        div()
+                            .mx(px(4.))
+                            .mb(px(10.))
+                            .h(px(28.))
+                            .px(px(9.))
+                            .rounded(px(7.))
+                            .bg(p.hover)
+                            .hair_all(w, p.pane_edge)
+                            .flex()
+                            .items_center()
+                            .child(
+                                Input::new(&self.new_name)
+                                    .appearance(false)
+                                    .text_size(px(12.5))
+                                    .p_0(),
+                            ),
+                    )
+                    .child(label("Canvases"))
+                    .child(
+                        div()
+                            .flex()
+                            .gap(px(6.))
+                            .mx(px(4.))
+                            .mb(px(10.))
+                            .children((1..=4).map(lay)),
+                    )
+                    .child(
+                        div().flex().justify_end().mx(px(4.)).mb(px(2.)).child(
+                            btn("nt-go", "Create", &p, w)
+                                .bg(p.fg)
+                                .text_color(p.desk_base)
+                                .border_color(transparent_black())
+                                .on_click(cx.listener(move |this, _, window, cx| {
+                                    let name = this.new_name.read(cx).value().to_string();
+                                    this.create_tab(name, n, window, cx);
+                                })),
+                        ),
+                    )
+                    .into_any_element()
+            }
+            Pop::AddCanvas => {
+                if self.tab().panes.len() >= 4 {
+                    div()
+                        .w(px(260.))
+                        .child(label("Add a canvas"))
+                        .child(
+                            div()
+                                .mx(px(8.))
+                                .mb(px(6.))
+                                .text_size(px(11.5))
+                                .text_color(p.fg3)
+                                .child("This tab already has four canvases. Close one, or open a new tab with ⌘T."),
+                        )
+                        .into_any_element()
+                } else {
+                    let agents: Vec<(usize, String, String)> = tree_order(&self.snap)
+                        .into_iter()
+                        .map(|id| {
+                            let a = &self.snap.agents[id];
+                            let title = if id == MAIN {
+                                "Main agent".to_string()
+                            } else {
+                                a.title.clone()
+                            };
+                            (id, title, format!("{:?}", a.status).to_lowercase())
+                        })
+                        .collect();
+                    let views = [
+                        ("files", "folder", "Worktree files"),
+                        ("browser", "globe", "Browser"),
+                        ("diagram", "diagram", "Diagram review"),
+                        ("docs", "doc", "PLAN.md"),
+                        ("empty", "window", "Empty canvas"),
+                    ];
+                    div()
+                        .min_w(px(240.))
+                        .child(label("Sessions"))
+                        .children(agents.into_iter().map(|(id, title, st)| {
+                            item(("pa", id).into(), "sparkle", title, p.accent)
+                                .on_click(cx.listener(move |this, _, window, cx| {
+                                    this.add_canvas(PaneSpec::agent(id), window, cx)
+                                }))
+                                .child(
+                                    div()
+                                        .ml_auto()
+                                        .pl(px(12.))
+                                        .text_size(px(11.))
+                                        .text_color(p.fg4)
+                                        .child(st),
+                                )
+                        }))
+                        .child(rule())
+                        .child(label("Views"))
+                        .children(views.into_iter().map(|(k, ic, l)| {
+                            item(k.into(), ic, l.into(), p.fg3).on_click(cx.listener(
+                                move |this, _, window, cx| {
+                                    this.add_canvas(PaneSpec::of(k), window, cx)
+                                },
+                            ))
+                        }))
+                        .into_any_element()
+                }
             }
         };
+        let win = self.win_bounds.get();
+        let x = f32::from(at.x - win.origin.x)
+            .min(f32::from(win.size.width) - 280.)
+            .max(8.);
         div()
-            .flex_1()
-            .min_h_0()
-            .flex()
-            .flex_col()
-            .child(
-                div()
+            .id("pop")
+            .absolute()
+            .left(px(x))
+            .top(px(f32::from(at.y - win.origin.y).max(30.) + 10.))
+            .p(px(6.))
+            .rounded(px(11.))
+            .bg(p.sheet)
+            .hair_all(w, p.pane_edge)
+            .shadow(shadow(0.18, 14., 34.))
+            .text_size(px(12.5))
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .child(content)
+            .into_any_element()
+    }
+
+    // -------------------------------------------------------------- tickets drawer
+
+    fn drawer_el(&mut self, w: Pixels, cx: &mut Context<Self>) -> AnyElement {
+        let p = self.pal;
+        let s = self.snap.clone();
+        let detail = self
+            .ticket_sel
+            .as_ref()
+            .and_then(|k| s.tickets.iter().find(|t| &t.key == k))
+            .cloned();
+        let group_label = |s: String| {
+            div()
+                .pt(px(10.))
+                .px(px(10.))
+                .pb(px(4.))
+                .text_size(px(11.))
+                .text_color(p.fg3)
+                .child(s)
+        };
+        let body: AnyElement = match detail {
+            Some(t) => self.ticket_detail(&t, w, cx),
+            None => {
+                let mut items: Vec<AnyElement> = vec![div()
                     .flex()
                     .gap(px(6.))
-                    .p(px(8.))
+                    .m(px(2.))
+                    .mb(px(8.))
                     .child(
                         div()
                             .flex_1()
                             .min_w_0()
-                            .h(px(26.))
-                            .rounded(px(6.))
+                            .h(px(28.))
+                            .px(px(9.))
+                            .rounded(px(7.))
                             .bg(p.hover)
                             .hair_all(w, p.pane_edge)
-                            .px(px(8.))
                             .flex()
                             .items_center()
                             .child(
-                                Input::new(&self.filters[slot])
+                                Input::new(&self.ticket_input)
                                     .appearance(false)
-                                    .text_size(px(12.))
-                                    .h(px(24.))
+                                    .text_size(px(12.5))
                                     .p_0(),
                             ),
                     )
-                    .child(
+                    .child(btn("tfile", "File", &p, w).on_click(cx.listener(
+                        |this, _, window, cx| {
+                            let text = this.ticket_input.read(cx).value().trim().to_string();
+                            this.ticket_input
+                                .update(cx, |s, cx| s.set_value("", window, cx));
+                            this.file_ticket(text, cx);
+                        },
+                    )))
+                    .into_any_element()];
+                if let Some(e) = &self.ticket_err {
+                    items.push(
                         div()
-                            .w(px(30.))
-                            .h(px(24.))
-                            .rounded(px(6.))
-                            .hair_all(w, p.pane_edge)
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .text_size(px(11.))
-                            .text_color(p.fg3)
-                            .child("Aa"),
-                    ),
-            )
-            .child(
-                div()
-                    .id(("ftree", slot))
-                    .flex_1()
-                    .min_h_0()
-                    .overflow_y_scroll()
-                    .px(px(6.))
-                    .pb(px(8.))
-                    .text_size(px(12.5))
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap(px(6.))
-                            .h(px(24.))
-                            .px(px(6.))
-                            .text_color(p.fg3)
-                            .child(icon("chevd", 14., p.fg3))
-                            .child(
-                                div()
-                                    .font_weight(FontWeight::BOLD)
-                                    .text_color(p.fg)
-                                    .child(label),
-                            ),
-                    )
-                    .children(
-                        rows.into_iter()
-                            .enumerate()
-                            .map(|(n, (depth, name, path, dir))| {
-                                let sel = preview.as_ref().is_some_and(|(pp, _)| *pp == path);
-                                let c = ext_color(&name, dir);
-                                div()
-                                    .id(("ft", n))
-                                    .flex()
-                                    .items_center()
-                                    .gap(px(6.))
-                                    .h(px(24.))
-                                    .pl(px(18. + depth as f32 * 14.))
-                                    .pr(px(6.))
-                                    .rounded(px(5.))
-                                    .whitespace_nowrap()
-                                    .cursor_pointer()
-                                    .when(sel, |d| d.bg(p.sel))
-                                    .hover(|d| d.bg(p.hover))
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        if !dir {
-                                            let text = std::fs::read(&path)
-                                                .map(|b| {
-                                                    String::from_utf8_lossy(
-                                                        &b[..b.len().min(256 * 1024)],
-                                                    )
-                                                    .into_owned()
-                                                })
-                                                .unwrap_or_else(|e| e.to_string());
-                                            this.file_preview[slot] = Some((path.clone(), text));
-                                            cx.notify();
-                                        }
-                                    }))
-                                    .child(icon(if dir { "chev" } else { "doc" }, 14., c))
-                                    .child(name)
-                            }),
-                    ),
-            )
-            .when_some(preview, |d, (_, text)| {
-                d.child(
-                    div()
-                        .id(("fprev", slot))
-                        .max_h(relative(0.45))
-                        .flex_none()
-                        .overflow_y_scroll()
-                        .hair_t(w, p.pane_edge)
-                        .py(px(8.))
-                        .px(px(12.))
-                        .font_family(MONO)
-                        .text_size(px(11.5))
-                        .line_height(relative(1.5))
-                        .text_color(p.term_fg)
-                        .child(text),
-                )
-            })
-    }
-
-    // -------------------------------------------------------------- browser
-
-    fn browser(&mut self, w: Pixels, cx: &mut Context<Self>) -> AnyElement {
-        let p = self.pal;
-        let cur = self.previews.get(self.btab).cloned();
-        let vps = [
-            (Viewport::Desktop, "window"),
-            (Viewport::Tablet, "doc"),
-            (Viewport::Phone, "term"),
-        ];
-        let short = |u: &str| {
-            u.trim_start_matches("http://")
-                .trim_start_matches("https://")
-                .to_string()
-        };
-        let tabs = div()
-            .h(px(32.))
-            .flex_none()
-            .flex()
-            .items_end()
-            .gap(px(2.))
-            .px(px(8.))
-            .hair_b(w, p.pane_edge)
-            .children(self.previews.iter().enumerate().map(|(i, u)| {
-                let sel = Some(u) == cur.as_ref();
-                div()
-                    .id(("btab", i))
-                    .h(px(26.))
-                    .max_w(px(220.))
-                    .flex()
-                    .items_center()
-                    .gap(px(6.))
-                    .px(px(10.))
-                    .rounded_t(px(7.))
-                    .text_size(px(11.5))
-                    .whitespace_nowrap()
-                    .cursor_pointer()
-                    .text_color(if sel { p.fg } else { p.fg3 })
-                    .when(sel, |d| d.bg(p.hover))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.btab = i;
-                        cx.notify()
-                    }))
-                    .child(
-                        div()
-                            .size(px(8.))
-                            .rounded(px(2.))
-                            .flex_none()
-                            .bg(p.page_accent),
-                    )
-                    .child(div().truncate().child(short(u)))
-            }))
-            .child(
-                ib("newtab", "plus", &p, false)
-                    .mb(px(2.))
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.btab = this.previews.len();
-                        this.url.update(cx, |s, cx| {
-                            s.set_value("", window, cx);
-                            s.focus(window, cx)
-                        });
-                        cx.notify()
-                    })),
-            );
-        let bar = div()
-            .h(px(38.))
-            .flex_none()
-            .flex()
-            .items_center()
-            .gap(px(4.))
-            .px(px(8.))
-            .child(ib("bback", "back", &p, false))
-            .child(ib("bfwd", "fwd", &p, false))
-            .child(
-                ib("breload", "reload", &p, false).on_click(cx.listener(|this, _, _, cx| {
-                    if let Some(u) = this.previews.get(this.btab).cloned() {
-                        this.fetch(u, cx)
-                    }
-                })),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .h(px(26.))
-                    .flex()
-                    .items_center()
-                    .gap(px(7.))
-                    .px(px(10.))
-                    .rounded(px(7.))
-                    .bg(p.hover)
-                    .hair_all(w, p.pane_edge)
-                    .text_size(px(12.))
-                    .child(icon("globe", 14., p.fg2))
-                    .child(
-                        div().flex_1().min_w_0().child(
-                            Input::new(&self.url)
-                                .appearance(false)
-                                .text_size(px(12.))
-                                .h(px(24.))
-                                .p_0(),
-                        ),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap(px(5.))
-                            .text_size(px(10.5))
-                            .text_color(p.green)
-                            .child(dot(p.green, None))
-                            .child("live"),
-                    ),
-            )
-            .child(div().flex().gap(px(2.)).children(vps.map(|(v, ic)| {
-                ib(ic, ic, &p, self.viewport == v).on_click(cx.listener(move |this, _, _, cx| {
-                    this.viewport = v;
-                    cx.notify()
-                }))
-            })))
-            .when(cur.is_some(), |d| {
-                d.child(
-                    ib("bclose", "close", &p, false).on_click(cx.listener(|this, _, _, cx| {
-                        if this.btab < this.previews.len() {
-                            this.previews.remove(this.btab);
-                        }
-                        this.btab = 0;
-                        cx.notify()
-                    })),
-                )
-            });
-        let page = match &cur {
-            None => div()
-                .size_full()
-                .flex()
-                .flex_col()
-                .items_center()
-                .justify_center()
-                .gap(px(8.))
-                .p(px(24.))
-                .text_color(p.page_dim)
-                .child(
-                    div()
-                        .font_weight(FontWeight::BOLD)
-                        .text_color(p.page_fg)
-                        .child("No previews yet"),
-                )
-                .child(div().max_w(px(520.)).text_center().child(
-                    "Type a dev server address above, for example the URL an agent printed after npm run dev, and press Enter.",
-                ))
-                .into_any_element(),
-            Some(u) => match self.pages.get(u) {
-                None => div()
-                    .p(px(24.))
-                    .text_color(p.page_dim)
-                    .child(format!("Loading {u}…"))
-                    .into_any_element(),
-                Some(Err(e)) => div()
-                    .size_full()
-                    .flex()
-                    .flex_col()
-                    .items_center()
-                    .justify_center()
-                    .gap(px(8.))
-                    .text_color(p.page_dim)
-                    .child(
-                        div()
-                            .font_weight(FontWeight::BOLD)
-                            .text_color(p.page_fg)
-                            .child("Can't reach the page"),
-                    )
-                    .child(e.clone())
-                    .into_any_element(),
-                Some(Ok(pg)) => {
-                    let url = u.clone();
-                    div()
-                        .id("page")
-                        .size_full()
-                        .overflow_y_scroll()
-                        .child(
+                            .mx(px(4.))
+                            .mb(px(6.))
+                            .text_size(px(12.))
+                            .text_color(p.red)
+                            .child(e.clone())
+                            .into_any_element(),
+                    );
+                }
+                let pend: Vec<_> = s.pending_approvals().cloned().collect();
+                if !pend.is_empty() {
+                    items.push(
+                        group_label(format!("Waiting on you · {}", pend.len())).into_any_element(),
+                    );
+                    for a in pend {
+                        let id = a.id;
+                        let title = match a.kind {
+                            backspace_core::ApprovalKind::Plan => {
+                                format!("Plan · {} tickets", a.tickets.len())
+                            }
+                            _ if a.agent == MAIN => "Final deliverable".into(),
+                            _ => s
+                                .agents
+                                .get(a.agent)
+                                .map_or("Deliverable".into(), |x| x.title.clone()),
+                        };
+                        items.push(
                             div()
+                                .id(("drv", id))
+                                .w_full()
                                 .flex()
                                 .items_center()
                                 .gap(px(8.))
-                                .py(px(8.))
-                                .px(px(12.))
-                                .text_size(px(12.))
-                                .text_color(p.page_dim)
-                                .border_b_1()
-                                .border_color(p.page_line)
-                                .child(format!(
-                                    "Text snapshot · {} · {} ms · GPUI has no embedded web engine",
-                                    pg.status, pg.ms
-                                ))
-                                .child(div().flex_1())
-                                .child(
-                                    div()
-                                        .id("open-ext")
-                                        .flex()
-                                        .items_center()
-                                        .gap(px(4.))
-                                        .text_color(p.page_accent)
-                                        .cursor_pointer()
-                                        .on_click(cx.listener(move |_, _, _, cx| {
-                                            cx.open_url(&url)
-                                        }))
-                                        .child("Open in browser")
-                                        .child(icon("ext", 12., p.page_accent)),
-                                ),
-                        )
-                        .child(
-                            div()
-                                .max_w(px(560.))
-                                .mx_auto()
-                                .py(px(48.))
-                                .px(px(24.))
-                                .text_size(px(15.))
-                                .line_height(relative(1.5))
-                                .text_color(p.page_fg)
-                                .child(
-                                    div()
-                                        .text_size(px(30.))
-                                        .line_height(relative(1.2))
-                                        .font_weight(FontWeight::BOLD)
-                                        .mb(px(14.))
-                                        .child(pg.title.clone()),
-                                )
-                                .children(
-                                    pg.text.iter().map(|l| div().mb(px(6.)).child(l.clone())),
-                                ),
-                        )
-                        .into_any_element()
+                                .p(px(8.))
+                                .mb(px(6.))
+                                .rounded(px(8.))
+                                .bg(p.pane)
+                                .hair_all(w, p.pane_edge)
+                                .cursor_pointer()
+                                .hover(|d| d.border_color(p.pane_edge_on))
+                                .on_click(cx.listener(move |this, _, window, cx| {
+                                    this.review = Some(id);
+                                    this.show_diagram(window, cx);
+                                }))
+                                .child(icon("diagram", 14., p.amber))
+                                .child(div().flex_1().min_w_0().truncate().child(title))
+                                .child(st_pill(w, "review", p.amber))
+                                .into_any_element(),
+                        );
+                    }
                 }
-            },
+                use TicketState::*;
+                let groups: [(&str, &[TicketState]); 5] = [
+                    ("Needs you", &[Proposed, InReview, ReadyForHuman, NeedsInfo]),
+                    ("Running", &[Queued, InProgress]),
+                    ("Ready", &[ReadyForAgent, NeedsTriage]),
+                    ("Done", &[Done]),
+                    ("Closed", &[Failed, Wontfix]),
+                ];
+                for (name, states) in groups {
+                    let rows: Vec<&Ticket> = s
+                        .tickets
+                        .iter()
+                        .filter(|t| states.contains(&t.state))
+                        .collect();
+                    if rows.is_empty() {
+                        continue;
+                    }
+                    items.push(group_label(format!("{name} · {}", rows.len())).into_any_element());
+                    for t in rows {
+                        let key = t.key.clone();
+                        let c = ticket_color(&p, t.state);
+                        items.push(
+                            div()
+                                .id(("trow", t.num))
+                                .w_full()
+                                .min_h(px(30.))
+                                .flex()
+                                .items_center()
+                                .gap(px(8.))
+                                .py(px(4.))
+                                .px(px(8.))
+                                .rounded(px(7.))
+                                .cursor_pointer()
+                                .hover(|d| d.bg(p.hover))
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.ticket_sel = Some(key.clone());
+                                    cx.notify()
+                                }))
+                                .child(
+                                    div()
+                                        .w(px(22.))
+                                        .font_family(MONO)
+                                        .text_size(px(11.))
+                                        .text_color(p.fg3)
+                                        .child(format!("{:02}", t.num)),
+                                )
+                                .child(div().flex_1().min_w_0().truncate().child(t.title.clone()))
+                                .child(st_pill(w, t.state.label(), c))
+                                .into_any_element(),
+                        );
+                    }
+                }
+                if s.tickets.is_empty() && s.pending_approvals().next().is_none() {
+                    items.push(nothing(
+                        &p,
+                        "No tickets yet. The main agent creates them from your goal; you can file one above.",
+                    ));
+                }
+                div().children(items).into_any_element()
+            }
         };
-        let frame = div().h_full().bg(p.page_bg).child(page);
-        let frame = match self.viewport {
-            Viewport::Desktop => frame.w_full(),
-            Viewport::Tablet => frame.w(px(768.)),
-            Viewport::Phone => frame.w(px(390.)),
+        let name = if s.name.is_empty() {
+            self.machine().name
+        } else {
+            s.name.clone()
         };
         div()
-            .size_full()
+            .id("drawer")
+            .absolute()
+            .top(px(38.))
+            .right(px(6.))
+            .bottom(px(6.))
+            .w(px(400.))
             .flex()
             .flex_col()
-            .rounded(px(9.))
-            .bg(p.pane)
+            .rounded(px(12.))
+            .bg(p.sheet)
             .hair_all(w, p.pane_edge)
+            .shadow(vec![BoxShadow {
+                color: hsla(0., 0., 0., 0.16),
+                offset: point(px(-10.), px(16.)),
+                blur_radius: px(40.),
+                spread_radius: px(0.),
+                inset: false,
+            }])
             .overflow_hidden()
-            .child(tabs)
-            .child(bar)
+            .on_hover(cx.listener(|this, on: &bool, _, cx| this.hover_drawer(false, *on, cx)))
             .child(
                 div()
+                    .h(px(38.))
+                    .flex_none()
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
+                    .pl(px(12.))
+                    .pr(px(8.))
+                    .hair_b(w, p.pane_edge)
+                    .text_size(px(12.))
+                    .text_color(p.fg3)
+                    .child(icon("ticket", 14., p.fg3))
+                    .child(
+                        div()
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(p.fg)
+                            .child("Tickets"),
+                    )
+                    .child(format!("· {name}"))
+                    .child(div().flex_1())
+                    .child(ib("dr-pin", "pin", &p, self.pinned).on_click(cx.listener(
+                        |this, _, _, cx| {
+                            this.pinned = !this.pinned;
+                            cx.notify()
+                        },
+                    )))
+                    .child(ib("dr-close", "close", &p, false).on_click(cx.listener(
+                        |this, _, _, cx| {
+                            this.drawer = false;
+                            this.pinned = false;
+                            cx.notify()
+                        },
+                    ))),
+            )
+            .child(
+                div()
+                    .id("dr-body")
                     .flex_1()
                     .min_h_0()
-                    .flex()
-                    .justify_center()
-                    .bg(p.page_desk)
-                    .child(frame),
+                    .overflow_y_scroll()
+                    .p(px(8.))
+                    .child(body),
             )
             .into_any_element()
     }
 
-    // -------------------------------------------------------------- diagram
+    fn ticket_detail(&mut self, t: &Ticket, w: Pixels, cx: &mut Context<Self>) -> AnyElement {
+        let p = self.pal;
+        let c = ticket_color(&p, t.state);
+        let a = t.assignee.and_then(|i| self.snap.agents.get(i)).cloned();
+        let kv = |k: &str, v: AnyElement| {
+            div()
+                .flex()
+                .items_start()
+                .gap(px(16.))
+                .child(div().text_color(p.fg3).child(k.to_string()))
+                .child(div().flex_1().flex().justify_end().text_right().child(v))
+        };
+        let code = |s: String| {
+            div()
+                .font_family(MONO)
+                .text_size(px(11.5))
+                .bg(p.hover)
+                .px(px(5.))
+                .py(px(1.))
+                .rounded(px(4.))
+                .child(s)
+                .into_any_element()
+        };
+        let text = |s: String| div().child(s).into_any_element();
+        let section = |title: &str, body: AnyElement| {
+            div()
+                .py(px(10.))
+                .hair_b(w, p.pane_edge)
+                .child(
+                    div()
+                        .text_size(px(12.5))
+                        .text_color(p.fg3)
+                        .mb(px(8.))
+                        .child(format!("▾ {title}")),
+                )
+                .child(body)
+        };
+        let list = |xs: &[String]| {
+            if xs.is_empty() {
+                div().text_color(p.fg3).child("None").into_any_element()
+            } else {
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(3.))
+                    .children(xs.iter().map(|x| {
+                        div()
+                            .flex()
+                            .child(div().w(px(14.)).flex_none().child("•"))
+                            .child(div().flex_1().child(x.clone()))
+                    }))
+                    .into_any_element()
+            }
+        };
+        let state_word = {
+            let l = t.state.label().replace('-', " ");
+            let mut c = l.chars();
+            c.next().map_or(String::new(), |f| {
+                f.to_uppercase().collect::<String>() + c.as_str()
+            })
+        };
+        let mut rows = div()
+            .flex()
+            .flex_col()
+            .gap(px(9.))
+            .pb(px(14.))
+            .hair_b(w, p.pane_edge)
+            .text_size(px(12.5))
+            .child(kv("Ticket", code(format!("{:02} · {}", t.num, t.key))))
+            .child(kv(
+                "Category",
+                text(format!("{:?}", t.category).to_lowercase()),
+            ));
+        rows = rows.child(kv(
+            "Agent",
+            match &a {
+                Some(a) => {
+                    let id = a.id;
+                    div()
+                        .id("td-agent")
+                        .text_color(p.blue)
+                        .cursor_pointer()
+                        .on_click(
+                            cx.listener(move |this, _, _, cx| this.open(PaneSpec::agent(id), cx)),
+                        )
+                        .child(a.title.clone())
+                        .into_any_element()
+                }
+                None => text("unassigned".into()),
+            },
+        ));
+        if let Some(b) = a.as_ref().and_then(|a| a.branch.clone()) {
+            rows = rows.child(kv("Branch", code(b)));
+        }
+        rows = rows.child(kv(
+            "Check",
+            t.check.clone().map_or(text("none".into()), code),
+        ));
+        if !t.blocked_by.is_empty() {
+            rows = rows.child(kv("After", text(t.blocked_by.join(", "))));
+        }
+        if let Some(b) = t.budget_usd {
+            rows = rows.child(kv("Budget", text(format!("${b:.2}"))));
+        }
+        div()
+            .px(px(8.))
+            .pt(px(6.))
+            .pb(px(20.))
+            .child(
+                div()
+                    .id("td-back")
+                    .flex()
+                    .items_center()
+                    .gap(px(4.))
+                    .text_size(px(12.))
+                    .text_color(p.fg3)
+                    .mb(px(10.))
+                    .cursor_pointer()
+                    .hover(|d| d.text_color(p.fg))
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.ticket_sel = None;
+                        cx.notify()
+                    }))
+                    .child(icon("back", 14., p.fg3))
+                    .child("All tickets"),
+            )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
+                    .text_size(px(12.5))
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(c)
+                    .child(icon(
+                        match t.state {
+                            TicketState::Done => "check",
+                            TicketState::InProgress => "sparkle",
+                            _ => "ticket",
+                        },
+                        14.,
+                        c,
+                    ))
+                    .child(state_word),
+            )
+            .child(
+                div()
+                    .mt(px(6.))
+                    .mb(px(14.))
+                    .text_size(px(18.))
+                    .line_height(relative(1.3))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(t.title.clone()),
+            )
+            .child(rows)
+            .child(section(
+                "What to build",
+                div()
+                    .line_height(relative(1.55))
+                    .child(t.what_to_build.clone())
+                    .into_any_element(),
+            ))
+            .child(section("Acceptance", list(&t.acceptance)))
+            .when(!t.out_of_scope.is_empty(), |d| {
+                d.child(section("Out of scope", list(&t.out_of_scope)))
+            })
+            .when(!t.notes.is_empty(), |d| {
+                d.child(section("Notes", list(&t.notes)))
+            })
+            .into_any_element()
+    }
 
-    fn diagram_env(
+    // -------------------------------------------------------------- settings
+
+    fn settings_page(
         &mut self,
         w: Pixels,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let p = self.pal;
-        let s = self.snap.clone();
-        if self.review.is_none_or(|r| r >= s.approvals.len()) {
-            self.review = s
-                .pending_approvals()
-                .next()
-                .map(|a| a.id)
-                .or(s.approvals.last().map(|a| a.id));
+        let share = self.fleet.prefs().share;
+        let sharing = self.fleet.sharing();
+        let share_err = self.fleet.share_error();
+        if self.share_addr.read(cx).value().is_empty() {
+            let a = share.addr.clone();
+            self.share_addr
+                .update(cx, |s, cx| s.set_value(a, window, cx));
         }
-        let ap = self.review.and_then(|r| s.approvals.get(r)).cloned();
-        let label = |a: &Approval| match a.kind {
-            ApprovalKind::Plan => format!("Plan · {} tickets", a.tickets.len()),
-            ApprovalKind::Deliverable if a.agent == MAIN => "Final deliverable".into(),
-            ApprovalKind::Deliverable => format!("Ticket · {}", a.tickets.join(", ")),
+        let h2 = |s: &str| {
+            div()
+                .text_size(px(14.))
+                .font_weight(FontWeight::BOLD)
+                .mb(px(4.))
+                .child(s.to_string())
         };
-        let list = div()
-            .id("dg-list")
-            .w(px(250.))
-            .flex_none()
-            .h_full()
-            .rounded(px(9.))
-            .bg(p.pane)
-            .hair_all(w, p.pane_edge)
-            .p(px(8.))
-            .overflow_y_scroll()
-            .flex()
-            .flex_col()
-            .gap(px(4.))
-            .child(
-                div()
-                    .mt(px(4.))
-                    .mx(px(6.))
-                    .mb(px(6.))
-                    .text_size(px(11.))
-                    .font_weight(FontWeight::MEDIUM)
-                    .text_color(p.fg3)
-                    .child("Reviews · diagram first"),
-            )
-            .when(s.approvals.is_empty(), |d| {
-                d.child(nothing(&p, "Nothing has needed your review yet."))
-            })
-            .children(s.approvals.iter().rev().map(|a| {
-                let sel = Some(a.id) == self.review;
-                let id = a.id;
-                let (chip, c, edge) = match a.state {
-                    ApprovalState::Pending => ("pending", p.amber, p.amber),
-                    ApprovalState::Approved => ("approved", p.green, p.green),
-                    ApprovalState::Rejected { .. } => ("rejected", p.fg4, p.pane_edge),
-                };
-                let kind = match a.kind {
-                    ApprovalKind::Plan => "PLAN",
-                    _ if a.agent == MAIN => "FINAL",
-                    _ => "TICKET",
-                };
-                div()
-                    .id(("rv", id))
-                    .py(px(8.))
-                    .px(px(9.))
-                    .rounded(px(7.))
-                    .flex()
-                    .flex_col()
-                    .gap(px(3.))
-                    .cursor_pointer()
-                    .hair_all(
-                        w,
-                        if sel {
-                            p.pane_edge
-                        } else {
-                            transparent_black()
-                        },
-                    )
-                    .when(sel, |d| d.bg(p.sel))
-                    .hover(|d| d.bg(if sel { p.sel } else { p.hover }))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.review = Some(id);
-                        this.cam = None;
-                        this.user_cam = false;
-                        cx.notify()
-                    }))
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap(px(6.))
-                            .text_size(px(10.5))
-                            .text_color(p.fg3)
-                            .child(icon("diagram", 14., p.fg3))
-                            .child(kind),
-                    )
-                    .child(div().font_weight(FontWeight::MEDIUM).child(
-                        if a.kind == ApprovalKind::Plan {
-                            label(a)
-                        } else {
-                            s.agents[a.agent].title.clone()
-                        },
-                    ))
-                    .child(
-                        div().flex().child(
-                            div()
-                                .text_size(px(10.5))
-                                .line_height(px(14.))
-                                .px(px(7.))
-                                .py(px(1.))
-                                .rounded_full()
-                                .hair_all(w, edge)
-                                .text_color(c)
-                                .child(chip),
-                        ),
-                    )
-            }));
-
-        let Some(ap) = ap else {
-            return div()
-                .size_full()
+        let lead = |s: &str| {
+            div()
+                .text_size(px(12.5))
+                .text_color(p.fg3)
+                .line_height(relative(1.5))
+                .mb(px(12.))
+                .child(s.to_string())
+        };
+        let section = || div().py(px(18.)).hair_t(w, p.pane_edge);
+        let line = |label: AnyElement| {
+            div()
                 .flex()
-                .gap(px(6.))
-                .child(list)
+                .items_center()
+                .gap(px(10.))
+                .min_h(px(34.))
+                .child(div().flex_1().min_w_0().child(label))
+        };
+        let lab = |t: String, small: Option<String>| {
+            div()
+                .child(t)
+                .when_some(small, |d, s| {
+                    d.child(
+                        div()
+                            .text_size(px(11.5))
+                            .text_color(p.fg3)
+                            .mt(px(1.))
+                            .child(s),
+                    )
+                })
+                .into_any_element()
+        };
+        let toggle = |id: &'static str, on: bool| {
+            div()
+                .id(id)
+                .w(px(34.))
+                .h(px(20.))
+                .rounded_full()
+                .flex_none()
+                .relative()
+                .cursor_pointer()
+                .bg(if on { p.green } else { p.fg4 })
                 .child(
                     div()
-                        .flex_1()
-                        .h_full()
-                        .rounded(px(9.))
-                        .bg(p.pane)
-                        .hair_all(w, p.pane_edge)
-                        .child(empty_mark(
-                            &p,
-                            "diagram",
-                            "Plans and deliverables appear here, drawn by the harness before you read them.",
-                        )),
+                        .absolute()
+                        .top(px(2.))
+                        .left(px(if on { 16. } else { 2. }))
+                        .size(px(16.))
+                        .rounded_full()
+                        .bg(rgb(0xffffff)),
                 )
-                .into_any_element();
         };
-        let d: Diagram = diagram::for_approval(&s, &ap);
-
-        // Fit to the stage (and the card over it) until the user pans or zooms.
-        let sb = self.stage_bounds.get();
-        let (sw, sh) = (f32::from(sb.size.width), f32::from(sb.size.height));
-        let card_h = f32::from(self.card_bounds.get().size.height);
-        let key = (ap.id, d.nodes.len(), sw, sh, card_h);
-        if sw > 0. && (self.cam.is_none() || (!self.user_cam && self.fitted != Some(key))) {
-            self.cam = Some(stage::fit(&d, sw, sh, card_h));
-            self.fitted = Some(key);
-        }
-        if sw == 0. || card_h == 0. {
-            // Sizes arrive with the first paint; draw once more with them.
-            cx.on_next_frame(window, |_, _, cx| cx.notify());
-        }
-        let cam = self.cam.unwrap_or(Cam {
-            x: 0.,
-            y: 0.,
-            k: 1.,
-        });
-
-        let facts = div()
-            .absolute()
-            .top(px(10.))
-            .left(px(12.))
-            .right(px(120.))
-            .flex()
-            .flex_wrap()
-            .gap(px(6.))
-            .child(chip_f(&p, w, true).child(d.title.clone()))
-            .children(d.facts.iter().map(|(k, v)| {
-                chip_f(&p, w, false).child(
-                    div()
-                        .flex()
-                        .child(
-                            div()
-                                .font_family(MONO)
-                                .font_weight(FontWeight::MEDIUM)
-                                .child(v.clone()),
-                        )
-                        .child(format!(" {k}")),
+        let field = |input: &Entity<InputState>, width: Option<f32>, mono: bool| {
+            div()
+                .h(px(28.))
+                .px(px(9.))
+                .rounded(px(7.))
+                .bg(p.hover)
+                .hair_all(w, p.pane_edge)
+                .flex()
+                .items_center()
+                .map(|d| match width {
+                    Some(x) => d.w(px(x)).flex_none(),
+                    None => d.flex_1().min_w_0(),
+                })
+                .child(
+                    Input::new(input)
+                        .appearance(false)
+                        .text_size(px(12.5))
+                        .when(mono, |i| i.font_family(MONO))
+                        .p_0(),
                 )
-            }));
-        let zoomc = div()
-            .absolute()
-            .top(px(10.))
-            .right(px(10.))
+        };
+        let theme = self.prefs.theme.clone();
+        let seg = div()
             .flex()
             .gap(px(2.))
             .p(px(2.))
             .rounded(px(8.))
-            .bg(p.glass)
-            .hair_all(w, p.pane_edge)
-            .child(
-                ib_with("zout", "−", &p, false)
-                    .on_click(cx.listener(|this, _, _, cx| this.zoom_center(1.25, cx))),
-            )
-            .child(
-                ib_with("zin", "+", &p, false)
-                    .on_click(cx.listener(|this, _, _, cx| this.zoom_center(0.8, cx))),
-            )
-            .child(
-                ib("zfit", "expand", &p, false).on_click(cx.listener(|this, _, _, cx| {
-                    this.cam = None;
-                    this.user_cam = false;
-                    cx.notify()
-                })),
-            );
-
-        let st = ap.state.clone();
-        let id = ap.id;
-        let agent = ap.agent;
-        let cb = self.card_bounds.clone();
-        let actions = if st == ApprovalState::Pending {
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(10.))
-                .child(
+            .bg(p.hover)
+            .children(
+                [("system", "System"), ("light", "Light"), ("dark", "Dark")].map(|(k, l)| {
+                    let on = theme == k;
                     div()
-                        .min_h(px(52.))
-                        .rounded(px(8.))
-                        .hair_all(w, p.pane_edge)
-                        .bg(p.hover)
-                        .py(px(4.))
-                        .px(px(9.))
-                        .child(
-                            Input::new(&self.feedback)
-                                .appearance(false)
-                                .text_size(px(12.5))
-                                .p_0(),
-                        ),
-                )
-                .child(
-                    div()
+                        .id(k)
+                        .h(px(24.))
+                        .px(px(12.))
+                        .rounded(px(6.))
                         .flex()
-                        .flex_wrap()
-                        .gap(px(8.))
                         .items_center()
-                        .child(
-                            btn("appr", "Approve", &p, w)
-                                .bg(p.fg)
-                                .text_color(p.desk_base)
-                                .border_color(transparent_black())
-                                .on_click(
-                                    cx.listener(move |this, _, _, _| this.harness.approve(id)),
-                                ),
+                        .text_size(px(12.))
+                        .cursor_pointer()
+                        .text_color(if on { p.fg } else { p.fg3 })
+                        .when(on, |d| d.bg(p.pill_on).shadow(shadow(0.08, 1., 2.)))
+                        .on_click(
+                            cx.listener(move |this, _, window, cx| this.set_theme(k, window, cx)),
                         )
-                        .child(
-                            btn("rej", "Reject", &p, w)
+                        .child(l)
+                }),
+            );
+        let machines: Vec<AnyElement> = self
+            .machines
+            .clone()
+            .into_iter()
+            .map(|m| {
+                let i = m.index;
+                let state = match &m.link {
+                    Link::Online => "online".to_string(),
+                    Link::Connecting => "connecting".to_string(),
+                    Link::Offline { error } => format!("offline: {error}"),
+                };
+                let small = format!(
+                    "{} · {state}{}",
+                    m.url.clone().unwrap_or_else(|| "This machine".into()),
+                    if m.project.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" · {}", m.project)
+                    }
+                );
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(10.))
+                    .py(px(8.))
+                    .px(px(10.))
+                    .mb(px(6.))
+                    .rounded(px(9.))
+                    .hair_all(w, p.pane_edge)
+                    .child(icon(if m.local { "pc" } else { "cloud" }, 14., p.fg2))
+                    .child(div().flex_1().min_w_0().child(lab(
+                        format!("{}{}", m.name, if m.selected { " · showing" } else { "" }),
+                        Some(small),
+                    )))
+                    .when(!m.selected, |d| {
+                        d.child(btn(("m-show", i), "Show", &p, w).on_click(cx.listener(
+                            move |this, _, window, cx| this.select_machine(i, window, cx),
+                        )))
+                    })
+                    .when(!m.local, |d| {
+                        d.child(
+                            btn(("m-rm", i), "Remove", &p, w)
                                 .text_color(p.red)
-                                .on_click(cx.listener(move |this, _, window, cx| {
-                                    let fb = this.feedback.read(cx).value().trim().to_string();
-                                    if fb.is_empty() {
-                                        this.fb_err = true;
-                                    } else {
-                                        this.harness.reject(id, fb);
-                                        this.feedback
-                                            .update(cx, |s, cx| s.set_value("", window, cx));
-                                    }
-                                    cx.notify()
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.fleet.remove_machine(i);
+                                    this.refresh(cx);
                                 })),
                         )
-                        .child(btn("sess", "Session", &p, w).on_click(
-                            cx.listener(move |this, _, _, cx| this.open(Slot::Agent(agent), cx)),
-                        ))
-                        .when(self.fb_err, |d| {
-                            d.child(
-                                div()
-                                    .text_size(px(12.))
-                                    .text_color(p.red)
-                                    .child("Write what should change first."),
-                            )
-                        }),
-                )
-        } else {
-            let (txt, c) = match &st {
-                ApprovalState::Rejected { feedback } => (format!("rejected: {feedback}"), p.fg4),
-                _ => ("approved".to_string(), p.green),
-            };
-            div()
-                .flex()
-                .gap(px(8.))
-                .items_center()
-                .child(
-                    div()
-                        .text_size(px(10.5))
-                        .px(px(7.))
-                        .py(px(1.))
-                        .rounded_full()
-                        .hair_all(w, c)
-                        .text_color(c)
-                        .child(txt),
-                )
-                .child(
-                    btn("sess", "Session", &p, w).on_click(
-                        cx.listener(move |this, _, _, cx| this.open(Slot::Agent(agent), cx)),
-                    ),
-                )
+                    })
+                    .into_any_element()
+            })
+            .collect();
+        let (upd_line, upd_new, upd_url) = match &self.upd {
+            Upd::Idle => ("Not checked yet.".to_string(), false, None),
+            Upd::Checking => ("Checking…".to_string(), false, None),
+            Upd::Done(Err(e)) => (e.clone(), false, None),
+            Upd::Done(Ok(u)) if u.newer => (
+                format!("Version {} is available.", u.latest),
+                true,
+                Some(u.url.clone()),
+            ),
+            Upd::Done(Ok(_)) => ("You're on the latest release.".to_string(), false, None),
         };
-        let card = div()
-            .id("rcard")
-            .absolute()
-            .right(px(12.))
-            .bottom(px(12.))
-            // CSS width is content-box: 360 + 2x14 padding + hairlines.
-            .w(px(360. + 28. + 2. * f32::from(w)))
-            .max_h(relative(0.9))
-            .overflow_y_scroll()
-            .p(px(14.))
-            .rounded(px(12.))
-            .bg(p.glass)
-            .hair_all(w, p.pane_edge)
-            .shadow(vec![BoxShadow {
-                color: hsla(0., 0., 0., 0.14),
-                offset: point(px(0.), px(12.)),
-                blur_radius: px(30.),
-                spread_radius: px(0.),
-                inset: false,
-            }])
-            .flex()
-            .flex_col()
-            .gap(px(10.))
-            .cursor_default()
-            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-            .child(
-                canvas(move |b, _, _| cb.set(b), |_, _, _, _| {})
-                    .absolute()
-                    .size_full(),
-            )
-            .child(
-                div()
-                    .text_size(px(14.))
-                    .font_weight(FontWeight::BOLD)
-                    .child(label(&ap)),
-            )
-            .child(
-                div()
-                    .text_color(p.fg2)
-                    .line_height(relative(1.5))
-                    .child(pre_line(&ap.deliverable.summary)),
-            )
-            .when(!d.warnings.is_empty(), |el| {
-                el.child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap(px(4.))
-                        .children(d.warnings.iter().map(|wn| {
-                            div()
-                                .flex()
-                                .text_size(px(12.))
-                                .text_color(p.amber)
-                                .child(
-                                    div()
-                                        .w(px(14.))
-                                        .flex_none()
-                                        .font_weight(FontWeight::BOLD)
-                                        .child("!"),
-                                )
-                                .child(div().flex_1().child(wn.clone()))
-                        })),
-                )
-            })
-            .when(!d.files.is_empty(), |el| {
-                el.child(stage::file_bars(&d.files, &p, MONO))
-            })
-            .child(actions);
-
-        let stage_el = div()
-            .id("stage")
-            .flex_1()
-            .min_w_0()
-            .h_full()
-            .relative()
-            .rounded(px(9.))
-            .bg(p.pane)
-            .hair_all(w, p.pane_edge)
-            .overflow_hidden()
-            .cursor(if self.pan.is_some() {
-                CursorStyle::ClosedHand
-            } else {
-                CursorStyle::OpenHand
-            })
-            .child(stage::layer(
-                &d,
-                cam,
-                &p,
-                UI.into(),
-                MONO,
-                self.stage_bounds.clone(),
-            ))
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, e: &MouseDownEvent, _, _| this.pan = Some(e.position)),
-            )
-            .on_scroll_wheel(cx.listener(|this, e: &ScrollWheelEvent, _, cx| {
-                let dy = f32::from(e.delta.pixel_delta(px(16.)).y);
-                let b = this.stage_bounds.get();
-                let at = e.position - b.origin;
-                if let Some(cam) = this.cam.as_mut() {
-                    cam.zoom(
-                        (-dy * 0.0015).exp(),
-                        f32::from(at.x),
-                        f32::from(at.y),
-                        f32::from(b.size.width),
-                    );
-                    this.user_cam = true;
-                    cx.notify();
-                }
-            }))
-            .child(facts)
-            .child(zoomc)
-            .child(card);
+        let check_updates = self.prefs.check_updates;
+        let share_on = share.enabled;
         div()
-            .size_full()
-            .flex()
-            .gap(px(6.))
-            .child(list)
-            .child(stage_el)
-            .into_any_element()
-    }
-
-    // -------------------------------------------------------------- docs + new
-
-    fn docs(&mut self, w: Pixels) -> AnyElement {
-        let p = self.pal;
-        let text = self.plan_text();
-        let mut body: Vec<AnyElement> = vec![];
-        match text {
-            None => {
-                body.push(h1(&p, "PLAN.md"));
-                body.push(
-                    div()
-                        .text_size(px(12.5))
-                        .text_color(p.fg3)
-                        .mb(px(26.))
-                        .child(self.snap.name.clone())
-                        .into_any_element(),
-                );
-                body.push(para(
-                    &p,
-                    "The main agent writes PLAN.md before it proposes tickets. It will show here once it exists.",
-                ));
-            }
-            Some(src) => {
-                let mut code: Option<Vec<String>> = None;
-                for raw in src.lines() {
-                    let l = raw.trim_end();
-                    if l.starts_with("```") {
-                        match code.take() {
-                            Some(lines) => body.push(
-                                div()
-                                    .my(px(8.))
-                                    .py(px(10.))
-                                    .px(px(12.))
-                                    .rounded(px(8.))
-                                    .bg(p.hover)
-                                    .font_family(MONO)
-                                    .text_size(px(12.5))
-                                    .line_height(relative(1.5))
-                                    .child(lines.join("\n"))
-                                    .into_any_element(),
-                            ),
-                            None => code = Some(vec![]),
-                        }
-                        continue;
-                    }
-                    if let Some(c) = code.as_mut() {
-                        c.push(l.to_string());
-                        continue;
-                    }
-                    let plain = l.replace("**", "").replace('`', "");
-                    if let Some(h) = plain.strip_prefix("# ") {
-                        body.push(h1(&p, h));
-                    } else if let Some(h) = plain.strip_prefix("## ").or(plain.strip_prefix("### "))
-                    {
-                        body.push(
-                            div()
-                                .mt(px(26.))
-                                .mb(px(8.))
-                                .text_size(px(15.))
-                                .font_weight(FontWeight::BOLD)
-                                .child(h.to_string())
-                                .into_any_element(),
-                        );
-                    } else if let Some(li) = plain.strip_prefix("- ").or(plain.strip_prefix("* ")) {
-                        body.push(
-                            div()
-                                .flex()
-                                .pl(px(6.))
-                                .child(div().w(px(14.)).flex_none().child("•"))
-                                .child(div().flex_1().child(li.to_string()))
-                                .into_any_element(),
-                        );
-                    } else if !plain.trim().is_empty() {
-                        body.push(para(&p, &plain));
-                    }
-                }
-            }
-        }
-        div()
-            .id("docs")
+            .id("settings")
             .size_full()
             .overflow_y_scroll()
             .rounded(px(9.))
-            .bg(p.pane)
+            .bg(p.sheet)
             .hair_all(w, p.pane_edge)
             .child(
                 div()
                     .max_w(px(680.))
                     .mx_auto()
-                    .pt(px(40.))
+                    .pt(px(28.))
                     .px(px(28.))
                     .pb(px(60.))
-                    .text_size(px(14.))
-                    .line_height(relative(1.6))
-                    .children(body),
-            )
-            .into_any_element()
-    }
-
-    fn new_env(&mut self, w: Pixels, cx: &mut Context<Self>) -> AnyElement {
-        let p = self.pal;
-        let card = |id: &'static str, ic: &'static str, t: &'static str, s: &'static str| {
-            div()
-                .id(id)
-                .w(px(168. + 24. + 2. * f32::from(w)))
-                .p(px(12.))
-                .rounded(px(9.))
-                .bg(p.pane)
-                .hair_all(w, p.pane_edge)
-                .flex()
-                .flex_col()
-                .gap(px(6.))
-                .cursor_pointer()
-                .hover(|d| d.border_color(p.pane_edge_on))
-                .child(icon(ic, 14., p.fg))
-                .child(
-                    div()
-                        .font_weight(FontWeight::MEDIUM)
-                        .text_size(px(12.5))
-                        .child(t),
-                )
-                .child(div().text_size(px(11.5)).text_color(p.fg3).child(s))
-        };
-        div()
-            .size_full()
-            .flex()
-            .flex_col()
-            .items_center()
-            .justify_center()
-            .gap(px(26.))
-            .p(px(20.))
-            .child(
-                div()
-                    .size(px(54.))
-                    .rounded(px(14.))
-                    .bg(p.hover)
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .child(icon("bksp", 26., p.fg3)),
-            )
-            .child(
-                div()
-                    .flex()
-                    .flex_wrap()
-                    .justify_center()
-                    .gap(px(10.))
                     .child(
-                        card(
-                            "n-goal",
-                            "sparkle",
-                            "New goal",
-                            "Tell the main agent what to build",
-                        )
-                        .on_click(cx.listener(|this, _, window, cx| {
-                            this.open(Slot::Agent(MAIN), cx);
-                            this.composer.update(cx, |s, cx| s.focus(window, cx));
-                        })),
+                        div()
+                            .flex()
+                            .items_center()
+                            .mb(px(18.))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .text_size(px(22.))
+                                    .font_weight(FontWeight::BOLD)
+                                    .child("Settings"),
+                            )
+                            .child(ib("set-close", "close", &p, false).on_click(cx.listener(
+                                |this, _, _, cx| {
+                                    this.settings = false;
+                                    cx.notify()
+                                },
+                            ))),
                     )
                     .child(
-                        card(
-                            "n-ticket",
-                            "ticket",
-                            "File a ticket",
-                            "Triaged, then scheduled by the main agent",
-                        )
-                        .on_click(cx.listener(|this, _, window, cx| {
-                            this.ticket_form = true;
-                            this.ticket.update(cx, |s, cx| s.focus(window, cx));
-                            cx.notify()
-                        })),
+                        section()
+                            .child(h2("Appearance"))
+                            .child(line(lab("Theme".into(), None)).child(seg)),
                     )
                     .child(
-                        card(
-                            "n-files",
-                            "folder",
-                            "Open worktree",
-                            "Browse the project's files",
-                        )
-                        .on_click(cx.listener(|this, _, _, cx| this.open(Slot::Files(MAIN), cx))),
+                        section()
+                            .child(h2("Machines"))
+                            .child(lead("Follow and drive the harness on other machines. Each one runs backspace-cli serve (or shares from its own Backspace, below); add it with its address and token. Switch machines from the sidebar foot."))
+                            .children(machines)
+                            .child(
+                                div()
+                                    .flex()
+                                    .gap(px(6.))
+                                    .mt(px(10.))
+                                    .child(field(&self.m_name, Some(150.), false))
+                                    .child(field(&self.m_url, None, true))
+                                    .child(field(&self.m_tok, None, true))
+                                    .child(
+                                        btn("m-add", if self.m_busy { "Checking…" } else { "Add" }, &p, w)
+                                            .bg(p.fg)
+                                            .text_color(p.desk_base)
+                                            .border_color(transparent_black())
+                                            .on_click(cx.listener(|this, _, _, cx| this.add_machine(cx))),
+                                    ),
+                            )
+                            .when_some(self.m_err.clone(), |d, e| {
+                                d.child(div().mt(px(6.)).text_size(px(12.)).text_color(p.red).child(e))
+                            }),
+                    )
+                    .child(
+                        section()
+                            .child(h2("Share this machine"))
+                            .child(lead("Let other machines follow this harness and approve its work. Plain HTTP with a token: keep it on localhost and use an SSH tunnel, or a private network such as Tailscale."))
+                            .child(
+                                line(lab(
+                                    "Sharing".into(),
+                                    Some(if sharing {
+                                        format!("On at http://{}", share.addr)
+                                    } else {
+                                        "Off".into()
+                                    }),
+                                ))
+                                .child(toggle("share-t", share_on).on_click(cx.listener(
+                                    move |this, _, _, cx| this.set_share(!share_on, false, cx),
+                                ))),
+                            )
+                            .child(
+                                line(lab("Address".into(), None))
+                                    .child(field(&self.share_addr, Some(200.), true))
+                                    .child(btn("sh-apply", "Apply", &p, w).on_click(cx.listener(
+                                        move |this, _, _, cx| this.set_share(share_on, false, cx),
+                                    ))),
+                            )
+                            .child(
+                                line(lab("Token".into(), None))
+                                    .child(div().font_family(MONO).text_size(px(12.)).child(share.token.clone()))
+                                    .child(btn("sh-new", "New token", &p, w).on_click(cx.listener(
+                                        move |this, _, _, cx| this.set_share(share_on, true, cx),
+                                    ))),
+                            )
+                            .when_some(share_err, |d, e| {
+                                d.child(div().mt(px(6.)).text_size(px(12.)).text_color(p.red).child(e))
+                            })
+                            .child(
+                                div()
+                                    .mt(px(10.))
+                                    .py(px(10.))
+                                    .px(px(12.))
+                                    .rounded(px(8.))
+                                    .bg(p.hover)
+                                    .font_family(MONO)
+                                    .text_size(px(12.))
+                                    .child(format!(
+                                        "ssh -L 7420:{} you@this-machine   # then add http://127.0.0.1:7420 elsewhere",
+                                        share.addr
+                                    )),
+                            ),
+                    )
+                    .child(
+                        section()
+                            .child(h2("Updates"))
+                            .child(
+                                line(lab("Check for updates automatically".into(), None)).child(
+                                    toggle("upd-t", check_updates).on_click(cx.listener(
+                                        |this, _, _, cx| {
+                                            this.prefs.check_updates = !this.prefs.check_updates;
+                                            let on = this.prefs.check_updates;
+                                            this.fleet.update_prefs(|p| p.check_updates = on);
+                                            cx.notify()
+                                        },
+                                    )),
+                                ),
+                            )
+                            .child(
+                                line(lab(
+                                    format!("Backspace {}", backspace_core::update::VERSION),
+                                    Some(upd_line),
+                                ))
+                                .child(if upd_new {
+                                    let u = upd_url.unwrap_or_default();
+                                    btn("upd-go", "Download & Update", &p, w)
+                                        .bg(p.fg)
+                                        .text_color(p.desk_base)
+                                        .on_click(cx.listener(move |_, _, _, cx| cx.open_url(&u)))
+                                } else {
+                                    btn("upd-now", "Check now", &p, w)
+                                        .on_click(cx.listener(|this, _, _, cx| this.check_update(cx)))
+                                }),
+                            ),
+                    )
+                    .child(
+                        section()
+                            .child(h2("Project"))
+                            .child(line(lab(
+                                "Workspace".into(),
+                                Some(self.snap.workspace.display().to_string())
+                                    .filter(|s| !s.is_empty()),
+                            )))
+                            .child(line(lab(
+                                "Config".into(),
+                                Some(self.snap.config_source.as_ref().map_or(
+                                    "built-in defaults".into(),
+                                    |p| p.display().to_string(),
+                                )),
+                            ))),
                     ),
             )
-            .when(self.ticket_form, |d| {
-                d.child(
-                    div()
-                        .w(px(520.))
-                        .h(px(36.))
-                        .px(px(12.))
-                        .rounded(px(9.))
-                        .bg(p.pane)
-                        .hair_all(w, p.pane_edge)
-                        .flex()
-                        .items_center()
-                        .child(
-                            Input::new(&self.ticket)
-                                .appearance(false)
-                                .text_size(px(13.))
-                                .p_0(),
-                        ),
-                )
-            })
             .into_any_element()
     }
 }
 
-fn chip_f(p: &Pal, w: Pixels, title: bool) -> Div {
+fn ticket_color(p: &Pal, s: TicketState) -> Hsla {
+    use TicketState::*;
+    match s {
+        Proposed | InReview | ReadyForHuman | NeedsInfo => p.amber,
+        Queued | InProgress => p.accent,
+        Done => p.green,
+        Failed | Wontfix => p.red,
+        _ => p.fg3,
+    }
+}
+
+fn st_pill(w: Pixels, label: &str, c: Hsla) -> Div {
     div()
-        .text_size(px(11.5))
-        .px(px(9.))
-        .py(px(3.))
+        .text_size(px(10.5))
+        .px(px(7.))
+        .py(px(1.))
         .rounded_full()
-        .bg(p.glass)
-        .hair_all(w, p.pane_edge)
-        .when(title, |d| d.font_weight(FontWeight::SEMIBOLD))
-}
-
-fn nothing(p: &Pal, s: &str) -> AnyElement {
-    div()
-        .p(px(14.))
-        .text_size(px(12.5))
-        .text_color(p.fg3)
-        .child(s.to_string())
-        .into_any_element()
-}
-
-fn empty_mark(p: &Pal, ic: &str, s: &str) -> impl IntoElement {
-    div()
-        .size_full()
-        .flex()
-        .flex_col()
-        .items_center()
-        .justify_center()
-        .gap(px(26.))
-        .child(
-            div()
-                .size(px(54.))
-                .rounded(px(14.))
-                .bg(p.hover)
-                .flex()
-                .items_center()
-                .justify_center()
-                .child(icon(ic, 26., p.fg3)),
-        )
-        .child(nothing(p, s))
-}
-
-fn h1(p: &Pal, s: &str) -> AnyElement {
-    div()
-        .text_size(px(26.))
-        .line_height(relative(1.2))
-        .font_weight(FontWeight::BOLD)
-        .mb(px(4.))
-        .text_color(p.fg)
-        .child(s.to_string())
-        .into_any_element()
-}
-
-fn para(p: &Pal, s: &str) -> AnyElement {
-    div()
-        .my(px(10.))
-        .text_color(p.fg)
-        .child(s.to_string())
-        .into_any_element()
-}
-
-fn note(p: &Pal, s: &str) -> AnyElement {
-    hang("※ ", div().italic().child(s.to_string()), p.term_dim).into_any_element()
-}
-
-/// A line with a two-cell glyph gutter (CSS `padding-left: 2ch; text-indent: -2ch`).
-fn hang(glyph: &str, body: impl IntoElement, c: Hsla) -> Div {
-    div()
-        .flex()
-        .items_start()
+        .hair_all(w, c)
         .text_color(c)
-        .child(
-            div()
-                .w(px(CH2))
-                .flex_none()
-                .whitespace_nowrap()
-                .child(glyph.trim_end().to_string()),
-        )
-        .child(div().flex_1().min_w_0().child(body))
-}
-
-fn log_el(kind: LogKind, text: &str, p: &Pal) -> AnyElement {
-    // `white-space: pre-wrap` drops a block's final newline; gpui would draw it.
-    let text = text.strip_suffix('\n').unwrap_or(text);
-    match kind {
-        LogKind::User => div()
-            .px(px(6.))
-            .rounded(px(2.))
-            .bg(p.prompt_bg)
-            .text_color(p.prompt_fg)
-            .font_weight(FontWeight::MEDIUM)
-            .child(format!("❯ {text}"))
-            .into_any_element(),
-        LogKind::Assistant => hang("● ", text.to_string(), p.term_fg).into_any_element(),
-        LogKind::ToolCall => {
-            let (name, rest) = text.split_once(' ').unwrap_or((text, ""));
-            hang(
-                "⎿ ",
-                rich(&[(name, Some(p.term_fg)), (&format!(" {rest}"), None)]),
-                p.term_dim,
-            )
-            .into_any_element()
-        }
-        LogKind::ToolResult => {
-            let lines: Vec<&str> = text.lines().collect();
-            let body = if lines.len() > 6 {
-                format!(
-                    "{}\n… {} more lines",
-                    lines[..6].join("\n"),
-                    lines.len() - 6
-                )
-            } else {
-                text.to_string()
-            };
-            if text.starts_with("CHECK FAILED") || text.starts_with("REJECTED") {
-                hang("✗ ", body, p.red).into_any_element()
-            } else if text.starts_with("Approved")
-                || text.starts_with("Plan APPROVED")
-                || text.starts_with("Merged")
-            {
-                hang("✓ ", body, p.green).into_any_element()
-            } else {
-                div()
-                    .pl(px(CH2))
-                    .text_color(p.term_dim)
-                    .child(body)
-                    .into_any_element()
-            }
-        }
-        LogKind::System if text.starts_with("escalated") => {
-            hang("↑ ", text.to_string(), p.amber).into_any_element()
-        }
-        LogKind::System => note(p, text),
-        LogKind::Error => hang("✗ ", text.to_string(), p.red).into_any_element(),
-    }
-}
-
-/// (margin-top, margin-bottom) of each transcript line, from the stylesheet.
-fn log_margins(kind: LogKind, text: &str) -> (f32, f32) {
-    match kind {
-        LogKind::User => (8., 8.),
-        LogKind::Assistant => (8., 0.),
-        LogKind::ToolCall => (6., 0.),
-        LogKind::ToolResult
-            if text.starts_with("Approved")
-                || text.starts_with("Plan APPROVED")
-                || text.starts_with("Merged") =>
-        {
-            (6., 0.)
-        }
-        LogKind::System if text.starts_with("escalated") => (6., 0.),
-        LogKind::System => (8., 0.),
-        _ => (0., 0.),
-    }
-}
-
-/// CSS `white-space: pre-line`: keep line breaks, collapse runs of spaces.
-fn pre_line(s: &str) -> String {
-    s.lines()
-        .map(|l| l.split_whitespace().collect::<Vec<_>>().join(" "))
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-fn thousands(n: u64) -> String {
-    let s = n.to_string();
-    let mut out = String::new();
-    for (i, c) in s.chars().enumerate() {
-        if i > 0 && (s.len() - i) % 3 == 0 {
-            out.push(',');
-        }
-        out.push(c);
-    }
-    out
-}
-
-/// Depth-first walk, skipping build output and VCS internals.
-fn scan(dir: &Path, depth: usize, out: &mut Vec<Entry>) {
-    if depth > 4 || out.len() > 2000 {
-        return;
-    }
-    let Ok(rd) = std::fs::read_dir(dir) else {
-        return;
-    };
-    let mut items: Vec<_> = rd.flatten().collect();
-    items.sort_by_key(|e| (!e.path().is_dir(), e.file_name()));
-    for e in items {
-        let name = e.file_name().to_string_lossy().into_owned();
-        if matches!(
-            name.as_str(),
-            ".git" | "target" | "node_modules" | ".backspace" | "dist" | ".astro"
-        ) {
-            continue;
-        }
-        let path = e.path();
-        let dir = path.is_dir();
-        out.push(Entry {
-            depth,
-            name,
-            path: path.clone(),
-            dir,
-        });
-        if dir {
-            scan(&path, depth + 1, out);
-        }
-    }
-}
-
-/// Depth-first, so each agent sits directly under its manager.
-fn tree_order(s: &ProjectState) -> Vec<usize> {
-    fn walk(s: &ProjectState, id: usize, out: &mut Vec<usize>) {
-        out.push(id);
-        for child in s.agents.iter().filter(|a| a.parent == Some(id)) {
-            walk(s, child.id, out);
-        }
-    }
-    let mut out = Vec::new();
-    if !s.agents.is_empty() {
-        walk(s, MAIN, &mut out);
-    }
-    out
-}
-
-/// A plain-HTTP GET of a dev server, reduced to its title and visible text.
-fn probe(url: &str) -> Result<Page, String> {
-    let start = Instant::now();
-    let rest = url.strip_prefix("http://").ok_or(
-        "Only http:// dev servers can be previewed here; open https pages in your browser.",
-    )?;
-    let (host, path) = rest
-        .split_once('/')
-        .map_or((rest, "/".to_string()), |(h, p)| (h, format!("/{p}")));
-    let addr = if host.contains(':') {
-        host.to_string()
-    } else {
-        format!("{host}:80")
-    };
-    let mut s = std::net::TcpStream::connect(&addr).map_err(|e| format!("{addr}: {e}"))?;
-    s.set_read_timeout(Some(Duration::from_secs(5))).ok();
-    write!(
-        s,
-        "GET {path} HTTP/1.0\r\nHost: {host}\r\nUser-Agent: backspace\r\n\r\n"
-    )
-    .map_err(|e| e.to_string())?;
-    let mut buf = Vec::new();
-    s.take(2 << 20)
-        .read_to_end(&mut buf)
-        .map_err(|e| e.to_string())?;
-    let raw = String::from_utf8_lossy(&buf).into_owned();
-    let (head, body) = raw.split_once("\r\n\r\n").unwrap_or((&raw, ""));
-    let status = head
-        .lines()
-        .next()
-        .and_then(|l| l.split_once(' '))
-        .map_or(String::new(), |(_, s)| format!("HTTP {s}"));
-    // Lowercasing ASCII keeps byte offsets aligned with `body`.
-    let lower = body.to_ascii_lowercase();
-    let title = lower
-        .find("<title>")
-        .and_then(|i| {
-            lower[i..]
-                .find("</title>")
-                .map(|j| body[i + 7..i + j].trim().to_string())
-        })
-        .or_else(|| {
-            let i = lower.find("<h1")?;
-            let gt = lower[i..].find('>')? + i + 1;
-            let end = lower[gt..].find("</h1>")? + gt;
-            Some(strip_tags(&body[gt..end]))
-        })
-        .unwrap_or_else(|| url.to_string());
-    // Visible text: drop scripts, styles and the title; break on block tags.
-    let mut text = String::new();
-    let mut i = 0;
-    while i < body.len() {
-        if body.as_bytes()[i] == b'<' {
-            let end = lower[i..].find('>').map_or(body.len(), |j| i + j + 1);
-            let tag = &lower[i..end];
-            let mut next = end;
-            for skip in ["script", "style", "title"] {
-                if tag.starts_with(&format!("<{skip}")) {
-                    let close = format!("</{skip}>");
-                    next = lower[end..]
-                        .find(&close)
-                        .map_or(body.len(), |j| end + j + close.len());
-                }
-            }
-            let block = [
-                "<p", "<li", "<div", "<h", "<br", "<tr", "</p", "</li", "</div", "</h", "<ul",
-                "</ul",
-            ];
-            if block.iter().any(|t| tag.starts_with(t)) {
-                text.push('\n');
-            }
-            i = next;
-        } else {
-            let next = lower[i..].find('<').map_or(body.len(), |j| i + j);
-            text.push_str(&body[i..next]);
-            i = next;
-        }
-    }
-    let lines: Vec<String> = text
-        .lines()
-        .map(|l| l.split_whitespace().collect::<Vec<_>>().join(" "))
-        .map(|l| {
-            l.replace("&amp;", "&")
-                .replace("&lt;", "<")
-                .replace("&gt;", ">")
-                .replace("&nbsp;", " ")
-        })
-        .filter(|l| !l.is_empty() && *l != title)
-        .take(200)
-        .collect();
-    Ok(Page {
-        status,
-        title,
-        text: lines,
-        ms: start.elapsed().as_millis(),
-    })
-}
-
-fn strip_tags(s: &str) -> String {
-    let mut out = String::new();
-    let mut tag = false;
-    for c in s.chars() {
-        match c {
-            '<' => tag = true,
-            '>' => tag = false,
-            c if !tag => out.push(c),
-            _ => {}
-        }
-    }
-    out.trim().to_string()
+        .whitespace_nowrap()
+        .child(label.to_string())
 }
 
 fn main() -> anyhow::Result<()> {
@@ -3453,6 +2830,7 @@ fn main() -> anyhow::Result<()> {
     if let Ok(goal) = std::env::var("BACKSPACE_GOAL") {
         harness.send(goal);
     }
+    let fleet = Fleet::new(harness, Prefs::load())?;
 
     gpui_kit::application()
         .with_assets(icons::Assets)
@@ -3479,7 +2857,7 @@ fn main() -> anyhow::Result<()> {
                     ..Default::default()
                 },
                 |window, cx| {
-                    let view = cx.new(|cx| Workbench::new(harness, window, cx));
+                    let view = cx.new(|cx| Workbench::new(fleet, window, cx));
                     cx.new(|cx| Root::new(view, window, cx))
                 },
             )
