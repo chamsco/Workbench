@@ -8,8 +8,11 @@ use anyhow::{anyhow, bail, Result};
 use serde::Serialize;
 use serde_json::json;
 
+use crate::chat::{Chats, Ctx};
+use crate::cloud::{Account, Overage, Plan};
 use crate::files::FileEntry;
 use crate::harness::Harness;
+use crate::harnesses::HarnessInfo;
 use crate::prefs::{MachineCfg, Prefs};
 use crate::project::{AgentStatus, ProjectState};
 use crate::remote::{Link, Remote};
@@ -47,6 +50,27 @@ impl Backend for Harness {
     }
     fn read_file(&self, path: &str) -> Result<String> {
         Harness::read_file(self, path)
+    }
+}
+
+/// This machine with no project open: everything empty, nothing to send to.
+struct NoProject;
+
+impl Backend for NoProject {
+    fn snapshot(&self) -> ProjectState {
+        ProjectState::empty("")
+    }
+    fn send(&self, _: String) {}
+    fn approve(&self, _: usize) {}
+    fn reject(&self, _: usize, _: String) {}
+    fn file_ticket(&self, _: &str, _: &str) -> Result<String> {
+        bail!("open a project first")
+    }
+    fn list_files(&self, _: usize) -> Vec<FileEntry> {
+        vec![]
+    }
+    fn read_file(&self, _: &str) -> Result<String> {
+        bail!("open a project first")
     }
 }
 
@@ -97,7 +121,11 @@ pub struct MachineInfo {
 }
 
 pub struct Fleet {
-    local: Arc<Harness>,
+    /// The project open on this machine, if any.
+    local: Mutex<Option<Arc<Harness>>>,
+    chats: Arc<Chats>,
+    harnesses: Mutex<Vec<HarnessInfo>>,
+    http: reqwest::Client,
     remotes: Mutex<Vec<Arc<Remote>>>,
     current: Mutex<usize>,
     prefs: Mutex<Prefs>,
@@ -109,24 +137,18 @@ pub struct Fleet {
 }
 
 impl Fleet {
-    pub fn new(local: Harness, prefs: Prefs) -> Result<Arc<Fleet>> {
+    pub fn new(local: Option<Harness>, prefs: Prefs) -> Result<Arc<Fleet>> {
         let rt = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(2)
             .thread_name("fleet")
             .enable_all()
             .build()?;
         let (notify, changes) = async_channel::bounded(1);
-        let local = Arc::new(local);
-        // Local changes wake the shell through the shared channel too.
-        {
-            let rx = local.changes();
-            let tx = notify.clone();
-            rt.spawn(async move {
-                while rx.recv().await.is_ok() {
-                    let _ = tx.try_send(());
-                }
-            });
+        let local = local.map(Arc::new);
+        if let Some(h) = &local {
+            forward(&rt, h, &notify);
         }
+        let chats = Chats::open(Prefs::data_dir(), rt.handle().clone(), notify.clone());
         let remotes = prefs
             .machines
             .iter()
@@ -141,7 +163,10 @@ impl Fleet {
             })
             .collect();
         let fleet = Arc::new(Fleet {
-            local,
+            local: Mutex::new(local),
+            chats,
+            harnesses: Mutex::new(Vec::new()),
+            http: reqwest::Client::new(),
             remotes: Mutex::new(remotes),
             current: Mutex::new(0),
             prefs: Mutex::new(prefs.clone()),
@@ -159,8 +184,129 @@ impl Fleet {
         Ok(fleet)
     }
 
-    pub fn local(&self) -> &Arc<Harness> {
-        &self.local
+    pub fn local(&self) -> Option<Arc<Harness>> {
+        self.local.lock().unwrap().clone()
+    }
+
+    pub fn chats(&self) -> &Arc<Chats> {
+        &self.chats
+    }
+
+    /// What a chat send needs from prefs.
+    pub fn chat_ctx(&self) -> Ctx {
+        Ctx {
+            prefs: self.prefs(),
+        }
+    }
+
+    /// Open a project folder on this machine (closing the one open, which
+    /// stops its agents), remember it, and show it.
+    pub fn open_project(&self, path: &str) -> Result<()> {
+        let p = std::path::PathBuf::from(path.trim());
+        if !p.is_dir() {
+            bail!("{} is not a folder", p.display());
+        }
+        let h = Harness::open(p)?;
+        let root = h.root().display().to_string();
+        forward(&self.rt, &h, &self.notify);
+        let old = self.local.lock().unwrap().replace(Arc::new(h));
+        // A harness owns a runtime, which must not be dropped on one.
+        if let Some(old) = old {
+            std::thread::spawn(move || drop(old));
+        }
+        self.update_prefs(|pr| pr.touch_project(&root));
+        let sharing = self.sharing();
+        if sharing {
+            let _ = self.start_sharing();
+        }
+        self.select(0);
+        Ok(())
+    }
+
+    pub fn close_project(&self) {
+        if let Some(h) = self.serving.lock().unwrap().take() {
+            h.abort();
+        }
+        if let Some(old) = self.local.lock().unwrap().take() {
+            std::thread::spawn(move || drop(old));
+        }
+        self.poke();
+    }
+
+    pub fn forget_project(&self, path: &str) {
+        self.update_prefs(|p| p.projects.retain(|x| x != path));
+        self.poke();
+    }
+
+    // ------------------------------------------------------------ harnesses
+
+    /// The last scan, with the current switches applied.
+    pub fn harnesses(&self) -> Vec<HarnessInfo> {
+        let mut v = self.harnesses.lock().unwrap().clone();
+        crate::harnesses::apply_toggles(&mut v, &self.prefs().harnesses);
+        v
+    }
+
+    /// Probe every CLI, Ollama and router again. Blocking, a few seconds.
+    pub fn rescan(&self) -> Vec<HarnessInfo> {
+        let v = crate::harnesses::scan(&self.prefs());
+        *self.harnesses.lock().unwrap() = v.clone();
+        self.poke();
+        v
+    }
+
+    pub fn set_harness(&self, id: &str, on: bool) -> Vec<HarnessInfo> {
+        self.update_prefs(|p| {
+            p.harnesses.insert(id.to_string(), on);
+        });
+        self.poke();
+        self.harnesses()
+    }
+
+    // ------------------------------------------------------------ cloud
+
+    fn block<T: Send>(&self, f: impl std::future::Future<Output = T> + Send) -> T {
+        std::thread::scope(|s| s.spawn(|| self.rt.block_on(f)).join().unwrap())
+    }
+
+    /// Create a Free account on this machine (no email in the dev server).
+    pub fn cloud_signup(&self) -> Result<Account> {
+        let url = self.prefs().cloud.url;
+        let (token, acct) = self.block(crate::cloud::signup(&self.http, &url))?;
+        self.update_prefs(|p| p.cloud.token = token);
+        self.chats.set_account(Some(acct.clone()));
+        Ok(acct)
+    }
+
+    pub fn cloud_account(&self) -> Result<Option<Account>> {
+        let c = self.prefs().cloud;
+        if c.token.is_empty() {
+            return Ok(None);
+        }
+        let a = self.block(crate::cloud::account(&self.http, &c.url, &c.token))?;
+        self.chats.set_account(Some(a.clone()));
+        Ok(Some(a))
+    }
+
+    pub fn cloud_set_plan(&self, plan: Plan, overage: Overage) -> Result<Account> {
+        let c = self.prefs().cloud;
+        if c.token.is_empty() {
+            bail!("sign up first");
+        }
+        let a = self.block(crate::cloud::set_plan(
+            &self.http, &c.url, &c.token, plan, overage,
+        ))?;
+        self.chats.set_account(Some(a.clone()));
+        Ok(a)
+    }
+
+    pub fn cloud_sign_out(&self) {
+        self.update_prefs(|p| p.cloud.token.clear());
+        self.chats.set_account(None);
+    }
+
+    pub fn link_preview(&self, url: &str) -> Result<crate::chat::LinkPreview> {
+        self.block(crate::chat::link_preview(&self.http, url))
     }
 
     /// Fires (coalesced) when any machine's state or link changes.
@@ -184,7 +330,10 @@ impl Fleet {
 
     pub fn backend(&self) -> Arc<dyn Backend> {
         match self.current() {
-            0 => self.local.clone(),
+            0 => match self.local() {
+                Some(h) => h,
+                None => Arc::new(NoProject),
+            },
             i => self.remotes.lock().unwrap()[i - 1].clone(),
         }
     }
@@ -218,7 +367,9 @@ impl Fleet {
             "Local".into(),
             None,
             Link::Online,
-            &self.local.snapshot(),
+            &self
+                .local()
+                .map_or_else(|| ProjectState::empty(""), |h| h.snapshot()),
         )];
         for (i, r) in self.remotes.lock().unwrap().iter().enumerate() {
             out.push(info(
@@ -309,7 +460,10 @@ impl Fleet {
         if let Some(h) = self.serving.lock().unwrap().take() {
             h.abort();
         }
-        let handle = self.local.serve(&share.addr, &share.token)?;
+        let local = self
+            .local()
+            .ok_or_else(|| anyhow!("open a project to share it"))?;
+        let handle = local.serve(&share.addr, &share.token)?;
         *self.serving.lock().unwrap() = Some(handle);
         Ok(())
     }
@@ -357,4 +511,16 @@ impl Fleet {
         std::thread::scope(|s| s.spawn(|| self.rt.block_on(fut)).join())
             .map_err(|_| anyhow!("update check panicked"))?
     }
+}
+
+/// A harness's changes wake the shell through the shared channel. Ends when
+/// the harness is dropped.
+fn forward(rt: &tokio::runtime::Runtime, h: &Harness, notify: &async_channel::Sender<()>) {
+    let rx = h.changes();
+    let tx = notify.clone();
+    rt.spawn(async move {
+        while rx.recv().await.is_ok() {
+            let _ = tx.try_send(());
+        }
+    });
 }

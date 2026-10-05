@@ -80,15 +80,15 @@ pub(crate) async fn serve(api: Arc<dyn Api>, addr: String, token: String) -> Res
     }
 }
 
-struct Request {
-    method: String,
-    path: String,
-    query: String,
-    auth: Option<String>,
-    body: Vec<u8>,
+pub(crate) struct Request {
+    pub(crate) method: String,
+    pub(crate) path: String,
+    pub(crate) query: String,
+    pub(crate) auth: Option<String>,
+    pub(crate) body: Vec<u8>,
 }
 
-async fn read_request(stream: &mut TcpStream) -> Result<Request> {
+pub(crate) async fn read_request(stream: &mut TcpStream) -> Result<Request> {
     let mut buf = Vec::with_capacity(1024);
     let mut chunk = [0u8; 4096];
     let head_end = loop {
@@ -120,7 +120,7 @@ async fn read_request(stream: &mut TcpStream) -> Result<Request> {
             }
         }
     }
-    if len > 1 << 20 {
+    if len > 12 << 20 {
         bail!("body too large");
     }
     let mut body = buf[head_end + 4..].to_vec();
@@ -141,13 +141,16 @@ async fn read_request(stream: &mut TcpStream) -> Result<Request> {
     })
 }
 
-async fn respond(stream: &mut TcpStream, status: u16, body: &Value) -> Result<()> {
+pub(crate) async fn respond(stream: &mut TcpStream, status: u16, body: &Value) -> Result<()> {
     let text = body.to_string();
     let reason = match status {
         200 => "OK",
         400 => "Bad Request",
         401 => "Unauthorized",
+        402 => "Payment Required",
+        403 => "Forbidden",
         404 => "Not Found",
+        429 => "Too Many Requests",
         _ => "Error",
     };
     let head = format!(
@@ -161,7 +164,7 @@ async fn respond(stream: &mut TcpStream, status: u16, body: &Value) -> Result<()
 }
 
 /// Equal-length, branch-free comparison so timing does not leak the token.
-fn same(a: &str, b: &str) -> bool {
+pub(crate) fn same(a: &str, b: &str) -> bool {
     a.len() == b.len()
         && a.bytes()
             .zip(b.bytes())

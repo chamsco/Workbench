@@ -2880,7 +2880,7 @@ fn main() -> anyhow::Result<()> {
     if let Ok(goal) = std::env::var("BACKSPACE_GOAL") {
         harness.send(goal);
     }
-    let fleet = Fleet::new(harness, Prefs::load())?;
+    let fleet = Fleet::new(Some(harness), Prefs::load())?;
 
     gpui_kit::application()
         .with_assets(icons::Assets)

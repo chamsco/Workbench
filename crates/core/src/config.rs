@@ -259,7 +259,7 @@ mod tests {
     #[test]
     fn default_config_parses() {
         let cfg = Config::parse(DEFAULT_CONFIG).unwrap();
-        assert!(cfg.model("claude-sonnet-5").is_some());
+        assert!(cfg.model("claude-sonnet-5-5").is_some());
         assert_eq!(cfg.router.main_min_effort, Effort::High);
     }
 }

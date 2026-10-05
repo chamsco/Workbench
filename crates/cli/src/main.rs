@@ -6,6 +6,12 @@
 //!                                        share a harness so other machines
 //!                                        can follow it (default 127.0.0.1:7420;
 //!                                        token from BACKSPACE_TOKEN or printed)
+//!   backspace-cli scan                   which coding CLIs, local models and
+//!                                        routers this machine has
+//!   backspace-cli cloud [addr]           the development Backspace Cloud
+//!                                        (default 127.0.0.1:7430); answers
+//!                                        through the models in your config,
+//!                                        or canned text with BACKSPACE_CLOUD_MOCK=1
 
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
@@ -28,11 +34,55 @@ fn main() -> Result<()> {
             PathBuf::from(ws),
             rest.first().map_or("127.0.0.1:7420", |s| s.as_str()),
         ),
+        [cmd] if cmd == "scan" => scan(),
+        [cmd, rest @ ..] if cmd == "cloud" && rest.len() <= 1 => cloud(
+            rest.first().map_or("127.0.0.1:7430", |s| s.as_str()),
+        ),
         [ws, goal @ ..] if !goal.is_empty() => run(PathBuf::from(ws), goal.join(" ")),
         _ => bail!(
-            "usage: backspace-cli init-config | backspace-cli <workspace> <goal> | backspace-cli serve <workspace> [addr]"
+            "usage: backspace-cli init-config | <workspace> <goal> | serve <workspace> [addr] | scan | cloud [addr]"
         ),
     }
+}
+
+fn scan() -> Result<()> {
+    use backspace_core::harnesses::Auth;
+    let prefs = backspace_core::prefs::Prefs::load();
+    for h in backspace_core::harnesses::scan(&prefs) {
+        let state = if !h.installed {
+            "not installed".to_string()
+        } else {
+            match h.auth {
+                Auth::Authenticated => "authenticated".into(),
+                Auth::Unauthenticated => "not signed in".into(),
+                Auth::Unknown => "installed".into(),
+            }
+        };
+        println!(
+            "{:<12} {:<10} {:<14} {:<4} {}",
+            h.name,
+            h.version
+                .as_deref()
+                .map(|v| format!("v{v}"))
+                .unwrap_or_default(),
+            state,
+            if h.enabled { "on" } else { "off" },
+            h.detail.or(h.message).unwrap_or_default()
+        );
+    }
+    Ok(())
+}
+
+fn cloud(addr: &str) -> Result<()> {
+    let mock = std::env::var_os("BACKSPACE_CLOUD_MOCK").is_some();
+    let dir = backspace_core::prefs::Prefs::data_dir().join("cloud-dev");
+    println!(
+        "Backspace Cloud (development) on http://{addr}{}",
+        if mock { ", mock answers" } else { "" }
+    );
+    println!("accounts in {}", dir.display());
+    println!("plans switch instantly here; nothing is billed.");
+    tokio::runtime::Runtime::new()?.block_on(backspace_core::cloud::serve(addr, dir, mock))
 }
 
 /// Run a harness headless and share it; approvals come from whoever follows.

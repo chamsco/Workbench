@@ -363,7 +363,7 @@ mod tests {
         let cfg = Config::parse(DEFAULT_CONFIG).unwrap();
         let p = &cfg.providers["anthropic"];
         let msgs = [Message::user_text("hi")];
-        let sonnet = cfg.model("claude-sonnet-5").unwrap();
+        let sonnet = cfg.model("claude-sonnet-5-5").unwrap();
         let b = anthropic_body(&Request {
             provider: p,
             model: sonnet,

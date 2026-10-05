@@ -2,6 +2,7 @@
 //! follow, whether this machine shares its harness, update checks, and the
 //! tab/canvas layout. One JSON file, `~/.config/backspace/prefs.json`.
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
@@ -16,6 +17,20 @@ pub struct Prefs {
     pub check_updates: bool,
     pub tabs: Vec<TabSpec>,
     pub active_tab: usize,
+    /// False until the first-run setup is finished or skipped.
+    pub onboarded: bool,
+    /// "chat" or "code": which half of the app was showing.
+    pub mode: String,
+    /// Harness id -> on/off, only for ones the user has toggled; the rest
+    /// follow the scan (on when installed and signed in).
+    pub harnesses: BTreeMap<String, bool>,
+    pub ollama_url: String,
+    pub routers: Vec<RouterCfg>,
+    pub cloud: CloudCfg,
+    /// Project folders, most recent first.
+    pub projects: Vec<String>,
+    /// Where a new chat goes unless the user picks otherwise.
+    pub default_route: Option<crate::chat::Route>,
 }
 
 impl Default for Prefs {
@@ -27,6 +42,46 @@ impl Default for Prefs {
             check_updates: true,
             tabs: TabSpec::defaults(),
             active_tab: 0,
+            onboarded: false,
+            mode: "chat".into(),
+            harnesses: BTreeMap::new(),
+            ollama_url: "http://localhost:11434".into(),
+            routers: vec![],
+            cloud: CloudCfg::default(),
+            projects: vec![],
+            default_route: None,
+        }
+    }
+}
+
+/// Any OpenAI-compatible endpoint: OpenRouter, LM Studio, vLLM, LiteLLM,
+/// a company gateway...
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+#[serde(default)]
+pub struct RouterCfg {
+    pub id: String,
+    pub name: String,
+    pub base_url: String,
+    pub api_key: String,
+    /// Models the user picked to show; empty means all the endpoint lists.
+    pub models: Vec<String>,
+}
+
+/// The Backspace Cloud account on this machine.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(default)]
+pub struct CloudCfg {
+    pub url: String,
+    /// Account token from sign-up; empty = not signed up.
+    pub token: String,
+}
+
+impl Default for CloudCfg {
+    fn default() -> Self {
+        Self {
+            url: std::env::var("BACKSPACE_CLOUD_URL")
+                .unwrap_or_else(|_| "http://127.0.0.1:7430".into()),
+            token: String::new(),
         }
     }
 }
@@ -171,14 +226,44 @@ impl Prefs {
         p
     }
 
+    /// Holds API keys and tokens, so it is written readable by you only.
     pub fn save(&self) {
         if let Some(path) = Self::path() {
             if let Some(dir) = path.parent() {
                 let _ = std::fs::create_dir_all(dir);
             }
             if let Ok(s) = serde_json::to_string_pretty(self) {
-                let _ = std::fs::write(path, s);
+                let _ = std::fs::write(&path, s);
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+                }
             }
+        }
+    }
+
+    /// Remember a project folder at the top of the recent list.
+    pub fn touch_project(&mut self, path: &str) {
+        self.projects.retain(|p| p != path);
+        self.projects.insert(0, path.to_string());
+        self.projects.truncate(12);
+    }
+
+    /// Where chats, attachments and the CLI scratch folder live.
+    /// `BACKSPACE_DATA` overrides it.
+    pub fn data_dir() -> PathBuf {
+        if let Some(p) = std::env::var_os("BACKSPACE_DATA") {
+            return PathBuf::from(p);
+        }
+        let home = std::env::var_os("HOME")
+            .or_else(|| std::env::var_os("USERPROFILE"))
+            .map(PathBuf::from)
+            .unwrap_or_else(std::env::temp_dir);
+        if cfg!(target_os = "macos") {
+            home.join("Library/Application Support/Backspace")
+        } else {
+            home.join(".local/share/backspace")
         }
     }
 }

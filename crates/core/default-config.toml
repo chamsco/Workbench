@@ -13,8 +13,8 @@ jev_usd_per_mtok = 0.042
 # Floor for the main agent: planning a whole project on "low" is false economy.
 main_min_effort = "high"
 # Optional hard pins, bypassing the router:
-# pin_main = "claude-opus-5"
-# pin_sub = "claude-sonnet-5"
+# pin_main = "claude-opus-5-5"
+# pin_sub = "claude-sonnet-5-5"
 
 [orchestrator]
 max_parallel_calls = 4      # concurrent in-flight inference requests
@@ -70,7 +70,7 @@ max_output_tokens = 16000
 efforts = []
 
 [[models]]
-id = "claude-sonnet-5"
+id = "claude-sonnet-5-5"
 provider = "anthropic"
 tier = 2
 description = "the usual choice for everyday coding and tool use; features, components, tests, refactors of moderate size; good value"
@@ -80,12 +80,12 @@ max_output_tokens = 16000
 efforts = ["low", "medium", "high", "xhigh", "max"]
 
 [[models]]
-id = "claude-opus-5"
+id = "claude-opus-5-5"
 provider = "anthropic"
 tier = 3
 description = "strong reasoning for architecture, planning, cross-cutting changes, hard debugging and integration of many parts"
-input_usd_per_mtok = 5.0
-output_usd_per_mtok = 25.0
+input_usd_per_mtok = 4.0
+output_usd_per_mtok = 20.0
 max_output_tokens = 16000
 efforts = ["low", "medium", "high", "xhigh", "max"]
 

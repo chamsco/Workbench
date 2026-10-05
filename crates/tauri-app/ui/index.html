@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Backspace</title>
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="chat.css">
 </head>
 <body>
 <div class="desk">
@@ -16,11 +17,17 @@
         <button class="ib" id="sideClose" aria-label="Hide sidebar" data-icon="sidebar"></button>
       </div>
       <div class="side-head">
-        <div class="brand" id="brand"></div>
-        <div class="seg" role="group" aria-label="Sidebar view" id="seg"></div>
+        <div class="modes" id="modes" role="tablist" aria-label="Chat or code">
+          <button role="tab" data-mode="chat" id="modeChat">Chat</button>
+          <button role="tab" data-mode="code" id="modeCode">Code</button>
+        </div>
+        <button class="newbtn chat-only" id="newChat" title="New chat (⌘N)"><span data-icon="compose"></span>New chat<kbd>⌘N</kbd></button>
+        <label class="search chat-only"><span data-icon="search"></span><input id="search" placeholder="Search chats" aria-label="Search chats" autocomplete="off"><kbd>⌘K</kbd></label>
+        <div class="brand code-only" id="brand"></div>
+        <div class="seg code-only" role="group" aria-label="Sidebar view" id="seg"></div>
       </div>
       <div class="list" id="list"></div>
-      <div class="ports" id="ports"></div>
+      <div class="ports code-only" id="ports"></div>
       <div class="side-foot">
         <span class="sp"></span>
         <div class="machines" id="machines" role="group" aria-label="Machines"></div>
@@ -32,22 +39,30 @@
     <div class="mainc">
       <header class="tbar" data-tauri-drag-region>
         <button class="ib" id="sideOpen" aria-label="Show sidebar" data-icon="sidebar" hidden></button>
-        <nav class="tabs" id="tabs" role="tablist" aria-label="Tabs"></nav>
+        <nav class="tabs code-only" id="tabs" role="tablist" aria-label="Tabs"></nav>
+        <div class="chat-head chat-only" id="chatHead"></div>
         <span class="sp" data-tauri-drag-region></span>
         <div class="right">
-          <button class="ib" id="addCanvas" aria-label="Add a canvas" title="Add a canvas" data-icon="plus"></button>
-          <button class="cta" id="cta" aria-expanded="false" aria-controls="drawer"></button>
+          <button class="ib code-only" id="addCanvas" aria-label="Add a canvas" title="Add a canvas" data-icon="plus"></button>
+          <button class="cta code-only" id="cta" aria-expanded="false" aria-controls="drawer"></button>
           <button class="upd" id="upd"></button>
         </div>
       </header>
       <section class="canvas" id="canvas"><div class="grid" id="grid"></div></section>
+      <section class="chat" id="chat" hidden></section>
       <section class="settings" id="settings" hidden></section>
       <aside class="drawer" id="drawer" aria-label="Tickets and reviews" hidden></aside>
     </div>
     <div class="scrim" id="scrim"></div>
+    <div class="onboard" id="onboard" hidden></div>
   </div>
 </div>
 <div class="pop" id="pop" hidden></div>
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+<input type="file" id="filePick" multiple hidden>
 <script src="app.js"></script>
+<script src="providers.js"></script>
+<script src="chat.js"></script>
+<script src="onboard.js"></script>
 </body>
 </html>

@@ -518,7 +518,7 @@ fn a_remote_machine_is_followed_and_driven() {
     let _serving = server.serve(&addr, "s3cret").unwrap();
 
     let (viewer, ws_b) = open_project("remote-b");
-    let fleet = Fleet::new(viewer, Prefs::default()).unwrap();
+    let fleet = Fleet::new(Some(viewer), Prefs::default()).unwrap();
     let err = fleet
         .add_machine("box", &addr, "wrong")
         .unwrap_err()

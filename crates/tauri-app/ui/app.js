@@ -1,4 +1,11 @@
-// Backspace workbench, Tauri edition, driven by the real harness.
+// Backspace, Tauri edition. Two halves, switched at the top of the sidebar:
+//
+// - Chat (chat.js): threads with a model behind each: a coding CLI on this
+//   machine, Ollama, a router, or Backspace Cloud.
+// - Code: the agent workbench for a project folder, below.
+//
+// First run walks through setup (onboard.js); providers.js renders the
+// CLI/model list both setup and Settings use.
 //
 // Tabs on the left of the title bar each hold up to four canvases (2x2 at
 // four). A canvas shows an agent session, a worktree, a browser, the diagram
@@ -40,6 +47,19 @@ const P = {
   pin: '<path d="M6 2.6h4M6.6 2.6v4L4.6 9h6.8l-2-2.4v-4M8 9v4.4"/>',
   copy: '<rect x="5.4" y="5.4" width="8" height="8" rx="1.4"/><path d="M10.6 5.4V3.4a.8.8 0 0 0-.8-.8H3.4a.8.8 0 0 0-.8.8v6.4a.8.8 0 0 0 .8.8h2"/>',
   down: '<path d="M8 2.6v8M4.6 7.4 8 10.8l3.4-3.4M3 13.4h10"/>',
+  compose: '<path d="M7.4 2.8H3.6a1 1 0 0 0-1 1v8.6a1 1 0 0 0 1 1h8.6a1 1 0 0 0 1-1V8.6"/><path d="m11.4 2.4 2.2 2.2-5.8 5.8-2.8.6.6-2.8z"/>',
+  search: '<circle cx="7" cy="7" r="4.2"/><path d="m10.2 10.2 3.4 3.4"/>',
+  up: '<path d="M8 13V3.4M3.8 7.4 8 3.2l4.2 4.2"/>',
+  stop: '<rect x="4.4" y="4.4" width="7.2" height="7.2" rx="1.4" fill="currentColor" stroke="none"/>',
+  attach: '<path d="M8 3.2v9.6M3.2 8h9.6"/>',
+  reply: '<path d="M6.4 4 2.6 7.6l3.8 3.6M2.8 7.6h6.6a4 4 0 0 1 4 4v.8"/>',
+  more: '<circle cx="3.6" cy="8" r=".9" fill="currentColor"/><circle cx="8" cy="8" r=".9" fill="currentColor"/><circle cx="12.4" cy="8" r=".9" fill="currentColor"/>',
+  trash: '<path d="M3 4.4h10M6.4 4.4V3h3.2v1.4M4.4 4.4l.6 8.6h6l.6-8.6"/>',
+  edit: '<path d="m10.6 2.8 2.6 2.6-7.4 7.4-3.2.6.6-3.2z"/>',
+  bolt: '<path d="M8.8 1.8 3.6 9h4l-.8 5.2L12.4 7h-4z"/>',
+  chip: '<rect x="4" y="4" width="8" height="8" rx="1.4"/><path d="M6 1.8V4M10 1.8V4M6 12v2.2M10 12v2.2M1.8 6H4M1.8 10H4M12 6h2.2M12 10h2.2"/>',
+  route: '<circle cx="4" cy="12" r="1.6"/><circle cx="12" cy="4" r="1.6"/><path d="M5.6 12h3.6a2 2 0 0 0 0-4H6.8a2 2 0 0 1 0-4h3.6"/>',
+  warn: '<path d="M8 2.4 14 13H2z"/><path d="M8 6.6v3M8 11.2v.2"/>',
 };
 const icon = (n, cls = "") => `<svg class="ic ${cls}" viewBox="0 0 16 16" aria-hidden="true">${P[n]}</svg>`;
 $$("[data-icon]").forEach(el => (el.innerHTML = icon(el.dataset.icon)));
@@ -47,8 +67,9 @@ $$("[data-icon]").forEach(el => (el.innerHTML = icon(el.dataset.icon)));
 // ------------------------------------------------------------------ state
 let snap = { name: "", agents: [], approvals: [], tickets: [], total_cost_usd: 0, router_cost_usd: 0, workspace: "" };
 let prefs = { theme: "system", tabs: [], active_tab: 0, check_updates: true };
-let machines = [], share = null, upd = null;
+let machines = [], share = null, upd = null, hasProject = true;
 const S = {
+  mode: "chat",
   focus: 0, max: null, side: "projects", review: null,
   drawer: false, pinned: false, ticket: null, settings: false,
   pane: new Map(),         // per-canvas transient state, by tab:index
@@ -187,6 +208,30 @@ $("#sideOpen").onclick = () => setSide(true);
 $("#scrim").onclick = () => setSide(false);
 $("#gear").onclick = () => openSettings();
 
+// Chat and Code share the window; the sidebar, title bar and body follow.
+function setMode(m, save = true) {
+  S.mode = m === "code" ? "code" : "chat";
+  const w = $("#win");
+  w.classList.toggle("m-chat", S.mode === "chat"); w.classList.toggle("m-code", S.mode === "code");
+  $$("#modes [data-mode]").forEach(b => b.setAttribute("aria-selected", b.dataset.mode === S.mode));
+  closeSettings();
+  $("#chat").hidden = S.mode !== "chat";
+  $("#canvas").hidden = S.mode !== "code";
+  if (S.drawer && S.mode === "chat") setDrawer(false);
+  if (save) { prefs.mode = S.mode; invoke("set_mode", { mode: S.mode }); }
+  renderList();
+  if (S.mode === "chat") { if (window.Chat) Chat.render(); } else { renderTabs(); renderGrid(); }
+}
+$$("#modes [data-mode]").forEach(b => (b.onclick = () => setMode(b.dataset.mode)));
+
+let toastT = null;
+function toast(text, kind = "") {
+  const t = $("#toast");
+  t.textContent = text; t.className = "toast " + kind; t.hidden = false;
+  clearTimeout(toastT); toastT = setTimeout(() => (t.hidden = true), kind === "err" ? 6000 : 3200);
+}
+const base = p => String(p).replace(/[\\/]+$/, "").split(/[\\/]/).pop() || p;
+
 // ------------------------------------------------------------------ popovers
 function openPop(anchor, html, wire) {
   const pop = $("#pop");
@@ -231,9 +276,21 @@ function offlineNote() {
     : `<div class="offline-note"><b>Connecting to ${esc(m.name)}…</b></div>`;
 }
 function renderList() {
+  if (S.mode === "chat") { if (window.Chat) Chat.renderThreads(); return; }
   let h = offlineNote();
   if (S.side === "projects") {
-    if (snap.agents.length) {
+    const m = machine();
+    if (m.local) {
+      h += `<button class="row add" id="openFolder">${icon("plus")}<span class="lab">Open folder…</span><kbd>⌘O</kbd></button>`;
+      const cur = hasProject ? snap.workspace : null;
+      const recents = (prefs.projects || []);
+      if (!recents.length && !cur) h += `<div class="side-empty">No projects yet. Open a folder to put agents to work on it.</div>`;
+      recents.forEach(p => {
+        const on = p === cur;
+        h += `<button class="row group${on ? " sel" : ""}" data-proj="${esc(p)}" title="${esc(p)}">${icon("folder")}<span class="lab">${esc(base(p))}</span>${on ? `<span class="cnt">${snap.agents.length}</span>` : ""}</button>`;
+        if (on) treeOrder().forEach(id => (h += agentRow(agent(id), agent(id).depth ? "l2" : "l1")));
+      });
+    } else if (snap.agents.length) {
       h += `<button class="row group sel">${icon("folder")}<span class="lab">${esc(snap.name)}</span><span class="cnt">${snap.agents.length}</span></button>`;
       treeOrder().forEach(id => (h += agentRow(agent(id), agent(id).depth ? "l2" : "l1")));
     }
@@ -250,11 +307,58 @@ function renderList() {
     treeOrder().forEach(id => { const a = agent(id); h += agentRow(a, "") + `<span class="sub">${esc(route(a))} · $${subtree(a.id).toFixed(3)}</span>`; });
   }
   $("#list").innerHTML = h;
+  const of = $("#openFolder"); if (of) of.onclick = pickProject;
+  $$("#list [data-proj]").forEach(b => {
+    b.onclick = () => { if (b.dataset.proj !== snap.workspace || !hasProject) openProject(b.dataset.proj); };
+    b.oncontextmenu = e => { e.preventDefault(); projMenu(b, b.dataset.proj); };
+  });
   $$("#list [data-open]").forEach(b => (b.onclick = () => openView({ kind: "agent", agent: +b.dataset.open })));
   $$("#list [data-files]").forEach(b => (b.onclick = () => openView({ kind: "files", agent: +b.dataset.files })));
   $$("#list [data-pv]").forEach(b => (b.onclick = () => { const [t, p] = b.dataset.pv.split(":").map(Number); switchTab(t); S.focus = p; renderGrid(); }));
 }
+// ------------------------------------------------------------------ projects
+async function pickProject() {
+  const path = await invoke("pick_folder").catch(() => null);
+  if (path) openProject(path);
+}
+async function openProject(path) {
+  const running = snap.agents.filter(a => a.status === "running").length;
+  if (hasProject && running && !confirm(`${running} agent${running > 1 ? "s are" : " is"} still running in ${snap.name}. Switching projects stops them. Switch?`)) return;
+  toast(`Opening ${base(path)}…`);
+  try {
+    await invoke("open_project", { path });
+    prefs = await invoke("prefs");
+    S.pane.clear(); S.review = null; S.ticket = null;
+    if (S.mode !== "code") setMode("code");
+    await refresh(true);
+    toast(`Opened ${base(path)}`, "ok");
+  } catch (e) { toast(String(e), "err"); }
+}
+function projMenu(anchor, path) {
+  const open = hasProject && path === snap.workspace;
+  openPop(anchor, `<div class="note mono">${esc(path)}</div>
+    ${open ? `<button class="pi" id="pmClose">${icon("close")}Close project</button>` : `<button class="pi" id="pmOpen">${icon("folder")}Open</button>`}
+    <button class="pi" id="pmForget">${icon("trash")}Remove from recents</button>`, pop => {
+    const c = $("#pmClose", pop); if (c) c.onclick = async () => { closePop(); await invoke("close_project"); await refresh(true); };
+    const o = $("#pmOpen", pop); if (o) o.onclick = () => { closePop(); openProject(path); };
+    $("#pmForget", pop).onclick = async () => { closePop(); if (open) await invoke("close_project"); await invoke("forget_project", { path }); prefs = await invoke("prefs"); await refresh(true); };
+  });
+}
+// Code with no project open: what a project is, and how to start one.
+function projectsHome() {
+  const recents = (prefs.projects || []).slice(0, 6);
+  return `<div class="home">
+    <div class="home-mark">${icon("folder")}</div>
+    <h1>Open a project</h1>
+    <p class="home-lead">Pick a folder and describe what you want built. A main agent plans it into tickets, you approve the plan, and workers build each ticket on its own git branch. You review every deliverable before it merges.</p>
+    <div class="home-actions"><button class="btn primary big" id="hOpen">${icon("folder")}Open folder…</button><button class="btn big" id="hChat">${icon("compose")}Just chat instead</button></div>
+    ${recents.length ? `<div class="home-recent"><h5>Recent</h5>${recents.map(p => `<button class="recent" data-proj="${esc(p)}">${icon("folder")}<span><b>${esc(base(p))}</b><small>${esc(p)}</small></span></button>`).join("")}</div>` : ""}
+    <p class="home-note">${icon("warn")}Opening a folder makes it a git repository if it isn't one, and commits uncommitted changes as a snapshot so agents can branch from it.</p>
+  </div>`;
+}
 function renderCard() {
+  if (!hasProject) { $("#ports").hidden = true; return; }
+  $("#ports").hidden = false;
   const run = snap.agents.filter(a => a.status === "running").length;
   const wts = snap.agents.filter(a => a.branch && a.id !== MAIN).length;
   const row = (c, l, v) => `<div class="port"><span class="dot ${c}"></span><span class="pl">${l}</span><span class="pn" style="margin-left:auto;color:var(--fg-3)">${v}</span></div>`;
@@ -526,6 +630,12 @@ $("#upd").onclick = () => (upd && upd.newer ? invoke("open_url", { url: upd.url 
 addEventListener("keydown", e => {
   if (e.key === "Escape") { if (!$("#pop").hidden) closePop(); else if (S.settings) closeSettings(); else if (S.drawer) setDrawer(false); }
   if (!(e.metaKey || e.ctrlKey)) return;
+  if (!$("#onboard").hidden) return;
+  if (e.key === "n") { e.preventDefault(); setMode("chat"); Chat.newChat(); return; }
+  if (e.key === "k") { e.preventDefault(); setMode("chat"); setSide(true); $("#search").focus(); return; }
+  if (e.key === "o") { e.preventDefault(); pickProject(); return; }
+  if (e.key === "j") { e.preventDefault(); setMode(S.mode === "chat" ? "code" : "chat"); return; }
+  if (S.mode !== "code") { if (e.key === ",") { e.preventDefault(); openSettings(); } if (e.key === "\\") { e.preventDefault(); setSide($("#win").classList.contains("side-closed")); } return; }
   const i = +e.key;
   if (i >= 1 && i <= 9 && prefs.tabs[i - 1]) { e.preventDefault(); switchTab(i - 1); }
   if (e.key === "t") { e.preventDefault(); newTabPop($("#newTab")); }
@@ -676,6 +786,12 @@ function chooser(slot, body) {
 // animates rather than a rebuild.
 function renderGrid() {
   const g = $("#grid"), t = tab();
+  if (!hasProject) {
+    g.className = "grid"; g.innerHTML = projectsHome(); S.els = new Map();
+    $("#hOpen").onclick = pickProject; $("#hChat").onclick = () => setMode("chat");
+    $$("#grid [data-proj]").forEach(b => (b.onclick = () => openProject(b.dataset.proj)));
+    return;
+  }
   if (S.focus >= t.panes.length) S.focus = 0;
   g.className = "grid tree still";
   g.innerHTML = "";
@@ -693,6 +809,7 @@ function renderGrid() {
   requestAnimationFrame(() => g.classList.remove("still"));
 }
 function position(tr) {
+  if (!hasProject || !S.ph) return;
   const g = $("#grid"), W = g.clientWidth, H = g.clientHeight;
   const { leaves, gutters } = S.max != null
     ? { leaves: [{ leaf: S.max, r: { x: 0, y: 0, w: W, h: H } }], gutters: [] }
@@ -1001,11 +1118,11 @@ async function docsPane(body) {
 
 // ------------------------------------------------------------------ settings
 function openSettings(section) {
-  S.settings = true; $("#settings").hidden = false; $("#canvas").hidden = true; renderSettings();
+  S.settings = true; $("#settings").hidden = false; $("#canvas").hidden = true; $("#chat").hidden = true; renderSettings();
   if (section) { const el = $(`#set-${section}`); if (el) el.scrollIntoView(); const f = $(`#set-${section} input`); if (f) f.focus(); }
   refreshShare();
 }
-function closeSettings() { if (!S.settings) return; S.settings = false; $("#settings").hidden = true; $("#canvas").hidden = false; }
+function closeSettings() { if (!S.settings) return; S.settings = false; $("#settings").hidden = true; $("#canvas").hidden = S.mode !== "code"; $("#chat").hidden = S.mode !== "chat"; }
 async function refreshShare() { share = await invoke("share_status").catch(() => null); if (S.settings) renderSettings(); }
 function renderSettings() {
   const el = $("#settings");
@@ -1014,7 +1131,13 @@ function renderSettings() {
   const sh = share || { enabled: false, addr: "127.0.0.1:7420", token: "", error: null, sharing: false };
   const u = upd && upd !== "checking" ? upd : null;
   el.innerHTML = `<div class="set">
-    <div class="set-h"><h1>Settings</h1><span class="sp"></span><button class="ib" id="setClose" aria-label="Close settings">${icon("close")}</button></div>
+    <div class="set-h"><h1>Settings</h1><span class="sp"></span><button class="btn" id="setRerun">Run setup again</button><button class="ib" id="setClose" aria-label="Close settings">${icon("close")}</button></div>
+    <section id="set-providers"><h2>Coding CLIs and models</h2><p class="lead">What Chat and projects can use. Backspace scans this machine for each CLI, its version and whether it is signed in; switch off any you don't want offered.</p><div id="setProviders"></div></section>
+    <section id="set-plan"><h2>Backspace Cloud</h2><p class="lead">Chat without installing anything. Free with a short ad under each reply, or a paid plan.</p><div id="setPlan"></div></section>
+    <section id="set-chat"><h2>Chat</h2><div class="line"><span class="lab">New chats go to<small>You can switch per chat from the composer.</small></span><button class="btn" id="setRoute" data-popper>${esc(window.Chat ? Chat.routeName(prefs.default_route) : "Pick")}</button></div></section>
+    <section id="set-projects"><h2>Projects</h2>
+      ${(prefs.projects || []).length ? prefs.projects.map(p => `<div class="mrow"><span class="mi">${icon("folder")}</span><span class="lab">${esc(base(p))}${hasProject && p === snap.workspace ? " · open" : ""}<small class="mono">${esc(p)}</small></span><button class="btn" data-popen="${esc(p)}">Open</button><button class="btn danger" data-pforget="${esc(p)}">Forget</button></div>`).join("") : `<p class="lead">No projects yet.</p>`}
+      <div class="line"><span class="lab"></span><button class="btn primary" id="setOpenFolder">Open folder…</button></div></section>
     <section><h2>Appearance</h2><div class="line"><span class="lab">Theme</span><div class="segc">${[["system", "System"], ["light", "Light"], ["dark", "Dark"]].map(([k, l]) => `<button aria-pressed="${th === k}" data-theme="${k}">${l}</button>`).join("")}</div></div></section>
     <section id="set-machines"><h2>Machines</h2><p class="lead">Follow and drive the harness on other machines. Each one runs <code>backspace-cli serve</code> (or shares from its own Backspace, below); add it with its address and token. Switch machines from the sidebar foot.</p>
       ${machines.map(m => `<div class="mrow"><span class="mi">${icon(m.local ? "pc" : "cloud")}</span><span class="lab">${esc(m.name)}${m.selected ? " · showing" : ""}<small>${m.local ? "This machine" : esc(m.url)} · ${m.link.state === "offline" ? "offline: " + esc(m.link.error) : m.link.state}${m.project ? " · " + esc(m.project) : ""}</small></span>
@@ -1031,11 +1154,17 @@ function renderSettings() {
       <div class="line"><span class="lab">Check for updates automatically</span><button class="toggle" role="switch" aria-checked="${prefs.check_updates}" id="updT" aria-label="Check for updates automatically"></button></div>
       <div class="line"><span class="lab">Backspace ${esc(u && u.current || "0.1.0")}<small>${u && u.error ? esc(u.error) : u && u.newer ? `Version ${esc(u.latest)} is available.` : u ? "You're on the latest release." : "Not checked yet."}</small></span>
         ${u && u.newer ? `<button class="btn primary" id="updGo">Download & Update</button>` : `<button class="btn" id="updNow">Check now</button>`}</div></section>
-    <section><h2>Project</h2>
+    ${hasProject ? `<section><h2>Open project</h2>
       <div class="line"><span class="lab">Workspace<small class="mono">${esc(snap.workspace || "—")}</small></span></div>
-      <div class="line"><span class="lab">Config<small class="mono">${esc(snap.config_source || "built-in defaults")}</small></span></div></section></div>`;
+      <div class="line"><span class="lab">Config<small class="mono">${esc(snap.config_source || "built-in defaults")}</small></span></div></section>` : ""}</div>`;
   Object.entries(keep).forEach(([id, v]) => { const i = $("#" + id, el); if (i && v) i.value = v; });
   $("#setClose").onclick = closeSettings;
+  $("#setRerun").onclick = () => { closeSettings(); Onboard.open(); };
+  if (window.Providers) { Providers.mount($("#setProviders")); Providers.mountPlan($("#setPlan")); }
+  $("#setRoute").onclick = e => Chat.routePicker(e.currentTarget, prefs.default_route, async r => { prefs.default_route = r; await invoke("set_default_route", { route: r }); renderSettings(); });
+  $("#setOpenFolder").onclick = pickProject;
+  $$("[data-popen]", el).forEach(b => (b.onclick = () => { closeSettings(); openProject(b.dataset.popen); }));
+  $$("[data-pforget]", el).forEach(b => (b.onclick = async () => { await invoke("forget_project", { path: b.dataset.pforget }); prefs = await invoke("prefs"); renderSettings(); renderList(); }));
   $$("[data-theme]", el).forEach(b => (b.onclick = async () => { prefs.theme = b.dataset.theme; applyTheme(); renderSettings(); await invoke("set_theme", { theme: prefs.theme }); }));
   $$("[data-show]", el).forEach(b => (b.onclick = async () => { await invoke("select_machine", { index: +b.dataset.show }); S.pane.clear(); S.review = null; await refresh(true); renderSettings(); }));
   $$("[data-rm]", el).forEach(b => (b.onclick = async () => { await invoke("remove_machine", { index: +b.dataset.rm }); await refresh(true); renderSettings(); }));
@@ -1077,7 +1206,12 @@ let queued = false, lastPending = 0, lastShape = "";
 async function refresh(full) {
   queued = false;
   [snap, machines] = await Promise.all([invoke("snapshot"), invoke("machines")]);
+  hasProject = !machine().local || !!snap.workspace;
+  $("#win").classList.toggle("no-project", !hasProject);
+  if (window.Chat) await Chat.refresh();
+  if (window.Providers) Providers.refreshQuiet();
   renderBrand(); renderMachines(); renderList(); renderCard(); renderTabs(); renderDrawer();
+  if (S.mode === "chat") { lastShape = ""; return; }
   // Rebuild canvases when the machine or its agents appear; otherwise update in place.
   const shape = machine().index + ":" + (snap.agents.length > 0) + ":" + machine().link.state;
   if (full || shape !== lastShape) renderGrid(); else refreshPanes();
@@ -1090,7 +1224,8 @@ async function refresh(full) {
 TAURI.event.listen("state", () => { if (!queued) { queued = true; requestAnimationFrame(() => refresh(false)); } });
 addEventListener("resize", () => { setSide(!narrow()); });
 
-(async () => {
+// After every script has run (chat.js and friends load after this one).
+addEventListener("DOMContentLoaded", async () => {
   const boot = await invoke("boot");
   document.documentElement.classList.add("native", boot.platform);
   prefs = await invoke("prefs");
@@ -1100,7 +1235,14 @@ addEventListener("resize", () => { setSide(!narrow()); });
     prefs.active_tab = 0;
   }
   applyTheme(); renderSeg(); setSide(!narrow());
+  S.mode = prefs.mode === "code" ? "code" : "chat";
+  // A folder given on the command line, or a bench run: start in Code.
+  const first = await invoke("snapshot");
+  if (first.workspace && (boot.bench || !prefs.onboarded)) S.mode = "code";
+  if (window.Chat) await Chat.init();
+  setMode(S.mode, false);
   await refresh(true);
+  if (!prefs.onboarded && !boot.bench) Onboard.open();
   if (prefs.check_updates && !boot.bench) checkUpdate(); else renderUpd();
   requestAnimationFrame(() => requestAnimationFrame(() => invoke("ready")));
-})();
+});

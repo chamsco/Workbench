@@ -11,3 +11,4 @@ path = "src/main.rs"
 [dependencies]
 anyhow.workspace = true
 backspace-core = { path = "../core" }
+tokio.workspace = true
