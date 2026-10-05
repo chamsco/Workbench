@@ -15,6 +15,7 @@
 //!   POST /v1/ticket   {"title","body"}  {"key"}
 //!   POST /v1/files    {"agent"}         [FileEntry]
 //!   POST /v1/file     {"path"}          {"text"}
+//!   POST /v1/message  {"to","text"}     post on the agents' board as "you"
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -39,6 +40,7 @@ pub(crate) trait Api: Send + Sync + 'static {
     fn file_ticket(&self, title: &str, body: &str) -> Result<String>;
     fn list_files(&self, agent: usize) -> Vec<FileEntry>;
     fn read_file(&self, path: &str) -> Result<String>;
+    fn post_message(&self, to: &str, text: &str) -> Result<()>;
 }
 
 /// A random 32-hex-digit token.
@@ -247,6 +249,12 @@ async fn handle(mut stream: TcpStream, api: Arc<dyn Api>, token: &str) -> Result
         ("POST", "/v1/file") => api
             .read_file(body["path"].as_str().unwrap_or(""))
             .map(|t| json!({ "text": t })),
+        ("POST", "/v1/message") => api
+            .post_message(
+                body["to"].as_str().unwrap_or(""),
+                body["text"].as_str().unwrap_or(""),
+            )
+            .map(|_| json!({ "ok": true })),
         _ => return respond(&mut stream, 404, &json!({"error": "no such endpoint"})).await,
     };
     match out {

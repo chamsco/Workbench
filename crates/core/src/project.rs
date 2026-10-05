@@ -139,6 +139,9 @@ pub struct ProjectState {
     pub total_cost_usd: f64,
     pub router_cost_usd: f64,
     pub config_source: Option<PathBuf>,
+    /// Messages agents sent each other (see `board`).
+    #[serde(default)]
+    pub board: Vec<crate::board::BoardMsg>,
 }
 
 impl ProjectState {
@@ -153,6 +156,7 @@ impl ProjectState {
             total_cost_usd: 0.0,
             router_cost_usd: 0.0,
             config_source: None,
+            board: vec![],
         }
     }
 

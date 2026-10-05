@@ -55,9 +55,21 @@ struct Inner {
     limiter: Semaphore,
     /// Worktrees share one ref store; git runs one command sequence at a time.
     git: tokio::sync::Mutex<()>,
+    /// Read positions on the message board, per agent.
+    cursors: Mutex<crate::board::Cursors>,
+    /// The board's local bridge: (url, token), for CLI agents.
+    bridge: Mutex<Option<(String, String)>>,
     changed: async_channel::Sender<()>,
     /// Bumped on every change; remote followers long-poll on it.
     version: watch::Sender<u64>,
+}
+
+/// Per-machine choices that win over the project's config file.
+#[derive(Default, Clone, Debug)]
+pub struct Overrides {
+    /// Model id every worker runs on (e.g. "claude-code" to hand each
+    /// ticket to Claude Code). None: the router decides.
+    pub worker: Option<String>,
 }
 
 pub struct Harness {
@@ -108,9 +120,19 @@ impl Harness {
     /// Open (or create) a project rooted at `workspace`. Owns its own tokio
     /// runtime so any UI toolkit can drive it through plain sync calls.
     pub fn open(workspace: PathBuf) -> Result<Harness> {
+        Self::open_with(workspace, Overrides::default())
+    }
+
+    /// Open with settings from the desktop app layered over the config file.
+    pub fn open_with(workspace: PathBuf, over: Overrides) -> Result<Harness> {
         std::fs::create_dir_all(&workspace)?;
         let root = workspace.canonicalize()?;
-        let (cfg, config_source) = Config::load(&root)?;
+        let (mut cfg, config_source) = Config::load(&root)?;
+        if let Some(w) = over.worker.filter(|w| !w.is_empty()) {
+            if cfg.model(&w).is_some() {
+                cfg.router.pin_sub = Some(w);
+            }
+        }
         let rt = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .build()?;
@@ -163,11 +185,14 @@ impl Harness {
                 total_cost_usd: 0.0,
                 router_cost_usd: 0.0,
                 config_source,
+                board: vec![],
             }),
             verdicts: Mutex::new(HashMap::new()),
             done: Mutex::new(HashMap::new()),
             parked: Mutex::new(HashMap::new()),
             git: tokio::sync::Mutex::new(()),
+            cursors: Mutex::new(Default::default()),
+            bridge: Mutex::new(None),
             changed: changed_tx,
             version: watch::channel(1).0,
             base_branch,
@@ -175,6 +200,27 @@ impl Harness {
             cfg,
             http,
         });
+
+        // The board's bridge for agents in CLIs. Failing to bind only
+        // costs them messaging.
+        if let Ok(l) = std::net::TcpListener::bind("127.0.0.1:0") {
+            let token = crate::remote::new_token();
+            if let Ok(addr) = l.local_addr() {
+                *inner.bridge.lock().unwrap() = Some((format!("http://{addr}"), token.clone()));
+                let _ = l.set_nonblocking(true);
+                let i = inner.clone();
+                rt.spawn(async move {
+                    if let Ok(l) = tokio::net::TcpListener::from_std(l) {
+                        while let Ok((s, _)) = l.accept().await {
+                            let (i, t) = (i.clone(), token.clone());
+                            tokio::spawn(async move {
+                                let _ = bridge_handle(s, i, &t).await;
+                            });
+                        }
+                    }
+                });
+            }
+        }
 
         let (to_main, inbox) = mpsc::unbounded_channel();
         rt.spawn(main_loop(inner.clone(), inbox));
@@ -184,6 +230,16 @@ impl Harness {
             changed: changed_rx,
             rt,
         })
+    }
+
+    /// The message board's local bridge (url, token), if it started.
+    pub fn bridge(&self) -> Option<(String, String)> {
+        self.inner.bridge.lock().unwrap().clone()
+    }
+
+    /// Post on the agents' message board as the human ("you").
+    pub fn post_message(&self, to: &str, text: &str) -> Result<()> {
+        self.inner.post_board("you", to, text)
     }
 
     /// Talk to the main agent. The first message is the project goal.
@@ -311,6 +367,9 @@ impl crate::remote::Api for Served {
     fn read_file(&self, path: &str) -> Result<String> {
         crate::files::read_within(&self.inner.root, path)
     }
+    fn post_message(&self, to: &str, text: &str) -> Result<()> {
+        self.inner.post_board("you", to, text)
+    }
 }
 
 impl Inner {
@@ -363,6 +422,31 @@ impl Inner {
                 let _ = std::fs::write(dir.join("state.json"), json);
             }
         }
+    }
+
+    /// Post on the board and note it in both agents' logs.
+    fn post_board(&self, from: &str, to: &str, text: &str) -> Result<()> {
+        let (m, ids) = {
+            let mut s = self.state.lock().unwrap();
+            let m = crate::board::post(&mut s, from, to, text)?;
+            let ids: Vec<(AgentId, bool)> = s
+                .agents
+                .iter()
+                .filter(|a| a.key == from || a.key == to || (to == "all" && a.key != from))
+                .map(|a| (a.id, a.key == from))
+                .collect();
+            (m, ids)
+        };
+        for (id, sender) in ids {
+            let line = if sender {
+                format!("→ {}: {}", m.to, m.text)
+            } else {
+                format!("← {}: {}", m.from, m.text)
+            };
+            self.log(id, LogKind::System, line);
+        }
+        self.touch();
+        Ok(())
     }
 
     fn isolated(&self) -> bool {
@@ -520,8 +604,29 @@ fn tools_for(kind: AgentKind, can_spawn: bool) -> Vec<ToolDef> {
         tools.extend([create_tickets_tool(), work_tickets_tool(), revise_tool()]);
     }
     tools.push(file_ticket_tool());
+    tools.extend(board_tools());
     tools.push(deliver_tool());
     tools
+}
+
+fn board_tools() -> Vec<ToolDef> {
+    vec![
+        ToolDef {
+            name: "list_agents",
+            description: "The agents on this project: key, title, status, and the model or CLI running them.",
+            schema: json!({"type": "object", "properties": {}}),
+        },
+        ToolDef {
+            name: "send_message",
+            description: "Message another agent by key, `main` (the lead) or `all`, whichever model or CLI runs it. Coordinate interfaces, shared files, or ask whoever owns something. Replies arrive in your next turn.",
+            schema: json!({"type": "object", "properties": {"to": {"type": "string"}, "text": {"type": "string"}}, "required": ["to", "text"]}),
+        },
+        ToolDef {
+            name: "read_messages",
+            description: "New messages to you or to everyone. They also arrive on their own at the start of a turn.",
+            schema: json!({"type": "object", "properties": {}}),
+        },
+    ]
 }
 
 async fn main_loop(inner: Arc<Inner>, mut inbox: mpsc::UnboundedReceiver<String>) {
@@ -677,6 +782,315 @@ async fn finish(inner: &Arc<Inner>, c: &mut Conversation) -> Result<Deliverable>
     bail!("agent stopped without calling {tool}")
 }
 
+/// A worker on a coding CLI: run it headless in the ticket's worktree, then
+/// submit what it changed through the same commit / check / review / merge
+/// path as any worker. Feedback (a failed check, a rejection, a merge
+/// conflict) goes back to the CLI as the next prompt, resuming its session
+/// where the CLI can.
+async fn finish_cli(
+    inner: &Arc<Inner>,
+    c: &mut Conversation,
+    cli: &str,
+    dir: &Path,
+    brief: &str,
+) -> Result<Deliverable> {
+    let bin = crate::harnesses::which(crate::harnesses::bin_for(cli))
+        .ok_or_else(|| anyhow!("`{cli}` is not installed on this machine"))?;
+    inner.log(
+        c.id,
+        LogKind::System,
+        format!(
+            "handing this ticket to {cli} ({}) in {}",
+            bin.display(),
+            dir.display()
+        ),
+    );
+    let me = inner.state.lock().unwrap().agents[c.id].key.clone();
+    let exe = std::env::var("BACKSPACE_EXE")
+        .ok()
+        .or_else(|| {
+            std::env::current_exe()
+                .ok()
+                .map(|p| p.display().to_string())
+        })
+        .unwrap_or_else(|| "backspace".into());
+    let mut prompt = format!(
+        "{brief}\n\n# How to work\n\nYou are one worker in a team; this directory is your own git worktree for this ticket. Make the change, run the project's tests or checks if it has any, and fix what fails. Do not commit or push: Backspace commits your work and sends it for review. When you are done, reply with a short summary of what you changed; its first line is the one-line summary.\n\n# Talking to the team\n\nOther agents work on other tickets at the same time, some on other models or CLIs. Your key is `{me}`. From your shell:\n- `{exe} msg agents` lists them\n- `{exe} msg send <key|main|all> \"text\"` messages one (or everyone)\n- `{exe} msg read` shows messages for you\nCheck messages before you finish, and tell others about interfaces or shared files you change."
+    );
+    let mut session: Option<String> = None;
+    for round in 0..4 {
+        let (summary, sid) =
+            run_cli_turn(inner, c.id, cli, &bin, dir, &prompt, session.as_deref()).await?;
+        session = sid.or(session);
+        let summary = if summary.trim().is_empty() {
+            format!("{cli} finished without a summary")
+        } else {
+            summary
+        };
+        match submit(inner, c, &json!({ "summary": summary })).await? {
+            ToolOutcome::Delivered(d, note) => {
+                inner.log(c.id, LogKind::System, note);
+                return Ok(d);
+            }
+            ToolOutcome::Failure(msg, _) | ToolOutcome::Text(msg) => {
+                inner.log(
+                    c.id,
+                    LogKind::System,
+                    format!("round {}: {}", round + 1, truncate(&msg, 400)),
+                );
+                prompt = msg;
+                if session.is_none() {
+                    prompt = format!("{brief}\n\n# Feedback on your last attempt\n\n{prompt}");
+                }
+            }
+        }
+    }
+    bail!("{cli} did not get the ticket accepted in 4 rounds")
+}
+
+/// One headless run of a CLI. Returns its final message and, for CLIs that
+/// have one, the session to resume.
+async fn run_cli_turn(
+    inner: &Arc<Inner>,
+    id: AgentId,
+    cli: &str,
+    bin: &Path,
+    dir: &Path,
+    prompt: &str,
+    session: Option<&str>,
+) -> Result<(String, Option<String>)> {
+    use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+    let mut cmd = tokio::process::Command::new(bin);
+    cmd.current_dir(dir)
+        .env("PATH", crate::harnesses::path_env())
+        .env("NO_COLOR", "1")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true);
+    // The board, for `backspace msg` and the MCP server.
+    let me = inner.state.lock().unwrap().agents[id].key.clone();
+    let exe = std::env::var("BACKSPACE_EXE")
+        .ok()
+        .map(std::path::PathBuf::from)
+        .or_else(|| std::env::current_exe().ok());
+    let bridge = inner.bridge.lock().unwrap().clone();
+    if let Some((url, token)) = &bridge {
+        cmd.env(crate::board::ENV_URL, url)
+            .env(crate::board::ENV_TOKEN, token)
+            .env(crate::board::ENV_AGENT, &me);
+    }
+    let mut stdin_prompt = true;
+    match cli {
+        "claude" => {
+            // Edits are accepted inside the worktree; shell commands are
+            // allowed so it can run tests. Nothing is pushed anywhere.
+            cmd.args([
+                "-p",
+                "--output-format",
+                "stream-json",
+                "--verbose",
+                "--permission-mode",
+                "acceptEdits",
+                "--allowedTools",
+                "Bash,Edit,Write,Read,Glob,Grep,mcp__backspace",
+            ]);
+            if let (Some((url, token)), Some(exe)) = (&bridge, &exe) {
+                let cfg = json!({"mcpServers": {"backspace": {
+                    "command": exe.display().to_string(), "args": ["mcp"],
+                    "env": {crate::board::ENV_URL: url, crate::board::ENV_TOKEN: token, crate::board::ENV_AGENT: me},
+                }}});
+                cmd.args(["--mcp-config", &cfg.to_string()]);
+            }
+            if let Some(s) = session {
+                cmd.args(["--resume", s]);
+            }
+        }
+        "codex" => {
+            cmd.args([
+                "exec",
+                "--json",
+                "--full-auto",
+                "--skip-git-repo-check",
+                "-",
+            ]);
+        }
+        "cursor" => {
+            cmd.args(["-p", "--force", "--output-format", "text", prompt]);
+            stdin_prompt = false;
+        }
+        "opencode" => {
+            cmd.args(["run", prompt]);
+            stdin_prompt = false;
+        }
+        "grok" => {
+            cmd.args(["-p", prompt]);
+            stdin_prompt = false;
+        }
+        other => bail!("{other} has no headless mode Backspace can drive"),
+    }
+    let mut child = cmd.spawn().with_context(|| format!("starting {cli}"))?;
+    if let Some(mut w) = child.stdin.take() {
+        if stdin_prompt {
+            w.write_all(prompt.as_bytes()).await?;
+        }
+        w.shutdown().await?;
+    }
+    let mut err = child.stderr.take().unwrap();
+    let err_task = tokio::spawn(async move {
+        let mut s = String::new();
+        let _ = err.read_to_string(&mut s).await;
+        s
+    });
+    inner.set_status(id, AgentStatus::Running);
+    let mut lines = BufReader::new(child.stdout.take().unwrap()).lines();
+    let (mut last, mut sid, mut raw) = (String::new(), None::<String>, String::new());
+    let mut failed: Option<String> = None;
+    while let Some(line) = lines.next_line().await? {
+        let v: Option<Value> = serde_json::from_str(&line).ok();
+        match (cli, v) {
+            ("claude", Some(v)) => match v["type"].as_str() {
+                Some("system") => sid = v["session_id"].as_str().map(str::to_string).or(sid),
+                Some("assistant") => {
+                    for b in v["message"]["content"].as_array().into_iter().flatten() {
+                        match b["type"].as_str() {
+                            Some("text") => {
+                                let t = b["text"].as_str().unwrap_or("");
+                                if !t.trim().is_empty() {
+                                    inner.log(id, LogKind::Assistant, t);
+                                    last = t.to_string();
+                                }
+                            }
+                            Some("tool_use") => {
+                                let input = &b["input"];
+                                let what = input["command"]
+                                    .as_str()
+                                    .or(input["file_path"].as_str())
+                                    .or(input["pattern"].as_str())
+                                    .unwrap_or("");
+                                inner.log(
+                                    id,
+                                    LogKind::ToolCall,
+                                    format!(
+                                        "{} {}",
+                                        b["name"].as_str().unwrap_or("tool"),
+                                        truncate(what, 200)
+                                    ),
+                                );
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                Some("user") => {
+                    for b in v["message"]["content"].as_array().into_iter().flatten() {
+                        if b["type"] == "tool_result" {
+                            let t = match &b["content"] {
+                                Value::String(s) => s.clone(),
+                                Value::Array(a) => a
+                                    .iter()
+                                    .filter_map(|x| x["text"].as_str())
+                                    .collect::<Vec<_>>()
+                                    .join("\n"),
+                                _ => String::new(),
+                            };
+                            if !t.trim().is_empty() {
+                                inner.log(id, LogKind::ToolResult, truncate(&t, 800));
+                            }
+                        }
+                    }
+                }
+                Some("result") => {
+                    sid = v["session_id"].as_str().map(str::to_string).or(sid);
+                    if let Some(r) = v["result"].as_str().filter(|r| !r.trim().is_empty()) {
+                        last = r.to_string();
+                    }
+                    if v["is_error"].as_bool() == Some(true) {
+                        failed = Some(last.clone());
+                    }
+                    if let Some(usd) = v["total_cost_usd"].as_f64() {
+                        inner.log(id, LogKind::System, format!("{cli} turn done (≈${usd:.3} at API prices; billed to your {cli} plan)"));
+                    }
+                }
+                _ => {}
+            },
+            ("codex", Some(v)) => match v["type"].as_str() {
+                Some("item.completed") => {
+                    let it = &v["item"];
+                    match it["type"].as_str().or(it["item_type"].as_str()) {
+                        Some("agent_message") | Some("assistant_message") => {
+                            let t = it["text"].as_str().unwrap_or("");
+                            inner.log(id, LogKind::Assistant, t);
+                            last = t.to_string();
+                        }
+                        Some("command_execution") => {
+                            inner.log(
+                                id,
+                                LogKind::ToolCall,
+                                format!("$ {}", it["command"].as_str().unwrap_or("")),
+                            );
+                            if let Some(o) = it["aggregated_output"]
+                                .as_str()
+                                .filter(|o| !o.trim().is_empty())
+                            {
+                                inner.log(id, LogKind::ToolResult, truncate(o, 800));
+                            }
+                        }
+                        Some("file_change") => {
+                            let files: Vec<&str> = it["changes"]
+                                .as_array()
+                                .into_iter()
+                                .flatten()
+                                .filter_map(|c| c["path"].as_str())
+                                .collect();
+                            inner.log(
+                                id,
+                                LogKind::ToolCall,
+                                format!("edited {}", files.join(", ")),
+                            );
+                        }
+                        _ => {}
+                    }
+                }
+                Some("error") | Some("turn.failed") => {
+                    failed = v["message"]
+                        .as_str()
+                        .or(v["error"]["message"].as_str())
+                        .map(str::to_string);
+                }
+                _ => {}
+            },
+            _ => {
+                raw.push_str(&line);
+                raw.push('\n');
+                if raw.lines().count() >= 12 {
+                    inner.log(
+                        id,
+                        LogKind::Assistant,
+                        std::mem::take(&mut raw).trim_end().to_string(),
+                    );
+                }
+            }
+        }
+    }
+    if !raw.trim().is_empty() {
+        last = raw.trim().to_string();
+        inner.log(id, LogKind::Assistant, last.clone());
+    }
+    let status = child.wait().await?;
+    let stderr = err_task.await.unwrap_or_default();
+    if let Some(f) = failed {
+        bail!("{cli}: {}", truncate(&f, 600));
+    }
+    if !status.success() {
+        bail!(
+            "{cli} exited with {status}: {}",
+            truncate(stderr.trim(), 600)
+        );
+    }
+    Ok((last, sid))
+}
+
 /// `Some(reason)` when the project or any budget covering this agent is spent.
 fn over_budget(inner: &Inner, id: AgentId) -> Option<String> {
     let s = inner.state.lock().unwrap();
@@ -729,6 +1143,24 @@ async fn drive(inner: &Arc<Inner>, c: &mut Conversation) -> Result<TurnEnd> {
         }
         turn += 1;
         c.turns_total += 1;
+
+        // Messages from other agents join this turn's input.
+        let news = {
+            let s = inner.state.lock().unwrap();
+            let me = s.agents[c.id].key.clone();
+            inner.cursors.lock().unwrap().drain(&s, &me)
+        };
+        if !news.is_empty() {
+            let refs: Vec<&crate::board::BoardMsg> = news.iter().collect();
+            let note = format!(
+                "Messages from other agents:\n{}",
+                crate::board::format(&refs)
+            );
+            match c.messages.last_mut() {
+                Some(m) if m.role == Role::User => m.content.push(Block::Text { text: note }),
+                _ => c.messages.push(Message::user_text(note)),
+            }
+        }
 
         let spec = inner
             .cfg
@@ -913,6 +1345,23 @@ async fn run_tool(
         }
         "triage_ticket" if c.kind == AgentKind::Triage => triage(inner, c, input),
         "submit_deliverable" if c.kind != AgentKind::Triage => submit(inner, c, input).await,
+        "list_agents" => Ok(text(crate::board::agents_line(
+            &inner.state.lock().unwrap(),
+        ))),
+        "send_message" => {
+            let me = inner.state.lock().unwrap().agents[c.id].key.clone();
+            inner.post_board(
+                &me,
+                input["to"].as_str().unwrap_or(""),
+                input["text"].as_str().unwrap_or(""),
+            )?;
+            Ok(text("sent".into()))
+        }
+        "read_messages" => {
+            let s = inner.state.lock().unwrap();
+            let me = s.agents[c.id].key.clone();
+            Ok(text(inner.cursors.lock().unwrap().take(&s, &me)))
+        }
         "read" | "bash" => c.ws.run(name, input).await.map(text),
         "write" | "edit" if c.kind != AgentKind::Triage => c.ws.run(name, input).await.map(text),
         other => bail!("tool `{other}` is not available to you"),
@@ -1439,6 +1888,10 @@ fn run_worker(inner: Arc<Inner>, id: AgentId) -> BoxFuture<'static, Result<Deliv
 
         let first = format!("{brief}\n{context}");
         inner.log(id, LogKind::User, first.clone());
+        let cli = inner
+            .cfg
+            .cli_of(&decision.model)
+            .and_then(|p| p.cli.clone());
         let can_spawn = inner.can_spawn(depth);
         let mut c = Conversation {
             id,
@@ -1449,13 +1902,16 @@ fn run_worker(inner: Arc<Inner>, id: AgentId) -> BoxFuture<'static, Result<Deliv
             initial: decision.clone(),
             system: inner.system_prompt(AgentKind::Worker, depth, &decision),
             decision,
-            messages: vec![Message::user_text(first)],
+            messages: vec![Message::user_text(first.clone())],
             tools: tools_for(AgentKind::Worker, can_spawn),
             budget_warned_at: None,
             turns_total: 0,
             recent_calls: vec![],
         };
-        let res = finish(&inner, &mut c).await;
+        let res = match &cli {
+            Some(cli) => finish_cli(&inner, &mut c, cli, &dir, &first).await,
+            None => finish(&inner, &mut c).await,
+        };
         if c.initial.model != c.decision.model || c.initial.effort != c.decision.effort {
             inner.log(
                 id,
@@ -1806,5 +2262,47 @@ fn deliver_tool() -> ToolDef {
             "summary": {"type": "string", "description": "what was built, how it connects to the rest, how you verified it, what is left"},
             "files": {"type": "array", "items": {"type": "string"}}
         }, "required": ["summary"]}),
+    }
+}
+
+// ---------------------------------------------------------------- board bridge
+
+async fn bridge_handle(
+    mut stream: tokio::net::TcpStream,
+    inner: Arc<Inner>,
+    token: &str,
+) -> Result<()> {
+    use crate::remote::{read_request, respond, same};
+    let req = read_request(&mut stream).await?;
+    let ok = req
+        .auth
+        .as_deref()
+        .and_then(|a| a.strip_prefix("Bearer "))
+        .is_some_and(|t| same(t, token));
+    if !ok {
+        return respond(&mut stream, 401, &json!({"error": "bad token"})).await;
+    }
+    let body: Value = serde_json::from_slice(&req.body).unwrap_or(Value::Null);
+    let res: Result<Value> = match req.path.as_str() {
+        "/v1/board/post" => inner
+            .post_board(
+                body["from"].as_str().unwrap_or("?"),
+                body["to"].as_str().unwrap_or(""),
+                body["text"].as_str().unwrap_or(""),
+            )
+            .map(|_| json!({"ok": true})),
+        "/v1/board/read" => {
+            let s = inner.state.lock().unwrap();
+            let me = body["me"].as_str().unwrap_or("");
+            Ok(json!({"text": inner.cursors.lock().unwrap().take(&s, me)}))
+        }
+        "/v1/board/agents" => {
+            Ok(json!({"text": crate::board::agents_line(&inner.state.lock().unwrap())}))
+        }
+        _ => return respond(&mut stream, 404, &json!({"error": "not found"})).await,
+    };
+    match res {
+        Ok(v) => respond(&mut stream, 200, &v).await,
+        Err(e) => respond(&mut stream, 400, &json!({"error": e.to_string()})).await,
     }
 }

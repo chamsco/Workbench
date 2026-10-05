@@ -21,6 +21,9 @@ pub struct Prefs {
     pub onboarded: bool,
     /// "chat" or "code": which half of the app was showing.
     pub mode: String,
+    /// What the user picked in setup: "chat", "code" or both. The switch
+    /// between them only shows when both are on.
+    pub uses: Vec<String>,
     /// Harness id -> on/off, only for ones the user has toggled; the rest
     /// follow the scan (on when installed and signed in).
     pub harnesses: BTreeMap<String, bool>,
@@ -29,6 +32,13 @@ pub struct Prefs {
     pub cloud: CloudCfg,
     /// Project folders, most recent first.
     pub projects: Vec<String>,
+    /// API keys entered in the app, by environment variable name
+    /// (ANTHROPIC_API_KEY, OPENROUTER_API_KEY...). Apps opened from the Dock
+    /// don't see your shell's variables; these are applied at startup.
+    pub api_keys: BTreeMap<String, String>,
+    /// Model id every coding worker runs on ("claude-code", "codex"...).
+    /// None: the router decides per ticket.
+    pub worker: Option<String>,
     /// Where a new chat goes unless the user picks otherwise.
     pub default_route: Option<crate::chat::Route>,
 }
@@ -44,12 +54,15 @@ impl Default for Prefs {
             active_tab: 0,
             onboarded: false,
             mode: "chat".into(),
+            uses: vec!["chat".into(), "code".into()],
             harnesses: BTreeMap::new(),
             ollama_url: "http://localhost:11434".into(),
             routers: vec![],
             cloud: CloudCfg::default(),
             projects: vec![],
             default_route: None,
+            worker: None,
+            api_keys: BTreeMap::new(),
         }
     }
 }
@@ -239,6 +252,16 @@ impl Prefs {
                     use std::os::unix::fs::PermissionsExt;
                     let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
                 }
+            }
+        }
+    }
+
+    /// Put the saved API keys into this process's environment, where the
+    /// harness config looks for them. A variable already set wins.
+    pub fn apply_keys(&self) {
+        for (k, v) in &self.api_keys {
+            if !v.is_empty() && std::env::var_os(k).is_none_or(|x| x.is_empty()) {
+                std::env::set_var(k, v);
             }
         }
     }

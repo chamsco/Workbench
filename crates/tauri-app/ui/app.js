@@ -48,6 +48,8 @@ const P = {
   copy: '<rect x="5.4" y="5.4" width="8" height="8" rx="1.4"/><path d="M10.6 5.4V3.4a.8.8 0 0 0-.8-.8H3.4a.8.8 0 0 0-.8.8v6.4a.8.8 0 0 0 .8.8h2"/>',
   down: '<path d="M8 2.6v8M4.6 7.4 8 10.8l3.4-3.4M3 13.4h10"/>',
   compose: '<path d="M7.4 2.8H3.6a1 1 0 0 0-1 1v8.6a1 1 0 0 0 1 1h8.6a1 1 0 0 0 1-1V8.6"/><path d="m11.4 2.4 2.2 2.2-5.8 5.8-2.8.6.6-2.8z"/>',
+  bubble: '<path d="M8 2.6c3.2 0 5.6 2.1 5.6 4.8S11.2 12.2 8 12.2c-.7 0-1.4-.1-2-.3L3 13.2l.8-2.4C3 10 2.4 8.8 2.4 7.4 2.4 4.7 4.8 2.6 8 2.6z"/>',
+  codei: '<circle cx="8" cy="8" r="6"/><path d="M6.4 6 4.6 8l1.8 2M9.6 6l1.8 2-1.8 2"/>',
   search: '<circle cx="7" cy="7" r="4.2"/><path d="m10.2 10.2 3.4 3.4"/>',
   up: '<path d="M8 13V3.4M3.8 7.4 8 3.2l4.2 4.2"/>',
   stop: '<rect x="4.4" y="4.4" width="7.2" height="7.2" rx="1.4" fill="currentColor" stroke="none"/>',
@@ -210,6 +212,10 @@ $("#gear").onclick = () => openSettings();
 
 // Chat and Code share the window; the sidebar, title bar and body follow.
 function setMode(m, save = true) {
+  // Only what the user picked in setup: one use hides the switch.
+  const uses = (prefs.uses && prefs.uses.length ? prefs.uses : ["chat", "code"]);
+  if (!uses.includes(m)) m = uses[0];
+  $("#win").classList.toggle("single-use", uses.length === 1);
   S.mode = m === "code" ? "code" : "chat";
   const w = $("#win");
   w.classList.toggle("m-chat", S.mode === "chat"); w.classList.toggle("m-code", S.mode === "code");
@@ -488,7 +494,7 @@ function newTabPop(anchor) {
   });
 }
 // Right-hand "+": add a canvas to this tab.
-const VIEWS = [["files", "folder", "Worktree files"], ["browser", "globe", "Browser"], ["diagram", "diagram", "Diagram review"], ["docs", "doc", "PLAN.md"], ["empty", "window", "Empty canvas"]];
+const VIEWS = [["board", "bubble", "Team chat"], ["files", "folder", "Worktree files"], ["browser", "globe", "Browser"], ["diagram", "diagram", "Diagram review"], ["docs", "doc", "PLAN.md"], ["empty", "window", "Empty canvas"]];
 $("#addCanvas").dataset.popper = "";
 $("#addCanvas").onclick = e => {
   const full = tab().panes.length >= 4;
@@ -515,8 +521,9 @@ function addCanvas(spec) {
 // ------------------------------------------------------------------ review pill + tickets drawer
 function renderCta() {
   const n = pending().length, t = snap.tickets.length;
-  $("#cta").innerHTML = n ? `<span class="dot"></span><span class="lbl">${n} to review</span>${t ? `<span class="n">· ${t} tickets</span>` : ""}`
-    : `${icon("check")}<span class="lbl">Nothing to review</span>${t ? `<span class="n">· ${t} tickets</span>` : ""}`;
+  $("#cta").innerHTML = (n ? `<span class="dot wait"></span><span class="lbl">${n} to review</span>` : `${icon("check")}<span class="lbl">Nothing to review</span>`)
+    + `<span class="n">${t ? t + (t === 1 ? " ticket" : " tickets") : ""}</span>${icon("chev", "chev")}`;
+  $("#cta").classList.toggle("hot", n > 0);
   $("#cta").setAttribute("aria-expanded", S.drawer);
 }
 (() => {
@@ -611,14 +618,13 @@ function showDiagram() {
 // ------------------------------------------------------------------ update pill
 function renderUpd() {
   const b = $("#upd");
-  if (!prefs.check_updates && !upd) { b.hidden = true; return; }
   b.hidden = false;
   b.classList.toggle("new", !!(upd && upd.newer));
   if (upd === "checking") b.innerHTML = `Checking…`;
   else if (upd && upd.error) { b.innerHTML = `${icon("reload")}Check for updates`; b.title = upd.error; }
-  else if (upd && upd.newer) { b.innerHTML = `${icon("down")}Download & Update`; b.title = `Backspace ${upd.latest} is out (you have ${upd.current})`; }
-  else if (upd) { b.innerHTML = `${icon("check")}Up to date`; b.title = `Backspace ${upd.current}`; }
-  else b.innerHTML = `${icon("reload")}Check for updates`;
+  else if (upd && upd.newer) { b.innerHTML = `${icon("down")}<span class="lbl">Update to ${esc(upd.latest)}</span>`; b.title = `Backspace ${upd.latest} is out (you have ${upd.current})`; }
+  else if (upd) { b.innerHTML = `${icon("check")}<span class="lbl">Up to date</span><span class="n">v${esc(upd.current)}</span>`; b.title = `Backspace ${upd.current} · click to check again`; }
+  else b.innerHTML = `${icon("reload")}<span class="lbl">Check for updates</span>`;
 }
 async function checkUpdate() {
   upd = "checking"; renderUpd();
@@ -711,10 +717,11 @@ function paneTitle(p) {
     case "browser": return p.url ? p.url.replace(/^https?:\/\//, "") : "Browser";
     case "diagram": return "Diagram review";
     case "docs": return "PLAN.md";
+    case "board": return `Team chat · ${(snap.board || []).length}`;
     default: return "New canvas";
   }
 }
-const paneIcon = p => ({ agent: '<span class="agent">' + icon("sparkle") + "</span>", files: '<span class="term">' + icon("folder") + "</span>", browser: '<span class="term">' + icon("globe") + "</span>", diagram: '<span class="term">' + icon("diagram") + "</span>", docs: '<span class="term">' + icon("doc") + "</span>" })[p.kind] || '<span class="term">' + icon("window") + "</span>";
+const paneIcon = p => ({ board: '<span class="agent">' + icon("bubble") + "</span>", agent: '<span class="agent">' + icon("sparkle") + "</span>", files: '<span class="term">' + icon("folder") + "</span>", browser: '<span class="term">' + icon("globe") + "</span>", diagram: '<span class="term">' + icon("diagram") + "</span>", docs: '<span class="term">' + icon("doc") + "</span>" })[p.kind] || '<span class="term">' + icon("window") + "</span>";
 
 function buildPane(p, slot) {
   const el = document.createElement("section");
@@ -766,6 +773,7 @@ function fillPane(p, slot, body, ps) {
   } else if (p.kind === "browser") browserPane(p, body, ps);
   else if (p.kind === "diagram") diagramPane(body, ps);
   else if (p.kind === "docs") docsPane(body);
+  else if (p.kind === "board") boardPane(body, ps);
   else chooser(slot, body);
 }
 function chooser(slot, body) {
@@ -775,7 +783,8 @@ function chooser(slot, body) {
     <button class="card" data-k="browser">${icon("globe")}<span class="ct">Browser</span><span class="cs">A dev server preview</span></button>
     <button class="card" data-k="diagram">${icon("diagram")}<span class="ct">Diagram review</span><span class="cs">Plans and deliverables to approve</span></button>
     <button class="card" data-k="files">${icon("folder")}<span class="ct">Worktree</span><span class="cs">Browse the project's files</span></button>
-    <button class="card" data-k="docs">${icon("doc")}<span class="ct">PLAN.md</span><span class="cs">The plan the main agent wrote</span></button></div>
+    <button class="card" data-k="docs">${icon("doc")}<span class="ct">PLAN.md</span><span class="cs">The plan the main agent wrote</span></button>
+    <button class="card" data-k="board">${icon("bubble")}<span class="ct">Team chat</span><span class="cs">What agents tell each other, across models and CLIs</span></button></div>
     ${agents.length > 1 ? `<h5>Agent sessions</h5><div class="alist">${agents.filter(a => a.id !== MAIN).map(a => `<button class="chip-btn" data-a="${a.id}">${icon("sparkle")}${esc(a.title)}<span class="dot ${dotFor(a.status)}"></span></button>`).join("")}</div>` : ""}</div>`;
   $$("[data-k]", body).forEach(b => (b.onclick = () => setPane(slot, { kind: b.dataset.k, agent: 0, url: null })));
   $$("[data-a]", body).forEach(b => (b.onclick = () => setPane(slot, { kind: "agent", agent: +b.dataset.a, url: null })));
@@ -852,6 +861,7 @@ function refreshPanes() {
     if (!p) return;
     const body = el.lastElementChild;
     if (p.kind === "diagram") diagramPane(body, pstate(slot));
+    if (p.kind === "board") boardMsgs(body);
     if (p.kind === "empty") chooser(slot, body);
   });
 }
@@ -1095,6 +1105,38 @@ function wireStage(stage, d, ps) {
   svg.addEventListener("pointerup", up); svg.addEventListener("pointercancel", up);
 }
 
+// ------------------------------------------------------------------ team chat canvas
+// The agents' message board: who told whom what, whichever model or CLI
+// runs them. You can post too, to one agent or everyone.
+function boardPane(body, ps) {
+  body.innerHTML = `<div class="board"><div class="bmsgs"></div>
+    <footer class="bfoot"><select class="bto" aria-label="Send to"></select><input class="bin" placeholder="Message the team" aria-label="Message" autocomplete="off"><button class="btn primary sm bsend">Send</button></footer></div>`;
+  const to = body.querySelector(".bto"), inp = body.querySelector(".bin");
+  const opts = () => [["all", "Everyone"], ...snap.agents.map(a => [a.key, `${a.title} (${a.key})`])];
+  to.innerHTML = opts().map(([k, l]) => `<option value="${esc(k)}">${esc(l)}</option>`).join("");
+  to.value = ps.to || "all"; to.onchange = () => (ps.to = to.value);
+  const go = async () => {
+    if (!inp.value.trim()) return;
+    try { await invoke("post_message", { to: to.value, text: inp.value.trim() }); inp.value = ""; } catch (e) { toast(String(e), "err"); }
+  };
+  body.querySelector(".bsend").onclick = go;
+  inp.onkeydown = e => { if (e.key === "Enter") go(); };
+  boardMsgs(body);
+}
+function boardMsgs(body) {
+  const box = body.querySelector(".bmsgs"); if (!box) return;
+  const ms = snap.board || [];
+  const who = k => { if (k === "you") return { t: "You", run: "" }; const a = snap.agents.find(a => a.key === k); return { t: a ? a.title : k, run: a && a.decision ? a.decision.model : "" }; };
+  const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+  box.innerHTML = ms.length ? ms.map(m => {
+    const f = who(m.from), me = m.from === "you";
+    return `<div class="bm${me ? " me" : ""}"><div class="bm-h"><b>${esc(f.t)}</b>${f.run ? `<span class="bm-run">${esc(f.run)}</span>` : ""}<span class="bm-to">→ ${m.to === "all" ? "everyone" : esc(who(m.to).t)}</span><span class="bm-at">${new Date(m.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span></div><div class="bm-t">${esc(m.text)}</div></div>`;
+  }).join("") : `<div class="nothing">No messages yet. Agents post here to coordinate (interfaces, shared files, questions), whether they run on an API model or in Claude Code, Codex or another CLI.</div>`;
+  if (atBottom) box.scrollTop = box.scrollHeight;
+  const sel = body.querySelector(".bto");
+  if (sel && sel.options.length !== snap.agents.length + 1) { const v = sel.value; sel.innerHTML = [["all", "Everyone"], ...snap.agents.map(a => [a.key, `${a.title} (${a.key})`])].map(([k, l]) => `<option value="${esc(k)}">${esc(l)}</option>`).join(""); sel.value = v; }
+}
+
 // ------------------------------------------------------------------ PLAN.md canvas
 function md(src) {
   let out = "", code = false, list = false;
@@ -1134,10 +1176,14 @@ function renderSettings() {
     <div class="set-h"><h1>Settings</h1><span class="sp"></span><button class="btn" id="setRerun">Run setup again</button><button class="ib" id="setClose" aria-label="Close settings">${icon("close")}</button></div>
     <section id="set-providers"><h2>Coding CLIs and models</h2><p class="lead">What Chat and projects can use. Backspace scans this machine for each CLI, its version and whether it is signed in; switch off any you don't want offered.</p><div id="setProviders"></div></section>
     <section id="set-plan"><h2>Backspace Cloud</h2><p class="lead">Chat without installing anything. Free with a short ad under each reply, or a paid plan.</p><div id="setPlan"></div></section>
+    <section id="set-coding"><h2>Coding</h2><p class="lead">A project's planner runs on an API model (Anthropic or OpenRouter, keys below). Each ticket's worker can run on the router's pick, or be handed to a coding CLI you're signed in to: it works in the ticket's own git worktree, then goes through the same checks and your review.</p>
+      <div class="line"><span class="lab">Workers run on<small>Applies when a project opens.${hasProject ? ` <button class="lnk" id="reopen">Reopen ${esc(snap.name)} now</button>` : ""}</small></span><div class="segc wrap" id="workerSeg"></div></div>
+      <div id="keyRows"></div></section>
     <section id="set-chat"><h2>Chat</h2><div class="line"><span class="lab">New chats go to<small>You can switch per chat from the composer.</small></span><button class="btn" id="setRoute" data-popper>${esc(window.Chat ? Chat.routeName(prefs.default_route) : "Pick")}</button></div></section>
     <section id="set-projects"><h2>Projects</h2>
       ${(prefs.projects || []).length ? prefs.projects.map(p => `<div class="mrow"><span class="mi">${icon("folder")}</span><span class="lab">${esc(base(p))}${hasProject && p === snap.workspace ? " · open" : ""}<small class="mono">${esc(p)}</small></span><button class="btn" data-popen="${esc(p)}">Open</button><button class="btn danger" data-pforget="${esc(p)}">Forget</button></div>`).join("") : `<p class="lead">No projects yet.</p>`}
       <div class="line"><span class="lab"></span><button class="btn primary" id="setOpenFolder">Open folder…</button></div></section>
+    <section id="set-uses"><h2>Use Backspace for</h2><div class="line"><span class="lab">What shows in the app<small>With both on, switch from the top of the sidebar.</small></span><div class="segc">${[["chat", "Chat"], ["code", "Coding"]].map(([k, l]) => `<button aria-pressed="${(prefs.uses || ["chat", "code"]).includes(k)}" data-use="${k}">${l}</button>`).join("")}</div></div></section>
     <section><h2>Appearance</h2><div class="line"><span class="lab">Theme</span><div class="segc">${[["system", "System"], ["light", "Light"], ["dark", "Dark"]].map(([k, l]) => `<button aria-pressed="${th === k}" data-theme="${k}">${l}</button>`).join("")}</div></div></section>
     <section id="set-machines"><h2>Machines</h2><p class="lead">Follow and drive the harness on other machines. Each one runs <code>backspace-cli serve</code> (or shares from its own Backspace, below); add it with its address and token. Switch machines from the sidebar foot.</p>
       ${machines.map(m => `<div class="mrow"><span class="mi">${icon(m.local ? "pc" : "cloud")}</span><span class="lab">${esc(m.name)}${m.selected ? " · showing" : ""}<small>${m.local ? "This machine" : esc(m.url)} · ${m.link.state === "offline" ? "offline: " + esc(m.link.error) : m.link.state}${m.project ? " · " + esc(m.project) : ""}</small></span>
@@ -1159,10 +1205,18 @@ function renderSettings() {
       <div class="line"><span class="lab">Config<small class="mono">${esc(snap.config_source || "built-in defaults")}</small></span></div></section>` : ""}</div>`;
   Object.entries(keep).forEach(([id, v]) => { const i = $("#" + id, el); if (i && v) i.value = v; });
   $("#setClose").onclick = closeSettings;
+  $$("[data-use]", el).forEach(b => (b.onclick = async () => {
+    const cur = prefs.uses && prefs.uses.length ? prefs.uses : ["chat", "code"], k = b.dataset.use;
+    const next = ["chat", "code"].filter(u => (u === k ? !cur.includes(u) : cur.includes(u)));
+    if (!next.length) { toast("Keep at least one on", "err"); return; }
+    prefs.uses = next; await invoke("set_uses", { uses: next });
+    setMode(S.mode, false); openSettings("uses");
+  }));
   $("#setRerun").onclick = () => { closeSettings(); Onboard.open(); };
   if (window.Providers) { Providers.mount($("#setProviders")); Providers.mountPlan($("#setPlan")); }
   $("#setRoute").onclick = e => Chat.routePicker(e.currentTarget, prefs.default_route, async r => { prefs.default_route = r; await invoke("set_default_route", { route: r }); renderSettings(); });
   $("#setOpenFolder").onclick = pickProject;
+  renderCoding(el);
   $$("[data-popen]", el).forEach(b => (b.onclick = () => { closeSettings(); openProject(b.dataset.popen); }));
   $$("[data-pforget]", el).forEach(b => (b.onclick = async () => { await invoke("forget_project", { path: b.dataset.pforget }); prefs = await invoke("prefs"); renderSettings(); renderList(); }));
   $$("[data-theme]", el).forEach(b => (b.onclick = async () => { prefs.theme = b.dataset.theme; applyTheme(); renderSettings(); await invoke("set_theme", { theme: prefs.theme }); }));
@@ -1186,6 +1240,25 @@ function renderSettings() {
   $("#updT").onclick = async () => { prefs.check_updates = !prefs.check_updates; await invoke("set_check_updates", { on: prefs.check_updates }); renderUpd(); renderSettings(); };
   const now = $("#updNow"); if (now) now.onclick = checkUpdate;
   const go = $("#updGo"); if (go) go.onclick = () => invoke("open_url", { url: u.url });
+}
+
+// Settings → Coding: which harness runs workers, and the API keys.
+const WORKERS = [["", "Auto"], ["claude-code", "Claude Code", "claude"], ["codex", "Codex", "codex"], ["cursor", "Cursor", "cursor"], ["grok", "Grok", "grok"], ["opencode", "OpenCode", "opencode"]];
+async function renderCoding(el) {
+  const seg = $("#workerSeg", el); if (!seg) return;
+  const hs = window.Providers ? Providers.list : [];
+  const ok = id => !id || hs.some(h => h.id === id && h.installed && h.enabled);
+  seg.innerHTML = WORKERS.map(([m, l, h]) => `<button data-w="${m}" aria-pressed="${(prefs.worker || "") === m}" ${ok(h) ? "" : `disabled title="${l} isn't installed or is switched off"`}>${l}</button>`).join("");
+  $$("[data-w]", seg).forEach(b => (b.onclick = async () => { prefs.worker = b.dataset.w || null; await invoke("set_worker", { worker: prefs.worker }); renderSettings(); toast(b.dataset.w ? `New tickets go to ${b.textContent}` : "The router picks a model per ticket", "ok"); }));
+  const ro = $("#reopen", el); if (ro) ro.onclick = () => { const p = snap.workspace; closeSettings(); openProject(p); };
+  const keys = await invoke("api_keys").catch(() => []);
+  const names = { ANTHROPIC_API_KEY: ["Anthropic", "Claude models for the planner and workers"], OPENROUTER_API_KEY: ["OpenRouter", "Any model through one key"], TYPESAFE_API_KEY: ["Jev router", "Optional: smarter model choice per agent"] };
+  $("#keyRows", el).innerHTML = keys.map(([k, inApp, env]) => `<div class="line"><span class="lab">${names[k][0]}<small>${names[k][1]} · ${inApp ? "saved in Backspace" : env ? "from your environment" : "not set"}</small></span>
+    <input class="tx mono" type="password" data-key="${k}" placeholder="${inApp || env ? "••••••••" : k}" style="width:220px" aria-label="${names[k][0]} key"><button class="btn" data-savekey="${k}">Save</button></div>`).join("");
+  $$("[data-savekey]", el).forEach(b => (b.onclick = async () => {
+    const i = $(`[data-key="${b.dataset.savekey}"]`, el);
+    try { await invoke("set_api_key", { name: b.dataset.savekey, value: i.value }); toast(i.value ? "Key saved" : "Key removed", "ok"); renderCoding(el); } catch (e) { toast(String(e), "err"); }
+  }));
 }
 
 // ------------------------------------------------------------------ sidebar resize, live updates, boot

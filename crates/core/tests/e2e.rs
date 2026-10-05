@@ -64,6 +64,28 @@ fn respond(req: &Value) -> Value {
     let reopened = c.last_user.contains("reviewer requested changes");
     let unexpected = |t: &str| text(&format!("unexpected: {t}"));
 
+    // ---- a ticket handed to a coding CLI
+    if main && c.first.contains("cli-project") {
+        return match c.last_tool {
+            None => tool_call(
+                "create_tickets",
+                json!({"tickets": [
+                    {"key": "hello", "title": "Say hello", "what_to_build": "create hello.txt containing hello",
+                     "acceptance": ["hello.txt says hello"], "check": "grep -q hello hello.txt"}
+                ]}),
+            ),
+            Some(t) if t.contains("Plan APPROVED") => tool_call("work_tickets", json!({})),
+            Some(t) if t.contains("APPROVED by the user and merged") => tool_call(
+                "submit_deliverable",
+                json!({"summary": "hello.txt", "files": ["hello.txt"]}),
+            ),
+            Some(t) => unexpected(t),
+        };
+    }
+    if worker && c.first.starts_with("# hello:") {
+        return text("a CLI worker must not reach the API model");
+    }
+
     // ---- flat project: plan gate, check gate, rejection, blocked_by
     if main && c.first.contains("flat") {
         return match c.last_tool {
@@ -236,6 +258,10 @@ fn serve(listener: TcpListener) {
 }
 
 fn open_project(tag: &str) -> (Harness, PathBuf) {
+    open_project_with(tag, |_| {})
+}
+
+fn open_project_with(tag: &str, edit: impl FnOnce(&mut String)) -> (Harness, PathBuf) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
     std::thread::spawn(move || serve(listener));
@@ -243,10 +269,8 @@ fn open_project(tag: &str) -> (Harness, PathBuf) {
     let ws = std::env::temp_dir().join(format!("bs-e2e-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&ws);
     std::fs::create_dir_all(&ws).unwrap();
-    std::fs::write(
-        ws.join("backspace.toml"),
-        format!(
-            r#"
+    let mut cfg = format!(
+        r#"
 [router]
 backend = "heuristic"
 jev_endpoint = ""
@@ -285,9 +309,9 @@ output_usd_per_mtok = 20.0
 max_output_tokens = 1000
 efforts = ["low", "medium", "high"]
 "#
-        ),
-    )
-    .unwrap();
+    );
+    edit(&mut cfg);
+    std::fs::write(ws.join("backspace.toml"), cfg).unwrap();
 
     (Harness::open(ws.clone()).unwrap(), ws)
 }
@@ -335,6 +359,98 @@ fn git_branches(ws: &Path) -> String {
         .output()
         .unwrap();
     String::from_utf8(out.stdout).unwrap()
+}
+
+/// A worker pinned to a CLI runs it in its worktree; the fake `claude`
+/// writes the file and answers in Claude Code's stream-json. The work then
+/// goes through the usual check, review and merge.
+#[test]
+fn a_ticket_runs_on_a_cli_worker() {
+    let bin = std::env::temp_dir().join(format!("bs-fakecli-{}", std::process::id()));
+    std::fs::create_dir_all(&bin).unwrap();
+    let script = bin.join("claude");
+    std::fs::write(
+        &script,
+        r#"#!/bin/sh
+cat > /dev/null
+printf 'hello\n' > hello.txt
+curl -s --noproxy '*' -X POST "$BACKSPACE_BRIDGE/v1/board/post" -H "authorization: Bearer $BACKSPACE_BRIDGE_TOKEN" -d "{\"from\":\"$BACKSPACE_AGENT\",\"to\":\"main\",\"text\":\"hello.txt is ready\"}" > /dev/null
+echo '{"type":"system","subtype":"init","session_id":"fake-1"}'
+echo '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Write","input":{"file_path":"hello.txt"}}]}}'
+echo '{"type":"result","result":"Created hello.txt saying hello","session_id":"fake-1","total_cost_usd":0.01,"is_error":false}'
+"#,
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    std::env::set_var("BACKSPACE_CLI_PATH", &bin);
+
+    let (h, ws) = open_project_with("cli", |cfg| {
+        cfg.push_str(
+            r#"
+[providers.claude-code]
+kind = "cli"
+cli = "claude"
+
+[[models]]
+id = "claude-code"
+provider = "claude-code"
+tier = 3
+description = "Claude Code"
+input_usd_per_mtok = 0.0
+output_usd_per_mtok = 0.0
+max_output_tokens = 0
+"#,
+        );
+        *cfg = cfg.replace(
+            "main_min_effort = \"high\"",
+            "main_min_effort = \"high\"\npin_sub = \"claude-code\"",
+        );
+    });
+    h.send("cli-project: say hello");
+    run_until(
+        &h,
+        |_, _| Ok(()),
+        |s| s.agents[0].status == AgentStatus::Approved,
+    );
+    let s = h.snapshot();
+    let w = s
+        .agents
+        .iter()
+        .find(|a| a.ticket.as_deref() == Some("hello"))
+        .unwrap();
+    assert_eq!(w.decision.as_ref().unwrap().model, "claude-code");
+    assert!(w
+        .log
+        .iter()
+        .any(|l| l.text.contains("handing this ticket to claude")));
+    assert!(w.log.iter().any(|l| l.text.starts_with("Write hello.txt")));
+    assert_eq!(
+        w.deliverable.as_ref().unwrap().summary,
+        "Created hello.txt saying hello"
+    );
+    assert_eq!(
+        std::fs::read_to_string(ws.join("hello.txt"))
+            .unwrap()
+            .trim(),
+        "hello"
+    );
+    // The CLI reached the board through the bridge, as itself.
+    assert!(
+        s.board
+            .iter()
+            .any(|m| m.from == w.key && m.to == "main" && m.text == "hello.txt is ready"),
+        "{:?}",
+        s.board
+    );
+    assert!(s.agents[0]
+        .log
+        .iter()
+        .any(|l| l.text == format!("← {}: hello.txt is ready", w.key)));
+    let _ = std::fs::remove_dir_all(&bin);
 }
 
 #[test]

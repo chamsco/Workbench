@@ -38,6 +38,27 @@ impl Router {
 
     pub async fn route(&self, role: AgentRole, task: &str, context: &str) -> Result<Decision> {
         let candidates = self.cfg.usable_models();
+        if role == AgentRole::Sub {
+            if let Some(pin) = self
+                .cfg
+                .router
+                .pin_sub
+                .as_ref()
+                .filter(|p| self.cfg.cli_usable(p))
+            {
+                // A worker pinned to a CLI needs no API model at all.
+                if candidates.is_empty() {
+                    return Ok(Decision {
+                        model: pin.clone(),
+                        effort: self.cfg.escalation.start_max_effort,
+                        source: "pinned".into(),
+                        confidence: 1.0,
+                        router_cost_usd: 0.0,
+                        note: None,
+                    });
+                }
+            }
+        }
         if candidates.is_empty() {
             bail!(
                 "no usable models: set an API key for one of the providers ({})",
@@ -68,8 +89,18 @@ impl Router {
         };
 
         if let Some(pin) = pin {
-            decision.model = pin.clone();
-            decision.source = format!("{}+pinned", decision.source);
+            // The planner needs Backspace's own tools, so it never runs on a
+            // CLI; a CLI that isn't installed is skipped with a note.
+            match self.cfg.cli_of(pin) {
+                Some(_) if role == AgentRole::Main => {}
+                Some(_) if !self.cfg.cli_usable(pin) => {
+                    decision.note = Some(format!("{pin} is pinned but its CLI isn't installed"));
+                }
+                _ => {
+                    decision.model = pin.clone();
+                    decision.source = format!("{}+pinned", decision.source);
+                }
+            }
         }
         if role == AgentRole::Main && decision.effort < self.cfg.router.main_min_effort {
             decision.effort = self.cfg.router.main_min_effort;
@@ -256,9 +287,39 @@ mod tests {
     use crate::config::{Config, DEFAULT_CONFIG};
 
     #[test]
+    fn cli_pin_routes_workers_not_the_planner() {
+        let mut cfg = Config::parse(DEFAULT_CONFIG).unwrap();
+        // Claude Code is installed in this sandbox's CI; skip where it isn't.
+        if !cfg.cli_usable("claude-code") {
+            return;
+        }
+        cfg.router.backend = RouterBackend::Heuristic;
+        cfg.router.pin_sub = Some("claude-code".into());
+        cfg.router.pin_main = Some("claude-code".into());
+        let r = Router::new(reqwest::Client::new(), cfg.clone());
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let sub = rt
+            .block_on(r.route(AgentRole::Sub, "add a button", ""))
+            .unwrap();
+        assert_eq!(sub.model, "claude-code");
+        // No API key: the planner cannot run on a CLI, so routing fails.
+        if cfg.usable_models().is_empty() {
+            assert!(rt.block_on(r.route(AgentRole::Main, "plan", "")).is_err());
+        } else {
+            let main = rt.block_on(r.route(AgentRole::Main, "plan", "")).unwrap();
+            assert_ne!(main.model, "claude-code");
+        }
+    }
+
+    #[test]
     fn heuristic_scales_with_task() {
         let cfg = Config::parse(DEFAULT_CONFIG).unwrap();
-        let all: Vec<&ModelSpec> = cfg.models.iter().collect();
+        // The router only ever offers API models to the heuristic.
+        let all: Vec<&ModelSpec> = cfg
+            .models
+            .iter()
+            .filter(|m| cfg.cli_of(&m.id).is_none())
+            .collect();
         let easy = heuristic(AgentRole::Sub, "fix a typo in the readme", &all);
         assert_eq!(easy.effort, Effort::Low);
         assert_eq!(easy.model, "claude-haiku-4-5");

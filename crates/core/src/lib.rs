@@ -1,6 +1,7 @@
 //! Backspace core: a mixture-of-models agent harness. No UI dependencies;
 //! the GPUI app and the CLI are thin shells over [`Harness`].
 
+pub mod board;
 pub mod chat;
 pub mod cloud;
 pub mod config;
@@ -24,6 +25,6 @@ pub mod update;
 
 pub use config::Config;
 pub use effort::Effort;
-pub use harness::Harness;
+pub use harness::{Harness, Overrides};
 pub use project::*;
 pub use ticket::{Ticket, TicketState};

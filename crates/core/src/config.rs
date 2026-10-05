@@ -130,20 +130,37 @@ pub enum ProviderKind {
     Anthropic,
     /// OpenAI-compatible Chat Completions.
     Openai,
+    /// A coding agent CLI on this machine (Claude Code, Codex, Cursor,
+    /// Grok, OpenCode). A worker routed here runs the CLI headless in its
+    /// ticket's worktree instead of Backspace's own tool loop.
+    Cli,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ProviderConfig {
     pub kind: ProviderKind,
+    #[serde(default)]
     pub base_url: String,
+    #[serde(default)]
     pub api_key_env: String,
+    /// For `kind = "cli"`: which one ("claude", "codex", "cursor", "grok",
+    /// "opencode").
+    #[serde(default)]
+    pub cli: Option<String>,
 }
 
 impl ProviderConfig {
     pub fn api_key(&self) -> Option<String> {
+        if self.api_key_env.is_empty() {
+            return None;
+        }
         std::env::var(&self.api_key_env)
             .ok()
             .filter(|k| !k.is_empty())
+    }
+
+    pub fn is_cli(&self) -> bool {
+        self.kind == ProviderKind::Cli
     }
 }
 
@@ -214,18 +231,34 @@ impl Config {
         self.models.iter().find(|m| m.id == id)
     }
 
-    /// Models whose provider has credentials (or is keyless-local) right now.
+    /// API models whose provider has credentials (or is keyless-local)
+    /// right now. CLI harnesses are never in this pool: they run only when
+    /// pinned, see [`Config::cli_usable`].
     pub fn usable_models(&self) -> Vec<&ModelSpec> {
         self.models
             .iter()
             .filter(|m| {
                 self.providers.get(&m.provider).is_some_and(|p| {
-                    p.api_key().is_some()
-                        || p.base_url.contains("localhost")
-                        || p.base_url.contains("127.0.0.1")
+                    !p.is_cli()
+                        && (p.api_key().is_some()
+                            || p.base_url.contains("localhost")
+                            || p.base_url.contains("127.0.0.1"))
                 })
             })
             .collect()
+    }
+
+    /// The provider behind a model, when it is a CLI.
+    pub fn cli_of(&self, model: &str) -> Option<&ProviderConfig> {
+        let m = self.model(model)?;
+        self.providers.get(&m.provider).filter(|p| p.is_cli())
+    }
+
+    /// A CLI model whose binary is installed.
+    pub fn cli_usable(&self, model: &str) -> bool {
+        self.cli_of(model)
+            .and_then(|p| p.cli.as_deref())
+            .is_some_and(|c| crate::harnesses::which(crate::harnesses::bin_for(c)).is_some())
     }
 
     fn validate(&self) -> Result<()> {

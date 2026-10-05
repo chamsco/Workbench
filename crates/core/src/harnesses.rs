@@ -113,6 +113,15 @@ const CLIS: &[Spec] = &[
     },
 ];
 
+/// The executable for a CLI id ("cursor" is `cursor-agent`).
+pub fn bin_for(id: &str) -> &str {
+    match id {
+        "cursor" => "cursor-agent",
+        "antigravity" => "agy",
+        other => other,
+    }
+}
+
 /// The ids Setup lists, in order.
 pub fn known() -> Vec<(&'static str, &'static str)> {
     let mut v: Vec<_> = CLIS.iter().map(|s| (s.id, s.name)).collect();
@@ -178,7 +187,11 @@ pub fn path_env() -> std::ffi::OsString {
 }
 
 pub fn which(bin: &str) -> Option<PathBuf> {
-    for dir in search_path() {
+    // `BACKSPACE_CLI_PATH` is searched first (tests, pinned installs).
+    let extra: Vec<PathBuf> = std::env::var_os("BACKSPACE_CLI_PATH")
+        .map(|p| std::env::split_paths(&p).collect())
+        .unwrap_or_default();
+    for dir in extra.iter().chain(search_path().iter()) {
         let p = dir.join(bin);
         if p.is_file() {
             return Some(p);

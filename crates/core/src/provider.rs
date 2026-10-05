@@ -116,6 +116,7 @@ pub async fn complete(http: &reqwest::Client, req: Request<'_>) -> Result<Comple
             ),
             openai_body(&req),
         ),
+        ProviderKind::Cli => bail!("{} is a CLI harness, not an API", req.model.id),
     };
 
     let mut attempt = 0;
@@ -129,7 +130,7 @@ pub async fn complete(http: &reqwest::Client, req: Request<'_>) -> Result<Comple
             ProviderKind::Anthropic => rb
                 .header("x-api-key", key.unwrap_or_default())
                 .header("anthropic-version", "2023-06-01"),
-            ProviderKind::Openai => match key {
+            ProviderKind::Openai | ProviderKind::Cli => match key {
                 Some(k) => rb.bearer_auth(k),
                 None => rb,
             },
@@ -159,7 +160,7 @@ pub async fn complete(http: &reqwest::Client, req: Request<'_>) -> Result<Comple
 
     match req.provider.kind {
         ProviderKind::Anthropic => parse_anthropic(v),
-        ProviderKind::Openai => parse_openai(v),
+        _ => parse_openai(v),
     }
 }
 

@@ -13,9 +13,13 @@
 /* ---------- modes: which half of the app is showing */
 .win.m-chat .code-only, .win.m-code .chat-only { display: none !important; }
 .win.m-code.no-project .tabs, .win.m-code.no-project #addCanvas, .win.m-code.no-project #cta { display: none !important; }
-.modes { flex-basis: 100%; display: grid; grid-template-columns: 1fr 1fr; padding: 2px; border-radius: 8px; background: var(--hover); margin-bottom: 4px; }
-.modes button { height: 24px; border-radius: 6px; font-size: 12px; font-weight: 500; color: var(--fg-3); }
-.modes button[aria-selected="true"] { background: var(--pill-on); color: var(--fg); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1); }
+/* The Chat | Coding switch: a pill with the active half filled dark. */
+.modes { flex-basis: 100%; display: grid; grid-template-columns: 1fr 1fr; padding: 3px; border-radius: 999px; background: var(--hover); box-shadow: inset 0 0 0 0.5px var(--pane-edge); margin-bottom: 6px; }
+.modes button { height: 26px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border-radius: 999px; font-size: 12.5px; font-weight: 500; color: var(--fg-2); transition: background 0.18s, color 0.18s; }
+.modes button [data-icon] { display: grid; }
+.modes button:hover { color: var(--fg); }
+.modes button[aria-selected="true"] { background: var(--fg); color: var(--desk-base); font-weight: 600; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18); }
+.win.single-use .modes { display: none; }
 .newbtn { flex-basis: 100%; height: 30px; display: flex; align-items: center; gap: 7px; padding: 0 9px; border-radius: 8px; font-weight: 500; color: var(--fg); }
 .newbtn:hover { background: var(--hover); }
 .newbtn kbd, .search kbd, .row kbd { margin-left: auto; font: 10.5px var(--font-ui); color: var(--fg-4); }
@@ -361,3 +365,54 @@ input.tx.mono { font-family: var(--font-mono); font-size: 12px; }
 /* toast */
 .toast { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); z-index: 95; max-width: min(560px, calc(100% - 32px)); padding: 9px 14px; border-radius: 12px; background: var(--fg); color: var(--desk-base); font-size: 12.5px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25); animation: pop 0.2s; }
 .toast.err { background: var(--red); color: #fff; }
+
+/* setup: what will you use Backspace for (tiles like a view picker) */
+.uses { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 4px; }
+.use { position: relative; display: grid; justify-items: center; align-content: center; gap: 8px; min-height: 150px; padding: 18px; border-radius: 16px; border: 1.5px dashed var(--pane-edge-on); color: var(--fg-3); text-align: center; transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.15s; }
+.use:hover { color: var(--fg-2); border-color: var(--fg-4); }
+.use .ic { width: 26px; height: 26px; }
+.use b { font-size: 15px; font-weight: 600; }
+.use span { font-size: 12px; line-height: 1.45; max-width: 260px; }
+.use[aria-pressed="true"] { border: 1.5px solid transparent; background: var(--pill-on); color: var(--fg); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.1), inset 0 0 0 0.5px var(--pane-edge); }
+.use[aria-pressed="true"] span { color: var(--fg-3); }
+.use .tick { position: absolute; top: -8px; right: -8px; width: 24px; height: 24px; border-radius: 50%; background: var(--fg); color: var(--desk-base); display: grid; place-items: center; opacity: 0; transform: scale(0.6); transition: opacity 0.15s, transform 0.15s; box-shadow: 0 0 0 2px var(--sheet); }
+.use .tick .ic { width: 13px; height: 13px; stroke-width: 2.2; }
+.use[aria-pressed="true"] .tick { opacity: 1; transform: none; }
+.uses-note { margin: 14px 0 0; font-size: 12px; color: var(--fg-3); }
+@media (max-width: 600px) { .uses { grid-template-columns: 1fr; } }
+
+/* Review + updates sit in the sidebar, between the spend card and the machines. */
+.side-acts { display: grid; gap: 4px; margin: 0 8px 6px; }
+.side-acts .cta, .side-acts .upd { width: 100%; height: 30px; padding: 0 10px; border-radius: 9px; border: 0.5px solid var(--pane-edge); background: var(--pane); color: var(--fg-2); font-size: 12px; display: flex; align-items: center; gap: 7px; text-align: left; }
+.side-acts .cta:hover, .side-acts .upd:hover { border-color: var(--pane-edge-on); color: var(--fg); background: var(--pane); }
+.side-acts .lbl { display: inline !important; }
+.side-acts .n { margin-left: auto; color: var(--fg-4); font-size: 11px; }
+.side-acts .chev { width: 11px; height: 11px; color: var(--fg-4); margin-left: 4px; }
+.side-acts .n:empty + .chev { margin-left: auto; }
+.side-acts .cta.hot { color: var(--fg); font-weight: 500; border-color: color-mix(in srgb, var(--amber) 50%, var(--pane-edge)); }
+.side-acts .cta .dot.wait { width: 7px; height: 7px; border-radius: 50%; background: var(--amber); }
+.side-acts .cta[aria-expanded="true"] { background: var(--sel); }
+.side-acts .upd.new { color: var(--fg); font-weight: 500; border-color: var(--blue); }
+.side-acts .upd.new .ic { color: var(--blue); }
+.side-acts .ic { color: var(--fg-3); }
+/* The drawer now slides out from the sidebar. */
+.drawer { left: 6px; right: auto; animation: slidein-l 0.18s ease-out; box-shadow: 10px 16px 40px rgba(0, 0, 0, 0.16); }
+@keyframes slidein-l { from { transform: translateX(-16px); opacity: 0; } }
+
+.segc.wrap { flex-wrap: wrap; justify-content: flex-end; max-width: 380px; }
+.segc button:disabled { opacity: 0.4; cursor: default; }
+
+/* team chat canvas */
+.board { height: 100%; display: flex; flex-direction: column; }
+.bmsgs { flex: 1; min-height: 0; overflow-y: auto; padding: 10px 12px; display: grid; align-content: start; gap: 8px; }
+.bm { max-width: 86%; padding: 8px 11px; border-radius: 12px; background: var(--hover); font-size: 12.5px; }
+.bm.me { justify-self: end; background: color-mix(in srgb, var(--me) 14%, transparent); }
+.bm-h { display: flex; align-items: baseline; gap: 6px; font-size: 11px; color: var(--fg-3); margin-bottom: 2px; flex-wrap: wrap; }
+.bm-h b { color: var(--fg); font-weight: 600; font-size: 12px; }
+.bm-run { font: 10.5px var(--font-mono); padding: 0 5px; border-radius: 4px; background: var(--pane); }
+.bm-at { margin-left: auto; color: var(--fg-4); }
+.bm-t { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.45; }
+.bfoot { display: flex; gap: 6px; padding: 8px; border-top: 0.5px solid var(--pane-edge); }
+.bto { height: 28px; border-radius: 7px; border: 0.5px solid var(--pane-edge); background: var(--hover); color: var(--fg); font: inherit; font-size: 12px; padding: 0 6px; max-width: 160px; }
+.bin { flex: 1; min-width: 0; height: 28px; border-radius: 7px; border: 0.5px solid var(--pane-edge); background: var(--hover); padding: 0 9px; font: inherit; font-size: 12.5px; color: var(--fg); outline: 0; }
+.bin:focus { border-color: var(--blue); }

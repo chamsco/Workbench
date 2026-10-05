@@ -21,6 +21,13 @@ use backspace_core::{config::DEFAULT_CONFIG, AgentStatus, Harness, LogKind};
 
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    // Agents in coding CLIs reach the message board through any Backspace
+    // binary: `msg ...` and `mcp`.
+    if let Some(code) =
+        backspace_core::board::client_main(&std::env::args().skip(1).collect::<Vec<_>>())
+    {
+        std::process::exit(code);
+    }
     match args.as_slice() {
         [cmd] if cmd == "init-config" => {
             if std::path::Path::new("backspace.toml").exists() {
@@ -94,6 +101,9 @@ fn serve(ws: PathBuf, addr: &str) -> Result<()> {
     let name = h.snapshot().name;
     println!("serving `{name}` on http://{addr}");
     println!("token: {token}");
+    if let Some((url, t)) = h.bridge() {
+        println!("agent message board: {url} (token {t})");
+    }
     println!("add it in Backspace: Settings → Machines → Add (address http://{addr})");
     if !addr.starts_with("127.") && !addr.starts_with("localhost") {
         println!("note: plain HTTP. Prefer a private network or an SSH tunnel.");

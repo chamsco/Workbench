@@ -57,6 +57,31 @@ api_key_env = "OPENROUTER_API_KEY"
 # base_url = "http://localhost:11434/v1"
 # api_key_env = "OLLAMA_API_KEY"   # unset is fine for local
 
+# Coding CLIs as workers. A worker on one of these runs the CLI headless in
+# its ticket's own worktree, on your own subscription, then goes through the
+# same check / review / merge as any worker. They are never picked
+# automatically: pin one with `pin_sub` (or pick "Workers run on" in the
+# desktop app). The planner always uses an API model above.
+[providers.claude-code]
+kind = "cli"
+cli = "claude"
+
+[providers.codex]
+kind = "cli"
+cli = "codex"
+
+[providers.cursor]
+kind = "cli"
+cli = "cursor"
+
+[providers.grok]
+kind = "cli"
+cli = "grok"
+
+[providers.opencode]
+kind = "cli"
+cli = "opencode"
+
 # `description` is what Jev reads when choosing. Write it like a hiring note:
 # what the model is good at and when it is the wrong call.
 [[models]]
@@ -111,3 +136,50 @@ efforts = ["low", "medium", "high", "xhigh", "max"]
 # output_usd_per_mtok = 1.0
 # max_output_tokens = 8000
 # efforts = []
+
+# The CLI workers (see the providers above). Costs are 0: they bill your
+# own CLI plan, not Backspace.
+[[models]]
+id = "claude-code"
+provider = "claude-code"
+tier = 3
+description = "Claude Code CLI as a full worker with its own tools, on your Claude plan"
+input_usd_per_mtok = 0.0
+output_usd_per_mtok = 0.0
+max_output_tokens = 0
+
+[[models]]
+id = "codex"
+provider = "codex"
+tier = 3
+description = "OpenAI Codex CLI as a full worker (workspace-write sandbox), on your ChatGPT plan"
+input_usd_per_mtok = 0.0
+output_usd_per_mtok = 0.0
+max_output_tokens = 0
+
+[[models]]
+id = "cursor"
+provider = "cursor"
+tier = 3
+description = "Cursor's agent CLI as a full worker, on your Cursor plan"
+input_usd_per_mtok = 0.0
+output_usd_per_mtok = 0.0
+max_output_tokens = 0
+
+[[models]]
+id = "grok"
+provider = "grok"
+tier = 3
+description = "Grok CLI as a full worker, with your xAI key"
+input_usd_per_mtok = 0.0
+output_usd_per_mtok = 0.0
+max_output_tokens = 0
+
+[[models]]
+id = "opencode"
+provider = "opencode"
+tier = 3
+description = "OpenCode CLI as a full worker, through the providers you connected to it"
+input_usd_per_mtok = 0.0
+output_usd_per_mtok = 0.0
+max_output_tokens = 0

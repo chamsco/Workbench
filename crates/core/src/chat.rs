@@ -100,6 +100,9 @@ pub struct Msg {
     pub cost_usd: Option<f64>,
     #[serde(default)]
     pub edited: bool,
+    /// Who answered, when not the thread's own route (an @mention).
+    #[serde(default)]
+    pub via: Option<Route>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -229,6 +232,28 @@ fn plain(s: &str) -> String {
         }
     }
     out
+}
+
+/// `@codex ...` at the start of a message: answer with that CLI.
+pub fn mention(text: &str) -> Option<Route> {
+    let w = text.trim_start().strip_prefix('@')?;
+    let name: String = w
+        .chars()
+        .take_while(|c| c.is_ascii_alphanumeric() || *c == '-')
+        .collect();
+    let provider = match name.to_lowercase().as_str() {
+        "claude" | "claude-code" => "claude",
+        "codex" => "codex",
+        "cursor" => "cursor",
+        "grok" => "grok",
+        "opencode" => "opencode",
+        _ => return None,
+    };
+    Some(Route {
+        kind: RouteKind::Cli,
+        provider: provider.into(),
+        model: None,
+    })
 }
 
 // ---------------------------------------------------------------- store
@@ -567,10 +592,11 @@ impl Chats {
                 ad: None,
                 cost_usd: None,
                 edited: false,
+                via: None,
             });
             t.updated = now;
         })?;
-        self.reply(id, ctx)
+        self.reply(id, ctx, mention(text))
     }
 
     /// Ask again: drop the last reply (and anything after the last user
@@ -586,7 +612,20 @@ impl Chats {
             // The CLI session has the old answer in it.
             t.cli_session = None;
         })?;
-        self.reply(id, ctx)
+        let again = self
+            .threads
+            .lock()
+            .unwrap()
+            .get(id)
+            .and_then(|t| {
+                t.messages
+                    .iter()
+                    .rev()
+                    .find(|m| m.role == Role::User)
+                    .map(|m| m.text.clone())
+            })
+            .and_then(|t| mention(&t));
+        self.reply(id, ctx, again)
     }
 
     /// Change a user message and ask again from there.
@@ -602,17 +641,25 @@ impl Chats {
                 t.cli_session = None;
             }
         })?;
-        self.reply(id, ctx)
+        self.reply(id, ctx, mention(text))
     }
 
-    fn reply(self: &Arc<Self>, id: &str, ctx: Ctx) -> Result<()> {
-        let route = self
+    fn reply(self: &Arc<Self>, id: &str, ctx: Ctx, via: Option<Route>) -> Result<()> {
+        let own = self
             .threads
             .lock()
             .unwrap()
             .get(id)
             .map(|t| t.route.clone())
             .ok_or_else(|| anyhow!("no such chat"))?;
+        // An @mention hands this one reply to another CLI. The thread's own
+        // CLI session then misses it, so the next reply gets the transcript.
+        let via = via.filter(|v| v != &own);
+        let mentioned = via.is_some();
+        let route = via.unwrap_or(own);
+        if mentioned {
+            let _ = self.edit_thread(id, |t| t.cli_session = None);
+        }
         let mid = new_id();
         self.edit_thread(id, |t| {
             t.messages.push(Msg {
@@ -629,12 +676,16 @@ impl Chats {
                 ad: None,
                 cost_usd: None,
                 edited: false,
+                via: mentioned.then(|| route.clone()),
             });
         })?;
         let me = self.clone();
         let tid = id.to_string();
         let task = self.rt.spawn(async move {
             let res = me.run(&tid, &mid, &route, &ctx).await;
+            if mentioned {
+                let _ = me.edit_thread(&tid, |t| t.cli_session = None);
+            }
             me.running.lock().unwrap().remove(&tid);
             let _ = me.edit_thread(&tid, |t| {
                 if let Some(m) = t.messages.iter_mut().find(|m| m.id == mid) {
@@ -734,10 +785,10 @@ impl Chats {
         if hist.len() > 1 {
             p.push_str("Conversation so far:\n\n");
             for m in &hist[..hist.len() - 1] {
-                let who = if m.role == Role::User {
-                    "User"
-                } else {
-                    "Assistant"
+                let who = match (&m.role, &m.via) {
+                    (Role::User, _) => "User".to_string(),
+                    (_, Some(v)) => format!("Assistant ({})", v.provider),
+                    _ => "Assistant".to_string(),
                 };
                 let text: String = m.text.chars().take(4000).collect();
                 p.push_str(&format!("{who}: {text}\n\n"));
@@ -1468,6 +1519,7 @@ mod tests {
                     ad: None,
                     cost_usd: None,
                     edited: false,
+                    via: None,
                 });
             }
         })
@@ -1500,6 +1552,17 @@ mod tests {
             meta(html, &["og:description", "description"]).as_deref(),
             Some("A page")
         );
+    }
+
+    #[test]
+    fn mentions_pick_a_cli() {
+        assert_eq!(mention("@codex review this").unwrap().provider, "codex");
+        assert_eq!(
+            mention("  @Claude what do you think?").unwrap().provider,
+            "claude"
+        );
+        assert!(mention("email me @ noon").is_none());
+        assert!(mention("@nobody hi").is_none());
     }
 
     #[test]

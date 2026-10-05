@@ -18,8 +18,8 @@
       </div>
       <div class="side-head">
         <div class="modes" id="modes" role="tablist" aria-label="Chat or code">
-          <button role="tab" data-mode="chat" id="modeChat">Chat</button>
-          <button role="tab" data-mode="code" id="modeCode">Code</button>
+          <button role="tab" data-mode="chat" id="modeChat"><span data-icon="bubble"></span>Chat</button>
+          <button role="tab" data-mode="code" id="modeCode"><span data-icon="codei"></span>Coding</button>
         </div>
         <button class="newbtn chat-only" id="newChat" title="New chat (⌘N)"><span data-icon="compose"></span>New chat<kbd>⌘N</kbd></button>
         <label class="search chat-only"><span data-icon="search"></span><input id="search" placeholder="Search chats" aria-label="Search chats" autocomplete="off"><kbd>⌘K</kbd></label>
@@ -28,6 +28,10 @@
       </div>
       <div class="list" id="list"></div>
       <div class="ports code-only" id="ports"></div>
+      <div class="side-acts">
+        <button class="cta code-only" id="cta" aria-expanded="false" aria-controls="drawer"></button>
+        <button class="upd" id="upd"></button>
+      </div>
       <div class="side-foot">
         <span class="sp"></span>
         <div class="machines" id="machines" role="group" aria-label="Machines"></div>
@@ -44,8 +48,7 @@
         <span class="sp" data-tauri-drag-region></span>
         <div class="right">
           <button class="ib code-only" id="addCanvas" aria-label="Add a canvas" title="Add a canvas" data-icon="plus"></button>
-          <button class="cta code-only" id="cta" aria-expanded="false" aria-controls="drawer"></button>
-          <button class="upd" id="upd"></button>
+
         </div>
       </header>
       <section class="canvas" id="canvas"><div class="grid" id="grid"></div></section>

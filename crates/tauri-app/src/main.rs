@@ -52,6 +52,15 @@ fn file_ticket(f: F, title: String, body: String) -> Res<String> {
 }
 
 #[tauri::command]
+async fn post_message(f: F<'_>, to: String, text: String) -> Res<()> {
+    let b = f.backend();
+    tauri::async_runtime::spawn_blocking(move || b.post_message(&to, &text))
+        .await
+        .map_err(err)?
+        .map_err(err)
+}
+
+#[tauri::command]
 fn diagram(f: F, id: usize) -> Res<Diagram> {
     let s = f.snapshot();
     let ap = s.approvals.get(id).ok_or("no such approval")?;
@@ -317,6 +326,67 @@ fn set_onboarded(f: F, done: bool) {
 }
 
 #[tauri::command]
+fn set_uses(f: F, uses: Vec<String>) {
+    let uses: Vec<String> = uses
+        .into_iter()
+        .filter(|u| u == "chat" || u == "code")
+        .collect();
+    if !uses.is_empty() {
+        f.update_prefs(|p| p.uses = uses);
+    }
+}
+
+#[tauri::command]
+fn set_worker(f: F, worker: Option<String>) {
+    f.update_prefs(|p| p.worker = worker.filter(|w| !w.is_empty()));
+}
+
+/// Which API keys are set (never their values).
+#[tauri::command]
+fn api_keys(f: F) -> Vec<(String, bool, bool)> {
+    let saved = f.prefs().api_keys;
+    [
+        "ANTHROPIC_API_KEY",
+        "OPENROUTER_API_KEY",
+        "TYPESAFE_API_KEY",
+    ]
+    .iter()
+    .map(|k| {
+        let in_app = saved.get(*k).is_some_and(|v| !v.is_empty());
+        let env = std::env::var(k).is_ok_and(|v| !v.is_empty());
+        (k.to_string(), in_app, env)
+    })
+    .collect()
+}
+
+#[tauri::command]
+fn set_api_key(f: F, name: String, value: String) -> Res<()> {
+    if ![
+        "ANTHROPIC_API_KEY",
+        "OPENROUTER_API_KEY",
+        "TYPESAFE_API_KEY",
+    ]
+    .contains(&name.as_str())
+    {
+        return Err("unknown key".into());
+    }
+    let v = value.trim().to_string();
+    f.update_prefs(|p| {
+        if v.is_empty() {
+            p.api_keys.remove(&name);
+        } else {
+            p.api_keys.insert(name.clone(), v.clone());
+        }
+    });
+    if v.is_empty() {
+        std::env::remove_var(&name);
+    } else {
+        std::env::set_var(&name, &v);
+    }
+    Ok(())
+}
+
+#[tauri::command]
 fn set_mode(f: F, mode: String) {
     f.update_prefs(|p| p.mode = mode);
 }
@@ -507,9 +577,19 @@ fn ready() {
 }
 
 fn main() -> anyhow::Result<()> {
+    // Agents in coding CLIs reach the message board through any Backspace
+    // binary: `msg ...` and `mcp`.
+    if let Some(code) =
+        backspace_core::board::client_main(&std::env::args().skip(1).collect::<Vec<_>>())
+    {
+        std::process::exit(code);
+    }
     // A folder on the command line opens it; otherwise the app starts with
     // no project (never the launch folder, which is `/` from the Dock).
     let ws = std::env::args().nth(1).map(PathBuf::from);
+    // Keys saved in the app, before any harness reads its config.
+    Prefs::load().apply_keys();
+
     // WebKitGTK's DMA-BUF renderer draws nothing on X servers without DRI3
     // (Xvfb, some VMs); the fallback costs nothing elsewhere.
     #[cfg(target_os = "linux")]
@@ -543,6 +623,7 @@ fn main() -> anyhow::Result<()> {
             approve,
             reject,
             file_ticket,
+            post_message,
             diagram,
             list_files,
             read_file,
@@ -571,6 +652,10 @@ fn main() -> anyhow::Result<()> {
             set_ollama_url,
             set_onboarded,
             set_mode,
+            set_uses,
+            set_worker,
+            api_keys,
+            set_api_key,
             set_default_route,
             chat_list,
             chat_thread,

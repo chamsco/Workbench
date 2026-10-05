@@ -2871,6 +2871,14 @@ fn st_pill(w: Pixels, label: &str, c: Hsla) -> Div {
 }
 
 fn main() -> anyhow::Result<()> {
+    // Agents in coding CLIs reach the message board through any Backspace
+    // binary: `msg ...` and `mcp`.
+    if let Some(code) =
+        backspace_core::board::client_main(&std::env::args().skip(1).collect::<Vec<_>>())
+    {
+        std::process::exit(code);
+    }
+    Prefs::load().apply_keys();
     let ws = std::env::args()
         .nth(1)
         .map(PathBuf::from)

@@ -4,8 +4,11 @@
 // the same controls and "Run setup again".
 
 var Onboard = (() => {
-  const STEPS = ["welcome", "clis", "local", "cloud", "done"];
-  let step = 0;
+  const ALL = ["welcome", "use", "clis", "local", "cloud", "done"];
+  let step = 0, uses = null;
+  // Cloud plans only matter for Chat; everything else serves both.
+  const steps = () => ALL.filter(s => s !== "cloud" || !uses || uses.includes("chat"));
+  let STEPS = ALL;
 
   function dots() {
     return `<div class="ob-dots">${STEPS.map((s, i) => `<span class="${i === step ? "on" : i < step ? "past" : ""}"></span>`).join("")}</div>`;
@@ -19,12 +22,24 @@ var Onboard = (() => {
 
   function render() {
     const el = $("#onboard");
+    STEPS = steps();
     const s = STEPS[step];
     if (s === "welcome") {
       el.innerHTML = frame(`<div class="ob-hero"><div class="ob-logo">${icon("bksp")}</div><h1>Welcome to Backspace</h1>
         <p>One place to chat with any model and to put coding agents to work on your projects.</p>
         <div class="ob-two"><div>${icon("compose")}<b>Chat</b><span>Threads with Claude, Codex, local models, routers or Backspace Cloud.</span></div>
         <div>${icon("folder")}<b>Code</b><span>Agents plan a project into tickets and build each one on its own branch. You approve every step.</span></div></div></div>`, { back: false, next: "Get started" });
+    } else if (s === "use") {
+      const tile = (k, ic, t, d) => `<button class="use" data-use="${k}" aria-pressed="${uses.includes(k)}">${icon(ic)}<b>${t}</b><span>${d}</span><i class="tick">${icon("check")}</i></button>`;
+      el.innerHTML = frame(`<h2>What will you use Backspace for?</h2><p class="ob-lead">Pick one or both. You can change this later in Settings.</p>
+        <div class="uses">${tile("chat", "bubble", "Chat", "Threads with any model: your CLIs, local models, routers or Backspace Cloud.")}${tile("code", "codei", "Coding", "Agents that plan your project into tickets and build them on their own branches.")}</div>
+        <p class="uses-note">${uses.length === 2 ? "Both: switch between them from the top of the sidebar." : uses[0] === "chat" ? "Chat only: the coding workbench stays out of the way." : "Coding only: no chat threads in the sidebar."}</p>`);
+      $$("[data-use]", el).forEach(b => (b.onclick = () => {
+        const k = b.dataset.use;
+        const next = uses.includes(k) ? uses.filter(u => u !== k) : [...uses, k];
+        if (!next.length) { b.classList.add("nope"); setTimeout(() => b.classList.remove("nope"), 400); return; }
+        uses = ["chat", "code"].filter(u => next.includes(u)); render();
+      }));
     } else if (s === "clis") {
       el.innerHTML = frame(`<h2>Your coding CLIs</h2><p class="ob-lead">Backspace uses the CLIs you already have, with your own subscriptions. Here's what's on this machine; switch off any you don't want offered.</p><div id="obCli" class="ob-prov"></div>`);
       Providers.mount($("#obCli"), { only: "cli" });
@@ -40,16 +55,19 @@ var Onboard = (() => {
       const cloud = prefs.cloud && prefs.cloud.token;
       el.innerHTML = frame(`<div class="ob-hero"><div class="ob-logo ok">${icon("check")}</div><h1>You're set</h1>
         ${on.length || cloud ? `<div class="ob-chips">${on.map(h => `<span class="ob-chip">${Providers.avatar(h.id, "xs")}${esc(h.name)}</span>`).join("")}${cloud ? `<span class="ob-chip">${Providers.avatar("cloud", "xs")}Cloud</span>` : ""}</div>` : `<p class="warnp">${icon("warn")}Nothing is connected yet, so Chat has no model to use. You can add one any time in Settings.</p>`}
-        <p>New chats go to <button class="lnk" id="obRoute" data-popper>${esc(Chat.routeName(prefs.default_route || null))}</button>.</p>
-        <div class="home-actions"><button class="btn primary big" id="obChat">${icon("compose")}Start chatting</button><button class="btn big" id="obCode">${icon("folder")}Open a project</button></div></div>`, { next: null, skip: false });
+        ${uses.includes("chat") ? `<p>New chats go to <button class="lnk" id="obRoute" data-popper>${esc(Chat.routeName(prefs.default_route || null))}</button>.</p>` : ""}
+        <div class="home-actions">${uses.includes("chat") ? `<button class="btn primary big" id="obChat">${icon("compose")}Start chatting</button>` : ""}${uses.includes("code") ? `<button class="btn ${uses.includes("chat") ? "" : "primary "}big" id="obCode">${icon("folder")}Open a project</button>` : ""}</div></div>`, { next: null, skip: false });
       const pick = $("#obRoute");
       // No choice yet: new chats use the first usable route.
-      if (!prefs.default_route) pick.textContent = "the first model available";
-      pick.onclick = e => Chat.routePicker(e.currentTarget, prefs.default_route, async r => { prefs.default_route = r; await invoke("set_default_route", { route: r }); render(); });
-      $("#obChat").onclick = () => finish("chat");
-      $("#obCode").onclick = () => finish("code");
+      if (pick && !prefs.default_route) pick.textContent = "the first model available";
+      if (pick) pick.onclick = e => Chat.routePicker(e.currentTarget, prefs.default_route, async r => { prefs.default_route = r; await invoke("set_default_route", { route: r }); render(); });
+      const oc = $("#obChat"); if (oc) oc.onclick = () => finish("chat");
+      const od = $("#obCode"); if (od) od.onclick = () => finish("code");
     }
-    const n = $("#obNext"); if (n) n.onclick = () => { step = Math.min(STEPS.length - 1, step + 1); render(); };
+    const n = $("#obNext"); if (n) n.onclick = async () => {
+      if (s === "use") { prefs.uses = uses; await invoke("set_uses", { uses }); }
+      step = Math.min(steps().length - 1, step + 1); render();
+    };
     const b = $("#obBack"); if (b) b.onclick = () => { step = Math.max(0, step - 1); render(); };
     const k = $("#obSkip"); if (k) k.onclick = () => finish(null);
     const f = el.querySelector("#obNext, .btn.primary"); if (f) f.focus();
@@ -58,12 +76,12 @@ var Onboard = (() => {
   async function finish(then) {
     $("#onboard").hidden = true; $("#win").classList.remove("onboarding");
     prefs.onboarded = true; await invoke("set_onboarded", { done: true });
-    if (then === "code") { setMode("code"); pickProject(); }
+    if (then === "code" || (prefs.uses || []).join() === "code") { setMode("code"); if (then === "code") pickProject(); }
     else { setMode("chat"); Chat.newChat(); }
   }
 
   return {
-    open() { step = 0; $("#onboard").hidden = false; $("#win").classList.add("onboarding"); closePop(); render(); },
+    open() { step = 0; uses = (prefs.uses && prefs.uses.length ? prefs.uses : ["chat", "code"]).slice(); $("#onboard").hidden = false; $("#win").classList.add("onboarding"); closePop(); render(); },
     finish,
   };
 })();
