@@ -25,8 +25,13 @@ var Providers = (() => {
 
   function row(h) {
     const ver = h.version ? `<span class="pver">v${esc(h.version)}</span>` : "";
-    const msg = h.message && (!h.enabled || h.auth !== "authenticated")
-      ? `<div class="pmsg">${esc(h.message)}${!h.installed && h.install && !h.install.startsWith("http") ? ` <button class="copy" data-copy="${esc(h.install)}" title="Copy">${icon("copy")}</button>` : ""}${!h.installed && h.install.startsWith("http") ? ` <button class="lnk" data-url="${esc(h.install)}">Download</button>` : ""}</div>` : "";
+    // Not installed: the status line already says so; offer the install hint only.
+    const hint = !h.installed && h.install
+      ? (h.install.startsWith("http")
+        ? `<div class="pmsg"><button class="lnk" data-url="${esc(h.install)}">Download ${esc(h.name)}</button></div>`
+        : `<div class="pmsg">Install: <code>${esc(h.install)}</code> <button class="copy" data-copy="${esc(h.install)}" title="Copy" aria-label="Copy install command">${icon("copy")}</button></div>`)
+      : "";
+    const msg = h.installed && h.message && (!h.enabled || h.auth !== "authenticated") ? `<div class="pmsg">${esc(h.message)}</div>` : hint;
     const models = h.kind !== "cli" && h.enabled && h.models.length ? `<div class="pmodels">${h.models.slice(0, 8).map(m => `<span>${esc(m)}</span>`).join("")}${h.models.length > 8 ? `<span>+${h.models.length - 8}</span>` : ""}</div>` : "";
     const rm = h.kind === "router" ? `<button class="ib" data-rmr="${esc(h.id)}" title="Remove router" aria-label="Remove ${esc(h.name)}">${icon("trash")}</button>` : "";
     return `<div class="prow${h.enabled ? "" : " dim"}" data-id="${esc(h.id)}">
@@ -70,7 +75,9 @@ var Providers = (() => {
     if (os) os.onclick = async () => { os.disabled = true; await invoke("set_ollama_url", { url: $("#olUrl", el).value }); prefs = await invoke("prefs"); await load(); };
     const ra = $("#rAdd", el);
     if (ra) ra.onclick = async () => {
-      const err = $("#rErr", el); err.textContent = ""; ra.disabled = true; ra.textContent = "Testing…";
+      const err = $("#rErr", el); err.textContent = "";
+      if (!$("#rName", el).value.trim() || !$("#rUrl", el).value.trim()) { err.textContent = "A router needs a name and a base URL."; return; }
+      ra.disabled = true; ra.textContent = "Testing…";
       try {
         await invoke("add_router", { name: $("#rName", el).value, baseUrl: $("#rUrl", el).value, apiKey: $("#rKey", el).value });
         prefs = await invoke("prefs"); await load(); toast("Router added", "ok");
@@ -80,7 +87,7 @@ var Providers = (() => {
 
   function render(el) {
     const opts = JSON.parse(el.dataset.opts || "{}");
-    const keep = {}; $$("input.tx", el).forEach(i => (keep[i.id] = i.value));
+    const keep = {}; $$("input.tx[id]", el).forEach(i => (keep[i.id] = i.value));
     el.innerHTML = html(opts);
     Object.entries(keep).forEach(([id, v]) => { const i = $("#" + id, el); if (i && v) i.value = v; });
     wire(el, opts);
@@ -142,7 +149,7 @@ var Providers = (() => {
       <div class="plans">${cards || `<div class="pempty">Loading plans…</div>`}</div>
       ${accountErr ? `<div class="err">${esc(accountErr)}</div>` : ""}
       <p class="fine">Ads are a separate card under a reply, labelled Sponsored. They are never written into an answer and are not picked from what you type. ${signed ? `<button class="lnk" id="cloudOut">Sign out of Cloud</button>` : ""}</p>
-      <p class="fine dev">${icon("warn")}This build talks to the development cloud at <code>${esc((prefs.cloud && prefs.cloud.url) || "")}</code> (<code>backspace-cli cloud</code>). Plans switch instantly; nothing is billed.</p>`;
+      <p class="fine dev">${icon("warn")}<span>This build talks to the development cloud at <code>${esc((prefs.cloud && prefs.cloud.url) || "")}</code> (<code>backspace-cli cloud</code>). Plans switch instantly; nothing is billed.</span></p>`;
     let over = account ? account.overage : "ads";
     $$("[data-over]", el).forEach(b => (b.onclick = () => { over = b.dataset.over; $$("[data-over]", el).forEach(x => x.setAttribute("aria-pressed", x === b)); }));
     $$("[data-plan]", el).forEach(b => (b.onclick = async () => {

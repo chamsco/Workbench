@@ -65,7 +65,8 @@ export function ThreadList({ onNewChat }: { onNewChat: () => void }) {
       if (!g) out.push((g = { label, items: [] }));
       g.items.push(t);
     }
-    return out;
+    // Pinned first, whatever the order threads arrive in.
+    return out.sort((a, b) => Number(b.label === "Pinned") - Number(a.label === "Pinned"));
   }, [threads, query]);
 
   return (

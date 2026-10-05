@@ -463,7 +463,7 @@ var Chat = (() => {
     if (C.reply && C.t) {
       const m = C.t.messages.find(m => m.id === C.reply);
       ctx.innerHTML = `${icon("reply")}<span>Replying to <b>${m && m.role === "user" ? "yourself" : esc(providerName(C.t.route))}</b>: ${esc((m ? m.text : "").slice(0, 90))}</span><button class="ib" id="cCtxX" aria-label="Cancel reply">${icon("close")}</button>`;
-    } else if (C.editing) ctx.innerHTML = `${icon("edit")}<span>Editing — sending asks again from here</span><button class="ib" id="cCtxX" aria-label="Cancel edit">${icon("close")}</button>`;
+    } else if (C.editing) ctx.innerHTML = `${icon("edit")}<span>Editing: sending asks again from here</span><button class="ib" id="cCtxX" aria-label="Cancel edit">${icon("close")}</button>`;
     else ctx.innerHTML = "";
     ctx.hidden = !ctx.innerHTML;
     const x = $("#cCtxX"); if (x) x.onclick = () => { if (C.editing) $("#cIn").value = ""; C.reply = null; C.editing = null; renderComposer(); };

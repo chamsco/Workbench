@@ -1,10 +1,10 @@
-// First-run setup: what Backspace is, which coding CLIs it found (switch
+// First-run setup: what Backspace is for (Chat, Coding or both), which coding CLIs it found (switch
 // each on or off), local models and routers, an optional Cloud plan, then
 // straight into a chat or a project. Skippable at every step; Settings has
 // the same controls and "Run setup again".
 
 var Onboard = (() => {
-  const ALL = ["welcome", "use", "clis", "local", "cloud", "done"];
+  const ALL = ["welcome", "clis", "local", "cloud", "done"];
   let step = 0, uses = null;
   // Cloud plans only matter for Chat; everything else serves both.
   const steps = () => ALL.filter(s => s !== "cloud" || !uses || uses.includes("chat"));
@@ -25,15 +25,11 @@ var Onboard = (() => {
     STEPS = steps();
     const s = STEPS[step];
     if (s === "welcome") {
-      el.innerHTML = frame(`<div class="ob-hero"><div class="ob-logo">${icon("bksp")}</div><h1>Welcome to Backspace</h1>
-        <p>One place to chat with any model and to put coding agents to work on your projects.</p>
-        <div class="ob-two"><div>${icon("compose")}<b>Chat</b><span>Threads with Claude, Codex, local models, routers or Backspace Cloud.</span></div>
-        <div>${icon("folder")}<b>Code</b><span>Agents plan a project into tickets and build each one on its own branch. You approve every step.</span></div></div></div>`, { back: false, next: "Get started" });
-    } else if (s === "use") {
       const tile = (k, ic, t, d) => `<button class="use" data-use="${k}" aria-pressed="${uses.includes(k)}">${icon(ic)}<b>${t}</b><span>${d}</span><i class="tick">${icon("check")}</i></button>`;
-      el.innerHTML = frame(`<h2>What will you use Backspace for?</h2><p class="ob-lead">Pick one or both. You can change this later in Settings.</p>
-        <div class="uses">${tile("chat", "bubble", "Chat", "Threads with any model: your CLIs, local models, routers or Backspace Cloud.")}${tile("code", "codei", "Coding", "Agents that plan your project into tickets and build them on their own branches.")}</div>
-        <p class="uses-note">${uses.length === 2 ? "Both: switch between them from the top of the sidebar." : uses[0] === "chat" ? "Chat only: the coding workbench stays out of the way." : "Coding only: no chat threads in the sidebar."}</p>`);
+      el.innerHTML = frame(`<div class="ob-hero"><div class="ob-logo">${icon("bksp")}</div><h1>Welcome to Backspace</h1>
+        <p>What will you use it for? Pick one or both; Settings can change it later.</p></div>
+        <div class="uses">${tile("chat", "bubble", "Chat", "Threads with any model: your CLIs, local models, routers or Backspace Cloud.")}${tile("code", "codei", "Coding", "Agents plan your project into tickets and build each on its own branch. You approve every step.")}</div>
+        <p class="uses-note">${uses.length === 2 ? "Both: switch between them from the top of the sidebar." : uses[0] === "chat" ? "Chat only: the coding workbench stays out of the way." : "Coding only: no chat threads in the sidebar."}</p>`, { back: false, next: "Get started" });
       $$("[data-use]", el).forEach(b => (b.onclick = () => {
         const k = b.dataset.use;
         const next = uses.includes(k) ? uses.filter(u => u !== k) : [...uses, k];
@@ -65,7 +61,7 @@ var Onboard = (() => {
       const od = $("#obCode"); if (od) od.onclick = () => finish("code");
     }
     const n = $("#obNext"); if (n) n.onclick = async () => {
-      if (s === "use") { prefs.uses = uses; await invoke("set_uses", { uses }); }
+      if (s === "welcome") { prefs.uses = uses; await invoke("set_uses", { uses }); }
       step = Math.min(steps().length - 1, step + 1); render();
     };
     const b = $("#obBack"); if (b) b.onclick = () => { step = Math.max(0, step - 1); render(); };

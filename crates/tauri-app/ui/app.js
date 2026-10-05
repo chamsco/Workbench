@@ -1161,14 +1161,14 @@ async function docsPane(body) {
 // ------------------------------------------------------------------ settings
 function openSettings(section) {
   S.settings = true; $("#settings").hidden = false; $("#canvas").hidden = true; $("#chat").hidden = true; renderSettings();
-  if (section) { const el = $(`#set-${section}`); if (el) el.scrollIntoView(); const f = $(`#set-${section} input`); if (f) f.focus(); }
+  if (section) { const el = $(`#set-${section}`), box = $("#settings"); if (el) box.scrollTop = el.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop - 12; const f = $(`#set-${section} input`); if (f) f.focus({ preventScroll: true }); }
   refreshShare();
 }
 function closeSettings() { if (!S.settings) return; S.settings = false; $("#settings").hidden = true; $("#canvas").hidden = S.mode !== "code"; $("#chat").hidden = S.mode !== "chat"; }
 async function refreshShare() { share = await invoke("share_status").catch(() => null); if (S.settings) renderSettings(); }
 function renderSettings() {
   const el = $("#settings");
-  const keep = {}; $$("input.tx", el).forEach(i => (keep[i.id] = i.value));
+  const keep = {}; $$("input.tx[id]", el).forEach(i => (keep[i.id] = i.value));
   const th = prefs.theme || "system";
   const sh = share || { enabled: false, addr: "127.0.0.1:7420", token: "", error: null, sharing: false };
   const u = upd && upd !== "checking" ? upd : null;
@@ -1177,7 +1177,7 @@ function renderSettings() {
     <section id="set-providers"><h2>Coding CLIs and models</h2><p class="lead">What Chat and projects can use. Backspace scans this machine for each CLI, its version and whether it is signed in; switch off any you don't want offered.</p><div id="setProviders"></div></section>
     <section id="set-plan"><h2>Backspace Cloud</h2><p class="lead">Chat without installing anything. Free with a short ad under each reply, or a paid plan.</p><div id="setPlan"></div></section>
     <section id="set-coding"><h2>Coding</h2><p class="lead">A project's planner runs on an API model (Anthropic or OpenRouter, keys below). Each ticket's worker can run on the router's pick, or be handed to a coding CLI you're signed in to: it works in the ticket's own git worktree, then goes through the same checks and your review.</p>
-      <div class="line"><span class="lab">Workers run on<small>Applies when a project opens.${hasProject ? ` <button class="lnk" id="reopen">Reopen ${esc(snap.name)} now</button>` : ""}</small></span><div class="segc wrap" id="workerSeg"></div></div>
+      <div class="line stack"><span class="lab">Workers run on<small>Applies when a project opens.${hasProject ? ` <button class="lnk" id="reopen">Reopen ${esc(snap.name)} now</button>` : ""}</small></span><div class="segc" id="workerSeg"></div></div>
       <div id="keyRows"></div></section>
     <section id="set-chat"><h2>Chat</h2><div class="line"><span class="lab">New chats go to<small>You can switch per chat from the composer.</small></span><button class="btn" id="setRoute" data-popper>${esc(window.Chat ? Chat.routeName(prefs.default_route) : "Pick")}</button></div></section>
     <section id="set-projects"><h2>Projects</h2>
@@ -1251,7 +1251,7 @@ async function renderCoding(el) {
   seg.innerHTML = WORKERS.map(([m, l, h]) => `<button data-w="${m}" aria-pressed="${(prefs.worker || "") === m}" ${ok(h) ? "" : `disabled title="${l} isn't installed or is switched off"`}>${l}</button>`).join("");
   $$("[data-w]", seg).forEach(b => (b.onclick = async () => { prefs.worker = b.dataset.w || null; await invoke("set_worker", { worker: prefs.worker }); renderSettings(); toast(b.dataset.w ? `New tickets go to ${b.textContent}` : "The router picks a model per ticket", "ok"); }));
   const ro = $("#reopen", el); if (ro) ro.onclick = () => { const p = snap.workspace; closeSettings(); openProject(p); };
-  const keys = await invoke("api_keys").catch(() => []);
+  const keys = (await invoke("api_keys").catch(() => null)) || [];
   const names = { ANTHROPIC_API_KEY: ["Anthropic", "Claude models for the planner and workers"], OPENROUTER_API_KEY: ["OpenRouter", "Any model through one key"], TYPESAFE_API_KEY: ["Jev router", "Optional: smarter model choice per agent"] };
   $("#keyRows", el).innerHTML = keys.map(([k, inApp, env]) => `<div class="line"><span class="lab">${names[k][0]}<small>${names[k][1]} · ${inApp ? "saved in Backspace" : env ? "from your environment" : "not set"}</small></span>
     <input class="tx mono" type="password" data-key="${k}" placeholder="${inApp || env ? "••••••••" : k}" style="width:220px" aria-label="${names[k][0]} key"><button class="btn" data-savekey="${k}">Save</button></div>`).join("");

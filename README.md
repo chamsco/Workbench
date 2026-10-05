@@ -60,16 +60,64 @@ past it (tabs of canvases, machines, settings).
   (the outer quarter) it splits that canvas on that side. Drop it on another
   tab to move it there. Esc cancels. The arrangement is a split tree
   (`crates/core/src/layout.rs`), saved per tab in prefs.json.
-- **Tickets** open in a drawer from the review pill (top right): hover a
-  moment, or click to pin. File tickets there, and open one for its details.
+- **Tickets** open in a drawer from the review pill in the sidebar (under
+  the run's spend): hover a moment, or click to pin. File tickets there, and
+  open one for its details. "Check for updates" sits just below it.
 - **Machines** switch from the sidebar foot (laptop = this machine, cloud =
   a followed one; `+` adds one). The sidebar title shows which machine you
   are looking at.
-- **Settings** (gear) cover the theme, machines, sharing this machine, and
-  update checks. The update pill reads "Up to date" or "Download & Update".
+- **Settings** (gear) cover providers, the Cloud plan, which harness runs
+  workers, API keys, the default chat model, projects, what the app is used
+  for, the theme, machines, sharing this machine, and update checks.
 
 Tabs, theme and machines live in `~/.config/backspace/prefs.json`, shared by
 both shells (`BACKSPACE_PREFS` overrides the path).
+
+### Setup, Chat and Coding
+
+First run walks through setup (skippable; "Run setup again" in Settings):
+pick what Backspace is for (Chat, Coding or both; with both, a pill at the
+top of the sidebar switches), then the scan of coding CLIs on this machine
+(Codex, Claude, Cursor, Grok, OpenCode, Antigravity: version, signed in or
+not, plan where it can tell) with a switch per CLI, then Ollama and any
+OpenAI-compatible routers, then an optional Cloud plan.
+`backspace-cli scan` prints the same scan.
+
+**Chat** (Tauri shell) is a port of [Whirl](https://github.com/whirlchat/whirl)'s
+React chat face (MIT; `crates/tauri-app/web`, built into
+`ui/chat-web/whirl.{js,css}` with `npm run build`), frosted over the window.
+A thread answers from one of:
+
+- a coding CLI you are signed in to, headless, on your own subscription
+  (Claude resumes its session between turns);
+- a model in Ollama, or any router (OpenRouter, LM Studio, vLLM, LiteLLM);
+- **Backspace Cloud**: Free (50 replies a day, small models, one sponsored
+  card under each reply), Plus ($8/month: 1,500 replies with no ads on small
+  and standard models, then small models with ads) or Max ($30/month: 5,000
+  replies, every model, then ads or pay as you go). Ads are a separate card,
+  never inside an answer, and are not chosen from what you type.
+  `crates/core/src/cloud.rs` holds the rules; `backspace-cli cloud` runs a
+  development server (`BACKSPACE_CLOUD_MOCK=1` for canned replies).
+  Nothing is billed yet.
+
+The composer switches the model per thread, attaches files, and `@codex`
+(or any CLI id) sends one reply to another CLI. Threads can be retried,
+edited, branched, pinned and renamed. They are JSON files under the data
+dir (`BACKSPACE_DATA` overrides).
+
+**Coding** opens a folder as a project. Workers run on the router's pick or,
+when Settings → Coding names one, on a coding CLI (Claude Code, Codex,
+Cursor, Grok, OpenCode) inside the ticket's worktree; their work goes through
+the same check, review and merge, and review feedback goes back to the CLI
+(up to four rounds). The planner still needs an API model (Anthropic or
+OpenRouter key, set in Settings or the environment).
+
+**Agents talk to each other** through a per-project message board. API
+agents get `list_agents`, `send_message` and `read_messages` tools; CLI
+workers get the same through an MCP server (`backspace mcp`) or the shell
+(`backspace msg agents|send|read`), both reaching a token-protected bridge
+on 127.0.0.1. Address an agent by its key or its ticket's key. The board
+shows as the "Team chat" canvas.
 
 ### Following other machines
 
@@ -120,6 +168,9 @@ cargo run --release -p backspace -- ~/projects/my-app     # GUI (GPUI)
 cargo run --release -p backspace-tauri -- ~/projects/my-app   # GUI (Tauri; Linux needs libwebkit2gtk-4.1-dev)
 cargo run --release -p backspace-cli -- ~/projects/my-app "build ..."
 cargo run --release -p backspace-cli -- serve ~/projects/my-app     # share it
+cargo run --release -p backspace-cli -- scan                        # coding CLIs, Ollama, routers
+cargo run --release -p backspace-cli -- cloud                       # dev Cloud server on :7430
+(cd crates/tauri-app/web && npm ci && npm run build)                 # after editing the chat face
 cargo test                                                 # core + e2e (mock model)
 ```
 
@@ -217,3 +268,9 @@ State is written to `<workspace>/.backspace/state.json` as a record of the run.
 - Merge conflicts are handed back to the agent, but that path is only covered
   by the git unit test, not the end-to-end tests.
 - The heuristic router is crude by design; routing quality comes from Jev.
+- Chat, setup and Cloud exist only in the Tauri shell; the GPUI shell has
+  the coding workbench only.
+- The headless flags for Codex, Cursor, Grok, OpenCode and Antigravity
+  follow their docs but were only exercised against Claude Code.
+- Cloud is a development server: no accounts beyond a local token, no
+  billing.

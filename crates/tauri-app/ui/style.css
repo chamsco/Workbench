@@ -376,7 +376,8 @@ body { margin: 0; background: var(--desk-base); color: var(--fg); font: 13px/1.4
 .preview { border-top: 0.5px solid var(--pane-edge); max-height: 45%; overflow: auto; padding: 8px 12px; font: 11.5px/1.5 var(--font-mono); white-space: pre-wrap; color: var(--term-fg); }
 .dot.fail { background: var(--red); }
 .doc pre { font: 12.5px/1.5 var(--font-mono); background: var(--hover); padding: 10px 12px; border-radius: 8px; overflow-x: auto; }
-.doc ul { padding-left: 20px; }
+.doc ul, .doc ol { padding-left: 20px; margin: 8px 0; } .doc ul { list-style: disc; } .doc ol { list-style: decimal; } .doc li + li { margin-top: 3px; }
+.doc h3 { font-size: 13.5px; font-weight: 600; margin: 18px 0 6px; } .doc p { margin: 8px 0; } .doc h1, .doc h2 { font-weight: 600; }
 .nothing { color: var(--fg-3); padding: 14px; font-size: 12.5px; }
 /* The desk is a still backdrop in the native shells (GPUI paints it static too). */
 .native .blob { animation: none; }
@@ -505,6 +506,9 @@ body { margin: 0; background: var(--desk-base); color: var(--fg); font: 13px/1.4
 .set .lead { margin: 0 0 12px; color: var(--fg-3); font-size: 12.5px; line-height: 1.5; }
 .set .line { display: flex; align-items: center; gap: 10px; min-height: 34px; }
 .set .line > .lab { flex: 1; min-width: 0; }
+.set .line + .line, .set .line + #keyRows, #keyRows .line + .line { margin-top: 8px; }
+.set .line.stack { flex-direction: column; align-items: stretch; gap: 8px; }
+.set .line.stack > .segc { align-self: flex-start; }
 .set .line > .lab small { display: block; color: var(--fg-3); font-size: 11.5px; margin-top: 1px; overflow-wrap: anywhere; }
 .segc { display: flex; gap: 2px; padding: 2px; border-radius: 8px; background: var(--hover); }
 .segc button { height: 24px; padding: 0 12px; border-radius: 6px; font-size: 12px; color: var(--fg-3); }
