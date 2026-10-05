@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Backspace</title>
+<style>@layer bs-reset;</style>
+<link rel="stylesheet" href="chat-web/whirl.css">
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="chat.css">
 </head>
@@ -27,6 +29,7 @@
         <div class="seg code-only" role="group" aria-label="Sidebar view" id="seg"></div>
       </div>
       <div class="list" id="list"></div>
+      <div class="list whirl-list chat-only" id="chatList" hidden></div>
       <div class="ports code-only" id="ports"></div>
       <div class="side-acts">
         <button class="cta code-only" id="cta" aria-expanded="false" aria-controls="drawer"></button>
@@ -67,5 +70,8 @@
 <script src="providers.js"></script>
 <script src="chat.js"></script>
 <script src="onboard.js"></script>
+<!-- The chat face: Whirl's components on Backspace (web/, MIT). Deferred, so
+     it is defined before app.js boots on DOMContentLoaded. -->
+<script type="module" src="chat-web/whirl.js"></script>
 </body>
 </html>

@@ -64,7 +64,7 @@
 .ch-t { min-width: 0; display: grid; line-height: 1.15; }
 .ch-title { font-weight: 600; font-size: 13px; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 46vw; }
 .ch-sub { font-size: 11px; color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.chat-head .ib[aria-pressed="true"] { color: var(--accent); }
+.chat-head .ib[aria-pressed="true"] { color: var(--bs-accent); }
 .meterpill { font-size: 11px; color: var(--fg-2); padding: 2px 8px; border-radius: 999px; background: var(--hover); white-space: nowrap; }
 
 /* ---------- conversation */
@@ -416,3 +416,9 @@ input.tx.mono { font-family: var(--font-mono); font-size: 12px; }
 .bto { height: 28px; border-radius: 7px; border: 0.5px solid var(--pane-edge); background: var(--hover); color: var(--fg); font: inherit; font-size: 12px; padding: 0 6px; max-width: 160px; }
 .bin { flex: 1; min-width: 0; height: 28px; border-radius: 7px; border: 0.5px solid var(--pane-edge); background: var(--hover); padding: 0 9px; font: inherit; font-size: 12.5px; color: var(--fg); outline: 0; }
 .bin:focus { border-color: var(--blue); }
+
+/* With Whirl's chat mounted, its own rows replace the vanilla ones. */
+.win.whirl-on .newbtn, .win.whirl-on .search, .win.whirl-on .chat-head { display: none !important; }
+.win.whirl-on.m-chat #list { display: none; }
+.whirl-list { padding: 4px 12px 8px; }
+.win.whirl-on .chat { padding: 0 6px 6px 0; }

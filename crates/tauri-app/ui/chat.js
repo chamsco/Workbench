@@ -145,8 +145,36 @@ var Chat = (() => {
     return new Date(ms).toLocaleDateString([], { month: "short", day: "numeric" });
   }
 
+  // ---------------------------------------------------------------- Whirl
+  // The chat face is Whirl's (web/ → chat-web/whirl.js) when its bundle
+  // loaded; the vanilla rendering below stays as the fallback.
+  let whirl = false;
+  const host = () => ({
+    invoke: (cmd, args) => invoke(cmd, args),
+    routes: options,
+    routeName,
+    providerName,
+    defaultRoute,
+    usable,
+    account: () => Providers.account,
+    openSettings: sec => openSettings(sec),
+    runSetup: () => Onboard.open(),
+    toast,
+    openUrl: url => invoke("open_url", { url }),
+  });
+  function mountWhirl() {
+    if (whirl || !window.WhirlChat) return false;
+    const user = (window.__BOOT && window.__BOOT.user) || "there";
+    window.WhirlChat.mount($("#chat"), $("#chatList"), host(), user);
+    whirl = true;
+    $("#win").classList.add("whirl-on");
+    $("#chatList").hidden = false;
+    return true;
+  }
+
   // ---------------------------------------------------------------- sidebar
   function renderThreads() {
+    if (whirl) return;
     const list = $("#list");
     const q = C.q.trim().toLowerCase();
     const ts = C.threads.filter(t => !q || t.title.toLowerCase().includes(q) || t.preview.toLowerCase().includes(q));
@@ -195,6 +223,7 @@ var Chat = (() => {
 
   // ---------------------------------------------------------------- header
   function renderHead() {
+    if (whirl) return;
     const h = $("#chatHead");
     if (!C.t) { h.innerHTML = `<span class="ch-title">New chat</span>`; return; }
     const r = C.t.route, a = Providers.account;
@@ -209,6 +238,7 @@ var Chat = (() => {
 
   // ---------------------------------------------------------------- body
   function render() {
+    if (whirl || mountWhirl()) { window.WhirlChat.refresh(); return; }
     const el = $("#chat");
     renderHead();
     if (!el.querySelector(".chat-wrap")) {
@@ -412,6 +442,7 @@ var Chat = (() => {
   function grow(ta) { ta.style.height = "auto"; ta.style.height = Math.min(220, ta.scrollHeight) + "px"; }
   function curRoute() { return C.t ? C.t.route : C.homeRoute || defaultRoute(); }
   function renderComposerRoute() {
+    if (whirl) { window.WhirlChat.refresh(); return; }
     const b = $("#cRoute"); if (!b) return;
     const r = curRoute();
     b.innerHTML = `${Providers.avatar(avId(r), "xs")}<span>${esc(routeName(r))}</span>${icon("chevd")}`;
@@ -507,6 +538,11 @@ var Chat = (() => {
 
   // ---------------------------------------------------------------- data
   async function refresh() {
+    if (whirl) {
+      const a = await invoke("cloud_cached").catch(() => null);
+      if (a) Providers.setAccount(a);
+      return window.WhirlChat.refresh();
+    }
     C.threads = await invoke("chat_list").catch(() => []);
     if (C.id) {
       C.t = await invoke("chat_thread", { id: C.id }).catch(() => null);
@@ -516,6 +552,7 @@ var Chat = (() => {
     if (S.mode === "chat" && !S.settings) { renderThreads(); if ($("#chat .chat-wrap")) { renderHead(); if (C.t) { renderMsgs(); renderSugg(); } renderComposer(); } else render(); }
   }
   async function open(id) {
+    if (whirl) { if (S.settings) closeSettings(); if (S.mode !== "chat") setMode("chat"); return window.WhirlChat.open(id); }
     C.id = id; C.reply = null; C.editing = null;
     C.t = await invoke("chat_thread", { id }).catch(() => null);
     if (S.settings) closeSettings();
@@ -527,6 +564,7 @@ var Chat = (() => {
     if (narrow()) setSide(false);
   }
   function newChat() {
+    if (whirl) { if (S.settings) closeSettings(); if (S.mode !== "chat") setMode("chat"); window.WhirlChat.home(); return; }
     C.id = null; C.t = null; C.reply = null; C.editing = null; C.homeRoute = null;
     if (S.settings) closeSettings();
     if (S.mode !== "chat") setMode("chat");

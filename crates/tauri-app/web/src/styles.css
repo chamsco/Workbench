@@ -1,0 +1,38 @@
+/* Whirl's design system (MIT, ./whirl/LICENSE), then Backspace's glass:
+   the pane and the composer wells go translucent over the window's frost,
+   and the hover tones become see-through so they read on the frosted
+   sidebar too. */
+@import "./whirl/styles/globals.css";
+
+@source "./";
+
+:root {
+  --surface: rgb(255 255 255 / 0.74);
+  --well: rgb(243 243 243 / 0.82);
+  --well-translucent: rgb(246 246 246 / 0.66);
+  --background: transparent;
+  --accent: rgb(0 0 0 / 0.055);
+  --accent-pressed: rgb(0 0 0 / 0.035);
+  --popover-translucent: rgb(255 255 255 / 0.86);
+}
+.dark {
+  --surface: rgb(24 24 26 / 0.72);
+  --well: rgb(44 44 46 / 0.78);
+  --well-translucent: rgb(40 40 42 / 0.66);
+  --background: transparent;
+  --accent: rgb(255 255 255 / 0.07);
+  --accent-pressed: rgb(255 255 255 / 0.045);
+  --popover-translucent: rgb(36 36 38 / 0.88);
+}
+
+/* The pane floats on the window's glass. */
+.whirl-pane {
+  -webkit-backdrop-filter: blur(28px) saturate(1.5);
+  backdrop-filter: blur(28px) saturate(1.5);
+}
+
+/* Inter is Whirl's face; Backspace keeps the platform's (SF Pro on a Mac)
+   with Inter behind it, so chat and chrome match. */
+#chat, #list .whirl-side, [data-base-ui-portal], [role="dialog"] {
+  font-family: var(--font-ui);
+}

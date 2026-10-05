@@ -657,7 +657,7 @@ function mascot() {
   const rows = ["...XXXXXXXXX", "..XXXXXXXXXX", ".XXXX.XX.XXX", "XXXXXXXXXXXX", ".XXXXXXXXXXX", "..XX.XXXX.XX", "...XXXXXXXXX"];
   let r = "";
   rows.forEach((row, y) => [...row].forEach((c, x) => { if (c === "X") r += `<rect x="${x * 4}" y="${y * 4}" width="4" height="4"/>`; }));
-  return `<svg viewBox="0 0 48 28" fill="var(--accent)" aria-hidden="true">${r}</svg>`;
+  return `<svg viewBox="0 0 48 28" fill="var(--bs-accent)" aria-hidden="true">${r}</svg>`;
 }
 function logHTML(e) {
   const t = e.text;
@@ -1300,6 +1300,7 @@ addEventListener("resize", () => { setSide(!narrow()); });
 // After every script has run (chat.js and friends load after this one).
 addEventListener("DOMContentLoaded", async () => {
   const boot = await invoke("boot");
+  window.__BOOT = boot;
   document.documentElement.classList.add("native", boot.platform);
   prefs = await invoke("prefs");
   if ([1, 2, 3, 4].includes(boot.layout)) {

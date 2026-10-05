@@ -562,7 +562,17 @@ fn boot() -> serde_json::Value {
         .ok()
         .and_then(|v| v.parse::<u8>().ok());
     let bench = std::env::var_os("BACKSPACE_READY_FILE").is_some();
-    serde_json::json!({ "platform": platform, "layout": layout, "bench": bench })
+    // First name for the chat greeting: the login name, capitalised.
+    let user = std::env::var("USER")
+        .or_else(|_| std::env::var("USERNAME"))
+        .ok()
+        .filter(|u| !u.is_empty() && u != "root")
+        .map(|u| {
+            let mut c = u.chars();
+            c.next().map(|f| f.to_uppercase().collect::<String>() + c.as_str()).unwrap_or(u)
+        })
+        .unwrap_or_else(|| "there".into());
+    serde_json::json!({ "platform": platform, "layout": layout, "bench": bench, "user": user })
 }
 
 /// The UI's first frame with data is on screen; bench/ times launch to this.
