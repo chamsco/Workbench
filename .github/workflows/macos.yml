@@ -1,0 +1,74 @@
+# Builds Backspace.app and a .dmg for Macs (Apple Silicon and Intel in one
+# universal binary). Ad-hoc signed, not notarized: on first open, right-click
+# the app → Open, or run `xattr -dr com.apple.quarantine /Applications/Backspace.app`.
+name: macOS app
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ["crates/**", "Cargo.*", ".github/workflows/macos.yml"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: macos-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-14
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: macos-universal
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: crates/tauri-app/web/package-lock.json
+
+      - name: Build the chat UI
+        working-directory: crates/tauri-app/web
+        run: npm ci && npm run build
+
+      - name: Icons
+        working-directory: crates/tauri-app
+        run: npx --yes @tauri-apps/cli@2 icon icons/icon.png -o icons
+
+      - name: Build Backspace.app and .dmg
+        working-directory: crates/tauri-app
+        run: |
+          npx --yes @tauri-apps/cli@2 build --target universal-apple-darwin --bundles app,dmg \
+            -c '{"bundle":{"active":true,"icon":["icons/icon.icns","icons/icon.png"],"macOS":{"signingIdentity":"-","minimumSystemVersion":"11.0"}}}'
+
+      - name: Collect
+        run: |
+          b=target/universal-apple-darwin/release/bundle
+          mkdir -p out
+          cp "$b"/dmg/*.dmg out/Backspace-mac.dmg
+          ditto -c -k --keepParent "$b/macos/Backspace.app" out/Backspace-mac.app.zip
+          ls -la out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Backspace-mac
+          path: out/*
+
+      - name: Publish to the "mac-latest" pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete mac-latest --yes --cleanup-tag 2>/dev/null || true
+          gh release create mac-latest out/* --prerelease --target "$GITHUB_SHA" \
+            --title "Backspace for Mac (latest main)" \
+            --notes "Built from ${GITHUB_SHA::7}. Unsigned: right-click Backspace.app → Open the first time, or run: xattr -dr com.apple.quarantine /Applications/Backspace.app"
