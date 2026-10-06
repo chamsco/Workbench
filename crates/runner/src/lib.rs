@@ -284,6 +284,12 @@ async fn run_cli(req: &Request, provider: &str, bin: &PathBuf, on: Sink<'_>) -> 
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
+    // Started from inside another Claude Code session (a terminal running
+    // it), the CLI would inherit that session's identity: drop it so each
+    // run gets its own session to resume.
+    for k in ["CLAUDECODE", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_REMOTE_SESSION_ID", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_PID"] {
+        cmd.env_remove(k);
+    }
     for (k, v) in &req.env {
         cmd.env(k, v);
     }

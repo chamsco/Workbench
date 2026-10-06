@@ -110,6 +110,10 @@ pub struct Msg {
     /// The trace of how this reply was made (trace.rs).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trace: Option<String>,
+    /// Cut off because Backspace closed while it was being written; it can
+    /// be resumed (`Chats::resume`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub interrupted: bool,
 }
 
 impl Msg {
@@ -132,6 +136,7 @@ impl Msg {
             author: None,
             author_name: None,
             trace: None,
+            interrupted: false,
         }
     }
 }
@@ -357,6 +362,8 @@ pub struct Ctx {
 struct Call {
     agent: Option<crate::agents::Agent>,
     transcript: Option<String>,
+    /// Carry on with a stopped reply instead of starting a new one.
+    resume: bool,
 }
 
 impl Chats {
@@ -377,6 +384,7 @@ impl Chats {
                     for m in &mut t.messages {
                         if matches!(m.status, Status::Sending | Status::Streaming) {
                             m.status = Status::Stopped;
+                            m.interrupted = m.role == Role::Assistant;
                         }
                     }
                     threads.insert(t.id.clone(), t);
@@ -711,6 +719,7 @@ impl Chats {
                 author: None,
                 author_name: None,
                 trace: None,
+                interrupted: false,
             });
             t.updated = now;
         })?;
@@ -834,9 +843,51 @@ impl Chats {
         msg.author_name = agent.as_ref().map(|a| a.name.clone());
         let mid = msg.id.clone();
         self.edit_thread(id, |t| t.messages.push(msg))?;
+        self.spawn_reply(id, mid, route, ctx, Call { agent, transcript: None, resume: false }, mentioned);
+        Ok(())
+    }
+
+    /// Carry on with the last reply after it stopped (Backspace closed, or
+    /// you pressed Stop): on the CLI's own session when there is one, else
+    /// from the conversation plus what was written so far.
+    pub fn resume(self: &Arc<Self>, id: &str, ctx: Ctx) -> Result<()> {
+        if self.is_busy(id) {
+            bail!("wait for the reply, or stop it first");
+        }
+        let (own, agent_id, members, last) = self
+            .threads
+            .lock()
+            .unwrap()
+            .get(id)
+            .map(|t| (t.route.clone(), t.agent.clone(), t.members.clone(), t.messages.last().cloned()))
+            .ok_or_else(|| anyhow!("no such chat"))?;
+        if !members.is_empty() {
+            bail!("in a group, send your message again instead");
+        }
+        let last = last
+            .filter(|m| m.role == Role::Assistant && matches!(m.status, Status::Stopped | Status::Error))
+            .ok_or_else(|| anyhow!("there's no stopped reply to carry on with"))?;
+        let agent = agent_id.and_then(|a| ctx.agents.as_ref()?.get(&a));
+        let mentioned = last.via.is_some();
+        let route = last.via.clone().unwrap_or_else(|| agent.as_ref().map(|a| a.route.clone()).unwrap_or(own));
+        let agent = if mentioned { None } else { agent };
+        self.edit_thread(id, |t| {
+            if let Some(m) = t.messages.last_mut() {
+                m.interrupted = false;
+                m.error = None;
+                m.status = Status::Streaming;
+                if !m.text.is_empty() && !m.text.ends_with("\n\n") {
+                    m.text.push_str("\n\n");
+                }
+            }
+        })?;
+        self.spawn_reply(id, last.id, route, ctx, Call { agent, transcript: None, resume: true }, mentioned);
+        Ok(())
+    }
+
+    fn spawn_reply(self: &Arc<Self>, id: &str, mid: String, route: Route, ctx: Ctx, call: Call, mentioned: bool) {
         let me = self.clone();
         let tid = id.to_string();
-        let call = Call { agent, transcript: None };
         let task = self.rt.spawn(async move {
             let res = me.run(&tid, &mid, &route, &ctx, &call).await;
             if mentioned {
@@ -852,7 +903,6 @@ impl Chats {
             .unwrap()
             .insert(id.to_string(), task.abort_handle());
         self.poke();
-        Ok(())
     }
 
     /// Mark a reply done or failed.
@@ -912,6 +962,7 @@ impl Chats {
                     break;
                 }
                 let call = Call {
+                    resume: false,
                     transcript: Some(me.group_transcript(&tid, &a, &roster)),
                     agent: Some(a.clone()),
                 };
@@ -1093,8 +1144,19 @@ impl Chats {
         }
         let input = req.history.last().map(|t| t.text.clone()).unwrap_or_default();
         let mut rec = crate::trace::Recorder::start(id, mid, &format!("reply · {who}"), attrs, &input);
+        // The final answer counts only if nothing streamed in this run
+        // (a resumed reply already has text of its own).
+        let mut streamed = false;
         let res = backspace_runner::run(&self.http, &req, &mut |e| {
             rec.on(&e);
+            let e = match e {
+                RunEvent::Final { text } if !streamed && !text.is_empty() => RunEvent::Text { text },
+                RunEvent::Final { .. } => return,
+                e => e,
+            };
+            if matches!(e, RunEvent::Text { .. } | RunEvent::Replace { .. }) {
+                streamed = true;
+            }
             self.on_event(id, mid, keep_session, e)
         })
         .await;
@@ -1166,7 +1228,22 @@ impl Chats {
             RouteKind::Cloud => bail!("Cloud replies don't go through the runner"),
         };
         let (hist, session) = self.history_for(id, call);
-        let mut req = Request::new(target, self.turns(id, &hist));
+        let mut turns = self.turns(id, &hist);
+        if call.resume {
+            const GO_ON: &str = "You were cut off before you finished (the app closed, or the user paused you). \
+                Carry on from exactly where you stopped. Don't repeat what you already said or did; \
+                check the state of files or commands first if you need to.";
+            if session.is_some() {
+                turns = vec![Turn::user(GO_ON)];
+            } else {
+                let partial = self.peek(id).and_then(|t| t.messages.last().map(|m| m.text.trim().to_string())).unwrap_or_default();
+                if !partial.is_empty() {
+                    turns.push(Turn { user: false, text: partial, who: None, files: vec![] });
+                }
+                turns.push(Turn::user(GO_ON));
+            }
+        }
+        let mut req = Request::new(target, turns);
         req.model = route.model.clone().filter(|m| !m.is_empty());
         req.system = self.system_text(id, ctx, call);
         req.session = session;
@@ -1214,6 +1291,11 @@ impl Chats {
 
     /// Apply one runner event to the reply being written.
     fn on_event(&self, id: &str, mid: &str, keep_session: bool, e: RunEvent) {
+        // Each tool call is a checkpoint (before and after): what's written so far is
+        // saved, so a reply cut off by quitting can be resumed from there.
+        if matches!(e, RunEvent::ToolStart { .. } | RunEvent::ToolEnd { .. }) {
+            self.save(id);
+        }
         match e {
             RunEvent::Text { text } => self.append(id, mid, &text),
             RunEvent::Break => {
@@ -1229,11 +1311,8 @@ impl Chats {
                 }
             }
             RunEvent::Replace { text } => self.set_text(id, mid, &text),
-            RunEvent::Final { text } => self.with_msg(id, mid, |m| {
-                if m.text.trim().is_empty() {
-                    m.text = text;
-                }
-            }),
+            // Turned into text by `run` when nothing else came.
+            RunEvent::Final { .. } => {}
             RunEvent::Model { model } => self.with_msg(id, mid, |m| m.model = Some(model)),
             RunEvent::Session { id: s } => {
                 if keep_session {
@@ -1501,6 +1580,7 @@ mod tests {
                     author: None,
                     author_name: None,
                     trace: None,
+                    interrupted: false,
                 });
             }
         })

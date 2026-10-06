@@ -18,7 +18,7 @@ import {
 import { UserMessage } from "@/components/thread/user-message";
 import { AssistantMessage } from "./AssistantMessage";
 import { LinkCard, Quote, RememberButton, ReplyButton, TapbackButton, Tapbacks } from "./Extras";
-import { agentById, branch, edit, getHost, retry, toChatMessage, useChat, type Msg, type Thread } from "../bridge";
+import { agentById, branch, edit, getHost, retry, resume, toChatMessage, useChat, type Msg, type Thread } from "../bridge";
 import { Avatar } from "./Agents";
 
 const PREVIOUS_TURN_PEEK_PX = 72;
@@ -135,6 +135,8 @@ const Row = memo(function Row({
             avatar={raw.author ? <Avatar agent={author} size={22} /> : undefined}
             ad={raw.ad}
             onRetry={canRetry ? () => void retry(thread.id).catch(toast) : undefined}
+            interrupted={!!raw.interrupted}
+            onResume={canRetry && raw.status === "stopped" && !thread.members?.length ? () => void resume(thread.id).catch(toast) : undefined}
             onBranch={() => void branch(thread.id, raw.id).catch(toast)}
             quote={<Quote of={of} align="start" />}
             badge={<Tapbacks thread={thread.id} msg={raw} />}

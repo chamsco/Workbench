@@ -39,8 +39,14 @@ export function AssistantMessage({
   actions,
   below,
   avatar,
+  interrupted,
+  onResume,
 }: {
   avatar?: ReactNode;
+  /** Cut off because Backspace closed. */
+  interrupted?: boolean;
+  /** Carry on with this stopped reply. */
+  onResume?: () => void;
   message: ChatMessage;
   error?: string | null;
   answeredBy?: string;
@@ -80,7 +86,16 @@ export function AssistantMessage({
       {stopped && (
         <div className="mt-2 flex items-center gap-1.5 text-[13px]/4 font-medium text-muted-foreground">
           <IconPlayerStopFilled size={12} />
-          Stopped
+          {interrupted ? "Cut off when Backspace closed" : "Stopped"}
+          {onResume && (
+            <button
+              type="button"
+              onClick={onResume}
+              className="ml-1.5 cursor-pointer rounded-full bg-primary px-2.5 py-1 text-[12px]/4 font-medium text-primary-foreground transition-[background-color,scale] duration-150 hover:bg-(--primary-hover) active:scale-[0.96]"
+            >
+              Carry on
+            </button>
+          )}
         </div>
       )}
       {!terminal && showText && <div aria-hidden className="mt-1.5 h-7" />}

@@ -764,6 +764,12 @@ fn chat_retry(f: F, id: String) -> Res<()> {
     f.chats().retry(&id, f.chat_ctx()).map_err(err)
 }
 
+/// Carry on with a stopped or cut-off reply.
+#[tauri::command]
+fn chat_resume(f: F, id: String) -> Res<()> {
+    f.chats().resume(&id, f.chat_ctx()).map_err(err)
+}
+
 #[tauri::command]
 fn chat_edit(f: F, id: String, msg: String, text: String) -> Res<()> {
     f.chats().edit(&id, &msg, &text, f.chat_ctx()).map_err(err)
@@ -1054,6 +1060,7 @@ fn main() -> anyhow::Result<()> {
             chat_send,
             chat_stop,
             chat_retry,
+            chat_resume,
             chat_edit,
             chat_react,
             chat_rename,

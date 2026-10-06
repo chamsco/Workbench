@@ -31,6 +31,7 @@ export type Msg = {
   author?: string | null;
   author_name?: string | null;
   trace?: string | null;
+  interrupted?: boolean;
 };
 
 export type Span = {
@@ -298,6 +299,7 @@ export async function send(text: string, files: NewFile[], route: Route | null) 
 
 export const stop = (id: string) => host.invoke("chat_stop", { id });
 export const retry = (id: string) => host.invoke("chat_retry", { id });
+export const resume = (id: string) => host.invoke("chat_resume", { id });
 export const edit = (id: string, msg: string, text: string) => host.invoke("chat_edit", { id, msg, text });
 export const setRoute = (id: string, route: Route) => host.invoke("chat_set_route", { id, route });
 export const react = (id: string, msg: string, emoji: string) => host.invoke("chat_react", { id, msg, emoji }).then(() => refresh());
