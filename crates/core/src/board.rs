@@ -233,8 +233,25 @@ fn msg(args: &[String]) -> Result<String> {
 }
 
 /// A minimal MCP server on stdio: three tools over the bridge.
+/// Tools from installed apps, as (MCP name, app id, tool).
+pub(crate) fn app_tools() -> Vec<(String, String, crate::apps::Tool)> {
+    let apps = crate::apps::Apps::open(crate::prefs::Prefs::data_dir().join("apps"));
+    apps.list()
+        .into_iter()
+        .filter(|a| a.enabled)
+        .flat_map(|a| {
+            let id = a.manifest.id.clone();
+            a.manifest
+                .tools
+                .into_iter()
+                .map(move |t| (format!("{}__{}", id.replace('-', "_"), t.name), id.clone(), t))
+        })
+        .collect()
+}
+
 fn mcp() -> Result<()> {
-    let b = bridge()?;
+    // The board needs a project's bridge; app tools work without one.
+    let b = bridge();
     let stdin = std::io::stdin();
     let mut out = std::io::stdout();
     for line in stdin.lock().lines() {
@@ -252,25 +269,41 @@ fn mcp() -> Result<()> {
                 "serverInfo": {"name": "backspace", "version": env!("CARGO_PKG_VERSION")},
             })),
             "ping" => Ok(json!({})),
-            "tools/list" => Ok(json!({"tools": [
-                {"name": "list_agents", "description": "The agents working on this project: key, title, status and what runs them.",
-                 "inputSchema": {"type": "object", "properties": {}}},
-                {"name": "send_message", "description": "Message another agent by key, `main` (the lead), or `all`. Use it to coordinate: interfaces you are adding, files you are changing, questions for whoever owns something.",
-                 "inputSchema": {"type": "object", "properties": {"to": {"type": "string"}, "text": {"type": "string"}}, "required": ["to", "text"]}},
-                {"name": "read_messages", "description": "New messages sent to you or to everyone since you last read.",
-                 "inputSchema": {"type": "object", "properties": {}}},
-            ]})),
+            "tools/list" => {
+                let mut tools: Vec<Value> = if b.is_ok() {
+                    vec![
+                        json!({"name": "list_agents", "description": "The agents working on this project: key, title, status and what runs them.",
+                         "inputSchema": {"type": "object", "properties": {}}}),
+                        json!({"name": "send_message", "description": "Message another agent by key, `main` (the lead), or `all`. Use it to coordinate: interfaces you are adding, files you are changing, questions for whoever owns something.",
+                         "inputSchema": {"type": "object", "properties": {"to": {"type": "string"}, "text": {"type": "string"}}, "required": ["to", "text"]}}),
+                        json!({"name": "read_messages", "description": "New messages sent to you or to everyone since you last read.",
+                         "inputSchema": {"type": "object", "properties": {}}}),
+                    ]
+                } else {
+                    vec![]
+                };
+                for (name, app, t) in app_tools() {
+                    tools.push(json!({"name": name, "description": format!("[{app} app] {}", t.description), "inputSchema": t.input_schema}));
+                }
+                Ok(json!({ "tools": tools }))
+            }
             "tools/call" => {
                 let a = &req["params"]["arguments"];
-                let r = match req["params"]["name"].as_str().unwrap_or("") {
-                    "list_agents" => do_agents(&b),
-                    "send_message" => do_send(
-                        &b,
-                        a["to"].as_str().unwrap_or(""),
-                        a["text"].as_str().unwrap_or(""),
-                    ),
-                    "read_messages" => do_read(&b),
-                    other => Err(anyhow!("unknown tool {other}")),
+                let name = req["params"]["name"].as_str().unwrap_or("");
+                let board = || b.as_ref().map_err(|e| anyhow!("{e}"));
+                let r = match name {
+                    "list_agents" => board().and_then(do_agents),
+                    "send_message" => board().and_then(|b| {
+                        do_send(b, a["to"].as_str().unwrap_or(""), a["text"].as_str().unwrap_or(""))
+                    }),
+                    "read_messages" => board().and_then(do_read),
+                    other => match app_tools().into_iter().find(|(n, _, _)| n == other) {
+                        Some((_, app, t)) => {
+                            let input = if a.is_null() { json!({}) } else { a.clone() };
+                            crate::apps::Apps::open(crate::prefs::Prefs::data_dir().join("apps")).run_tool(&app, &t.name, &input)
+                        }
+                        None => Err(anyhow!("unknown tool {other}")),
+                    },
                 };
                 Ok(match r {
                     Ok(t) => json!({"content": [{"type": "text", "text": t}]}),

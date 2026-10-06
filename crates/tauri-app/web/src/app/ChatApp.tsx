@@ -13,9 +13,12 @@ import { pickFallbacks, type SuggestionSlot } from "@/lib/suggestions";
 import { cn } from "@/lib/utils";
 import { SuggestionCards } from "@/components/suggestion-cards";
 import { Composer } from "./Composer";
+import { ReplyChip } from "./Extras";
 import { ThreadList } from "./ThreadList";
 import { ThreadView } from "./ThreadView";
-import { getHost, goHome, send, setRoute, stop, useChat, type Route } from "../bridge";
+import { getHost, goHome, send, setReplyTo, setRoute, stop, useChat, type Route } from "../bridge";
+
+const baseName = (p: string) => p.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || p;
 
 const DOCK_SPRING = { type: "spring", stiffness: 380, damping: 38, mass: 0.9 } as const;
 const TRIM_FADE = {
@@ -46,14 +49,18 @@ const NAMELESS = ["What's on your mind?", "Ready when you are", "Let's get into 
 
 export function ChatApp({ sideEl, user }: { sideEl: HTMLElement; user: string }) {
   const host = getHost();
-  const { id, thread, threads, epoch } = useChat();
+  const { id, thread, threads, epoch, scope, replyTo } = useChat();
   const [draft, setDraft] = useState("");
   const [homeRoute, setHomeRoute] = useState<Route | null>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const inThread = !!thread;
   const busy = !!thread && threads.some((t) => t.id === thread.id && t.busy);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const route = thread ? thread.route : (homeRoute ?? host.defaultRoute());
+  // Pair works in the project, so it starts on a coding CLI when there is one.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const firstCli = useMemo(() => host.routes().flatMap((g) => g.items).find((i) => i.route?.kind === "cli" && !i.disabled)?.route ?? null, [epoch]);
+  const route = thread ? thread.route : (homeRoute ?? (scope ? (firstCli ?? host.defaultRoute()) : host.defaultRoute()));
+  const replying = replyTo && thread ? thread.messages.find((m) => m.id === replyTo) : undefined;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const anyRoute = useMemo(() => host.routes().some((g) => g.items.some((i) => i.route && !i.disabled)), [epoch]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -142,7 +149,7 @@ export function ChatApp({ sideEl, user }: { sideEl: HTMLElement; user: string })
                   <AnimatePresence mode="popLayout" initial={false}>
                     {!inThread && (
                       <motion.div key="greeting" {...TRIM_FADE}>
-                        <Greeting user={user} />
+                        <Greeting user={user} project={scope} />
                       </motion.div>
                     )}
                   </AnimatePresence>
@@ -152,6 +159,7 @@ export function ChatApp({ sideEl, user }: { sideEl: HTMLElement; user: string })
                     transformTemplate={pinRasterPath}
                     className={cn("pointer-events-auto", inThread && "pb-4")}
                   >
+                    {replying && <ReplyChip to={replying} onCancel={() => setReplyTo(null)} />}
                     <Composer
                       value={draft}
                       onValueChange={setDraft}
@@ -161,13 +169,20 @@ export function ChatApp({ sideEl, user }: { sideEl: HTMLElement; user: string })
                       onStop={thread ? () => void stop(thread.id) : undefined}
                       generating={busy}
                       floating={inThread}
-                      placeholder={thread ? `Message ${host.providerName(thread.route)}` : "Ask anything"}
+                      placeholder={
+                        scope
+                          ? `Ask ${host.providerName(route) || "a CLI"} to change ${baseName(scope)}`
+                          : thread
+                            ? `Message ${host.providerName(thread.route)}`
+                            : "Ask anything"
+                      }
                       clis={clis}
                       textareaRef={composerRef}
                     />
                   </motion.div>
+                  {scope && !inThread && <PairNote route={route} folder={baseName(scope)} />}
                   <AnimatePresence mode="popLayout" initial={false}>
-                    {!inThread && (
+                    {!inThread && !scope && (
                       <motion.div key="suggestions" {...TRIM_FADE} className="pointer-events-auto">
                         <Suggestions onPick={fill} />
                       </motion.div>
@@ -185,11 +200,12 @@ export function ChatApp({ sideEl, user }: { sideEl: HTMLElement; user: string })
 
 /* Whirl's HomeGreeting: a 32px mark beside one line, rising in. The mark
    is Backspace's own. */
-function Greeting({ user }: { user: string }) {
-  const [line] = useState(() => {
+function Greeting({ user, project }: { user: string; project: string | null }) {
+  const [pick] = useState(() => {
     const pool = user && user !== "there" ? GREETINGS : NAMELESS;
     return pool[Math.floor(Math.random() * pool.length)];
   });
+  const line = project ? `What should we change in ${baseName(project)}?` : pick;
   return (
     <div className="mb-7 h-10">
       <motion.div
@@ -208,6 +224,18 @@ function Greeting({ user }: { user: string }) {
           {line.replaceAll("{name}", user)}
         </h1>
       </motion.div>
+    </div>
+  );
+}
+
+/* Pair: say where the CLI works and what it may do. */
+function PairNote({ route, folder }: { route: Route | null; folder: string }) {
+  const cli = route?.kind === "cli";
+  return (
+    <div className="pointer-events-auto mt-2 px-3 text-center text-[12px]/4 text-muted-foreground">
+      {cli
+        ? `Runs in ${folder} and may edit files and run commands there. Review what changed with git.`
+        : "Only a coding CLI can work in the project; this model can only talk about it."}
     </div>
   );
 }

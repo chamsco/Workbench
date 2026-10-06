@@ -52,6 +52,11 @@ var Onboard = (() => {
       el.innerHTML = frame(`<div class="ob-hero"><div class="ob-logo ok">${icon("check")}</div><h1>You're set</h1>
         ${on.length || cloud ? `<div class="ob-chips">${on.map(h => `<span class="ob-chip">${Providers.avatar(h.id, "xs")}${esc(h.name)}</span>`).join("")}${cloud ? `<span class="ob-chip">${Providers.avatar("cloud", "xs")}Cloud</span>` : ""}</div>` : `<p class="warnp">${icon("warn")}Nothing is connected yet, so Chat has no model to use. You can add one any time in Settings.</p>`}
         ${uses.includes("chat") ? `<p>New chats go to <button class="lnk" id="obRoute" data-popper>${esc(Chat.routeName(prefs.default_route || null))}</button>.</p>` : ""}
+        <div class="ob-more">
+          <div>${icon("memory")}<b>Memory</b><span>Notes every chat and agent gets.</span></div>
+          <div>${icon("apps")}<b>Apps</b><span>Views with their own agent. Try Prompt Lab.</span></div>
+          <div>${icon("phone")}<b>Phone</b><span>Pair it in Settings when the app ships.</span></div>
+        </div>
         <div class="home-actions">${uses.includes("chat") ? `<button class="btn primary big" id="obChat">${icon("compose")}Start chatting</button>` : ""}${uses.includes("code") ? `<button class="btn ${uses.includes("chat") ? "" : "primary "}big" id="obCode">${icon("folder")}Open a project</button>` : ""}</div></div>`, { next: null, skip: false });
       const pick = $("#obRoute");
       // No choice yet: new chats use the first usable route.

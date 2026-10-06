@@ -136,6 +136,8 @@ pub struct Fleet {
     /// The project open on this machine, if any.
     local: Mutex<Option<Arc<Harness>>>,
     chats: Arc<Chats>,
+    memory: Arc<crate::memory::Memory>,
+    apps: Arc<crate::apps::Apps>,
     harnesses: Mutex<Vec<HarnessInfo>>,
     http: reqwest::Client,
     remotes: Mutex<Vec<Arc<Remote>>>,
@@ -144,6 +146,8 @@ pub struct Fleet {
     notify: async_channel::Sender<()>,
     changes: async_channel::Receiver<()>,
     serving: Mutex<Option<tokio::task::AbortHandle>>,
+    companion: Mutex<Option<tokio::task::AbortHandle>>,
+    companion_error: Mutex<Option<String>>,
     share_error: Mutex<Option<String>>,
     rt: tokio::runtime::Runtime,
 }
@@ -177,6 +181,8 @@ impl Fleet {
         let fleet = Arc::new(Fleet {
             local: Mutex::new(local),
             chats,
+            memory: Arc::new(crate::memory::Memory::open(Prefs::data_dir())),
+            apps: Arc::new(crate::apps::Apps::open(Prefs::data_dir().join("apps"))),
             harnesses: Mutex::new(Vec::new()),
             http: reqwest::Client::new(),
             remotes: Mutex::new(remotes),
@@ -185,9 +191,14 @@ impl Fleet {
             notify,
             changes,
             serving: Mutex::new(None),
+            companion: Mutex::new(None),
+            companion_error: Mutex::new(None),
             share_error: Mutex::new(None),
             rt,
         });
+        if prefs.companion.enabled {
+            fleet.start_companion();
+        }
         if prefs.share.enabled {
             if let Err(e) = fleet.start_sharing() {
                 *fleet.share_error.lock().unwrap() = Some(e.to_string());
@@ -204,10 +215,82 @@ impl Fleet {
         &self.chats
     }
 
+    pub fn memory(&self) -> &Arc<crate::memory::Memory> {
+        &self.memory
+    }
+
+    pub fn apps(&self) -> &Arc<crate::apps::Apps> {
+        &self.apps
+    }
+
+    // ------------------------------------------------------------ companion
+
+    fn start_companion(self: &Arc<Self>) {
+        if let Some(h) = self.companion.lock().unwrap().take() {
+            h.abort();
+        }
+        let c = self.prefs().companion;
+        let weak = Arc::downgrade(self);
+        let me = Arc::downgrade(self);
+        *self.companion_error.lock().unwrap() = None;
+        let task = self.rt.spawn(async move {
+            if let Err(e) = crate::companion::serve(weak, c.addr, c.token).await {
+                if let Some(f) = me.upgrade() {
+                    *f.companion_error.lock().unwrap() = Some(e.to_string());
+                    let _ = f.notify.try_send(());
+                }
+            }
+        });
+        *self.companion.lock().unwrap() = Some(task.abort_handle());
+    }
+
+    /// Turn the phone link on or off; `new_token` unpairs every phone.
+    pub fn set_companion(self: &Arc<Self>, enabled: bool, new_token: bool) {
+        self.update_prefs(|p| {
+            p.companion.enabled = enabled;
+            if new_token {
+                p.companion.token = crate::remote::new_token();
+            }
+        });
+        if enabled {
+            self.start_companion();
+        } else if let Some(h) = self.companion.lock().unwrap().take() {
+            h.abort();
+        }
+    }
+
+    /// What Settings shows: on or off, the address a phone uses, the
+    /// pairing link for the QR code, and any error binding the port.
+    pub fn companion_status(&self) -> serde_json::Value {
+        let c = self.prefs().companion;
+        let port = c.addr.rsplit(':').next().unwrap_or("7421").to_string();
+        let ip = crate::companion::lan_ip();
+        let url = ip.map(|ip| format!("http://{ip}:{port}"));
+        let name = std::env::var("HOSTNAME")
+            .ok()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "Backspace".into());
+        serde_json::json!({
+            "enabled": c.enabled,
+            "running": c.enabled && self.companion.lock().unwrap().is_some() && self.companion_error.lock().unwrap().is_none(),
+            "addr": c.addr,
+            "url": url,
+            "pair": url.as_deref().map(|u| crate::companion::pair_link(u, &c.token, &name)),
+            "error": self.companion_error.lock().unwrap().clone(),
+            "protocol": crate::companion::PROTOCOL,
+        })
+    }
+
+    /// Download and install an app from its manifest URL.
+    pub fn install_app_url(&self, url: &str) -> Result<crate::apps::Installed> {
+        self.rt.block_on(self.apps.install_url(&self.http, url))
+    }
+
     /// What a chat send needs from prefs.
     pub fn chat_ctx(&self) -> Ctx {
         Ctx {
             prefs: self.prefs(),
+            memory: Some(self.memory.clone()),
         }
     }
 
@@ -218,10 +301,17 @@ impl Fleet {
         if !p.is_dir() {
             bail!("{} is not a folder", p.display());
         }
+        let prefs = self.prefs();
+        let canon = p.canonicalize().unwrap_or_else(|_| p.clone());
+        let memory = prefs
+            .memory_on
+            .then(|| self.memory.context(Some(&canon.display().to_string())))
+            .flatten();
         let h = Harness::open_with(
             p,
             crate::harness::Overrides {
-                worker: self.prefs().worker,
+                worker: prefs.worker,
+                memory,
             },
         )?;
         let root = h.root().display().to_string();

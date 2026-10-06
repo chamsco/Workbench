@@ -45,6 +45,7 @@ struct Inner {
     /// Branch checked out in the root workspace; the main agent's branch.
     base_branch: String,
     agents_md: Option<String>,
+    memory: Option<String>,
     skills: Skills,
     state: Mutex<ProjectState>,
     verdicts: Mutex<HashMap<usize, oneshot::Sender<Verdict>>>,
@@ -70,6 +71,8 @@ pub struct Overrides {
     /// Model id every worker runs on (e.g. "claude-code" to hand each
     /// ticket to Claude Code). None: the router decides.
     pub worker: Option<String>,
+    /// Memory notes (global and this project's) for every agent's brief.
+    pub memory: Option<String>,
 }
 
 pub struct Harness {
@@ -128,7 +131,7 @@ impl Harness {
         std::fs::create_dir_all(&workspace)?;
         let root = workspace.canonicalize()?;
         let (mut cfg, config_source) = Config::load(&root)?;
-        if let Some(w) = over.worker.filter(|w| !w.is_empty()) {
+        if let Some(w) = over.worker.clone().filter(|w| !w.is_empty()) {
             if cfg.model(&w).is_some() {
                 cfg.router.pin_sub = Some(w);
             }
@@ -174,6 +177,7 @@ impl Harness {
         let inner = Arc::new(Inner {
             router: Router::new(http.clone(), cfg.clone()),
             agents_md: std::fs::read_to_string(root.join("AGENTS.md")).ok(),
+            memory: over.memory.clone(),
             skills: Skills::load(&root),
             limiter: Semaphore::new(cfg.orchestrator.max_parallel_calls),
             state: Mutex::new(ProjectState {
@@ -526,6 +530,10 @@ impl Inner {
             if let Some(body) = self.skills.read(name, None) {
                 s.push_str(&format!("\n\n# Skill: {name}\n\n{body}"));
             }
+        }
+        if let Some(m) = &self.memory {
+            s.push_str("\n\n");
+            s.push_str(m);
         }
         if let Some(md) = &self.agents_md {
             s.push_str("\n\n# Project instructions (AGENTS.md)\n\n");

@@ -62,6 +62,18 @@ const P = {
   chip: '<rect x="4" y="4" width="8" height="8" rx="1.4"/><path d="M6 1.8V4M10 1.8V4M6 12v2.2M10 12v2.2M1.8 6H4M1.8 10H4M12 6h2.2M12 10h2.2"/>',
   route: '<circle cx="4" cy="12" r="1.6"/><circle cx="12" cy="4" r="1.6"/><path d="M5.6 12h3.6a2 2 0 0 0 0-4H6.8a2 2 0 0 1 0-4h3.6"/>',
   warn: '<path d="M8 2.4 14 13H2z"/><path d="M8 6.6v3M8 11.2v.2"/>',
+  memory: '<path d="M5.6 2.4h4.8a1.8 1.8 0 0 1 1.8 1.8v9.4L8 11.2l-4.2 2.4V4.2a1.8 1.8 0 0 1 1.8-1.8z"/><path d="M6.2 5.6h3.6M6.2 7.8h2.4"/>',
+  apps: '<rect x="2.4" y="2.4" width="4.6" height="4.6" rx="1.3"/><rect x="9" y="2.4" width="4.6" height="4.6" rx="1.3"/><rect x="2.4" y="9" width="4.6" height="4.6" rx="1.3"/><rect x="9" y="9" width="4.6" height="4.6" rx="2.3"/>',
+  splitv: '<rect x="2" y="3" width="12" height="10" rx="1.6"/><path d="M8.6 3v10"/>',
+  pairi: '<circle cx="5.4" cy="5.4" r="2"/><circle cx="10.8" cy="5.4" r="2"/><path d="M2 12.6c.4-2 1.8-3.2 3.4-3.2s3 1.2 3.4 3.2M7.4 12.6c.4-2 1.8-3.2 3.4-3.2s3 1.2 3.4 3.2"/>',
+  wmin: '<path d="M3.5 8.5h9"/>',
+  swaph: '<path d="M2.6 5.4h10.2M10.4 3l2.4 2.4-2.4 2.4M13.4 10.6H3.2M5.6 8.2l-2.4 2.4 2.4 2.4"/>',
+  wmax: '<rect x="3.5" y="3.5" width="9" height="9" rx="1"/>',
+  wrest: '<rect x="3.5" y="5.5" width="7" height="7" rx="1"/><path d="M5.5 5.5v-1a1 1 0 0 1 1-1h5a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-1"/>',
+  wclose: '<path d="m4 4 8 8M12 4l-8 8"/>',
+  smile: '<circle cx="8" cy="8" r="5.8"/><path d="M5.6 9.6c.6.9 1.4 1.4 2.4 1.4s1.8-.5 2.4-1.4M6 6.4v.2M10 6.4v.2"/>',
+  phone: '<rect x="4.4" y="1.8" width="7.2" height="12.4" rx="1.8"/><path d="M7.2 11.8h1.6"/>',
+  download: '<path d="M8 2.6v7.6M4.8 7.2 8 10.4l3.2-3.2M3 13.2h10"/>',
 };
 const icon = (n, cls = "") => `<svg class="ic ${cls}" viewBox="0 0 16 16" aria-hidden="true">${P[n]}</svg>`;
 $$("[data-icon]").forEach(el => (el.innerHTML = icon(el.dataset.icon)));
@@ -71,7 +83,7 @@ let snap = { name: "", agents: [], approvals: [], tickets: [], total_cost_usd: 0
 let prefs = { theme: "system", tabs: [], active_tab: 0, check_updates: true };
 let machines = [], share = null, upd = null, hasProject = true;
 const S = {
-  mode: "chat",
+  mode: "chat", codeView: "agents",
   focus: 0, max: null, side: "projects", review: null,
   drawer: false, pinned: false, ticket: null, settings: false,
   pane: new Map(),         // per-canvas transient state, by tab:index
@@ -197,6 +209,7 @@ function flip(els, mutate) {
 function applyTheme() {
   const r = document.documentElement;
   if (prefs.theme === "light" || prefs.theme === "dark") r.dataset.theme = prefs.theme; else delete r.dataset.theme;
+  if (window.Apps) Apps.sendTheme();
 }
 const narrow = () => matchMedia("(max-width: 760px)").matches;
 function setSide(open) {
@@ -210,25 +223,36 @@ $("#sideOpen").onclick = () => setSide(true);
 $("#scrim").onclick = () => setSide(false);
 $("#gear").onclick = () => openSettings();
 
-// Chat and Code share the window; the sidebar, title bar and body follow.
+// The rail's zones (Chat, Code, Memory, Apps, and each open app) share the
+// window; the sidebar, title bar and body follow. Code has two views: Pair
+// (you and one CLI in the project) and Agents (the workbench).
+const agentsOn = () => S.mode === "code" && S.codeView === "agents";
 function setMode(m, save = true) {
-  // Only what the user picked in setup: one use hides the switch.
   const uses = (prefs.uses && prefs.uses.length ? prefs.uses : ["chat", "code"]);
-  if (!uses.includes(m)) m = uses[0];
-  $("#win").classList.toggle("single-use", uses.length === 1);
-  S.mode = m === "code" ? "code" : "chat";
+  if ((m === "chat" || m === "code") && !uses.includes(m)) m = uses[0];
+  if (!m || (m.startsWith("app:") && !(window.Apps && Apps.get(m.slice(4))))) m = uses[0];
+  if (!["chat", "code", "memory", "apps"].includes(m) && !m.startsWith("app:")) m = uses[0];
+  S.mode = m;
   const w = $("#win");
-  w.classList.toggle("m-chat", S.mode === "chat"); w.classList.toggle("m-code", S.mode === "code");
-  $$("#modes [data-mode]").forEach(b => b.setAttribute("aria-selected", b.dataset.mode === S.mode));
-  closeSettings();
-  $("#chat").hidden = S.mode !== "chat";
-  $("#canvas").hidden = S.mode !== "code";
-  if (S.drawer && S.mode === "chat") setDrawer(false);
-  if (save) { prefs.mode = S.mode; invoke("set_mode", { mode: S.mode }); }
+  for (const z of ["chat", "code", "memory", "apps"]) w.classList.toggle("m-" + z, m === z);
+  w.classList.toggle("m-app", m.startsWith("app:"));
+  w.classList.toggle("pair-on", m === "code" && S.codeView === "pair");
+  w.classList.toggle("single-use", uses.length === 1);
+  $$("#modes [data-view]").forEach(b => b.setAttribute("aria-selected", b.dataset.view === S.codeView));
+  if (S.settings) { S.settings = false; $("#settings").hidden = true; }
+  if (S.drawer && !agentsOn()) setDrawer(false);
+  if (save) { prefs.mode = m; invoke("set_mode", { mode: m }); }
+  if (window.Shell) Shell.layout();
   renderList();
-  if (S.mode === "chat") { if (window.Chat) Chat.render(); } else { renderTabs(); renderGrid(); }
+  if (agentsOn() || (window.Shell && Shell.showing("canvas"))) { renderTabs(); renderGrid(); }
+  if (window.Chat && window.Shell && Shell.showing("chat")) Chat.render();
 }
-$$("#modes [data-mode]").forEach(b => (b.onclick = () => setMode(b.dataset.mode)));
+function setCodeView(v) {
+  S.codeView = v === "pair" ? "pair" : "agents";
+  prefs.code_view = S.codeView; invoke("set_code_view", { view: S.codeView });
+  setMode("code");
+}
+$$("#modes [data-view]").forEach(b => (b.onclick = () => setCodeView(b.dataset.view)));
 
 let toastT = null;
 function toast(text, kind = "") {
@@ -282,7 +306,7 @@ function offlineNote() {
     : `<div class="offline-note"><b>Connecting to ${esc(m.name)}…</b></div>`;
 }
 function renderList() {
-  if (S.mode === "chat") { if (window.Chat) Chat.renderThreads(); return; }
+  if (!agentsOn()) { if (window.Shell) Shell.renderSide(); return; }
   let h = offlineNote();
   if (S.side === "projects") {
     const m = machine();
@@ -337,6 +361,7 @@ async function openProject(path) {
     S.pane.clear(); S.review = null; S.ticket = null;
     if (S.mode !== "code") setMode("code");
     await refresh(true);
+    if (window.Shell) Shell.layout();
     toast(`Opened ${base(path)}`, "ok");
   } catch (e) { toast(String(e), "err"); }
 }
@@ -641,7 +666,8 @@ addEventListener("keydown", e => {
   if (e.key === "k") { e.preventDefault(); setMode("chat"); setSide(true); $("#search").focus(); return; }
   if (e.key === "o") { e.preventDefault(); pickProject(); return; }
   if (e.key === "j") { e.preventDefault(); setMode(S.mode === "chat" ? "code" : "chat"); return; }
-  if (S.mode !== "code") { if (e.key === ",") { e.preventDefault(); openSettings(); } if (e.key === "\\") { e.preventDefault(); setSide($("#win").classList.contains("side-closed")); } return; }
+  if (e.key === "/" ) { e.preventDefault(); if (window.Shell) Shell.toggleSplit(); return; }
+  if (!agentsOn()) { if (e.key === ",") { e.preventDefault(); openSettings(); } if (e.key === "\\") { e.preventDefault(); setSide($("#win").classList.contains("side-closed")); } return; }
   const i = +e.key;
   if (i >= 1 && i <= 9 && prefs.tabs[i - 1]) { e.preventDefault(); switchTab(i - 1); }
   if (e.key === "t") { e.preventDefault(); newTabPop($("#newTab")); }
@@ -1160,11 +1186,14 @@ async function docsPane(body) {
 
 // ------------------------------------------------------------------ settings
 function openSettings(section) {
-  S.settings = true; $("#settings").hidden = false; $("#canvas").hidden = true; $("#chat").hidden = true; renderSettings();
+  S.settings = true; $("#settings").hidden = false; renderSettings(); if (window.Shell) Shell.layout();
+  refreshCompanion();
   if (section) { const el = $(`#set-${section}`), box = $("#settings"); if (el) box.scrollTop = el.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop - 12; const f = $(`#set-${section} input`); if (f) f.focus({ preventScroll: true }); }
   refreshShare();
 }
-function closeSettings() { if (!S.settings) return; S.settings = false; $("#settings").hidden = true; $("#canvas").hidden = S.mode !== "code"; $("#chat").hidden = S.mode !== "chat"; }
+function closeSettings() { if (!S.settings) return; S.settings = false; $("#settings").hidden = true; if (window.Shell) Shell.layout(); }
+let companion = null;
+async function refreshCompanion() { companion = await invoke("companion_status").catch(() => null); if (S.settings) renderSettings(); }
 async function refreshShare() { share = await invoke("share_status").catch(() => null); if (S.settings) renderSettings(); }
 function renderSettings() {
   const el = $("#settings");
@@ -1196,6 +1225,9 @@ function renderSettings() {
       <div class="line"><span class="lab">Token</span><code class="mono" style="user-select:all">${esc(sh.token)}</code><button class="btn" id="shNew">New token</button></div>
       ${sh.error ? `<div class="err">${esc(sh.error)}</div>` : ""}
       <pre class="cmd">ssh -L 7420:${esc(sh.addr)} you@this-machine   # then add http://127.0.0.1:7420 elsewhere</pre></section>
+    <section id="set-phone"><h2>Phone</h2><p class="lead">The Backspace phone app (coming soon) follows your chats, saves notes to Memory and approves a project's work from anywhere on the same network. Turn this on and scan the code with it to pair; plain HTTP with a token, so use it on a network you trust (or Tailscale).</p>
+      <div class="line"><span class="lab">Let my phone connect<small>${companion && companion.error ? esc(companion.error) : companion && companion.running ? `Listening on ${esc(companion.url || companion.addr)}` : "Off"}</small></span><button class="toggle" role="switch" id="phoneT" aria-checked="${!!(companion && companion.enabled)}" aria-label="Let my phone connect"></button></div>
+      ${companion && companion.enabled && companion.pair ? `<div class="pair"><div class="qr" id="phoneQr" aria-label="Pairing code"></div><div class="pair-t"><b>Scan with the Backspace app</b><span>Or enter <code>${esc(companion.url)}</code> and the token by hand.</span><div class="pair-b"><button class="btn" id="phoneCopy">${icon("copy")}Copy pairing link</button><button class="btn" id="phoneNew">Unpair all phones</button></div></div></div>` : companion && companion.enabled && !companion.url ? `<p class="warnp">${icon("warn")}This machine has no address on a local network, so a phone can't reach it.</p>` : ""}</section>
     <section id="set-updates"><h2>Updates</h2>
       <div class="line"><span class="lab">Check for updates automatically</span><button class="toggle" role="switch" aria-checked="${prefs.check_updates}" id="updT" aria-label="Check for updates automatically"></button></div>
       <div class="line"><span class="lab">Backspace ${esc(u && u.current || "0.1.0")}<small>${u && u.error ? esc(u.error) : u && u.newer ? `Version ${esc(u.latest)} is available.` : u ? "You're on the latest release." : "Not checked yet."}</small></span>
@@ -1205,6 +1237,12 @@ function renderSettings() {
       <div class="line"><span class="lab">Config<small class="mono">${esc(snap.config_source || "built-in defaults")}</small></span></div></section>` : ""}</div>`;
   Object.entries(keep).forEach(([id, v]) => { const i = $("#" + id, el); if (i && v) i.value = v; });
   $("#setClose").onclick = closeSettings;
+  const pt = $("#phoneT", el);
+  if (pt) pt.onclick = async () => { companion = await invoke("set_companion", { enabled: !(companion && companion.enabled), newToken: false }).catch(e => (toast(String(e), "err"), companion)); setTimeout(refreshCompanion, 400); renderSettings(); };
+  const pq = $("#phoneQr", el);
+  if (pq && companion.pair) invoke("qr_svg", { text: companion.pair }).then(svg => { if (pq.isConnected) pq.innerHTML = svg; }).catch(() => {});
+  const pc = $("#phoneCopy", el); if (pc) pc.onclick = () => { navigator.clipboard.writeText(companion.pair); toast("Pairing link copied", "ok"); };
+  const pn = $("#phoneNew", el); if (pn) pn.onclick = async () => { companion = await invoke("set_companion", { enabled: true, newToken: true }); toast("Every paired phone was signed out", "ok"); renderSettings(); };
   $$("[data-use]", el).forEach(b => (b.onclick = async () => {
     const cur = prefs.uses && prefs.uses.length ? prefs.uses : ["chat", "code"], k = b.dataset.use;
     const next = ["chat", "code"].filter(u => (u === k ? !cur.includes(u) : cur.includes(u)));
@@ -1284,7 +1322,8 @@ async function refresh(full) {
   if (window.Chat) await Chat.refresh();
   if (window.Providers) Providers.refreshQuiet();
   renderBrand(); renderMachines(); renderList(); renderCard(); renderTabs(); renderDrawer();
-  if (S.mode === "chat") { lastShape = ""; return; }
+  if (window.Shell) Shell.refresh();
+  if (!agentsOn() && !(window.Shell && Shell.showing("canvas"))) { lastShape = ""; return; }
   // Rebuild canvases when the machine or its agents appear; otherwise update in place.
   const shape = machine().index + ":" + (snap.agents.length > 0) + ":" + machine().link.state;
   if (full || shape !== lastShape) renderGrid(); else refreshPanes();
@@ -1309,10 +1348,12 @@ addEventListener("DOMContentLoaded", async () => {
     prefs.active_tab = 0;
   }
   applyTheme(); renderSeg(); setSide(!narrow());
-  S.mode = prefs.mode === "code" ? "code" : "chat";
+  S.mode = prefs.mode || "chat";
+  S.codeView = prefs.code_view === "pair" ? "pair" : "agents";
   // A folder given on the command line, or a bench run: start in Code.
   const first = await invoke("snapshot");
-  if (first.workspace && (boot.bench || !prefs.onboarded)) S.mode = "code";
+  if (first.workspace && (boot.bench || !prefs.onboarded)) { S.mode = "code"; S.codeView = "agents"; }
+  if (window.Shell) await Shell.init(boot);
   if (window.Chat) await Chat.init();
   setMode(S.mode, false);
   await refresh(true);

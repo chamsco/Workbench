@@ -38,7 +38,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { getHost, goHome, openThread, pin, remove, rename, setQuery, useChat, type ThreadInfo } from "../bridge";
+import { getHost, goHome, inScope, openThread, pin, remove, rename, setQuery, useChat, type ThreadInfo } from "../bridge";
 
 const DAY = 864e5;
 const sameDay = (a: number, b: number) => new Date(a).toDateString() === new Date(b).toDateString();
@@ -53,7 +53,8 @@ function bucket(t: ThreadInfo, now: number) {
 }
 
 export function ThreadList({ onNewChat }: { onNewChat: () => void }) {
-  const { threads, id, query } = useChat();
+  const { threads: all, id, query, scope } = useChat();
+  const threads = useMemo(() => all.filter((t) => inScope(t, scope)), [all, scope]);
   const groups = useMemo(() => {
     const q = query.trim().toLowerCase();
     const now = Date.now();
@@ -72,7 +73,7 @@ export function ThreadList({ onNewChat }: { onNewChat: () => void }) {
   return (
     <div className="whirl-side flex flex-col gap-3">
       <div className="flex flex-col gap-0.5">
-        <SidebarRow icon={IconEdit} label="New chat" onClick={onNewChat} />
+        <SidebarRow icon={IconEdit} label={scope ? "New thread" : "New chat"} onClick={onNewChat} />
         <label className="group/row relative flex h-8 w-full items-center gap-2.5 rounded-lg px-2.5 text-[13.5px]/4 font-medium text-foreground-soft">
           <RowPill className="group-focus-within/row:bg-accent" />
           <IconSearch size={16} className="relative shrink-0" />
@@ -93,7 +94,7 @@ export function ThreadList({ onNewChat }: { onNewChat: () => void }) {
       </div>
       {threads.length === 0 ? (
         <div className="px-2.5 py-2 text-[13px]/5 text-muted-foreground">
-          No chats yet. Start one with any model you've connected.
+          {scope ? "No threads in this project yet. Ask a CLI to change something; it works in the folder." : "No chats yet. Start one with any model you've connected."}
         </div>
       ) : groups.length === 0 ? (
         <div className="px-2.5 py-2 text-[13px]/5 text-muted-foreground">No chats match “{query}”.</div>

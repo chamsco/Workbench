@@ -17,13 +17,16 @@ import {
 } from "@/components/ui/message-scroller";
 import { UserMessage } from "@/components/thread/user-message";
 import { AssistantMessage } from "./AssistantMessage";
-import { branch, edit, getHost, retry, toChatMessage, type Msg, type Thread } from "../bridge";
+import { LinkCard, Quote, RememberButton, ReplyButton, TapbackButton, Tapbacks } from "./Extras";
+import { branch, edit, getHost, retry, toChatMessage, useChat, type Msg, type Thread } from "../bridge";
 
 const PREVIOUS_TURN_PEEK_PX = 72;
 const EDGE_THRESHOLD_PX = 128;
 
 export function ThreadView({ thread }: { thread: Thread }) {
-  const messages = useMemo(() => thread.messages.map((m) => toChatMessage(thread, m)), [thread]);
+  const { epoch } = useChat();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const messages = useMemo(() => thread.messages.map((m) => toChatMessage(thread, m)), [thread, epoch]);
   const generating = computeIsGenerating(messages);
   const host = getHost();
   const lastAssistant = [...thread.messages].reverse().find((m) => m.role === "assistant")?.id;
@@ -67,6 +70,7 @@ export function ThreadView({ thread }: { thread: Thread }) {
                   message={messages[i]}
                   canRetry={m.id === lastAssistant && !generating}
                   generating={generating}
+                  epoch={epoch}
                 />
               ))}
             </MessageScrollerContent>
@@ -90,27 +94,48 @@ const Row = memo(function Row({
   message: ChatMessage;
   canRetry: boolean;
   generating: boolean;
+  /** Bumps when a link preview or attachment lands. */
+  epoch: number;
 }) {
   const host = getHost();
   const toast = (e: unknown) => host.toast(String(e), "err");
   const answeredBy = raw.via ? `${host.providerName(raw.via)} answered` : undefined;
+  const of = raw.reply_to ? thread.messages.find((m) => m.id === raw.reply_to) : undefined;
+  const user = message.role === "user";
+  const actions = (
+    <>
+      <TapbackButton thread={thread.id} msg={raw} />
+      <ReplyButton msg={raw} />
+      <RememberButton msg={raw} />
+    </>
+  );
   return (
-    <MessageScrollerItem messageId={message.id} scrollAnchor={message.role === "user"}>
-      {message.role === "user" ? (
-        <UserMessage
-          message={message}
-          onEdit={generating ? undefined : (content) => void edit(thread.id, raw.id, content).catch(toast)}
-        />
-      ) : (
-        <AssistantMessage
-          message={message}
-          error={raw.error}
-          answeredBy={answeredBy}
-          ad={raw.ad}
-          onRetry={canRetry ? () => void retry(thread.id).catch(toast) : undefined}
-          onBranch={() => void branch(thread.id, raw.id).catch(toast)}
-        />
-      )}
+    <MessageScrollerItem messageId={message.id} scrollAnchor={user}>
+      <div data-message-id={raw.id} className="flex min-w-0 flex-col">
+        {user ? (
+          <UserMessage
+            message={message}
+            onEdit={generating ? undefined : (content) => void edit(thread.id, raw.id, content).catch(toast)}
+            quote={<Quote of={of} align="end" />}
+            badge={<Tapbacks thread={thread.id} msg={raw} />}
+            actions={actions}
+            below={<LinkCard text={raw.text} align="end" />}
+          />
+        ) : (
+          <AssistantMessage
+            message={message}
+            error={raw.error}
+            answeredBy={answeredBy}
+            ad={raw.ad}
+            onRetry={canRetry ? () => void retry(thread.id).catch(toast) : undefined}
+            onBranch={() => void branch(thread.id, raw.id).catch(toast)}
+            quote={<Quote of={of} align="start" />}
+            badge={<Tapbacks thread={thread.id} msg={raw} />}
+            actions={actions}
+            below={<LinkCard text={raw.text} />}
+          />
+        )}
+      </div>
     </MessageScrollerItem>
   );
 });

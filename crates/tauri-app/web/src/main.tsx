@@ -7,7 +7,7 @@ import { createRoot, type Root } from "react-dom/client";
 
 import "./styles.css";
 import { ChatApp } from "./app/ChatApp";
-import { goHome, openThread, refresh, setHost, type Host } from "./bridge";
+import { goHome, openThread, refresh, setHost, setScope, type Host } from "./bridge";
 
 let root: Root | null = null;
 
@@ -32,6 +32,7 @@ const api = {
     syncDark();
     matchMedia("(prefers-color-scheme: dark)").addEventListener("change", syncDark);
     new MutationObserver(syncDark).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    setScope(host.scope());
     root?.unmount();
     root = createRoot(el);
     root.render(
@@ -44,6 +45,7 @@ const api = {
   refresh: () => refresh(),
   open: (id: string) => openThread(id),
   home: () => goHome(),
+  setScope: (s: string | null) => setScope(s),
 };
 
 window.WhirlChat = api;

@@ -6,7 +6,9 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use backspace_core::chat::{Attachment, Route, Thread, ThreadInfo};
+use backspace_core::apps::Installed;
+use backspace_core::chat::{Attachment, Route, Scope, Thread, ThreadInfo};
+use backspace_core::memory::Note;
 use backspace_core::cloud::{Account, Overage, Plan, PlanInfo};
 use backspace_core::diagram::{self, Diagram};
 use backspace_core::files::FileEntry;
@@ -392,6 +394,26 @@ fn set_mode(f: F, mode: String) {
 }
 
 #[tauri::command]
+fn set_code_view(f: F, view: String) {
+    f.update_prefs(|p| p.code_view = view);
+}
+
+#[tauri::command]
+fn set_split(f: F, split: Option<backspace_core::prefs::SplitCfg>) {
+    f.update_prefs(|p| p.split = split);
+}
+
+#[tauri::command]
+fn set_pinned_apps(f: F, ids: Vec<String>) {
+    f.update_prefs(|p| p.pinned_apps = ids);
+}
+
+#[tauri::command]
+fn set_memory_on(f: F, on: bool) {
+    f.update_prefs(|p| p.memory_on = on);
+}
+
+#[tauri::command]
 fn set_default_route(f: F, route: Option<Route>) {
     f.update_prefs(|p| p.default_route = route);
 }
@@ -417,9 +439,177 @@ fn chat_thread(f: F, id: String) -> Option<Thread> {
 }
 
 #[tauri::command]
-fn chat_new(f: F, route: Route) -> Thread {
-    f.chats().create(route)
+fn chat_new(f: F, route: Route, scope: Option<Scope>) -> Thread {
+    f.chats().create_in(route, scope.unwrap_or_default())
 }
+
+// ---------------------------------------------------------------- memory
+
+#[tauri::command]
+fn memory_list(f: F) -> Vec<Note> {
+    f.memory().list()
+}
+
+#[tauri::command]
+fn memory_add(f: F, text: String, project: Option<String>, source: Option<String>) -> Res<Note> {
+    f.memory()
+        .add(&text, project, source.as_deref().unwrap_or(""))
+        .map_err(err)
+}
+
+#[tauri::command]
+fn memory_update(
+    f: F,
+    id: String,
+    text: Option<String>,
+    // "" moves the note to Everywhere; missing leaves it where it is.
+    project: Option<String>,
+    on: Option<bool>,
+) -> Res<Note> {
+    let project = project.map(|p| Some(p).filter(|p| !p.is_empty()));
+    f.memory().update(&id, text, project, on).map_err(err)
+}
+
+#[tauri::command]
+fn memory_delete(f: F, id: String) -> Res<()> {
+    f.memory().delete(&id).map_err(err)
+}
+
+// ---------------------------------------------------------------- companion
+
+#[tauri::command]
+fn companion_status(f: F) -> serde_json::Value {
+    f.companion_status()
+}
+
+#[tauri::command]
+fn set_companion(f: F, enabled: bool, new_token: bool) -> serde_json::Value {
+    f.inner().set_companion(enabled, new_token);
+    f.companion_status()
+}
+
+/// A QR code as SVG, for the pairing link.
+#[tauri::command]
+fn qr_svg(text: String) -> Res<String> {
+    let code = qrcode::QrCode::new(text.as_bytes()).map_err(err)?;
+    Ok(code
+        .render::<qrcode::render::svg::Color>()
+        .min_dimensions(200, 200)
+        .quiet_zone(true)
+        .build())
+}
+
+// ---------------------------------------------------------------- apps
+
+#[tauri::command]
+fn apps_list(f: F) -> Vec<Installed> {
+    f.apps().list()
+}
+
+#[tauri::command]
+async fn app_install_url(f: F<'_>, url: String) -> Res<Installed> {
+    blocking(f, move |f| f.install_app_url(&url)).await
+}
+
+#[tauri::command]
+async fn app_install_dir(f: F<'_>, path: String) -> Res<Installed> {
+    blocking(f, move |f| f.apps().install_dir(std::path::Path::new(&path))).await
+}
+
+#[tauri::command]
+async fn pick_app(app: tauri::AppHandle) -> Option<String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        app.dialog()
+            .file()
+            .set_title("Choose an app folder (with backspace-app.json)")
+            .blocking_pick_folder()
+            .and_then(|p| p.into_path().ok())
+            .map(|p| p.display().to_string())
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
+#[tauri::command]
+fn app_remove(f: F, id: String) -> Res<()> {
+    f.apps().remove(&id).map_err(err)?;
+    f.update_prefs(|p| p.pinned_apps.retain(|x| x != &id));
+    Ok(())
+}
+
+#[tauri::command]
+fn app_storage_get(f: F, id: String, key: String) -> Option<serde_json::Value> {
+    f.apps().storage_get(&id, &key)
+}
+
+#[tauri::command]
+fn app_storage_set(f: F, id: String, key: String, value: serde_json::Value) -> Res<()> {
+    f.apps().storage_set(&id, &key, value).map_err(err)
+}
+
+/// The example apps that ship in the binary, installable without a network.
+#[tauri::command]
+fn app_examples() -> Vec<serde_json::Value> {
+    EXAMPLES
+        .iter()
+        .filter_map(|(_, files)| {
+            files
+                .iter()
+                .find(|(n, _)| *n == backspace_core::apps::MANIFEST)
+                .and_then(|(_, b)| serde_json::from_slice(b).ok())
+        })
+        .collect()
+}
+
+#[tauri::command]
+async fn app_install_example(f: F<'_>, id: String) -> Res<Installed> {
+    blocking(f, move |f| {
+        let (_, files) = EXAMPLES
+            .iter()
+            .find(|(i, _)| *i == id)
+            .ok_or_else(|| anyhow::anyhow!("no example {id}"))?;
+        let dir = std::env::temp_dir().join(format!("backspace-example-{id}"));
+        let _ = std::fs::remove_dir_all(&dir);
+        for (name, body) in files.iter() {
+            let p = dir.join(name);
+            std::fs::create_dir_all(p.parent().unwrap())?;
+            std::fs::write(p, body)?;
+        }
+        let r = f.apps().install_dir(&dir);
+        let _ = std::fs::remove_dir_all(&dir);
+        r
+    })
+    .await
+}
+
+const SDK: &str = include_str!("../../../apps/sdk.js");
+
+fn percent_decode(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'%' && i + 2 < b.len() {
+            if let Ok(v) = u8::from_str_radix(&s[i + 1..i + 3], 16) {
+                out.push(v);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(b[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+const EXAMPLES: &[(&str, &[(&str, &[u8])])] = &[(
+    "prompt-lab",
+    &[
+        ("backspace-app.json", include_bytes!("../../../apps/prompt-lab/backspace-app.json")),
+        ("index.html", include_bytes!("../../../apps/prompt-lab/index.html")),
+    ],
+)];
 
 #[tauri::command]
 async fn chat_send(
@@ -624,8 +814,38 @@ fn main() -> anyhow::Result<()> {
     }
     let changes = fleet.changes();
 
+    // App views: bsapp://localhost/<id>/<path> (http://bsapp.localhost/...
+    // on Windows), served from the installed app's folder into a sandboxed
+    // frame. The frame has no IPC of its own; it talks to the page through
+    // postMessage (apps/sdk.js), and the page decides what it may do.
+    let apps = fleet.apps().clone();
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .register_uri_scheme_protocol("bsapp", move |_ctx, req| {
+            use tauri::http::Response;
+            let path = req.uri().path().trim_start_matches('/').to_string();
+            let path = percent_decode(&path);
+            let (id, rest) = path.split_once('/').unwrap_or((path.as_str(), ""));
+            let res = if rest == "__backspace/sdk.js" {
+                Ok((SDK.as_bytes().to_vec(), "text/javascript; charset=utf-8"))
+            } else {
+                apps.file(id, rest)
+            };
+            match res {
+                Ok((body, mime)) => Response::builder()
+                    .status(200)
+                    .header("Content-Type", mime)
+                    .header("Cache-Control", "no-cache")
+                    .header("Access-Control-Allow-Origin", "*")
+                    .body(body)
+                    .unwrap(),
+                Err(e) => Response::builder()
+                    .status(404)
+                    .header("Content-Type", "text/plain")
+                    .body(e.to_string().into_bytes())
+                    .unwrap(),
+            }
+        })
         .manage(fleet)
         .invoke_handler(tauri::generate_handler![
             snapshot,
@@ -662,6 +882,10 @@ fn main() -> anyhow::Result<()> {
             set_ollama_url,
             set_onboarded,
             set_mode,
+            set_code_view,
+            set_split,
+            set_pinned_apps,
+            set_memory_on,
             set_uses,
             set_worker,
             api_keys,
@@ -670,6 +894,22 @@ fn main() -> anyhow::Result<()> {
             chat_list,
             chat_thread,
             chat_new,
+            memory_list,
+            companion_status,
+            set_companion,
+            qr_svg,
+            memory_add,
+            memory_update,
+            memory_delete,
+            apps_list,
+            app_install_url,
+            app_install_dir,
+            pick_app,
+            app_remove,
+            app_storage_get,
+            app_storage_set,
+            app_examples,
+            app_install_example,
             chat_send,
             chat_stop,
             chat_retry,

@@ -1,0 +1,7 @@
+{
+  "app": {
+    "windows": [
+      { "label": "main", "title": "Backspace", "width": 1440, "height": 900, "minWidth": 720, "minHeight": 480, "decorations": false }
+    ]
+  }
+}

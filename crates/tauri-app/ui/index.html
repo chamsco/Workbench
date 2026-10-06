@@ -14,48 +14,64 @@
   <div class="blob a"></div><div class="blob b"></div><div class="blob c"></div>
   <div class="win" id="win">
     <div class="lights" aria-hidden="true"><span>×</span><span>−</span><span>+</span></div>
+    <nav class="rail" id="rail" aria-label="Zones" data-tauri-drag-region>
+      <div class="rail-zones" id="railZones" role="tablist" aria-orientation="vertical"></div>
+      <div class="rail-apps" id="railApps"></div>
+      <span class="sp" data-tauri-drag-region></span>
+      <button class="rz" id="gear" aria-label="Settings" title="Settings (⌘,)"><span class="sq" data-icon="gear"></span><span class="rl">Settings</span></button>
+    </nav>
     <aside class="side" id="side" aria-label="Machine, projects and agents">
       <div class="side-top" data-tauri-drag-region>
         <button class="ib" id="sideClose" aria-label="Hide sidebar" data-icon="sidebar"></button>
       </div>
       <div class="side-head">
-        <div class="modes" id="modes" role="tablist" aria-label="Chat or code">
-          <button role="tab" data-mode="chat" id="modeChat"><span data-icon="bubble"></span>Chat</button>
-          <button role="tab" data-mode="code" id="modeCode"><span data-icon="codei"></span>Coding</button>
+        <div class="zone-title" id="zoneTitle"></div>
+        <div class="modes code-only" id="modes" role="tablist" aria-label="Pair or agents">
+          <button role="tab" data-view="pair" id="viewPair" title="You and one CLI, turn by turn, in the project"><span data-icon="pairi"></span>Pair</button>
+          <button role="tab" data-view="agents" id="viewAgents" title="A planner splits the goal into tickets; workers build each one"><span data-icon="sparkle"></span>Agents</button>
         </div>
         <button class="newbtn chat-only" id="newChat" title="New chat (⌘N)"><span data-icon="compose"></span>New chat<kbd>⌘N</kbd></button>
         <label class="search chat-only"><span data-icon="search"></span><input id="search" placeholder="Search chats" aria-label="Search chats" autocomplete="off"><kbd>⌘K</kbd></label>
         <div class="brand code-only" id="brand"></div>
-        <div class="seg code-only" role="group" aria-label="Sidebar view" id="seg"></div>
+        <div class="seg code-only agents-only" role="group" aria-label="Sidebar view" id="seg"></div>
       </div>
-      <div class="list" id="list"></div>
-      <div class="list whirl-list chat-only" id="chatList" hidden></div>
-      <div class="ports code-only" id="ports"></div>
+      <div class="list code-only agents-only" id="list"></div>
+      <div class="list pair-proj code-only pair-only" id="pairProj"></div>
+      <div class="list whirl-list chat-only pair-only" id="chatList" hidden></div>
+      <div class="list zone-list" id="zoneList"></div>
+      <div class="ports code-only agents-only" id="ports"></div>
       <div class="side-acts">
-        <button class="cta code-only" id="cta" aria-expanded="false" aria-controls="drawer"></button>
+        <button class="cta code-only agents-only" id="cta" aria-expanded="false" aria-controls="drawer"></button>
         <button class="upd" id="upd"></button>
       </div>
       <div class="side-foot">
         <span class="sp"></span>
         <div class="machines" id="machines" role="group" aria-label="Machines"></div>
         <span class="sp"></span>
-        <button class="ib" id="gear" aria-label="Settings" data-icon="gear"></button>
       </div>
     </aside>
     <div class="gutter-side" id="sideGut" role="separator" aria-orientation="vertical" aria-label="Resize sidebar"></div>
     <div class="mainc">
       <header class="tbar" data-tauri-drag-region>
         <button class="ib" id="sideOpen" aria-label="Show sidebar" data-icon="sidebar" hidden></button>
-        <nav class="tabs code-only" id="tabs" role="tablist" aria-label="Tabs"></nav>
+        <nav class="tabs code-only agents-only" id="tabs" role="tablist" aria-label="Tabs"></nav>
+        <div class="zone-head" id="zoneHead"></div>
         <div class="chat-head chat-only" id="chatHead"></div>
         <span class="sp" data-tauri-drag-region></span>
         <div class="right">
-          <button class="ib code-only" id="addCanvas" aria-label="Add a canvas" title="Add a canvas" data-icon="plus"></button>
-
+          <button class="ib code-only agents-only" id="addCanvas" aria-label="Add a canvas" title="Add a canvas" data-icon="plus"></button>
+          <button class="ib" id="splitBtn" aria-label="Split view" title="Open something beside this" data-icon="splitv" aria-haspopup="menu"></button>
         </div>
+        <div class="caps" id="caps"></div>
       </header>
-      <section class="canvas" id="canvas"><div class="grid" id="grid"></div></section>
-      <section class="chat" id="chat" hidden></section>
+      <div class="body" id="body">
+        <section class="canvas zone" id="canvas"><div class="grid" id="grid"></div></section>
+        <section class="chat zone" id="chat" hidden></section>
+        <section class="memory zone" id="memory" hidden></section>
+        <section class="apps zone" id="apps" hidden></section>
+        <div class="split-gut" id="splitGut" role="separator" aria-orientation="vertical" aria-label="Resize split" hidden></div>
+        <div class="split-head" id="splitHead" hidden></div>
+      </div>
       <section class="settings" id="settings" hidden></section>
       <aside class="drawer" id="drawer" aria-label="Tickets and reviews" hidden></aside>
     </div>
@@ -70,6 +86,9 @@
 <script src="providers.js"></script>
 <script src="chat.js"></script>
 <script src="onboard.js"></script>
+<script src="memory.js"></script>
+<script src="apps.js"></script>
+<script src="shell.js"></script>
 <!-- The chat face: Whirl's components on Backspace (web/, MIT). Deferred, so
      it is defined before app.js boots on DOMContentLoaded. -->
 <script type="module" src="chat-web/whirl.js"></script>

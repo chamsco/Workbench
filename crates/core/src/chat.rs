@@ -121,6 +121,26 @@ pub struct Thread {
     /// Thread this one was branched from.
     #[serde(default)]
     pub branched_from: Option<String>,
+    /// Pair: the project folder a CLI works in, with leave to edit it.
+    #[serde(default)]
+    pub project: Option<String>,
+    /// The installed app this thread belongs to (its agent's chat).
+    #[serde(default)]
+    pub app: Option<String>,
+    /// Extra instructions for every reply (an app's agent brief).
+    #[serde(default)]
+    pub system: Option<String>,
+}
+
+/// Where a new thread lives: the plain chat list, a project (Pair) or an app.
+#[derive(Deserialize, Serialize, Clone, Debug, Default)]
+pub struct Scope {
+    #[serde(default)]
+    pub project: Option<String>,
+    #[serde(default)]
+    pub app: Option<String>,
+    #[serde(default)]
+    pub system: Option<String>,
 }
 
 /// The sidebar row.
@@ -134,6 +154,8 @@ pub struct ThreadInfo {
     pub preview: String,
     pub busy: bool,
     pub unread: bool,
+    pub project: Option<String>,
+    pub app: Option<String>,
 }
 
 pub fn now_ms() -> u64 {
@@ -143,7 +165,7 @@ pub fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-fn new_id() -> String {
+pub(crate) fn new_id() -> String {
     let n = now_ms();
     let r: u32 = rand_u32();
     format!("{n:x}{r:08x}")
@@ -275,6 +297,7 @@ pub struct Chats {
 #[derive(Clone)]
 pub struct Ctx {
     pub prefs: Prefs,
+    pub memory: Option<Arc<crate::memory::Memory>>,
 }
 
 impl Chats {
@@ -360,6 +383,8 @@ impl Chats {
                     .unwrap_or_default(),
                 busy: running.contains_key(&t.id),
                 unread: unread.contains(&t.id),
+                project: t.project.clone(),
+                app: t.app.clone(),
             })
             .collect();
         v.sort_by(|a, b| b.pinned.cmp(&a.pinned).then(b.updated.cmp(&a.updated)));
@@ -382,6 +407,10 @@ impl Chats {
     }
 
     pub fn create(&self, route: Route) -> Thread {
+        self.create_in(route, Scope::default())
+    }
+
+    pub fn create_in(&self, route: Route, scope: Scope) -> Thread {
         let now = now_ms();
         let t = Thread {
             id: new_id(),
@@ -393,6 +422,9 @@ impl Chats {
             messages: vec![],
             cli_session: None,
             branched_from: None,
+            project: scope.project.filter(|p| !p.is_empty()),
+            app: scope.app,
+            system: scope.system,
         };
         self.threads.lock().unwrap().insert(t.id.clone(), t.clone());
         self.save(&t.id);
@@ -478,6 +510,9 @@ impl Chats {
             messages: src.messages[..=end].to_vec(),
             cli_session: None,
             branched_from: Some(src.id.clone()),
+            project: src.project.clone(),
+            app: src.app.clone(),
+            system: src.system.clone(),
         };
         let from = self.files_dir(&src.id);
         if from.is_dir() {
@@ -751,15 +786,52 @@ impl Chats {
         let t = &ts[id];
         let mut h: Vec<Msg> = t.messages.clone();
         h.pop(); // the empty reply
+        // A reply to a specific message carries a quote of it, so the model
+        // knows which part of the conversation it answers.
+        for m in h.iter_mut() {
+            let Some(q) = m.reply_to.as_ref().and_then(|r| t.messages.iter().find(|x| &x.id == r)) else {
+                continue;
+            };
+            let who = if q.role == Role::User { "my earlier message" } else { "your earlier reply" };
+            let snip: String = q.text.chars().take(400).collect();
+            m.text = format!("> Replying to {who}: {}\n\n{}", snip.replace('\n', " "), m.text);
+        }
         (h, t.cli_session.clone())
     }
 
+    /// The thread's own brief (an app's) and the memory notes for its
+    /// project, as one system prompt.
+    fn system_text(&self, id: &str, ctx: &Ctx) -> Option<String> {
+        let (sys, project) = {
+            let ts = self.threads.lock().unwrap();
+            let t = ts.get(id)?;
+            (t.system.clone(), t.project.clone())
+        };
+        let mem = ctx
+            .memory
+            .as_ref()
+            .filter(|_| ctx.prefs.memory_on)
+            .and_then(|m| m.context(project.as_deref()));
+        let parts: Vec<String> = [sys, mem].into_iter().flatten().filter(|s| !s.trim().is_empty()).collect();
+        (!parts.is_empty()).then(|| parts.join("\n\n"))
+    }
+
+    /// Pair: the project folder this thread's CLI works (and edits) in.
+    fn project_of(&self, id: &str) -> Option<PathBuf> {
+        let ts = self.threads.lock().unwrap();
+        ts.get(id)
+            .and_then(|t| t.project.clone())
+            .map(PathBuf::from)
+            .filter(|p| p.is_dir())
+    }
+
     async fn run(&self, id: &str, mid: &str, route: &Route, ctx: &Ctx) -> Result<()> {
+        let sys = self.system_text(id, ctx);
         match route.kind {
-            RouteKind::Cli => self.run_cli(id, mid, route).await,
+            RouteKind::Cli => self.run_cli(id, mid, route, sys.as_deref()).await,
             RouteKind::Local => {
                 let url = ctx.prefs.ollama_url.trim_end_matches('/').to_string();
-                self.run_ollama(id, mid, &url, route).await
+                self.run_ollama(id, mid, &url, route, sys.as_deref()).await
             }
             RouteKind::Router => {
                 let r = ctx
@@ -769,7 +841,7 @@ impl Chats {
                     .find(|r| r.id == route.provider)
                     .cloned()
                     .ok_or_else(|| anyhow!("that router was removed in Settings"))?;
-                self.run_openai(id, mid, &r.base_url, &r.api_key, route)
+                self.run_openai(id, mid, &r.base_url, &r.api_key, route, sys.as_deref())
                     .await
             }
             RouteKind::Cloud => self.run_cloud(id, mid, ctx, route).await,
@@ -806,7 +878,7 @@ impl Chats {
         p
     }
 
-    async fn run_cli(&self, id: &str, mid: &str, route: &Route) -> Result<()> {
+    async fn run_cli(&self, id: &str, mid: &str, route: &Route, sys: Option<&str>) -> Result<()> {
         let bin_name = match route.provider.as_str() {
             "cursor" => "cursor-agent",
             other => other,
@@ -814,11 +886,26 @@ impl Chats {
         let bin = crate::harnesses::which(bin_name)
             .or_else(|| crate::harnesses::which("agy").filter(|_| route.provider == "antigravity"))
             .ok_or_else(|| anyhow!("`{bin_name}` is not installed or not on PATH"))?;
-        let scratch = self.dir.join("scratch").join(id);
-        std::fs::create_dir_all(&scratch)?;
+        // Pair: in the project, allowed to edit it. Otherwise a scratch
+        // folder per thread, read-only by default.
+        let project = self.project_of(id);
+        let pair = project.is_some();
+        let cwd = match project {
+            Some(p) => p,
+            None => {
+                let scratch = self.dir.join("scratch").join(id);
+                std::fs::create_dir_all(&scratch)?;
+                scratch
+            }
+        };
         let (hist, session) = self.history(id);
+        // CLIs without a system-prompt flag get the brief ahead of the prompt.
+        let with_sys = |p: String| match sys {
+            Some(s) => format!("{s}\n\n---\n\n{p}"),
+            None => p,
+        };
         let mut cmd = tokio::process::Command::new(&bin);
-        cmd.current_dir(&scratch)
+        cmd.current_dir(&cwd)
             .env("PATH", crate::harnesses::path_env())
             .env("NO_COLOR", "1")
             .stdin(Stdio::piped())
@@ -842,6 +929,28 @@ impl Chats {
                 if let Some(m) = &model {
                     cmd.args(["--model", m]);
                 }
+                if let Some(s) = sys {
+                    cmd.args(["--append-system-prompt", s]);
+                }
+                // Installed apps' tools, through `backspace mcp`.
+                let apps = !crate::board::app_tools().is_empty();
+                if apps {
+                    if let Ok(exe) = std::env::current_exe() {
+                        let cfg = json!({"mcpServers": {"backspace": {"command": exe.display().to_string(), "args": ["mcp"]}}});
+                        cmd.args(["--mcp-config", &cfg.to_string()]);
+                    }
+                }
+                let mcp = if apps { ",mcp__backspace" } else { "" };
+                if pair {
+                    cmd.args([
+                        "--permission-mode",
+                        "acceptEdits",
+                        "--allowedTools",
+                        &format!("Bash,Edit,Write,Read,Glob,Grep,WebFetch{mcp}"),
+                    ]);
+                } else if apps {
+                    cmd.args(["--allowedTools", "mcp__backspace"]);
+                }
                 // With a session, only the new message; without, the
                 // transcript (a branch, a retry, a switched backend).
                 let last = hist.last().cloned();
@@ -864,18 +973,24 @@ impl Chats {
             }
             "codex" => {
                 cmd.args(["exec", "--json", "--skip-git-repo-check"]);
+                if pair {
+                    cmd.arg("--full-auto");
+                }
                 if let Some(m) = &model {
                     cmd.args(["-m", m]);
                 }
                 cmd.arg("-");
-                stdin_text = Some(self.prompt_with_history(id, &hist));
+                stdin_text = Some(with_sys(self.prompt_with_history(id, &hist)));
             }
             "cursor" => {
                 cmd.args(["-p", "--output-format", "text"]);
+                if pair {
+                    cmd.arg("--force");
+                }
                 if let Some(m) = &model {
                     cmd.args(["--model", m]);
                 }
-                cmd.arg(self.prompt_with_history(id, &hist));
+                cmd.arg(with_sys(self.prompt_with_history(id, &hist)));
                 stdin_text = None;
             }
             "opencode" => {
@@ -883,14 +998,14 @@ impl Chats {
                 if let Some(m) = &model {
                     cmd.args(["-m", m]);
                 }
-                cmd.arg(self.prompt_with_history(id, &hist));
+                cmd.arg(with_sys(self.prompt_with_history(id, &hist)));
                 stdin_text = None;
             }
             "grok" => {
                 if let Some(m) = &model {
                     cmd.args(["-m", m]);
                 }
-                cmd.args(["-p", &self.prompt_with_history(id, &hist)]);
+                cmd.args(["-p", &with_sys(self.prompt_with_history(id, &hist))]);
                 stdin_text = None;
             }
             other => bail!("{other} has no one-shot mode to chat with; use it from a project"),
@@ -1097,16 +1212,17 @@ impl Chats {
         s
     }
 
-    async fn run_ollama(&self, id: &str, mid: &str, url: &str, route: &Route) -> Result<()> {
+    async fn run_ollama(&self, id: &str, mid: &str, url: &str, route: &Route, sys: Option<&str>) -> Result<()> {
         let model = route
             .model
             .clone()
             .filter(|m| !m.is_empty())
             .ok_or_else(|| anyhow!("pick an Ollama model for this chat"))?;
         let (hist, _) = self.history(id);
-        let messages: Vec<Value> = hist
-            .iter()
-            .map(|m| {
+        let messages: Vec<Value> = sys
+            .map(|s| json!({ "role": "system", "content": s }))
+            .into_iter()
+            .chain(hist.iter().map(|m| {
                 let mut v = json!({
                     "role": if m.role == Role::User { "user" } else { "assistant" },
                     "content": self.text_with_files(id, m),
@@ -1116,7 +1232,7 @@ impl Chats {
                     v["images"] = json!(imgs);
                 }
                 v
-            })
+            }))
             .collect();
         let resp = self
             .http
@@ -1153,8 +1269,10 @@ impl Chats {
         Ok(())
     }
 
-    fn openai_messages(&self, id: &str, hist: &[Msg]) -> Vec<Value> {
-        hist.iter()
+    fn openai_messages(&self, id: &str, hist: &[Msg], sys: Option<&str>) -> Vec<Value> {
+        sys.map(|s| json!({ "role": "system", "content": s }))
+            .into_iter()
+            .chain(hist.iter()
             .map(|m| {
                 let role = if m.role == Role::User { "user" } else { "assistant" };
                 let imgs = self.image_b64(id, m);
@@ -1169,6 +1287,7 @@ impl Chats {
                     json!({ "role": role, "content": parts })
                 }
             })
+            )
             .collect()
     }
 
@@ -1179,6 +1298,7 @@ impl Chats {
         base: &str,
         key: &str,
         route: &Route,
+        sys: Option<&str>,
     ) -> Result<()> {
         let model = route
             .model
@@ -1191,7 +1311,7 @@ impl Chats {
             .post(format!("{}/chat/completions", base.trim_end_matches('/')))
             .json(&json!({
                 "model": model,
-                "messages": self.openai_messages(id, &hist),
+                "messages": self.openai_messages(id, &hist, sys),
                 "stream": true,
             }));
         if !key.is_empty() {
@@ -1239,7 +1359,7 @@ impl Chats {
             .http
             .post(format!("{}/v1/chat", cloud.url.trim_end_matches('/')))
             .bearer_auth(&cloud.token)
-            .json(&json!({ "model": model, "messages": self.openai_messages(id, &hist) }))
+            .json(&json!({ "model": model, "messages": self.openai_messages(id, &hist, self.system_text(id, ctx).as_deref()) }))
             .send()
             .await
             .map_err(|e| {

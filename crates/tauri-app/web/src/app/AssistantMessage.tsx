@@ -6,7 +6,7 @@
 // answered (multi-harness threads) and the sponsored card for Cloud's
 // ad-supported plans, styled as one of Whirl's wells.
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import {
   IconAlertTriangleFilled,
   IconCheck,
@@ -33,6 +33,10 @@ export function AssistantMessage({
   ad,
   onRetry,
   onBranch,
+  quote,
+  badge,
+  actions,
+  below,
 }: {
   message: ChatMessage;
   error?: string | null;
@@ -40,6 +44,10 @@ export function AssistantMessage({
   ad?: Ad | null;
   onRetry?: () => void;
   onBranch?: () => void;
+  quote?: ReactNode;
+  badge?: ReactNode;
+  actions?: ReactNode;
+  below?: ReactNode;
 }) {
   const terminal = isTerminal(message.status);
   const [sawLive] = useState(!terminal);
@@ -51,6 +59,7 @@ export function AssistantMessage({
 
   return (
     <div data-quotable="assistant" className="group/msg flex w-full min-w-0 flex-col items-start">
+      {quote}
       {answeredBy && (
         <div className="mb-1.5 text-[12px]/4 font-medium text-muted-foreground">{answeredBy}</div>
       )}
@@ -69,8 +78,10 @@ export function AssistantMessage({
         </div>
       )}
       {!terminal && showText && <div aria-hidden className="mt-1.5 h-7" />}
+      {terminal && !failed && below}
+      {badge && <div className="mt-1.5">{badge}</div>}
       {terminal && !failed && (
-        <MessageActions message={message} onRetry={onRetry} onBranch={onBranch} />
+        <MessageActions message={message} onRetry={onRetry} onBranch={onBranch} extra={actions} />
       )}
       {ad && terminal && <AdCard ad={ad} />}
     </div>
@@ -123,10 +134,12 @@ function MessageActions({
   message,
   onRetry,
   onBranch,
+  extra,
 }: {
   message: ChatMessage;
   onRetry?: () => void;
   onBranch?: () => void;
+  extra?: ReactNode;
 }) {
   const [copied, setCopied] = useState(false);
   const text = message.content;
@@ -155,6 +168,7 @@ function MessageActions({
         </MessageActionButton>
       )}
       {onBranch && <CheckpointMenu onBranch={onBranch} />}
+      {extra}
       {(message.model || message.usageCost) && (
         <div className="ml-1.5 flex items-center gap-2.5 px-0.5 text-[11.5px]/4 font-medium tabular-nums text-muted-foreground">
           {message.model && <span>{message.model}</span>}

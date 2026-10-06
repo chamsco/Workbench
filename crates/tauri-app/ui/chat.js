@@ -148,8 +148,18 @@ var Chat = (() => {
   // ---------------------------------------------------------------- Whirl
   // The chat face is Whirl's (web/ → chat-web/whirl.js) when its bundle
   // loaded; the vanilla rendering below stays as the fallback.
-  let whirl = false;
+  let whirl = false, scope = null;
+  // Pair shows the chat face scoped to the open project: its threads, and
+  // new ones bound to it. Elsewhere, the plain chat list.
+  function setScope(s) {
+    s = s || null;
+    if (s === scope) return;
+    scope = s;
+    if (whirl && window.WhirlChat.setScope) window.WhirlChat.setScope(scope);
+  }
   const host = () => ({
+    scope: () => scope,
+    remember: (text, source) => invoke("memory_add", { text, project: scope, source: source || "chat" }).then(() => { toast("Saved to Memory", "ok"); if (window.Memory) Memory.refresh(); }),
     invoke: (cmd, args) => invoke(cmd, args),
     routes: options,
     routeName,
@@ -552,7 +562,7 @@ var Chat = (() => {
     if (S.mode === "chat" && !S.settings) { renderThreads(); if ($("#chat .chat-wrap")) { renderHead(); if (C.t) { renderMsgs(); renderSugg(); } renderComposer(); } else render(); }
   }
   async function open(id) {
-    if (whirl) { if (S.settings) closeSettings(); if (S.mode !== "chat") setMode("chat"); return window.WhirlChat.open(id); }
+    if (whirl) { if (S.settings) closeSettings(); if (!Shell.showing("chat")) setMode("chat"); return window.WhirlChat.open(id); }
     C.id = id; C.reply = null; C.editing = null;
     C.t = await invoke("chat_thread", { id }).catch(() => null);
     if (S.settings) closeSettings();
@@ -564,7 +574,7 @@ var Chat = (() => {
     if (narrow()) setSide(false);
   }
   function newChat() {
-    if (whirl) { if (S.settings) closeSettings(); if (S.mode !== "chat") setMode("chat"); window.WhirlChat.home(); return; }
+    if (whirl) { if (S.settings) closeSettings(); if (!Shell.showing("chat")) setMode("chat"); window.WhirlChat.home(); return; }
     C.id = null; C.t = null; C.reply = null; C.editing = null; C.homeRoute = null;
     if (S.settings) closeSettings();
     if (S.mode !== "chat") setMode("chat");
@@ -580,5 +590,5 @@ var Chat = (() => {
     C.threads = await invoke("chat_list").catch(() => []);
   }
 
-  return { init, refresh, render, renderThreads, renderComposerRoute, newChat, open, routeName, routePicker, md };
+  return { init, refresh, render, renderThreads, renderComposerRoute, newChat, open, routeName, providerName, routePicker, md, options, flat, defaultRoute, usable, setScope };
 })();

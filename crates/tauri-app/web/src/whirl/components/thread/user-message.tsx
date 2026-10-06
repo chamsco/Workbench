@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   IconArrowUp,
   IconCheck,
@@ -24,8 +24,19 @@ import { MessageAttachments } from "./message-attachments";
 export function UserMessage({
   message,
   onEdit,
+  quote,
+  badge,
+  actions,
+  below,
 }: {
   message: ChatMessage;
+  /* Backspace: the message this one answers, the tapback on the bubble's
+     corner, extra hover actions (react, reply, remember), and what sits
+     under the bubble (a link preview). */
+  quote?: ReactNode;
+  badge?: ReactNode;
+  actions?: ReactNode;
+  below?: ReactNode;
   /** Save an edited prompt (and regenerate the reply that follows).
    *  Absent — debug fixtures, signed-out views — hides the affordance. */
   onEdit?: (content: string) => void;
@@ -35,6 +46,7 @@ export function UserMessage({
 
   return (
     <div className="group/msg flex min-w-0 flex-col items-end gap-2">
+      {quote}
       {message.attachments && message.attachments.length > 0 && (
         <MessageAttachments attachments={message.attachments} />
       )}
@@ -50,13 +62,17 @@ export function UserMessage({
       ) : (
         <>
           {message.content.length > 0 && (
-            <div
-              data-quotable="user"
-              className="min-w-0 max-w-[85%] rounded-[20px] rounded-br-md bg-well px-3.5 py-2 text-[15px]/6 break-words whitespace-pre-wrap [overflow-wrap:anywhere] shadow-[inset_0_0_0_1px_var(--well-outline),inset_0_1px_0_0_var(--well-highlight)]"
-            >
-              {message.content}
+            <div className="relative flex min-w-0 max-w-[85%] justify-end">
+              <div
+                data-quotable="user"
+                className="min-w-0 rounded-[20px] rounded-br-md bg-well px-3.5 py-2 text-[15px]/6 break-words whitespace-pre-wrap [overflow-wrap:anywhere] shadow-[inset_0_0_0_1px_var(--well-outline),inset_0_1px_0_0_var(--well-highlight)]"
+              >
+                {message.content}
+              </div>
+              {badge && <div className="absolute -top-3.5 -left-3">{badge}</div>}
             </div>
           )}
+          {below}
           <div className="-mt-1 flex items-center gap-0.5 opacity-0 transition-opacity duration-150 group-hover/msg:opacity-100 focus-within:opacity-100 coarse:opacity-100">
             {canEdit && (
               <MessageActionButton
@@ -67,6 +83,7 @@ export function UserMessage({
               </MessageActionButton>
             )}
             <CopyAction text={message.content} />
+            {actions}
           </div>
         </>
       )}

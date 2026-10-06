@@ -39,6 +39,8 @@ export type Thread = {
   route: Route;
   messages: Msg[];
   branched_from?: string | null;
+  project?: string | null;
+  app?: string | null;
 };
 
 export type ThreadInfo = {
@@ -50,6 +52,8 @@ export type ThreadInfo = {
   preview: string;
   busy: boolean;
   unread: boolean;
+  project?: string | null;
+  app?: string | null;
 };
 
 export type RouteItem = {
@@ -78,6 +82,10 @@ export type Host = {
   runSetup: () => void;
   toast: (text: string, kind?: string) => void;
   openUrl: (url: string) => void;
+  /** The project folder Pair is showing, or null for plain chat. */
+  scope: () => string | null;
+  /** Save text to Memory (scoped to the project in Pair). */
+  remember: (text: string, source?: string) => Promise<void>;
 };
 
 let host: Host;
@@ -95,9 +103,13 @@ type State = {
   /** Bumped when routes or the plan change, so pickers re-read the host. */
   epoch: number;
   query: string;
+  /** Pair's project folder; null shows plain chats. App threads never show here. */
+  scope: string | null;
+  /** The message the next send answers (iMessage's reply). */
+  replyTo: string | null;
 };
 
-let state: State = { threads: [], id: null, thread: null, epoch: 0, query: "" };
+let state: State = { threads: [], id: null, thread: null, epoch: 0, query: "", scope: null, replyTo: null };
 const subs = new Set<() => void>();
 const emit = () => subs.forEach((f) => f());
 const set = (patch: Partial<State>) => {
@@ -129,14 +141,26 @@ export async function refresh() {
 
 export async function openThread(id: string) {
   const thread = await host.invoke<Thread | null>("chat_thread", { id }).catch(() => null);
-  set({ id: thread ? id : null, thread });
+  set({ id: thread ? id : null, thread, replyTo: null });
   const threads = await host.invoke<ThreadInfo[]>("chat_list").catch(() => state.threads);
   set({ threads });
 }
 
 export function goHome() {
-  set({ id: null, thread: null });
+  set({ id: null, thread: null, replyTo: null });
 }
+
+/** Threads that belong to the current scope. */
+export const inScope = (t: { project?: string | null; app?: string | null }, scope: string | null) =>
+  !t.app && (t.project ?? null) === scope;
+
+export function setScope(scope: string | null) {
+  if (scope === state.scope) return;
+  const keep = state.thread && inScope(state.thread, scope);
+  set({ scope, ...(keep ? {} : { id: null, thread: null, replyTo: null }) });
+}
+
+export const setReplyTo = (replyTo: string | null) => set({ replyTo });
 
 export function setQuery(query: string) {
   set({ query });
@@ -149,11 +173,13 @@ export async function send(text: string, files: NewFile[], route: Route | null) 
   let id = state.id;
   if (!id) {
     if (!route) throw new Error("Connect a model first");
-    const t = await host.invoke<Thread>("chat_new", { route });
+    const t = await host.invoke<Thread>("chat_new", { route, scope: { project: state.scope } });
     id = t.id;
     set({ id, thread: t });
   }
-  await host.invoke("chat_send", { id, text, files, replyTo: null });
+  const replyTo = state.replyTo;
+  set({ replyTo: null });
+  await host.invoke("chat_send", { id, text, files, replyTo });
   await refresh();
 }
 
@@ -161,6 +187,21 @@ export const stop = (id: string) => host.invoke("chat_stop", { id });
 export const retry = (id: string) => host.invoke("chat_retry", { id });
 export const edit = (id: string, msg: string, text: string) => host.invoke("chat_edit", { id, msg, text });
 export const setRoute = (id: string, route: Route) => host.invoke("chat_set_route", { id, route });
+export const react = (id: string, msg: string, emoji: string) => host.invoke("chat_react", { id, msg, emoji }).then(() => refresh());
+
+export type LinkMeta = { url: string; site: string; title: string; description: string; image: string | null };
+const previews = new Map<string, LinkMeta | null>();
+/** Link preview metadata, fetched once per URL by the core. */
+export function linkPreview(url: string): LinkMeta | null | undefined {
+  if (previews.has(url)) return previews.get(url);
+  previews.set(url, undefined as unknown as null);
+  host
+    .invoke<LinkMeta | null>("link_preview", { url })
+    .then((m) => previews.set(url, m && (m.title || m.description) ? m : null))
+    .catch(() => previews.set(url, null))
+    .finally(() => set({ epoch: state.epoch + 1 }));
+  return undefined;
+}
 export const rename = (id: string, title: string) => host.invoke("chat_rename", { id, title });
 export const pin = (id: string, pinned: boolean) => host.invoke("chat_pin", { id, pinned });
 export async function remove(id: string) {

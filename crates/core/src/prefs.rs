@@ -19,8 +19,20 @@ pub struct Prefs {
     pub active_tab: usize,
     /// False until the first-run setup is finished or skipped.
     pub onboarded: bool,
-    /// "chat" or "code": which half of the app was showing.
+    /// Which zone of the rail was showing: "chat", "code", "memory",
+    /// "apps" or "app:<id>".
     pub mode: String,
+    /// Inside Code: "pair" (you and one CLI, turn by turn, in the project)
+    /// or "agents" (the planner, tickets and workers).
+    pub code_view: String,
+    /// A second pane beside the zone: what it shows and its share of the width.
+    pub split: Option<SplitCfg>,
+    /// Installed apps shown in the rail, in order.
+    pub pinned_apps: Vec<String>,
+    /// Whether chats and agents get the memory notes.
+    pub memory_on: bool,
+    /// The phone companion's link (docs/companion.md).
+    pub companion: CompanionCfg,
     /// What the user picked in setup: "chat", "code" or both. The switch
     /// between them only shows when both are on.
     pub uses: Vec<String>,
@@ -54,6 +66,11 @@ impl Default for Prefs {
             active_tab: 0,
             onboarded: false,
             mode: "chat".into(),
+            code_view: "agents".into(),
+            split: None,
+            pinned_apps: vec![],
+            memory_on: true,
+            companion: CompanionCfg::default(),
             uses: vec!["chat".into(), "code".into()],
             harnesses: BTreeMap::new(),
             ollama_url: "http://localhost:11434".into(),
@@ -65,6 +82,34 @@ impl Default for Prefs {
             api_keys: BTreeMap::new(),
         }
     }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(default)]
+pub struct CompanionCfg {
+    pub enabled: bool,
+    /// Listens on every interface so a phone on the same network can reach it.
+    pub addr: String,
+    pub token: String,
+}
+
+impl Default for CompanionCfg {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            addr: "0.0.0.0:7421".into(),
+            token: crate::remote::new_token(),
+        }
+    }
+}
+
+/// The second pane of the split view.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct SplitCfg {
+    /// "chat", "code", "memory" or "app:<id>".
+    pub what: String,
+    /// The main pane's share of the width, 0.2..0.8.
+    pub ratio: f32,
 }
 
 /// Any OpenAI-compatible endpoint: OpenRouter, LM Studio, vLLM, LiteLLM,

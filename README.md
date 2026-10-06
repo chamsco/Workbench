@@ -27,6 +27,7 @@ crates/core   harness: router, providers, tools, tickets, git worktrees, skills
 crates/cli    headless shell (logs to stdout, approvals on stdin)
 crates/app    desktop shell, GPUI (native)
 crates/tauri-app  desktop shell, Tauri 2 (the design's HTML in the system webview)
+apps/         app SDK (sdk.js) and the Prompt Lab example app
 design/       workbench.html: the design both shells reproduce
 bench/        GPUI vs Tauri benchmark (see bench/README.md)
 ```
@@ -73,6 +74,19 @@ past it (tabs of canvases, machines, settings).
 Tabs, theme and machines live in `~/.config/backspace/prefs.json`, shared by
 both shells (`BACKSPACE_PREFS` overrides the path).
 
+### Zones
+
+A rail of squares on the far left (Slack/Discord-style) switches zones:
+**Chat**, **Code**, **Memory**, **Apps**, then any app pinned from the
+catalog, and **Settings** at the foot. Each zone keeps its state while
+another shows. The split button in the title bar opens a second zone or
+app beside the current one (drag the gap to size it, swap sides, close).
+
+The title bar follows the OS: macOS keeps its traffic lights (drawn over
+the top of the rail); Windows and Linux run undecorated with their own
+caption buttons (flush rectangles on Windows, round ones on Linux, plus
+resize edges on Linux).
+
 ### Setup, Chat and Coding
 
 First run walks through setup (skippable; "Run setup again" in Settings):
@@ -105,7 +119,19 @@ The composer switches the model per thread, attaches files, and `@codex`
 edited, branched, pinned and renamed. They are JSON files under the data
 dir (`BACKSPACE_DATA` overrides).
 
-**Coding** opens a folder as a project. Workers run on the router's pick or,
+Messages take a tapback (the six iMessage ones), can be answered
+specifically (the reply quotes it, and the model sees the quote), show a
+preview card for their first link, and can be saved to Memory.
+
+**Code** has two views, switched at the top of its sidebar:
+
+- **Pair**: you and one coding CLI, turn by turn, in the open project. The
+  CLI runs in the project folder with leave to edit files and run
+  commands (Claude Code with `acceptEdits`, Codex `--full-auto`, Cursor
+  `--force`). Its threads belong to the project.
+- **Agents**: the workbench below.
+
+**Agents** opens a folder as a project. Workers run on the router's pick or,
 when Settings → Coding names one, on a coding CLI (Claude Code, Codex,
 Cursor, Grok, OpenCode) inside the ticket's worktree; their work goes through
 the same check, review and merge, and review feedback goes back to the CLI
@@ -118,6 +144,32 @@ workers get the same through an MCP server (`backspace mcp`) or the shell
 (`backspace msg agents|send|read`), both reaching a token-protected bridge
 on 127.0.0.1. Address an agent by its key or its ticket's key. The board
 shows as the "Team chat" canvas.
+
+### Memory
+
+Short notes every chat and agent gets ("use pnpm, never npm"), global or
+tied to one project. Chats get the global notes plus their project's as a
+system prompt; a project's planner and workers get them when it opens.
+Add them in the Memory zone, or with Remember on any message. One switch
+turns them off without deleting them. Stored in `<data>/memory.json`.
+
+### Apps
+
+Views with their own agent that anyone can make: a folder with a
+`backspace-app.json` and a page. Install from a link to the manifest or
+from a folder; open from Apps, pin to the rail, or put one beside a chat.
+The page runs sandboxed and talks to Backspace through `apps/sdk.js`: ask
+models the user has on (`backspace.agent.ask`), keep data, notify. Apps
+can also give coding CLIs tools through `backspace mcp`. Format, SDK and
+security model: [`docs/apps.md`](docs/apps.md). Example:
+[`apps/prompt-lab`](apps/prompt-lab) asks two models the same prompt.
+
+### Phone
+
+Settings → Phone opens a token-protected API on the local network and
+shows a QR code to pair the Backspace phone app (not built yet): chats,
+tapbacks, Memory, and a project's approvals. Protocol and plan:
+[`docs/companion.md`](docs/companion.md).
 
 ### Following other machines
 
@@ -268,8 +320,11 @@ State is written to `<workspace>/.backspace/state.json` as a record of the run.
 - Merge conflicts are handed back to the agent, but that path is only covered
   by the git unit test, not the end-to-end tests.
 - The heuristic router is crude by design; routing quality comes from Jev.
-- Chat, setup and Cloud exist only in the Tauri shell; the GPUI shell has
-  the coding workbench only.
+- Chat, setup, Cloud, Memory, Apps, the rail and the phone link exist only
+  in the Tauri shell; the GPUI shell has the coding workbench only.
+- The phone app does not exist yet; only its link and API do. The link is
+  plain HTTP on the LAN with a token (use Tailscale away from home).
+- App tools run as you, like any program you install.
 - The headless flags for Codex, Cursor, Grok, OpenCode and Antigravity
   follow their docs but were only exercised against Claude Code.
 - Cloud is a development server: no accounts beyond a local token, no

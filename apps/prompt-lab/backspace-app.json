@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "id": "prompt-lab",
+  "name": "Prompt Lab",
+  "version": "0.1.0",
+  "description": "Ask two models the same thing and read the answers side by side.",
+  "author": "Backspace",
+  "icon": { "glyph": "PL", "color": "#2563eb" },
+  "view": { "entry": "index.html" },
+  "agent": {
+    "name": "Prompt Lab",
+    "instructions": "You are being compared with another model on the same prompt. Answer directly and concisely; no preamble."
+  },
+  "permissions": ["agent", "routes", "storage", "notify"],
+  "files": ["index.html"]
+}
