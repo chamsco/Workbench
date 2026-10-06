@@ -1,0 +1,16 @@
+[package]
+name = "backspace-runner"
+description = "Run a turn on a coding CLI (Claude Code, Codex, Cursor, OpenCode, Grok), Ollama, any OpenAI-compatible API or an A2A agent, as one stream of events."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true }

@@ -13,14 +13,13 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{anyhow, bail, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+use backspace_runner::{Event as RunEvent, File as RunFile, Lines, Request, Target, Turn};
 use tokio::task::AbortHandle;
 
 use crate::cloud::{Account, Ad};
@@ -301,29 +300,6 @@ pub fn b64_decode(s: &str) -> Option<Vec<u8>> {
         }
     }
     Some(out)
-}
-
-/// Strip ANSI escapes from CLI output.
-fn plain(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    let mut it = s.chars().peekable();
-    while let Some(c) = it.next() {
-        if c == '\u{1b}' {
-            if it.peek() == Some(&'[') {
-                it.next();
-                for d in it.by_ref() {
-                    if d.is_ascii_alphabetic() {
-                        break;
-                    }
-                }
-            }
-            continue;
-        }
-        if c != '\r' {
-            out.push(c);
-        }
-    }
-    out
 }
 
 /// `@codex ...` at the start of a message: answer with that CLI.
@@ -1092,13 +1068,50 @@ impl Chats {
     }
 
     async fn run(&self, id: &str, mid: &str, route: &Route, ctx: &Ctx, call: &Call) -> Result<()> {
-        let sys = self.system_text(id, ctx, call);
-        match route.kind {
-            RouteKind::Cli => self.run_cli(id, mid, route, sys.as_deref(), ctx, call).await,
-            RouteKind::Local => {
-                let url = ctx.prefs.ollama_url.trim_end_matches('/').to_string();
-                self.run_ollama(id, mid, &url, route, sys.as_deref(), call).await
+        if route.kind == RouteKind::Cloud {
+            return self.run_cloud(id, mid, ctx, route, call).await;
+        }
+        let req = self.request(id, route, ctx, call)?;
+        // Groups answer a transcript: no session to resume or keep.
+        let keep_session = call.transcript.is_none();
+        backspace_runner::run(&self.http, &req, &mut |e| self.on_event(id, mid, keep_session, e)).await
+    }
+
+    // ------------------------------------------------------------ runner
+
+    /// This thread's history as the runner's turns.
+    fn turns(&self, id: &str, hist: &[Msg]) -> Vec<Turn> {
+        hist.iter()
+            .map(|m| Turn {
+                user: m.role == Role::User,
+                text: m.text.clone(),
+                who: m.author_name.clone().or_else(|| m.via.as_ref().map(|v| v.provider.clone())),
+                files: m
+                    .attachments
+                    .iter()
+                    .filter_map(|a| {
+                        Some(RunFile { name: a.name.clone(), mime: a.mime.clone(), path: self.attachment_path(id, &a.id).ok()? })
+                    })
+                    .collect(),
+            })
+            .collect()
+    }
+
+    /// Everything a reply needs, for the runner: who answers, the brief and
+    /// memory, the history, and for a CLI where it runs and what it may use.
+    fn request(&self, id: &str, route: &Route, ctx: &Ctx, call: &Call) -> Result<Request> {
+        let target = match route.kind {
+            RouteKind::Cli => {
+                let bin_name = match route.provider.as_str() {
+                    "cursor" => "cursor-agent",
+                    other => other,
+                };
+                let bin = crate::harnesses::which(bin_name)
+                    .or_else(|| crate::harnesses::which("agy").filter(|_| route.provider == "antigravity"))
+                    .ok_or_else(|| anyhow!("`{bin_name}` is not installed or not on PATH"))?;
+                Target::Cli { provider: route.provider.clone(), bin }
             }
+            RouteKind::Local => Target::Ollama { url: ctx.prefs.ollama_url.trim_end_matches('/').to_string() },
             RouteKind::Router => {
                 let r = ctx
                     .prefs
@@ -1107,67 +1120,25 @@ impl Chats {
                     .find(|r| r.id == route.provider)
                     .cloned()
                     .ok_or_else(|| anyhow!("that router was removed in Settings"))?;
-                self.run_openai(id, mid, &r.base_url, &r.api_key, route, sys.as_deref(), call)
-                    .await
+                Target::OpenAi { base: r.base_url, key: r.api_key }
             }
-            RouteKind::Cloud => self.run_cloud(id, mid, ctx, route, call).await,
-        }
-    }
-
-    // ------------------------------------------------------------ CLIs
-
-    /// A transcript for CLIs that cannot resume a session.
-    fn prompt_with_history(&self, id: &str, hist: &[Msg]) -> String {
-        let last = hist.last().cloned();
-        let mut p = String::new();
-        if hist.len() > 1 {
-            p.push_str("Conversation so far:\n\n");
-            for m in &hist[..hist.len() - 1] {
-                let who = match (&m.role, &m.via) {
-                    (Role::User, _) => "User".to_string(),
-                    (_, Some(v)) => format!("Assistant ({})", v.provider),
-                    _ => "Assistant".to_string(),
-                };
-                let text: String = m.text.chars().take(4000).collect();
-                p.push_str(&format!("{who}: {text}\n\n"));
-            }
-            p.push_str("Reply to the user's last message:\n\n");
-        }
-        if let Some(m) = last {
-            p.push_str(&m.text);
-            for a in &m.attachments {
-                if let Ok(path) = self.attachment_path(id, &a.id) {
-                    p.push_str(&format!("\n\n[Attached: {} at {}]", a.name, path.display()));
-                }
-            }
-        }
-        p
-    }
-
-    async fn run_cli(&self, id: &str, mid: &str, route: &Route, sys: Option<&str>, ctx: &Ctx, call: &Call) -> Result<()> {
-        let bin_name = match route.provider.as_str() {
-            "cursor" => "cursor-agent",
-            other => other,
+            RouteKind::Cloud => bail!("Cloud replies don't go through the runner"),
         };
-        let bin = crate::harnesses::which(bin_name)
-            .or_else(|| crate::harnesses::which("agy").filter(|_| route.provider == "antigravity"))
-            .ok_or_else(|| anyhow!("`{bin_name}` is not installed or not on PATH"))?;
-        // Pair: in the project, allowed to edit it. Otherwise a scratch
-        // folder per thread, read-only by default.
-        // An agent works in its own folder, with leave to edit it.
-        let agent_dir = call
-            .agent
-            .as_ref()
-            .and_then(|a| ctx.agents.as_ref().map(|ag| ag.workspace(&a.id)));
-        let computer = call
-            .agent
-            .as_ref()
-            .and_then(|a| ctx.agents.as_ref().and_then(|ag| ag.computer_env(a)));
+        let (hist, session) = self.history_for(id, call);
+        let mut req = Request::new(target, self.turns(id, &hist));
+        req.model = route.model.clone().filter(|m| !m.is_empty());
+        req.system = self.system_text(id, ctx, call);
+        req.session = session;
+        if route.kind != RouteKind::Cli {
+            return Ok(req);
+        }
+        // Pair: in the project, allowed to edit it. An agent: in its own
+        // folder, allowed to edit it. Otherwise a scratch folder per thread.
+        let agent_dir = call.agent.as_ref().and_then(|a| ctx.agents.as_ref().map(|ag| ag.workspace(&a.id)));
+        let computer = call.agent.as_ref().and_then(|a| ctx.agents.as_ref().and_then(|ag| ag.computer_env(a)));
         let project = agent_dir.or_else(|| self.project_of(id));
-        let pair = project.is_some();
-        // Groups answer a transcript: no CLI session to resume or keep.
-        let keep_session = call.transcript.is_none();
-        let cwd = match project {
+        req.edit = project.is_some();
+        req.cwd = match project {
             Some(p) => p,
             None => {
                 let scratch = self.dir.join("scratch").join(id);
@@ -1175,22 +1146,9 @@ impl Chats {
                 scratch
             }
         };
-        let (hist, session) = self.history_for(id, call);
-        // CLIs without a system-prompt flag get the brief ahead of the prompt.
-        let with_sys = |p: String| match sys {
-            Some(s) => format!("{s}\n\n---\n\n{p}"),
-            None => p,
-        };
-        let mut cmd = tokio::process::Command::new(&bin);
-        cmd.current_dir(&cwd)
-            .env("PATH", crate::harnesses::path_env())
-            .env("NO_COLOR", "1")
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true);
+        req.env.push(("PATH".into(), crate::harnesses::path_env().to_string_lossy().to_string()));
         if let Some(c) = &computer {
-            cmd.env(crate::agents::ENV_COMPUTER, serde_json::to_string(c)?);
+            req.env.push((crate::agents::ENV_COMPUTER.into(), serde_json::to_string(c)?));
         }
         // Agents and Pair may search memory and save to their own notes.
         let mem_scope = match &call.agent {
@@ -1200,451 +1158,53 @@ impl Chats {
         }
         .filter(|_| ctx.prefs.memory_on && ctx.memory.is_some());
         if let Some(s) = &mem_scope {
-            cmd.env(crate::mcp::ENV_MEMORY, s);
+            req.env.push((crate::mcp::ENV_MEMORY.into(), s.clone()));
         }
-        let model = route.model.clone().filter(|m| !m.is_empty());
-        let stdin_text: Option<String>;
-        match route.provider.as_str() {
-            "claude" => {
-                cmd.args([
-                    "-p",
-                    "--output-format",
-                    "stream-json",
-                    "--verbose",
-                    "--include-partial-messages",
-                ]);
-                if let Some(s) = &session {
-                    cmd.args(["--resume", s]);
-                }
-                if let Some(m) = &model {
-                    cmd.args(["--model", m]);
-                }
-                if let Some(s) = sys {
-                    cmd.args(["--append-system-prompt", s]);
-                }
-                // Installed apps' tools, through `backspace mcp`.
-                let apps = !crate::mcp::app_tools().is_empty() || computer.is_some() || mem_scope.is_some();
-                if apps {
-                    if let Ok(exe) = std::env::current_exe() {
-                        let cfg = json!({"mcpServers": {"backspace": {"command": exe.display().to_string(), "args": ["mcp"]}}});
-                        cmd.args(["--mcp-config", &cfg.to_string()]);
-                    }
-                }
-                let mcp = if apps { ",mcp__backspace" } else { "" };
-                for d in call.agent.iter().flat_map(|a| a.shared.iter()) {
-                    cmd.args(["--add-dir", &crate::agents::expand(d).display().to_string()]);
-                }
-                if pair {
-                    cmd.args([
-                        "--permission-mode",
-                        "acceptEdits",
-                        "--allowedTools",
-                        &format!("Bash,Edit,Write,Read,Glob,Grep,WebFetch{mcp}"),
-                    ]);
-                } else if apps {
-                    cmd.args(["--allowedTools", "mcp__backspace"]);
-                }
-                // With a session, only the new message; without, the
-                // transcript (a branch, a retry, a switched backend).
-                let last = hist.last().cloned();
-                stdin_text = Some(match (&session, last) {
-                    (Some(_), Some(m)) => {
-                        let mut s = m.text.clone();
-                        for a in &m.attachments {
-                            if let Ok(p) = self.attachment_path(id, &a.id) {
-                                s.push_str(&format!(
-                                    "\n\n[Attached: {} at {}]",
-                                    a.name,
-                                    p.display()
-                                ));
-                            }
-                        }
-                        s
-                    }
-                    _ => self.prompt_with_history(id, &hist),
-                });
-            }
-            "codex" => {
-                cmd.args(["exec", "--json", "--skip-git-repo-check"]);
-                if pair {
-                    cmd.arg("--full-auto");
-                }
-                if let Some(m) = &model {
-                    cmd.args(["-m", m]);
-                }
-                cmd.arg("-");
-                stdin_text = Some(with_sys(self.prompt_with_history(id, &hist)));
-            }
-            "cursor" => {
-                cmd.args(["-p", "--output-format", "text"]);
-                if pair {
-                    cmd.arg("--force");
-                }
-                if let Some(m) = &model {
-                    cmd.args(["--model", m]);
-                }
-                cmd.arg(with_sys(self.prompt_with_history(id, &hist)));
-                stdin_text = None;
-            }
-            "opencode" => {
-                cmd.arg("run");
-                if let Some(m) = &model {
-                    cmd.args(["-m", m]);
-                }
-                cmd.arg(with_sys(self.prompt_with_history(id, &hist)));
-                stdin_text = None;
-            }
-            "grok" => {
-                if let Some(m) = &model {
-                    cmd.args(["-m", m]);
-                }
-                cmd.args(["-p", &with_sys(self.prompt_with_history(id, &hist))]);
-                stdin_text = None;
-            }
-            other => bail!("{other} has no one-shot mode to chat with; use it from a project"),
-        }
-        let mut child = cmd
-            .spawn()
-            .with_context(|| format!("starting {}", bin.display()))?;
-        let mut stdin = child.stdin.take();
-        if let (Some(mut w), Some(text)) = (stdin.take(), stdin_text) {
-            w.write_all(text.as_bytes()).await?;
-            w.shutdown().await?;
-        }
-        let mut err = child.stderr.take().unwrap();
-        let err_task = tokio::spawn(async move {
-            let mut s = String::new();
-            let _ = err.read_to_string(&mut s).await;
-            s
-        });
-        let mut lines = BufReader::new(child.stdout.take().unwrap()).lines();
-        let mut got_partial = false;
-        let mut raw = String::new();
-        let mut fail: Option<String> = None;
-        while let Some(line) = lines.next_line().await? {
-            match route.provider.as_str() {
-                "claude" => {
-                    let Ok(v) = serde_json::from_str::<Value>(&line) else {
-                        continue;
-                    };
-                    match v["type"].as_str() {
-                        Some("system") => {
-                            if let Some(s) = v["session_id"].as_str() {
-                                let s = s.to_string();
-                                if keep_session {
-                                    let _ = self.edit_thread(id, |t| t.cli_session = Some(s));
-                                }
-                            }
-                            if let Some(m) = v["model"].as_str() {
-                                let m = m.to_string();
-                                self.with_msg(id, mid, |msg| msg.model = Some(m));
-                            }
-                        }
-                        Some("stream_event") => {
-                            let e = &v["event"];
-                            if e["type"] == "content_block_delta"
-                                && e["delta"]["type"] == "text_delta"
-                            {
-                                got_partial = true;
-                                self.append(id, mid, e["delta"]["text"].as_str().unwrap_or(""));
-                            } else if e["type"] == "message_start" {
-                                // A new assistant turn after a tool call:
-                                // separate it from the last one.
-                                let need = self
-                                    .threads
-                                    .lock()
-                                    .unwrap()
-                                    .get(id)
-                                    .and_then(|t| t.messages.iter().find(|m| m.id == mid))
-                                    .is_some_and(|m| {
-                                        !m.text.is_empty() && !m.text.ends_with("\n\n")
-                                    });
-                                if need {
-                                    self.append(id, mid, "\n\n");
-                                }
-                            }
-                        }
-                        Some("assistant") if !got_partial => {
-                            let text: String = v["message"]["content"]
-                                .as_array()
-                                .map(|a| {
-                                    a.iter()
-                                        .filter_map(|b| b["text"].as_str())
-                                        .collect::<Vec<_>>()
-                                        .join("")
-                                })
-                                .unwrap_or_default();
-                            self.append(id, mid, &text);
-                        }
-                        Some("result") => {
-                            if let Some(s) = v["session_id"].as_str() {
-                                let s = s.to_string();
-                                if keep_session {
-                                    let _ = self.edit_thread(id, |t| t.cli_session = Some(s));
-                                }
-                            }
-                            let cost = v["total_cost_usd"].as_f64();
-                            let is_err = v["is_error"].as_bool().unwrap_or(false);
-                            let result = v["result"].as_str().unwrap_or("").to_string();
-                            self.with_msg(id, mid, |m| {
-                                m.cost_usd = cost;
-                                if m.text.trim().is_empty() && !is_err {
-                                    m.text = result.clone();
-                                }
-                            });
-                            if is_err {
-                                fail = Some(if result.is_empty() {
-                                    "Claude reported an error".into()
-                                } else {
-                                    result
-                                });
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-                "codex" => {
-                    let Ok(v) = serde_json::from_str::<Value>(&line) else {
-                        raw.push_str(&line);
-                        raw.push('\n');
-                        continue;
-                    };
-                    match v["type"].as_str() {
-                        Some("item.completed") | Some("item.updated") => {
-                            let item = &v["item"];
-                            let kind = item["type"].as_str().or(item["item_type"].as_str());
-                            if matches!(kind, Some("agent_message") | Some("assistant_message")) {
-                                if let Some(t) = item["text"].as_str() {
-                                    // Each message is one paragraph of the reply.
-                                    let cur = self
-                                        .threads
-                                        .lock()
-                                        .unwrap()
-                                        .get(id)
-                                        .and_then(|t| t.messages.iter().find(|m| m.id == mid))
-                                        .map(|m| m.text.clone())
-                                        .unwrap_or_default();
-                                    if v["type"] == "item.completed" {
-                                        let sep = if cur.is_empty() { "" } else { "\n\n" };
-                                        self.append(id, mid, &format!("{sep}{t}"));
-                                    }
-                                }
-                            }
-                        }
-                        Some("error") => fail = v["message"].as_str().map(str::to_string),
-                        Some("turn.failed") => {
-                            fail = v["error"]["message"].as_str().map(str::to_string)
-                        }
-                        _ => {}
-                    }
-                }
-                _ => {
-                    raw.push_str(&line);
-                    raw.push('\n');
-                    let shown = plain(&raw);
-                    self.set_text(id, mid, shown.trim());
-                }
+        // Installed apps' tools, the agent's computer and memory, through `backspace mcp`.
+        if !crate::mcp::app_tools().is_empty() || computer.is_some() || mem_scope.is_some() {
+            if let Ok(exe) = std::env::current_exe() {
+                req.mcp = Some(json!({"mcpServers": {"backspace": {"command": exe.display().to_string(), "args": ["mcp"]}}}));
+                req.mcp_allow.push("mcp__backspace".into());
             }
         }
-        let status = child.wait().await?;
-        let stderr = err_task.await.unwrap_or_default();
-        if let Some(f) = fail {
-            bail!(f);
-        }
-        if !status.success() {
-            let msg = plain(stderr.trim());
-            let msg: String = msg
-                .lines()
-                .rev()
-                .take(6)
-                .collect::<Vec<_>>()
-                .into_iter()
-                .rev()
-                .collect::<Vec<_>>()
-                .join("\n");
-            bail!(
-                "{} exited with {}{}",
-                bin_name,
-                status
-                    .code()
-                    .map_or("a signal".into(), |c| format!("code {c}")),
-                if msg.is_empty() {
-                    String::new()
-                } else {
-                    format!(": {msg}")
-                }
-            );
-        }
-        Ok(())
+        req.add_dirs = call.agent.iter().flat_map(|a| a.shared.iter()).map(|d| crate::agents::expand(d)).collect();
+        Ok(req)
     }
 
-    // ------------------------------------------------------------ HTTP
-
-    fn image_b64(&self, id: &str, m: &Msg) -> Vec<(String, String)> {
-        m.attachments
-            .iter()
-            .filter(|a| a.mime.starts_with("image/"))
-            .filter_map(|a| {
-                let p = self.attachment_path(id, &a.id).ok()?;
-                let b = std::fs::read(p).ok()?;
-                Some((a.mime.clone(), b64_encode(&b)))
-            })
-            .collect()
-    }
-
-    fn text_with_files(&self, id: &str, m: &Msg) -> String {
-        let mut s = m.text.clone();
-        for a in m
-            .attachments
-            .iter()
-            .filter(|a| !a.mime.starts_with("image/"))
-        {
-            if let Ok(p) = self.attachment_path(id, &a.id) {
-                if let Ok(t) = std::fs::read_to_string(&p) {
-                    let t: String = t.chars().take(60_000).collect();
-                    s.push_str(&format!("\n\n--- {} ---\n{t}", a.name));
+    /// Apply one runner event to the reply being written.
+    fn on_event(&self, id: &str, mid: &str, keep_session: bool, e: RunEvent) {
+        match e {
+            RunEvent::Text { text } => self.append(id, mid, &text),
+            RunEvent::Break => {
+                let need = self
+                    .threads
+                    .lock()
+                    .unwrap()
+                    .get(id)
+                    .and_then(|t| t.messages.iter().find(|m| m.id == mid))
+                    .is_some_and(|m| !m.text.is_empty() && !m.text.ends_with("\n\n"));
+                if need {
+                    self.append(id, mid, "\n\n");
                 }
             }
+            RunEvent::Replace { text } => self.set_text(id, mid, &text),
+            RunEvent::Final { text } => self.with_msg(id, mid, |m| {
+                if m.text.trim().is_empty() {
+                    m.text = text;
+                }
+            }),
+            RunEvent::Model { model } => self.with_msg(id, mid, |m| m.model = Some(model)),
+            RunEvent::Session { id: s } => {
+                if keep_session {
+                    let _ = self.edit_thread(id, |t| t.cli_session = Some(s));
+                }
+            }
+            RunEvent::Cost { usd } => self.with_msg(id, mid, |m| m.cost_usd = Some(usd)),
+            RunEvent::Usage { .. } | RunEvent::ToolStart { .. } | RunEvent::ToolEnd { .. } => {}
         }
-        s
     }
 
-    async fn run_ollama(&self, id: &str, mid: &str, url: &str, route: &Route, sys: Option<&str>, call: &Call) -> Result<()> {
-        let model = route
-            .model
-            .clone()
-            .filter(|m| !m.is_empty())
-            .ok_or_else(|| anyhow!("pick an Ollama model for this chat"))?;
-        let (hist, _) = self.history_for(id, call);
-        let messages: Vec<Value> = sys
-            .map(|s| json!({ "role": "system", "content": s }))
-            .into_iter()
-            .chain(hist.iter().map(|m| {
-                let mut v = json!({
-                    "role": if m.role == Role::User { "user" } else { "assistant" },
-                    "content": self.text_with_files(id, m),
-                });
-                let imgs: Vec<String> = self.image_b64(id, m).into_iter().map(|(_, b)| b).collect();
-                if !imgs.is_empty() {
-                    v["images"] = json!(imgs);
-                }
-                v
-            }))
-            .collect();
-        let resp = self
-            .http
-            .post(format!("{url}/api/chat"))
-            .json(&json!({ "model": model, "messages": messages, "stream": true }))
-            .send()
-            .await
-            .map_err(|e| {
-                if e.is_connect() {
-                    anyhow!("Ollama is not running at {url}. Start it with `ollama serve`.")
-                } else {
-                    anyhow!(e)
-                }
-            })?;
-        let status = resp.status();
-        if !status.is_success() {
-            let t = resp.text().await.unwrap_or_default();
-            bail!("Ollama {status}: {}", crate::router::truncate(&t, 300));
-        }
-        self.with_msg(id, mid, |m| m.model = Some(model.clone()));
-        let mut lines = Lines::new(resp);
-        while let Some(line) = lines.next().await? {
-            let Ok(v) = serde_json::from_str::<Value>(&line) else {
-                continue;
-            };
-            if let Some(e) = v["error"].as_str() {
-                bail!("Ollama: {e}");
-            }
-            self.append(id, mid, v["message"]["content"].as_str().unwrap_or(""));
-            if v["done"].as_bool() == Some(true) {
-                break;
-            }
-        }
-        Ok(())
-    }
-
-    fn openai_messages(&self, id: &str, hist: &[Msg], sys: Option<&str>) -> Vec<Value> {
-        sys.map(|s| json!({ "role": "system", "content": s }))
-            .into_iter()
-            .chain(hist.iter()
-            .map(|m| {
-                let role = if m.role == Role::User { "user" } else { "assistant" };
-                let imgs = self.image_b64(id, m);
-                let text = self.text_with_files(id, m);
-                if imgs.is_empty() {
-                    json!({ "role": role, "content": text })
-                } else {
-                    let mut parts = vec![json!({"type": "text", "text": text})];
-                    for (mime, b) in imgs {
-                        parts.push(json!({"type": "image_url", "image_url": {"url": format!("data:{mime};base64,{b}")}}));
-                    }
-                    json!({ "role": role, "content": parts })
-                }
-            })
-            )
-            .collect()
-    }
-
-    async fn run_openai(
-        &self,
-        id: &str,
-        mid: &str,
-        base: &str,
-        key: &str,
-        route: &Route,
-        sys: Option<&str>,
-        call: &Call,
-    ) -> Result<()> {
-        let model = route
-            .model
-            .clone()
-            .filter(|m| !m.is_empty())
-            .ok_or_else(|| anyhow!("pick a model for this chat"))?;
-        let (hist, _) = self.history_for(id, call);
-        let mut rb = self
-            .http
-            .post(format!("{}/chat/completions", base.trim_end_matches('/')))
-            .json(&json!({
-                "model": model,
-                "messages": self.openai_messages(id, &hist, sys),
-                "stream": true,
-            }));
-        if !key.is_empty() {
-            rb = rb.bearer_auth(key);
-        }
-        let resp = rb.send().await.context("router request failed")?;
-        let status = resp.status();
-        if !status.is_success() {
-            let t = resp.text().await.unwrap_or_default();
-            bail!("{status}: {}", crate::router::truncate(&t, 400));
-        }
-        self.with_msg(id, mid, |m| m.model = Some(model.clone()));
-        let mut lines = Lines::new(resp);
-        while let Some(line) = lines.next().await? {
-            let Some(data) = line.strip_prefix("data:") else {
-                continue;
-            };
-            let data = data.trim();
-            if data == "[DONE]" {
-                break;
-            }
-            let Ok(v) = serde_json::from_str::<Value>(data) else {
-                continue;
-            };
-            if let Some(e) = v["error"]["message"].as_str() {
-                bail!("{e}");
-            }
-            self.append(
-                id,
-                mid,
-                v["choices"][0]["delta"]["content"].as_str().unwrap_or(""),
-            );
-        }
-        Ok(())
-    }
+    // ------------------------------------------------------------ Cloud
 
     async fn run_cloud(&self, id: &str, mid: &str, ctx: &Ctx, route: &Route, call: &Call) -> Result<()> {
         let cloud = &ctx.prefs.cloud;
@@ -1657,7 +1217,7 @@ impl Chats {
             .http
             .post(format!("{}/v1/chat", cloud.url.trim_end_matches('/')))
             .bearer_auth(&cloud.token)
-            .json(&json!({ "model": model, "messages": self.openai_messages(id, &hist, self.system_text(id, ctx, call).as_deref()) }))
+            .json(&json!({ "model": model, "messages": backspace_runner::openai_messages(self.system_text(id, ctx, call).as_deref(), &self.turns(id, &hist)) }))
             .send()
             .await
             .map_err(|e| {
@@ -1716,47 +1276,6 @@ impl Chats {
             }
         }
         Ok(())
-    }
-}
-
-/// Lines from a streamed HTTP body (NDJSON or SSE) without the `stream`
-/// feature: read chunks, split on newlines.
-struct Lines {
-    resp: reqwest::Response,
-    buf: Vec<u8>,
-    done: bool,
-}
-
-impl Lines {
-    fn new(resp: reqwest::Response) -> Self {
-        Self {
-            resp,
-            buf: Vec::new(),
-            done: false,
-        }
-    }
-
-    async fn next(&mut self) -> Result<Option<String>> {
-        loop {
-            if let Some(i) = self.buf.iter().position(|&b| b == b'\n') {
-                let line: Vec<u8> = self.buf.drain(..=i).collect();
-                return Ok(Some(String::from_utf8_lossy(&line).trim_end().to_string()));
-            }
-            if self.done {
-                if self.buf.is_empty() {
-                    return Ok(None);
-                }
-                let line = String::from_utf8_lossy(&self.buf).trim_end().to_string();
-                self.buf.clear();
-                return Ok(Some(line));
-            }
-            match tokio::time::timeout(Duration::from_secs(300), self.resp.chunk()).await {
-                Ok(Ok(Some(c))) => self.buf.extend_from_slice(&c),
-                Ok(Ok(None)) => self.done = true,
-                Ok(Err(e)) => return Err(e.into()),
-                Err(_) => bail!("no data for 5 minutes"),
-            }
-        }
     }
 }
 
@@ -1987,6 +1506,6 @@ mod tests {
 
     #[test]
     fn ansi_is_stripped() {
-        assert_eq!(plain("\u{1b}[1mbold\u{1b}[0m\r\n"), "bold\n");
+        assert_eq!(backspace_runner::plain("\u{1b}[1mbold\u{1b}[0m\r\n"), "bold\n");
     }
 }
