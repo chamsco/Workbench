@@ -14,6 +14,7 @@ import {
   IconLoader2,
   IconPlayerStopFilled,
   IconRefresh,
+  IconTimeline,
   IconX,
 } from "@tabler/icons-react";
 
@@ -22,7 +23,7 @@ import { useTypewriter } from "@/lib/use-typewriter";
 import { CheckpointMenu } from "@/components/thread/checkpoint-menu";
 import { Markdown } from "@/components/thread/markdown";
 import { MessageActionButton } from "@/components/thread/message-action-button";
-import { getHost, type Ad } from "../bridge";
+import { getHost, openTrace, type Ad } from "../bridge";
 
 const WELL = "shadow-[inset_0_0_0_1px_var(--well-outline),inset_0_1px_0_0_var(--well-highlight)]";
 
@@ -173,6 +174,11 @@ function MessageActions({
         </MessageActionButton>
       )}
       {onBranch && <CheckpointMenu onBranch={onBranch} />}
+      {message.traceId && (
+        <MessageActionButton label="How this reply was made" onClick={() => openTrace(message.traceId!)}>
+          <IconTimeline size={15} />
+        </MessageActionButton>
+      )}
       {extra}
       {(message.model || message.usageCost) && (
         <div className="ml-1.5 flex items-center gap-2.5 px-0.5 text-[11.5px]/4 font-medium tabular-nums text-muted-foreground">

@@ -528,6 +528,24 @@ fn memory_reveal(f: F) -> Res<()> {
     cmd.arg(&dir).spawn().map(|_| ()).map_err(err)
 }
 
+// ---------------------------------------------------------------- tracing
+
+#[tauri::command]
+fn trace_get(f: F, id: String) -> Option<backspace_core::trace::Trace> {
+    f.chats().trace(&id)
+}
+
+#[tauri::command]
+fn set_tracing(f: F, cfg: backspace_core::trace::Export) {
+    f.update_prefs(|p| p.tracing = cfg);
+}
+
+/// Send one small trace to the collector in `cfg`, to check the address and sign-in.
+#[tauri::command]
+async fn trace_test(cfg: backspace_core::trace::Export) -> Res<()> {
+    backspace_core::trace::send_test(&cfg).await.map_err(err)
+}
+
 // ---------------------------------------------------------------- companion
 
 #[tauri::command]
@@ -1005,6 +1023,9 @@ fn main() -> anyhow::Result<()> {
             memory_list,
             memory_forget,
             memory_dreams,
+            trace_get,
+            set_tracing,
+            trace_test,
             memory_dream,
             memory_undo_dream,
             set_memory_dream,

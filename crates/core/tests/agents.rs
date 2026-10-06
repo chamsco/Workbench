@@ -111,6 +111,10 @@ fn groups_take_turns_and_agents_work_in_their_folder() {
     assert_eq!(said[1].0, "Andre");
     assert!(t.messages.iter().all(|m| m.status == Status::Done));
     assert_eq!(t.title, "Launch week", "a group keeps its name");
+    // Every reply has a trace naming who wrote it.
+    let tr = chats.trace(t.messages[1].trace.as_deref().expect("a trace")).expect("saved");
+    assert_eq!(tr.spans[0].name, "reply · Kira");
+    assert_eq!(tr.spans[0].attrs["gen_ai.agent.name"], "Kira");
 
     // Naming one member gives only that member the turn.
     chats.send(&g.id, "@Andre shorter please", vec![], None, ctx.clone()).unwrap();

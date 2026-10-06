@@ -15,6 +15,7 @@ import { SuggestionCards } from "@/components/suggestion-cards";
 import { Composer } from "./Composer";
 import { ReplyChip } from "./Extras";
 import { AgentEditors, AgentsHome, AgentsSide, AgentThreadHeader } from "./Agents";
+import { TracePanel } from "./Trace";
 import { ThreadList } from "./ThreadList";
 import { ThreadView } from "./ThreadView";
 import { agentById, getHost, goHome, saveAgent, send, setReplyTo, setRoute, stop, useChat, type Route } from "../bridge";
@@ -134,6 +135,7 @@ export function ChatApp({ sideEl, user }: { sideEl: HTMLElement; user: string })
     <>
       {createPortal(agentsMode && !scope ? <AgentsSide /> : <ThreadList onNewChat={newChat} />, sideEl)}
       <AgentEditors />
+      <TracePanel />
       <main className="whirl-pane raised relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-surface md:rounded-lg md:border md:border-border">
         <div className="relative flex min-h-0 min-w-0 flex-1">
           <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">

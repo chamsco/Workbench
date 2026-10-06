@@ -26,6 +26,8 @@ export type ChatMessage = {
   outputTokens?: number;
   durationMs?: number;
   usageCost?: number;
+  /** Backspace: the trace of how this reply was made. */
+  traceId?: string;
 };
 
 export const TERMINAL_STATUSES: ReadonlySet<MessageStatus> = new Set(["complete", "stopped", "error"]);

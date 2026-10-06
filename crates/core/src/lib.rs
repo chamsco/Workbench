@@ -20,6 +20,7 @@ pub mod memory;
 pub mod memory_learn;
 pub mod memory_dream;
 pub mod mcp;
+pub mod trace;
 pub mod prefs;
 pub mod project;
 pub mod provider;

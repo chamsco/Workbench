@@ -107,6 +107,9 @@ pub struct Msg {
     pub author: Option<String>,
     #[serde(default)]
     pub author_name: Option<String>,
+    /// The trace of how this reply was made (trace.rs).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trace: Option<String>,
 }
 
 impl Msg {
@@ -128,6 +131,7 @@ impl Msg {
             via: None,
             author: None,
             author_name: None,
+            trace: None,
         }
     }
 }
@@ -240,7 +244,7 @@ pub(crate) fn new_id() -> String {
     format!("{n:x}{r:08x}")
 }
 
-fn rand_u32() -> u32 {
+pub(crate) fn rand_u32() -> u32 {
     use std::hash::{BuildHasher, Hasher};
     let mut h = std::collections::hash_map::RandomState::new().build_hasher();
     h.write_u64(now_ms());
@@ -706,6 +710,7 @@ impl Chats {
                 via: None,
                 author: None,
                 author_name: None,
+                trace: None,
             });
             t.updated = now;
         })?;
@@ -1074,7 +1079,43 @@ impl Chats {
         let req = self.request(id, route, ctx, call)?;
         // Groups answer a transcript: no session to resume or keep.
         let keep_session = call.transcript.is_none();
-        backspace_runner::run(&self.http, &req, &mut |e| self.on_event(id, mid, keep_session, e)).await
+        let who = call.agent.as_ref().map(|a| a.name.clone()).unwrap_or_else(|| route.provider.clone());
+        let mut attrs = std::collections::BTreeMap::from([
+            ("gen_ai.system".to_string(), json!(route.provider)),
+            ("backspace.route".to_string(), json!(format!("{:?}", route.kind).to_lowercase())),
+        ]);
+        if let Some(m) = &req.model {
+            attrs.insert("gen_ai.request.model".into(), json!(m));
+        }
+        if let Some(a) = &call.agent {
+            attrs.insert("gen_ai.agent.name".into(), json!(a.name));
+            attrs.insert("gen_ai.agent.id".into(), json!(a.id));
+        }
+        let input = req.history.last().map(|t| t.text.clone()).unwrap_or_default();
+        let mut rec = crate::trace::Recorder::start(id, mid, &format!("reply · {who}"), attrs, &input);
+        let res = backspace_runner::run(&self.http, &req, &mut |e| {
+            rec.on(&e);
+            self.on_event(id, mid, keep_session, e)
+        })
+        .await;
+        let t = rec.finish(res.as_ref().err().map(|e| e.to_string()));
+        if crate::trace::save(&self.dir, &t).is_ok() {
+            let tid = t.trace_id.clone();
+            self.with_msg(id, mid, |m| m.trace = Some(tid));
+        }
+        let cfg = ctx.prefs.tracing.clone();
+        if !cfg.endpoint.trim().is_empty() {
+            let http = self.http.clone();
+            tokio::spawn(async move {
+                let _ = crate::trace::export(&http, &cfg, &t).await;
+            });
+        }
+        res
+    }
+
+    /// A reply's trace.
+    pub fn trace(&self, id: &str) -> Option<crate::trace::Trace> {
+        crate::trace::load(&self.dir, id)
     }
 
     // ------------------------------------------------------------ runner
@@ -1459,6 +1500,7 @@ mod tests {
                     via: None,
                     author: None,
                     author_name: None,
+                    trace: None,
                 });
             }
         })

@@ -30,7 +30,22 @@ export type Msg = {
   via?: Route | null;
   author?: string | null;
   author_name?: string | null;
+  trace?: string | null;
 };
+
+export type Span = {
+  span_id: string;
+  parent?: string | null;
+  name: string;
+  kind: "reply" | "tool";
+  start: number;
+  end?: number | null;
+  attrs: Record<string, unknown>;
+  error?: string | null;
+  input: string;
+  output: string;
+};
+export type Trace = { trace_id: string; thread: string; message: string; spans: Span[] };
 
 export type Computer = {
   kind: "folder" | "docker" | "ssh";
@@ -153,11 +168,13 @@ type State = {
   /** On the Agents side with no thread: which agent's card is open in the editor. */
   editing: Agent | "new" | null;
   grouping: boolean;
+  /** The reply whose trace is open. */
+  traceOpen: string | null;
 };
 
 let state: State = {
   threads: [], id: null, thread: null, epoch: 0, query: "", scope: null, replyTo: null,
-  agentsMode: false, agents: [], editing: null, grouping: false,
+  agentsMode: false, agents: [], editing: null, grouping: false, traceOpen: null,
 };
 const subs = new Set<() => void>();
 const emit = () => subs.forEach((f) => f());
@@ -218,6 +235,7 @@ export function setScope(scope: string | null, agentsMode = false) {
 
 export const agentById = (id?: string | null) => state.agents.find((a) => a.id === id);
 export const editAgent = (editing: Agent | "new" | null) => set({ editing });
+export const openTrace = (traceOpen: string | null) => set({ traceOpen });
 export const editGroup = (grouping: boolean) => set({ grouping });
 
 export async function saveAgent(a: Agent): Promise<Agent> {
@@ -352,6 +370,7 @@ export function toChatMessage(t: Thread, m: Msg): ChatMessage {
     streamId: m.role === "assistant" && m.status !== "done" ? `live-${m.id}` : undefined,
     model: m.model ?? undefined,
     usageCost: m.cost_usd ?? undefined,
+    traceId: m.trace ?? undefined,
     attachments: m.attachments.map((a) => ({
       id: a.id,
       name: a.name,

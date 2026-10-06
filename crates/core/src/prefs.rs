@@ -62,6 +62,8 @@ pub struct Prefs {
     pub worker: Option<String>,
     /// Where a new chat goes unless the user picks otherwise.
     pub default_route: Option<crate::chat::Route>,
+    /// Where traces go besides this machine (Settings → Tracing).
+    pub tracing: crate::trace::Export,
 }
 
 impl Default for Prefs {
@@ -91,6 +93,7 @@ impl Default for Prefs {
             cloud: CloudCfg::default(),
             projects: vec![],
             default_route: None,
+            tracing: Default::default(),
             worker: None,
             api_keys: BTreeMap::new(),
         }
