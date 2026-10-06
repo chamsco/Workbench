@@ -1154,7 +1154,7 @@ impl Workbench {
         let m = self.machine();
         let seg = [
             (SideView::Projects, "folder", "Projects"),
-            (SideView::Agents, "sparkle", "Agents"),
+            (SideView::Agents, "sparkle", "Workers"),
         ];
         let rows = self.side_rows(t, cx);
         let link = match &m.link {
@@ -1583,7 +1583,7 @@ impl Workbench {
                     p.accent,
                     (running > 0).then(|| self.started.elapsed().as_secs_f32()),
                 ),
-                "Agents running",
+                "Workers running",
                 running.to_string(),
             ))
             .child(row(

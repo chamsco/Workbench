@@ -488,6 +488,46 @@ fn memory_delete(f: F, id: String) -> Res<()> {
     f.memory().delete(&id).map_err(err)
 }
 
+/// Dreams so far (newest first), whether one is running, and where the
+/// memory repo is.
+#[tauri::command]
+fn memory_dreams(f: F) -> serde_json::Value {
+    serde_json::json!({
+        "dreams": f.dreams(),
+        "dreaming": f.is_dreaming(),
+        "repo": f.memory().root().display().to_string(),
+    })
+}
+
+#[tauri::command]
+async fn memory_dream(f: F<'_>) -> Res<backspace_core::memory_dream::Dream> {
+    blocking(f, |f| f.dream()).await
+}
+
+#[tauri::command]
+fn memory_undo_dream(f: F, at: u64) -> Res<()> {
+    f.undo_dream(at).map_err(err)
+}
+
+#[tauri::command]
+fn set_memory_dream(f: F, on: bool) {
+    f.update_prefs(|p| p.memory_dream = on);
+}
+
+/// Show the memory repo in the file manager.
+#[tauri::command]
+fn memory_reveal(f: F) -> Res<()> {
+    let dir = f.memory().root().to_path_buf();
+    let mut cmd = if cfg!(target_os = "macos") {
+        std::process::Command::new("open")
+    } else if cfg!(windows) {
+        std::process::Command::new("explorer")
+    } else {
+        std::process::Command::new("xdg-open")
+    };
+    cmd.arg(&dir).spawn().map(|_| ()).map_err(err)
+}
+
 // ---------------------------------------------------------------- companion
 
 #[tauri::command]
@@ -649,7 +689,7 @@ async fn chat_send(
             return Ok(None);
         }
         let scope = t.and_then(|t| t.agent.map(|a| format!("agent:{a}")).or(t.project));
-        Ok(f.memory().capture(&text, scope, "chat"))
+        Ok(f.memory().capture(&text, scope, Some(id.clone())))
     })
     .await
 }
@@ -964,6 +1004,11 @@ fn main() -> anyhow::Result<()> {
             chat_new,
             memory_list,
             memory_forget,
+            memory_dreams,
+            memory_dream,
+            memory_undo_dream,
+            set_memory_dream,
+            memory_reveal,
             memory_confirm,
             set_memory_auto,
             agents_list,

@@ -62,6 +62,8 @@ const P = {
   chip: '<rect x="4" y="4" width="8" height="8" rx="1.4"/><path d="M6 1.8V4M10 1.8V4M6 12v2.2M10 12v2.2M1.8 6H4M1.8 10H4M12 6h2.2M12 10h2.2"/>',
   route: '<circle cx="4" cy="12" r="1.6"/><circle cx="12" cy="4" r="1.6"/><path d="M5.6 12h3.6a2 2 0 0 0 0-4H6.8a2 2 0 0 1 0-4h3.6"/>',
   warn: '<path d="M8 2.4 14 13H2z"/><path d="M8 6.6v3M8 11.2v.2"/>',
+  moon: '<path d="M12.8 9.6A5.4 5.4 0 0 1 6.4 3.2a5.4 5.4 0 1 0 6.4 6.4z"/>',
+  undo: '<path d="M5.4 4.2 2.8 6.8l2.6 2.6"/><path d="M3 6.8h6.4a3.6 3.6 0 0 1 0 7.2H6.6"/>',
   memory: '<path d="M5.6 2.4h4.8a1.8 1.8 0 0 1 1.8 1.8v9.4L8 11.2l-4.2 2.4V4.2a1.8 1.8 0 0 1 1.8-1.8z"/><path d="M6.2 5.6h3.6M6.2 7.8h2.4"/>',
   apps: '<rect x="2.4" y="2.4" width="4.6" height="4.6" rx="1.3"/><rect x="9" y="2.4" width="4.6" height="4.6" rx="1.3"/><rect x="2.4" y="9" width="4.6" height="4.6" rx="1.3"/><rect x="9" y="9" width="4.6" height="4.6" rx="2.3"/>',
   splitv: '<rect x="2" y="3" width="12" height="10" rx="1.6"/><path d="M8.6 3v10"/>',
@@ -296,7 +298,7 @@ function renderBrand() {
     (m.local ? "" : `<span class="link ${st === "online" ? "" : st}" title="${st === "offline" ? esc("Offline: " + m.link.error) : st}"></span>`);
 }
 function renderSeg() {
-  const items = [["projects", "folder", "Projects"], ["agents", "sparkle", "Agents"]];
+  const items = [["projects", "folder", "Projects"], ["agents", "sparkle", "Workers"]];
   $("#seg").innerHTML = items.map(([k, ic, l]) => `<button aria-pressed="${S.side === k}" data-side="${k}">${icon(ic)}${l}</button>`).join("");
   $$("#seg button").forEach(b => (b.onclick = () => { S.side = b.dataset.side; renderSeg(); renderList(); }));
 }
@@ -402,7 +404,7 @@ function renderCard() {
   const wts = snap.agents.filter(a => a.branch && a.id !== MAIN).length;
   const row = (c, l, v) => `<div class="port"><span class="dot ${c}"></span><span class="pl">${l}</span><span class="pn" style="margin-left:auto;color:var(--fg-3)">${v}</span></div>`;
   $("#ports").innerHTML = `<div class="ports-h">This run · ${esc(snap.name || machine().name)}</div>` +
-    row(run ? "run" : "acc", "Agents running", run) + row(pending().length ? "wait" : "", "Waiting on you", pending().length) +
+    row(run ? "run" : "acc", "Workers running", run) + row(pending().length ? "wait" : "", "Waiting on you", pending().length) +
     row("done", "Worktrees", wts) + row("", "Spent", `$${snap.total_cost_usd.toFixed(3)} · router $${snap.router_cost_usd.toFixed(3)}`);
 }
 function renderMachines() {

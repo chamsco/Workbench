@@ -146,7 +146,7 @@ var Shell = (() => {
   // Agents in Code. The rail's first square lines up with it.
   const VIEWS = {
     chat: [["chat", "bubble", "Chat", "One model, one conversation"], ["agents", "team", "Agents", "Your named agents, one to one or in groups"]],
-    code: [["pair", "pairi", "Pair", "You and one CLI, turn by turn, in the project"], ["agents", "sparkle", "Agents", "A planner splits the goal into tickets; workers build each one"]],
+    code: [["pair", "pairi", "Pair", "You and one CLI, turn by turn, in the project"], ["agents", "sparkle", "Workbench", "A planner splits the goal into tickets; workers build each one"]],
   };
   function renderModes() {
     const z = S.mode, m = $("#modes"), v = VIEWS[z];

@@ -150,6 +150,8 @@ pub struct Fleet {
     companion: Mutex<Option<tokio::task::AbortHandle>>,
     companion_error: Mutex<Option<String>>,
     share_error: Mutex<Option<String>>,
+    dreamer: crate::memory_dream::Dreamer,
+    dreaming: Mutex<bool>,
     rt: tokio::runtime::Runtime,
 }
 
@@ -196,8 +198,11 @@ impl Fleet {
             companion: Mutex::new(None),
             companion_error: Mutex::new(None),
             share_error: Mutex::new(None),
+            dreamer: crate::memory_dream::Dreamer::open(Prefs::data_dir()),
+            dreaming: Mutex::new(false),
             rt,
         });
+        fleet.schedule_dreams();
         if prefs.companion.enabled {
             fleet.start_companion();
         }
@@ -227,6 +232,78 @@ impl Fleet {
 
     pub fn apps(&self) -> &Arc<crate::apps::Apps> {
         &self.apps
+    }
+
+    // ------------------------------------------------------------ dreaming
+
+    /// The model a dream runs on: the default chat model, else Claude Code
+    /// if it is installed.
+    fn dream_route(&self) -> Option<crate::chat::Route> {
+        self.prefs().default_route.or_else(|| {
+            crate::harnesses::which("claude").map(|_| crate::chat::Route {
+                kind: crate::chat::RouteKind::Cli,
+                provider: "claude".into(),
+                model: None,
+            })
+        })
+    }
+
+    pub fn dreams(&self) -> Vec<crate::memory_dream::Dream> {
+        self.dreamer.list()
+    }
+
+    pub fn is_dreaming(&self) -> bool {
+        *self.dreaming.lock().unwrap()
+    }
+
+    /// Dream now (Memory → Tidy now, or the daily schedule).
+    pub fn dream(&self) -> Result<crate::memory_dream::Dream> {
+        let route = self
+            .dream_route()
+            .ok_or_else(|| anyhow::anyhow!("pick a default chat model in Settings first"))?;
+        {
+            let mut d = self.dreaming.lock().unwrap();
+            if *d {
+                bail!("already tidying");
+            }
+            *d = true;
+        }
+        let _ = self.notify.try_send(());
+        let agents: Vec<(String, String)> = self.agents.list().into_iter().map(|a| (a.id, a.name)).collect();
+        let r = self
+            .rt
+            .block_on(self.dreamer.dream(&self.chats, &self.memory, route, self.chat_ctx(), &agents));
+        *self.dreaming.lock().unwrap() = false;
+        let _ = self.notify.try_send(());
+        r
+    }
+
+    pub fn undo_dream(&self, at: u64) -> Result<()> {
+        self.dreamer.undo(&self.memory, at)?;
+        let _ = self.notify.try_send(());
+        Ok(())
+    }
+
+    /// About once a day, when you have said enough since the last dream and
+    /// no chat is answering, memory tidies itself.
+    fn schedule_dreams(self: &Arc<Self>) {
+        let weak = Arc::downgrade(self);
+        std::thread::Builder::new()
+            .name("dreams".into())
+            .spawn(move || loop {
+                std::thread::sleep(std::time::Duration::from_secs(600));
+                let Some(f) = weak.upgrade() else { return };
+                let p = f.prefs();
+                let due = crate::chat::now_ms().saturating_sub(f.dreamer.last()) >= 20 * 3_600_000;
+                if !(p.memory_on && p.memory_dream && due) || f.chats.list().iter().any(|t| t.busy) {
+                    continue;
+                }
+                if crate::memory_dream::Dreamer::evidence(&f.chats, f.dreamer.last()).len() < 5 {
+                    continue;
+                }
+                let _ = f.dream();
+            })
+            .ok();
     }
 
     // ------------------------------------------------------------ companion

@@ -18,6 +18,7 @@ pub mod harnesses;
 pub mod layout;
 pub mod memory;
 pub mod memory_learn;
+pub mod memory_dream;
 pub mod prefs;
 pub mod project;
 pub mod provider;

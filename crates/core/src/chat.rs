@@ -166,6 +166,9 @@ pub struct Thread {
     pub members: Vec<String>,
     #[serde(default)]
     pub goal: Option<String>,
+    /// A one-off ask (dreaming): never listed or written to disk.
+    #[serde(skip)]
+    pub hidden: bool,
 }
 
 /// Where a new thread lives: the plain chat list, a project (Pair) or an app.
@@ -426,7 +429,7 @@ impl Chats {
 
     fn save(&self, id: &str) {
         let t = self.threads.lock().unwrap().get(id).cloned();
-        if let Some(t) = t {
+        if let Some(t) = t.filter(|t| !t.hidden) {
             if let Ok(s) = serde_json::to_string_pretty(&t) {
                 let _ = std::fs::write(self.path(id), s);
             }
@@ -441,6 +444,7 @@ impl Chats {
             .lock()
             .unwrap()
             .values()
+            .filter(|t| !t.hidden)
             .map(|t| ThreadInfo {
                 id: t.id.clone(),
                 title: t.title.clone(),
@@ -472,6 +476,11 @@ impl Chats {
     /// Read a thread; reading it marks it read.
     pub fn thread(&self, id: &str) -> Option<Thread> {
         self.unread.lock().unwrap().remove(id);
+        self.threads.lock().unwrap().get(id).cloned()
+    }
+
+    /// Read a thread without marking it read (background jobs).
+    pub fn peek(&self, id: &str) -> Option<Thread> {
         self.threads.lock().unwrap().get(id).cloned()
     }
 
@@ -511,6 +520,7 @@ impl Chats {
             agent: scope.agent,
             members: scope.members,
             goal: scope.goal.filter(|g| !g.trim().is_empty()),
+            hidden: false,
         };
         self.threads.lock().unwrap().insert(t.id.clone(), t.clone());
         self.save(&t.id);
@@ -602,6 +612,7 @@ impl Chats {
             agent: src.agent.clone(),
             members: src.members.clone(),
             goal: src.goal.clone(),
+            hidden: false,
         };
         let from = self.files_dir(&src.id);
         if from.is_dir() {
@@ -723,6 +734,48 @@ impl Chats {
             t.updated = now;
         })?;
         self.reply(id, ctx, mention(text))
+    }
+
+    /// One question, one answer, outside any chat: a thread that is never
+    /// listed or saved, run on `route` with `system` as its only brief (no
+    /// memory notes), then dropped. For background jobs such as dreaming.
+    pub async fn ask(self: &Arc<Self>, route: Route, system: &str, prompt: &str, ctx: Ctx) -> Result<String> {
+        let now = now_ms();
+        let id = format!("ask-{}", new_id());
+        let user = Msg::new(Role::User, prompt.to_string(), Status::Done);
+        let mut reply = Msg::new(Role::Assistant, String::new(), Status::Streaming);
+        reply.at = now;
+        let mid = reply.id.clone();
+        let t = Thread {
+            id: id.clone(),
+            title: "ask".into(),
+            created: now,
+            updated: now,
+            pinned: false,
+            route: route.clone(),
+            messages: vec![user, reply],
+            cli_session: None,
+            branched_from: None,
+            project: None,
+            app: None,
+            system: Some(system.to_string()),
+            agent: None,
+            members: vec![],
+            goal: None,
+            hidden: true,
+        };
+        self.threads.lock().unwrap().insert(id.clone(), t);
+        let ctx = Ctx { memory: None, ..ctx };
+        let res = self.run(&id, &mid, &route, &ctx, &Call::default()).await;
+        let t = self.threads.lock().unwrap().remove(&id);
+        let _ = std::fs::remove_dir_all(self.dir.join("scratch").join(&id));
+        res?;
+        let m = t.and_then(|t| t.messages.into_iter().find(|m| m.id == mid));
+        match m {
+            Some(m) if m.error.is_some() => Err(anyhow!(m.error.unwrap_or_default())),
+            Some(m) => Ok(m.text),
+            None => Err(anyhow!("no answer")),
+        }
     }
 
     /// Ask again: drop the last reply (and anything after the last user
@@ -1139,6 +1192,16 @@ impl Chats {
         if let Some(c) = &computer {
             cmd.env(crate::agents::ENV_COMPUTER, serde_json::to_string(c)?);
         }
+        // Agents and Pair may search memory and save to their own notes.
+        let mem_scope = match &call.agent {
+            Some(a) if a.memory => Some(format!("agent:{}", a.id)),
+            Some(_) => None,
+            None => self.threads.lock().unwrap().get(id).and_then(|t| t.project.clone()),
+        }
+        .filter(|_| ctx.prefs.memory_on && ctx.memory.is_some());
+        if let Some(s) = &mem_scope {
+            cmd.env(crate::board::ENV_MEMORY, s);
+        }
         let model = route.model.clone().filter(|m| !m.is_empty());
         let stdin_text: Option<String>;
         match route.provider.as_str() {
@@ -1160,7 +1223,7 @@ impl Chats {
                     cmd.args(["--append-system-prompt", s]);
                 }
                 // Installed apps' tools, through `backspace mcp`.
-                let apps = !crate::board::app_tools().is_empty() || computer.is_some();
+                let apps = !crate::board::app_tools().is_empty() || computer.is_some() || mem_scope.is_some();
                 if apps {
                     if let Ok(exe) = std::env::current_exe() {
                         let cfg = json!({"mcpServers": {"backspace": {"command": exe.display().to_string(), "args": ["mcp"]}}});

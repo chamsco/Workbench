@@ -239,6 +239,58 @@ fn computer_env() -> Option<crate::agents::ComputerEnv> {
     std::env::var(crate::agents::ENV_COMPUTER).ok().and_then(|v| serde_json::from_str(&v).ok())
 }
 
+/// The memory scope a CLI was started for ("agent:<id>" or a project
+/// folder): it may search memory and save notes there.
+pub const ENV_MEMORY: &str = "BACKSPACE_MEMORY";
+
+fn memory_scope() -> Option<String> {
+    std::env::var(ENV_MEMORY).ok().filter(|s| !s.is_empty())
+}
+
+fn memory_search(scope: &str, query: &str) -> Result<String> {
+    if query.trim().is_empty() {
+        bail!("say what to look for");
+    }
+    let m = crate::memory::Memory::open(crate::prefs::Prefs::data_dir());
+    let (notes, lines) = m.search(query, &[None, Some(scope.to_string())], 20);
+    if notes.is_empty() && lines.is_empty() {
+        return Ok("Nothing in memory matches.".into());
+    }
+    let mut out = String::new();
+    for n in notes {
+        let w = if n.project.is_none() { "everywhere" } else { "yours" };
+        out.push_str(&format!("- {} ({w}, {})\n", n.text, crate::memory::date(n.updated)));
+    }
+    for l in lines {
+        out.push_str(&format!("- {l}\n"));
+    }
+    Ok(out)
+}
+
+/// Things a note must never hold.
+pub(crate) fn looks_secret(s: &str) -> bool {
+    let l = s.to_lowercase();
+    ["sk-", "ghp_", "github_pat_", "xoxb-", "akia", "-----begin", "password:", "password=", "api_key=", "token="]
+        .iter()
+        .any(|p| l.contains(p))
+}
+
+fn memory_save(scope: &str, text: &str) -> Result<String> {
+    let text = text.trim();
+    if text.is_empty() {
+        bail!("a note needs some text");
+    }
+    if text.chars().count() > 400 {
+        bail!("keep a note to one line (under 400 characters)");
+    }
+    if looks_secret(text) {
+        bail!("that looks like a secret; memory does not keep credentials");
+    }
+    let m = crate::memory::Memory::open(crate::prefs::Prefs::data_dir());
+    let n = m.add(text, Some(scope.to_string()), "agent")?;
+    Ok(format!("Saved (id {}). The user can see and undo it in Memory.", n.id))
+}
+
 pub(crate) fn app_tools() -> Vec<(String, String, crate::apps::Tool)> {
     let apps = crate::apps::Apps::open(crate::prefs::Prefs::data_dir().join("apps"));
     apps.list()
@@ -295,6 +347,12 @@ fn mcp() -> Result<()> {
                     tools.push(json!({"name": "computer_write", "description": "Write a file on your own computer (creates folders as needed).",
                         "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"]}}));
                 }
+                if memory_scope().is_some() {
+                    tools.push(json!({"name": "memory_search", "description": "Search the user's memory (an Agent Memory Repo: notes and any topic files) for what this task needs: preferences, decisions, facts about people and projects, saved queries.",
+                        "inputSchema": {"type": "object", "properties": {"query": {"type": "string", "description": "Words that must all appear"}}, "required": ["query"]}}));
+                    tools.push(json!({"name": "memory_save", "description": "Save one line worth knowing in later sessions: a preference, a decision, a fact the user would otherwise repeat. Not for things cheap to rediscover or only true for this task. Never secrets. Saved to your own notes; the user can see and undo it.",
+                        "inputSchema": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}}));
+                }
                 for (name, app, t) in app_tools() {
                     tools.push(json!({"name": name, "description": format!("[{app} app] {}", t.description), "inputSchema": t.input_schema}));
                 }
@@ -321,6 +379,11 @@ fn mcp() -> Result<()> {
                             "computer_read" => crate::agents::read(&env, a["path"].as_str().unwrap_or("")),
                             _ => crate::agents::write(&env, a["path"].as_str().unwrap_or(""), a["content"].as_str().unwrap_or("")),
                         },
+                    },
+                    "memory_search" | "memory_save" => match memory_scope() {
+                        None => Err(anyhow!("memory is not open to this session")),
+                        Some(scope) if name == "memory_search" => memory_search(&scope, a["query"].as_str().unwrap_or("")),
+                        Some(scope) => memory_save(&scope, a["text"].as_str().unwrap_or("")),
                     },
                     other => match app_tools().into_iter().find(|(n, _, _)| n == other) {
                         Some((_, app, t)) => {

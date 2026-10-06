@@ -150,9 +150,10 @@ threads above) and **Agents**:
   CLI runs in the project folder with leave to edit files and run
   commands (Claude Code with `acceptEdits`, Codex `--full-auto`, Cursor
   `--force`). Its threads belong to the project.
-- **Agents**: the workbench below.
+- **Workbench**: a planner splits the goal into tickets and workers build
+  them (below).
 
-**Agents** opens a folder as a project. Workers run on the router's pick or,
+**Workbench** opens a folder as a project. Workers run on the router's pick or,
 when Settings → Coding names one, on a coding CLI (Claude Code, Codex,
 Cursor, Grok, OpenCode) inside the ticket's worktree; their work goes through
 the same check, review and merge, and review feedback goes back to the CLI
@@ -168,24 +169,55 @@ shows as the "Team chat" canvas.
 
 ### Memory
 
-Short notes every chat and agent gets ("use pnpm, never npm"), global or
-tied to one project. Chats get the global notes plus their project's as a
+Short notes every chat and agent gets ("use pnpm, never npm"): global,
+tied to one project, or kept by one agent. Chats get the global notes plus
+their project's (or their agent's), ranked by importance, use and age, as a
 system prompt; a project's planner and workers get them when it opens.
 Add them in the Memory zone, or with Remember on any message. One switch
-turns them off without deleting them. Stored in `<data>/memory.json`.
-Agents have their own notes (scope `agent:<id>`).
+turns them off without deleting them.
 
-Memory also notices things on its own ("from now on…", "remember that…",
+**Stored as an [Agent Memory Repo](https://github.com/AgentMemoryRepo/agentmemoryrepo):**
+a git repo of Markdown in `<data>/memory`, one commit per change:
+
+```text
+memory/
+  MEMORY.md                  # global notes, then ## Index linking the rest
+  projects/<name>-<hash>.md  # "# Project: /abs/path"
+  agents/<id>.md             # "# Agent: <id>"
+```
+
+Each note is a bullet with metadata:
+`- The user prefers short answers [id: …; added: 2026-10-06; kind: preference; source: backspace://thread/…]`.
+You (or Claude Code, Devin, any agent with the AMR skill) can edit the
+files directly; Backspace picks the change up, keeps bullets and index
+lines it did not write, and leaves other files (topic notes, SQL) alone.
+Add a private remote yourself to sync it between machines. Use counts and
+the scorer's features stay outside the repo (`memory-state.json`).
+
+**Agents read and write it themselves.** Agents and Pair threads get
+`memory_search` (notes plus any topic file) and `memory_save` (one line,
+into the agent's own notes or the project's) through `backspace mcp`.
+Saves that look like credentials are refused. Their notes show as "Saved
+by the agent".
+
+**It notices things on its own** ("from now on…", "remember that…",
 "I prefer…", "we deploy with…"). A small logistic model on this machine
 (`crates/core/src/memory_learn.rs`, no network) scores each message; above
 its threshold the note is saved in the third person, tagged as a
 preference, fact or instruction, and a toast says who will remember it.
-"Don't remember that" deletes the note and trains the model away from
-it (and raises the threshold); closing the toast confirms it and raises
-the note's importance. Near-duplicates are merged. Notes reach the model
-ranked by importance, use and age. Weights live in
-`<data>/memory-learn.json`. Settings: Memory → "Notice things to
-remember".
+"Don't remember that" deletes it, trains the model away from it, and is
+remembered: the same thing is never noticed or tidied back in. Closing the
+toast confirms it. Near-duplicates are merged.
+
+**It tidies itself ("dreaming").** About once a day, when you have said
+enough since the last time and no chat is busy, your default chat model
+(or Claude Code) reads what you said since the last tidy next to what
+memory holds, and in one commit merges duplicates, rewrites or removes
+notes that are out of date or contradicted, and adds what you made clear
+but nothing caught (at most 8, each citing its chat). Notes you wrote are
+never deleted by a tidy, only turned off. Memory → Tidy now runs it on
+demand; Tidy history lists every change with its reason and an Undo (a
+git revert). Code: `crates/core/src/memory_dream.rs`.
 
 ### Status bar
 
@@ -372,7 +404,12 @@ State is written to `<workspace>/.backspace/state.json` as a record of the run.
 - Agent computers were tested with Docker (alpine); the web desktop image
   (about 1.5 GB) and the SSH/VPS path are untested. A Docker computer is
   not a security boundary against a determined agent.
-- The memory model starts from hand-set weights and learns only from
+- The memory scorer starts from hand-set weights and learns only from
   your "Don't remember that" and confirmations; expect misses early.
+- A tidy sends your recent chat messages to your default chat model (the
+  same one you chat with). Turn it off in Memory if that model is a cloud
+  one you don't want reading across chats.
+- Memory's git repo has no remote by default; syncing it between machines
+  is up to you (`git remote add` a private repo).
 - Cloud is a development server: no accounts beyond a local token, no
   billing.

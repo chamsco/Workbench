@@ -19,6 +19,7 @@ fn fake_claude(dir: &std::path::Path) {
 input=$(cat)
 args="$*"
 pwd > "$(dirname "$0")/last_cwd"
+printf '%s' "$BACKSPACE_MEMORY" > "$(dirname "$0")/last_mem"
 printf '%s' "$args" > "$(dirname "$0")/last_args"
 say() { printf '{"type":"result","result":"%s","session_id":"s1","total_cost_usd":0.001,"is_error":false}\n' "$1"; }
 case "$input" in
@@ -80,7 +81,8 @@ fn groups_take_turns_and_agents_work_in_their_folder() {
     let andre = agents.save(agent("Andre", "Writes the copy.")).unwrap();
     std::thread::sleep(Duration::from_millis(3));
     let mara = agents.save(agent("Mara", "Makes the film.")).unwrap();
-    let ctx = Ctx { prefs: Prefs::default(), memory: None, agents: Some(agents.clone()) };
+    let memory = Arc::new(backspace_core::memory::Memory::open(dir.join("data")));
+    let ctx = Ctx { prefs: Prefs::default(), memory: Some(memory), agents: Some(agents.clone()) };
 
     // A group: Kira, Andre and Mara, in that order.
     let g = chats.create_in(
@@ -132,5 +134,9 @@ fn groups_take_turns_and_agents_work_in_their_folder() {
     let args = std::fs::read_to_string(dir.join("bin/last_args")).unwrap();
     assert!(args.contains("You are Kira") && args.contains("Plans the launch."), "{args}");
     assert!(args.contains("acceptEdits"), "an agent may edit its own folder");
+    // It gets the memory tools, scoped to its own notes.
+    assert!(args.contains("--mcp-config") && args.contains("mcp__backspace"), "{args}");
+    let mem = std::fs::read_to_string(dir.join("bin/last_mem")).unwrap();
+    assert_eq!(mem, format!("agent:{}", kira.id));
     let _ = std::fs::remove_dir_all(&dir);
 }
