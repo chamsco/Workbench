@@ -17,7 +17,7 @@ var Shell = (() => {
   let platform = "web", saveT = null;
 
   const uses = () => (prefs.uses && prefs.uses.length ? prefs.uses : ["chat", "code"]);
-  const zoneName = z => z.startsWith("app:") ? ((window.Apps && Apps.get(z.slice(4))) || { name: "App" }).name : (ZONES.find(x => x[0] === z) || [0, 0, z])[2];
+  const zoneName = z => z === "desktop" ? "Agent computer" : z.startsWith("app:") ? ((window.Apps && Apps.get(z.slice(4))) || { name: "App" }).name : (ZONES.find(x => x[0] === z) || [0, 0, z])[2];
 
   // ---------------------------------------------------------------- panes
   // Which section shows a zone: Code is the workbench, or the chat face
@@ -27,6 +27,7 @@ var Shell = (() => {
     if (z === "chat") return "chat";
     if (z === "memory") return "memory";
     if (z === "apps") return "apps";
+    if (z === "desktop") return $("#desktop") ? "desktop" : "chat";
     if (z.startsWith("app:") && window.Apps) return Apps.frame(z.slice(4)) || "apps";
     return "chat";
   }
@@ -66,8 +67,8 @@ var Shell = (() => {
     }
     $("#splitBtn").setAttribute("aria-pressed", !!sec);
     // Chat's scope follows whoever shows it: a project in Pair, else none.
-    if (window.Chat && Chat.setScope) Chat.setScope(S.mode === "code" && prim === "chat" ? snap.workspace : null);
-    renderRail(); renderHead();
+    if (window.Chat && Chat.setScope) Chat.setScope(S.mode === "code" && prim === "chat" ? snap.workspace : null, S.mode === "chat" && S.chatView === "agents");
+    renderRail(); renderHead(); renderModes(); renderStatus();
     if ((prim === "chat" || sec === "chat") && window.Chat && !$("#chat").childElementCount) Chat.render();
     if (prim === "memory" || sec === "memory") window.Memory && Memory.refresh();
     if (prim === "apps" || sec === "apps") window.Apps && Apps.renderZone();
@@ -127,10 +128,10 @@ var Shell = (() => {
   function renderRail() {
     const cur = S.settings ? "" : S.mode;
     $("#railZones").innerHTML = ZONES.filter(([z]) => (z !== "chat" && z !== "code") || uses().includes(z)).map(([z, ic, l]) =>
-      `<button class="rz" role="tab" data-z="${z}" aria-selected="${cur === z}" title="${l}"><span class="sq">${icon(ic)}${badge(z)}</span><span class="rl">${l}</span></button>`).join("");
+      `<button class="rz" role="tab" data-z="${z}" aria-selected="${cur === z}" aria-label="${l}" data-tip="${l}"><span class="sq">${icon(ic)}${badge(z)}</span></button>`).join("");
     const pinned = window.Apps ? Apps.pinned() : [];
     $("#railApps").innerHTML = pinned.length ? `<div class="rsep"></div>` + pinned.map(a =>
-      `<button class="rz rzapp" data-z="app:${esc(a.id)}" aria-selected="${cur === "app:" + a.id}" title="${esc(a.name)}"><span class="sq">${Apps.glyph(a)}</span><span class="rl">${esc(a.name)}</span></button>`).join("") : "";
+      `<button class="rz rzapp" data-z="app:${esc(a.id)}" aria-selected="${cur === "app:" + a.id}" aria-label="${esc(a.name)}" data-tip="${esc(a.name)}"><span class="sq">${Apps.glyph(a)}</span></button>`).join("") : "";
     $$("#rail [data-z]").forEach(b => (b.onclick = () => { if (S.settings) closeSettings(); setMode(b.dataset.z); }));
     $("#gear").setAttribute("aria-selected", !!S.settings);
   }
@@ -141,9 +142,25 @@ var Shell = (() => {
   }
 
   // ---------------------------------------------------------------- side + head
+  // The switch at the top of the sidebar: Chat | Agents in Chat, Pair |
+  // Agents in Code. The rail's first square lines up with it.
+  const VIEWS = {
+    chat: [["chat", "bubble", "Chat", "One model, one conversation"], ["agents", "team", "Agents", "Your named agents, one to one or in groups"]],
+    code: [["pair", "pairi", "Pair", "You and one CLI, turn by turn, in the project"], ["agents", "sparkle", "Agents", "A planner splits the goal into tickets; workers build each one"]],
+  };
+  function renderModes() {
+    const z = S.mode, m = $("#modes"), v = VIEWS[z];
+    m.hidden = !v;
+    if (!v) { m.innerHTML = ""; return; }
+    const cur = z === "chat" ? S.chatView : S.codeView;
+    m.setAttribute("aria-label", v.map(x => x[2]).join(" or "));
+    m.innerHTML = v.map(([k, ic, l, t]) => `<button role="tab" data-view="${k}" aria-selected="${cur === k}" title="${t}">${icon(ic)}${l}</button>`).join("");
+    $$("[data-view]", m).forEach(b => (b.onclick = () => (z === "chat" ? setChatView(b.dataset.view) : setCodeView(b.dataset.view))));
+  }
   function renderSide() {
     const z = S.mode, zl = $("#zoneList");
-    $("#zoneTitle").innerHTML = z === "code" ? "" : `<h2>${esc(z.startsWith("app:") ? "Apps" : zoneName(z))}</h2>`;
+    renderModes();
+    $("#zoneTitle").innerHTML = z === "code" || z === "chat" ? "" : `<h2>${esc(z.startsWith("app:") ? "Apps" : zoneName(z))}</h2>`;
     if (z === "memory") { window.Memory && Memory.renderSide(zl); }
     else if (z === "apps" || z.startsWith("app:")) { window.Apps && Apps.renderSide(zl); }
     else zl.innerHTML = "";
@@ -220,12 +237,94 @@ var Shell = (() => {
     platform = boot.platform || "web";
     document.documentElement.classList.add("os-" + platform);
     renderCaps(); wireGutter();
+    document.documentElement.classList.toggle("reduce-motion", prefs.motion === "reduced");
     $("#splitBtn").onclick = e => splitMenu(e.currentTarget);
     $("#gear").onclick = () => (S.settings ? closeSettings() : openSettings());
     if (window.Memory) await Memory.init();
     if (window.Apps) await Apps.init();
   }
-  function refresh() { renderRail(); if (S.mode === "code" && S.codeView === "pair") { renderPairProj(); renderHead(); } }
+  function refresh() { renderStatus(); renderRail(); if (S.mode === "code" && S.codeView === "pair") { renderPairProj(); renderHead(); } }
 
-  return { init, layout, showing, renderSide, renderRail, refresh, setSplit, toggleSplit, elFor, glyph };
+  // ---------------------------------------------------------------- status bar
+  // After an agent control plane's footer: where you are (branch, project),
+  // who is working, tokens and spend, then the phone link and Motion.
+  let chatBusy = [];
+  async function renderStatus() {
+    const el = $("#status"); if (!el) return;
+    const list = (await invoke("chat_list").catch(() => null)) || [];
+    chatBusy = list.filter(t => t.busy);
+    const ags = (snap && snap.agents) || [];
+    const running = ags.filter(a => a.status && a.status.state === "running");
+    const tok = ags.reduce((n, a) => n + (a.input_tokens || 0) + (a.output_tokens || 0), 0);
+    const cost = (snap && snap.total_cost_usd) || 0;
+    const branch = ags[0] && ags[0].branch;
+    const tickets = (snap && snap.tickets) || [];
+    const done = tickets.filter(t => /merged|done|approved/i.test(JSON.stringify(t.state || ""))).length;
+    const who = running.length
+      ? `${running.length === 1 ? esc(running[0].title || "Main agent") : running.length + " agents"} working`
+      : chatBusy.length ? `${esc(chatBusy[0].title.slice(0, 28))} replying${chatBusy.length > 1 ? ` +${chatBusy.length - 1}` : ""}` : "Idle";
+    const fmt = n => (n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? (n / 1e3).toFixed(1) + "k" : String(n));
+    const motion = prefs.motion === "reduced" ? "Reduced" : "Full";
+    const phone = prefs.companion && prefs.companion.enabled;
+    el.innerHTML = `
+      ${hasProject && snap.workspace ? `<button class="st" data-st="code" title="Open the project">${icon("branch")}${esc(branch || "no branch")}</button>
+      <button class="st" data-st="code" title="${esc(snap.workspace)}">${icon("folder")}${esc(snap.name || base(snap.workspace))}${tickets.length ? `<span class="dim">${done}/${tickets.length} tickets</span>` : ""}</button>` : ""}
+      <button class="st ${running.length || chatBusy.length ? "live" : ""}" data-st="who"><i class="sd"></i>${who}</button>
+      <span class="sp"></span>
+      ${prefs.split ? `<button class="st" data-st="split" title="Close the split">${icon("splitv")}Split</button>` : ""}
+      <button class="st" data-st="phone" title="Settings → Phone">${icon("phone")}${phone ? "Phone on" : "Phone off"}</button>
+      <button class="st" data-st="motion" title="Animations: full or reduced">${icon("motion")}Motion: ${motion}</button>
+      <span class="st nb" title="Tokens and spend in this project">${fmt(tok)} tok${cost ? ` · $${cost.toFixed(2)}` : ""}</span>`;
+    $$("[data-st]", el).forEach(b => (b.onclick = () => {
+      const k = b.dataset.st;
+      if (k === "code") setMode("code");
+      else if (k === "who") { if (running.length) { S.codeView = "agents"; setMode("code"); } else if (chatBusy[0] && window.Chat) Chat.open(chatBusy[0].id); }
+      else if (k === "split") setSplit(null);
+      else if (k === "phone") openSettings("phone");
+      else if (k === "motion") setMotion(prefs.motion === "reduced" ? "full" : "reduced");
+    }));
+  }
+  function setMotion(m) {
+    prefs.motion = m;
+    document.documentElement.classList.toggle("reduce-motion", m === "reduced");
+    invoke("set_view_prefs", { chatView: null, motion: m });
+    renderStatus();
+  }
+
+  // ---------------------------------------------------------------- memory toast
+  // "Kira will remember that": dismissing keeps it (and teaches the scorer
+  // it was right); "Don't remember that" deletes it and teaches it no.
+  let memT = null;
+  function memToast(note, who) {
+    const el = $("#memToast"); if (!el || !note) return;
+    clearTimeout(memT);
+    el.innerHTML = `<span class="mt-ic">${icon("memory")}</span>
+      <div class="mt-b"><b>${esc(who || "Backspace")} will remember that</b><span>${esc(note.text)}</span></div>
+      <button class="mt-no" id="mtNo">Don't remember that</button>
+      <button class="ib" id="mtX" aria-label="Dismiss">${icon("close")}</button>`;
+    el.hidden = false;
+    const close = () => { el.hidden = true; clearTimeout(memT); };
+    $("#mtNo", el).onclick = async () => { close(); await invoke("memory_forget", { id: note.id }).catch(e => toast(String(e), "err")); toast("Forgotten. It will keep fewer like that.", "ok"); if (window.Memory) Memory.refresh(); };
+    $("#mtX", el).onclick = () => { close(); invoke("memory_confirm", { id: note.id }).catch(() => {}); if (window.Memory) Memory.refresh(); };
+    // Left alone, it stays saved; no feedback either way. Hovering holds it.
+    const arm = () => { clearTimeout(memT); memT = setTimeout(() => { el.hidden = true; if (window.Memory) Memory.refresh(); }, 15000); };
+    el.onmouseenter = () => clearTimeout(memT);
+    el.onmouseleave = arm;
+    arm();
+  }
+
+  // ---------------------------------------------------------------- agent desktops
+  // An agent's computer with a web desktop opens beside the chat.
+  function openDesktop(url) {
+    let el = $("#desktop");
+    if (!el) {
+      el = document.createElement("section");
+      el.className = "zone appz"; el.id = "desktop"; el.hidden = true;
+      $("#body").insertBefore(el, $("#splitGut"));
+    }
+    el.innerHTML = `<iframe title="Agent computer" src="${esc(url)}" allow="clipboard-read; clipboard-write"></iframe>`;
+    setSplit("desktop", 0.45);
+  }
+
+  return { init, layout, showing, renderStatus, memToast, openDesktop, setMotion, renderSide, renderRail, refresh, setSplit, toggleSplit, elFor, glyph };
 })();

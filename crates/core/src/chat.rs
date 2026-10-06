@@ -103,6 +103,34 @@ pub struct Msg {
     /// Who answered, when not the thread's own route (an @mention).
     #[serde(default)]
     pub via: Option<Route>,
+    /// The agent that wrote it (agent threads and groups), and its name then.
+    #[serde(default)]
+    pub author: Option<String>,
+    #[serde(default)]
+    pub author_name: Option<String>,
+}
+
+impl Msg {
+    fn new(role: Role, text: String, status: Status) -> Msg {
+        Msg {
+            id: new_id(),
+            role,
+            text,
+            at: now_ms(),
+            status,
+            error: None,
+            reply_to: None,
+            reactions: vec![],
+            attachments: vec![],
+            model: None,
+            ad: None,
+            cost_usd: None,
+            edited: false,
+            via: None,
+            author: None,
+            author_name: None,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -130,6 +158,14 @@ pub struct Thread {
     /// Extra instructions for every reply (an app's agent brief).
     #[serde(default)]
     pub system: Option<String>,
+    /// A thread with one of your agents.
+    #[serde(default)]
+    pub agent: Option<String>,
+    /// A group: its agents, in turn order, and what it is for.
+    #[serde(default)]
+    pub members: Vec<String>,
+    #[serde(default)]
+    pub goal: Option<String>,
 }
 
 /// Where a new thread lives: the plain chat list, a project (Pair) or an app.
@@ -141,6 +177,15 @@ pub struct Scope {
     pub app: Option<String>,
     #[serde(default)]
     pub system: Option<String>,
+    #[serde(default)]
+    pub agent: Option<String>,
+    #[serde(default)]
+    pub members: Vec<String>,
+    #[serde(default)]
+    pub goal: Option<String>,
+    /// A group's name.
+    #[serde(default)]
+    pub title: Option<String>,
 }
 
 /// The sidebar row.
@@ -156,6 +201,8 @@ pub struct ThreadInfo {
     pub unread: bool,
     pub project: Option<String>,
     pub app: Option<String>,
+    pub agent: Option<String>,
+    pub members: Vec<String>,
 }
 
 pub fn now_ms() -> u64 {
@@ -163,6 +210,26 @@ pub fn now_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0)
+}
+
+/// Members a message names, as `@Name` or the bare name at a word boundary.
+fn named_in(roster: &[crate::agents::Agent], text: &str) -> Vec<crate::agents::Agent> {
+    let low = text.to_lowercase();
+    let mut hits: Vec<(usize, crate::agents::Agent)> = roster
+        .iter()
+        .filter_map(|a| {
+            let n = a.name.to_lowercase();
+            let at = low.find(&format!("@{n}"))?;
+            Some((at, a.clone()))
+        })
+        .collect();
+    hits.sort_by_key(|(i, _)| *i);
+    hits.into_iter().map(|(_, a)| a).collect()
+}
+
+fn is_pass(text: &str) -> bool {
+    let t = text.trim().trim_matches(|c: char| c == '.' || c == '*' || c == '`').trim();
+    t.eq_ignore_ascii_case("pass")
 }
 
 pub(crate) fn new_id() -> String {
@@ -298,6 +365,15 @@ pub struct Chats {
 pub struct Ctx {
     pub prefs: Prefs,
     pub memory: Option<Arc<crate::memory::Memory>>,
+    pub agents: Option<Arc<crate::agents::Agents>>,
+}
+
+/// One reply's circumstances: which agent writes it, and for a group the
+/// transcript it answers instead of the thread's own history.
+#[derive(Clone, Default)]
+struct Call {
+    agent: Option<crate::agents::Agent>,
+    transcript: Option<String>,
 }
 
 impl Chats {
@@ -385,6 +461,8 @@ impl Chats {
                 unread: unread.contains(&t.id),
                 project: t.project.clone(),
                 app: t.app.clone(),
+                agent: t.agent.clone(),
+                members: t.members.clone(),
             })
             .collect();
         v.sort_by(|a, b| b.pinned.cmp(&a.pinned).then(b.updated.cmp(&a.updated)));
@@ -412,9 +490,14 @@ impl Chats {
 
     pub fn create_in(&self, route: Route, scope: Scope) -> Thread {
         let now = now_ms();
+        let group = !scope.members.is_empty();
         let t = Thread {
             id: new_id(),
-            title: "New chat".into(),
+            title: scope
+                .title
+                .clone()
+                .filter(|t| !t.trim().is_empty())
+                .unwrap_or_else(|| if group { "New group".into() } else { "New chat".into() }),
             created: now,
             updated: now,
             pinned: false,
@@ -425,6 +508,9 @@ impl Chats {
             project: scope.project.filter(|p| !p.is_empty()),
             app: scope.app,
             system: scope.system,
+            agent: scope.agent,
+            members: scope.members,
+            goal: scope.goal.filter(|g| !g.trim().is_empty()),
         };
         self.threads.lock().unwrap().insert(t.id.clone(), t.clone());
         self.save(&t.id);
@@ -513,6 +599,9 @@ impl Chats {
             project: src.project.clone(),
             app: src.app.clone(),
             system: src.system.clone(),
+            agent: src.agent.clone(),
+            members: src.members.clone(),
+            goal: src.goal.clone(),
         };
         let from = self.files_dir(&src.id);
         if from.is_dir() {
@@ -602,7 +691,7 @@ impl Chats {
         }
         let now = now_ms();
         self.edit_thread(id, |t| {
-            if t.messages.is_empty() || t.title == "New chat" {
+            if t.members.is_empty() && (t.messages.is_empty() || t.title == "New chat") {
                 let base = if text.trim().is_empty() {
                     attachments
                         .first()
@@ -628,6 +717,8 @@ impl Chats {
                 cost_usd: None,
                 edited: false,
                 via: None,
+                author: None,
+                author_name: None,
             });
             t.updated = now;
         })?;
@@ -680,13 +771,19 @@ impl Chats {
     }
 
     fn reply(self: &Arc<Self>, id: &str, ctx: Ctx, via: Option<Route>) -> Result<()> {
-        let own = self
+        let (own, agent_id, members) = self
             .threads
             .lock()
             .unwrap()
             .get(id)
-            .map(|t| t.route.clone())
+            .map(|t| (t.route.clone(), t.agent.clone(), t.members.clone()))
             .ok_or_else(|| anyhow!("no such chat"))?;
+        if !members.is_empty() {
+            return self.reply_group(id, ctx, members);
+        }
+        // An agent's thread answers with the agent's model and brief.
+        let agent = agent_id.and_then(|a| ctx.agents.as_ref()?.get(&a));
+        let own = agent.as_ref().map(|a| a.route.clone()).unwrap_or(own);
         // An @mention hands this one reply to another CLI. The thread's own
         // CLI session then misses it, so the next reply gets the transcript.
         let via = via.filter(|v| v != &own);
@@ -695,50 +792,24 @@ impl Chats {
         if mentioned {
             let _ = self.edit_thread(id, |t| t.cli_session = None);
         }
-        let mid = new_id();
-        self.edit_thread(id, |t| {
-            t.messages.push(Msg {
-                id: mid.clone(),
-                role: Role::Assistant,
-                text: String::new(),
-                at: now_ms(),
-                status: Status::Sending,
-                error: None,
-                reply_to: None,
-                reactions: vec![],
-                attachments: vec![],
-                model: route.model.clone(),
-                ad: None,
-                cost_usd: None,
-                edited: false,
-                via: mentioned.then(|| route.clone()),
-            });
-        })?;
+        let agent = if mentioned { None } else { agent };
+        let mut msg = Msg::new(Role::Assistant, String::new(), Status::Sending);
+        msg.model = route.model.clone();
+        msg.via = mentioned.then(|| route.clone());
+        msg.author = agent.as_ref().map(|a| a.id.clone());
+        msg.author_name = agent.as_ref().map(|a| a.name.clone());
+        let mid = msg.id.clone();
+        self.edit_thread(id, |t| t.messages.push(msg))?;
         let me = self.clone();
         let tid = id.to_string();
+        let call = Call { agent, transcript: None };
         let task = self.rt.spawn(async move {
-            let res = me.run(&tid, &mid, &route, &ctx).await;
+            let res = me.run(&tid, &mid, &route, &ctx, &call).await;
             if mentioned {
                 let _ = me.edit_thread(&tid, |t| t.cli_session = None);
             }
             me.running.lock().unwrap().remove(&tid);
-            let _ = me.edit_thread(&tid, |t| {
-                if let Some(m) = t.messages.iter_mut().find(|m| m.id == mid) {
-                    match res {
-                        Ok(()) => {
-                            m.status = Status::Done;
-                            if m.text.trim().is_empty() {
-                                m.text = "(no reply)".into();
-                            }
-                        }
-                        Err(e) => {
-                            m.status = Status::Error;
-                            m.error = Some(format!("{e:#}"));
-                        }
-                    }
-                }
-                t.updated = now_ms();
-            });
+            me.finish(&tid, &mid, res);
             me.unread.lock().unwrap().insert(tid);
             me.poke();
         });
@@ -748,6 +819,130 @@ impl Chats {
             .insert(id.to_string(), task.abort_handle());
         self.poke();
         Ok(())
+    }
+
+    /// Mark a reply done or failed.
+    fn finish(&self, tid: &str, mid: &str, res: Result<()>) {
+        let _ = self.edit_thread(tid, |t| {
+            if let Some(m) = t.messages.iter_mut().find(|m| m.id == mid) {
+                match res {
+                    Ok(()) => {
+                        m.status = Status::Done;
+                        if m.text.trim().is_empty() {
+                            m.text = "(no reply)".into();
+                        }
+                    }
+                    Err(e) => {
+                        m.status = Status::Error;
+                        m.error = Some(format!("{e:#}"));
+                    }
+                }
+            }
+            t.updated = now_ms();
+        });
+    }
+
+    /// A group's turn: the agents the user named (or all of them, in order)
+    /// each write their part, reading everything said so far. An agent with
+    /// nothing to add says PASS and its turn leaves no message. Naming
+    /// another member (@Name) gives them a turn too, up to a limit.
+    fn reply_group(self: &Arc<Self>, id: &str, ctx: Ctx, members: Vec<String>) -> Result<()> {
+        const MAX_TURNS: usize = 8;
+        let agents = ctx.agents.clone().ok_or_else(|| anyhow!("agents are not available here"))?;
+        let roster: Vec<crate::agents::Agent> = members.iter().filter_map(|m| agents.get(m)).collect();
+        if roster.is_empty() {
+            bail!("this group has no agents left; add some");
+        }
+        let last_user = self
+            .thread(id)
+            .and_then(|t| t.messages.iter().rev().find(|m| m.role == Role::User).map(|m| m.text.clone()))
+            .unwrap_or_default();
+        let named = named_in(&roster, &last_user);
+        let mut queue: std::collections::VecDeque<crate::agents::Agent> =
+            if named.is_empty() { roster.clone().into() } else { named.into() };
+        let me = self.clone();
+        let tid = id.to_string();
+        let task = self.rt.spawn(async move {
+            let mut turns = 0;
+            while let Some(a) = queue.pop_front() {
+                if turns >= MAX_TURNS {
+                    break;
+                }
+                turns += 1;
+                let mut msg = Msg::new(Role::Assistant, String::new(), Status::Sending);
+                msg.author = Some(a.id.clone());
+                msg.author_name = Some(a.name.clone());
+                msg.model = a.route.model.clone();
+                let mid = msg.id.clone();
+                if me.edit_thread(&tid, |t| t.messages.push(msg)).is_err() {
+                    break;
+                }
+                let call = Call {
+                    transcript: Some(me.group_transcript(&tid, &a, &roster)),
+                    agent: Some(a.clone()),
+                };
+                let res = me.run(&tid, &mid, &a.route, &ctx, &call).await;
+                let failed = res.is_err();
+                me.finish(&tid, &mid, res);
+                let text = me
+                    .thread(&tid)
+                    .and_then(|t| t.messages.iter().find(|m| m.id == mid).map(|m| m.text.clone()))
+                    .unwrap_or_default();
+                if !failed && is_pass(&text) {
+                    let _ = me.edit_thread(&tid, |t| t.messages.retain(|m| m.id != mid));
+                    continue;
+                }
+                for other in named_in(&roster, &text) {
+                    if other.id != a.id && !queue.iter().any(|q| q.id == other.id) {
+                        queue.push_back(other);
+                    }
+                }
+            }
+            me.running.lock().unwrap().remove(&tid);
+            me.unread.lock().unwrap().insert(tid);
+            me.poke();
+        });
+        self.running
+            .lock()
+            .unwrap()
+            .insert(id.to_string(), task.abort_handle());
+        self.poke();
+        Ok(())
+    }
+
+    /// What one member of a group reads before writing its turn.
+    fn group_transcript(&self, tid: &str, a: &crate::agents::Agent, roster: &[crate::agents::Agent]) -> String {
+        let Some(t) = self.thread(tid) else {
+            return String::new();
+        };
+        let others: Vec<String> = roster
+            .iter()
+            .filter(|r| r.id != a.id)
+            .map(|r| {
+                let job: String = r.job.split(['.', '\n']).next().unwrap_or("").chars().take(120).collect();
+                if job.trim().is_empty() { r.name.clone() } else { format!("{} ({})", r.name, job.trim()) }
+            })
+            .collect();
+        let mut s = format!(
+            "You are in a group chat called \"{}\"{}. With you: the user{}.\n\nThe conversation so far:\n\n",
+            t.title,
+            t.goal.as_deref().map(|g| format!(", whose goal is: {g}")).unwrap_or_default(),
+            if others.is_empty() { String::new() } else { format!(", {}", others.join(", ")) }
+        );
+        for m in t.messages.iter().filter(|m| !(m.role == Role::Assistant && m.text.is_empty())) {
+            let who = match (&m.role, &m.author_name) {
+                (Role::User, _) => "User".to_string(),
+                (_, Some(n)) => n.clone(),
+                _ => "Assistant".to_string(),
+            };
+            let text: String = m.text.chars().take(4000).collect();
+            s.push_str(&format!("[{who}]: {text}\n\n"));
+        }
+        s.push_str(&format!(
+            "Write {}'s next message: your own part only, building on what the others said instead of repeating it. Keep it short unless the work needs more. To hand something to another member, mention them as @Name. If you have nothing useful to add right now, reply with exactly PASS.",
+            a.name
+        ));
+        s
     }
 
     fn with_msg(&self, id: &str, mid: &str, f: impl FnOnce(&mut Msg)) {
@@ -799,20 +994,38 @@ impl Chats {
         (h, t.cli_session.clone())
     }
 
-    /// The thread's own brief (an app's) and the memory notes for its
-    /// project, as one system prompt.
-    fn system_text(&self, id: &str, ctx: &Ctx) -> Option<String> {
+    /// History for one reply: a group member reads the transcript it was
+    /// given (as one message, no CLI session); everyone else the thread.
+    fn history_for(&self, id: &str, call: &Call) -> (Vec<Msg>, Option<String>) {
+        match &call.transcript {
+            Some(t) => (vec![Msg::new(Role::User, t.clone(), Status::Done)], None),
+            None => self.history(id),
+        }
+    }
+
+    /// The thread's own brief (an app's), the agent's brief, and the memory
+    /// notes for its project or agent, as one system prompt.
+    fn system_text(&self, id: &str, ctx: &Ctx, call: &Call) -> Option<String> {
         let (sys, project) = {
             let ts = self.threads.lock().unwrap();
             let t = ts.get(id)?;
             (t.system.clone(), t.project.clone())
         };
+        let brief = call
+            .agent
+            .as_ref()
+            .and_then(|a| ctx.agents.as_ref().map(|ag| ag.brief(a)));
+        // An agent's own notes live under the scope "agent:<id>".
+        let scope = match &call.agent {
+            Some(a) => Some(format!("agent:{}", a.id)),
+            None => project,
+        };
         let mem = ctx
             .memory
             .as_ref()
-            .filter(|_| ctx.prefs.memory_on)
-            .and_then(|m| m.context(project.as_deref()));
-        let parts: Vec<String> = [sys, mem].into_iter().flatten().filter(|s| !s.trim().is_empty()).collect();
+            .filter(|_| ctx.prefs.memory_on && call.agent.as_ref().is_none_or(|a| a.memory))
+            .and_then(|m| m.context(scope.as_deref()));
+        let parts: Vec<String> = [sys, brief, mem].into_iter().flatten().filter(|s| !s.trim().is_empty()).collect();
         (!parts.is_empty()).then(|| parts.join("\n\n"))
     }
 
@@ -825,13 +1038,13 @@ impl Chats {
             .filter(|p| p.is_dir())
     }
 
-    async fn run(&self, id: &str, mid: &str, route: &Route, ctx: &Ctx) -> Result<()> {
-        let sys = self.system_text(id, ctx);
+    async fn run(&self, id: &str, mid: &str, route: &Route, ctx: &Ctx, call: &Call) -> Result<()> {
+        let sys = self.system_text(id, ctx, call);
         match route.kind {
-            RouteKind::Cli => self.run_cli(id, mid, route, sys.as_deref()).await,
+            RouteKind::Cli => self.run_cli(id, mid, route, sys.as_deref(), ctx, call).await,
             RouteKind::Local => {
                 let url = ctx.prefs.ollama_url.trim_end_matches('/').to_string();
-                self.run_ollama(id, mid, &url, route, sys.as_deref()).await
+                self.run_ollama(id, mid, &url, route, sys.as_deref(), call).await
             }
             RouteKind::Router => {
                 let r = ctx
@@ -841,10 +1054,10 @@ impl Chats {
                     .find(|r| r.id == route.provider)
                     .cloned()
                     .ok_or_else(|| anyhow!("that router was removed in Settings"))?;
-                self.run_openai(id, mid, &r.base_url, &r.api_key, route, sys.as_deref())
+                self.run_openai(id, mid, &r.base_url, &r.api_key, route, sys.as_deref(), call)
                     .await
             }
-            RouteKind::Cloud => self.run_cloud(id, mid, ctx, route).await,
+            RouteKind::Cloud => self.run_cloud(id, mid, ctx, route, call).await,
         }
     }
 
@@ -878,7 +1091,7 @@ impl Chats {
         p
     }
 
-    async fn run_cli(&self, id: &str, mid: &str, route: &Route, sys: Option<&str>) -> Result<()> {
+    async fn run_cli(&self, id: &str, mid: &str, route: &Route, sys: Option<&str>, ctx: &Ctx, call: &Call) -> Result<()> {
         let bin_name = match route.provider.as_str() {
             "cursor" => "cursor-agent",
             other => other,
@@ -888,8 +1101,19 @@ impl Chats {
             .ok_or_else(|| anyhow!("`{bin_name}` is not installed or not on PATH"))?;
         // Pair: in the project, allowed to edit it. Otherwise a scratch
         // folder per thread, read-only by default.
-        let project = self.project_of(id);
+        // An agent works in its own folder, with leave to edit it.
+        let agent_dir = call
+            .agent
+            .as_ref()
+            .and_then(|a| ctx.agents.as_ref().map(|ag| ag.workspace(&a.id)));
+        let computer = call
+            .agent
+            .as_ref()
+            .and_then(|a| ctx.agents.as_ref().and_then(|ag| ag.computer_env(a)));
+        let project = agent_dir.or_else(|| self.project_of(id));
         let pair = project.is_some();
+        // Groups answer a transcript: no CLI session to resume or keep.
+        let keep_session = call.transcript.is_none();
         let cwd = match project {
             Some(p) => p,
             None => {
@@ -898,7 +1122,7 @@ impl Chats {
                 scratch
             }
         };
-        let (hist, session) = self.history(id);
+        let (hist, session) = self.history_for(id, call);
         // CLIs without a system-prompt flag get the brief ahead of the prompt.
         let with_sys = |p: String| match sys {
             Some(s) => format!("{s}\n\n---\n\n{p}"),
@@ -912,6 +1136,9 @@ impl Chats {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
+        if let Some(c) = &computer {
+            cmd.env(crate::agents::ENV_COMPUTER, serde_json::to_string(c)?);
+        }
         let model = route.model.clone().filter(|m| !m.is_empty());
         let stdin_text: Option<String>;
         match route.provider.as_str() {
@@ -933,7 +1160,7 @@ impl Chats {
                     cmd.args(["--append-system-prompt", s]);
                 }
                 // Installed apps' tools, through `backspace mcp`.
-                let apps = !crate::board::app_tools().is_empty();
+                let apps = !crate::board::app_tools().is_empty() || computer.is_some();
                 if apps {
                     if let Ok(exe) = std::env::current_exe() {
                         let cfg = json!({"mcpServers": {"backspace": {"command": exe.display().to_string(), "args": ["mcp"]}}});
@@ -941,6 +1168,9 @@ impl Chats {
                     }
                 }
                 let mcp = if apps { ",mcp__backspace" } else { "" };
+                for d in call.agent.iter().flat_map(|a| a.shared.iter()) {
+                    cmd.args(["--add-dir", &crate::agents::expand(d).display().to_string()]);
+                }
                 if pair {
                     cmd.args([
                         "--permission-mode",
@@ -1038,7 +1268,9 @@ impl Chats {
                         Some("system") => {
                             if let Some(s) = v["session_id"].as_str() {
                                 let s = s.to_string();
-                                let _ = self.edit_thread(id, |t| t.cli_session = Some(s));
+                                if keep_session {
+                                    let _ = self.edit_thread(id, |t| t.cli_session = Some(s));
+                                }
                             }
                             if let Some(m) = v["model"].as_str() {
                                 let m = m.to_string();
@@ -1084,7 +1316,9 @@ impl Chats {
                         Some("result") => {
                             if let Some(s) = v["session_id"].as_str() {
                                 let s = s.to_string();
-                                let _ = self.edit_thread(id, |t| t.cli_session = Some(s));
+                                if keep_session {
+                                    let _ = self.edit_thread(id, |t| t.cli_session = Some(s));
+                                }
                             }
                             let cost = v["total_cost_usd"].as_f64();
                             let is_err = v["is_error"].as_bool().unwrap_or(false);
@@ -1212,13 +1446,13 @@ impl Chats {
         s
     }
 
-    async fn run_ollama(&self, id: &str, mid: &str, url: &str, route: &Route, sys: Option<&str>) -> Result<()> {
+    async fn run_ollama(&self, id: &str, mid: &str, url: &str, route: &Route, sys: Option<&str>, call: &Call) -> Result<()> {
         let model = route
             .model
             .clone()
             .filter(|m| !m.is_empty())
             .ok_or_else(|| anyhow!("pick an Ollama model for this chat"))?;
-        let (hist, _) = self.history(id);
+        let (hist, _) = self.history_for(id, call);
         let messages: Vec<Value> = sys
             .map(|s| json!({ "role": "system", "content": s }))
             .into_iter()
@@ -1299,13 +1533,14 @@ impl Chats {
         key: &str,
         route: &Route,
         sys: Option<&str>,
+        call: &Call,
     ) -> Result<()> {
         let model = route
             .model
             .clone()
             .filter(|m| !m.is_empty())
             .ok_or_else(|| anyhow!("pick a model for this chat"))?;
-        let (hist, _) = self.history(id);
+        let (hist, _) = self.history_for(id, call);
         let mut rb = self
             .http
             .post(format!("{}/chat/completions", base.trim_end_matches('/')))
@@ -1348,18 +1583,18 @@ impl Chats {
         Ok(())
     }
 
-    async fn run_cloud(&self, id: &str, mid: &str, ctx: &Ctx, route: &Route) -> Result<()> {
+    async fn run_cloud(&self, id: &str, mid: &str, ctx: &Ctx, route: &Route, call: &Call) -> Result<()> {
         let cloud = &ctx.prefs.cloud;
         if cloud.token.is_empty() {
             bail!("Sign up for Backspace Cloud in Settings → Plan first");
         }
         let model = route.model.clone().unwrap_or_default();
-        let (hist, _) = self.history(id);
+        let (hist, _) = self.history_for(id, call);
         let resp = self
             .http
             .post(format!("{}/v1/chat", cloud.url.trim_end_matches('/')))
             .bearer_auth(&cloud.token)
-            .json(&json!({ "model": model, "messages": self.openai_messages(id, &hist, self.system_text(id, ctx).as_deref()) }))
+            .json(&json!({ "model": model, "messages": self.openai_messages(id, &hist, self.system_text(id, ctx, call).as_deref()) }))
             .send()
             .await
             .map_err(|e| {
@@ -1640,6 +1875,8 @@ mod tests {
                     cost_usd: None,
                     edited: false,
                     via: None,
+                    author: None,
+                    author_name: None,
                 });
             }
         })

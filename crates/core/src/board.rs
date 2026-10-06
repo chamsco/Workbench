@@ -234,6 +234,11 @@ fn msg(args: &[String]) -> Result<String> {
 
 /// A minimal MCP server on stdio: three tools over the bridge.
 /// Tools from installed apps, as (MCP name, app id, tool).
+/// The agent's computer, when the CLI was started for one.
+fn computer_env() -> Option<crate::agents::ComputerEnv> {
+    std::env::var(crate::agents::ENV_COMPUTER).ok().and_then(|v| serde_json::from_str(&v).ok())
+}
+
 pub(crate) fn app_tools() -> Vec<(String, String, crate::apps::Tool)> {
     let apps = crate::apps::Apps::open(crate::prefs::Prefs::data_dir().join("apps"));
     apps.list()
@@ -282,6 +287,14 @@ fn mcp() -> Result<()> {
                 } else {
                     vec![]
                 };
+                if computer_env().is_some() {
+                    tools.push(json!({"name": "computer_run", "description": "Run a shell command on your own computer (your container or server) and get its output. Install software, run code and keep files there.",
+                        "inputSchema": {"type": "object", "properties": {"command": {"type": "string"}, "timeout_secs": {"type": "integer"}}, "required": ["command"]}}));
+                    tools.push(json!({"name": "computer_read", "description": "Read a file on your own computer.",
+                        "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}}));
+                    tools.push(json!({"name": "computer_write", "description": "Write a file on your own computer (creates folders as needed).",
+                        "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"]}}));
+                }
                 for (name, app, t) in app_tools() {
                     tools.push(json!({"name": name, "description": format!("[{app} app] {}", t.description), "inputSchema": t.input_schema}));
                 }
@@ -297,6 +310,18 @@ fn mcp() -> Result<()> {
                         do_send(b, a["to"].as_str().unwrap_or(""), a["text"].as_str().unwrap_or(""))
                     }),
                     "read_messages" => board().and_then(do_read),
+                    "computer_run" | "computer_read" | "computer_write" => match computer_env() {
+                        None => Err(anyhow!("you have no computer of your own")),
+                        Some(env) => match name {
+                            "computer_run" => crate::agents::run(
+                                &env,
+                                a["command"].as_str().unwrap_or(""),
+                                std::time::Duration::from_secs(a["timeout_secs"].as_u64().unwrap_or(120).clamp(1, 1800)),
+                            ),
+                            "computer_read" => crate::agents::read(&env, a["path"].as_str().unwrap_or("")),
+                            _ => crate::agents::write(&env, a["path"].as_str().unwrap_or(""), a["content"].as_str().unwrap_or("")),
+                        },
+                    },
                     other => match app_tools().into_iter().find(|(n, _, _)| n == other) {
                         Some((_, app, t)) => {
                             let input = if a.is_null() { json!({}) } else { a.clone() };

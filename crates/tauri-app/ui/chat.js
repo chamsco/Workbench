@@ -148,17 +148,20 @@ var Chat = (() => {
   // ---------------------------------------------------------------- Whirl
   // The chat face is Whirl's (web/ → chat-web/whirl.js) when its bundle
   // loaded; the vanilla rendering below stays as the fallback.
-  let whirl = false, scope = null;
+  let whirl = false, scope = null, agentsMode = false;
   // Pair shows the chat face scoped to the open project: its threads, and
   // new ones bound to it. Elsewhere, the plain chat list.
-  function setScope(s) {
-    s = s || null;
-    if (s === scope) return;
-    scope = s;
-    if (whirl && window.WhirlChat.setScope) window.WhirlChat.setScope(scope);
+  function setScope(s, agents) {
+    s = s || null; agents = !!agents && !s;
+    if (s === scope && agents === agentsMode) return;
+    scope = s; agentsMode = agents;
+    if (whirl && window.WhirlChat.setScope) window.WhirlChat.setScope(scope, agentsMode);
   }
   const host = () => ({
     scope: () => scope,
+    agentsMode: () => agentsMode,
+    onCaptured: (note, who) => window.Shell && Shell.memToast(note, who),
+    openComputer: url => window.Shell && Shell.openDesktop(url),
     remember: (text, source) => invoke("memory_add", { text, project: scope, source: source || "chat" }).then(() => { toast("Saved to Memory", "ok"); if (window.Memory) Memory.refresh(); }),
     invoke: (cmd, args) => invoke(cmd, args),
     routes: options,

@@ -32,7 +32,7 @@ const api = {
     syncDark();
     matchMedia("(prefers-color-scheme: dark)").addEventListener("change", syncDark);
     new MutationObserver(syncDark).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
-    setScope(host.scope());
+    setScope(host.scope(), host.agentsMode());
     root?.unmount();
     root = createRoot(el);
     root.render(
@@ -45,7 +45,7 @@ const api = {
   refresh: () => refresh(),
   open: (id: string) => openThread(id),
   home: () => goHome(),
-  setScope: (s: string | null) => setScope(s),
+  setScope: (s: string | null, agents = false) => setScope(s, agents),
 };
 
 window.WhirlChat = api;

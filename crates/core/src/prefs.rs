@@ -31,6 +31,12 @@ pub struct Prefs {
     pub pinned_apps: Vec<String>,
     /// Whether chats and agents get the memory notes.
     pub memory_on: bool,
+    /// Whether messages you send are scored for notes to keep on their own.
+    pub memory_auto: bool,
+    /// Inside Chat: "chat" (one model) or "agents" (your named agents and groups).
+    pub chat_view: String,
+    /// The footer's "Motion": "full" or "reduced".
+    pub motion: String,
     /// The phone companion's link (docs/companion.md).
     pub companion: CompanionCfg,
     /// What the user picked in setup: "chat", "code" or both. The switch
@@ -70,6 +76,9 @@ impl Default for Prefs {
             split: None,
             pinned_apps: vec![],
             memory_on: true,
+            memory_auto: true,
+            chat_view: "chat".into(),
+            motion: "full".into(),
             companion: CompanionCfg::default(),
             uses: vec!["chat".into(), "code".into()],
             harnesses: BTreeMap::new(),

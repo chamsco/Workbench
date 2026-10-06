@@ -67,6 +67,10 @@ const P = {
   splitv: '<rect x="2" y="3" width="12" height="10" rx="1.6"/><path d="M8.6 3v10"/>',
   pairi: '<circle cx="5.4" cy="5.4" r="2"/><circle cx="10.8" cy="5.4" r="2"/><path d="M2 12.6c.4-2 1.8-3.2 3.4-3.2s3 1.2 3.4 3.2M7.4 12.6c.4-2 1.8-3.2 3.4-3.2s3 1.2 3.4 3.2"/>',
   wmin: '<path d="M3.5 8.5h9"/>',
+  team: '<circle cx="8" cy="5.2" r="2.2"/><path d="M4 13.2c.4-2.3 2-3.6 4-3.6s3.6 1.3 4 3.6"/><circle cx="3.4" cy="6.6" r="1.5"/><circle cx="12.6" cy="6.6" r="1.5"/><path d="M1.4 11.6c.3-1.2 1-1.9 2-2.1M14.6 11.6c-.3-1.2-1-1.9-2-2.1"/>',
+  motion: '<path d="M2.4 8h3l1.6-3.6 2 7.2 1.6-3.6h3"/>',
+  tok: '<path d="M3 4.5h10M3 8h10M3 11.5h6"/>',
+  monitor: '<rect x="2" y="2.8" width="12" height="8.4" rx="1.4"/><path d="M6 13.6h4M8 11.2v2.4"/>',
   swaph: '<path d="M2.6 5.4h10.2M10.4 3l2.4 2.4-2.4 2.4M13.4 10.6H3.2M5.6 8.2l-2.4 2.4 2.4 2.4"/>',
   wmax: '<rect x="3.5" y="3.5" width="9" height="9" rx="1"/>',
   wrest: '<rect x="3.5" y="5.5" width="7" height="7" rx="1"/><path d="M5.5 5.5v-1a1 1 0 0 1 1-1h5a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-1"/>',
@@ -83,7 +87,7 @@ let snap = { name: "", agents: [], approvals: [], tickets: [], total_cost_usd: 0
 let prefs = { theme: "system", tabs: [], active_tab: 0, check_updates: true };
 let machines = [], share = null, upd = null, hasProject = true;
 const S = {
-  mode: "chat", codeView: "agents",
+  mode: "chat", codeView: "agents", chatView: "chat",
   focus: 0, max: null, side: "projects", review: null,
   drawer: false, pinned: false, ticket: null, settings: false,
   pane: new Map(),         // per-canvas transient state, by tab:index
@@ -237,8 +241,8 @@ function setMode(m, save = true) {
   for (const z of ["chat", "code", "memory", "apps"]) w.classList.toggle("m-" + z, m === z);
   w.classList.toggle("m-app", m.startsWith("app:"));
   w.classList.toggle("pair-on", m === "code" && S.codeView === "pair");
+  w.classList.toggle("agents-on", m === "chat" && S.chatView === "agents");
   w.classList.toggle("single-use", uses.length === 1);
-  $$("#modes [data-view]").forEach(b => b.setAttribute("aria-selected", b.dataset.view === S.codeView));
   if (S.settings) { S.settings = false; $("#settings").hidden = true; }
   if (S.drawer && !agentsOn()) setDrawer(false);
   if (save) { prefs.mode = m; invoke("set_mode", { mode: m }); }
@@ -252,7 +256,11 @@ function setCodeView(v) {
   prefs.code_view = S.codeView; invoke("set_code_view", { view: S.codeView });
   setMode("code");
 }
-$$("#modes [data-view]").forEach(b => (b.onclick = () => setCodeView(b.dataset.view)));
+function setChatView(v) {
+  S.chatView = v === "agents" ? "agents" : "chat";
+  prefs.chat_view = S.chatView; invoke("set_view_prefs", { chatView: S.chatView, motion: null });
+  setMode("chat");
+}
 
 let toastT = null;
 function toast(text, kind = "") {
@@ -1350,6 +1358,7 @@ addEventListener("DOMContentLoaded", async () => {
   applyTheme(); renderSeg(); setSide(!narrow());
   S.mode = prefs.mode || "chat";
   S.codeView = prefs.code_view === "pair" ? "pair" : "agents";
+  S.chatView = prefs.chat_view === "agents" ? "agents" : "chat";
   // A folder given on the command line, or a bench run: start in Code.
   const first = await invoke("snapshot");
   if (first.workspace && (boot.bench || !prefs.onboarded)) { S.mode = "code"; S.codeView = "agents"; }

@@ -182,6 +182,12 @@ var Apps = (() => {
         <button class="btn" id="apDir" ${busy ? "disabled" : ""}>${icon("folder")}From folder…</button>
       </div>
       <div class="err" role="alert">${esc(err)}</div>
+      <h2>Built in</h2>
+      <div class="agrid">${[["chat", "bubble", "Chat", "Talk to any model, or to your named agents and groups."], ["code", "codei", "Code", "Pair with a CLI in a project, or let agents build it ticket by ticket."]].map(([k, ic, n, d]) => {
+        const uses = prefs.uses && prefs.uses.length ? prefs.uses : ["chat", "code"], on = uses.includes(k), last = on && uses.length === 1;
+        return `<div class="acard"><div class="ac-top"><span class="ag" style="--ag:var(--fg);color:var(--desk-base)">${icon(ic)}</span><div class="ac-n"><b>${n}</b><small>Built in</small></div></div><p>${d}</p>
+          <div class="ac-act">${on ? `<button class="btn primary sm" data-zone="${k}">Open</button>` : ""}<span class="sp"></span><button class="btn sm" data-use="${k}" ${last ? `disabled title="Keep at least one"` : ""}>${on ? (last ? "Required" : "Remove") : `${icon("plus")}Add`}</button></div></div>`;
+      }).join("")}</div>
       <h2>Installed</h2>
       ${inst.length ? `<div class="agrid">${inst.map(a => card(a, true)).join("")}</div>` : `<div class="apz-empty">Nothing installed yet. Try an example below, or install your own.</div>`}
       ${ex.length ? `<h2>Examples</h2><div class="agrid">${ex.map(a => card(a, false)).join("")}</div>` : ""}
@@ -198,6 +204,14 @@ var Apps = (() => {
     $("#apDir", el).onclick = async () => { const p = await invoke("pick_app").catch(() => null); if (p) install("dir", () => invoke("app_install_dir", { path: p })); };
     $$("[data-ex]", el).forEach(b => (b.onclick = () => install(b.dataset.ex, () => invoke("app_install_example", { id: b.dataset.ex }))));
     $$("[data-open]", el).forEach(b => (b.onclick = () => setMode("app:" + b.dataset.open)));
+    $$("[data-zone]", el).forEach(b => (b.onclick = () => setMode(b.dataset.zone)));
+    $$("[data-use]", el).forEach(b => (b.onclick = async () => {
+      const cur = prefs.uses && prefs.uses.length ? prefs.uses : ["chat", "code"], k = b.dataset.use;
+      const next = ["chat", "code"].filter(u => (u === k ? !cur.includes(u) : cur.includes(u)));
+      if (!next.length) return;
+      prefs.uses = next; await invoke("set_uses", { uses: next });
+      Shell.renderRail(); renderZone();
+    }));
     $$("[data-pin]", el).forEach(b => (b.onclick = () => { togglePin(b.dataset.pin); renderZone(); }));
     // Two clicks to remove: the first asks.
     $$("[data-rm]", el).forEach(b => (b.onclick = async () => {

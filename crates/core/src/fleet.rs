@@ -138,6 +138,7 @@ pub struct Fleet {
     chats: Arc<Chats>,
     memory: Arc<crate::memory::Memory>,
     apps: Arc<crate::apps::Apps>,
+    agents: Arc<crate::agents::Agents>,
     harnesses: Mutex<Vec<HarnessInfo>>,
     http: reqwest::Client,
     remotes: Mutex<Vec<Arc<Remote>>>,
@@ -183,6 +184,7 @@ impl Fleet {
             chats,
             memory: Arc::new(crate::memory::Memory::open(Prefs::data_dir())),
             apps: Arc::new(crate::apps::Apps::open(Prefs::data_dir().join("apps"))),
+            agents: Arc::new(crate::agents::Agents::open(Prefs::data_dir().join("agents"))),
             harnesses: Mutex::new(Vec::new()),
             http: reqwest::Client::new(),
             remotes: Mutex::new(remotes),
@@ -217,6 +219,10 @@ impl Fleet {
 
     pub fn memory(&self) -> &Arc<crate::memory::Memory> {
         &self.memory
+    }
+
+    pub fn agents(&self) -> &Arc<crate::agents::Agents> {
+        &self.agents
     }
 
     pub fn apps(&self) -> &Arc<crate::apps::Apps> {
@@ -291,6 +297,7 @@ impl Fleet {
         Ctx {
             prefs: self.prefs(),
             memory: Some(self.memory.clone()),
+            agents: Some(self.agents.clone()),
         }
     }
 

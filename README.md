@@ -78,7 +78,8 @@ both shells (`BACKSPACE_PREFS` overrides the path).
 
 A rail of squares on the far left (Slack/Discord-style) switches zones:
 **Chat**, **Code**, **Memory**, **Apps**, then any app pinned from the
-catalog, and **Settings** at the foot. Each zone keeps its state while
+catalog, and **Settings** at the foot. Hover a square for its name; the
+first square lines up with the view switcher at the top of the sidebar. Each zone keeps its state while
 another shows. The split button in the title bar opens a second zone or
 app beside the current one (drag the gap to size it, swap sides, close).
 
@@ -90,8 +91,8 @@ resize edges on Linux).
 ### Setup, Chat and Coding
 
 First run walks through setup (skippable; "Run setup again" in Settings):
-pick what Backspace is for (Chat, Coding or both; with both, a pill at the
-top of the sidebar switches), then the scan of coding CLIs on this machine
+add the apps Backspace starts with (Chat, Code or both; at least one, and
+either can be added or removed later under Apps → Built in), then the scan of coding CLIs on this machine
 (Codex, Claude, Cursor, Grok, OpenCode, Antigravity: version, signed in or
 not, plan where it can tell) with a switch per CLI, then Ollama and any
 OpenAI-compatible routers, then an optional Cloud plan.
@@ -123,6 +124,26 @@ Messages take a tapback (the six iMessage ones), can be answered
 specifically (the reply quotes it, and the model sees the quote), show a
 preview card for their first link, and can be saved to Memory.
 
+**Chat** has two views, switched at the top of its sidebar: **Chat** (the
+threads above) and **Agents**:
+
+- An **agent** has a name, a job (its brief), an avatar, a model and its
+  own folder (`<data>/agents/<id>/workspace`), plus any folders you share
+  with it. A 1:1 chat with an agent runs a coding CLI in that folder with
+  leave to edit it, and the agent's brief and its own memory as the system
+  prompt.
+- A **group** has members and a goal. Each message gets sequential turns:
+  the members you name (`@Kira`) first, otherwise everyone in order; a
+  member with nothing to add says PASS and leaves no message, and one that
+  names another hands it a turn (at most 8 turns per message). Members read
+  the group's transcript; no CLI session is kept between turns.
+- **Computer use**: an agent can have a computer (a plain folder, a Docker
+  container `backspace-agent-<id>` with its home mounted, or a VPS over
+  SSH). It reaches it through the `computer_run`, `computer_read` and
+  `computer_write` tools of `backspace mcp`. With "desktop" on, the
+  container runs a web desktop (`linuxserver/webtop`) that opens beside the
+  chat.
+
 **Code** has two views, switched at the top of its sidebar:
 
 - **Pair**: you and one coding CLI, turn by turn, in the open project. The
@@ -152,6 +173,25 @@ tied to one project. Chats get the global notes plus their project's as a
 system prompt; a project's planner and workers get them when it opens.
 Add them in the Memory zone, or with Remember on any message. One switch
 turns them off without deleting them. Stored in `<data>/memory.json`.
+Agents have their own notes (scope `agent:<id>`).
+
+Memory also notices things on its own ("from now on…", "remember that…",
+"I prefer…", "we deploy with…"). A small logistic model on this machine
+(`crates/core/src/memory_learn.rs`, no network) scores each message; above
+its threshold the note is saved in the third person, tagged as a
+preference, fact or instruction, and a toast says who will remember it.
+"Don't remember that" deletes the note and trains the model away from
+it (and raises the threshold); closing the toast confirms it and raises
+the note's importance. Near-duplicates are merged. Notes reach the model
+ranked by importance, use and age. Weights live in
+`<data>/memory-learn.json`. Settings: Memory → "Notice things to
+remember".
+
+### Status bar
+
+The foot of the window shows the branch, the project and its ticket
+count, who is working or replying, the split, the phone link, a motion
+toggle (Full or Reduced) and the tokens and cost so far.
 
 ### Apps
 
@@ -327,5 +367,12 @@ State is written to `<workspace>/.backspace/state.json` as a record of the run.
 - App tools run as you, like any program you install.
 - The headless flags for Codex, Cursor, Grok, OpenCode and Antigravity
   follow their docs but were only exercised against Claude Code.
+- Group turns run one after another, so a group of four is about four
+  times as slow as a 1:1 chat.
+- Agent computers were tested with Docker (alpine); the web desktop image
+  (about 1.5 GB) and the SSH/VPS path are untested. A Docker computer is
+  not a security boundary against a determined agent.
+- The memory model starts from hand-set weights and learns only from
+  your "Don't remember that" and confirmations; expect misses early.
 - Cloud is a development server: no accounts beyond a local token, no
   billing.

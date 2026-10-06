@@ -4,6 +4,13 @@
 //! their project's; a project's planner gets the same when it opens.
 //!
 //! Stored as one JSON file in the data dir (`memory.json`).
+//!
+//! It evolves on its own: messages you send are scored on this machine
+//! (memory_learn.rs) and the ones that read like preferences, facts about
+//! you or standing instructions become notes; your "Don't remember that"
+//! teaches the scorer. A new note close to an old one (same scope, mostly
+//! the same words) replaces it instead of piling up, and notes that chats
+//! actually get are ranked ahead of ones that never come up.
 
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -28,6 +35,22 @@ pub struct Note {
     /// Off: kept, but not given to chats or agents.
     #[serde(default = "yes")]
     pub on: bool,
+    /// "preference", "identity", "instruction", "fact" or "" (written by hand).
+    #[serde(default)]
+    pub kind: String,
+    /// 0..1: how sure the capture was (1 for notes you wrote).
+    #[serde(default = "one")]
+    pub importance: f32,
+    /// How many prompts it has been part of.
+    #[serde(default)]
+    pub uses: u32,
+    /// Features the capture saw, kept so your answer can train on them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub features: Vec<String>,
+}
+
+fn one() -> f32 {
+    1.0
 }
 
 fn yes() -> bool {
@@ -40,6 +63,25 @@ const BUDGET: usize = 6000;
 pub struct Memory {
     path: PathBuf,
     notes: Mutex<Vec<Note>>,
+    learner: crate::memory_learn::Learner,
+}
+
+/// Words of a note, for telling near-duplicates apart.
+fn words(s: &str) -> std::collections::BTreeSet<String> {
+    s.to_lowercase()
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| w.len() > 2 && !["the", "user", "and", "for", "with", "are", "was", "his", "her", "its"].contains(w))
+        .map(String::from)
+        .collect()
+}
+
+fn similar(a: &str, b: &str) -> bool {
+    let (x, y) = (words(a), words(b));
+    if x.is_empty() || y.is_empty() {
+        return false;
+    }
+    let inter = x.intersection(&y).count() as f32;
+    inter / (x.len().min(y.len()) as f32) >= 0.7
 }
 
 impl Memory {
@@ -52,6 +94,7 @@ impl Memory {
         Self {
             path,
             notes: Mutex::new(notes),
+            learner: crate::memory_learn::Learner::open(dir),
         }
     }
 
@@ -86,6 +129,10 @@ impl Memory {
             created: now,
             updated: now,
             on: true,
+            kind: String::new(),
+            importance: 1.0,
+            uses: 0,
+            features: vec![],
         };
         let mut notes = self.notes.lock().unwrap();
         notes.push(n.clone());
@@ -118,6 +165,63 @@ impl Memory {
         Ok(out)
     }
 
+    /// Score a message you sent and, if it reads like something to keep,
+    /// save it (or refresh the note it repeats). Returns the note so the app
+    /// can say "… will remember that".
+    pub fn capture(&self, message: &str, project: Option<String>, source: &str) -> Option<Note> {
+        let p = self.learner.propose(message)?;
+        let project = project.filter(|p| !p.is_empty());
+        let mut notes = self.notes.lock().unwrap();
+        let now = now_ms();
+        if let Some(n) = notes.iter_mut().find(|n| n.project == project && similar(&n.text, &p.text)) {
+            // The newer wording wins; it is how you say it now.
+            n.text = p.text.clone();
+            n.updated = now;
+            n.importance = n.importance.max(p.score);
+            n.features = p.features.clone();
+            n.on = true;
+            let out = n.clone();
+            let _ = self.save(&notes);
+            return Some(out);
+        }
+        let n = Note {
+            id: new_id(),
+            text: p.text,
+            project,
+            source: if source.is_empty() { "chat".into() } else { source.into() },
+            created: now,
+            updated: now,
+            on: true,
+            kind: p.kind,
+            importance: p.score,
+            uses: 0,
+            features: p.features,
+        };
+        notes.push(n.clone());
+        let _ = self.save(&notes);
+        Some(n)
+    }
+
+    /// "Don't remember that": delete it and learn not to keep its like.
+    pub fn forget(&self, id: &str) -> Result<()> {
+        let n = self.list().into_iter().find(|n| n.id == id).ok_or_else(|| anyhow!("no such note"))?;
+        if !n.features.is_empty() {
+            self.learner.feedback(&n.features, false);
+        }
+        self.delete(id)
+    }
+
+    /// The toast was dismissed: keep it, and learn that this was right.
+    pub fn confirm(&self, id: &str) -> Result<()> {
+        let mut notes = self.notes.lock().unwrap();
+        let n = notes.iter_mut().find(|n| n.id == id).ok_or_else(|| anyhow!("no such note"))?;
+        if !n.features.is_empty() {
+            self.learner.feedback(&n.features, true);
+        }
+        n.importance = (n.importance + 0.2).min(1.0);
+        self.save(&notes)
+    }
+
     pub fn delete(&self, id: &str) -> Result<()> {
         let mut notes = self.notes.lock().unwrap();
         notes.retain(|n| n.id != id);
@@ -135,14 +239,29 @@ impl Memory {
             .filter(|n| n.on && (n.project.is_none() || n.project.as_deref() == project))
             .cloned()
             .collect();
-        notes.sort_by(|a, b| b.updated.cmp(&a.updated));
+        // What you wrote or confirmed, and what keeps coming up, first.
+        let now = now_ms();
+        let rank = |n: &Note| {
+            let age_days = (now.saturating_sub(n.updated) as f32) / 864e5;
+            n.importance + (n.uses as f32).ln_1p() * 0.1 - (age_days / 365.0).min(0.5)
+        };
+        notes.sort_by(|a, b| rank(b).partial_cmp(&rank(a)).unwrap_or(std::cmp::Ordering::Equal));
         let mut out = String::new();
+        let mut used: Vec<String> = vec![];
         for n in notes {
             let line = format!("- {}\n", n.text.replace('\n', " "));
             if out.len() + line.len() > BUDGET {
                 break;
             }
             out.push_str(&line);
+            used.push(n.id.clone());
+        }
+        if !used.is_empty() {
+            let mut all = self.notes.lock().unwrap();
+            for n in all.iter_mut().filter(|n| used.contains(&n.id)) {
+                n.uses = n.uses.saturating_add(1);
+            }
+            let _ = self.save(&all);
         }
         (!out.is_empty()).then(|| {
             format!("Notes the user asked you to keep in mind (from Backspace's memory):\n{out}")

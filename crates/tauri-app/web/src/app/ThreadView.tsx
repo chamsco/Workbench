@@ -18,12 +18,13 @@ import {
 import { UserMessage } from "@/components/thread/user-message";
 import { AssistantMessage } from "./AssistantMessage";
 import { LinkCard, Quote, RememberButton, ReplyButton, TapbackButton, Tapbacks } from "./Extras";
-import { branch, edit, getHost, retry, toChatMessage, useChat, type Msg, type Thread } from "../bridge";
+import { agentById, branch, edit, getHost, retry, toChatMessage, useChat, type Msg, type Thread } from "../bridge";
+import { Avatar } from "./Agents";
 
 const PREVIOUS_TURN_PEEK_PX = 72;
 const EDGE_THRESHOLD_PX = 128;
 
-export function ThreadView({ thread }: { thread: Thread }) {
+export function ThreadView({ thread, header }: { thread: Thread; header?: React.ReactNode }) {
   const { epoch } = useChat();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const messages = useMemo(() => thread.messages.map((m) => toChatMessage(thread, m)), [thread, epoch]);
@@ -32,6 +33,9 @@ export function ThreadView({ thread }: { thread: Thread }) {
   const lastAssistant = [...thread.messages].reverse().find((m) => m.role === "assistant")?.id;
 
   if (messages.length === 0) {
+    if (thread.agent || (thread.members?.length ?? 0) > 0) {
+      return <div className="h-full overflow-y-auto px-6 pb-40">{header}</div>;
+    }
     return (
       <div className="flex h-full items-center justify-center px-6 pb-40 text-center">
         <div className="text-[15px]/6 text-muted-foreground">
@@ -62,6 +66,7 @@ export function ThreadView({ thread }: { thread: Thread }) {
                 "mx-auto w-full max-w-2xl pt-8 pb-[max(11rem,calc(var(--dock-clearance,0px)+0.75rem))]",
               )}
             >
+              {header}
               {thread.messages.map((m, i) => (
                 <Row
                   key={m.id}
@@ -99,7 +104,8 @@ const Row = memo(function Row({
 }) {
   const host = getHost();
   const toast = (e: unknown) => host.toast(String(e), "err");
-  const answeredBy = raw.via ? `${host.providerName(raw.via)} answered` : undefined;
+  const author = raw.author ? agentById(raw.author) : undefined;
+  const answeredBy = raw.author_name ?? (raw.via ? `${host.providerName(raw.via)} answered` : undefined);
   const of = raw.reply_to ? thread.messages.find((m) => m.id === raw.reply_to) : undefined;
   const user = message.role === "user";
   const actions = (
@@ -126,6 +132,7 @@ const Row = memo(function Row({
             message={message}
             error={raw.error}
             answeredBy={answeredBy}
+            avatar={raw.author ? <Avatar agent={author} size={22} /> : undefined}
             ad={raw.ad}
             onRetry={canRetry ? () => void retry(thread.id).catch(toast) : undefined}
             onBranch={() => void branch(thread.id, raw.id).catch(toast)}

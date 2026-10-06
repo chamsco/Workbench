@@ -6,9 +6,14 @@
 var Memory = (() => {
   let notes = [], filter = "all", q = "", editing = null, draft = "", draftScope = "";
 
-  async function load() { notes = (await invoke("memory_list").catch(() => null)) || []; }
+  let agents = [];
+  const agentName = id => (agents.find(a => a.id === id) || { name: "An agent" }).name;
+  async function load() {
+    notes = (await invoke("memory_list").catch(() => null)) || [];
+    agents = (await invoke("agents_list").catch(() => null)) || [];
+  }
   async function init() { await load(); }
-  const projects = () => [...new Set([...(prefs.projects || []), ...notes.map(n => n.project).filter(Boolean)])];
+  const projects = () => [...new Set([...(prefs.projects || []), ...notes.map(n => n.project).filter(p => p && !p.startsWith("agent:"))])];
   const curProject = () => (hasProject && snap.workspace) || "";
 
   function shown() {
@@ -22,8 +27,14 @@ var Memory = (() => {
     const row = (f, ic, label, title) => `<button class="row${filter === f ? " on" : ""}" data-mf="${esc(f)}" title="${esc(title || label)}">${icon(ic)}<span class="lab">${esc(label)}</span><span class="n">${count(f) || ""}</span></button>`;
     el.innerHTML = row("all", "memory", "All notes") + row("global", "globe", "Everywhere", "Notes every chat and project gets") +
       (ps.length ? `<div class="sec-t">Projects</div>` + ps.map(p => row(p, "folder", base(p), p)).join("") : "") +
-      `<div class="mem-on"><span>Give notes to chats and agents</span><button class="toggle" role="switch" id="memOn" aria-checked="${prefs.memory_on !== false}" aria-label="Give notes to chats and agents"></button></div>`;
+      (agents.length ? `<div class="sec-t">Agents</div>` + agents.map(a => row("agent:" + a.id, "team", a.name, `What ${a.name} keeps`)).join("") : "") +
+      `<div class="mem-on"><span>Give notes to chats and agents</span><button class="toggle" role="switch" id="memOn" aria-checked="${prefs.memory_on !== false}" aria-label="Give notes to chats and agents"></button></div>
+      <div class="mem-on second"><span>Notice things to remember<small>Decided on this machine; learns from "Don't remember that"</small></span><button class="toggle" role="switch" id="memAuto" aria-checked="${prefs.memory_auto !== false}" aria-label="Notice things to remember"></button></div>`;
     $$("[data-mf]", el).forEach(b => (b.onclick = () => { filter = b.dataset.mf; renderSide(el); render(); }));
+    $("#memAuto", el).onclick = async () => {
+      prefs.memory_auto = prefs.memory_auto === false; await invoke("set_memory_auto", { on: prefs.memory_auto });
+      toast(prefs.memory_auto ? "Backspace will notice things worth remembering" : "Only notes you add or Remember are kept", "ok"); renderSide(el);
+    };
     $("#memOn", el).onclick = async () => {
       prefs.memory_on = prefs.memory_on === false; await invoke("set_memory_on", { on: prefs.memory_on });
       toast(prefs.memory_on ? "Chats and agents get your notes" : "Notes are kept, but not given to chats or agents", "ok"); renderSide(el);
@@ -32,7 +43,7 @@ var Memory = (() => {
 
   function scopeSelect(id, cur) {
     const ps = projects();
-    return `<select class="tx" id="${id}" aria-label="Where this note applies"><option value="">Everywhere</option>${ps.map(p => `<option value="${esc(p)}" ${cur === p ? "selected" : ""}>${esc(base(p))}</option>`).join("")}</select>`;
+    return `<select class="tx" id="${id}" aria-label="Where this note applies"><option value="">Everywhere</option>${ps.map(p => `<option value="${esc(p)}" ${cur === p ? "selected" : ""}>${esc(base(p))}</option>`).join("")}${agents.map(a => `<option value="agent:${esc(a.id)}" ${cur === "agent:" + a.id ? "selected" : ""}>${esc(a.name)} only</option>`).join("")}</select>`;
   }
   function ago(ms) {
     const s = (Date.now() - ms) / 1000;
@@ -56,7 +67,7 @@ var Memory = (() => {
         ? `<div class="note edit"><textarea class="tx" id="memEd" rows="3" aria-label="Edit note">${esc(n.text)}</textarea><div class="mem-row">${scopeSelect("memEdScope", n.project || "")}<span class="sp"></span><button class="btn" id="memCancel">Cancel</button><button class="btn primary" id="memUpd">Save</button></div></div>`
         : `<div class="note${n.on ? "" : " off"}" data-n="${esc(n.id)}">
             <div class="nt">${esc(n.text)}</div>
-            <div class="nm"><span class="chip">${n.project ? icon("folder") + esc(base(n.project)) : icon("globe") + "Everywhere"}</span><span>${esc(n.source && n.source !== "you" ? "From " + n.source : "")}</span><span>${ago(n.updated)}</span><span class="sp"></span>
+            <div class="nm"><span class="chip">${n.project ? (n.project.startsWith("agent:") ? icon("team") + esc(agentName(n.project.slice(6))) : icon("folder") + esc(base(n.project))) : icon("globe") + "Everywhere"}</span><span>${esc(n.kind ? n.kind[0].toUpperCase() + n.kind.slice(1) : "")}</span><span>${esc(n.source && n.source !== "you" ? "From " + n.source : "")}</span><span>${ago(n.updated)}</span><span class="sp"></span>
               <button class="toggle sm" role="switch" aria-checked="${n.on}" data-on="${esc(n.id)}" title="${n.on ? "Given to chats and agents" : "Kept, not given"}" aria-label="Use this note"></button>
               <button class="ib" data-ed="${esc(n.id)}" title="Edit" aria-label="Edit note">${icon("edit")}</button>
               <button class="ib" data-del="${esc(n.id)}" title="Delete" aria-label="Delete note">${icon("trash")}</button></div>

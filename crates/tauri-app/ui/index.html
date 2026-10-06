@@ -18,7 +18,7 @@
       <div class="rail-zones" id="railZones" role="tablist" aria-orientation="vertical"></div>
       <div class="rail-apps" id="railApps"></div>
       <span class="sp" data-tauri-drag-region></span>
-      <button class="rz" id="gear" aria-label="Settings" title="Settings (⌘,)"><span class="sq" data-icon="gear"></span><span class="rl">Settings</span></button>
+      <button class="rz" id="gear" aria-label="Settings" data-tip="Settings"><span class="sq" data-icon="gear"></span></button>
     </nav>
     <aside class="side" id="side" aria-label="Machine, projects and agents">
       <div class="side-top" data-tauri-drag-region>
@@ -26,10 +26,7 @@
       </div>
       <div class="side-head">
         <div class="zone-title" id="zoneTitle"></div>
-        <div class="modes code-only" id="modes" role="tablist" aria-label="Pair or agents">
-          <button role="tab" data-view="pair" id="viewPair" title="You and one CLI, turn by turn, in the project"><span data-icon="pairi"></span>Pair</button>
-          <button role="tab" data-view="agents" id="viewAgents" title="A planner splits the goal into tickets; workers build each one"><span data-icon="sparkle"></span>Agents</button>
-        </div>
+        <div class="modes" id="modes" role="tablist"></div>
         <button class="newbtn chat-only" id="newChat" title="New chat (⌘N)"><span data-icon="compose"></span>New chat<kbd>⌘N</kbd></button>
         <label class="search chat-only"><span data-icon="search"></span><input id="search" placeholder="Search chats" aria-label="Search chats" autocomplete="off"><kbd>⌘K</kbd></label>
         <div class="brand code-only" id="brand"></div>
@@ -75,12 +72,14 @@
       <section class="settings" id="settings" hidden></section>
       <aside class="drawer" id="drawer" aria-label="Tickets and reviews" hidden></aside>
     </div>
+    <footer class="status" id="status" aria-label="Status"></footer>
     <div class="scrim" id="scrim"></div>
     <div class="onboard" id="onboard" hidden></div>
   </div>
 </div>
 <div class="pop" id="pop" hidden></div>
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+<div class="memtoast" id="memToast" role="status" aria-live="polite" hidden></div>
 <input type="file" id="filePick" multiple hidden>
 <script src="app.js"></script>
 <script src="providers.js"></script>

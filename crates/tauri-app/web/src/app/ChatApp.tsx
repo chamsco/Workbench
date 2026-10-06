@@ -14,9 +14,10 @@ import { cn } from "@/lib/utils";
 import { SuggestionCards } from "@/components/suggestion-cards";
 import { Composer } from "./Composer";
 import { ReplyChip } from "./Extras";
+import { AgentEditors, AgentsHome, AgentsSide, AgentThreadHeader } from "./Agents";
 import { ThreadList } from "./ThreadList";
 import { ThreadView } from "./ThreadView";
-import { getHost, goHome, send, setReplyTo, setRoute, stop, useChat, type Route } from "../bridge";
+import { agentById, getHost, goHome, saveAgent, send, setReplyTo, setRoute, stop, useChat, type Route } from "../bridge";
 
 const baseName = (p: string) => p.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || p;
 
@@ -49,7 +50,7 @@ const NAMELESS = ["What's on your mind?", "Ready when you are", "Let's get into 
 
 export function ChatApp({ sideEl, user }: { sideEl: HTMLElement; user: string }) {
   const host = getHost();
-  const { id, thread, threads, epoch, scope, replyTo } = useChat();
+  const { id, thread, threads, epoch, scope, replyTo, agentsMode } = useChat();
   const [draft, setDraft] = useState("");
   const [homeRoute, setHomeRoute] = useState<Route | null>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
@@ -99,7 +100,15 @@ export function ChatApp({ sideEl, user }: { sideEl: HTMLElement; user: string })
     }
   };
 
+  const agent = agentById(thread?.agent);
+  const group = (thread?.members?.length ?? 0) > 0;
   const changeRoute = async (r: Route) => {
+    if (agent) {
+      // An agent's thread answers with the agent's model: change the agent.
+      await saveAgent({ ...agent, route: r }).catch((e) => host.toast(String(e), "err"));
+      host.toast(`${agent.name} now runs on ${host.routeName(r)}`, "ok");
+      return;
+    }
     if (thread) {
       await setRoute(thread.id, r).catch((e) => host.toast(String(e), "err"));
       host.toast(`Next replies come from ${host.routeName(r)}`, "ok");
@@ -123,7 +132,8 @@ export function ChatApp({ sideEl, user }: { sideEl: HTMLElement; user: string })
 
   return (
     <>
-      {createPortal(<ThreadList onNewChat={newChat} />, sideEl)}
+      {createPortal(agentsMode && !scope ? <AgentsSide /> : <ThreadList onNewChat={newChat} />, sideEl)}
+      <AgentEditors />
       <main className="whirl-pane raised relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-surface md:rounded-lg md:border md:border-border">
         <div className="relative flex min-h-0 min-w-0 flex-1">
           <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
@@ -131,12 +141,17 @@ export function ChatApp({ sideEl, user }: { sideEl: HTMLElement; user: string })
               <AnimatePresence mode="popLayout" initial={false}>
                 {inThread && (
                   <motion.div key={thread.id} {...THREAD_SWAP} className="h-full min-h-0">
-                    <ThreadView thread={thread} />
+                    <ThreadView thread={thread} header={<AgentThreadHeader thread={thread} />} />
+                  </motion.div>
+                )}
+                {!inThread && agentsMode && !scope && (
+                  <motion.div key="agents-home" {...THREAD_SWAP} className="h-full min-h-0">
+                    <AgentsHome />
                   </motion.div>
                 )}
               </AnimatePresence>
             </div>
-            {!anyRoute && !inThread ? (
+            {agentsMode && !scope && !inThread ? null : !anyRoute && !inThread ? (
               <NoModels />
             ) : (
               <div
@@ -163,14 +178,19 @@ export function ChatApp({ sideEl, user }: { sideEl: HTMLElement; user: string })
                     <Composer
                       value={draft}
                       onValueChange={setDraft}
-                      route={route}
+                      route={agent ? agent.route : route}
                       onRouteChange={(r) => void changeRoute(r)}
+                      hideRoute={group}
                       onSubmit={submit}
                       onStop={thread ? () => void stop(thread.id) : undefined}
                       generating={busy}
                       floating={inThread}
                       placeholder={
-                        scope
+                        agent
+                          ? `Message ${agent.name}`
+                          : group
+                            ? `Message ${thread?.title ?? "the group"} (@Name to ask one agent)`
+                            : scope
                           ? `Ask ${host.providerName(route) || "a CLI"} to change ${baseName(scope)}`
                           : thread
                             ? `Message ${host.providerName(thread.route)}`

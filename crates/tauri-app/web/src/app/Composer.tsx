@@ -46,6 +46,7 @@ export function Composer({
   placeholder = "Ask anything",
   clis,
   textareaRef,
+  hideRoute = false,
 }: {
   value: string;
   onValueChange: (v: string) => void;
@@ -59,6 +60,8 @@ export function Composer({
   /** CLIs that can be @mentioned for one reply. */
   clis: { id: string; name: string }[];
   textareaRef: RefObject<HTMLTextAreaElement | null>;
+  /** Groups: each agent runs on its own model, so there is no one to pick. */
+  hideRoute?: boolean;
 }) {
   const attachments = useAttachments();
   const [sending, setSending] = useState(false);
@@ -271,7 +274,7 @@ export function Composer({
           </DropdownMenu>
         </div>
         <div ref={rightRef} className="absolute right-2 bottom-2 flex items-center gap-1.5">
-          <RoutePicker value={route} onValueChange={onRouteChange} />
+          {!hideRoute && <RoutePicker value={route} onValueChange={onRouteChange} />}
           <SendButton
             state={generating && onStop ? "stop" : sending ? "sending" : "send"}
             canSend={canSend}

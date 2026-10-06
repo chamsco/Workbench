@@ -95,9 +95,9 @@ body { margin: 0; background: var(--desk-base); color: var(--fg); font: 13px/1.4
 @keyframes drift { to { transform: translate(4vw, 3vw) scale(1.08); } }
 
 .win {
-  --side-w: 248px; --rail-w: 72px;
+  --side-w: 248px; --rail-w: 56px;
   position: relative; min-width: 0; min-height: 0;
-  display: grid; grid-template-columns: var(--rail-w) var(--side-w) 1fr;
+  display: grid; grid-template-columns: var(--rail-w) var(--side-w) 1fr; grid-template-rows: minmax(0, 1fr) auto;
   border-radius: 12px; overflow: hidden;
   background: var(--glass);
   -webkit-backdrop-filter: blur(48px) saturate(1.7); backdrop-filter: blur(48px) saturate(1.7);
@@ -579,26 +579,26 @@ body.dragging-any, body.dragging-any * { cursor: grabbing !important; user-selec
 /* ===================================================================== zones
    The rail (Slack/Discord-style squares) picks a zone; each zone draws into
    its own section in #body; a split puts a second one beside it. */
-.rail { grid-row: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 10px 0 10px; min-height: 0; border-right: 0.5px solid var(--pane-edge); background: color-mix(in srgb, var(--hover) 55%, transparent); }
-:root:not(.native) .rail, .os-mac .rail { padding-top: 44px; }
-.rail-zones, .rail-apps { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.rail { grid-row: 1; position: relative; z-index: 6; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 40px 0 10px; min-height: 0; border-right: 0.5px solid var(--pane-edge); background: color-mix(in srgb, var(--hover) 55%, transparent); }
+.rail-zones, .rail-apps { display: flex; flex-direction: column; align-items: center; gap: 6px; }
 .rail .sp { flex: 1; width: 100%; }
-.rz { position: relative; width: 60px; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 4px 0 5px; color: var(--fg-3); }
-.rz .sq { position: relative; width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; transition: background 0.15s, color 0.15s; }
-.rz .sq .ic { width: 20px; height: 20px; }
-.rz .rl { font-size: 10.5px; font-weight: 500; line-height: 1.15; max-width: 60px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.rz:hover { color: var(--fg-2); }
-.rz:hover .sq { background: var(--hover); color: var(--fg); }
-.rz[aria-selected="true"] { color: var(--fg); }
+/* Squares only; the name slides out on hover (and keyboard focus). */
+.rz { position: relative; width: 36px; height: 36px; display: grid; place-items: center; color: var(--fg-3); border-radius: 10px; }
+.rz .sq { position: relative; width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; transition: background 0.15s, color 0.15s, border-radius 0.15s; }
+.rz .sq .ic { width: 18px; height: 18px; }
+.rz:hover .sq, .rz:focus-visible .sq { background: var(--hover); color: var(--fg); }
 .rz[aria-selected="true"] .sq { background: var(--fg); color: var(--desk-base); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.16); }
-.rz[aria-selected="true"]::before { content: ""; position: absolute; left: -6px; top: 12px; width: 4px; height: 24px; border-radius: 0 4px 4px 0; background: var(--fg); }
+.rz[aria-selected="true"]::before { content: ""; position: absolute; left: -10px; top: 8px; width: 4px; height: 20px; border-radius: 0 4px 4px 0; background: var(--fg); }
+.rz[data-tip]::after { content: attr(data-tip); position: absolute; left: calc(100% + 10px); top: 50%; transform: translate(-4px, -50%); padding: 4px 9px; border-radius: 7px; background: var(--fg); color: var(--desk-base); font-size: 12px; font-weight: 600; white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity 0.12s, transform 0.12s; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18); }
+.rz[data-tip]:hover::after, .rz[data-tip]:focus-visible::after { opacity: 1; transform: translate(0, -50%); }
 .rz.rzapp .sq { overflow: hidden; }
+.rz.rzapp .sq .ag { width: 36px; height: 36px; border-radius: 10px; font-size: 13px; }
 .rz.rzapp[aria-selected="true"] .sq { background: transparent; box-shadow: 0 0 0 2px var(--fg); }
-.rb { position: absolute; top: -4px; right: -6px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--red); color: #fff; font: 600 10px/16px var(--font-ui); font-style: normal; box-shadow: 0 0 0 2px var(--desk-base); }
-.rsep { width: 28px; height: 1px; background: var(--pane-edge); margin: 6px 0; }
+.rb { position: absolute; top: -5px; right: -7px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--red); color: #fff; font: 600 10px/16px var(--font-ui); font-style: normal; box-shadow: 0 0 0 2px var(--desk-base); }
+.rsep { width: 22px; height: 1px; background: var(--pane-edge); margin: 4px 0; }
 .zone-title { flex-basis: 100%; }
 .zone-title:empty { display: none; }
-.zone-title h2 { margin: 0; padding: 0 2px; font-size: 13.5px; font-weight: 650; letter-spacing: -0.01em; }
+.zone-title h2 { margin: 0; padding: 0 2px; font-size: 13.5px; font-weight: 650; letter-spacing: -0.01em; line-height: 32px; }
 .zone-head { display: flex; align-items: center; min-width: 0; }
 .zone-head:empty { display: none; }
 .zone-head .zt { display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 600; white-space: nowrap; }
@@ -642,3 +642,28 @@ body.dragging-any, body.dragging-any * { cursor: grabbing !important; user-selec
 .e-e, .e-w { top: 8px; bottom: 8px; width: 5px; cursor: ew-resize; } .e-e { right: 0; } .e-w { left: 0; }
 .e-ne, .e-nw, .e-se, .e-sw { width: 10px; height: 10px; } .e-ne { top: 0; right: 0; cursor: nesw-resize; } .e-sw { bottom: 0; left: 0; cursor: nesw-resize; }
 .e-nw { top: 0; left: 0; cursor: nwse-resize; } .e-se { bottom: 0; right: 0; cursor: nwse-resize; }
+
+/* ---------- status bar (after an agent control plane's footer) */
+.status { grid-column: 1 / -1; grid-row: 2; height: 26px; display: flex; align-items: center; gap: 2px; padding: 0 8px; border-top: 0.5px solid var(--pane-edge); font: 11.5px/1 var(--font-ui); color: var(--fg-3); background: color-mix(in srgb, var(--hover) 40%, transparent); min-width: 0; overflow: hidden; }
+.status .st { display: inline-flex; align-items: center; gap: 5px; height: 20px; padding: 0 7px; border-radius: 5px; white-space: nowrap; color: inherit; }
+.status button.st:hover { background: var(--hover); color: var(--fg); }
+.status .st .ic { width: 12px; height: 12px; }
+.status .st .dim { color: var(--fg-4); margin-left: 4px; }
+.status .nb { font-variant-numeric: tabular-nums; font-family: var(--font-mono); font-size: 11px; }
+.status .sd { width: 6px; height: 6px; border-radius: 50%; background: var(--fg-4); }
+.status .live { color: var(--fg-2); }
+.status .live .sd { background: var(--bs-accent); animation: pulse 1.4s ease-in-out infinite; }
+/* Motion: Reduced */
+.reduce-motion *, .reduce-motion *::before, .reduce-motion *::after { animation-duration: 0.001s !important; animation-iteration-count: 1 !important; transition-duration: 0.001s !important; }
+
+/* ---------- "… will remember that" */
+.memtoast { position: fixed; right: 16px; top: 48px; z-index: 40; display: flex; align-items: center; gap: 10px; max-width: 460px; padding: 10px 10px 10px 12px; border-radius: 14px; background: var(--sheet); border: 0.5px solid var(--pane-edge); box-shadow: 0 14px 34px rgba(0, 0, 0, 0.18); -webkit-backdrop-filter: blur(30px) saturate(1.6); backdrop-filter: blur(30px) saturate(1.6); font-size: 12.5px; animation: memin 0.22s ease-out; }
+.memtoast[hidden] { display: none; }
+@keyframes memin { from { opacity: 0; transform: translateY(-8px); } }
+.memtoast .mt-ic { width: 28px; height: 28px; flex: none; border-radius: 9px; display: grid; place-items: center; background: var(--fg); color: var(--desk-base); }
+.memtoast .mt-ic .ic { width: 15px; height: 15px; }
+.memtoast .mt-b { display: grid; gap: 1px; min-width: 0; }
+.memtoast .mt-b b { font-size: 12.5px; }
+.memtoast .mt-b span { color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.memtoast .mt-no { flex: none; height: 26px; padding: 0 10px; border-radius: 7px; border: 0.5px solid var(--pane-edge); background: var(--pill-on); font-size: 12px; font-weight: 500; white-space: nowrap; }
+.memtoast .mt-no:hover { color: var(--red); }

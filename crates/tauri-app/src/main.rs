@@ -6,6 +6,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use backspace_core::agents::{Agent, ComputerStatus};
 use backspace_core::apps::Installed;
 use backspace_core::chat::{Attachment, Route, Scope, Thread, ThreadInfo};
 use backspace_core::memory::Note;
@@ -409,6 +410,18 @@ fn set_pinned_apps(f: F, ids: Vec<String>) {
 }
 
 #[tauri::command]
+fn set_view_prefs(f: F, chat_view: Option<String>, motion: Option<String>) {
+    f.update_prefs(|p| {
+        if let Some(v) = chat_view {
+            p.chat_view = v;
+        }
+        if let Some(m) = motion {
+            p.motion = m;
+        }
+    });
+}
+
+#[tauri::command]
 fn set_memory_on(f: F, on: bool) {
     f.update_prefs(|p| p.memory_on = on);
 }
@@ -618,13 +631,67 @@ async fn chat_send(
     text: String,
     files: Vec<NewFile>,
     reply_to: Option<String>,
-) -> Res<()> {
+) -> Res<Option<Note>> {
     blocking(f, move |f| {
         let mut atts: Vec<Attachment> = Vec::new();
         for nf in files {
             atts.push(f.chats().attach(&id, &nf.name, &nf.mime, &nf.data)?);
         }
-        f.chats().send(&id, &text, atts, reply_to, f.chat_ctx())
+        f.chats().send(&id, &text, atts, reply_to, f.chat_ctx())?;
+        // Anything worth keeping in what you said? Decided on this machine;
+        // the app shows "… will remember that" with a way to say no.
+        let prefs = f.prefs();
+        if !(prefs.memory_on && prefs.memory_auto) {
+            return Ok(None);
+        }
+        let t = f.chats().thread(&id);
+        if t.as_ref().is_some_and(|t| t.app.is_some()) {
+            return Ok(None);
+        }
+        let scope = t.and_then(|t| t.agent.map(|a| format!("agent:{a}")).or(t.project));
+        Ok(f.memory().capture(&text, scope, "chat"))
+    })
+    .await
+}
+
+#[tauri::command]
+fn memory_forget(f: F, id: String) -> Res<()> {
+    f.memory().forget(&id).map_err(err)
+}
+
+#[tauri::command]
+fn memory_confirm(f: F, id: String) -> Res<()> {
+    f.memory().confirm(&id).map_err(err)
+}
+
+#[tauri::command]
+fn set_memory_auto(f: F, on: bool) {
+    f.update_prefs(|p| p.memory_auto = on);
+}
+
+// ---------------------------------------------------------------- agents
+
+#[tauri::command]
+fn agents_list(f: F) -> Vec<Agent> {
+    f.agents().list()
+}
+
+#[tauri::command]
+fn agent_save(f: F, agent: Agent) -> Res<Agent> {
+    f.agents().save(agent).map_err(err)
+}
+
+#[tauri::command]
+async fn agent_delete(f: F<'_>, id: String) -> Res<()> {
+    blocking(f, move |f| f.agents().delete(&id)).await
+}
+
+#[tauri::command]
+async fn agent_computer(f: F<'_>, id: String, action: String) -> Res<ComputerStatus> {
+    blocking(f, move |f| match action.as_str() {
+        "start" => f.agents().start(&id),
+        "stop" => f.agents().stop(&id),
+        _ => f.agents().status(&id),
     })
     .await
 }
@@ -886,6 +953,7 @@ fn main() -> anyhow::Result<()> {
             set_split,
             set_pinned_apps,
             set_memory_on,
+            set_view_prefs,
             set_uses,
             set_worker,
             api_keys,
@@ -895,6 +963,13 @@ fn main() -> anyhow::Result<()> {
             chat_thread,
             chat_new,
             memory_list,
+            memory_forget,
+            memory_confirm,
+            set_memory_auto,
+            agents_list,
+            agent_save,
+            agent_delete,
+            agent_computer,
             companion_status,
             set_companion,
             qr_svg,

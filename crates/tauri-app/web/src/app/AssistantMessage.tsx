@@ -37,7 +37,9 @@ export function AssistantMessage({
   badge,
   actions,
   below,
+  avatar,
 }: {
+  avatar?: ReactNode;
   message: ChatMessage;
   error?: string | null;
   answeredBy?: string;
@@ -61,7 +63,10 @@ export function AssistantMessage({
     <div data-quotable="assistant" className="group/msg flex w-full min-w-0 flex-col items-start">
       {quote}
       {answeredBy && (
-        <div className="mb-1.5 text-[12px]/4 font-medium text-muted-foreground">{answeredBy}</div>
+        <div className="mb-1.5 flex items-center gap-2 text-[12px]/4 font-medium text-muted-foreground">
+          {avatar}
+          {answeredBy}
+        </div>
       )}
       {showText && <Markdown streaming={streamingNow || !caughtUp}>{text}</Markdown>}
       {streamingNow && !showText && (

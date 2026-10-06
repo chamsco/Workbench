@@ -28,7 +28,36 @@ export type Msg = {
   cost_usd?: number | null;
   edited?: boolean;
   via?: Route | null;
+  author?: string | null;
+  author_name?: string | null;
 };
+
+export type Computer = {
+  kind: "folder" | "docker" | "ssh";
+  image: string;
+  desktop: boolean;
+  host: string;
+  user: string;
+  port: number;
+  key: string;
+  desktop_url: string;
+};
+
+export type Agent = {
+  id: string;
+  name: string;
+  job: string;
+  avatar: { emoji: string; color: string };
+  route: Route;
+  shared: string[];
+  computer: Computer;
+  memory: boolean;
+  created: number;
+  updated: number;
+};
+
+export type ComputerStatus = { kind: string; state: string; detail: string; desktop: string | null };
+export type Note = { id: string; text: string; project?: string | null };
 
 export type Thread = {
   id: string;
@@ -41,6 +70,9 @@ export type Thread = {
   branched_from?: string | null;
   project?: string | null;
   app?: string | null;
+  agent?: string | null;
+  members?: string[];
+  goal?: string | null;
 };
 
 export type ThreadInfo = {
@@ -54,6 +86,8 @@ export type ThreadInfo = {
   unread: boolean;
   project?: string | null;
   app?: string | null;
+  agent?: string | null;
+  members?: string[];
 };
 
 export type RouteItem = {
@@ -86,6 +120,12 @@ export type Host = {
   scope: () => string | null;
   /** Save text to Memory (scoped to the project in Pair). */
   remember: (text: string, source?: string) => Promise<void>;
+  /** The Agents side of Chat is showing. */
+  agentsMode: () => boolean;
+  /** A message became a note: show "… will remember that". */
+  onCaptured: (note: Note, who: string) => void;
+  /** Open an agent computer's web desktop beside the chat. */
+  openComputer: (url: string) => void;
 };
 
 let host: Host;
@@ -107,9 +147,18 @@ type State = {
   scope: string | null;
   /** The message the next send answers (iMessage's reply). */
   replyTo: string | null;
+  /** Chat's Agents side: named agents and groups instead of plain chats. */
+  agentsMode: boolean;
+  agents: Agent[];
+  /** On the Agents side with no thread: which agent's card is open in the editor. */
+  editing: Agent | "new" | null;
+  grouping: boolean;
 };
 
-let state: State = { threads: [], id: null, thread: null, epoch: 0, query: "", scope: null, replyTo: null };
+let state: State = {
+  threads: [], id: null, thread: null, epoch: 0, query: "", scope: null, replyTo: null,
+  agentsMode: false, agents: [], editing: null, grouping: false,
+};
 const subs = new Set<() => void>();
 const emit = () => subs.forEach((f) => f());
 const set = (patch: Partial<State>) => {
@@ -131,12 +180,15 @@ export const chatState = () => state;
 
 /** Pull the list and the open thread again (on every core change). */
 export async function refresh() {
-  const threads = await host.invoke<ThreadInfo[]>("chat_list").catch(() => state.threads);
+  const [threads, agents] = await Promise.all([
+    host.invoke<ThreadInfo[]>("chat_list").catch(() => state.threads),
+    host.invoke<Agent[]>("agents_list").catch(() => state.agents),
+  ]);
   let thread = state.thread;
   if (state.id) {
     thread = await host.invoke<Thread | null>("chat_thread", { id: state.id }).catch(() => null);
   }
-  set({ threads, thread, id: thread ? state.id : null, epoch: state.epoch + 1 });
+  set({ threads, agents, thread, id: thread ? state.id : null, epoch: state.epoch + 1 });
 }
 
 export async function openThread(id: string) {
@@ -150,14 +202,52 @@ export function goHome() {
   set({ id: null, thread: null, replyTo: null });
 }
 
-/** Threads that belong to the current scope. */
-export const inScope = (t: { project?: string | null; app?: string | null }, scope: string | null) =>
-  !t.app && (t.project ?? null) === scope;
+type Scoped = { project?: string | null; app?: string | null; agent?: string | null; members?: string[] };
+const isAgentThread = (t: Scoped) => !!t.agent || (t.members?.length ?? 0) > 0;
 
-export function setScope(scope: string | null) {
-  if (scope === state.scope) return;
-  const keep = state.thread && inScope(state.thread, scope);
-  set({ scope, ...(keep ? {} : { id: null, thread: null, replyTo: null }) });
+/** Threads that belong to what is showing: Pair's project, Chat's plain
+ *  threads, or Chat's agents and groups. Apps' threads never show here. */
+export const inScope = (t: Scoped, scope: string | null, agentsMode = state.agentsMode) =>
+  !t.app && (t.project ?? null) === scope && isAgentThread(t) === (agentsMode && !scope);
+
+export function setScope(scope: string | null, agentsMode = false) {
+  if (scope === state.scope && agentsMode === state.agentsMode) return;
+  const keep = state.thread && inScope(state.thread, scope, agentsMode);
+  set({ scope, agentsMode, editing: null, grouping: false, ...(keep ? {} : { id: null, thread: null, replyTo: null }) });
+}
+
+export const agentById = (id?: string | null) => state.agents.find((a) => a.id === id);
+export const editAgent = (editing: Agent | "new" | null) => set({ editing });
+export const editGroup = (grouping: boolean) => set({ grouping });
+
+export async function saveAgent(a: Agent): Promise<Agent> {
+  const saved = await host.invoke<Agent>("agent_save", { agent: a });
+  await refresh();
+  return saved;
+}
+export async function deleteAgent(id: string) {
+  await host.invoke("agent_delete", { id });
+  if (state.thread?.agent === id) set({ id: null, thread: null });
+  await refresh();
+}
+export const computer = (id: string, action: "status" | "start" | "stop") =>
+  host.invoke<ComputerStatus>("agent_computer", { id, action });
+
+/** An agent's conversation: the latest thread with it, or a new one. */
+export async function openAgent(a: Agent) {
+  const t = state.threads.filter((t) => t.agent === a.id).sort((x, y) => y.updated - x.updated)[0];
+  if (t) return openThread(t.id);
+  const nt = await host.invoke<Thread>("chat_new", { route: a.route, scope: { agent: a.id } });
+  set({ id: nt.id, thread: nt });
+  await refresh();
+}
+
+export async function createGroup(title: string, goal: string, members: string[]) {
+  const first = state.agents.find((a) => a.id === members[0]);
+  if (!first) throw new Error("Pick at least one agent");
+  const t = await host.invoke<Thread>("chat_new", { route: first.route, scope: { members, goal, title } });
+  set({ id: t.id, thread: t, grouping: false });
+  await refresh();
 }
 
 export const setReplyTo = (replyTo: string | null) => set({ replyTo });
@@ -179,7 +269,12 @@ export async function send(text: string, files: NewFile[], route: Route | null) 
   }
   const replyTo = state.replyTo;
   set({ replyTo: null });
-  await host.invoke("chat_send", { id, text, files, replyTo });
+  const note = await host.invoke<Note | null>("chat_send", { id, text, files, replyTo });
+  if (note) {
+    const t = state.thread;
+    const who = t?.agent ? agentById(t.agent)?.name : (t?.members?.length ?? 0) > 0 ? "Your team" : "Backspace";
+    host.onCaptured(note, who || "Backspace");
+  }
   await refresh();
 }
 

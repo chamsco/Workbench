@@ -25,11 +25,18 @@ var Onboard = (() => {
     STEPS = steps();
     const s = STEPS[step];
     if (s === "welcome") {
-      const tile = (k, ic, t, d) => `<button class="use" data-use="${k}" aria-pressed="${uses.includes(k)}">${icon(ic)}<b>${t}</b><span>${d}</span><i class="tick">${icon("check")}</i></button>`;
+      // Chat and Code are the two built-in apps; keep at least one.
+      const tile = (k, ic, t, d, more) => {
+        const on = uses.includes(k), last = on && uses.length === 1;
+        return `<button class="appuse" data-use="${k}" aria-pressed="${on}" ${last ? `title="Keep at least one app"` : ""}>
+          <span class="au-ic">${icon(ic)}</span>
+          <span class="au-t"><b>${t}</b><span>${d}</span><small>${more}</small></span>
+          <span class="au-btn">${on ? `${icon("check")}${last ? "Required" : "Added"}` : `${icon("plus")}Add`}</span>
+        </button>`;
+      };
       el.innerHTML = frame(`<div class="ob-hero"><div class="ob-logo">${icon("bksp")}</div><h1>Welcome to Backspace</h1>
-        <p>What will you use it for? Pick one or both; Settings can change it later.</p></div>
-        <div class="uses">${tile("chat", "bubble", "Chat", "Threads with any model: your CLIs, local models, routers or Backspace Cloud.")}${tile("code", "codei", "Coding", "Agents plan your project into tickets and build each on its own branch. You approve every step.")}</div>
-        <p class="uses-note">${uses.length === 2 ? "Both: switch between them from the top of the sidebar." : uses[0] === "chat" ? "Chat only: the coding workbench stays out of the way." : "Coding only: no chat threads in the sidebar."}</p>`, { back: false, next: "Get started" });
+        <p>Pick your apps. You need at least one; add the other any time from Apps.</p></div>
+        <div class="appuses">${tile("chat", "bubble", "Chat", "Talk to any model, or to your own named agents, one to one or in groups.", "Your CLIs, local models, routers or Backspace Cloud")}${tile("code", "codei", "Code", "Pair with a CLI in a project, or let agents plan it into tickets and build each on its own branch.", "You review every change before it merges")}</div>`, { back: false, next: "Get started" });
       $$("[data-use]", el).forEach(b => (b.onclick = () => {
         const k = b.dataset.use;
         const next = uses.includes(k) ? uses.filter(u => u !== k) : [...uses, k];
