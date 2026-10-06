@@ -64,6 +64,8 @@ pub struct Prefs {
     pub default_route: Option<crate::chat::Route>,
     /// Where traces go besides this machine (Settings → Tracing).
     pub tracing: crate::trace::Export,
+    /// Agents that live elsewhere and speak A2A, brought into Backspace.
+    pub remote_agents: Vec<RemoteAgent>,
 }
 
 impl Default for Prefs {
@@ -94,6 +96,7 @@ impl Default for Prefs {
             projects: vec![],
             default_route: None,
             tracing: Default::default(),
+            remote_agents: vec![],
             worker: None,
             api_keys: BTreeMap::new(),
         }
@@ -139,6 +142,20 @@ pub struct RouterCfg {
     pub api_key: String,
     /// Models the user picked to show; empty means all the endpoint lists.
     pub models: Vec<String>,
+}
+
+/// A remote agent over A2A: its card's name and description, and where
+/// to send messages.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+#[serde(default)]
+pub struct RemoteAgent {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    /// The JSON-RPC endpoint from its card.
+    pub url: String,
+    /// Bearer token, if it wants one.
+    pub token: String,
 }
 
 /// The Backspace Cloud account on this machine.

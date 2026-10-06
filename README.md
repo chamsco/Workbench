@@ -23,6 +23,7 @@ starting point: agents start cheap and climb the ladder on evidence of failure.
 ## Layout
 
 ```
+crates/runner one turn on any CLI, Ollama, OpenAI-compatible API or A2A agent (MIT, reusable)
 crates/core   harness: router, providers, tools, tickets, git worktrees, skills
 crates/cli    headless shell (logs to stdout, approvals on stdin)
 crates/app    desktop shell, GPUI (native)
@@ -94,8 +95,8 @@ First run walks through setup (skippable; "Run setup again" in Settings):
 add the apps Backspace starts with (Chat, Code or both; at least one, and
 either can be added or removed later under Apps → Built in), then the scan of coding CLIs on this machine
 (Codex, Claude, Cursor, Grok, OpenCode, Antigravity: version, signed in or
-not, plan where it can tell) with a switch per CLI, then Ollama and any
-OpenAI-compatible routers, then an optional Cloud plan.
+not, plan where it can tell) with a switch per CLI, then your first agent,
+then Ollama and any OpenAI-compatible routers, then an optional Cloud plan.
 `backspace-cli scan` prints the same scan.
 
 **Chat** (Tauri shell) is a port of [Whirl](https://github.com/whirlchat/whirl)'s
@@ -166,6 +167,44 @@ workers get the same through an MCP server (`backspace mcp`) or the shell
 (`backspace msg agents|send|read`), both reaching a token-protected bridge
 on 127.0.0.1. Address an agent by its key or its ticket's key. The board
 shows as the "Team chat" canvas.
+
+### Bring your agent
+
+Backspace hosts agents rather than being one. Setup's "Your first agent"
+step (and Chat → Agents, Settings → Coding CLIs and models) offers:
+
+| Pick | How it connects |
+|---|---|
+| Backspace sidekick | Made here: a name, a job, and any CLI or model you have |
+| Claude Code, OpenAI Codex | The CLI on this machine, on your own subscription (Codex is the open-source harness OpenAI's Dots run on) |
+| Grok, Meta Muse | xAI's and Meta's OpenAI-compatible APIs with your key (`api.x.ai/v1`, `api.meta.ai/v1`), added as routers |
+| Any A2A agent | Paste the address of its agent card; Backspace sends `message/send`, keeps its `contextId`, waits on its tasks |
+
+Every one becomes a named agent: own folder, own memory (off by default
+for remote agents, whose notes would leave the machine), a seat in groups,
+traces and Carry on. OpenAI Dots, Grok Bot and Tencent WorkBuddy are
+consumer apps with no outside API to drive them, so they aren't offered.
+
+All of it runs through `crates/runner`: build a `Request`, get `Event`s
+(text, tool calls, session, tokens, cost). It knows nothing about chats,
+so another app (Anarchy's sidekick, say) can depend on it.
+
+### Traces
+
+Every reply is a trace and every tool call a span (OpenTelemetry shape,
+GenAI attribute names), kept in `<data>/traces/`. The timeline button
+under a reply shows the waterfall with each tool's input and output, the
+model, tokens and cost. Settings → Tracing sends traces to any OTLP/HTTP
+collector (treg, Jaeger, Langfuse…), without prompts or output unless you
+allow it, and can send a test trace.
+
+### Carry on
+
+A reply cut off by quitting (or by Stop) can be resumed: what was written
+is saved before and after each tool call, and Carry on picks it up on
+Claude Code's own session, or from the conversation plus the partial
+answer for everything else. The agent is told to check what's already
+done instead of redoing it.
 
 ### Memory
 
@@ -410,5 +449,14 @@ State is written to `<workspace>/.backspace/state.json` as a record of the run.
   model in one prompt, which is why the daily tidy is off by default.
 - Memory's git repo has no remote by default; syncing it between machines
   is up to you (`git remote add` a private repo).
+- Tracing to treg is untested: its docs couldn't be reached from the build
+  machine. It's sent as standard OTLP/HTTP JSON, which treg may or may
+  not accept as is.
+- A2A: `message/send` with polling only; streaming (`message/stream`),
+  push notifications and file parts aren't used yet. Tested against a
+  local agent, not a public one.
+- Carry on resumes Chat replies. Workbench workers still don't resume
+  after a restart, and only Claude Code resumes on its own session
+  (others get the transcript).
 - Cloud is a development server: no accounts beyond a local token, no
   billing.

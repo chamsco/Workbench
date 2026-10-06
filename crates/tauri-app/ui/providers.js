@@ -13,7 +13,7 @@ var Providers = (() => {
     codex: ["CX", "#10a37f"], claude: ["CL", "#d97757"], cursor: ["CU", "#4b5563"], grok: ["GK", "#111827"],
     opencode: ["OP", "#6d28d9"], antigravity: ["AG", "#2563eb"], ollama: ["OL", "#0f766e"], cloud: ["☁", "#2a66d9"],
   };
-  const look = id => LOOK[id] || [(id.replace(/^router:/, "")[0] || "R").toUpperCase() + (id.replace(/^router:/, "")[1] || "").toUpperCase(), "#7c3aed"];
+  const look = id => { const n = id.replace(/^(router|a2a):/, ""); return LOOK[id] || [(n[0] || "R").toUpperCase() + (n[1] || "").toUpperCase(), id.startsWith("a2a:") ? "#b45309" : "#7c3aed"]; };
   const avatar = (id, cls = "") => { const [t, c] = look(id); return `<span class="pav ${cls}" style="--av:${c}">${esc(t)}</span>`; };
 
   function statusLine(h) {
@@ -33,11 +33,12 @@ var Providers = (() => {
       : "";
     const msg = h.installed && h.message && (!h.enabled || h.auth !== "authenticated") ? `<div class="pmsg">${esc(h.message)}</div>` : hint;
     const models = h.kind !== "cli" && h.enabled && h.models.length ? `<div class="pmodels">${h.models.slice(0, 8).map(m => `<span>${esc(m)}</span>`).join("")}${h.models.length > 8 ? `<span>+${h.models.length - 8}</span>` : ""}</div>` : "";
-    const rm = h.kind === "router" ? `<button class="ib" data-rmr="${esc(h.id)}" title="Remove router" aria-label="Remove ${esc(h.name)}">${icon("trash")}</button>` : "";
+    const rm = h.kind === "router" ? `<button class="ib" data-rmr="${esc(h.id)}" title="Remove router" aria-label="Remove ${esc(h.name)}">${icon("trash")}</button>`
+      : h.kind === "agent" ? `<button class="ib" data-rma="${esc(h.id)}" title="Disconnect" aria-label="Disconnect ${esc(h.name)}">${icon("trash")}</button>` : "";
     return `<div class="prow${h.enabled ? "" : " dim"}" data-id="${esc(h.id)}">
       ${avatar(h.id)}
       <div class="pmain"><div class="pname">${esc(h.name)}${ver}</div>${statusLine(h)}${msg}${models}</div>
-      ${rm}<button class="toggle" role="switch" aria-checked="${h.enabled}" data-tog="${esc(h.id)}" aria-label="Use ${esc(h.name)}" ${h.installed || h.kind === "router" ? "" : "disabled"}></button>
+      ${rm}<button class="toggle" role="switch" aria-checked="${h.enabled}" data-tog="${esc(h.id)}" aria-label="Use ${esc(h.name)}" ${h.installed || h.kind === "router" || h.kind === "agent" ? "" : "disabled"}></button>
     </div>`;
   }
 
@@ -45,7 +46,13 @@ var Providers = (() => {
     const clis = list.filter(h => h.kind === "cli");
     const local = list.filter(h => h.kind === "local");
     const routers = list.filter(h => h.kind === "router");
+    const agents = list.filter(h => h.kind === "agent");
     const ol = local[0];
+    const agentGroup = `<div class="pgroup"><div class="pgh"><h4>Agents from elsewhere</h4></div>
+        ${agents.length ? agents.map(row).join("") : `<div class="pempty">Any agent that speaks A2A: paste the address of its agent card (or the site it lives on) to talk to it here, give it a seat in a group, and trace it like your own.</div>`}
+        <div class="rform"><input class="tx mono" id="aUrl" placeholder="https://agent.example.com" aria-label="Agent address"><input class="tx mono" id="aKey" placeholder="Token (optional)" type="password" aria-label="Agent token"><button class="btn primary sm" id="aAdd">Connect</button></div>
+        <div class="err" id="aErr" role="alert"></div></div>`;
+    if (opts.only === "agents") return agentGroup;
     const busy = scanning ? `<span class="scan-dot"></span>Scanning…` : `${icon("reload")}Rescan`;
     return `
       ${opts.only !== "local" ? `<div class="pgroup"><div class="pgh"><h4>Coding CLIs</h4><button class="btn sm" data-rescan ${scanning ? "disabled" : ""}>${busy}</button></div>
@@ -55,9 +62,9 @@ var Providers = (() => {
         <div class="pline"><span>Ollama address</span><input class="tx mono" id="olUrl" value="${esc(prefs.ollama_url || "http://localhost:11434")}" aria-label="Ollama address"><button class="btn sm" id="olSave">Save</button></div></div>
       <div class="pgroup"><div class="pgh"><h4>Routers</h4></div>
         ${routers.length ? routers.map(row).join("") : `<div class="pempty">Any OpenAI-compatible endpoint: OpenRouter, LM Studio, vLLM, LiteLLM, your company's gateway.</div>`}
-        <div class="rpresets">${[["OpenRouter", "https://openrouter.ai/api/v1"], ["LM Studio", "http://localhost:1234/v1"], ["vLLM", "http://localhost:8000/v1"], ["LiteLLM", "http://localhost:4000/v1"]].map(([n, u]) => `<button class="chipb" data-preset="${esc(n)}|${esc(u)}">${esc(n)}</button>`).join("")}</div>
+        <div class="rpresets">${[["OpenRouter", "https://openrouter.ai/api/v1"], ["xAI (Grok)", "https://api.x.ai/v1"], ["Meta (Muse)", "https://api.meta.ai/v1"], ["OpenAI", "https://api.openai.com/v1"], ["LM Studio", "http://localhost:1234/v1"], ["vLLM", "http://localhost:8000/v1"], ["LiteLLM", "http://localhost:4000/v1"]].map(([n, u]) => `<button class="chipb" data-preset="${esc(n)}|${esc(u)}">${esc(n)}</button>`).join("")}</div>
         <div class="rform"><input class="tx" id="rName" placeholder="Name" aria-label="Router name"><input class="tx mono" id="rUrl" placeholder="https://…/v1" aria-label="Base URL"><input class="tx mono" id="rKey" placeholder="API key (optional)" type="password" aria-label="API key"><button class="btn primary sm" id="rAdd">Add & test</button></div>
-        <div class="err" id="rErr" role="alert"></div></div>` : ""}`;
+        <div class="err" id="rErr" role="alert"></div></div>${agentGroup}` : ""}`;
   }
 
   function wire(el, opts) {
@@ -70,6 +77,18 @@ var Providers = (() => {
     $$("[data-copy]", el).forEach(b => (b.onclick = () => { navigator.clipboard.writeText(b.dataset.copy); toast("Copied: " + b.dataset.copy, "ok"); }));
     $$("[data-url]", el).forEach(b => (b.onclick = () => invoke("open_url", { url: b.dataset.url })));
     $$("[data-rmr]", el).forEach(b => (b.onclick = async () => { await invoke("remove_router", { id: b.dataset.rmr }); await load(); }));
+    $$("[data-rma]", el).forEach(b => (b.onclick = async () => { await invoke("remove_agent_connection", { id: b.dataset.rma.replace(/^a2a:/, "") }); prefs = await invoke("prefs"); await load(); }));
+    const aa = $("#aAdd", el);
+    if (aa) aa.onclick = async () => {
+      const err = $("#aErr", el); err.textContent = "";
+      if (!$("#aUrl", el).value.trim()) { err.textContent = "Paste the agent's address."; $("#aUrl", el).focus(); return; }
+      aa.disabled = true; aa.textContent = "Reading its card…";
+      try {
+        const a = await invoke("connect_agent", { url: $("#aUrl", el).value, token: $("#aKey", el).value });
+        $("#aUrl", el).value = ""; $("#aKey", el).value = "";
+        prefs = await invoke("prefs"); await load(); toast(`${a.name} is connected`, "ok");
+      } catch (e) { err.textContent = String(e); aa.disabled = false; aa.textContent = "Connect"; }
+    };
     $$("[data-preset]", el).forEach(b => (b.onclick = () => { const [n, u] = b.dataset.preset.split("|"); $("#rName", el).value = n; $("#rUrl", el).value = u; $("#rKey", el).focus(); }));
     const os = $("#olSave", el);
     if (os) os.onclick = async () => { os.disabled = true; await invoke("set_ollama_url", { url: $("#olUrl", el).value }); prefs = await invoke("prefs"); await load(); };

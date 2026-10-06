@@ -71,8 +71,8 @@ function Stack({ ids, size = 22 }: { ids: string[]; size?: number }) {
   );
 }
 
-const computerLabel = (c: Computer) =>
-  c.kind === "docker" ? (c.desktop ? "Own desktop (Docker)" : "Own Linux computer (Docker)") : c.kind === "ssh" ? `Server ${c.host}` : "Its folder on this machine";
+const computerLabel = (c: Computer, remote = false) =>
+  remote ? "Lives elsewhere (A2A)" : c.kind === "docker" ? (c.desktop ? "Own desktop (Docker)" : "Own Linux computer (Docker)") : c.kind === "ssh" ? `Server ${c.host}` : "Its folder on this machine";
 const ComputerIcon = ({ c, size = 14 }: { c: Computer; size?: number }) =>
   c.kind === "docker" ? <IconDeviceDesktop size={size} /> : c.kind === "ssh" ? <IconServer size={size} /> : <IconFolder size={size} />;
 
@@ -208,7 +208,7 @@ function AgentCard({ agent }: { agent: Agent }) {
       <p className="line-clamp-2 flex-1 text-[12.5px]/5 text-muted-foreground">{agent.job || "No job yet."}</p>
       <div className="flex items-center gap-1.5 text-[11.5px] text-muted-foreground">
         <ComputerIcon c={agent.computer} size={13} />
-        <span className="truncate">{computerLabel(agent.computer)}</span>
+        <span className="truncate">{computerLabel(agent.computer, agent.route.kind === "a2a")}</span>
       </div>
       <div className="flex items-center gap-1.5">
         <button type="button" onClick={() => void openAgent(agent)} className="cursor-pointer rounded-full bg-primary px-3 py-1.5 text-[12.5px] font-medium text-primary-foreground hover:bg-(--primary-hover)">
@@ -273,7 +273,7 @@ function ComputerBar({ agent }: { agent: Agent }) {
   return (
     <div className="mt-2 flex items-center gap-1 text-[12px] text-muted-foreground">
       <ComputerIcon c={agent.computer} />
-      <span>{computerLabel(agent.computer)}</span>
+      <span>{computerLabel(agent.computer, agent.route.kind === "a2a")}</span>
       {st && <span className="rounded-full bg-black/[0.05] px-2 py-0.5 dark:bg-white/[0.08]">{st.state}</span>}
       {agent.computer.kind === "docker" && st?.state !== "running" && (
         <button type="button" disabled={busy} className={chip} onClick={() => void act("start")}>
@@ -413,7 +413,7 @@ function AgentEditor({ agent }: { agent: Agent | null }) {
           </div>
           <label className="flex items-center gap-2 text-[12.5px]">
             <input type="checkbox" checked={a.memory} onChange={(e) => set({ memory: e.target.checked })} />
-            Give it your memory notes (global and its own)
+            Give it your memory notes (global and its own){a.route.kind === "a2a" ? ". They'd leave this machine." : ""}
           </label>
           {err && <div className="text-[12.5px] text-red-500">{err}</div>}
         </div>

@@ -32,13 +32,16 @@ pub enum RouteKind {
     Local,
     Router,
     Cloud,
+    /// A remote agent you connected over A2A (prefs `remote_agents`).
+    A2a,
 }
 
 /// Who answers in a thread.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct Route {
     pub kind: RouteKind,
-    /// "claude", "codex"... for CLIs; "ollama"; the router id; "cloud".
+    /// "claude", "codex"... for CLIs; "ollama"; the router id; "cloud";
+    /// the remote agent's id.
     pub provider: String,
     /// None: the CLI's or router's own default.
     pub model: Option<String>,
@@ -1224,6 +1227,16 @@ impl Chats {
                     .cloned()
                     .ok_or_else(|| anyhow!("that router was removed in Settings"))?;
                 Target::OpenAi { base: r.base_url, key: r.api_key }
+            }
+            RouteKind::A2a => {
+                let a = ctx
+                    .prefs
+                    .remote_agents
+                    .iter()
+                    .find(|a| a.id == route.provider)
+                    .cloned()
+                    .ok_or_else(|| anyhow!("that agent was removed in Settings"))?;
+                Target::A2a { url: a.url, token: Some(a.token).filter(|t| !t.is_empty()) }
             }
             RouteKind::Cloud => bail!("Cloud replies don't go through the runner"),
         };

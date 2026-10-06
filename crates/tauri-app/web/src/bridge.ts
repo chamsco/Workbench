@@ -8,7 +8,7 @@ import { useSyncExternalStore } from "react";
 
 import type { ChatMessage, MessageStatus } from "@/lib/messages";
 
-export type RouteKind = "cli" | "local" | "router" | "cloud";
+export type RouteKind = "cli" | "local" | "router" | "cloud" | "a2a";
 export type Route = { kind: RouteKind; provider: string; model: string | null };
 
 export type Ad = { id: string; advertiser: string; title: string; body: string; cta: string; url: string };

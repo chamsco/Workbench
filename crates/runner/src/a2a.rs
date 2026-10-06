@@ -38,7 +38,17 @@ pub struct Skill {
 
 /// Read an agent's card from its base URL (or the card's own URL).
 pub async fn card(http: &reqwest::Client, url: &str, token: Option<&str>) -> Result<Card> {
-    let url = url.trim().trim_end_matches('/');
+    let raw = url.trim().trim_end_matches('/');
+    if raw.is_empty() {
+        bail!("paste the agent's address");
+    }
+    // "agent.example.com" means https; anything that still won't parse isn't an address.
+    let owned = if raw.contains("://") { raw.to_string() } else { format!("https://{raw}") };
+    let url = owned.as_str();
+    match reqwest::Url::parse(url) {
+        Ok(u) if matches!(u.scheme(), "http" | "https") && u.host_str().is_some() => {}
+        _ => bail!("“{raw}” isn't a web address (try https://agent.example.com)"),
+    }
     let tries: Vec<String> = if url.ends_with(".json") {
         vec![url.to_string()]
     } else {
@@ -58,8 +68,9 @@ pub async fn card(http: &reqwest::Client, url: &str, token: Option<&str>) -> Res
                 }
                 return Ok(c);
             }
-            Ok(r) => last = anyhow!("{u}: {}", r.status()),
-            Err(e) => last = anyhow!("{u}: {e}"),
+            Ok(r) => last = anyhow!("no agent card at {u} ({})", r.status()),
+            Err(e) if e.is_connect() || e.is_timeout() => last = anyhow!("couldn't reach {url}"),
+            Err(e) => last = anyhow!("couldn't read {u}: {e}"),
         }
     }
     Err(last)

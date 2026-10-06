@@ -27,6 +27,8 @@ pub enum Kind {
     Local,
     /// An OpenAI-compatible endpoint the user added.
     Router,
+    /// A remote agent over A2A the user connected.
+    Agent,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
@@ -673,8 +675,30 @@ pub fn scan(prefs: &Prefs) -> Vec<HarnessInfo> {
             .filter_map(|h| h.join().ok())
             .collect()
     });
+    out.extend(prefs.remote_agents.iter().map(remote_agent));
     apply_toggles(&mut out, &prefs.harnesses);
     out
+}
+
+/// A connected A2A agent as a provider. Not probed on every scan: its
+/// card was read when it was connected, and a reply says if it's gone.
+pub fn remote_agent(a: &crate::prefs::RemoteAgent) -> HarnessInfo {
+    HarnessInfo {
+        id: format!("a2a:{}", a.id),
+        name: a.name.clone(),
+        kind: Kind::Agent,
+        installed: true,
+        path: Some(a.url.clone()),
+        version: None,
+        auth: Auth::Authenticated,
+        detail: Some(if a.description.is_empty() { "A2A agent".into() } else { a.description.clone() }),
+        message: None,
+        enabled: true,
+        user_set: false,
+        models: vec![],
+        chat: true,
+        install: "",
+    }
 }
 
 /// On by default when it is usable; the user's switch wins.

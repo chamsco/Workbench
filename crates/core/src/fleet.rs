@@ -234,6 +234,37 @@ impl Fleet {
         &self.apps
     }
 
+    // ------------------------------------------------------------ bring your agent
+
+    /// Connect a remote agent by the URL of its A2A card (or its base URL).
+    pub fn connect_agent(&self, url: &str, token: &str) -> Result<crate::prefs::RemoteAgent> {
+        let token = token.trim();
+        let card = self
+            .rt
+            .block_on(backspace_runner::a2a::card(&self.http, url, Some(token).filter(|t| !t.is_empty())))?;
+        let slug: String = card
+            .name
+            .to_lowercase()
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+            .collect();
+        let a = crate::prefs::RemoteAgent {
+            id: format!("{}-{}", slug.trim_matches('-'), crate::chat::now_ms() % 100_000),
+            name: if card.name.trim().is_empty() { "Remote agent".into() } else { card.name.trim().into() },
+            description: card.description.trim().chars().take(200).collect(),
+            url: card.url,
+            token: token.into(),
+        };
+        self.update_prefs(|p| p.remote_agents.push(a.clone()));
+        self.rescan();
+        Ok(a)
+    }
+
+    pub fn remove_agent_connection(&self, id: &str) {
+        self.update_prefs(|p| p.remote_agents.retain(|a| a.id != id));
+        self.rescan();
+    }
+
     // ------------------------------------------------------------ dreaming
 
     /// The model a dream runs on: the default chat model, else Claude Code

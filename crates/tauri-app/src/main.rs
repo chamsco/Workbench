@@ -258,6 +258,17 @@ async fn rescan(f: F<'_>) -> Res<Vec<HarnessInfo>> {
     blocking(f, |f| Ok(f.rescan())).await
 }
 
+/// Bring an agent that lives elsewhere: read its A2A card and keep it.
+#[tauri::command]
+async fn connect_agent(f: F<'_>, url: String, token: String) -> Res<backspace_core::prefs::RemoteAgent> {
+    blocking(f, move |f| f.connect_agent(&url, &token)).await
+}
+
+#[tauri::command]
+fn remove_agent_connection(f: F, id: String) {
+    f.remove_agent_connection(&id);
+}
+
 #[tauri::command]
 fn set_harness(f: F, id: String, on: bool) -> Vec<HarnessInfo> {
     f.set_harness(&id, on)
@@ -1061,6 +1072,8 @@ fn main() -> anyhow::Result<()> {
             chat_stop,
             chat_retry,
             chat_resume,
+            connect_agent,
+            remove_agent_connection,
             chat_edit,
             chat_react,
             chat_rename,

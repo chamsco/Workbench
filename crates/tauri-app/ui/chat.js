@@ -24,6 +24,8 @@ var Chat = (() => {
     if (clis.length) groups.push({ name: "Your coding CLIs", sub: "Runs on this machine with your own subscription", items: clis.map(h => ({ route: { kind: "cli", provider: h.id, model: null }, id: h.id, label: h.name, sub: [h.version && "v" + h.version, h.detail].filter(Boolean).join(" · ") || "Installed" })) });
     const ol = L.find(h => h.id === "ollama" && h.enabled);
     if (ol) groups.push({ name: "On this machine", sub: "Private and offline", items: ol.models.length ? ol.models.map(m => ({ route: { kind: "local", provider: "ollama", model: m }, id: "ollama", label: m, sub: "Ollama" })) : [{ disabled: true, id: "ollama", label: "No models pulled", sub: "Run `ollama pull llama3.2`" }] });
+    const ags = L.filter(h => h.kind === "agent" && h.enabled);
+    if (ags.length) groups.push({ name: "Agents from elsewhere", sub: "A2A", items: ags.map(h => ({ route: { kind: "a2a", provider: h.id.replace(/^a2a:/, ""), model: null }, id: h.id, label: h.name, sub: h.detail || "A2A agent" })) });
     L.filter(h => h.kind === "router" && h.enabled).forEach(h => groups.push({ name: h.name, sub: h.path, items: (h.models.length ? h.models.slice(0, 40) : []).map(m => ({ route: { kind: "router", provider: h.id.replace(/^router:/, ""), model: m }, id: h.id, label: m, sub: h.name })) }));
     const acct = Providers.account;
     if (prefs.cloud && prefs.cloud.token && acct) {
@@ -40,22 +42,24 @@ var Chat = (() => {
     if (r.kind === "cloud") return !!(prefs.cloud && prefs.cloud.token);
     if (r.kind === "cli") return (Providers.list || []).some(h => h.id === r.provider && h.enabled);
     if (r.kind === "local") return (Providers.list || []).some(h => h.id === "ollama" && h.enabled);
+    if (r.kind === "a2a") return (Providers.list || []).some(h => h.id === "a2a:" + r.provider && h.enabled);
     return (Providers.list || []).some(h => h.id === "router:" + r.provider && h.enabled);
   }
   function providerName(r) {
     if (!r) return "";
     if (r.kind === "cloud") return "Cloud";
     if (r.kind === "local") return "Ollama";
-    const h = (Providers.list || []).find(h => h.id === r.provider || h.id === "router:" + r.provider);
+    const h = (Providers.list || []).find(h => h.id === r.provider || h.id === "router:" + r.provider || h.id === "a2a:" + r.provider);
     return h ? h.name : r.provider;
   }
   function routeName(r) {
     if (!r) return "Pick a model";
     if (r.kind === "cli") return providerName(r) + (r.model ? " · " + r.model : "");
     if (r.kind === "cloud") { const m = Providers.account && Providers.account.models.find(m => m.id === r.model); return "Cloud · " + (m ? m.label : r.model || "auto"); }
+    if (r.kind === "a2a") return providerName(r);
     return `${providerName(r)} · ${r.model || "default"}`;
   }
-  const avId = r => !r ? "cloud" : r.kind === "cli" ? r.provider : r.kind === "local" ? "ollama" : r.kind === "cloud" ? "cloud" : "router:" + r.provider;
+  const avId = r => !r ? "cloud" : r.kind === "cli" ? r.provider : r.kind === "local" ? "ollama" : r.kind === "cloud" ? "cloud" : r.kind === "a2a" ? "a2a:" + r.provider : "router:" + r.provider;
   function defaultRoute() {
     if (prefs.default_route && usable(prefs.default_route)) return prefs.default_route;
     const f = flat(); return f.length ? f[0].route : null;

@@ -110,3 +110,12 @@ async fn a2a_card_and_task() {
     assert!(ev.contains(&Event::Text { text: "Filed: €18.40 taxi, 6 Oct.".into() }));
     assert!(ev.iter().any(|e| matches!(e, Event::ToolEnd { output, error: false, .. } if output == "completed")));
 }
+
+#[tokio::test]
+async fn bad_agent_addresses_say_so() {
+    let http = reqwest::Client::new();
+    let e = a2a::card(&http, "http", None).await.unwrap_err().to_string();
+    assert!(e.contains("isn't a web address") || e.contains("couldn't reach"), "{e}");
+    let e = a2a::card(&http, "http://127.0.0.1:1", None).await.unwrap_err().to_string();
+    assert!(e.contains("couldn't reach"), "{e}");
+}
