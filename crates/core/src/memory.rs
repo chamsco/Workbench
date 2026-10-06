@@ -138,6 +138,14 @@ pub(crate) fn similar(a: &str, b: &str) -> bool {
     inter / (x.len().min(y.len()) as f32) >= 0.7
 }
 
+/// Things a note must never hold.
+pub(crate) fn looks_secret(s: &str) -> bool {
+    let l = s.to_lowercase();
+    ["sk-", "ghp_", "github_pat_", "xoxb-", "akia", "-----begin", "password:", "password=", "api_key=", "token="]
+        .iter()
+        .any(|p| l.contains(p))
+}
+
 // ------------------------------------------------------------ dates
 
 /// Days since 1970-01-01 to (y, m, d), proleptic Gregorian.

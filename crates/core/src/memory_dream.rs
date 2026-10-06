@@ -400,7 +400,7 @@ pub(crate) fn apply(
         }
         let text = one_line(&a.text);
         let Some(t) = a.thread.filter(|t| threads.contains(t)) else { continue };
-        if text.len() < 4 || crate::board::looks_secret(&text) || rejected.iter().any(|(_, r)| similar(r, &text)) {
+        if text.len() < 4 || crate::memory::looks_secret(&text) || rejected.iter().any(|(_, r)| similar(r, &text)) {
             continue;
         }
         // Where it was said decides its scope, not the model.

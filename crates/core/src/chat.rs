@@ -1200,7 +1200,7 @@ impl Chats {
         }
         .filter(|_| ctx.prefs.memory_on && ctx.memory.is_some());
         if let Some(s) = &mem_scope {
-            cmd.env(crate::board::ENV_MEMORY, s);
+            cmd.env(crate::mcp::ENV_MEMORY, s);
         }
         let model = route.model.clone().filter(|m| !m.is_empty());
         let stdin_text: Option<String>;
@@ -1223,7 +1223,7 @@ impl Chats {
                     cmd.args(["--append-system-prompt", s]);
                 }
                 // Installed apps' tools, through `backspace mcp`.
-                let apps = !crate::board::app_tools().is_empty() || computer.is_some() || mem_scope.is_some();
+                let apps = !crate::mcp::app_tools().is_empty() || computer.is_some() || mem_scope.is_some();
                 if apps {
                     if let Ok(exe) = std::env::current_exe() {
                         let cfg = json!({"mcpServers": {"backspace": {"command": exe.display().to_string(), "args": ["mcp"]}}});
