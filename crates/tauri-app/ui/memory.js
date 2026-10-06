@@ -33,14 +33,14 @@ var Memory = (() => {
       (agents.length ? `<div class="sec-t">Agents</div>` + agents.map(a => row("agent:" + a.id, "team", a.name, `What ${a.name} keeps`)).join("") : "") +
       `<div class="mem-on"><span>Give notes to chats and agents</span><button class="toggle" role="switch" id="memOn" aria-checked="${prefs.memory_on !== false}" aria-label="Give notes to chats and agents"></button></div>
       <div class="mem-on second"><span>Notice things to remember<small>Decided on this machine; learns from "Don't remember that"</small></span><button class="toggle" role="switch" id="memAuto" aria-checked="${prefs.memory_auto !== false}" aria-label="Notice things to remember"></button></div>
-      <div class="mem-on second"><span>Tidy once a day<small>Your chat model merges, updates and adds notes; every tidy can be undone</small></span><button class="toggle" role="switch" id="memDream" aria-checked="${prefs.memory_dream !== false}" aria-label="Tidy once a day"></button></div>`;
+      <div class="mem-on second"><span>Tidy once a day<small>Off by default: sends recent messages from all chats to your chat model, which merges, updates and adds notes. Each tidy can be undone</small></span><button class="toggle" role="switch" id="memDream" aria-checked="${prefs.memory_dream === true}" aria-label="Tidy once a day"></button></div>`;
     $$("[data-mf]", el).forEach(b => (b.onclick = () => { filter = b.dataset.mf; renderSide(el); render(); }));
     $("#memAuto", el).onclick = async () => {
       prefs.memory_auto = prefs.memory_auto === false; await invoke("set_memory_auto", { on: prefs.memory_auto });
       toast(prefs.memory_auto ? "Backspace will notice things worth remembering" : "Only notes you add or Remember are kept", "ok"); renderSide(el);
     };
     $("#memDream", el).onclick = async () => {
-      prefs.memory_dream = prefs.memory_dream === false; await invoke("set_memory_dream", { on: prefs.memory_dream });
+      prefs.memory_dream = prefs.memory_dream !== true; await invoke("set_memory_dream", { on: prefs.memory_dream });
       toast(prefs.memory_dream ? "Memory will tidy itself about once a day" : "Memory tidies only when you ask", "ok"); renderSide(el);
     };
     $("#memOn", el).onclick = async () => {

@@ -34,6 +34,7 @@ pub struct Prefs {
     /// Whether messages you send are scored for notes to keep on their own.
     pub memory_auto: bool,
     /// Whether memory dreams (tidies itself with a model) about once a day.
+    /// Off by default: it sends recent messages from every chat to one model.
     pub memory_dream: bool,
     /// Inside Chat: "chat" (one model) or "agents" (your named agents and groups).
     pub chat_view: String,
@@ -79,7 +80,7 @@ impl Default for Prefs {
             pinned_apps: vec![],
             memory_on: true,
             memory_auto: true,
-            memory_dream: true,
+            memory_dream: false,
             chat_view: "chat".into(),
             motion: "full".into(),
             companion: CompanionCfg::default(),

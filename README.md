@@ -209,7 +209,7 @@ preference, fact or instruction, and a toast says who will remember it.
 remembered: the same thing is never noticed or tidied back in. Closing the
 toast confirms it. Near-duplicates are merged.
 
-**It tidies itself ("dreaming").** About once a day, when you have said
+**It can tidy itself ("dreaming"), off by default.** With "Tidy once a day" on in Memory, about once a day, when you have said
 enough since the last time and no chat is busy, your default chat model
 (or Claude Code) reads what you said since the last tidy next to what
 memory holds, and in one commit merges duplicates, rewrites or removes
@@ -406,9 +406,8 @@ State is written to `<workspace>/.backspace/state.json` as a record of the run.
   not a security boundary against a determined agent.
 - The memory scorer starts from hand-set weights and learns only from
   your "Don't remember that" and confirmations; expect misses early.
-- A tidy sends your recent chat messages to your default chat model (the
-  same one you chat with). Turn it off in Memory if that model is a cloud
-  one you don't want reading across chats.
+- A tidy sends your recent messages from every chat to your default chat
+  model in one prompt, which is why the daily tidy is off by default.
 - Memory's git repo has no remote by default; syncing it between machines
   is up to you (`git remote add` a private repo).
 - Cloud is a development server: no accounts beyond a local token, no
