@@ -55,6 +55,34 @@ pub struct Workspace {
     pub bash_timeout: Duration,
 }
 
+/// The bash agents run. On Windows a bare `bash` resolves to System32's WSL
+/// launcher before PATH, which would run the agent in Linux on a translated
+/// path; prefer Git for Windows' bash.
+fn bash() -> &'static std::path::Path {
+    static BASH: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+    BASH.get_or_init(|| {
+        #[cfg(windows)]
+        {
+            let not_wsl = |p: &std::path::PathBuf| {
+                let l = p.to_string_lossy().to_lowercase();
+                !l.contains(r"\system32\") && !l.contains(r"\windowsapps\")
+            };
+            if let Some(p) = crate::harnesses::search_path()
+                .iter()
+                .map(|d| d.join("bash.exe"))
+                .find(|p| p.is_file() && not_wsl(p))
+            {
+                return p;
+            }
+            let git = std::path::PathBuf::from(r"C:\Program Files\Git\bin\bash.exe");
+            if git.is_file() {
+                return git;
+            }
+        }
+        "bash".into()
+    })
+}
+
 impl Workspace {
     /// Lexically resolve `p` under the root and refuse anything that escapes.
     /// Bash can still leave the workspace; this guards the file tools only.
@@ -143,7 +171,7 @@ impl Workspace {
 
     /// Run a shell command in the workspace: (exit code, capped output).
     pub async fn sh(&self, cmd: &str) -> Result<(i32, String)> {
-        let child = tokio::process::Command::new("bash")
+        let child = tokio::process::Command::new(bash())
             .arg("-lc")
             .arg(cmd)
             .current_dir(&self.root)

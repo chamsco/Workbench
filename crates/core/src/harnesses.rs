@@ -194,16 +194,18 @@ pub fn which(bin: &str) -> Option<PathBuf> {
         .map(|p| std::env::split_paths(&p).collect())
         .unwrap_or_default();
     for dir in extra.iter().chain(search_path().iter()) {
-        let p = dir.join(bin);
-        if p.is_file() {
-            return Some(p);
-        }
+        // On Windows npm puts a POSIX shell shim with no extension next to
+        // `<bin>.cmd`; only .exe/.cmd can be spawned (else os error 193).
         #[cfg(windows)]
         for ext in ["exe", "cmd"] {
             let p = dir.join(format!("{bin}.{ext}"));
             if p.is_file() {
                 return Some(p);
             }
+        }
+        let p = dir.join(bin);
+        if cfg!(unix) && p.is_file() {
+            return Some(p);
         }
     }
     None
@@ -459,6 +461,55 @@ fn title(s: &str) -> String {
         .unwrap_or_default()
 }
 
+/// The CLI's own sign-in command: `codex login` is Sign in with ChatGPT,
+/// `claude auth login` signs Claude Code in. Backspace never sees the
+/// credentials; the CLI keeps them where it always does.
+pub fn login_args(id: &str) -> Option<&'static [&'static str]> {
+    match id {
+        "codex" => Some(&["login"]),
+        "claude" => Some(&["auth", "login"]),
+        "cursor" => Some(&["login"]),
+        "opencode" => Some(&["auth", "login"]),
+        _ => None,
+    }
+}
+
+/// Open the CLI's sign-in in a terminal window. A terminal, not a hidden
+/// child: these flows are interactive (pick a method, paste a code) and the
+/// user should see what runs.
+pub fn open_login(id: &str) -> anyhow::Result<()> {
+    let args = login_args(id).ok_or_else(|| anyhow::anyhow!("{id} has no sign-in command"))?;
+    let bin = which(bin_for(id)).ok_or_else(|| anyhow::anyhow!("{id} is not installed"))?;
+    let line = format!("'{}' {}", bin.display(), args.join(" "));
+    let mut cmd = if cfg!(windows) {
+        // `start` opens a new console; /K keeps it so errors stay readable.
+        // The bare name resolves through PATH below (cmd can't take Rust's quoting).
+        let mut c = Command::new("cmd");
+        c.args(["/C", "start", "Sign in", "cmd", "/K", bin_for(id)]).args(args);
+        c
+    } else if cfg!(target_os = "macos") {
+        let script = format!(
+            "tell application \"Terminal\" to do script \"{}\"\ntell application \"Terminal\" to activate",
+            line.replace('\\', "\\\\").replace('"', "\\\"")
+        );
+        let mut c = Command::new("osascript");
+        c.args(["-e", &script]);
+        c
+    } else {
+        // ponytail: first terminal found wins; add a pref if someone needs another.
+        let term = ["x-terminal-emulator", "gnome-terminal", "konsole", "xterm"]
+            .into_iter()
+            .find(|t| which(t).is_some())
+            .ok_or_else(|| anyhow::anyhow!("no terminal found; run {line} yourself"))?;
+        let mut c = Command::new(term);
+        if term == "gnome-terminal" { c.arg("--") } else { c.arg("-e") };
+        c.args(["sh", "-c", &format!("{line}; exec $SHELL")]);
+        c
+    };
+    cmd.env("PATH", path_env()).spawn()?;
+    Ok(())
+}
+
 // ---------------------------------------------------------------- probes
 
 fn probe_cli(spec: &Spec) -> HarnessInfo {
@@ -502,17 +553,10 @@ fn probe_cli(spec: &Spec) -> HarnessInfo {
     h.auth = auth;
     h.detail = detail;
     if auth == Auth::Unauthenticated {
-        h.message = Some(format!(
-            "Not signed in. Run `{} {}` in a terminal.",
-            spec.bins[0],
-            match spec.id {
-                "codex" => "login",
-                "claude" => "auth login",
-                "cursor" => "login",
-                "opencode" => "auth login",
-                _ => "login",
-            }
-        ));
+        h.message = Some(match login_args(spec.id) {
+            Some(a) => format!("Not signed in. Sign in here, or run `{} {}` in a terminal.", spec.bins[0], a.join(" ")),
+            None => "Not signed in: add an xAI API key (XAI_API_KEY) or set one in the CLI.".into(),
+        });
     }
     if !spec.chat {
         h.message.get_or_insert_with(|| {

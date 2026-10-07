@@ -365,6 +365,7 @@ fn git_branches(ws: &Path) -> String {
 /// writes the file and answers in Claude Code's stream-json. The work then
 /// goes through the usual check, review and merge.
 #[test]
+#[cfg(unix)] // the fake `claude` is a shell script
 fn a_ticket_runs_on_a_cli_worker() {
     let bin = std::env::temp_dir().join(format!("bs-fakecli-{}", std::process::id()));
     std::fs::create_dir_all(&bin).unwrap();

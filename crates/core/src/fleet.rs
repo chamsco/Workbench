@@ -417,7 +417,7 @@ impl Fleet {
             bail!("{} is not a folder", p.display());
         }
         let prefs = self.prefs();
-        let canon = p.canonicalize().unwrap_or_else(|_| p.clone());
+        let canon = dunce::canonicalize(&p).unwrap_or_else(|_| p.clone());
         let memory = prefs
             .memory_on
             .then(|| self.memory.context(Some(&canon.display().to_string())))

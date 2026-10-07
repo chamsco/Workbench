@@ -129,7 +129,7 @@ impl Harness {
     /// Open with settings from the desktop app layered over the config file.
     pub fn open_with(workspace: PathBuf, over: Overrides) -> Result<Harness> {
         std::fs::create_dir_all(&workspace)?;
-        let root = workspace.canonicalize()?;
+        let root = dunce::canonicalize(&workspace)?;
         let (mut cfg, config_source) = Config::load(&root)?;
         if let Some(w) = over.worker.clone().filter(|w| !w.is_empty()) {
             if cfg.model(&w).is_some() {

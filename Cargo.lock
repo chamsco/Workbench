@@ -599,6 +599,7 @@ dependencies = [
  "anyhow",
  "async-channel",
  "backspace-runner",
+ "dunce",
  "futures",
  "reqwest 0.12.28",
  "serde",

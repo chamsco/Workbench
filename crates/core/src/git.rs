@@ -196,7 +196,7 @@ mod tests {
             Merge::Merged
         ));
         assert_eq!(
-            std::fs::read_to_string(root.join("shared.txt")).unwrap(),
+            std::fs::read_to_string(root.join("shared.txt")).unwrap().replace("\r\n", "\n"),
             "from a\n"
         );
         match merge(&root, &branch_name("b"), "merge b").await.unwrap() {
@@ -205,7 +205,7 @@ mod tests {
         }
         // Aborted cleanly: root still has a's version and no conflict markers.
         assert_eq!(
-            std::fs::read_to_string(root.join("shared.txt")).unwrap(),
+            std::fs::read_to_string(root.join("shared.txt")).unwrap().replace("\r\n", "\n"),
             "from a\n"
         );
         std::fs::remove_dir_all(&root).unwrap();
