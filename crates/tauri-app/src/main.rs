@@ -253,6 +253,12 @@ fn harnesses(f: F) -> Vec<HarnessInfo> {
     f.harnesses()
 }
 
+/// Open a CLI's own sign-in (Sign in with ChatGPT for Codex) in a terminal.
+#[tauri::command]
+fn cli_login(id: String) -> Res<()> {
+    backspace_core::harnesses::open_login(&id).map_err(err)
+}
+
 #[tauri::command]
 async fn rescan(f: F<'_>) -> Res<Vec<HarnessInfo>> {
     blocking(f, |f| Ok(f.rescan())).await
@@ -421,8 +427,11 @@ fn set_pinned_apps(f: F, ids: Vec<String>) {
 }
 
 #[tauri::command]
-fn set_view_prefs(f: F, chat_view: Option<String>, motion: Option<String>) {
+fn set_view_prefs(f: F, chat_view: Option<String>, motion: Option<String>, wb_view: Option<String>) {
     f.update_prefs(|p| {
+        if let Some(v) = wb_view {
+            p.wb_view = v;
+        }
         if let Some(v) = chat_view {
             p.chat_view = v;
         }
@@ -1018,6 +1027,7 @@ fn main() -> anyhow::Result<()> {
             has_project,
             harnesses,
             rescan,
+            cli_login,
             set_harness,
             add_router,
             remove_router,

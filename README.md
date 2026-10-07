@@ -97,7 +97,11 @@ either can be added or removed later under Apps → Built in), then the scan of 
 (Codex, Claude, Cursor, Grok, OpenCode, Antigravity: version, signed in or
 not, plan where it can tell) with a switch per CLI, then your first agent,
 then Ollama and any OpenAI-compatible routers, then an optional Cloud plan.
-`backspace-cli scan` prints the same scan.
+`backspace-cli scan` prints the same scan. A CLI that is installed but signed
+out gets a sign-in button (Sign in with ChatGPT for Codex, Claude Code,
+Cursor, OpenCode) that opens the CLI's own login in a terminal; Backspace
+never sees the credentials. See [`docs/AUDIT.md`](docs/AUDIT.md) for what
+each provider allows.
 
 **Chat** (Tauri shell) is a port of [Whirl](https://github.com/whirlchat/whirl)'s
 React chat face (MIT; `crates/tauri-app/web`, built into
@@ -153,6 +157,9 @@ threads above) and **Agents**:
   `--force`). Its threads belong to the project.
 - **Workbench**: a planner splits the goal into tickets and workers build
   them (below).
+  Its title bar switches between **Canvases** (tabs of split canvases),
+  **Wall** (every agent's live session tiled, however many there are) and
+  **Inbox** (what needs you, then what is running, then what is done).
 
 **Workbench** opens a folder as a project. Workers run on the router's pick or,
 when Settings → Coding names one, on a coding CLI (Claude Code, Codex,

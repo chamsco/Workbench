@@ -40,6 +40,9 @@ pub struct Prefs {
     pub chat_view: String,
     /// The footer's "Motion": "full" or "reduced".
     pub motion: String,
+    /// The Workbench body: "canvases" (tabs of split canvases), "wall"
+    /// (every agent's session tiled) or "inbox" (what needs you, then what runs).
+    pub wb_view: String,
     /// The phone companion's link (docs/companion.md).
     pub companion: CompanionCfg,
     /// What the user picked in setup: "chat", "code" or both. The switch
@@ -87,6 +90,7 @@ impl Default for Prefs {
             memory_dream: false,
             chat_view: "chat".into(),
             motion: "full".into(),
+            wb_view: "canvases".into(),
             companion: CompanionCfg::default(),
             uses: vec!["chat".into(), "code".into()],
             harnesses: BTreeMap::new(),

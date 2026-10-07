@@ -23,6 +23,9 @@ var Providers = (() => {
     return `<span class="pst ${h.auth === "authenticated" ? "ok" : h.auth === "unauthenticated" ? "warn" : ""}">${a}${h.detail ? " · " + esc(h.detail) : ""}</span>`;
   }
 
+  // The CLI's own sign-in, opened in a terminal; Backspace never holds the credentials.
+  const LOGIN = { codex: "Sign in with ChatGPT", claude: "Sign in to Claude Code", cursor: "Sign in to Cursor", opencode: "Sign in" };
+
   function row(h) {
     const ver = h.version ? `<span class="pver">v${esc(h.version)}</span>` : "";
     // Not installed: the status line already says so; offer the install hint only.
@@ -31,7 +34,8 @@ var Providers = (() => {
         ? `<div class="pmsg"><button class="lnk" data-url="${esc(h.install)}">Download ${esc(h.name)}</button></div>`
         : `<div class="pmsg">Install: <code>${esc(h.install)}</code> <button class="copy" data-copy="${esc(h.install)}" title="Copy" aria-label="Copy install command">${icon("copy")}</button></div>`)
       : "";
-    const msg = h.installed && h.message && (!h.enabled || h.auth !== "authenticated") ? `<div class="pmsg">${esc(h.message)}</div>` : hint;
+    const login = h.installed && h.auth === "unauthenticated" && LOGIN[h.id] ? ` <button class="lnk" data-login="${esc(h.id)}">${LOGIN[h.id]}</button>` : "";
+    const msg = h.installed && h.message && (!h.enabled || h.auth !== "authenticated") ? `<div class="pmsg">${esc(h.message)}${login}</div>` : hint;
     const models = h.kind !== "cli" && h.enabled && h.models.length ? `<div class="pmodels">${h.models.slice(0, 8).map(m => `<span>${esc(m)}</span>`).join("")}${h.models.length > 8 ? `<span>+${h.models.length - 8}</span>` : ""}</div>` : "";
     const rm = h.kind === "router" ? `<button class="ib" data-rmr="${esc(h.id)}" title="Remove router" aria-label="Remove ${esc(h.name)}">${icon("trash")}</button>`
       : h.kind === "agent" ? `<button class="ib" data-rma="${esc(h.id)}" title="Disconnect" aria-label="Disconnect ${esc(h.name)}">${icon("trash")}</button>` : "";
@@ -76,6 +80,11 @@ var Providers = (() => {
     $$("[data-rescan]", el).forEach(b => (b.onclick = rescan));
     $$("[data-copy]", el).forEach(b => (b.onclick = () => { navigator.clipboard.writeText(b.dataset.copy); toast("Copied: " + b.dataset.copy, "ok"); }));
     $$("[data-url]", el).forEach(b => (b.onclick = () => invoke("open_url", { url: b.dataset.url })));
+    $$("[data-login]", el).forEach(b => (b.onclick = async () => {
+      try { await invoke("cli_login", { id: b.dataset.login }); } catch (e) { toast(String(e), "err"); return; }
+      toast("Finish signing in in the terminal window; Backspace checks again when you come back.", "ok");
+      addEventListener("focus", () => rescan(), { once: true });
+    }));
     $$("[data-rmr]", el).forEach(b => (b.onclick = async () => { await invoke("remove_router", { id: b.dataset.rmr }); await load(); }));
     $$("[data-rma]", el).forEach(b => (b.onclick = async () => { await invoke("remove_agent_connection", { id: b.dataset.rma.replace(/^a2a:/, "") }); prefs = await invoke("prefs"); await load(); }));
     const aa = $("#aAdd", el);

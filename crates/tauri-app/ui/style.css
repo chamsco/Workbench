@@ -365,10 +365,10 @@ body { margin: 0; background: var(--desk-base); color: var(--fg); font: 13px/1.4
 /* ---------- native shell additions (Tauri) */
 .native .desk { padding: 0; }
 .native .win { border-radius: 0; border: 0; box-shadow: none; }
-.native.mac body { background: transparent; }
-.native.mac .blob { display: none; }
+.native.os-mac body { background: transparent; }
+.native.os-mac .blob { display: none; }
 .native .lights { display: none; }
-.native.mac .lights { display: none; }
+.native.os-mac .lights { display: none; }
 .frame iframe { width: 100%; height: 100%; border: 0; display: block; background: var(--page-bg); }
 .frame.live { height: 100%; }
 .addr input { flex: 1; min-width: 0; background: transparent; border: 0; outline: 0; font-size: 12px; color: var(--fg); }
@@ -667,3 +667,30 @@ body.dragging-any, body.dragging-any * { cursor: grabbing !important; user-selec
 .memtoast .mt-b span { color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .memtoast .mt-no { flex: none; height: 26px; padding: 0 10px; border-radius: 7px; border: 0.5px solid var(--pane-edge); background: var(--pill-on); font-size: 12px; font-weight: 500; white-space: nowrap; }
 .memtoast .mt-no:hover { color: var(--red); }
+
+/* Workbench views: Canvases, Wall, Inbox (app.js "workbench views"). */
+.wbv { display: flex; gap: 2px; flex: none; padding: 2px; border-radius: 8px; background: var(--pill); border: 0.5px solid var(--pill-edge); }
+.wbv button { display: flex; align-items: center; gap: 4px; height: 20px; padding: 0 7px; border-radius: 6px; font-size: 11.5px; color: var(--fg-3); }
+.wbv button[aria-selected="true"] { background: var(--pill-on); color: var(--fg); }
+.wbv button:hover { color: var(--fg); }
+.wbv .ic { width: 13px; height: 13px; }
+.wbv .cnt { min-width: 15px; height: 15px; padding: 0 4px; border-radius: 8px; background: var(--amber); color: #000; font-size: 10px; line-height: 15px; text-align: center; }
+#win.wb-alt #tabs, #win.wb-alt #addCanvas { display: none !important; }
+.grid.wall { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); grid-auto-rows: 250px; gap: 6px; overflow-y: auto; align-content: start; }
+.grid.wall .tile { position: relative; }
+.grid.wall .tile.needs { border-color: var(--amber); }
+.grid.wall .tile .rt { color: var(--fg-3); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 40%; }
+.grid.wall .tile .tb { font-size: 11px; }
+.tile-need { flex: none; display: flex; align-items: center; gap: 6px; padding: 6px 10px; font-size: 11.5px; color: var(--amber); border-top: 0.5px solid var(--pane-edge); text-align: left; }
+.tile-need .ic { width: 13px; height: 13px; }
+.grid.inbox { display: block; overflow-y: auto; }
+.ibx { max-width: 760px; margin: 0 auto; padding: 14px 16px 40px; }
+.ibx-say { display: flex; align-items: center; gap: 8px; height: 38px; padding: 0 12px; margin-bottom: 10px; border-radius: 10px; background: var(--pane); border: 0.5px solid var(--pane-edge); color: var(--bs-accent); }
+.ibx-say input { flex: 1; border: 0; outline: 0; background: transparent; font: inherit; color: var(--fg); }
+.ibx-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 9px; background: var(--pane); border: 0.5px solid var(--pane-edge); margin-bottom: 6px; }
+.ibx-row.needs { border-color: var(--amber); }
+.ibx-main { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; text-align: left; gap: 1px; }
+.ibx-main .tt { font-weight: 500; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ibx-main .ibx-sub { color: var(--fg-3); font-size: 11.5px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ibx-row .meta { color: var(--fg-3); font-size: 11px; white-space: nowrap; }
+@media (max-width: 760px) { .wbv span:not(.cnt) { display: none; } .ibx-row .meta { display: none; } .grid.wall { grid-template-columns: minmax(0, 1fr); } }

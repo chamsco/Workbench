@@ -89,7 +89,7 @@ let snap = { name: "", agents: [], approvals: [], tickets: [], total_cost_usd: 0
 let prefs = { theme: "system", tabs: [], active_tab: 0, check_updates: true };
 let machines = [], share = null, upd = null, hasProject = true;
 const S = {
-  mode: "chat", codeView: "agents", chatView: "chat",
+  mode: "chat", codeView: "agents", chatView: "chat", wb: "canvases",
   focus: 0, max: null, side: "projects", review: null,
   drawer: false, pinned: false, ticket: null, settings: false,
   pane: new Map(),         // per-canvas transient state, by tab:index
@@ -826,6 +826,105 @@ function chooser(slot, body) {
   $$("[data-a]", body).forEach(b => (b.onclick = () => setPane(slot, { kind: "agent", agent: +b.dataset.a, url: null })));
 }
 
+// ------------------------------------------------------------------ workbench views
+// The same project three ways: Canvases (tabs of split canvases), Wall (every
+// agent's session tiled, as many as there are) and Inbox (what needs you,
+// then what is running, then what is done). Picked per user, kept in prefs.
+const WB = [["canvases", "window", "Canvases"], ["wall", "monitor", "Wall"], ["inbox", "bubble", "Inbox"]];
+const lastLine = a => { const e = [...a.log].reverse().find(e => e.kind !== "user") || a.log[a.log.length - 1]; return e ? e.text.split("\n")[0] : "No activity yet"; };
+// Why an agent needs the human, or null.
+function needsYou(a) {
+  const ap = pending().find(x => x.agent === a.id);
+  if (ap) return { why: ap.kind === "plan" ? `Plan · ${ap.tickets.length} tickets to approve` : a.id === MAIN ? "Final deliverable to review" : "Work to review", ap };
+  if (a.status === "failed") return { why: "Failed" };
+  const t = a.ticket && snap.tickets.find(x => x.key === a.ticket);
+  if (t && (t.state === "needs_info" || t.state === "ready_for_human")) return { why: tLabel(t.state) };
+  const last = a.log[a.log.length - 1];
+  if (a.id === MAIN && a.status === "idle" && last && last.kind === "assistant") return { why: "Asked you something", reply: true };
+  return null;
+}
+function renderWbv() {
+  const n = snap.agents.filter(needsYou).length;
+  $("#wbv").innerHTML = WB.map(([k, ic, l]) => `<button role="tab" aria-selected="${S.wb === k}" data-wb="${k}" title="${l}">${icon(ic)}<span>${l}</span>${k === "inbox" && n ? `<span class="cnt">${n}</span>` : ""}</button>`).join("");
+  $$("#wbv [data-wb]").forEach(b => (b.onclick = () => setWb(b.dataset.wb)));
+  $("#win").classList.toggle("wb-alt", S.wb !== "canvases");
+}
+function setWb(v) {
+  S.wb = WB.some(([k]) => k === v) ? v : "canvases";
+  prefs.wb_view = S.wb; invoke("set_view_prefs", { chatView: null, motion: null, wbView: S.wb });
+  renderGrid();
+}
+// Open an agent in the canvases, from the wall or the inbox.
+function openIn(spec) { if (S.wb !== "canvases") setWb("canvases"); openView(spec); }
+function wallTile(a) {
+  const nd = needsYou(a);
+  return `<section class="pane tile${nd ? " needs" : ""}" data-tile="${a.id}"><header class="ph"><span class="agent">${icon("sparkle")}</span><span class="t">${esc(a.id === MAIN ? "Main agent" : a.title)}</span><span class="dot ${dotFor(a.status)}"></span><span class="sp"></span><span class="rt">${esc(a.decision ? a.decision.model : "")}</span>
+    <button class="ib" data-act="open" aria-label="Open in a canvas" title="Open in a canvas">${icon("expand")}</button></header>
+    <div class="tb">${a.log.length ? a.log.slice(-80).map(logHTML).join("") : `<div class="ln note">${a.status === "queued" ? "Queued: starts when its blockers are merged" : "No activity yet"}</div>`}${a.status === "running" ? `<div class="ln spin"><span class="spin-g">${SPIN[spinI]}</span> Working…</div>` : ""}</div>
+    ${nd ? `<button class="tile-need" data-act="need">${icon("warn")}${esc(nd.why)}</button>` : ""}</section>`;
+}
+// Tiles update in place (by agent) so each keeps its scroll position.
+function renderWall(g) {
+  const list = treeOrder().map(agent).filter(a => a.kind !== "triage");
+  if (g.className !== "grid wall") { g.className = "grid wall"; g.innerHTML = ""; }
+  if (!list.length) { g.innerHTML = `<div class="nothing">No agents yet. Give the main agent a goal from the Inbox or a canvas.</div>`; return; }
+  const empty = g.querySelector(".nothing"); if (empty) empty.remove();
+  const keep = new Set();
+  list.forEach(a => {
+    keep.add(String(a.id));
+    let el = g.querySelector(`[data-tile="${a.id}"]`);
+    const html = wallTile(a);
+    if (el && el.__h === html) return;
+    const tb = el && el.querySelector(".tb");
+    const atBottom = !tb || tb.scrollHeight - tb.scrollTop - tb.clientHeight < 40, top = tb ? tb.scrollTop : 0;
+    if (el) el.outerHTML = html; else g.insertAdjacentHTML("beforeend", html);
+    el = g.querySelector(`[data-tile="${a.id}"]`); el.__h = html;
+    const nb = el.querySelector(".tb"); nb.scrollTop = atBottom ? nb.scrollHeight : top;
+    el.querySelector("[data-act=open]").onclick = () => openIn({ kind: "agent", agent: a.id });
+    const need = el.querySelector("[data-act=need]"); if (need) need.onclick = () => actOn(a);
+  });
+  $$("[data-tile]", g).forEach(el => { if (!keep.has(el.dataset.tile)) el.remove(); });
+}
+function actOn(a) {
+  const nd = needsYou(a);
+  if (nd && nd.ap) { S.review = nd.ap.id; if (S.wb !== "canvases") setWb("canvases"); showDiagram(); }
+  else if (a.ticket && nd && a.status !== "failed") { S.ticket = a.ticket; setDrawer(true); }
+  else openIn({ kind: "agent", agent: a.id });
+}
+function inboxRow(a, nd) {
+  return `<div class="ibx-row${nd ? " needs" : ""}" data-a="${a.id}"><span class="dot ${dotFor(a.status)}"></span>
+    <button class="ibx-main" data-act="open"><span class="tt">${esc(a.id === MAIN ? `Main agent · ${snap.name}` : a.title)}</span><span class="ibx-sub">${esc(nd ? nd.why : lastLine(a))}</span></button>
+    <span class="meta">${esc(a.decision ? a.decision.model : "")} · $${a.cost_usd.toFixed(3)}</span>
+    ${nd ? `<button class="btn sm${nd.ap ? " primary" : ""}" data-act="act">${nd.ap ? "Review" : "Open"}</button>` : ""}</div>`;
+}
+function renderInbox(g) {
+  const all = treeOrder().map(agent).filter(a => a.kind !== "triage");
+  const needs = all.map(a => [a, needsYou(a)]).filter(([, n]) => n);
+  const running = all.filter(a => !needsYou(a) && (a.status === "running" || a.status === "queued"));
+  const rest = all.filter(a => !needsYou(a) && !running.includes(a));
+  const sec = (title, rows) => rows.length ? `<div class="grp-label">${title} · ${rows.length}</div>${rows.join("")}` : "";
+  const m = agent(MAIN), ask = m && needsYou(m) && needsYou(m).reply;
+  const old = $("#ibxIn"), focused = old && document.activeElement === old, draft = old ? old.value : "";
+  g.className = "grid inbox";
+  g.innerHTML = `<div class="ibx">
+    <label class="ibx-say">${icon("sparkle")}<input id="ibxIn" placeholder="${ask ? "Answer the main agent" : m && m.log.some(e => e.kind === "user") ? "Tell the main agent something" : "Describe a goal; the main agent plans it into tickets"}" autocomplete="off" spellcheck="false" aria-label="Message the main agent"></label>
+    ${sec("Needs you", needs.map(([a, n]) => inboxRow(a, n)))}
+    ${needs.length ? "" : `<div class="nothing">Nothing needs you right now.</div>`}
+    ${sec("Working", running.map(a => inboxRow(a, null)))}
+    ${sec("Done or idle", rest.map(a => inboxRow(a, null)))}</div>`;
+  const inp = $("#ibxIn"); inp.value = draft; if (focused) inp.focus();
+  inp.onkeydown = e => { if (e.key === "Enter" && inp.value.trim()) { invoke("send", { text: inp.value.trim() }); inp.value = ""; } };
+  $$(".ibx-row", g).forEach(r => {
+    const a = agent(+r.dataset.a);
+    r.querySelector("[data-act=open]").onclick = () => openIn({ kind: "agent", agent: a.id });
+    const b = r.querySelector("[data-act=act]"); if (b) b.onclick = () => actOn(a);
+  });
+}
+function renderAlt() {
+  const g = $("#grid"); S.els = new Map(); S.ph = null;
+  if (S.wb === "wall") renderWall(g); else renderInbox(g);
+}
+
 // Canvases sit absolutely at the rectangles of the tab's layout tree, so a
 // new arrangement (a drag preview, a resize) is a style change the browser
 // animates rather than a rebuild.
@@ -837,6 +936,8 @@ function renderGrid() {
     $$("#grid [data-proj]").forEach(b => (b.onclick = () => openProject(b.dataset.proj)));
     return;
   }
+  renderWbv();
+  if (S.wb !== "canvases") { renderAlt(); return; }
   if (S.focus >= t.panes.length) S.focus = 0;
   g.className = "grid tree still";
   g.innerHTML = "";
@@ -879,6 +980,8 @@ new ResizeObserver(() => {
 // Live updates touch only transcripts, status lines and review canvases, so
 // typing and scroll positions survive.
 function refreshPanes() {
+  renderWbv();
+  if (S.wb !== "canvases") { renderAlt(); return; }
   $$(".tb[data-agent]").forEach(tb => {
     const a = agent(+tb.dataset.agent);
     if (!a) return;
@@ -1363,7 +1466,8 @@ addEventListener("resize", () => { setSide(!narrow()); });
 addEventListener("DOMContentLoaded", async () => {
   const boot = await invoke("boot");
   window.__BOOT = boot;
-  document.documentElement.classList.add("native", boot.platform);
+  // "os-<platform>" comes from shell.js; a bare "win" class would match ".win" (the window) and hide Code's title bar on Windows.
+  document.documentElement.classList.add("native", "os-" + boot.platform);
   prefs = await invoke("prefs");
   if ([1, 2, 3, 4].includes(boot.layout)) {
     // bench/: a fixed starting tab with that many canvases.
@@ -1374,6 +1478,7 @@ addEventListener("DOMContentLoaded", async () => {
   S.mode = prefs.mode || "chat";
   S.codeView = prefs.code_view === "pair" ? "pair" : "agents";
   S.chatView = prefs.chat_view === "agents" ? "agents" : "chat";
+  S.wb = WB.some(([k]) => k === prefs.wb_view) ? prefs.wb_view : "canvases";
   // A folder given on the command line, or a bench run: start in Code.
   const first = await invoke("snapshot");
   if (first.workspace && (boot.bench || !prefs.onboarded)) { S.mode = "code"; S.codeView = "agents"; }
