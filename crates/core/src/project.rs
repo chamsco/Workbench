@@ -100,6 +100,9 @@ pub struct AgentRecord {
     pub worktree: Option<PathBuf>,
     /// One line per step up the ladder, with the reason.
     pub escalations: Vec<String>,
+    /// Trace ids of this agent's runs, oldest first (`<data>/traces`).
+    #[serde(default)]
+    pub traces: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
@@ -142,6 +145,10 @@ pub struct ProjectState {
     /// Messages agents sent each other (see `board`).
     #[serde(default)]
     pub board: Vec<crate::board::BoardMsg>,
+    /// A CLI planner's session, resumed on the next message (and after a
+    /// restart).
+    #[serde(default)]
+    pub planner_session: Option<String>,
 }
 
 impl ProjectState {
@@ -157,6 +164,7 @@ impl ProjectState {
             router_cost_usd: 0.0,
             config_source: None,
             board: vec![],
+            planner_session: None,
         }
     }
 

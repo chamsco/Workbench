@@ -95,7 +95,7 @@ body { margin: 0; background: var(--desk-base); color: var(--fg); font: 13px/1.4
 @keyframes drift { to { transform: translate(4vw, 3vw) scale(1.08); } }
 
 .win {
-  --side-w: 248px; --rail-w: 56px;
+  --side-w: 212px; --rail-w: 52px;
   position: relative; min-width: 0; min-height: 0;
   display: grid; grid-template-columns: var(--rail-w) var(--side-w) 1fr; grid-template-rows: minmax(0, 1fr) auto;
   border-radius: 12px; overflow: hidden;

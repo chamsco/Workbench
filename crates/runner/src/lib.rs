@@ -84,6 +84,12 @@ pub struct Request {
     pub mcp_allow: Vec<String>,
     /// More folders a CLI may read and edit.
     pub add_dirs: Vec<PathBuf>,
+    /// With `edit`, what a CLI may do without asking: "edits" (the
+    /// default: edit files, run the allowed tools), "auto" (the CLI's own
+    /// reviewer decides) or "full" (anything; no sandbox).
+    pub permission: Option<String>,
+    /// Reasoning effort for CLIs that take one: low, medium, high, xhigh, max.
+    pub effort: Option<String>,
 }
 
 impl Request {
@@ -100,6 +106,8 @@ impl Request {
             mcp: None,
             mcp_allow: vec![],
             add_dirs: vec![],
+            permission: None,
+            effort: None,
         }
     }
 }
@@ -276,6 +284,36 @@ fn tool_text(v: &Value) -> String {
 
 // ------------------------------------------------------------ CLIs
 
+/// Kills a process and its children when dropped (Windows; elsewhere
+/// `kill_on_drop` reaches the CLI itself, which is enough).
+struct KillTree(Option<u32>);
+
+impl Drop for KillTree {
+    fn drop(&mut self) {
+        #[cfg(windows)]
+        if let Some(pid) = self.0 {
+            let _ = std::process::Command::new("taskkill")
+                .args(["/T", "/F", "/PID", &pid.to_string()])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status();
+        }
+    }
+}
+
+/// A JSON value as a TOML inline value (for Codex's `-c key=value`). JSON
+/// strings are valid TOML basic strings.
+fn toml_inline(v: &Value) -> String {
+    match v {
+        Value::Object(m) => format!(
+            "{{{}}}",
+            m.iter().map(|(k, v)| format!("{}={}", serde_json::to_string(k).unwrap_or_default(), toml_inline(v))).collect::<Vec<_>>().join(",")
+        ),
+        Value::Array(a) => format!("[{}]", a.iter().map(toml_inline).collect::<Vec<_>>().join(",")),
+        other => other.to_string(),
+    }
+}
+
 async fn run_cli(req: &Request, provider: &str, bin: &PathBuf, on: Sink<'_>) -> Result<()> {
     let mut cmd = tokio::process::Command::new(bin);
     cmd.current_dir(&req.cwd)
@@ -313,24 +351,51 @@ async fn run_cli(req: &Request, provider: &str, bin: &PathBuf, on: Sink<'_>) -> 
             for d in &req.add_dirs {
                 cmd.args(["--add-dir", &d.display().to_string()]);
             }
+            if let Some(e) = &req.effort {
+                cmd.args(["--effort", e]);
+            }
             let allow: String = req.mcp_allow.iter().map(|p| format!(",{p}")).collect();
             if req.edit {
-                cmd.args(["--permission-mode", "acceptEdits", "--allowedTools", &format!("Bash,Edit,Write,Read,Glob,Grep,WebFetch{allow}")]);
+                let mode = match req.permission.as_deref() {
+                    Some("auto") => "auto",
+                    Some("full") => "bypassPermissions",
+                    _ => "acceptEdits",
+                };
+                cmd.args(["--permission-mode", mode, "--allowedTools", &format!("Bash,Edit,Write,Read,Glob,Grep,WebFetch{allow}")]);
             } else if !allow.is_empty() {
                 cmd.args(["--allowedTools", allow.trim_start_matches(',')]);
             }
             stdin_text = Some(prompt(req));
         }
         "codex" => {
+            // `--full-auto` is gone from recent Codex; the sandbox says it.
             cmd.args(["exec", "--json", "--skip-git-repo-check"]);
-            if req.edit {
-                cmd.arg("--full-auto");
-            }
+            match (req.edit, req.permission.as_deref()) {
+                (true, Some("auto")) => cmd.arg("--approve-for-me"),
+                (true, Some("full")) => cmd.arg("--dangerously-bypass-approvals-and-sandbox"),
+                (true, _) => cmd.args(["-s", "workspace-write"]),
+                (false, _) => cmd.args(["-s", "read-only"]),
+            };
             if let Some(m) = &model {
                 cmd.args(["-m", m]);
             }
-            cmd.arg("-");
-            stdin_text = Some(with_system(req, transcript(&req.history)));
+            if let Some(e) = &req.effort {
+                // Codex tops out at xhigh.
+                let e = if e == "max" || e == "ultra" { "xhigh" } else { e.as_str() };
+                cmd.args(["-c", &format!("model_reasoning_effort=\"{e}\"")]);
+            }
+            if let Some(cfg) = &req.mcp {
+                for (name, srv) in cfg["mcpServers"].as_object().into_iter().flatten() {
+                    cmd.args(["-c", &format!("mcp_servers.{name}={}", toml_inline(srv))]);
+                }
+            }
+            if let Some(s) = &req.session {
+                cmd.args(["resume", s, "-"]);
+                stdin_text = Some(prompt(req));
+            } else {
+                cmd.arg("-");
+                stdin_text = Some(with_system(req, transcript(&req.history)));
+            }
         }
         "cursor" => {
             cmd.args(["-p", "--output-format", "text"]);
@@ -361,6 +426,9 @@ async fn run_cli(req: &Request, provider: &str, bin: &PathBuf, on: Sink<'_>) -> 
         other => bail!("{other} has no one-shot mode to chat with; use it from a project"),
     }
     let mut child = cmd.spawn().with_context(|| format!("starting {}", bin.display()))?;
+    // Dropping the turn kills the CLI; on Windows its `.cmd` shim's node
+    // child would survive that, so the whole tree goes.
+    let mut tree = KillTree(child.id());
     if let (Some(mut w), Some(text)) = (child.stdin.take(), stdin_text) {
         w.write_all(text.as_bytes()).await?;
         w.shutdown().await?;
@@ -405,6 +473,7 @@ async fn run_cli(req: &Request, provider: &str, bin: &PathBuf, on: Sink<'_>) -> 
         }
     }
     let status = child.wait().await?;
+    tree.0 = None;
     let stderr = err_task.await.unwrap_or_default();
     if let Some(f) = fail {
         bail!(f);

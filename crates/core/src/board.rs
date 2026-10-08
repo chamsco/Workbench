@@ -189,6 +189,15 @@ pub(crate) fn do_read(b: &Bridge) -> Result<String> {
         .unwrap_or("")
         .to_string())
 }
+/// The planner's tools, for a main agent in a CLI: `path` is
+/// `/v1/plan/create` or `/v1/plan/dispatch`.
+pub(crate) fn do_plan(b: &Bridge, path: &str, mut body: Value) -> Result<String> {
+    body["me"] = json!(b.me);
+    Ok(call(b, path, body)?["text"].as_str().unwrap_or("").to_string())
+}
+pub(crate) fn is_planner(b: &Bridge) -> bool {
+    b.me == "main"
+}
 pub(crate) fn do_agents(b: &Bridge) -> Result<String> {
     Ok(call(b, "/v1/board/agents", json!({}))?["text"]
         .as_str()

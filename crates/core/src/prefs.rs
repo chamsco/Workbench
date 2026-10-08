@@ -63,6 +63,17 @@ pub struct Prefs {
     /// Model id every coding worker runs on ("claude-code", "codex"...).
     /// None: the router decides per ticket.
     pub worker: Option<String>,
+    /// Model id the Workbench planner runs on; a CLI one ("claude-code",
+    /// "codex") runs it on your subscription. None: an API model if a key
+    /// is set, else the workers' CLI.
+    pub planner: Option<String>,
+    /// What coding CLIs may do without asking: "edits", "auto" or "full".
+    pub cli_permission: String,
+    /// Effort for coding CLIs: low, medium, high, xhigh, max. None: theirs.
+    pub cli_effort: Option<String>,
+    /// The window's backdrop: "harbour", "dawn", "night", "open-sea",
+    /// "fog", "aurora" or "plain".
+    pub backdrop: String,
     /// Where a new chat goes unless the user picks otherwise.
     pub default_route: Option<crate::chat::Route>,
     /// Where traces go besides this machine (Settings → Tracing).
@@ -91,6 +102,10 @@ impl Default for Prefs {
             chat_view: "chat".into(),
             motion: "full".into(),
             wb_view: "canvases".into(),
+            planner: None,
+            cli_permission: "edits".into(),
+            cli_effort: None,
+            backdrop: "harbour".into(),
             companion: CompanionCfg::default(),
             uses: vec!["chat".into(), "code".into()],
             harnesses: BTreeMap::new(),

@@ -115,6 +115,16 @@ pub fn serve() -> Result<()> {
                 } else {
                     vec![]
                 };
+                if b.as_ref().is_ok_and(crate::board::is_planner) {
+                    for t in [crate::harness::create_tickets_tool(), crate::harness::work_tickets_tool()] {
+                        let d = if t.name == "work_tickets" {
+                            "Dispatch agents for your ready-for-agent tickets (all of them if `keys` is omitted). Returns at once: end your turn after calling it; each ticket's result comes back as your next message."
+                        } else {
+                            "Turn a plan into tickets: tracer-bullet vertical slices. Each becomes one agent's work on its own git branch. If the plan needs the user's approval, end your turn after calling it; the verdict comes back as your next message."
+                        };
+                        tools.push(json!({"name": t.name, "description": d, "inputSchema": t.schema}));
+                    }
+                }
                 if computer_env().is_some() {
                     tools.push(json!({"name": "computer_run", "description": "Run a shell command on your own computer (your container or server) and get its output. Install software, run code and keep files there.",
                         "inputSchema": {"type": "object", "properties": {"command": {"type": "string"}, "timeout_secs": {"type": "integer"}}, "required": ["command"]}}));
@@ -144,6 +154,8 @@ pub fn serve() -> Result<()> {
                         crate::board::do_send(b, a["to"].as_str().unwrap_or(""), a["text"].as_str().unwrap_or(""))
                     }),
                     "read_messages" => board().and_then(crate::board::do_read),
+                    "create_tickets" => board().and_then(|b| crate::board::do_plan(b, "/v1/plan/create", a.clone())),
+                    "work_tickets" => board().and_then(|b| crate::board::do_plan(b, "/v1/plan/dispatch", a.clone())),
                     "computer_run" | "computer_read" | "computer_write" => match computer_env() {
                         None => Err(anyhow!("you have no computer of your own")),
                         Some(env) => match name {

@@ -24,6 +24,8 @@ pub trait Backend: Send + Sync {
     fn send(&self, text: String);
     fn approve(&self, id: usize);
     fn reject(&self, id: usize, feedback: String);
+    /// Stop an agent and those under it; None: the whole project.
+    fn stop(&self, agent: Option<usize>);
     fn file_ticket(&self, title: &str, body: &str) -> Result<String>;
     fn list_files(&self, agent: usize) -> Vec<FileEntry>;
     fn read_file(&self, path: &str) -> Result<String>;
@@ -43,6 +45,9 @@ impl Backend for Harness {
     }
     fn reject(&self, id: usize, feedback: String) {
         Harness::reject(self, id, feedback)
+    }
+    fn stop(&self, agent: Option<usize>) {
+        Harness::stop(self, agent)
     }
     fn file_ticket(&self, title: &str, body: &str) -> Result<String> {
         Harness::file_ticket(self, title, body)
@@ -68,6 +73,7 @@ impl Backend for NoProject {
     fn send(&self, _: String) {}
     fn approve(&self, _: usize) {}
     fn reject(&self, _: usize, _: String) {}
+    fn stop(&self, _: Option<usize>) {}
     fn file_ticket(&self, _: &str, _: &str) -> Result<String> {
         bail!("open a project first")
     }
@@ -97,6 +103,9 @@ impl Backend for Remote {
     }
     fn reject(&self, id: usize, feedback: String) {
         self.post_bg("/v1/reject", json!({ "id": id, "feedback": feedback }));
+    }
+    fn stop(&self, agent: Option<usize>) {
+        self.post_bg("/v1/stop", json!({ "agent": agent }));
     }
     fn file_ticket(&self, title: &str, body: &str) -> Result<String> {
         let v = self.post_wait("/v1/ticket", json!({ "title": title, "body": body }))?;
@@ -427,6 +436,10 @@ impl Fleet {
             crate::harness::Overrides {
                 worker: prefs.worker,
                 memory,
+                planner: prefs.planner,
+                permission: Some(prefs.cli_permission),
+                effort: prefs.cli_effort,
+                tracing: Some(prefs.tracing),
             },
         )?;
         let root = h.root().display().to_string();

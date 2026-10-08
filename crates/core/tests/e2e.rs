@@ -434,7 +434,7 @@ max_output_tokens = 0
         "Created hello.txt saying hello"
     );
     assert_eq!(
-        std::fs::read_to_string(ws.join("hello.txt"))
+        std::fs::read_to_string(ws.join(".backspace/worktrees/_run/hello.txt"))
             .unwrap()
             .trim(),
         "hello"
@@ -494,8 +494,8 @@ fn flat_project_with_gates_escalation_and_merges() {
     );
 
     // Worktrees and merges: both files landed on the main branch.
-    assert_eq!(std::fs::read_to_string(ws.join("a.txt")).unwrap(), "A");
-    assert_eq!(std::fs::read_to_string(ws.join("b.txt")).unwrap(), "B");
+    assert_eq!(std::fs::read_to_string(ws.join(".backspace/worktrees/_run/a.txt")).unwrap(), "A");
+    assert_eq!(std::fs::read_to_string(ws.join(".backspace/worktrees/_run/b.txt")).unwrap(), "B");
     assert!(ws.join(".backspace/worktrees/a/.git").exists());
     let branches = git_branches(&ws);
     assert!(
@@ -583,7 +583,7 @@ fn nested_leads_review_and_revise_their_reports() {
     assert_eq!((leaf.depth, leaf.parent), (2, Some(lead.id)));
     assert_eq!(s.approvals.len(), 3, "plan, lead, main");
     // leaf -> lead's branch -> main's branch, including the revision.
-    assert_eq!(std::fs::read_to_string(ws.join("leaf.txt")).unwrap(), "v2");
+    assert_eq!(std::fs::read_to_string(ws.join(".backspace/worktrees/_run/leaf.txt")).unwrap(), "v2");
     assert_eq!(leaf.escalations.len(), 1);
     assert!(s.subtree_cost(lead.id) > lead.cost_usd);
     std::fs::remove_dir_all(&ws).unwrap();

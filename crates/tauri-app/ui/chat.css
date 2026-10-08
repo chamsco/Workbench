@@ -243,9 +243,8 @@
 .starter b { font-weight: 600; font-size: 12.5px; } .starter span { color: var(--fg-3); font-size: 12px; }
 .thread-empty { height: 100%; display: grid; place-content: center; justify-items: center; gap: 8px; text-align: center; color: var(--fg-3); }
 .thread-empty b { color: var(--fg); font-size: 15px; }
-.nomodels, .home { max-width: 560px; margin: 0 auto; display: grid; justify-items: center; text-align: center; gap: 12px; padding: 30px 20px; }
-.home { height: 100%; align-content: center; box-sizing: border-box; }
-.nomodels h1, .home h1 { margin: 4px 0 0; font-size: 22px; letter-spacing: -0.02em; }
+.nomodels { max-width: 560px; margin: 0 auto; display: grid; justify-items: center; text-align: center; gap: 12px; padding: 30px 20px; }
+.nomodels h1 { margin: 4px 0 0; font-size: 22px; letter-spacing: -0.02em; }
 .home-mark { width: 58px; height: 58px; border-radius: 16px; background: var(--hover); display: grid; place-items: center; color: var(--fg-2); }
 .home-mark .ic { width: 26px; height: 26px; }
 .home-lead { margin: 0; color: var(--fg-3); line-height: 1.55; font-size: 13px; }

@@ -37,6 +37,8 @@ pub(crate) trait Api: Send + Sync + 'static {
     fn send(&self, text: String);
     /// None approves; Some(feedback) rejects.
     fn resolve(&self, id: usize, feedback: Option<String>);
+    /// Stop an agent and those under it; None: the whole project.
+    fn stop(&self, agent: Option<usize>);
     fn file_ticket(&self, title: &str, body: &str) -> Result<String>;
     fn list_files(&self, agent: usize) -> Vec<FileEntry>;
     fn read_file(&self, path: &str) -> Result<String>;
@@ -230,6 +232,10 @@ async fn handle(mut stream: TcpStream, api: Arc<dyn Api>, token: &str) -> Result
             }
             None => Err(anyhow!("missing id")),
         },
+        ("POST", "/v1/stop") => {
+            api.stop(body["agent"].as_u64().map(|a| a as usize));
+            Ok(json!({}))
+        }
         ("POST", "/v1/reject") => match (body["id"].as_u64(), body["feedback"].as_str()) {
             (Some(id), Some(fb)) if !fb.trim().is_empty() => {
                 api.resolve(id as usize, Some(fb.to_string()));

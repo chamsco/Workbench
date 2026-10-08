@@ -49,6 +49,24 @@ fn reject(f: F, id: usize, feedback: String) {
     f.backend().reject(id, feedback);
 }
 
+/// Stop an agent and those under it; no agent: the whole project.
+#[tauri::command]
+fn stop(f: F, agent: Option<usize>) {
+    f.backend().stop(agent);
+}
+
+/// Commits a day for the last two weeks and lines changed, for Home.
+#[tauri::command]
+async fn git_activity(path: String) -> Res<serde_json::Value> {
+    tauri::async_runtime::spawn_blocking(move || {
+        backspace_core::git::activity(std::path::Path::new(&path), 14)
+            .map(|(days, added, removed)| serde_json::json!({ "days": days, "added": added, "removed": removed }))
+    })
+    .await
+    .map_err(err)?
+    .map_err(err)
+}
+
 #[tauri::command]
 fn file_ticket(f: F, title: String, body: String) -> Res<String> {
     f.backend().file_ticket(&title, &body).map_err(err)
@@ -359,6 +377,23 @@ fn set_uses(f: F, uses: Vec<String>) {
 #[tauri::command]
 fn set_worker(f: F, worker: Option<String>) {
     f.update_prefs(|p| p.worker = worker.filter(|w| !w.is_empty()));
+}
+
+/// Who runs a project and how: the planner's and workers' model, what CLIs
+/// may do without asking, their effort. Applies to the next project opened.
+#[tauri::command]
+fn set_agent_run(f: F, planner: Option<String>, worker: Option<String>, permission: String, effort: Option<String>) {
+    f.update_prefs(|p| {
+        p.planner = planner.filter(|w| !w.is_empty());
+        p.worker = worker.filter(|w| !w.is_empty());
+        p.cli_permission = permission;
+        p.cli_effort = effort.filter(|e| !e.is_empty());
+    });
+}
+
+#[tauri::command]
+fn set_backdrop(f: F, backdrop: String) {
+    f.update_prefs(|p| p.backdrop = backdrop);
 }
 
 /// Which API keys are set (never their values).
@@ -1003,6 +1038,10 @@ fn main() -> anyhow::Result<()> {
             send,
             approve,
             reject,
+            stop,
+            git_activity,
+            set_agent_run,
+            set_backdrop,
             file_ticket,
             post_message,
             diagram,

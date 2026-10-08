@@ -16,9 +16,14 @@ const IDENT: [&str; 4] = [
 ];
 
 async fn git(dir: &Path, args: &[&str]) -> Result<String> {
+    git_env(dir, args, &[]).await
+}
+
+async fn git_env(dir: &Path, args: &[&str], env: &[(&str, &Path)]) -> Result<String> {
     let out = Command::new("git")
         .args(IDENT)
         .args(args)
+        .envs(env.iter().map(|(k, v)| (*k, *v)))
         .current_dir(dir)
         .stdin(std::process::Stdio::null())
         .output()
@@ -35,40 +40,79 @@ async fn git(dir: &Path, args: &[&str]) -> Result<String> {
     Ok(text.trim().to_string())
 }
 
-/// Make `root` a repo with at least one commit, and keep `.backspace/` out of
-/// it. Returns a note for the log when it had to snapshot uncommitted work.
-pub async fn ensure_repo(root: &Path) -> Result<Option<String>> {
+/// The branch a project's agents land their work on. Yours is never touched.
+pub const RUN_BRANCH: &str = "backspace/run";
+
+/// Names that look like secrets: left out of the snapshot agents start from.
+fn secret_like(path: &str) -> bool {
+    let name = path.rsplit('/').next().unwrap_or(path).to_lowercase();
+    name.starts_with(".env")
+        || name.starts_with("id_rsa")
+        || name.starts_with("id_ed25519")
+        || name.starts_with("credentials")
+        || name.starts_with("secrets")
+        || [".pem", ".key", ".p12", ".pfx", ".keystore", ".jks"].iter().any(|e| name.ends_with(e))
+}
+
+/// Make `root` a repo and give the agents their own branch, `backspace/run`,
+/// checked out in `.backspace/worktrees/_run`. A new one starts from a
+/// snapshot of your checkout (HEAD plus uncommitted and new files) built in a
+/// scratch index with `commit-tree`, so your branch, index and working tree
+/// are left exactly as they were; secret-looking files are left out. An
+/// existing one is reused, so a reopened project carries on where it was.
+/// Returns the run worktree and notes for the log.
+pub async fn ensure_run(root: &Path) -> Result<(PathBuf, Vec<String>)> {
     let dir = root.join(".backspace");
     tokio::fs::create_dir_all(&dir).await?;
     // Ignore our own folder without touching the user's .gitignore.
     tokio::fs::write(dir.join(".gitignore"), "*\n").await?;
 
-    let mut note = None;
-    if git(root, &["rev-parse", "--is-inside-work-tree"])
-        .await
-        .is_err()
-    {
+    let mut notes = Vec::new();
+    if git(root, &["rev-parse", "--is-inside-work-tree"]).await.is_err() {
         git(root, &["init", "-q"]).await?;
-        note = Some("initialised a git repository in the workspace".to_string());
+        notes.push("initialised a git repository in the workspace".to_string());
     }
-    if !git(root, &["status", "--porcelain"]).await?.is_empty()
-        || git(root, &["rev-parse", "HEAD"]).await.is_err()
-    {
-        git(root, &["add", "-A"]).await?;
-        git(
-            root,
-            &[
-                "commit",
-                "-q",
-                "--allow-empty",
-                "-m",
-                "backspace: snapshot before run",
-            ],
-        )
-        .await?;
-        note = Some("committed a snapshot of uncommitted work so agents branch from it".into());
+    let path = worktree_path(root, "_run");
+    let p = path.to_string_lossy().to_string();
+    if git(root, &["rev-parse", "--verify", "-q", RUN_BRANCH]).await.is_ok() {
+        if !path.join(".git").exists() {
+            let _ = git(root, &["worktree", "prune"]).await;
+            git(root, &["worktree", "add", "-q", &p, RUN_BRANCH]).await?;
+        }
+        notes.push(format!("carrying on `{RUN_BRANCH}`"));
+        return Ok((path, notes));
     }
-    Ok(note)
+
+    let index = dir.join("index-snapshot");
+    let _ = tokio::fs::remove_file(&index).await;
+    let env = [("GIT_INDEX_FILE", index.as_path())];
+    let head = git(root, &["rev-parse", "--verify", "-q", "HEAD"]).await.ok();
+    if head.is_some() {
+        git_env(root, &["read-tree", "HEAD"], &env).await?;
+    }
+    git_env(root, &["add", "-A"], &env).await?;
+    let new_files = git(root, &["ls-files", "--others", "--exclude-standard"]).await.unwrap_or_default();
+    let skipped: Vec<&str> = new_files.lines().filter(|f| secret_like(f)).collect();
+    for f in &skipped {
+        git_env(root, &["rm", "--cached", "-q", "--", f], &env).await?;
+    }
+    let tree = git_env(root, &["write-tree"], &env).await?;
+    let _ = tokio::fs::remove_file(&index).await;
+    let mut args = vec!["commit-tree", tree.as_str(), "-m", "backspace: snapshot of your checkout"];
+    if let Some(h) = &head {
+        args.extend(["-p", h.as_str()]);
+    }
+    let commit = git(root, &args).await?;
+    if head.is_some() && git(root, &["diff", "--quiet", "HEAD", &commit]).await.is_err() {
+        notes.push("started from your checkout, uncommitted changes included".into());
+    }
+    if !skipped.is_empty() {
+        notes.push(format!("left out files that look like secrets: {}", skipped.join(", ")));
+    }
+    git(root, &["branch", RUN_BRANCH, &commit]).await?;
+    git(root, &["worktree", "add", "-q", &p, RUN_BRANCH]).await?;
+    notes.push(format!("agents work on `{RUN_BRANCH}`; your branch is left alone. Merge it when you're happy: git merge {RUN_BRANCH}"));
+    Ok((path, notes))
 }
 
 pub async fn current_branch(dir: &Path) -> Result<String> {
@@ -154,6 +198,50 @@ pub async fn merge(into: &Path, branch: &str, msg: &str) -> Result<Merge> {
     }
 }
 
+/// Commits a day over the last `days` days (oldest first) across every
+/// branch, and lines added and removed, for Home's activity widget.
+pub fn activity(dir: &Path, days: u32) -> Result<(Vec<u32>, u64, u64)> {
+    let out = std::process::Command::new("git")
+        .args(["log", "--all", &format!("--since={days}.days"), "--date=short", "--format=@%cd", "--numstat"])
+        .current_dir(dir)
+        .stdin(std::process::Stdio::null())
+        .output()?;
+    if !out.status.success() {
+        bail!("not a git repository");
+    }
+    let today = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_secs() / 86_400;
+    let (mut per_day, mut added, mut removed) = (vec![0u32; days as usize], 0u64, 0u64);
+    for l in String::from_utf8_lossy(&out.stdout).lines() {
+        if let Some(d) = l.strip_prefix('@') {
+            if let Some(n) = day_number(d) {
+                let back = today.saturating_sub(n) as usize;
+                if back < per_day.len() {
+                    let i = per_day.len() - 1 - back;
+                    per_day[i] += 1;
+                }
+            }
+        } else {
+            let mut it = l.split('\t');
+            added += it.next().and_then(|a| a.parse::<u64>().ok()).unwrap_or(0);
+            removed += it.next().and_then(|r| r.parse::<u64>().ok()).unwrap_or(0);
+        }
+    }
+    Ok((per_day, added, removed))
+}
+
+/// Days since 1970-01-01 for a YYYY-MM-DD date.
+fn day_number(d: &str) -> Option<u64> {
+    let mut p = d.split('-').map(|x| x.parse::<i64>().ok());
+    let (y, m, day) = (p.next()??, p.next()??, p.next()??);
+    // Howard Hinnant's days_from_civil.
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = y.div_euclid(400);
+    let yoe = y - era * 400;
+    let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    u64::try_from(era * 146_097 + doe - 719_468).ok()
+}
+
 pub fn worktree_path(root: &Path, key: &str) -> PathBuf {
     root.join(".backspace").join("worktrees").join(key)
 }
@@ -166,48 +254,48 @@ pub fn branch_name(key: &str) -> String {
 mod tests {
     use super::*;
 
+    #[test]
+    fn day_numbers() {
+        assert_eq!(day_number("1970-01-01"), Some(0));
+        assert_eq!(day_number("2026-10-07"), Some(20_733));
+    }
+
     #[tokio::test]
     async fn branch_merge_and_conflict() {
         let root = std::env::temp_dir().join(format!("bs-git-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(root.join("shared.txt"), "base\n").unwrap();
-        assert!(ensure_repo(&root).await.unwrap().is_some());
-        let base = current_branch(&root).await.unwrap();
+        std::fs::write(root.join(".env"), "SECRET=1\n").unwrap();
+        let (run, notes) = ensure_run(&root).await.unwrap();
+        assert!(notes.iter().any(|n| n.contains(".env")), "{notes:?}");
+        // Your checkout is untouched: no commit on it, nothing staged.
+        assert!(git(&root, &["rev-parse", "--verify", "-q", "HEAD"]).await.is_err());
+        assert!(run.join("shared.txt").exists() && !run.join(".env").exists());
+        let base = RUN_BRANCH;
 
         let (a, b) = (worktree_path(&root, "a"), worktree_path(&root, "b"));
-        add_worktree(&root, &a, &branch_name("a"), &base)
-            .await
-            .unwrap();
-        add_worktree(&root, &b, &branch_name("b"), &base)
-            .await
-            .unwrap();
+        add_worktree(&root, &a, &branch_name("a"), base).await.unwrap();
+        add_worktree(&root, &b, &branch_name("b"), base).await.unwrap();
         std::fs::write(a.join("shared.txt"), "from a\n").unwrap();
         std::fs::write(b.join("shared.txt"), "from b\n").unwrap();
         assert!(commit_all(&a, "a").await.unwrap());
         assert!(commit_all(&b, "b").await.unwrap());
-        assert!(diff_stat(&root, &base, &branch_name("a"))
-            .await
-            .unwrap()
-            .contains("shared.txt"));
+        assert!(diff_stat(&root, base, &branch_name("a")).await.unwrap().contains("shared.txt"));
 
-        assert!(matches!(
-            merge(&root, &branch_name("a"), "merge a").await.unwrap(),
-            Merge::Merged
-        ));
-        assert_eq!(
-            std::fs::read_to_string(root.join("shared.txt")).unwrap().replace("\r\n", "\n"),
-            "from a\n"
-        );
-        match merge(&root, &branch_name("b"), "merge b").await.unwrap() {
+        assert!(matches!(merge(&run, &branch_name("a"), "merge a").await.unwrap(), Merge::Merged));
+        let read = || std::fs::read_to_string(run.join("shared.txt")).unwrap().replace("\r\n", "\n");
+        assert_eq!(read(), "from a\n");
+        match merge(&run, &branch_name("b"), "merge b").await.unwrap() {
             Merge::Conflict(f) => assert_eq!(f, "shared.txt"),
             Merge::Merged => panic!("expected a conflict"),
         }
-        // Aborted cleanly: root still has a's version and no conflict markers.
-        assert_eq!(
-            std::fs::read_to_string(root.join("shared.txt")).unwrap().replace("\r\n", "\n"),
-            "from a\n"
-        );
+        // Aborted cleanly: the run still has a's version and no conflict markers.
+        assert_eq!(read(), "from a\n");
+        // Your file is as you left it.
+        assert_eq!(std::fs::read_to_string(root.join("shared.txt")).unwrap(), "base\n");
+        // Reopening carries on the same branch.
+        assert!(ensure_run(&root).await.unwrap().1[0].contains("carrying on"));
         std::fs::remove_dir_all(&root).unwrap();
     }
 }

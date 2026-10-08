@@ -63,6 +63,31 @@ struct Inner {
     changed: async_channel::Sender<()>,
     /// Bumped on every change; remote followers long-poll on it.
     version: watch::Sender<u64>,
+    /// The main agent's checkout: the run worktree (`backspace/run`) when
+    /// isolated, else the project folder.
+    run_dir: PathBuf,
+    /// Running workers and triage agents, so Stop can end them.
+    tasks: Mutex<HashMap<AgentId, tokio::task::AbortHandle>>,
+    /// Wakes the main loop to drop the turn it is in (Stop).
+    stop_main: tokio::sync::Notify,
+    /// The coding CLI the planner runs on ("claude", "codex"), when it is
+    /// not on an API model.
+    planner: Option<String>,
+    /// What a CLI planner asked for through the bridge during its turn; run
+    /// once the turn ends (approvals and dispatches outlast a tool call).
+    planner_queue: Mutex<Vec<PlanAction>>,
+    /// Per-machine choices: CLI permissions and effort, tracing.
+    over: Overrides,
+    /// One trace per agent run, a span per tool call.
+    recs: Mutex<HashMap<AgentId, crate::trace::Recorder>>,
+}
+
+/// A CLI planner's request, run after its turn.
+enum PlanAction {
+    /// Wait for the user's verdict on this batch of proposed tickets.
+    Approve(Vec<String>),
+    /// work_tickets with these keys (None: every ready ticket).
+    Dispatch(Option<Vec<String>>),
 }
 
 /// Per-machine choices that win over the project's config file.
@@ -73,6 +98,17 @@ pub struct Overrides {
     pub worker: Option<String>,
     /// Memory notes (global and this project's) for every agent's brief.
     pub memory: Option<String>,
+    /// Model id the planner runs on. A CLI one ("claude-code", "codex")
+    /// runs the planner in that CLI; with no API key the worker's CLI (or
+    /// the first signed-in one) is used, so a subscription is enough.
+    pub planner: Option<String>,
+    /// What CLI agents may do without asking: "edits" (default), "auto"
+    /// (the CLI's own reviewer decides) or "full".
+    pub permission: Option<String>,
+    /// Effort for CLI agents: low, medium, high, xhigh, max.
+    pub effort: Option<String>,
+    /// Where traces go besides this machine.
+    pub tracing: Option<crate::trace::Export>,
 }
 
 pub struct Harness {
@@ -116,7 +152,76 @@ fn new_record(
         branch: None,
         worktree: None,
         escalations: vec![],
+        traces: vec![],
     }
+}
+
+/// Which coding CLI the planner runs on, if not an API model. An explicit
+/// pick wins; with no API model usable, the workers' CLI or the first
+/// signed-in one of Claude Code and Codex stands in, so a subscription is
+/// enough to start a project.
+fn pick_planner(cfg: &mut Config, over: &Overrides) -> Option<String> {
+    let pin = over.planner.clone().filter(|p| !p.is_empty()).or_else(|| cfg.router.pin_main.clone());
+    let cli = |cfg: &Config, m: &str| cfg.cli_usable(m).then(|| cfg.cli_of(m).and_then(|p| p.cli.clone())).flatten();
+    match pin {
+        Some(p) if cfg.cli_of(&p).is_some() => cli(cfg, &p),
+        Some(p) => {
+            if cfg.model(&p).is_some() {
+                cfg.router.pin_main = Some(p);
+            }
+            None
+        }
+        None if cfg.usable_models().is_empty() => {
+            let mut options: Vec<String> = cfg.router.pin_sub.clone().into_iter().collect();
+            options.extend(["claude-code".to_string(), "codex".to_string()]);
+            options.iter().find_map(|m| cli(cfg, m))
+        }
+        None => None,
+    }
+}
+
+/// A saved project, reopened: what was mid-flight can't be picked up (its
+/// process is gone), so it is marked interrupted and left ready to dispatch
+/// again; its branch keeps the work so far. Plans awaiting approval stay
+/// pending and can still be approved.
+fn restore(mut old: ProjectState, fresh: ProjectState, config_source: Option<PathBuf>) -> ProjectState {
+    let mut fresh_main = fresh.agents.into_iter().next().unwrap();
+    for a in &mut old.agents {
+        if matches!(a.status, AgentStatus::Running | AgentStatus::Queued | AgentStatus::AwaitingApproval) {
+            if a.id == MAIN {
+                a.status = AgentStatus::Idle;
+            } else {
+                a.status = AgentStatus::Failed;
+                a.log.push(LogEntry { kind: LogKind::System, text: "interrupted: Backspace closed while this ran. Its branch keeps the work so far; ask the main agent to dispatch it again.".into() });
+            }
+        }
+    }
+    let mut pending_plan = Vec::new();
+    for ap in &mut old.approvals {
+        if ap.state == ApprovalState::Pending {
+            if ap.kind == ApprovalKind::Plan {
+                pending_plan.extend(ap.tickets.iter().cloned());
+            } else {
+                ap.state = ApprovalState::Rejected { feedback: "interrupted by a restart".into() };
+            }
+        }
+    }
+    for t in &mut old.tickets {
+        if matches!(t.state, TicketState::Queued | TicketState::InProgress | TicketState::InReview) {
+            t.state = TicketState::Failed;
+            t.notes.push("interrupted by a restart; dispatch it again".into());
+        }
+    }
+    // The main agent keeps its history; the new notes (git, planner) go after it.
+    let main = &mut old.agents[MAIN];
+    fresh_main.log.retain(|e| e.kind == LogKind::System);
+    main.log.push(LogEntry { kind: LogKind::System, text: format!("reopened: {} tickets, {} waiting on your approval", old.tickets.len(), pending_plan.len()) });
+    main.log.extend(fresh_main.log);
+    main.worktree = fresh_main.worktree;
+    main.branch = fresh_main.branch;
+    old.workspace = fresh.workspace;
+    old.config_source = config_source;
+    old
 }
 
 impl Harness {
@@ -140,14 +245,15 @@ impl Harness {
             .enable_all()
             .build()?;
 
-        let (git_note, base_branch) = if cfg.orchestrator.isolation == Isolation::Worktree {
-            rt.block_on(async {
-                let note = git::ensure_repo(&root).await?;
-                anyhow::Ok((note, git::current_branch(&root).await?))
-            })
-            .context("setting up git for worktree isolation (set isolation = \"shared\" to skip)")?
+        let planner = pick_planner(&mut cfg, &over);
+
+        let (git_notes, base_branch, run_dir) = if cfg.orchestrator.isolation == Isolation::Worktree {
+            let (dir, notes) = rt
+                .block_on(git::ensure_run(&root))
+                .context("setting up git for worktree isolation (set isolation = \"shared\" to skip)")?;
+            (notes, git::RUN_BRANCH.to_string(), dir)
         } else {
-            (None, String::new())
+            (vec![], String::new(), root.clone())
         };
 
         let http = reqwest::Client::builder().build()?;
@@ -165,13 +271,33 @@ impl Harness {
         );
         main.status = AgentStatus::Idle;
         main.branch = (!base_branch.is_empty()).then(|| base_branch.clone());
-        main.worktree = Some(root.clone());
-        if let Some(n) = git_note {
-            main.log.push(LogEntry {
-                kind: LogKind::System,
-                text: n,
-            });
+        main.worktree = Some(run_dir.clone());
+        if let Some(cli) = &planner {
+            main.log.push(LogEntry { kind: LogKind::System, text: format!("the planner runs on {cli}, on your own plan") });
         }
+        for n in git_notes {
+            main.log.push(LogEntry { kind: LogKind::System, text: n });
+        }
+        let fresh = ProjectState {
+            name,
+            workspace: root.clone(),
+            agents: vec![main],
+            approvals: vec![],
+            tickets: vec![],
+            total_cost_usd: 0.0,
+            router_cost_usd: 0.0,
+            config_source: config_source.clone(),
+            board: vec![],
+            planner_session: None,
+        };
+        // A project opened before carries on: tickets, approvals, spend and
+        // the board come back; what was running is marked interrupted.
+        let state = std::fs::read_to_string(root.join(".backspace/state.json"))
+            .ok()
+            .and_then(|t| serde_json::from_str::<ProjectState>(&t).ok())
+            .filter(|old| !old.agents.is_empty())
+            .map(|old| restore(old, fresh.clone(), config_source))
+            .unwrap_or(fresh);
 
         let (changed_tx, changed_rx) = async_channel::bounded(1);
         let inner = Arc::new(Inner {
@@ -180,17 +306,7 @@ impl Harness {
             memory: over.memory.clone(),
             skills: Skills::load(&root),
             limiter: Semaphore::new(cfg.orchestrator.max_parallel_calls),
-            state: Mutex::new(ProjectState {
-                name,
-                workspace: root.clone(),
-                agents: vec![main],
-                approvals: vec![],
-                tickets: vec![],
-                total_cost_usd: 0.0,
-                router_cost_usd: 0.0,
-                config_source,
-                board: vec![],
-            }),
+            state: Mutex::new(state),
             verdicts: Mutex::new(HashMap::new()),
             done: Mutex::new(HashMap::new()),
             parked: Mutex::new(HashMap::new()),
@@ -203,7 +319,15 @@ impl Harness {
             root,
             cfg,
             http,
+            run_dir,
+            tasks: Mutex::new(HashMap::new()),
+            stop_main: tokio::sync::Notify::new(),
+            planner,
+            planner_queue: Mutex::new(vec![]),
+            over,
+            recs: Mutex::new(HashMap::new()),
         });
+        inner.save();
 
         // The board's bridge for agents in CLIs. Failing to bind only
         // costs them messaging.
@@ -320,10 +444,87 @@ impl Harness {
     }
 
     fn resolve(&self, approval: usize, verdict: Verdict) {
-        if let Some(tx) = self.inner.verdicts.lock().unwrap().remove(&approval) {
-            let _ = tx.send(verdict);
-        }
+        resolve(&self.inner, &self.to_main, approval, verdict);
     }
+
+    /// Stop an agent and everything under it (the main agent: the whole
+    /// project). Its process is killed; its ticket is left failed, so it can
+    /// be dispatched again, and its branch keeps what it did.
+    pub fn stop(&self, agent: Option<AgentId>) {
+        stop(&self.inner, agent);
+    }
+}
+
+fn resolve(inner: &Arc<Inner>, to_main: &mpsc::UnboundedSender<String>, approval: usize, verdict: Verdict) {
+    if let Some(tx) = inner.verdicts.lock().unwrap().remove(&approval) {
+        let _ = tx.send(verdict);
+        return;
+    }
+    // A plan proposed before a restart: nobody is waiting on it any
+    // more, so settle it here and tell the main agent.
+    let plan = inner.state.lock().unwrap().approvals.get(approval).cloned()
+        .filter(|a| a.kind == ApprovalKind::Plan && a.state == ApprovalState::Pending);
+    let Some(ap) = plan else { return };
+    let keys = ap.tickets.join(", ");
+    let msg = match &verdict {
+        Verdict::Approved => {
+            for k in &ap.tickets {
+                inner.ticket(k, |t| t.state = TicketState::ReadyForAgent);
+            }
+            format!("The user approved the plan you proposed before Backspace restarted ({keys}). Dispatch it with work_tickets.")
+        }
+        Verdict::Rejected(f) => {
+            inner.update(|s| s.tickets.retain(|t| !ap.tickets.contains(&t.key)));
+            format!("The user rejected the plan you proposed before Backspace restarted ({keys}); those tickets were discarded. Feedback: {f}\nRevise it and call create_tickets again.")
+        }
+    };
+    inner.update(|s| {
+        s.approvals[approval].state = match verdict {
+            Verdict::Approved => ApprovalState::Approved,
+            Verdict::Rejected(feedback) => ApprovalState::Rejected { feedback },
+        }
+    });
+    inner.save();
+    let _ = to_main.send(msg);
+}
+
+fn stop(inner: &Arc<Inner>, agent: Option<AgentId>) {
+    let ids: Vec<AgentId> = {
+        let s = inner.state.lock().unwrap();
+        s.agents
+            .iter()
+            .filter(|a| agent.is_none_or(|id| s.ancestry(a.id).contains(&id)))
+            .filter(|a| !a.status.is_terminal() && a.status != AgentStatus::Idle)
+            .map(|a| a.id)
+            .collect()
+    };
+    // Only a turn in progress: a stored wake-up would cut the next one short.
+    if agent.is_none_or(|id| id == MAIN) && ids.contains(&MAIN) {
+        inner.stop_main.notify_one();
+    }
+    for id in ids.into_iter().filter(|&id| id != MAIN) {
+        if let Some(h) = inner.tasks.lock().unwrap().remove(&id) {
+            h.abort();
+        }
+        // Its approval, if it was waiting on one, goes too.
+        let open: Vec<usize> = inner.state.lock().unwrap().approvals.iter()
+            .filter(|a| a.agent == id && a.state == ApprovalState::Pending).map(|a| a.id).collect();
+        for ap in open {
+            inner.verdicts.lock().unwrap().remove(&ap);
+            inner.update(|s| s.approvals[ap].state = ApprovalState::Rejected { feedback: "stopped".into() });
+        }
+        let key = inner.state.lock().unwrap().agents[id].ticket.clone();
+        inner.log(id, LogKind::System, "stopped by you");
+        inner.set_status(id, AgentStatus::Failed);
+        if let Some(k) = key {
+            inner.ticket(&k, |t| {
+                t.state = TicketState::Failed;
+                t.notes.push("stopped by the user".into());
+            });
+        }
+        inner.trace_finish(id, Some("stopped".into()));
+    }
+    inner.save();
 }
 
 struct Served {
@@ -346,9 +547,10 @@ impl crate::remote::Api for Served {
             None => Verdict::Approved,
             Some(f) => Verdict::Rejected(f),
         };
-        if let Some(tx) = self.inner.verdicts.lock().unwrap().remove(&id) {
-            let _ = tx.send(verdict);
-        }
+        resolve(&self.inner, &self.to_main, id, verdict);
+    }
+    fn stop(&self, agent: Option<usize>) {
+        stop(&self.inner, agent);
     }
     fn file_ticket(&self, title: &str, body: &str) -> Result<String> {
         file_ticket(
@@ -425,6 +627,46 @@ impl Inner {
             if let Ok(json) = serde_json::to_string_pretty(&snap) {
                 let _ = std::fs::write(dir.join("state.json"), json);
             }
+        }
+    }
+
+    /// Start an agent's trace (one per worker run, one per message to main).
+    fn trace_start(&self, id: AgentId, name: &str, input: &str) {
+        let (project, key, model) = {
+            let s = self.state.lock().unwrap();
+            let a = &s.agents[id];
+            (s.name.clone(), a.key.clone(), a.decision.as_ref().map(|d| d.model.clone()))
+        };
+        let mut attrs = std::collections::BTreeMap::new();
+        attrs.insert("backspace.project".into(), json!(project));
+        attrs.insert("backspace.agent".into(), json!(key));
+        if let Some(m) = model {
+            attrs.insert("gen_ai.request.model".into(), json!(m));
+        }
+        let rec = crate::trace::Recorder::start(&format!("project:{project}"), &key, name, attrs, input);
+        self.recs.lock().unwrap().insert(id, rec);
+    }
+
+    fn trace_event(&self, id: AgentId, e: &backspace_runner::Event) {
+        if let Some(r) = self.recs.lock().unwrap().get_mut(&id) {
+            r.on(e);
+        }
+    }
+
+    /// Close an agent's trace: kept in `<data>/traces`, sent on if Settings
+    /// → Tracing says so, and listed on the agent.
+    fn trace_finish(&self, id: AgentId, error: Option<String>) {
+        let Some(rec) = self.recs.lock().unwrap().remove(&id) else { return };
+        let t = rec.finish(error);
+        let data = crate::prefs::Prefs::data_dir();
+        if crate::trace::save(&data, &t).is_ok() {
+            self.agent(id, |a| a.traces.push(t.trace_id.clone()));
+        }
+        if let Some(cfg) = self.over.tracing.clone().filter(|c| !c.endpoint.is_empty()) {
+            let http = self.http.clone();
+            tokio::spawn(async move {
+                let _ = crate::trace::export(&http, &cfg, &t).await;
+            });
         }
     }
 
@@ -638,53 +880,170 @@ fn board_tools() -> Vec<ToolDef> {
 }
 
 async fn main_loop(inner: Arc<Inner>, mut inbox: mpsc::UnboundedReceiver<String>) {
-    let mut convo: Option<Conversation> = None;
+    let mut convo: Option<Conversation> = load_main(&inner);
     while let Some(text) = inbox.recv().await {
         inner.log(MAIN, LogKind::User, text.clone());
         inner.set_status(MAIN, AgentStatus::Running);
-
-        if convo.is_none() {
-            match inner.router.route(AgentRole::Main, &text, "").await {
-                Ok(d) => {
-                    announce_route(&inner, MAIN, &d);
-                    inner.agent(MAIN, |a| a.brief = text.clone());
-                    convo = Some(Conversation {
-                        id: MAIN,
-                        kind: AgentKind::Main,
-                        ticket: None,
-                        can_spawn: true,
-                        ws: inner.workspace(&inner.root),
-                        initial: d.clone(),
-                        system: inner.system_prompt(AgentKind::Main, 0, &d),
-                        decision: d,
-                        messages: vec![],
-                        tools: tools_for(AgentKind::Main, true),
-                        budget_warned_at: None,
-                        turns_total: 0,
-                        recent_calls: vec![],
-                    });
-                }
-                Err(e) => {
-                    inner.log(MAIN, LogKind::Error, format!("{e:#}"));
-                    inner.set_status(MAIN, AgentStatus::Failed);
-                    continue;
-                }
+        inner.trace_start(MAIN, "turn · main", &text);
+        let turn = async {
+            if let Some(cli) = inner.planner.clone() {
+                return plan_on_cli(&inner, &cli, text).await.map(|_| TurnEnd::Replied);
             }
-        }
-        let c = convo.as_mut().unwrap();
-        c.messages.push(Message::user_text(text));
-        match drive(&inner, c).await {
-            Ok(TurnEnd::Delivered(d)) => {
+            if convo.is_none() {
+                let d = inner.router.route(AgentRole::Main, &text, "").await?;
+                announce_route(&inner, MAIN, &d);
+                inner.agent(MAIN, |a| a.brief = text.clone());
+                convo = Some(main_convo(&inner, d, vec![]));
+            }
+            let c = convo.as_mut().unwrap();
+            match c.messages.last_mut() {
+                // After a Stop the last message can be yours, unanswered.
+                Some(m) if m.role == Role::User => m.content.push(Block::Text { text }),
+                _ => c.messages.push(Message::user_text(text)),
+            }
+            drive(&inner, c).await
+        };
+        // Stop drops the turn where it is (and any agents it was waiting on
+        // are stopped by `stop`).
+        let res = tokio::select! {
+            r = turn => Some(r),
+            _ = inner.stop_main.notified() => None,
+        };
+        match res {
+            Some(Ok(TurnEnd::Delivered(d))) => {
                 inner.agent(MAIN, |a| a.deliverable = Some(d));
                 inner.set_status(MAIN, AgentStatus::Approved);
+                inner.trace_finish(MAIN, None);
             }
-            Ok(TurnEnd::Replied) => inner.set_status(MAIN, AgentStatus::Idle),
-            Err(e) => {
+            Some(Ok(TurnEnd::Replied)) => {
+                inner.set_status(MAIN, AgentStatus::Idle);
+                inner.trace_finish(MAIN, None);
+            }
+            Some(Err(e)) => {
                 inner.log(MAIN, LogKind::Error, format!("{e:#}"));
                 inner.set_status(MAIN, AgentStatus::Idle);
+                inner.trace_finish(MAIN, Some(format!("{e:#}")));
+            }
+            None => {
+                if let Some(c) = convo.as_mut() {
+                    close_open_calls(c);
+                }
+                inner.planner_queue.lock().unwrap().clear();
+                inner.log(MAIN, LogKind::System, "stopped by you");
+                inner.set_status(MAIN, AgentStatus::Idle);
+                inner.trace_finish(MAIN, Some("stopped".into()));
             }
         }
+        if let Some(c) = &convo {
+            save_main(&inner, c);
+        }
     }
+}
+
+/// The main agent's conversation, on an API model.
+fn main_convo(inner: &Inner, d: Decision, messages: Vec<Message>) -> Conversation {
+    Conversation {
+        id: MAIN,
+        kind: AgentKind::Main,
+        ticket: None,
+        can_spawn: true,
+        ws: inner.workspace(&inner.run_dir),
+        initial: d.clone(),
+        system: inner.system_prompt(AgentKind::Main, 0, &d),
+        decision: d,
+        messages,
+        tools: tools_for(AgentKind::Main, true),
+        budget_warned_at: None,
+        turns_total: 0,
+        recent_calls: vec![],
+    }
+}
+
+/// A turn cut off mid tool call leaves calls without results, which the
+/// model's API rejects next time: answer them as stopped.
+fn close_open_calls(c: &mut Conversation) {
+    let Some(last) = c.messages.last() else { return };
+    if last.role != Role::Assistant {
+        return;
+    }
+    let blocks: Vec<Block> = last
+        .content
+        .iter()
+        .filter_map(|b| match b {
+            Block::ToolUse { id, .. } => Some(Block::ToolResult { tool_use_id: id.clone(), content: "stopped by the user".into(), is_error: true }),
+            _ => None,
+        })
+        .collect();
+    if !blocks.is_empty() {
+        c.messages.push(Message { role: Role::User, content: blocks });
+    }
+}
+
+/// The main agent's conversation survives a restart.
+fn save_main(inner: &Inner, c: &Conversation) {
+    let v = json!({"decision": c.decision, "messages": c.messages});
+    let _ = std::fs::write(inner.root.join(".backspace/main.json"), v.to_string());
+}
+
+fn load_main(inner: &Inner) -> Option<Conversation> {
+    let v: Value = serde_json::from_str(&std::fs::read_to_string(inner.root.join(".backspace/main.json")).ok()?).ok()?;
+    let d: Decision = serde_json::from_value(v["decision"].clone()).ok()?;
+    let messages: Vec<Message> = serde_json::from_value(v["messages"].clone()).ok()?;
+    let mut c = main_convo(inner, d, messages);
+    close_open_calls(&mut c);
+    Some(c)
+}
+
+/// One message to a planner that lives in a coding CLI. It plans with
+/// Backspace's tools over MCP; approvals and dispatches outlast a tool call,
+/// so they are queued and run after its turn, and what came of them is its
+/// next prompt (on the same session) until it answers without asking for
+/// anything.
+async fn plan_on_cli(inner: &Arc<Inner>, cli: &str, text: String) -> Result<()> {
+    let bin = crate::harnesses::which(crate::harnesses::bin_for(cli))
+        .ok_or_else(|| anyhow!("`{cli}` is not installed on this machine"))?;
+    let mut prompt = text;
+    loop {
+        let session = inner.state.lock().unwrap().planner_session.clone();
+        let system = session.is_none().then(|| planner_system(inner));
+        let (_, sid) = run_cli_turn(inner, MAIN, cli, &bin, &inner.run_dir.clone(), &prompt, session.as_deref(), system.as_deref()).await?;
+        if sid.is_some() {
+            inner.update(|s| s.planner_session = sid);
+            inner.save();
+        }
+        let actions = std::mem::take(&mut *inner.planner_queue.lock().unwrap());
+        if actions.is_empty() {
+            return Ok(());
+        }
+        let mut out = Vec::new();
+        for a in actions {
+            out.push(match a {
+                PlanAction::Approve(keys) => approve_plan(inner, MAIN, keys).await,
+                PlanAction::Dispatch(keys) => work_tickets(inner, MAIN, &json!({ "keys": keys }))
+                    .await
+                    .unwrap_or_else(|e| format!("work_tickets failed: {e:#}")),
+            });
+        }
+        prompt = out.join("\n\n");
+        inner.log(MAIN, LogKind::ToolResult, prompt.clone());
+    }
+}
+
+/// The planner's brief in a CLI: the API planner's, plus how its tools work there.
+fn planner_system(inner: &Inner) -> String {
+    let d = Decision {
+        model: "cli".into(),
+        effort: inner.cfg.router.main_min_effort,
+        source: "pinned".into(),
+        confidence: 1.0,
+        router_cost_usd: 0.0,
+        note: None,
+    };
+    format!(
+        "{}\n\n# Your tools here\n\nYou run inside a coding CLI. Backspace's planning tools are MCP tools named `create_tickets` and `work_tickets` (server `backspace`). Both return at once: after calling either, end your turn with a one-line note. The user's verdict on a plan, or each ticket's result, comes back as your next message. Do not build the tickets yourself; agents do that on their own branches, and their accepted work is merged into this checkout (branch `{}`), where you can read and verify it.",
+        inner.system_prompt(AgentKind::Main, 0, &d),
+        inner.base_branch
+    )
 }
 
 fn announce_route(inner: &Inner, id: AgentId, d: &Decision) {
@@ -828,7 +1187,7 @@ async fn finish_cli(
     let mut session: Option<String> = None;
     for round in 0..4 {
         let (summary, sid) =
-            run_cli_turn(inner, c.id, cli, &bin, dir, &prompt, session.as_deref()).await?;
+            run_cli_turn(inner, c.id, cli, &bin, dir, &prompt, session.as_deref(), None).await?;
         session = sid.or(session);
         let summary = if summary.trim().is_empty() {
             format!("{cli} finished without a summary")
@@ -856,8 +1215,14 @@ async fn finish_cli(
     bail!("{cli} did not get the ticket accepted in 4 rounds")
 }
 
-/// One headless run of a CLI. Returns its final message and, for CLIs that
-/// have one, the session to resume.
+/// A CLI that prints nothing for this long is stuck: it is stopped.
+// ponytail: one fixed limit; make it a setting if long silent builds need more.
+const CLI_STALL: Duration = Duration::from_secs(10 * 60);
+
+/// One headless run of a CLI through `backspace-runner`. Its text, tool
+/// calls and results go to the agent's log and trace as they happen.
+/// Returns its final message and the session to resume, if it has one.
+#[allow(clippy::too_many_arguments)]
 async fn run_cli_turn(
     inner: &Arc<Inner>,
     id: AgentId,
@@ -866,237 +1231,110 @@ async fn run_cli_turn(
     dir: &Path,
     prompt: &str,
     session: Option<&str>,
+    system: Option<&str>,
 ) -> Result<(String, Option<String>)> {
-    use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
-    let mut cmd = tokio::process::Command::new(bin);
-    cmd.current_dir(dir)
-        .env("PATH", crate::harnesses::path_env())
-        .env("NO_COLOR", "1")
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .kill_on_drop(true);
-    // The board, for `backspace msg` and the MCP server.
+    use backspace_runner::{Event, Request, Target, Turn};
     let me = inner.state.lock().unwrap().agents[id].key.clone();
     let exe = std::env::var("BACKSPACE_EXE")
         .ok()
-        .map(std::path::PathBuf::from)
+        .map(PathBuf::from)
         .or_else(|| std::env::current_exe().ok());
     let bridge = inner.bridge.lock().unwrap().clone();
+    let mut req = Request::new(
+        Target::Cli { provider: cli.into(), bin: bin.to_path_buf() },
+        vec![Turn::user(prompt)],
+    );
+    req.cwd = dir.to_path_buf();
+    req.edit = true;
+    req.session = session.map(String::from);
+    req.system = system.map(String::from);
+    req.permission = inner.over.permission.clone();
+    req.effort = inner.over.effort.clone();
+    req.env.push(("PATH".into(), crate::harnesses::path_env().to_string_lossy().into_owned()));
     if let Some((url, token)) = &bridge {
-        cmd.env(crate::board::ENV_URL, url)
-            .env(crate::board::ENV_TOKEN, token)
-            .env(crate::board::ENV_AGENT, &me);
+        // The board, for `backspace msg` and the MCP server.
+        let vars = [(crate::board::ENV_URL, url.as_str()), (crate::board::ENV_TOKEN, token.as_str()), (crate::board::ENV_AGENT, me.as_str())];
+        req.env.extend(vars.iter().map(|(k, v)| (k.to_string(), v.to_string())));
+        if let Some(exe) = &exe {
+            let env: serde_json::Map<String, Value> = vars.iter().map(|(k, v)| (k.to_string(), json!(v))).collect();
+            req.mcp = Some(json!({"mcpServers": {"backspace": {"command": exe.display().to_string(), "args": ["mcp"], "env": env}}}));
+            req.mcp_allow = vec!["mcp__backspace".into()];
+        }
     }
-    let mut stdin_prompt = true;
-    match cli {
-        "claude" => {
-            // Edits are accepted inside the worktree; shell commands are
-            // allowed so it can run tests. Nothing is pushed anywhere.
-            cmd.args([
-                "-p",
-                "--output-format",
-                "stream-json",
-                "--verbose",
-                "--permission-mode",
-                "acceptEdits",
-                "--allowedTools",
-                "Bash,Edit,Write,Read,Glob,Grep,mcp__backspace",
-            ]);
-            if let (Some((url, token)), Some(exe)) = (&bridge, &exe) {
-                let cfg = json!({"mcpServers": {"backspace": {
-                    "command": exe.display().to_string(), "args": ["mcp"],
-                    "env": {crate::board::ENV_URL: url, crate::board::ENV_TOKEN: token, crate::board::ENV_AGENT: me},
-                }}});
-                cmd.args(["--mcp-config", &cfg.to_string()]);
-            }
-            if let Some(s) = session {
-                cmd.args(["--resume", s]);
-            }
-        }
-        "codex" => {
-            cmd.args([
-                "exec",
-                "--json",
-                "--full-auto",
-                "--skip-git-repo-check",
-                "-",
-            ]);
-        }
-        "cursor" => {
-            cmd.args(["-p", "--force", "--output-format", "text", prompt]);
-            stdin_prompt = false;
-        }
-        "opencode" => {
-            cmd.args(["run", prompt]);
-            stdin_prompt = false;
-        }
-        "grok" => {
-            cmd.args(["-p", prompt]);
-            stdin_prompt = false;
-        }
-        other => bail!("{other} has no headless mode Backspace can drive"),
-    }
-    let mut child = cmd.spawn().with_context(|| format!("starting {cli}"))?;
-    if let Some(mut w) = child.stdin.take() {
-        if stdin_prompt {
-            w.write_all(prompt.as_bytes()).await?;
-        }
-        w.shutdown().await?;
-    }
-    let mut err = child.stderr.take().unwrap();
-    let err_task = tokio::spawn(async move {
-        let mut s = String::new();
-        let _ = err.read_to_string(&mut s).await;
-        s
-    });
     inner.set_status(id, AgentStatus::Running);
-    let mut lines = BufReader::new(child.stdout.take().unwrap()).lines();
-    let (mut last, mut sid, mut raw) = (String::new(), None::<String>, String::new());
-    let mut failed: Option<String> = None;
-    while let Some(line) = lines.next_line().await? {
-        let v: Option<Value> = serde_json::from_str(&line).ok();
-        match (cli, v) {
-            ("claude", Some(v)) => match v["type"].as_str() {
-                Some("system") => sid = v["session_id"].as_str().map(str::to_string).or(sid),
-                Some("assistant") => {
-                    for b in v["message"]["content"].as_array().into_iter().flatten() {
-                        match b["type"].as_str() {
-                            Some("text") => {
-                                let t = b["text"].as_str().unwrap_or("");
-                                if !t.trim().is_empty() {
-                                    inner.log(id, LogKind::Assistant, t);
-                                    last = t.to_string();
-                                }
-                            }
-                            Some("tool_use") => {
-                                let input = &b["input"];
-                                let what = input["command"]
-                                    .as_str()
-                                    .or(input["file_path"].as_str())
-                                    .or(input["pattern"].as_str())
-                                    .unwrap_or("");
-                                inner.log(
-                                    id,
-                                    LogKind::ToolCall,
-                                    format!(
-                                        "{} {}",
-                                        b["name"].as_str().unwrap_or("tool"),
-                                        truncate(what, 200)
-                                    ),
-                                );
-                            }
-                            _ => {}
-                        }
+
+    let last = Arc::new(Mutex::new(std::time::Instant::now()));
+    // What the turn said: the text since the last tool call, the last
+    // paragraph logged, the CLI's own final answer, its session.
+    #[derive(Default)]
+    struct Said {
+        buf: String,
+        last: String,
+        final_text: Option<String>,
+        sid: Option<String>,
+    }
+    impl Said {
+        fn flush(&mut self, inner: &Inner, id: AgentId) {
+            let t = self.buf.trim().to_string();
+            if !t.is_empty() {
+                inner.log(id, LogKind::Assistant, t.clone());
+                self.last = t;
+            }
+            self.buf.clear();
+        }
+    }
+    let mut st = Said::default();
+    let res = {
+        let (inner2, last2) = (inner.clone(), last.clone());
+        let st = &mut st;
+        let mut sink = |e: Event| {
+            *last2.lock().unwrap() = std::time::Instant::now();
+            inner2.trace_event(id, &e);
+            match &e {
+                Event::Text { text } => st.buf.push_str(text),
+                Event::Replace { text } => st.buf = text.clone(),
+                Event::Final { text } => st.final_text = Some(text.clone()),
+                Event::Session { id } => st.sid = Some(id.clone()),
+                Event::Break => st.flush(&inner2, id),
+                Event::ToolStart { name, input, .. } => {
+                    st.flush(&inner2, id);
+                    let v: Value = serde_json::from_str(input).unwrap_or(Value::Null);
+                    let what = ["command", "file_path", "path", "pattern"]
+                        .iter()
+                        .find_map(|k| v[*k].as_str())
+                        .map(String::from)
+                        .unwrap_or_else(|| if v.is_null() { input.clone() } else { String::new() });
+                    inner2.log(id, LogKind::ToolCall, format!("{name} {}", truncate(&what, 200)));
+                }
+                Event::ToolEnd { output, error, .. } => {
+                    if !output.trim().is_empty() {
+                        inner2.log(id, if *error { LogKind::Error } else { LogKind::ToolResult }, truncate(output, 800));
                     }
                 }
-                Some("user") => {
-                    for b in v["message"]["content"].as_array().into_iter().flatten() {
-                        if b["type"] == "tool_result" {
-                            let t = match &b["content"] {
-                                Value::String(s) => s.clone(),
-                                Value::Array(a) => a
-                                    .iter()
-                                    .filter_map(|x| x["text"].as_str())
-                                    .collect::<Vec<_>>()
-                                    .join("\n"),
-                                _ => String::new(),
-                            };
-                            if !t.trim().is_empty() {
-                                inner.log(id, LogKind::ToolResult, truncate(&t, 800));
-                            }
-                        }
+                Event::Usage { input, output } => inner2.agent(id, |a| {
+                    a.input_tokens = a.input_tokens.max(*input);
+                    a.output_tokens = a.output_tokens.max(*output);
+                }),
+                Event::Cost { usd } => inner2.log(id, LogKind::System, format!("{cli} turn done (≈${usd:.3} at API prices; billed to your {cli} plan)")),
+                Event::Model { .. } => {}
+            }
+        };
+        let run = backspace_runner::run(&inner.http, &req, &mut sink);
+        tokio::pin!(run);
+        loop {
+            tokio::select! {
+                r = &mut run => break r,
+                _ = tokio::time::sleep(Duration::from_secs(20)) => {
+                    if last.lock().unwrap().elapsed() > CLI_STALL {
+                        break Err(anyhow!("{cli} printed nothing for {} minutes; stopped it", CLI_STALL.as_secs() / 60));
                     }
-                }
-                Some("result") => {
-                    sid = v["session_id"].as_str().map(str::to_string).or(sid);
-                    if let Some(r) = v["result"].as_str().filter(|r| !r.trim().is_empty()) {
-                        last = r.to_string();
-                    }
-                    if v["is_error"].as_bool() == Some(true) {
-                        failed = Some(last.clone());
-                    }
-                    if let Some(usd) = v["total_cost_usd"].as_f64() {
-                        inner.log(id, LogKind::System, format!("{cli} turn done (≈${usd:.3} at API prices; billed to your {cli} plan)"));
-                    }
-                }
-                _ => {}
-            },
-            ("codex", Some(v)) => match v["type"].as_str() {
-                Some("item.completed") => {
-                    let it = &v["item"];
-                    match it["type"].as_str().or(it["item_type"].as_str()) {
-                        Some("agent_message") | Some("assistant_message") => {
-                            let t = it["text"].as_str().unwrap_or("");
-                            inner.log(id, LogKind::Assistant, t);
-                            last = t.to_string();
-                        }
-                        Some("command_execution") => {
-                            inner.log(
-                                id,
-                                LogKind::ToolCall,
-                                format!("$ {}", it["command"].as_str().unwrap_or("")),
-                            );
-                            if let Some(o) = it["aggregated_output"]
-                                .as_str()
-                                .filter(|o| !o.trim().is_empty())
-                            {
-                                inner.log(id, LogKind::ToolResult, truncate(o, 800));
-                            }
-                        }
-                        Some("file_change") => {
-                            let files: Vec<&str> = it["changes"]
-                                .as_array()
-                                .into_iter()
-                                .flatten()
-                                .filter_map(|c| c["path"].as_str())
-                                .collect();
-                            inner.log(
-                                id,
-                                LogKind::ToolCall,
-                                format!("edited {}", files.join(", ")),
-                            );
-                        }
-                        _ => {}
-                    }
-                }
-                Some("error") | Some("turn.failed") => {
-                    failed = v["message"]
-                        .as_str()
-                        .or(v["error"]["message"].as_str())
-                        .map(str::to_string);
-                }
-                _ => {}
-            },
-            _ => {
-                raw.push_str(&line);
-                raw.push('\n');
-                if raw.lines().count() >= 12 {
-                    inner.log(
-                        id,
-                        LogKind::Assistant,
-                        std::mem::take(&mut raw).trim_end().to_string(),
-                    );
                 }
             }
         }
-    }
-    if !raw.trim().is_empty() {
-        last = raw.trim().to_string();
-        inner.log(id, LogKind::Assistant, last.clone());
-    }
-    let status = child.wait().await?;
-    let stderr = err_task.await.unwrap_or_default();
-    if let Some(f) = failed {
-        bail!("{cli}: {}", truncate(&f, 600));
-    }
-    if !status.success() {
-        bail!(
-            "{cli} exited with {status}: {}",
-            truncate(stderr.trim(), 600)
-        );
-    }
-    Ok((last, sid))
+    };
+    st.flush(inner, id);
+    res.map_err(|e| anyhow!("{cli}: {}", truncate(&format!("{e:#}"), 600)))?;
+    Ok((st.final_text.filter(|t| !t.trim().is_empty()).unwrap_or(st.last), st.sid))
 }
 
 /// `Some(reason)` when the project or any budget covering this agent is spent.
@@ -1200,6 +1438,16 @@ async fn drive(inner: &Arc<Inner>, c: &mut Conversation) -> Result<TurnEnd> {
             a.output_tokens += completion.output_tokens;
             s.total_cost_usd += cost;
         });
+        {
+            let (i, o, usd) = {
+                let s = inner.state.lock().unwrap();
+                let a = &s.agents[c.id];
+                (a.input_tokens, a.output_tokens, a.cost_usd)
+            };
+            inner.trace_event(c.id, &backspace_runner::Event::Model { model: spec.id.clone() });
+            inner.trace_event(c.id, &backspace_runner::Event::Usage { input: i, output: o });
+            inner.trace_event(c.id, &backspace_runner::Event::Cost { usd });
+        }
 
         let text = completion.text();
         if !text.trim().is_empty() {
@@ -1239,12 +1487,17 @@ async fn drive(inner: &Arc<Inner>, c: &mut Conversation) -> Result<TurnEnd> {
 
         let results = {
             let cref = &*c;
-            join_all(calls.iter().map(|(_, name, input)| {
+            join_all(calls.iter().map(|(call_id, name, input)| {
                 inner.log(
                     cref.id,
                     LogKind::ToolCall,
                     format!("{name} {}", truncate(&input.to_string(), 400)),
                 );
+                inner.trace_event(cref.id, &backspace_runner::Event::ToolStart {
+                    id: call_id.clone(),
+                    name: name.clone(),
+                    input: truncate(&input.to_string(), 4000).to_string(),
+                });
                 run_tool(inner, cref, name, input)
             }))
             .await
@@ -1275,6 +1528,11 @@ async fn drive(inner: &Arc<Inner>, c: &mut Conversation) -> Result<TurnEnd> {
                 },
                 content.clone(),
             );
+            inner.trace_event(c.id, &backspace_runner::Event::ToolEnd {
+                id: call_id.clone(),
+                output: truncate(&content, 4000).to_string(),
+                error: is_error,
+            });
             blocks.push(Block::ToolResult {
                 tool_use_id: call_id.clone(),
                 content,
@@ -1526,6 +1784,16 @@ async fn submit(inner: &Arc<Inner>, c: &Conversation, input: &Value) -> Result<T
 // ---------------------------------------------------------------- tickets
 
 async fn create_tickets(inner: &Arc<Inner>, caller: AgentId, input: &Value) -> Result<String> {
+    let (keys, needs_approval) = create_batch(inner, caller, input)?;
+    if !needs_approval {
+        return Ok(format!("Created {}. Dispatch them with work_tickets.", keys.join(", ")));
+    }
+    Ok(approve_plan(inner, caller, keys).await)
+}
+
+/// Add a batch of tickets (proposed when the plan needs your approval).
+/// Returns their keys and whether it does.
+fn create_batch(inner: &Inner, caller: AgentId, input: &Value) -> Result<(Vec<String>, bool)> {
     let specs = input["tickets"]
         .as_array()
         .context("`tickets` must be an array")?;
@@ -1569,14 +1837,15 @@ async fn create_tickets(inner: &Arc<Inner>, caller: AgentId, input: &Value) -> R
     for t in &batch {
         t.write(&inner.root);
     }
-    let keys: Vec<String> = batch.iter().map(|t| t.key.clone()).collect();
-    if !needs_approval {
-        return Ok(format!(
-            "Created {}. Dispatch them with work_tickets.",
-            keys.join(", ")
-        ));
-    }
+    Ok((batch.iter().map(|t| t.key.clone()).collect(), needs_approval))
+}
 
+/// Ask for your verdict on proposed tickets; on a no they are discarded.
+async fn approve_plan(inner: &Arc<Inner>, caller: AgentId, keys: Vec<String>) -> String {
+    let batch: Vec<Ticket> = {
+        let s = inner.state.lock().unwrap();
+        keys.iter().filter_map(|k| s.ticket(k).cloned()).collect()
+    };
     let summary = batch
         .iter()
         .map(|t| {
@@ -1615,10 +1884,10 @@ async fn create_tickets(inner: &Arc<Inner>, caller: AgentId, input: &Value) -> R
             for k in &keys {
                 inner.ticket(k, |t| t.state = TicketState::ReadyForAgent);
             }
-            Ok(format!(
+            format!(
                 "Plan APPROVED by the user: {}. Dispatch with work_tickets.",
                 keys.join(", ")
-            ))
+            )
         }
         Verdict::Rejected(feedback) => {
             inner.update(|s| s.tickets.retain(|t| !keys.contains(&t.key)));
@@ -1629,9 +1898,9 @@ async fn create_tickets(inner: &Arc<Inner>, caller: AgentId, input: &Value) -> R
                         .join(format!(".backspace/tickets/{:02}-{}.md", t.num, t.key)),
                 );
             }
-            Ok(format!(
+            format!(
                 "Plan REJECTED by the user; those tickets were discarded. Feedback: {feedback}\nRevise the plan and call create_tickets again."
-            ))
+            )
         }
     }
 }
@@ -1704,17 +1973,23 @@ async fn work_tickets(inner: &Arc<Inner>, caller: AgentId, input: &Value) -> Res
         let (tx, rx) = watch::channel(false);
         inner.done.lock().unwrap().insert(key.clone(), rx);
         let (inner2, id, key) = (inner.clone(), *id, key.clone());
-        handles.push(tokio::spawn(async move {
+        let h = tokio::spawn(async move {
             let res = run_worker(inner2.clone(), id).await;
             settle(&inner2, id, &key, &res);
+            inner2.tasks.lock().unwrap().remove(&id);
             let _ = tx.send(true);
             res
-        }));
+        });
+        inner.tasks.lock().unwrap().insert(id, h.abort_handle());
+        handles.push(h);
     }
 
     let mut report = Vec::new();
     for ((id, _), h) in ids.iter().zip(handles) {
-        let res = h.await.map_err(|e| anyhow!("crashed: {e}")).and_then(|r| r);
+        let res = h
+            .await
+            .map_err(|e| if e.is_cancelled() { anyhow!("stopped by the user") } else { anyhow!("crashed: {e}") })
+            .and_then(|r| r);
         report.push(report_line(inner, *id, res));
     }
     // Tickets filed and triaged while these ran.
@@ -1747,6 +2022,7 @@ async fn work_tickets(inner: &Arc<Inner>, caller: AgentId, input: &Value) -> Res
 
 /// Mark a finished worker and its ticket, and log the routing outcome.
 fn settle(inner: &Inner, id: AgentId, key: &str, res: &Result<Deliverable>) {
+    inner.trace_finish(id, res.as_ref().err().map(|e| format!("{e:#}")));
     match res {
         Ok(_) => inner.set_status(id, AgentStatus::Approved),
         Err(e) => {
@@ -1869,6 +2145,7 @@ fn run_worker(inner: Arc<Inner>, id: AgentId) -> BoxFuture<'static, Result<Deliv
         let mut decision = inner.router.route(AgentRole::Sub, &brief, &context).await?;
         inner.cap_start(&mut decision);
         announce_route(&inner, id, &decision);
+        inner.trace_start(id, &format!("worker · {key}"), &brief);
 
         // Own branch, own worktree, forked from the parent's current work.
         let dir = if inner.isolated() {
@@ -2193,7 +2470,7 @@ fn skill_tool() -> ToolDef {
     }
 }
 
-fn create_tickets_tool() -> ToolDef {
+pub(crate) fn create_tickets_tool() -> ToolDef {
     ToolDef {
         name: "create_tickets",
         description: "Turn a plan into tickets: tracer-bullet vertical slices (see the to-tickets skill). Each becomes one agent's work in its own git worktree. Does not start work; use work_tickets.",
@@ -2213,7 +2490,7 @@ fn create_tickets_tool() -> ToolDef {
     }
 }
 
-fn work_tickets_tool() -> ToolDef {
+pub(crate) fn work_tickets_tool() -> ToolDef {
     ToolDef {
         name: "work_tickets",
         description: "Dispatch agents for your ready-for-agent tickets (all of them if `keys` is omitted). They run in parallel, respecting blocked_by, each routed to its own model and starting cheap. Blocks until every one is done or failed; accepted work is merged into your branch.",
@@ -2306,6 +2583,25 @@ async fn bridge_handle(
         }
         "/v1/board/agents" => {
             Ok(json!({"text": crate::board::agents_line(&inner.state.lock().unwrap())}))
+        }
+        // A planner in a CLI: tickets are made now (so mistakes come back at
+        // once); approval and dispatch run after its turn (plan_on_cli).
+        p if p.starts_with("/v1/plan/") && (body["me"] != "main" || inner.planner.is_none()) => {
+            Err(anyhow!("only the main agent plans"))
+        }
+        "/v1/plan/create" => create_batch(&inner, MAIN, &body).map(|(keys, needs)| {
+            let keys_s = keys.join(", ");
+            if needs {
+                inner.planner_queue.lock().unwrap().push(PlanAction::Approve(keys));
+                json!({"text": format!("Proposed {keys_s} for the user's approval. End your turn now; their verdict comes back as your next message.")})
+            } else {
+                json!({"text": format!("Created {keys_s}. Call work_tickets to dispatch them.")})
+            }
+        }),
+        "/v1/plan/dispatch" => {
+            let keys = body["keys"].as_array().map(|a| a.iter().filter_map(|k| k.as_str().map(String::from)).collect());
+            inner.planner_queue.lock().unwrap().push(PlanAction::Dispatch(keys));
+            Ok(json!({"text": "Queued. End your turn now: the agents start then, and each ticket's result comes back as your next message."}))
         }
         _ => return respond(&mut stream, 404, &json!({"error": "not found"})).await,
     };

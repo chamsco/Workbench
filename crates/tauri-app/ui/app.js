@@ -42,6 +42,9 @@ const P = {
   branch: '<circle cx="4.6" cy="3.6" r="1.4"/><circle cx="4.6" cy="12.4" r="1.4"/><circle cx="11.4" cy="5.6" r="1.4"/><path d="M4.6 5v6M11.4 7c0 2.6-6.8 1.8-6.8 4"/>',
   bksp: '<path d="M5.2 3.2h7.6a1 1 0 0 1 1 1v7.6a1 1 0 0 1-1 1H5.2L1.8 8z"/><path d="m7.6 6 4 4M11.6 6l-4 4"/>',
   check: '<path d="m3.4 8.4 3 3 6.2-6.6"/>',
+  lock: '<rect x="3.6" y="7" width="8.8" height="6" rx="1.4"/><path d="M5.6 7V5.2a2.4 2.4 0 0 1 4.8 0V7"/>',
+  home: '<path d="M2.8 7.4 8 3l5.2 4.4M4.4 6.2V13h7.2V6.2"/>',
+  trace: '<path d="M2.6 4h5M4.6 8h6M6.6 12h6.8"/>',
   pc: '<rect x="2.4" y="3" width="11.2" height="7.6" rx="1.2"/><path d="M1.4 13h13.2"/>',
   cloud: '<path d="M4.6 12.4h7a2.8 2.8 0 0 0 .4-5.57A4 4 0 0 0 4.3 6.2a3.1 3.1 0 0 0 .3 6.2z"/>',
   pin: '<path d="M6 2.6h4M6.6 2.6v4L4.6 9h6.8l-2-2.4v-4M8 9v4.4"/>',
@@ -215,6 +218,7 @@ function flip(els, mutate) {
 function applyTheme() {
   const r = document.documentElement;
   if (prefs.theme === "light" || prefs.theme === "dark") r.dataset.theme = prefs.theme; else delete r.dataset.theme;
+  if (window.Art && Art.current()) { Art.apply(Art.current()); Home.restyle(); }
   if (window.Apps) Apps.sendTheme();
 }
 const narrow = () => matchMedia("(max-width: 760px)").matches;
@@ -384,18 +388,6 @@ function projMenu(anchor, path) {
     const o = $("#pmOpen", pop); if (o) o.onclick = () => { closePop(); openProject(path); };
     $("#pmForget", pop).onclick = async () => { closePop(); if (open) await invoke("close_project"); await invoke("forget_project", { path }); prefs = await invoke("prefs"); await refresh(true); };
   });
-}
-// Code with no project open: what a project is, and how to start one.
-function projectsHome() {
-  const recents = (prefs.projects || []).slice(0, 6);
-  return `<div class="home">
-    <div class="home-mark">${icon("folder")}</div>
-    <h1>Open a project</h1>
-    <p class="home-lead">Pick a folder and describe what you want built. A main agent plans it into tickets, you approve the plan, and workers build each ticket on its own git branch. You review every deliverable before it merges.</p>
-    <div class="home-actions"><button class="btn primary big" id="hOpen">${icon("folder")}Open folder…</button><button class="btn big" id="hChat">${icon("compose")}Just chat instead</button></div>
-    ${recents.length ? `<div class="home-recent"><h5>Recent</h5>${recents.map(p => `<button class="recent" data-proj="${esc(p)}">${icon("folder")}<span><b>${esc(base(p))}</b><small>${esc(p)}</small></span></button>`).join("")}</div>` : ""}
-    <p class="home-note">${icon("warn")}Opening a folder makes it a git repository if it isn't one, and commits uncommitted changes as a snapshot so agents can branch from it.</p>
-  </div>`;
 }
 function renderCard() {
   if (!hasProject) { $("#ports").hidden = true; return; }
@@ -754,6 +746,7 @@ function paneTitle(p) {
     case "diagram": return "Diagram review";
     case "docs": return "PLAN.md";
     case "board": return `Team chat · ${(snap.board || []).length}`;
+    case "trace": return `Trace · ${a ? (a.id === MAIN ? "main" : a.key) : ""}`;
     default: return "New canvas";
   }
 }
@@ -765,7 +758,8 @@ function buildPane(p, slot) {
   el.dataset.slot = slot;
   const ps = pstate(slot);
   el.innerHTML = `<header class="ph">${paneIcon(p)}<span class="t">${esc(paneTitle(p))}</span><span class="sp"></span>
-    ${p.kind === "agent" ? `<button class="ib" data-act="files" aria-label="Open worktree files">${icon("folder")}</button>` : ""}
+    ${p.kind === "agent" && busy(agent(p.agent)) ? `<button class="ib stopb" data-act="stop" aria-label="Stop this agent" title="Stop">${icon("stop")}</button>` : ""}
+    ${p.kind === "agent" ? `<button class="ib" data-act="trace" aria-label="Trace" title="Trace: every tool call, timed">${icon("trace")}</button><button class="ib" data-act="files" aria-label="Open worktree files">${icon("folder")}</button>` : ""}
     ${p.kind !== "empty" ? `<button class="ib" data-act="swap" aria-label="Show something else here" title="Show something else here">${icon("window")}</button>` : ""}
     ${tab().panes.length > 1 ? `<button class="ib" data-act="max" aria-label="Maximize canvas">${icon("expand")}</button>` : ""}
     <button class="ib" data-act="close" aria-label="Close canvas">${icon("close")}</button></header>`;
@@ -775,6 +769,8 @@ function buildPane(p, slot) {
   act("max", () => { S.max = S.max == null ? slot : null; renderGrid(); });
   act("swap", () => { setPane(slot, { kind: "empty", agent: 0, url: null }); });
   act("files", () => setPane(slot, { kind: "files", agent: p.agent, url: null }));
+  act("trace", () => setPane(slot, { kind: "trace", agent: p.agent, url: null }));
+  act("stop", () => invoke("stop", { agent: p.agent }));
   act("close", () => {
     const t = tab();
     if (S.max != null) S.max = null;
@@ -810,6 +806,7 @@ function fillPane(p, slot, body, ps) {
   else if (p.kind === "diagram") diagramPane(body, ps);
   else if (p.kind === "docs") docsPane(body);
   else if (p.kind === "board") boardPane(body, ps);
+  else if (p.kind === "trace") tracePane(p, body, ps);
   else chooser(slot, body);
 }
 function chooser(slot, body) {
@@ -830,7 +827,8 @@ function chooser(slot, body) {
 // The same project three ways: Canvases (tabs of split canvases), Wall (every
 // agent's session tiled, as many as there are) and Inbox (what needs you,
 // then what is running, then what is done). Picked per user, kept in prefs.
-const WB = [["canvases", "window", "Canvases"], ["wall", "monitor", "Wall"], ["inbox", "bubble", "Inbox"]];
+const WB = [["home", "home", "Home"], ["canvases", "window", "Canvases"], ["wall", "monitor", "Wall"], ["inbox", "bubble", "Inbox"]];
+const busy = a => !!a && ["running", "queued", "awaiting_approval"].includes(a.status);
 const lastLine = a => { const e = [...a.log].reverse().find(e => e.kind !== "user") || a.log[a.log.length - 1]; return e ? e.text.split("\n")[0] : "No activity yet"; };
 // Why an agent needs the human, or null.
 function needsYou(a) {
@@ -847,7 +845,7 @@ function renderWbv() {
   const n = snap.agents.filter(needsYou).length;
   $("#wbv").innerHTML = WB.map(([k, ic, l]) => `<button role="tab" aria-selected="${S.wb === k}" data-wb="${k}" title="${l}">${icon(ic)}<span>${l}</span>${k === "inbox" && n ? `<span class="cnt">${n}</span>` : ""}</button>`).join("");
   $$("#wbv [data-wb]").forEach(b => (b.onclick = () => setWb(b.dataset.wb)));
-  $("#win").classList.toggle("wb-alt", S.wb !== "canvases");
+  $("#win").classList.toggle("wb-alt", S.wb !== "canvases" || !hasProject);
 }
 function setWb(v) {
   S.wb = WB.some(([k]) => k === v) ? v : "canvases";
@@ -859,7 +857,7 @@ function openIn(spec) { if (S.wb !== "canvases") setWb("canvases"); openView(spe
 function wallTile(a) {
   const nd = needsYou(a);
   return `<section class="pane tile${nd ? " needs" : ""}" data-tile="${a.id}"><header class="ph"><span class="agent">${icon("sparkle")}</span><span class="t">${esc(a.id === MAIN ? "Main agent" : a.title)}</span><span class="dot ${dotFor(a.status)}"></span><span class="sp"></span><span class="rt">${esc(a.decision ? a.decision.model : "")}</span>
-    <button class="ib" data-act="open" aria-label="Open in a canvas" title="Open in a canvas">${icon("expand")}</button></header>
+    ${busy(a) ? `<button class="ib stopb" data-act="stop" aria-label="Stop" title="Stop">${icon("stop")}</button>` : ""}<button class="ib" data-act="open" aria-label="Open in a canvas" title="Open in a canvas">${icon("expand")}</button></header>
     <div class="tb">${a.log.length ? a.log.slice(-80).map(logHTML).join("") : `<div class="ln note">${a.status === "queued" ? "Queued: starts when its blockers are merged" : "No activity yet"}</div>`}${a.status === "running" ? `<div class="ln spin"><span class="spin-g">${SPIN[spinI]}</span> Working…</div>` : ""}</div>
     ${nd ? `<button class="tile-need" data-act="need">${icon("warn")}${esc(nd.why)}</button>` : ""}</section>`;
 }
@@ -881,6 +879,7 @@ function renderWall(g) {
     el = g.querySelector(`[data-tile="${a.id}"]`); el.__h = html;
     const nb = el.querySelector(".tb"); nb.scrollTop = atBottom ? nb.scrollHeight : top;
     el.querySelector("[data-act=open]").onclick = () => openIn({ kind: "agent", agent: a.id });
+    const st = el.querySelector("[data-act=stop]"); if (st) st.onclick = () => invoke("stop", { agent: a.id });
     const need = el.querySelector("[data-act=need]"); if (need) need.onclick = () => actOn(a);
   });
   $$("[data-tile]", g).forEach(el => { if (!keep.has(el.dataset.tile)) el.remove(); });
@@ -895,6 +894,7 @@ function inboxRow(a, nd) {
   return `<div class="ibx-row${nd ? " needs" : ""}" data-a="${a.id}"><span class="dot ${dotFor(a.status)}"></span>
     <button class="ibx-main" data-act="open"><span class="tt">${esc(a.id === MAIN ? `Main agent · ${snap.name}` : a.title)}</span><span class="ibx-sub">${esc(nd ? nd.why : lastLine(a))}</span></button>
     <span class="meta">${esc(a.decision ? a.decision.model : "")} · $${a.cost_usd.toFixed(3)}</span>
+    ${busy(a) ? `<button class="ib stopb" data-act="stop" aria-label="Stop" title="Stop">${icon("stop")}</button>` : ""}
     ${nd ? `<button class="btn sm${nd.ap ? " primary" : ""}" data-act="act">${nd.ap ? "Review" : "Open"}</button>` : ""}</div>`;
 }
 function renderInbox(g) {
@@ -907,6 +907,7 @@ function renderInbox(g) {
   const old = $("#ibxIn"), focused = old && document.activeElement === old, draft = old ? old.value : "";
   g.className = "grid inbox";
   g.innerHTML = `<div class="ibx">
+    ${running.length ? `<div class="ibx-top"><span>${running.length} working</span><button class="btn sm" id="ibxStop">${icon("stop")}Stop all</button></div>` : ""}
     <label class="ibx-say">${icon("sparkle")}<input id="ibxIn" placeholder="${ask ? "Answer the main agent" : m && m.log.some(e => e.kind === "user") ? "Tell the main agent something" : "Describe a goal; the main agent plans it into tickets"}" autocomplete="off" spellcheck="false" aria-label="Message the main agent"></label>
     ${sec("Needs you", needs.map(([a, n]) => inboxRow(a, n)))}
     ${needs.length ? "" : `<div class="nothing">Nothing needs you right now.</div>`}
@@ -918,11 +919,13 @@ function renderInbox(g) {
     const a = agent(+r.dataset.a);
     r.querySelector("[data-act=open]").onclick = () => openIn({ kind: "agent", agent: a.id });
     const b = r.querySelector("[data-act=act]"); if (b) b.onclick = () => actOn(a);
+    const st = r.querySelector("[data-act=stop]"); if (st) st.onclick = () => invoke("stop", { agent: a.id });
   });
+  const sa = $("#ibxStop"); if (sa) sa.onclick = () => invoke("stop", { agent: null });
 }
 function renderAlt() {
   const g = $("#grid"); S.els = new Map(); S.ph = null;
-  if (S.wb === "wall") renderWall(g); else renderInbox(g);
+  if (S.wb === "home") Home.render(g); else if (S.wb === "wall") renderWall(g); else renderInbox(g);
 }
 
 // Canvases sit absolutely at the rectangles of the tab's layout tree, so a
@@ -930,12 +933,7 @@ function renderAlt() {
 // animates rather than a rebuild.
 function renderGrid() {
   const g = $("#grid"), t = tab();
-  if (!hasProject) {
-    g.className = "grid"; g.innerHTML = projectsHome(); S.els = new Map();
-    $("#hOpen").onclick = pickProject; $("#hChat").onclick = () => setMode("chat");
-    $$("#grid [data-proj]").forEach(b => (b.onclick = () => openProject(b.dataset.proj)));
-    return;
-  }
+  if (!hasProject) { renderWbv(); S.els = new Map(); S.ph = null; Home.render(g); return; }
   renderWbv();
   if (S.wb !== "canvases") { renderAlt(); return; }
   if (S.focus >= t.panes.length) S.focus = 0;
@@ -1276,6 +1274,29 @@ function boardMsgs(body) {
   if (sel && sel.options.length !== snap.agents.length + 1) { const v = sel.value; sel.innerHTML = [["all", "Everyone"], ...snap.agents.map(a => [a.key, `${a.title} (${a.key})`])].map(([k, l]) => `<option value="${esc(k)}">${esc(l)}</option>`).join(""); sel.value = v; }
 }
 
+// ------------------------------------------------------------------ trace canvas
+// An agent's runs as waterfalls: one row per tool call on a shared clock,
+// its input and output a click away. Traces live in <data>/traces.
+async function tracePane(p, body, ps) {
+  const a = agent(p.agent);
+  const ids = a ? a.traces || [] : [];
+  if (!ids.length) { body.innerHTML = `<div class="nothing">No traces yet. ${a && busy(a) ? "This run's trace is saved when it ends." : "Each run of this agent leaves one."}</div>`; return; }
+  const id = ps.trace && ids.includes(ps.trace) ? ps.trace : ids[ids.length - 1];
+  const t = await invoke("trace_get", { id }).catch(() => null);
+  if (!t) { body.innerHTML = `<div class="nothing">That trace is gone.</div>`; return; }
+  const t0 = Math.min(...t.spans.map(s => s.start)), t1 = Math.max(...t.spans.map(s => s.end || s.start)), span = Math.max(1, t1 - t0);
+  const ms = n => (n < 1000 ? `${n} ms` : n < 60000 ? `${(n / 1000).toFixed(1)} s` : `${Math.floor(n / 60000)}m ${Math.round((n % 60000) / 1000)}s`);
+  const root = t.spans[0], at = root.attrs || {};
+  body.innerHTML = `<div class="trace">
+    <div class="tr-h"><select class="tx" aria-label="Run">${ids.map((x, i) => `<option value="${x}" ${x === id ? "selected" : ""}>Run ${i + 1}${x === ids[ids.length - 1] ? " (latest)" : ""}</option>`).join("")}</select>
+      <span>${esc(at["gen_ai.response.model"] || at["gen_ai.request.model"] || "")}</span><span>${ms(span)}</span>
+      ${at["gen_ai.usage.input_tokens"] != null ? `<span>${Number(at["gen_ai.usage.input_tokens"]).toLocaleString()}↓ ${Number(at["gen_ai.usage.output_tokens"] || 0).toLocaleString()}↑</span>` : ""}
+      ${at["cost.usd"] != null ? `<span>$${Number(at["cost.usd"]).toFixed(3)}</span>` : ""}${root.error ? `<span class="err">${esc(root.error)}</span>` : ""}</div>
+    <div class="tr-rows">${t.spans.map((s, i) => `<details class="tr-row${s.error ? " bad" : ""}"><summary><span class="tn">${esc(i ? s.name : root.name)}</span><span class="tbar"><i style="left:${((s.start - t0) / span) * 100}%;width:${Math.max(0.6, (((s.end || s.start) - s.start) / span) * 100)}%"></i></span><span class="td">${ms((s.end || s.start) - s.start)}</span></summary>
+      ${s.input ? `<pre>${esc(s.input)}</pre>` : ""}${s.output ? `<pre class="out">${esc(s.output)}</pre>` : ""}</details>`).join("")}</div></div>`;
+  body.querySelector("select").onchange = e => { ps.trace = e.target.value; tracePane(p, body, ps); };
+}
+
 // ------------------------------------------------------------------ PLAN.md canvas
 function md(src) {
   let out = "", code = false, list = false;
@@ -1293,7 +1314,8 @@ function md(src) {
   return out + (list ? "</ul>" : "") + (code ? "</pre>" : "");
 }
 async function docsPane(body) {
-  const text = snap.workspace ? await invoke("read_file", { path: snap.workspace + "/PLAN.md" }).catch(() => null) : null;
+  const dir = (agent(MAIN) && agent(MAIN).worktree) || snap.workspace;
+  const text = dir ? await invoke("read_file", { path: dir + "/PLAN.md" }).catch(() => null) : null;
   body.innerHTML = `<div class="docs"><article class="doc">${text ? md(text) : `<h1>PLAN.md</h1><div class="by">${esc(snap.name)}</div><p>The main agent writes PLAN.md before it proposes tickets. It will show here once it exists.</p>`}</article></div>`;
 }
 
@@ -1319,7 +1341,7 @@ function renderSettings() {
     <section id="set-providers"><h2>Coding CLIs and models</h2><p class="lead">What Chat and projects can use. Backspace scans this machine for each CLI, its version and whether it is signed in; switch off any you don't want offered.</p><div id="setProviders"></div></section>
     <section id="set-plan"><h2>Backspace Cloud</h2><p class="lead">Chat without installing anything. Free with a short ad under each reply, or a paid plan.</p><div id="setPlan"></div></section>
     <section id="set-coding"><h2>Coding</h2><p class="lead">A project's planner runs on an API model (Anthropic or OpenRouter, keys below). Each ticket's worker can run on the router's pick, or be handed to a coding CLI you're signed in to: it works in the ticket's own git worktree, then goes through the same checks and your review.</p>
-      <div class="line stack"><span class="lab">Workers run on<small>Applies when a project opens.${hasProject ? ` <button class="lnk" id="reopen">Reopen ${esc(snap.name)} now</button>` : ""}</small></span><div class="segc" id="workerSeg"></div></div>
+      <div class="line stack"><span class="lab">Agents run on<small>The planner and the workers, what they may do, and how hard they think. Applies when a project opens.${hasProject ? ` <button class="lnk" id="reopen">Reopen ${esc(snap.name)} now</button>` : ""}</small></span><div class="segc" id="workerSeg"></div></div>
       <div id="keyRows"></div></section>
     <section id="set-chat"><h2>Chat</h2><div class="line"><span class="lab">New chats go to<small>You can switch per chat from the composer.</small></span><button class="btn" id="setRoute" data-popper>${esc(window.Chat ? Chat.routeName(prefs.default_route) : "Pick")}</button></div></section>
     <section id="set-tracing"><h2>Tracing</h2><p class="lead">Every reply keeps a trace on this machine: each tool call, how long it took, tokens and cost (the timeline button under a reply). To watch them elsewhere, send them to an OpenTelemetry collector such as treg, Jaeger or Langfuse.</p>
@@ -1331,7 +1353,8 @@ function renderSettings() {
       ${(prefs.projects || []).length ? prefs.projects.map(p => `<div class="mrow"><span class="mi">${icon("folder")}</span><span class="lab">${esc(base(p))}${hasProject && p === snap.workspace ? " · open" : ""}<small class="mono">${esc(p)}</small></span><button class="btn" data-popen="${esc(p)}">Open</button><button class="btn danger" data-pforget="${esc(p)}">Forget</button></div>`).join("") : `<p class="lead">No projects yet.</p>`}
       <div class="line"><span class="lab"></span><button class="btn primary" id="setOpenFolder">Open folder…</button></div></section>
     <section id="set-uses"><h2>Use Backspace for</h2><div class="line"><span class="lab">What shows in the app<small>With both on, switch from the top of the sidebar.</small></span><div class="segc">${[["chat", "Chat"], ["code", "Coding"]].map(([k, l]) => `<button aria-pressed="${(prefs.uses || ["chat", "code"]).includes(k)}" data-use="${k}">${l}</button>`).join("")}</div></div></section>
-    <section><h2>Appearance</h2><div class="line"><span class="lab">Theme</span><div class="segc">${[["system", "System"], ["light", "Light"], ["dark", "Dark"]].map(([k, l]) => `<button aria-pressed="${th === k}" data-theme="${k}">${l}</button>`).join("")}</div></div></section>
+    <section><h2>Appearance</h2><div class="line"><span class="lab">Theme</span><div class="segc">${[["system", "System"], ["light", "Light"], ["dark", "Dark"]].map(([k, l]) => `<button aria-pressed="${th === k}" data-theme="${k}">${l}</button>`).join("")}</div></div>
+      <div class="line stack"><span class="lab">Background<small>Behind the window, and across the top of Home.</small></span><div class="bdrops">${Art.BACKDROPS.map(([k, l]) => `<button class="bdrop" aria-pressed="${Art.current() === k}" data-bd="${k}" title="${l}"><span class="sw sw-${k}" ${Art.src(k) ? `style="background-image:url('${Art.src(k)}')"` : ""}></span><span>${l}</span></button>`).join("")}</div></div></section>
     <section id="set-machines"><h2>Machines</h2><p class="lead">Follow and drive the harness on other machines. Each one runs <code>backspace-cli serve</code> (or shares from its own Backspace, below); add it with its address and token. Switch machines from the sidebar foot.</p>
       ${machines.map(m => `<div class="mrow"><span class="mi">${icon(m.local ? "pc" : "cloud")}</span><span class="lab">${esc(m.name)}${m.selected ? " · showing" : ""}<small>${m.local ? "This machine" : esc(m.url)} · ${m.link.state === "offline" ? "offline: " + esc(m.link.error) : m.link.state}${m.project ? " · " + esc(m.project) : ""}</small></span>
         ${m.selected ? "" : `<button class="btn" data-show="${m.index}">Show</button>`}${m.local ? "" : `<button class="btn danger" data-rm="${m.index}">Remove</button>`}</div>`).join("")}
@@ -1384,6 +1407,7 @@ function renderSettings() {
   $$("[data-popen]", el).forEach(b => (b.onclick = () => { closeSettings(); openProject(b.dataset.popen); }));
   $$("[data-pforget]", el).forEach(b => (b.onclick = async () => { await invoke("forget_project", { path: b.dataset.pforget }); prefs = await invoke("prefs"); renderSettings(); renderList(); }));
   $$("[data-theme]", el).forEach(b => (b.onclick = async () => { prefs.theme = b.dataset.theme; applyTheme(); renderSettings(); await invoke("set_theme", { theme: prefs.theme }); }));
+  $$("[data-bd]", el).forEach(b => (b.onclick = async () => { prefs.backdrop = b.dataset.bd; Art.apply(prefs.backdrop); Home.restyle(); renderSettings(); await invoke("set_backdrop", { backdrop: prefs.backdrop }); }));
   $$("[data-show]", el).forEach(b => (b.onclick = async () => { await invoke("select_machine", { index: +b.dataset.show }); S.pane.clear(); S.review = null; await refresh(true); renderSettings(); }));
   $$("[data-rm]", el).forEach(b => (b.onclick = async () => { await invoke("remove_machine", { index: +b.dataset.rm }); await refresh(true); renderSettings(); }));
   $("#mAdd").onclick = async () => {
@@ -1412,8 +1436,12 @@ async function renderCoding(el) {
   const seg = $("#workerSeg", el); if (!seg) return;
   const hs = window.Providers ? Providers.list : [];
   const ok = id => !id || hs.some(h => h.id === id && h.installed && h.enabled);
-  seg.innerHTML = WORKERS.map(([m, l, h]) => `<button data-w="${m}" aria-pressed="${(prefs.worker || "") === m}" ${ok(h) ? "" : `disabled title="${l} isn't installed or is switched off"`}>${l}</button>`).join("");
-  $$("[data-w]", seg).forEach(b => (b.onclick = async () => { prefs.worker = b.dataset.w || null; await invoke("set_worker", { worker: prefs.worker }); renderSettings(); toast(b.dataset.w ? `New tickets go to ${b.textContent}` : "The router picks a model per ticket", "ok"); }));
+  const perm = { edits: "Auto-accept edits", auto: "Auto", full: "Full access" }[prefs.cli_permission || "edits"];
+  seg.innerHTML = `<button class="btn" data-mpick>${icon("sparkle")}${esc(await Picker.label(prefs.worker))} · ${perm} · ${Effort.NAMES[prefs.cli_effort || "high"]}${icon("chevd")}</button>`;
+  seg.querySelector("button").onclick = e => Picker.open(e.currentTarget, { model: prefs.worker || "", permission: prefs.cli_permission || "edits", effort: prefs.cli_effort || null }, async c => {
+    prefs.worker = prefs.planner = c.model || null; prefs.cli_permission = c.permission; prefs.cli_effort = c.effort;
+    await invoke("set_agent_run", { planner: prefs.planner, worker: prefs.worker, permission: c.permission, effort: c.effort });
+  });
   const ro = $("#reopen", el); if (ro) ro.onclick = () => { const p = snap.workspace; closeSettings(); openProject(p); };
   const keys = (await invoke("api_keys").catch(() => null)) || [];
   const names = { ANTHROPIC_API_KEY: ["Anthropic", "Claude models for the planner and workers"], OPENROUTER_API_KEY: ["OpenRouter", "Any model through one key"], TYPESAFE_API_KEY: ["Jev router", "Optional: smarter model choice per agent"] };
@@ -1432,7 +1460,7 @@ async function renderCoding(el) {
   g.addEventListener("pointerdown", e => {
     e.preventDefault(); g.setPointerCapture(e.pointerId);
     const left = win.getBoundingClientRect().left;
-    const move = ev => { const w = Math.min(380, Math.max(220, ev.clientX - left)); win.style.setProperty("--side-w", w + "px"); place(); };
+    const move = ev => { const w = Math.min(380, Math.max(176, ev.clientX - left)); win.style.setProperty("--side-w", w + "px"); place(); };
     const upf = () => { g.removeEventListener("pointermove", move); g.removeEventListener("pointerup", upf); };
     g.addEventListener("pointermove", move); g.addEventListener("pointerup", upf);
   });
@@ -1478,7 +1506,8 @@ addEventListener("DOMContentLoaded", async () => {
   S.mode = prefs.mode || "chat";
   S.codeView = prefs.code_view === "pair" ? "pair" : "agents";
   S.chatView = prefs.chat_view === "agents" ? "agents" : "chat";
-  S.wb = WB.some(([k]) => k === prefs.wb_view) ? prefs.wb_view : "canvases";
+  S.wb = WB.some(([k]) => k === prefs.wb_view) ? prefs.wb_view : "home";
+  Art.apply(prefs.backdrop);
   // A folder given on the command line, or a bench run: start in Code.
   const first = await invoke("snapshot");
   if (first.workspace && (boot.bench || !prefs.onboarded)) { S.mode = "code"; S.codeView = "agents"; }
