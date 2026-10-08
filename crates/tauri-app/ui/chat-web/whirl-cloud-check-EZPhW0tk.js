@@ -1,0 +1,1 @@
+import{c}from"./whirl.js";const o=[["path",{d:"m17 15-5.5 5.5L9 18",key:"15q87x"}],["path",{d:"M5 17.743A7 7 0 1 1 15.71 10h1.79a4.5 4.5 0 0 1 1.5 8.742",key:"9ho6ki"}]],t=c("cloud-check",o);export{o as __iconNode,t as default};

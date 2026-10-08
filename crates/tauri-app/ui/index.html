@@ -43,17 +43,18 @@
     <div class="mainc">
       <header class="tbar" data-tauri-drag-region>
         <button class="ib" id="sideOpen" aria-label="Show sidebar" data-icon="sidebar" hidden></button>
-        <button class="zbtn" id="zoneBtn" aria-haspopup="menu" data-popper></button>
+        <div class="zones" id="zones" role="tablist" aria-label="Zones"></div>
         <div class="modes" id="modes" role="tablist"></div>
-        <div class="wbv code-only agents-only" id="wbv" role="tablist" aria-label="Workbench view"></div>
+        <button class="vbtn code-only agents-only" id="viewBtn" aria-haspopup="menu" data-popper></button>
         <nav class="tabs code-only agents-only" id="tabs" role="tablist" aria-label="Tabs"></nav>
+        <button class="ib code-only agents-only canvas-only" id="addCanvas" aria-label="Add a canvas" title="Add a canvas" data-icon="plus"></button>
         <div class="zone-head" id="zoneHead"></div>
         <div class="chat-head chat-only" id="chatHead"></div>
         <span class="sp" data-tauri-drag-region></span>
         <div class="right">
-          <button class="ib code-only agents-only" id="addCanvas" aria-label="Add a canvas" title="Add a canvas" data-icon="plus"></button>
-          <button class="ib" id="searchBtn" aria-label="Search" title="Search projects, agents and chats (Ctrl K)" data-icon="search" data-popper></button>
-          <button class="ib" id="splitBtn" aria-label="Split view" title="Open something beside this" data-icon="splitv" aria-haspopup="menu"></button>
+          <button class="srchbtn" id="searchBtn" aria-label="Search" title="Search projects, agents and chats" data-popper><span data-icon="search"></span>Search<kbd>Ctrl K</kbd></button>
+          <button class="ib code-only" id="panelBtn" aria-label="Side panel: history, files, sessions" title="History, files and sessions" aria-pressed="false" data-icon="panelr"></button>
+          <button class="ib" id="gearBtn" aria-label="Settings" title="Settings" data-icon="gear"></button>
         </div>
         <div class="caps" id="caps"></div>
       </header>
@@ -65,6 +66,7 @@
         <div class="split-gut" id="splitGut" role="separator" aria-orientation="vertical" aria-label="Resize split" hidden></div>
         <div class="split-head" id="splitHead" hidden></div>
       </div>
+      <aside class="rpanel" id="rpanel" aria-label="History, files and sessions" hidden></aside>
       <section class="settings" id="settings" hidden></section>
       <aside class="drawer" id="drawer" aria-label="Tickets and reviews" hidden></aside>
     </div>
@@ -86,6 +88,7 @@
 <script src="app.js"></script>
 <script src="picker.js"></script>
 <script src="home.js"></script>
+<script src="rpanel.js"></script>
 <script src="providers.js"></script>
 <script src="chat.js"></script>
 <script src="onboard.js"></script>

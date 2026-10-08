@@ -367,6 +367,24 @@ cargo test                                                 # core + e2e (mock mo
    `git merge` to run.
 7. The main agent verifies the merged result and submits the final deliverable.
 
+### Orchestrator, advisor, scouts
+
+Plan on high, delegate on medium, keep Opus on call (`[advisor]` in the config):
+
+- **Sonnet leads.** The main agent is pinned to Sonnet at high effort (when an
+  Anthropic key is set; otherwise the router or a CLI takes the lead).
+- **Opus advises.** Agents on the Anthropic API get the server-side `advisor`
+  tool (Opus 5.5), consulted before a plan locks, when the same check fails
+  twice (the harness says so), and before work is called done; never on
+  routine steps. Agents in Claude Code run with `claude --advisor opus`.
+- **Haiku scouts.** A `scout` tool sends up to three small, fast, read-only
+  agents in parallel to find files and read code or docs; in Claude Code a
+  `scout` subagent on Haiku does the same. Scouts show on the Wall.
+
+Agents can also open and close canvases (`open_canvas`, `close_canvas`): a
+browser on the dev server they started, their files, a session. **Ctrl ↵**
+on Home starts another task in parallel, on its own branch.
+
 ### Start cheap, escalate on evidence
 
 The router's pick is a *prior*, capped at `escalation.start_max_effort` /

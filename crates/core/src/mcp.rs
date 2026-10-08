@@ -115,6 +115,11 @@ pub fn serve() -> Result<()> {
                 } else {
                     vec![]
                 };
+                if b.is_ok() {
+                    for t in crate::harness::canvas_tools() {
+                        tools.push(json!({"name": t.name, "description": t.description, "inputSchema": t.schema}));
+                    }
+                }
                 if b.as_ref().is_ok_and(crate::board::is_planner) {
                     for t in [crate::harness::create_tickets_tool(), crate::harness::work_tickets_tool()] {
                         let d = if t.name == "work_tickets" {
@@ -154,6 +159,8 @@ pub fn serve() -> Result<()> {
                         crate::board::do_send(b, a["to"].as_str().unwrap_or(""), a["text"].as_str().unwrap_or(""))
                     }),
                     "read_messages" => board().and_then(crate::board::do_read),
+                    "open_canvas" => board().and_then(|b| crate::board::do_canvas(b, "open", a.clone())),
+                    "close_canvas" => board().and_then(|b| crate::board::do_canvas(b, "close", a.clone())),
                     "create_tickets" => board().and_then(|b| crate::board::do_plan(b, "/v1/plan/create", a.clone())),
                     "work_tickets" => board().and_then(|b| crate::board::do_plan(b, "/v1/plan/dispatch", a.clone())),
                     "computer_run" | "computer_read" | "computer_write" => match computer_env() {

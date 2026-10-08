@@ -64,6 +64,8 @@ pub struct ToolDef {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Stop {
+    /// A server tool (the advisor) paused the turn: send it again to go on.
+    Pause,
     EndTurn,
     ToolUse,
     MaxTokens,
@@ -76,6 +78,8 @@ pub struct Completion {
     pub stop: Stop,
     pub input_tokens: u64,
     pub output_tokens: u64,
+    /// The advisor's own (input, output) tokens, billed at its rates.
+    pub advisor_tokens: (u64, u64),
 }
 
 impl Completion {
@@ -98,6 +102,8 @@ pub struct Request<'a> {
     pub system: &'a str,
     pub messages: &'a [Message],
     pub tools: &'a [ToolDef],
+    /// A stronger model the executor may consult (Anthropic's advisor tool).
+    pub advisor: Option<&'a str>,
 }
 
 pub async fn complete(http: &reqwest::Client, req: Request<'_>) -> Result<Completion> {
@@ -127,6 +133,10 @@ pub async fn complete(http: &reqwest::Client, req: Request<'_>) -> Result<Comple
             .timeout(Duration::from_secs(600));
         let key = req.provider.api_key();
         rb = match req.provider.kind {
+            ProviderKind::Anthropic if req.advisor.is_some() => rb
+                .header("x-api-key", key.unwrap_or_default())
+                .header("anthropic-version", "2023-06-01")
+                .header("anthropic-beta", "advisor-tool-2026-03-01"),
             ProviderKind::Anthropic => rb
                 .header("x-api-key", key.unwrap_or_default())
                 .header("anthropic-version", "2023-06-01"),
@@ -194,11 +204,14 @@ fn anthropic_body(req: &Request) -> Value {
         })
         .collect();
 
-    let tools: Vec<Value> = req
+    let mut tools: Vec<Value> = req
         .tools
         .iter()
         .map(|t| json!({"name": t.name, "description": t.description, "input_schema": t.schema}))
         .collect();
+    if let Some(a) = req.advisor {
+        tools.push(json!({"type": "advisor_20260301", "name": "advisor", "model": a}));
+    }
 
     let mut body = json!({
         "model": req.model.wire_model(),
@@ -228,6 +241,7 @@ fn wire_effort(e: Effort) -> &'static str {
 fn parse_anthropic(v: Value) -> Result<Completion> {
     let stop = match v["stop_reason"].as_str() {
         Some("tool_use") => Stop::ToolUse,
+        Some("pause_turn") => Stop::Pause,
         Some("max_tokens") => Stop::MaxTokens,
         Some("refusal") => Stop::Refusal,
         _ => Stop::EndTurn,
@@ -249,6 +263,12 @@ fn parse_anthropic(v: Value) -> Result<Completion> {
         })
         .collect();
     let u = &v["usage"];
+    // The advisor's tokens come per iteration, apart from the executor's.
+    let (mut adv_in, mut adv_out) = (0, 0);
+    for it in u["iterations"].as_array().into_iter().flatten().filter(|i| i["type"] == "advisor_message") {
+        adv_in += it["input_tokens"].as_u64().unwrap_or(0);
+        adv_out += it["output_tokens"].as_u64().unwrap_or(0);
+    }
     // Cache reads bill at 0.1x and writes at 1.25x; fold them in so cost math
     // downstream stays a single multiply.
     Ok(Completion {
@@ -258,6 +278,7 @@ fn parse_anthropic(v: Value) -> Result<Completion> {
             + u["cache_read_input_tokens"].as_u64().unwrap_or(0) / 10
             + u["cache_creation_input_tokens"].as_u64().unwrap_or(0) * 5 / 4,
         output_tokens: u["output_tokens"].as_u64().unwrap_or(0),
+        advisor_tokens: (adv_in, adv_out),
     })
 }
 
@@ -351,6 +372,7 @@ fn parse_openai(v: Value) -> Result<Completion> {
         stop,
         input_tokens: v["usage"]["prompt_tokens"].as_u64().unwrap_or(0),
         output_tokens: v["usage"]["completion_tokens"].as_u64().unwrap_or(0),
+        advisor_tokens: (0, 0),
     })
 }
 
@@ -372,9 +394,13 @@ mod tests {
             system: "s",
             messages: &msgs,
             tools: &[],
+            advisor: Some("claude-opus-5-5"),
         });
         assert_eq!(b["output_config"]["effort"], "max");
         assert_eq!(b["thinking"]["type"], "adaptive");
+        // The advisor rides along as a server tool.
+        assert_eq!(b["tools"][0]["type"], "advisor_20260301");
+        assert_eq!(b["tools"][0]["model"], "claude-opus-5-5");
         let haiku = cfg.model("claude-haiku-4-5").unwrap();
         let b = anthropic_body(&Request {
             provider: p,
@@ -383,6 +409,7 @@ mod tests {
             system: "s",
             messages: &msgs,
             tools: &[],
+            advisor: None,
         });
         assert!(b.get("output_config").is_none());
     }

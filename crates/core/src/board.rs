@@ -195,6 +195,12 @@ pub(crate) fn do_plan(b: &Bridge, path: &str, mut body: Value) -> Result<String>
     body["me"] = json!(b.me);
     Ok(call(b, path, body)?["text"].as_str().unwrap_or("").to_string())
 }
+/// Open or close a canvas in the user's window (`op`: "open" or "close").
+pub(crate) fn do_canvas(b: &Bridge, op: &str, mut body: Value) -> Result<String> {
+    body["me"] = json!(b.me);
+    body["op"] = json!(op);
+    Ok(call(b, "/v1/canvas", body)?["text"].as_str().unwrap_or("").to_string())
+}
 pub(crate) fn is_planner(b: &Bridge) -> bool {
     b.me == "main"
 }

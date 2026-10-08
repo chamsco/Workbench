@@ -153,6 +153,7 @@ fn new_record(
         worktree: None,
         escalations: vec![],
         traces: vec![],
+        advisor_calls: 0,
     }
 }
 
@@ -161,6 +162,11 @@ fn new_record(
 /// signed-in one of Claude Code and Codex stands in, so a subscription is
 /// enough to start a project.
 fn pick_planner(cfg: &mut Config, over: &Overrides) -> Option<String> {
+    // A pinned API model with no key (the default pins Sonnet) would fail every
+    // turn: drop it and let the router or a CLI take the lead.
+    if cfg.router.pin_main.as_ref().is_some_and(|p| cfg.cli_of(p).is_none() && !cfg.usable_models().iter().any(|m| &m.id == p)) {
+        cfg.router.pin_main = None;
+    }
     let pin = over.planner.clone().filter(|p| !p.is_empty()).or_else(|| cfg.router.pin_main.clone());
     let cli = |cfg: &Config, m: &str| cfg.cli_usable(m).then(|| cfg.cli_of(m).and_then(|p| p.cli.clone())).flatten();
     match pin {
@@ -246,6 +252,12 @@ impl Harness {
             .build()?;
 
         let planner = pick_planner(&mut cfg, &over);
+        // Auto (the router picks per ticket): the effort slider caps where workers start.
+        if over.worker.as_deref().is_none_or(|w| w.is_empty()) {
+            if let Some(e) = over.effort.as_ref().and_then(|e| serde_json::from_value::<Effort>(json!(e)).ok()) {
+                cfg.escalation.start_max_effort = e;
+            }
+        }
 
         let (git_notes, base_branch, run_dir) = if cfg.orchestrator.isolation == Isolation::Worktree {
             let (dir, notes) = rt
@@ -289,6 +301,7 @@ impl Harness {
             config_source: config_source.clone(),
             board: vec![],
             planner_session: None,
+            canvas_ops: vec![],
         };
         // A project opened before carries on: tickets, approvals, spend and
         // the board come back; what was running is marked interrupted.
@@ -447,6 +460,11 @@ impl Harness {
         resolve(&self.inner, &self.to_main, approval, verdict);
     }
 
+    /// Start another task in parallel; returns its ticket key.
+    pub fn start_task(&self, text: &str) -> Result<String> {
+        start_task(&self.inner, self.rt.handle(), text)
+    }
+
     /// Stop an agent and everything under it (the main agent: the whole
     /// project). Its process is killed; its ticket is left failed, so it can
     /// be dispatched again, and its branch keeps what it did.
@@ -552,6 +570,10 @@ impl crate::remote::Api for Served {
     fn stop(&self, agent: Option<usize>) {
         stop(&self.inner, agent);
     }
+    fn start_task(&self, text: &str) -> Result<String> {
+        // `serve` answers on the harness's runtime.
+        start_task(&self.inner, &tokio::runtime::Handle::current(), text)
+    }
     fn file_ticket(&self, title: &str, body: &str) -> Result<String> {
         file_ticket(
             &self.inner,
@@ -628,6 +650,24 @@ impl Inner {
                 let _ = std::fs::write(dir.join("state.json"), json);
             }
         }
+    }
+
+    /// An agent opens or closes a canvas; the shell applies it.
+    fn canvas(&self, by: &str, op: &str, input: &Value) -> Result<String> {
+        let kind = input["kind"].as_str().unwrap_or("");
+        if !["browser", "files", "agent", "diagram", "docs", "board"].contains(&kind) {
+            bail!("unknown canvas kind `{kind}`");
+        }
+        let url = input["url"].as_str().filter(|u| !u.is_empty()).map(String::from);
+        if kind == "browser" && op == "open" && !url.as_deref().is_some_and(|u| u.starts_with("http://") || u.starts_with("https://")) {
+            bail!("a browser canvas needs an http(s) url");
+        }
+        let agent = Some(input["agent"].as_str().filter(|a| !a.is_empty()).unwrap_or(by).to_string());
+        self.update(|s| {
+            let id = s.canvas_ops.len() as u64 + 1;
+            s.canvas_ops.push(CanvasOp { id, op: op.into(), kind: kind.into(), agent, url, by: by.into() });
+        });
+        Ok(format!("{op}ed a {kind} canvas in the user's window"))
     }
 
     /// Start an agent's trace (one per worker run, one per message to main).
@@ -744,7 +784,11 @@ impl Inner {
             ),
             AgentKind::Worker => include_str!("prompts/worker.md").to_string(),
             AgentKind::Triage => include_str!("prompts/triage.md").to_string(),
+            AgentKind::Scout => SCOUT_PROMPT.to_string(),
         };
+        if matches!(kind, AgentKind::Main | AgentKind::Worker) {
+            s.push_str(&self.team_notes());
+        }
         if kind == AgentKind::Worker && self.can_spawn(depth) {
             s.push_str("\n\n");
             s.push_str(&format!(
@@ -764,6 +808,7 @@ impl Inner {
             AgentKind::Main => &wf.main_skills,
             AgentKind::Worker => &wf.worker_skills,
             AgentKind::Triage => &wf.triage_skills,
+            AgentKind::Scout => &wf.triage_skills,
         };
         for name in injected {
             if name == "grilling" && !wf.grill {
@@ -781,6 +826,17 @@ impl Inner {
             s.push_str("\n\n# Project instructions (AGENTS.md)\n\n");
             s.push_str(md);
         }
+        s
+    }
+
+    /// How the lead and workers use the advisor and scouts, appended to
+    /// their brief. The same text goes to agents in CLIs (cli_team_notes).
+    fn team_notes(&self) -> String {
+        let mut s = String::new();
+        if let Some(a) = &self.cfg.advisor.model {
+            s.push_str(&format!("\n\n# Your advisor\n\nA stronger model ({a}) is on call through the `advisor` tool; it reads this whole conversation. Consult it at three moments and stay on your own otherwise:\n- before a plan locks (before create_tickets, or before a large change): does it miss auth invariants, schema contracts or edge cases?\n- when the same check or error fails twice: is this the root cause, or a rabbit hole?\n- before you call it done (submit_deliverable): did the full diff break anything or skip a pre-flight rule?\nNever for routine steps."));
+        }
+        s.push_str(&format!("\n\n# Scouts\n\nFor looking things up (which files matter, how an API works, what the docs say), send scouts with the `scout` tool: up to {} small fast read-only agents in parallel, each returning a short summary. It is cheaper than reading a lot yourself.", self.cfg.advisor.scouts.max(1)));
         s
     }
 
@@ -849,14 +905,50 @@ fn tools_for(kind: AgentKind, can_spawn: bool) -> Vec<ToolDef> {
         tools.push(triage_tool());
         return tools;
     }
+    if kind == AgentKind::Scout {
+        tools.retain(|t| t.name == "read" || t.name == "bash");
+        return tools;
+    }
     tools.push(skill_tool());
     if can_spawn {
         tools.extend([create_tickets_tool(), work_tickets_tool(), revise_tool()]);
     }
+    tools.push(scout_tool());
+    tools.extend(canvas_tools());
     tools.push(file_ticket_tool());
     tools.extend(board_tools());
     tools.push(deliver_tool());
     tools
+}
+
+pub(crate) fn scout_tool() -> ToolDef {
+    ToolDef {
+        name: "scout",
+        description: "Send fast read-only scouts (a small model) to look things up in parallel: which files matter, how something works, what the docs or specs say. Each task gets its own scout and comes back as a short summary.",
+        schema: json!({"type": "object", "properties": {"tasks": {"type": "array", "items": {"type": "string"}, "description": "one question per scout, specific enough to answer alone"}}, "required": ["tasks"]}),
+    }
+}
+
+/// Opening and closing canvases in the user's window: a browser on the dev
+/// server you started, your worktree's files, someone's session.
+pub(crate) fn canvas_tools() -> Vec<ToolDef> {
+    let props = json!({
+        "kind": {"type": "string", "enum": ["browser", "files", "agent", "diagram", "docs", "board"], "description": "browser: a web page (give url); files: a worktree; agent: an agent's session; diagram: the review; docs: PLAN.md; board: team chat"},
+        "url": {"type": "string", "description": "for browser, e.g. http://localhost:3000"},
+        "agent": {"type": "string", "description": "for files and agent: whose (an agent key); default yourself"}
+    });
+    vec![
+        ToolDef {
+            name: "open_canvas",
+            description: "Open a canvas in the user's window so they can watch something: your dev server in a browser, your files, a session. Use it when seeing it helps the user; not for routine steps.",
+            schema: json!({"type": "object", "properties": props, "required": ["kind"]}),
+        },
+        ToolDef {
+            name: "close_canvas",
+            description: "Close a canvas you opened (same kind and url or agent) when it is no longer useful.",
+            schema: json!({"type": "object", "properties": props, "required": ["kind"]}),
+        },
+    ]
 }
 
 fn board_tools() -> Vec<ToolDef> {
@@ -1029,6 +1121,16 @@ async fn plan_on_cli(inner: &Arc<Inner>, cli: &str, text: String) -> Result<()> 
     }
 }
 
+/// The advisor and scouts as a CLI agent has them (Claude Code: `--advisor`
+/// and the `scout` subagent).
+fn cli_team_notes(inner: &Inner) -> String {
+    let a = &inner.cfg.advisor;
+    if a.cli.is_none() && a.cli_scouts.is_none() {
+        return String::new();
+    }
+    "\n\n# Advisor and scouts\n\nIf you have an advisor tool, consult it at three moments only: before a plan locks, when the same check or error fails twice, and before you call the work done. For discovery (which files matter, what the docs say), send the `scout` subagent, several in parallel, rather than reading a lot yourself.".to_string()
+}
+
 /// The planner's brief in a CLI: the API planner's, plus how its tools work there.
 fn planner_system(inner: &Inner) -> String {
     let d = Decision {
@@ -1040,8 +1142,9 @@ fn planner_system(inner: &Inner) -> String {
         note: None,
     };
     format!(
-        "{}\n\n# Your tools here\n\nYou run inside a coding CLI. Backspace's planning tools are MCP tools named `create_tickets` and `work_tickets` (server `backspace`). Both return at once: after calling either, end your turn with a one-line note. The user's verdict on a plan, or each ticket's result, comes back as your next message. Do not build the tickets yourself; agents do that on their own branches, and their accepted work is merged into this checkout (branch `{}`), where you can read and verify it.",
+        "{}{}\n\n# Your tools here\n\nYou run inside a coding CLI. Backspace's planning tools are MCP tools named `create_tickets` and `work_tickets` (server `backspace`). Both return at once: after calling either, end your turn with a one-line note. The user's verdict on a plan, or each ticket's result, comes back as your next message. Do not build the tickets yourself; agents do that on their own branches, and their accepted work is merged into this checkout (branch `{}`), where you can read and verify it.",
         inner.system_prompt(AgentKind::Main, 0, &d),
+        cli_team_notes(inner),
         inner.base_branch
     )
 }
@@ -1182,7 +1285,8 @@ async fn finish_cli(
         })
         .unwrap_or_else(|| "backspace".into());
     let mut prompt = format!(
-        "{brief}\n\n# How to work\n\nYou are one worker in a team; this directory is your own git worktree for this ticket. Make the change, run the project's tests or checks if it has any, and fix what fails. Do not commit or push: Backspace commits your work and sends it for review. When you are done, reply with a short summary of what you changed; its first line is the one-line summary.\n\n# Talking to the team\n\nOther agents work on other tickets at the same time, some on other models or CLIs. Your key is `{me}`. From your shell:\n- `{exe} msg agents` lists them\n- `{exe} msg send <key|main|all> \"text\"` messages one (or everyone)\n- `{exe} msg read` shows messages for you\nCheck messages before you finish, and tell others about interfaces or shared files you change."
+        "{brief}{}\n\n# How to work\n\nYou are one worker in a team; this directory is your own git worktree for this ticket. Make the change, run the project's tests or checks if it has any, and fix what fails. Do not commit or push: Backspace commits your work and sends it for review. When you are done, reply with a short summary of what you changed; its first line is the one-line summary.\n\n# Talking to the team\n\nOther agents work on other tickets at the same time, some on other models or CLIs. Your key is `{me}`. From your shell:\n- `{exe} msg agents` lists them\n- `{exe} msg send <key|main|all> \"text\"` messages one (or everyone)\n- `{exe} msg read` shows messages for you\nCheck messages before you finish, and tell others about interfaces or shared files you change.",
+        cli_team_notes(inner)
     );
     let mut session: Option<String> = None;
     for round in 0..4 {
@@ -1250,6 +1354,18 @@ async fn run_cli_turn(
     req.system = system.map(String::from);
     req.permission = inner.over.permission.clone();
     req.effort = inner.over.effort.clone();
+    if cli == "claude" {
+        // Orchestrator, advisor, scouts, in Claude Code's own terms.
+        req.advisor = inner.cfg.advisor.cli.clone();
+        if let Some(m) = &inner.cfg.advisor.cli_scouts {
+            req.agents = Some(json!({"scout": {
+                "description": "Fast read-only scout: finds the files that matter, reads code, docs and specs, and returns a short summary. Use it for discovery instead of reading a lot yourself; send several in parallel.",
+                "prompt": SCOUT_PROMPT,
+                "model": m,
+                "tools": ["Read", "Grep", "Glob", "WebFetch"],
+            }}));
+        }
+    }
     req.env.push(("PATH".into(), crate::harnesses::path_env().to_string_lossy().into_owned()));
     if let Some((url, token)) = &bridge {
         // The board, for `backspace msg` and the MCP server.
@@ -1414,6 +1530,14 @@ async fn drive(inner: &Arc<Inner>, c: &mut Conversation) -> Result<TurnEnd> {
             .ok_or_else(|| anyhow!("routed to unknown model {}", c.decision.model))?
             .clone();
         let provider_cfg = inner.cfg.providers[&spec.provider].clone();
+        // The advisor: Anthropic only, and only for an executor it can rank
+        // above (an Opus advisor can't advise Fable). Scouts work without one.
+        let advisor = inner.cfg.advisor.model.clone().filter(|a| {
+            provider_cfg.kind == crate::config::ProviderKind::Anthropic
+                && c.kind != AgentKind::Scout
+                && !spec.wire_model().contains("fable")
+                && a != spec.wire_model()
+        });
         let completion = {
             let _permit = inner.limiter.acquire().await?;
             provider::complete(
@@ -1425,12 +1549,21 @@ async fn drive(inner: &Arc<Inner>, c: &mut Conversation) -> Result<TurnEnd> {
                     system: &c.system,
                     messages: &c.messages,
                     tools: &c.tools,
+                    advisor: advisor.as_deref(),
                 },
             )
             .await?
         };
 
-        let cost = spec.cost(completion.input_tokens, completion.output_tokens);
+        let mut cost = spec.cost(completion.input_tokens, completion.output_tokens);
+        let (ai, ao) = completion.advisor_tokens;
+        if ai + ao > 0 {
+            if let Some(m) = advisor.as_deref().and_then(|a| inner.cfg.models.iter().find(|m| m.wire_model() == a)) {
+                cost += m.cost(ai, ao);
+            }
+            inner.log(c.id, LogKind::System, format!("consulted the advisor ({}): {}k tokens read", advisor.as_deref().unwrap_or("advisor"), ai / 1000));
+            inner.agent(c.id, |a| a.advisor_calls += 1);
+        }
         inner.update(|s| {
             let a = &mut s.agents[c.id];
             a.cost_usd += cost;
@@ -1459,6 +1592,8 @@ async fn drive(inner: &Arc<Inner>, c: &mut Conversation) -> Result<TurnEnd> {
         });
 
         match completion.stop {
+            // The advisor paused the turn; send it again to carry on.
+            Stop::Pause => continue,
             Stop::Refusal => bail!("model refused the request"),
             Stop::ToolUse => {}
             Stop::MaxTokens if !has_tool_use(&completion.content) => {
@@ -1628,6 +1763,11 @@ async fn run_tool(
             let me = s.agents[c.id].key.clone();
             Ok(text(inner.cursors.lock().unwrap().take(&s, &me)))
         }
+        "scout" if c.kind != AgentKind::Scout => scouts(inner, c, input).await.map(text),
+        "open_canvas" | "close_canvas" => {
+            let me = inner.state.lock().unwrap().agents[c.id].key.clone();
+            inner.canvas(&me, if name == "open_canvas" { "open" } else { "close" }, input).map(text)
+        }
         "read" | "bash" => c.ws.run(name, input).await.map(text),
         "write" | "edit" if c.kind != AgentKind::Triage => c.ws.run(name, input).await.map(text),
         other => bail!("tool `{other}` is not available to you"),
@@ -1714,9 +1854,15 @@ async fn submit(inner: &Arc<Inner>, c: &Conversation, input: &Value) -> Result<T
     if let Some(check) = ticket.as_ref().and_then(|t| t.check.clone()) {
         let (code, out) = c.ws.sh(&check).await?;
         if code != 0 {
+            let before = inner.state.lock().unwrap().agents[c.id].log.iter().filter(|e| e.text.contains("CHECK FAILED")).count();
+            let advise = if before >= 1 && inner.cfg.advisor.model.is_some() {
+                "\nThis check has now failed twice: consult the advisor before your next attempt. Are you fixing the root cause, or going round in circles?"
+            } else {
+                ""
+            };
             return Ok(ToolOutcome::Failure(
                 format!(
-                    "CHECK FAILED: `{check}` exited {code}. Nothing was sent for review.\n{}\nFix it, then call submit_deliverable again.",
+                    "CHECK FAILED: `{check}` exited {code}. Nothing was sent for review.\n{}\nFix it, then call submit_deliverable again.{advise}",
                     truncate(&out, 3000)
                 ),
                 "check failed".into(),
@@ -2213,6 +2359,123 @@ fn run_worker(inner: Arc<Inner>, id: AgentId) -> BoxFuture<'static, Result<Deliv
     .boxed()
 }
 
+const SCOUT_PROMPT: &str = "You are a scout: a fast, read-only helper. Answer the one question you are given by reading files and running read-only shell commands (ls, grep, cat, git log). Never change anything. Reply with a short, concrete summary: file paths with line numbers, names, the facts asked for. Under 200 words.";
+
+/// Scouts: one small, fast, read-only agent per task, in parallel, each in
+/// the asker's checkout. Returns their summaries.
+async fn scouts(inner: &Arc<Inner>, c: &Conversation, input: &Value) -> Result<String> {
+    let tasks: Vec<String> = input["tasks"]
+        .as_array()
+        .context("`tasks` must be a list")?
+        .iter()
+        .filter_map(|t| t.as_str().map(String::from))
+        .take(inner.cfg.advisor.scouts.max(1))
+        .collect();
+    if tasks.is_empty() {
+        bail!("give at least one task");
+    }
+    let model = inner
+        .cfg
+        .advisor
+        .scout_model
+        .clone()
+        .filter(|m| inner.cfg.usable_models().iter().any(|u| &u.id == m))
+        .or_else(|| inner.cfg.usable_models().into_iter().min_by_key(|m| m.tier).map(|m| m.id.clone()))
+        .ok_or_else(|| anyhow!("no API model for scouts; read the files yourself"))?;
+    let d = Decision { model, effort: Effort::Low, source: "scout".into(), confidence: 1.0, router_cost_usd: 0.0, note: None };
+    let (depth, dir) = {
+        let s = inner.state.lock().unwrap();
+        (s.agents[c.id].depth + 1, c.ws.root.clone())
+    };
+    let runs = tasks.iter().enumerate().map(|(i, task)| {
+        let (inner, d, dir, task) = (inner.clone(), d.clone(), dir.clone(), task.clone());
+        let parent = c.id;
+        async move {
+            let id = inner.update(|s| {
+                let id = s.agents.len();
+                let mut rec = new_record(id, AgentKind::Scout, Some(parent), depth, format!("scout-{id}"), truncate(&task, 60).to_string());
+                rec.brief = task.clone();
+                rec.decision = Some(d.clone());
+                s.agents.push(rec);
+                id
+            });
+            inner.log(id, LogKind::User, task.clone());
+            inner.trace_start(id, &format!("scout · {}", truncate(&task, 40)), &task);
+            let mut sc = Conversation {
+                id,
+                kind: AgentKind::Scout,
+                ticket: None,
+                can_spawn: false,
+                ws: inner.workspace(&dir),
+                initial: d.clone(),
+                system: inner.system_prompt(AgentKind::Scout, depth, &d),
+                decision: d,
+                messages: vec![Message::user_text(task.clone())],
+                tools: tools_for(AgentKind::Scout, false),
+                budget_warned_at: None,
+                turns_total: 0,
+                recent_calls: vec![],
+            };
+            inner.set_status(id, AgentStatus::Running);
+            let res = drive(&inner, &mut sc).await;
+            let answer = sc.messages.iter().rev().find(|m| m.role == Role::Assistant).map(|m| {
+                m.content.iter().filter_map(|b| if let Block::Text { text } = b { Some(text.as_str()) } else { None }).collect::<Vec<_>>().join("\n")
+            }).unwrap_or_default();
+            inner.set_status(id, if res.is_ok() { AgentStatus::Approved } else { AgentStatus::Failed });
+            inner.trace_finish(id, res.as_ref().err().map(|e| format!("{e:#}")));
+            let body = match res {
+                Ok(_) if !answer.trim().is_empty() => answer,
+                Ok(_) => "(no answer)".into(),
+                Err(e) => format!("(failed: {e:#})"),
+            };
+            format!("## Scout {}: {task}\n{body}", i + 1)
+        }
+    });
+    Ok(join_all(runs).await.join("\n\n"))
+}
+
+/// Another task, in parallel with whatever runs: a ticket of its own, on its
+/// own branch and worktree, built by an agent that may plan sub-tickets;
+/// reviewed and merged like any ticket. The main agent hears how it went.
+fn start_task(inner: &Arc<Inner>, rt: &tokio::runtime::Handle, text: &str) -> Result<String> {
+    let text = text.trim();
+    if text.is_empty() {
+        bail!("say what the task is");
+    }
+    let slug: String = text
+        .to_lowercase()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect::<String>()
+        .split('-')
+        .filter(|w| !w.is_empty())
+        .take(4)
+        .collect::<Vec<_>>()
+        .join("-");
+    let key = {
+        let s = inner.state.lock().unwrap();
+        let base = if slug.is_empty() { "task".to_string() } else { slug };
+        (1..).map(|n| if n == 1 { base.clone() } else { format!("{base}-{n}") })
+            .find(|k| s.ticket(k).is_none() && !s.agents.iter().any(|a| &a.key == k))
+            .unwrap()
+    };
+    let title: String = text.lines().next().unwrap_or(text).chars().take(70).collect();
+    let input = json!({"tickets": [{"key": key, "title": title, "what_to_build": text,
+        "acceptance": ["It does what the task asks", "Existing tests and checks still pass"]}]});
+    create_batch(inner, MAIN, &input)?;
+    // You asked for it: no plan approval; the work itself still comes to review.
+    inner.ticket(&key, |t| t.state = TicketState::ReadyForAgent);
+    inner.log(MAIN, LogKind::System, format!("started `{key}` in parallel: {title}"));
+    let (i2, k2) = (inner.clone(), key.clone());
+    rt.spawn(async move {
+        let report = work_tickets(&i2, MAIN, &json!({ "keys": [k2] }))
+            .await
+            .unwrap_or_else(|e| format!("`{k2}` could not start: {e:#}"));
+        i2.log(MAIN, LogKind::System, report);
+    });
+    Ok(key)
+}
+
 fn report_line(inner: &Inner, id: AgentId, res: Result<Deliverable>) -> String {
     let (key, title, depth, escalations, spent) = {
         let s = inner.state.lock().unwrap();
@@ -2584,6 +2847,11 @@ async fn bridge_handle(
         "/v1/board/agents" => {
             Ok(json!({"text": crate::board::agents_line(&inner.state.lock().unwrap())}))
         }
+        "/v1/canvas" => inner.canvas(
+            body["me"].as_str().unwrap_or("?"),
+            if body["op"] == "close" { "close" } else { "open" },
+            &body,
+        ).map(|t| json!({"text": t})),
         // A planner in a CLI: tickets are made now (so mistakes come back at
         // once); approval and dispatch run after its turn (plan_on_cli).
         p if p.starts_with("/v1/plan/") && (body["me"] != "main" || inner.planner.is_none()) => {

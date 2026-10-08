@@ -420,6 +420,7 @@ mod tests {
             config_source: None,
             board: vec![],
             planner_session: None,
+            canvas_ops: vec![],
         }
     }
 

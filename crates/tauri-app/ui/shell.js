@@ -65,11 +65,12 @@ var Shell = (() => {
       $("#shSwap").onclick = swap;
       $("#shClose").onclick = () => setSplit(null);
     }
-    $("#splitBtn").setAttribute("aria-pressed", !!sec);
+
     // Chat's scope follows whoever shows it: a project in Pair, else none.
     if (window.Chat && Chat.setScope) Chat.setScope(S.mode === "code" && prim === "chat" ? snap.workspace : null, S.mode === "chat" && S.chatView === "agents");
-    renderRail(); renderZoneBtn(); renderHead(); renderModes(); renderStatus();
+    renderRail(); renderZones(); renderHead(); renderModes(); renderStatus();
     if (typeof syncArt === "function") syncArt();
+    if (window.RPanel) RPanel.render();
     if ((prim === "chat" || sec === "chat") && window.Chat && !$("#chat").childElementCount) Chat.render();
     if (prim === "memory" || sec === "memory") window.Memory && Memory.refresh();
     if (prim === "apps" || sec === "apps") window.Apps && Apps.renderZone();
@@ -90,7 +91,7 @@ var Shell = (() => {
     setMode(sp.what);
   }
   function toggleSplit() {
-    if (prefs.split) setSplit(null); else splitMenu($("#splitBtn"));
+    if (prefs.split) setSplit(null); else splitMenu($("#searchBtn"));
   }
   function splitMenu(anchor) {
     const opts = ZONES.filter(([z]) => (z !== "chat" && z !== "code") || uses().includes(z))
@@ -136,27 +137,17 @@ var Shell = (() => {
     $$("#rail [data-z]").forEach(b => (b.onclick = () => { if (S.settings) closeSettings(); setMode(b.dataset.z); }));
     $("#gear").setAttribute("aria-selected", !!S.settings);
   }
-  // The title bar's first pill: where you are, and every other zone a click
-  // away (Chat, Code, Memory, Apps, pinned apps, Settings).
-  function renderZoneBtn() {
-    const b = $("#zoneBtn"); if (!b) return;
-    const z = S.settings ? "settings" : S.mode;
-    const n = typeof pending === "function" ? pending().length : 0;
-    b.innerHTML = `${z === "settings" ? icon("gear") : glyph(z, "xs")}<span>${esc(z === "settings" ? "Settings" : zoneName(z))}</span>${n && z !== "code" ? `<i class="rb">${n}</i>` : ""}${icon("updown", "ud")}`;
-    b.onclick = () => {
-      const zs = ZONES.filter(([k]) => (k !== "chat" && k !== "code") || uses().includes(k));
-      const apps = window.Apps ? Apps.pinned() : [];
-      openPop(b, `<div class="zmenu">${zs.map(([k, ic, l]) => `<button class="pi${z === k ? " on" : ""}" data-zz="${k}">${icon(ic)}${l}${badge(k)}</button>`).join("")}
-        ${apps.length ? `<div class="psep"></div>` + apps.map(a => `<button class="pi${z === "app:" + a.id ? " on" : ""}" data-zz="app:${esc(a.id)}">${Apps.glyph(a, "xs")}${esc(a.name)}</button>`).join("") : ""}
-        <div class="psep"></div><button class="pi${z === "settings" ? " on" : ""}" data-zz="settings">${icon("gear")}Settings</button></div>`, pop => {
-        $$("[data-zz]", pop).forEach(x => (x.onclick = () => {
-          closePop();
-          if (x.dataset.zz === "settings") return S.settings ? null : openSettings();
-          if (S.settings) closeSettings();
-          setMode(x.dataset.zz);
-        }));
-      });
-    };
+  // The title bar's zones, side by side as icons: Chat, Code, Memory, Apps,
+  // then pinned apps. Settings is the gear on the right.
+  function renderZones() {
+    const el = $("#zones"); if (!el) return;
+    const z = S.settings ? "" : S.mode;
+    const zs = ZONES.filter(([k]) => (k !== "chat" && k !== "code") || uses().includes(k));
+    const apps = window.Apps ? Apps.pinned() : [];
+    el.innerHTML = zs.map(([k, ic, l]) => `<button role="tab" aria-selected="${z === k}" data-zz="${k}" title="${l}" aria-label="${l}">${icon(ic)}${badge(k)}</button>`).join("")
+      + apps.map(a => `<button role="tab" aria-selected="${z === "app:" + a.id}" data-zz="app:${esc(a.id)}" title="${esc(a.name)}" aria-label="${esc(a.name)}">${Apps.glyph(a, "xs")}</button>`).join("");
+    $$("[data-zz]", el).forEach(x => (x.onclick = () => { if (S.settings) closeSettings(); setMode(x.dataset.zz); }));
+    $("#gearBtn").setAttribute("aria-pressed", !!S.settings);
   }
 
   // Search: zones, projects, agents and chats, from the title bar or Ctrl K.
@@ -294,13 +285,13 @@ var Shell = (() => {
     document.documentElement.classList.add("os-" + platform);
     renderCaps(); wireGutter();
     document.documentElement.classList.toggle("reduce-motion", prefs.motion === "reduced");
-    $("#splitBtn").onclick = e => splitMenu(e.currentTarget);
     $("#searchBtn").onclick = search;
+    $("#gearBtn").onclick = () => (S.settings ? closeSettings() : openSettings());
     $("#gear").onclick = () => (S.settings ? closeSettings() : openSettings());
     if (window.Memory) await Memory.init();
     if (window.Apps) await Apps.init();
   }
-  function refresh() { renderStatus(); renderRail(); renderZoneBtn(); if (S.mode === "code" && S.codeView === "pair") { renderPairProj(); renderHead(); } }
+  function refresh() { renderStatus(); renderRail(); renderZones(); if (S.mode === "code" && S.codeView === "pair") { renderPairProj(); renderHead(); } }
 
   // ---------------------------------------------------------------- status bar
   // After an agent control plane's footer: where you are (branch, project),
@@ -309,6 +300,7 @@ var Shell = (() => {
   async function renderStatus() {
     const el = $("#status"); if (!el) return;
     const list = (await invoke("chat_list").catch(() => null)) || [];
+    if (typeof watchChats === "function") watchChats(list);
     chatBusy = list.filter(t => t.busy);
     const ags = (snap && snap.agents) || [];
     const running = ags.filter(a => a.status && a.status.state === "running");

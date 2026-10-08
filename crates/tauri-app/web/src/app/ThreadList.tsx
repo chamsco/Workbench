@@ -5,6 +5,7 @@
 
 import { useMemo, useState } from "react";
 import {
+  IconAlertTriangleFilled,
   IconCircleFilled,
   IconDots,
   IconEdit,
@@ -161,6 +162,18 @@ function ThreadRow({ thread, active }: { thread: ThreadInfo; active: boolean }) 
             className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 transition-opacity duration-150 group-hover/thread:opacity-0! group-has-data-popup-open/thread:opacity-0!"
           >
             <IconLoader2 size={14} className="animate-spin text-foreground-soft" />
+          </motion.span>
+        ) : thread.failed ? (
+          <motion.span
+            key="failed"
+            initial={{ opacity: 0, scale: 0.5 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.5 }}
+            transition={{ duration: 0.15, ease: "easeOut" }}
+            title={`The last reply failed: ${thread.failed}`}
+            className="absolute top-1/2 right-2.5 -translate-y-1/2 text-[#e5484d] transition-opacity duration-150 group-hover/thread:opacity-0!"
+          >
+            <IconAlertTriangleFilled size={14} aria-label="Failed" />
           </motion.span>
         ) : thread.unread && !active ? (
           <motion.span

@@ -50,6 +50,8 @@ pub enum AgentKind {
     Worker,
     /// Classifies a filed ticket; read-only.
     Triage,
+    /// Looks something up for another agent on a small fast model; read-only.
+    Scout,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -103,6 +105,9 @@ pub struct AgentRecord {
     /// Trace ids of this agent's runs, oldest first (`<data>/traces`).
     #[serde(default)]
     pub traces: Vec<String>,
+    /// Times this agent consulted the advisor.
+    #[serde(default)]
+    pub advisor_calls: u32,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
@@ -149,6 +154,28 @@ pub struct ProjectState {
     /// restart).
     #[serde(default)]
     pub planner_session: Option<String>,
+    /// Canvases agents asked to open or close, in order; the shell applies
+    /// the ones it hasn't yet (by `id`).
+    #[serde(default)]
+    pub canvas_ops: Vec<CanvasOp>,
+}
+
+/// An agent opening or closing a canvas: a browser on its dev server, its
+/// worktree's files, an agent's session, the diagram, PLAN.md, team chat.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct CanvasOp {
+    pub id: u64,
+    /// "open" or "close".
+    pub op: String,
+    /// "browser", "files", "agent", "diagram", "docs" or "board".
+    pub kind: String,
+    /// For "agent" and "files": whose (an agent key; empty: the asker).
+    #[serde(default)]
+    pub agent: Option<String>,
+    #[serde(default)]
+    pub url: Option<String>,
+    /// The agent that asked.
+    pub by: String,
 }
 
 impl ProjectState {
@@ -165,6 +192,7 @@ impl ProjectState {
             config_source: None,
             board: vec![],
             planner_session: None,
+            canvas_ops: vec![],
         }
     }
 

@@ -74,6 +74,9 @@ pub struct Prefs {
     /// The window's backdrop: "harbour", "dawn", "night", "open-sea",
     /// "fog", "aurora" or "plain".
     pub backdrop: String,
+    /// How Backspace tells you something needs you: "system" (the OS's
+    /// notifications), "app" (inside the app only) or "off".
+    pub notify: String,
     /// Where a new chat goes unless the user picks otherwise.
     pub default_route: Option<crate::chat::Route>,
     /// Where traces go besides this machine (Settings → Tracing).
@@ -106,6 +109,7 @@ impl Default for Prefs {
             cli_permission: "edits".into(),
             cli_effort: None,
             backdrop: "harbour".into(),
+            notify: "system".into(),
             companion: CompanionCfg::default(),
             uses: vec!["chat".into(), "code".into()],
             harnesses: BTreeMap::new(),
@@ -264,15 +268,8 @@ impl TabSpec {
     }
 
     pub fn defaults() -> Vec<TabSpec> {
-        vec![
-            TabSpec::new(
-                Some("Terminals".into()),
-                vec![PaneSpec::agent(0), PaneSpec::files(0)],
-            ),
-            TabSpec::new(Some("Browser".into()), vec![PaneSpec::of("browser")]),
-            TabSpec::new(Some("Diagram".into()), vec![PaneSpec::of("diagram")]),
-            TabSpec::new(Some("PLAN.md".into()), vec![PaneSpec::of("docs")]),
-        ]
+        // One canvas to start; you (or the agents) add the rest as the work grows.
+        vec![TabSpec::new(None, vec![PaneSpec::agent(0)])]
     }
 }
 

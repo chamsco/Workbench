@@ -104,6 +104,8 @@ export type ThreadInfo = {
   app?: string | null;
   agent?: string | null;
   members?: string[];
+  /** Why its last reply failed (a usage limit, a crash), if it did. */
+  failed?: string | null;
 };
 
 export type RouteItem = {

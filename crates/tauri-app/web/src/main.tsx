@@ -7,6 +7,7 @@ import { createRoot, type Root } from "react-dom/client";
 
 import "./styles.css";
 import { ChatApp } from "./app/ChatApp";
+import { richPrompt } from "./app/RichText";
 import { goHome, openThread, refresh, setHost, setScope, type Host } from "./bridge";
 
 let root: Root | null = null;
@@ -23,8 +24,18 @@ function syncDark() {
 declare global {
   interface Window {
     WhirlChat: typeof api;
+    setRich: (on: boolean) => void;
+    __TAURI__?: { core: { invoke: (cmd: string, args?: unknown) => Promise<unknown> } };
   }
 }
+
+// Rich answers: teach chat models OpenUI Lang (Settings → Chat → Rich answers).
+window.setRich = (on) => {
+  void window.__TAURI__?.core.invoke("set_genui", { prompt: on ? richPrompt() : null }).catch(() => {});
+};
+let richOn = true;
+try { richOn = localStorage.getItem("bs.rich") !== "0"; } catch {}
+window.setRich(richOn);
 
 const api = {
   mount(el: HTMLElement, sideEl: HTMLElement, host: Host, user: string) {

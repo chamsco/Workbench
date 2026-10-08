@@ -88,8 +88,13 @@ pub struct Request {
     /// default: edit files, run the allowed tools), "auto" (the CLI's own
     /// reviewer decides) or "full" (anything; no sandbox).
     pub permission: Option<String>,
-    /// Reasoning effort for CLIs that take one: low, medium, high, xhigh, max.
+    /// Reasoning effort for CLIs that take one: low, medium, high, xhigh,
+    /// max (ultra means each CLI's top).
     pub effort: Option<String>,
+    /// A stronger model the CLI may consult (Claude Code's `--advisor`).
+    pub advisor: Option<String>,
+    /// Extra subagents for CLIs that take them (Claude Code's `--agents`).
+    pub agents: Option<Value>,
 }
 
 impl Request {
@@ -108,6 +113,8 @@ impl Request {
             add_dirs: vec![],
             permission: None,
             effort: None,
+            advisor: None,
+            agents: None,
         }
     }
 }
@@ -352,7 +359,14 @@ async fn run_cli(req: &Request, provider: &str, bin: &PathBuf, on: Sink<'_>) -> 
                 cmd.args(["--add-dir", &d.display().to_string()]);
             }
             if let Some(e) = &req.effort {
-                cmd.args(["--effort", e]);
+                // Claude Code tops out at max.
+                cmd.args(["--effort", match e.as_str() { "ultra" => "max", "minimal" => "low", e => e }]);
+            }
+            if let Some(a) = &req.advisor {
+                cmd.args(["--advisor", a]);
+            }
+            if let Some(a) = &req.agents {
+                cmd.args(["--agents", &a.to_string()]);
             }
             let allow: String = req.mcp_allow.iter().map(|p| format!(",{p}")).collect();
             if req.edit {

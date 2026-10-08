@@ -5,7 +5,8 @@
 // the same controls and "Run setup again".
 
 var Onboard = (() => {
-  const ALL = ["welcome", "clis", "agent", "local", "cloud", "done"];
+  const ALL = ["welcome", "clis", "notify", "agent", "local", "cloud", "done"];
+  const NOTIFY = [["system", "System notifications", "Your computer's own alerts when Backspace is in the background, a note in the app when it's in front."], ["app", "Inside Backspace only", "Notes in the corner of the app; nothing outside it."], ["off", "Off", "Check Home when you want; nothing pops up."]];
   let step = 0, uses = null;
   // Cloud plans and agents live in Chat; everything else serves both.
   const steps = () => ALL.filter(s => !["cloud", "agent"].includes(s) || !uses || uses.includes("chat"));
@@ -119,6 +120,13 @@ var Onboard = (() => {
           render();
         } catch (e) { err.textContent = String(e); add.disabled = false; add.textContent = "Add agent"; }
       };
+    } else if (s === "notify") {
+      const cur = prefs.notify || "system";
+      el.innerHTML = frame(`<h2>Notifications</h2><p class="ob-lead">How should Backspace tell you that a plan needs approval, work is ready to review, an agent failed, or a chat hit a limit?</p>
+        <div class="ob-notify">${NOTIFY.map(([k, t, d]) => `<button class="ob-n${cur === k ? " on" : ""}" data-n="${k}"><b>${t}</b><span>${d}</span></button>`).join("")}</div>
+        <button class="lnk" id="obTest">Send a test notification</button>`);
+      $$("[data-n]", el).forEach(b => (b.onclick = async () => { prefs.notify = b.dataset.n; await invoke("set_notify", { notify: prefs.notify }); render(); }));
+      $("#obTest").onclick = () => invoke("notify", { title: "Backspace", body: "Notifications work. You'll hear from your agents here." }).catch(e => toast(String(e), "err"));
     } else if (s === "local") {
       el.innerHTML = frame(`<h2>Local models and routers</h2><p class="ob-lead">Run models on this machine with Ollama (private, offline, free), or add any OpenAI-compatible endpoint. Both are optional.</p><div id="obLocal" class="ob-prov"></div>`);
       Providers.mount($("#obLocal"), { only: "local" });

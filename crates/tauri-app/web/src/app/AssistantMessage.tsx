@@ -21,7 +21,7 @@ import {
 import { isTerminal, type ChatMessage } from "@/lib/messages";
 import { useTypewriter } from "@/lib/use-typewriter";
 import { CheckpointMenu } from "@/components/thread/checkpoint-menu";
-import { Markdown } from "@/components/thread/markdown";
+import { RichText } from "./RichText";
 import { MessageActionButton } from "@/components/thread/message-action-button";
 import { getHost, openTrace, type Ad } from "../bridge";
 
@@ -75,7 +75,7 @@ export function AssistantMessage({
           {answeredBy}
         </div>
       )}
-      {showText && <Markdown streaming={streamingNow || !caughtUp}>{text}</Markdown>}
+      {showText && <RichText streaming={streamingNow || !caughtUp} text={text} />}
       {streamingNow && !showText && (
         <div className="flex h-7 items-center gap-2 text-[14px]/5 text-muted-foreground">
           <IconLoader2 size={15} className="animate-spin" />

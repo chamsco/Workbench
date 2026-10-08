@@ -229,6 +229,26 @@ pub fn activity(dir: &Path, days: u32) -> Result<(Vec<u32>, u64, u64)> {
     Ok((per_day, added, removed))
 }
 
+/// The last `n` commits on every branch, newest first: (short hash,
+/// subject, author, when, branch names).
+pub fn log(dir: &Path, n: usize) -> Result<Vec<(String, String, String, String, String)>> {
+    let out = std::process::Command::new("git")
+        .args(["log", "--all", &format!("-n{n}"), "--date=relative", "--format=%h%x1f%s%x1f%an%x1f%ad%x1f%D"])
+        .current_dir(dir)
+        .stdin(std::process::Stdio::null())
+        .output()?;
+    if !out.status.success() {
+        bail!("not a git repository");
+    }
+    Ok(String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter_map(|l| {
+            let mut f = l.split('\x1f');
+            Some((f.next()?.into(), f.next()?.into(), f.next()?.into(), f.next()?.into(), f.next().unwrap_or("").into()))
+        })
+        .collect())
+}
+
 /// Days since 1970-01-01 for a YYYY-MM-DD date.
 fn day_number(d: &str) -> Option<u64> {
     let mut p = d.split('-').map(|x| x.parse::<i64>().ok());

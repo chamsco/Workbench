@@ -16,6 +16,8 @@ pub struct Config {
     pub escalation: EscalationConfig,
     #[serde(default)]
     pub workflow: WorkflowConfig,
+    #[serde(default)]
+    pub advisor: AdvisorConfig,
     pub providers: BTreeMap<String, ProviderConfig>,
     pub models: Vec<ModelSpec>,
 }
@@ -30,6 +32,37 @@ pub struct RouterConfig {
     pub main_min_effort: Effort,
     pub pin_main: Option<String>,
     pub pin_sub: Option<String>,
+}
+
+/// Orchestrator, advisor, scouts: the lead builds, a stronger model stays on
+/// call for the decisions that matter, and small fast models do the looking.
+/// "Plan on high. Delegate on medium. Keep Opus on call."
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(default)]
+pub struct AdvisorConfig {
+    /// The advisor for agents on the Anthropic API (the server-side
+    /// `advisor` tool). None: no advisor.
+    pub model: Option<String>,
+    /// The advisor for agents in Claude Code (`claude --advisor <this>`).
+    pub cli: Option<String>,
+    /// Model id scouts run on; None: the cheapest usable model.
+    pub scout_model: Option<String>,
+    /// The model Claude Code's own scout subagent runs on.
+    pub cli_scouts: Option<String>,
+    /// Scouts one call may send out at once.
+    pub scouts: usize,
+}
+
+impl Default for AdvisorConfig {
+    fn default() -> Self {
+        Self {
+            model: Some("claude-opus-5-5".into()),
+            cli: Some("opus".into()),
+            scout_model: None,
+            cli_scouts: Some("haiku".into()),
+            scouts: 3,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]

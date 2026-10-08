@@ -12,8 +12,9 @@ jev_api_key_env = "TYPESAFE_API_KEY"
 jev_usd_per_mtok = 0.042
 # Floor for the main agent: planning a whole project on "low" is false economy.
 main_min_effort = "high"
-# Optional hard pins, bypassing the router:
-# pin_main = "claude-opus-5-5"
+# The lead: Sonnet plans and decides on high effort; Opus advises (below).
+pin_main = "claude-sonnet-5-5"
+# Optional hard pin for workers, bypassing the router:
 # pin_sub = "claude-sonnet-5-5"
 
 [orchestrator]
@@ -33,6 +34,17 @@ start_max_effort = "medium"
 start_max_tier = 2
 max_steps = 3
 loop_repeats = 3
+
+# Orchestrator, advisor, scouts. The advisor (a stronger model, on call)
+# is consulted before a plan locks, when the same check fails twice and
+# before work is called done; it stays silent on routine steps. Scouts (a
+# small fast model) look things up in parallel: files, code, docs.
+[advisor]
+model = "claude-opus-5-5"     # for agents on the Anthropic API; remove to turn off
+cli = "opus"                  # for agents in Claude Code (claude --advisor opus)
+cli_scouts = "haiku"          # Claude Code's scout subagent
+scouts = 3                    # scouts per call, in parallel
+# scout_model = "claude-haiku-4-5"   # default: the cheapest usable model
 
 [workflow]
 grill = true                # main agent interviews you in rounds before planning

@@ -673,6 +673,7 @@ async fn answer(srv: &Server, model: &str, messages: &Value) -> Result<(String, 
             system: "You are a helpful assistant in a chat app. Answer clearly; use Markdown when it helps.",
             messages: &msgs,
             tools: &[],
+            advisor: None,
             effort: crate::Effort::Low,
         },
     )

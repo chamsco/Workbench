@@ -26,6 +26,8 @@ pub trait Backend: Send + Sync {
     fn reject(&self, id: usize, feedback: String);
     /// Stop an agent and those under it; None: the whole project.
     fn stop(&self, agent: Option<usize>);
+    /// Another task in parallel, on its own branch; returns its ticket key.
+    fn start_task(&self, text: &str) -> Result<String>;
     fn file_ticket(&self, title: &str, body: &str) -> Result<String>;
     fn list_files(&self, agent: usize) -> Vec<FileEntry>;
     fn read_file(&self, path: &str) -> Result<String>;
@@ -48,6 +50,9 @@ impl Backend for Harness {
     }
     fn stop(&self, agent: Option<usize>) {
         Harness::stop(self, agent)
+    }
+    fn start_task(&self, text: &str) -> Result<String> {
+        Harness::start_task(self, text)
     }
     fn file_ticket(&self, title: &str, body: &str) -> Result<String> {
         Harness::file_ticket(self, title, body)
@@ -74,6 +79,9 @@ impl Backend for NoProject {
     fn approve(&self, _: usize) {}
     fn reject(&self, _: usize, _: String) {}
     fn stop(&self, _: Option<usize>) {}
+    fn start_task(&self, _: &str) -> Result<String> {
+        bail!("open a project first")
+    }
     fn file_ticket(&self, _: &str, _: &str) -> Result<String> {
         bail!("open a project first")
     }
@@ -106,6 +114,10 @@ impl Backend for Remote {
     }
     fn stop(&self, agent: Option<usize>) {
         self.post_bg("/v1/stop", json!({ "agent": agent }));
+    }
+    fn start_task(&self, text: &str) -> Result<String> {
+        let v = self.post_wait("/v1/task", json!({ "text": text }))?;
+        Ok(v["key"].as_str().unwrap_or("").to_string())
     }
     fn file_ticket(&self, title: &str, body: &str) -> Result<String> {
         let v = self.post_wait("/v1/ticket", json!({ "title": title, "body": body }))?;

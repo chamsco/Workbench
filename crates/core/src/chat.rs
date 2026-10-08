@@ -217,6 +217,8 @@ pub struct ThreadInfo {
     pub app: Option<String>,
     pub agent: Option<String>,
     pub members: Vec<String>,
+    /// Why its last reply failed (a usage limit, a crash), if it did.
+    pub failed: Option<String>,
 }
 
 pub fn now_ms() -> u64 {
@@ -351,6 +353,12 @@ pub struct Chats {
     account: Mutex<Option<Account>>,
 }
 
+/// OpenUI's prompt for rich answers (charts, tables, steps, forms), set by
+/// the chat face from the component library it renders with; None: plain
+/// Markdown only (Settings → Chat → Rich answers).
+// ponytail: one global for the one chat face; per-window if there are ever two.
+pub static GENUI_PROMPT: std::sync::RwLock<Option<String>> = std::sync::RwLock::new(None);
+
 /// What a send needs from prefs, copied so a reply never holds the lock.
 #[derive(Clone)]
 pub struct Ctx {
@@ -458,6 +466,7 @@ impl Chats {
                 app: t.app.clone(),
                 agent: t.agent.clone(),
                 members: t.members.clone(),
+                failed: t.messages.last().filter(|m| m.role != Role::User).and_then(|m| m.error.clone()),
             })
             .collect();
         v.sort_by(|a, b| b.pinned.cmp(&a.pinned).then(b.updated.cmp(&a.updated)));
@@ -1259,6 +1268,21 @@ impl Chats {
         let mut req = Request::new(target, turns);
         req.model = route.model.clone().filter(|m| !m.is_empty());
         req.system = self.system_text(id, ctx, call);
+        // Rich answers in plain chats (not coding agents or Pair, which work in files).
+        let plain = call.agent.is_none() && self.threads.lock().unwrap().get(id).is_some_and(|t| t.project.is_none() && t.agent.is_none());
+        if let Some(g) = GENUI_PROMPT.read().unwrap().clone().filter(|_| plain) {
+            let rich = format!("# Rich answers
+
+When structure helps the reader (a comparison, steps, a table, a chart, a form, follow-up choices), put it in a fenced ```openui block written in OpenUI Lang; keep the rest in Markdown. Most answers need none.
+
+{g}");
+            req.system = Some(match req.system.take() {
+                Some(s) => format!("{s}
+
+{rich}"),
+                None => rich,
+            });
+        }
         req.session = session;
         if route.kind != RouteKind::Cli {
             return Ok(req);

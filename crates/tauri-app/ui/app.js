@@ -43,6 +43,7 @@ const P = {
   bksp: '<path d="M5.2 3.2h7.6a1 1 0 0 1 1 1v7.6a1 1 0 0 1-1 1H5.2L1.8 8z"/><path d="m7.6 6 4 4M11.6 6l-4 4"/>',
   check: '<path d="m3.4 8.4 3 3 6.2-6.6"/>',
   updown: '<path d="m5.4 6 2.6-2.6L10.6 6M5.4 10l2.6 2.6 2.6-2.6"/>',
+  panelr: '<rect x="2.6" y="3" width="10.8" height="10" rx="2"/><path d="M9.6 3v10"/>',
   lock: '<rect x="3.6" y="7" width="8.8" height="6" rx="1.4"/><path d="M5.6 7V5.2a2.4 2.4 0 0 1 4.8 0V7"/>',
   home: '<path d="M2.8 7.4 8 3l5.2 4.4M4.4 6.2V13h7.2V6.2"/>',
   trace: '<path d="M2.6 4h5M4.6 8h6M6.6 12h6.8"/>',
@@ -834,7 +835,7 @@ function chooser(slot, body) {
 // The same project three ways: Canvases (tabs of split canvases), Wall (every
 // agent's session tiled, as many as there are) and Inbox (what needs you,
 // then what is running, then what is done). Picked per user, kept in prefs.
-const WB = [["home", "home", "Home"], ["canvases", "window", "Canvases"], ["wall", "monitor", "Wall"], ["inbox", "bubble", "Inbox"]];
+const WB = [["home", "home", "Home", "Start work, and what needs you"], ["canvases", "window", "Canvases", "Sessions, files and previews side by side"], ["wall", "monitor", "Wall", "Every agent's session, tiled"]];
 const busy = a => !!a && ["running", "queued", "awaiting_approval"].includes(a.status);
 const lastLine = a => { const e = [...a.log].reverse().find(e => e.kind !== "user") || a.log[a.log.length - 1]; return e ? e.text.split("\n")[0] : "No activity yet"; };
 // Why an agent needs the human, or null.
@@ -848,14 +849,18 @@ function needsYou(a) {
   if (a.id === MAIN && a.status === "idle" && last && last.kind === "assistant") return { why: "Asked you something", reply: true };
   return null;
 }
+// The view menu in the title bar: Home, Canvases, Wall.
 function renderWbv() {
-  const n = snap.agents.filter(needsYou).length;
-  $("#wbv").innerHTML = WB.map(([k, ic, l]) => `<button role="tab" aria-selected="${S.wb === k}" data-wb="${k}" title="${l}">${icon(ic)}<span>${l}</span>${k === "inbox" && n ? `<span class="cnt">${n}</span>` : ""}</button>`).join("");
-  $$("#wbv [data-wb]").forEach(b => (b.onclick = () => setWb(b.dataset.wb)));
+  const n = snap.agents.filter(needsYou).length, cur = WB.find(([k]) => k === S.wb) || WB[0];
+  const b = $("#viewBtn");
+  b.innerHTML = `${icon(cur[1])}<span>${cur[2]}</span>${n && S.wb !== "home" ? `<i class="rb">${n}</i>` : ""}${icon("updown", "ud")}`;
+  b.onclick = () => openPop(b, `<div class="vmenu">${WB.map(([k, ic, l, d]) => `<button class="pi${S.wb === k ? " on" : ""}" data-wb="${k}" ${!hasProject && k !== "home" ? "disabled" : ""}>${icon(ic)}<span class="vt"><b>${l}</b><small>${d}</small></span>${k === "home" && n ? `<i class="rb">${n}</i>` : ""}</button>`).join("")}</div>`, pop => {
+    $$("[data-wb]", pop).forEach(x => (x.onclick = () => { closePop(); setWb(x.dataset.wb); }));
+  });
   $("#win").classList.toggle("wb-alt", S.wb !== "canvases" || !hasProject);
 }
 function setWb(v) {
-  S.wb = WB.some(([k]) => k === v) ? v : "canvases";
+  S.wb = WB.some(([k]) => k === v) ? v : "home";
   prefs.wb_view = S.wb; invoke("set_view_prefs", { chatView: null, motion: null, wbView: S.wb });
   renderGrid();
 }
@@ -897,47 +902,17 @@ function actOn(a) {
   else if (a.ticket && nd && a.status !== "failed") { S.ticket = a.ticket; setDrawer(true); }
   else openIn({ kind: "agent", agent: a.id });
 }
-function inboxRow(a, nd) {
-  return `<div class="ibx-row${nd ? " needs" : ""}" data-a="${a.id}"><span class="dot ${dotFor(a.status)}"></span>
-    <button class="ibx-main" data-act="open"><span class="tt">${esc(a.id === MAIN ? `Main agent · ${snap.name}` : a.title)}</span><span class="ibx-sub">${esc(nd ? nd.why : lastLine(a))}</span></button>
-    <span class="meta">${esc(a.decision ? a.decision.model : "")} · $${a.cost_usd.toFixed(3)}</span>
-    ${busy(a) ? `<button class="ib stopb" data-act="stop" aria-label="Stop" title="Stop">${icon("stop")}</button>` : ""}
-    ${nd ? `<button class="btn sm${nd.ap ? " primary" : ""}" data-act="act">${nd.ap ? "Review" : "Open"}</button>` : ""}</div>`;
-}
-function renderInbox(g) {
-  const all = treeOrder().map(agent).filter(a => a.kind !== "triage");
-  const needs = all.map(a => [a, needsYou(a)]).filter(([, n]) => n);
-  const running = all.filter(a => !needsYou(a) && (a.status === "running" || a.status === "queued"));
-  const rest = all.filter(a => !needsYou(a) && !running.includes(a));
-  const sec = (title, rows) => rows.length ? `<div class="grp-label">${title} · ${rows.length}</div>${rows.join("")}` : "";
-  const m = agent(MAIN), ask = m && needsYou(m) && needsYou(m).reply;
-  const old = $("#ibxIn"), focused = old && document.activeElement === old, draft = old ? old.value : "";
-  g.className = "grid inbox";
-  g.innerHTML = `<div class="ibx">
-    ${running.length ? `<div class="ibx-top"><span>${running.length} working</span><button class="btn sm" id="ibxStop">${icon("stop")}Stop all</button></div>` : ""}
-    <label class="ibx-say">${icon("sparkle")}<input id="ibxIn" placeholder="${ask ? "Answer the main agent" : m && m.log.some(e => e.kind === "user") ? "Tell the main agent something" : "Describe a goal; the main agent plans it into tickets"}" autocomplete="off" spellcheck="false" aria-label="Message the main agent"></label>
-    ${sec("Needs you", needs.map(([a, n]) => inboxRow(a, n)))}
-    ${needs.length ? "" : `<div class="nothing">Nothing needs you right now.</div>`}
-    ${sec("Working", running.map(a => inboxRow(a, null)))}
-    ${sec("Done or idle", rest.map(a => inboxRow(a, null)))}</div>`;
-  const inp = $("#ibxIn"); inp.value = draft; if (focused) inp.focus();
-  inp.onkeydown = e => { if (e.key === "Enter" && inp.value.trim()) { invoke("send", { text: inp.value.trim() }); inp.value = ""; } };
-  $$(".ibx-row", g).forEach(r => {
-    const a = agent(+r.dataset.a);
-    r.querySelector("[data-act=open]").onclick = () => openIn({ kind: "agent", agent: a.id });
-    const b = r.querySelector("[data-act=act]"); if (b) b.onclick = () => actOn(a);
-    const st = r.querySelector("[data-act=stop]"); if (st) st.onclick = () => invoke("stop", { agent: a.id });
-  });
-  const sa = $("#ibxStop"); if (sa) sa.onclick = () => invoke("stop", { agent: null });
-}
 function renderAlt() {
   const g = $("#grid"); S.els = new Map(); S.ph = null;
-  if (S.wb === "home") Home.render(g); else if (S.wb === "wall") renderWall(g); else renderInbox(g);
+  if (S.wb === "wall") renderWall(g); else Home.render(g);
 }
 
 // Canvases sit absolutely at the rectangles of the tab's layout tree, so a
 // new arrangement (a drag preview, a resize) is a style change the browser
 // animates rather than a rebuild.
+// Rich answers (OpenUI) in Chat: on unless turned off in Settings.
+function richOn() { try { return localStorage.getItem("bs.rich") !== "0"; } catch { return true; } }
+
 // The painting is at full strength only on Home (Code's workbench, Home view).
 function syncArt() {
   if (window.Art) Art.setVivid(S.mode === "code" && S.codeView !== "pair" && !S.settings && (!hasProject || S.wb === "home"));
@@ -1286,6 +1261,88 @@ function boardMsgs(body) {
   if (sel && sel.options.length !== snap.agents.length + 1) { const v = sel.value; sel.innerHTML = [["all", "Everyone"], ...snap.agents.map(a => [a.key, `${a.title} (${a.key})`])].map(([k, l]) => `<option value="${esc(k)}">${esc(l)}</option>`).join(""); sel.value = v; }
 }
 
+// ------------------------------------------------------------------ agents' canvases
+// Agents open and close canvases (open_canvas / close_canvas): a browser on
+// the dev server they started, their files, a session. Each op applies once;
+// the ones from before this window opened are history, not news.
+let canvasSeen = null;
+const sameCanvas = (p, s) => p.kind === s.kind && (s.kind === "browser" ? (p.url || "") === (s.url || "") : !["agent", "files"].includes(s.kind) || p.agent === s.agent);
+function applyCanvasOps() {
+  const ops = snap.canvas_ops || [];
+  if (!canvasSeen || canvasSeen.ws !== snap.workspace) { canvasSeen = { ws: snap.workspace, id: ops.length ? ops[ops.length - 1].id : 0 }; return; }
+  let changed = false;
+  for (const op of ops.filter(o => o.id > canvasSeen.id)) {
+    canvasSeen.id = op.id;
+    const who = snap.agents.find(x => x.key === op.agent);
+    const spec = { kind: op.kind, agent: who ? who.id : 0, url: op.url || null };
+    const label = op.kind === "browser" ? (op.url || "a page").replace(/^https?:\/\//, "") : { files: "files", agent: "a session", diagram: "the diagram", docs: "PLAN.md", board: "team chat" }[op.kind];
+    if (op.op === "close") {
+      prefs.tabs.forEach(t => {
+        for (let i = t.panes.length - 1; i >= 0; i--) {
+          if (!sameCanvas(t.panes[i], spec)) continue;
+          if (t.panes.length > 1) { t.layout = L.renumber(L.remove(tree(t), i), i); t.panes.splice(i, 1); }
+          else t.panes[0] = { kind: "agent", agent: MAIN, url: null };
+          changed = true;
+        }
+      });
+      continue;
+    }
+    if (prefs.tabs.some(t => t.panes.some(p => sameCanvas(p, spec)))) continue;
+    const t = tab();
+    if (t.panes.length < 4) {
+      const g = $("#grid"), tr = tree(t), n = t.panes.length;
+      const { leaves } = L.layout(tr, { x: 0, y: 0, w: g.clientWidth || 1000, h: g.clientHeight || 600 }, 6);
+      const f = leaves[leaves.length - 1];
+      t.layout = L.insert(tr, f.leaf, f.r.w >= f.r.h ? "right" : "bottom", n);
+      t.panes.push(spec);
+    } else prefs.tabs.push({ name: null, panes: [spec], layout: null });
+    changed = true;
+    toast(`${op.by === "main" ? "The main agent" : op.by} opened ${label} in Canvases`, "ok");
+  }
+  if (changed) { S.pane.clear(); saveTabs(); if (S.wb === "canvases") { renderTabs(); renderGrid(); } }
+}
+
+// ------------------------------------------------------------------ notifications
+// What needs you, told the way Settings → Notifications says: the system's
+// notifications while the window is in the background, a toast otherwise.
+function notifyUser(title, body, kind = "") {
+  const mode = prefs.notify || "system";
+  if (mode === "off") return;
+  if (mode === "system" && !document.hasFocus()) invoke("notify", { title, body }).catch(() => toast(`${title}: ${body}`, kind));
+  else toast(body ? `${title}: ${body}` : title, kind);
+}
+let seenAgents = null, seenPending = null, seenWs = null;
+function watchAgents() {
+  const st = new Map(snap.agents.map(a => [a.id, a.status]));
+  const pend = new Set(pending().map(a => a.id));
+  if (seenAgents && seenWs === snap.workspace) {
+    for (const a of snap.agents) {
+      const was = seenAgents.get(a.id), who = a.id === MAIN ? "The main agent" : a.title;
+      if (!was || was === a.status || a.kind === "scout") continue;
+      if (a.status === "failed") notifyUser(`${who} failed`, lastLine(a), "err");
+      else if (a.id === MAIN && a.status === "approved") notifyUser(`${snap.name} is done`, "The final deliverable was accepted.", "ok");
+      else if (a.id === MAIN && a.status === "idle" && was === "running") notifyUser("The main agent replied", lastLine(a));
+    }
+    for (const id of pend) if (!seenPending.has(id)) {
+      const ap = snap.approvals[id];
+      notifyUser(ap.kind === "plan" ? "A plan needs your approval" : "Work is ready for review", ap.kind === "plan" ? `${ap.tickets.length} tickets in ${snap.name}` : (agent(ap.agent) || {}).title || "", "ok");
+    }
+  }
+  seenAgents = st; seenPending = pend; seenWs = snap.workspace;
+}
+// Chats: a reply that failed (a usage limit, a crash) or finished while you were away.
+let seenChats = null;
+function watchChats(list) {
+  const now = new Map(list.map(t => [t.id, t]));
+  if (seenChats) for (const t of list) {
+    const was = seenChats.get(t.id);
+    if (!was) continue;
+    if (t.failed && !was.failed) notifyUser(`⚠ ${t.title || "A chat"} failed`, t.failed.slice(0, 140), "err");
+    else if (was.busy && !t.busy && !t.failed && !document.hasFocus()) notifyUser(t.title || "Reply ready", t.preview.slice(0, 140));
+  }
+  seenChats = now;
+}
+
 // ------------------------------------------------------------------ trace canvas
 // An agent's runs as waterfalls: one row per tool call on a shared clock,
 // its input and output a click away. Traces live in <data>/traces.
@@ -1355,7 +1412,10 @@ function renderSettings() {
     <section id="set-coding"><h2>Coding</h2><p class="lead">A project's planner runs on an API model (Anthropic or OpenRouter, keys below). Each ticket's worker can run on the router's pick, or be handed to a coding CLI you're signed in to: it works in the ticket's own git worktree, then goes through the same checks and your review.</p>
       <div class="line stack"><span class="lab">Agents run on<small>The planner and the workers, what they may do, and how hard they think. Applies when a project opens.${hasProject ? ` <button class="lnk" id="reopen">Reopen ${esc(snap.name)} now</button>` : ""}</small></span><div class="segc" id="workerSeg"></div></div>
       <div id="keyRows"></div></section>
-    <section id="set-chat"><h2>Chat</h2><div class="line"><span class="lab">New chats go to<small>You can switch per chat from the composer.</small></span><button class="btn" id="setRoute" data-popper>${esc(window.Chat ? Chat.routeName(prefs.default_route) : "Pick")}</button></div></section>
+    <section id="set-chat"><h2>Chat</h2><div class="line"><span class="lab">New chats go to<small>You can switch per chat from the composer.</small></span><button class="btn" id="setRoute" data-popper>${esc(window.Chat ? Chat.routeName(prefs.default_route) : "Pick")}</button></div>
+      <div class="line"><span class="lab">Rich answers<small>Models may answer with charts, tables, steps and forms (OpenUI). Off: Markdown only, and a shorter prompt.</small></span><button class="toggle" role="switch" id="richT" aria-checked="${richOn()}" aria-label="Rich answers"></button></div></section>
+    <section id="set-notify"><h2>Notifications</h2><div class="line"><span class="lab">When something needs you<small>A plan to approve, work to review, an agent that failed, a chat that hit a limit.</small></span><div class="segc">${[["system", "System"], ["app", "In the app"], ["off", "Off"]].map(([k, l]) => `<button aria-pressed="${(prefs.notify || "system") === k}" data-nt="${k}">${l}</button>`).join("")}</div></div>
+      <div class="line"><span class="lab"></span><button class="btn" id="ntTest">Send a test notification</button></div></section>
     <section id="set-tracing"><h2>Tracing</h2><p class="lead">Every reply keeps a trace on this machine: each tool call, how long it took, tokens and cost (the timeline button under a reply). To watch them elsewhere, send them to an OpenTelemetry collector such as treg, Jaeger or Langfuse.</p>
       <div class="line"><span class="lab">Collector<small>OTLP over HTTP; <code>/v1/traces</code> is added for you. Empty keeps traces here only.</small></span><input class="tx mono" id="trEp" value="${esc((prefs.tracing || {}).endpoint || "")}" placeholder="https://collector.example.com" style="width:260px" aria-label="Collector address"></div>
       <div class="line"><span class="lab">Header<small>For sign-in, e.g. <code>authorization: Bearer …</code></small></span><input class="tx mono" id="trHdr" value="${esc(Object.entries((prefs.tracing || {}).headers || {}).map(([k, v]) => k + ": " + v).join("; "))}" placeholder="authorization: Bearer …" style="width:260px" aria-label="Header"></div>
@@ -1419,6 +1479,9 @@ function renderSettings() {
   $$("[data-popen]", el).forEach(b => (b.onclick = () => { closeSettings(); openProject(b.dataset.popen); }));
   $$("[data-pforget]", el).forEach(b => (b.onclick = async () => { await invoke("forget_project", { path: b.dataset.pforget }); prefs = await invoke("prefs"); renderSettings(); renderList(); }));
   $$("[data-theme]", el).forEach(b => (b.onclick = async () => { prefs.theme = b.dataset.theme; applyTheme(); renderSettings(); await invoke("set_theme", { theme: prefs.theme }); }));
+  $$("[data-nt]", el).forEach(b => (b.onclick = async () => { prefs.notify = b.dataset.nt; await invoke("set_notify", { notify: prefs.notify }); renderSettings(); }));
+  const nt = $("#ntTest", el); if (nt) nt.onclick = () => (prefs.notify === "app" ? toast("Backspace: notifications work.", "ok") : invoke("notify", { title: "Backspace", body: "Notifications work. You'll hear from your agents here." }).catch(e => toast(String(e), "err")));
+  const rt = $("#richT", el); if (rt) rt.onclick = () => { const on = !richOn(); try { localStorage.setItem("bs.rich", on ? "1" : "0"); } catch {} if (window.setRich) window.setRich(on); renderSettings(); };
   $$("[data-bd]", el).forEach(b => (b.onclick = async () => { prefs.backdrop = b.dataset.bd; Art.apply(prefs.backdrop); renderSettings(); await invoke("set_backdrop", { backdrop: prefs.backdrop }); }));
   $$("[data-show]", el).forEach(b => (b.onclick = async () => { await invoke("select_machine", { index: +b.dataset.show }); S.pane.clear(); S.review = null; await refresh(true); renderSettings(); }));
   $$("[data-rm]", el).forEach(b => (b.onclick = async () => { await invoke("remove_machine", { index: +b.dataset.rm }); await refresh(true); renderSettings(); }));
@@ -1488,7 +1551,9 @@ async function refresh(full) {
   if (window.Chat) await Chat.refresh();
   if (window.Providers) Providers.refreshQuiet();
   renderBrand(); renderMachines(); renderList(); renderCard(); renderTabs(); renderDrawer();
+  applyCanvasOps(); watchAgents();
   if (window.Shell) Shell.refresh();
+  if (window.RPanel) RPanel.refresh();
   if (!agentsOn() && !(window.Shell && Shell.showing("canvas"))) { lastShape = ""; return; }
   // Rebuild canvases when the machine or its agents appear; otherwise update in place.
   const shape = machine().index + ":" + (snap.agents.length > 0) + ":" + machine().link.state;
@@ -1518,6 +1583,7 @@ addEventListener("DOMContentLoaded", async () => {
   S.mode = prefs.mode || "chat";
   S.codeView = prefs.code_view === "pair" ? "pair" : "agents";
   S.chatView = prefs.chat_view === "agents" ? "agents" : "chat";
+  // The old Inbox lives on Home now.
   S.wb = WB.some(([k]) => k === prefs.wb_view) ? prefs.wb_view : "home";
   Art.apply(prefs.backdrop);
   // A folder given on the command line, or a bench run: start in Code.

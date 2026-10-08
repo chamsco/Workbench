@@ -55,6 +55,47 @@ fn stop(f: F, agent: Option<usize>) {
     f.backend().stop(agent);
 }
 
+/// Another task in parallel, on its own branch; returns its ticket key.
+#[tauri::command]
+async fn start_task(f: F<'_>, text: String) -> Res<String> {
+    let b = f.backend();
+    tauri::async_runtime::spawn_blocking(move || b.start_task(&text)).await.map_err(err)?.map_err(err)
+}
+
+/// The project's recent commits on every branch, for the side panel.
+#[tauri::command]
+async fn git_log(path: String) -> Res<Vec<serde_json::Value>> {
+    tauri::async_runtime::spawn_blocking(move || {
+        backspace_core::git::log(std::path::Path::new(&path), 80).map(|v| {
+            v.into_iter()
+                .map(|(hash, subject, author, when, refs)| serde_json::json!({ "hash": hash, "subject": subject, "author": author, "when": when, "refs": refs }))
+                .collect()
+        })
+    })
+    .await
+    .map_err(err)?
+    .map_err(err)
+}
+
+/// A system notification (Settings → Notifications decides whether the UI
+/// asks for one).
+#[tauri::command]
+fn notify(app: tauri::AppHandle, title: String, body: String) -> Res<()> {
+    use tauri_plugin_notification::NotificationExt;
+    app.notification().builder().title(title).body(body).show().map_err(err)
+}
+
+/// The chat face's OpenUI prompt (None turns rich answers off).
+#[tauri::command]
+fn set_genui(prompt: Option<String>) {
+    *backspace_core::chat::GENUI_PROMPT.write().unwrap() = prompt.filter(|p| !p.is_empty());
+}
+
+#[tauri::command]
+fn set_notify(f: F, notify: String) {
+    f.update_prefs(|p| p.notify = notify);
+}
+
 /// Commits a day for the last two weeks and lines changed, for Home.
 #[tauri::command]
 async fn git_activity(path: String) -> Res<serde_json::Value> {
@@ -1007,6 +1048,7 @@ fn main() -> anyhow::Result<()> {
     let apps = fleet.apps().clone();
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
         .register_uri_scheme_protocol("bsapp", move |_ctx, req| {
             use tauri::http::Response;
             let path = req.uri().path().trim_start_matches('/').to_string();
@@ -1039,6 +1081,11 @@ fn main() -> anyhow::Result<()> {
             approve,
             reject,
             stop,
+            start_task,
+            git_log,
+            set_notify,
+            notify,
+            set_genui,
             git_activity,
             set_agent_run,
             set_backdrop,
