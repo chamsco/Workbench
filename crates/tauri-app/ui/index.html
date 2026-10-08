@@ -9,6 +9,7 @@
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="chat.css">
 <link rel="stylesheet" href="home.css">
+<link rel="stylesheet" href="shell.css">
 </head>
 <body>
 <div class="desk">
@@ -27,7 +28,6 @@
       </div>
       <div class="side-head">
         <div class="zone-title" id="zoneTitle"></div>
-        <div class="modes" id="modes" role="tablist"></div>
         <button class="newbtn chat-only" id="newChat" title="New chat (⌘N)"><span data-icon="compose"></span>New chat<kbd>⌘N</kbd></button>
         <label class="search chat-only"><span data-icon="search"></span><input id="search" placeholder="Search chats" aria-label="Search chats" autocomplete="off"><kbd>⌘K</kbd></label>
         <div class="brand code-only" id="brand"></div>
@@ -38,20 +38,13 @@
       <div class="list whirl-list chat-only pair-only" id="chatList" hidden></div>
       <div class="list zone-list" id="zoneList"></div>
       <div class="ports code-only agents-only" id="ports"></div>
-      <div class="side-acts">
-        <button class="cta code-only agents-only" id="cta" aria-expanded="false" aria-controls="drawer"></button>
-        <button class="upd" id="upd"></button>
-      </div>
-      <div class="side-foot">
-        <span class="sp"></span>
-        <div class="machines" id="machines" role="group" aria-label="Machines"></div>
-        <span class="sp"></span>
-      </div>
     </aside>
     <div class="gutter-side" id="sideGut" role="separator" aria-orientation="vertical" aria-label="Resize sidebar"></div>
     <div class="mainc">
       <header class="tbar" data-tauri-drag-region>
         <button class="ib" id="sideOpen" aria-label="Show sidebar" data-icon="sidebar" hidden></button>
+        <button class="zbtn" id="zoneBtn" aria-haspopup="menu" data-popper></button>
+        <div class="modes" id="modes" role="tablist"></div>
         <div class="wbv code-only agents-only" id="wbv" role="tablist" aria-label="Workbench view"></div>
         <nav class="tabs code-only agents-only" id="tabs" role="tablist" aria-label="Tabs"></nav>
         <div class="zone-head" id="zoneHead"></div>
@@ -59,6 +52,7 @@
         <span class="sp" data-tauri-drag-region></span>
         <div class="right">
           <button class="ib code-only agents-only" id="addCanvas" aria-label="Add a canvas" title="Add a canvas" data-icon="plus"></button>
+          <button class="ib" id="searchBtn" aria-label="Search" title="Search projects, agents and chats (Ctrl K)" data-icon="search" data-popper></button>
           <button class="ib" id="splitBtn" aria-label="Split view" title="Open something beside this" data-icon="splitv" aria-haspopup="menu"></button>
         </div>
         <div class="caps" id="caps"></div>
@@ -74,7 +68,12 @@
       <section class="settings" id="settings" hidden></section>
       <aside class="drawer" id="drawer" aria-label="Tickets and reviews" hidden></aside>
     </div>
-    <footer class="status" id="status" aria-label="Status"></footer>
+    <footer class="status" aria-label="Status">
+      <button class="upd" id="upd"></button>
+      <div class="machines" id="machines" role="group" aria-label="Machines"></div>
+      <button class="cta code-only agents-only" id="cta" aria-expanded="false" aria-controls="drawer"></button>
+      <div class="stm" id="status"></div>
+    </footer>
     <div class="scrim" id="scrim"></div>
     <div class="onboard" id="onboard" hidden></div>
   </div>

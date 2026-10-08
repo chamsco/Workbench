@@ -68,7 +68,8 @@ var Shell = (() => {
     $("#splitBtn").setAttribute("aria-pressed", !!sec);
     // Chat's scope follows whoever shows it: a project in Pair, else none.
     if (window.Chat && Chat.setScope) Chat.setScope(S.mode === "code" && prim === "chat" ? snap.workspace : null, S.mode === "chat" && S.chatView === "agents");
-    renderRail(); renderHead(); renderModes(); renderStatus();
+    renderRail(); renderZoneBtn(); renderHead(); renderModes(); renderStatus();
+    if (typeof syncArt === "function") syncArt();
     if ((prim === "chat" || sec === "chat") && window.Chat && !$("#chat").childElementCount) Chat.render();
     if (prim === "memory" || sec === "memory") window.Memory && Memory.refresh();
     if (prim === "apps" || sec === "apps") window.Apps && Apps.renderZone();
@@ -135,6 +136,61 @@ var Shell = (() => {
     $$("#rail [data-z]").forEach(b => (b.onclick = () => { if (S.settings) closeSettings(); setMode(b.dataset.z); }));
     $("#gear").setAttribute("aria-selected", !!S.settings);
   }
+  // The title bar's first pill: where you are, and every other zone a click
+  // away (Chat, Code, Memory, Apps, pinned apps, Settings).
+  function renderZoneBtn() {
+    const b = $("#zoneBtn"); if (!b) return;
+    const z = S.settings ? "settings" : S.mode;
+    const n = typeof pending === "function" ? pending().length : 0;
+    b.innerHTML = `${z === "settings" ? icon("gear") : glyph(z, "xs")}<span>${esc(z === "settings" ? "Settings" : zoneName(z))}</span>${n && z !== "code" ? `<i class="rb">${n}</i>` : ""}${icon("updown", "ud")}`;
+    b.onclick = () => {
+      const zs = ZONES.filter(([k]) => (k !== "chat" && k !== "code") || uses().includes(k));
+      const apps = window.Apps ? Apps.pinned() : [];
+      openPop(b, `<div class="zmenu">${zs.map(([k, ic, l]) => `<button class="pi${z === k ? " on" : ""}" data-zz="${k}">${icon(ic)}${l}${badge(k)}</button>`).join("")}
+        ${apps.length ? `<div class="psep"></div>` + apps.map(a => `<button class="pi${z === "app:" + a.id ? " on" : ""}" data-zz="app:${esc(a.id)}">${Apps.glyph(a, "xs")}${esc(a.name)}</button>`).join("") : ""}
+        <div class="psep"></div><button class="pi${z === "settings" ? " on" : ""}" data-zz="settings">${icon("gear")}Settings</button></div>`, pop => {
+        $$("[data-zz]", pop).forEach(x => (x.onclick = () => {
+          closePop();
+          if (x.dataset.zz === "settings") return S.settings ? null : openSettings();
+          if (S.settings) closeSettings();
+          setMode(x.dataset.zz);
+        }));
+      });
+    };
+  }
+
+  // Search: zones, projects, agents and chats, from the title bar or Ctrl K.
+  async function search() {
+    const anchor = $("#searchBtn");
+    const chats = ((await invoke("chat_list").catch(() => null)) || []).filter(t => !t.app);
+    const all = [
+      ...ZONES.filter(([k]) => (k !== "chat" && k !== "code") || uses().includes(k)).map(([k, ic, l]) => ({ ic, t: l, s: "Go to", go: () => setMode(k) })),
+      ...(prefs.projects || []).map(p => ({ ic: "folder", t: base(p), s: p, go: () => openProject(p) })),
+      ...((snap && snap.agents) || []).filter(a => a.kind !== "triage").map(a => ({ ic: "sparkle", t: a.id === 0 ? "Main agent" : a.title, s: `${snap.name} · ${a.status.replace(/_/g, " ")}`, go: () => { S.codeView = "agents"; setMode("code"); openIn({ kind: "agent", agent: a.id }); } })),
+      ...chats.map(t => ({ ic: "bubble", t: t.title || "Chat", s: "Chat", go: () => { setMode("chat"); if (window.Chat && Chat.open) Chat.open(t.id); } })),
+    ];
+    openPop(anchor, `<div class="srch"><label>${icon("search")}<input placeholder="Search projects, agents and chats" aria-label="Search"></label><div class="srch-r"></div></div>`, pop => {
+      const inp = $("input", pop), out = $(".srch-r", pop);
+      let hits = [], sel = 0;
+      const draw = () => {
+        const q = inp.value.trim().toLowerCase();
+        hits = all.filter(x => !q || (x.t + " " + x.s).toLowerCase().includes(q)).slice(0, 12);
+        sel = Math.min(sel, Math.max(0, hits.length - 1));
+        out.innerHTML = hits.length ? hits.map((x, i) => `<button class="pi${i === sel ? " on" : ""}" data-i="${i}">${icon(x.ic)}<span class="st-t">${esc(x.t)}</span><span class="st-s">${esc(x.s)}</span></button>`).join("") : `<div class="note">Nothing matches.</div>`;
+        $$("[data-i]", out).forEach(b => (b.onclick = () => { closePop(); hits[+b.dataset.i].go(); }));
+      };
+      inp.oninput = () => { sel = 0; draw(); };
+      inp.onkeydown = e => {
+        if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); sel = (sel + (e.key === "ArrowDown" ? 1 : -1) + hits.length) % Math.max(1, hits.length); draw(); }
+        else if (e.key === "Enter" && hits[sel]) { closePop(); hits[sel].go(); }
+        else if (e.key === "Escape") closePop();
+      };
+      draw();
+    });
+    const pop = $("#pop"), r = anchor.getBoundingClientRect();
+    pop.style.left = Math.max(8, r.right - pop.offsetWidth) + "px";
+  }
+
   // Something waiting on you in Code: the count of approvals.
   function badge(z) {
     if (z === "code") { const n = typeof pending === "function" ? pending().length : 0; return n ? `<i class="rb">${n}</i>` : ""; }
@@ -239,11 +295,12 @@ var Shell = (() => {
     renderCaps(); wireGutter();
     document.documentElement.classList.toggle("reduce-motion", prefs.motion === "reduced");
     $("#splitBtn").onclick = e => splitMenu(e.currentTarget);
+    $("#searchBtn").onclick = search;
     $("#gear").onclick = () => (S.settings ? closeSettings() : openSettings());
     if (window.Memory) await Memory.init();
     if (window.Apps) await Apps.init();
   }
-  function refresh() { renderStatus(); renderRail(); if (S.mode === "code" && S.codeView === "pair") { renderPairProj(); renderHead(); } }
+  function refresh() { renderStatus(); renderRail(); renderZoneBtn(); if (S.mode === "code" && S.codeView === "pair") { renderPairProj(); renderHead(); } }
 
   // ---------------------------------------------------------------- status bar
   // After an agent control plane's footer: where you are (branch, project),
@@ -326,5 +383,5 @@ var Shell = (() => {
     setSplit("desktop", 0.45);
   }
 
-  return { init, layout, showing, renderStatus, memToast, openDesktop, setMotion, renderSide, renderRail, refresh, setSplit, toggleSplit, elFor, glyph };
+  return { search, init, layout, showing, renderStatus, memToast, openDesktop, setMotion, renderSide, renderRail, refresh, setSplit, toggleSplit, elFor, glyph };
 })();

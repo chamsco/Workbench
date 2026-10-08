@@ -42,6 +42,7 @@ const P = {
   branch: '<circle cx="4.6" cy="3.6" r="1.4"/><circle cx="4.6" cy="12.4" r="1.4"/><circle cx="11.4" cy="5.6" r="1.4"/><path d="M4.6 5v6M11.4 7c0 2.6-6.8 1.8-6.8 4"/>',
   bksp: '<path d="M5.2 3.2h7.6a1 1 0 0 1 1 1v7.6a1 1 0 0 1-1 1H5.2L1.8 8z"/><path d="m7.6 6 4 4M11.6 6l-4 4"/>',
   check: '<path d="m3.4 8.4 3 3 6.2-6.6"/>',
+  updown: '<path d="m5.4 6 2.6-2.6L10.6 6M5.4 10l2.6 2.6 2.6-2.6"/>',
   lock: '<rect x="3.6" y="7" width="8.8" height="6" rx="1.4"/><path d="M5.6 7V5.2a2.4 2.4 0 0 1 4.8 0V7"/>',
   home: '<path d="M2.8 7.4 8 3l5.2 4.4M4.4 6.2V13h7.2V6.2"/>',
   trace: '<path d="M2.6 4h5M4.6 8h6M6.6 12h6.8"/>',
@@ -218,7 +219,7 @@ function flip(els, mutate) {
 function applyTheme() {
   const r = document.documentElement;
   if (prefs.theme === "light" || prefs.theme === "dark") r.dataset.theme = prefs.theme; else delete r.dataset.theme;
-  if (window.Art && Art.current()) { Art.apply(Art.current()); Home.restyle(); }
+  if (window.Art && Art.current()) { Art.apply(Art.current()); }
   if (window.Apps) Apps.sendTheme();
 }
 const narrow = () => matchMedia("(max-width: 760px)").matches;
@@ -399,13 +400,19 @@ function renderCard() {
     row(run ? "run" : "acc", "Workers running", run) + row(pending().length ? "wait" : "", "Waiting on you", pending().length) +
     row("done", "Worktrees", wts) + row("", "Spent", `$${snap.total_cost_usd.toFixed(3)} · router $${snap.router_cost_usd.toFixed(3)}`);
 }
+// The footer's machines: each by name, with a dot for how it is: green
+// while agents work on it, orange when it is idle, red when unreachable.
+function machineState(m) {
+  if (m.link.state === "offline") return ["red", "Unreachable: " + (m.link.error || "no answer")];
+  if (m.link.state === "connecting") return ["orange", "Connecting…"];
+  return m.running > 0 || m.pending > 0 ? ["green", `${m.running} working${m.pending ? `, ${m.pending} waiting on you` : ""}`] : ["orange", "Idle: no agents working"];
+}
 function renderMachines() {
   $("#machines").innerHTML = machines.map(m => {
-    const st = m.link.state, busy = m.running > 0 || m.pending > 0;
-    const md = st === "offline" ? "offline" : st === "connecting" ? "connecting" : busy && !m.selected ? "busy" : "";
-    const tip = `${m.name}${m.local ? " (this machine)" : " · " + m.url}${m.project ? " · " + m.project : ""}${st === "offline" ? " · offline" : ""}`;
-    return `<button class="mach" aria-pressed="${m.selected}" data-m="${m.index}" title="${esc(tip)}" aria-label="${esc(tip)}">${icon(m.local ? "pc" : "cloud")}${md ? `<span class="md ${md}"></span>` : ""}</button>`;
-  }).join("") + `<button class="mach" id="addMachine" title="Add a machine" aria-label="Add a machine">${icon("plus")}</button>`;
+    const [c, why] = machineState(m);
+    const tip = `${m.name}${m.local ? " (this machine)" : " · " + m.url}${m.project ? " · " + m.project : ""} · ${why}`;
+    return `<button class="mach" aria-pressed="${m.selected}" data-m="${m.index}" title="${esc(tip)}" aria-label="${esc(tip)}">${icon(m.local ? "pc" : "cloud")}<span class="mn">${esc(m.name)}</span><span class="md ${c}"></span></button>`;
+  }).join("") + `<button class="mach add" id="addMachine" title="Add a machine" aria-label="Add a machine">${icon("plus")}</button>`;
   $$("#machines [data-m]").forEach(b => (b.onclick = async () => {
     await invoke("select_machine", { index: +b.dataset.m });
     S.pane.clear(); S.review = null; S.ticket = null;
@@ -665,7 +672,7 @@ addEventListener("keydown", e => {
   if (!(e.metaKey || e.ctrlKey)) return;
   if (!$("#onboard").hidden) return;
   if (e.key === "n") { e.preventDefault(); setMode("chat"); Chat.newChat(); return; }
-  if (e.key === "k") { e.preventDefault(); setMode("chat"); setSide(true); $("#search").focus(); return; }
+  if (e.key === "k") { e.preventDefault(); Shell.search(); return; }
   if (e.key === "o") { e.preventDefault(); pickProject(); return; }
   if (e.key === "j") { e.preventDefault(); setMode(S.mode === "chat" ? "code" : "chat"); return; }
   if (e.key === "/" ) { e.preventDefault(); if (window.Shell) Shell.toggleSplit(); return; }
@@ -858,7 +865,7 @@ function wallTile(a) {
   const nd = needsYou(a);
   return `<section class="pane tile${nd ? " needs" : ""}" data-tile="${a.id}"><header class="ph"><span class="agent">${icon("sparkle")}</span><span class="t">${esc(a.id === MAIN ? "Main agent" : a.title)}</span><span class="dot ${dotFor(a.status)}"></span><span class="sp"></span><span class="rt">${esc(a.decision ? a.decision.model : "")}</span>
     ${busy(a) ? `<button class="ib stopb" data-act="stop" aria-label="Stop" title="Stop">${icon("stop")}</button>` : ""}<button class="ib" data-act="open" aria-label="Open in a canvas" title="Open in a canvas">${icon("expand")}</button></header>
-    <div class="tb">${a.log.length ? a.log.slice(-80).map(logHTML).join("") : `<div class="ln note">${a.status === "queued" ? "Queued: starts when its blockers are merged" : "No activity yet"}</div>`}${a.status === "running" ? `<div class="ln spin"><span class="spin-g">${SPIN[spinI]}</span> Working…</div>` : ""}</div>
+    <div class="tb">${a.log.length ? a.log.slice(-80).map(logHTML).join("") : `<div class="ln raw dim">${a.status === "queued" ? "Queued: starts when its blockers are merged" : "No activity yet"}</div>`}${a.status === "running" ? `<div class="ln spin"><span class="spin-g">${SPIN[spinI]}</span> Working…</div>` : ""}</div>
     ${nd ? `<button class="tile-need" data-act="need">${icon("warn")}${esc(nd.why)}</button>` : ""}</section>`;
 }
 // Tiles update in place (by agent) so each keeps its scroll position.
@@ -931,7 +938,12 @@ function renderAlt() {
 // Canvases sit absolutely at the rectangles of the tab's layout tree, so a
 // new arrangement (a drag preview, a resize) is a style change the browser
 // animates rather than a rebuild.
+// The painting is at full strength only on Home (Code's workbench, Home view).
+function syncArt() {
+  if (window.Art) Art.setVivid(S.mode === "code" && S.codeView !== "pair" && !S.settings && (!hasProject || S.wb === "home"));
+}
 function renderGrid() {
+  syncArt();
   const g = $("#grid"), t = tab();
   if (!hasProject) { renderWbv(); S.els = new Map(); S.ph = null; Home.render(g); return; }
   renderWbv();
@@ -1407,7 +1419,7 @@ function renderSettings() {
   $$("[data-popen]", el).forEach(b => (b.onclick = () => { closeSettings(); openProject(b.dataset.popen); }));
   $$("[data-pforget]", el).forEach(b => (b.onclick = async () => { await invoke("forget_project", { path: b.dataset.pforget }); prefs = await invoke("prefs"); renderSettings(); renderList(); }));
   $$("[data-theme]", el).forEach(b => (b.onclick = async () => { prefs.theme = b.dataset.theme; applyTheme(); renderSettings(); await invoke("set_theme", { theme: prefs.theme }); }));
-  $$("[data-bd]", el).forEach(b => (b.onclick = async () => { prefs.backdrop = b.dataset.bd; Art.apply(prefs.backdrop); Home.restyle(); renderSettings(); await invoke("set_backdrop", { backdrop: prefs.backdrop }); }));
+  $$("[data-bd]", el).forEach(b => (b.onclick = async () => { prefs.backdrop = b.dataset.bd; Art.apply(prefs.backdrop); renderSettings(); await invoke("set_backdrop", { backdrop: prefs.backdrop }); }));
   $$("[data-show]", el).forEach(b => (b.onclick = async () => { await invoke("select_machine", { index: +b.dataset.show }); S.pane.clear(); S.review = null; await refresh(true); renderSettings(); }));
   $$("[data-rm]", el).forEach(b => (b.onclick = async () => { await invoke("remove_machine", { index: +b.dataset.rm }); await refresh(true); renderSettings(); }));
   $("#mAdd").onclick = async () => {

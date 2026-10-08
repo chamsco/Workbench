@@ -50,9 +50,10 @@ var Effort = (() => {
           ctx.globalAlpha = 0.35 + 0.65 * p * tw;
           ctx.fillStyle = STAR[Math.floor(Math.abs(seed) * 977) % STAR.length];
         } else {
-          if (th > 0.25 + p * 0.85) continue;
-          ctx.globalAlpha = 0.25 + 0.75 * p;
-          ctx.fillStyle = p > 0.8 ? "#ff6fae" : p > 0.5 ? "#b85a9e" : "#6e4a86";
+          // Every cell lit: three colours dithered along the ramp.
+          const k = p * 2 + th * 0.9 - 0.45;
+          ctx.globalAlpha = 0.55 + 0.45 * p;
+          ctx.fillStyle = k > 1.35 ? "#ff7ab8" : k > 0.7 ? "#c25aa6" : "#6b4a8c";
         }
         ctx.fillRect(x, y, 1, 1);
       }
@@ -132,7 +133,8 @@ var Picker = (() => {
   const outside = e => { if (pop && !pop.contains(e.target) && !e.target.closest("[data-mpick]")) close(); };
   const esc = e => { if (e.key === "Escape") { e.stopPropagation(); close(); } };
 
-  async function open(anchor, choice, onChange) {
+  // opts.under: an element (Home's composer) to sit under, as wide as it.
+  async function open(anchor, choice, onChange, opts = {}) {
     if (pop) { close(); return; }
     const all = await items();
     let tab = "all", q = "";
@@ -174,10 +176,22 @@ var Picker = (() => {
       stopEffort = Effort.wire(pop, choice.effort, e => { choice = { ...choice, effort: e }; onChange(choice); });
     };
     render();
-    const r = anchor.getBoundingClientRect(), pw = pop.offsetWidth, ph = pop.offsetHeight;
-    const below = r.bottom + 8 + ph < innerHeight;
-    pop.style.left = Math.max(8, Math.min(innerWidth - pw - 8, r.right - pw)) + "px";
-    pop.style.top = (below ? r.bottom + 8 : Math.max(8, r.top - ph - 8)) + "px";
+    if (opts.under) {
+      // Under the composer: scroll it up if the menu would not fit below.
+      const room = 470, sc = opts.under.closest(".home-wrap");
+      let u = opts.under.getBoundingClientRect();
+      if (sc && innerHeight - u.bottom < room) { sc.scrollTop += room - (innerHeight - u.bottom); u = opts.under.getBoundingClientRect(); }
+      const w = Math.min(innerWidth - 16, Math.max(u.width, 560));
+      pop.style.width = w + "px";
+      pop.style.left = Math.max(8, Math.min(innerWidth - w - 8, u.left + (u.width - w) / 2)) + "px";
+      pop.style.top = u.bottom + 8 + "px";
+      pop.style.maxHeight = Math.max(260, innerHeight - u.bottom - 16) + "px";
+    } else {
+      const r = anchor.getBoundingClientRect(), pw = pop.offsetWidth, ph = pop.offsetHeight;
+      const below = r.bottom + 8 + ph < innerHeight;
+      pop.style.left = Math.max(8, Math.min(innerWidth - pw - 8, r.right - pw)) + "px";
+      pop.style.top = (below ? r.bottom + 8 : Math.max(8, r.top - ph - 8)) + "px";
+    }
     addEventListener("pointerdown", outside, true);
     addEventListener("keydown", esc, true);
     pop.querySelector(".mp-search input").focus();

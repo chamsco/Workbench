@@ -113,26 +113,40 @@ var Art = (() => {
     return () => { alive = false; ro.disconnect(); document.removeEventListener("visibilitychange", vis); cv.width = cv.height = 0; };
   }
 
-  let stopDesk = null, current = null;
-  // The window's backdrop. A painting sits muted behind everything and
-  // dissolves before the middle of the window, so panes stay readable.
+  let stopDesk = null, current = null, vivid = false;
+  // The window's backdrop: one painting behind the title bar, the sidebar
+  // and the page, dissolving before the middle of the window. Full strength
+  // on Home; elsewhere muted toward the page so panes stay readable.
   function apply(id) {
     current = BACKDROPS.some(([k]) => k === id) ? id : "harbour";
-    const desk = document.querySelector(".desk");
-    let layer = document.getElementById("deskArt");
+    const win = document.getElementById("win");
+    let layer = document.getElementById("winArt");
     if (!layer) {
       layer = document.createElement("div");
-      layer.id = "deskArt"; layer.className = "desk-art"; layer.setAttribute("aria-hidden", "true");
-      desk.prepend(layer);
+      layer.id = "winArt"; layer.className = "win-art"; layer.setAttribute("aria-hidden", "true");
+      win.prepend(layer);
     }
+    win.dataset.backdrop = current;
+    document.querySelector(".desk").dataset.backdrop = current;
+    draw();
+  }
+  function draw() {
+    const layer = document.getElementById("winArt");
     if (stopDesk) { stopDesk(); stopDesk = null; }
-    desk.dataset.backdrop = current;
     const s = src(current);
-    if (s) stopDesk = band(layer, s, { position: 0.35, fade: 0.55, mute: 0.55 + muteFor(s), cell: 3 });
+    if (!layer) return;
+    if (s) stopDesk = band(layer, s, { position: 0.4, fade: 0.5, mute: vivid ? muteFor(s) : 0.6 + muteFor(s) / 2, cell: 2, bg: "--win-bg" });
     else layer.innerHTML = "";
+  }
+  // Home shows the painting at full strength.
+  function setVivid(v) {
+    if (v === vivid) return;
+    vivid = v;
+    document.getElementById("win").classList.toggle("art-vivid", v);
+    if (current) draw();
   }
   // A theme change swaps the harbour's light.
   matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => current && apply(current));
 
-  return { band, apply, src, muteFor, BACKDROPS, current: () => current, light };
+  return { band, apply, setVivid, src, muteFor, BACKDROPS, current: () => current, light };
 })();
