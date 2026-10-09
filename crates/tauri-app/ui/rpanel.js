@@ -8,7 +8,7 @@ var RPanel = (() => {
   const put = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
   let open = get("bs.rpanel", "0") === "1", tab = get("bs.rtab", "changes"), scope = get("bs.rscope", "workspace");
   let log = { path: "", at: 0, rows: null, err: null }, files = { at: 0, rows: null }, preview = null, q = "", chats = [];
-  let changes = { path: "", at: 0, rows: null, branch: "", err: null };
+  let changes = { path: "", at: 0, rows: null, branch: "", fresh: false, err: null };
   const OS = { win: "Windows", mac: "macOS", linux: "Linux" };
   const TABS = [["changes", "diff", "Changes"], ["history", "branch", "History"], ["files", "folder", "Files"], ["sessions", "sparkle", "Sessions"]];
   const dir = () => (agent(MAIN) && agent(MAIN).worktree) || snap.workspace || "";
@@ -32,7 +32,7 @@ var RPanel = (() => {
       // ponytail: at most one git status every 3s while agents stream events.
       if (!w || (!force && changes.path === w && Date.now() - changes.at < 3000)) return;
       changes.at = Date.now();
-      try { const r = await invoke("git_changes", { path: w }); changes = { path: w, at: changes.at, rows: r.files, branch: r.branch, err: null }; } catch (e) { changes = { path: w, at: changes.at, rows: [], branch: "", err: String(e) }; }
+      try { const r = await invoke("git_changes", { path: w }); changes = { path: w, at: changes.at, rows: r.files, branch: r.branch, fresh: r.fresh, err: null }; } catch (e) { changes = { path: w, at: changes.at, rows: [], branch: "", fresh: false, err: String(e) }; }
       draw();
     }
     if (tab === "history" && d && (force || log.path !== d || Date.now() - log.at > 30_000)) {
@@ -75,7 +75,10 @@ var RPanel = (() => {
       if (!changes.rows) return { n: 0, m: 0, h: `<div class="hw-empty">Reading changes…</div>` };
       const rows = changes.rows.filter(c => match(c.path));
       const folder = p => p.slice(0, -base(p).length).replace(/[\\/]$/, "");
-      return { n: rows.length, m: changes.rows.length, h: rows.length ? rows.map(c => `<button class="rp-file rp-chg" data-chg="${esc(c.path)}"><i class="cm cm-${mark(c.status)}">${mark(c.status)}</i><span class="nm">${esc(base(c.path))}<small>${esc(folder(c.path))}</small></span>${c.added ? `<b class="add">+${c.added}</b>` : ""}${c.removed ? `<b class="del">−${c.removed}</b>` : ""}</button>`).join("") + prevHtml()
+      // An untracked folder comes as one "dir/" row; it opens to the files in it.
+      const nm = p => (p.endsWith("/") ? `${icon("folder")}${esc(base(p.slice(0, -1)))}/<small>${esc(folder(p.slice(0, -1)))}</small>` : `${esc(base(p))}<small>${esc(folder(p))}</small>`);
+      const note = changes.fresh ? `<div class="rp-note">No commits on ${esc(changes.branch || "this branch")} yet, so everything here is new. After the first commit this lists only what changes.</div>` : "";
+      return { n: rows.length, m: changes.rows.length, h: rows.length ? note + rows.map(c => `<button class="rp-file rp-chg" data-chg="${esc(c.path)}"><i class="cm cm-${mark(c.status)}">${mark(c.status)}</i><span class="nm">${nm(c.path)}</span>${c.added ? `<b class="add">+${c.added}</b>` : ""}${c.removed ? `<b class="del">−${c.removed}</b>` : ""}</button>`).join("") + prevHtml()
         : `<div class="rp-none">${icon("diff")}<b>No changes yet</b><span>Changes made on ${esc(changes.branch || "this branch")} appear here.</span></div>` };
     }
     if (tab === "history") {
@@ -104,7 +107,7 @@ var RPanel = (() => {
       <div class="rp-head"><span>${b.n} shown · ${b.m} ${count}</span><span class="sp"></span>
         ${tab !== "sessions" ? `<button class="ib" data-act="refresh" title="Refresh" aria-label="Refresh">${icon("reload")}</button>` : ""}
         <button class="rp-opt" data-act="opts" data-popper>View options${icon("chevd")}</button></div>
-      <div class="rp-sub">${tab === "changes" ? `${icon("branch")}${esc(changes.branch || "…")} · Uncommitted` : `${icon(m.local ? "pc" : "cloud")}${esc(m.name)} · ${OS[(window.__BOOT || {}).platform] || "Web"}${tab === "sessions" ? ` · ${{ workspace: "Workspace", project: "Project", all: "All" }[scope]}` : ""}`}</div>
+      <div class="rp-sub">${tab === "changes" ? `${icon("branch")}${esc(changes.branch || "…")} · ${changes.fresh ? "No commits yet" : "Uncommitted"}` : `${icon(m.local ? "pc" : "cloud")}${esc(m.name)} · ${OS[(window.__BOOT || {}).platform] || "Web"}${tab === "sessions" ? ` · ${{ workspace: "Workspace", project: "Project", all: "All" }[scope]}` : ""}`}</div>
       <label class="rp-search">${icon("search")}<input class="rp-q" placeholder="Filter" value="${esc(q)}" aria-label="Filter"></label>
       <div class="rp-list">${b.h}</div>`;
     el.querySelector(".rp-list").scrollTop = keep;

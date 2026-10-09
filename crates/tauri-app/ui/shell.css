@@ -278,6 +278,8 @@ button.rp-row:hover { background: var(--hover); }
 .rp-chg .cm-A, .rp-chg .cm-U { color: var(--green); } .rp-chg .cm-D { color: var(--red); } .rp-chg .cm-R { color: var(--blue); }
 .rp-chg .nm { flex: 1; min-width: 0; }
 .rp-chg .nm small { margin-left: 6px; color: var(--fg-3); font-size: 10.5px; }
+.rp-chg .nm .ic { width: 12px; height: 12px; margin-right: 4px; vertical-align: -2px; color: var(--fg-3); }
+.rp-note { margin: 2px 4px 6px; padding: 8px 10px; border-radius: 8px; background: var(--hover); font-size: 11.5px; line-height: 1.45; color: var(--fg-2); }
 .rp-chg b { font: 500 10.5px var(--font-mono); } .rp-chg b.add { color: var(--green); } .rp-chg b.del { color: var(--red); margin-left: 4px; }
 .rp-prev pre .add { color: var(--green); } .rp-prev pre .del { color: var(--red); } .rp-prev pre .hunk { color: var(--blue); }
 .rp-none { display: grid; justify-items: center; gap: 4px; padding: 48px 12px; text-align: center; font-size: 12px; color: var(--fg-3); }

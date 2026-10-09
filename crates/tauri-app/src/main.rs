@@ -101,7 +101,7 @@ fn set_notify(f: F, notify: String) {
 #[tauri::command]
 async fn git_changes(path: String) -> Res<serde_json::Value> {
     tauri::async_runtime::spawn_blocking(move || {
-        backspace_core::git::changes(std::path::Path::new(&path)).map(|(branch, files)| serde_json::json!({ "branch": branch, "files": files }))
+        backspace_core::git::changes(std::path::Path::new(&path)).map(|c| serde_json::json!(c))
     })
     .await
     .map_err(err)?

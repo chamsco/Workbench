@@ -1008,10 +1008,8 @@ body {
   }
   html {
     @apply font-sans;
-    /* The document scrollbar reserves its lane up front, so a page growing
-       past the fold never nudges the layout sideways. Inner scrollers that
-       toggle at runtime (transcript, pickers, settings panes) carry their
-       own scrollbar-gutter utilities. */
-    scrollbar-gutter: stable;
+    /* Whirl reserved the document scrollbar's lane here (scrollbar-gutter:
+       stable) for its scrolling web pages. Backspace's window never scrolls
+       as a page, so that lane was an empty 15px strip down the right edge. */
   }
 }

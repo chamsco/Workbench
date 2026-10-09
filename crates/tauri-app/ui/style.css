@@ -98,7 +98,9 @@ body { margin: 0; background: var(--desk-base); color: var(--fg); font: 13px/1.4
   --side-w: 212px; --rail-w: 52px;
   position: relative; min-width: 0; min-height: 0;
   display: grid; grid-template-columns: var(--rail-w) var(--side-w) 1fr; grid-template-rows: minmax(0, 1fr) auto;
-  border-radius: 12px; overflow: hidden;
+  /* clip, not hidden: a hidden box can still be scrolled (focus, or the side
+     panel sliding in from past the edge), which left a strip on the right. */
+  border-radius: 12px; overflow: clip;
   background: var(--glass);
   -webkit-backdrop-filter: blur(48px) saturate(1.7); backdrop-filter: blur(48px) saturate(1.7);
   box-shadow: var(--shadow-win), inset 0 0.5px 0 var(--glass-hi);

@@ -269,17 +269,26 @@ fn git_out(dir: &Path, args: &[&str]) -> Result<String> {
 
 /// What is uncommitted in `dir` (staged, unstaged and untracked), and the
 /// branch it is on: the side panel's Changes.
-pub fn changes(dir: &Path) -> Result<(String, Vec<Change>)> {
+/// What `changes` reports: the branch, whether it has no commit yet (so
+/// everything in it is new), and the changed files.
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct Changes {
+    pub branch: String,
+    pub fresh: bool,
+    pub files: Vec<Change>,
+}
+
+pub fn changes(dir: &Path) -> Result<Changes> {
     // `--show-current` names a branch with no commit yet; detached, it is empty.
     let branch = git_out(dir, &["branch", "--show-current"]).map(|b| b.trim().to_string()).unwrap_or_default();
     let branch = if branch.is_empty() { git_out(dir, &["rev-parse", "--short", "HEAD"]).map(|h| h.trim().to_string()).unwrap_or_default() } else { branch };
-    let status = git_out(dir, &["status", "--porcelain=v1", "-uall"])?;
-    // A repo with no commit yet has no HEAD to diff against.
-    let numstat = git_out(dir, &["diff", "HEAD", "--numstat"]).unwrap_or_default();
-    let mut files = parse_changes(&status, &numstat);
-    // ponytail: the first 500; a folder of thousands of untracked files says nothing more.
-    files.truncate(500);
-    Ok((branch, files))
+    // An untracked folder is one row ("dir/"), as `git status` shows it, so a
+    // new project lists its top level rather than every file in it.
+    let status = git_out(dir, &["status", "--porcelain=v1", "-unormal"])?;
+    let fresh = git_out(dir, &["rev-parse", "--verify", "-q", "HEAD"]).is_err();
+    // With no commit there is no HEAD; count what is staged against nothing.
+    let numstat = git_out(dir, if fresh { &["diff", "--cached", "--numstat"] } else { &["diff", "HEAD", "--numstat"] }).unwrap_or_default();
+    Ok(Changes { branch, fresh, files: parse_changes(&status, &numstat) })
 }
 
 fn parse_changes(status: &str, numstat: &str) -> Vec<Change> {
@@ -313,7 +322,8 @@ fn renamed_to(p: &str) -> String {
     }
 }
 
-/// One file's uncommitted diff against HEAD; a new file is shown whole.
+/// One file's uncommitted diff against HEAD; a new file is shown whole, a
+/// new folder as the files in it.
 pub fn diff_file(dir: &Path, file: &str) -> Result<String> {
     let d = git_out(dir, &["diff", "HEAD", "--", file]).unwrap_or_default();
     if !d.trim().is_empty() {
@@ -323,6 +333,10 @@ pub fn diff_file(dir: &Path, file: &str) -> Result<String> {
     let p = dunce::canonicalize(root.join(file))?;
     if !p.starts_with(&root) {
         bail!("{file} is outside the project");
+    }
+    if p.is_dir() {
+        let list = git_out(dir, &["ls-files", "--others", "--exclude-standard", "--", file])?;
+        return Ok(format!("new folder {file}\n{}", list.lines().map(|l| format!("+{l}\n")).collect::<String>()));
     }
     let text = std::fs::read_to_string(&p)?;
     Ok(format!("new file {file}\n{}", text.lines().map(|l| format!("+{l}\n")).collect::<String>()))
@@ -364,6 +378,22 @@ mod tests {
         assert_eq!((c[2].path.as_str(), c[2].added), ("lib/b.rs", 5));
         assert_eq!(c[3].added, 2);
         assert_eq!(renamed_to("src/{a => b}/x.rs"), "src/b/x.rs");
+    }
+
+    #[test]
+    fn a_new_repo_lists_folders_and_says_so() {
+        let root = std::env::temp_dir().join(format!("bs-fresh-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("src/deep")).unwrap();
+        std::fs::write(root.join("src/deep/a.rs"), "x\n").unwrap();
+        std::fs::write(root.join("b.txt"), "y\n").unwrap();
+        git_out(&root, &["init", "-q"]).unwrap();
+        let c = changes(&root).unwrap();
+        assert!(c.fresh);
+        let paths: Vec<_> = c.files.iter().map(|f| f.path.as_str()).collect();
+        assert_eq!(paths, ["b.txt", "src/"]);
+        assert!(diff_file(&root, "src/").unwrap().contains("+src/deep/a.rs"));
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

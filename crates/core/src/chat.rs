@@ -117,6 +117,9 @@ pub struct Msg {
     /// be resumed (`Chats::resume`).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub interrupted: bool,
+    /// Sent in Plan mode: its reply, and any retry, resume or edit of it, reads and proposes only.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub plan: bool,
 }
 
 impl Msg {
@@ -140,6 +143,7 @@ impl Msg {
             author_name: None,
             trace: None,
             interrupted: false,
+            plan: false,
         }
     }
 }
@@ -736,6 +740,7 @@ impl Chats {
                 author_name: None,
                 trace: None,
                 interrupted: false,
+                plan: ctx.plan,
             });
             t.updated = now;
         })?;
@@ -1131,6 +1136,12 @@ impl Chats {
     }
 
     /// Pair: the project folder this thread's CLI works (and edits) in.
+    /// Plan mode is the last user message's, so a retry, resume or edit keeps it.
+    fn plan_of(&self, id: &str) -> bool {
+        let ts = self.threads.lock().unwrap();
+        ts.get(id).and_then(|t| t.messages.iter().rev().find(|m| m.role == Role::User)).is_some_and(|m| m.plan)
+    }
+
     fn project_of(&self, id: &str) -> Option<PathBuf> {
         let ts = self.threads.lock().unwrap();
         ts.get(id)
@@ -1301,8 +1312,9 @@ When structure helps the reader (a comparison, steps, a table, a chart, a form, 
             req.permission = Some(ctx.prefs.cli_permission.clone()).filter(|p| !p.is_empty());
             req.effort = ctx.prefs.cli_effort.clone();
         }
-        req.edit = project.is_some() && !ctx.plan;
-        if ctx.plan {
+        let plan = ctx.plan || self.plan_of(id);
+        req.edit = project.is_some() && !plan;
+        if plan {
             req.permission = Some("plan".into());
             req.system = Some(format!("{}{PLAN_MODE}", req.system.take().map(|s| s + "\n\n").unwrap_or_default()));
         }
@@ -1631,6 +1643,7 @@ mod tests {
                     author_name: None,
                     trace: None,
                     interrupted: false,
+                    plan: false,
                 });
             }
         })
