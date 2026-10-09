@@ -97,6 +97,25 @@ fn set_notify(f: F, notify: String) {
 }
 
 /// Commits a day for the last two weeks and lines changed, for Home.
+/// What is uncommitted in a folder, and its branch: the side panel's Changes.
+#[tauri::command]
+async fn git_changes(path: String) -> Res<serde_json::Value> {
+    tauri::async_runtime::spawn_blocking(move || {
+        backspace_core::git::changes(std::path::Path::new(&path)).map(|(branch, files)| serde_json::json!({ "branch": branch, "files": files }))
+    })
+    .await
+    .map_err(err)?
+    .map_err(err)
+}
+
+#[tauri::command]
+async fn git_diff(path: String, file: String) -> Res<String> {
+    tauri::async_runtime::spawn_blocking(move || backspace_core::git::diff_file(std::path::Path::new(&path), &file))
+        .await
+        .map_err(err)?
+        .map_err(err)
+}
+
 #[tauri::command]
 async fn git_activity(path: String) -> Res<serde_json::Value> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -785,13 +804,15 @@ async fn chat_send(
     text: String,
     files: Vec<NewFile>,
     reply_to: Option<String>,
+    plan: Option<bool>,
 ) -> Res<Option<Note>> {
     blocking(f, move |f| {
         let mut atts: Vec<Attachment> = Vec::new();
         for nf in files {
             atts.push(f.chats().attach(&id, &nf.name, &nf.mime, &nf.data)?);
         }
-        f.chats().send(&id, &text, atts, reply_to, f.chat_ctx())?;
+        let ctx = backspace_core::chat::Ctx { plan: plan.unwrap_or(false), ..f.chat_ctx() };
+        f.chats().send(&id, &text, atts, reply_to, ctx)?;
         // Anything worth keeping in what you said? Decided on this machine;
         // the app shows "… will remember that" with a way to say no.
         let prefs = f.prefs();
@@ -1087,6 +1108,8 @@ fn main() -> anyhow::Result<()> {
             notify,
             set_genui,
             git_activity,
+            git_changes,
+            git_diff,
             set_agent_run,
             set_backdrop,
             file_ticket,

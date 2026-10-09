@@ -427,6 +427,7 @@ impl Fleet {
             prefs: self.prefs(),
             memory: Some(self.memory.clone()),
             agents: Some(self.agents.clone()),
+            plan: false,
         }
     }
 

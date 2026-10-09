@@ -13,6 +13,7 @@ import { pickFallbacks, type SuggestionSlot } from "@/lib/suggestions";
 import { cn } from "@/lib/utils";
 import { SuggestionCards } from "@/components/suggestion-cards";
 import { Composer } from "./Composer";
+import { CodeComposer, CodeSide } from "./CodeComposer";
 import { ReplyChip } from "./Extras";
 import { AgentEditors, AgentsHome, AgentsSide, AgentThreadHeader } from "./Agents";
 import { TracePanel } from "./Trace";
@@ -87,14 +88,14 @@ export function ChatApp({ sideEl, user }: { sideEl: HTMLElement; user: string })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
-  const submit = async (text: string, files: { name: string; mime: string; data: string }[]) => {
+  const submit = async (text: string, files: { name: string; mime: string; data: string }[], plan = false) => {
     if (!route) throw new Error("no route");
     if (!host.usable(route)) {
       host.toast(`${host.providerName(route)} isn't available. Pick another model.`, "err");
       throw new Error("unusable");
     }
     try {
-      await send(text, files, route);
+      await send(text, files, route, plan);
     } catch (e) {
       host.toast(String(e), "err");
       throw e;
@@ -142,8 +143,9 @@ export function ChatApp({ sideEl, user }: { sideEl: HTMLElement; user: string })
             <div className="min-h-0 flex-1">
               <AnimatePresence mode="popLayout" initial={false}>
                 {inThread && (
-                  <motion.div key={thread.id} {...THREAD_SWAP} className="h-full min-h-0">
+                  <motion.div key={thread.id} {...THREAD_SWAP} className="relative h-full min-h-0">
                     <ThreadView thread={thread} header={<AgentThreadHeader thread={thread} />} />
+                    {scope && <CodeSide scope={scope} />}
                   </motion.div>
                 )}
                 {!inThread && agentsMode && !scope && (
@@ -177,6 +179,20 @@ export function ChatApp({ sideEl, user }: { sideEl: HTMLElement; user: string })
                     className={cn("pointer-events-auto", inThread && "pb-4")}
                   >
                     {replying && <ReplyChip to={replying} onCancel={() => setReplyTo(null)} />}
+                    {scope ? (
+                      <CodeComposer
+                        value={draft}
+                        onValueChange={setDraft}
+                        route={route}
+                        onRouteChange={(r) => void changeRoute(r)}
+                        onSubmit={submit}
+                        onStop={thread ? () => void stop(thread.id) : undefined}
+                        generating={busy}
+                        inThread={inThread}
+                        scope={scope}
+                        textareaRef={composerRef}
+                      />
+                    ) : (
                     <Composer
                       value={draft}
                       onValueChange={setDraft}
@@ -201,6 +217,7 @@ export function ChatApp({ sideEl, user }: { sideEl: HTMLElement; user: string })
                       clis={clis}
                       textareaRef={composerRef}
                     />
+                    )}
                   </motion.div>
                   {scope && !inThread && <PairNote route={route} folder={baseName(scope)} />}
                   <AnimatePresence mode="popLayout" initial={false}>

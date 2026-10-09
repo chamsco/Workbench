@@ -65,7 +65,7 @@ fn chat_with_a_remote_a2a_agent() {
     let chats = Chats::open(dir.join("chats"), rt.handle().clone(), tx);
     let mut prefs = Prefs::default();
     prefs.remote_agents.push(RemoteAgent { id: "workbot".into(), name: "WorkBot".into(), description: String::new(), url, token: String::new() });
-    let ctx = Ctx { prefs, memory: None, agents: None };
+    let ctx = Ctx { prefs, memory: None, agents: None, plan: false };
 
     let t = chats.create(Route { kind: RouteKind::A2a, provider: "workbot".into(), model: None });
     chats.send(&t.id, "file my taxi receipt", vec![], None, ctx.clone()).unwrap();

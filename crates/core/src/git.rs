@@ -249,6 +249,85 @@ pub fn log(dir: &Path, n: usize) -> Result<Vec<(String, String, String, String, 
         .collect())
 }
 
+/// One uncommitted change: git's two-letter status, the path, lines added
+/// and removed against HEAD (0 and 0 for a new untracked file).
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+pub struct Change {
+    pub status: String,
+    pub path: String,
+    pub added: u64,
+    pub removed: u64,
+}
+
+fn git_out(dir: &Path, args: &[&str]) -> Result<String> {
+    let out = std::process::Command::new("git").args(args).current_dir(dir).stdin(std::process::Stdio::null()).output()?;
+    if !out.status.success() {
+        bail!("{}", String::from_utf8_lossy(&out.stderr).trim());
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+/// What is uncommitted in `dir` (staged, unstaged and untracked), and the
+/// branch it is on: the side panel's Changes.
+pub fn changes(dir: &Path) -> Result<(String, Vec<Change>)> {
+    // `--show-current` names a branch with no commit yet; detached, it is empty.
+    let branch = git_out(dir, &["branch", "--show-current"]).map(|b| b.trim().to_string()).unwrap_or_default();
+    let branch = if branch.is_empty() { git_out(dir, &["rev-parse", "--short", "HEAD"]).map(|h| h.trim().to_string()).unwrap_or_default() } else { branch };
+    let status = git_out(dir, &["status", "--porcelain=v1", "-uall"])?;
+    // A repo with no commit yet has no HEAD to diff against.
+    let numstat = git_out(dir, &["diff", "HEAD", "--numstat"]).unwrap_or_default();
+    let mut files = parse_changes(&status, &numstat);
+    // ponytail: the first 500; a folder of thousands of untracked files says nothing more.
+    files.truncate(500);
+    Ok((branch, files))
+}
+
+fn parse_changes(status: &str, numstat: &str) -> Vec<Change> {
+    let counts: std::collections::HashMap<String, (u64, u64)> = numstat
+        .lines()
+        .filter_map(|l| {
+            let mut f = l.splitn(3, '\t');
+            let (a, r, p) = (f.next()?, f.next()?, f.next()?);
+            Some((renamed_to(p), (a.parse().unwrap_or(0), r.parse().unwrap_or(0))))
+        })
+        .collect();
+    status
+        .lines()
+        .filter(|l| l.len() > 3)
+        .map(|l| {
+            let path = l[3..].rsplit(" -> ").next().unwrap_or(&l[3..]).trim_matches('"').to_string();
+            let (added, removed) = counts.get(&path).copied().unwrap_or((0, 0));
+            Change { status: l[..2].trim().to_string(), path, added, removed }
+        })
+        .collect()
+}
+
+/// numstat writes a rename as "old => new" or "dir/{old => new}/rest": the new path.
+fn renamed_to(p: &str) -> String {
+    match (p.find('{'), p.find('}')) {
+        (Some(a), Some(b)) if a < b => {
+            let inner = &p[a + 1..b];
+            format!("{}{}{}", &p[..a], inner.rsplit(" => ").next().unwrap_or(inner), &p[b + 1..])
+        }
+        _ => p.rsplit(" => ").next().unwrap_or(p).to_string(),
+    }
+}
+
+/// One file's uncommitted diff against HEAD; a new file is shown whole.
+pub fn diff_file(dir: &Path, file: &str) -> Result<String> {
+    let d = git_out(dir, &["diff", "HEAD", "--", file]).unwrap_or_default();
+    if !d.trim().is_empty() {
+        return Ok(d);
+    }
+    let root = dunce::canonicalize(dir)?;
+    let p = dunce::canonicalize(root.join(file))?;
+    if !p.starts_with(&root) {
+        bail!("{file} is outside the project");
+    }
+    let text = std::fs::read_to_string(&p)?;
+    Ok(format!("new file {file}\n{}", text.lines().map(|l| format!("+{l}\n")).collect::<String>()))
+}
+
 /// Days since 1970-01-01 for a YYYY-MM-DD date.
 fn day_number(d: &str) -> Option<u64> {
     let mut p = d.split('-').map(|x| x.parse::<i64>().ok());
@@ -273,6 +352,19 @@ pub fn branch_name(key: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parse_changes_reads_status_and_counts() {
+        let status = " M src/a.rs\n?? new.txt\nR  old.rs -> lib/b.rs\nA  c.rs\n";
+        let numstat = "3\t1\tsrc/a.rs\n5\t0\t{old.rs => lib/b.rs}\n2\t0\tc.rs\n";
+        let c = parse_changes(status, numstat);
+        assert_eq!(c.len(), 4);
+        assert_eq!((c[0].status.as_str(), c[0].path.as_str(), c[0].added, c[0].removed), ("M", "src/a.rs", 3, 1));
+        assert_eq!((c[1].status.as_str(), c[1].added), ("??", 0));
+        assert_eq!((c[2].path.as_str(), c[2].added), ("lib/b.rs", 5));
+        assert_eq!(c[3].added, 2);
+        assert_eq!(renamed_to("src/{a => b}/x.rs"), "src/b/x.rs");
+    }
 
     #[test]
     fn day_numbers() {

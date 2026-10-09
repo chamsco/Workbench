@@ -47,6 +47,22 @@ export function glyphFor(id: string | undefined): Icon {
   }
 }
 
+declare global {
+  interface Window {
+    Logos?: { mark: (id: string, cls?: string) => string };
+  }
+}
+
+/** The brand's own mark (ui/logos.js); a generic glyph where there is none. */
+export function Logo({ id, size = 15, className = "" }: { id: string | undefined; size?: number; className?: string }) {
+  const html = id ? window.Logos?.mark(id) : "";
+  if (!html) {
+    const G = glyphFor(id);
+    return <G size={size} className={`shrink-0 ${className}`} />;
+  }
+  return <span aria-hidden className={`inline-flex shrink-0 [&>svg]:size-full ${className}`} style={{ width: size, height: size }} dangerouslySetInnerHTML={{ __html: html }} />;
+}
+
 export const routeGlyphId = (r: Route | null) =>
   !r ? "cloud" : r.kind === "cli" ? r.provider : r.kind === "local" ? "ollama" : r.kind === "cloud" ? "cloud" : `router:${r.provider}`;
 
@@ -58,7 +74,6 @@ export function RoutePicker({ value, onValueChange }: { value: Route | null; onV
   const { epoch } = useChat();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const groups = useMemo(() => host.routes(), [epoch]);
-  const Glyph = glyphFor(routeGlyphId(value));
   const name = value ? shortName(host.routeName(value)) : "Pick a model";
 
   const pick = (it: RouteItem) => {
@@ -76,7 +91,7 @@ export function RoutePicker({ value, onValueChange }: { value: Route | null; onV
         className="relative flex h-9 max-w-56 shrink-0 cursor-pointer items-center rounded-full px-3 text-[13.5px]/4 font-medium text-muted-foreground transition-colors duration-150 hover:bg-black/[0.05] hover:text-foreground data-popup-open:bg-black/[0.05] data-popup-open:text-foreground dark:hover:bg-white/[0.06] dark:data-popup-open:bg-white/[0.06]"
       >
         <span className="flex min-w-0 items-center gap-1.5 whitespace-nowrap">
-          <Glyph size={15} className="shrink-0" />
+          <Logo id={routeGlyphId(value)} size={15} />
           <span className="truncate">{name}</span>
         </span>
       </PopoverTrigger>
@@ -90,7 +105,6 @@ export function RoutePicker({ value, onValueChange }: { value: Route | null; onV
                 {g.sub && <span className="truncate font-normal opacity-70">{g.sub}</span>}
               </div>
               {g.items.map((it, i) => {
-                const G = glyphFor(it.id);
                 const on = same(it.route, value);
                 return (
                   <button
@@ -100,7 +114,7 @@ export function RoutePicker({ value, onValueChange }: { value: Route | null; onV
                     onClick={() => pick(it)}
                     className={`${ROW} disabled:cursor-default disabled:opacity-50 disabled:hover:bg-transparent`}
                   >
-                    <G size={15} className="shrink-0 text-muted-foreground" />
+                    <Logo id={it.id} size={15} className="text-muted-foreground" />
                     <span className="flex min-w-0 flex-col">
                       <span className="truncate">{it.label}</span>
                       {it.sub && <span className="truncate text-[11.5px]/4 text-muted-foreground">{it.sub}</span>}

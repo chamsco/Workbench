@@ -178,6 +178,23 @@ var Chat = (() => {
     runSetup: () => Onboard.open(),
     toast,
     openUrl: url => invoke("open_url", { url }),
+    // Code chat: the same model and effort picker as the agents' composer,
+    // the CLI's permissions and effort (shared with the agents), where it runs.
+    codeRun: () => ({ permission: prefs.cli_permission || "edits", effort: prefs.cli_effort || null }),
+    setCodeRun: (permission, effort) => {
+      prefs.cli_permission = permission; prefs.cli_effort = effort;
+      return invoke("set_agent_run", { planner: prefs.planner || null, worker: prefs.worker || null, permission, effort });
+    },
+    picker: {
+      mount: (el, choice, onChange, onClose) => Picker.mount(el, choice, onChange, onClose, { auto: false }),
+      close: () => Picker.close(),
+      model: cli => Picker.MODEL[cli] || "",
+      cli: model => Picker.cliOf(model),
+      effortName: (cli, e) => Effort.name(cli, e),
+    },
+    machineName: () => machine().name,
+    projectMenu: anchor => Shell.projectMenu(anchor),
+    openPanel: tab => window.RPanel && RPanel.show(tab),
   });
   function mountWhirl() {
     if (whirl || !window.WhirlChat) return false;

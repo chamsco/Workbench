@@ -8,13 +8,8 @@ var Providers = (() => {
   let list = [], scanning = false, account = null, plans = [], accountErr = null, lastJSON = "";
   const mounts = new Set();
 
-  // Monogram avatars, so rows read at a glance without vendor logos.
-  const LOOK = {
-    codex: ["CX", "#10a37f"], claude: ["CL", "#d97757"], cursor: ["CU", "#4b5563"], grok: ["GK", "#111827"],
-    opencode: ["OP", "#6d28d9"], antigravity: ["AG", "#2563eb"], ollama: ["OL", "#0f766e"], cloud: ["☁", "#2a66d9"],
-  };
-  const look = id => { const n = id.replace(/^(router|a2a):/, ""); return LOOK[id] || [(n[0] || "R").toUpperCase() + (n[1] || "").toUpperCase(), id.startsWith("a2a:") ? "#b45309" : "#7c3aed"]; };
-  const avatar = (id, cls = "") => { const [t, c] = look(id); return `<span class="pav ${cls}" style="--av:${c}">${esc(t)}</span>`; };
+  // Each CLI's and model's own mark (logos.js); routers and A2A agents keep initials.
+  const avatar = (id, cls = "") => Logos.tile(id, cls);
 
   function statusLine(h) {
     if (!h.installed) return `<span class="pst off">Not installed</span>`;
@@ -196,7 +191,7 @@ var Providers = (() => {
   return {
     get list() { return list; },
     get account() { return account; },
-    avatar, look, load, rescan, refreshQuiet, loadAccount,
+    avatar, load, rescan, refreshQuiet, loadAccount,
     mount(el, opts = {}) { el.dataset.opts = JSON.stringify(opts); mounts.add(el); render(el); if (!list.length) load(); },
     async mountPlan(el) { planMounts.add(el); renderPlan(el); await loadAccount(); renderPlan(el); },
     setAccount(a) { account = a; },

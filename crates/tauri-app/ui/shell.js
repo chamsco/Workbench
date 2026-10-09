@@ -44,8 +44,10 @@ var Shell = (() => {
     return elFor(S.mode) === id || secondary() === id;
   }
 
+  let laid = null;
   function layout() {
     const prim = elFor(S.mode), sec = S.settings ? null : secondary();
+    laid = prim;
     const r = sec ? Math.min(0.8, Math.max(0.2, prefs.split.ratio || 0.5)) : 1;
     for (const el of $$("#body > .zone")) {
       if (el.id === prim && !S.settings) { el.hidden = false; el.style.left = "0"; el.style.right = (1 - r) * 100 + "%"; el.classList.remove("second"); }
@@ -189,11 +191,12 @@ var Shell = (() => {
   }
 
   // ---------------------------------------------------------------- side + head
-  // The switch at the top of the sidebar: Chat | Agents in Chat, Pair |
-  // Agents in Code. The rail's first square lines up with it.
+  // The switch in the title bar, the same in both zones: Chat (you and one
+  // model, turn by turn) | Agents (named agents in Chat; the planner and its
+  // workers in Code).
   const VIEWS = {
     chat: [["chat", "bubble", "Chat", "One model, one conversation"], ["agents", "team", "Agents", "Your named agents, one to one or in groups"]],
-    code: [["pair", "pairi", "Pair", "You and one CLI, turn by turn, in the project"], ["agents", "sparkle", "Workbench", "A planner splits the goal into tickets; workers build each one"]],
+    code: [["pair", "bubble", "Chat", "You and one CLI, turn by turn, in the project"], ["agents", "team", "Agents", "A planner splits the goal into tickets; agents build each one"]],
   };
   function renderModes() {
     const z = S.mode, m = $("#modes"), v = VIEWS[z];
@@ -226,8 +229,13 @@ var Shell = (() => {
     const o = $("#ppOpen", el); if (o) o.onclick = pickProject;
     $$("[data-pp]", el).forEach(b => (b.onclick = () => openProject(b.dataset.pp)));
     const c = $("#ppCur", el);
-    if (c) c.onclick = () => openPop(c, `<div class="ph-t">Projects</div>${recents.map(p => `<button class="pi" data-pp="${esc(p)}">${icon("folder")}${esc(base(p))}</button>`).join("")}
-      <div class="psep"></div><button class="pi" id="ppNew">${icon("plus")}Open folder…</button>`, pop => {
+    if (c) c.onclick = () => projectMenu(c);
+  }
+  // Switch project: the recents, or another folder.
+  function projectMenu(anchor) {
+    const recents = (prefs.projects || []).filter(p => p !== (hasProject && snap.workspace)).slice(0, 6);
+    openPop(anchor, `<div class="ph-t">Projects</div>${recents.map(p => `<button class="pi" data-pp="${esc(p)}">${icon("folder")}${esc(base(p))}</button>`).join("")}
+      ${recents.length ? `<div class="psep"></div>` : ""}<button class="pi" id="ppNew">${icon("plus")}Open folder…</button>`, pop => {
       $$("[data-pp]", pop).forEach(b => (b.onclick = () => { closePop(); openProject(b.dataset.pp); }));
       $("#ppNew", pop).onclick = () => { closePop(); pickProject(); };
     });
@@ -238,7 +246,6 @@ var Shell = (() => {
     else if (z === "memory") h.innerHTML = `<span class="zt">${icon("memory")}Memory</span>`;
     else if (z === "apps") h.innerHTML = `<span class="zt">${icon("apps")}Apps</span>`;
     else if (z.startsWith("app:") && window.Apps) h.innerHTML = Apps.head(z.slice(4));
-    else if (z === "code" && S.codeView === "pair") h.innerHTML = hasProject && snap.workspace ? `<span class="zt">${icon("pairi")}Pair<span class="sub">${esc(snap.name || base(snap.workspace))}</span></span>` : "";
     else h.innerHTML = "";
     if (z.startsWith("app:") && window.Apps) Apps.wireHead(h, z.slice(4));
   }
@@ -291,7 +298,9 @@ var Shell = (() => {
     if (window.Memory) await Memory.init();
     if (window.Apps) await Apps.init();
   }
-  function refresh() { renderStatus(); renderRail(); renderZones(); if (S.mode === "code" && S.codeView === "pair") { renderPairProj(); renderHead(); } }
+  // The project arriving (at launch, or opened elsewhere) can change which
+  // section Code shows; lay out again when it does.
+  function refresh() { if (elFor(S.mode) !== laid) layout(); renderStatus(); renderRail(); renderZones(); if (S.mode === "code" && S.codeView === "pair") { renderPairProj(); renderHead(); } }
 
   // ---------------------------------------------------------------- status bar
   // After an agent control plane's footer: where you are (branch, project),
@@ -375,5 +384,5 @@ var Shell = (() => {
     setSplit("desktop", 0.45);
   }
 
-  return { search, init, layout, showing, renderStatus, memToast, openDesktop, setMotion, renderSide, renderRail, refresh, setSplit, toggleSplit, elFor, glyph };
+  return { projectMenu, search, init, layout, showing, renderStatus, memToast, openDesktop, setMotion, renderSide, renderRail, refresh, setSplit, toggleSplit, elFor, glyph };
 })();

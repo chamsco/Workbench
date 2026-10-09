@@ -28,7 +28,8 @@ const P = {
   term: '<rect x="2" y="3" width="12" height="10" rx="1.6"/><path d="m4.8 6.4 2 1.6-2 1.6M8.4 10h2.8"/>',
   plus: '<path d="M8 3.2v9.6M3.2 8h9.6"/>',
   window: '<rect x="2" y="3" width="12" height="10" rx="1.6"/><path d="M2 6h12"/>',
-  gear: '<circle cx="8" cy="8" r="2.2"/><path d="M8 1.8v1.8M8 12.4v1.8M1.8 8h1.8M12.4 8h1.8M3.6 3.6l1.3 1.3M11.1 11.1l1.3 1.3M3.6 12.4l1.3-1.3M11.1 4.9l1.3-1.3"/>',
+  diff: '<path d="M8 2.5v6M5 5.5h6M5 12.5h6"/>',
+  gear: '<g transform="scale(.6667)" stroke-width="2"><path d="M10.33 4.32c.43-1.76 2.92-1.76 3.35 0a1.72 1.72 0 0 0 2.57 1.07c1.54-.94 3.31.83 2.37 2.37a1.72 1.72 0 0 0 1.07 2.57c1.76.43 1.76 2.92 0 3.35a1.72 1.72 0 0 0-1.07 2.57c.94 1.54-.83 3.31-2.37 2.37a1.72 1.72 0 0 0-2.57 1.07c-.43 1.76-2.92 1.76-3.35 0a1.72 1.72 0 0 0-2.57-1.07c-1.54.94-3.31-.83-2.37-2.37a1.72 1.72 0 0 0-1.07-2.57c-1.76-.43-1.76-2.92 0-3.35a1.72 1.72 0 0 0 1.07-2.57c-.94-1.54.83-3.31 2.37-2.37 1 .61 2.3.07 2.57-1.07Z"/><circle cx="12" cy="12" r="3"/></g>',
   sidebar: '<rect x="2" y="3" width="12" height="10" rx="1.6"/><path d="M6.2 3v10"/>',
   expand: '<path d="M9.6 2.6h3.8v3.8M13.4 2.6 9.2 6.8M6.4 13.4H2.6V9.6M2.6 13.4l4.2-4.2"/>',
   close: '<path d="m4.4 4.4 7.2 7.2M11.6 4.4l-7.2 7.2"/>',
@@ -1512,7 +1513,8 @@ async function renderCoding(el) {
   const hs = window.Providers ? Providers.list : [];
   const ok = id => !id || hs.some(h => h.id === id && h.installed && h.enabled);
   const perm = { edits: "Auto-accept edits", auto: "Auto", full: "Full access" }[prefs.cli_permission || "edits"];
-  seg.innerHTML = `<button class="btn" data-mpick>${icon("sparkle")}${esc(await Picker.label(prefs.worker))} · ${perm} · ${Effort.NAMES[prefs.cli_effort || "high"]}${icon("chevd")}</button>`;
+  const cli = Picker.cliOf(prefs.worker), eff = Effort.name(cli, prefs.cli_effort);
+  seg.innerHTML = `<button class="btn" data-mpick>${Logos.mark(cli)}${esc(await Picker.label(prefs.worker))} · ${perm}${eff ? ` · ${eff}` : ""}${icon("chevd")}</button>`;
   seg.querySelector("button").onclick = e => Picker.open(e.currentTarget, { model: prefs.worker || "", permission: prefs.cli_permission || "edits", effort: prefs.cli_effort || null }, async c => {
     prefs.worker = prefs.planner = c.model || null; prefs.cli_permission = c.permission; prefs.cli_effort = c.effort;
     await invoke("set_agent_run", { planner: prefs.planner, worker: prefs.worker, permission: c.permission, effort: c.effort });
@@ -1593,6 +1595,8 @@ addEventListener("DOMContentLoaded", async () => {
   if (window.Chat) await Chat.init();
   setMode(S.mode, false);
   await refresh(true);
+  // Starting in Code: reopen the last project, as editors do.
+  if (S.mode === "code" && !snap.workspace && machine().local && (prefs.projects || [])[0] && !boot.bench) openProject(prefs.projects[0]);
   if (!prefs.onboarded && !boot.bench) Onboard.open();
   if (prefs.check_updates && !boot.bench) checkUpdate(); else renderUpd();
   requestAnimationFrame(() => requestAnimationFrame(() => invoke("ready")));

@@ -359,12 +359,16 @@ pub struct Chats {
 // ponytail: one global for the one chat face; per-window if there are ever two.
 pub static GENUI_PROMPT: std::sync::RwLock<Option<String>> = std::sync::RwLock::new(None);
 
+const PLAN_MODE: &str = "# Plan mode\n\nThe user wants a plan, not changes. Read whatever you need, run read-only commands, then reply with a short plan: the files to change, what changes in each, and how to check it. Don't edit, create or delete any file.";
+
 /// What a send needs from prefs, copied so a reply never holds the lock.
 #[derive(Clone)]
 pub struct Ctx {
     pub prefs: Prefs,
     pub memory: Option<Arc<crate::memory::Memory>>,
     pub agents: Option<Arc<crate::agents::Agents>>,
+    /// Code chat's Plan mode: read the project and propose; change nothing.
+    pub plan: bool,
 }
 
 /// One reply's circumstances: which agent writes it, and for a group the
@@ -1292,7 +1296,16 @@ When structure helps the reader (a comparison, steps, a table, a chart, a form, 
         let agent_dir = call.agent.as_ref().and_then(|a| ctx.agents.as_ref().map(|ag| ag.workspace(&a.id)));
         let computer = call.agent.as_ref().and_then(|a| ctx.agents.as_ref().and_then(|ag| ag.computer_env(a)));
         let project = agent_dir.or_else(|| self.project_of(id));
-        req.edit = project.is_some();
+        // Code chat runs the CLI the way the picker says, like the agents do.
+        if call.agent.is_none() && project.is_some() {
+            req.permission = Some(ctx.prefs.cli_permission.clone()).filter(|p| !p.is_empty());
+            req.effort = ctx.prefs.cli_effort.clone();
+        }
+        req.edit = project.is_some() && !ctx.plan;
+        if ctx.plan {
+            req.permission = Some("plan".into());
+            req.system = Some(format!("{}{PLAN_MODE}", req.system.take().map(|s| s + "\n\n").unwrap_or_default()));
+        }
         req.cwd = match project {
             Some(p) => p,
             None => {

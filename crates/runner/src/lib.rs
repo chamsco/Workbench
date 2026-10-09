@@ -86,7 +86,8 @@ pub struct Request {
     pub add_dirs: Vec<PathBuf>,
     /// With `edit`, what a CLI may do without asking: "edits" (the
     /// default: edit files, run the allowed tools), "auto" (the CLI's own
-    /// reviewer decides) or "full" (anything; no sandbox).
+    /// reviewer decides) or "full" (anything; no sandbox). Without it,
+    /// "plan" puts Claude Code in its plan mode.
     pub permission: Option<String>,
     /// Reasoning effort for CLIs that take one: low, medium, high, xhigh,
     /// max (ultra means each CLI's top).
@@ -376,8 +377,13 @@ async fn run_cli(req: &Request, provider: &str, bin: &PathBuf, on: Sink<'_>) -> 
                     _ => "acceptEdits",
                 };
                 cmd.args(["--permission-mode", mode, "--allowedTools", &format!("Bash,Edit,Write,Read,Glob,Grep,WebFetch{allow}")]);
-            } else if !allow.is_empty() {
-                cmd.args(["--allowedTools", allow.trim_start_matches(',')]);
+            } else {
+                if req.permission.as_deref() == Some("plan") {
+                    cmd.args(["--permission-mode", "plan"]);
+                }
+                if !allow.is_empty() {
+                    cmd.args(["--allowedTools", allow.trim_start_matches(',')]);
+                }
             }
             stdin_text = Some(prompt(req));
         }

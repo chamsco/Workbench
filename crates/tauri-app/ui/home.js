@@ -33,7 +33,7 @@ var Home = (() => {
             <span class="hc-hint"><kbd>↵</kbd> start <kbd>Ctrl ↵</kbd> in parallel</span>
             <span class="sp"></span>
             <button class="hc-par" data-act="par" title="Start another task in parallel, on its own branch">${icon("branch")}Parallel</button>
-            <button class="hc-model" data-act="model" aria-expanded="false"><span class="v"></span><span class="eff"></span>${icon("chevd")}</button>
+            <button class="hc-model" data-act="model" aria-expanded="false"><span class="lg"></span><span class="v"></span><span class="eff"></span>${icon("chevd")}</button>
             <button class="hc-send" data-act="send" aria-label="Start">${icon("up")}</button>
           </div>
           <div class="hc-panel" hidden></div>
@@ -130,6 +130,7 @@ var Home = (() => {
     document.querySelector(".hc-above .mach").textContent = machine().name;
     const main = agent(MAIN);
     document.querySelector(".hc-above .br").textContent = (hasProject && main && main.branch) || "backspace/run";
+    document.querySelector(".hc-model .lg").innerHTML = Logos.mark(Picker.cliOf(c.model));
     document.querySelector(".hc-model .v").textContent = await Picker.label(c.model);
     document.querySelector(".hc-model .eff").textContent = Effort.name(Picker.cliOf(c.model), c.effort);
   }

@@ -183,7 +183,7 @@ var Apps = (() => {
       </div>
       <div class="err" role="alert">${esc(err)}</div>
       <h2>Built in</h2>
-      <div class="agrid">${[["chat", "bubble", "Chat", "Talk to any model, or to your named agents and groups."], ["code", "codei", "Code", "Pair with a CLI in a project, or let agents build it ticket by ticket."]].map(([k, ic, n, d]) => {
+      <div class="agrid">${[["chat", "bubble", "Chat", "Talk to any model, or to your named agents and groups."], ["code", "codei", "Code", "Chat with a CLI in a project, or let agents build it ticket by ticket."]].map(([k, ic, n, d]) => {
         const uses = prefs.uses && prefs.uses.length ? prefs.uses : ["chat", "code"], on = uses.includes(k), last = on && uses.length === 1;
         return `<div class="acard"><div class="ac-top"><span class="ag" style="--ag:var(--fg);color:var(--desk-base)">${icon(ic)}</span><div class="ac-n"><b>${n}</b><small>Built in</small></div></div><p>${d}</p>
           <div class="ac-act">${on ? `<button class="btn primary sm" data-zone="${k}">Open</button>` : ""}<span class="sp"></span><button class="btn sm" data-use="${k}" ${last ? `disabled title="Keep at least one"` : ""}>${on ? (last ? "Required" : "Remove") : `${icon("plus")}Add`}</button></div></div>`;

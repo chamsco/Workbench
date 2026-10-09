@@ -144,7 +144,23 @@ export type Host = {
   onCaptured: (note: Note, who: string) => void;
   /** Open an agent computer's web desktop beside the chat. */
   openComputer: (url: string) => void;
+  /** Code chat: how its CLI runs (shared with the agents), and the agents' picker. */
+  codeRun: () => CodeRun;
+  setCodeRun: (permission: string, effort: string | null) => Promise<void>;
+  picker: {
+    mount: (el: HTMLElement, choice: CodeRun & { model: string }, onChange: (c: CodeRun & { model: string }) => void, onClose: () => void) => Promise<void>;
+    close: () => void;
+    /** A CLI's id (claude) to the picker's model id (claude-code), and back. */
+    model: (cli: string) => string;
+    cli: (model: string) => string;
+    effortName: (cli: string, effort: string | null) => string;
+  };
+  machineName: () => string;
+  projectMenu: (anchor: HTMLElement) => void;
+  /** Open Code's side panel on a tab: changes, history, files, sessions. */
+  openPanel: (tab: string) => void;
 };
+export type CodeRun = { permission: string; effort: string | null };
 
 let host: Host;
 export const setHost = (h: Host) => {
@@ -280,7 +296,7 @@ export function setQuery(query: string) {
 export type NewFile = { name: string; mime: string; data: string };
 
 /** Send from the composer; creates the thread on the first message. */
-export async function send(text: string, files: NewFile[], route: Route | null) {
+export async function send(text: string, files: NewFile[], route: Route | null, plan = false) {
   let id = state.id;
   if (!id) {
     if (!route) throw new Error("Connect a model first");
@@ -290,7 +306,7 @@ export async function send(text: string, files: NewFile[], route: Route | null) 
   }
   const replyTo = state.replyTo;
   set({ replyTo: null });
-  const note = await host.invoke<Note | null>("chat_send", { id, text, files, replyTo });
+  const note = await host.invoke<Note | null>("chat_send", { id, text, files, replyTo, plan });
   if (note) {
     const t = state.thread;
     const who = t?.agent ? agentById(t.agent)?.name : (t?.members?.length ?? 0) > 0 ? "Your team" : "Backspace";

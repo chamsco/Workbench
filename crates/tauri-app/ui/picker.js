@@ -163,11 +163,10 @@ var Picker = (() => {
   const MODEL = { claude: "claude-code", codex: "codex", cursor: "cursor", grok: "grok", opencode: "opencode" };
   const cliOf = model => (model ? Object.keys(MODEL).find(k => MODEL[k] === model) || "auto" : "auto");
   const PLANS = ["claude", "codex"]; // CLIs the planner can run in
-  const LOOK = { claude: ["CL", "#d97757"], codex: ["CX", "#10a37f"], cursor: ["CU", "#4b5563"], grok: ["GK", "#111827"], opencode: ["OP", "#6d28d9"], auto: ["A", "#2a66d9"] };
-  const av = id => { const [t, c] = LOOK[id] || ["?", "#555"]; return `<span class="pav sm" style="--av:${c}">${t}</span>`; };
+  const av = id => Logos.tile(id, "sm");
   const PERMS = [
     ["supervised", "Supervised", "Ask before commands and file changes.", "lock", "Needs approval prompts inside Backspace; coming next."],
-    ["edits", "Auto-accept edits", "Edit files and run tests in its own worktree; nothing else.", "edit"],
+    ["edits", "Auto-accept edits", "Edit files and run tests in the project; nothing else.", "edit"],
     ["auto", "Auto", "The CLI's own reviewer approves or denies each action.", "sparkle"],
     ["full", "Full access", "Anything, with no sandbox. Only on a machine you can throw away.", "bolt"],
   ];
@@ -183,16 +182,17 @@ var Picker = (() => {
     hs.filter(h => h.kind === "cli" && MODEL[h.id]).forEach(h => {
       const ok = h.installed && h.auth !== "unauthenticated";
       const sub = !h.installed ? "Not installed" : h.auth === "unauthenticated" ? "Not signed in" : (h.detail ? h.detail + " · " : "") + (PLANS.includes(h.id) ? "plans and builds" : "builds; plans on Claude Code or Codex");
-      out.push({ id: MODEL[h.id], cli: h.id, name: h.name === "Claude" ? "Claude Code" : h.name, sub, ok });
+      out.push({ id: MODEL[h.id], cli: h.id, name: h.name === "Claude" ? "Claude Code" : h.name, sub, ok, detail: !h.installed ? "Not installed" : h.auth === "unauthenticated" ? "Not signed in" : h.detail || "Signed in" });
     });
     return out;
   }
   const label = async id => ((await items()).find(i => i.id === (id || "")) || { name: "Auto" }).name;
 
   // Render the picker into `host` and keep it live; returns a function that
-  // tears it down.
-  async function render(host, choice, onChange) {
-    const all = await items();
+  // tears it down. Code chat passes { auto: false }: it talks to one CLI.
+  async function render(host, choice, onChange, opts = {}) {
+    const chat = opts.auto === false;
+    const all = (await items()).filter(i => !chat || i.cli !== "auto").map(i => (chat ? { ...i, sub: i.detail } : i));
     let tab = "all", q = "", stopEffort = null;
     const tabs = [["all", `<span class="ic-all">All</span>`], ["fav", icon("pin")], ...all.map(i => [i.cli, av(i.cli)])];
     const draw = () => {
@@ -240,9 +240,9 @@ var Picker = (() => {
   // Unfold inside `host` (Home's composer). Escape or a click outside the
   // composer folds it back; onClose runs then.
   let undo = null;
-  async function mount(host, choice, onChange, onClose) {
+  async function mount(host, choice, onChange, onClose, opts) {
     if (undo) return close();
-    const teardown = await render(host, choice, onChange);
+    const teardown = await render(host, choice, onChange, opts);
     const box = host.closest(".hc") || host;
     const outside = e => { if (!box.contains(e.target) && !e.target.closest(".pop")) close(); };
     const esc = e => { if (e.key === "Escape") { e.stopPropagation(); close(); } };

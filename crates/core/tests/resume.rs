@@ -65,7 +65,7 @@ fn interrupted_replies_resume() {
     let rt = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap();
     let (tx, _rx) = async_channel::bounded(16);
     let chats = Chats::open(dir.join("chats"), rt.handle().clone(), tx);
-    let ctx = Ctx { prefs: Prefs::default(), memory: None, agents: None };
+    let ctx = Ctx { prefs: Prefs::default(), memory: None, agents: None, plan: false };
 
     let t = chats.thread("t1").unwrap();
     let a = t.messages.last().unwrap();

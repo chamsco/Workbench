@@ -82,7 +82,7 @@ fn groups_take_turns_and_agents_work_in_their_folder() {
     std::thread::sleep(Duration::from_millis(3));
     let mara = agents.save(agent("Mara", "Makes the film.")).unwrap();
     let memory = Arc::new(backspace_core::memory::Memory::open(dir.join("data")));
-    let ctx = Ctx { prefs: Prefs::default(), memory: Some(memory), agents: Some(agents.clone()) };
+    let ctx = Ctx { prefs: Prefs::default(), memory: Some(memory), agents: Some(agents.clone()), plan: false };
 
     // A group: Kira, Andre and Mara, in that order.
     let g = chats.create_in(

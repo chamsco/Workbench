@@ -51,7 +51,7 @@ var Onboard = (() => {
       };
       el.innerHTML = frame(`<div class="ob-hero"><div class="ob-logo">${icon("bksp")}</div><h1>Welcome to Backspace</h1>
         <p>Pick your apps. You need at least one; add the other any time from Apps.</p></div>
-        <div class="appuses">${tile("chat", "bubble", "Chat", "Talk to any model, or to your own named agents, one to one or in groups.", "Your CLIs, local models, routers or Backspace Cloud")}${tile("code", "codei", "Code", "Pair with a CLI in a project, or let agents plan it into tickets and build each on its own branch.", "You review every change before it merges")}</div>`, { back: false, next: "Get started" });
+        <div class="appuses">${tile("chat", "bubble", "Chat", "Talk to any model, or to your own named agents, one to one or in groups.", "Your CLIs, local models, routers or Backspace Cloud")}${tile("code", "codei", "Code", "Chat with a CLI in a project, or let agents plan it into tickets and build each on its own branch.", "You review every change before it merges")}</div>`, { back: false, next: "Get started" });
       $$("[data-use]", el).forEach(b => (b.onclick = () => {
         const k = b.dataset.use;
         const next = uses.includes(k) ? uses.filter(u => u !== k) : [...uses, k];

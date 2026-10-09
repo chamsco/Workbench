@@ -314,7 +314,7 @@ body { margin: 0; background: var(--desk-base); color: var(--fg); font: 13px/1.4
 .rcard textarea { width: 100%; box-sizing: border-box; min-height: 52px; resize: vertical; border-radius: 8px; border: 0.5px solid var(--pane-edge); background: var(--hover); padding: 7px 9px; font: 12.5px var(--font-ui); color: var(--fg); outline: 0; }
 .acts { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .btn { height: 28px; padding: 0 14px; border-radius: 7px; font-weight: 500; border: 0.5px solid var(--pane-edge); background: var(--pill-on); display: inline-flex; align-items: center; justify-content: center; gap: 6px; white-space: nowrap; }
-.btn .ic { width: 14px; height: 14px; flex: none; }
+.btn .ic, .btn .logo { width: 14px; height: 14px; flex: none; }
 .btn.primary { background: var(--fg); color: var(--desk-base); border-color: transparent; }
 .btn.danger { color: var(--red); }
 .btn:disabled { opacity: 0.45; cursor: default; }
