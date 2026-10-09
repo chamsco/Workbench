@@ -68,6 +68,36 @@ async fn handle(mut stream: TcpStream, fleet: std::sync::Weak<Fleet>, token: &st
         )
         .await;
     }
+    // A bot's webhook (Reach this bot): its own secret in the path stands in
+    // for the token. Anything that knows the URL can wake that bot, nothing else.
+    if let Some(secret) = req.path.strip_prefix("/hook/") {
+        let Some(agent) = f.agents().list().into_iter().find(|a| !a.hook.is_empty() && same(&a.hook, secret)) else {
+            return respond(&mut stream, 404, &json!({"error": "no such webhook"})).await;
+        };
+        if req.method != "POST" {
+            return respond(&mut stream, 405, &json!({"error": "POST JSON or text"})).await;
+        }
+        let source: String = req
+            .query
+            .split('&')
+            .find_map(|kv| kv.strip_prefix("source="))
+            .unwrap_or("outside")
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+            .take(40)
+            .collect();
+        let body = match serde_json::from_slice::<Value>(&req.body) {
+            Ok(v) => serde_json::to_string_pretty(&v).unwrap_or_default(),
+            Err(_) => String::from_utf8_lossy(&req.body).into_owned(),
+        };
+        let out = tokio::task::spawn_blocking(move || f.bot_event(&agent, if source.is_empty() { "outside" } else { &source }, &body)).await?;
+        return match out {
+            Ok(()) => respond(&mut stream, 202, &json!({"ok": true})).await,
+            // It is still answering the last one: the sender should try again.
+            Err(e) if e.to_string() == "busy" => respond(&mut stream, 409, &json!({"error": "the bot is busy; try again shortly"})).await,
+            Err(e) => respond(&mut stream, 500, &json!({"error": e.to_string()})).await,
+        };
+    }
     let authed = req
         .auth
         .as_deref()

@@ -19,7 +19,6 @@ fn fake_claude(dir: &std::path::Path) {
 input=$(cat)
 args="$*"
 pwd > "$(dirname "$0")/last_cwd"
-printf '%s' "$BACKSPACE_MEMORY" > "$(dirname "$0")/last_mem"
 printf '%s' "$args" > "$(dirname "$0")/last_args"
 say() { printf '{"type":"result","result":"%s","session_id":"s1","total_cost_usd":0.001,"is_error":false}\n' "$1"; }
 case "$input" in
@@ -49,6 +48,9 @@ fn agent(name: &str, job: &str) -> Agent {
         shared: vec![],
         computer: Computer::default(),
         memory: true,
+        off: vec![],
+        apps_off: vec![],
+        hook: String::new(),
         created: 0,
         updated: 0,
     }
@@ -67,7 +69,7 @@ fn wait_idle(chats: &Arc<Chats>, id: &str) {
 }
 
 #[test]
-#[cfg(unix)]
+#[cfg_attr(not(unix), ignore = "the fake CLI is a shell script")]
 fn groups_take_turns_and_agents_work_in_their_folder() {
     let dir = std::env::temp_dir().join(format!("bs-agents-e2e-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
@@ -124,7 +126,8 @@ fn groups_take_turns_and_agents_work_in_their_folder() {
     assert_eq!(last.author_name.as_deref(), Some("Andre"));
     assert_eq!(t.messages.len(), 5);
 
-    // A 1:1 thread with Kira runs in Kira's folder with her brief.
+    // A 1:1 thread with Kira runs in Kira's folder with her brief, held to her rules.
+    let kira = agents.save(Agent { off: vec!["run".into()], ..kira }).unwrap();
     let one = chats.create_in(kira.route.clone(), Scope { agent: Some(kira.id.clone()), ..Default::default() });
     chats.send(&one.id, "hello", vec![], None, ctx.clone()).unwrap();
     wait_idle(&chats, &one.id);
@@ -138,9 +141,11 @@ fn groups_take_turns_and_agents_work_in_their_folder() {
     let args = std::fs::read_to_string(dir.join("bin/last_args")).unwrap();
     assert!(args.contains("You are Kira") && args.contains("Plans the launch."), "{args}");
     assert!(args.contains("acceptEdits"), "an agent may edit its own folder");
-    // It gets the memory tools, scoped to its own notes.
+    // It gets the memory tools, scoped to its own notes, in the server's own
+    // env (Codex filters the CLI's), and its rules: no shell, there or here.
     assert!(args.contains("--mcp-config") && args.contains("mcp__backspace"), "{args}");
-    let mem = std::fs::read_to_string(dir.join("bin/last_mem")).unwrap();
-    assert_eq!(mem, format!("agent:{}", kira.id));
+    assert!(args.contains(&format!("\"BACKSPACE_MEMORY\":\"agent:{}\"", kira.id)), "{args}");
+    assert!(args.contains("--disallowedTools Bash") && args.contains("\"BACKSPACE_DENY\":\"run\""), "{args}");
+    assert!(args.contains("--strict-mcp-config"), "a bot under rules gets none of the user's own MCP servers: {args}");
     let _ = std::fs::remove_dir_all(&dir);
 }

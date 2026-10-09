@@ -3,18 +3,24 @@
 // Built from the same Whirl pieces as the rest of the chat face: wells,
 // row pills, the frosted dialog.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
+  IconApps,
   IconCloudComputing,
+  IconCopy,
   IconDeviceDesktop,
   IconFolder,
   IconLoader2,
   IconPlayerPlay,
   IconPlayerStop,
+  IconPlug,
   IconPlus,
+  IconRefresh,
   IconServer,
   IconUsersGroup,
   IconUserPlus,
+  IconWebhook,
+  IconX,
 } from "@tabler/icons-react";
 
 import { RowPill } from "@/components/row-pill";
@@ -35,6 +41,7 @@ import {
   useChat,
   type Agent,
   type Computer,
+  type Connection,
   type ComputerStatus,
   type Route,
   type Thread,
@@ -322,6 +329,9 @@ function AgentEditor({ agent }: { agent: Agent | null }) {
         shared: [],
         computer: blankComputer(),
         memory: true,
+        off: [],
+        apps_off: [],
+        hook: "",
         created: 0,
         updated: 0,
       },
@@ -346,7 +356,7 @@ function AgentEditor({ agent }: { agent: Agent | null }) {
   ];
   return (
     <Dialog open onOpenChange={(o) => !o && editAgent(null)}>
-      <DialogContent className="max-h-[86vh] overflow-y-auto sm:max-w-lg">
+      <DialogContent className="max-h-[86vh] overflow-y-auto sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>{agent ? `Edit ${agent.name}` : "New agent"}</DialogTitle>
           <DialogDescription>A name, a job, and where it works. It remembers what you do together.</DialogDescription>
@@ -415,6 +425,9 @@ function AgentEditor({ agent }: { agent: Agent | null }) {
             <input type="checkbox" checked={a.memory} onChange={(e) => set({ memory: e.target.checked })} />
             Give it your memory notes (global and its own){a.route.kind === "a2a" ? ". They'd leave this machine." : ""}
           </label>
+          <BotRules a={a} set={set} />
+          <BotApps a={a} set={set} />
+          <BotReach a={a} was={agent?.hook} set={set} />
           {err && <div className="text-[12.5px] text-red-500">{err}</div>}
         </div>
         <DialogFooter>
@@ -430,6 +443,226 @@ function AgentEditor({ agent }: { agent: Agent | null }) {
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+// ------------------------------------------------ rules, apps, reach
+
+/* A titled card of rows with a note under it, as Settings draws them. */
+function Group({ title, note, children }: { title: string; note?: ReactNode; children: ReactNode }) {
+  return (
+    <section className="flex flex-col gap-1.5 pt-1">
+      <h3 className="text-[13px] font-semibold">{title}</h3>
+      <div className={`flex flex-col divide-y divide-(--well-outline) overflow-hidden rounded-2xl bg-well ${WELL}`}>{children}</div>
+      {note && <p className="px-1 text-[11.5px]/4 text-muted-foreground">{note}</p>}
+    </section>
+  );
+}
+
+function Line({ icon, title, sub, dim, children }: { icon?: ReactNode; title: string; sub?: ReactNode; dim?: boolean; children?: ReactNode }) {
+  return (
+    <div className="flex min-h-14 items-center gap-3 px-3.5 py-2.5">
+      {icon && <span className="grid size-8 flex-none place-items-center rounded-full bg-foreground/[0.06] text-muted-foreground">{icon}</span>}
+      <div className={`flex min-w-0 flex-1 flex-col ${dim ? "opacity-50" : ""}`}>
+        <span className="text-[13.5px] font-medium">{title}</span>
+        {sub && <span className="text-[12px] text-muted-foreground">{sub}</span>}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function Switch({ on, disabled, label, onChange }: { on: boolean; disabled?: boolean; label: string; onChange: (on: boolean) => void }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      aria-label={label}
+      disabled={disabled}
+      onClick={() => onChange(!on)}
+      className={`relative h-5 w-8 flex-none cursor-pointer rounded-full transition-colors disabled:cursor-default disabled:opacity-40 ${on ? "bg-foreground" : "bg-foreground/15"}`}
+    >
+      <span className={`absolute top-0.5 size-4 rounded-full bg-(--surface) shadow transition-[left] ${on ? "left-3.5" : "left-0.5"}`} />
+    </button>
+  );
+}
+
+const iconBtn = "grid size-8 flex-none cursor-pointer place-items-center rounded-full text-muted-foreground hover:bg-accent hover:text-foreground";
+const sel = "h-8 cursor-pointer rounded-lg border border-border bg-background px-2 text-[12.5px] outline-none disabled:cursor-default disabled:opacity-50";
+/** `list` with `k` taken out (on) or put in (off). */
+const turn = (list: string[], k: string, on: boolean) => (on ? list.filter((x) => x !== k) : [...list.filter((x) => x !== k), k]);
+
+const RULES: [string, string, string][] = [
+  ["edit", "Edit files", "Write, edit and delete files"],
+  ["run", "Run commands", "Shell in its folder or its own computer"],
+  ["web", "Read the web", "Open and read public pages"],
+  ["apps", "Use connected apps", "Call tools on your apps and connections"],
+];
+
+/* Only Claude Code can be held to rules: it drops any tool and any MCP
+   server of its own. Codex's plugins (browser, computer use, a JS REPL) run
+   outside its sandbox and can't be switched off for one run. Codex still
+   takes Backspace's apps and connections, so those switches hold for it. */
+const holds = (r: Route) => r.kind === "cli" && r.provider === "claude";
+const takesApps = (r: Route) => r.kind === "cli" && (r.provider === "claude" || r.provider === "codex");
+
+function BotRules({ a, set }: { a: Agent; set: (p: Partial<Agent>) => void }) {
+  const host = getHost();
+    return (
+    <Group
+      title="Rules"
+      note={
+        holds(a.route)
+          ? "Off takes the tool away entirely, in its own chats and in groups. With any rule or app off it also loses the MCP servers set up in your own Claude Code, and anything that hands work elsewhere (other sessions, cloud agents, schedules)."
+          : a.route.provider === "codex" && a.route.kind === "cli"
+            ? "Codex can't be held to rules: its own plugins (browser, computer use, a JS REPL) run outside its sandbox. Use Claude Code for an agent under rules."
+            : `${host.routeName(a.route)} has no tools to limit here. Rules hold for agents on Claude Code.`
+      }
+    >
+      {RULES.map(([k, t, d]) => {
+        const ok = holds(a.route);
+        // Claude's shell can still write files and fetch pages.
+        const leak = (k === "edit" || k === "web") && a.route.provider === "claude" && a.off.includes(k) && !a.off.includes("run");
+        return (
+          <Line key={k} title={t} sub={leak ? `Commands can still ${k === "edit" ? "write files" : "reach the web"}; turn those off too` : d} dim={!ok}>
+            <select
+              className={sel}
+              aria-label={t}
+              disabled={!ok}
+              title={ok ? undefined : `${host.routeName(a.route)} can't be held to this`}
+              value={a.off.includes(k) ? "off" : "allow"}
+              onChange={(e) => set({ off: turn(a.off, k, e.target.value === "allow") })}
+            >
+              <option value="allow">Allow</option>
+              <option value="off">Off</option>
+            </select>
+          </Line>
+        );
+      })}
+    </Group>
+  );
+}
+
+type AppInfo = { id: string; name: string; enabled: boolean; tools: { name: string }[] };
+
+function BotApps({ a, set }: { a: Agent; set: (p: Partial<Agent>) => void }) {
+  const host = getHost();
+  const [apps, setApps] = useState<AppInfo[]>([]);
+  const [conns, setConns] = useState<Connection[]>([]);
+  const [adding, setAdding] = useState<Connection | null>(null);
+  useEffect(() => {
+    void host.invoke<AppInfo[]>("apps_list").then((l) => setApps(l.filter((x) => x.enabled && x.tools?.length)), () => {});
+    void host.invoke<{ connections?: Connection[] }>("prefs").then((p) => setConns(p.connections ?? []), () => {});
+  }, [host]);
+  const saveConns = async (list: Connection[]) => {
+    try {
+      setConns(await host.invoke<Connection[]>("set_connections", { list }));
+      return true;
+    } catch (e) {
+      host.toast(String(e), "err");
+      return false;
+    }
+  };
+  const none = a.off.includes("apps") || !takesApps(a.route);
+  const sw = (id: string, name: string) => (
+    <Switch on={!a.apps_off.includes(id)} disabled={none} label={`Let it use ${name}`} onChange={(on) => set({ apps_off: turn(a.apps_off, id, on) })} />
+  );
+  return (
+    <Group
+      title="Connected apps"
+      note={
+        !takesApps(a.route)
+          ? `${host.routeName(a.route)} doesn't take apps or connections; agents on Claude Code and Codex do.`
+          : a.off.includes("apps")
+          ? "Use connected apps is off in Rules, so it gets none of these."
+          : "Each agent gets every app and connection unless you switch it off here. A connection is an MCP server: a command that starts one on this machine (its tokens come from your environment), or its URL."
+      }
+    >
+      {apps.map((x) => (
+        <Line key={x.id} icon={<IconApps size={16} />} title={x.name} sub={`App · ${x.tools.length} tool${x.tools.length === 1 ? "" : "s"}`} dim={none}>
+          {sw(x.id, x.name)}
+        </Line>
+      ))}
+      {conns.map((c) => (
+        <Line key={c.id} icon={<IconPlug size={16} />} title={c.name} sub={<span className="block truncate font-mono text-[11.5px]" title={c.target}>{c.target}</span>} dim={none}>
+          <button type="button" className={iconBtn} title="Remove this connection for every agent" aria-label={`Remove ${c.name}`} onClick={() => void saveConns(conns.filter((y) => y.id !== c.id))}>
+            <IconX size={14} />
+          </button>
+          {sw(c.id, c.name)}
+        </Line>
+      ))}
+      {adding ? (
+        <div className="flex flex-col gap-1.5 p-3">
+          <div className="grid grid-cols-[9rem_1fr] gap-1.5">
+            <input autoFocus className={field} placeholder="GitHub" aria-label="Connection name" value={adding.name} onChange={(e) => setAdding({ ...adding, name: e.target.value })} />
+            <input className={`${field} font-mono text-[12px]`} placeholder="npx -y @modelcontextprotocol/server-github, or https://…/mcp" aria-label="Command or URL" value={adding.target} onChange={(e) => setAdding({ ...adding, target: e.target.value })} />
+          </div>
+          <div className="flex justify-end gap-1.5">
+            <Button variant="ghost" onClick={() => setAdding(null)}>
+              Cancel
+            </Button>
+            <Button disabled={!adding.name.trim() || !adding.target.trim()} onClick={() => void saveConns([...conns, adding]).then((ok) => ok && setAdding(null))}>
+              Add
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <button type="button" className="flex min-h-12 cursor-pointer items-center gap-3 px-3.5 text-left text-[13.5px] font-medium hover:bg-accent" onClick={() => setAdding({ id: "", name: "", target: "" })}>
+          <span className="grid size-8 place-items-center rounded-full bg-foreground/[0.06] text-muted-foreground">
+            <IconPlus size={16} />
+          </span>
+          Add a connection
+        </button>
+      )}
+    </Group>
+  );
+}
+
+const newSecret = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("");
+
+function BotReach({ a, was, set }: { a: Agent; was?: string; set: (p: Partial<Agent>) => void }) {
+  const host = getHost();
+  const [link, setLink] = useState<{ enabled: boolean; url: string | null } | null>(null);
+  useEffect(() => {
+    void host.invoke<{ enabled: boolean; url: string | null }>("companion_status").then(setLink, () => {});
+  }, [host]);
+  const url = `${link?.url ?? "http://this-machine:7421"}/hook/${a.hook}`;
+  return (
+    <Group
+      title="Reach this agent"
+      note="An event wakes it right away; it handles it in its thread and says in one line when there's nothing for you. The URL answers on this network while Backspace is open. For senders on the internet (GitHub, Stripe), put a tunnel in front, such as Cloudflare Tunnel or Tailscale Funnel. Treat the URL like a password."
+    >
+      <Line icon={<IconWebhook size={16} />} title="Webhook" sub={<>POST JSON or text. Add <code className="text-[11.5px]">?source=github</code> to name the sender.</>}>
+        {a.hook && (
+          <>
+            <button type="button" className={iconBtn} title="Copy the URL" aria-label="Copy the URL" onClick={() => void navigator.clipboard.writeText(url).then(() => host.toast("Copied"))}>
+              <IconCopy size={15} />
+            </button>
+            <button type="button" className={iconBtn} title="A new URL; the old one stops working" aria-label="New URL" onClick={() => set({ hook: newSecret() })}>
+              <IconRefresh size={15} />
+            </button>
+          </>
+        )}
+        <Switch on={!!a.hook} label="Webhook" onChange={(on) => set({ hook: on ? was || newSecret() : "" })} />
+      </Line>
+      {a.hook && (
+        <div className="flex flex-col gap-1.5 px-3.5 pb-3">
+          <code className="truncate rounded-lg bg-background px-2.5 py-1.5 text-[11.5px]" title={url}>
+            {url}
+          </code>
+          {a.hook !== was && <span className="text-[12px] text-muted-foreground">It starts answering when you save.</span>}
+          {link && !link.enabled && (
+            <div className="flex items-center gap-2 text-[12px] text-amber-600 dark:text-amber-400">
+              <span className="flex-1">The phone link (Settings → Phone) serves it, and it is off.</span>
+              <Button variant="ghost" onClick={() => void host.invoke<{ enabled: boolean; url: string | null }>("set_companion", { enabled: true, newToken: false }).then(setLink, (e) => host.toast(String(e), "err"))}>
+                Turn it on
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
+    </Group>
   );
 }
 

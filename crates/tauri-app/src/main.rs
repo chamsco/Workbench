@@ -516,6 +516,33 @@ fn set_split(f: F, split: Option<backspace_core::prefs::SplitCfg>) {
     f.update_prefs(|p| p.split = split);
 }
 
+/// Outside MCP servers bots can be given. Each gets an id that is a valid
+/// server name, unique, and never `backspace` (Backspace's own server) or an app's.
+#[tauri::command]
+fn set_connections(f: F, list: Vec<backspace_core::prefs::Connection>) -> Vec<backspace_core::prefs::Connection> {
+    // Installed apps share the id space (a bot's apps_off names both).
+    let mut seen = std::collections::HashSet::from(["backspace".to_string()]);
+    seen.extend(f.apps().list().into_iter().map(|a| a.manifest.id));
+    let list: Vec<_> = list
+        .into_iter()
+        .filter(|c| !c.target.trim().is_empty())
+        .map(|mut c| {
+            // A saved one keeps its id (bots refer to it); a new one takes its name's.
+            let base: String = (if c.id.is_empty() { &c.name } else { &c.id }).to_lowercase().chars().map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '_' }).collect();
+            let base = if base.trim_matches('_').is_empty() { "connection".to_string() } else { base.trim_matches('_').to_string() };
+            let (mut id, mut n) = (base.clone(), 1);
+            while !seen.insert(id.clone()) {
+                n += 1;
+                id = format!("{base}_{n}");
+            }
+            c.id = id;
+            c
+        })
+        .collect();
+    f.update_prefs(|p| p.connections = list.clone());
+    list
+}
+
 #[tauri::command]
 fn set_pinned_apps(f: F, ids: Vec<String>) {
     f.update_prefs(|p| p.pinned_apps = ids);
@@ -1146,6 +1173,7 @@ fn main() -> anyhow::Result<()> {
             set_code_view,
             set_split,
             set_pinned_apps,
+            set_connections,
             set_memory_on,
             set_view_prefs,
             set_uses,

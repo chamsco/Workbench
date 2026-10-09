@@ -122,7 +122,13 @@ const Row = memo(function Row({
           <UserMessage
             message={message}
             onEdit={generating ? undefined : (content) => void edit(thread.id, raw.id, content).catch(toast)}
-            quote={<Quote of={of} align="end" />}
+            quote={
+              <>
+                {/* Not you: an event that came in through the bot's webhook. */}
+                {raw.author_name && <span className="px-1 text-[11.5px] font-medium text-muted-foreground">{raw.author_name}</span>}
+                <Quote of={of} align="end" />
+              </>
+            }
             badge={<Tapbacks thread={thread.id} msg={raw} />}
             actions={actions}
             below={<LinkCard text={raw.text} align="end" />}

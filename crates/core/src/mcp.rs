@@ -65,12 +65,32 @@ fn memory_save(scope: &str, text: &str) -> Result<String> {
     Ok(format!("Saved (id {}). The user can see and undo it in Memory.", n.id))
 }
 
-/// Tools from installed apps, as (MCP name, app id, tool).
-pub(crate) fn app_tools() -> Vec<(String, String, crate::apps::Tool)> {
+/// What the bot this server runs for may not do (`Agent::deny`): its rules
+/// turned off ("edit", "run", "apps") and "app:<id>" for apps it may not use.
+pub const ENV_DENY: &str = "BACKSPACE_DENY";
+
+fn deny() -> Vec<String> {
+    std::env::var(ENV_DENY).unwrap_or_default().split(',').filter(|s| !s.is_empty()).map(String::from).collect()
+}
+
+/// Whether a bot's `deny` keeps this tool from it: its own computer's tools
+/// by name, an app's tools by the app.
+fn denied(deny: &[String], tool: &str, app: Option<&str>) -> bool {
+    let has = |k: &str| deny.iter().any(|d| d == k);
+    match (tool, app) {
+        ("computer_run", _) => has("run"),
+        ("computer_write", _) => has("edit"),
+        (_, Some(a)) => has("apps") || has(&format!("app:{a}")),
+        _ => false,
+    }
+}
+
+/// Tools from installed apps a bot may use, as (MCP name, app id, tool).
+pub(crate) fn app_tools(deny: &[String]) -> Vec<(String, String, crate::apps::Tool)> {
     let apps = crate::apps::Apps::open(crate::prefs::Prefs::data_dir().join("apps"));
     apps.list()
         .into_iter()
-        .filter(|a| a.enabled)
+        .filter(|a| a.enabled && !denied(deny, "", Some(&a.manifest.id)))
         .flat_map(|a| {
             let id = a.manifest.id.clone();
             a.manifest
@@ -85,6 +105,7 @@ pub(crate) fn app_tools() -> Vec<(String, String, crate::apps::Tool)> {
 pub fn serve() -> Result<()> {
     // The board needs a project's bridge; app tools work without one.
     let b = crate::board::bridge();
+    let deny = deny();
     let stdin = std::io::stdin();
     let mut out = std::io::stdout();
     for line in stdin.lock().lines() {
@@ -144,7 +165,8 @@ pub fn serve() -> Result<()> {
                     tools.push(json!({"name": "memory_save", "description": "Save one line worth knowing in later sessions: a preference, a decision, a fact the user would otherwise repeat. Not for things cheap to rediscover or only true for this task. Never secrets. Saved to your own notes; the user can see and undo it.",
                         "inputSchema": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}}));
                 }
-                for (name, app, t) in app_tools() {
+                tools.retain(|t| !denied(&deny, t["name"].as_str().unwrap_or(""), None));
+                for (name, app, t) in app_tools(&deny) {
                     tools.push(json!({"name": name, "description": format!("[{app} app] {}", t.description), "inputSchema": t.input_schema}));
                 }
                 Ok(json!({ "tools": tools }))
@@ -154,6 +176,7 @@ pub fn serve() -> Result<()> {
                 let name = req["params"]["name"].as_str().unwrap_or("");
                 let board = || b.as_ref().map_err(|e| anyhow!("{e}"));
                 let r = match name {
+                    n if denied(&deny, n, None) => Err(anyhow!("your rules don't allow {n}; the user turned it off")),
                     "list_agents" => board().and_then(crate::board::do_agents),
                     "send_message" => board().and_then(|b| {
                         crate::board::do_send(b, a["to"].as_str().unwrap_or(""), a["text"].as_str().unwrap_or(""))
@@ -180,7 +203,7 @@ pub fn serve() -> Result<()> {
                         Some(scope) if name == "memory_search" => memory_search(&scope, a["query"].as_str().unwrap_or("")),
                         Some(scope) => memory_save(&scope, a["text"].as_str().unwrap_or("")),
                     },
-                    other => match app_tools().into_iter().find(|(n, _, _)| n == other) {
+                    other => match app_tools(&deny).into_iter().find(|(n, _, _)| n == other) {
                         Some((_, app, t)) => {
                             let input = if a.is_null() { json!({}) } else { a.clone() };
                             crate::apps::Apps::open(crate::prefs::Prefs::data_dir().join("apps")).run_tool(&app, &t.name, &input)
@@ -205,4 +228,19 @@ pub fn serve() -> Result<()> {
         out.flush()?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rules_keep_tools_away() {
+        let d: Vec<String> = ["run", "app:github"].map(String::from).to_vec();
+        assert!(denied(&d, "computer_run", None));
+        assert!(!denied(&d, "computer_write", None) && !denied(&d, "memory_save", None));
+        assert!(denied(&d, "", Some("github")) && !denied(&d, "", Some("notes")));
+        assert!(denied(&["apps".to_string()], "", Some("notes")));
+        assert!(!denied(&[], "computer_run", None));
+    }
 }

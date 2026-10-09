@@ -747,6 +747,21 @@ impl Chats {
         self.reply(id, ctx, mention(text))
     }
 
+    /// Something from outside for an agent (its webhook): posted in its
+    /// thread under `from` rather than as the user, then answered.
+    pub fn event(self: &Arc<Self>, id: &str, from: &str, text: &str, ctx: Ctx) -> Result<()> {
+        if self.is_busy(id) {
+            bail!("busy");
+        }
+        let mut m = Msg::new(Role::User, text.to_string(), Status::Done);
+        m.author_name = Some(from.to_string());
+        self.edit_thread(id, |t| {
+            t.updated = m.at;
+            t.messages.push(m);
+        })?;
+        self.reply(id, ctx, None)
+    }
+
     /// One question, one answer, outside any chat: a thread that is never
     /// listed or saved, run on `route` with `system` as its only brief (no
     /// memory notes), then dropped. For background jobs such as dreaming.
@@ -1327,8 +1342,11 @@ When structure helps the reader (a comparison, steps, a table, a chart, a form, 
             }
         };
         req.env.push(("PATH".into(), crate::harnesses::path_env().to_string_lossy().to_string()));
+        // What `backspace mcp` reads goes in its own server entry: Codex starts
+        // MCP servers with a filtered environment, so the CLI's would not reach it.
+        let mut env = serde_json::Map::new();
         if let Some(c) = &computer {
-            req.env.push((crate::agents::ENV_COMPUTER.into(), serde_json::to_string(c)?));
+            env.insert(crate::agents::ENV_COMPUTER.into(), serde_json::to_string(c)?.into());
         }
         // Agents and Pair may search memory and save to their own notes.
         let mem_scope = match &call.agent {
@@ -1338,14 +1356,32 @@ When structure helps the reader (a comparison, steps, a table, a chart, a form, 
         }
         .filter(|_| ctx.prefs.memory_on && ctx.memory.is_some());
         if let Some(s) = &mem_scope {
-            req.env.push((crate::mcp::ENV_MEMORY.into(), s.clone()));
+            env.insert(crate::mcp::ENV_MEMORY.into(), s.clone().into());
         }
+        // A bot's rules, however it is called (its thread or a group): the
+        // CLI's own tools it may not use, and what `backspace mcp` leaves out.
+        let deny = call.agent.as_ref().map(|a| a.deny()).unwrap_or_default();
+        req.deny = crate::agents::denied_tools(&deny);
+        req.own_mcp_only = !deny.is_empty();
+        if !deny.is_empty() {
+            env.insert(crate::mcp::ENV_DENY.into(), deny.join(",").into());
+        }
+        let mut servers = serde_json::Map::new();
         // Installed apps' tools, the agent's computer and memory, through `backspace mcp`.
-        if !crate::mcp::app_tools().is_empty() || computer.is_some() || mem_scope.is_some() {
+        if !crate::mcp::app_tools(&deny).is_empty() || computer.is_some() || mem_scope.is_some() {
             if let Ok(exe) = std::env::current_exe() {
-                req.mcp = Some(json!({"mcpServers": {"backspace": {"command": exe.display().to_string(), "args": ["mcp"]}}}));
-                req.mcp_allow.push("mcp__backspace".into());
+                servers.insert("backspace".into(), json!({"command": exe.display().to_string(), "args": ["mcp"], "env": env}));
             }
+        }
+        // A bot's connections (outside MCP servers), less those it was not given.
+        if let Some(a) = call.agent.as_ref().filter(|a| a.allows("apps")) {
+            for c in ctx.prefs.connections.iter().filter(|c| !c.id.is_empty() && !a.apps_off.contains(&c.id)) {
+                servers.insert(c.id.clone(), c.server());
+            }
+        }
+        req.mcp_allow.extend(servers.keys().map(|k| format!("mcp__{k}")));
+        if !servers.is_empty() {
+            req.mcp = Some(json!({ "mcpServers": servers }));
         }
         req.add_dirs = call.agent.iter().flat_map(|a| a.shared.iter()).map(|d| crate::agents::expand(d)).collect();
         Ok(req)

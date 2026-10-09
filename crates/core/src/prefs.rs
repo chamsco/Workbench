@@ -83,6 +83,8 @@ pub struct Prefs {
     pub tracing: crate::trace::Export,
     /// Agents that live elsewhere and speak A2A, brought into Backspace.
     pub remote_agents: Vec<RemoteAgent>,
+    /// Outside tools (MCP servers) bots can be given (a bot's Connected apps).
+    pub connections: Vec<Connection>,
 }
 
 impl Default for Prefs {
@@ -120,6 +122,7 @@ impl Default for Prefs {
             default_route: None,
             tracing: Default::default(),
             remote_agents: vec![],
+            connections: vec![],
             worker: None,
             api_keys: BTreeMap::new(),
         }
@@ -179,6 +182,30 @@ pub struct RemoteAgent {
     pub url: String,
     /// Bearer token, if it wants one.
     pub token: String,
+}
+
+/// An MCP server bots can use: a command that runs one here, or its URL.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+#[serde(default)]
+pub struct Connection {
+    /// Its MCP server name: lowercase letters, digits and underscores.
+    pub id: String,
+    pub name: String,
+    /// `npx -y @modelcontextprotocol/server-github`, or `https://mcp.example.com/mcp`.
+    pub target: String,
+}
+
+impl Connection {
+    /// Its entry in an `mcpServers` config.
+    /// ponytail: the command splits on spaces; quoted arguments and env come when a server needs them.
+    pub fn server(&self) -> serde_json::Value {
+        let t = self.target.trim();
+        if t.starts_with("http://") || t.starts_with("https://") {
+            return serde_json::json!({"type": "http", "url": t});
+        }
+        let mut parts = t.split_whitespace();
+        serde_json::json!({"command": parts.next().unwrap_or(""), "args": parts.collect::<Vec<_>>()})
+    }
 }
 
 /// The Backspace Cloud account on this machine.

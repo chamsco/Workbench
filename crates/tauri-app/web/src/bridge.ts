@@ -68,9 +68,18 @@ export type Agent = {
   shared: string[];
   computer: Computer;
   memory: boolean;
+  /** Rules turned off: "edit", "run", "web", "apps". */
+  off: string[];
+  /** Apps and connections it may not use, by id. */
+  apps_off: string[];
+  /** Its webhook's secret; "" while the webhook is off. */
+  hook: string;
   created: number;
   updated: number;
 };
+
+/** An outside MCP server bots can be given (prefs.connections). */
+export type Connection = { id: string; name: string; target: string };
 
 export type ComputerStatus = { kind: string; state: string; detail: string; desktop: string | null };
 export type Note = { id: string; text: string; project?: string | null };

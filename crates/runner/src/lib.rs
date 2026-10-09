@@ -89,6 +89,13 @@ pub struct Request {
     /// reviewer decides) or "full" (anything; no sandbox). Without it,
     /// "plan" puts Claude Code in its plan mode.
     pub permission: Option<String>,
+    /// Tools the CLI may not use, by Claude Code's names (a bot's rules):
+    /// Claude drops them; Codex, which can't, is kept read-only when Edit is one.
+    pub deny: Vec<String>,
+    /// Only the MCP servers in `mcp`, none from the CLI's own config (a bot
+    /// held to rules: those servers could do what the rules take away).
+    /// Claude Code only: Codex's plugins can't be switched off for one run.
+    pub own_mcp_only: bool,
     /// Reasoning effort for CLIs that take one: low, medium, high, xhigh,
     /// max (ultra means each CLI's top).
     pub effort: Option<String>,
@@ -113,6 +120,8 @@ impl Request {
             mcp_allow: vec![],
             add_dirs: vec![],
             permission: None,
+            deny: vec![],
+            own_mcp_only: false,
             effort: None,
             advisor: None,
             agents: None,
@@ -356,6 +365,9 @@ async fn run_cli(req: &Request, provider: &str, bin: &PathBuf, on: Sink<'_>) -> 
             if let Some(cfg) = &req.mcp {
                 cmd.args(["--mcp-config", &cfg.to_string()]);
             }
+            if req.own_mcp_only {
+                cmd.arg("--strict-mcp-config");
+            }
             for d in &req.add_dirs {
                 cmd.args(["--add-dir", &d.display().to_string()]);
             }
@@ -368,6 +380,10 @@ async fn run_cli(req: &Request, provider: &str, bin: &PathBuf, on: Sink<'_>) -> 
             }
             if let Some(a) = &req.agents {
                 cmd.args(["--agents", &a.to_string()]);
+            }
+            // A denied tool is gone even when the allow list names it (checked with Claude Code 2.x).
+            if !req.deny.is_empty() {
+                cmd.args(["--disallowedTools", &req.deny.join(",")]);
             }
             let allow: String = req.mcp_allow.iter().map(|p| format!(",{p}")).collect();
             if req.edit {
@@ -390,7 +406,9 @@ async fn run_cli(req: &Request, provider: &str, bin: &PathBuf, on: Sink<'_>) -> 
         "codex" => {
             // `--full-auto` is gone from recent Codex; the sandbox says it.
             cmd.args(["exec", "--json", "--skip-git-repo-check"]);
-            match (req.edit, req.permission.as_deref()) {
+            // Codex can't drop single tools; a bot that may not edit runs read-only.
+            let edit = req.edit && !req.deny.iter().any(|t| t == "Edit");
+            match (edit, req.permission.as_deref()) {
                 (true, Some("auto")) => cmd.arg("--approve-for-me"),
                 (true, Some("full")) => cmd.arg("--dangerously-bypass-approvals-and-sandbox"),
                 (true, _) => cmd.args(["-s", "workspace-write"]),
@@ -406,7 +424,12 @@ async fn run_cli(req: &Request, provider: &str, bin: &PathBuf, on: Sink<'_>) -> 
             }
             if let Some(cfg) = &req.mcp {
                 for (name, srv) in cfg["mcpServers"].as_object().into_iter().flatten() {
-                    cmd.args(["-c", &format!("mcp_servers.{name}={}", toml_inline(srv))]);
+                    // Codex tells a URL server by its `url`; it has no `type` key.
+                    let mut srv = srv.clone();
+                    if let Some(o) = srv.as_object_mut() {
+                        o.remove("type");
+                    }
+                    cmd.args(["-c", &format!("mcp_servers.{name}={}", toml_inline(&srv))]);
                 }
             }
             if let Some(s) = &req.session {

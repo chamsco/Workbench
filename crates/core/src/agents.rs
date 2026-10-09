@@ -48,6 +48,15 @@ pub struct Agent {
     /// Give it the memory notes (global and its own).
     #[serde(default = "yes")]
     pub memory: bool,
+    /// Its rules: what it may not do ("edit", "run", "web", "apps").
+    #[serde(default)]
+    pub off: Vec<String>,
+    /// Apps and connections it may not use, by id; the rest it may.
+    #[serde(default)]
+    pub apps_off: Vec<String>,
+    /// Its webhook's secret (Reach this bot); empty while the webhook is off.
+    #[serde(default)]
+    pub hook: String,
     #[serde(default)]
     pub created: u64,
     #[serde(default)]
@@ -56,6 +65,35 @@ pub struct Agent {
 
 fn yes() -> bool {
     true
+}
+
+impl Agent {
+    pub fn allows(&self, rule: &str) -> bool {
+        !self.off.iter().any(|o| o == rule)
+    }
+
+    /// What its rules deny, as `backspace mcp` reads it (BACKSPACE_DENY): the
+    /// rules turned off, and "app:<id>" for each app or connection it may not use.
+    pub fn deny(&self) -> Vec<String> {
+        self.off.iter().cloned().chain(self.apps_off.iter().map(|a| format!("app:{a}"))).collect()
+    }
+}
+
+/// The CLI tools (Claude Code's names) that a bot's rules turn off. Any rule
+/// also takes the tools that hand work to something the rules don't cover
+/// (a cloud agent, another session, a later run).
+pub fn denied_tools(deny: &[String]) -> Vec<String> {
+    let handoff = if deny.is_empty() { &[][..] } else { &["RemoteTrigger", "SendMessage", "CronCreate", "ScheduleWakeup"][..] };
+    deny.iter()
+        .flat_map(|d| match d.as_str() {
+            "edit" => &["Edit", "Write", "NotebookEdit", "EnterWorktree"][..],
+            "run" => &["Bash"][..],
+            "web" => &["WebFetch", "WebSearch"][..],
+            _ => &[][..],
+        })
+        .chain(handoff)
+        .map(|t| t.to_string())
+        .collect()
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
@@ -515,9 +553,24 @@ mod tests {
             shared: vec![],
             computer: Computer::default(),
             memory: true,
+            off: vec![],
+            apps_off: vec![],
+            hook: String::new(),
             created: 0,
             updated: 0,
         }
+    }
+
+    #[test]
+    fn rules_become_denied_tools() {
+        let mut a = agent("Kira");
+        assert!(a.deny().is_empty() && a.allows("run"));
+        a.off = vec!["run".into(), "web".into()];
+        a.apps_off = vec!["github".into()];
+        assert!(!a.allows("run") && a.allows("edit"));
+        assert_eq!(a.deny(), ["run", "web", "app:github"]);
+        assert_eq!(denied_tools(&a.deny()), ["Bash", "WebFetch", "WebSearch", "RemoteTrigger", "SendMessage", "CronCreate", "ScheduleWakeup"]);
+        assert!(denied_tools(&[]).is_empty());
     }
 
     #[test]
