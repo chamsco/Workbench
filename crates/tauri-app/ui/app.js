@@ -86,6 +86,7 @@ const P = {
   smile: '<circle cx="8" cy="8" r="5.8"/><path d="M5.6 9.6c.6.9 1.4 1.4 2.4 1.4s1.8-.5 2.4-1.4M6 6.4v.2M10 6.4v.2"/>',
   phone: '<rect x="4.4" y="1.8" width="7.2" height="12.4" rx="1.8"/><path d="M7.2 11.8h1.6"/>',
   download: '<path d="M8 2.6v7.6M4.8 7.2 8 10.4l3.2-3.2M3 13.2h10"/>',
+  opts: '<rect x="2.2" y="2.6" width="6.4" height="8.2" rx="1.3"/><rect x="7.4" y="5.2" width="6.4" height="8.2" rx="1.3"/>',
 };
 const icon = (n, cls = "") => `<svg class="ic ${cls}" viewBox="0 0 16 16" aria-hidden="true">${P[n]}</svg>`;
 $$("[data-icon]").forEach(el => (el.innerHTML = icon(el.dataset.icon)));
@@ -530,7 +531,7 @@ function newTabPop(anchor) {
   });
 }
 // Right-hand "+": add a canvas to this tab.
-const VIEWS = [["board", "bubble", "Team chat"], ["files", "folder", "Worktree files"], ["browser", "globe", "Browser"], ["diagram", "diagram", "Diagram review"], ["docs", "doc", "PLAN.md"], ["empty", "window", "Empty canvas"]];
+const VIEWS = [["board", "bubble", "Team chat"], ["files", "folder", "Worktree files"], ["browser", "globe", "Browser"], ["diagram", "diagram", "Diagram review"], ["docs", "doc", "PLAN.md"], ["options", "opts", "Visual options"], ["empty", "window", "Empty canvas"]];
 $("#addCanvas").dataset.popper = "";
 $("#addCanvas").onclick = e => {
   const full = tab().panes.length >= 4;
@@ -755,11 +756,12 @@ function paneTitle(p) {
     case "diagram": return "Diagram review";
     case "docs": return "PLAN.md";
     case "board": return `Team chat · ${(snap.board || []).length}`;
+    case "options": { const o = (snap.options || []).find(x => x.id === p.option) || (snap.options || []).slice(-1)[0]; return o ? `Options · ${o.title}` : "Visual options"; }
     case "trace": return `Trace · ${a ? (a.id === MAIN ? "main" : a.key) : ""}`;
     default: return "New canvas";
   }
 }
-const paneIcon = p => ({ board: '<span class="agent">' + icon("bubble") + "</span>", agent: '<span class="agent">' + icon("sparkle") + "</span>", files: '<span class="term">' + icon("folder") + "</span>", browser: '<span class="term">' + icon("globe") + "</span>", diagram: '<span class="term">' + icon("diagram") + "</span>", docs: '<span class="term">' + icon("doc") + "</span>" })[p.kind] || '<span class="term">' + icon("window") + "</span>";
+const paneIcon = p => ({ board: '<span class="agent">' + icon("bubble") + "</span>", agent: '<span class="agent">' + icon("sparkle") + "</span>", files: '<span class="term">' + icon("folder") + "</span>", browser: '<span class="term">' + icon("globe") + "</span>", diagram: '<span class="term">' + icon("diagram") + "</span>", docs: '<span class="term">' + icon("doc") + "</span>", options: '<span class="term">' + icon("opts") + "</span>" })[p.kind] || '<span class="term">' + icon("window") + "</span>";
 
 function buildPane(p, slot) {
   const el = document.createElement("section");
@@ -815,6 +817,7 @@ function fillPane(p, slot, body, ps) {
   else if (p.kind === "diagram") diagramPane(body, ps);
   else if (p.kind === "docs") docsPane(body);
   else if (p.kind === "board") boardPane(body, ps);
+  else if (p.kind === "options") optionsPane(p, body, ps);
   else if (p.kind === "trace") tracePane(p, body, ps);
   else chooser(slot, body);
 }
@@ -826,7 +829,8 @@ function chooser(slot, body) {
     <button class="card" data-k="diagram">${icon("diagram")}<span class="ct">Diagram review</span><span class="cs">Plans and deliverables to approve</span></button>
     <button class="card" data-k="files">${icon("folder")}<span class="ct">Worktree</span><span class="cs">Browse the project's files</span></button>
     <button class="card" data-k="docs">${icon("doc")}<span class="ct">PLAN.md</span><span class="cs">The plan the main agent wrote</span></button>
-    <button class="card" data-k="board">${icon("bubble")}<span class="ct">Team chat</span><span class="cs">What agents tell each other, across models and CLIs</span></button></div>
+    <button class="card" data-k="board">${icon("bubble")}<span class="ct">Team chat</span><span class="cs">What agents tell each other, across models and CLIs</span></button>
+    <button class="card" data-k="options">${icon("opts")}<span class="ct">Visual options</span><span class="cs">Variants an agent wants you to choose between</span></button></div>
     ${agents.length > 1 ? `<h5>Agent sessions</h5><div class="alist">${agents.filter(a => a.id !== MAIN).map(a => `<button class="chip-btn" data-a="${a.id}">${icon("sparkle")}${esc(a.title)}<span class="dot ${dotFor(a.status)}"></span></button>`).join("")}</div>` : ""}</div>`;
   $$("[data-k]", body).forEach(b => (b.onclick = () => setPane(slot, { kind: b.dataset.k, agent: 0, url: null })));
   $$("[data-a]", body).forEach(b => (b.onclick = () => setPane(slot, { kind: "agent", agent: +b.dataset.a, url: null })));
@@ -1096,7 +1100,7 @@ function flash(el) { if (!el) return; el.classList.add("nope"); setTimeout(() =>
 function openView(spec) {
   closeSettings();
   const t = tab();
-  const i = t.panes.findIndex(p => p.kind === spec.kind && (spec.kind !== "agent" && spec.kind !== "files" || p.agent === spec.agent));
+  const i = t.panes.findIndex(p => p.kind === spec.kind && (spec.kind === "options" ? (p.option || "") === (spec.option || "") : !["agent", "files"].includes(spec.kind) || p.agent === spec.agent));
   if (i >= 0) S.focus = i;
   else { t.panes[S.focus] = { agent: 0, url: null, ...spec }; S.pane.delete(prefs.active_tab + ":" + S.focus); saveTabs(); }
   S.max = null; renderTabs(); renderGrid(); renderList();
@@ -1262,12 +1266,94 @@ function boardMsgs(body) {
   if (sel && sel.options.length !== snap.agents.length + 1) { const v = sel.value; sel.innerHTML = [["all", "Everyone"], ...snap.agents.map(a => [a.key, `${a.title} (${a.key})`])].map(([k, l]) => `<option value="${esc(k)}">${esc(l)}</option>`).join(""); sel.value = v; }
 }
 
+// ------------------------------------------------------------------ visual options
+// An agent shows a few variants — screenshots it wrote, or live pages — and
+// the user picks one; the pick is that agent's tool result. Two ways to look:
+// a row of thumbnails with Choose, and a pair side by side with a split.
+function optThumb(x) {
+  if (x.image) return `<div class="opt-thumb"><img data-img="${esc(x.image)}" alt="${esc(x.label)}"></div>`;
+  if (x.url) return `<div class="opt-thumb"><iframe src="${esc(x.url)}" title="${esc(x.label)}" loading="lazy"></iframe></div>`;
+  return `<div class="opt-thumb"><div class="blank">no preview</div></div>`;
+}
+function loadImgs(box, ps) {
+  $$("img[data-img]", box).forEach(async im => {
+    const src = im.dataset.img;
+    if (/^(data:|https?:)/.test(src)) { im.src = src; return; }
+    ps.imgs = ps.imgs || {};
+    if (ps.imgs[src]) { im.src = ps.imgs[src]; return; }
+    try { im.src = ps.imgs[src] = await invoke("read_image", { path: src }); }
+    catch (e) { const d = document.createElement("div"); d.className = "blank"; d.textContent = "can't show " + src; im.replaceWith(d); }
+  });
+}
+function optionsPane(p, body, ps) {
+  const sets = snap.options || [];
+  const set = sets.find(o => o.id === p.option) || sets[sets.length - 1];
+  if (!set) { body.innerHTML = `<div class="nothing">No options yet. An agent shows a few variants here with the show_options tool.</div>`; return; }
+  if (p.option !== set.id) p.option = set.id;
+  const mode = ps.omode === "compare" ? "compare" : "grid";
+  const decided = set.picked != null, picked = set.picked || "";
+  const chosen = x => decided && x.id === picked;
+  const head = `<header class="opt-h"><div class="ot"><h3>${esc(set.title)}</h3>${set.note ? `<p>${esc(set.note)}</p>` : ""}</div>
+    <div class="seg" role="tablist"><button class="sg ${mode === "grid" ? "on" : ""}" data-om="grid">Options</button><button class="sg ${mode === "compare" ? "on" : ""}" data-om="compare">Compare</button></div></header>`;
+  if (mode === "grid") {
+    const sel = set.variants.some(v => v.id === ps.osel) ? ps.osel : set.variants[0].id;
+    body.innerHTML = `<div class="opts">${head}
+      <div class="opt-row">${set.variants.map((x, i) => `<div class="opt-card${x.id === sel ? " sel" : ""}${chosen(x) ? " chosen" : ""}" data-ov="${esc(x.id)}">
+        <div class="opt-n">${i + 1}</div>${optThumb(x)}
+        <div class="opt-lbl">${esc(x.label)}${chosen(x) ? `<span class="chip approved">chosen</span>` : ""}</div>
+        <button class="opt-pick" data-pick="${esc(x.id)}">Choose</button></div>`).join("")}</div>
+      <div class="opt-foot"><ul class="opt-notes">${set.variants.map(x => `<li><b>${esc(x.label)}.</b> ${esc(x.note)}</li>`).join("")}</ul>
+        ${decided ? `<span class="chip approved">${picked ? "You chose " + esc((set.variants.find(v => v.id === picked) || {}).label || picked) : "Dismissed"}</span>`
+          : `<button class="btn primary" data-pick="${esc(sel)}">Choose this version</button>`}</div></div>`;
+  } else {
+    const a = set.variants.find(v => v.id === ps.ovar) || set.variants[0];
+    const b = set.variants.find(v => v.id === ps.ovar2) || set.variants.find(v => v.id !== a.id) || set.variants[0];
+    const cut = ps.cut == null ? 50 : ps.cut;
+    body.innerHTML = `<div class="opts cmp">${head}
+      <div class="cmp-wrap">
+        <div class="cmp-rail">${set.variants.map(x => `<button class="rv${x.id === a.id ? " on" : ""}" data-ov="${esc(x.id)}">${optThumb(x)}<span class="t">${esc(x.label)}</span>${chosen(x) ? `<span class="chip approved">chosen</span>` : ""}</button>`).join("")}</div>
+        <div class="cmp-stage">
+          <div class="cmp-top"><span>${esc(a.label)}</span><span class="cmp-vs">vs</span><span>${esc(b.label)}</span></div>
+          <div class="cmp-pair">
+            <div class="cmp-side" style="flex:0 0 ${cut}%">${optThumb(a)}</div>
+            <div class="cmp-grip" title="Drag to compare"></div>
+            <div class="cmp-side">${optThumb(b)}</div>
+          </div>
+          ${decided ? `<div class="cmp-foot"><span class="chip approved">${picked ? "You chose " + esc((set.variants.find(v => v.id === picked) || {}).label || picked) : "Dismissed"}</span></div>`
+            : `<div class="cmp-foot">${[a, b].map(x => `<button class="btn${x.id === a.id ? " primary" : ""}" data-pick="${esc(x.id)}">Choose ${esc(x.label)}</button>`).join("")}</div>`}
+        </div>
+      </div></div>`;
+  }
+  loadImgs(body, ps);
+  $$("[data-om]", body).forEach(x => (x.onclick = () => { ps.omode = x.dataset.om; optionsPane(p, body, ps); }));
+  const a0 = mode === "compare" ? (set.variants.find(v => v.id === ps.ovar) || set.variants[0]).id : null;
+  const b0 = mode === "compare" ? (set.variants.find(v => v.id === ps.ovar2) || set.variants[1] || set.variants[0]).id : null;
+  $$("[data-ov]", body).forEach(el => (el.onclick = e => {
+    if (e.target.closest("[data-pick]")) return;
+    const id = el.dataset.ov;
+    if (mode === "grid") ps.osel = id;
+    else if (id === b0) { ps.ovar = b0; ps.ovar2 = a0; }
+    else if (id !== a0) ps.ovar = id;
+    else return;
+    optionsPane(p, body, ps);
+  }));
+  $$("[data-pick]", body).forEach(el => (el.onclick = () => invoke("pick_option", { id: set.id, variant: el.dataset.pick })));
+  const grip = body.querySelector(".cmp-grip");
+  if (grip) grip.addEventListener("pointerdown", e => {
+    e.preventDefault(); grip.setPointerCapture(e.pointerId);
+    const pair = grip.parentElement, side = pair.querySelector(".cmp-side");
+    const move = ev => { const r = pair.getBoundingClientRect(); ps.cut = Math.min(96, Math.max(4, ((ev.clientX - r.left) / r.width) * 100)); side.style.flexBasis = ps.cut + "%"; };
+    const up = () => { grip.removeEventListener("pointermove", move); grip.removeEventListener("pointerup", up); };
+    grip.addEventListener("pointermove", move); grip.addEventListener("pointerup", up);
+  });
+}
+
 // ------------------------------------------------------------------ agents' canvases
 // Agents open and close canvases (open_canvas / close_canvas): a browser on
 // the dev server they started, their files, a session. Each op applies once;
 // the ones from before this window opened are history, not news.
 let canvasSeen = null;
-const sameCanvas = (p, s) => p.kind === s.kind && (s.kind === "browser" ? (p.url || "") === (s.url || "") : !["agent", "files"].includes(s.kind) || p.agent === s.agent);
+const sameCanvas = (p, s) => p.kind === s.kind && (s.kind === "browser" ? (p.url || "") === (s.url || "") : s.kind === "options" ? (p.option || "") === (s.option || "") : !["agent", "files"].includes(s.kind) || p.agent === s.agent);
 function applyCanvasOps() {
   const ops = snap.canvas_ops || [];
   if (!canvasSeen || canvasSeen.ws !== snap.workspace) { canvasSeen = { ws: snap.workspace, id: ops.length ? ops[ops.length - 1].id : 0 }; return; }
@@ -1275,8 +1361,8 @@ function applyCanvasOps() {
   for (const op of ops.filter(o => o.id > canvasSeen.id)) {
     canvasSeen.id = op.id;
     const who = snap.agents.find(x => x.key === op.agent);
-    const spec = { kind: op.kind, agent: who ? who.id : 0, url: op.url || null };
-    const label = op.kind === "browser" ? (op.url || "a page").replace(/^https?:\/\//, "") : { files: "files", agent: "a session", diagram: "the diagram", docs: "PLAN.md", board: "team chat" }[op.kind];
+    const spec = { kind: op.kind, agent: who ? who.id : 0, url: op.url || null, option: op.option || null };
+    const label = op.kind === "browser" ? (op.url || "a page").replace(/^https?:\/\//, "") : { files: "files", agent: "a session", diagram: "the diagram", docs: "PLAN.md", board: "team chat", options: "visual options" }[op.kind];
     if (op.op === "close") {
       prefs.tabs.forEach(t => {
         for (let i = t.panes.length - 1; i >= 0; i--) {

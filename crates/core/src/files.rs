@@ -63,3 +63,34 @@ pub fn read_within(root: &Path, path: &str) -> Result<String> {
     let cut = &bytes[..bytes.len().min(256 * 1024)];
     Ok(String::from_utf8_lossy(cut).into_owned())
 }
+
+/// An image inside `root` as a data: URL, for showing a screenshot an agent
+/// wrote (the Options canvas). Capped at 8 MiB.
+pub fn read_image_within(root: &Path, path: &str) -> Result<String> {
+    let p = std::path::PathBuf::from(path).canonicalize()?;
+    let root = root.canonicalize()?;
+    if !p.starts_with(&root) {
+        bail!("outside the project");
+    }
+    let bytes = std::fs::read(&p)?;
+    if bytes.len() > 8 * 1024 * 1024 {
+        bail!("image is too large to show (over 8 MiB)");
+    }
+    let mime = match p
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("png") => "image/png",
+        Some("jpg" | "jpeg") => "image/jpeg",
+        Some("gif") => "image/gif",
+        Some("webp") => "image/webp",
+        Some("svg") => "image/svg+xml",
+        _ => "application/octet-stream",
+    };
+    Ok(format!(
+        "data:{mime};base64,{}",
+        crate::chat::b64_encode(&bytes)
+    ))
+}

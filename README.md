@@ -175,6 +175,15 @@ workers get the same through an MCP server (`backspace mcp`) or the shell
 on 127.0.0.1. Address an agent by its key or its ticket's key. The board
 shows as the "Team chat" canvas.
 
+**Agents can show you visual options.** `show_options` puts two to six variants
+of a design, a layout or a change on screen — each an image the agent wrote (a
+screenshot) or a live page — and waits. The Options canvas draws them as a row
+of thumbnails with a Choose pill and the agent's note under each; a Compare
+switch opens two of them side by side with a draggable split. Your pick comes
+back to the agent as that tool's result, so it can carry on with the version
+you chose. CLI workers get the same tool through `backspace mcp`. Code:
+`crates/core/src/options.rs`, `optionsPane` in `crates/tauri-app/ui/app.js`.
+
 ### Bring your agent
 
 Backspace hosts agents rather than being one. Setup's "Your first agent"

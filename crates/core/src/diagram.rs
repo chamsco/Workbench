@@ -421,6 +421,7 @@ mod tests {
             board: vec![],
             planner_session: None,
             canvas_ops: vec![],
+            options: vec![],
         }
     }
 

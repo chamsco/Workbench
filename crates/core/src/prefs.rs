@@ -301,13 +301,15 @@ impl TabSpec {
 }
 
 /// What a canvas shows. `kind`: "empty" (the picker), "agent", "files",
-/// "browser", "diagram" or "docs".
+/// "browser", "diagram", "docs" or "options".
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(default)]
 pub struct PaneSpec {
     pub kind: String,
     pub agent: usize,
     pub url: Option<String>,
+    /// For "options": which set to show (an `options::OptionSet` id).
+    pub option: Option<String>,
 }
 
 impl Default for PaneSpec {
@@ -322,6 +324,7 @@ impl PaneSpec {
             kind: kind.into(),
             agent: 0,
             url: None,
+            option: None,
         }
     }
     pub fn agent(id: usize) -> Self {

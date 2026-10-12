@@ -49,6 +49,8 @@ struct Inner {
     skills: Skills,
     state: Mutex<ProjectState>,
     verdicts: Mutex<HashMap<usize, oneshot::Sender<Verdict>>>,
+    /// Sets of visual options waiting on the user's pick, by set id.
+    option_picks: Mutex<HashMap<String, oneshot::Sender<String>>>,
     /// Per ticket key: flips to true once the ticket settles.
     done: Mutex<HashMap<String, watch::Receiver<bool>>>,
     /// Finished conversations, kept so a reviewer can reopen them.
@@ -302,6 +304,7 @@ impl Harness {
             board: vec![],
             planner_session: None,
             canvas_ops: vec![],
+            options: vec![],
         };
         // A project opened before carries on: tickets, approvals, spend and
         // the board come back; what was running is marked interrupted.
@@ -321,6 +324,7 @@ impl Harness {
             limiter: Semaphore::new(cfg.orchestrator.max_parallel_calls),
             state: Mutex::new(state),
             verdicts: Mutex::new(HashMap::new()),
+            option_picks: Mutex::new(HashMap::new()),
             done: Mutex::new(HashMap::new()),
             parked: Mutex::new(HashMap::new()),
             git: tokio::sync::Mutex::new(()),
@@ -396,6 +400,18 @@ impl Harness {
         self.resolve(approval, Verdict::Rejected(feedback.into()));
     }
 
+    /// The user's answer on a set of visual options. `variant` None (or "")
+    /// means they dismissed it. Any waiting `show_options` call is released.
+    pub fn pick_option(&self, id: &str, variant: Option<&str>) {
+        let variant = variant.filter(|v| !v.is_empty());
+        if let Err(e) = self.inner.update(|s| crate::options::pick(s, id, variant)) {
+            eprintln!("pick_option: {e}");
+        }
+        if let Some(tx) = self.inner.option_picks.lock().unwrap().remove(id) {
+            let _ = tx.send(variant.unwrap_or("").to_string());
+        }
+    }
+
     /// File a ticket as the human. It is triaged, then the main agent can
     /// schedule it with work_tickets.
     pub fn file_ticket(&self, title: &str, description: &str) -> Result<String> {
@@ -436,6 +452,12 @@ impl Harness {
 
     pub fn read_file(&self, path: &str) -> Result<String> {
         crate::files::read_within(&self.inner.root, path)
+    }
+
+    /// An image inside the project as a data: URL, for showing a screenshot
+    /// an agent wrote (the Options canvas).
+    pub fn read_image(&self, path: &str) -> Result<String> {
+        crate::files::read_image_within(&self.inner.root, path)
     }
 
     /// Share this harness over HTTP (see `remote`). Stops when the handle
@@ -598,6 +620,18 @@ impl crate::remote::Api for Served {
     fn post_message(&self, to: &str, text: &str) -> Result<()> {
         self.inner.post_board("you", to, text)
     }
+    fn pick_option(&self, id: &str, variant: Option<String>) {
+        let variant = variant.filter(|v| !v.is_empty());
+        if let Err(e) = self.inner.update(|s| crate::options::pick(s, id, variant.as_deref())) {
+            eprintln!("pick_option: {e}");
+        }
+        if let Some(tx) = self.inner.option_picks.lock().unwrap().remove(id) {
+            let _ = tx.send(variant.unwrap_or_default());
+        }
+    }
+    fn read_image(&self, path: &str) -> Result<String> {
+        crate::files::read_image_within(&self.inner.root, path)
+    }
 }
 
 impl Inner {
@@ -665,7 +699,7 @@ impl Inner {
         let agent = Some(input["agent"].as_str().filter(|a| !a.is_empty()).unwrap_or(by).to_string());
         self.update(|s| {
             let id = s.canvas_ops.len() as u64 + 1;
-            s.canvas_ops.push(CanvasOp { id, op: op.into(), kind: kind.into(), agent, url, by: by.into() });
+            s.canvas_ops.push(CanvasOp { id, op: op.into(), kind: kind.into(), agent, url, option: None, by: by.into() });
         });
         Ok(format!("{op}ed a {kind} canvas in the user's window"))
     }
@@ -915,6 +949,7 @@ fn tools_for(kind: AgentKind, can_spawn: bool) -> Vec<ToolDef> {
     }
     tools.push(scout_tool());
     tools.extend(canvas_tools());
+    tools.push(show_options_tool());
     tools.push(file_ticket_tool());
     tools.extend(board_tools());
     tools.push(deliver_tool());
@@ -949,6 +984,30 @@ pub(crate) fn canvas_tools() -> Vec<ToolDef> {
             schema: json!({"type": "object", "properties": props, "required": ["kind"]}),
         },
     ]
+}
+
+/// Showing the user visual options to choose between (options.rs). The tool
+/// opens a canvas and waits: the user's pick is its result.
+pub(crate) fn show_options_tool() -> ToolDef {
+    ToolDef {
+        name: "show_options",
+        description: "Show the user a few visual variants to choose between — designs, layouts, or a before/after — as a row of thumbnails with a compare view. Give each variant a label, a one-line note, and either `image` (a screenshot you wrote in the project) or `url` (a live page). Opens a canvas and waits for the user: their pick comes back as this tool's result. Use it when the user asked for options or the choice is visual; not for routine steps.",
+        schema: json!({"type": "object", "properties": {
+            "title": {"type": "string", "description": "What the set is, e.g. \"Context usage: 3 options\""},
+            "note": {"type": "string", "description": "One or two lines on the set as a whole"},
+            "variants": {"type": "array", "minItems": 2, "maxItems": 6, "items": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "short id, e.g. \"now\", \"a\", \"b\""},
+                    "label": {"type": "string", "description": "what the user reads under the thumbnail"},
+                    "note": {"type": "string", "description": "one line on what this variant does"},
+                    "image": {"type": "string", "description": "a screenshot file in the project"},
+                    "url": {"type": "string", "description": "or a live page to show"}
+                },
+                "required": ["label"]
+            }}
+        }, "required": ["title", "variants"]}),
+    }
 }
 
 fn board_tools() -> Vec<ToolDef> {
@@ -1768,10 +1827,56 @@ async fn run_tool(
             let me = inner.state.lock().unwrap().agents[c.id].key.clone();
             inner.canvas(&me, if name == "open_canvas" { "open" } else { "close" }, input).map(text)
         }
+        "show_options" => {
+            let me = inner.state.lock().unwrap().agents[c.id].key.clone();
+            show_options(inner, &me, input).await.map(text)
+        }
         "read" | "bash" => c.ws.run(name, input).await.map(text),
         "write" | "edit" if c.kind != AgentKind::Triage => c.ws.run(name, input).await.map(text),
         other => bail!("tool `{other}` is not available to you"),
     }
+}
+
+/// `show_options`: record the set, open its canvas, then wait for the user's
+/// pick. Shared by in-process agents and the CLI bridge, so both get the same
+/// result string. An empty pick means the user dismissed the set.
+async fn show_options(inner: &Arc<Inner>, me: &str, input: &Value) -> Result<String> {
+    let variants: Vec<crate::options::Variant> = serde_json::from_value(input["variants"].clone())
+        .map_err(|e| anyhow!("variants: {e}"))?;
+    let set = inner.update(|s| {
+        crate::options::add(
+            s,
+            me,
+            input["title"].as_str().unwrap_or(""),
+            input["note"].as_str().unwrap_or(""),
+            variants,
+        )
+    })?;
+    inner.update(|s| {
+        let id = s.canvas_ops.len() as u64 + 1;
+        s.canvas_ops.push(CanvasOp {
+            id,
+            op: "open".into(),
+            kind: "options".into(),
+            agent: Some(me.to_string()),
+            url: None,
+            option: Some(set.id.clone()),
+            by: me.to_string(),
+        });
+    });
+    let (tx, rx) = oneshot::channel();
+    inner.option_picks.lock().unwrap().insert(set.id.clone(), tx);
+    let picked = rx.await.unwrap_or_default();
+    if picked.is_empty() {
+        return Ok("The user closed the options without choosing. Ask what should change, or show a new set.".into());
+    }
+    let label = set
+        .variants
+        .iter()
+        .find(|v| v.id == picked)
+        .map(|v| v.label.clone())
+        .unwrap_or_else(|| picked.clone());
+    Ok(format!("The user chose \"{label}\" ({picked})."))
 }
 
 // ----------------------------------------------------------------- review
@@ -2831,6 +2936,15 @@ async fn bridge_handle(
         return respond(&mut stream, 401, &json!({"error": "bad token"})).await;
     }
     let body: Value = serde_json::from_slice(&req.body).unwrap_or(Value::Null);
+    // Visual options hold the caller open until the user picks: the bridge is
+    // local, so a long wait is fine, and the CLI gets the choice as its result.
+    if req.path == "/v1/options" {
+        let me = body["me"].as_str().unwrap_or("?").to_string();
+        return match show_options(&inner, &me, &body).await {
+            Ok(t) => respond(&mut stream, 200, &json!({"text": t})).await,
+            Err(e) => respond(&mut stream, 400, &json!({"error": e.to_string()})).await,
+        };
+    }
     let res: Result<Value> = match req.path.as_str() {
         "/v1/board/post" => inner
             .post_board(

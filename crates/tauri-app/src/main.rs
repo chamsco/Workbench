@@ -49,6 +49,12 @@ fn reject(f: F, id: usize, feedback: String) {
     f.backend().reject(id, feedback);
 }
 
+/// The user's answer on a set of visual options (empty: dismissed).
+#[tauri::command]
+fn pick_option(f: F, id: String, variant: Option<String>) {
+    f.backend().pick_option(&id, variant.as_deref());
+}
+
 /// Stop an agent and those under it; no agent: the whole project.
 #[tauri::command]
 fn stop(f: F, agent: Option<usize>) {
@@ -160,6 +166,16 @@ async fn list_files(f: F<'_>, agent: usize) -> Res<Vec<FileEntry>> {
 async fn read_file(f: F<'_>, path: String) -> Res<String> {
     let b = f.backend();
     tauri::async_runtime::spawn_blocking(move || b.read_file(&path))
+        .await
+        .map_err(err)?
+        .map_err(err)
+}
+
+/// An image in the project as a data: URL, for the Options canvas.
+#[tauri::command]
+async fn read_image(f: F<'_>, path: String) -> Res<String> {
+    let b = f.backend();
+    tauri::async_runtime::spawn_blocking(move || b.read_image(&path))
         .await
         .map_err(err)?
         .map_err(err)
@@ -1128,6 +1144,7 @@ fn main() -> anyhow::Result<()> {
             send,
             approve,
             reject,
+            pick_option,
             stop,
             start_task,
             git_log,
@@ -1144,6 +1161,7 @@ fn main() -> anyhow::Result<()> {
             diagram,
             list_files,
             read_file,
+            read_image,
             machines,
             select_machine,
             add_machine,

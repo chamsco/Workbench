@@ -86,6 +86,24 @@ fn respond(req: &Value) -> Value {
         return text("a CLI worker must not reach the API model");
     }
 
+    // ---- visual options: show variants, wait for the pick, then finish
+    if main && c.first.contains("options-project") {
+        return match c.last_tool {
+            None => tool_call(
+                "show_options",
+                json!({"title": "Layouts", "note": "three ways", "variants": [
+                    {"id": "now", "label": "Now", "note": "today's", "image": "now.png"},
+                    {"id": "a", "label": "A: Compact", "note": "slim", "url": "http://localhost:3000/a"},
+                    {"id": "b", "label": "B: Donut", "note": "ring", "image": "b.png"}
+                ]}),
+            ),
+            Some(t) if t.contains("The user chose") => {
+                tool_call("submit_deliverable", json!({"summary": "picked", "files": []}))
+            }
+            Some(t) => unexpected(t),
+        };
+    }
+
     // ---- flat project: plan gate, check gate, rejection, blocked_by
     if main && c.first.contains("flat") {
         return match c.last_tool {
@@ -693,4 +711,54 @@ fn a_remote_machine_is_followed_and_driven() {
     assert_eq!(fleet.current(), 0);
     let _ = std::fs::remove_dir_all(&ws_a);
     let _ = std::fs::remove_dir_all(&ws_b);
+}
+
+/// The whole visual-options path: the agent calls `show_options`, its turn
+/// blocks, the canvas opens, the user picks, and the choice comes back as the
+/// tool's result.
+#[test]
+fn visual_options_wait_for_the_users_pick() {
+    let (h, ws) = open_project("options");
+    h.send("options-project demo");
+
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let set = loop {
+        let s = h.snapshot();
+        if let Some(o) = s.options.first() {
+            break o.clone();
+        }
+        assert!(Instant::now() < deadline, "no options set appeared");
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    assert_eq!(set.id, "opt1");
+    assert_eq!(set.title, "Layouts");
+    assert_eq!(set.variants.len(), 3);
+    assert_eq!(set.variants[1].label, "A: Compact");
+    assert_eq!(set.picked, None);
+    // The canvas opens by itself, pointed at the set.
+    assert!(
+        h.snapshot()
+            .canvas_ops
+            .iter()
+            .any(|c| c.kind == "options" && c.option.as_deref() == Some("opt1")),
+        "{:#?}",
+        h.snapshot().canvas_ops
+    );
+
+    h.pick_option("opt1", Some("b"));
+    run_until(&h, |_, _| Ok(()), |s| {
+        s.agents[0].status == AgentStatus::Approved
+    });
+
+    let s = h.snapshot();
+    assert_eq!(s.options[0].picked.as_deref(), Some("b"));
+    assert!(
+        s.agents[0]
+            .log
+            .iter()
+            .any(|e| e.text.contains("The user chose \"B: Donut\" (b).")),
+        "{:#?}",
+        s.agents[0].log
+    );
+    std::fs::remove_dir_all(&ws).unwrap();
 }

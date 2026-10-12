@@ -201,6 +201,12 @@ pub(crate) fn do_canvas(b: &Bridge, op: &str, mut body: Value) -> Result<String>
     body["op"] = json!(op);
     Ok(call(b, "/v1/canvas", body)?["text"].as_str().unwrap_or("").to_string())
 }
+/// Show the user visual options and wait for their pick (options.rs). The
+/// bridge holds the call open until they choose, so the CLI gets the answer.
+pub(crate) fn do_options(b: &Bridge, mut body: Value) -> Result<String> {
+    body["me"] = json!(b.me);
+    Ok(call(b, "/v1/options", body)?["text"].as_str().unwrap_or("").to_string())
+}
 pub(crate) fn is_planner(b: &Bridge) -> bool {
     b.me == "main"
 }

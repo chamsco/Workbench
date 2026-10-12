@@ -16,6 +16,8 @@
 //!   POST /v1/files    {"agent"}         [FileEntry]
 //!   POST /v1/file     {"path"}          {"text"}
 //!   POST /v1/message  {"to","text"}     post on the agents' board as "you"
+//!   POST /v1/option   {"id","variant"}  the user's pick on a set of options
+//!   POST /v1/image    {"path"}          {"text"} an image as a data: URL
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -44,6 +46,10 @@ pub(crate) trait Api: Send + Sync + 'static {
     fn list_files(&self, agent: usize) -> Vec<FileEntry>;
     fn read_file(&self, path: &str) -> Result<String>;
     fn post_message(&self, to: &str, text: &str) -> Result<()>;
+    /// The user's answer on a set of visual options (None: dismissed).
+    fn pick_option(&self, id: &str, variant: Option<String>);
+    /// An image in the project as a data: URL (the Options canvas).
+    fn read_image(&self, path: &str) -> Result<String>;
 }
 
 /// A random 32-hex-digit token.
@@ -263,6 +269,16 @@ async fn handle(mut stream: TcpStream, api: Arc<dyn Api>, token: &str) -> Result
                 body["text"].as_str().unwrap_or(""),
             )
             .map(|_| json!({ "ok": true })),
+        ("POST", "/v1/option") => {
+            api.pick_option(
+                body["id"].as_str().unwrap_or(""),
+                body["variant"].as_str().map(String::from),
+            );
+            Ok(json!({}))
+        }
+        ("POST", "/v1/image") => api
+            .read_image(body["path"].as_str().unwrap_or(""))
+            .map(|t| json!({ "text": t })),
         _ => return respond(&mut stream, 404, &json!({"error": "no such endpoint"})).await,
     };
     match out {

@@ -3,6 +3,8 @@
 //!
 //! - the project's message board (`list_agents`, `send_message`,
 //!   `read_messages`), when started for a worker (board.rs has the bridge);
+//! - canvases (`open_canvas`, `close_canvas`) and visual options
+//!   (`show_options`), which wait for the user's pick;
 //! - the agent's own computer (`computer_run`, `computer_read`,
 //!   `computer_write`), when started for an agent that has one (agents.rs);
 //! - memory (`memory_search`, `memory_save`), when started with a memory
@@ -140,6 +142,8 @@ pub fn serve() -> Result<()> {
                     for t in crate::harness::canvas_tools() {
                         tools.push(json!({"name": t.name, "description": t.description, "inputSchema": t.schema}));
                     }
+                    let t = crate::harness::show_options_tool();
+                    tools.push(json!({"name": t.name, "description": t.description, "inputSchema": t.schema}));
                 }
                 if b.as_ref().is_ok_and(crate::board::is_planner) {
                     for t in [crate::harness::create_tickets_tool(), crate::harness::work_tickets_tool()] {
@@ -184,6 +188,7 @@ pub fn serve() -> Result<()> {
                     "read_messages" => board().and_then(crate::board::do_read),
                     "open_canvas" => board().and_then(|b| crate::board::do_canvas(b, "open", a.clone())),
                     "close_canvas" => board().and_then(|b| crate::board::do_canvas(b, "close", a.clone())),
+                    "show_options" => board().and_then(|b| crate::board::do_options(b, a.clone())),
                     "create_tickets" => board().and_then(|b| crate::board::do_plan(b, "/v1/plan/create", a.clone())),
                     "work_tickets" => board().and_then(|b| crate::board::do_plan(b, "/v1/plan/dispatch", a.clone())),
                     "computer_run" | "computer_read" | "computer_write" => match computer_env() {

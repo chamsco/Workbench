@@ -158,6 +158,9 @@ pub struct ProjectState {
     /// the ones it hasn't yet (by `id`).
     #[serde(default)]
     pub canvas_ops: Vec<CanvasOp>,
+    /// Sets of visual options an agent showed the user (see `options`).
+    #[serde(default)]
+    pub options: Vec<crate::options::OptionSet>,
 }
 
 /// An agent opening or closing a canvas: a browser on its dev server, its
@@ -174,6 +177,9 @@ pub struct CanvasOp {
     pub agent: Option<String>,
     #[serde(default)]
     pub url: Option<String>,
+    /// For "options": which set to show (`OptionSet::id`).
+    #[serde(default)]
+    pub option: Option<String>,
     /// The agent that asked.
     pub by: String,
 }
@@ -193,6 +199,7 @@ impl ProjectState {
             board: vec![],
             planner_session: None,
             canvas_ops: vec![],
+            options: vec![],
         }
     }
 

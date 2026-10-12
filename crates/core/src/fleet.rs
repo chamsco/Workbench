@@ -31,6 +31,10 @@ pub trait Backend: Send + Sync {
     fn file_ticket(&self, title: &str, body: &str) -> Result<String>;
     fn list_files(&self, agent: usize) -> Vec<FileEntry>;
     fn read_file(&self, path: &str) -> Result<String>;
+    /// The user's answer on a set of visual options (None: dismissed).
+    fn pick_option(&self, id: &str, variant: Option<&str>);
+    /// An image in the project as a data: URL (the Options canvas).
+    fn read_image(&self, path: &str) -> Result<String>;
     /// Post on the agents' message board as the human.
     fn post_message(&self, to: &str, text: &str) -> Result<()>;
 }
@@ -63,6 +67,12 @@ impl Backend for Harness {
     fn read_file(&self, path: &str) -> Result<String> {
         Harness::read_file(self, path)
     }
+    fn pick_option(&self, id: &str, variant: Option<&str>) {
+        Harness::pick_option(self, id, variant)
+    }
+    fn read_image(&self, path: &str) -> Result<String> {
+        Harness::read_image(self, path)
+    }
     fn post_message(&self, to: &str, text: &str) -> Result<()> {
         Harness::post_message(self, to, text)
     }
@@ -89,6 +99,10 @@ impl Backend for NoProject {
         vec![]
     }
     fn read_file(&self, _: &str) -> Result<String> {
+        bail!("open a project first")
+    }
+    fn pick_option(&self, _: &str, _: Option<&str>) {}
+    fn read_image(&self, _: &str) -> Result<String> {
         bail!("open a project first")
     }
     fn post_message(&self, _: &str, _: &str) -> Result<()> {
@@ -131,6 +145,13 @@ impl Backend for Remote {
     }
     fn read_file(&self, path: &str) -> Result<String> {
         let v = self.post_wait("/v1/file", json!({ "path": path }))?;
+        Ok(v["text"].as_str().unwrap_or("").to_string())
+    }
+    fn pick_option(&self, id: &str, variant: Option<&str>) {
+        self.post_bg("/v1/option", json!({ "id": id, "variant": variant }));
+    }
+    fn read_image(&self, path: &str) -> Result<String> {
+        let v = self.post_wait("/v1/image", json!({ "path": path }))?;
         Ok(v["text"].as_str().unwrap_or("").to_string())
     }
     fn post_message(&self, to: &str, text: &str) -> Result<()> {

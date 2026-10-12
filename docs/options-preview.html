@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Visual options — Backspace preview</title>
+<style>
+/* The app's light theme, trimmed to what this preview needs (style.css). */
+:root {
+  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+  --pane: #ffffff; --pane-edge: rgba(24,18,30,0.12); --pane-edge-on: rgba(24,18,30,0.32);
+  --fg: #1c1a1f; --fg-2: #4e4955; --fg-3: #7d7785; --fg-4: #a8a2ae;
+  --hover: rgba(30,20,40,0.05); --sel: rgba(30,20,40,0.085);
+  --pill-on: rgba(255,255,255,0.95); --desk-base: #efe3ec;
+  --bs-accent: #cf5a24; --blue: #2a66d9; --green: #187f45; --amber: #9a5c00; --red: #bf3a2f; --violet: #6a4fd6;
+  --page-bg: #fff; --page-fg: #1b1a1f; --page-dim: #6f6a76; --page-line: #ebe8ee;
+  --shadow: 0 20px 50px rgba(80,30,60,0.18), 0 4px 14px rgba(80,30,60,0.10);
+}
+* { box-sizing: border-box; }
+body { margin: 0; padding: 26px; background: var(--desk-base); color: var(--fg); font: 13px/1.4 var(--font-ui); -webkit-font-smoothing: antialiased; }
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+h1 { font-size: 15px; margin: 0 0 4px; }
+.lede { color: var(--fg-3); font-size: 12.5px; margin: 0 0 20px; }
+.wrap { display: flex; gap: 22px; flex-wrap: wrap; align-items: flex-start; }
+.frame { background: var(--pane); border: 0.5px solid var(--pane-edge); border-radius: 14px; box-shadow: var(--shadow); overflow: hidden; }
+.frame > .cap { padding: 9px 12px; border-bottom: 0.5px solid var(--pane-edge); display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--fg-3); }
+.frame > .cap b { color: var(--fg); font-weight: 500; }
+#gridFrame { width: 560px; }
+#cmpFrame { width: 520px; }
+.pane { height: 330px; display: flex; flex-direction: column; }
+
+/* ---- the Options canvas (same rules as crates/tauri-app/ui/style.css) ---- */
+.opts { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 10px 12px 12px; gap: 10px; overflow: hidden; }
+.opt-h { flex: none; display: flex; align-items: flex-start; gap: 12px; }
+.opt-h .ot { flex: 1; min-width: 0; }
+.opt-h h3 { margin: 0; font-size: 13.5px; font-weight: 600; }
+.opt-h p { margin: 2px 0 0; color: var(--fg-3); font-size: 12px; }
+.opt-h .seg { flex: none; display: flex; gap: 2px; padding: 2px; border-radius: 8px; background: var(--sel); }
+.opt-h .seg .sg { height: 22px; padding: 0 10px; border-radius: 6px; font-size: 11.5px; color: var(--fg-3); }
+.opt-h .seg .sg.on { background: var(--pane); color: var(--fg); }
+.opt-row { flex: none; display: flex; gap: 10px; overflow-x: auto; padding-bottom: 2px; }
+.opt-card { position: relative; flex: 0 0 118px; display: flex; flex-direction: column; gap: 6px; padding: 8px; border-radius: 10px; background: var(--pane); border: 0.5px solid var(--pane-edge); cursor: pointer; text-align: left; }
+.opt-card:hover { border-color: var(--pane-edge-on); }
+.opt-card.sel { border-color: var(--bs-accent); box-shadow: 0 0 0 1px var(--bs-accent) inset; }
+.opt-card.chosen { border-color: var(--green); }
+.opt-n { position: absolute; top: 6px; right: 8px; z-index: 2; font-size: 10.5px; color: var(--fg-3); background: var(--pill-on); border: 0.5px solid var(--pane-edge); border-radius: 999px; padding: 0 6px; }
+.opt-thumb { position: relative; aspect-ratio: 4 / 3; border-radius: 7px; overflow: hidden; background: var(--page-bg); border: 0.5px solid var(--pane-edge); }
+.opt-thumb svg { display: block; width: 100%; height: 100%; }
+.opt-lbl { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; min-width: 0; }
+.chip { font-size: 10.5px; padding: 1px 7px; border-radius: 999px; border: 0.5px solid var(--pane-edge); color: var(--fg-3); width: max-content; }
+.chip.approved { color: var(--green); border-color: currentColor; }
+.opt-lbl .chip { margin-left: auto; }
+.opt-pick { position: absolute; left: 50%; top: 42%; transform: translate(-50%,-50%); height: 24px; padding: 0 12px; border-radius: 999px; background: var(--fg); color: #fff; font-size: 11.5px; font-weight: 500; opacity: 0; transition: opacity .12s; }
+.opt-card:hover .opt-pick, .opt-card.sel .opt-pick { opacity: 1; }
+.opt-card.chosen .opt-pick { display: none; }
+.opt-foot { flex: 1; min-height: 0; display: flex; align-items: flex-start; gap: 14px; overflow: auto; }
+.opt-notes { flex: 1; min-width: 0; margin: 0; padding-left: 18px; color: var(--fg-2); font-size: 12px; display: flex; flex-direction: column; gap: 3px; }
+.opt-notes b { color: var(--fg); font-weight: 500; }
+.btn { height: 28px; padding: 0 14px; border-radius: 7px; font-weight: 500; border: 0.5px solid var(--pane-edge); background: var(--pill-on); display: inline-flex; align-items: center; justify-content: center; gap: 6px; white-space: nowrap; }
+.btn.primary { background: var(--fg); color: #fff; border-color: transparent; }
+.opts.cmp .cmp-wrap { flex: 1; min-height: 0; display: flex; gap: 10px; }
+.cmp-rail { flex: 0 0 116px; display: flex; flex-direction: column; gap: 6px; overflow-y: auto; }
+.cmp-rail .rv { display: flex; flex-direction: column; gap: 4px; padding: 6px; border-radius: 9px; background: var(--pane); border: 0.5px solid var(--pane-edge); text-align: left; }
+.cmp-rail .rv.on { border-color: var(--bs-accent); }
+.cmp-rail .rv .t { font-size: 11.5px; color: var(--fg-2); }
+.cmp-rail .rv .opt-thumb { aspect-ratio: 16 / 10; }
+.cmp-stage { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.cmp-top { flex: none; display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--fg-3); }
+.cmp-top span:first-child, .cmp-top span:last-child { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cmp-top span:last-child { text-align: right; }
+.cmp-vs { color: var(--fg-4); font-size: 11px; }
+.cmp-pair { flex: 1; min-height: 0; display: flex; align-items: stretch; border-radius: 10px; overflow: hidden; border: 0.5px solid var(--pane-edge); background: var(--page-bg); }
+.cmp-side { min-width: 0; overflow: hidden; }
+.cmp-side .opt-thumb { height: 100%; aspect-ratio: auto; border: 0; border-radius: 0; }
+.cmp-grip { flex: 0 0 9px; cursor: col-resize; background: var(--pane-edge); position: relative; }
+.cmp-grip::after { content: ""; position: absolute; left: 50%; top: 50%; width: 3px; height: 26px; border-radius: 2px; background: var(--fg-4); transform: translate(-50%,-50%); }
+.cmp-foot { flex: none; display: flex; align-items: center; gap: 8px; }
+.picked { color: var(--green); font-size: 12px; }
+</style>
+</head>
+<body>
+<h1>Visual options — the canvas an agent opens</h1>
+<p class="lede">Rendered with the app's own rules (<code>.opts</code> in <code>crates/tauri-app/ui/style.css</code>). Click a card, hit Choose, or drag the split. This is a static preview; in the app the pick is the agent's tool result.</p>
+
+<div class="wrap">
+  <div class="frame" id="gridFrame">
+    <div class="cap"><b>Options</b> · the default view</div>
+    <div class="pane"><div class="opts" id="grid"></div></div>
+  </div>
+  <div class="frame" id="cmpFrame">
+    <div class="cap"><b>Compare</b> · old vs new, draggable split</div>
+    <div class="pane"><div class="opts cmp" id="cmp"></div></div>
+  </div>
+</div>
+
+<script>
+const VARIANTS = [
+  { id: "now", label: "Now", note: "The current context strip, as it is today.",
+    svg: `<rect width="160" height="120" fill="#fff"/><rect x="10" y="10" width="60" height="5" rx="2.5" fill="#dcd8e0"/><rect x="10" y="24" width="140" height="8" rx="4" fill="#e6e3e9"/><rect x="10" y="40" width="52" height="4" rx="2" fill="#e6e3e9"/><rect x="10" y="52" width="140" height="4" rx="2" fill="#eeebf1"/><rect x="10" y="62" width="140" height="4" rx="2" fill="#eeebf1"/><rect x="10" y="72" width="96" height="4" rx="2" fill="#eeebf1"/><rect x="10" y="96" width="140" height="14" rx="7" fill="#f2eff4" stroke="#e2dee7"/>` },
+  { id: "a", label: "A: Compact", note: "Same strip at half the height; categories move to a legend.",
+    svg: `<rect width="160" height="120" fill="#fff"/><rect x="10" y="12" width="140" height="10" rx="5" fill="#e6e3e9"/><rect x="10" y="12" width="46" height="10" rx="5" fill="#cf5a24"/><rect x="10" y="30" width="88" height="4" rx="2" fill="#dcd8e0"/><circle cx="16" cy="46" r="3" fill="#2a66d9"/><rect x="24" y="44" width="42" height="4" rx="2" fill="#e6e3e9"/><circle cx="16" cy="58" r="3" fill="#187f45"/><rect x="24" y="56" width="52" height="4" rx="2" fill="#e6e3e9"/><circle cx="16" cy="70" r="3" fill="#9a5c00"/><rect x="24" y="68" width="34" height="4" rx="2" fill="#e6e3e9"/><rect x="10" y="94" width="140" height="16" rx="8" fill="#f2eff4" stroke="#e2dee7"/>` },
+  { id: "b", label: "B: Donut", note: "A ring shows what the tokens are made of, % full in the centre.",
+    svg: `<rect width="160" height="120" fill="#fff"/><circle cx="80" cy="52" r="30" fill="none" stroke="#eeebf1" stroke-width="9"/><circle cx="80" cy="52" r="30" fill="none" stroke="#2a66d9" stroke-width="9" stroke-dasharray="118 71" transform="rotate(-90 80 52)" stroke-linecap="round"/><circle cx="80" cy="52" r="30" fill="none" stroke="#cf5a24" stroke-width="9" stroke-dasharray="26 163" transform="rotate(140 80 52)" stroke-linecap="round"/><text x="80" y="56" text-anchor="middle" font-family="system-ui" font-size="13" font-weight="600" fill="#1c1a1f">47%</text><rect x="10" y="94" width="140" height="16" rx="8" fill="#f2eff4" stroke="#e2dee7"/>` },
+  { id: "c", label: "C: Popover", note: "A single ring in the composer; the detail opens on click.",
+    svg: `<rect width="160" height="120" fill="#fff"/><rect x="10" y="10" width="140" height="70" rx="8" fill="#faf9fb" stroke="#eeebf1"/><rect x="18" y="20" width="70" height="4" rx="2" fill="#e6e3e9"/><rect x="18" y="30" width="110" height="4" rx="2" fill="#eeebf1"/><rect x="10" y="92" width="140" height="18" rx="9" fill="#f2eff4" stroke="#e2dee7"/><circle cx="140" cy="101" r="6" fill="none" stroke="#2a66d9" stroke-width="2.5"/><path d="M140 95.6a5.4 5.4 0 0 1 0 10.8" fill="none" stroke="#cf5a24" stroke-width="2.5"/>` },
+];
+const thumb = v => `<div class="opt-thumb"><svg viewBox="0 0 160 120" preserveAspectRatio="xMidYMin slice" aria-hidden="true">${v.svg}</svg></div>`;
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+/* ---- Options (grid) ---- */
+const G = { sel: "now", picked: null };
+const head = (mode) => `<header class="opt-h"><div class="ot"><h3>Context usage: 3 options</h3><p>Three ways to show how full the context is, next to the current one.</p></div>
+  <div class="seg"><button class="sg ${mode === "grid" ? "on" : ""}">Options</button><button class="sg ${mode === "cmp" ? "on" : ""}">Compare</button></div></header>`;
+function drawGrid() {
+  const chosen = v => G.picked === v.id;
+  document.getElementById("grid").innerHTML = head("grid") +
+    `<div class="opt-row">${VARIANTS.map((v, i) => `<div class="opt-card${v.id === G.sel ? " sel" : ""}${chosen(v) ? " chosen" : ""}" data-ov="${v.id}">
+      <div class="opt-n">${i + 1}</div>${thumb(v)}
+      <div class="opt-lbl">${esc(v.label)}${chosen(v) ? `<span class="chip approved">chosen</span>` : ""}</div>
+      <button class="opt-pick" data-pick="${v.id}">Choose</button></div>`).join("")}</div>
+    <div class="opt-foot"><ul class="opt-notes">${VARIANTS.map(v => `<li><b>${esc(v.label)}.</b> ${esc(v.note)}</li>`).join("")}</ul>
+      ${G.picked ? `<span class="picked">You chose ${esc((VARIANTS.find(v => v.id === G.picked) || {}).label)}</span>`
+        : `<button class="btn primary" data-pick="${G.sel}">Choose this version</button>`}</div>`;
+  document.querySelectorAll("#grid .opt-card").forEach(el => el.onclick = e => {
+    if (e.target.closest("[data-pick]")) return;
+    G.sel = el.dataset.ov; drawGrid();
+  });
+  document.querySelectorAll("#grid [data-pick]").forEach(el => el.onclick = () => { G.picked = el.dataset.pick; G.sel = el.dataset.pick; drawGrid(); drawCmp(); });
+}
+
+/* ---- Compare (two side by side, draggable split) ---- */
+const C = { a: "now", b: "a", cut: 50 };
+function drawCmp() {
+  const a = VARIANTS.find(v => v.id === C.a), b = VARIANTS.find(v => v.id === C.b);
+  document.getElementById("cmp").innerHTML = head("cmp") +
+    `<div class="cmp-wrap">
+      <div class="cmp-rail">${VARIANTS.map(v => `<button class="rv${v.id === a.id ? " on" : ""}" data-ov="${v.id}">${thumb(v)}<span class="t">${esc(v.label)}</span>${G.picked === v.id ? `<span class="chip approved">chosen</span>` : ""}</button>`).join("")}</div>
+      <div class="cmp-stage">
+        <div class="cmp-top"><span>${esc(a.label)}</span><span class="cmp-vs">vs</span><span>${esc(b.label)}</span></div>
+        <div class="cmp-pair">
+          <div class="cmp-side" style="flex:0 0 ${C.cut}%">${thumb(a)}</div>
+          <div class="cmp-grip"></div>
+          <div class="cmp-side">${thumb(b)}</div>
+        </div>
+        <div class="cmp-foot"><button class="btn primary" data-pick="${a.id}">Choose ${esc(a.label)}</button><button class="btn" data-pick="${b.id}">Choose ${esc(b.label)}</button></div>
+      </div></div>`;
+  document.querySelectorAll("#cmp .rv").forEach(el => el.onclick = () => {
+    const id = el.dataset.ov;
+    if (id === b.id) { C.a = b.id; C.b = a.id; } else if (id !== a.id) C.a = id;
+    drawCmp();
+  });
+  document.querySelectorAll("#cmp [data-pick]").forEach(el => el.onclick = () => { G.picked = el.dataset.pick; drawGrid(); drawCmp(); });
+  const grip = document.querySelector("#cmp .cmp-grip"), pair = grip.parentElement, side = pair.querySelector(".cmp-side");
+  grip.addEventListener("pointerdown", e => {
+    e.preventDefault(); grip.setPointerCapture(e.pointerId);
+    const move = ev => { const r = pair.getBoundingClientRect(); C.cut = Math.min(96, Math.max(4, (ev.clientX - r.left) / r.width * 100)); side.style.flexBasis = C.cut + "%"; };
+    const up = () => { grip.removeEventListener("pointermove", move); grip.removeEventListener("pointerup", up); };
+    grip.addEventListener("pointermove", move); grip.addEventListener("pointerup", up);
+  });
+}
+drawGrid(); drawCmp();
+</script>
+</body>
+</html>
