@@ -1334,6 +1334,13 @@ function browserPane(p, body, ps) {
   const vp = ps.viewport || "desktop";
   const url = p.url || "";
   const local = isLocalUrl(url);
+  const check = (p.check && p.check.url === url) ? p.check : null;
+  // What the canvas will do with this address. A local address is what the
+  // canvas is for and is framed without asking; a public one is asked about
+  // first, because most of the web sends a header that makes framing
+  // impossible and the engine's refusal is indistinguishable from a dead
+  // server until you know which it is.
+  const show = !url ? "blank" : local || (check && check.frameable !== false) || p.force ? "frame" : check ? "opened" : "checking";
   body.innerHTML = `<div class="browser">
     <div class="b-bar">
       <button class="ib" data-b="back" aria-label="Back">${icon("back")}</button><button class="ib" data-b="fwd" aria-label="Forward">${icon("fwd")}</button><button class="ib" data-b="reload" aria-label="Reload">${icon("reload")}</button>
@@ -1341,15 +1348,33 @@ function browserPane(p, body, ps) {
       <div class="vp" role="group" aria-label="Viewport">${vps.map(([k, ic, l]) => `<button class="ib ${vp === k ? "on" : ""}" data-vp="${k}" aria-label="${l}">${icon(ic)}</button>`).join("")}</div>
       ${url ? `<button class="ib" data-b="ext" aria-label="Open in your browser" title="Open in your browser">${icon("ext")}</button>` : ""}
     </div>
-    <div class="b-view"><div class="frame live ${vp === "desktop" ? "" : vp}">${url
+    <div class="b-view"><div class="frame live ${vp === "desktop" ? "" : vp}">${show === "frame"
       ? `<iframe src="${esc(url)}" title="Preview of ${esc(url)}" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"></iframe>`
-      : `<div class="blankpage"><b>No preview yet</b><span>Type a dev server address above, for example the URL an agent printed after <code>npm run dev</code>, and press Enter.</span></div>`}</div>
-      ${url && !local ? `<div class="b-note">${icon("warn")}<span>This is not a local address. Sites that forbid being framed (most of them) open in your browser instead.</span><button class="btn sm" data-b="ext">Open in browser</button></div>` : ""}
+      : show === "blank"
+        ? `<div class="blankpage"><b>No preview yet</b><span>Type a dev server address above, for example the URL an agent printed after <code>npm run dev</code>, and press Enter.</span></div>`
+        : show === "checking"
+          ? `<div class="blankpage"><b>Checking ${esc(url)}…</b><span>Seeing whether the site allows being shown in a frame.</span></div>`
+          : `<div class="blankpage"><b>Opened in your browser</b><span>${esc((check && check.reason) || "")}</span><span class="b-hint">This is not a limit of Backspace: a page that sends <code>X-Frame-Options</code> or a <code>frame-ancestors</code> rule refuses to render inside any other app, which is the point of the header. The canvas is for servers on this machine.</span></div>`}</div>
+      ${show === "opened" ? `<div class="b-note">${icon("warn")}<span>Shown in your browser instead.</span><button class="btn sm" data-b="force">Try in the canvas anyway</button><button class="btn sm" data-b="ext">Open in browser</button></div>` : ""}
+      ${url && !local && show === "frame" && check ? `<div class="b-note">${icon("check")}<span>${esc(check.reason)}</span><button class="btn sm" data-b="ext">Open in browser</button></div>` : ""}
       <div class="b-note b-fail" hidden>${icon("warn")}<span></span><button class="btn sm" data-b="ext">Open in browser</button></div>
     </div></div>`;
   const inp = body.querySelector(".url"), f = body.querySelector("iframe");
   const ext = () => { if (p.url) invoke("open_url", { url: p.url }).catch(e => toast(String(e), "err")); };
-  if (url && !local) ext();
+  const forceBtn = body.querySelector("[data-b=force]");
+  if (forceBtn) forceBtn.onclick = () => { p.force = true; browserPane(p, body, ps); };
+  if (show === "frame" && !local) ext();
+  // A public address: ask the site what it says about framing before it fails.
+  if (url && !local && !check && !p.force) {
+    invoke("frame_check", { url }).then(r => {
+      if (!r || p.url !== url) return;
+      p.check = r;
+      // A site that allows framing is shown; one that does not is opened, so
+      // the user sees the page rather than a refusal they cannot act on.
+      browserPane(p, body, ps);
+      renderList(); renderPaneTitles();
+    }).catch(() => { p.force = true; browserPane(p, body, ps); });
+  }
   // A frame that never fires `load` is a refusal we cannot see into (cross-origin
   // frames do not report their status), so report the likeliest cause.
   if (f) {
@@ -1367,11 +1392,14 @@ function browserPane(p, body, ps) {
     if (e.key !== "Enter") return;
     let u = inp.value.trim(); if (!u) return;
     if (!/^https?:\/\//.test(u)) u = "http://" + u;
-    p.url = u; saveTabs(); browserPane(p, body, ps); renderList(); renderPaneTitles();
+    p.url = u; p.check = null; p.force = false; saveTabs(); browserPane(p, body, ps); renderList(); renderPaneTitles();
   });
-  body.querySelector("[data-b=reload]").onclick = () => { if (f) f.src = f.src; };
-  body.querySelector("[data-b=back]").onclick = () => { try { f.contentWindow.history.back(); } catch (e) {} };
-  body.querySelector("[data-b=fwd]").onclick = () => { try { f.contentWindow.history.forward(); } catch (e) {} };
+  const rb = body.querySelector("[data-b=reload]");
+  if (rb) rb.onclick = () => { if (f) f.src = f.src; else { p.check = null; browserPane(p, body, ps); } };
+  const bb = body.querySelector("[data-b=back]");
+  if (bb) bb.onclick = () => { try { f.contentWindow.history.back(); } catch (e) {} };
+  const fb2 = body.querySelector("[data-b=fwd]");
+  if (fb2) fb2.onclick = () => { try { f.contentWindow.history.forward(); } catch (e) {} };
   $$("[data-b=ext]", body).forEach(b => (b.onclick = ext));
   $$("[data-vp]", body).forEach(b => (b.onclick = () => { ps.viewport = b.dataset.vp; browserPane(p, body, ps); }));
 }

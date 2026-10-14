@@ -17,6 +17,10 @@ backspace-core = { path = "../core" }
 backspace-colony = { path = "../colony" }
 # A real PTY for the terminal canvas (ConPTY on Windows, forkpty elsewhere).
 portable-pty = "0.9"
+# The canvas preflight (frame_check): one HEAD request to read whether a site
+# allows being shown in a frame. The workspace already pins reqwest with rustls,
+# so https needs no new dependency.
+reqwest.workspace = true
 tauri = { version = "2.12", features = [] }
 tauri-plugin-dialog = "2"
 tauri-plugin-notification = "2"

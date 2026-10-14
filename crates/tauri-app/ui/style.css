@@ -283,6 +283,9 @@ body { margin: 0; background: var(--desk-base); color: var(--fg); font: 13px/1.4
 .b-note span { flex: 1; min-width: 0; }
 .b-note .btn { flex: none; }
 .b-note[hidden] { display: none; }
+/* What the canvas decided to do with a public address, in the blank state. */
+.b-hint { color: var(--fg-3); font-size: 11.5px; line-height: 1.5; max-width: 46ch; margin-top: 6px; }
+.b-hint code { font-size: 11px; }
 .frame { width: 100%; min-height: 100%; background: var(--page-bg); color: var(--page-fg); transition: width 0.25s ease; box-shadow: 0 0 0 0.5px var(--page-line); }
 .frame.tablet { width: 768px; } .frame.phone { width: 390px; }
 .app { max-width: 560px; margin: 0 auto; padding: 48px 24px; font: 15px/1.5 var(--font-ui); }

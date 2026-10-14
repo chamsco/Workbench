@@ -328,6 +328,128 @@ async fn check_update(f: F<'_>) -> Res<UpdateInfo> {
         .map_err(err)
 }
 
+/// Can this URL be shown inside the app's own frame?
+///
+/// The canvas is an `<iframe>`, and a site that sends `X-Frame-Options` or a
+/// CSP `frame-ancestors` rule cannot be rendered in one -- the engine refuses,
+/// and it looks exactly like a refused connection. That is not something the
+/// app can override (it is the whole point of those headers), and no desktop
+/// shell can either: Electron's `<webview>`, an in-app browser panel and a
+/// Cursor-style preview all hit the same wall unless they host the page in a
+/// top-level browsing context of its own.
+///
+/// So rather than let the frame fail and be mysterious, ask the site first and
+/// tell the user before they click. Redirects are followed, because a bare
+/// `http://` URL usually 301s to `https://` and the headers that matter are on
+/// the last hop, and the answer is read from the response rather than guessed.
+#[tauri::command]
+async fn frame_check(url: String) -> Res<serde_json::Value> {
+    let u = url.trim().to_string();
+    if !(u.starts_with("http://") || u.starts_with("https://")) {
+        return Ok(serde_json::json!({
+            "url": u, "reachable": false, "frameable": null,
+            "reason": "Only http and https addresses can be previewed here.",
+        }));
+    }
+    // The same client the harness uses: rustls, so https needs no new dependency.
+    let client = reqwest::Client::builder()
+        .user_agent("Backspace/0.1 (canvas preview check)")
+        .timeout(std::time::Duration::from_secs(8))
+        .redirect(reqwest::redirect::Policy::limited(6))
+        .build()
+        .map_err(|e| format!("could not start the check: {e}"))?;
+
+    let resp = match client.head(&u).send().await {
+        Ok(r) => r,
+        // Some servers refuse HEAD. A GET whose body we never read is just as
+        // good a way to see the headers.
+        Err(_) => client
+            .get(&u)
+            .send()
+            .await
+            .map_err(|e| format!("{u} did not answer: {e}"))?,
+    };
+    let status = resp.status().as_u16();
+    let final_url = resp.url().to_string();
+    let header = |name: &str| -> Option<String> {
+        resp.headers()
+            .get(name)
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.trim().to_string())
+    };
+    let content_type = header("content-type").unwrap_or_default();
+    let xfo = header("x-frame-options");
+    let csp = header("content-security-policy");
+
+    Ok(serde_json::json!({
+        "url": u,
+        "reachable": true,
+        "status": status,
+        "final_url": final_url,
+        "content_type": content_type,
+        "frameable": frameable_from(xfo.as_deref(), csp.as_deref()),
+        "reason": framing_reason(&u, &final_url, status, xfo.as_deref(), csp.as_deref()),
+    }))
+}
+
+/// The decision, from the two headers browsers act on. A header that is present
+/// but not restrictive (or no framing header at all) means framing is allowed.
+fn frameable_from(xfo: Option<&str>, csp: Option<&str>) -> Option<bool> {
+    if let Some(v) = xfo {
+        let v = v.to_ascii_lowercase();
+        if v.contains("deny") || v.contains("sameorigin") {
+            return Some(false);
+        }
+    }
+    if let Some(v) = csp {
+        for part in v.split(';') {
+            let lower = part.trim().to_ascii_lowercase();
+            if let Some(rest) = lower.strip_prefix("frame-ancestors") {
+                let rest = rest.trim();
+                if !rest.is_empty() && rest != "*" {
+                    return Some(false);
+                }
+            }
+        }
+    }
+    Some(true)
+}
+
+/// One line for the user, naming the header when a header is the reason.
+fn framing_reason(
+    asked: &str,
+    final_url: &str,
+    status: u16,
+    xfo: Option<&str>,
+    csp: Option<&str>,
+) -> String {
+    let went = if final_url != asked {
+        format!(" (redirected to {final_url})")
+    } else {
+        String::new()
+    };
+    if let Some(v) = xfo {
+        let lower = v.to_ascii_lowercase();
+        if lower.contains("deny") || lower.contains("sameorigin") {
+            return format!("{asked}{went} answers with X-Frame-Options: {v}, so no app can show it in a frame.");
+        }
+    }
+    if let Some(v) = csp {
+        for part in v.split(';') {
+            let lower = part.trim().to_ascii_lowercase();
+            if let Some(rest) = lower.strip_prefix("frame-ancestors") {
+                let rest = rest.trim();
+                if !rest.is_empty() && rest != "*" {
+                    return format!("{asked}{went} answers with frame-ancestors {rest}, so it cannot be shown in a frame here.");
+                }
+            }
+        }
+    }
+    if status >= 400 {
+        return format!("{asked}{went} answered {status}; the preview would show that, not a page.");
+    }
+    format!("{asked}{went} answers {status} with no framing restriction, so it should load in the canvas.")
+}
 /// Opens http(s) links in the system browser; nothing else.
 #[tauri::command]
 fn open_url(url: String) -> Res<()> {
@@ -1710,6 +1832,7 @@ fn main() -> anyhow::Result<()> {
             colony_status,
             reveal_path,
             ensure_dir,
+            frame_check,
             accounts,
             account_add,
             account_remove,
@@ -1800,6 +1923,7 @@ fn main() -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use super::{frame_check, frameable_from, framing_reason};
     /// Whether the shell behind a PTY actually talks back is a property of the
     /// host, not of this code: on a locked-down Windows box ConPTY can open
     /// without ever producing bytes. What this test pins down is the invariant
@@ -1860,5 +1984,124 @@ mod tests {
             seen.lines().next().unwrap_or("<none>"),
             seen.lines().count()
         );
+    }
+
+    /// A local server that answers with the headers a site would send, so the
+    /// canvas preflight is tested against real bytes rather than a fixture.
+    fn serve(which: &'static str) -> u16 {
+        use std::io::{BufRead, BufReader, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(stream) = stream else { continue };
+                std::thread::spawn(move || {
+                    let mut reader = BufReader::new(stream.try_clone().unwrap());
+                    // Read the request, including the blank line.
+                    let mut line = String::new();
+                    while reader.read_line(&mut line).map(|n| n > 0).unwrap_or(false) {
+                        if line == "\r\n" || line == "\n" {
+                            break;
+                        }
+                        line.clear();
+                    }
+                    let extra = match which {
+                        "deny" => "X-Frame-Options: DENY\r\n",
+                        "sameorigin" => "X-Frame-Options: SAMEORIGIN\r\n",
+                        "ancestors" => "Content-Security-Policy: default-src 'self'; frame-ancestors 'none'\r\n",
+                        "ancestors-ok" => "Content-Security-Policy: frame-ancestors *\r\n",
+                        "csp-other" => "Content-Security-Policy: default-src 'self'; script-src 'self'\r\n",
+                        _ => "",
+                    };
+                    let _ = write!(
+                        stream.try_clone().unwrap(),
+                        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n{extra}Content-Length: 0\r\n\r\n"
+                    );
+                });
+            }
+        });
+        port
+    }
+
+    /// The header decision on its own: every spelling a browser acts on, and
+    /// the ones it does not.
+    #[test]
+    fn the_framing_decision_reads_only_the_headers_that_block() {
+        // Nothing said: framing is allowed.
+        assert_eq!(frameable_from(None, None), Some(true));
+        // Both spellings of X-Frame-Options that restrict.
+        assert_eq!(frameable_from(Some("DENY"), None), Some(false));
+        assert_eq!(frameable_from(Some("deny"), None), Some(false));
+        assert_eq!(frameable_from(Some("SAMEORIGIN"), None), Some(false));
+        assert_eq!(frameable_from(Some("sameorigin"), None), Some(false));
+        // frame-ancestors: a restriction blocks, a wildcard does not.
+        assert_eq!(frameable_from(None, Some("frame-ancestors 'none'")), Some(false));
+        assert_eq!(frameable_from(None, Some("default-src 'self'; frame-ancestors https://a.example")), Some(false));
+        assert_eq!(frameable_from(None, Some("frame-ancestors *")), Some(true));
+        // A CSP about something else is not a framing restriction.
+        assert_eq!(frameable_from(None, Some("default-src 'self'; script-src 'self'")), Some(true));
+        // And the reason names the header, so the user can check it themselves.
+        let r = framing_reason("http://a.test", "http://a.test", 200, Some("DENY"), None);
+        assert!(r.contains("X-Frame-Options"), "{r}");
+        let r = framing_reason("http://a.test", "https://a.test/", 200, None, Some("frame-ancestors 'none'"));
+        assert!(r.contains("frame-ancestors") && r.contains("redirected"), "{r}");
+        let r = framing_reason("http://a.test", "http://a.test", 200, None, None);
+        assert!(r.contains("no framing restriction"), "{r}");
+    }
+
+    /// The whole command, against a real server: a site that forbids framing is
+    /// reported as such, and one that says nothing is reported as showable.
+    #[test]
+    fn the_preflight_answers_over_http() {
+        let p = serve("deny");
+        let out = tauri::async_runtime::block_on(frame_check(format!("http://127.0.0.1:{p}/"))).unwrap();
+        assert_eq!(out["reachable"], true, "{out}");
+        assert_eq!(out["frameable"], false, "{out}");
+        assert_eq!(out["status"], 200);
+        assert!(out["reason"].as_str().unwrap().contains("X-Frame-Options"), "{out}");
+
+        let p = serve("ok");
+        let out = tauri::async_runtime::block_on(frame_check(format!("http://127.0.0.1:{p}/"))).unwrap();
+        assert_eq!(out["frameable"], true, "{out}");
+
+        // A scheme we do not preview says so rather than failing.
+        let out = tauri::async_runtime::block_on(frame_check("file:///etc/passwd".into())).unwrap();
+        assert_eq!(out["frameable"], serde_json::Value::Null, "{out}");
+        assert!(out["reason"].as_str().unwrap().contains("http"), "{out}");
+
+        // A host that is not there is an error, not a framing verdict.
+        let closed = {
+            let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let port = l.local_addr().unwrap().port();
+            drop(l);
+            port
+        };
+        assert!(
+            tauri::async_runtime::block_on(frame_check(format!("http://127.0.0.1:{closed}/"))).is_err(),
+            "an unreachable host must be an error the caller can report"
+        );
+    }
+
+    /// Not a test: prints what the preflight says about real sites. Ignored by
+    /// default; run with `cargo test -p backspace-tauri -- --ignored --nocapture framings_of`.
+    #[test]
+    #[ignore]
+    fn framings_of_live_sites() {
+        for url in [
+            "http://google.fr",
+            "https://google.fr",
+            "https://example.com",
+            "https://github.com",
+            "https://developer.mozilla.org",
+            "https://raw.githubusercontent.com/pingdotgg/t3code/main/README.md",
+        ] {
+            match tauri::async_runtime::block_on(frame_check(url.into())) {
+                Ok(v) => eprintln!(
+                    "{url}\n   frameable={:?} status={} final={}\n   {}",
+                    v["frameable"], v["status"], v["final_url"], v["reason"]
+                ),
+                Err(e) => eprintln!("{url}\n   ERROR {e}"),
+            }
+        }
     }
 }
