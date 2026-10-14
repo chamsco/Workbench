@@ -197,6 +197,8 @@ button.rp-row:hover { background: var(--hover); }
 .home-open:empty { display: none; }
 .home-open .grp-label { padding: 8px 8px 4px; font-size: 11px; color: var(--fg-3); }
 .hw-empty { color: var(--fg-3); font-size: 12px; padding: 10px; }
+.hw-empty > span { display: block; }
+.hw-alt { margin-top: 8px; display: flex; align-items: center; gap: 8px; }
 .hw-row { width: 100%; box-sizing: border-box; display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-radius: 8px; text-align: left; font-size: 12.5px; cursor: default; }
 .hw-row:hover { background: var(--hover); }
 .hw-row .tt { flex: 1; min-width: 0; display: grid; }

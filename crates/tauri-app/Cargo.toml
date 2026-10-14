@@ -15,6 +15,8 @@ serde.workspace = true
 serde_json.workspace = true
 backspace-core = { path = "../core" }
 backspace-colony = { path = "../colony" }
+# A real PTY for the terminal canvas (ConPTY on Windows, forkpty elsewhere).
+portable-pty = "0.9"
 tauri = { version = "2.12", features = [] }
 tauri-plugin-dialog = "2"
 tauri-plugin-notification = "2"

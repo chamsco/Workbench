@@ -573,7 +573,7 @@ function newTabPop(anchor) {
   });
 }
 // Right-hand "+": add a canvas to this tab.
-const VIEWS = [["board", "bubble", "Team chat"], ["conversation", "reply", "Conversation"], ["files", "folder", "Worktree files"], ["browser", "globe", "Browser"], ["diagram", "diagram", "Diagram review"], ["docs", "doc", "PLAN.md"], ["options", "opts", "Visual options"], ["empty", "window", "Empty canvas"]];
+const VIEWS = [["board", "bubble", "Team chat"], ["conversation", "reply", "Conversation"], ["terminal", "term", "Terminal"], ["files", "folder", "Worktree files"], ["browser", "globe", "Browser"], ["diagram", "diagram", "Diagram review"], ["docs", "doc", "PLAN.md"], ["options", "opts", "Visual options"], ["empty", "window", "Empty canvas"]];
 $("#addCanvas").dataset.popper = "";
 $("#addCanvas").onclick = e => {
   const full = tab().panes.length >= 4;
@@ -837,7 +837,12 @@ function buildPane(p, slot) {
   fillPane(p, slot, body, ps);
   return el;
 }
-function setPane(slot, spec) { tab().panes[slot] = spec; S.pane.delete(prefs.active_tab + ":" + slot); saveTabs(); renderTabs(); renderGrid(); }
+function setPane(slot, spec) {
+  // A pane that held a shell must not leak it when it becomes something else.
+  const ps = pstate(slot);
+  if (ps.cleanup && spec.kind !== tab().panes[slot].kind) ps.cleanup();
+  tab().panes[slot] = spec; S.pane.delete(prefs.active_tab + ":" + slot); saveTabs(); renderTabs(); renderGrid();
+}
 
 function fillPane(p, slot, body, ps) {
   const note = offlineNote();
@@ -860,6 +865,7 @@ function fillPane(p, slot, body, ps) {
   else if (p.kind === "docs") docsPane(body);
   else if (p.kind === "board") boardPane(body, ps);
   else if (p.kind === "conversation") conversationPane(p, body, ps);
+  else if (p.kind === "terminal") terminalPane(body, ps);
   else if (p.kind === "options") optionsPane(p, body, ps);
   else if (p.kind === "trace") tracePane(p, body, ps);
   else chooser(slot, body);
@@ -874,6 +880,7 @@ function chooser(slot, body) {
     <button class="card" data-k="docs">${icon("doc")}<span class="ct">PLAN.md</span><span class="cs">The plan the main agent wrote</span></button>
     <button class="card" data-k="board">${icon("bubble")}<span class="ct">Team chat</span><span class="cs">What agents tell each other, across models and CLIs</span></button>
     <button class="card" data-k="conversation">${icon("reply")}<span class="ct">Conversation</span><span class="cs">One thread between two agents, or with you</span></button>
+    <button class="card" data-k="terminal">${icon("term")}<span class="ct">Terminal</span><span class="cs">A real shell in this project's folder</span></button>
     <button class="card" data-k="options">${icon("opts")}<span class="ct">Visual options</span><span class="cs">Variants an agent wants you to choose between</span></button></div>
     ${agents.length > 1 ? `<h5>Agent sessions</h5><div class="alist">${agents.filter(a => a.id !== MAIN).map(a => `<button class="chip-btn" data-a="${a.id}">${icon("sparkle")}${esc(a.title)}<span class="dot ${dotFor(a.status)}"></span></button>`).join("")}</div>` : ""}</div>`;
   $$("[data-k]", body).forEach(b => (b.onclick = () => setPane(slot, { kind: b.dataset.k, agent: 0, url: null })));
@@ -1376,6 +1383,58 @@ function conversationPane(p, body, ps) {
   body.querySelector(".bsend").onclick = go;
   inp.onkeydown = e => { if (e.key === "Enter") go(); };
   requestAnimationFrame(() => { const b = body.querySelector(".conv-main .bmsgs"); if (b) b.scrollTop = b.scrollHeight; });
+}
+
+// ------------------------------------------------------------------ terminal canvas
+// A real shell (a PTY: ConPTY on Windows, forkpty elsewhere) in the project's
+// folder. Not a terminal emulator — the canvas draws plain text — so full-screen
+// TUIs are not the point; running a build, a git command or a REPL is.
+function terminalPane(body, ps) {
+  const dir = snap.workspace || (machine() && machine().local ? "" : "");
+  const history = (ps.lines = ps.lines || []);
+  const draw = () => { body.querySelector(".tterm").textContent = history.join(""); body.querySelector(".tterm").scrollTop = body.querySelector(".tterm").scrollHeight; };
+  body.innerHTML = `<div class="tterm" tabindex="0" aria-label="Terminal output"></div>
+    <footer class="bfoot"><span class="tprompt">❯</span><input class="bin tin" placeholder="Run a command in ${esc(dir || "this project")}" aria-label="Command" autocomplete="off" spellcheck="false"><button class="btn sm" id="ttermInt">Ctrl-C</button><button class="btn sm" id="ttermNew">Restart</button></footer>`;
+  draw();
+  let closed = false, poll = null, sawOutput = false, quietT = null;
+  const push = t => { history.push(t); if (history.length > 400) history.splice(0, history.length - 400); draw(); };
+  const start = async () => {
+    // A repaint reuses the shell this pane already opened: one shell per pane.
+    if (ps.term && ps.alive !== false) { poll = watch(); return; }
+    push(`$ ${dir || "(no project open)"}\n`);
+    try { ps.term = await invoke("terminal_open", { path: dir }); }
+    catch (e) { push(`cannot start a shell: ${e}\n`); return; }
+    ps.alive = true;
+    poll = watch();
+    // Some Windows hosts open a ConPTY that never speaks. Say so, rather than
+    // showing a blank canvas forever; the rest of the app does not depend on it.
+    quietT = setTimeout(() => {
+      if (!closed && !sawOutput) push("\n[no output from the shell. This host's PTY may be blocked; an agent canvas or `backspace mcp` runs commands without one.]\n");
+    }, 6000);
+  };
+  const watch = () => setInterval(async () => {
+    if (closed || !ps.term) return;
+    try {
+      const r = await invoke("terminal_read", { id: ps.term });
+      if (r.output) { sawOutput = true; push(r.output); }
+      if (!r.alive && !r.missing) { ps.alive = false; push("\n[shell exited]\n"); clearInterval(poll); }
+    } catch { /* the pane is closing */ }
+  }, 400);
+  const inp = body.querySelector(".tin");
+  const go = async () => {
+    const line = inp.value; inp.value = "";
+    if (!line.trim() && ps.term) return;
+    push(`❯ ${line}\n`);
+    if (!ps.term) { await start(); }
+    try { await invoke("terminal_write", { id: ps.term, line }); } catch (e) { push(String(e) + "\n"); }
+  };
+  inp.onkeydown = e => { if (e.key === "Enter") go(); };
+  body.querySelector("#ttermInt").onclick = () => { if (ps.term) invoke("terminal_signal", { id: ps.term }); };
+  body.querySelector("#ttermNew").onclick = async () => { if (ps.term) invoke("terminal_close", { id: ps.term }).catch(() => {}); clearInterval(poll); closed = false; history.length = 0; ps.term = null; await start(); };
+  // Leaving the pane (or the tab) must not leak a shell per visit.
+  ps.cleanup = () => { closed = true; clearInterval(poll); clearTimeout(quietT); if (ps.term) invoke("terminal_close", { id: ps.term }).catch(() => {}); ps.term = null; ps.alive = false; };
+  start();
+  requestAnimationFrame(() => inp.focus());
 }
 
 // ------------------------------------------------------------------ visual options

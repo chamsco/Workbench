@@ -32,6 +32,10 @@ have. What changed:
   `set_appearance` (validated and clamped Rust-side).
 - **ponytail skill** vendored (`crates/core/skills/ponytail/`, MIT) and
   injected into workers by default.
+- **Terminal canvas** (`portable-pty`; `terminal_open/read/write/signal/close`
+  in `crates/tauri-app/src/main.rs`, `terminalPane` in `app.js`): a real shell
+  in the open project's folder, chat-free, with a bounded PTY test that runs
+  no window. Home's empty state starts the same project by task *or* by view.
 - Tests: `crates/core/tests/features.rs` covers conversations, the local
   scout model and account failover end to end without a network or a VM.
 
@@ -41,6 +45,11 @@ attack surface (P0-3), `prefs.json` permissions on Windows (P0-4, partly),
 unbounded state growth (P1-5), the panic surface (P1-6) — plus a per-turn
 timeout, worktrees on the runner, and checkpoint→switch→resume for accounts
 (today a turn that dies on a limit is simply re-asked on the new login).
+
+**This round changed the Tauri shell, so the running app must be rebuilt**
+(`cargo build --release -p backspace-tauri`) to see the Settings redesign, the
+Conversation and Terminal canvases, and the Accounts/Local models panels. The
+`web/` chat face was not touched, so `ui/chat-web` does not need a rebuild.
 
 ---
 

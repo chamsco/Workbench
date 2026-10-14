@@ -437,6 +437,11 @@ input.tx.mono { font-family: var(--font-mono); font-size: 12px; }
 .conv-h { flex: none; display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 0.5px solid var(--pane-edge); font-size: 12.5px; }
 .conv-main .bmsgs { flex: 1; }
 
+/* terminal canvas: a real shell, drawn as plain text */
+.tterm { flex: 1; min-height: 0; margin: 0; padding: 10px 12px; overflow: auto; background: var(--prompt-bg); color: var(--term-fg); font: 12px/1.45 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; outline: 0; }
+.tterm:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; }
+.tprompt { color: var(--term-dim); padding: 0 2px 0 4px; }
+
 /* With Whirl's chat mounted, its own rows replace the vanilla ones. */
 .win.whirl-on .newbtn, .win.whirl-on .search, .win.whirl-on .chat-head { display: none !important; }
 .win.whirl-on.m-chat #list { display: none; }

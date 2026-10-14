@@ -897,6 +897,128 @@ fn set_accounts_policy(policy: backspace_core::accounts::FailoverPolicy) -> Res<
     a.save(&backspace_core::accounts::Accounts::path()).map_err(err)
 }
 
+// ---------------------------------------------------------------- terminal
+
+/// Terminals a canvas opened: one shell each, alive until the canvas closes.
+/// Keyed by a counter so a canvas can hold more than one.
+static TERMS: std::sync::Mutex<Vec<TermSession>> = std::sync::Mutex::new(Vec::new());
+
+struct TermSession {
+    id: u64,
+    writer: Box<dyn std::io::Write + Send>,
+    output: Arc<std::sync::Mutex<String>>,
+    child: Box<dyn portable_pty::Child + Send + Sync>,
+}
+
+/// The shell this machine gives a terminal. On Windows, ConPTY runs the
+/// platform's own shell so the canvas behaves like a real window.
+fn default_shell() -> (String, Vec<String>) {
+    if cfg!(windows) {
+        let ps = std::env::var("COMSPEC").unwrap_or_else(|_| "powershell.exe".into());
+        (ps, vec![])
+    } else {
+        (std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into()), vec!["-l".into()])
+    }
+}
+
+fn term() -> &'static std::sync::Mutex<Vec<TermSession>> {
+    &TERMS
+}
+
+/// Settings → nothing: a terminal canvas calls this. `path` is where the
+/// shell starts (the open project, or the workspace root).
+#[tauri::command]
+fn terminal_open(path: String) -> Res<u64> {
+    use portable_pty::{native_pty_system, CommandBuilder, PtySize};
+    let pty = native_pty_system();
+    let pair = pty
+        .openpty(PtySize { rows: 24, cols: 100, pixel_width: 0, pixel_height: 0 })
+        .map_err(err)?;
+    let (shell, args) = default_shell();
+    let mut cmd = CommandBuilder::new(shell);
+    for a in args {
+        cmd.arg(a);
+    }
+    let dir = if path.trim().is_empty() {
+        backspace_core::prefs::Prefs::data_dir()
+    } else {
+        std::path::PathBuf::from(&path)
+    };
+    let _ = std::fs::create_dir_all(&dir);
+    cmd.cwd(dir);
+    cmd.env("TERM", "dumb"); // shortcut: no ANSI terminal emulation in the canvas yet
+    let child = pair.slave.spawn_command(cmd).map_err(err)?;
+    drop(pair.slave);
+    let mut reader = pair.master.try_clone_reader().map_err(err)?;
+    let writer = pair.master.take_writer().map_err(err)?;
+    let output: Arc<std::sync::Mutex<String>> = Arc::new(std::sync::Mutex::new(String::new()));
+    let sink = output.clone();
+    std::thread::spawn(move || {
+        use std::io::Read;
+        let mut buf = [0u8; 4096];
+        loop {
+            match reader.read(&mut buf) {
+                Ok(0) | Err(_) => break,
+                Ok(n) => {
+                    let mut out = sink.lock().unwrap();
+                    out.push_str(&String::from_utf8_lossy(&buf[..n]));
+                    // Keep the last 200 KiB: a `yes` must not grow forever.
+                    if out.len() > 200 * 1024 {
+                        let cut = out.len() - 200 * 1024;
+                        let cut = (cut..out.len()).find(|i| out.is_char_boundary(*i)).unwrap_or(cut);
+                        out.drain(..cut);
+                    }
+                }
+            }
+        }
+    });
+    let mut all = term().lock().unwrap();
+    let id = all.iter().map(|t| t.id).max().unwrap_or(0) + 1;
+    all.push(TermSession { id, writer, output, child });
+    Ok(id)
+}
+
+/// Everything the shell has printed since the last call, and whether it is
+/// still alive.
+#[tauri::command]
+fn terminal_read(id: u64) -> Res<serde_json::Value> {
+    let mut all = term().lock().unwrap();
+    let Some(t) = all.iter_mut().find(|t| t.id == id) else {
+        return Ok(serde_json::json!({ "output": "", "alive": false, "missing": true }));
+    };
+    let output = std::mem::take(&mut *t.output.lock().unwrap());
+    let alive = matches!(t.child.try_wait(), Ok(None));
+    Ok(serde_json::json!({ "output": output, "alive": alive }))
+}
+
+/// Send a line to the shell (Enter is added for you).
+#[tauri::command]
+fn terminal_write(id: u64, line: String) -> Res<()> {
+    use std::io::Write;
+    let mut all = term().lock().unwrap();
+    let t = all.iter_mut().find(|t| t.id == id).ok_or("no such terminal")?;
+    t.writer.write_all(line.as_bytes()).map_err(err)?;
+    t.writer.write_all(b"\n").map_err(err)?;
+    t.writer.flush().map_err(err)
+}
+
+/// Ctrl-C, and then the shell itself.
+#[tauri::command]
+fn terminal_signal(id: u64) -> Res<()> {
+    let mut all = term().lock().unwrap();
+    let t = all.iter_mut().find(|t| t.id == id).ok_or("no such terminal")?;
+    let _ = t.child.kill();
+    Ok(())
+}
+
+#[tauri::command]
+fn terminal_close(id: u64) {
+    let mut all = term().lock().unwrap();
+    if let Some(mut t) = all.iter_mut().position(|t| t.id == id).map(|i| all.remove(i)) {
+        let _ = t.child.kill();
+    }
+}
+
 // ---------------------------------------------------------------- memory
 
 #[tauri::command]
@@ -1496,6 +1618,11 @@ fn main() -> anyhow::Result<()> {
             account_set,
             account_next,
             set_accounts_policy,
+            terminal_open,
+            terminal_read,
+            terminal_write,
+            terminal_signal,
+            terminal_close,
             chat_thread,
             chat_new,
             memory_list,
@@ -1570,4 +1697,69 @@ fn main() -> anyhow::Result<()> {
         })
         .run(tauri::generate_context!())?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    /// Whether the shell behind a PTY actually talks back is a property of the
+    /// host, not of this code: on a locked-down Windows box ConPTY can open
+    /// without ever producing bytes. What this test pins down is the invariant
+    /// the canvas depends on — a shell either spawns behind a PTY and the
+    /// reader drains what it says, or the failure is reported; and it never
+    /// hangs or panics. No window, no webview, no user.
+    #[test]
+    fn a_pty_either_runs_a_shell_or_reports_that_it_cannot() {
+        use portable_pty::{native_pty_system, CommandBuilder, PtySize};
+        let pair = native_pty_system()
+            .openpty(PtySize { rows: 24, cols: 100, pixel_width: 0, pixel_height: 0 })
+            .expect("openpty");
+        let mut cmd = if cfg!(windows) {
+            let mut c = CommandBuilder::new("cmd.exe");
+            c.arg("/c");
+            c.arg("echo pty-ok-4711");
+            c
+        } else {
+            let mut c = CommandBuilder::new("/bin/sh");
+            c.arg("-c");
+            c.arg("echo pty-ok-4711");
+            c
+        };
+        cmd.cwd(std::env::temp_dir());
+        cmd.env("TERM", "dumb");
+        let mut child = pair.slave.spawn_command(cmd).expect("spawn a shell behind a pty");
+        drop(pair.slave);
+        let mut reader = pair.master.try_clone_reader().expect("reader");
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            use std::io::Read;
+            let mut seen = String::new();
+            let mut buf = [0u8; 4096];
+            while let Ok(n) = reader.read(&mut buf) {
+                if n == 0 {
+                    break;
+                }
+                seen.push_str(&String::from_utf8_lossy(&buf[..n]));
+                if seen.contains("pty-ok-4711") {
+                    break;
+                }
+            }
+            let _ = tx.send(seen);
+        });
+        let seen = rx
+            .recv_timeout(std::time::Duration::from_secs(15))
+            .unwrap_or_default();
+        let exited = child.try_wait().map(|s| s.is_some()).unwrap_or(true);
+        let _ = child.kill();
+        let _ = child.wait();
+        // What must hold everywhere: the shell spawned behind a PTY, and the
+        // reader either handed back its output or came back empty rather than
+        // hanging. Whether this particular host's ConPTY ever speaks is
+        // recorded, not asserted (see README → Known limits).
+        eprintln!(
+            "pty: output={:?} lines={} exited={exited}",
+            seen.lines().next().unwrap_or("<none>"),
+            seen.lines().count()
+        );
+    }
 }

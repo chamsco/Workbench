@@ -88,7 +88,8 @@ var Home = (() => {
   function inbox() {
     const all = visible();
     if (!all.length || (all.length === 1 && !all[0].log.some(e => e.kind === "user"))) {
-      return `<div class="hw-empty">${hasProject ? "No agents yet. Describe a task above: the main agent plans it into tickets and workers build them." : "Pick a project above, then describe a task."}</div>`;
+      return `<div class="hw-empty"><span>${hasProject ? "No agents yet. Describe a task above: the main agent plans it into tickets and workers build them." : "Pick a project above, then describe a task."}</span>
+        <span class="hw-alt">Or start this project by view: <button class="btn sm" data-act="view">${icon("window")}Open a canvas</button></span></div>`;
     }
     const needs = all.filter(needsYou), working = all.filter(a => !needsYou(a) && busy(a));
     const idle = all.filter(a => !needsYou(a) && !busy(a) && a.kind !== "scout");
@@ -122,6 +123,19 @@ var Home = (() => {
     el.querySelectorAll("[data-proj]").forEach(b => (b.onclick = () => { proj = b.dataset.proj; bar(); activity.path = ""; loadActivity(); pills(); }));
     el.querySelectorAll("[data-tix]").forEach(b => (b.onclick = () => setDrawer(true)));
     const of = el.querySelector("[data-act=openf]"); if (of) of.onclick = pickProject;
+    const byv = el.querySelector("[data-act=view]"); if (byv) byv.onclick = startByView;
+  }
+
+  // The same project, started by view instead of by task: open it, switch to
+  // the canopies view and let the canvas picker choose what goes in it.
+  async function startByView() {
+    if (!(await ensureProject())) return;
+    try { await invoke("set_view_prefs", { chatView: null, motion: null, wbView: "canvases" }); } catch { }
+    prefs.wb_view = "canvases"; S.wb = "canvases";
+    setMode("code", false); setCodeView("agents");
+    const empty = tab().panes.findIndex(p => p.kind === "empty");
+    if (empty >= 0) { S.focus = empty; renderTabs(); renderGrid(); }
+    else openView({ kind: "empty", agent: 0, url: null });
   }
 
   async function bar() {

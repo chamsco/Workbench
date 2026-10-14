@@ -55,9 +55,13 @@ past it (tabs of canvases, machines, settings).
   Drag a tab to reorder. Right-click or double-click a tab to rename,
   duplicate or close it.
 - **Canvases** show an agent session, a worktree, a browser, the diagram
-  review or PLAN.md. The `+` on the right adds one (it splits the focused
+  review, PLAN.md, visual options, a conversation, or a **terminal** — a real
+  shell (a PTY: ConPTY on Windows, forkpty elsewhere) started in the open
+  project's folder, drawn as plain text, so a build, a git command or a REPL
+  runs where the work is. The `+` on the right adds one (it splits the focused
   canvas); an empty canvas offers a picker. Drag the gaps to resize,
-  double-click a gap to even it out.
+  double-click a gap to even it out. A canvas holds no chat: Home starts a
+  project by a task, the picker starts one by view.
 - **Arranging:** drag a canvas by its header. A dotted `+` slot shows where
   it will land and the other canvases slide out of the way as you move.
   Over the middle of another canvas it swaps places with it; over an edge
@@ -538,6 +542,12 @@ State is written to `<workspace>/.backspace/state.json` as a record of the run.
   (`capabilities`, `list`, `status`). Hyper-V needs an elevated host;
   `colony_exec` is WSL only, and snapshots, GC and a guest agent are not built.
   See [`docs/COLONY.md`](docs/COLONY.md).
+- The terminal canvas is a PTY, not an emulator: it draws plain text, so
+  full-screen TUIs are not the point, and the shell starts in the open
+  project's folder. On a locked-down Windows host ConPTY can open without ever
+  producing output; the canvas says so instead of sitting blank, and
+  `crates/tauri-app` has a test that pins the invariant (spawn + drain, or
+  report) rather than assuming the host talks.
 - Multi-account failover moves between logins when the CLI reports a usage
   limit; it does not yet checkpoint and resume a CLI session mid-turn, so a
   turn that dies on a limit is re-asked on the new login.

@@ -5,8 +5,7 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use backspace_core::chat::{Chats, Ctx, Status};
-use backspace_core::prefs::Prefs;
+use backspace_core::chat::Chats;
 
 fn fake_claude(dir: &std::path::Path) {
     let bin = dir.join("bin");

@@ -10,7 +10,7 @@ the plan did not have:
 | 2 | Visual options + compare | already shipped as `d5b78ac` (`options.rs`, `optionsPane`) |
 | 1 | Multi-account + failover | `crates/core/src/accounts.rs` (registry, health, policy, `env_for`), wired into `run_cli_turn` (`account_env`, health notes, usage-limit parking), Settings → Accounts |
 | 3 | Agent↔agent conversations | `board.rs` (`reply`, `thread_of`, `conversations`, `between`), `dm`/`read_conversation` tools, MCP + `msg send --reply`, the **Conversation** canvas |
-| 4 | Chat-free canvases + start by view or agent | Conversation/Empty canvases are chat-free; the canvas picker offers them; the terminal PTY is still open (below) |
+| 4 | Chat-free canvases + start by view or agent | Conversation/Terminal/Empty canvases hold no chat; a real **PTY terminal** pane (`portable-pty` + `terminal_*` commands in `crates/tauri-app/src/main.rs`, `terminalPane` in `app.js`); Home's empty state starts the same project by task or by view (`startByView` in `home.js`) |
 | 7 | Local tiny models for subagents | `crates/core/src/model_server.rs` (detect/rank/recommend), Settings → Local models, `prefs.subagent_model` → scouts (`local_subagent` in `harness.rs`) |
 | 8 | Colony workspaces | `crates/colony/` (registry + visor-core backend + `colony_*` tools), `docs/COLONY.md`, Settings → Workspaces and Colony |
 
