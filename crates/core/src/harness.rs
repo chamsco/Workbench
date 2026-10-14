@@ -405,6 +405,7 @@ impl Harness {
             planner_session: None,
             canvas_ops: vec![],
             options: vec![],
+            artifacts: vec![],
         };
         // A project opened before carries on: tickets, approvals, spend and
         // the board come back; what was running is marked interrupted.
@@ -530,6 +531,22 @@ impl Harness {
 
     pub fn snapshot(&self) -> ProjectState {
         self.inner.state.lock().unwrap().clone()
+    }
+
+    /// Record an artifact as the main agent, the same thing the `produce` tool
+    /// does for a worker. The shell's own affordances (a screenshot the user
+    /// dropped in, say) go through here.
+    pub fn produce(&self, mut a: crate::artifact::Artifact) -> Result<crate::artifact::Artifact> {
+        if a.by.trim().is_empty() {
+            a.by = MAIN.to_string();
+        }
+        let inner = self.inner.clone();
+        inner.update(|s| crate::artifact::add(s, a))
+    }
+
+    /// The artifacts in the project, newest last.
+    pub fn artifacts(&self) -> Vec<crate::artifact::Artifact> {
+        self.inner.state.lock().unwrap().artifacts.clone()
     }
 
     /// Fires (coalesced) whenever state changes. Runtime-agnostic.
@@ -1081,6 +1098,7 @@ fn tools_for(kind: AgentKind, can_spawn: bool) -> Vec<ToolDef> {
     tools.push(scout_tool());
     tools.extend(canvas_tools());
     tools.push(show_options_tool());
+    tools.push(produce_tool());
     tools.push(file_ticket_tool());
     tools.extend(board_tools());
     tools.extend(colony_tools());
@@ -1138,6 +1156,29 @@ pub(crate) fn canvas_tools() -> Vec<ToolDef> {
         },
     ]
 }
+
+/// Recording a thing the answer is about (artifact.rs): the diff just written,
+/// a screenshot, a table, a document. It is addressable afterwards, so the
+/// user's shell draws it under the session instead of the agent transcribing it.
+pub(crate) fn produce_tool() -> ToolDef {
+    ToolDef {
+        name: "produce",
+        description: "Record something you produced so the user sees it as a thing, not as text in your reply. Use it for a diff you wrote (`kind: \"diff\"`, `body` or `path`, plus `stat`), a screenshot (`image`, a `path` in the project or a `data` URL), a document (`document`, `body` or `path`), a table (`table`, `columns` and `rows`), or — after show_options — the set you are waiting on (`options`, the set's id). One call per artifact. It is shown under your session and referred to by its id; it does not replace telling the user what you did." ,
+        schema: json!({"type": "object", "properties": {
+            "kind": {"type": "string", "enum": ["diff", "image", "options", "trace", "document", "table"], "description": "what this is"},
+            "title": {"type": "string", "description": "what the user reads, e.g. \"t-3: rate limit the login route\""},
+            "ticket": {"type": "string", "description": "the ticket key this belongs to, if any"},
+            "path": {"type": "string", "description": "a file in the project, for image and document"},
+            "body": {"type": "string", "description": "inline text: a diff, a document, a trace excerpt"},
+            "data": {"type": "string", "description": "a data: URL, for image"},
+            "stat": {"type": "string", "description": "for diff: git diff --stat, one line per file"},
+            "columns": {"type": "array", "items": {"type": "string"}, "description": "for table: the header"},
+            "rows": {"type": "array", "items": {"type": "array", "items": {"type": "string"}}, "description": "for table: the cells, one array per row"},
+            "options": {"type": "string", "description": "for options: the id show_options gave you"}
+        }, "required": ["kind"]}),
+    }
+}
+
 
 /// Showing the user visual options to choose between (options.rs). The tool
 /// opens a canvas and waits: the user's pick is its result.
@@ -2241,6 +2282,10 @@ async fn run_tool(
             let me = inner.state.lock().unwrap().agents[c.id].key.clone();
             show_options(inner, &me, input).await.map(text)
         }
+        "produce" => {
+            let me = inner.state.lock().unwrap().agents[c.id].key.clone();
+            produce(inner, &me, input).map(text)
+        }
         // A machine of its own (crates/colony): a WSL2 distro or a Hyper-V VM,
         // created on demand and destroyed when the task is done.
         "colony_create" | "colony_exec" | "colony_list" | "colony_status" | "colony_destroy" => {
@@ -2255,6 +2300,21 @@ async fn run_tool(
 /// `show_options`: record the set, open its canvas, then wait for the user's
 /// pick. Shared by in-process agents and the CLI bridge, so both get the same
 /// result string. An empty pick means the user dismissed the set.
+/// `produce`: record an artifact on the project, then say where it went. It
+/// needs no wait — unlike `show_options`, nothing here asks the user anything.
+fn produce(inner: &Arc<Inner>, me: &str, input: &Value) -> Result<String> {
+    let mut a: crate::artifact::Artifact = serde_json::from_value(input.clone())
+        .map_err(|e| anyhow::anyhow!("could not read the artifact: {e}"))?;
+    a.by = me.to_string();
+    let a = inner.update(|s| crate::artifact::add(s, a))?;
+    Ok(format!(
+        "Recorded `{}`: {} ({}). It is under your session, and the user can open it there.",
+        a.id,
+        a.title,
+        a.summary()
+    ))
+}
+
 async fn show_options(inner: &Arc<Inner>, me: &str, input: &Value) -> Result<String> {
     let variants: Vec<crate::options::Variant> = serde_json::from_value(input["variants"].clone())
         .map_err(|e| anyhow!("variants: {e}"))?;

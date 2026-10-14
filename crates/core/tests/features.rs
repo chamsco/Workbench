@@ -250,6 +250,66 @@ fn each_project_remembers_its_own_canvases() {
     assert!(TabsFor::default().tabs.is_empty());
 }
 
+// ------------------------------------------------------- artifacts (T3 shape)
+
+/// An artifact reaches the shell in the same snapshot as the board and the
+/// tickets, is addressable by id, and is attributed to the agent that made it.
+#[test]
+fn a_produced_artifact_reaches_the_snapshot_and_is_addressable() {
+    use backspace_core::artifact::Artifact;
+
+    let dir = std::env::temp_dir().join(format!("bs-artifacts-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let h = Harness::open(dir.clone()).expect("open the project");
+
+    // A diff the main agent produced, the way `produce` records it.
+    let diff: Artifact = serde_json::from_value(json!({
+        "kind": "diff", "by": "main", "title": "t-1: rate limit the login route",
+        "ticket": "t-1", "body": "--- a/x\n+++ b/x\n@@ -1 +1 @@\n-old\n+new\n",
+        "stat": " x.rs | 2 +-\n"
+    }))
+    .unwrap();
+    let a = h.produce(diff).expect("recorded");
+    assert_eq!(a.id, "art1");
+    assert!(a.at > 0, "the record carries a time");
+    assert_eq!(a.summary(), "1 file changed");
+
+    let table: Artifact = serde_json::from_value(json!({
+        "kind": "table", "by": "main", "title": "Sizes",
+        "columns": ["file", "bytes"], "rows": [["a.rs", "10"], ["b.rs", "20"]]
+    }))
+    .unwrap();
+    h.produce(table).expect("recorded");
+
+    // The shell reads it from the snapshot it already gets.
+    let s = h.snapshot();
+    assert_eq!(s.artifacts.len(), 2);
+    assert_eq!(s.artifacts[0].id, "art1");
+    assert_eq!(s.artifacts[1].summary(), "2 rows");
+    assert_eq!(
+        backspace_core::artifact::for_ticket(&s, "t-1").len(),
+        1,
+        "the Workbench view can find everything about a ticket"
+    );
+    assert_eq!(backspace_core::artifact::by(&s, "main").len(), 2);
+    assert!(backspace_core::artifact::get(&s, "art2").is_some());
+
+    // It survives the round trip the shell does, prefs-style.
+    let back: Vec<Artifact> = serde_json::from_str(&serde_json::to_string(&s.artifacts).unwrap()).unwrap();
+    assert_eq!(back[1].rows[1][1], "20");
+
+    // A bad one is refused and leaves the list alone. A table needs a header;
+    // an empty *body* is fine (a table of nothing is still a table).
+    let no_header: Artifact = serde_json::from_value(json!({"kind": "table", "rows": [["1"]]})).unwrap();
+    assert!(h.produce(no_header).is_err(), "a table needs columns");
+    let bad: Artifact = serde_json::from_value(json!({"kind": "table", "columns": ["a", "b"], "rows": [["1"]]})).unwrap();
+    assert!(h.produce(bad).is_err(), "a row must match the header");
+    assert_eq!(h.artifacts().len(), 2, "nothing was half-added");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 // ------------------------------------------------------- local tiny models
 
 #[test]

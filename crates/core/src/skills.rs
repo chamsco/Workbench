@@ -49,6 +49,90 @@ pub struct Skills {
     pub by_name: BTreeMap<String, Skill>,
 }
 
+/// Where skills come from, in load order: the app's own, then the user's, then
+/// the workspace's. Later ones win, which is how a workspace overrides a
+/// default and how a user overrides both.
+#[derive(Clone, Debug)]
+pub struct Found {
+    pub name: String,
+    pub description: String,
+    pub files: Vec<String>,
+    /// "built-in", "yours" (the user folder) or "workspace".
+    pub origin: String,
+    /// Absolute path, when it came from a folder rather than the binary.
+    pub dir: Option<std::path::PathBuf>,
+}
+
+impl Skills {
+    /// Every skill this machine can load, for the Settings list and for search.
+    pub fn found(&self, workspace: &Path) -> Vec<Found> {
+        let user = user_dir();
+        let ws_dir = workspace.join(".backspace/skills");
+        let mut out: Vec<Found> = self
+            .by_name
+            .values()
+            .map(|s| {
+                let dir = user
+                    .as_ref()
+                    .map(|u| u.join(&s.name))
+                    .filter(|d| d.join("SKILL.md").is_file())
+                    .or_else(|| {
+                        let d = ws_dir.join(&s.name);
+                        d.join("SKILL.md").is_file().then_some(d)
+                    });
+                let origin = match &dir {
+                    Some(d) if ws_dir.join(&s.name) == *d => "workspace",
+                    Some(_) => "yours",
+                    None => "built-in",
+                };
+                Found {
+                    name: s.name.clone(),
+                    description: s.description.clone(),
+                    files: s.files.keys().cloned().collect(),
+                    origin: origin.to_string(),
+                    dir,
+                }
+            })
+            .collect();
+        out.sort_by(|a, b| a.name.cmp(&b.name));
+        out
+    }
+
+    /// Search names, descriptions and bodies. Case-insensitive substring, which
+    /// is what the Settings search box needs; ranked by where the match is
+    /// (name first), then by name.
+    pub fn search(&self, query: &str) -> Vec<(String, String)> {
+        let q = query.trim().to_lowercase();
+        if q.is_empty() {
+            return Vec::new();
+        }
+        let mut hits: Vec<(u8, String, String)> = Vec::new();
+        for s in self.by_name.values() {
+            let name = s.name.to_lowercase();
+            let desc = s.description.to_lowercase();
+            let body = s
+                .files
+                .values()
+                .map(|v| v.to_lowercase())
+                .collect::<Vec<_>>()
+                .join("\n");
+            let (rank, where_) = if name.contains(&q) {
+                (0, "the name")
+            } else if desc.contains(&q) {
+                (1, "the description")
+            } else if body.contains(&q) {
+                (2, "the body")
+            } else {
+                continue;
+            };
+            hits.push((rank, s.name.clone(), where_.to_string()));
+        }
+        hits.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+        hits.into_iter().map(|(_, n, w)| (n, w)).collect()
+    }
+}
+
+/// One line per skill for the system prompt; bodies load on demand.
 impl Skills {
     pub fn load(workspace: &Path) -> Skills {
         let mut by_name = BTreeMap::new();
@@ -164,5 +248,71 @@ mod tests {
             .contains("Agent Brief"));
         assert!(s.read("ponytail", None).unwrap().contains("lazy senior"));
         assert!(s.read("nope", None).is_none());
+    }
+
+    #[test]
+    fn found_says_where_a_skill_came_from() {
+        let s = Skills::load(Path::new("/nonexistent"));
+        let found = s.found(Path::new("/nonexistent"));
+        // Every built-in, in name order, with its files and no folder.
+        assert_eq!(found.len(), s.by_name.len());
+        let names: Vec<&str> = found.iter().map(|f| f.name.as_str()).collect();
+        let mut sorted = names.clone();
+        sorted.sort();
+        assert_eq!(names, sorted, "listed in name order");
+        let pony = found.iter().find(|f| f.name == "ponytail").unwrap();
+        assert_eq!(pony.origin, "built-in");
+        assert!(pony.dir.is_none());
+        assert!(pony.files.contains(&"SKILL.md".to_string()));
+    }
+
+    #[test]
+    fn a_workspace_folder_overrides_a_default_and_shows_as_ours() {
+        let dir = std::env::temp_dir().join(format!("bs-skills-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mine = dir.join(".backspace/skills/my-own");
+        std::fs::create_dir_all(&mine).unwrap();
+        std::fs::write(
+            mine.join("SKILL.md"),
+            "---\nname: my-own\ndescription: A skill only this project has.\n---\n\nDo the thing.\n",
+        )
+        .unwrap();
+        // And an override of a default, which must replace it rather than add.
+        let over = dir.join(".backspace/skills/tdd");
+        std::fs::create_dir_all(&over).unwrap();
+        std::fs::write(over.join("SKILL.md"), "---\ndescription: Ours, not upstream.\n---\n\nOurs.\n").unwrap();
+
+        let s = Skills::load(&dir);
+        assert!(s.by_name.contains_key("my-own"), "a new folder is a new skill");
+        assert_eq!(
+            s.by_name["tdd"].description,
+            "Ours, not upstream.",
+            "the folder wins over the vendored copy"
+        );
+        let found = s.found(&dir);
+        let own = found.iter().find(|f| f.name == "my-own").unwrap();
+        assert_eq!(own.origin, "workspace");
+        assert!(own.dir.as_ref().unwrap().ends_with("my-own"));
+        assert_eq!(found.iter().find(|f| f.name == "tdd").unwrap().origin, "workspace");
+        assert_eq!(found.iter().find(|f| f.name == "grilling").unwrap().origin, "built-in");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn search_ranks_a_name_hit_above_a_body_hit() {
+        let s = Skills::load(Path::new("/nonexistent"));
+        // "tdd" is a name, and it also appears in other skills' bodies.
+        let hits = s.search("tdd");
+        assert_eq!(hits.first().map(|(n, _)| n.as_str()), Some("tdd"), "{hits:?}");
+        assert_eq!(hits[0].1, "the name");
+        // A description-only hit.
+        let hits = s.search("bug");
+        assert!(!hits.is_empty());
+        assert!(hits.iter().any(|(n, _)| n == "diagnosing-bugs"), "{hits:?}");
+        // Case-insensitive, and an empty query finds nothing rather than everything.
+        assert_eq!(s.search("PONYTAIL").first().map(|(n, _)| n.as_str()), Some("ponytail"));
+        assert!(s.search("   ").is_empty());
+        assert!(s.search("no-such-thing-anywhere").is_empty());
     }
 }

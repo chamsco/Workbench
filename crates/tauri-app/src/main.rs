@@ -709,37 +709,57 @@ fn set_local_tasks(f: F, tasks: Vec<String>) {
 
 // ---------------------------------------------------- skills and worktrees
 
-/// Settings → Agent skills: every skill this machine can load, and which
-/// role gets which injected.
+/// Settings → Agent skills: every skill this machine can load, where it came
+/// from, whether it is injected into a role, and `template` — the SKILL.md
+/// skeleton to write when adding one by hand.
 #[tauri::command]
 fn skills_catalog(f: F) -> serde_json::Value {
     let root = std::path::PathBuf::from(f.snapshot().workspace);
     let skills = backspace_core::skills::Skills::load(&root);
-    let mut all: Vec<serde_json::Value> = skills
-        .by_name
-        .values()
-        .map(|s| {
-            serde_json::json!({
-                "name": s.name,
-                "description": s.description,
-                "files": s.files.keys().collect::<Vec<_>>(),
-            })
-        })
-        .collect();
-    all.sort_by(|a, b| a["name"].as_str().cmp(&b["name"].as_str()));
     // The same config the harness loads: BACKSPACE_CONFIG, then the project's
     // backspace.toml, then ~/.config/backspace/config.toml, then the default.
     let cfg = backspace_core::Config::load(&root)
         .map(|(c, _)| c)
         .unwrap_or_else(|_| backspace_core::Config::parse(backspace_core::config::DEFAULT_CONFIG).expect("built-in config"));
     let wf = &cfg.workflow;
-    let dirs: Vec<String> = [
-        backspace_core::skills::user_dir().map(|p| p.display().to_string()),
-        Some(root.join(".backspace/skills").display().to_string()),
-    ]
-    .into_iter()
-    .flatten()
-    .collect();
+    let injected = |name: &str| -> Vec<String> {
+        let mut into = Vec::new();
+        if wf.main_skills.iter().any(|s| s == name) {
+            into.push("main".to_string());
+        }
+        if wf.worker_skills.iter().any(|s| s == name) {
+            into.push("workers".to_string());
+        }
+        if wf.triage_skills.iter().any(|s| s == name) {
+            into.push("triage".to_string());
+        }
+        into
+    };
+    let all: Vec<serde_json::Value> = skills
+        .found(&root)
+        .into_iter()
+        .map(|s| {
+            serde_json::json!({
+                "name": s.name,
+                "description": s.description,
+                "files": s.files,
+                "origin": s.origin,
+                "dir": s.dir.map(|d| d.display().to_string()),
+                "injected": injected(&s.name),
+            })
+        })
+        .collect();
+    let user = backspace_core::skills::user_dir();
+    // A skill is a folder with a SKILL.md; the frontmatter is what the index
+    // shows, so hand the user that much. Written here rather than in the UI so
+    // the two cannot drift.
+    let template = "---\nname: my-skill\ndescription: One line on when to use this, as the agent sees it.\n---\n\n# My skill\n\nWhat to do, in the order to do it. Keep it short; the agent reads this when it decides the skill fits.\n";
+    let dirs: Vec<String> = user
+        .clone()
+        .into_iter()
+        .chain([root.join(".backspace/skills")])
+        .map(|p| p.display().to_string())
+        .collect();
     serde_json::json!({
         "skills": all,
         "workflow": {
@@ -750,6 +770,9 @@ fn skills_catalog(f: F) -> serde_json::Value {
             "triage_skills": wf.triage_skills,
         },
         "dirs": dirs,
+        "template": template,
+        // Which places a skill is read from, so the UI can say where "add" writes.
+        "user_dir": user.map(|p| p.display().to_string()),
     })
 }
 
@@ -828,6 +851,15 @@ fn colony_status(_f: F) -> serde_json::Value {
         Err(_) => serde_json::Value::Null,
     };
     out
+}
+
+/// Make sure a folder exists, so a button that opens one works on a fresh
+/// install where it has never been created. Only ever used for our own
+/// locations (`~/.config/backspace/...`), never for a path from a document.
+#[tauri::command]
+fn ensure_dir(path: String) -> Res<()> {
+    let p = std::path::PathBuf::from(&path);
+    std::fs::create_dir_all(&p).map_err(|e| format!("could not create {}: {e}", p.display()))
 }
 
 /// Show a file or folder in the OS file manager.
@@ -1677,6 +1709,7 @@ fn main() -> anyhow::Result<()> {
             worktrees,
             colony_status,
             reveal_path,
+            ensure_dir,
             accounts,
             account_add,
             account_remove,

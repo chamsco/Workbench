@@ -181,6 +181,10 @@ pub struct ProjectState {
     /// Sets of visual options an agent showed the user (see `options`).
     #[serde(default)]
     pub options: Vec<crate::options::OptionSet>,
+    /// What the agents produced: diffs, images, documents, tables, and the
+    /// things they refer to (see `artifact`). Bounded by `MAX_ARTIFACTS`.
+    #[serde(default)]
+    pub artifacts: Vec<crate::artifact::Artifact>,
 }
 
 /// An agent opening or closing a canvas: a browser on its dev server, its
@@ -220,6 +224,7 @@ impl ProjectState {
             planner_session: None,
             canvas_ops: vec![],
             options: vec![],
+            artifacts: vec![],
         }
     }
 

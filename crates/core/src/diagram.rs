@@ -422,6 +422,7 @@ mod tests {
             planner_session: None,
             canvas_ops: vec![],
             options: vec![],
+            artifacts: vec![],
         }
     }
 

@@ -580,6 +580,30 @@ body { margin: 0; background: var(--desk-base); color: var(--fg); font: 13px/1.4
 .skill b { font-size: 12.5px; }
 .skill span { color: var(--fg-2); line-height: 1.45; }
 .skill small { color: var(--fg-3); }
+
+/* Artifacts: what an agent produced, as cards under its session. */
+.arts { margin: 10px 10px 4px; display: grid; gap: 6px; }
+.arts-h { display: flex; align-items: center; gap: 6px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--fg-4); }
+.art { border: 0.5px solid var(--pane-edge); border-radius: 9px; background: var(--pane); overflow: hidden; }
+.art-h { display: flex; align-items: center; gap: 7px; padding: 6px 8px; font-size: 12px; }
+.art-h b { font-weight: 550; }
+.art-h .ic { color: var(--fg-3); display: grid; place-items: center; }
+.art-k { font-size: 10.5px; color: var(--fg-3); border: 0.5px solid var(--pane-edge); border-radius: 5px; padding: 0 5px; }
+.art-h .sp { flex: 1; }
+.art-m { color: var(--fg-3); font-size: 11.5px; }
+.art-body { border-top: 0.5px solid var(--pane-edge); background: var(--sheet); }
+.art-pre { margin: 0; padding: 9px 10px; font-size: 11.5px; line-height: 1.5; overflow: auto; max-height: 340px; white-space: pre; }
+.art-pre.diff span { display: block; }
+.art-pre.diff .da { background: color-mix(in srgb, var(--green) 16%, transparent); }
+.art-pre.diff .dd { background: color-mix(in srgb, var(--red) 16%, transparent); }
+.art-pre.diff .dh { color: var(--fg-3); }
+.art-pre.diff .dm { color: var(--blue); }
+.art-act { display: flex; gap: 6px; padding: 8px 10px; flex-wrap: wrap; }
+.art-img { display: block; max-width: 100%; max-height: 420px; margin: 8px 10px; border-radius: 7px; }
+.art-tablewrap { overflow: auto; max-height: 340px; }
+.art-table { border-collapse: collapse; font-size: 11.5px; width: 100%; }
+.art-table th, .art-table td { text-align: left; padding: 5px 9px; border-bottom: 0.5px solid var(--pane-edge); }
+.art-table th { color: var(--fg-3); font-weight: 550; position: sticky; top: 0; background: var(--sheet); }
 @media (max-width: 760px) { .form3 { grid-template-columns: 1fr; } .drawer { width: calc(100% - 12px); } }
 
 .canvas[hidden] { display: none !important; }

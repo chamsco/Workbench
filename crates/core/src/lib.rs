@@ -4,6 +4,7 @@
 pub mod accounts;
 pub mod agents;
 pub mod apps;
+pub mod artifact;
 pub mod board;
 pub mod chat;
 pub mod cloud;

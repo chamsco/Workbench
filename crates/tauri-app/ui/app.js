@@ -813,10 +813,115 @@ function agentBody(a) {
   const path = a.worktree || snap.workspace;
   let h = `<div class="banner">${mascot()}<div class="bt"><div>Backspace v0.1.0</div><div>${esc(route(a))}${a.decision && a.decision.confidence > 0 ? ` · routed by ${esc(a.decision.source)} (${Math.round(a.decision.confidence * 100)}% confident)` : a.decision ? ` · routed by ${esc(a.decision.source)}` : ""}</div><div>${esc(path)}</div></div></div>`;
   h += a.log.map(logHTML).join("");
+  h += artifactHTML(a);
   if (a.status === "running") h += `<div class="ln spin"><span class="spin-g">${SPIN[spinI]}</span> Working… (${esc(a.decision ? a.decision.model : "routing")} · ↓ ${a.input_tokens.toLocaleString()} tokens)</div>`;
   if (a.status === "awaiting_approval") h += `<div class="ln spin"><span class="spin-g">${SPIN[spinI]}</span> Waiting for your review…</div>`;
   if (a.id === MAIN && !a.log.some(e => e.kind === "user")) h += `<div class="ln note">Type a goal below. The main agent interviews you, then proposes tickets for you to approve.</div>`;
   return h;
+}
+
+// ------------------------------------------------------------------ artifacts
+// What an agent produced, as things rather than prose: a diff, an image, a
+// document, a table, a trace, or a set of options to decide. One renderer per
+// kind; a kind this build does not know is listed by name rather than dropped.
+// The record is `core::artifact`, on the project state so it arrives in the
+// same snapshot as the agents.
+const ART_KINDS = { diff: ["diff", "Diff"], image: ["doc", "Image"], options: ["opts", "Options"], trace: ["trace", "Trace"], document: ["doc", "Document"], table: ["grid", "Table"] };
+function artifactHTML(a) {
+  const mine = (snap.artifacts || []).filter(x => x.by === a.key || x.by === String(a.id));
+  if (!mine.length) return "";
+  return `<div class="arts"><div class="arts-h">${icon("archive")}Produced (${mine.length})</div>`
+    + mine.slice(-12).map(x => artifactCard(x)).join("") + `</div>`;
+}
+function artifactCard(x) {
+  const [ic, label] = ART_KINDS[x.kind] || ["doc", x.kind];
+  const files = (x.stat || "").split("\n").filter(l => l.trim()).length;
+  const meta = x.kind === "diff" && files ? `${files} file${files === 1 ? "" : "s"}`
+    : x.summary || x.kind;
+  return `<div class="art" data-art="${esc(x.id)}" data-kind="${esc(x.kind)}">
+    <div class="art-h"><span class="ic">${icon(ic)}</span><b>${esc(x.title || label)}</b>
+      <span class="art-k">${esc(label)}</span><span class="sp"></span>
+      <span class="art-m">${esc(meta)}</span>
+      <button class="ib art-more" title="Show or hide" aria-label="Show or hide ${esc(x.title || label)}">${icon("expand")}</button></div>
+    <div class="art-body" hidden></div></div>`;
+}
+/// The body of one artifact, filled in the first time it is opened.
+function artifactOpen(el, x) {
+  const body = $(".art-body", el);
+  if (!body) return;
+  if (!body.hidden) { body.hidden = true; return; }
+  if (!body.dataset.filled) {
+    body.dataset.filled = "1";
+    body.innerHTML = artifactBodyHTML(x);
+  }
+  body.hidden = false;
+}
+function artifactBodyHTML(x) {
+  const pre = t => `<pre class="mono art-pre">${esc(t)}</pre>`;
+  switch (x.kind) {
+    case "diff": return (x.path ? `<div class="ln note mono">${esc(x.path)}</div>` : "") + (x.stat ? pre(x.stat) : "") + (x.body ? diffHTML(x.body) : "") + (!x.body && x.path ? `<div class="art-act"><button class="btn" data-artcat="${esc(x.path)}">Read the file</button></div>` : "");
+    case "table": return tableHTML(x);
+    case "options": return `<div class="art-act"><button class="btn primary" data-artopts="${esc(x.options)}">Open the options</button></div>`;
+    case "trace": return `<div class="art-act"><button class="btn" data-artcat="${esc(x.trace)}">Read the trace</button></div>`;
+    case "image": return x.data
+      ? `<img class="art-img" src="${esc(x.data)}" alt="${esc(x.title)}">`
+      : `<div class="art-act"><button class="btn" data-artimg="${esc(x.path)}">Show the image</button><button class="btn" data-artreveal="${esc(x.path)}">Reveal in folder</button></div>`;
+    case "document": return x.body ? pre(x.body) : `<div class="art-act"><button class="btn" data-artcat="${esc(x.path)}">Read the document</button></div>`;
+    default: return x.body ? pre(x.body) : `<div class="ln note">Nothing to show for <code>${esc(x.kind)}</code>.</div>`;
+  }
+}
+/// A unified diff, coloured by line. Not a diff engine: the agent already knows
+/// what changed, so this only has to read.
+function diffHTML(text) {
+  return `<pre class="mono art-pre diff">` + text.split("\n").map(l => {
+    const c = l.startsWith("+++") || l.startsWith("---") ? "dh" : l.startsWith("+") ? "da" : l.startsWith("-") ? "dd" : l.startsWith("@@") ? "dm" : "";
+    return `<span class="${c}">${esc(l)}</span>`;
+  }).join("\n") + `</pre>`;
+}
+function tableHTML(x) {
+  const cols = x.columns || [];
+  return `<div class="art-tablewrap"><table class="art-table"><thead><tr>${cols.map(c => `<th>${esc(c)}</th>`).join("")}</tr></thead>`
+    + `<tbody>${(x.rows || []).map(r => `<tr>${r.map(c => `<td>${esc(c)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+}
+/// Read a file an artifact points at, into the artifact's own body. Reading is
+/// the `read_file` command, so nothing here touches disk itself.
+async function artifactRead(into, path, asImage) {
+  if (!into || !path) return;
+  if (!into.hidden) { into.hidden = true; return; }
+  into.innerHTML = `<div class="nothing">Reading ${esc(base(path))}…</div>`;
+  into.hidden = false;
+  try {
+    const text = await invoke("read_file", { path });
+    into.innerHTML = asImage
+      ? `<img class="art-img" src="${esc(text)}" alt="${esc(base(path))}">`
+      : `<pre class="mono art-pre">${esc(text)}</pre>`;
+  } catch (e) { into.innerHTML = `<div class="err">${esc(String(e))}</div>`; }
+}
+/// One artifact kind opens a canvas of its own: the options set it refers to.
+function artifactOptions(id) {
+  if (!id) return;
+  S.mode = "code";
+  setCodeView("agents");
+  S.options = id;
+  if (window.Chat && Chat.render) Chat.render();
+}
+/// Click handling for every artifact card in the window.
+function bindArtifacts() {
+  $$(".art").forEach(card => {
+    const x = (snap.artifacts || []).find(a => a.id === card.dataset.art);
+    if (!x) return;
+    const body = $(".art-body", card);
+    $(".art-more", card).onclick = e => { e.stopPropagation(); artifactOpen(card, x); };
+    card.onclick = e => {
+      const t = e.target.closest("[data-artcat],[data-artreveal],[data-artimg],[data-artopts],[data-arttrace]") || e.target;
+      if (t.dataset && t.dataset.artcat) return artifactRead(body, t.dataset.artcat);
+      if (t.dataset && t.dataset.artreveal) return invoke("reveal_path", { path: t.dataset.artreveal }).catch(e2 => toast(String(e2), "err"));
+      if (t.dataset && t.dataset.artimg) return artifactRead(body, t.dataset.artimg, true);
+      if (t.dataset && t.dataset.artopts) return artifactOptions(t.dataset.artopts);
+      if (t.dataset && t.dataset.arttrace) return artifactRead(body, t.dataset.arttrace);
+      if (!t.closest("button")) artifactOpen(card, x);
+    };
+  });
 }
 function statusHTML(a) {
   const total = Math.max(snap.total_cost_usd, 0.000001), share = Math.min(1, subtree(a.id) / total);
@@ -903,8 +1008,7 @@ function fillPane(p, slot, body, ps) {
   if (p.kind === "agent") {
     const a = agent(p.agent) || agent(MAIN);
     if (!a) { body.innerHTML = `<div class="nothing">No such agent on this machine.</div>`; return; }
-    body.innerHTML = `<div class="tb" data-agent="${a.id}">${agentBody(a)}</div>
-      <footer class="tf"><label class="tp"><span style="color:var(--term-dim)">❯</span><input placeholder="${a.id === MAIN ? "Describe the goal, or answer the main agent" : "Only the main agent takes messages"}" ${a.id === MAIN ? "" : "disabled"} autocomplete="off" spellcheck="false" aria-label="Message"></label>${statusHTML(a)}</footer>`;
+    body.innerHTML = `<div class="tb" data-agent="${a.id}">${agentBody(a)}</div><footer class="tf"><label class="tp"><span style="color:var(--term-dim)">❯</span><input placeholder="${a.id === MAIN ? "Describe the goal, or answer the main agent" : "Only the main agent takes messages"}" ${a.id === MAIN ? "" : "disabled"} autocomplete="off" spellcheck="false" aria-label="Message"></label>${statusHTML(a)}</footer>`;
     const inp = body.querySelector(".tp input");
     inp.addEventListener("keydown", e => { if (e.key === "Enter" && inp.value.trim()) { invoke("send", { text: inp.value.trim() }); inp.value = ""; } });
     requestAnimationFrame(() => { const tb = body.querySelector(".tb"); if (tb) tb.scrollTop = tb.scrollHeight; });
@@ -1087,6 +1191,7 @@ function refreshPanes() {
     if (p && p.kind === "agent" && agent(p.agent) && p.agent !== a.id) { fillPane(p, +el.dataset.slot, el.lastElementChild, pstate(+el.dataset.slot)); return; }
     const atBottom = tb.scrollHeight - tb.scrollTop - tb.clientHeight < 40;
     tb.innerHTML = agentBody(a);
+    bindArtifacts();
     if (atBottom) tb.scrollTop = tb.scrollHeight;
     const foot = tb.parentElement.querySelector(".tf");
     foot.querySelectorAll(".st, .hint").forEach(x => x.remove());
@@ -2040,22 +2145,56 @@ function renderConnections(el) {
   draw(prefs.connections || []);
 }
 
-// Settings → Agent skills: every playbook this machine can load, and which
-// role has which injected (the config decides; this is what it resolved to).
+// Settings → Agent skills: every playbook this machine can load, where it came
+// from, which roles have it injected, and how to add or find one.
+const SKILL_ORIGIN = { "built-in": "Built-in", "yours": "Yours", "workspace": "This project" };
 async function renderSkills(el) {
   const box = $("#setSkills", el); if (!box) return;
-  box.innerHTML = `<div class="nothing">Reading skills…</div>`;
+  if (!box.dataset.loaded) box.innerHTML = `<div class="nothing">Reading skills…</div>`;
   let d;
   try { d = await invoke("skills_catalog"); } catch (e) { box.innerHTML = `<div class="err">${esc(String(e))}</div>`; return; }
   if (!box.isConnected) return;
+  box.dataset.loaded = "1";
+  box.dataset.catalog = JSON.stringify(d);
+  const q = (box.dataset.q || "").trim().toLowerCase();
+  const all = d.skills || [];
+  const shown = q
+    ? all.filter(s => s.name.toLowerCase().includes(q) || (s.description || "").toLowerCase().includes(q))
+    : all;
   const role = (label, names) => `<div class="line"><span class="lab">${label}<small>${names.length ? names.map(esc).join(", ") : "none"}</small></span></div>`;
   box.innerHTML = role("Main agent", d.workflow.main_skills) + role("Workers", d.workflow.worker_skills) + role("Triage", d.workflow.triage_skills)
-    + `<div class="line"><span class="lab">Every skill here<small>Any agent can load one with the skill tool, whether or not it is injected.</small></span></div>`
-    + `<div class="skilllist">${d.skills.map(s => `<div class="skill"><b>${esc(s.name)}</b><span>${esc(s.description || "No description.")}</span>${s.files.length > 1 ? `<small class="mono">${s.files.map(esc).join(", ")}</small>` : ""}</div>`).join("")}</div>`
-    + `<div class="line"><span class="lab">Your own<small class="mono">${d.dirs.map(esc).join(" · ")}</small></span></div>`;
+    + `<div class="line"><span class="lab">Search<small>Name, description or body. ${all.length} skill${all.length === 1 ? "" : "s"} on this machine.</small></span>
+        <input class="tx" id="skQ" value="${esc(box.dataset.q || "")}" placeholder="e.g. review, triage, tdd" style="width:200px" aria-label="Search skills"></div>`
+    + `<div class="skilllist">${shown.length ? shown.map(s => `<div class="skill"><b>${esc(s.name)}</b>
+          <span>${esc(s.description || "No description.")}</span>
+          <small>${esc(SKILL_ORIGIN[s.origin] || s.origin)}${s.injected && s.injected.length ? ` · injected into ${s.injected.map(esc).join(", ")}` : ""}${s.files.length > 1 ? ` · ${s.files.map(esc).join(", ")}` : ""}</small></div>`).join("")
+      : `<div class="nothing">No skill matches “${esc(q)}”.</div>`}</div>`
+    + `<div class="line"><span class="lab">Add one<small>Write a folder with a <code>SKILL.md</code> in it. <b>${esc(d.user_dir || d.dirs[0] || "")}</b> is yours; a folder of the same name in <code>&lt;project&gt;/.backspace/skills/</code> overrides a built-in for that project only.</small></span>
+        <button class="btn" id="skOpen">Open my skills folder</button><button class="btn" id="skTpl">Copy the template</button></div>`
+    + `<div class="line"><span class="lab">Read from<small class="mono">${(d.dirs || []).map(esc).join(" · ")}</small></span></div>`;
+  const qi = $("#skQ", box);
+  if (qi) {
+    qi.oninput = () => { box.dataset.q = qi.value; clearTimeout(skQ); skQ = setTimeout(() => renderSkills(el), 200); };
+    if (box.dataset.focusSearch) { qi.focus(); box.dataset.focusSearch = ""; }
+  }
+  const op = $("#skOpen", box);
+  if (op) op.onclick = async () => {
+    const dir = d.user_dir || (d.dirs || [])[0];
+    if (!dir) { toast("No skills folder on this machine", "err"); return; }
+    // Creating it first means the first click does not fail on a folder that
+    // does not exist yet, which is exactly the state a new install is in.
+    await invoke("ensure_dir", { path: dir }).catch(() => {});
+    invoke("reveal_path", { path: dir }).catch(e => toast(String(e), "err"));
+  };
+  const tp = $("#skTpl", box);
+  if (tp) tp.onclick = async () => {
+    try { await navigator.clipboard.writeText(d.template || ""); toast("Template copied: paste it into a SKILL.md", "ok"); }
+    catch { toast("Copy failed; the template is in docs/SKILLS.md", "err"); }
+  };
 }
+let skQ = null;
 
-// Settings → Managed worktrees: what each agent's ticket left on disk.
+// Settings → Archived threads. Chat lists pinned threads at the top; this is
 async function renderWorktrees(el) {
   const box = $("#setWorktrees", el); if (!box) return;
   let d;
@@ -2176,8 +2315,7 @@ async function refresh(full) {
   if (window.Chat) await Chat.refresh();
   if (window.Providers) Providers.refreshQuiet();
   renderBrand(); renderMachines(); renderList(); renderCard(); renderTabs(); renderDrawer();
-  applyCanvasOps(); watchAgents();
-  if (window.Shell) Shell.refresh();
+  applyCanvasOps(); watchAgents();  if (window.Shell) Shell.refresh();
   if (window.RPanel) RPanel.refresh();
   if (!agentsOn() && !(window.Shell && Shell.showing("canvas"))) { lastShape = ""; return; }
   // Rebuild canvases when the machine or its agents appear; otherwise update in place.
