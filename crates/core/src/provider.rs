@@ -62,6 +62,15 @@ pub struct ToolDef {
     pub schema: Value,
 }
 
+/// A `String` that can be handed out as `&'static str`.
+///
+/// Tool definitions carry `&'static str`, but a tool set built at runtime
+/// (Colony's, from another crate) comes back as owned strings. The set is
+/// fixed for the life of the process, so leaking it once is bounded.
+pub fn leak(s: &str) -> &'static str {
+    Box::leak(s.to_string().into_boxed_str())
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Stop {
     /// A server tool (the advisor) paused the turn: send it again to go on.

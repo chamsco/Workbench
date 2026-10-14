@@ -6,6 +6,8 @@ license.workspace = true
 
 [dependencies]
 backspace-runner = { path = "../runner" }
+# Durable workspaces (the `colony_*` tools); docs/COLONY.md.
+backspace-colony = { path = "../colony" }
 anyhow.workspace = true
 async-channel.workspace = true
 futures.workspace = true

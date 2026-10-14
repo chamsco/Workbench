@@ -130,9 +130,13 @@ pub fn serve() -> Result<()> {
                     vec![
                         json!({"name": "list_agents", "description": "The agents working on this project: key, title, status and what runs them.",
                          "inputSchema": {"type": "object", "properties": {}}}),
-                        json!({"name": "send_message", "description": "Message another agent by key, `main` (the lead), or `all`. Use it to coordinate: interfaces you are adding, files you are changing, questions for whoever owns something.",
-                         "inputSchema": {"type": "object", "properties": {"to": {"type": "string"}, "text": {"type": "string"}}, "required": ["to", "text"]}}),
-                        json!({"name": "read_messages", "description": "New messages sent to you or to everyone since you last read.",
+                        json!({"name": "send_message", "description": "Message another agent by key, `main` (the lead), or `all`. Use it to coordinate: interfaces you are adding, files you are changing, questions for whoever owns something. Give `reply_to` the id of the message you answer (read_messages shows it) to keep the exchange in one conversation.",
+                         "inputSchema": {"type": "object", "properties": {"to": {"type": "string"}, "text": {"type": "string"}, "reply_to": {"type": "integer"}}, "required": ["to", "text"]}}),
+                        json!({"name": "dm", "description": "A direct one-to-one message to one agent (never a broadcast).",
+                         "inputSchema": {"type": "object", "properties": {"to": {"type": "string"}, "text": {"type": "string"}, "reply_to": {"type": "integer"}}, "required": ["to", "text"]}}),
+                        json!({"name": "read_conversation", "description": "Everything you and one other agent have said to each other, oldest first.",
+                         "inputSchema": {"type": "object", "properties": {"with": {"type": "string"}}, "required": ["with"]}}),
+                        json!({"name": "read_messages", "description": "New messages sent to you or to everyone since you last read, each with its id.",
                          "inputSchema": {"type": "object", "properties": {}}}),
                     ]
                 } else {
@@ -182,9 +186,10 @@ pub fn serve() -> Result<()> {
                 let r = match name {
                     n if denied(&deny, n, None) => Err(anyhow!("your rules don't allow {n}; the user turned it off")),
                     "list_agents" => board().and_then(crate::board::do_agents),
-                    "send_message" => board().and_then(|b| {
-                        crate::board::do_send(b, a["to"].as_str().unwrap_or(""), a["text"].as_str().unwrap_or(""))
+                    "send_message" | "dm" => board().and_then(|b| {
+                        crate::board::do_send(b, a["to"].as_str().unwrap_or(""), a["text"].as_str().unwrap_or(""), a["reply_to"].as_u64())
                     }),
+                    "read_conversation" => board().and_then(|b| crate::board::do_conversation(b, a["with"].as_str().unwrap_or(""))),
                     "read_messages" => board().and_then(crate::board::do_read),
                     "open_canvas" => board().and_then(|b| crate::board::do_canvas(b, "open", a.clone())),
                     "close_canvas" => board().and_then(|b| crate::board::do_canvas(b, "close", a.clone())),

@@ -143,7 +143,7 @@ impl Default for WorkflowConfig {
             grill: true,
             plan_approval: true,
             main_skills: vec!["grilling".into(), "to-tickets".into()],
-            worker_skills: vec![],
+            worker_skills: vec!["ponytail".into()],
             triage_skills: vec!["triage".into()],
         }
     }

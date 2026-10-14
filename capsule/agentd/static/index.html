@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>colony</title>
+<style>
+  :root {
+    --bg: #000; --surface: #050505; --surface2: #0b0b0b; --surface3: #151515;
+    --line: #262626; --line-strong: #363636; --fg: #f2f2f2; --dim: #858585;
+    --accent: #3ee46f; --accent-dim: #1d7d3b; --warn: #e6b84f; --err: #ff6b62;
+    --mono: "Cascadia Mono", "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { background: #000; }
+  body { background: #000; color: var(--fg); font: 11px/1.45 var(--mono); min-height: 100dvh; display: flex; padding: 6px; }
+  button, input, textarea, select { font: inherit; }
+  button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+  .app-window { flex: 1; min-height: calc(100dvh - 12px); display: flex; flex-direction: column; overflow: hidden; border: 1px solid #1d1d1d; border-radius: 15px; background: var(--bg); box-shadow: 0 20px 60px #000; }
+  header { height: 30px; flex-shrink: 0; display: flex; align-items: center; gap: 10px; padding: 0 10px; border-bottom: 1px solid #111; background: #030303; }
+  .traffic { display: flex; gap: 4px; align-items: center; }
+  .traffic i { width: 7px; height: 7px; display: block; border-radius: 50%; }
+  .traffic .red { background: #ff514d; } .traffic .yellow { background: #f9c547; } .traffic .green { background: #35d16b; }
+  .traffic .square { width: 6px; height: 6px; border: 1px solid #9b9b9b; border-radius: 1px; }
+  header .logo { color: #fff; font-size: 10px; letter-spacing: .02em; }
+  header .logo span { color: var(--accent); }
+  nav { display: flex; gap: 2px; }
+  nav button { background: none; border: 0; color: var(--dim); padding: 3px 7px; cursor: pointer; font-size: 10px; }
+  nav button.active { color: var(--fg); }
+  header .grow { flex: 1; }
+  .caps { font-size: 9px; color: var(--dim); white-space: nowrap; }
+  .caps b { color: var(--warn); font-weight: 400; }
+  .top-action { background: #ededed; color: #050505; border: 0; border-radius: 8px; padding: 2px 8px; cursor: pointer; font-size: 9px; }
+  .top-action:hover { background: #fff; }
+  main { flex: 1; min-height: 0; overflow: hidden; display: flex; }
+  .view { flex: 1; display: none; overflow: hidden; }
+  .view.active { display: flex; }
+
+  /* ---- home ---- */
+  #home { flex-direction: column; align-items: flex-start; overflow-y: auto; padding: clamp(34px, 9vw, 100px) clamp(24px, 12vw, 170px); }
+  #home h1 { max-width: 620px; font-size: clamp(17px, 2.2vw, 24px); font-weight: 400; letter-spacing: -.04em; margin-bottom: 7px; }
+  #home .sub { color: var(--dim); margin-bottom: 25px; }
+  #home .promptbox { width: min(700px, 100%); background: var(--surface); border: 1px solid var(--line); border-radius: 5px; padding: 13px; }
+  #home textarea { width: 100%; background: none; border: none; resize: vertical; min-height: 90px; color: var(--fg); font: inherit; outline: none; }
+  #home textarea::placeholder, #chatbar input::placeholder { color: #575757; }
+  #home .opts { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; align-items: center; }
+  #home select, #console select, input.txt { background: #020202; color: var(--fg); border: 1px solid var(--line); border-radius: 2px; padding: 5px 7px; font: inherit; font-size: 10px; }
+  .btn { background: #e9e9e9; color: #050505; border: 1px solid #f5f5f5; border-radius: 2px; padding: 5px 11px; cursor: pointer; font-size: 10px; transition: background .16s, color .16s, border-color .16s; }
+  .btn:hover { background: #fff; }
+  .btn:active { transform: translateY(1px); }
+  .btn:disabled { cursor: default; opacity: .55; }
+  .btn.ghost { background: transparent; border-color: var(--line-strong); color: var(--fg); }
+  .btn.ghost:hover { border-color: #aaa; }
+  .btn.danger { background: none; border-color: var(--err); color: var(--err); }
+  #tasklist { width: min(700px, 100%); margin-top: 40px; display: flex; flex-direction: column; gap: 5px; }
+  #tasklist::before { content: "recent tasks"; color: var(--dim); font-size: 9px; margin-bottom: 5px; }
+  .task { background: var(--surface); border: 1px solid var(--line); border-radius: 2px; padding: 10px 12px; cursor: pointer; transition: border-color .16s, background .16s; }
+  .task:hover { border-color: var(--line-strong); background: var(--surface2); }
+  .task .top { display: flex; gap: 10px; align-items: center; }
+  .task .prompt { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pill { font-size: 9px; padding: 2px 6px; border: 1px solid var(--line-strong); border-radius: 2px; color: var(--dim); }
+  .pill.running, .pill.provisioning, .pill.collecting, .pill.tearing-down { color: var(--warn); }
+  .pill.done { color: var(--ok); } .pill.error { color: var(--err); }
+
+  /* ---- task detail ---- */
+  #task { flex-direction: column; overflow: hidden; }
+  #task .theadd { padding: 9px 15px; border-bottom: 1px solid var(--line); display: flex; gap: 10px; align-items: center; }
+  #tasklog { flex: 1; overflow-y: auto; padding: 18px 15px; display: flex; flex-direction: column; gap: 10px; }
+  #tasklog .msg { max-width: 760px; }
+  #taskresult { border-top: 1px solid var(--line); padding: 14px 15px; color: var(--accent); white-space: pre-wrap; display: none; }
+
+  /* ---- console ---- */
+  #console { flex-direction: row; }
+  #sidebar { width: 145px; flex-shrink: 0; border-right: 1px solid #151515; background: #010101; display: flex; flex-direction: column; }
+  .rail-head { display: flex; justify-content: space-between; align-items: center; padding: 14px 9px 10px; }
+  #sidebar h2 { font-size: 9px; font-weight: 400; color: var(--dim); }
+  .rail-head button { background: none; color: var(--fg); border: 0; cursor: pointer; font-size: 13px; line-height: 1; }
+  .rail-caption { color: #4e4e4e; font-size: 8px; padding: 0 9px 6px; }
+  #wslist { overflow-y: auto; }
+  .ws { min-height: 43px; padding: 8px 8px; cursor: pointer; border: 1px solid transparent; display: flex; align-items: flex-start; gap: 6px; }
+  .ws:hover { background: #0b0b0b; }
+  .ws.sel { background: #181818; border-color: #292929; }
+  .ws .dot { width: 6px; height: 6px; margin-top: 3px; border-radius: 50%; background: #555; flex-shrink: 0; }
+  .ws .dot.running, .ws .dot.remote, .ws .dot.online { background: var(--ok); }
+  .ws .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 9px; }
+  .ws .meta { display: block; color: #666; font-size: 8px; margin-top: 2px; }
+  .ws .acts { display: none; gap: 2px; }
+  .ws:hover .acts, .ws.sel .acts { display: flex; }
+  .ws .acts button { background: none; border: none; color: var(--dim); cursor: pointer; font-size: 9px; padding: 1px 2px; }
+  .ws .acts button:hover { color: var(--fg); }
+  #newws { margin: auto 8px 10px; display: flex; flex-direction: column; gap: 5px; }
+  #newws .btn { width: 100%; }
+  #chatpane { flex: 1; min-width: 0; display: flex; flex-direction: column; background: #000; }
+  .workspace-toolbar { height: 31px; flex-shrink: 0; border-bottom: 1px solid #151515; padding: 0 11px; display: flex; align-items: center; justify-content: space-between; }
+  .crumb { color: var(--fg); font-size: 9px; }
+  .crumb span { color: var(--dim); }
+  .toolbar-status { color: var(--dim); font-size: 8px; }
+  .toolbar-status .live { color: var(--accent); }
+  #workspace-detail { flex: 1; min-height: 0; overflow-y: auto; }
+  #workspace-empty { padding: 52px 25px; color: var(--dim); }
+  #workspace-empty strong { display: block; color: var(--fg); font-weight: 400; margin-bottom: 7px; }
+  #workspace-selected { padding: 25px 25px 18px; max-width: 720px; }
+  .detail-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+  .detail-kicker { color: var(--dim); font-size: 9px; margin-bottom: 5px; }
+  .detail-title { font-size: 16px; font-weight: 400; letter-spacing: -.03em; }
+  .detail-title .prompt { color: var(--dim); }
+  .detail-copy { color: var(--dim); max-width: 60ch; margin: 14px 0 16px; }
+  .detail-actions { display: flex; gap: 6px; margin-bottom: 22px; }
+  .config-label { color: var(--dim); font-size: 9px; margin-bottom: 6px; }
+  .config-table { width: 100%; border-collapse: collapse; margin-bottom: 25px; }
+  .config-table td { border: 1px solid #171717; padding: 6px 8px; font-size: 9px; }
+  .config-table td:first-child { width: 105px; color: var(--dim); }
+  .config-table td:last-child { color: var(--fg); }
+  .chat-section { border-top: 1px solid #171717; padding-top: 14px; }
+  .chat-label { color: var(--dim); font-size: 9px; margin-bottom: 8px; }
+  #chatlog { max-height: 290px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding-bottom: 12px; }
+  #chatbar { display: flex; gap: 7px; }
+  #chatbar input { flex: 1; min-width: 0; background: #030303; border: 1px solid var(--line); border-radius: 2px; color: var(--fg); padding: 8px 9px; font: inherit; outline: none; }
+  #chatbar input:focus { border-color: var(--accent-dim); }
+  .msg { display: flex; flex-direction: column; gap: 4px; }
+  .msg .who { font-size: 9px; color: var(--dim); }
+  .msg .body { background: var(--surface); border: 1px solid var(--line); border-radius: 2px; padding: 8px 9px; white-space: pre-wrap; word-break: break-word; }
+  .msg.user .body { background: #151515; border-color: #2a2a2a; color: #fff; align-self: flex-end; }
+  .msg.user { align-items: flex-end; }
+  .msg.tool .body { font-family: var(--mono); font-size: 9px; color: var(--dim); }
+  .msg.tool .body b { color: var(--accent); font-weight: 400; }
+  .msg.error .body { border-color: var(--err); color: var(--err); }
+
+  /* ---- settings modal ---- */
+  #modal, #remote-modal { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: none; align-items: center; justify-content: center; }
+  #modal.open, #remote-modal.open { display: flex; }
+  #modal .card, #remote-modal .card { background: #080808; border: 1px solid var(--line-strong); border-radius: 3px; padding: 18px; width: min(420px, calc(100vw - 28px)); display: flex; flex-direction: column; gap: 12px; }
+  #modal label, #remote-modal label { font-size: 9px; color: var(--dim); display: flex; flex-direction: column; gap: 4px; }
+  #modal h3, #remote-modal h3 { font-size: 12px; font-weight: 400; margin-bottom: 4px; }
+  .modal-note { color: var(--dim); font-size: 9px; max-width: 48ch; }
+  .grow-inline { flex: 1; }
+  .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }
+  .rail-footer { margin-top: auto; padding: 8px; border-top: 1px solid #151515; display: flex; justify-content: space-between; align-items: center; }
+  .rail-footer button { color: var(--dim); background: none; border: 0; cursor: pointer; font-size: 9px; }
+  .rail-footer small { color: #555; font-size: 8px; }
+  @media (max-width: 700px) {
+    body { padding: 0; }
+    .app-window { min-height: 100dvh; border-radius: 0; border-left: 0; border-right: 0; }
+    .caps { display: none; }
+    #console { flex-direction: column; }
+    #sidebar { width: 100%; height: 174px; border-right: 0; border-bottom: 1px solid #151515; }
+    #wslist { display: flex; overflow-x: auto; }
+    .ws { min-width: 160px; }
+    #newws { margin: 6px 8px 8px; flex-direction: row; flex-wrap: wrap; }
+    #newws input, #newws select { flex: 1; min-width: 130px; }
+    #newws .btn { width: auto; }
+    #workspace-selected { padding: 20px 15px 14px; }
+    #home { padding: 44px 18px; }
+  }
+</style>
+</head>
+<body>
+<div class="app-window">
+<header>
+  <div class="traffic" aria-hidden="true"><i class="red"></i><i class="yellow"></i><i class="green"></i><i class="square"></i></div>
+  <div class="logo">colony<span>.</span></div>
+  <nav>
+    <button id="nav-home" class="active" onclick="showView('home')">home</button>
+    <button id="nav-console" onclick="showView('console')">workspaces</button>
+  </nav>
+  <div class="grow"></div>
+  <div class="caps" id="caps"></div>
+  <button class="top-action" onclick="openSettings()">settings</button>
+</header>
+<main>
+  <section id="home" class="view active">
+    <h1>What do you want done?</h1>
+    <div class="sub">colony spins up a VM, runs the task with an agent, and tears it down.</div>
+    <div class="promptbox">
+      <textarea id="taskprompt" placeholder="e.g. Build a static site about coffee with Astro and give me the output files"></textarea>
+      <div class="opts">
+        <select id="task-os"><option value="ubuntu-24.04">Ubuntu 24.04</option><option value="clone:Ubuntu">Clone local Ubuntu</option></select>
+        <select id="task-provider"><option value="wsl">WSL2 (fast)</option><option value="hyperv">Hyper-V VM</option></select>
+        <select id="task-policy"><option value="destroy">Destroy after task</option><option value="keep">Keep VM</option></select>
+        <div class="grow-inline"></div>
+        <button class="btn" onclick="createTask()">Run</button>
+      </div>
+    </div>
+    <div id="tasklist"></div>
+  </section>
+
+  <section id="task" class="view">
+    <div class="theadd">
+      <button class="btn ghost" onclick="showView('home')">&larr; Back</button>
+      <b id="task-title"></b><span class="pill" id="task-status"></span>
+    </div>
+    <div id="tasklog"></div>
+    <div id="taskresult"></div>
+  </section>
+
+  <section id="console" class="view">
+    <div id="sidebar">
+      <div class="rail-head"><h2>your spaces</h2><button aria-label="Create workspace" onclick="document.getElementById('newws-name').focus()">+</button></div>
+      <div class="rail-caption">active workspaces</div>
+      <div id="wslist"></div>
+      <div id="newws">
+        <input class="txt" id="newws-name" placeholder="new workspace name">
+        <select id="newws-os"><option value="clone:Ubuntu">Clone local Ubuntu</option><option value="ubuntu-24.04">Ubuntu 24.04 (download)</option></select>
+        <select id="newws-provider"><option value="wsl">WSL2</option><option value="hyperv">Hyper-V</option></select>
+        <button class="btn ghost" onclick="createWorkspace()">create workspace</button>
+        <button class="btn ghost" onclick="openRemoteModal()">connect remote</button>
+      </div>
+      <div class="rail-footer"><button onclick="openSettings()">⌁ settings</button><small>colony / local</small></div>
+    </div>
+    <div id="chatpane">
+      <div class="workspace-toolbar"><div class="crumb">colony <span>&gt;</span> workspaces <span>&gt;</span> details</div><div class="toolbar-status" id="toolbar-status">● <span class="live">local</span></div></div>
+      <div id="workspace-detail">
+        <div id="workspace-empty"><strong>no workspace selected</strong>Select a workspace from the rail, or create one below it.</div>
+        <div id="workspace-selected" hidden>
+          <div class="detail-head">
+            <div><div class="detail-kicker" id="detail-kicker">workspace</div><div class="detail-title" id="detail-title">workspace</div></div>
+            <span class="pill" id="detail-status">stopped</span>
+          </div>
+          <div class="detail-copy" id="detail-copy">This workspace is ready for an agent session.</div>
+          <div class="detail-actions"><button class="btn" id="detail-primary" onclick="primaryWorkspaceAction()">open workspace</button><button class="btn ghost" id="detail-chat" onclick="document.getElementById('chatinput').focus()">open terminal</button><button class="btn ghost" id="detail-stop" onclick="selectedWs && wsAct(selectedWs, 'stop')">stop</button></div>
+          <div class="config-label">configuration</div>
+          <table class="config-table"><tbody><tr><td>image</td><td id="detail-os">-</td></tr><tr><td>provider</td><td id="detail-provider">-</td></tr><tr><td>cpu</td><td id="detail-cpu">-</td></tr><tr><td>memory</td><td id="detail-memory">-</td></tr><tr><td>network</td><td id="detail-network">-</td></tr></tbody></table>
+          <div class="chat-section"><div class="chat-label">agent chat</div><div id="chatlog"><div class="msg"><div class="who">colony</div><div class="body">Ask the agent to inspect or change files in this workspace.</div></div></div>
+            <div id="chatbar"><input id="chatinput" aria-label="Message the workspace agent" placeholder="tell the agent what to do…" onkeydown="if(event.key==='Enter')sendChat()"><button class="btn" onclick="sendChat()">send</button></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+</div>
+
+<div id="modal">
+  <div class="card">
+    <h3>Settings</h3>
+    <label>LLM provider
+      <select id="set-provider">
+        <option value="anthropic">Anthropic</option>
+        <option value="openai-compatible">OpenAI-compatible (OpenAI / Ollama / LM Studio)</option>
+      </select>
+    </label>
+    <label>API key <input class="txt" id="set-key" type="password" placeholder="(unchanged)"></label>
+    <label>Base URL (only for openai-compatible; Ollama: http://localhost:11434/v1) <input class="txt" id="set-base"></label>
+    <label>Model <input class="txt" id="set-model"></label>
+    <div class="modal-actions">
+      <button class="btn ghost" onclick="closeSettings()">Cancel</button>
+      <button class="btn" onclick="saveSettings()">Save</button>
+    </div>
+  </div>
+</div>
+
+<div id="remote-modal">
+  <div class="card">
+    <h3>Connect a remote instance</h3>
+    <div class="modal-note">SSH enables colony agent chat. RDP opens the native Windows desktop client.</div>
+    <label>Name <input class="txt" id="remote-name" placeholder="production-linux"></label>
+    <label>Connection type
+      <select id="remote-kind" onchange="updateRemoteForm()"><option value="ssh">SSH / terminal</option><option value="rdp">RDP / remote desktop</option></select>
+    </label>
+    <label>Host or IP <input class="txt" id="remote-host" placeholder="server.example.com"></label>
+    <label>Port <input class="txt" id="remote-port" type="number" value="22" min="1" max="65535"></label>
+    <label>Username <input class="txt" id="remote-username" placeholder="ubuntu"></label>
+    <label id="remote-key-label">SSH key path <input class="txt" id="remote-key" placeholder="C:\\Users\\you\\.ssh\\id_ed25519"></label>
+    <label>Guest OS
+      <select id="remote-os"><option value="linux">Linux</option><option value="windows">Windows</option></select>
+    </label>
+    <div class="modal-actions"><button class="btn ghost" onclick="closeRemoteModal()">cancel</button><button class="btn" onclick="saveRemote()">connect</button></div>
+  </div>
+</div>
+
+<script>
+let sessionId = null;
+let selectedWs = null;
+let eventSource = null;
+let workspaceCache = [];
+
+const $ = id => document.getElementById(id);
+
+function showView(name) {
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+  $(name).classList.add('active');
+  const nb = $('nav-' + name); if (nb) nb.classList.add('active');
+  if (name === 'console') refreshWorkspaces();
+  if (name === 'home') refreshTasks();
+}
+
+async function api(method, path, body) {
+  const res = await fetch('/api' + path, {
+    method,
+    headers: body ? {'content-type': 'application/json'} : undefined,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (res.status === 204) return null;
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || res.statusText);
+  return data;
+}
+
+// ---------- capabilities ----------
+async function loadCaps() {
+  try {
+    const c = await api('GET', '/capabilities');
+    let s = [];
+    s.push(c.wsl ? 'wsl ✓' : 'wsl ✗');
+    s.push(c.hyperv ? 'hyper-v ✓' : 'hyper-v ✗');
+    if (c.hyperv && !c.elevated) s.push('<b>not elevated</b>');
+    $('caps').innerHTML = s.join(' · ');
+  } catch (e) { $('caps').textContent = e.message; }
+}
+
+// ---------- tasks (home) ----------
+async function createTask() {
+  const prompt = $('taskprompt').value.trim();
+  if (!prompt) return;
+  const t = await api('POST', '/tasks', {
+    prompt, os: $('task-os').value, provider: $('task-provider').value, policy: $('task-policy').value,
+  });
+  $('taskprompt').value = '';
+  openTask(t.id);
+}
+
+async function refreshTasks() {
+  const tasks = await api('GET', '/tasks');
+  $('tasklist').innerHTML = '';
+  for (const t of tasks) {
+    const div = document.createElement('div');
+    div.className = 'task';
+    div.innerHTML = `<div class="top"><span class="pill ${t.status}">${t.status}</span><span class="prompt"></span></div>`;
+    div.querySelector('.prompt').textContent = t.prompt;
+    div.onclick = () => openTask(t.id);
+    $('tasklist').appendChild(div);
+  }
+}
+
+function openTask(id) {
+  showView('task');
+  document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+  $('tasklog').innerHTML = '';
+  $('taskresult').style.display = 'none';
+  if (eventSource) eventSource.close();
+  eventSource = new EventSource('/api/tasks/' + id + '/events');
+  api('GET', '/tasks/' + id).then(t => {
+    $('task-title').textContent = t.prompt;
+    $('task-status').textContent = t.status;
+    $('task-status').className = 'pill ' + t.status;
+  });
+  eventSource.addEventListener('status', e => {
+    const s = JSON.parse(e.data);
+    $('task-status').textContent = s;
+    $('task-status').className = 'pill ' + s;
+    addMsg('tasklog', 'tool', `<b>status</b> → ${s}`);
+  });
+  eventSource.addEventListener('text', e => addMsg('tasklog', '', JSON.parse(e.data), 'agent'));
+  eventSource.addEventListener('tool_call', e => {
+    const d = JSON.parse(e.data);
+    addMsg('tasklog', 'tool', `<b>${esc(d.name)}</b> ${esc(JSON.stringify(d.input)).slice(0, 300)}`);
+  });
+  eventSource.addEventListener('tool_result', e => {
+    const d = JSON.parse(e.data);
+    addMsg('tasklog', 'tool', `<b>${esc(d.name)} →</b> ${esc(d.output).slice(0, 500)}`);
+  });
+  eventSource.addEventListener('error', e => {
+    if (e.data) addMsg('tasklog', 'error', JSON.parse(e.data), 'error');
+  });
+  eventSource.addEventListener('done', async e => {
+    eventSource.close();
+    const t = await api('GET', '/tasks/' + id);
+    if (t.result) {
+      $('taskresult').textContent = t.result;
+      $('taskresult').style.display = 'block';
+    }
+    refreshTasks();
+  });
+}
+
+// ---------- console ----------
+async function refreshWorkspaces() {
+  const list = await api('GET', '/workspaces');
+  workspaceCache = list;
+  $('wslist').innerHTML = '';
+  if ((!selectedWs || !list.some(ws => ws.name === selectedWs)) && list.length) selectedWs = list[0].name;
+  for (const ws of list) {
+    const div = document.createElement('div');
+    div.className = 'ws' + (selectedWs === ws.name ? ' sel' : '');
+    div.innerHTML = `<span class="dot ${ws.state}"></span><span class="nm" title="${esc(ws.provider)} · ${esc(ws.os)} · ${esc(ws.state)}"><span class="name"></span><span class="meta"></span></span>
+      <span class="acts">
+        <button aria-label="start" title="start" onclick="event.stopPropagation(); wsAct('${esc(ws.name)}','start')">▶</button>
+        <button aria-label="stop" title="stop" onclick="event.stopPropagation(); wsAct('${esc(ws.name)}','stop')">■</button>
+        <button aria-label="delete" title="delete" onclick="event.stopPropagation(); wsDel('${esc(ws.name)}')">✕</button>
+      </span>`;
+    div.querySelector('.name').textContent = ws.name;
+    div.querySelector('.meta').textContent = ws.kind === 'remote'
+      ? `${ws.provider.replace('remote-', '')} · ${ws.host}`
+      : `${ws.provider} · ${ws.state}`;
+    div.onclick = () => { selectedWs = ws.name; sessionId = null; $('chatlog').innerHTML = ''; addMsg('chatlog', '', `Chatting with workspace "${ws.name}".`, 'colony'); refreshWorkspaces(); };
+    $('wslist').appendChild(div);
+    if (selectedWs === ws.name) renderWorkspace(ws);
+  }
+  if (!list.length) {
+    selectedWs = null;
+    $('workspace-empty').hidden = false;
+    $('workspace-selected').hidden = true;
+  }
+}
+
+function renderWorkspace(ws) {
+  $('workspace-empty').hidden = true;
+  $('workspace-selected').hidden = false;
+  const isRemote = ws.kind === 'remote';
+  const isRDP = ws.provider === 'remote-rdp';
+  $('detail-kicker').textContent = isRemote ? (isRDP ? 'remote desktop' : 'remote terminal') : 'workspace';
+  $('detail-title').textContent = ws.name;
+  $('detail-status').textContent = ws.state;
+  $('detail-status').className = 'pill ' + ws.state;
+  $('detail-copy').textContent = isRDP
+    ? `RDP connection to ${ws.host}:${ws.port}. Open the native Windows Remote Desktop client to continue.`
+    : isRemote
+    ? `SSH connection to ${ws.host}:${ws.port}. Colony can run agent commands on this remote machine.`
+    : ws.state === 'running'
+    ? 'This workspace is already running. Open a terminal or ask the agent to work inside it.'
+    : 'This workspace is stopped. Start it before opening a terminal or sending an agent task.';
+  $('detail-primary').textContent = isRDP ? 'open remote desktop' : isRemote ? 'test connection' : ws.state === 'running' ? 'already running' : 'open workspace';
+  $('detail-primary').disabled = !isRemote && ws.state === 'running';
+  $('detail-chat').hidden = isRDP;
+  $('detail-stop').hidden = isRemote;
+  $('detail-os').textContent = ws.os || 'unknown';
+  $('detail-provider').textContent = isRemote ? `${isRDP ? 'RDP' : 'SSH'} · ${ws.username || 'user not set'}` : ws.provider || 'unknown';
+  $('detail-cpu').textContent = isRemote ? 'managed remotely' : ws.cpus ? `${ws.cpus} cores` : 'not reported';
+  $('detail-memory').textContent = isRemote ? 'managed remotely' : ws.memory_mib ? `${(ws.memory_mib / 1024).toFixed(2)} GB` : 'not reported';
+  $('detail-network').textContent = isRemote ? `${ws.host}:${ws.port}` : ws.ip || (ws.provider === 'wsl' ? 'local WSL2 network' : 'awaiting address');
+}
+
+function primaryWorkspaceAction() {
+  const ws = workspaceCache.find(item => item.name === selectedWs);
+  if (!ws) return;
+  if (ws.provider === 'remote-rdp') return api('POST', `/remotes/${encodeURIComponent(ws.remote_id)}/open`);
+  if (ws.provider === 'remote-ssh') return api('POST', `/remotes/${encodeURIComponent(ws.remote_id)}/test`).then(() => refreshWorkspaces());
+  return wsAct(selectedWs, 'start');
+}
+
+async function wsAct(name, act) { await api('POST', `/workspaces/${encodeURIComponent(name)}/${act}`); setTimeout(refreshWorkspaces, 1200); }
+async function wsDel(name) { if (confirm(`Delete connection "${name}"?`)) { await api('DELETE', `/workspaces/${encodeURIComponent(name)}`); if (selectedWs === name) selectedWs = null; refreshWorkspaces(); } }
+
+async function createWorkspace() {
+  const name = $('newws-name').value.trim();
+  if (!name) return;
+  await api('POST', '/workspaces', { name, os: $('newws-os').value, provider: $('newws-provider').value });
+  $('newws-name').value = '';
+  refreshWorkspaces();
+}
+
+function openRemoteModal() {
+  $('remote-modal').classList.add('open');
+  updateRemoteForm();
+  $('remote-name').focus();
+}
+
+function closeRemoteModal() { $('remote-modal').classList.remove('open'); }
+
+function updateRemoteForm() {
+  const isSSH = $('remote-kind').value === 'ssh';
+  $('remote-port').value = isSSH ? 22 : 3389;
+  $('remote-key-label').hidden = !isSSH;
+}
+
+async function saveRemote() {
+  const name = $('remote-name').value.trim();
+  const host = $('remote-host').value.trim();
+  if (!name || !host) return;
+  await api('POST', '/remotes', {
+    name,
+    kind: $('remote-kind').value,
+    host,
+    port: Number($('remote-port').value),
+    username: $('remote-username').value.trim(),
+    key_path: $('remote-key').value.trim(),
+    os: $('remote-os').value,
+  });
+  closeRemoteModal();
+  $('remote-name').value = '';
+  $('remote-host').value = '';
+  $('remote-key').value = '';
+  showView('console');
+  refreshWorkspaces();
+}
+
+async function sendChat() {
+  if (!selectedWs) return;
+  const msg = $('chatinput').value.trim();
+  if (!msg) return;
+  $('chatinput').value = '';
+  addMsg('chatlog', 'user', msg, 'you');
+
+  const res = await fetch('/api/chat', {
+    method: 'POST', headers: {'content-type': 'application/json'},
+    body: JSON.stringify({ session_id: sessionId, workspace: selectedWs, message: msg }),
+  });
+  const reader = res.body.getReader();
+  const dec = new TextDecoder();
+  let buf = '', curEvent = 'message';
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    let idx;
+    while ((idx = buf.indexOf('\n\n')) >= 0) {
+      const chunk = buf.slice(0, idx); buf = buf.slice(idx + 2);
+      let data = '';
+      for (const line of chunk.split('\n')) {
+        if (line.startsWith('event: ')) curEvent = line.slice(7);
+        else if (line.startsWith('data: ')) data += line.slice(6);
+      }
+      if (!data) continue;
+      const parsed = JSON.parse(data);
+      if (curEvent === 'session') sessionId = parsed.session_id;
+      else if (curEvent === 'text') addMsg('chatlog', '', parsed, 'agent');
+      else if (curEvent === 'tool_call') addMsg('chatlog', 'tool', `<b>${esc(parsed.name)}</b> ${esc(JSON.stringify(parsed.input)).slice(0,300)}`);
+      else if (curEvent === 'tool_result') addMsg('chatlog', 'tool', `<b>${esc(parsed.name)} →</b> ${esc(parsed.output).slice(0,500)}`);
+      else if (curEvent === 'error') addMsg('chatlog', 'error', parsed, 'error');
+      curEvent = 'message';
+    }
+  }
+}
+
+// ---------- misc ----------
+function addMsg(logId, cls, html, who) {
+  const log = $(logId);
+  const div = document.createElement('div');
+  div.className = 'msg ' + cls;
+  div.innerHTML = `<div class="who"></div><div class="body"></div>`;
+  div.querySelector('.who').textContent = who || '';
+  const body = div.querySelector('.body');
+  if (cls === 'tool') body.innerHTML = html; else body.textContent = html;
+  log.appendChild(div);
+  log.scrollTop = log.scrollHeight;
+}
+
+function esc(s) { const d = document.createElement('div'); d.textContent = String(s); return d.innerHTML; }
+
+async function openSettings() {
+  const s = await api('GET', '/settings');
+  $('set-provider').value = s.provider;
+  $('set-key').value = ''; $('set-key').placeholder = s.api_key ? s.api_key : '(not set)';
+  $('set-base').value = s.base_url || '';
+  $('set-model').value = s.model;
+  $('modal').classList.add('open');
+}
+function closeSettings() { $('modal').classList.remove('open'); }
+async function saveSettings() {
+  const cur = await api('GET', '/settings');
+  await api('PUT', '/settings', {
+    ...cur,
+    provider: $('set-provider').value,
+    api_key: $('set-key').value,
+    base_url: $('set-base').value,
+    model: $('set-model').value,
+  });
+  closeSettings();
+}
+
+loadCaps();
+refreshTasks();
+setInterval(() => { if ($('home').classList.contains('active')) refreshTasks(); }, 5000);
+</script>
+</body>
+</html>

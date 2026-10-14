@@ -24,10 +24,12 @@ starting point: agents start cheap and climb the ladder on evidence of failure.
 
 ```
 crates/runner one turn on any CLI, Ollama, OpenAI-compatible API or A2A agent (MIT, reusable)
-crates/core   harness: router, providers, tools, tickets, git worktrees, skills
+crates/core   harness: router, providers, tools, tickets, git worktrees, skills, accounts, local models
+crates/colony durable, chat-addressable workspaces (WSL2 / Hyper-V) as `colony_*` tools
 crates/cli    headless shell (logs to stdout, approvals on stdin)
 crates/app    desktop shell, GPUI (native)
 crates/tauri-app  desktop shell, Tauri 2 (the design's HTML in the system webview)
+capsule/      Colony's hypervisor core: visor-core (Rust JSON CLI) + agentd (Go, :7700)
 apps/         app SDK (sdk.js) and the Prompt Lab example app
 design/       workbench.html: the design both shells reproduce
 bench/        GPUI vs Tauri benchmark (see bench/README.md)
@@ -69,8 +71,11 @@ past it (tabs of canvases, machines, settings).
   a followed one; `+` adds one). The sidebar title shows which machine you
   are looking at.
 - **Settings** (gear) cover providers, the Cloud plan, which harness runs
-  workers, API keys, the default chat model, projects, what the app is used
-  for, the theme, machines, sharing this machine, and update checks.
+  workers, accounts, local tiny models, skills, worktrees, Colony workspaces,
+  API keys, projects, what the app is used for, appearance (accent, colours,
+  fonts, contrast), machines, sharing this machine, and update checks. The
+  panel is a grouped left nav — Personal, Integrations, Coding, System — with
+  one section at a time beside it.
 
 Tabs, theme and machines live in `~/.config/backspace/prefs.json`, shared by
 both shells (`BACKSPACE_PREFS` overrides the path).
@@ -169,11 +174,40 @@ the same check, review and merge, and review feedback goes back to the CLI
 OpenRouter key, set in Settings or the environment).
 
 **Agents talk to each other** through a per-project message board. API
-agents get `list_agents`, `send_message` and `read_messages` tools; CLI
-workers get the same through an MCP server (`backspace mcp`) or the shell
-(`backspace msg agents|send|read`), both reaching a token-protected bridge
-on 127.0.0.1. Address an agent by its key or its ticket's key. The board
-shows as the "Team chat" canvas.
+agents get `list_agents`, `send_message`, `dm`, `read_messages` and
+`read_conversation` tools; CLI workers get the same through an MCP server
+(`backspace mcp`) or the shell (`backspace msg agents|send|read|conversation`),
+both reaching a token-protected bridge on 127.0.0.1. Address an agent by its
+key or its ticket's key. A message can answer another (`reply_to`, or
+`msg send <key> --reply <id>`), and everything two agents say to each other
+lands in one conversation. The board shows as the "Team chat" canvas and each
+pair's thread as the **Conversation** canvas.
+
+**Several accounts per CLI, with failover.** Settings → Accounts keeps one
+profile directory per login, pointed at the CLI's own variable
+(`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `GEMINI_CLI_HOME`, `COPILOT_HOME`,
+`CURSOR_CONFIG_DIR`, `XDG_DATA_HOME`), and tracks health per login. On
+**Automatic**, when a CLI reports a *confirmed* usage limit the login is
+parked and the next turn runs as the next healthy one — never on a plain rate
+limit. Backspace never holds the credential: each login signs in to its own
+profile directory. Code: `crates/core/src/accounts.rs`.
+
+**Small local models do the small jobs.** Settings → Local models finds
+Ollama, LM Studio, llama.cpp and MLX (plus any loopback OpenAI endpoint),
+lists what each one has, marks the models ≤ 4B as tiny, and suggests the one
+to hand a small job to. Pick one and it becomes the model scouts and other
+delegated read/classify/summarise/extract work runs on, whatever subscription
+model is leading. Nothing is downloaded for you; if the runtime is not up, the
+router's own pick is used. Code: `crates/core/src/model_server.rs`.
+
+**An agent can be given a machine of its own.** Colony gives an agent a
+durable, chat-addressable workspace — a WSL2 distro or a Hyper-V VM created on
+demand, used through `colony_create` / `colony_exec` / `colony_list` /
+`colony_status` / `colony_destroy`, and destroyed when the task is done. It
+drives the `visor-core` JSON CLI that lives in `capsule/`; without it the tools
+are simply not offered. Design, the industry landscape it borrows from, and
+what is and is not tested: [`docs/COLONY.md`](docs/COLONY.md) and
+[`docs/DURABLE-OBJECTS-2026-10.md`](docs/DURABLE-OBJECTS-2026-10.md).
 
 **Agents can show you visual options.** `show_options` puts two to six variants
 of a design, a layout or a change on screen — each an image the agent wrote (a
@@ -439,12 +473,17 @@ report.
 
 Vendored from [mattpocock/skills](https://github.com/mattpocock/skills) (MIT,
 commit in `crates/core/skills/UPSTREAM`): `grilling`, `to-tickets`, `triage`,
-`tdd`, `diagnosing-bugs`, `code-review`. Each role gets some injected
-(`workflow.*_skills`); every agent can load any of them with the `skill` tool.
-Drop a folder with a `SKILL.md` into `~/.config/backspace/skills/` or
-`<workspace>/.backspace/skills/` to override one or add your own. The files are
-kept verbatim; a short adapter note maps their vocabulary (the Skill tool,
-issue tracker, sub-agents) onto Backspace.
+`tdd`, `diagnosing-bugs`, `code-review`. Also vendored, from
+[DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail) (MIT):
+`ponytail` — "the lazy senior dev": the smallest change that fully solves the
+task, one test for anything non-trivial, and a note on what was skipped. It is
+injected into implementation workers by default (`workflow.worker_skills`).
+Each role gets some injected (`workflow.*_skills`); every agent can load any of
+them with the `skill` tool. Drop a folder with a `SKILL.md` into
+`~/.config/backspace/skills/` or `<workspace>/.backspace/skills/` to override
+one or add your own. The files are kept verbatim; a short adapter note maps
+their vocabulary (the Skill tool, issue tracker, sub-agents, ponytail's slash
+commands) onto Backspace.
 
 State is written to `<workspace>/.backspace/state.json` as a record of the run.
 `.backspace/` ignores itself in git.
@@ -492,5 +531,18 @@ State is written to `<workspace>/.backspace/state.json` as a record of the run.
 - Carry on resumes Chat replies. Workbench workers still don't resume
   after a restart, and only Claude Code resumes on its own session
   (others get the transcript).
+- Colony: the registry, the tool wiring and the account/local-model paths are
+  tested without a VM (`crates/colony` has 25 tests; `crates/core/tests/features.rs`
+  covers conversations, the local scout model and account failover), but
+  `visor-core` itself has only been exercised by hand on this machine
+  (`capabilities`, `list`, `status`). Hyper-V needs an elevated host;
+  `colony_exec` is WSL only, and snapshots, GC and a guest agent are not built.
+  See [`docs/COLONY.md`](docs/COLONY.md).
+- Multi-account failover moves between logins when the CLI reports a usage
+  limit; it does not yet checkpoint and resume a CLI session mid-turn, so a
+  turn that dies on a limit is re-asked on the new login.
+- The local tiny model runs the scouts (`advisor.scout_model` when
+  Settings → Local models names one). Other delegated jobs still go through the
+  router, which picks the cheapest *usable* model, local ones included.
 - Cloud is a development server: no accounts beyond a local token, no
   billing.

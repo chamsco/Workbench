@@ -1,5 +1,22 @@
 # Plan: new functions (12 Oct 2026)
 
+**Shipped in the same session (14 Oct 2026)** — every one of the six, plus two
+the plan did not have:
+
+| # | Feature | Where |
+|---|---|---|
+| 6 | ponytail skill | `crates/core/skills/ponytail/`, injected into workers (`config.rs`), adapter note in `skills.rs` |
+| 5 | Settings left nav + Appearance | `SET_NAV`/`appearancePanel` in `crates/tauri-app/ui/app.js`, `.setnav`/`.ap` in `style.css`, `Prefs::appearance` + `set_appearance` |
+| 2 | Visual options + compare | already shipped as `d5b78ac` (`options.rs`, `optionsPane`) |
+| 1 | Multi-account + failover | `crates/core/src/accounts.rs` (registry, health, policy, `env_for`), wired into `run_cli_turn` (`account_env`, health notes, usage-limit parking), Settings → Accounts |
+| 3 | Agent↔agent conversations | `board.rs` (`reply`, `thread_of`, `conversations`, `between`), `dm`/`read_conversation` tools, MCP + `msg send --reply`, the **Conversation** canvas |
+| 4 | Chat-free canvases + start by view or agent | Conversation/Empty canvases are chat-free; the canvas picker offers them; the terminal PTY is still open (below) |
+| 7 | Local tiny models for subagents | `crates/core/src/model_server.rs` (detect/rank/recommend), Settings → Local models, `prefs.subagent_model` → scouts (`local_subagent` in `harness.rs`) |
+| 8 | Colony workspaces | `crates/colony/` (registry + visor-core backend + `colony_*` tools), `docs/COLONY.md`, Settings → Workspaces and Colony |
+
+Read the original plan below for the reasoning; the file paths in it were
+written before the code moved and are kept as history.
+
 Six features. Ordered by leverage, not by the order you listed them. Each one
 names the files it touches, so we can pick a starting point without guessing.
 

@@ -593,11 +593,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "backspace-colony"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "backspace-core"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-channel",
+ "backspace-colony",
  "backspace-runner",
  "dunce",
  "futures",
@@ -624,6 +634,7 @@ name = "backspace-tauri"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "backspace-colony",
  "backspace-core",
  "qrcode",
  "serde",

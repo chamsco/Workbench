@@ -1,2 +1,5 @@
 target/
 __pycache__/
+# agentd's built binary (a Go build with no module-level output dir).
+capsule/agentd/agentd.exe
+capsule/agentd/agentd.exe~

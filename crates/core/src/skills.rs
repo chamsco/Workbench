@@ -1,6 +1,7 @@
 //! Skills: markdown playbooks an agent loads on demand with the `skill` tool.
 //! Defaults are vendored from github.com/mattpocock/skills (MIT, see
-//! skills/LICENSE-mattpocock-skills). A folder with the same name under
+//! skills/LICENSE-mattpocock-skills) and github.com/DietrichGebert/ponytail
+//! (MIT, see skills/LICENSE-ponytail). A folder with the same name under
 //! `~/.config/backspace/skills/` or `<workspace>/.backspace/skills/` replaces
 //! a default or adds a new skill, so you can make them your own.
 
@@ -15,6 +16,12 @@ macro_rules! vendored {
 
 type Files = &'static [(&'static str, &'static str)];
 
+/// Where a user's own skills live: `~/.config/backspace/skills/`.
+pub fn user_dir() -> Option<std::path::PathBuf> {
+    let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))?;
+    Some(std::path::PathBuf::from(home).join(".config/backspace/skills"))
+}
+
 const DEFAULTS: &[(&str, Files)] = vendored! {
     "grilling" => ["SKILL.md"],
     "to-tickets" => ["SKILL.md"],
@@ -22,12 +29,13 @@ const DEFAULTS: &[(&str, Files)] = vendored! {
     "tdd" => ["SKILL.md", "tests.md", "mocking.md"],
     "diagnosing-bugs" => ["SKILL.md"],
     "code-review" => ["SKILL.md"],
+    "ponytail" => ["SKILL.md", "AGENTS.md"],
 };
 
 /// How the vendored skills' vocabulary maps onto Backspace. They were written
 /// for other harnesses; translating here keeps the files verbatim and easy to
 /// update from upstream.
-pub const ADAPTER: &str = "Skills were written for a general coding agent. In Backspace: \"the Skill tool\" is the `skill` tool; \"the issue tracker\" and \"tickets\" are Backspace tickets (create_tickets, file_ticket, triage_ticket); \"dispatch a sub-agent\" means create_tickets + work_tickets if you have them, otherwise do it yourself; triage labels are ticket states (needs_triage, needs_info, ready_for_agent, ready_for_human, wontfix). Ignore setup steps such as /setup-matt-pocock-skills and anything about posting comments to GitHub.";
+pub const ADAPTER: &str = "Skills were written for a general coding agent. In Backspace: \"the Skill tool\" is the `skill` tool; \"the issue tracker\" and \"tickets\" are Backspace tickets (create_tickets, file_ticket, triage_ticket); \"dispatch a sub-agent\" means create_tickets + work_tickets if you have them, otherwise do it yourself; triage labels are ticket states (needs_triage, needs_info, ready_for_agent, ready_for_human, wontfix). Ignore setup steps such as /setup-matt-pocock-skills and anything about posting comments to GitHub. The ponytail skill's slash commands map onto this tool: `/ponytail` is loading it, `/ponytail lite|full|ultra` is the level in its body, and `/ponytail-review`, `/ponytail-audit`, `/ponytail-debt` and `/ponytail-gain` are just that level applied to a review of the diff, a read of the codebase, the shortcuts already in the code, or the size of the change you are about to make.";
 
 #[derive(Clone, Debug)]
 pub struct Skill {
@@ -52,8 +60,8 @@ impl Skills {
             by_name.insert(name.to_string(), skill(name, files));
         }
         let mut dirs = Vec::new();
-        if let Some(home) = std::env::var_os("HOME") {
-            dirs.push(Path::new(&home).join(".config/backspace/skills"));
+        if let Some(dir) = user_dir() {
+            dirs.push(dir);
         }
         dirs.push(workspace.join(".backspace/skills"));
         for dir in dirs {
@@ -143,6 +151,7 @@ mod tests {
             "tdd",
             "diagnosing-bugs",
             "code-review",
+            "ponytail",
         ] {
             assert!(
                 !s.by_name[name].description.is_empty(),
@@ -153,6 +162,7 @@ mod tests {
             .read("triage", Some("AGENT-BRIEF.md"))
             .unwrap()
             .contains("Agent Brief"));
+        assert!(s.read("ponytail", None).unwrap().contains("lazy senior"));
         assert!(s.read("nope", None).is_none());
     }
 }

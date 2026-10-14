@@ -36,7 +36,7 @@ pub trait Backend: Send + Sync {
     /// An image in the project as a data: URL (the Options canvas).
     fn read_image(&self, path: &str) -> Result<String>;
     /// Post on the agents' message board as the human.
-    fn post_message(&self, to: &str, text: &str) -> Result<()>;
+    fn post_message(&self, to: &str, text: &str, reply_to: Option<usize>) -> Result<()>;
 }
 
 impl Backend for Harness {
@@ -73,8 +73,8 @@ impl Backend for Harness {
     fn read_image(&self, path: &str) -> Result<String> {
         Harness::read_image(self, path)
     }
-    fn post_message(&self, to: &str, text: &str) -> Result<()> {
-        Harness::post_message(self, to, text)
+    fn post_message(&self, to: &str, text: &str, reply_to: Option<usize>) -> Result<()> {
+        Harness::post_message_to(self, to, text, reply_to)
     }
 }
 
@@ -105,7 +105,7 @@ impl Backend for NoProject {
     fn read_image(&self, _: &str) -> Result<String> {
         bail!("open a project first")
     }
-    fn post_message(&self, _: &str, _: &str) -> Result<()> {
+    fn post_message(&self, _: &str, _: &str, _: Option<usize>) -> Result<()> {
         bail!("open a project first")
     }
 }
@@ -154,8 +154,8 @@ impl Backend for Remote {
         let v = self.post_wait("/v1/image", json!({ "path": path }))?;
         Ok(v["text"].as_str().unwrap_or("").to_string())
     }
-    fn post_message(&self, to: &str, text: &str) -> Result<()> {
-        self.post_wait("/v1/message", json!({ "to": to, "text": text }))?;
+    fn post_message(&self, to: &str, text: &str, reply_to: Option<usize>) -> Result<()> {
+        self.post_wait("/v1/message", json!({ "to": to, "text": text, "reply_to": reply_to }))?;
         Ok(())
     }
 }

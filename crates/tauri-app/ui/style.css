@@ -502,11 +502,24 @@ body { margin: 0; background: var(--desk-base); color: var(--fg); font: 13px/1.4
 .td ul { margin: 8px 0 0; padding-left: 18px; line-height: 1.6; }
 
 /* settings */
-.settings { position: absolute; inset: 38px 6px 6px 6px; z-index: 5; overflow-y: auto; border-radius: 9px; background: var(--pane); border: 0.5px solid var(--pane-edge); }
-.set { max-width: 680px; margin: 0 auto; padding: 28px 28px 60px; }
+.settings { position: absolute; inset: 38px 6px 6px 6px; z-index: 5; overflow: hidden; border-radius: 9px; background: var(--pane); border: 0.5px solid var(--pane-edge); }
+/* Left nav + one panel at a time, so no section is 2000px down a scroll. */
+.setwrap { display: grid; grid-template-columns: 196px minmax(0, 1fr); height: 100%; }
+.setnav { overflow-y: auto; padding: 14px 8px 20px; border-right: 0.5px solid var(--pane-edge); }
+.setnav .sg { display: grid; gap: 1px; margin-bottom: 12px; }
+.setnav .sg > span { font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--fg-4); padding: 0 8px 4px; }
+.setnav .sv { display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 8px; border-radius: 7px; font-size: 12.5px; color: var(--fg-2); text-align: left; }
+.setnav .sv .ic { color: var(--fg-3); }
+.setnav .sv:hover { background: var(--hover); color: var(--fg); }
+.setnav .sv.on { background: var(--sel); color: var(--fg); font-weight: 500; }
+.setnav .sv.on .ic { color: var(--bs-accent); }
+.setbody { overflow-y: auto; }
+.set { max-width: 680px; margin: 0 auto; padding: 24px 28px 60px; }
+.set section[hidden] { display: none; }
 .set-h { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; }
 .set-h h1 { margin: 0; font-size: 22px; letter-spacing: -0.02em; }
 .set section { padding: 18px 0; border-top: 0.5px solid var(--pane-edge); }
+.set section:first-of-type { border-top: 0; }
 .set h2 { margin: 0 0 4px; font-size: 14px; }
 .set .lead { margin: 0 0 12px; color: var(--fg-3); font-size: 12.5px; line-height: 1.5; }
 .set .line { display: flex; align-items: center; gap: 10px; min-height: 34px; }
@@ -532,6 +545,24 @@ body { margin: 0; background: var(--desk-base); color: var(--fg); font: 13px/1.4
 .set .err { color: var(--red); font-size: 12px; margin-top: 6px; min-height: 1em; }
 .set .okmsg { color: var(--green); font-size: 12px; margin-top: 6px; }
 .set pre.cmd { margin: 10px 0 0; padding: 10px 12px; border-radius: 8px; background: var(--hover); font: 12px/1.5 var(--font-mono); overflow-x: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* Appearance panel */
+.ap { display: grid; gap: 4px; }
+.ap-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.ap-chip { width: 22px; height: 22px; border-radius: 50%; border: 0.5px solid var(--pane-edge); }
+.ap-chip.on { box-shadow: 0 0 0 2px var(--pane), 0 0 0 3.5px var(--fg); }
+.ap .swatch { position: relative; width: 26px; height: 26px; border-radius: 7px; overflow: hidden; border: 0.5px solid var(--pane-edge); }
+.ap .swatch.dark::after { content: ""; position: absolute; inset: 0; background: linear-gradient(135deg, transparent 45%, rgba(0, 0, 0, 0.5) 50%, transparent 55%); pointer-events: none; }
+.ap .swatch input { position: absolute; inset: -4px; opacity: 0; cursor: pointer; }
+.ap .swatch span { position: absolute; inset: 0; pointer-events: none; }
+.ap-range { width: 190px; accent-color: var(--bs-accent); }
+
+/* Skills list */
+.skilllist { display: grid; gap: 6px; margin: 10px 0; }
+.skill { display: grid; gap: 2px; padding: 8px 10px; border-radius: 9px; background: var(--hover); font-size: 12px; }
+.skill b { font-size: 12.5px; }
+.skill span { color: var(--fg-2); line-height: 1.45; }
+.skill small { color: var(--fg-3); }
 @media (max-width: 760px) { .form3 { grid-template-columns: 1fr; } .drawer { width: calc(100% - 12px); } }
 
 .canvas[hidden] { display: none !important; }

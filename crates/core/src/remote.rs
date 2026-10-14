@@ -45,7 +45,7 @@ pub(crate) trait Api: Send + Sync + 'static {
     fn file_ticket(&self, title: &str, body: &str) -> Result<String>;
     fn list_files(&self, agent: usize) -> Vec<FileEntry>;
     fn read_file(&self, path: &str) -> Result<String>;
-    fn post_message(&self, to: &str, text: &str) -> Result<()>;
+    fn post_message(&self, to: &str, text: &str, reply_to: Option<usize>) -> Result<()>;
     /// The user's answer on a set of visual options (None: dismissed).
     fn pick_option(&self, id: &str, variant: Option<String>);
     /// An image in the project as a data: URL (the Options canvas).
@@ -267,6 +267,7 @@ async fn handle(mut stream: TcpStream, api: Arc<dyn Api>, token: &str) -> Result
             .post_message(
                 body["to"].as_str().unwrap_or(""),
                 body["text"].as_str().unwrap_or(""),
+                body["reply_to"].as_u64().map(|n| n as usize),
             )
             .map(|_| json!({ "ok": true })),
         ("POST", "/v1/option") => {

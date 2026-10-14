@@ -139,9 +139,9 @@ fn file_ticket(f: F, title: String, body: String) -> Res<String> {
 }
 
 #[tauri::command]
-async fn post_message(f: F<'_>, to: String, text: String) -> Res<()> {
+async fn post_message(f: F<'_>, to: String, text: String, reply_to: Option<usize>) -> Res<()> {
     let b = f.backend();
-    tauri::async_runtime::spawn_blocking(move || b.post_message(&to, &text))
+    tauri::async_runtime::spawn_blocking(move || b.post_message(&to, &text, reply_to))
         .await
         .map_err(err)?
         .map_err(err)
@@ -257,6 +257,32 @@ fn set_tabs(f: F, tabs: Vec<TabSpec>, active: usize) {
 #[tauri::command]
 fn set_theme(f: F, theme: String) {
     f.update_prefs(|p| p.theme = theme);
+}
+
+/// Settings → Appearance. Values are clamped here so a colour or a contrast
+/// from the webview can never make the window unreadable.
+#[tauri::command]
+fn set_appearance(f: F, appearance: backspace_core::prefs::Appearance) {
+    f.update_prefs(|p| {
+        let mut a = appearance;
+        a.accent = hex_or_empty(&a.accent);
+        a.accent_dark = hex_or_empty(&a.accent_dark);
+        a.bg = hex_or_empty(&a.bg);
+        a.fg = hex_or_empty(&a.fg);
+        a.contrast = a.contrast_or_default();
+        p.appearance = a;
+    });
+}
+
+/// "#1a2b3c" or ""; anything else is dropped rather than written to prefs.
+fn hex_or_empty(s: &str) -> String {
+    let s = s.trim();
+    let ok = s.len() == 7 && s.starts_with('#') && s[1..].chars().all(|c| c.is_ascii_hexdigit());
+    if ok {
+        s.to_ascii_lowercase()
+    } else {
+        String::new()
+    }
 }
 
 #[tauri::command]
@@ -612,6 +638,263 @@ fn chat_thread(f: F, id: String) -> Option<Thread> {
 #[tauri::command]
 fn chat_new(f: F, route: Route, scope: Option<Scope>) -> Thread {
     f.chats().create_in(route, scope.unwrap_or_default())
+}
+
+// ------------------------------------------------------- local tiny models
+
+/// The small models on this machine, for Settings → Local models. Blocks for
+/// a couple of seconds while each runtime is probed.
+#[tauri::command]
+fn local_models(f: F) -> serde_json::Value {
+    let prefs = f.prefs();
+    let runtimes = backspace_core::model_server::detect(&prefs, &[]);
+    let recommend = backspace_core::model_server::recommend(&runtimes);
+    serde_json::json!({
+        "runtimes": runtimes,
+        "recommend": recommend.map(|(url, model)| serde_json::json!({"base_url": url, "model": model})),
+        "endpoint": backspace_core::model_server::best_endpoint(&prefs),
+        "chosen": prefs.subagent_model,
+    })
+}
+
+/// Settings → Local models: which tiny model the small delegated jobs use
+/// ("<runtime id>:<model id>"), or None to leave them to the main model.
+#[tauri::command]
+fn set_subagent_model(f: F, model: Option<String>) {
+    f.update_prefs(|p| p.subagent_model = model.filter(|m| !m.trim().is_empty()));
+}
+
+// ---------------------------------------------------- skills and worktrees
+
+/// Settings → Agent skills: every skill this machine can load, and which
+/// role gets which injected.
+#[tauri::command]
+fn skills_catalog(f: F) -> serde_json::Value {
+    let root = std::path::PathBuf::from(f.snapshot().workspace);
+    let skills = backspace_core::skills::Skills::load(&root);
+    let mut all: Vec<serde_json::Value> = skills
+        .by_name
+        .values()
+        .map(|s| {
+            serde_json::json!({
+                "name": s.name,
+                "description": s.description,
+                "files": s.files.keys().collect::<Vec<_>>(),
+            })
+        })
+        .collect();
+    all.sort_by(|a, b| a["name"].as_str().cmp(&b["name"].as_str()));
+    // The same config the harness loads: BACKSPACE_CONFIG, then the project's
+    // backspace.toml, then ~/.config/backspace/config.toml, then the default.
+    let cfg = backspace_core::Config::load(&root)
+        .map(|(c, _)| c)
+        .unwrap_or_else(|_| backspace_core::Config::parse(backspace_core::config::DEFAULT_CONFIG).expect("built-in config"));
+    let wf = &cfg.workflow;
+    let dirs: Vec<String> = [
+        backspace_core::skills::user_dir().map(|p| p.display().to_string()),
+        Some(root.join(".backspace/skills").display().to_string()),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    serde_json::json!({
+        "skills": all,
+        "workflow": {
+            "grill": wf.grill,
+            "plan_approval": wf.plan_approval,
+            "main_skills": wf.main_skills,
+            "worker_skills": wf.worker_skills,
+            "triage_skills": wf.triage_skills,
+        },
+        "dirs": dirs,
+    })
+}
+
+/// Settings → Managed worktrees: what each ticket's agent has on disk.
+#[tauri::command]
+fn worktrees(f: F) -> serde_json::Value {
+    let s = f.snapshot();
+    let items: Vec<serde_json::Value> = s
+        .agents
+        .iter()
+        .filter_map(|a| {
+            let wt = a.worktree.as_deref()?;
+            let path = std::path::Path::new(wt);
+            let size = dir_size(path);
+            Some(serde_json::json!({
+                "agent": a.key,
+                "title": a.title,
+                "ticket": a.ticket,
+                "name": path.file_name().map(|n| n.to_string_lossy().into_owned()),
+                "branch": a.branch,
+                "path": wt,
+                "exists": path.is_dir(),
+                "state": a.status,
+                "size_bytes": size,
+            }))
+        })
+        .collect();
+    serde_json::json!({ "root": s.workspace, "worktrees": items })
+}
+
+/// Settings → Workspaces and Colony: what this machine can host, and the
+/// workspaces Colony already knows about. visor-core is optional; without it
+/// this reports what is missing rather than failing (docs/COLONY.md).
+#[tauri::command]
+fn colony_status(_f: F) -> serde_json::Value {
+    let dir = backspace_core::prefs::Prefs::data_dir().join("colony");
+    let mut out = serde_json::json!({
+        "visor": Option::<String>::None,
+        "ready": false,
+        "dir": dir.display().to_string(),
+        "capabilities": serde_json::Value::Null,
+        "workspaces": Vec::<serde_json::Value>::new(),
+        "message": Option::<String>::None,
+    });
+    let colony = match backspace_colony::VisorCli::discover() {
+        Ok(exe) => {
+            out["visor"] = serde_json::json!(exe.exe().display().to_string());
+            out["ready"] = serde_json::json!(true);
+            backspace_colony::Colony::with_backend(
+                &dir,
+                backspace_colony::ProviderKind::Wsl,
+                exe,
+            )
+        }
+        Err(e) => {
+            out["message"] = serde_json::json!(
+                "visor-core isn't built or on PATH. Run `cargo build --manifest-path capsule/core/Cargo.toml` (see docs/COLONY.md)."
+            );
+            out["why"] = serde_json::json!(format!("{e}"));
+            return out;
+        }
+    };
+    let mut colony = match colony {
+        Ok(c) => c,
+        Err(e) => {
+            out["message"] = serde_json::json!(format!("{e}"));
+            return out;
+        }
+    };
+    match colony.capabilities() {
+        Ok(c) => out["capabilities"] = serde_json::to_value(c).unwrap_or(serde_json::Value::Null),
+        Err(e) => out["message"] = serde_json::json!(format!("visor-core: {e}")),
+    }
+    out["workspaces"] = match colony.list() {
+        Ok(w) => serde_json::to_value(w).unwrap_or(serde_json::Value::Null),
+        Err(_) => serde_json::Value::Null,
+    };
+    out
+}
+
+/// Show a file or folder in the OS file manager.
+#[tauri::command]
+fn reveal_path(path: String) -> Res<()> {
+    let p = std::path::PathBuf::from(&path);
+    if !p.exists() {
+        return Err(format!("{} is not there any more", p.display()));
+    }
+    #[cfg(windows)]
+    let cmd = ("explorer", vec![p.display().to_string()]);
+    #[cfg(target_os = "macos")]
+    let cmd = ("open", vec!["-R".to_string(), p.display().to_string()]);
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let cmd = ("xdg-open", vec![p.display().to_string()]);
+    std::process::Command::new(cmd.0)
+        .args(cmd.1)
+        .spawn()
+        .map_err(err)?;
+    Ok(())
+}
+
+/// Bytes under a directory, capped so a huge `node_modules` cannot stall the
+/// settings panel.
+fn dir_size(p: &std::path::Path) -> u64 {
+    fn walk(p: &std::path::Path, total: &mut u64) {
+        if *total > 2 * 1024 * 1024 * 1024 {
+            return;
+        }
+        let Ok(rd) = std::fs::read_dir(p) else { return };
+        for e in rd.flatten() {
+            let Ok(md) = e.metadata() else { continue };
+            if md.is_dir() {
+                walk(&e.path(), total);
+            } else {
+                *total += md.len();
+            }
+        }
+    }
+    let mut total = 0;
+    walk(p, &mut total);
+    total
+}
+
+// ---------------------------------------------------------------- accounts
+
+/// Settings → Accounts: the logins Backspace keeps apart, one profile
+/// directory each, with their health and the CLI's own usage report.
+#[tauri::command]
+fn accounts() -> serde_json::Value {
+    let a = backspace_core::accounts::Accounts::load(&backspace_core::accounts::Accounts::path());
+    serde_json::json!({
+        "path": backspace_core::accounts::Accounts::path().display().to_string(),
+        "policy": a.policy,
+        "accounts": a.list,
+    })
+}
+
+/// Add a login for a CLI. Its profile directory is created (empty); the CLI's
+/// own sign-in fills it, which is why Backspace never sees a credential.
+#[tauri::command]
+fn account_add(provider: String, name: String) -> Res<serde_json::Value> {
+    let mut a = backspace_core::accounts::Accounts::load(&backspace_core::accounts::Accounts::path());
+    if backspace_core::accounts::profile_env(&provider).is_none() {
+        return Err(format!("{provider} has no profile variable Backspace can set"));
+    }
+    let acc = a.add(&provider, &name);
+    if let Some(dir) = &acc.profile_dir {
+        std::fs::create_dir_all(dir).map_err(err)?;
+    }
+    a.save(&backspace_core::accounts::Accounts::path()).map_err(err)?;
+    Ok(serde_json::json!(acc))
+}
+
+#[tauri::command]
+fn account_remove(id: String) -> Res<()> {
+    let mut a = backspace_core::accounts::Accounts::load(&backspace_core::accounts::Accounts::path());
+    a.remove(&id);
+    a.save(&backspace_core::accounts::Accounts::path()).map_err(err)
+}
+
+#[tauri::command]
+fn account_set(id: String, enabled: Option<bool>, priority: Option<u8>) -> Res<()> {
+    let mut a = backspace_core::accounts::Accounts::load(&backspace_core::accounts::Accounts::path());
+    let Some(acc) = a.list.iter_mut().find(|x| x.id == id) else {
+        return Err("no such account".into());
+    };
+    if let Some(on) = enabled {
+        acc.enabled = on;
+    }
+    if let Some(p) = priority {
+        acc.priority = p;
+    }
+    a.save(&backspace_core::accounts::Accounts::path()).map_err(err)
+}
+
+/// Swap to the next usable login now ("switch accounts"), and say which.
+#[tauri::command]
+fn account_next() -> Res<serde_json::Value> {
+    let mut a = backspace_core::accounts::Accounts::load(&backspace_core::accounts::Accounts::path());
+    let next = a.manual_next(backspace_core::chat::now_ms());
+    a.save(&backspace_core::accounts::Accounts::path()).map_err(err)?;
+    Ok(serde_json::json!({ "next": next }))
+}
+
+#[tauri::command]
+fn set_accounts_policy(policy: backspace_core::accounts::FailoverPolicy) -> Res<()> {
+    let mut a = backspace_core::accounts::Accounts::load(&backspace_core::accounts::Accounts::path());
+    a.policy = policy;
+    a.save(&backspace_core::accounts::Accounts::path()).map_err(err)
 }
 
 // ---------------------------------------------------------------- memory
@@ -1171,6 +1454,7 @@ fn main() -> anyhow::Result<()> {
             prefs,
             set_tabs,
             set_theme,
+            set_appearance,
             set_check_updates,
             check_update,
             open_url,
@@ -1200,6 +1484,18 @@ fn main() -> anyhow::Result<()> {
             set_api_key,
             set_default_route,
             chat_list,
+            local_models,
+            set_subagent_model,
+            skills_catalog,
+            worktrees,
+            colony_status,
+            reveal_path,
+            accounts,
+            account_add,
+            account_remove,
+            account_set,
+            account_next,
+            set_accounts_policy,
             chat_thread,
             chat_new,
             memory_list,

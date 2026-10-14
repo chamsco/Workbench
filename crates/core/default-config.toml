@@ -50,7 +50,7 @@ scouts = 3                    # scouts per call, in parallel
 grill = true                # main agent interviews you in rounds before planning
 plan_approval = true        # you approve each ticket batch before work starts
 main_skills = ["grilling", "to-tickets"]   # injected; every skill stays loadable via `skill`
-worker_skills = []
+worker_skills = ["ponytail"]   # smallest complete change, for implementation workers
 triage_skills = ["triage"]
 
 [providers.anthropic]

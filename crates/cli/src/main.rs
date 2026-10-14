@@ -42,12 +42,14 @@ fn main() -> Result<()> {
             rest.first().map_or("127.0.0.1:7420", |s| s.as_str()),
         ),
         [cmd] if cmd == "scan" => scan(),
+        // The tiny local models, and which one small delegated jobs would use.
+        [cmd] if cmd == "models" => models(),
         [cmd, rest @ ..] if cmd == "cloud" && rest.len() <= 1 => cloud(
             rest.first().map_or("127.0.0.1:7430", |s| s.as_str()),
         ),
         [ws, goal @ ..] if !goal.is_empty() => run(PathBuf::from(ws), goal.join(" ")),
         _ => bail!(
-            "usage: backspace-cli init-config | <workspace> <goal> | serve <workspace> [addr] | scan | cloud [addr]"
+            "usage: backspace-cli init-config | <workspace> <goal> | serve <workspace> [addr] | scan | models | cloud [addr]"
         ),
     }
 }
@@ -76,6 +78,42 @@ fn scan() -> Result<()> {
             if h.enabled { "on" } else { "off" },
             h.detail.or(h.message).unwrap_or_default()
         );
+    }
+    Ok(())
+}
+
+/// The tiny local models (Settings → Local models, without the UI): what is
+/// running, which models are small enough to delegate to, and what would be
+/// used right now.
+fn models() -> Result<()> {
+    let prefs = backspace_core::prefs::Prefs::load();
+    let runtimes = backspace_core::model_server::detect(&prefs, &[]);
+    if runtimes.is_empty() {
+        println!("no local runtime found (Ollama, LM Studio, llama.cpp, MLX)");
+    }
+    for r in &runtimes {
+        println!(
+            "{:<10} {:<34} {:<9} {}",
+            r.id,
+            r.base_url,
+            if r.running { "running" } else { "stopped" },
+            r.message.clone().unwrap_or_default()
+        );
+        for m in &r.models {
+            println!(
+                "    {:<44} {}{}",
+                m.id,
+                if m.tiny { "tiny" } else { "" },
+                m.size_bytes.map(|b| format!("  {}", backspace_core::model_server::human_size(b))).unwrap_or_default()
+            );
+        }
+    }
+    match backspace_core::model_server::recommend(&runtimes) {
+        Some((url, model)) => println!("\nsmall jobs could run on {model} at {url}"),
+        None => println!("\nnothing running: small jobs stay on the main model"),
+    }
+    if let Some(chosen) = prefs.subagent_model {
+        println!("configured for small jobs: {chosen}");
     }
     Ok(())
 }

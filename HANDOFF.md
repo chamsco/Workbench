@@ -1,5 +1,49 @@
 # Handoff: Backspace (ohMyHarness → Workbench), v0
 
+**Latest session, 14 Oct 2026.** Everything in `docs/PLAN-NEW-FEATURES.md` is
+shipped (see the table at the top of that file), plus two the plan did not
+have. What changed:
+
+- **New crate `crates/colony`** (`backspace-colony`, MIT): durable,
+  chat-addressable workspaces — a WSL2 distro or Hyper-V VM named, created,
+  used and destroyed by an agent through `colony_create` / `colony_exec` /
+  `colony_list` / `colony_status` / `colony_destroy`. `Backend` trait with
+  `VisorCli` (drives `capsule/`'s `visor-core` JSON CLI) and `FakeBackend`
+  (25 tests, no VM). Docs: `docs/COLONY.md`; the landscape it borrows from:
+  `docs/DURABLE-OBJECTS-2026-10.md`. `backspace-core` and `backspace-tauri`
+  now depend on it; `cargo build --manifest-path capsule/core/Cargo.toml`
+  builds the CLI it drives (that crate is its own workspace on purpose).
+- **`crates/core/src/accounts.rs`**: several logins per CLI in their own
+  profile dirs (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, …), health, cooldown, and
+  `Automatic` / `Manual` / `Off`. Wired into `run_cli_turn` (`account_env`,
+  health notes, a confirmed usage limit parks the login). Settings →
+  **Accounts**. Never switches on a plain rate limit.
+- **`crates/core/src/model_server.rs`**: finds Ollama, LM Studio, llama.cpp,
+  MLX and loopback OpenAI endpoints, ranks them, marks the tiny ones (≤ 4B or
+  a name/size heuristic), and recommends what to delegate to. Settings →
+  **Local models**; `backspace-cli models` prints the same. The chosen model
+  becomes `advisor.scout_model` (`local_subagent` in `harness.rs`).
+- **Board threads**: `BoardMsg.reply_to` / `.thread`, `board::reply`,
+  `conversations`, `between`; the `dm` and `read_conversation` tools (API,
+  MCP and `msg send --reply`); a **Conversation** canvas beside Team chat.
+- **Settings redesign**: grouped left nav (Personal / Integrations / Coding /
+  System) and an Appearance panel (accent per theme, background, foreground,
+  UI and code fonts, translucency, contrast) over `Prefs::appearance` +
+  `set_appearance` (validated and clamped Rust-side).
+- **ponytail skill** vendored (`crates/core/skills/ponytail/`, MIT) and
+  injected into workers by default.
+- Tests: `crates/core/tests/features.rs` covers conversations, the local
+  scout model and account failover end to end without a network or a VM.
+
+Still open, and worth doing next: the P0s in `docs/AUDIT-2026-10-12.md` that
+were *not* addressed — restart losing in-flight workers (P0-2), the companion
+attack surface (P0-3), `prefs.json` permissions on Windows (P0-4, partly),
+unbounded state growth (P1-5), the panic surface (P1-6) — plus a per-turn
+timeout, worktrees on the runner, and checkpoint→switch→resume for accounts
+(today a turn that dies on a limit is simply re-asked on the new login).
+
+---
+
 State as of 7 Oct 2026, commit `56ff91a` on `main`.
 
 ## Where things are

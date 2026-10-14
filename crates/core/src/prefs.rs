@@ -85,6 +85,12 @@ pub struct Prefs {
     pub remote_agents: Vec<RemoteAgent>,
     /// Outside tools (MCP servers) bots can be given (a bot's Connected apps).
     pub connections: Vec<Connection>,
+    /// Colours, fonts and contrast, layered over the theme (Settings → Appearance).
+    pub appearance: Appearance,
+    /// Small local jobs (reading, classifying, summarising) go here when a
+    /// runner is up: the `model_server` id of a tiny model, e.g.
+    /// "ollama:lfm2.5:latest". None: only the big agent's own model.
+    pub subagent_model: Option<String>,
 }
 
 impl Default for Prefs {
@@ -125,7 +131,66 @@ impl Default for Prefs {
             connections: vec![],
             worker: None,
             api_keys: BTreeMap::new(),
+            appearance: Appearance::default(),
+            subagent_model: None,
         }
+    }
+}
+
+/// The Appearance panel: an accent, a background and a foreground on top of
+/// the light/dark theme, the two font stacks, translucency and contrast.
+/// Every field empty means "whatever the theme already says".
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+#[serde(default)]
+pub struct Appearance {
+    /// Accent for the light theme, a hex colour ("#cf5a24").
+    pub accent: String,
+    /// Accent for the dark theme; empty falls back to `accent`.
+    pub accent_dark: String,
+    pub bg: String,
+    pub fg: String,
+    /// Empty: the bundled Inter. A name is used verbatim, then a system one.
+    pub ui_font: String,
+    /// Empty: the platform monospace stack.
+    pub code_font: String,
+    /// Off makes the window opaque (a solid `--pane`) instead of frosted.
+    pub translucent: bool,
+    /// 0.6 (softest) .. 1.4 (sharpest). 1.0 is the theme as designed.
+    pub contrast: f32,
+}
+
+impl Appearance {
+    /// Contrast rounded into the range the panel offers, 1.0 when unset.
+    pub fn contrast_or_default(&self) -> f32 {
+        if self.contrast <= 0.0 {
+            1.0
+        } else {
+            self.contrast.clamp(0.6, 1.4)
+        }
+    }
+
+    /// The CSS custom properties this panel owns, as `(name, value)`.
+    /// Returned rather than written here so the shells can apply them to
+    /// whichever document holds the window.
+    pub fn css(&self) -> Vec<(String, String)> {
+        let mut out = Vec::new();
+        let var = |n: &str, v: &str| Some((n.to_string(), v.to_string()));
+        if !self.accent.is_empty() {
+            out.extend(var("--bs-accent", &self.accent));
+        }
+        if !self.bg.is_empty() {
+            out.extend(var("--page-bg", &self.bg));
+        }
+        if !self.fg.is_empty() {
+            out.extend(var("--fg", &self.fg).into_iter().chain(var("--page-fg", &self.fg)));
+        }
+        if !self.ui_font.is_empty() {
+            out.extend(var("--font-ui", &self.ui_font));
+        }
+        if !self.code_font.is_empty() {
+            out.extend(var("--font-mono", &self.code_font));
+        }
+        out
     }
 }
 

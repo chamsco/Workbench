@@ -87,6 +87,16 @@ const P = {
   phone: '<rect x="4.4" y="1.8" width="7.2" height="12.4" rx="1.8"/><path d="M7.2 11.8h1.6"/>',
   download: '<path d="M8 2.6v7.6M4.8 7.2 8 10.4l3.2-3.2M3 13.2h10"/>',
   opts: '<rect x="2.2" y="2.6" width="6.4" height="8.2" rx="1.3"/><rect x="7.4" y="5.2" width="6.4" height="8.2" rx="1.3"/>',
+  sliders: '<path d="M3 4.6h10M3 8h10M3 11.4h10"/><circle cx="6" cy="4.6" r="1.3"/><circle cx="10.4" cy="8" r="1.3"/><circle cx="5.4" cy="11.4" r="1.3"/>',
+  palette: '<path d="M8 2.4a5.6 5.6 0 0 0 0 11.2c.9 0 1.4-.6 1.4-1.3 0-.8-.6-1.2-.6-1.9 0-.6.5-1.1 1.2-1.1h1.2a2.4 2.4 0 0 0 2.4-2.4C13.6 4.3 11.1 2.4 8 2.4z"/><circle cx="6" cy="6" r=".8" fill="currentColor"/><circle cx="8.6" cy="5" r=".8" fill="currentColor"/><circle cx="5.2" cy="9" r=".8" fill="currentColor"/>',
+  plug: '<path d="M6 2.6v3.2M10 2.6v3.2M4 5.8h8v2.4a4 4 0 0 1-8 0z"/><path d="M8 12.2v1.4"/>',
+  grid: '<rect x="2.4" y="2.4" width="4.6" height="4.6" rx="1.1"/><rect x="9" y="2.4" width="4.6" height="4.6" rx="1.1"/><rect x="2.4" y="9" width="4.6" height="4.6" rx="1.1"/><rect x="9" y="9" width="4.6" height="4.6" rx="1.1"/>',
+  book: '<path d="M2.6 3.2h4.2c.8 0 1.2.5 1.2 1.2v8.4c0-.7-.4-1.2-1.2-1.2H2.6zM13.4 3.2H9.2c-.8 0-1.2.5-1.2 1.2v8.4c0-.7.4-1.2 1.2-1.2h4.2z"/>',
+  box: '<path d="M2.4 5.6 8 2.6l5.6 3v4.8L8 13.4l-5.6-3z"/><path d="M2.4 5.6 8 8.6l5.6-3M8 8.6v4.8"/>',
+  activity: '<path d="M1.8 8.6h3l1.6-4 2.4 7.2 1.6-4h3.8"/>',
+  share: '<circle cx="12.4" cy="3.8" r="1.8"/><circle cx="3.6" cy="8" r="1.8"/><circle cx="12.4" cy="12.2" r="1.8"/><path d="m5.2 7.1 5.6-2.4M5.2 8.9l5.6 2.4"/>',
+  archive: '<rect x="2.2" y="3" width="11.6" height="3" rx="1"/><path d="M3.4 6v6.4a1 1 0 0 0 1 1h7.2a1 1 0 0 0 1-1V6M6.4 8.8h3.2"/>',
+  cpu: '<rect x="4.4" y="4.4" width="7.2" height="7.2" rx="1.2"/><path d="M6.6 2v2.4M9.4 2v2.4M6.6 11.6V14M9.4 11.6V14M2 6.6h2.4M2 9.4h2.4M11.6 6.6H14M11.6 9.4H14"/>',
 };
 const icon = (n, cls = "") => `<svg class="ic ${cls}" viewBox="0 0 16 16" aria-hidden="true">${P[n]}</svg>`;
 $$("[data-icon]").forEach(el => (el.innerHTML = icon(el.dataset.icon)));
@@ -219,9 +229,41 @@ function flip(els, mutate) {
 }
 
 // ------------------------------------------------------------------ theme + chrome
+// Settings → Appearance owns these, on top of the light/dark theme.
+// Contrast dims or sharpens the secondary text ramp, as a straight linear
+// interpolation from the background toward each level's designed colour.
+const RAMP = {
+  light: { bg: [255, 255, 255], fg: [[28, 26, 31], [78, 73, 85], [125, 119, 133], [168, 162, 174]] },
+  dark: { bg: [23, 22, 27], fg: [[236, 232, 239], [189, 182, 195], [138, 131, 144], [95, 89, 101]] },
+};
+const mixHex = (from, to, t) => "#" + from.map((c, i) => Math.round(c + (to[i] - c) * t).toString(16).padStart(2, "0")).join("");
+function contrastVars(pal, contrast) {
+  const t = Math.min(1, Math.max(0, (contrast - 0.6) / 0.8));
+  return pal.fg.map((c, i) => [`--fg${i ? "-" + (i + 1) : ""}`, mixHex(pal.bg, c, t)]);
+}
+function applyAppearance() {
+  const r = document.documentElement, a = prefs.appearance || {};
+  const dark = r.dataset.theme === "dark" || (!r.dataset.theme && matchMedia("(prefers-color-scheme: dark)").matches);
+  const set = (k, v) => { if (v) r.style.setProperty(k, v); else r.style.removeProperty(k); };
+  set("--bs-accent", (dark && a.accent_dark) || a.accent);
+  set("--page-bg", a.bg);
+  set("--fg", a.fg);
+  set("--page-fg", a.fg);
+  set("--font-ui", a.ui_font);
+  set("--font-mono", a.code_font);
+  // Contrast only moves the secondary levels; an explicit foreground wins.
+  for (const [k, v] of contrastVars(RAMP[dark ? "dark" : "light"], a.contrast > 0 ? a.contrast : 1)) {
+    if (!a.fg || k !== "--fg") set(k, v);
+  }
+  const trans = a.translucent === false && !!prefs.appearance;
+  set("--glass", trans ? (dark ? "rgb(36, 30, 38)" : "rgb(252, 249, 252)") : null);
+  set("--glass-side", trans ? (dark ? "rgb(48, 42, 50)" : "rgb(244, 241, 245)") : null);
+  set("--glass-main", trans ? (dark ? "rgb(20, 17, 22)" : "rgb(246, 243, 247)") : null);
+}
 function applyTheme() {
   const r = document.documentElement;
   if (prefs.theme === "light" || prefs.theme === "dark") r.dataset.theme = prefs.theme; else delete r.dataset.theme;
+  applyAppearance();
   if (window.Art && Art.current()) { Art.apply(Art.current()); }
   if (window.Apps) Apps.sendTheme();
 }
@@ -531,7 +573,7 @@ function newTabPop(anchor) {
   });
 }
 // Right-hand "+": add a canvas to this tab.
-const VIEWS = [["board", "bubble", "Team chat"], ["files", "folder", "Worktree files"], ["browser", "globe", "Browser"], ["diagram", "diagram", "Diagram review"], ["docs", "doc", "PLAN.md"], ["options", "opts", "Visual options"], ["empty", "window", "Empty canvas"]];
+const VIEWS = [["board", "bubble", "Team chat"], ["conversation", "reply", "Conversation"], ["files", "folder", "Worktree files"], ["browser", "globe", "Browser"], ["diagram", "diagram", "Diagram review"], ["docs", "doc", "PLAN.md"], ["options", "opts", "Visual options"], ["empty", "window", "Empty canvas"]];
 $("#addCanvas").dataset.popper = "";
 $("#addCanvas").onclick = e => {
   const full = tab().panes.length >= 4;
@@ -817,6 +859,7 @@ function fillPane(p, slot, body, ps) {
   else if (p.kind === "diagram") diagramPane(body, ps);
   else if (p.kind === "docs") docsPane(body);
   else if (p.kind === "board") boardPane(body, ps);
+  else if (p.kind === "conversation") conversationPane(p, body, ps);
   else if (p.kind === "options") optionsPane(p, body, ps);
   else if (p.kind === "trace") tracePane(p, body, ps);
   else chooser(slot, body);
@@ -830,6 +873,7 @@ function chooser(slot, body) {
     <button class="card" data-k="files">${icon("folder")}<span class="ct">Worktree</span><span class="cs">Browse the project's files</span></button>
     <button class="card" data-k="docs">${icon("doc")}<span class="ct">PLAN.md</span><span class="cs">The plan the main agent wrote</span></button>
     <button class="card" data-k="board">${icon("bubble")}<span class="ct">Team chat</span><span class="cs">What agents tell each other, across models and CLIs</span></button>
+    <button class="card" data-k="conversation">${icon("reply")}<span class="ct">Conversation</span><span class="cs">One thread between two agents, or with you</span></button>
     <button class="card" data-k="options">${icon("opts")}<span class="ct">Visual options</span><span class="cs">Variants an agent wants you to choose between</span></button></div>
     ${agents.length > 1 ? `<h5>Agent sessions</h5><div class="alist">${agents.filter(a => a.id !== MAIN).map(a => `<button class="chip-btn" data-a="${a.id}">${icon("sparkle")}${esc(a.title)}<span class="dot ${dotFor(a.status)}"></span></button>`).join("")}</div>` : ""}</div>`;
   $$("[data-k]", body).forEach(b => (b.onclick = () => setPane(slot, { kind: b.dataset.k, agent: 0, url: null })));
@@ -1246,7 +1290,8 @@ function boardPane(body, ps) {
   to.value = ps.to || "all"; to.onchange = () => (ps.to = to.value);
   const go = async () => {
     if (!inp.value.trim()) return;
-    try { await invoke("post_message", { to: to.value, text: inp.value.trim() }); inp.value = ""; } catch (e) { toast(String(e), "err"); }
+    const replyTo = inp.dataset.replyTo ? +inp.dataset.replyTo : null;
+    try { await invoke("post_message", { to: to.value, text: inp.value.trim(), replyTo }); inp.value = ""; delete inp.dataset.replyTo; inp.placeholder = "Message the team"; } catch (e) { toast(String(e), "err"); }
   };
   body.querySelector(".bsend").onclick = go;
   inp.onkeydown = e => { if (e.key === "Enter") go(); };
@@ -1259,11 +1304,78 @@ function boardMsgs(body) {
   const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
   box.innerHTML = ms.length ? ms.map(m => {
     const f = who(m.from), me = m.from === "you";
-    return `<div class="bm${me ? " me" : ""}"><div class="bm-h"><b>${esc(f.t)}</b>${f.run ? `<span class="bm-run">${esc(f.run)}</span>` : ""}<span class="bm-to">→ ${m.to === "all" ? "everyone" : esc(who(m.to).t)}</span><span class="bm-at">${new Date(m.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span></div><div class="bm-t">${esc(m.text)}</div></div>`;
+    const re = m.reply_to != null ? `<span class="bm-re">↩ #${m.reply_to}</span>` : "";
+    return `<div class="bm${me ? " me" : ""}" data-mid="${m.id}"><div class="bm-h"><b>${esc(f.t)}</b>${f.run ? `<span class="bm-run">${esc(f.run)}</span>` : ""}${re}<span class="bm-to">→ ${m.to === "all" ? "everyone" : esc(who(m.to).t)}</span><span class="bm-at">${new Date(m.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span><button class="ib bm-reply" data-reply="${m.id}" title="Answer this" aria-label="Answer this">${icon("reply")}</button></div><div class="bm-t">${esc(m.text)}</div></div>`;
   }).join("") : `<div class="nothing">No messages yet. Agents post here to coordinate (interfaces, shared files, questions), whether they run on an API model or in Claude Code, Codex or another CLI.</div>`;
   if (atBottom) box.scrollTop = box.scrollHeight;
+  $$("[data-reply]", box).forEach(b => (b.onclick = () => {
+    const id = +b.dataset.reply, m = ms.find(x => x.id === id); if (!m) return;
+    const inp = body.querySelector(".bin"), sel = body.querySelector(".bto");
+    if (sel) sel.value = m.from === "you" ? m.to : m.from;
+    inp.value = "";
+    inp.placeholder = `Answering #${id} (${who(m.from).t})`;
+    inp.focus();
+    inp.dataset.replyTo = String(id);
+  }));
   const sel = body.querySelector(".bto");
   if (sel && sel.options.length !== snap.agents.length + 1) { const v = sel.value; sel.innerHTML = [["all", "Everyone"], ...snap.agents.map(a => [a.key, `${a.title} (${a.key})`])].map(([k, l]) => `<option value="${esc(k)}">${esc(l)}</option>`).join(""); sel.value = v; }
+}
+
+// ------------------------------------------------------------------ conversation canvas
+// One conversation between two agents (or you and one), read from the board's
+// threads. The same messages Team chat shows, filtered to the pair.
+function boardThread(m) {
+  if (m.thread) return m.thread;
+  const f = m.from, t = m.to;
+  return t !== "all" && t !== f ? [f, t].sort().join("|") : f + "~all";
+}
+function boardThreads() {
+  const out = new Map();
+  (snap.board || []).forEach(m => {
+    const id = boardThread(m);
+    let th = out.get(id);
+    if (!th) { th = { id, sides: [], messages: [], last: 0 }; out.set(id, th); }
+    [m.from, m.to].forEach(s => { if (s !== "all" && !th.sides.includes(s)) th.sides.push(s); });
+    th.sides.sort();
+    th.messages.push(m);
+    th.last = Math.max(th.last, m.at);
+  });
+  return [...out.values()].sort((a, b) => b.last - a.last || (a.id < b.id ? -1 : 1));
+}
+function conversationPane(p, body, ps) {
+  const all = snap.agents.map(a => a.key);
+  const threads = boardThreads();
+  // Default to the busiest conversation: that is usually the one that matters.
+  if (!ps.with && threads.length) ps.with = threads[0].id;
+  const cur = threads.find(t => t.id === ps.with);
+  const who = k => (k === "you" ? "You" : (snap.agents.find(a => a.key === k) || {}).title || k);
+  const label = t => t.sides.map(who).join(" ↔ ") || t.id;
+  body.innerHTML = `<div class="conv">
+    <div class="conv-rail">${threads.length ? threads.map(t => `<button class="cv${t.id === ps.with ? " on" : ""}" data-th="${esc(t.id)}"><span class="cv-t">${esc(label(t))}</span><span class="cv-n">${t.messages.length}</span><small>${esc(t.messages[t.messages.length - 1].text.slice(0, 60))}</small></button>`).join("") : `<div class="nothing">No conversations yet. Agents post on the board as they work; each pair of them gets its own thread here.</div>`}</div>
+    <div class="conv-main">
+      ${cur ? `<header class="conv-h"><b>${esc(label(cur))}</b><span class="sp"></span><span class="bm-to">${cur.messages.length} message${cur.messages.length === 1 ? "" : "s"}</span></header>
+      <div class="bmsgs">${cur.messages.map(m => {
+        const me = m.from === "you";
+        return `<div class="bm${me ? " me" : ""}"><div class="bm-h"><b>${esc(who(m.from))}</b>${m.reply_to != null ? `<span class="bm-re">↩ #${m.reply_to}</span>` : ""}<span class="bm-to">→ ${m.to === "all" ? "everyone" : esc(who(m.to))}</span><span class="bm-at">${new Date(m.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span></div><div class="bm-t">${esc(m.text)}</div></div>`;
+      }).join("")}</div>
+      <footer class="bfoot"><select class="bto" aria-label="Reply as"></select><input class="bin" placeholder="Reply in this conversation" aria-label="Reply" autocomplete="off"><button class="btn primary sm bsend">Reply</button></footer>`
+      : `<div class="nothing">Pick a conversation on the left.</div>`}
+    </div></div>`;
+  $$("[data-th]", body).forEach(b => (b.onclick = () => { ps.with = b.dataset.th; conversationPane(p, body, ps); }));
+  const sel = body.querySelector(".bto"), inp = body.querySelector(".bin");
+  if (!sel || !cur) return;
+  const targets = cur.sides.filter(k => k !== "you");
+  sel.innerHTML = [...targets.map(k => [k, who(k)]), ["all", "Everyone"]].map(([k, l]) => `<option value="${esc(k)}">${esc(l)}</option>`).join("");
+  const last = cur.messages[cur.messages.length - 1];
+  sel.value = last && targets.includes(last.from) ? last.from : targets[0] || all[0] || "all";
+  const go = async () => {
+    if (!inp.value.trim()) return;
+    try { await invoke("post_message", { to: sel.value, text: inp.value.trim(), replyTo: last && last.from !== "you" ? last.id : null }); inp.value = ""; }
+    catch (e) { toast(String(e), "err"); }
+  };
+  body.querySelector(".bsend").onclick = go;
+  inp.onkeydown = e => { if (e.key === "Enter") go(); };
+  requestAnimationFrame(() => { const b = body.querySelector(".conv-main .bmsgs"); if (b) b.scrollTop = b.scrollHeight; });
 }
 
 // ------------------------------------------------------------------ visual options
@@ -1486,23 +1598,95 @@ function closeSettings() { if (!S.settings) return; S.settings = false; $("#sett
 let companion = null;
 async function refreshCompanion() { companion = await invoke("companion_status").catch(() => null); if (S.settings) renderSettings(); }
 async function refreshShare() { share = await invoke("share_status").catch(() => null); if (S.settings) renderSettings(); }
+// Settings → Appearance. The panel writes prefs.appearance and hands it to
+// the shell command; applyAppearance() turns it into custom properties.
+const ACCENTS = ["#cf5a24", "#2a66d9", "#187f45", "#6a4fd6", "#bf3a2f", "#1c1a1f"];
+function appearancePanel() {
+  const a = prefs.appearance || {}; const c = a.contrast > 0 ? a.contrast : 1;
+  const sw = (k, v, cls = "") => `<label class="swatch ${cls}"><input type="color" data-ap="${k}" value="${esc(v || "#ffffff")}" aria-label="${k}"><span style="background:${esc(v || "#ffffff")}"></span></label>`;
+  const font = (k, cur, ph) => `<input class="tx" style="width:190px" data-apv="${k}" value="${esc(cur || "")}" placeholder="${ph}" aria-label="${k}">`;
+  return `<div class="ap">
+    <div class="line"><span class="lab">Theme</span><div class="segc">${[["system", "System"], ["light", "Light"], ["dark", "Dark"]].map(([k, l]) => `<button aria-pressed="${(prefs.theme || "system") === k}" data-theme="${k}">${l}</button>`).join("")}</div></div>
+    <div class="line"><span class="lab">Accent<small>Tabs, selection, the Choose pill. One colour per theme.</small></span><div class="ap-row">
+      ${ACCENTS.map(h => `<button class="ap-chip${(a.accent || "#cf5a24") === h ? " on" : ""}" data-apset="accent" data-aphex="${h}" style="background:${h}" aria-label="Accent ${h}"></button>`).join("")}
+      ${sw("accent", a.accent || "#cf5a24")}${sw("accent_dark", a.accent_dark || a.accent || "#f08a5d", "dark")}
+      <button class="btn" data-apreset="all">Reset</button></div></div>
+    <div class="line"><span class="lab">Background<small>Pages, docs and the canvases' paper.</small></span><div class="ap-row">${sw("bg", a.bg || "#ffffff")}<button class="btn" data-apreset="bg">Reset</button></div></div>
+    <div class="line"><span class="lab">Foreground<small>Body text, on the background above.</small></span><div class="ap-row">${sw("fg", a.fg || "#1b1a1f")}<button class="btn" data-apreset="fg">Reset</button></div></div>
+    <div class="line"><span class="lab">UI font<small>Empty uses Inter, then the system face.</small></span>${font("ui_font", a.ui_font, "Inter")}</div>
+    <div class="line"><span class="lab">Code font<small>Logs, diffs and monospace blocks.</small></span>${font("code_font", a.code_font, "JetBrains Mono")}</div>
+    <div class="line"><span class="lab">Translucent window<small>Off makes the panes solid, for a busy backdrop or a screenshot.</small></span><button class="toggle" role="switch" id="apTrans" aria-checked="${a.translucent !== false}" aria-label="Translucent window"></button></div>
+    <div class="line"><span class="lab">Contrast<small>${c.toFixed(2)}× — dims the secondary text, or sharpens it.</small></span><input type="range" class="ap-range" id="apCon" min="0.6" max="1.4" step="0.05" value="${c}" aria-label="Contrast"></div>
+  </div>`;
+}
+const APPEARANCE_KEYS = ["accent", "accent_dark", "bg", "fg", "ui_font", "code_font", "translucent", "contrast"];
+function bindAppearance(el) {
+  const read = () => ({ ...(prefs.appearance || {}) });
+  const save = async a => { prefs.appearance = a; applyTheme(); await invoke("set_appearance", { appearance: a }); renderSettings(); };
+  $$("[data-ap]", el).forEach(i => (i.oninput = () => { const a = read(); a[i.dataset.ap] = i.value; prefs.appearance = a; applyTheme(); }));
+  $$("[data-ap]", el).forEach(i => (i.onchange = () => save(read())));
+  $$("[data-apv]", el).forEach(i => (i.onchange = () => { const a = read(); a[i.dataset.apv] = i.value.trim(); save(a); }));
+  $$("[data-aphex]", el).forEach(b => (b.onclick = () => { const a = read(); a[b.dataset.apset] = b.dataset.aphex; save(a); }));
+  $$("[data-apreset]", el).forEach(b => (b.onclick = () => {
+    const a = read(), k = b.dataset.apreset;
+    if (k === "all") APPEARANCE_KEYS.forEach(x => delete a[x]); else if (k === "bg") a.bg = ""; else a.fg = "";
+    save(a);
+  }));
+  const t = $("#apTrans", el); if (t) t.onclick = () => { const a = read(); a.translucent = t.getAttribute("aria-checked") !== "true"; save(a); };
+  const cr = $("#apCon", el); if (cr) {
+    cr.oninput = () => { const a = read(); a.contrast = +cr.value; prefs.appearance = a; applyAppearance(); el.querySelector("#apCon").previousElementSibling.querySelector("small").textContent = (+cr.value).toFixed(2) + "× — dims the secondary text, or sharpens it."; };
+    cr.onchange = () => save(read());
+  }
+}
+// Settings → what each pane is, and where the left nav points.
+const SET_NAV = [
+  ["Personal", [["general", "General", "sliders"], ["appearance", "Appearance", "palette"], ["notify", "Notifications", "bubble"], ["chat", "Chat behavior", "compose"], ["phone", "Phone", "phone"]]],
+  ["Integrations", [["providers", "Agent providers", "plug"], ["mcp", "MCP and connections", "grid"], ["machines", "Machines", "cloud"]]],
+  ["Coding", [["coding", "Models and writing", "codei"], ["accounts", "Accounts", "route"], ["models", "Local models", "cpu"], ["skills", "Agent skills", "book"], ["worktrees", "Managed worktrees", "branch"], ["colony", "Workspaces and Colony", "box"]]],
+  ["System", [["tracing", "Tracing", "activity"], ["projects", "Projects", "folder"], ["share", "Share this machine", "share"], ["updates", "Updates", "download"]]],
+];
 function renderSettings() {
   const el = $("#settings");
   const keep = {}; $$("input.tx[id]", el).forEach(i => (keep[i.id] = i.value));
   const th = prefs.theme || "system";
   const sh = share || { enabled: false, addr: "127.0.0.1:7420", token: "", error: null, sharing: false };
   const u = upd && upd !== "checking" ? upd : null;
-  el.innerHTML = `<div class="set">
+  if (!S.setSection) S.setSection = "general";
+  const on = k => (k === S.setSection ? " on" : "");
+  const nav = SET_NAV.map(([g, items]) => `<div class="sg"><span>${g}</span>${items.map(([k, l, ic]) => `<button class="sv${on(k)}" data-setnav="${k}">${icon(ic)}${l}</button>`).join("")}</div>`).join("")
+    + `<div class="sg"><span>Archived</span><button class="sv${on("home")}" data-setnav="home">${icon("archive")}Archived threads</button></div>`;
+  el.innerHTML = `<div class="setwrap"><nav class="setnav" aria-label="Settings sections">${nav}</nav><div class="setbody"><div class="set">
     <div class="set-h"><h1>Settings</h1><span class="sp"></span><button class="btn" id="setRerun">Run setup again</button><button class="ib" id="setClose" aria-label="Close settings">${icon("close")}</button></div>
-    <section id="set-providers"><h2>Coding CLIs and models</h2><p class="lead">What Chat and projects can use. Backspace scans this machine for each CLI, its version and whether it is signed in; switch off any you don't want offered.</p><div id="setProviders"></div></section>
-    <section id="set-plan"><h2>Backspace Cloud</h2><p class="lead">Chat without installing anything. Free with a short ad under each reply, or a paid plan.</p><div id="setPlan"></div></section>
-    <section id="set-coding"><h2>Coding</h2><p class="lead">A project's planner runs on an API model (Anthropic or OpenRouter, keys below). Each ticket's worker can run on the router's pick, or be handed to a coding CLI you're signed in to: it works in the ticket's own git worktree, then goes through the same checks and your review.</p>
-      <div class="line stack"><span class="lab">Agents run on<small>The planner and the workers, what they may do, and how hard they think. Applies when a project opens.${hasProject ? ` <button class="lnk" id="reopen">Reopen ${esc(snap.name)} now</button>` : ""}</small></span><div class="segc" id="workerSeg"></div></div>
-      <div id="keyRows"></div></section>
-    <section id="set-chat"><h2>Chat</h2><div class="line"><span class="lab">New chats go to<small>You can switch per chat from the composer.</small></span><button class="btn" id="setRoute" data-popper>${esc(window.Chat ? Chat.routeName(prefs.default_route) : "Pick")}</button></div>
-      <div class="line"><span class="lab">Rich answers<small>Models may answer with charts, tables, steps and forms (OpenUI). Off: Markdown only, and a shorter prompt.</small></span><button class="toggle" role="switch" id="richT" aria-checked="${richOn()}" aria-label="Rich answers"></button></div></section>
+    <section id="set-general"><h2>General</h2><p class="lead">What Backspace is for, where it looks for projects, and the open project.</p>
+      <div class="line"><span class="lab">What shows in the app<small>With both on, switch from the top of the sidebar.</small></span><div class="segc">${[["chat", "Chat"], ["code", "Coding"]].map(([k, l]) => `<button aria-pressed="${(prefs.uses || ["chat", "code"]).includes(k)}" data-use="${k}">${l}</button>`).join("")}</div></div>
+      ${hasProject ? `<div class="line"><span class="lab">Workspace<small class="mono">${esc(snap.workspace || "—")}</small></span></div>
+      <div class="line"><span class="lab">Config<small class="mono">${esc(snap.config_source || "built-in defaults")}</small></span></div>` : ""}</section>
+    <section id="set-appearance"><h2>Appearance</h2><p class="lead">A theme, then the colours and fonts on top of it.</p>
+      ${appearancePanel()}
+      <div class="line stack"><span class="lab">Background<small>Behind the window, and across the top of Home.</small></span><div class="bdrops">${Art.BACKDROPS.map(([k, l]) => `<button class="bdrop" aria-pressed="${Art.current() === k}" data-bd="${k}" title="${l}"><span class="sw sw-${k}" ${Art.src(k) ? `style="background-image:url('${Art.src(k)}')"` : ""}></span><span>${l}</span></button>`).join("")}</div></div></section>
     <section id="set-notify"><h2>Notifications</h2><div class="line"><span class="lab">When something needs you<small>A plan to approve, work to review, an agent that failed, a chat that hit a limit.</small></span><div class="segc">${[["system", "System"], ["app", "In the app"], ["off", "Off"]].map(([k, l]) => `<button aria-pressed="${(prefs.notify || "system") === k}" data-nt="${k}">${l}</button>`).join("")}</div></div>
       <div class="line"><span class="lab"></span><button class="btn" id="ntTest">Send a test notification</button></div></section>
+    <section id="set-chat"><h2>Chat behavior</h2><div class="line"><span class="lab">New chats go to<small>You can switch per chat from the composer.</small></span><button class="btn" id="setRoute" data-popper>${esc(window.Chat ? Chat.routeName(prefs.default_route) : "Pick")}</button></div>
+      <div class="line"><span class="lab">Rich answers<small>Models may answer with charts, tables, steps and forms (OpenUI). Off: Markdown only, and a shorter prompt.</small></span><button class="toggle" role="switch" id="richT" aria-checked="${richOn()}" aria-label="Rich answers"></button></div></section>
+    <section id="set-phone"><h2>Phone</h2><p class="lead">The Backspace phone app (coming soon) follows your chats, saves notes to Memory and approves a project's work from anywhere on the same network. Turn this on and scan the code with it to pair; plain HTTP with a token, so use it on a network you trust (or Tailscale).</p>
+      <div class="line"><span class="lab">Let my phone connect<small>${companion && companion.error ? esc(companion.error) : companion && companion.running ? `Listening on ${esc(companion.url || companion.addr)}` : "Off"}</small></span><button class="toggle" role="switch" id="phoneT" aria-checked="${!!(companion && companion.enabled)}" aria-label="Let my phone connect"></button></div>
+      ${companion && companion.enabled && companion.pair ? `<div class="pair"><div class="qr" id="phoneQr" aria-label="Pairing code"></div><div class="pair-t"><b>Scan with the Backspace app</b><span>Or enter <code>${esc(companion.url)}</code> and the token by hand.</span><div class="pair-b"><button class="btn" id="phoneCopy">${icon("copy")}Copy pairing link</button><button class="btn" id="phoneNew">Unpair all phones</button></div></div></div>` : companion && companion.enabled && !companion.url ? `<p class="warnp">${icon("warn")}This machine has no address on a local network, so a phone can't reach it.</p>` : ""}</section>
+    <section id="set-providers"><h2>Agent providers</h2><p class="lead">What Chat and projects can use. Backspace scans this machine for each CLI, its version and whether it is signed in; switch off any you don't want offered.</p><div id="setProviders"></div>
+      <div class="line"><span class="lab">Backspace Cloud</span><span class="lead" style="margin:0">Chat without installing anything. Free with a short ad under each reply, or a paid plan.</span></div><div id="setPlan"></div></section>
+    <section id="set-mcp"><h2>MCP and connections</h2><p class="lead">Outside tools a bot can be given through the Model Context Protocol. Add a server by command or URL; every bot you give it to can call its tools.</p><div id="setConnections"></div></section>
+    <section id="set-machines"><h2>Machines</h2><p class="lead">Follow and drive the harness on other machines. Each one runs <code>backspace-cli serve</code> (or shares from its own Backspace, below); add it with its address and token. Switch machines from the sidebar foot.</p>
+      ${machines.map(m => `<div class="mrow"><span class="mi">${icon(m.local ? "pc" : "cloud")}</span><span class="lab">${esc(m.name)}${m.selected ? " · showing" : ""}<small>${m.local ? "This machine" : esc(m.url)} · ${m.link.state === "offline" ? "offline: " + esc(m.link.error) : m.link.state}${m.project ? " · " + esc(m.project) : ""}</small></span>
+        ${m.selected ? "" : `<button class="btn" data-show="${m.index}">Show</button>`}${m.local ? "" : `<button class="btn danger" data-rm="${m.index}">Remove</button>`}</div>`).join("")}
+      <div class="form3"><input class="tx" id="mName" placeholder="Name, e.g. Cloud" aria-label="Machine name"><input class="tx mono" id="mUrl" placeholder="http://10.0.0.5:7420" aria-label="Address"><input class="tx mono" id="mTok" placeholder="Token" aria-label="Token"><button class="btn primary" id="mAdd">Add</button></div>
+      <div class="err" id="mErr" role="alert"></div></section>
+    <section id="set-coding"><h2>Models and writing</h2><p class="lead">A project's planner runs on an API model (Anthropic or OpenRouter, keys below). Each ticket's worker can run on the router's pick, or be handed to a coding CLI you're signed in to: it works in the ticket's own git worktree, then goes through the same checks and your review.</p>
+      <div class="line stack"><span class="lab">Agents run on<small>The planner and the workers, what they may do, and how hard they think. Applies when a project opens.${hasProject ? ` <button class="lnk" id="reopen">Reopen ${esc(snap.name)} now</button>` : ""}</small></span><div class="segc" id="workerSeg"></div></div>
+      <div id="keyRows"></div></section>
+    <section id="set-accounts"><h2>Accounts</h2><p class="lead">Several logins per coding CLI, each in its own profile directory, kept apart. When one hits its usage limit it is parked and the next turn picks another — never on a plain rate limit, only when the CLI itself reports a limit. Backspace never holds the credentials: the CLI signs in to its own profile directory.</p><div id="setAccounts"></div></section>
+    <section id="set-models"><h2>Local models</h2><p class="lead">Small models on this machine, for the small jobs a big agent delegates: reading, classifying, summarising, extracting. Ollama, LM Studio, llama.cpp and MLX are all found where they run.</p><div id="setLocal"></div></section>
+    <section id="set-skills"><h2>Agent skills</h2><p class="lead">Markdown playbooks an agent loads on demand. Each role gets some injected; every agent can load any of them. Drop a folder with a <code>SKILL.md</code> into <code>~/.config/backspace/skills/</code> or <code>&lt;workspace&gt;/.backspace/skills/</code> to replace one or add your own.</p><div id="setSkills"></div></section>
+    <section id="set-worktrees"><h2>Managed worktrees</h2><p class="lead">Each ticket's agent gets its own git branch and worktree, forked from its parent's branch. Worktrees are kept after a run so you can reopen a ticket; each one carries its own copy of dependencies.</p><div id="setWorktrees"></div></section>
+    <section id="set-colony"><h2>Workspaces and Colony</h2><p class="lead">Colony gives an agent a real machine of its own: a WSL2 distro or a Hyper-V VM, started on demand, addressable by name, thrown away when the task is done. Backspace drives visor-core's JSON CLI.</p><div id="setColony"></div></section>
     <section id="set-tracing"><h2>Tracing</h2><p class="lead">Every reply keeps a trace on this machine: each tool call, how long it took, tokens and cost (the timeline button under a reply). To watch them elsewhere, send them to an OpenTelemetry collector such as treg, Jaeger or Langfuse.</p>
       <div class="line"><span class="lab">Collector<small>OTLP over HTTP; <code>/v1/traces</code> is added for you. Empty keeps traces here only.</small></span><input class="tx mono" id="trEp" value="${esc((prefs.tracing || {}).endpoint || "")}" placeholder="https://collector.example.com" style="width:260px" aria-label="Collector address"></div>
       <div class="line"><span class="lab">Header<small>For sign-in, e.g. <code>authorization: Bearer …</code></small></span><input class="tx mono" id="trHdr" value="${esc(Object.entries((prefs.tracing || {}).headers || {}).map(([k, v]) => k + ": " + v).join("; "))}" placeholder="authorization: Bearer …" style="width:260px" aria-label="Header"></div>
@@ -1511,31 +1695,30 @@ function renderSettings() {
     <section id="set-projects"><h2>Projects</h2>
       ${(prefs.projects || []).length ? prefs.projects.map(p => `<div class="mrow"><span class="mi">${icon("folder")}</span><span class="lab">${esc(base(p))}${hasProject && p === snap.workspace ? " · open" : ""}<small class="mono">${esc(p)}</small></span><button class="btn" data-popen="${esc(p)}">Open</button><button class="btn danger" data-pforget="${esc(p)}">Forget</button></div>`).join("") : `<p class="lead">No projects yet.</p>`}
       <div class="line"><span class="lab"></span><button class="btn primary" id="setOpenFolder">Open folder…</button></div></section>
-    <section id="set-uses"><h2>Use Backspace for</h2><div class="line"><span class="lab">What shows in the app<small>With both on, switch from the top of the sidebar.</small></span><div class="segc">${[["chat", "Chat"], ["code", "Coding"]].map(([k, l]) => `<button aria-pressed="${(prefs.uses || ["chat", "code"]).includes(k)}" data-use="${k}">${l}</button>`).join("")}</div></div></section>
-    <section><h2>Appearance</h2><div class="line"><span class="lab">Theme</span><div class="segc">${[["system", "System"], ["light", "Light"], ["dark", "Dark"]].map(([k, l]) => `<button aria-pressed="${th === k}" data-theme="${k}">${l}</button>`).join("")}</div></div>
-      <div class="line stack"><span class="lab">Background<small>Behind the window, and across the top of Home.</small></span><div class="bdrops">${Art.BACKDROPS.map(([k, l]) => `<button class="bdrop" aria-pressed="${Art.current() === k}" data-bd="${k}" title="${l}"><span class="sw sw-${k}" ${Art.src(k) ? `style="background-image:url('${Art.src(k)}')"` : ""}></span><span>${l}</span></button>`).join("")}</div></div></section>
-    <section id="set-machines"><h2>Machines</h2><p class="lead">Follow and drive the harness on other machines. Each one runs <code>backspace-cli serve</code> (or shares from its own Backspace, below); add it with its address and token. Switch machines from the sidebar foot.</p>
-      ${machines.map(m => `<div class="mrow"><span class="mi">${icon(m.local ? "pc" : "cloud")}</span><span class="lab">${esc(m.name)}${m.selected ? " · showing" : ""}<small>${m.local ? "This machine" : esc(m.url)} · ${m.link.state === "offline" ? "offline: " + esc(m.link.error) : m.link.state}${m.project ? " · " + esc(m.project) : ""}</small></span>
-        ${m.selected ? "" : `<button class="btn" data-show="${m.index}">Show</button>`}${m.local ? "" : `<button class="btn danger" data-rm="${m.index}">Remove</button>`}</div>`).join("")}
-      <div class="form3"><input class="tx" id="mName" placeholder="Name, e.g. Cloud" aria-label="Machine name"><input class="tx mono" id="mUrl" placeholder="http://10.0.0.5:7420" aria-label="Address"><input class="tx mono" id="mTok" placeholder="Token" aria-label="Token"><button class="btn primary" id="mAdd">Add</button></div>
-      <div class="err" id="mErr" role="alert"></div></section>
     <section id="set-share"><h2>Share this machine</h2><p class="lead">Let other machines follow this harness and approve its work. Plain HTTP with a token: keep it on localhost and use an SSH tunnel, or a private network such as Tailscale.</p>
       <div class="line"><span class="lab">Sharing<small>${sh.sharing ? "On at http://" + esc(sh.addr) : "Off"}</small></span><button class="toggle" role="switch" aria-checked="${sh.enabled}" id="shareT" aria-label="Share this machine"></button></div>
       <div class="line"><span class="lab">Address</span><input class="tx mono" id="shAddr" value="${esc(sh.addr)}" style="width:200px" aria-label="Listen address"><button class="btn" id="shApply">Apply</button></div>
       <div class="line"><span class="lab">Token</span><code class="mono" style="user-select:all">${esc(sh.token)}</code><button class="btn" id="shNew">New token</button></div>
       ${sh.error ? `<div class="err">${esc(sh.error)}</div>` : ""}
       <pre class="cmd">ssh -L 7420:${esc(sh.addr)} you@this-machine   # then add http://127.0.0.1:7420 elsewhere</pre></section>
-    <section id="set-phone"><h2>Phone</h2><p class="lead">The Backspace phone app (coming soon) follows your chats, saves notes to Memory and approves a project's work from anywhere on the same network. Turn this on and scan the code with it to pair; plain HTTP with a token, so use it on a network you trust (or Tailscale).</p>
-      <div class="line"><span class="lab">Let my phone connect<small>${companion && companion.error ? esc(companion.error) : companion && companion.running ? `Listening on ${esc(companion.url || companion.addr)}` : "Off"}</small></span><button class="toggle" role="switch" id="phoneT" aria-checked="${!!(companion && companion.enabled)}" aria-label="Let my phone connect"></button></div>
-      ${companion && companion.enabled && companion.pair ? `<div class="pair"><div class="qr" id="phoneQr" aria-label="Pairing code"></div><div class="pair-t"><b>Scan with the Backspace app</b><span>Or enter <code>${esc(companion.url)}</code> and the token by hand.</span><div class="pair-b"><button class="btn" id="phoneCopy">${icon("copy")}Copy pairing link</button><button class="btn" id="phoneNew">Unpair all phones</button></div></div></div>` : companion && companion.enabled && !companion.url ? `<p class="warnp">${icon("warn")}This machine has no address on a local network, so a phone can't reach it.</p>` : ""}</section>
     <section id="set-updates"><h2>Updates</h2>
       <div class="line"><span class="lab">Check for updates automatically</span><button class="toggle" role="switch" aria-checked="${prefs.check_updates}" id="updT" aria-label="Check for updates automatically"></button></div>
       <div class="line"><span class="lab">Backspace ${esc(u && u.current || "0.1.0")}<small>${u && u.error ? esc(u.error) : u && u.newer ? `Version ${esc(u.latest)} is available.` : u ? "You're on the latest release." : "Not checked yet."}</small></span>
         ${u && u.newer ? `<button class="btn primary" id="updGo">Download & Update</button>` : `<button class="btn" id="updNow">Check now</button>`}</div></section>
-    ${hasProject ? `<section><h2>Open project</h2>
-      <div class="line"><span class="lab">Workspace<small class="mono">${esc(snap.workspace || "—")}</small></span></div>
-      <div class="line"><span class="lab">Config<small class="mono">${esc(snap.config_source || "built-in defaults")}</small></span></div></section>` : ""}</div>`;
+    <section id="set-home"><h2>Archived threads</h2><p class="lead">Threads you archived. They keep their messages and can be restored from Chat.</p><div id="setArchived"></div></section>
+  </div></div></div>`;
   Object.entries(keep).forEach(([id, v]) => { const i = $("#" + id, el); if (i && v) i.value = v; });
+  const showSection = k => {
+    if (!SET_NAV.flatMap(g => g[1]).some(([x]) => x === k) && k !== "home") k = "general";
+    S.setSection = k;
+    $$("[data-setnav]", el).forEach(b => b.classList.toggle("on", b.dataset.setnav === k));
+    $$(".setbody > .set > section", el).forEach(s => (s.hidden = s.id !== "set-" + k));
+    $(".setbody", el).scrollTop = 0;
+    const nav2 = $(`[data-setnav="${k}"]`, el); if (nav2) nav2.scrollIntoView({ block: "nearest" });
+  };
+  $$("[data-setnav]", el).forEach(b => (b.onclick = () => showSection(b.dataset.setnav)));
+  showSection(S.setSection);
+  bindAppearance(el);
   $("#setClose").onclick = closeSettings;
   const pt = $("#phoneT", el);
   const trCfg = () => {
@@ -1560,6 +1743,8 @@ function renderSettings() {
   }));
   $("#setRerun").onclick = () => { closeSettings(); Onboard.open(); };
   if (window.Providers) { Providers.mount($("#setProviders")); Providers.mountPlan($("#setPlan")); }
+  renderConnections(el); renderSkills(el); renderColony(el); renderArchived(el); renderAccounts(el);
+  if (Models.mount) Models.mount($("#setLocal"), $("#setWorktrees"));
   $("#setRoute").onclick = e => Chat.routePicker(e.currentTarget, prefs.default_route, async r => { prefs.default_route = r; await invoke("set_default_route", { route: r }); renderSettings(); });
   $("#setOpenFolder").onclick = pickProject;
   renderCoding(el);
@@ -1615,6 +1800,171 @@ async function renderCoding(el) {
     try { await invoke("set_api_key", { name: b.dataset.savekey, value: i.value }); toast(i.value ? "Key saved" : "Key removed", "ok"); renderCoding(el); } catch (e) { toast(String(e), "err"); }
   }));
 }
+
+// Settings → Accounts: several logins per CLI, kept apart (accounts.rs).
+// "Switch now" walks to the next usable login; Automatic only fails over when
+// the CLI itself reports a usage limit.
+const ACCOUNT_CLIS = [["claude", "Claude Code"], ["codex", "Codex"], ["cursor", "Cursor"], ["opencode", "OpenCode"], ["gemini", "Gemini"], ["copilot", "Copilot"]];
+async function renderAccounts(el) {
+  const box = $("#setAccounts", el); if (!box) return;
+  let d;
+  try { d = await invoke("accounts"); } catch (e) { box.innerHTML = `<div class="err">${esc(String(e))}</div>`; return; }
+  if (!box.isConnected) return;
+  const hs = window.Providers ? Providers.list : [];
+  const known = id => hs.some(h => h.id === id && h.installed);
+  const st = a => (a.health && a.health.state) || "unknown";
+  const cool = a => a.health && a.health.cooldown_until > Date.now();
+  const when = ms => new Date(ms).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  box.innerHTML = `<div class="line"><span class="lab">When a limit is hit<small>Automatic switches to the next login and carries on; Manual leaves it to you; Off turns the whole registry off.</small></span>
+      <div class="segc">${[["automatic", "Automatic"], ["manual", "Manual"], ["off", "Off"]].map(([k, l]) => `<button aria-pressed="${d.policy === k}" data-pol="${k}">${l}</button>`).join("")}</div></div>
+    ${d.accounts.length ? d.accounts.map(a => `<div class="prow${a.enabled ? "" : " dim"}"><span class="mi">${icon("route")}</span>
+      <div class="pmain"><div class="pname">${esc(a.name)} <span class="pver">${esc(a.provider)}</span></div>
+        <span class="pst ${cool(a) ? "warn" : st(a) === "healthy" ? "ok" : "off"}">${cool(a) ? `parked until ${esc(when(a.health.cooldown_until))}` : esc(st(a))}${a.health.fails_24h ? ` · ${a.health.fails_24h} failure${a.health.fails_24h === 1 ? "" : "s"} in 24h` : ""}</span>
+        <div class="pmsg mono">${esc(a.profile_dir || "the CLI's own login")}</div>
+        ${a.usage && a.usage.report ? `<div class="pmsg">${esc(a.usage.report)}</div>` : ""}</div>
+      <button class="toggle" role="switch" aria-checked="${a.enabled}" data-aon="${esc(a.id)}" aria-label="Use ${esc(a.name)}"></button>
+      <button class="ib" data-arm="${esc(a.id)}" title="Remove" aria-label="Remove">${icon("trash")}</button></div>`).join("")
+      : `<p class="lead">No extra logins yet. Add one below and sign that CLI in inside its own profile directory (the CLI's own sign-in command; Backspace never sees the credential).</p>`}
+    <div class="form3"><select class="tx" id="aCli" aria-label="CLI">${ACCOUNT_CLIS.map(([k, l]) => `<option value="${k}" ${known(k) ? "" : ""}>${l}${known(k) ? "" : " (not installed)"}</option>`).join("")}</select><input class="tx" id="aName" placeholder="Name, e.g. Work Claude" aria-label="Account name"><span></span><button class="btn primary" id="aAdd">Add account</button></div>
+    <div class="err" id="aErr" role="alert"></div>
+    <div class="line"><span class="lab">Switch now<small>${d.accounts.length ? "Moves to the next usable login and marks it used." : ""}</small></span><button class="btn" id="aNext">Next account</button></div>
+    <div class="line"><span class="lab">Registry<small class="mono">${esc(d.path)}</small></span></div>`;
+  $$("[data-pol]", box).forEach(b => (b.onclick = async () => { await invoke("set_accounts_policy", { policy: b.dataset.pol }).catch(e => toast(String(e), "err")); renderAccounts(el); }));
+  $$("[data-aon]", box).forEach(b => (b.onclick = async () => { await invoke("account_set", { id: b.dataset.aon, enabled: b.getAttribute("aria-checked") !== "true", priority: null }).catch(e => toast(String(e), "err")); renderAccounts(el); }));
+  $$("[data-arm]", box).forEach(b => (b.onclick = async () => { await invoke("account_remove", { id: b.dataset.arm }).catch(e => toast(String(e), "err")); renderAccounts(el); }));
+  const add = async () => {
+    const err = $("#aErr", box); err.textContent = "";
+    try { await invoke("account_add", { provider: $("#aCli", box).value, name: $("#aName", box).value }); toast("Account added; sign that CLI in to its profile directory", "ok"); renderAccounts(el); }
+    catch (e) { err.textContent = String(e); }
+  };
+  $("#aAdd", box).onclick = add;
+  $("#aNext", box).onclick = async () => {
+    try { const r = await invoke("account_next"); toast(r.next ? `Next turn runs as ${r.next}` : "No other login is usable right now", r.next ? "ok" : "err"); renderAccounts(el); }
+    catch (e) { toast(String(e), "err"); }
+  };
+}
+
+// Settings → MCP and connections: outside tool servers a bot can be given.
+// A bot's Connected apps decides which of these it actually gets.
+function renderConnections(el) {
+  const box = $("#setConnections", el); if (!box) return;
+  const draw = list => {
+    box.innerHTML = (list.length ? list.map(c => `<div class="mrow"><span class="mi">${icon("grid")}</span><span class="lab">${esc(c.name)}<small class="mono">${esc(c.target)}</small></span><button class="ib" data-crm="${esc(c.id)}" title="Remove" aria-label="Remove">${icon("trash")}</button></div>`).join("")
+      : `<p class="lead">No servers yet. Add one by command or URL; bots you give it to can call its tools.</p>`)
+      + `<div class="form3"><input class="tx" id="cName" placeholder="Name, e.g. GitHub" aria-label="Server name"><input class="tx mono" id="cTarget" placeholder="npx -y @modelcontextprotocol/server-github" aria-label="Command or URL"><button class="btn primary" id="cAdd">Add</button></div><div class="err" id="cErr" role="alert"></div>`;
+    const add = async () => {
+      const err = $("#cErr", box), name = $("#cName", box).value.trim(), target = $("#cTarget", box).value.trim();
+      err.textContent = "";
+      if (!name || !target) { err.textContent = "A server needs a name and a command or URL."; return; }
+      try { list = await invoke("set_connections", { list: [...list, { id: "", name, target }] }); draw(list); }
+      catch (e) { err.textContent = String(e); }
+    };
+    $("#cAdd", box).onclick = add;
+    $$("[data-crm]", box).forEach(b => (b.onclick = async () => { draw(await invoke("set_connections", { list: list.filter(x => x.id !== b.dataset.crm) })); }));
+  };
+  draw(prefs.connections || []);
+}
+
+// Settings → Agent skills: every playbook this machine can load, and which
+// role has which injected (the config decides; this is what it resolved to).
+async function renderSkills(el) {
+  const box = $("#setSkills", el); if (!box) return;
+  box.innerHTML = `<div class="nothing">Reading skills…</div>`;
+  let d;
+  try { d = await invoke("skills_catalog"); } catch (e) { box.innerHTML = `<div class="err">${esc(String(e))}</div>`; return; }
+  if (!box.isConnected) return;
+  const role = (label, names) => `<div class="line"><span class="lab">${label}<small>${names.length ? names.map(esc).join(", ") : "none"}</small></span></div>`;
+  box.innerHTML = role("Main agent", d.workflow.main_skills) + role("Workers", d.workflow.worker_skills) + role("Triage", d.workflow.triage_skills)
+    + `<div class="line"><span class="lab">Every skill here<small>Any agent can load one with the skill tool, whether or not it is injected.</small></span></div>`
+    + `<div class="skilllist">${d.skills.map(s => `<div class="skill"><b>${esc(s.name)}</b><span>${esc(s.description || "No description.")}</span>${s.files.length > 1 ? `<small class="mono">${s.files.map(esc).join(", ")}</small>` : ""}</div>`).join("")}</div>`
+    + `<div class="line"><span class="lab">Your own<small class="mono">${d.dirs.map(esc).join(" · ")}</small></span></div>`;
+}
+
+// Settings → Managed worktrees: what each agent's ticket left on disk.
+async function renderWorktrees(el) {
+  const box = $("#setWorktrees", el); if (!box) return;
+  let d;
+  try { d = await invoke("worktrees"); } catch { box.innerHTML = ""; return; }
+  if (!box.isConnected) return;
+  if (!d.worktrees.length) { box.innerHTML = `<p class="lead">No worktrees on this machine yet. Each ticket's agent gets one while it works.</p>`; return; }
+  const total = d.worktrees.reduce((n, w) => n + (w.size_bytes || 0), 0);
+  box.innerHTML = `<p class="lead">${d.worktrees.length} worktree${d.worktrees.length === 1 ? "" : "s"} · ${Models.size(total)} under <code class="mono">${esc((d.root || "") + "/.backspace/worktrees")}</code></p>`
+    + d.worktrees.map(w => `<div class="mrow"><span class="mi">${icon("branch")}</span><span class="lab">${esc(w.agent)} · ${esc(w.title)}<small class="mono">${esc(w.branch || "")} · ${esc(w.path)}${w.exists ? "" : " · missing"}</small></span><span class="chip">${Models.size(w.size_bytes || 0)}</span><button class="btn" data-reveal="${esc(w.path)}">Reveal</button></div>`).join("");
+  $$("[data-reveal]", box).forEach(b => (b.onclick = () => invoke("reveal_path", { path: b.dataset.reveal }).catch(e => toast(String(e), "err"))));
+}
+
+// Settings → Workspaces and Colony: the durable little machines an agent can
+// be given (docs/COLONY.md). visor-core is optional; this says what is
+// missing rather than failing.
+async function renderColony(el) {
+  const box = $("#setColony", el); if (!box) return;
+  box.innerHTML = `<div class="nothing">Checking visor-core…</div>`;
+  let d;
+  try { d = await invoke("colony_status"); } catch (e) { box.innerHTML = `<div class="err">${esc(String(e))}</div>`; return; }
+  if (!box.isConnected) return;
+  const caps = d.capabilities;
+  const capLine = caps ? `<div class="line"><span class="lab">This machine<small>${[caps.wsl ? "WSL2" : null, caps.hyperv ? "Hyper-V" : null, caps.elevated ? "elevated" : "not elevated", (caps.providers || []).join(", ")].filter(Boolean).map(esc).join(" · ") || "nothing reported"}</small></span></div>` : "";
+  box.innerHTML = `<div class="line"><span class="lab">visor-core<small class="mono">${esc(d.visor || "not found")}</small></span></div>`
+    + capLine
+    + (d.message ? `<p class="warnp">${icon("warn")}${esc(d.message)}</p>` : "")
+    + `<div class="line"><span class="lab">Workspaces<small>Named, disposable machines. An agent creates one, runs commands in it, and destroys it; see the colony_* tools.</small></span></div>`
+    + (d.workspaces && d.workspaces.length
+      ? d.workspaces.map(w => `<div class="mrow"><span class="mi">${icon("box")}</span><span class="lab">${esc(w.name)}<small>${esc(w.provider)} · ${esc(w.os)} · ${esc(w.state)}${w.ip ? " · " + esc(w.ip) : ""}</small></span></div>`).join("")
+      : `<p class="lead">None yet.</p>`)
+    + `<pre class="cmd">cargo build --manifest-path capsule/core/Cargo.toml   # build visor-core${"\n"}cargo test -p backspace-colony                        # the registry, no VM needed</pre>`;
+}
+
+// Settings → Archived threads. Chat lists pinned threads at the top; this is
+// the place to see and restore them.
+async function renderArchived(el) {
+  const box = $("#setArchived", el); if (!box) return;
+  let list = [];
+  try { list = await invoke("chat_list"); } catch { }
+  const arc = list.filter(t => t.pinned);
+  box.innerHTML = arc.length
+    ? `<p class="lead">Pinned threads (${arc.length}). Unpin one to drop it back into the list.</p>`
+      + arc.map(t => `<div class="mrow"><span class="mi">${icon("compose")}</span><span class="lab">${esc(t.title || "Untitled")}<small>${esc(t.preview || "")}</small></span><button class="btn" data-unarc="${esc(t.id)}">Unpin</button></div>`).join("")
+    : `<p class="lead">No pinned threads.</p>`;
+  $$("[data-unarc]", box).forEach(b => (b.onclick = async () => { await invoke("chat_pin", { id: b.dataset.unarc, pinned: false }).catch(e => toast(String(e), "err")); renderArchived(el); }));
+}
+
+// Settings → Local models, and the sizes the worktree list shows.
+var Models = (() => {
+  const size = b => { const u = ["B", "KiB", "MiB", "GiB", "TiB"]; let i = 0, n = b || 0; while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; } return (i ? n.toFixed(1) : n) + " " + u[i]; };
+  const KIND = { ollama: "Ollama", mlx: "MLX", lmstudio: "LM Studio", llamacpp: "llama.cpp", custom: "Custom" };
+  let last = null;
+  async function draw(box, wtBox) {
+    box.innerHTML = `<div class="nothing">Looking for Ollama, LM Studio, llama.cpp and MLX…</div>`;
+    let d;
+    try { d = await invoke("local_models"); } catch (e) { box.innerHTML = `<div class="err">${esc(String(e))}</div>`; return; }
+    last = d;
+    if (!box.isConnected) return;
+    const chosen = d.chosen || "";
+    const runtimes = d.runtimes || [];
+    const tiny = runtimes.flatMap(r => r.models.filter(m => m.tiny).map(m => ({ ...m, runtime: r.id, up: r.running })));
+    box.innerHTML = `<div class="line"><span class="lab">Small jobs go to<small>Reading, classifying, summarising and extracting, when a subscription model delegates them. One small local model, one task at a time.</small></span>
+        <button class="btn" id="mmPick" data-popper>${chosen ? esc(chosen) : "Leave it to the main model"}${icon("chevd")}</button></div>
+      ${tiny.length ? `<div class="pmodels">${tiny.slice(0, 10).map(m => `<span>${esc(m.id)}${m.up ? "" : " (stopped)"}</span>`).join("")}</div>` : ""}
+      ${runtimes.map(r => `<div class="prow${r.running ? "" : " dim"}"><span class="mi">${icon("cpu")}</span>
+        <div class="pmain"><div class="pname">${esc(r.name)} <span class="pver">${esc(KIND[r.kind] || r.kind)}</span></div>
+          <span class="pst ${r.running ? "ok" : "off"}">${r.running ? `${r.models.length} model${r.models.length === 1 ? "" : "s"}` : r.installed ? "Not running" : "Not installed"}</span>
+          ${r.message ? `<div class="pmsg">${esc(r.message)}</div>` : ""}
+          <div class="pmodels">${r.models.slice(0, 12).map(m => `<span title="${esc(m.id)}">${esc(m.id)}${m.tiny ? " ·" : ""}</span>`).join("")}</div>
+          <div class="pmsg mono">${esc(r.base_url)}${r.version ? " · v" + esc(r.version) : ""}</div></div></div>`).join("")}
+      ${runtimes.length ? "" : `<p class="lead">Nothing found. Install <a href="#" data-url="https://ollama.com/download">Ollama</a>, or start LM Studio, <code>llama-server</code> or <code>mlx_lm.server</code>, then rescan.</p>`}
+      <div class="line"><span class="lab">${d.endpoint ? `An OpenAI-compatible endpoint is up at <code class="mono">${esc(d.endpoint)}</code>` : "No local endpoint is up."}${d.recommend ? `<small>Suggested right now: <b>${esc(d.recommend.model)}</b> on ${esc(d.recommend.base_url)}</small>` : ""}</span><button class="btn" id="mmScan">Rescan</button></div>`;
+    const pick = $("#mmPick", box);
+    if (pick) pick.onclick = e => openPop(e.currentTarget, `<h5>Small jobs run on</h5>
+      <button class="pi" data-m=""><span class="agent">${icon("sparkle")}</span>Leave it to the main model<span class="k">default</span></button>
+      ${tiny.length ? tiny.map(m => `<button class="pi" data-m="${esc(m.runtime + ":" + m.id)}"><span class="agent">${icon("cpu")}</span>${esc(m.id)}<span class="k">${esc(m.runtime)}${m.up ? "" : " · stopped"}</span></button>`).join("") : `<div class="note">No tiny model is available. Pull one — for example <code>ollama pull lfm2.5:latest</code> — or start a runtime.</div>`}`, pop => {
+      $$("[data-m]", pop).forEach(b => (b.onclick = async () => { closePop(); await invoke("set_subagent_model", { model: b.dataset.m || null }); prefs.subagent_model = b.dataset.m || null; draw(box, wtBox); toast(b.dataset.m ? `Small jobs will run on ${b.dataset.m}` : "Small jobs stay on the main model", "ok"); }));
+    });
+    $("#mmScan", box).onclick = () => draw(box, wtBox);
+    $$("[data-url]", box).forEach(b => (b.onclick = e => { e.preventDefault(); invoke("open_url", { url: b.dataset.url }); }));
+    if (wtBox) renderWorktrees(wtBox);
+  }
+  return { mount: (box, wtBox) => { if (box) draw(box, wtBox); }, size, get last() { return last; } };
+})();
 
 // ------------------------------------------------------------------ sidebar resize, live updates, boot
 (() => {

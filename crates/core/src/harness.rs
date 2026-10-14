@@ -188,6 +188,50 @@ fn pick_planner(cfg: &mut Config, over: &Overrides) -> Option<String> {
     }
 }
 
+/// Point the config at the tiny local model the user chose for small jobs
+/// (Settings → Local models; `prefs.subagent_model` is `runtime:model`).
+/// The runtime's default port says where it listens, so this needs no probe
+/// and no network: if the model is not actually running, the scout simply
+/// fails and the router's own pick is used next time.
+pub fn local_subagent(cfg: &mut Config, prefs: &crate::prefs::Prefs) {
+    let Some(spec) = prefs.subagent_model.clone() else { return };
+    // "<runtime id>:<model id>"; the model id itself may hold colons
+    // ("ollama:qwen3:1.7b").
+    let Some((runtime, model)) = spec.split_once(':').filter(|(r, m)| !r.is_empty() && !m.is_empty()) else {
+        return;
+    };
+    if cfg.models.iter().any(|m| m.id == spec) {
+        cfg.advisor.scout_model = Some(spec);
+        return;
+    }
+    let base_url = match runtime {
+        "ollama" => format!("{}/v1", prefs.ollama_url.trim_end_matches('/')),
+        "lmstudio" => "http://127.0.0.1:1234/v1".to_string(),
+        "llamacpp" => "http://127.0.0.1:8080/v1".to_string(),
+        "mlx" => "http://127.0.0.1:8081/v1".to_string(),
+        other => match prefs.routers.iter().find(|r| r.id == other || r.name.eq_ignore_ascii_case(other)) {
+            Some(r) => r.base_url.trim_end_matches('/').to_string(),
+            None => return,
+        },
+    };
+    cfg.providers.insert(
+        runtime.to_string(),
+        crate::config::ProviderConfig { kind: crate::config::ProviderKind::Openai, base_url, api_key_env: String::new(), cli: None },
+    );
+    cfg.models.push(crate::config::ModelSpec {
+        id: spec.clone(),
+        provider: runtime.to_string(),
+        model: Some(model.to_string()),
+        tier: 0,
+        description: "A small model on this machine, for reading, classifying, summarising and extracting.".into(),
+        input_usd_per_mtok: 0.0,
+        output_usd_per_mtok: 0.0,
+        max_output_tokens: 4096,
+        efforts: vec![],
+    });
+    cfg.advisor.scout_model = Some(spec);
+}
+
 /// A saved project, reopened: what was mid-flight can't be picked up (its
 /// process is gone), so it is marked interrupted and left ready to dispatch
 /// again; its branch keeps the work so far. Plans awaiting approval stay
@@ -254,6 +298,11 @@ impl Harness {
             .build()?;
 
         let planner = pick_planner(&mut cfg, &over);
+        // A tiny model on this machine, if the user picked one: it becomes the
+        // model scouts and other small delegated jobs run on (model_server.rs).
+        // No probing here — the string says which runtime and which model, and
+        // the runtime's default port is enough to point a provider at it.
+        local_subagent(&mut cfg, &crate::prefs::Prefs::load());
         // Auto (the router picks per ticket): the effort slider caps where workers start.
         if over.worker.as_deref().is_none_or(|w| w.is_empty()) {
             if let Some(e) = over.effort.as_ref().and_then(|e| serde_json::from_value::<Effort>(json!(e)).ok()) {
@@ -384,7 +433,13 @@ impl Harness {
 
     /// Post on the agents' message board as the human ("you").
     pub fn post_message(&self, to: &str, text: &str) -> Result<()> {
-        self.inner.post_board("you", to, text)
+        self.inner.post_board("you", to, text, None)
+    }
+
+    /// As the human, answering a specific message (so it lands in that
+    /// conversation rather than starting a new one).
+    pub fn post_message_to(&self, to: &str, text: &str, reply_to: Option<usize>) -> Result<()> {
+        self.inner.post_board("you", to, text, reply_to)
     }
 
     /// Talk to the main agent. The first message is the project goal.
@@ -617,8 +672,8 @@ impl crate::remote::Api for Served {
     fn read_file(&self, path: &str) -> Result<String> {
         crate::files::read_within(&self.inner.root, path)
     }
-    fn post_message(&self, to: &str, text: &str) -> Result<()> {
-        self.inner.post_board("you", to, text)
+    fn post_message(&self, to: &str, text: &str, reply_to: Option<usize>) -> Result<()> {
+        self.inner.post_board("you", to, text, reply_to)
     }
     fn pick_option(&self, id: &str, variant: Option<String>) {
         let variant = variant.filter(|v| !v.is_empty());
@@ -744,15 +799,25 @@ impl Inner {
         }
     }
 
-    /// Post on the board and note it in both agents' logs.
-    fn post_board(&self, from: &str, to: &str, text: &str) -> Result<()> {
+    /// Post on the board and note it in both agents' logs. `reply_to` names an
+    /// earlier message, so a back-and-forth stays one conversation.
+    fn post_board(&self, from: &str, to: &str, text: &str, reply_to: Option<usize>) -> Result<()> {
         let (m, ids) = {
             let mut s = self.state.lock().unwrap();
-            let m = crate::board::post(&mut s, from, to, text)?;
+            let m = crate::board::reply(&mut s, from, to, text, reply_to)?;
             let ids: Vec<(AgentId, bool)> = s
                 .agents
                 .iter()
-                .filter(|a| a.key == from || a.key == to || (to == "all" && a.key != from))
+                .filter(|a| {
+                    a.key == from
+                        || a.key == to
+                        || (to == "all" && a.key != from)
+                        // A reply to someone else's conversation: the parent's
+                        // sender is in it too, so they see the answer.
+                        || reply_to.is_some_and(|id| {
+                            s.board.iter().any(|p| p.id == id && p.from == a.key)
+                        })
+                })
                 .map(|a| (a.id, a.key == from))
                 .collect();
             (m, ids)
@@ -952,8 +1017,30 @@ fn tools_for(kind: AgentKind, can_spawn: bool) -> Vec<ToolDef> {
     tools.push(show_options_tool());
     tools.push(file_ticket_tool());
     tools.extend(board_tools());
+    tools.extend(colony_tools());
     tools.push(deliver_tool());
     tools
+}
+
+/// The tools that give an agent a machine of its own (crates/colony).
+///
+/// Driven through visor-core's JSON CLI (docs/COLONY.md). Only offered when
+/// visor-core can be found, so an agent is never handed a tool that cannot
+/// work on this machine.
+pub(crate) fn colony_tools() -> Vec<ToolDef> {
+    if backspace_colony::VisorCli::discover().is_err() {
+        return Vec::new();
+    }
+    backspace_colony::to_tools()
+        .into_iter()
+        .filter_map(|t| {
+            Some(ToolDef {
+                name: crate::provider::leak(t["name"].as_str()?),
+                description: crate::provider::leak(t["description"].as_str()?),
+                schema: t["schema"].clone(),
+            })
+        })
+        .collect()
 }
 
 pub(crate) fn scout_tool() -> ToolDef {
@@ -1010,6 +1097,80 @@ pub(crate) fn show_options_tool() -> ToolDef {
     }
 }
 
+/// One Colony tool call: the agent's machine of its own (crates/colony).
+///
+/// The registry lives in the data dir, so every project and every restart sees
+/// the same workspaces. This is synchronous on purpose: visor-core is a local
+/// process, and a create/exec is the agent waiting for its own computer.
+fn colony_tool(name: &str, input: &Value) -> Result<String> {
+    let exe = backspace_colony::VisorCli::discover()
+        .map_err(|e| anyhow!("no visor-core on this machine: {e:#}"))?;
+    // shortcut: always WSL, the fast provider; honour `provider` from the
+    // caller. Hyper-V needs an elevated host, which a tool call cannot ask for.
+    let provider = match input["provider"].as_str() {
+        Some("hyperv") => backspace_colony::ProviderKind::Hyperv,
+        _ => backspace_colony::ProviderKind::Wsl,
+    };
+    let dir = crate::prefs::Prefs::data_dir().join("colony");
+    let mut colony = backspace_colony::Colony::with_backend(&dir, provider, exe)?;
+    match name {
+        "colony_list" => {
+            let ws = colony.list()?;
+            Ok(serde_json::to_string_pretty(&ws)?)
+        }
+        "colony_status" => {
+            let ws = colony.status(input["name"].as_str().unwrap_or(""))?;
+            Ok(serde_json::to_string_pretty(&ws)?)
+        }
+        "colony_create" => {
+            let spec = backspace_colony::CreateSpec {
+                name: input["name"].as_str().unwrap_or("").to_string(),
+                provider,
+                os: input["os"].as_str().unwrap_or("ubuntu-24.04").to_string(),
+                cpus: input["cpus"].as_u64().unwrap_or(2) as u32,
+                memory_mib: input["memory_mib"].as_u64().unwrap_or(4096) as u32,
+                disk_gib: input["disk_gib"].as_u64().unwrap_or(20) as u32,
+                ssh_key_path: input["ssh_key_path"].as_str().map(String::from),
+                packages: input["packages"]
+                    .as_array()
+                    .map(|a| a.iter().filter_map(|p| p.as_str().map(String::from)).collect())
+                    .unwrap_or_default(),
+                task: input["task"].as_str().map(String::from),
+            };
+            let ws = colony.create(&spec)?;
+            Ok(format!(
+                "created workspace `{}` ({}, {})\n{}",
+                ws.name,
+                ws.provider,
+                ws.os,
+                backspace_colony::chat_prompt(&ws)
+            ))
+        }
+        "colony_destroy" => {
+            colony.delete(input["name"].as_str().unwrap_or(""))?;
+            Ok("destroyed".into())
+        }
+        "colony_exec" => {
+            let ws = input["name"].as_str().unwrap_or("");
+            let argv: Vec<String> = input["command"]
+                .as_array()
+                .map(|a| a.iter().filter_map(|c| c.as_str().map(String::from)).collect())
+                .unwrap_or_default();
+            if argv.is_empty() {
+                bail!("`command` must be argv, e.g. [\"bash\", \"-lc\", \"uname -a\"]");
+            }
+            let out = colony.exec(ws, &argv)?;
+            Ok(format!(
+                "exit {}\n--- stdout ---\n{}--- stderr ---\n{}",
+                out.code,
+                truncate(&out.stdout, 20_000),
+                truncate(&out.stderr, 8_000)
+            ))
+        }
+        other => bail!("unknown colony tool {other}"),
+    }
+}
+
 fn board_tools() -> Vec<ToolDef> {
     vec![
         ToolDef {
@@ -1019,12 +1180,26 @@ fn board_tools() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "send_message",
-            description: "Message another agent by key, `main` (the lead) or `all`, whichever model or CLI runs it. Coordinate interfaces, shared files, or ask whoever owns something. Replies arrive in your next turn.",
-            schema: json!({"type": "object", "properties": {"to": {"type": "string"}, "text": {"type": "string"}}, "required": ["to", "text"]}),
+            description: "Message another agent by key, `main` (the lead) or `all`, whichever model or CLI runs it. Coordinate interfaces, shared files, or ask whoever owns something. Give `reply_to` the id of the message you are answering (`read_messages` shows it) to keep a back-and-forth in one conversation. Replies arrive in your next turn.",
+            schema: json!({"type": "object", "properties": {
+                "to": {"type": "string"},
+                "text": {"type": "string"},
+                "reply_to": {"type": "integer", "description": "id of the message this answers (the `#n` in read_messages)"}
+            }, "required": ["to", "text"]}),
+        },
+        ToolDef {
+            name: "dm",
+            description: "A direct, one-to-one message to one agent — the same as send_message with a `to`, but never a broadcast. Use it when the exchange is between the two of you.",
+            schema: json!({"type": "object", "properties": {"to": {"type": "string"}, "text": {"type": "string"}, "reply_to": {"type": "integer"}}, "required": ["to", "text"]}),
+        },
+        ToolDef {
+            name: "read_conversation",
+            description: "Everything you and one other agent have said to each other, oldest first. Use it before answering instead of guessing what was already agreed.",
+            schema: json!({"type": "object", "properties": {"with": {"type": "string", "description": "the other agent's key"}}, "required": ["with"]}),
         },
         ToolDef {
             name: "read_messages",
-            description: "New messages to you or to everyone. They also arrive on their own at the start of a turn.",
+            description: "New messages to you or to everyone, each with its id. They also arrive on their own at the start of a turn.",
             schema: json!({"type": "object", "properties": {}}),
         },
     ]
@@ -1382,6 +1557,26 @@ async fn finish_cli(
 // ponytail: one fixed limit; make it a setting if long silent builds need more.
 const CLI_STALL: Duration = Duration::from_secs(10 * 60);
 
+/// The account registry, read fresh each turn: another project (or the
+/// Settings panel) may have changed it in between.
+fn accounts_now() -> crate::accounts::Accounts {
+    crate::accounts::Accounts::load(&crate::accounts::Accounts::path())
+}
+
+fn save_accounts(a: &crate::accounts::Accounts) {
+    let _ = a.save(&crate::accounts::Accounts::path());
+}
+
+/// The profile environment for the account a CLI should run as, or nothing
+/// when there are no accounts for it (the machine's own login is used).
+fn account_env(cli: &str) -> Vec<(String, String)> {
+    let a = accounts_now();
+    let Some(acc) = a.best_for(cli, crate::chat::now_ms()) else {
+        return Vec::new();
+    };
+    a.env_for(&acc.id)
+}
+
 /// One headless run of a CLI through `backspace-runner`. Its text, tool
 /// calls and results go to the agent's log and trace as they happen.
 /// Returns its final message and the session to resume, if it has one.
@@ -1413,6 +1608,8 @@ async fn run_cli_turn(
     req.system = system.map(String::from);
     req.permission = inner.over.permission.clone();
     req.effort = inner.over.effort.clone();
+    // Several logins for this CLI: run as the healthiest one (accounts.rs).
+    let acc = account_env(cli);
     if cli == "claude" {
         // Orchestrator, advisor, scouts, in Claude Code's own terms.
         req.advisor = inner.cfg.advisor.cli.clone();
@@ -1426,6 +1623,7 @@ async fn run_cli_turn(
         }
     }
     req.env.push(("PATH".into(), crate::harnesses::path_env().to_string_lossy().into_owned()));
+    req.env.extend(acc.iter().cloned());
     if let Some((url, token)) = &bridge {
         // The board, for `backspace msg` and the MCP server.
         let vars = [(crate::board::ENV_URL, url.as_str()), (crate::board::ENV_TOKEN, token.as_str()), (crate::board::ENV_AGENT, me.as_str())];
@@ -1508,8 +1706,35 @@ async fn run_cli_turn(
         }
     };
     st.flush(inner, id);
+    // Health follows the CLI's own word. A confirmed usage limit cools the
+    // account down so the next turn picks another one; a plain rate limit or a
+    // crash only marks it warning (see accounts.rs), so one 429 does not
+    // move a whole fleet.
+    if let Some(account) = current_account(cli) {
+        let now = crate::chat::now_ms();
+        let mut all = accounts_now();
+        match &res {
+            Ok(()) => all.note_ok(&account, now),
+            Err(e) => {
+                let text = format!("{e:#}");
+                if crate::accounts::looks_like_usage_limit(&text) {
+                    inner.log(id, LogKind::System, format!("{cli}: usage limit hit on this account; it is parked and the next turn uses another login"));
+                    all.note_limit(&account, now, 0, truncate(&text, 300).to_string());
+                } else {
+                    all.note_fail(&account, now);
+                }
+            }
+        }
+        save_accounts(&all);
+    }
     res.map_err(|e| anyhow!("{cli}: {}", truncate(&format!("{e:#}"), 600)))?;
     Ok((st.final_text.filter(|t| !t.trim().is_empty()).unwrap_or(st.last), st.sid))
+}
+
+/// The id of the account `account_env` chose for this CLI, if any.
+fn current_account(cli: &str) -> Option<String> {
+    let a = accounts_now();
+    a.best_for(cli, crate::chat::now_ms()).map(|x| x.id.clone())
 }
 
 /// `Some(reason)` when the project or any budget covering this agent is spent.
@@ -1808,14 +2033,26 @@ async fn run_tool(
         "list_agents" => Ok(text(crate::board::agents_line(
             &inner.state.lock().unwrap(),
         ))),
-        "send_message" => {
+        "send_message" | "dm" => {
             let me = inner.state.lock().unwrap().agents[c.id].key.clone();
             inner.post_board(
                 &me,
                 input["to"].as_str().unwrap_or(""),
                 input["text"].as_str().unwrap_or(""),
+                input["reply_to"].as_u64().map(|n| n as usize),
             )?;
             Ok(text("sent".into()))
+        }
+        "read_conversation" => {
+            let s = inner.state.lock().unwrap();
+            let me = s.agents[c.id].key.clone();
+            let with = input["with"].as_str().unwrap_or("");
+            let msgs = crate::board::between(&s, &me, with);
+            Ok(text(if msgs.is_empty() {
+                format!("No conversation with `{with}` yet.")
+            } else {
+                crate::board::format(&msgs)
+            }))
         }
         "read_messages" => {
             let s = inner.state.lock().unwrap();
@@ -1830,6 +2067,11 @@ async fn run_tool(
         "show_options" => {
             let me = inner.state.lock().unwrap().agents[c.id].key.clone();
             show_options(inner, &me, input).await.map(text)
+        }
+        // A machine of its own (crates/colony): a WSL2 distro or a Hyper-V VM,
+        // created on demand and destroyed when the task is done.
+        "colony_create" | "colony_exec" | "colony_list" | "colony_status" | "colony_destroy" => {
+            colony_tool(name, input).map(text)
         }
         "read" | "bash" => c.ws.run(name, input).await.map(text),
         "write" | "edit" if c.kind != AgentKind::Triage => c.ws.run(name, input).await.map(text),
@@ -2487,6 +2729,16 @@ async fn scouts(inner: &Arc<Inner>, c: &Conversation, input: &Value) -> Result<S
         .filter(|m| inner.cfg.usable_models().iter().any(|u| &u.id == m))
         .or_else(|| inner.cfg.usable_models().into_iter().min_by_key(|m| m.tier).map(|m| m.id.clone()))
         .ok_or_else(|| anyhow!("no API model for scouts; read the files yourself"))?;
+    // The smallest complete answer: if what scouts actually got is the tiny
+    // local model, say so, so the log shows where the small jobs ran.
+    let local = crate::prefs::Prefs::load()
+        .subagent_model
+        .filter(|m| m == &model)
+        .map(|m| format!(" (a small model on this machine: {m})"))
+        .unwrap_or_default();
+    if !local.is_empty() {
+        inner.log(c.id, LogKind::System, format!("scouts run on{local}"));
+    }
     let d = Decision { model, effort: Effort::Low, source: "scout".into(), confidence: 1.0, router_cost_usd: 0.0, note: None };
     let (depth, dir) = {
         let s = inner.state.lock().unwrap();
@@ -2951,8 +3203,16 @@ async fn bridge_handle(
                 body["from"].as_str().unwrap_or("?"),
                 body["to"].as_str().unwrap_or(""),
                 body["text"].as_str().unwrap_or(""),
+                body["reply_to"].as_u64().map(|n| n as usize),
             )
             .map(|_| json!({"ok": true})),
+        "/v1/board/conversation" => {
+            let s = inner.state.lock().unwrap();
+            let me = body["me"].as_str().unwrap_or("");
+            let with = body["with"].as_str().unwrap_or("");
+            let msgs = crate::board::between(&s, me, with);
+            Ok(json!({"text": crate::board::format(&msgs), "messages": msgs.len()}))
+        }
         "/v1/board/read" => {
             let s = inner.state.lock().unwrap();
             let me = body["me"].as_str().unwrap_or("");
