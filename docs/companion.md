@@ -10,8 +10,11 @@ The phone app is not started yet; this file is its contract and plan.
 
 ## Pairing
 
-1. Settings → Phone → *Let my phone connect*. Backspace listens on
-   `0.0.0.0:7421` and shows a QR code.
+1. Settings → Phone → *Reachable from my network* (off by default), then
+   *Let my phone connect*. Backspace listens on `0.0.0.0:7421` **only** with
+   that switch on; with it off it binds `127.0.0.1:7421`, where nothing but
+   this machine can reach it, and no QR code is shown (a LAN URL that cannot
+   be reached would be a lie).
 2. The QR holds `backspace://pair?v=1&url=<http://lan-ip:7421>&token=<token>&name=<machine>`.
 3. The phone checks `GET <url>/v1/hello` (no token) for `kind: "companion"`
    and a `protocol` it speaks, then stores `url` and `token` in the keychain.
@@ -21,15 +24,23 @@ The phone app is not started yet; this file is its contract and plan.
 Away from home, put both on a private network (Tailscale, WireGuard) and pair
 with that address; there is no relay yet.
 
+**Which threads the phone sees.** Yours: chats with a model behind them. Not
+an app's own thread, and not a thread with one of your named agents or a
+group — those run a coding CLI with leave to edit a folder and run commands,
+and a phone token (plain HTTP on the LAN) is not the credential for that.
+`GET /v1/chat?id=` refuses them with 400 rather than filtering them out of the
+list only.
+
 ## API (protocol 1)
 
-Every call but `/v1/hello` sends `Authorization: Bearer <token>`. Bodies are
-JSON. Errors are `{ "error": "..." }` with 400, 401 or 404.
+Every call but `/v1/hello` sends `Authorization: Bearer <token>` (or
+`?token=` where a header is awkward, which is only the webhook). Bodies are
+JSON. Errors are `{ "error": "..." }` with 400, 401, 404 or 405.
 
 | Call | Does |
 |---|---|
 | `GET /v1/hello` | `{ app, kind: "companion", protocol, version, name }` |
-| `GET /v1/chats` | Chat threads, newest first: `{ id, title, updated, pinned, route, preview, busy, unread, project }` (apps' threads are left out) |
+| `GET /v1/chats` | Your chat threads, newest first: `{ id, title, updated, pinned, route, preview, busy, unread, project }` (app, agent and group threads are left out) |
 | `GET /v1/chat?id=` | One thread with its messages (`role`, `text`, `status`, `reactions`, `reply_to`, `attachments`, `ad`...) |
 | `POST /v1/chat/new` | `{ route?, project? }` → the new thread. No route: the user's default |
 | `POST /v1/chat/send` | `{ id, text, reply_to? }`. The reply streams into the thread; poll `/v1/chat` |
@@ -41,6 +52,7 @@ JSON. Errors are `{ "error": "..." }` with 400, 401 or 404.
 | `GET /v1/project` | `{ open: false }`, or `{ open: true, workspace, state }` with the project's agents, tickets and approvals |
 | `POST /v1/approve` | `{ id }`: approve a pending approval |
 | `POST /v1/reject` | `{ id, feedback }` |
+| `POST /hook/<secret>` | A bot's webhook (`?source=` names the sender). Needs a credential: the bot's own secret in the path, **or** the phone token as a bearer header or `?token=`. Mentioning the path is not enough. |
 
 ## Plan
 

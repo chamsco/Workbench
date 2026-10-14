@@ -206,15 +206,43 @@ pub struct CompanionCfg {
     /// Listens on every interface so a phone on the same network can reach it.
     pub addr: String,
     pub token: String,
+    /// Off (the default): the listener binds loopback, where only this machine
+    /// can reach it. Turn it on when a phone has to connect over the network —
+    /// the address then has to be a LAN one too. Two switches because the
+    /// audit's point stands: plain HTTP with a token, chats that drive agents,
+    /// and a bot webhook is not something to expose by accident.
+    pub allow_lan: bool,
 }
 
 impl Default for CompanionCfg {
     fn default() -> Self {
         Self {
             enabled: false,
-            addr: "0.0.0.0:7421".into(),
+            addr: "127.0.0.1:7421".into(),
             token: crate::remote::new_token(),
+            allow_lan: false,
         }
+    }
+}
+
+impl CompanionCfg {
+    /// The address to bind: loopback while `allow_lan` is off, whatever the
+    /// user typed once it is on. An address the user set explicitly to a
+    /// non-loopback one is honoured only with `allow_lan`, so upgrading from a
+    /// prefs file that carried `0.0.0.0` cannot open the port by itself.
+    pub fn bind_addr(&self) -> String {
+        let addr = self.addr.trim();
+        if self.allow_lan {
+            return if addr.is_empty() { "0.0.0.0:7421".into() } else { addr.to_string() };
+        }
+        let port = addr.rsplit(':').next().filter(|p| !p.is_empty()).unwrap_or("7421");
+        format!("127.0.0.1:{port}")
+    }
+
+    /// Is this address on this machine only?
+    pub fn is_loopback(&self) -> bool {
+        let a = self.bind_addr();
+        a.starts_with("127.") || a.starts_with("localhost") || a.starts_with("[::1]")
     }
 }
 

@@ -40,11 +40,11 @@ have. What changed:
   scout model and account failover end to end without a network or a VM.
 
 Still open, and worth doing next: the P0s in `docs/AUDIT-2026-10-12.md` that
-were *not* addressed — restart losing in-flight workers (P0-2), the companion
-attack surface (P0-3), `prefs.json` permissions on Windows (P0-4, partly),
-unbounded state growth (P1-5), the panic surface (P1-6) — plus a per-turn
-timeout, worktrees on the runner, and checkpoint→switch→resume for accounts
-(today a turn that dies on a limit is simply re-asked on the new login).
+were *not* addressed — restart losing in-flight workers (P0-2), `prefs.json`
+permissions on Windows (P0-4, partly), unbounded state growth (P1-5), the
+panic surface (P1-6) — plus a per-turn timeout, worktrees on the runner, and
+checkpoint→switch→resume for accounts (today a turn that dies on a limit is
+simply re-asked on the new login).
 
 **This round changed the Tauri shell, so the running app must be rebuilt**
 (`cargo build --release -p backspace-tauri`) to see the Settings redesign, the

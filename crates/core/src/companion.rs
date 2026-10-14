@@ -42,7 +42,11 @@ pub fn pair_link(url: &str, token: &str, name: &str) -> String {
     format!("backspace://pair?v={PROTOCOL}&url={}&token={}&name={}", enc(url), enc(token), enc(name))
 }
 
-pub(crate) async fn serve(fleet: std::sync::Weak<Fleet>, addr: String, token: String) -> Result<()> {
+pub(crate) async fn serve(
+    fleet: std::sync::Weak<Fleet>,
+    addr: String,
+    token: String,
+) -> Result<()> {
     let listener = TcpListener::bind(&addr).await.map_err(|e| anyhow!("binding {addr}: {e}"))?;
     let token = Arc::new(token);
     loop {
@@ -54,7 +58,19 @@ pub(crate) async fn serve(fleet: std::sync::Weak<Fleet>, addr: String, token: St
     }
 }
 
-async fn handle(mut stream: TcpStream, fleet: std::sync::Weak<Fleet>, token: &str) -> Result<()> {
+/// A thread the phone may not see: an app's own agent chat, or a thread with
+/// one of your named agents and a group. Those drive a CLI with leave to edit
+/// a folder, so the audit's finding stands — they are not part of the phone's
+/// contract (`docs/companion.md` lists chats, Memory and approvals only).
+fn phone_may_read(t: &crate::chat::ThreadInfo) -> bool {
+    t.app.is_none() && t.agent.is_none() && t.members.is_empty()
+}
+
+async fn handle(
+    mut stream: TcpStream,
+    fleet: std::sync::Weak<Fleet>,
+    token: &str,
+) -> Result<()> {
     let req = read_request(&mut stream).await?;
     let Some(f) = fleet.upgrade() else {
         return respond(&mut stream, 503, &json!({"error": "shutting down"})).await;
@@ -68,9 +84,31 @@ async fn handle(mut stream: TcpStream, fleet: std::sync::Weak<Fleet>, token: &st
         )
         .await;
     }
-    // A bot's webhook (Reach this bot): its own secret in the path stands in
-    // for the token. Anything that knows the URL can wake that bot, nothing else.
+    // Every call but /v1/hello carries the token, the webhook included: anyone
+    // who can reach this port can otherwise wake a bot that runs commands, and
+    // a secret in a URL is not a credential (it lands in logs and history).
+    let bearer = req
+        .auth
+        .as_deref()
+        .and_then(|a| a.strip_prefix("Bearer "))
+        .is_some_and(|t| same(t, token));
+    let query_token = req
+        .query
+        .split('&')
+        .find_map(|kv| kv.strip_prefix("token="))
+        .is_some_and(|t| same(t, token));
+    // A bot's webhook (Reach this bot) also accepts its own secret in the
+    // path, so a sender that cannot set a header still has to prove it knows
+    // one. Anyone else needs the phone's token.
     if let Some(secret) = req.path.strip_prefix("/hook/") {
+        let known_secret = f
+            .agents()
+            .list()
+            .into_iter()
+            .any(|a| !a.hook.is_empty() && same(&a.hook, secret));
+        if !(bearer || query_token || known_secret) {
+            return respond(&mut stream, 401, &json!({"error": "bad token"})).await;
+        }
         let Some(agent) = f.agents().list().into_iter().find(|a| !a.hook.is_empty() && same(&a.hook, secret)) else {
             return respond(&mut stream, 404, &json!({"error": "no such webhook"})).await;
         };
@@ -98,12 +136,7 @@ async fn handle(mut stream: TcpStream, fleet: std::sync::Weak<Fleet>, token: &st
             Err(e) => respond(&mut stream, 500, &json!({"error": e.to_string()})).await,
         };
     }
-    let authed = req
-        .auth
-        .as_deref()
-        .and_then(|a| a.strip_prefix("Bearer "))
-        .is_some_and(|t| same(t, token));
-    if !authed {
+    if !(bearer || query_token) {
         return respond(&mut stream, 401, &json!({"error": "bad token"})).await;
     }
     let body: Value = if req.body.is_empty() {
@@ -125,10 +158,14 @@ async fn handle(mut stream: TcpStream, fleet: std::sync::Weak<Fleet>, token: &st
         let s = |k: &str| body[k].as_str().unwrap_or("").to_string();
         let chats = f.chats();
         Ok(match (method.as_str(), path.as_str()) {
-            ("GET", "/v1/chats") => json!(chats.list().into_iter().filter(|t| t.app.is_none()).collect::<Vec<_>>()),
+            ("GET", "/v1/chats") => json!(chats.list().into_iter().filter(phone_may_read).collect::<Vec<_>>()),
             ("GET", "/v1/chat") => {
                 let id = q("id").unwrap_or_default();
-                json!(chats.thread(&id).filter(|t| t.app.is_none()).ok_or_else(|| anyhow!("no such chat"))?)
+                let t = chats
+                    .thread(&id)
+                    .filter(|t| t.app.is_none() && t.agent.is_none() && t.members.is_empty())
+                    .ok_or_else(|| anyhow!("no such chat"))?;
+                json!(t)
             }
             ("POST", "/v1/chat/new") => {
                 let route: Route = serde_json::from_value(body["route"].clone())

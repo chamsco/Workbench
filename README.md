@@ -335,10 +335,13 @@ security model: [`docs/apps.md`](docs/apps.md). Example:
 
 ### Phone
 
-Settings → Phone opens a token-protected API on the local network and
-shows a QR code to pair the Backspace phone app (not built yet): chats,
-tapbacks, Memory, and a project's approvals. Protocol and plan:
-[`docs/companion.md`](docs/companion.md).
+Settings → Phone opens a token-protected API to pair the Backspace phone app
+(not built yet): chats, tapbacks, Memory, and a project's approvals. It binds
+**loopback** unless you turn on *Reachable from my network*, and the phone
+only ever sees your own chats — app, agent and group threads are refused,
+because those run a CLI with leave to edit a folder. A bot's webhook needs a
+credential too (its own secret, or the phone token); knowing the URL is not
+enough. Protocol and plan: [`docs/companion.md`](docs/companion.md).
 
 ### Following other machines
 

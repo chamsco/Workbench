@@ -390,7 +390,10 @@ impl Fleet {
         let me = Arc::downgrade(self);
         *self.companion_error.lock().unwrap() = None;
         let task = self.rt.spawn(async move {
-            if let Err(e) = crate::companion::serve(weak, c.addr, c.token).await {
+            // Loopback unless the user turned LAN on: the audit's point was
+            // that this port drives agents which run commands.
+            let (addr, token) = (c.bind_addr(), c.token.clone());
+            if let Err(e) = crate::companion::serve(weak, addr, token).await {
                 if let Some(f) = me.upgrade() {
                     *f.companion_error.lock().unwrap() = Some(e.to_string());
                     let _ = f.notify.try_send(());
@@ -443,9 +446,11 @@ impl Fleet {
     /// pairing link for the QR code, and any error binding the port.
     pub fn companion_status(&self) -> serde_json::Value {
         let c = self.prefs().companion;
-        let port = c.addr.rsplit(':').next().unwrap_or("7421").to_string();
-        let ip = crate::companion::lan_ip();
-        let url = ip.map(|ip| format!("http://{ip}:{port}"));
+        let port = c.bind_addr().rsplit(':').next().unwrap_or("7421").to_string();
+        // The URL a phone uses only exists when the listener is reachable from
+        // the network. Loopback-only is the default, and saying "http://192.168…"
+        // while bound to 127.0.0.1 would be a QR code that cannot work.
+        let url = if c.is_loopback() { None } else { crate::companion::lan_ip().map(|ip| format!("http://{ip}:{port}")) };
         let name = std::env::var("HOSTNAME")
             .ok()
             .filter(|s| !s.is_empty())
@@ -453,7 +458,8 @@ impl Fleet {
         serde_json::json!({
             "enabled": c.enabled,
             "running": c.enabled && self.companion.lock().unwrap().is_some() && self.companion_error.lock().unwrap().is_none(),
-            "addr": c.addr,
+            "addr": c.bind_addr(),
+            "allow_lan": c.allow_lan,
             "url": url,
             "pair": url.as_deref().map(|u| crate::companion::pair_link(u, &c.token, &name)),
             "error": self.companion_error.lock().unwrap().clone(),

@@ -1136,6 +1136,16 @@ fn set_companion(f: F, enabled: bool, new_token: bool) -> serde_json::Value {
     f.companion_status()
 }
 
+/// The phone link's LAN switch: off binds loopback, where a phone cannot
+/// reach it. Restarted so the new address takes effect at once.
+#[tauri::command]
+fn set_companion_lan(f: F, allow_lan: bool) -> serde_json::Value {
+    f.update_prefs(|p| p.companion.allow_lan = allow_lan);
+    let on = f.prefs().companion.enabled;
+    f.inner().set_companion(on, false);
+    f.companion_status()
+}
+
 /// A QR code as SVG, for the pairing link.
 #[tauri::command]
 fn qr_svg(text: String) -> Res<String> {
@@ -1658,6 +1668,7 @@ fn main() -> anyhow::Result<()> {
             agent_computer,
             companion_status,
             set_companion,
+            set_companion_lan,
             qr_svg,
             memory_add,
             memory_update,
