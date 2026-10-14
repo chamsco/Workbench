@@ -194,7 +194,7 @@ impl Router {
                 .get(&pick.runtime)
                 .map(|p| p.base_url.clone())
                 .filter(|b| !b.trim().is_empty());
-            if let Some(base) = base.clone().filter(|b| local_runtime_is_up(b)) {
+            if base.clone().is_some_and(|b| local_runtime_is_up(&b)) {
                 let mut d = pick.decision;
                 d.note = Some(format!(
                     "you are a small model on this machine, doing the {} job for a bigger agent",

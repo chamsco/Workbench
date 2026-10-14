@@ -104,6 +104,40 @@ $$("[data-icon]").forEach(el => (el.innerHTML = icon(el.dataset.icon)));
 // ------------------------------------------------------------------ state
 let snap = { name: "", agents: [], approvals: [], tickets: [], total_cost_usd: 0, router_cost_usd: 0, workspace: "" };
 let prefs = { theme: "system", tabs: [], active_tab: 0, check_updates: true };
+
+// ------------------------------------------------------------------ per-project canvases
+// The canvas layout belongs to the project you are in: tabs (and which one was
+// showing) are remembered per folder, so opening another project cannot
+// overwrite the one you were working in. `prefs.tabs`/`prefs.active_tab` stay
+// the *shape* every existing call site uses — they are redefined below as
+// accessors over whatever the current project's layout is, so nothing else in
+// this file had to change. The store side is `Prefs::tabs_for`.
+let tabsNow = null;      // { tabs, active } for the project that is open
+let appliedTo = null;    // which `prefs` object the accessors were installed on
+function activateTabs() {
+  if (appliedTo === prefs) return;
+  appliedTo = prefs;
+  Object.defineProperty(prefs, "tabs", {
+    configurable: true, enumerable: true,
+    get: () => (tabsNow ? tabsNow.tabs : (prefs.__tabs || [])),
+    set: v => { if (tabsNow) tabsNow.tabs = v; else prefs.__tabs = v; },
+  });
+  Object.defineProperty(prefs, "active_tab", {
+    configurable: true, enumerable: true,
+    get: () => (tabsNow ? tabsNow.active : (prefs.__active || 0)),
+    set: v => { if (tabsNow) tabsNow.active = v; else prefs.__active = v; },
+  });
+}
+/// Adopt the layout that belongs to `workspace` (its own, or the global one).
+async function useTabsFor(workspace) {
+  activateTabs();
+  let t = null;
+  try { t = await invoke("tabs_for", { workspace: workspace || "" }); } catch { t = null; }
+  const tabs = (t && Array.isArray(t.tabs) && t.tabs.length) ? t.tabs : (prefs.__tabs || []);
+  tabsNow = { tabs, active: Math.min((t && t.active) || 0, Math.max(0, tabs.length - 1)) };
+  S.pane.clear();
+  return tabsNow;
+}
 let machines = [], share = null, upd = null, hasProject = true;
 const S = {
   mode: "chat", codeView: "agents", chatView: "chat", wb: "canvases",
@@ -128,7 +162,13 @@ const machine = () => machines.find(m => m.selected) || { name: "Local", local: 
 let saveT = null;
 function saveTabs() {
   clearTimeout(saveT);
-  saveT = setTimeout(() => invoke("set_tabs", { tabs: prefs.tabs, active: prefs.active_tab }), 250);
+  // The layout is filed under the project it belongs to, so a save from one
+  // project can never land in another's. Empty workspace: the global layout.
+  saveT = setTimeout(() => invoke("set_tabs_for", {
+    workspace: (snap && snap.workspace) || "",
+    tabs: prefs.tabs,
+    active: prefs.active_tab,
+  }), 250);
 }
 
 
@@ -429,7 +469,9 @@ async function openProject(path) {
   try {
     await invoke("open_project", { path });
     prefs = await invoke("prefs");
-    S.pane.clear(); S.review = null; S.ticket = null;
+    // The new project's own canvas layout, not the one we were just looking at.
+    await useTabsFor(path);
+    S.review = null; S.ticket = null;
     if (S.mode !== "code") setMode("code");
     await refresh(true);
     if (window.Shell) Shell.layout();
@@ -441,9 +483,9 @@ function projMenu(anchor, path) {
   openPop(anchor, `<div class="note mono">${esc(path)}</div>
     ${open ? `<button class="pi" id="pmClose">${icon("close")}Close project</button>` : `<button class="pi" id="pmOpen">${icon("folder")}Open</button>`}
     <button class="pi" id="pmForget">${icon("trash")}Remove from recents</button>`, pop => {
-    const c = $("#pmClose", pop); if (c) c.onclick = async () => { closePop(); await invoke("close_project"); await refresh(true); };
+    const c = $("#pmClose", pop); if (c) c.onclick = async () => { closePop(); await invoke("close_project"); await useTabsFor(""); await refresh(true); };
     const o = $("#pmOpen", pop); if (o) o.onclick = () => { closePop(); openProject(path); };
-    $("#pmForget", pop).onclick = async () => { closePop(); if (open) await invoke("close_project"); await invoke("forget_project", { path }); prefs = await invoke("prefs"); await refresh(true); };
+    $("#pmForget", pop).onclick = async () => { closePop(); if (open) { await invoke("close_project"); await useTabsFor(""); } await invoke("forget_project", { path }); prefs = await invoke("prefs"); await refresh(true); };
   });
 }
 function renderCard() {
@@ -2157,6 +2199,9 @@ addEventListener("DOMContentLoaded", async () => {
   // "os-<platform>" comes from shell.js; a bare "win" class would match ".win" (the window) and hide Code's title bar on Windows.
   document.documentElement.classList.add("native", "os-" + boot.platform);
   prefs = await invoke("prefs");
+  // Before anything draws a tab, adopt the layout of the project that is
+  // already open on this machine (or the global one when none is).
+  await useTabsFor((await invoke("snapshot").catch(() => null) || {}).workspace || "");
   if ([1, 2, 3, 4].includes(boot.layout)) {
     // bench/: a fixed starting tab with that many canvases.
     prefs.tabs.unshift({ name: "Bench", panes: [{ kind: "agent", agent: 0, url: null }, { kind: "files", agent: 0, url: null }, { kind: "agent", agent: 1, url: null }, { kind: "agent", agent: 2, url: null }].slice(0, boot.layout), layout: null });
