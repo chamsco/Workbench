@@ -153,9 +153,12 @@ var Shell = (() => {
   }
 
   // Search: zones, projects, agents and chats, from the title bar or Ctrl K.
+  // Threads with a project behind them belong to that project (Code → Pair) and
+  // are reached from there; listing them here would put the same thread in both
+  // zones, and open it in whichever one you happened to be in.
   async function search() {
     const anchor = $("#searchBtn");
-    const chats = ((await invoke("chat_list").catch(() => null)) || []).filter(t => !t.app);
+    const chats = ((await invoke("chat_list").catch(() => null)) || []).filter(t => !t.app && !t.project && !t.agent && !t.members.length);
     const all = [
       ...ZONES.filter(([k]) => (k !== "chat" && k !== "code") || uses().includes(k)).map(([k, ic, l]) => ({ ic, t: l, s: "Go to", go: () => setMode(k) })),
       ...(prefs.projects || []).map(p => ({ ic: "folder", t: base(p), s: p, go: () => openProject(p) })),

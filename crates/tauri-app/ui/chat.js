@@ -28,10 +28,14 @@ var Chat = (() => {
     if (ags.length) groups.push({ name: "Agents from elsewhere", sub: "A2A", items: ags.map(h => ({ route: { kind: "a2a", provider: h.id.replace(/^a2a:/, ""), model: null }, id: h.id, label: h.name, sub: h.detail || "A2A agent" })) });
     L.filter(h => h.kind === "router" && h.enabled).forEach(h => groups.push({ name: h.name, sub: h.path, items: (h.models.length ? h.models.slice(0, 40) : []).map(m => ({ route: { kind: "router", provider: h.id.replace(/^router:/, ""), model: m }, id: h.id, label: m, sub: h.name })) }));
     const acct = Providers.account;
-    if (prefs.cloud && prefs.cloud.token && acct) {
-      groups.push({ name: "Backspace Cloud", sub: `${acct.plan[0].toUpperCase() + acct.plan.slice(1)} plan`, items: acct.models.map(m => ({ route: { kind: "cloud", provider: "cloud", model: m.id }, id: "cloud", label: m.label, sub: m.allowed ? (m.with_ads ? "With ads" : "Included") : "Upgrade to use", badge: !m.allowed ? "Upgrade" : m.with_ads ? "Ads" : "", disabled: !m.allowed })) });
-    } else {
-      groups.push({ name: "Backspace Cloud", sub: "Nothing to install", items: [{ setup: true, id: "cloud", label: "Start free with Cloud", sub: "Free with ads, or Plus / Max" }] });
+    // Cloud is nightly-only (app.js `nightly()`), so a release build offers no
+    // Cloud route at all — not even the "start free" invitation.
+    if (nightly()) {
+      if (prefs.cloud && prefs.cloud.token && acct) {
+        groups.push({ name: "Backspace Cloud", sub: `${acct.plan[0].toUpperCase() + acct.plan.slice(1)} plan`, items: acct.models.map(m => ({ route: { kind: "cloud", provider: "cloud", model: m.id }, id: "cloud", label: m.label, sub: m.allowed ? (m.with_ads ? "With ads" : "Included") : "Upgrade to use", badge: !m.allowed ? "Upgrade" : m.with_ads ? "Ads" : "", disabled: !m.allowed })) });
+      } else {
+        groups.push({ name: "Backspace Cloud", sub: "Nothing to install", items: [{ setup: true, id: "cloud", label: "Start free with Cloud", sub: "Free with ads, or Plus / Max" }] });
+      }
     }
     return groups;
   }
@@ -211,8 +215,12 @@ var Chat = (() => {
     if (whirl) return;
     const list = $("#list");
     const q = C.q.trim().toLowerCase();
-    const ts = C.threads.filter(t => !q || t.title.toLowerCase().includes(q) || t.preview.toLowerCase().includes(q));
-    if (!C.threads.length) {
+    // A project's threads (Code → Pair) are not chats and do not belong here.
+    // Whirl filters these by scope in the iframe; this path has to as well, or
+    // the same Code thread shows up in both zones.
+    const all = C.threads.filter(t => !t.project && !t.agent && !t.members.length);
+    const ts = all.filter(t => !q || t.title.toLowerCase().includes(q) || t.preview.toLowerCase().includes(q));
+    if (!all.length) {
       list.innerHTML = `<div class="side-empty">${icon("compose")}<b>No chats yet</b>Start one with any model you've connected.<button class="btn sm" id="sideNew">New chat</button></div>`;
       $("#sideNew").onclick = newChat; return;
     }
@@ -313,9 +321,15 @@ var Chat = (() => {
     </div>`;
   }
   function noModelsHTML() {
+    const cloud = nightly()
+      ? `<button class="btn big" id="nmCloud">${icon("cloud")}Start free with Cloud</button>`
+      : "";
+    const lead = nightly()
+      ? "Use a coding CLI you already pay for (Claude, Codex, Cursor, Grok, OpenCode), models on this machine through Ollama, any OpenAI-compatible router, or Backspace Cloud with nothing to install."
+      : "Use a coding CLI you already pay for (Claude, Codex, Cursor, Grok, OpenCode), models on this machine through Ollama, or any OpenAI-compatible router.";
     return `<div class="nomodels"><div class="home-mark">${icon("chip")}</div><h1>Connect a model to start chatting</h1>
-      <p class="home-lead">Use a coding CLI you already pay for (Claude, Codex, Cursor, Grok, OpenCode), models on this machine through Ollama, any OpenAI-compatible router, or Backspace Cloud with nothing to install.</p>
-      <div class="home-actions"><button class="btn primary big" id="nmSetup">${icon("bolt")}Run setup</button><button class="btn big" id="nmCloud">${icon("cloud")}Start free with Cloud</button></div></div>`;
+      <p class="home-lead">${lead}</p>
+      <div class="home-actions"><button class="btn primary big" id="nmSetup">${icon("bolt")}Run setup</button>${cloud}</div></div>`;
   }
   function wireHome(box) {
     const hr = $("#homeRoute", box);

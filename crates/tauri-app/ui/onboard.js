@@ -8,8 +8,9 @@ var Onboard = (() => {
   const ALL = ["welcome", "clis", "notify", "agent", "local", "cloud", "done"];
   const NOTIFY = [["system", "System notifications", "Your computer's own alerts when Backspace is in the background, a note in the app when it's in front."], ["app", "Inside Backspace only", "Notes in the corner of the app; nothing outside it."], ["off", "Off", "Check Home when you want; nothing pops up."]];
   let step = 0, uses = null;
-  // Cloud plans and agents live in Chat; everything else serves both.
-  const steps = () => ALL.filter(s => !["cloud", "agent"].includes(s) || !uses || uses.includes("chat"));
+  // Cloud plans and agents live in Chat; everything else serves both. The Cloud
+  // step is nightly-only (app.js `nightly()`), so a release build never shows it.
+  const steps = () => ALL.filter(s => (s !== "cloud" || nightly()) && (!["cloud", "agent"].includes(s) || !uses || uses.includes("chat")));
 
   // Bring your agent: what can be connected today. Consumer agents with no
   // outside API (OpenAI Dots, Grok Bot, Tencent WorkBuddy) aren't listed as

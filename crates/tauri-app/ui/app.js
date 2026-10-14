@@ -228,6 +228,11 @@ function flip(els, mutate) {
   });
 }
 
+// Backspace Cloud is a nightly build feature: it is a development server with no
+// billing, and offering it in a release build reads as a product we do not have.
+// `boot()` reports the channel; everything Cloud-facing asks this first.
+const nightly = () => !!window.__BOOT && window.__BOOT.channel === "nightly";
+
 // ------------------------------------------------------------------ theme + chrome
 // Settings → Appearance owns these, on top of the light/dark theme.
 // Contrast dims or sharpens the secondary text ramp, as a straight linear
@@ -277,7 +282,13 @@ function setSide(open) {
 $("#sideClose").onclick = () => setSide(false);
 $("#sideOpen").onclick = () => setSide(true);
 $("#scrim").onclick = () => setSide(false);
-$("#gear").onclick = () => openSettings();
+// Both settings buttons, and they toggle. `#gear` is the rail's; `#gearBtn` is
+// the title-bar one, which nothing had ever wired. shell.js also binds `#gear`,
+// so this is the single binding for both.
+for (const sel of ["#gear", "#gearBtn"]) {
+  const b = $(sel);
+  if (b) b.onclick = () => (S.settings ? closeSettings() : openSettings());
+}
 
 // The rail's zones (Chat, Code, Memory, Apps, and each open app) share the
 // window; the sidebar, title bar and body follow. Code has two views: Pair
@@ -1162,30 +1173,59 @@ function openView(spec) {
 }
 
 // ------------------------------------------------------------------ browser canvas (real webview)
+// The preview is an <iframe>, which is the right tool for the thing this canvas
+// is for: a dev server on this machine. It is the wrong tool for the wider web,
+// and it fails in a way that reads as "refused to connect": almost every public
+// site sends `X-Frame-Options: DENY` or a CSP `frame-ancestors` rule, and the
+// browser then refuses to render it *inside* a frame. That is not a network
+// problem and nothing here can override it, so an external address is opened in
+// the real browser instead, and a preview that never loads says so rather than
+// sitting on a blank rectangle.
+const isLocalUrl = u => /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/i.test(u);
 function browserPane(p, body, ps) {
   const vps = [["desktop", "window", "Desktop"], ["tablet", "doc", "Tablet"], ["phone", "term", "Phone"]];
   const vp = ps.viewport || "desktop";
+  const url = p.url || "";
+  const local = isLocalUrl(url);
   body.innerHTML = `<div class="browser">
     <div class="b-bar">
       <button class="ib" data-b="back" aria-label="Back">${icon("back")}</button><button class="ib" data-b="fwd" aria-label="Forward">${icon("fwd")}</button><button class="ib" data-b="reload" aria-label="Reload">${icon("reload")}</button>
-      <label class="addr">${icon("globe")}<input class="url" value="${esc(p.url || "")}" placeholder="http://localhost:5173" aria-label="Address">${p.url ? '<span class="live"><span class="dot"></span>live</span>' : ""}</label>
+      <label class="addr">${icon("globe")}<input class="url" value="${esc(url)}" placeholder="http://localhost:5173" aria-label="Address">${local ? '<span class="live"><span class="dot"></span>live</span>' : ""}</label>
       <div class="vp" role="group" aria-label="Viewport">${vps.map(([k, ic, l]) => `<button class="ib ${vp === k ? "on" : ""}" data-vp="${k}" aria-label="${l}">${icon(ic)}</button>`).join("")}</div>
-      ${p.url ? `<button class="ib" data-b="ext" aria-label="Open in your browser" title="Open in your browser">${icon("ext")}</button>` : ""}
+      ${url ? `<button class="ib" data-b="ext" aria-label="Open in your browser" title="Open in your browser">${icon("ext")}</button>` : ""}
     </div>
-    <div class="b-view"><div class="frame live ${vp === "desktop" ? "" : vp}">${p.url
-      ? `<iframe src="${esc(p.url)}" title="Preview of ${esc(p.url)}"></iframe>`
-      : `<div class="blankpage"><b>No preview yet</b><span>Type a dev server address above, for example the URL an agent printed after <code>npm run dev</code>, and press Enter.</span></div>`}</div></div></div>`;
-  const url = body.querySelector(".url"), f = body.querySelector("iframe");
-  url.addEventListener("keydown", e => {
+    <div class="b-view"><div class="frame live ${vp === "desktop" ? "" : vp}">${url
+      ? `<iframe src="${esc(url)}" title="Preview of ${esc(url)}" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"></iframe>`
+      : `<div class="blankpage"><b>No preview yet</b><span>Type a dev server address above, for example the URL an agent printed after <code>npm run dev</code>, and press Enter.</span></div>`}</div>
+      ${url && !local ? `<div class="b-note">${icon("warn")}<span>This is not a local address. Sites that forbid being framed (most of them) open in your browser instead.</span><button class="btn sm" data-b="ext">Open in browser</button></div>` : ""}
+      <div class="b-note b-fail" hidden>${icon("warn")}<span></span><button class="btn sm" data-b="ext">Open in browser</button></div>
+    </div></div>`;
+  const inp = body.querySelector(".url"), f = body.querySelector("iframe");
+  const ext = () => { if (p.url) invoke("open_url", { url: p.url }).catch(e => toast(String(e), "err")); };
+  if (url && !local) ext();
+  // A frame that never fires `load` is a refusal we cannot see into (cross-origin
+  // frames do not report their status), so report the likeliest cause.
+  if (f) {
+    let loaded = false;
+    f.addEventListener("load", () => (loaded = true));
+    setTimeout(() => {
+      if (loaded || !f.isConnected) return;
+      const note = body.querySelector(".b-fail");
+      if (!note) return;
+      note.querySelector("span").textContent = `${p.url} did not load in the canvas. A site that forbids framing, or a server that is not running, both look like this.`;
+      note.hidden = false;
+    }, 4000);
+  }
+  inp.addEventListener("keydown", e => {
     if (e.key !== "Enter") return;
-    let u = url.value.trim(); if (!u) return;
+    let u = inp.value.trim(); if (!u) return;
     if (!/^https?:\/\//.test(u)) u = "http://" + u;
     p.url = u; saveTabs(); browserPane(p, body, ps); renderList(); renderPaneTitles();
   });
   body.querySelector("[data-b=reload]").onclick = () => { if (f) f.src = f.src; };
   body.querySelector("[data-b=back]").onclick = () => { try { f.contentWindow.history.back(); } catch (e) {} };
   body.querySelector("[data-b=fwd]").onclick = () => { try { f.contentWindow.history.forward(); } catch (e) {} };
-  const ext = body.querySelector("[data-b=ext]"); if (ext) ext.onclick = () => invoke("open_url", { url: p.url });
+  $$("[data-b=ext]", body).forEach(b => (b.onclick = ext));
   $$("[data-vp]", body).forEach(b => (b.onclick = () => { ps.viewport = b.dataset.vp; browserPane(p, body, ps); }));
 }
 function renderPaneTitles() { $$(".pane").forEach(el => { const p = tab().panes[+el.dataset.slot]; if (p) el.querySelector(".ph .t").textContent = paneTitle(p); }); }
@@ -1736,7 +1776,7 @@ function renderSettings() {
       ${companion && companion.enabled && !companion.allow_lan ? `<p class="warnp">${icon("warn")}Turn on "Reachable from my network" before pairing a phone; a phone needs the LAN listener.</p>` : ""}
       ${companion && companion.enabled && companion.allow_lan && companion.pair ? `<div class="pair"><div class="qr" id="phoneQr" aria-label="Pairing code"></div><div class="pair-t"><b>Scan with the Backspace app</b><span>Or enter <code>${esc(companion.url)}</code> and the token by hand.</span><div class="pair-b"><button class="btn" id="phoneCopy">${icon("copy")}Copy pairing link</button><button class="btn" id="phoneNew">Unpair all phones</button></div></div></div>` : companion && companion.enabled && companion.allow_lan && !companion.url ? `<p class="warnp">${icon("warn")}This machine has no address on a local network, so a phone can't reach it.</p>` : ""}</section>
     <section id="set-providers"><h2>Agent providers</h2><p class="lead">What Chat and projects can use. Backspace scans this machine for each CLI, its version and whether it is signed in; switch off any you don't want offered.</p><div id="setProviders"></div>
-      <div class="line"><span class="lab">Backspace Cloud</span><span class="lead" style="margin:0">Chat without installing anything. Free with a short ad under each reply, or a paid plan.</span></div><div id="setPlan"></div></section>
+      ${nightly() ? `<div class="line"><span class="lab">Backspace Cloud</span><span class="lead" style="margin:0">Chat without installing anything. Free with a short ad under each reply, or a paid plan.</span></div><div id="setPlan"></div>` : ""}</section>
     <section id="set-mcp"><h2>MCP and connections</h2><p class="lead">Outside tools a bot can be given through the Model Context Protocol. Add a server by command or URL; every bot you give it to can call its tools.</p><div id="setConnections"></div></section>
     <section id="set-machines"><h2>Machines</h2><p class="lead">Follow and drive the harness on other machines. Each one runs <code>backspace-cli serve</code> (or shares from its own Backspace, below); add it with its address and token. Switch machines from the sidebar foot.</p>
       ${machines.map(m => `<div class="mrow"><span class="mi">${icon(m.local ? "pc" : "cloud")}</span><span class="lab">${esc(m.name)}${m.selected ? " · showing" : ""}<small>${m.local ? "This machine" : esc(m.url)} · ${m.link.state === "offline" ? "offline: " + esc(m.link.error) : m.link.state}${m.project ? " · " + esc(m.project) : ""}</small></span>
@@ -1772,13 +1812,36 @@ function renderSettings() {
     <section id="set-home"><h2>Archived threads</h2><p class="lead">Threads you archived. They keep their messages and can be restored from Chat.</p><div id="setArchived"></div></section>
   </div></div></div>`;
   Object.entries(keep).forEach(([id, v]) => { const i = $("#" + id, el); if (i && v) i.value = v; });
+  // One panel at a time. Bound to the rendered nodes directly, and it refuses
+  // to hide everything: an unknown key falls back to General, so the panel can
+  // never end up with every section hidden.
+  // Aliases: "uses" is a block inside General, and "plan" (Cloud) is a block
+  // inside Agent providers. Both used to be their own sections, and callers all
+  // over the UI still navigate to them by those names.
+  const SET_ALIAS = { uses: "general", plan: "providers" };
   const showSection = k => {
-    if (!SET_NAV.flatMap(g => g[1]).some(([x]) => x === k) && k !== "home") k = "general";
+    if (SET_ALIAS[k]) k = SET_ALIAS[k];
+    const known = SET_NAV.flatMap(g => g[1]).map(([x]) => x);
+    if (k !== "home" && !known.includes(k)) k = "general";
     S.setSection = k;
+    let shown = 0;
     $$("[data-setnav]", el).forEach(b => b.classList.toggle("on", b.dataset.setnav === k));
-    $$(".setbody > .set > section", el).forEach(s => (s.hidden = s.id !== "set-" + k));
-    $(".setbody", el).scrollTop = 0;
-    const nav2 = $(`[data-setnav="${k}"]`, el); if (nav2) nav2.scrollIntoView({ block: "nearest" });
+    $$(".set section", el).forEach(s => {
+      const mine = s.id === "set-" + k;
+      s.hidden = !mine;
+      if (mine) shown++;
+    });
+    if (!shown) {
+      // The section this key names was not rendered (a build older than the nav,
+      // say). Show General rather than a blank panel, and say so.
+      const g = $(".set section", el);
+      if (g) { g.hidden = false; }
+      console.warn("settings: no section for", k);
+    }
+    const body = $(".setbody", el);
+    if (body) body.scrollTop = 0;
+    const nav2 = $(`[data-setnav="${k}"]`, el);
+    if (nav2 && nav2.scrollIntoView) nav2.scrollIntoView({ block: "nearest" });
   };
   $$("[data-setnav]", el).forEach(b => (b.onclick = () => showSection(b.dataset.setnav)));
   showSection(S.setSection);
@@ -1809,10 +1872,10 @@ function renderSettings() {
     const next = ["chat", "code"].filter(u => (u === k ? !cur.includes(u) : cur.includes(u)));
     if (!next.length) { toast("Keep at least one on", "err"); return; }
     prefs.uses = next; await invoke("set_uses", { uses: next });
-    setMode(S.mode, false); openSettings("uses");
+    setMode(S.mode, false); openSettings("general");
   }));
   $("#setRerun").onclick = () => { closeSettings(); Onboard.open(); };
-  if (window.Providers) { Providers.mount($("#setProviders")); Providers.mountPlan($("#setPlan")); }
+  if (window.Providers) { Providers.mount($("#setProviders")); if (nightly()) Providers.mountPlan($("#setPlan")); }
   renderConnections(el); renderSkills(el); renderColony(el); renderArchived(el); renderAccounts(el);
   if (Models.mount) Models.mount($("#setLocal"), $("#setWorktrees"));
   $("#setRoute").onclick = e => Chat.routePicker(e.currentTarget, prefs.default_route, async r => { prefs.default_route = r; await invoke("set_default_route", { route: r }); renderSettings(); });

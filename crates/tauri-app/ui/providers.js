@@ -147,6 +147,9 @@ var Providers = (() => {
   // ---------------------------------------------------------------- plans
   const planMounts = new Set();
   async function loadAccount() {
+    // Cloud is nightly-only (app.js `nightly()`); a release build never asks
+    // for an account, so no Cloud ribbon or meter can appear from stale prefs.
+    if (!nightly()) { account = null; accountErr = null; return null; }
     if (!plans.length) plans = await invoke("plans").catch(() => []);
     if (!prefs.cloud || !prefs.cloud.token) { account = null; accountErr = null; return null; }
     try { account = await invoke("cloud_account"); accountErr = null; } catch (e) { accountErr = String(e); account = await invoke("cloud_cached").catch(() => null); }

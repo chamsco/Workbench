@@ -1483,6 +1483,14 @@ fn boot() -> serde_json::Value {
         .ok()
         .and_then(|v| v.parse::<u8>().ok());
     let bench = std::env::var_os("BACKSPACE_READY_FILE").is_some();
+    // Which channel this build is: "release" or "nightly". Cloud is a nightly
+    // feature (a dev server with no billing), and the UI reads this to leave it
+    // out of the release build so nobody thinks it is a shipped product.
+    let channel = std::env::var("BACKSPACE_CHANNEL")
+        .ok()
+        .map(|c| c.trim().to_lowercase())
+        .filter(|c| !c.is_empty())
+        .unwrap_or_else(|| "release".into());
     // First name for the chat greeting: the login name, capitalised.
     let user = std::env::var("USER")
         .or_else(|_| std::env::var("USERNAME"))
@@ -1493,7 +1501,7 @@ fn boot() -> serde_json::Value {
             c.next().map(|f| f.to_uppercase().collect::<String>() + c.as_str()).unwrap_or(u)
         })
         .unwrap_or_else(|| "there".into());
-    serde_json::json!({ "platform": platform, "layout": layout, "bench": bench, "user": user })
+    serde_json::json!({ "platform": platform, "layout": layout, "bench": bench, "user": user, "channel": channel })
 }
 
 /// The UI's first frame with data is on screen; bench/ times launch to this.

@@ -265,7 +265,16 @@ body { margin: 0; background: var(--desk-base); color: var(--fg); font: 13px/1.4
 .addr .live { margin-left: auto; font-size: 10.5px; color: var(--green); display: flex; align-items: center; gap: 5px; white-space: nowrap; }
 .addr .live .dot { background: var(--green); animation: pulse 2s infinite; }
 .vp { display: flex; gap: 2px; }
-.b-view { flex: 1; min-height: 0; overflow: auto; background: var(--page-desk); display: flex; justify-content: center; }
+.b-view { flex: 1; min-height: 0; overflow: auto; background: var(--page-desk); display: flex; flex-direction: column; justify-content: center; }
+.b-view:has(.b-note) { justify-content: flex-start; }
+.b-view:has(.blankpage) { justify-content: center; }
+/* Why a canvas preview is blank: framed pages we cannot see into, so the
+   reason is stated instead of leaving an empty rectangle. */
+.b-note { flex: none; display: flex; align-items: center; gap: 8px; margin: 0 10px 10px; padding: 8px 10px; border-radius: 8px;
+  background: color-mix(in srgb, var(--amber) 14%, var(--pane)); border: 0.5px solid var(--pane-edge); color: var(--fg-2); font-size: 12px; }
+.b-note span { flex: 1; min-width: 0; }
+.b-note .btn { flex: none; }
+.b-note[hidden] { display: none; }
 .frame { width: 100%; min-height: 100%; background: var(--page-bg); color: var(--page-fg); transition: width 0.25s ease; box-shadow: 0 0 0 0.5px var(--page-line); }
 .frame.tablet { width: 768px; } .frame.phone { width: 390px; }
 .app { max-width: 560px; margin: 0 auto; padding: 48px 24px; font: 15px/1.5 var(--font-ui); }
