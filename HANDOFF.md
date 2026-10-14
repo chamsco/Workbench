@@ -47,11 +47,25 @@ have. What changed:
 - Tests: `crates/core/tests/features.rs` covers conversations, the local
   scout model and account failover end to end without a network or a VM.
 
-Still open, and worth doing next: state growth (audit P1-5), the panic surface
-(P1-6), the half-accounted CLI workers (P1-8), `prefs.json` permissions on
-Windows (P0-4, partly), a per-turn timeout, worktrees on the runner, and
-checkpoint→switch→resume for accounts (today a turn that dies on a limit is
-re-asked on the new login rather than resumed).
+Still open, and worth doing next (in the order I would take them):
+
+1. **Local routing fails hard when the runtime is down.** A job ticked in
+   Settings → Local models is chosen *first*; if Ollama is stopped the job
+   fails instead of falling back, and `backspace-cli models` still says
+   "nothing running: small jobs stay on the main model" while a model is
+   configured. One cached liveness probe per runtime would close both.
+2. **State growth (P1-5)**: `board` is never trimmed, `parked` keeps finished
+   conversations forever, `agents` is fully serialized on every save, and every
+   event ships the whole `ProjectState` over IPC.
+3. **Panic surface (P1-6)**: pervasive `lock().unwrap()`, direct indexing
+   (`s.agents[id]`), `project.rs`'s `ancestry` on a stale parent.
+4. **Half-accounted CLI workers (P1-8)**: their spend never reaches
+   `total_cost_usd`; Codex's thread id is not captured, so a resumed Codex
+   worker starts cold even though a Claude one does not.
+5. `prefs.json` permissions on Windows (P0-4, partly), a per-turn timeout for a
+   hung CLI, moving worktree workers onto `backspace-runner`, and
+   checkpoint→switch→resume for accounts (today a turn that dies on a limit is
+   re-asked on the new login rather than resumed).
 
 **This round changed the Tauri shell, so the running app must be rebuilt**
 (`cargo build --release -p backspace-tauri`) to see the Settings redesign, the
