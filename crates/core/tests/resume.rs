@@ -2,11 +2,20 @@
 //! resumed: on Claude Code's own session when the thread has one, else from
 //! the conversation plus what was written so far.
 
+// Everything here is unix-only (the fake `claude` is a shell script). The
+// imports are gated with it: on Windows they are unused and would only warn,
+// and deleting them breaks the unix build.
+#[cfg(unix)]
 use std::sync::Arc;
+#[cfg(unix)]
 use std::time::{Duration, Instant};
 
-use backspace_core::chat::Chats;
+#[cfg(unix)]
+use backspace_core::chat::{Chats, Ctx, Status};
+#[cfg(unix)]
+use backspace_core::prefs::Prefs;
 
+#[cfg(unix)]
 fn fake_claude(dir: &std::path::Path) {
     let bin = dir.join("bin");
     std::fs::create_dir_all(&bin).unwrap();
@@ -31,6 +40,7 @@ esac
 }
 
 /// A thread as it was on disk when the app closed mid-reply.
+#[cfg(unix)]
 fn cut_off_thread(dir: &std::path::Path, id: &str, session: Option<&str>) {
     let t = serde_json::json!({
         "id": id, "title": "Plan", "created": 1, "updated": 1,
@@ -45,6 +55,7 @@ fn cut_off_thread(dir: &std::path::Path, id: &str, session: Option<&str>) {
     std::fs::write(dir.join(format!("chats/threads/{id}.json")), t.to_string()).unwrap();
 }
 
+#[cfg(unix)]
 fn wait_idle(chats: &Arc<Chats>, id: &str) {
     let start = Instant::now();
     while chats.is_busy(id) {
