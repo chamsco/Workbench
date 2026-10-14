@@ -1,16 +1,23 @@
 //! The features added on 14 Oct 2026, end to end where it costs nothing to do
 //! so: board conversations between agents, the local tiny model a subagent is
-//! pointed at, and the account registry's failover policy.
+//! pointed at (reached over HTTP like a real Ollama would be), and the account
+//! registry's failover policy.
 //!
-//! Deliberately no network and no VM: the point is the wiring, which is what
-//! regressed the last time this repo moved these pieces around.
+//! Deliberately no VM and no real model: the point is the wiring, which is
+//! what regressed the last time this repo moved these pieces around.
+
+use std::io::{BufRead, BufReader, Read, Write};
+use std::net::TcpListener;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
 use backspace_core::accounts::{Accounts, FailoverPolicy, Usage};
 use backspace_core::board::{self, BoardMsg, Cursors};
 use backspace_core::config::Config;
 use backspace_core::prefs::Prefs;
 use backspace_core::project::{AgentRecord, ProjectState};
-use serde_json::json;
+use backspace_core::{Effort, Harness};
+use serde_json::{json, Value};
 
 fn agent(id: usize, key: &str, kind: &str, role: &str) -> AgentRecord {
     serde_json::from_value(json!({
@@ -153,6 +160,183 @@ fn no_choice_or_an_unknown_runtime_leaves_the_config_alone() {
     }
 }
 
+/// A stand-in for a local runtime (Ollama included): an OpenAI-compatible
+/// `/v1/chat/completions` that answers, and records what it was asked.
+fn local_model_server() -> (u16, Arc<Mutex<Vec<Value>>>) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let seen: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
+    let sink = seen.clone();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { continue };
+            let sink = sink.clone();
+            std::thread::spawn(move || {
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut len = 0;
+                loop {
+                    let mut line = String::new();
+                    if reader.read_line(&mut line).is_err() || line == "\r\n" || line.is_empty() {
+                        break;
+                    }
+                    if let Some(v) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                        len = v.trim().parse().unwrap_or(0);
+                    }
+                }
+                let mut body = vec![0; len];
+                let _ = reader.read_exact(&mut body);
+                let req: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
+                sink.lock().unwrap().push(req.clone());
+                // The tiny model's own words, so a match cannot come from the
+                // big model's mock by accident.
+                let out = json!({
+                    "choices": [{"finish_reason": "stop", "message": {"content": "seen by the small local model"}}],
+                    "usage": {"prompt_tokens": 12, "completion_tokens": 4}
+                })
+                .to_string();
+                let _ = write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{out}", out.len());
+            });
+        }
+    });
+    (port, seen)
+}
+
+/// A stand-in for the big subscription model: the lead delegates one lookup.
+fn big_model_server() -> u16 {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { continue };
+            std::thread::spawn(move || {
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut len = 0;
+                loop {
+                    let mut line = String::new();
+                    if reader.read_line(&mut line).is_err() || line == "\r\n" || line.is_empty() {
+                        break;
+                    }
+                    if let Some(v) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                        len = v.trim().parse().unwrap_or(0);
+                    }
+                }
+                let mut body = vec![0; len];
+                let _ = reader.read_exact(&mut body);
+                let req: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
+                let msgs = req["messages"].as_array().cloned().unwrap_or_default();
+                let system = msgs.first().and_then(|m| m["content"].as_str()).unwrap_or("");
+                let tools_seen = msgs.iter().filter(|m| m["role"] == "tool").count();
+                let out = if system.starts_with("You are the lead agent") && tools_seen == 0 {
+                    json!({"choices": [{"finish_reason": "tool_calls", "message": {"content": null, "tool_calls": [
+                        {"id": "c1", "type": "function", "function": {"name": "scout", "arguments": json!({"tasks": ["where is the token stored?"]}).to_string()}}]}}],
+                        "usage": {"prompt_tokens": 900, "completion_tokens": 40}})
+                } else {
+                    json!({"choices": [{"finish_reason": "stop", "message": {"content": "plan written"}}],
+                        "usage": {"prompt_tokens": 900, "completion_tokens": 40}})
+                }
+                .to_string();
+                let _ = write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{out}", out.len());
+            });
+        }
+    });
+    port
+}
+
+/// The whole point of the local-model work, end to end: the user picks a tiny
+/// model on this machine, the lead delegates a lookup with `scout`, and the
+/// *local* endpoint is what answers — while the lead keeps talking to the
+/// subscription model.
+#[test]
+fn a_delegated_lookup_reaches_the_chosen_local_model() {
+    let (local_port, local_seen) = local_model_server();
+    let big_port = big_model_server();
+
+    // Prefs live in a temp file so the choice is what the harness loads.
+    let dir = std::env::temp_dir().join(format!("bs-local-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::env::set_var("BACKSPACE_PREFS", dir.join("prefs.json"));
+    std::env::set_var("BACKSPACE_DATA", dir.join("data"));
+
+    let mut prefs = Prefs::default();
+    // Point "ollama" at the stand-in: the same base_url shape the real one has.
+    prefs.ollama_url = format!("http://127.0.0.1:{local_port}");
+    prefs.subagent_model = Some("ollama:lfm2.5:latest".into());
+    prefs.save();
+
+    let ws = dir.join("project");
+    std::fs::create_dir_all(&ws).unwrap();
+    let cfg = format!(
+        r#"
+[router]
+backend = "heuristic"
+jev_endpoint = ""
+jev_model = ""
+jev_api_key_env = "NONE"
+jev_usd_per_mtok = 0.0
+main_min_effort = "high"
+pin_main = "mock-big"
+
+[orchestrator]
+max_parallel_calls = 2
+max_subagents = 4
+auto_approve = true
+bash_timeout_secs = 10
+
+[providers.mock]
+kind = "openai"
+base_url = "http://127.0.0.1:{big_port}/v1"
+api_key_env = "NONE"
+
+[[models]]
+id = "mock-big"
+provider = "mock"
+tier = 3
+description = "the subscription model"
+input_usd_per_mtok = 1.0
+output_usd_per_mtok = 2.0
+max_output_tokens = 1000
+"#
+    );
+    std::fs::write(ws.join("backspace.toml"), cfg).unwrap();
+
+    let h = Harness::open(ws.clone()).expect("open the project");
+    h.send("where is the token stored?");
+    // One turn for the lead to call scout, then the scout's own turn.
+    let mut waited = 0;
+    while waited < 60 {
+        let s = h.snapshot();
+        let answered = s
+            .agents
+            .iter()
+            .any(|a| a.log.iter().any(|l| l.text.contains("seen by the small local model")));
+        if answered {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(250));
+        waited += 1;
+    }
+
+    let seen = local_seen.lock().unwrap().clone();
+    let s = h.snapshot();
+    let scout = s.agents.iter().find(|a| a.kind == backspace_core::AgentKind::Scout);
+    let report = format!(
+        "local requests: {} | scouts: {:?} | lead model: {:?}",
+        seen.len(),
+        scout.map(|a| a.decision.as_ref().map(|d| d.model.clone())),
+        s.agents.iter().find(|a| a.id == 0).and_then(|a| a.decision.as_ref()).map(|d| d.model.clone())
+    );
+    assert!(!seen.is_empty(), "the local model was never asked: {report}");
+    let asked = &seen[0];
+    // It was asked as an Ollama/OpenAI model, with the local model's own name.
+    assert_eq!(asked["model"], "lfm2.5:latest", "{report}");
+    assert_eq!(scout.and_then(|a| a.decision.as_ref().map(|d| d.model.clone())).as_deref(), Some("ollama:lfm2.5:latest"), "{report}");
+    // The small jobs run at low effort whatever the lead is doing.
+    assert_eq!(scout.unwrap().decision.as_ref().unwrap().effort, Effort::Low, "{report}");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 // --------------------------------------------------------------- accounts
 
 #[test]
@@ -201,7 +385,7 @@ fn a_limit_is_recognised_from_the_clis_own_words_only() {
 
 #[test]
 fn accounts_round_trip_and_keep_their_env() {
-    let dir = std::env::temp_dir().join(format!("bs-accounts-{}", std::process::id()));
+    let dir: PathBuf = std::env::temp_dir().join(format!("bs-accounts-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("accounts.json");
