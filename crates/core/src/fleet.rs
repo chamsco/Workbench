@@ -37,6 +37,8 @@ pub trait Backend: Send + Sync {
     fn read_image(&self, path: &str) -> Result<String>;
     /// Post on the agents' message board as the human.
     fn post_message(&self, to: &str, text: &str, reply_to: Option<usize>) -> Result<()>;
+    /// Carry on with an agent a restart cut off; returns a line for the UI.
+    fn resume(&self, agent: usize) -> Result<String>;
 }
 
 impl Backend for Harness {
@@ -76,6 +78,9 @@ impl Backend for Harness {
     fn post_message(&self, to: &str, text: &str, reply_to: Option<usize>) -> Result<()> {
         Harness::post_message_to(self, to, text, reply_to)
     }
+    fn resume(&self, agent: usize) -> Result<String> {
+        Harness::resume(self, agent)
+    }
 }
 
 /// This machine with no project open: everything empty, nothing to send to.
@@ -108,6 +113,9 @@ impl Backend for NoProject {
     fn post_message(&self, _: &str, _: &str, _: Option<usize>) -> Result<()> {
         bail!("open a project first")
     }
+    fn resume(&self, _: usize) -> Result<String> {
+        bail!("open a project first")
+    }
 }
 
 impl Backend for Remote {
@@ -128,6 +136,10 @@ impl Backend for Remote {
     }
     fn stop(&self, agent: Option<usize>) {
         self.post_bg("/v1/stop", json!({ "agent": agent }));
+    }
+    fn resume(&self, agent: usize) -> Result<String> {
+        let v = self.post_wait("/v1/resume", json!({ "agent": agent }))?;
+        Ok(v["text"].as_str().unwrap_or("").to_string())
     }
     fn start_task(&self, text: &str) -> Result<String> {
         let v = self.post_wait("/v1/task", json!({ "text": text }))?;

@@ -61,6 +61,17 @@ fn stop(f: F, agent: Option<usize>) {
     f.backend().stop(agent);
 }
 
+/// Carry on with an agent a restart cut off: its worktree, branch and CLI
+/// session are already on disk, so this resumes instead of starting over.
+#[tauri::command]
+async fn resume(f: F<'_>, agent: usize) -> Res<String> {
+    let b = f.backend();
+    tauri::async_runtime::spawn_blocking(move || b.resume(agent))
+        .await
+        .map_err(err)?
+        .map_err(err)
+}
+
 /// Another task in parallel, on its own branch; returns its ticket key.
 #[tauri::command]
 async fn start_task(f: F<'_>, text: String) -> Res<String> {
@@ -1575,6 +1586,7 @@ fn main() -> anyhow::Result<()> {
             reject,
             pick_option,
             stop,
+            resume,
             start_task,
             git_log,
             set_notify,

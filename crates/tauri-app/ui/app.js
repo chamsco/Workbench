@@ -899,6 +899,9 @@ function needsYou(a) {
   const ap = pending().find(x => x.agent === a.id);
   if (ap) return { why: ap.kind === "plan" ? `Plan · ${ap.tickets.length} tickets to approve` : a.id === MAIN ? "Final deliverable to review" : "Work to review", ap };
   if (a.status === "failed") return { why: "Failed" };
+  // A restart cut this one off: its worktree, branch and CLI session are all
+  // still on disk, so it can carry on rather than be redone (audit P0-2).
+  if (a.status === "interrupted") return { why: "Interrupted by a restart", resume: true };
   const t = a.ticket && snap.tickets.find(x => x.key === a.ticket);
   if (t && (t.state === "needs_info" || t.state === "ready_for_human")) return { why: tLabel(t.state) };
   const last = a.log[a.log.length - 1];

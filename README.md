@@ -264,6 +264,16 @@ Claude Code's own session, or from the conversation plus the partial
 answer for everything else. The agent is told to check what's already
 done instead of redoing it.
 
+**Workbench workers carry on too.** Closing the app mid-ticket no longer
+throws the agent away. The project reopens with the worker marked
+**interrupted** — not failed, because nothing about the work failed — and
+Inbox → *Needs you* offers **Carry on**. Its own worktree and branch are already
+on disk, and a CLI worker answers again *in its saved session*
+(`AgentRecord::ses`), so it continues where it stopped and the result goes
+through the same check, review and merge as any ticket. A worker that
+genuinely failed, or one still running, is refused: this is not a retry
+button.
+
 ### Memory
 
 Short notes every chat and agent gets ("use pnpm, never npm"): global,
@@ -539,9 +549,10 @@ State is written to `<workspace>/.backspace/state.json` as a record of the run.
 - A2A: `message/send` with polling only; streaming (`message/stream`),
   push notifications and file parts aren't used yet. Tested against a
   local agent, not a public one.
-- Carry on resumes Chat replies. Workbench workers still don't resume
-  after a restart, and only Claude Code resumes on its own session
-  (others get the transcript).
+- Carry on resumes Chat replies, and now Workbench workers: a restart marks an
+  agent `interrupted` (its worktree, branch and CLI session survive) and Inbox
+  offers Carry on. What is lost is the agent's *conversation*, so an API worker
+  re-reads its ticket and its branch instead of its own reasoning.
 - Colony: the registry, the tool wiring and the account/local-model paths are
   tested without a VM (`crates/colony` has 25 tests; `crates/core/tests/features.rs`
   covers conversations, the local scout model and account failover), but

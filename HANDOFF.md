@@ -30,6 +30,14 @@ have. What changed:
   System) and an Appearance panel (accent per theme, background, foreground,
   UI and code fonts, translucency, contrast) over `Prefs::appearance` +
   `set_appearance` (validated and clamped Rust-side).
+- **Carry on, for workers too (audit P0-2).** A restart marks an agent
+  `interrupted` instead of `failed`, its ticket goes back to `queued`, and
+  `Harness::resume` re-enters the ordinary worker path: same worktree, same
+  branch, and a CLI worker answers in the session saved on
+  `AgentRecord::ses`, so the result still goes through check → review → merge.
+  Inbox → *Needs you* has **Carry on**; a failed or still-running agent is
+  refused. `crates/core/tests/interrupted.rs` covers it (the fake claude is
+  node-based, so the test runs on Windows too).
 - **ponytail skill** vendored (`crates/core/skills/ponytail/`, MIT) and
   injected into workers by default.
 - **Terminal canvas** (`portable-pty`; `terminal_open/read/write/signal/close`
@@ -39,12 +47,11 @@ have. What changed:
 - Tests: `crates/core/tests/features.rs` covers conversations, the local
   scout model and account failover end to end without a network or a VM.
 
-Still open, and worth doing next: the P0s in `docs/AUDIT-2026-10-12.md` that
-were *not* addressed — restart losing in-flight workers (P0-2), `prefs.json`
-permissions on Windows (P0-4, partly), unbounded state growth (P1-5), the
-panic surface (P1-6) — plus a per-turn timeout, worktrees on the runner, and
+Still open, and worth doing next: state growth (audit P1-5), the panic surface
+(P1-6), the half-accounted CLI workers (P1-8), `prefs.json` permissions on
+Windows (P0-4, partly), a per-turn timeout, worktrees on the runner, and
 checkpoint→switch→resume for accounts (today a turn that dies on a limit is
-simply re-asked on the new login).
+re-asked on the new login rather than resumed).
 
 **This round changed the Tauri shell, so the running app must be rebuilt**
 (`cargo build --release -p backspace-tauri`) to see the Settings redesign, the

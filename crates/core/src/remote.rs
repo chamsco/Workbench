@@ -41,6 +41,8 @@ pub(crate) trait Api: Send + Sync + 'static {
     fn resolve(&self, id: usize, feedback: Option<String>);
     /// Stop an agent and those under it; None: the whole project.
     fn stop(&self, agent: Option<usize>);
+    /// Carry on with an agent a restart cut off; returns a line for the UI.
+    fn resume(&self, agent: usize) -> Result<String>;
     fn start_task(&self, text: &str) -> Result<String>;
     fn file_ticket(&self, title: &str, body: &str) -> Result<String>;
     fn list_files(&self, agent: usize) -> Vec<FileEntry>;
@@ -243,6 +245,10 @@ async fn handle(mut stream: TcpStream, api: Arc<dyn Api>, token: &str) -> Result
         ("POST", "/v1/stop") => {
             api.stop(body["agent"].as_u64().map(|a| a as usize));
             Ok(json!({}))
+        }
+        ("POST", "/v1/resume") => {
+            let id = body["agent"].as_u64().context("needs agent")? as usize;
+            api.resume(id).map(|text| json!({ "text": text }))
         }
         ("POST", "/v1/reject") => match (body["id"].as_u64(), body["feedback"].as_str()) {
             (Some(id), Some(fb)) if !fb.trim().is_empty() => {

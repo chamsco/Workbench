@@ -156,6 +156,7 @@ fn new_record(
         escalations: vec![],
         traces: vec![],
         advisor_calls: 0,
+        ses: None,
     }
 }
 
@@ -274,12 +275,24 @@ pub fn local_jobs(prefs: &crate::prefs::Prefs) -> std::collections::BTreeMap<Str
 fn restore(mut old: ProjectState, fresh: ProjectState, config_source: Option<PathBuf>) -> ProjectState {
     let mut fresh_main = fresh.agents.into_iter().next().unwrap();
     for a in &mut old.agents {
-        if matches!(a.status, AgentStatus::Running | AgentStatus::Queued | AgentStatus::AwaitingApproval) {
+        if a.status.is_active() {
             if a.id == MAIN {
                 a.status = AgentStatus::Idle;
             } else {
-                a.status = AgentStatus::Failed;
-                a.log.push(LogEntry { kind: LogKind::System, text: "interrupted: Backspace closed while this ran. Its branch keeps the work so far; ask the main agent to dispatch it again.".into() });
+                // Its branch, worktree and CLI session are all still on disk;
+                // what is gone is the process. Saying `failed` would hide that
+                // (the audit's P0-2), so it is `interrupted` and re-dispatching
+                // the ticket resumes into the same session.
+                a.status = AgentStatus::Interrupted;
+                let where_ = a
+                    .worktree
+                    .as_ref()
+                    .map(|w| format!(" Its worktree is {}", w.display()))
+                    .unwrap_or_default();
+                a.log.push(LogEntry { kind: LogKind::System, text: format!(
+                    "interrupted: Backspace closed while this ran.{where_}{} Re-dispatch the ticket to carry on in the same session, or leave it to fail and start over.",
+                    if a.ses.is_some() { " Its CLI session was saved." } else { "" }
+                ) });
             }
         }
     }
@@ -295,8 +308,11 @@ fn restore(mut old: ProjectState, fresh: ProjectState, config_source: Option<Pat
     }
     for t in &mut old.tickets {
         if matches!(t.state, TicketState::Queued | TicketState::InProgress | TicketState::InReview) {
-            t.state = TicketState::Failed;
-            t.notes.push("interrupted by a restart; dispatch it again".into());
+            // Queued, not failed: nothing about the work failed, the process
+            // went away. Its agent comes back `interrupted`, and the ticket is
+            // ready to carry on (audit P0-2).
+            t.state = TicketState::Queued;
+            t.notes.push("cut off by a restart; the agent that had it can carry on".into());
         }
     }
     // The main agent keeps its history; the new notes (git, planner) go after it.
@@ -584,6 +600,17 @@ impl Harness {
     pub fn stop(&self, agent: Option<AgentId>) {
         stop(&self.inner, agent);
     }
+
+    /// Carry on with an agent that a restart cut off (its status is
+    /// `interrupted`). Returns what it did, so the caller can say so.
+    ///
+    /// Nothing is re-run from scratch: the worktree, the branch and — for a
+    /// CLI worker — the CLI's own session are all still there, and a CLI turn
+    /// resumes into that session. An agent that is still working, or one that
+    /// genuinely failed, is refused: this is not a retry button.
+    pub fn resume(&self, agent: AgentId) -> Result<String> {
+        resume(&self.inner, self.rt.handle(), agent)
+    }
 }
 
 fn resolve(inner: &Arc<Inner>, to_main: &mpsc::UnboundedSender<String>, approval: usize, verdict: Verdict) {
@@ -682,6 +709,9 @@ impl crate::remote::Api for Served {
     }
     fn stop(&self, agent: Option<usize>) {
         stop(&self.inner, agent);
+    }
+    fn resume(&self, agent: usize) -> Result<String> {
+        resume(&self.inner, &tokio::runtime::Handle::current(), agent)
     }
     fn start_task(&self, text: &str) -> Result<String> {
         // `serve` answers on the harness's runtime.
@@ -1527,12 +1557,16 @@ async fn finish(inner: &Arc<Inner>, c: &mut Conversation) -> Result<Deliverable>
 /// path as any worker. Feedback (a failed check, a rejection, a merge
 /// conflict) goes back to the CLI as the next prompt, resuming its session
 /// where the CLI can.
+///
+/// `session` is the CLI's own session to answer in; None means "answer as the
+/// agent record says", which is how a restart carries a worker on.
 async fn finish_cli(
     inner: &Arc<Inner>,
     c: &mut Conversation,
     cli: &str,
     dir: &Path,
     brief: &str,
+    session: Option<String>,
 ) -> Result<Deliverable> {
     let bin = crate::harnesses::which(crate::harnesses::bin_for(cli))
         .ok_or_else(|| anyhow!("`{cli}` is not installed on this machine"))?;
@@ -1558,11 +1592,27 @@ async fn finish_cli(
         "{brief}{}\n\n# How to work\n\nYou are one worker in a team; this directory is your own git worktree for this ticket. Make the change, run the project's tests or checks if it has any, and fix what fails. Do not commit or push: Backspace commits your work and sends it for review. When you are done, reply with a short summary of what you changed; its first line is the one-line summary.\n\n# Talking to the team\n\nOther agents work on other tickets at the same time, some on other models or CLIs. Your key is `{me}`. From your shell:\n- `{exe} msg agents` lists them\n- `{exe} msg send <key|main|all> \"text\"` messages one (or everyone)\n- `{exe} msg read` shows messages for you\nCheck messages before you finish, and tell others about interfaces or shared files you change.",
         cli_team_notes(inner)
     );
-    let mut session: Option<String> = None;
+    // A reopened project: this worker already had a CLI session, so answer in
+    // it (its own summary of what it had done is in the transcript the CLI
+    // keeps). Starting a fresh one would redo work that is already on disk.
+    let mut session: Option<String> =
+        session.or_else(|| inner.state.lock().unwrap().agents[c.id].ses.clone());
+    if session.is_some() {
+        inner.log(
+            c.id,
+            LogKind::System,
+            format!("resuming {cli}'s own session for this ticket"),
+        );
+    }
     for round in 0..4 {
         let (summary, sid) =
             run_cli_turn(inner, c.id, cli, &bin, dir, &prompt, session.as_deref(), None).await?;
         session = sid.or(session);
+        // Keep it in the agent's record as well: this is what survives a
+        // restart, so a re-dispatched worker resumes instead of starting over.
+        if let Some(sid) = session.clone() {
+            inner.agent(c.id, |a| a.ses = Some(sid));
+        }
         let summary = if summary.trim().is_empty() {
             format!("{cli} finished without a summary")
         } else {
@@ -1773,7 +1823,94 @@ fn current_account(cli: &str) -> Option<String> {
     a.best_for(cli, crate::chat::now_ms()).map(|x| x.id.clone())
 }
 
-/// `Some(reason)` when the project or any budget covering this agent is spent.
+
+/// Carry on with a ticket a restart cut off. See `Harness::resume`.
+///
+/// This re-enters the ordinary worker path (`run_worker_with`), so the result
+/// goes through the same commit → check → review → merge as any other ticket.
+/// What it does *not* do is start over: the worktree and branch are already on
+/// disk and a CLI worker answers in its saved session.
+fn resume(inner: &Arc<Inner>, rt: &tokio::runtime::Handle, id: AgentId) -> Result<String> {
+    let (key, session, was_triage) = {
+        let s = inner.state.lock().unwrap();
+        let a = s.agents.get(id).context("no such agent")?;
+        if a.id == MAIN {
+            bail!("the main agent is not resumed: send it a message instead");
+        }
+        match a.status {
+            AgentStatus::Interrupted => {}
+            AgentStatus::Idle if a.log.iter().any(|l| l.text.starts_with("interrupted:")) => {}
+            other => bail!(
+                "`{}` is {other:?}; only an agent a restart cut off can carry on. Its ticket can be dispatched again.",
+                a.key
+            ),
+        }
+        let key = a.ticket.clone().context("this agent has no ticket to resume")?;
+        (key, a.ses.clone(), a.kind == AgentKind::Triage)
+    };
+    // The ticket goes back to in-progress; a triage agent re-classifies the
+    // ticket it already has a record for.
+    if was_triage {
+        inner.ticket(&key, |t| t.state = TicketState::NeedsTriage);
+    } else {
+        inner.ticket(&key, |t| t.state = TicketState::InProgress);
+    }
+    let (i2, k2) = (inner.clone(), key.clone());
+    rt.spawn(async move {
+        let res = if was_triage {
+            run_triage_again(i2.clone(), id).await
+        } else {
+            run_worker_with(i2.clone(), id, session).await
+        };
+        settle(&i2, id, &k2, &res);
+        let line = report_line(&i2, id, res);
+        i2.log(MAIN, LogKind::System, line);
+        i2.touch();
+    });
+    Ok(format!(
+        "`{key}` is carrying on in the background; its result comes to you."
+    ))
+}
+
+/// A triage agent that a restart cut off, re-classifying the ticket it was
+/// already given (so it keeps the ticket's key and its place in the tree).
+async fn run_triage_again(inner: Arc<Inner>, id: AgentId) -> Result<Deliverable> {
+    let key = inner.state.lock().unwrap().agents[id]
+        .ticket
+        .clone()
+        .context("triage agent without a ticket")?;
+    let (brief, owner) = {
+        let s = inner.state.lock().unwrap();
+        let t = s.ticket(&key).context("ticket vanished")?;
+        (t.brief(), t.owner)
+    };
+    let mut d = inner
+        .router
+        .route_for(AgentRole::Sub, "triage", &format!("Triage this ticket:\n{brief}"), "")
+        .await?;
+    inner.cap_start(&mut d);
+    d.effort = d.effort.min(Effort::Low);
+    let (dir, _) = inner.home(owner);
+    let first = format!("# Ticket to triage (carrying on from a restart)\n\n{brief}");
+    inner.set_status(id, AgentStatus::Running);
+    let mut c = Conversation {
+        id,
+        kind: AgentKind::Triage,
+        ticket: Some(key),
+        can_spawn: false,
+        ws: inner.workspace(&dir),
+        initial: d.clone(),
+        system: inner.system_prompt(AgentKind::Triage, 0, &d),
+        decision: d,
+        messages: vec![Message::user_text(first)],
+        tools: tools_for(AgentKind::Triage, false),
+        budget_warned_at: None,
+        turns_total: 0,
+        recent_calls: vec![],
+    };
+    finish(&inner, &mut c).await
+}
+
 fn over_budget(inner: &Inner, id: AgentId) -> Option<String> {
     let s = inner.state.lock().unwrap();
     if let Some(max) = inner.cfg.orchestrator.max_project_usd {
@@ -2593,9 +2730,35 @@ fn settle(inner: &Inner, id: AgentId, key: &str, res: &Result<Deliverable>) {
 }
 
 /// Explicit BoxFuture return type breaks the drive → work_tickets →
-/// run_worker → drive async type cycle.
+/// One worker: pick a model, get its own branch and worktree, build the
+/// ticket, submit it (commit → check → review → merge). `session` is a coding
+/// CLI session to answer in, which is how a worker a restart cut off carries
+/// on in the same conversation instead of starting cold.
+///
+/// Everything below `blockers` is shared with `resume`, so a resumed ticket
+/// goes through the same check, review and merge as a fresh one.
 fn run_worker(inner: Arc<Inner>, id: AgentId) -> BoxFuture<'static, Result<Deliverable>> {
+    run_worker_with(inner, id, None)
+}
+
+fn run_worker_with(
+    inner: Arc<Inner>,
+    id: AgentId,
+    session: Option<String>,
+) -> BoxFuture<'static, Result<Deliverable>> {
     async move {
+        // A worker a restart cut off keeps the worktree it already has: only
+        // the process went away, so re-adding the worktree would either fail
+        // or (worse) wipe what it built.
+        let interrupted = inner.state.lock().unwrap().agents[id].status == AgentStatus::Interrupted;
+        if interrupted {
+            inner.set_status(id, AgentStatus::Running);
+            inner.log(
+                id,
+                LogKind::System,
+                "carrying on from a restart: this worktree already holds what you did",
+            );
+        }
         let key = inner.state.lock().unwrap().agents[id]
             .ticket
             .clone()
@@ -2681,9 +2844,13 @@ fn run_worker(inner: Arc<Inner>, id: AgentId) -> BoxFuture<'static, Result<Deliv
             let (_, parent_branch) = inner.home(parent);
             let path = git::worktree_path(&inner.root, &key);
             let branch = git::branch_name(&key);
-            {
-                let _g = inner.git.lock().await;
-                git::add_worktree(&inner.root, &path, &branch, &parent_branch).await?;
+            // A resumed worker keeps its worktree; a fresh one gets one forked
+            // from the parent's current work.
+            if !(interrupted && path.is_dir()) {
+                {
+                    let _g = inner.git.lock().await;
+                    git::add_worktree(&inner.root, &path, &branch, &parent_branch).await?;
+                }
             }
             let (p, b) = (path.clone(), branch.clone());
             inner.agent(id, |a| {
@@ -2723,7 +2890,7 @@ fn run_worker(inner: Arc<Inner>, id: AgentId) -> BoxFuture<'static, Result<Deliv
             recent_calls: vec![],
         };
         let res = match &cli {
-            Some(cli) => finish_cli(&inner, &mut c, cli, &dir, &first).await,
+            Some(cli) => finish_cli(&inner, &mut c, cli, &dir, &first, session).await,
             None => finish(&inner, &mut c).await,
         };
         if c.initial.model != c.decision.model || c.initial.effort != c.decision.effort {

@@ -95,7 +95,7 @@ var Home = (() => {
     const idle = all.filter(a => !needsYou(a) && !busy(a) && a.kind !== "scout");
     const row = (a, right) => `<div class="hw-row" data-open="${a.id}" role="button" tabindex="0"><span class="dot ${dotFor(a.status)}"></span><span class="tt"><b>${esc(name(a))}${a.kind === "scout" ? ` <i class="tag">scout</i>` : ""}</b><span>${esc(right.sub || lastLine(a))}</span></span>${right.html || ""}</div>`;
     const sec = (title, rows) => rows.length ? `<div class="grp-label">${title} · ${rows.length}</div>${rows.join("")}` : "";
-    return sec("Needs you", needs.map(a => { const n = needsYou(a); return row(a, { sub: n.why, html: `<button class="btn sm${n.ap ? " primary" : ""}" data-act-on="${a.id}">${n.ap ? "Review" : "Open"}</button>` }); }))
+    return sec("Needs you", needs.map(a => { const n = needsYou(a); return row(a, { sub: n.why, html: n.resume ? `<button class="btn sm primary" data-resume="${a.id}">Carry on</button>` : `<button class="btn sm${n.ap ? " primary" : ""}" data-act-on="${a.id}">${n.ap ? "Review" : "Open"}</button>` }); }))
       + sec("Working", working.map(a => row(a, { html: `<span class="meta">${esc(a.decision ? a.decision.model : "queued")}</span><button class="ib stopb" data-stop="${a.id}" aria-label="Stop" title="Stop">${icon("stop")}</button>` })))
       + sec("Idle", idle.map(a => row(a, { html: `<span class="meta">${esc(a.status.replace(/_/g, " "))}</span>` })));
   }
@@ -115,8 +115,15 @@ var Home = (() => {
     }[open]();
     el.scrollTop = keep;
     el.querySelectorAll("[data-open]").forEach(b => (b.onclick = e => {
-      const s = e.target.closest("[data-stop]"), r = e.target.closest("[data-act-on]");
+      const s = e.target.closest("[data-stop]"), r = e.target.closest("[data-act-on]"), rs = e.target.closest("[data-resume]");
       if (s) { e.stopPropagation(); invoke("stop", { agent: +s.dataset.stop }); return; }
+      if (rs) {
+        e.stopPropagation();
+        invoke("resume", { agent: +rs.dataset.resume })
+          .then(t => { toast(t, "ok"); setTimeout(() => refresh(false), 400); })
+          .catch(err => toast(String(err), "err"));
+        return;
+      }
       if (r) { e.stopPropagation(); actOn(agent(+r.dataset.actOn)); return; }
       openIn({ kind: "agent", agent: +b.dataset.open });
     }));

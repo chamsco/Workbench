@@ -17,11 +17,25 @@ pub enum AgentStatus {
     AwaitingApproval,
     Approved,
     Failed,
+    /// The process went away mid-turn (Backspace closed, the machine slept).
+    /// Distinct from `Failed`, which means the work itself did not come out:
+    /// an interrupted agent's branch, worktree and CLI session are all still
+    /// there, so re-dispatching the ticket carries on rather than starting
+    /// over. Absent from anything that reports failure to the human.
+    Interrupted,
 }
 
 impl AgentStatus {
     pub fn is_terminal(self) -> bool {
         matches!(self, AgentStatus::Approved | AgentStatus::Failed)
+    }
+
+    /// Is the agent still doing something?
+    pub fn is_active(self) -> bool {
+        matches!(
+            self,
+            AgentStatus::Queued | AgentStatus::Running | AgentStatus::AwaitingApproval
+        )
     }
 }
 
@@ -108,6 +122,12 @@ pub struct AgentRecord {
     /// Times this agent consulted the advisor.
     #[serde(default)]
     pub advisor_calls: u32,
+    /// The coding CLI's own session for this agent, when it keeps one (Claude
+    /// Code does). Saved with the state so a worker that was cut off by a
+    /// restart answers again *in its own session* instead of starting cold —
+    /// the second half of the audit's P0-2.
+    #[serde(default)]
+    pub ses: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
