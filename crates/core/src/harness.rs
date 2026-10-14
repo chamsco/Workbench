@@ -194,42 +194,77 @@ fn pick_planner(cfg: &mut Config, over: &Overrides) -> Option<String> {
 /// and no network: if the model is not actually running, the scout simply
 /// fails and the router's own pick is used next time.
 pub fn local_subagent(cfg: &mut Config, prefs: &crate::prefs::Prefs) {
-    let Some(spec) = prefs.subagent_model.clone() else { return };
+    // The jobs the user ticked decide whether this model is used at all; with
+    // none ticked there is nothing to point the config at.
+    let jobs = local_jobs(prefs);
+    let Some(spec) = prefs.subagent_model.clone().filter(|_| !jobs.is_empty()) else {
+        return;
+    };
     // "<runtime id>:<model id>"; the model id itself may hold colons
     // ("ollama:qwen3:1.7b").
     let Some((runtime, model)) = spec.split_once(':').filter(|(r, m)| !r.is_empty() && !m.is_empty()) else {
         return;
     };
-    if cfg.models.iter().any(|m| m.id == spec) {
-        cfg.advisor.scout_model = Some(spec);
-        return;
+    if !cfg.models.iter().any(|m| m.id == spec) {
+        let base_url = match runtime {
+            "ollama" => format!("{}/v1", prefs.ollama_url.trim_end_matches('/')),
+            "lmstudio" => "http://127.0.0.1:1234/v1".to_string(),
+            "llamacpp" => "http://127.0.0.1:8080/v1".to_string(),
+            "mlx" => "http://127.0.0.1:8081/v1".to_string(),
+            other => match prefs.routers.iter().find(|r| r.id == other || r.name.eq_ignore_ascii_case(other)) {
+                Some(r) => r.base_url.trim_end_matches('/').to_string(),
+                None => return,
+            },
+        };
+        cfg.providers.insert(
+            runtime.to_string(),
+            crate::config::ProviderConfig { kind: crate::config::ProviderKind::Openai, base_url, api_key_env: String::new(), cli: None },
+        );
+        cfg.models.push(crate::config::ModelSpec {
+            id: spec.clone(),
+            provider: runtime.to_string(),
+            model: Some(model.to_string()),
+            tier: 0,
+            description: "A small model on this machine, for reading, classifying, summarising and extracting.".into(),
+            input_usd_per_mtok: 0.0,
+            output_usd_per_mtok: 0.0,
+            max_output_tokens: 4096,
+            efforts: vec![],
+        });
     }
-    let base_url = match runtime {
-        "ollama" => format!("{}/v1", prefs.ollama_url.trim_end_matches('/')),
-        "lmstudio" => "http://127.0.0.1:1234/v1".to_string(),
-        "llamacpp" => "http://127.0.0.1:8080/v1".to_string(),
-        "mlx" => "http://127.0.0.1:8081/v1".to_string(),
-        other => match prefs.routers.iter().find(|r| r.id == other || r.name.eq_ignore_ascii_case(other)) {
-            Some(r) => r.base_url.trim_end_matches('/').to_string(),
-            None => return,
-        },
+    // `advisor.scout_model` is the one place scouts take a model from, so it
+    // follows the tick only when scouts are actually among the local jobs.
+    // Triage and workers are routed by `Router::route_for` instead.
+    if jobs.contains_key("scouts") {
+        cfg.advisor.scout_model = Some(spec);
+    }
+}
+
+/// Which small delegated jobs run on the tiny local model, from prefs.
+///
+/// `prefs.local_tasks` says which; scouts are the default the moment a model
+/// is chosen, because they are read-only lookups that a small model can do
+/// well and a big model would otherwise pay for.
+pub fn local_jobs(prefs: &crate::prefs::Prefs) -> std::collections::BTreeMap<String, String> {
+    let mut out = std::collections::BTreeMap::new();
+    let Some(model) = prefs.subagent_model.clone().filter(|m| !m.trim().is_empty()) else {
+        return out;
     };
-    cfg.providers.insert(
-        runtime.to_string(),
-        crate::config::ProviderConfig { kind: crate::config::ProviderKind::Openai, base_url, api_key_env: String::new(), cli: None },
-    );
-    cfg.models.push(crate::config::ModelSpec {
-        id: spec.clone(),
-        provider: runtime.to_string(),
-        model: Some(model.to_string()),
-        tier: 0,
-        description: "A small model on this machine, for reading, classifying, summarising and extracting.".into(),
-        input_usd_per_mtok: 0.0,
-        output_usd_per_mtok: 0.0,
-        max_output_tokens: 4096,
-        efforts: vec![],
-    });
-    cfg.advisor.scout_model = Some(spec);
+    let tasks = if prefs.local_tasks.is_empty() {
+        vec!["scouts".to_string()]
+    } else {
+        prefs.local_tasks.clone()
+    };
+    for t in tasks {
+        let key = match t.trim().to_lowercase().as_str() {
+            "scouts" | "scout" => "scouts",
+            "triage" => "triage",
+            "workers" | "worker" => "workers",
+            _ => continue,
+        };
+        out.insert(key.to_string(), model.clone());
+    }
+    out
 }
 
 /// A saved project, reopened: what was mid-flight can't be picked up (its
@@ -365,8 +400,9 @@ impl Harness {
             .unwrap_or(fresh);
 
         let (changed_tx, changed_rx) = async_channel::bounded(1);
+        let prefs_at_open = crate::prefs::Prefs::load();
         let inner = Arc::new(Inner {
-            router: Router::new(http.clone(), cfg.clone()),
+            router: Router::new(http.clone(), cfg.clone()).with_local(local_jobs(&prefs_at_open)),
             agents_md: std::fs::read_to_string(root.join("AGENTS.md")).ok(),
             memory: over.memory.clone(),
             skills: Skills::load(&root),
@@ -2738,8 +2774,7 @@ async fn scouts(inner: &Arc<Inner>, c: &Conversation, input: &Value) -> Result<S
         .unwrap_or_default();
     if !local.is_empty() {
         inner.log(c.id, LogKind::System, format!("scouts run on{local}"));
-    }
-    let d = Decision { model, effort: Effort::Low, source: "scout".into(), confidence: 1.0, router_cost_usd: 0.0, note: None };
+    }    let d = Decision { model, effort: Effort::Low, source: "scout".into(), confidence: 1.0, router_cost_usd: 0.0, note: None };
     let (depth, dir) = {
         let s = inner.state.lock().unwrap();
         (s.agents[c.id].depth + 1, c.ws.root.clone())
@@ -2984,7 +3019,12 @@ fn run_triage(inner: Arc<Inner>, key: String) -> BoxFuture<'static, ()> {
         let res: Result<Deliverable> = async {
             let mut d = inner
                 .router
-                .route(AgentRole::Sub, &format!("Triage this ticket:\n{brief}"), "")
+                .route_for(
+                    AgentRole::Sub,
+                    "triage",
+                    &format!("Triage this ticket:\n{brief}"),
+                    "",
+                )
                 .await?;
             inner.cap_start(&mut d);
             d.effort = d.effort.min(Effort::Low);

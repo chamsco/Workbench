@@ -29,11 +29,69 @@ pub struct Decision {
 pub struct Router {
     http: reqwest::Client,
     cfg: Config,
+    /// Small delegated jobs the user pinned to a model on this machine:
+    /// "scouts" -> "ollama:lfm2.5:latest", "triage" -> ..., "workers" -> ...
+    /// (Settings → Local models; model_server.rs). Empty: the big model does
+    /// everything, which is the default.
+    local: std::collections::BTreeMap<String, String>,
 }
 
 impl Router {
     pub fn new(http: reqwest::Client, cfg: Config) -> Self {
-        Self { http, cfg }
+        Self { http, cfg, local: Default::default() }
+    }
+
+    /// Which small jobs run locally, and on what. Builder style so the
+    /// harness can set it from prefs without a second constructor.
+    pub fn with_local(mut self, local: std::collections::BTreeMap<String, String>) -> Self {
+        self.local = local;
+        self
+    }
+
+    /// The local model for a small job, when the user picked one for it.
+    ///
+    /// `role` is what the job is (`AgentRole::Sub` for a worker or a triage
+    /// agent); `job` is the finer kind those roles share ("triage", "worker"),
+    /// so a user can send triage to a 1.5B model and leave workers alone.
+    ///
+    /// A local model is cheaper and often absent, so this is the *first*
+    /// choice only while it is usable: the config was already given a model
+    /// spec for it in `harness::local_subagent`, and `usable_models` leaves a
+    /// keyless local provider usable, so a stopped runtime still routes here
+    /// and fails loudly rather than silently spending money.
+    fn local_pick(&self, role: AgentRole, job: &str) -> Option<Decision> {
+        let model = self
+            .local
+            .get(job)
+            .or_else(|| self.local.get(job.trim_end_matches('s')))
+            .or_else(|| match role {
+                AgentRole::Sub if job.is_empty() => self.local.get("workers"),
+                _ => None,
+            })?
+            .clone();
+        // Only if the model really is in this config and usable right now.
+        if !self.cfg.usable_models().iter().any(|m| m.id == model) {
+            return None;
+        }
+        Some(Decision {
+            model,
+            effort: Effort::Low,
+            source: format!("local-{job}"),
+            confidence: 1.0,
+            router_cost_usd: 0.0,
+            note: Some(format!(
+                "you are a small model on this machine, doing one {job} job for a bigger agent"
+            )),
+        })
+    }
+
+    /// The model for an agent, with the local pick first when the user asked
+    /// for it. `job` is "" for "just this role".
+    pub async fn route_for(&self, role: AgentRole, job: &str, task: &str, context: &str) -> Result<Decision> {
+        if let Some(d) = self.local_pick(role, job) {
+            return Ok(d);
+        }
+        self.route(role, task, context).await
     }
 
     pub async fn route(&self, role: AgentRole, task: &str, context: &str) -> Result<Decision> {

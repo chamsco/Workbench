@@ -199,10 +199,14 @@ profile directory. Code: `crates/core/src/accounts.rs`.
 **Small local models do the small jobs.** Settings → Local models finds
 Ollama, LM Studio, llama.cpp and MLX (plus any loopback OpenAI endpoint),
 lists what each one has, marks the models ≤ 4B as tiny, and suggests the one
-to hand a small job to. Pick one and it becomes the model scouts and other
-delegated read/classify/summarise/extract work runs on, whatever subscription
-model is leading. Nothing is downloaded for you; if the runtime is not up, the
-router's own pick is used. Code: `crates/core/src/model_server.rs`.
+to hand a small job to. Pick one, then choose which jobs it runs:
+**scouts** (read-only lookups, the safe default), **triage** (classify a filed
+ticket) and **workers** (build a ticket — only if the model is up for it).
+Those jobs are routed to it *first* and fall back to the router when the
+runtime is down, so a subscription model can delegate without you babysitting
+it. `backspace-cli models` prints the same, including which jobs are local.
+Code: `crates/core/src/model_server.rs`, `harness::local_jobs`,
+`Router::route_for`.
 
 **An agent can be given a machine of its own.** Colony gives an agent a
 durable, chat-addressable workspace — a WSL2 distro or a Hyper-V VM created on
@@ -551,8 +555,11 @@ State is written to `<workspace>/.backspace/state.json` as a record of the run.
 - Multi-account failover moves between logins when the CLI reports a usage
   limit; it does not yet checkpoint and resume a CLI session mid-turn, so a
   turn that dies on a limit is re-asked on the new login.
-- The local tiny model runs the scouts (`advisor.scout_model` when
-  Settings → Local models names one). Other delegated jobs still go through the
-  router, which picks the cheapest *usable* model, local ones included.
+- The local tiny model runs the jobs you tick in Settings → Local models
+  (scouts by default; triage and workers if you say so). Every other decision
+  still goes to the router, which picks the cheapest *usable* model.
+- Routing to a local model is a first choice, not a fallback: if the runtime
+  is down the job fails and says so rather than quietly spending money on a
+  bigger model. Nothing is pulled or downloaded for you.
 - Cloud is a development server: no accounts beyond a local token, no
   billing.

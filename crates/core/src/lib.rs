@@ -36,6 +36,6 @@ pub mod update;
 
 pub use config::Config;
 pub use effort::Effort;
-pub use harness::{local_subagent, Harness, Overrides};
+pub use harness::{local_jobs, local_subagent, Harness, Overrides};
 pub use project::*;
 pub use ticket::{Ticket, TicketState};

@@ -654,6 +654,7 @@ fn local_models(f: F) -> serde_json::Value {
         "recommend": recommend.map(|(url, model)| serde_json::json!({"base_url": url, "model": model})),
         "endpoint": backspace_core::model_server::best_endpoint(&prefs),
         "chosen": prefs.subagent_model,
+        "tasks": prefs.local_tasks,
     })
 }
 
@@ -662,6 +663,19 @@ fn local_models(f: F) -> serde_json::Value {
 #[tauri::command]
 fn set_subagent_model(f: F, model: Option<String>) {
     f.update_prefs(|p| p.subagent_model = model.filter(|m| !m.trim().is_empty()));
+}
+
+/// Settings → Local models: which small jobs that model runs ("scouts",
+/// "triage", "workers"). Empty means scouts only, the safe default.
+#[tauri::command]
+fn set_local_tasks(f: F, tasks: Vec<String>) {
+    let known = ["scouts", "triage", "workers"];
+    f.update_prefs(|p| {
+        p.local_tasks = tasks
+            .into_iter()
+            .filter(|t| known.contains(&t.as_str()))
+            .collect();
+    });
 }
 
 // ---------------------------------------------------- skills and worktrees
@@ -1608,6 +1622,7 @@ fn main() -> anyhow::Result<()> {
             chat_list,
             local_models,
             set_subagent_model,
+            set_local_tasks,
             skills_catalog,
             worktrees,
             colony_status,

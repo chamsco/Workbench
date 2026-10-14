@@ -1999,10 +1999,13 @@ var Models = (() => {
     last = d;
     if (!box.isConnected) return;
     const chosen = d.chosen || "";
+    const tasks = (d.tasks && d.tasks.length ? d.tasks : ["scouts"]);
     const runtimes = d.runtimes || [];
     const tiny = runtimes.flatMap(r => r.models.filter(m => m.tiny).map(m => ({ ...m, runtime: r.id, up: r.running })));
     box.innerHTML = `<div class="line"><span class="lab">Small jobs go to<small>Reading, classifying, summarising and extracting, when a subscription model delegates them. One small local model, one task at a time.</small></span>
         <button class="btn" id="mmPick" data-popper>${chosen ? esc(chosen) : "Leave it to the main model"}${icon("chevd")}</button></div>
+      <div class="line"><span class="lab">…for these jobs<small>${chosen ? "Scouts are read-only lookups, the safest to hand over. Triage classifies a filed ticket. Workers build a ticket, so pick this only if the small model is up for it." : "Choose a model above first."}</small></span>
+        <div class="segc">${[["scouts", "Scouts"], ["triage", "Triage"], ["workers", "Workers"]].map(([k, l]) => `<button aria-pressed="${tasks.includes(k)}" data-lt="${k}" ${chosen ? "" : "disabled"}>${l}</button>`).join("")}</div></div>
       ${tiny.length ? `<div class="pmodels">${tiny.slice(0, 10).map(m => `<span>${esc(m.id)}${m.up ? "" : " (stopped)"}</span>`).join("")}</div>` : ""}
       ${runtimes.map(r => `<div class="prow${r.running ? "" : " dim"}"><span class="mi">${icon("cpu")}</span>
         <div class="pmain"><div class="pname">${esc(r.name)} <span class="pver">${esc(KIND[r.kind] || r.kind)}</span></div>
@@ -2019,6 +2022,15 @@ var Models = (() => {
       $$("[data-m]", pop).forEach(b => (b.onclick = async () => { closePop(); await invoke("set_subagent_model", { model: b.dataset.m || null }); prefs.subagent_model = b.dataset.m || null; draw(box, wtBox); toast(b.dataset.m ? `Small jobs will run on ${b.dataset.m}` : "Small jobs stay on the main model", "ok"); }));
     });
     $("#mmScan", box).onclick = () => draw(box, wtBox);
+    // Which jobs the chosen model runs. Always at least one: turning every
+    // job off would leave the model chosen and unused, which reads as broken.
+    $$("[data-lt]", box).forEach(b => (b.onclick = async () => {
+      const k = b.dataset.lt;
+      const next = tasks.includes(k) ? tasks.filter(x => x !== k) : [...tasks, k];
+      if (!next.length) { toast("Keep at least one job on; or choose no model", "err"); return; }
+      await invoke("set_local_tasks", { tasks: next }).catch(e => toast(String(e), "err"));
+      prefs.local_tasks = next; draw(box, wtBox);
+    }));
     $$("[data-url]", box).forEach(b => (b.onclick = e => { e.preventDefault(); invoke("open_url", { url: b.dataset.url }); }));
     if (wtBox) renderWorktrees(wtBox);
   }

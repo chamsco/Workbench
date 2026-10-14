@@ -19,6 +19,12 @@ use backspace_core::project::{AgentRecord, ProjectState};
 use backspace_core::{Effort, Harness};
 use serde_json::{json, Value};
 
+/// `BACKSPACE_PREFS`, `BACKSPACE_DATA` and `BACKSPACE_CONFIG` are process-wide,
+/// and the harness reads them when a project opens. Two tests that need their
+/// own decisions therefore cannot run at the same time: this lock serializes
+/// them. The failover/board tests do not take it — they never open a project.
+static GLOBALS: Mutex<()> = Mutex::new(());
+
 fn agent(id: usize, key: &str, kind: &str, role: &str) -> AgentRecord {
     serde_json::from_value(json!({
         "id": id, "role": role, "kind": kind, "parent": null, "depth": 0, "key": key,
@@ -93,6 +99,36 @@ fn a_reply_to_a_message_that_is_not_there_is_refused() {
     let mut s = project();
     assert!(board::reply(&mut s, "api", "web", "re: nothing", Some(7)).is_err());
     assert!(s.board.is_empty(), "a refused reply must not land on the board");
+}
+
+#[test]
+fn the_tick_gates_the_local_model_and_scouts_only_follow_their_own() {
+    let base = Config::parse(backspace_core::config::DEFAULT_CONFIG).unwrap();
+    let before = base.advisor.scout_model.clone();
+    let mut prefs = Prefs::default();
+    prefs.subagent_model = Some("ollama:lfm2.5:latest".into());
+
+    // Triage ticked, scouts not: the model is in the config (so routing can
+    // reach it) but scouts keep the config's own scout model.
+    prefs.local_tasks = vec!["triage".into()];
+    let mut cfg = base.clone();
+    backspace_core::local_subagent(&mut cfg, &prefs);
+    assert!(cfg.model("ollama:lfm2.5:latest").is_some(), "the model is usable for triage");
+    assert_eq!(cfg.advisor.scout_model, before, "scouts were not ticked");
+
+    // Scouts ticked: now they take it.
+    prefs.local_tasks = vec!["scouts".into()];
+    let mut cfg = base.clone();
+    backspace_core::local_subagent(&mut cfg, &prefs);
+    assert_eq!(cfg.advisor.scout_model.as_deref(), Some("ollama:lfm2.5:latest"));
+
+    // No job ticked at all: nothing is pointed at the model, even though one
+    // is chosen — the panel says "keep at least one job on", and this is why.
+    prefs.local_tasks = vec!["something-else".into()];
+    let mut cfg = base.clone();
+    backspace_core::local_subagent(&mut cfg, &prefs);
+    assert_eq!(cfg.advisor.scout_model, before);
+    assert!(cfg.model("ollama:lfm2.5:latest").is_none());
 }
 
 // ------------------------------------------------------- local tiny models
@@ -248,6 +284,7 @@ fn big_model_server() -> u16 {
 /// subscription model.
 #[test]
 fn a_delegated_lookup_reaches_the_chosen_local_model() {
+    let _guard = GLOBALS.lock().unwrap_or_else(|e| e.into_inner());
     let (local_port, local_seen) = local_model_server();
     let big_port = big_model_server();
 
@@ -298,6 +335,8 @@ output_usd_per_mtok = 2.0
 max_output_tokens = 1000
 "#
     );
+    // The project's own backspace.toml: per-workspace, so two tests in one
+    // process cannot fight over a config path.
     std::fs::write(ws.join("backspace.toml"), cfg).unwrap();
 
     let h = Harness::open(ws.clone()).expect("open the project");
@@ -335,6 +374,181 @@ max_output_tokens = 1000
     assert_eq!(scout.unwrap().decision.as_ref().unwrap().effort, Effort::Low, "{report}");
 
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn local_jobs_defaults_to_scouts_and_refuses_unknown_words() {
+    use backspace_core::harness::local_jobs;
+    // No model: nothing runs locally, whatever the task list says.
+    let mut prefs = Prefs::default();
+    prefs.local_tasks = vec!["scouts".into(), "triage".into()];
+    assert!(local_jobs(&prefs).is_empty());
+
+    // A model but no explicit list: scouts, the safe read-only default.
+    prefs.subagent_model = Some("ollama:lfm2.5:latest".into());
+    prefs.local_tasks = vec![];
+    let jobs = local_jobs(&prefs);
+    assert_eq!(jobs.len(), 1);
+    assert_eq!(jobs["scouts"], "ollama:lfm2.5:latest");
+
+    // The user's list wins, singulars and spacing included, and a word the
+    // harness does not know is dropped rather than guessed at.
+    prefs.local_tasks = vec!["Triage".into(), " worker ".into(), "planner".into()];
+    let jobs = local_jobs(&prefs);
+    let mut keys: Vec<&str> = jobs.keys().map(String::as_str).collect();
+    keys.sort();
+    assert_eq!(keys, vec!["triage", "workers"]);
+}
+
+/// The other half of the local-model wiring: the *triage* job, not just
+/// scouts, when the user asks for it. Same stand-ins, no Ollama and no API
+/// key at all — the whole project runs on the tiny local model.
+#[test]
+fn triage_can_run_on_the_local_model_with_no_api_key() {
+    let _guard = GLOBALS.lock().unwrap_or_else(|e| e.into_inner());
+    let (local_port, local_seen) = local_triage_server();
+
+    let dir = std::env::temp_dir().join(format!("bs-triage-local-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::env::set_var("BACKSPACE_PREFS", dir.join("prefs.json"));
+    std::env::set_var("BACKSPACE_DATA", dir.join("data"));
+
+    let mut prefs = Prefs::default();
+    prefs.ollama_url = format!("http://127.0.0.1:{local_port}");
+    prefs.subagent_model = Some("ollama:qwen3:1.7b".into());
+    prefs.local_tasks = vec!["triage".into()];
+    prefs.save();
+
+    let ws = dir.join("project");
+    std::fs::create_dir_all(&ws).unwrap();
+    // The project's own backspace.toml, so this test never depends on a
+    // process-wide variable another test may be using.
+    let cfg_path = ws.join("backspace.toml");
+    std::fs::write(
+        &cfg_path,
+        r#"
+[router]
+backend = "heuristic"
+jev_endpoint = ""
+jev_model = ""
+jev_api_key_env = "NONE"
+jev_usd_per_mtok = 0.0
+main_min_effort = "high"
+
+[orchestrator]
+max_parallel_calls = 1
+max_subagents = 2
+auto_approve = true
+bash_timeout_secs = 10
+
+[providers.nowhere]
+kind = "openai"
+base_url = "http://127.0.0.1:1/v1"
+api_key_env = "NO_SUCH_KEY"
+
+[[models]]
+id = "placeholder"
+provider = "nowhere"
+tier = 1
+description = "unusable: its provider has no credentials"
+input_usd_per_mtok = 1.0
+output_usd_per_mtok = 2.0
+max_output_tokens = 100
+"#,
+    )
+    .unwrap();
+
+    let h = Harness::open(ws.clone()).expect("open the project");
+    let filed = h.file_ticket("Crash on empty input", "The parser panics on an empty file").unwrap();
+    assert!(filed.contains("crash-on-empty-input"), "{filed}");
+
+    let mut waited = 0;
+    while waited < 60 {
+        let s = h.snapshot();
+        if s.tickets.first().map(|t| t.state) != Some(backspace_core::TicketState::NeedsTriage) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(250));
+        waited += 1;
+    }
+
+    let s = h.snapshot();
+    let t = s.tickets.first().expect("the ticket");
+    let seen = local_seen.lock().unwrap().clone();
+    let report = format!(
+        "local requests: {} (models: {:?}) | ticket state: {:?} | notes: {:?} | agents: {:?} | config: {:?}",
+        seen.len(),
+        seen.iter().map(|r| r["model"].clone()).collect::<Vec<_>>(),
+        t.state,
+        t.notes,
+        s.agents
+            .iter()
+            .map(|a| format!("{}:{:?}{}", a.key, a.status, a.log.last().map(|l| l.text.clone()).unwrap_or_default()))
+            .collect::<Vec<_>>(),
+        s.config_source
+    );
+    assert!(!seen.is_empty(), "the local model was never asked: {report}");
+    assert_eq!(seen[0]["model"], "qwen3:1.7b", "{report}");
+    assert_eq!(t.state, backspace_core::TicketState::ReadyForAgent, "{report}");
+    let triager = s
+        .agents
+        .iter()
+        .find(|a| a.kind == backspace_core::AgentKind::Triage)
+        .expect("the triage agent");
+    assert_eq!(
+        triager.decision.as_ref().map(|d| d.model.as_str()),
+        Some("ollama:qwen3:1.7b"),
+        "{report}"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A stand-in for a local runtime asked to triage a ticket: it answers with
+/// the `triage_ticket` tool call the harness expects.
+fn local_triage_server() -> (u16, Arc<Mutex<Vec<Value>>>) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let seen: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
+    let sink = seen.clone();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { continue };
+            let sink = sink.clone();
+            std::thread::spawn(move || {
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut len = 0;
+                loop {
+                    let mut line = String::new();
+                    if reader.read_line(&mut line).is_err() || line == "\r\n" || line.is_empty() {
+                        break;
+                    }
+                    if let Some(v) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                        len = v.trim().parse().unwrap_or(0);
+                    }
+                }
+                let mut body = vec![0; len];
+                let _ = reader.read_exact(&mut body);
+                let req: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
+                sink.lock().unwrap().push(req.clone());
+                let out = json!({
+                    "choices": [{"finish_reason": "tool_calls", "message": {"content": null, "tool_calls": [
+                        {"id": "t1", "type": "function", "function": {"name": "triage_ticket", "arguments": json!({
+                            "state": "ready_for_agent",
+                            "category": "bug",
+                            "notes": "reproduced on an empty file",
+                            "acceptance": ["no crash on empty input"],
+                            "check": "true"
+                        }).to_string()}}]}}],
+                    "usage": {"prompt_tokens": 40, "completion_tokens": 12}
+                })
+                .to_string();
+                let _ = write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{out}", out.len());
+            });
+        }
+    });
+    (port, seen)
 }
 
 // --------------------------------------------------------------- accounts

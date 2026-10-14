@@ -112,8 +112,13 @@ fn models() -> Result<()> {
         Some((url, model)) => println!("\nsmall jobs could run on {model} at {url}"),
         None => println!("\nnothing running: small jobs stay on the main model"),
     }
-    if let Some(chosen) = prefs.subagent_model {
-        println!("configured for small jobs: {chosen}");
+    if let Some(chosen) = &prefs.subagent_model {
+        let jobs = backspace_core::harness::local_jobs(&prefs);
+        let which: Vec<&str> = jobs.keys().map(String::as_str).collect();
+        println!(
+            "configured for small jobs: {chosen} → {}",
+            if which.is_empty() { "nothing".to_string() } else { which.join(", ") }
+        );
     }
     Ok(())
 }
