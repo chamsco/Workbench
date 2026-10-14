@@ -51,6 +51,22 @@ timeout, worktrees on the runner, and checkpoint→switch→resume for accounts
 Conversation and Terminal canvases, and the Accounts/Local models panels. The
 `web/` chat face was not touched, so `ui/chat-web` does not need a rebuild.
 
+What was verified this round, and what was not:
+
+- **Ran:** `cargo test --workspace --exclude backspace` — 133 tests green,
+  including `crates/colony` (25), `crates/core/tests/features.rs` (11, among
+  them an end-to-end proof that a `scout` delegation reaches the chosen local
+  model over HTTP), the e2e suite, and the bounded PTY test in
+  `crates/tauri-app`. `cargo check -p backspace-tauri` is clean.
+- **Ran:** `cargo run -q -p backspace-cli -- models` against this machine —
+  it finds the four runtimes and reports that none is up.
+- **Ran:** `backspace-tauri.exe` (debug, isolated `BACKSPACE_DATA`) — it
+  launched, painted (12 WebView2 processes), survived 18 seconds, and wrote
+  nothing to stderr. The **new UI was not clicked through**: the Settings
+  panels, the Conversation canvas and the Terminal canvas need the owner's
+  eyes in a real session. On this host ConPTY opened but produced no output,
+  which the canvas reports rather than hides.
+
 ---
 
 State as of 7 Oct 2026, commit `56ff91a` on `main`.
