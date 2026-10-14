@@ -17,6 +17,11 @@ pub struct Prefs {
     pub check_updates: bool,
     pub tabs: Vec<TabSpec>,
     pub active_tab: usize,
+    /// The same canvas layout, per project. `tabs` above stays the fallback for
+    /// when no project is open, so an existing prefs file keeps working and a
+    /// layout made in one project is never written into another's namespace.
+    /// Keys are `Prefs::tab_key()`.
+    pub tabs_by_project: BTreeMap<String, TabsFor>,
     /// False until the first-run setup is finished or skipped.
     pub onboarded: bool,
     /// Which zone of the rail was showing: "chat", "code", "memory",
@@ -106,6 +111,7 @@ impl Default for Prefs {
             check_updates: true,
             tabs: TabSpec::defaults(),
             active_tab: 0,
+            tabs_by_project: BTreeMap::new(),
             onboarded: false,
             mode: "chat".into(),
             code_view: "agents".into(),
@@ -353,11 +359,18 @@ impl Default for Share {
     }
 }
 
+/// One project's canvas layout: the tabs it had open and which was showing.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(default)]
+pub struct TabsFor {
+    pub tabs: Vec<TabSpec>,
+    pub active: usize,
+}
+
 /// A title-bar tab: up to four canvases side by side (four = 2x2).
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(default)]
-pub struct TabSpec {
-    /// None: the tab shows its layout icon instead of a name.
+pub struct TabSpec {    /// None: the tab shows its layout icon instead of a name.
     pub name: Option<String>,
     pub panes: Vec<PaneSpec>,
     /// How the panes are arranged; None (older prefs) means the default
@@ -458,7 +471,59 @@ impl Prefs {
             p.tabs = TabSpec::defaults();
         }
         p.active_tab = p.active_tab.min(p.tabs.len() - 1);
+        // A project's layout must never be empty either: an entry with no tabs
+        // would render a tab bar with nothing in it.
+        for t in p.tabs_by_project.values_mut() {
+            if t.tabs.is_empty() {
+                t.tabs = TabSpec::defaults();
+            }
+            t.active = t.active.min(t.tabs.len() - 1);
+        }
         p
+    }
+
+    /// Where a project's canvas layout is filed. `workspace` is the open
+    /// project's absolute path, or "" when none is open and the global `tabs`
+    /// apply. Case is folded so a path typed with different case is one entry.
+    pub fn tab_key(workspace: &str) -> String {
+        let w = workspace.trim();
+        if w.is_empty() {
+            return String::new();
+        }
+        w.replace('\\', "/").trim_end_matches('/').to_lowercase()
+    }
+
+    /// The tabs to show for a workspace: its own, made from the global default
+    /// the first time that project is opened.
+    pub fn tabs_for(&self, workspace: &str) -> TabsFor {
+        let key = Self::tab_key(workspace);
+        if key.is_empty() {
+            return TabsFor { tabs: self.tabs.clone(), active: self.active_tab };
+        }
+        self.tabs_by_project.get(&key).cloned().unwrap_or_else(|| TabsFor {
+            tabs: TabSpec::defaults(),
+            active: 0,
+        })
+    }
+
+    /// File a workspace's tabs. An empty workspace writes the global layout, so
+    /// the app still remembers where you were with no project open.
+    pub fn set_tabs_for(&mut self, workspace: &str, tabs: Vec<TabSpec>, active: usize) {
+        let key = Self::tab_key(workspace);
+        if key.is_empty() {
+            self.set_global_tabs(tabs, active);
+            return;
+        }
+        let tabs = if tabs.is_empty() { TabSpec::defaults() } else { tabs };
+        let active = active.min(tabs.len() - 1);
+        self.tabs_by_project.insert(key, TabsFor { tabs, active });
+    }
+
+    fn set_global_tabs(&mut self, tabs: Vec<TabSpec>, active: usize) {
+        if !tabs.is_empty() {
+            self.tabs = tabs;
+            self.active_tab = active.min(self.tabs.len() - 1);
+        }
     }
 
     /// Holds API keys and tokens, so it is written readable by you only.

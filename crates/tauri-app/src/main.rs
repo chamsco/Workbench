@@ -265,6 +265,24 @@ fn set_tabs(f: F, tabs: Vec<TabSpec>, active: usize) {
     });
 }
 
+/// Save a canvas layout under a project, so opening another project cannot
+/// overwrite it. An empty `workspace` writes the global layout (no project
+/// open), which is what the old `set_tabs` did for everyone.
+#[tauri::command]
+fn set_tabs_for(f: F, workspace: String, tabs: Vec<TabSpec>, active: usize) {
+    if std::env::var_os("BACKSPACE_LAYOUT").is_some() {
+        return;
+    }
+    f.update_prefs(|p| p.set_tabs_for(&workspace, tabs, active));
+}
+
+/// The layout to show for a workspace: its own if it has one, else the global
+/// default. Called when a project opens or closes.
+#[tauri::command]
+fn tabs_for(f: F, workspace: String) -> backspace_core::prefs::TabsFor {
+    f.prefs().tabs_for(&workspace)
+}
+
 #[tauri::command]
 fn set_theme(f: F, theme: String) {
     f.update_prefs(|p| p.theme = theme);
@@ -1619,6 +1637,8 @@ fn main() -> anyhow::Result<()> {
             set_share,
             prefs,
             set_tabs,
+            set_tabs_for,
+            tabs_for,
             set_theme,
             set_appearance,
             set_check_updates,

@@ -131,6 +131,125 @@ fn the_tick_gates_the_local_model_and_scouts_only_follow_their_own() {
     assert!(cfg.model("ollama:lfm2.5:latest").is_none());
 }
 
+/// The audit caught this: `run_worker_with` called `route()`, which never
+/// consults the local picks, so ticking "workers" in Settings did nothing. The
+/// worker path goes through `route_for` now, and the runtime has to be up.
+#[tokio::test]
+async fn a_worker_routes_to_the_local_model_only_while_it_is_listening() {
+    use backspace_core::router::{AgentRole, Router};
+    use std::collections::BTreeMap;
+    use std::net::TcpListener;
+
+    fn cfg_with_local(base: &str) -> backspace_core::Config {
+        let mut cfg = Config::parse(backspace_core::config::DEFAULT_CONFIG).unwrap();
+        // Start from a config with no local provider at all, so the one
+        // `local_subagent` adds is the only place this model could live.
+        cfg.providers.remove("ollama");
+        cfg.models.retain(|m| m.provider != "ollama");
+        let mut prefs = Prefs::default();
+        prefs.ollama_url = base.to_string();
+        prefs.subagent_model = Some("ollama:lfm2.5:latest".into());
+        prefs.local_tasks = vec!["workers".into()];
+        backspace_core::local_subagent(&mut cfg, &prefs);
+        assert_eq!(
+            cfg.providers.get("ollama").map(|p| p.base_url.as_str()),
+            Some(format!("{base}/v1").as_str()),
+            "the config must point at exactly the runtime under test"
+        );
+        cfg
+    }
+
+    // A listener standing in for the runtime.
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let up_base = format!("http://127.0.0.1:{}", listener.local_addr().unwrap().port());
+    let http = reqwest::Client::builder().no_proxy().build().unwrap();
+
+    let router = Router::new(http.clone(), cfg_with_local(&up_base))
+        .with_local(BTreeMap::from([("workers".to_string(), "ollama:lfm2.5:latest".to_string())]));
+    let d = router.route_for(AgentRole::Sub, "workers", "build a ticket", "").await.unwrap();
+    assert_eq!(d.model, "ollama:lfm2.5:latest", "the tick picks the local model");
+    assert_eq!(d.source, "local-workers");
+    assert!(d.note.unwrap().contains("small model on this machine"));
+    drop(listener);
+
+    // Now nothing is listening on the port the local model would be asked for.
+    // The URL is pointed at a port nothing can bind: this is about the routing
+    // decision, not about finding a free port at test time.
+    let dead_base = "http://127.0.0.1:1".to_string();
+    let cfg_dead = cfg_with_local(&dead_base);
+    eprintln!("DEBUG provider base = {:?}", cfg_dead.providers.get("ollama").map(|p| p.base_url.clone()));
+    eprintln!("DEBUG model provider = {:?}", cfg_dead.model("ollama:lfm2.5:latest").map(|m| m.provider.clone()));
+    let router = Router::new(http, cfg_dead)
+        .with_local(BTreeMap::from([("workers".to_string(), "ollama:lfm2.5:latest".to_string())]));
+    // With nothing listening the routing table has no other model, so the error
+    // has to say what was skipped and why rather than "no usable models".
+    let err = router.route_for(AgentRole::Sub, "workers", "build a ticket", "").await.unwrap_err().to_string();
+    assert!(err.contains("nothing is listening"), "{err}");
+    assert!(err.contains("lfm2.5:latest"), "the error names what was skipped: {err}");
+
+    // A job the user did *not* tick is untouched.
+    let router = Router::new(reqwest::Client::new(), cfg_with_local(&up_base))
+        .with_local(BTreeMap::from([("scouts".to_string(), "ollama:lfm2.5:latest".to_string())]));
+    let d = router.route_for(AgentRole::Sub, "triage", "classify", "").await.unwrap();
+    assert_ne!(d.source, "local-triage", "only ticked jobs go local");
+}
+
+// ------------------------------------------------------------ per-project tabs
+
+#[test]
+fn each_project_remembers_its_own_canvases() {
+    use backspace_core::prefs::{TabSpec, TabsFor};
+
+    let mut p = Prefs::default();
+    let one = TabSpec { name: Some("A".into()), ..TabSpec::default() };
+    let two = TabSpec { name: Some("B".into()), ..TabSpec::default() };
+
+    // Two projects, different layouts; neither disturbs the other.
+    p.set_tabs_for("C:\\code\\alpha", vec![one.clone()], 0);
+    p.set_tabs_for("C:\\code\\beta", vec![two.clone()], 0);
+    assert_eq!(p.tabs_for("C:\\code\\alpha").tabs[0].name.as_deref(), Some("A"));
+    assert_eq!(p.tabs_for("C:\\code\\beta").tabs[0].name.as_deref(), Some("B"));
+
+    // Case and slashes do not make a second entry for the same folder.
+    p.set_tabs_for("c:/code/ALPHA", vec![two.clone()], 0);
+    assert_eq!(p.tabs_by_project.len(), 2, "{:?}", p.tabs_by_project.keys().collect::<Vec<_>>());
+    assert_eq!(p.tabs_for("C:\\code\\alpha").tabs[0].name.as_deref(), Some("B"));
+
+    // No project open: the global layout, which is what a fresh install shows.
+    let g = p.tabs_for("");
+    assert_eq!(g.tabs.len(), TabSpec::defaults().len());
+    p.set_tabs_for("", vec![one.clone()], 0);
+    assert_eq!(p.tabs_for("").tabs[0].name.as_deref(), Some("A"));
+
+    // A project seen for the first time starts from the default, not from
+    // another project and not from nothing.
+    let fresh = p.tabs_for("D:\\new");
+    assert_eq!(fresh.tabs.len(), TabSpec::defaults().len());
+    assert_eq!(fresh.active, 0);
+
+    // Active tab is clamped, and an empty save cannot wipe a layout.
+    p.set_tabs_for("C:\\code\\alpha", vec![one.clone(), two.clone()], 9);
+    assert_eq!(p.tabs_for("C:\\code\\alpha").active, 1);
+    p.set_tabs_for("C:\\code\\alpha", vec![], 0);
+    assert_eq!(p.tabs_for("C:\\code\\alpha").tabs.len(), 1, "an empty layout falls back");
+
+    // It survives a round trip through JSON, which is how prefs are stored.
+    // Alpha holds whatever was last saved for it (the empty save above), and
+    // beta keeps its own name: the two are independent.
+    let json = serde_json::to_string(&p).unwrap();
+    let back: Prefs = serde_json::from_str(&json).unwrap();
+    assert_eq!(back.tabs_by_project.len(), 2);
+    assert_eq!(back.tabs_for("C:\\code\\alpha").tabs[0].name, None);
+    assert_eq!(back.tabs_for("c:/code/beta").tabs[0].name.as_deref(), Some("B"));
+    assert_eq!(back.tabs_for("").tabs[0].name.as_deref(), Some("A"), "the global layout is separate");
+    // An old prefs file (no tabs_by_project) still loads, with its global tabs.
+    let old: Prefs = serde_json::from_str(r#"{"tabs":[{"name":"Legacy","panes":[]}]}"#).unwrap();
+    assert_eq!(old.tabs_for("").tabs[0].name.as_deref(), Some("Legacy"));
+    assert!(old.tabs_by_project.is_empty());
+    assert_eq!(old.tabs_for("D:\\new").tabs.len(), 1, "a new project starts from the default");
+    assert!(TabsFor::default().tabs.is_empty());
+}
+
 // ------------------------------------------------------- local tiny models
 
 #[test]
@@ -366,9 +485,13 @@ max_output_tokens = 1000
         s.agents.iter().find(|a| a.id == 0).and_then(|a| a.decision.as_ref()).map(|d| d.model.clone())
     );
     assert!(!seen.is_empty(), "the local model was never asked: {report}");
-    let asked = &seen[0];
-    // It was asked as an Ollama/OpenAI model, with the local model's own name.
-    assert_eq!(asked["model"], "lfm2.5:latest", "{report}");
+    // The liveness check is a bare TCP connect, which the stand-in also accepts,
+    // so look for the model among the requests rather than insisting on the
+    // first. It was asked as an Ollama/OpenAI model, under the model's own name.
+    assert!(
+        seen.iter().any(|r| r["model"] == "lfm2.5:latest"),
+        "the local model was never asked by name: {report}"
+    );
     assert_eq!(scout.and_then(|a| a.decision.as_ref().map(|d| d.model.clone())).as_deref(), Some("ollama:lfm2.5:latest"), "{report}");
     // The small jobs run at low effort whatever the lead is doing.
     assert_eq!(scout.unwrap().decision.as_ref().unwrap().effort, Effort::Low, "{report}");
@@ -489,7 +612,13 @@ max_output_tokens = 100
         s.config_source
     );
     assert!(!seen.is_empty(), "the local model was never asked: {report}");
-    assert_eq!(seen[0]["model"], "qwen3:1.7b", "{report}");
+    // The liveness check is a bare TCP connect, which the stand-in sees as a
+    // connection with no request, so look for the model among the requests
+    // rather than insisting on the first.
+    assert!(
+        seen.iter().any(|r| r["model"] == "qwen3:1.7b"),
+        "the local model was never asked by name: {report}"
+    );
     assert_eq!(t.state, backspace_core::TicketState::ReadyForAgent, "{report}");
     let triager = s
         .agents

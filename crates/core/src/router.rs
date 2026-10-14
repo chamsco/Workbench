@@ -8,6 +8,65 @@ use serde_json::{json, Map, Value};
 use crate::config::{Config, ModelSpec, RouterBackend};
 use crate::effort::Effort;
 
+/// Is this base URL on this machine? A local runtime is the only thing whose
+/// absence should quietly remove a model from the routing table.
+fn is_loopback(base_url: &str) -> bool {
+    let rest = base_url.split("://").nth(1).unwrap_or(base_url);
+    let host = rest.split('/').next().unwrap_or(rest);
+    let host = host.rsplit_once(':').map(|(h, _)| h).unwrap_or(host);
+    let host = host.trim_matches(|c| c == '[' || c == ']');
+    host.eq_ignore_ascii_case("localhost")
+        || host == "::1"
+        || host.parse::<std::net::Ipv4Addr>().map(|ip| ip.is_loopback()).unwrap_or(false)
+}
+
+/// Is a local runtime listening at this base URL?
+///
+/// A TCP connect is the cheapest honest answer: it catches the common case (the
+/// runtime is not running) without an HTTP round trip or a model call, and it
+/// assumes nothing about which runtime it is. The answer is cached for 15
+/// seconds, because this runs on the routing path for every delegated job and a
+/// laptop's Ollama does not start and stop between tickets.
+fn local_runtime_is_up(base_url: &str) -> bool {
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+    use std::time::{Duration, Instant};
+
+    static CACHE: std::sync::OnceLock<Mutex<HashMap<String, (bool, Instant)>>> = std::sync::OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let now = Instant::now();
+    if let Some((up, at)) = cache.lock().unwrap().get(base_url).copied() {
+        if now.duration_since(at) < Duration::from_secs(15) {
+            return up;
+        }
+    }
+    // "http://host:port/path" -> ("host", port). Loopback names default to 80,
+    // which no local runtime uses, so a malformed URL reads as "not up".
+    let rest = base_url.split("://").nth(1).unwrap_or(base_url);
+    let authority = rest.split('/').next().unwrap_or(rest);
+    let (host, port) = match authority.rsplit_once(':') {
+        Some((h, p)) => (h.trim_matches(|c| c == '[' || c == ']'), p.parse::<u16>().unwrap_or(0)),
+        None => (authority, 0),
+    };
+    let up = if host.is_empty() || port == 0 {
+        false
+    } else {
+        use std::net::ToSocketAddrs;
+        // Every address the name resolves to, not just the first: `localhost`
+        // usually answers with ::1 before 127.0.0.1, and a runtime listening on
+        // only one of them must still read as up.
+        let addrs: Vec<std::net::SocketAddr> = match host.parse::<std::net::IpAddr>() {
+            Ok(ip) => vec![std::net::SocketAddr::new(ip, port)],
+            Err(_) => (host, port).to_socket_addrs().map(|a| a.collect()).unwrap_or_default(),
+        };
+        addrs
+            .iter()
+            .any(|addr| std::net::TcpStream::connect_timeout(addr, Duration::from_millis(400)).is_ok())
+    };
+    cache.lock().unwrap().insert(base_url.to_string(), (up, now));
+    up
+}
+
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
 #[serde(rename_all = "lowercase")]
 pub enum AgentRole {
@@ -36,6 +95,14 @@ pub struct Router {
     local: std::collections::BTreeMap<String, String>,
 }
 
+/// A local pick: the decision, plus which job it was for and which runtime
+/// holds it, so `route_for` can check the runtime is actually listening.
+struct LocalPick {
+    key: String,
+    runtime: String,
+    decision: Decision,
+}
+
 impl Router {
     pub fn new(http: reqwest::Client, cfg: Config) -> Self {
         Self { http, cfg, local: Default::default() }
@@ -54,48 +121,119 @@ impl Router {
     /// agent); `job` is the finer kind those roles share ("triage", "worker"),
     /// so a user can send triage to a 1.5B model and leave workers alone.
     ///
-    /// A local model is cheaper and often absent, so this is the *first*
-    /// choice only while it is usable: the config was already given a model
-    /// spec for it in `harness::local_subagent`, and `usable_models` leaves a
-    /// keyless local provider usable, so a stopped runtime still routes here
-    /// and fails loudly rather than silently spending money.
-    fn local_pick(&self, role: AgentRole, job: &str) -> Option<Decision> {
-        let model = self
+    /// A local model is on the leash only while it is usable. The config was
+    /// already given a model spec for it in `harness::local_subagent`, and a
+    /// keyless loopback provider counts as usable, so `route_for` additionally
+    /// asks whether anything is listening before it commits to it.
+    /// Which small jobs run locally, and on what: "scouts", "triage",
+    /// "workers". Every caller that may be delegated to a tiny model goes
+    /// through `route_for`, so the tick in Settings actually decides.
+    fn local_pick(&self, role: AgentRole, job: &str) -> Option<LocalPick> {
+        // "workers" and "triage" name the job; a bare Sub with no job means
+        // "whatever workers are set to".
+        let key = if job.trim().is_empty() {
+            match role {
+                AgentRole::Sub => "workers".to_string(),
+                AgentRole::Main => return None,
+            }
+        } else {
+            job.trim().to_string()
+        };
+        // Tolerate the plural and the singular, since the UI and the prefs file
+        // have both spelled these two ways.
+        let (model, provider) = self
             .local
-            .get(job)
-            .or_else(|| self.local.get(job.trim_end_matches('s')))
-            .or_else(|| match role {
-                AgentRole::Sub if job.is_empty() => self.local.get("workers"),
-                _ => None,
-            })?
-            .clone();
+            .iter()
+            .find(|(k, _)| {
+                let k = k.as_str();
+                k == key || k == key.trim_end_matches('s') || format!("{k}s") == key
+            })
+            .map(|(k, m)| (m.clone(), k.clone()))?;
         // Only if the model really is in this config and usable right now.
         if !self.cfg.usable_models().iter().any(|m| m.id == model) {
             return None;
         }
-        Some(Decision {
-            model,
-            effort: Effort::Low,
-            source: format!("local-{job}"),
-            confidence: 1.0,
-            router_cost_usd: 0.0,
-            note: Some(format!(
-                "you are a small model on this machine, doing one {job} job for a bigger agent"
-            )),
+        // `usable_models` gives no runtime id, and a model id's first segment is
+        // its provider ("ollama:lfm2.5:latest" -> "ollama"), so ask the config
+        // which provider actually holds this model rather than parsing the id.
+        let runtime = self
+            .cfg
+            .models
+            .iter()
+            .find(|m| m.id == model)
+            .map(|m| m.provider.clone())
+            .unwrap_or(provider);
+        Some(LocalPick {
+            key,
+            runtime,
+            decision: Decision {
+                model,
+                effort: Effort::Low,
+                source: format!("local-{job}"),
+                confidence: 1.0,
+                router_cost_usd: 0.0,
+                note: None,
+            },
         })
     }
 
     /// The model for an agent, with the local pick first when the user asked
     /// for it. `job` is "" for "just this role".
+    ///
+    /// The local runtime is checked to be listening first. Without that, a
+    /// stopped Ollama was still "usable" (a keyless loopback provider), so every
+    /// delegated job died on a connection error instead of quietly using the
+    /// model the router would otherwise have picked.
     pub async fn route_for(&self, role: AgentRole, job: &str, task: &str, context: &str) -> Result<Decision> {
-        if let Some(d) = self.local_pick(role, job) {
-            return Ok(d);
+        if let Some(pick) = self.local_pick(role, job) {
+            // The provider has to exist and be listening. An unknown provider is
+            // not a reason to hand out a model nobody can call.
+            let base = self
+                .cfg
+                .providers
+                .get(&pick.runtime)
+                .map(|p| p.base_url.clone())
+                .filter(|b| !b.trim().is_empty());
+            if let Some(base) = base.clone().filter(|b| local_runtime_is_up(b)) {
+                let mut d = pick.decision;
+                d.note = Some(format!(
+                    "you are a small model on this machine, doing the {} job for a bigger agent",
+                    pick.key
+                ));
+                return Ok(d);
+            }
+            return self.route(role, task, context).await.map_err(|e| {
+                anyhow::anyhow!(
+                    "`{}` is set for local {} jobs but nothing is listening {}; {e:#}",
+                    pick.decision.model,
+                    pick.key,
+                    base.map(|b| format!("on {b}")).unwrap_or_else(|| "on any known endpoint".into()),
+                )
+            });
         }
         self.route(role, task, context).await
     }
 
     pub async fn route(&self, role: AgentRole, task: &str, context: &str) -> Result<Decision> {
-        let candidates = self.cfg.usable_models();
+        let mut candidates = self.cfg.usable_models();
+        // A local provider that is not listening is not a candidate. The injected
+        // tiny model sits at tier 0, so without this the "fall back" in
+        // `route_for` would pick the very model that just failed the liveness
+        // check, and the job would die on a connection error anyway.
+        candidates.retain(|m| {
+            self.cfg
+                .providers
+                .get(&m.provider)
+                .map(|p| !p.base_url.trim().is_empty())
+                .unwrap_or(true)
+                && self
+                    .cfg
+                    .providers
+                    .get(&m.provider)
+                    .map(|p| !is_loopback(&p.base_url) || local_runtime_is_up(&p.base_url))
+                    .unwrap_or(true)
+        });
+        let candidates = candidates;
         if role == AgentRole::Sub {
             if let Some(pin) = self
                 .cfg
@@ -390,5 +528,26 @@ mod tests {
         assert_eq!(hard.model, "claude-fable-5-1");
         let main = heuristic(AgentRole::Main, "make a todo app", &all);
         assert!(main.effort >= Effort::Xhigh);
+    }
+}
+
+#[cfg(test)]
+mod liveness_tests {
+    use super::local_runtime_is_up;
+    use std::net::TcpListener;
+
+    #[test]
+    fn a_listening_port_is_up_and_a_closed_one_is_not() {
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = l.local_addr().unwrap().port();
+        assert!(local_runtime_is_up(&format!("http://127.0.0.1:{port}/v1")), "a listener is up");
+        assert!(local_runtime_is_up(&format!("http://localhost:{port}/v1")), "localhost resolves too");
+        drop(l);
+        // A different port that nothing can be listening on, since the answer is
+        // cached per URL for 15 seconds.
+        assert!(!local_runtime_is_up("http://127.0.0.1:1/v1"), "port 1 is closed");
+        assert!(!local_runtime_is_up("http://127.0.0.1/v1"), "no port given");
+        assert!(!local_runtime_is_up(""), "an empty base url is not up");
+        assert!(!local_runtime_is_up("nonsense"), "a malformed url is not up");
     }
 }

@@ -2834,7 +2834,10 @@ fn run_worker_with(
 
         inner.set_status(id, AgentStatus::Running);
         inner.ticket(&key, |t| t.state = TicketState::InProgress);
-        let mut decision = inner.router.route(AgentRole::Sub, &brief, &context).await?;
+        let mut decision = inner
+            .router
+            .route_for(AgentRole::Sub, "workers", &brief, &context)
+            .await?;
         inner.cap_start(&mut decision);
         announce_route(&inner, id, &decision);
         inner.trace_start(id, &format!("worker · {key}"), &brief);
