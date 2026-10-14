@@ -1,5 +1,5 @@
-// The window around the zones: the rail on the far left (Chat, Code,
-// Memory, Apps, apps pinned from the catalog, Settings at the foot), the
+// The window around the zones: the rail on the far left (Apps, Agents,
+// Workbench, Memory, apps pinned from the catalog, Settings at the foot), the
 // title bar's window buttons for each OS, and the split view that puts a
 // second zone or app beside the first.
 //
@@ -8,11 +8,18 @@
 // chat keeps its state when it is out of sight.
 
 var Shell = (() => {
+  // The order is the reading order: a plugin is a place you go, so Apps leads;
+  // then the two surfaces of the agent machine — Agents (threads, artifacts,
+  // composer) and Workbench (canvases, worktrees, tickets) — then Memory.
+  //
+  // The keys stay `chat` and `code`: they are written into prefs.json, a
+  // user's tabs are filed under `prefs.mode`, and renaming them would need a
+  // migration to buy nothing a label does not. Only what you read changed.
   const ZONES = [
-    ["chat", "bubble", "Chat"],
-    ["code", "codei", "Code"],
-    ["memory", "memory", "Memory"],
     ["apps", "apps", "Apps"],
+    ["chat", "bubble", "Agents"],
+    ["code", "codei", "Workbench"],
+    ["memory", "memory", "Memory"],
   ];
   let platform = "web", saveT = null;
 

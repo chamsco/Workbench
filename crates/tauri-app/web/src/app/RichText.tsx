@@ -4,7 +4,7 @@
 // prompt built from a small subset of OpenUI's chat library (setRich), so the
 // cost per turn stays a couple of thousand tokens.
 
-import { useEffect, useState } from "react";
+import { Component, type ReactNode, useEffect, useRef, useState } from "react";
 import { Renderer, createLibrary } from "@openuidev/react-lang";
 import { ThemeProvider, openuiChatLibrary } from "@openuidev/react-ui";
 import "@openuidev/react-ui/layered/styles/index.css";
@@ -22,6 +22,53 @@ export function richPrompt(): string {
 
 const FENCE = /```openui[^\n]*\n([\s\S]*?)(?:```|$)/g;
 
+/**
+ * A ````openui` block the renderer cannot turn into UI.
+ *
+ * This used to be impossible to see: when the model wrote the language wrong,
+ * or wrote something that is not the language at all (a Python-looking
+ * `root = Card(children: [...])`, which small local models like to produce),
+ * the renderer either threw where React could not catch it or quietly rendered
+ * nothing, and the raw text showed up in the middle of the reply as prose.
+ * Now the block is kept — the model did say something — but labelled as
+ * something that could not be drawn, with the source one click away so it can
+ * be copied back to the model.
+ */
+function FailedBlock({ source, why }: { source: string; why: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="openui-failed my-3 rounded-lg border border-amber-500/30 bg-amber-500/[0.06] p-3 text-sm">
+      <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400">
+        <span aria-hidden>⚠</span>
+        <span className="font-medium">This block could not be drawn as UI: {why}</span>
+        <button
+          type="button"
+          className="ml-auto rounded px-2 py-0.5 text-xs underline decoration-dotted hover:bg-amber-500/10"
+          onClick={() => setOpen((v) => !v)}
+        >
+          {open ? "Hide source" : "Show source"}
+        </button>
+      </div>
+      {open && (
+        <pre className="mt-2 max-h-64 overflow-auto rounded bg-black/[0.04] p-2 text-xs dark:bg-white/[0.06]">
+          <code>{source}</code>
+        </pre>
+      )}
+    </div>
+  );
+}
+
+/** Catches a renderer that throws, so one bad block cannot take the reply down. */
+class CatchRender extends Component<{ fallback: ReactNode; children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  render() {
+    return this.state.failed ? this.props.fallback : this.props.children;
+  }
+}
+
 function useDark() {
   const get = () => document.documentElement.classList.contains("dark");
   const [dark, setDark] = useState(get);
@@ -31,6 +78,35 @@ function useDark() {
     return () => o.disconnect();
   }, []);
   return dark;
+}
+
+/**
+ * One drawn block, with the two ways it can fail handled: it throws (caught
+ * above) or it draws nothing at all (measured after paint). Neither is left to
+ * leak the raw language into the answer.
+ */
+function OpenUIBlock({ source, dark, streaming }: { source: string; dark: boolean; streaming: boolean }) {
+  const host = useRef<HTMLDivElement>(null);
+  const [empty, setEmpty] = useState(false);
+  useEffect(() => {
+    if (streaming) return;
+    const el = host.current;
+    if (!el) return;
+    // One frame for the renderer to mount, then ask whether anything is there.
+    const id = requestAnimationFrame(() => {
+      if (el.childElementCount === 0) setEmpty(true);
+    });
+    return () => cancelAnimationFrame(id);
+  }, [source, streaming]);
+
+  if (empty) return <FailedBlock source={source} why="the renderer produced nothing" />;
+  return (
+    <div ref={host} className="openui-block my-3">
+      <ThemeProvider mode={dark ? "dark" : "light"}>
+        <Renderer response={source} library={openuiChatLibrary} isStreaming={streaming} />
+      </ThemeProvider>
+    </div>
+  );
 }
 
 export function RichText({ text, streaming }: { text: string; streaming: boolean }) {
@@ -48,11 +124,9 @@ export function RichText({ text, streaming }: { text: string; streaming: boolean
     <>
       {parts.map((p, i) =>
         p.ui != null ? (
-          <div key={i} className="openui-block my-3">
-            <ThemeProvider mode={dark ? "dark" : "light"}>
-              <Renderer response={p.ui} library={openuiChatLibrary} isStreaming={streaming && !!p.open} />
-            </ThemeProvider>
-          </div>
+          <CatchRender key={i} fallback={<FailedBlock source={p.ui} why="the renderer rejected it" />}>
+            <OpenUIBlock source={p.ui} dark={dark} streaming={streaming && !!p.open} />
+          </CatchRender>
         ) : p.md!.trim() ? (
           <Markdown key={i} streaming={streaming && i === parts.length - 1}>{p.md!}</Markdown>
         ) : null,

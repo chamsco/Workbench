@@ -1305,6 +1305,8 @@ impl Chats {
 
 When structure helps the reader (a comparison, steps, a table, a chart, a form, follow-up choices), put it in a fenced ```openui block written in OpenUI Lang; keep the rest in Markdown. Most answers need none.
 
+The language is the one defined below and nothing else. In particular: one expression, starting with the component named in the grammar's root rule — not `root = Card(...)`, not Python or JavaScript call syntax with named arguments, no assignment, no `children:` keyword. If you are not sure the block parses, write Markdown instead: a block that cannot be drawn is worse than no block.
+
 {g}");
             req.system = Some(match req.system.take() {
                 Some(s) => format!("{s}

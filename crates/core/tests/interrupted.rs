@@ -4,9 +4,16 @@
 //! ticket carries on in that session instead of starting over.
 
 use std::path::Path;
+use std::sync::Mutex;
 
 use backspace_core::{AgentKind, AgentStatus, Harness, TicketState};
 use serde_json::json;
+
+/// `BACKSPACE_PREFS` and `BACKSPACE_DATA` are process-wide, and `Harness::open`
+/// reads them. Both tests here need their own project, so they run one at a
+/// time: without this they raced, and the loser failed looking for a file the
+/// other test's project had written.
+static GLOBALS: Mutex<()> = Mutex::new(());
 
 /// A fake `claude` that records how it was called and what it was told, then
 /// answers in Claude Code's stream-json. It also writes the file the ticket's
@@ -164,6 +171,7 @@ max_output_tokens = 0
 
 #[test]
 fn a_restart_carries_a_cli_worker_on_in_its_own_session() {
+    let _guard = GLOBALS.lock().unwrap_or_else(|e| e.into_inner());
     let dir = std::env::temp_dir().join(format!("bs-interrupted-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     fake_claude(&dir);
@@ -229,6 +237,7 @@ fn a_restart_carries_a_cli_worker_on_in_its_own_session() {
 
 #[test]
 fn only_an_interrupted_agent_can_carry_on() {
+    let _guard = GLOBALS.lock().unwrap_or_else(|e| e.into_inner());
     let dir = std::env::temp_dir().join(format!("bs-interrupted-no-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     fake_claude(&dir);

@@ -26,6 +26,13 @@
   --pane: rgba(255, 255, 255, 0.84);
   --pane-edge: rgba(24, 18, 30, 0.10);
   --pane-edge-on: rgba(24, 18, 30, 0.30);
+  /* The agent surfaces (Agents, and Workbench → a project's chat) are opaque
+     and slightly darker than the desktop, so a thread reads as a sheet of
+     paper: no frosted layers stacked behind the text. The rest of the app
+     keeps the glass. */
+  --sheet: #f4f1f5;
+  --sheet-side: #eeeaf1;
+  --sheet-edge: rgba(24, 18, 30, 0.10);
   --fg: #1c1a1f; --fg-2: #4e4955; --fg-3: #7d7785; --fg-4: #a8a2ae;
   --hover: rgba(30, 20, 40, 0.05); --sel: rgba(30, 20, 40, 0.085);
   --pill: rgba(255, 255, 255, 0.5); --pill-on: rgba(255, 255, 255, 0.95); --pill-edge: rgba(24, 18, 30, 0.12);
@@ -42,6 +49,7 @@
     --glass: rgba(36, 30, 38, 0.58); --glass-side: rgba(70, 58, 72, 0.2); --glass-main: rgba(20, 17, 22, 0.48);
     --glass-edge: rgba(255, 255, 255, 0.12); --glass-hi: rgba(255, 255, 255, 0.08);
     --pane: rgba(17, 15, 19, 0.8); --pane-edge: rgba(255, 255, 255, 0.08); --pane-edge-on: rgba(255, 255, 255, 0.24);
+    --sheet: #1b191f; --sheet-side: #17151b; --sheet-edge: rgba(255, 255, 255, 0.07);
     --fg: #ece8ef; --fg-2: #bdb6c3; --fg-3: #8a8390; --fg-4: #5f5965;
     --hover: rgba(255, 255, 255, 0.05); --sel: rgba(255, 255, 255, 0.09);
     --pill: rgba(255, 255, 255, 0.06); --pill-on: rgba(255, 255, 255, 0.16); --pill-edge: rgba(255, 255, 255, 0.12);
@@ -576,6 +584,31 @@ body { margin: 0; background: var(--desk-base); color: var(--fg); font: 13px/1.4
 
 .canvas[hidden] { display: none !important; }
 .settings { background: var(--sheet); }
+
+/* ---------- the agent surfaces: one opaque sheet, no layers behind the text ---
+   Agents, and Workbench → a project's chat, are the two places a thread is read.
+   Both get a single background slightly darker than the desktop, so the text
+   sits on paper rather than on a stack of translucent panes. Scoped by the
+   window's mode class, so canvases, Apps and Settings keep the glass. */
+.win.m-chat .mainc,
+.win.pair-on .mainc { background: var(--sheet); }
+.win.m-chat .side,
+.win.pair-on .side { background: var(--sheet-side); }
+.win.m-chat .chat,
+.win.m-chat .pane,
+.win.m-chat .port,
+.win.pair-on .chat,
+.win.pair-on .pane {
+  background: var(--sheet);
+  border-color: var(--sheet-edge);
+}
+.win.m-chat .tbar,
+.win.pair-on .tbar { background: transparent; }
+/* Whirl's own surfaces inside the chat iframe: same paper, no translucency. */
+.win.m-chat .chat-wrap,
+.win.pair-on .chat-wrap { background: var(--sheet); }
+.win.m-chat .composer,
+.win.pair-on .composer { background: var(--pane); }
 /* Canvases are often narrow: the review stacks its list over the drawing, and the card under it. */
 .pane { container-type: inline-size; }
 @container (max-width: 700px) {
