@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use backspace_core::agents::{Agent, ComputerStatus};
 use backspace_core::apps::Installed;
-use backspace_core::chat::{Attachment, Route, Scope, Thread, ThreadInfo};
+use backspace_core::chat::{Attachment, Life, Route, Scope, Thread, ThreadInfo};
 use backspace_core::memory::Note;
 use backspace_core::cloud::{Account, Overage, Plan, PlanInfo};
 use backspace_core::diagram::{self, Diagram};
@@ -789,6 +789,24 @@ fn chat_thread(f: F, id: String) -> Option<Thread> {
 #[tauri::command]
 fn chat_new(f: F, route: Route, scope: Option<Scope>) -> Thread {
     f.chats().create_in(route, scope.unwrap_or_default())
+}
+
+/// Give a chat a bounded life, or take the bound away (`Life::Keep`). A ghost
+/// chat is hidden from the list and its file is deleted, so leaving it destroys
+/// it; a temporal one forgets itself `ttl_minutes` after its last message.
+#[tauri::command]
+fn chat_life(f: F, id: String, life: Life, ttl_minutes: Option<u64>) -> Res<Thread> {
+    f.chats()
+        .set_life(&id, life, ttl_minutes)
+        .map_err(|e| e.to_string())
+}
+
+/// Forget every chat that has expired. Called once at boot and on a timer, so a
+/// temporal chat that ran out while the app was closed is gone before it is
+/// listed.
+#[tauri::command]
+fn chat_purge(f: F) -> Vec<String> {
+    f.chats().purge_expired()
 }
 
 // ------------------------------------------------------- local tiny models
@@ -1846,6 +1864,8 @@ fn main() -> anyhow::Result<()> {
             terminal_close,
             chat_thread,
             chat_new,
+            chat_life,
+            chat_purge,
             memory_list,
             memory_forget,
             memory_dreams,

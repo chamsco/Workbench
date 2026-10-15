@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use backspace_runner::{Event as RunEvent, File as RunFile, Lines, Request, Target, Turn};
@@ -148,6 +148,34 @@ impl Msg {
     }
 }
 
+/// How long a thread lives. A chat normally outlives the app; these are the two
+/// ways it does not.
+///
+/// `Ghost` is never written to disk at all and never appears in the list, so
+/// closing it destroys it. `Temporal` is written like any other thread but
+/// forgets itself a while after its last message: a chat you want for an hour,
+/// or for a conversation about something sensitive. Both only ever hold the
+/// in-memory log, and neither is a privacy boundary — a reply that went to a
+/// provider over the network has already left this machine.
+#[derive(Clone, Copy, Serialize, Deserialize, Debug, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Life {
+    #[default]
+    Keep,
+    Ghost,
+    Temporal,
+}
+
+impl Life {
+    pub fn is_ghost(self) -> bool {
+        matches!(self, Life::Ghost)
+    }
+    /// Ghost threads are never saved, which is what makes them disappear.
+    pub fn saves(self) -> bool {
+        !self.is_ghost()
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Thread {
     pub id: String,
@@ -158,6 +186,17 @@ pub struct Thread {
     pub pinned: bool,
     pub route: Route,
     pub messages: Vec<Msg>,
+    /// How long this thread lives (see `Life`). Absent in older files: Keep.
+    #[serde(default)]
+    pub life: Life,
+    /// Epoch ms after which a `Temporal` thread forgets itself. `None` means it
+    /// does not expire. Refreshed by every message, so it counts from the last
+    /// thing said rather than from when the thread started.
+    #[serde(default)]
+    pub expires_at: Option<u64>,
+    /// For `Life::Temporal`: the TTL to re-arm from the last message.
+    #[serde(default)]
+    pub ttl_minutes: Option<u64>,
     /// The CLI's own session, for CLIs that can resume one (Claude).
     #[serde(default)]
     pub cli_session: Option<String>,
@@ -181,7 +220,8 @@ pub struct Thread {
     pub members: Vec<String>,
     #[serde(default)]
     pub goal: Option<String>,
-    /// A one-off ask (dreaming): never listed or written to disk.
+    /// Never listed or written to disk: a one-off ask (`dreaming`), or a ghost
+    /// chat. `Life::Ghost` turns this on for the whole session.
     #[serde(skip)]
     pub hidden: bool,
 }
@@ -204,6 +244,13 @@ pub struct Scope {
     /// A group's name.
     #[serde(default)]
     pub title: Option<String>,
+    /// How long the new thread lives. Ghost threads are never saved.
+    #[serde(default)]
+    pub life: Life,
+    /// For `Life::Temporal`: minutes until it forgets itself, counted from its
+    /// last message. Ignored for the other kinds.
+    #[serde(default)]
+    pub ttl_minutes: Option<u64>,
 }
 
 /// The sidebar row.
@@ -223,6 +270,10 @@ pub struct ThreadInfo {
     pub members: Vec<String>,
     /// Why its last reply failed (a usage limit, a crash), if it did.
     pub failed: Option<String>,
+    /// A ghost chat: listed while you are in it, gone when you leave.
+    pub ghost: bool,
+    /// A temporal chat: when it forgets itself, for the countdown.
+    pub expires_at: Option<u64>,
 }
 
 pub fn now_ms() -> u64 {
@@ -436,11 +487,82 @@ impl Chats {
 
     fn save(&self, id: &str) {
         let t = self.threads.lock().unwrap().get(id).cloned();
-        if let Some(t) = t.filter(|t| !t.hidden) {
+        if let Some(t) = t.filter(|t| !t.hidden && t.life.saves()) {
             if let Ok(s) = serde_json::to_string_pretty(&t) {
                 let _ = std::fs::write(self.path(id), s);
             }
         }
+    }
+
+    /// What a thread's life means for `updated` changing: keep its deadline
+    /// moving, or nothing at all.
+    fn touched(t: &mut Thread) {
+        if t.life == Life::Temporal {
+            if let Some(ttl) = t.ttl_minutes {
+                t.expires_at = Some(now_ms() + ttl.saturating_mul(60_000));
+            }
+        }
+    }
+
+    /// Forget every expired temporal thread, and return the ones that went.
+    ///
+    /// Called on a timer by the shell and once when the app opens, so a chat
+    /// that expired while nothing was running is gone before it is listed.
+    pub fn purge_expired(&self) -> Vec<String> {
+        self.purge_at(now_ms())
+    }
+
+    /// `purge_expired` with the clock given, so a test can step past a deadline
+    /// without waiting for it.
+    pub fn purge_at(&self, now: u64) -> Vec<String> {
+        let gone: Vec<String> = self
+            .threads
+            .lock()
+            .unwrap()
+            .values()
+            .filter(|t| t.life == Life::Temporal && t.expires_at.is_some_and(|e| e <= now))
+            .map(|t| t.id.clone())
+            .collect();
+        for id in &gone {
+            self.threads.lock().unwrap().remove(id);
+            let _ = std::fs::remove_file(self.path(id));
+            // Its attachments go with it: the files are the conversation.
+            let _ = std::fs::remove_dir_all(self.files_dir(id));
+        }
+        if !gone.is_empty() {
+            self.poke();
+        }
+        gone
+    }
+
+    /// Give a thread a bounded life, or take the bound away. Ghost hides it
+    /// from the list at once; Keep on a temporary thread stops it expiring.
+    pub fn set_life(&self, id: &str, life: Life, ttl_minutes: Option<u64>) -> Result<Thread> {
+        let t = {
+            let mut ts = self.threads.lock().unwrap();
+            let t = ts.get_mut(id).context("no such chat")?;
+            t.life = life;
+            t.ttl_minutes = match life {
+                Life::Temporal => Some(ttl_minutes.unwrap_or(60).max(1)),
+                _ => None,
+            };
+            t.hidden = life.is_ghost();
+            if life == Life::Temporal {
+                t.expires_at = Some(now_ms() + t.ttl_minutes.unwrap().saturating_mul(60_000));
+            } else {
+                t.expires_at = None;
+            }
+            t.clone()
+        };
+        // Ghost: the file that was already there has to go, or it would come
+        // back the next time the app opens.
+        if !life.saves() {
+            let _ = std::fs::remove_file(self.path(id));
+        } else {
+            self.save(id);
+        }
+        self.poke();
+        Ok(t)
     }
 
     pub fn list(&self) -> Vec<ThreadInfo> {
@@ -475,6 +597,8 @@ impl Chats {
                 agent: t.agent.clone(),
                 members: t.members.clone(),
                 failed: t.messages.last().filter(|m| m.role != Role::User).and_then(|m| m.error.clone()),
+                ghost: t.life.is_ghost(),
+                expires_at: if t.life == Life::Temporal { t.expires_at } else { None },
             })
             .collect();
         v.sort_by(|a, b| b.pinned.cmp(&a.pinned).then(b.updated.cmp(&a.updated)));
@@ -508,7 +632,7 @@ impl Chats {
     pub fn create_in(&self, route: Route, scope: Scope) -> Thread {
         let now = now_ms();
         let group = !scope.members.is_empty();
-        let t = Thread {
+        let mut t = Thread {
             id: new_id(),
             title: scope
                 .title
@@ -528,8 +652,20 @@ impl Chats {
             agent: scope.agent,
             members: scope.members,
             goal: scope.goal.filter(|g| !g.trim().is_empty()),
-            hidden: false,
+            life: scope.life,
+            expires_at: None,
+            ttl_minutes: if scope.life == Life::Temporal {
+                Some(scope.ttl_minutes.unwrap_or(60).max(1))
+            } else {
+                None
+            },
+            // A ghost chat is hidden from the moment it exists, so nothing ever
+            // offers to reopen it.
+            hidden: scope.life.is_ghost(),
         };
+        if t.life == Life::Temporal {
+            t.expires_at = Some(now + t.ttl_minutes.unwrap_or(60).saturating_mul(60_000));
+        }
         self.threads.lock().unwrap().insert(t.id.clone(), t.clone());
         self.save(&t.id);
         self.poke();
@@ -620,6 +756,9 @@ impl Chats {
             agent: src.agent.clone(),
             members: src.members.clone(),
             goal: src.goal.clone(),
+            life: Life::Keep,
+            expires_at: None,
+            ttl_minutes: None,
             hidden: false,
         };
         let from = self.files_dir(&src.id);
@@ -743,6 +882,7 @@ impl Chats {
                 plan: ctx.plan,
             });
             t.updated = now;
+            Chats::touched(t);
         })?;
         self.reply(id, ctx, mention(text))
     }
@@ -757,6 +897,7 @@ impl Chats {
         m.author_name = Some(from.to_string());
         self.edit_thread(id, |t| {
             t.updated = m.at;
+            Chats::touched(t);
             t.messages.push(m);
         })?;
         self.reply(id, ctx, None)
@@ -788,6 +929,10 @@ impl Chats {
             agent: None,
             members: vec![],
             goal: None,
+            // Dreaming: a one-off ask, so it is gone the same way a ghost is.
+            life: Life::Ghost,
+            expires_at: None,
+            ttl_minutes: None,
             hidden: true,
         };
         self.threads.lock().unwrap().insert(id.clone(), t);
@@ -959,6 +1104,7 @@ impl Chats {
                 }
             }
             t.updated = now_ms();
+            Chats::touched(t);
         });
     }
 
@@ -1625,6 +1771,12 @@ mod tests {
         (Chats::open(dir.to_path_buf(), rt.handle().clone(), tx), rt)
     }
 
+    /// The route the other tests in here use: a local model, so nothing reaches
+    /// the network.
+    fn route() -> Route {
+        Route { kind: RouteKind::Local, provider: "ollama".into(), model: Some("m".into()) }
+    }
+
     fn tmp(name: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("bs-chat-{name}-{}", now_ms()));
         let _ = std::fs::remove_dir_all(&d);
@@ -1730,5 +1882,155 @@ mod tests {
     #[test]
     fn ansi_is_stripped() {
         assert_eq!(backspace_runner::plain("\u{1b}[1mbold\u{1b}[0m\r\n"), "bold\n");
+    }
+
+    // ------------------------------------------------------- ghost and temporal
+
+    /// A ghost thread is not on disk and not in the list, from the moment it
+    /// exists. That is the whole promise: closing it destroys it.
+    #[test]
+    fn a_ghost_thread_is_never_written_and_never_listed() {
+        let dir = tmp("ghost");
+        let (c, rt) = chats(&dir);
+        let g = c.create_in(
+            route(),
+            Scope { life: Life::Ghost, ..Default::default() },
+        );
+        assert_eq!(g.life, Life::Ghost);
+        assert!(g.hidden, "nothing may offer to reopen it");
+        assert!(!c.path(&g.id).exists(), "a ghost was written to disk");
+        assert!(c.list().iter().all(|t| t.id != g.id), "a ghost was listed");
+
+        // A message goes in normally; it is still not on disk.
+        c.edit_thread(&g.id, |t| {
+            t.messages.push(Msg::new(Role::User, "hello".into(), Status::Done));
+        })
+        .unwrap();
+        assert!(!c.path(&g.id).exists(), "editing a ghost wrote it to disk");
+
+        // It is reachable while you are in it, and gone when the app restarts.
+        assert!(c.thread(&g.id).is_some());
+        drop(c);
+        let (c2, _rt2) = chats(&dir);
+        assert!(c2.thread(&g.id).is_none(), "a ghost came back after a restart");
+        assert!(c2.threads.lock().unwrap().is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+        drop(rt);
+    }
+
+    /// Turning a saved chat into a ghost takes the file with it, so it cannot
+    /// be resurrected on the next launch.
+    #[test]
+    fn making_a_thread_a_ghost_deletes_the_file_it_had() {
+        let dir = tmp("ghost-after");
+        let (c, rt) = chats(&dir);
+        let t = c.create(route());
+        c.edit_thread(&t.id, |t| {
+            t.messages.push(Msg::new(Role::User, "on disk".into(), Status::Done));
+        })
+        .unwrap();
+        assert!(c.path(&t.id).exists(), "a normal thread is saved");
+
+        c.set_life(&t.id, Life::Ghost, None).unwrap();
+        assert!(!c.path(&t.id).exists(), "the saved file should be gone");
+        assert!(c.thread(&t.id).is_some(), "but the session keeps it until you leave");
+        // A later edit still does not write one.
+        c.edit_thread(&t.id, |t| {
+            t.messages.push(Msg::new(Role::User, "still here".into(), Status::Done));
+        })
+        .unwrap();
+        assert!(!c.path(&t.id).exists());
+
+        // Back to Keep: it is saved again, so the choice is reversible.
+        c.set_life(&t.id, Life::Keep, None).unwrap();
+        assert!(c.path(&t.id).exists(), "a kept thread is written");
+        let _ = std::fs::remove_dir_all(&dir);
+        drop(rt);
+    }
+
+    /// A temporal chat is an ordinary saved chat until its deadline passes.
+    #[test]
+    fn a_temporal_thread_forgets_itself_after_its_deadline() {
+        let dir = tmp("temporal");
+        let (c, rt) = chats(&dir);
+        let t = c.create_in(
+            route(),
+            Scope { life: Life::Temporal, ttl_minutes: Some(30), ..Default::default() },
+        );
+        assert_eq!(t.ttl_minutes, Some(30));
+        let deadline = t.expires_at.expect("a temporal thread has a deadline");
+        assert!(deadline > now_ms(), "the deadline is in the future");
+        assert!(c.path(&t.id).exists(), "it is saved like any other chat");
+        assert!(c.list().iter().any(|x| x.id == t.id), "and it is listed");
+        assert_eq!(
+            c.list().iter().find(|x| x.id == t.id).unwrap().expires_at,
+            Some(deadline),
+            "the countdown reaches the UI"
+        );
+
+        // Before the deadline nothing happens.
+        assert!(c.purge_at(deadline - 1).is_empty(), "purged early");
+        assert!(c.thread(&t.id).is_some());
+
+        // At it, the thread and its files are gone.
+        assert_eq!(c.purge_at(deadline), vec![t.id.clone()]);
+        assert!(c.thread(&t.id).is_none(), "still in memory");
+        assert!(!c.path(&t.id).exists(), "still on disk");
+        assert!(c.list().iter().all(|x| x.id != t.id), "still listed");
+
+        // And it does not come back on the next launch either.
+        drop(c);
+        let (c2, _rt2) = chats(&dir);
+        assert!(c2.thread(&t.id).is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+        drop(rt);
+    }
+
+    /// Every message re-arms the deadline, so a temporal chat that is being used
+    /// does not vanish mid-conversation.
+    #[test]
+    fn talking_to_a_temporal_thread_moves_its_deadline() {
+        let dir = tmp("temporal-touch");
+        let (c, rt) = chats(&dir);
+        let t = c.create_in(
+            route(),
+            Scope { life: Life::Temporal, ttl_minutes: Some(5), ..Default::default() },
+        );
+        let first = t.expires_at.unwrap();
+        // A message from outside the composer (a webhook, say) counts too.
+        c.edit_thread(&t.id, |t| {
+            t.updated = now_ms();
+            Chats::touched(t);
+        })
+        .unwrap();
+        let after = c.thread(&t.id).unwrap().expires_at.unwrap();
+        assert!(after >= first, "the deadline did not move");
+        // A kept thread has no deadline at all.
+        let k = c.create(route());
+        assert_eq!(k.life, Life::Keep);
+        assert!(k.expires_at.is_none(), "a normal chat does not expire");
+        c.edit_thread(&k.id, |t| Chats::touched(t)).unwrap();
+        assert!(c.thread(&k.id).unwrap().expires_at.is_none(), "and it stays that way");
+        let _ = std::fs::remove_dir_all(&dir);
+        drop(rt);
+    }
+
+    /// An older prefs-era thread file has no `life` field and must still load as
+    /// an ordinary chat.
+    #[test]
+    fn a_thread_file_without_a_life_loads_as_a_normal_chat() {
+        let t: Thread = serde_json::from_value(serde_json::json!({
+            "id": "abc", "title": "Old", "created": 1, "updated": 2,
+            "route": {"kind": "local", "provider": "ollama", "model": "m"},
+            "messages": []
+        }))
+        .unwrap();
+        assert_eq!(t.life, Life::Keep);
+        assert!(t.expires_at.is_none() && t.ttl_minutes.is_none());
+        assert!(!t.hidden);
+        // And the enum round-trips as the words the prefs file would hold.
+        assert_eq!(serde_json::to_string(&Life::Ghost).unwrap(), "\"ghost\"");
+        assert_eq!(serde_json::from_str::<Life>("\"temporal\"").unwrap(), Life::Temporal);
+        assert_eq!(serde_json::from_str::<Life>("\"keep\"").unwrap(), Life::Keep);
     }
 }
