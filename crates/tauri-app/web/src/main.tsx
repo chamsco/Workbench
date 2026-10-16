@@ -8,7 +8,7 @@ import { createRoot, type Root } from "react-dom/client";
 import "./styles.css";
 import { ChatApp } from "./app/ChatApp";
 import { richPrompt } from "./app/RichText";
-import { goHome, openThread, refresh, setHost, setScope, type Host } from "./bridge";
+import { goHome, nudge, openThread, refresh, setHost, setScope, type Host } from "./bridge";
 
 let root: Root | null = null;
 
@@ -52,7 +52,6 @@ declare global {
     __TAURI__?: { core: { invoke: (cmd: string, args?: unknown) => Promise<unknown> } };
   }
 }
-
 // Rich answers: teach chat models OpenUI Lang (Settings → Chat → Rich answers).
 window.setRich = (on) => {
   void window.__TAURI__?.core.invoke("set_genui", { prompt: on ? richPrompt() : null }).catch(() => {});
@@ -83,6 +82,10 @@ const api = {
   open: (id: string) => openThread(id),
   home: () => goHome(),
   setScope: (s: string | null, agents = false) => setScope(s, agents),
+  // The shell changed something the face reads but does not own — which zone is
+  // showing, or what the open tab holds — so hand it out again. Cheap: nothing
+  // is fetched, the subscribers simply re-read.
+  shell: () => nudge(),
 };
 
 window.WhirlChat = api;

@@ -164,6 +164,9 @@ button.rp-row:hover { background: var(--hover); }
 
 /* ---------- Home: the composer floats on the painting; the inbox under it; no page scroll */
 .grid.home-wrap { display: block; overflow: hidden; background: transparent; border: 0; scrollbar-width: none; }
+/* The ADE draws the same home without its ask line: the chat face's own composer
+   sits under it, so the inbox has to stop above that rather than under it. */
+.grid.home-wrap.no-hc .home-hero { padding-bottom: 140px; }
 .grid.home-wrap::-webkit-scrollbar { display: none; }
 /* Only while the picker is open may Home grow past the window (short windows). */
 .grid.home-wrap:has(.home.picking) { overflow-y: auto; }
@@ -365,6 +368,15 @@ button.rp-row:hover { background: var(--hover); }
 .rp-none { display: grid; justify-items: center; gap: 4px; padding: 48px 12px; text-align: center; font-size: 12px; color: var(--fg-3); }
 .rp-none .ic { width: 22px; height: 22px; margin-bottom: 6px; }
 .rp-none b { color: var(--fg); font-weight: 600; }
+
+/* ---------- Code's sidebar is the tree, in both of its surfaces -------------
+   The ADE and the IDE are two views of one project, so they share one sidebar:
+   the folder, the threads in it and the canvases it is showing. The vanilla
+   Projects/Workers list and the brand line step aside for it — the tree already
+   says which machine and which folder, in less room. */
+.win.m-code #chatList:not([hidden]) { display: block !important; }
+.win.m-code #list { display: none !important; }
+.win.m-code .seg, .win.m-code .brand { display: none !important; }
 
 /* ---------- the session card: what this canvas is talking to ----------------
    The IDE opens on a session, so the three things you would otherwise go to

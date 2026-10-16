@@ -1,10 +1,12 @@
-// The sidebar's chat list: Whirl's thread-list / thread-row / sidebar-row
-// (MIT, src/whirl/LICENSE) — the whisper-quiet date markers, 32px rows on
-// a hover pill, the spinner while a reply runs, the ⋯ menu — over
-// Backspace's threads. Rendered into the vanilla sidebar through a portal.
+// The sidebar: Whirl's thread-row (MIT, src/whirl/LICENSE) — the whisper-quiet
+// rows on a hover pill, the spinner while a reply runs, the ⋯ menu — over
+// Backspace's threads, arranged as a project tree. A project is the thing you
+// navigate by, so the threads you have had in it and the canvases it is showing
+// both hang under its folder. Rendered into the vanilla sidebar through a portal.
 
 import { useEffect, useMemo, useState } from "react";
 import {
+  IconActivity,
   IconAlertTriangleFilled,
   IconBox,
   IconCheck,
@@ -14,21 +16,32 @@ import {
   IconDeviceDesktop,
   IconDots,
   IconEdit,
+  IconFileText,
+  IconFolder,
   IconFolderPlus,
   IconGitBranch,
+  IconLayoutCards,
   IconLoader2,
+  IconMessageReply,
+  IconMessages,
   IconPencil,
   IconPin,
   IconPinFilled,
   IconPlus,
   IconSearch,
+  IconSitemap,
+  IconSparkles,
+  IconTerminal2,
   IconTrash,
+  IconWindow,
+  IconWorld,
+  type Icon,
 } from "@tabler/icons-react";
 import { AnimatePresence, motion } from "motion/react";
 
+import { cn } from "@/lib/utils";
 import { pinRasterPath } from "@/lib/motion";
 import { RowPill } from "@/components/row-pill";
-import { SidebarRow } from "@/components/sidebar-row";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import {
   DropdownMenu,
@@ -50,52 +63,102 @@ import {
 import { Button } from "@/components/ui/button";
 import { getHost, goHome, inScope, openThread, pin, remove, rename, setQuery, useChat, type ColonyStatus, type ThreadInfo } from "../bridge";
 
-const DAY = 864e5;
-const sameDay = (a: number, b: number) => new Date(a).toDateString() === new Date(b).toDateString();
+const baseName = (p: string) => p.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || p;
 
-function bucket(t: ThreadInfo, now: number) {
-  if (t.pinned) return "Pinned";
-  if (sameDay(t.updated, now)) return "Today";
-  if (sameDay(t.updated, now - DAY)) return "Yesterday";
-  if (now - t.updated < 7 * DAY) return "Previous 7 days";
-  if (now - t.updated < 30 * DAY) return "Previous 30 days";
-  return "Older";
+/** How long ago, in the quiet vocabulary the sidebar uses. */
+function ago(ms: number) {
+  const s = (Date.now() - ms) / 1000;
+  if (s < 60) return "now";
+  if (s < 3600) return `${Math.floor(s / 60)}m`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h`;
+  if (s < 7 * 86400) return `${Math.floor(s / 86400)}d`;
+  return new Date(ms).toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
+/** One icon, no label: the sidebar's own actions. A row of words up here pushes
+ *  everything below it down and says nothing the icon does not. */
+function Act({ icon: ActIcon, label, onClick, on }: { icon: Icon; label: string; onClick: () => void; on?: boolean }) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      aria-pressed={on}
+      onClick={onClick}
+      className={cn(
+        "relative flex size-7 cursor-pointer items-center justify-center rounded-lg text-foreground-soft hover:bg-accent hover:text-foreground",
+        on && "bg-accent text-foreground",
+      )}
+    >
+      <ActIcon size={16} />
+    </button>
+  );
+}
+
+/** The tree: a folder per project, and under it everything the project holds —
+ *  the threads you have had in it and the canvases it is showing. A project is
+ *  the thing you navigate by, so a thread is never floating on its own.
+ *
+ *  Canvas rows come from `Host.canvases()`, which reads the open tab, so the
+ *  sidebar and the tab bar can never disagree about what is open. */
 export function ThreadList({ onNewChat }: { onNewChat: () => void }) {
-  const { threads: all, id, query, scope } = useChat();
-  const threads = useMemo(() => all.filter((t) => inScope(t, scope)), [all, scope]);
-  const groups = useMemo(() => {
+  const { threads: all, id, query, scope, epoch } = useChat();
+  const host = getHost();
+  const [searching, setSearching] = useState(false);
+
+  // In Code the sidebar belongs to the *project*, not to the chat face's scope:
+  // the IDE shows the same tree with no thread open at all, and `scope` is null
+  // there. Everywhere else it is the chat list, and the scope is the zone's.
+  const zone = host.zone();
+  const inCode = zone === "code";
+  const project = inCode ? host.project() : scope;
+
+  const folders = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const now = Date.now();
-    const out: { label: string; items: ThreadInfo[] }[] = [];
-    for (const t of threads) {
-      if (q && !t.title.toLowerCase().includes(q) && !t.preview.toLowerCase().includes(q)) continue;
-      const label = bucket(t, now);
-      let g = out.find((x) => x.label === label);
-      if (!g) out.push((g = { label, items: [] }));
-      g.items.push(t);
+    const hit = (t: ThreadInfo) => !q || t.title.toLowerCase().includes(q) || t.preview.toLowerCase().includes(q);
+    const out: { path: string | null; name: string; open: boolean; items: ThreadInfo[] }[] = [];
+    const put = (path: string | null) => {
+      const items = all
+        .filter((t) => !t.app && (t.project ?? null) === path && hit(t))
+        .sort((a, b) => b.updated - a.updated);
+      // The open project keeps its folder even when it is empty — it is where
+      // you are, and its canvases hang there.
+      if (path === null && items.length === 0) return;
+      out.push({ path, name: path ? baseName(path) : "Chats", open: project === path, items });
+    };
+    put(project);
+    for (const t of all) {
+      const p = t.project ?? null;
+      if (t.app || p === project || out.some((f) => f.path === p)) continue;
+      put(p);
     }
-    // Pinned first, whatever the order threads arrive in.
-    return out.sort((a, b) => Number(b.label === "Pinned") - Number(a.label === "Pinned"));
-  }, [threads, query]);
+    return out;
+  }, [all, project, query]);
+
+  // Read on every render, not memoised: the shell owns this list and changes it
+  // from outside React, so a memo keyed on the store's epoch goes stale the
+  // moment a canvas is added or removed. (`saveTabs` nudges the store too.)
+  const canvases = inCode ? host.canvases() : [];
 
   return (
-    <div className="whirl-side flex flex-col gap-3">
-      <div className="flex flex-col gap-0.5">
-        <SidebarRow icon={IconEdit} label={scope ? "New thread" : "New chat"} onClick={onNewChat} />
-        <SidebarRow icon={IconFolderPlus} label="New project" title="Open a folder to work in" onClick={() => getHost().newProject()} />
-        <EnvironmentRow />
+    <div className="whirl-side flex flex-col gap-2.5">
+      <div className="flex items-center gap-0.5 px-0.5">
+        <Act icon={IconEdit} label={scope || inCode ? "New thread" : "New chat"} onClick={onNewChat} />
+        <Act icon={IconFolderPlus} label="Open a project folder" onClick={() => host.newProject()} />
+        <Act icon={IconSearch} label="Search" on={searching} onClick={() => { setSearching((s) => !s); if (searching) setQuery(""); }} />
+      </div>
+      {searching && (
         <label className="group/row relative flex h-8 w-full items-center gap-2.5 rounded-lg px-2.5 text-[13.5px]/4 font-medium text-foreground-soft">
           <RowPill className="group-focus-within/row:bg-accent" />
-          <IconSearch size={16} className="relative shrink-0" />
+          <IconSearch size={15} className="relative shrink-0" />
           <input
+            autoFocus
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Escape") {
                 setQuery("");
-                (e.target as HTMLInputElement).blur();
+                setSearching(false);
               }
             }}
             placeholder="Search"
@@ -103,32 +166,73 @@ export function ThreadList({ onNewChat }: { onNewChat: () => void }) {
             className="relative h-full min-w-0 flex-1 bg-transparent outline-none placeholder:text-foreground-soft"
           />
         </label>
-      </div>
-      {threads.length === 0 ? (
-        <div className="px-2.5 py-2 text-[13px]/5 text-muted-foreground">
-          {scope ? "No threads in this project yet. Ask a CLI to change something; it works in the folder." : "No chats yet. Start one with any model you've connected."}
-        </div>
-      ) : groups.length === 0 ? (
-        <div className="px-2.5 py-2 text-[13px]/5 text-muted-foreground">No chats match “{query}”.</div>
-      ) : (
-        <div className="flex flex-col gap-2">
-          {groups.map((g) => (
-            <section key={g.label}>
-              <div className="flex h-5 items-center px-2.5 text-[10.5px]/4 font-medium text-muted-foreground/55">
-                {g.label}
-              </div>
-              <div className="flex flex-col gap-0.5">
-                {g.items.map((t) => (
-                  <ThreadRow key={t.id} thread={t} active={t.id === id} />
-                ))}
-              </div>
-            </section>
-          ))}
-        </div>
       )}
+
+      {folders.length === 0 ? (
+        <div className="px-2.5 py-2 text-[13px]/5 text-muted-foreground">
+          {project ? "Nothing in this project yet. Ask a CLI to change something; it works in the folder." : "No chats yet. Start one with any model you've connected."}
+        </div>
+      ) : (
+        folders.map((f) => (
+          <section key={f.path ?? "chats"} className="flex flex-col gap-0.5">
+            <div className="flex h-6 items-center gap-1.5 px-2 text-[11px]/4 font-semibold text-muted-foreground/80">
+              <IconFolder size={13} className="shrink-0" />
+              <span className="min-w-0 truncate" title={f.path ?? undefined}>
+                {f.name}
+              </span>
+              {f.open && canvases.length > 0 && <span className="ml-auto shrink-0 font-normal text-muted-foreground/60">{canvases.length}</span>}
+            </div>
+            {f.open && canvases.map((c) => <CanvasRow key={`c${c.index}`} canvas={c} />)}
+            {f.items.map((t) => (
+              <ThreadRow key={t.id} thread={t} active={t.id === id} inIde={inCode} />
+            ))}
+            {f.items.length === 0 && !(f.open && canvases.length > 0) && (
+              <div className="px-2.5 py-1 text-[12.5px]/5 text-muted-foreground">
+                {query ? "No match" : "No threads yet"}
+              </div>
+            )}
+          </section>
+        ))
+      )}
+
+      <div className="mt-auto pt-1">
+        <EnvironmentRow />
+      </div>
     </div>
   );
 }
+
+/** A canvas the open project is showing, as a row in the tree. */
+function CanvasRow({ canvas }: { canvas: { index: number; kind: string; label: string } }) {
+  const host = getHost();
+  const Glyph = CANVAS_ICON[canvas.kind] ?? IconWindow;
+  return (
+    <button
+      type="button"
+      onClick={() => host.openCanvas(canvas.index)}
+      title={canvas.label}
+      className="group/row relative flex h-7 w-full cursor-pointer items-center gap-2 rounded-lg pr-2.5 pl-6 text-left text-[12.5px]/4 text-muted-foreground"
+    >
+      <RowPill />
+      <Glyph size={13} className="relative shrink-0" />
+      <span className="relative min-w-0 flex-1 truncate">{canvas.label}</span>
+    </button>
+  );
+}
+
+const CANVAS_ICON: Record<string, Icon> = {
+  agent: IconSparkles,
+  board: IconMessages,
+  conversation: IconMessageReply,
+  terminal: IconTerminal2,
+  files: IconFolder,
+  browser: IconWorld,
+  diagram: IconSitemap,
+  docs: IconFileText,
+  options: IconLayoutCards,
+  trace: IconActivity,
+  empty: IconWindow,
+};
 
 /* Where the next thread runs.
  *
@@ -215,13 +319,19 @@ function EnvironmentRow() {
   );
 }
 
-function ThreadRow({ thread, active }: { thread: ThreadInfo; active: boolean }) {
+function ThreadRow({ thread, active, inIde }: { thread: ThreadInfo; active: boolean; inIde?: boolean }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [title, setTitle] = useState(thread.title);
   const host = getHost();
   const fail = (e: unknown) => host.toast(String(e), "err");
+  // A thread picked from the tree while the IDE is showing is read in the ADE,
+  // so the switch happens on the way there rather than teleporting the reader.
+  const open = () => {
+    if (inIde) host.showThread();
+    void openThread(thread.id);
+  };
   return (
     <div
       className="group/row group/thread relative"
@@ -232,9 +342,9 @@ function ThreadRow({ thread, active }: { thread: ThreadInfo; active: boolean }) 
     >
       <button
         type="button"
-        onClick={() => void openThread(thread.id)}
+        onClick={open}
         title={thread.preview || thread.title}
-        className="relative flex h-8 w-full cursor-pointer items-center rounded-lg pr-8 pl-2.5 text-[13.5px]/4 font-medium text-foreground-soft"
+        className="relative flex h-8 w-full cursor-pointer items-center rounded-lg pr-8 pl-6 text-[13.5px]/4 font-medium text-foreground-soft"
       >
         <RowPill className={`group-has-data-popup-open/thread:bg-accent ${active ? "bg-accent" : ""}`} />
         <span className="relative flex min-w-0 flex-1 items-center gap-1.5 text-left">
@@ -244,6 +354,9 @@ function ThreadRow({ thread, active }: { thread: ThreadInfo; active: boolean }) 
             <IconGitBranch size={13} className="shrink-0" aria-label="Branched thread" />
           ) : null}
           <span className="block min-w-0 flex-1 truncate">{thread.title}</span>
+          <span className="relative shrink-0 text-[11px] font-normal text-muted-foreground/60 transition-opacity duration-150 group-hover/thread:opacity-0">
+            {ago(thread.updated)}
+          </span>
         </span>
       </button>
       <AnimatePresence mode="wait" initial={false}>

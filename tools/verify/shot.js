@@ -50,10 +50,18 @@
     { id: "t2", title: "Why is the loader off-centre?", updated: Date.now() - 9e6, pinned: false, route, preview: "The panel was a sibling of the dock", busy: false, unread: false, project: WS },
   ]));
   H.mock("agents_list", () => []);
-  H.mock("tabs_for", () => ({ tabs: [{ name: null, panes: [{ kind: "agent", agent: 0, url: null }], layout: null }], active: 0 }));
+  H.mock("tabs_for", () => ({
+    tabs: [{ name: null, panes: [
+      { kind: "agent", agent: 0, url: null },
+      { kind: "terminal", agent: 0, url: null },
+      ...(IDE ? [{ kind: "browser", agent: 0, url: "http://localhost:5173" }] : []),
+    ], layout: null }],
+    active: 0,
+  }));
   H.mock("save_tabs", () => null);
   prefs.worker = "claude-code";
   prefs.cli_permission = "edits";
+  delete prefs.wb_view; // a fresh install: Code starts on the zone's home
   await useTabsFor(WS);
 
   // Providers are loaded by Chat.init() at boot, before this fixture installs
@@ -63,8 +71,11 @@
   await refresh(true);
   setMode("code");
   setCodeView(IDE ? "agents" : "pair");
+  // Code lands on the zone's home in both surfaces. The IDE frame shows the
+  // canvases instead, because that is the half of the IDE a picture can prove.
   if (IDE) setWb("canvases");
   await refresh(true);
+  if (window.WhirlChat) WhirlChat.shell();
   document.querySelector("#win").classList.remove("side-closed"); // the app boots closed
   await settle(900);
 

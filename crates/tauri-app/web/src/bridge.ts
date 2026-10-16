@@ -157,20 +157,8 @@ export type ColonyStatus = {
   workspaces?: { name: string; provider: string; os: string; state: string; ip?: string | null }[] | null;
 };
 
-/** Code → ADE's home: what is true of the project right now. */
-export type CodeHome = {
-  /** The branch the project folder is on ("" when it is not a repo yet). */
-  branch: string;
-  /** A repo with no commit yet, so every file is new. */
-  fresh: boolean;
-  files: { status: string; path: string; added: number; removed: number }[];
-  worktrees: { agent: string; title: string; branch: string; path: string }[];
-  tickets: { key: string; title: string; state: string }[];
-  /** Approvals waiting on you. */
-  needs: number;
-  running: number;
-  agents: number;
-};
+/** One canvas in the open tab: what the sidebar's tree hangs under the folder. */
+export type Canvas = { index: number; kind: string; label: string };
 
 /** What the vanilla shell provides. */
 export type Host = {
@@ -215,8 +203,16 @@ export type Host = {
   colony: () => Promise<ColonyStatus | null>;
   /** Open another project folder — the folder a thread works in. */
   newProject: () => void;
-  /** What the project looks like now: branch, changes, worktrees, tickets. */
-  codeHome: (scope: string) => Promise<CodeHome>;
+  /** Which zone the sidebar is being drawn for ("chat", "code", …). */
+  zone: () => string;
+  /** The project open in the shell, whether or not the chat face is scoped. */
+  project: () => string | null;
+  /** What the open project is showing: the tab's canvases, in order. */
+  canvases: () => Canvas[];
+  /** Bring a canvas to the front — switches to the IDE and focuses it. */
+  openCanvas: (index: number) => void;
+  /** A thread is about to be opened: the ADE is where it is read. */
+  showThread: () => void;
   /** Switch Code between its two surfaces: the ADE and the IDE. */
   setCodeView: (v: "pair" | "agents") => void;
   projectMenu: (anchor: HTMLElement) => void;
@@ -282,6 +278,11 @@ export function useChat(): State {
 }
 
 export const chatState = () => state;
+
+/** The shell changed something the face reads but does not own — the tab's
+ *  canvases — so tell the store to hand it out again. Cheap on purpose: the
+ *  sidebar asks for canvases only when it re-renders. */
+export const nudge = () => set({ epoch: state.epoch + 1 });
 
 /** Pull the list and the open thread again (on every core change). */
 export async function refresh() {

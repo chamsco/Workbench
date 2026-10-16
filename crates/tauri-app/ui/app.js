@@ -169,6 +169,9 @@ function saveTabs() {
     tabs: prefs.tabs,
     active: prefs.active_tab,
   }), 250);
+  // The sidebar's tree lists these canvases. It lives in the chat face's store,
+  // which only re-reads when something tells it to.
+  if (window.WhirlChat && window.WhirlChat.shell) window.WhirlChat.shell();
 }
 
 
@@ -1111,7 +1114,7 @@ function chooser(slot, body) {
 // The same project three ways: Canvases (tabs of split canvases), Wall (every
 // agent's session tiled, as many as there are) and Inbox (what needs you,
 // then what is running, then what is done). Picked per user, kept in prefs.
-const WB = [["home", "home", "Home", "Start work, and what needs you"], ["canvases", "window", "Canvases", "Sessions, files and previews side by side"], ["wall", "monitor", "Wall", "Every agent's session, tiled"]];
+const WB = [["home", "home", "Start", "Start work, and what needs you"], ["canvases", "window", "Canvases", "Sessions, files and previews side by side"], ["wall", "monitor", "Wall", "Every agent's session, tiled"]];
 const busy = a => !!a && ["running", "queued", "awaiting_approval"].includes(a.status);
 const lastLine = a => { const e = [...a.log].reverse().find(e => e.kind !== "user") || a.log[a.log.length - 1]; return e ? e.text.split("\n")[0] : "No activity yet"; };
 // Why an agent needs the human, or null.
@@ -2451,11 +2454,11 @@ addEventListener("DOMContentLoaded", async () => {
   S.mode = prefs.mode || "chat";
   S.codeView = prefs.code_view === "pair" ? "pair" : "agents";
   S.chatView = prefs.chat_view === "agents" ? "agents" : "chat";
-  // The IDE opens on the session canvas. A project's default tab is one agent
-  // canvas filling the window (core prefs TabSpec::defaults), which is what the
-  // IDE is for; Home is still in the view menu, and it is what shows with no
-  // project open, where a canvas would have nothing to draw.
-  S.wb = WB.some(([k]) => k === prefs.wb_view) ? prefs.wb_view : "canvases";
+  // One landing screen for the whole zone, and one name for it. Code shows the
+  // same home in both of its surfaces — the ADE draws it behind its own composer
+  // (Home.render with `composer: false`) — so it is not "Home", it is where Code
+  // starts: Start, then Canvases, then Wall, in the view menu.
+  S.wb = WB.some(([k]) => k === prefs.wb_view) ? prefs.wb_view : "home";
   Art.apply(prefs.backdrop);
   // A folder given on the command line, or a bench run: start in Code.
   const first = await invoke("snapshot");

@@ -17,7 +17,7 @@ import { CodeComposer, CodeSide } from "./CodeComposer";
 import { GhostToggle } from "./GhostToggle";
 import { ReplyChip } from "./Extras";
 import { AgentEditors, AgentsHome, AgentsSide, AgentThreadHeader } from "./Agents";
-import { CodeHome } from "./CodeHome";
+import { CodeStart } from "./CodeStart";
 import { TracePanel } from "./Trace";
 import { ThreadList } from "./ThreadList";
 import { ThreadView } from "./ThreadView";
@@ -175,8 +175,8 @@ export function ChatApp({ sideEl, user }: { sideEl: HTMLElement; user: string })
                   </motion.div>
                 )}
                 {!inThread && (agentsMode || scope) && (
-                  <motion.div key={scope ? "code-home" : "agents-home"} {...THREAD_SWAP} className="h-full min-h-0">
-                    {scope ? <CodeHome scope={scope} /> : <AgentsHome />}
+                  <motion.div key={scope ? "code-start" : "agents-home"} {...THREAD_SWAP} className="h-full min-h-0">
+                    {scope ? <CodeStart /> : <AgentsHome />}
                   </motion.div>
                 )}
               </AnimatePresence>

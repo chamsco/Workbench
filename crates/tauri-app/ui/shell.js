@@ -77,6 +77,9 @@ var Shell = (() => {
 
     // Chat's scope follows whoever shows it: a project in Pair, else none.
     if (window.Chat && Chat.setScope) Chat.setScope(S.mode === "code" && prim === "chat" ? snap.workspace : null, S.mode === "chat" && S.chatView === "agents");
+    // The face's sidebar is a tree of the project and the zone it is in, and it
+    // reads both from here: tell it the shell moved. A nudge, not a fetch.
+    if (window.WhirlChat && window.WhirlChat.shell) window.WhirlChat.shell();
     renderRail(); renderZones(); renderHead(); renderModes(); renderStatus();
     if (typeof syncArt === "function") syncArt();
     if (window.RPanel) RPanel.render();

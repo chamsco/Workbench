@@ -223,25 +223,25 @@ var Chat = (() => {
     },
     colony: () => invoke("colony_status").catch(() => null),
     newProject: () => pickProject(),
-    // Code → ADE's home: the project's own state in one read, so the chat face
-    // never has to reach into the shell's internals for it.
-    codeHome: async scope => {
-      const [git, wt] = await Promise.all([
-        invoke("git_changes", { path: scope }).catch(() => null),
-        invoke("worktrees").catch(() => null),
-      ]);
-      const agents = (snap.agents || []).filter(a => a.kind !== "triage");
-      return {
-        branch: (git && git.branch) || "",
-        fresh: !!(git && git.fresh),
-        files: ((git && git.files) || []).slice(0, 40),
-        worktrees: ((wt && wt.worktrees) || []).map(w => ({ agent: w.agent, title: w.title, branch: w.branch || "", path: w.path || "" })),
-        tickets: (snap.tickets || []).slice(0, 40).map(x => ({ key: x.key, title: x.title, state: x.state })),
-        needs: pending().length,
-        running: agents.filter(a => busy(a)).length,
-        agents: agents.length,
-      };
+    // The sidebar's tree. It reads the open tab, which is the only place the
+    // canvases live, so the tree and the tab bar can never disagree about what
+    // the project is showing.
+    zone: () => S.mode,
+    project: () => (hasProject && snap.workspace) || null,
+    canvases: () => {
+      const t = tab();
+      if (!t) return [];
+      return t.panes.map((p, i) => ({ index: i, kind: p.kind, label: paneTitle(p) }));
     },
+    openCanvas: index => {
+      closePop();
+      S.focus = index; S.max = null;
+      setMode("code"); setCodeView("agents"); setWb("canvases");
+      renderTabs(); renderGrid();
+    },
+    // Read in the ADE: a thread belongs to that surface, whichever one the tree
+    // was clicked in.
+    showThread: () => { if (S.mode === "code" && S.codeView !== "pair") setCodeView("pair"); },
     setCodeView: v => setCodeView(v === "agents" ? "agents" : "pair"),
     projectMenu: anchor => Shell.projectMenu(anchor),
     openPanel: tab => window.RPanel && RPanel.show(tab),

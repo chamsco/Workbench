@@ -13,16 +13,30 @@
 var Home = (() => {
   let proj = null, open = "agents", picking = false, activity = { path: "", at: 0, data: null };
 
+  // The home can be mounted twice at once: the canvas zone draws one, and Code →
+  // ADE draws another behind its own composer. Every refresh therefore walks the
+  // roots that are still in the document — `document.querySelector(".home")`
+  // wrote both screens' pills into whichever came first, which is a screen the
+  // reader may not even be looking at.
+  const roots = new Set();
+  function each(fn) {
+    for (const r of [...roots]) {
+      if (!r.isConnected) { roots.delete(r); continue; }
+      fn(r);
+    }
+  }
+  const firstWith = sel => [...roots].find(r => r.isConnected && r.querySelector(sel)) || null;
+
   const project = () => proj || (hasProject && snap.workspace) || (prefs.projects || [])[0] || null;
   const choice = () => ({ model: prefs.worker || "", permission: prefs.cli_permission || "edits", effort: prefs.cli_effort || null });
   const name = a => (a.id === MAIN ? "Main agent" : a.title);
   const visible = () => treeOrder().map(agent).filter(a => a && a.kind !== "triage");
 
-  function shell() {
+  function shell(withComposer = true) {
     return `<div class="home">
       <div class="home-hero">
         <h1>What should your agents work on?</h1>
-        <div class="hc-above">
+        ${withComposer ? `<div class="hc-above">
           <button class="hc-chip" data-act="proj" data-popper>${icon("folder")}<span class="v"></span>${icon("chevd")}</button>
           <span class="hc-chip quiet">${icon("branch")}<span class="br">backspace/run</span></span>
           <span class="hc-chip quiet">${icon("pc")}<span class="mach"></span></span>
@@ -37,7 +51,7 @@ var Home = (() => {
             <button class="hc-send" data-act="send" aria-label="Start">${icon("up")}</button>
           </div>
           <div class="hc-panel" hidden></div>
-        </div>
+        </div>` : ""}
         <div class="home-dock">
           <div class="home-pills" role="tablist" aria-label="What's going on"></div>
           <div class="home-open"></div>
@@ -67,20 +81,22 @@ var Home = (() => {
   }
 
   function pills() {
-    const el = document.querySelector(".home-pills");
-    if (!el) return;
-    const all = visible(), needs = all.filter(needsYou), working = all.filter(a => !needsYou(a) && busy(a));
-    const t = snap.tickets || [], act = activity.data, consults = all.reduce((n, a) => n + (a.advisor_calls || 0), 0);
-    const ps = (prefs.projects || []).slice(0, 3).map(base);
-    const P = [
-      ["agents", `<span class="dot ${needs.length ? "wait" : working.length ? "run" : ""}"></span>Agents<b>${all.length}</b>${needs.length ? `<span class="need">${needs.length} need you</span>` : ""}`],
-      ["tix", `${icon("ticket")}Tickets<b>${t.length}</b>`],
-      ["git", act ? `${icon("branch")}${spark(act.days)}<b>${act.days.reduce((a, b) => a + b, 0)}</b><span class="dim">commits · 14d</span><span class="add">+${fmtK(act.added)}</span><span class="del">−${fmtK(act.removed)}</span>` : `${icon("branch")}Git activity`],
-      ["proj", `${icon("folder")}${ps.length ? esc(ps.join(" · ")) : "Projects"}`],
-    ];
-    if (consults) P.push(["adv", `${icon("sparkle")}Advisor<b>${consults}</b><span class="dim">consult${consults === 1 ? "" : "s"}</span>`]);
-    el.innerHTML = P.map(([k, h]) => `<button class="hpill" role="tab" aria-selected="${open === k}" data-pill="${k}">${h}</button>`).join("");
-    el.querySelectorAll("[data-pill]").forEach(b => (b.onclick = () => { open = b.dataset.pill; pills(); }));
+    each(r => {
+      const el = r.querySelector(".home-pills");
+      if (!el) return;
+      const all = visible(), needs = all.filter(needsYou), working = all.filter(a => !needsYou(a) && busy(a));
+      const t = snap.tickets || [], act = activity.data, consults = all.reduce((n, a) => n + (a.advisor_calls || 0), 0);
+      const ps = (prefs.projects || []).slice(0, 3).map(base);
+      const P = [
+        ["agents", `<span class="dot ${needs.length ? "wait" : working.length ? "run" : ""}"></span>Agents<b>${all.length}</b>${needs.length ? `<span class="need">${needs.length} need you</span>` : ""}`],
+        ["tix", `${icon("ticket")}Tickets<b>${t.length}</b>`],
+        ["git", act ? `${icon("branch")}${spark(act.days)}<b>${act.days.reduce((a, b) => a + b, 0)}</b><span class="dim">commits · 14d</span><span class="add">+${fmtK(act.added)}</span><span class="del">−${fmtK(act.removed)}</span>` : `${icon("branch")}Git activity`],
+        ["proj", `${icon("folder")}${ps.length ? esc(ps.join(" · ")) : "Projects"}`],
+      ];
+      if (consults) P.push(["adv", `${icon("sparkle")}Advisor<b>${consults}</b><span class="dim">consult${consults === 1 ? "" : "s"}</span>`]);
+      el.innerHTML = P.map(([k, h]) => `<button class="hpill" role="tab" aria-selected="${open === k}" data-pill="${k}">${h}</button>`).join("");
+      el.querySelectorAll("[data-pill]").forEach(b => (b.onclick = () => { open = b.dataset.pill; pills(); }));
+    });
     details();
   }
 
@@ -101,23 +117,24 @@ var Home = (() => {
   }
 
   function details() {
-    const el = document.querySelector(".home-open");
-    if (!el) return;
-    const t = snap.tickets || [], act = activity.data;
-    const by = sts => t.filter(x => sts.includes(x.state)).length;
-    const keep = el.scrollTop;
-    el.innerHTML = {
-      agents: inbox,
-      tix: () => t.length ? `<div class="tix">${[["Needs you", ["proposed", "in_review", "ready_for_human", "needs_info"], "wait"], ["Running", ["queued", "in_progress"], "run"], ["Ready", ["ready_for_agent", "needs_triage"], ""], ["Done", ["done"], "done"], ["Failed", ["failed"], "fail"]].map(([l, sts, d]) => `<button class="tix-c" data-tix><span class="dot ${d}"></span><b>${by(sts)}</b><span>${l}</span></button>`).join("")}</div>` : `<div class="hw-empty">The main agent turns your goal into tickets.</div>`,
-      git: () => act ? `<div class="big">${act.days.reduce((a, b) => a + b, 0)}<span>commits in 14 days on every branch of ${esc(base(activity.path))}</span><span class="sp"></span><span class="add">+${act.added.toLocaleString()}</span><span class="del">−${act.removed.toLocaleString()}</span></div>${bars(act.days)}` : `<div class="hw-empty">${project() ? "Not a git repository yet." : "Open a project to see its activity."}</div>`,
-      proj: () => (prefs.projects || []).slice(0, 8).map(p => `<div class="hw-row" data-proj="${esc(p)}" role="button" tabindex="0">${icon("folder")}<span class="tt"><b>${esc(base(p))}</b><span>${esc(p)}</span></span>${hasProject && p === snap.workspace ? `<span class="meta on">open</span>` : p === project() ? `<span class="meta">chosen</span>` : ""}</div>`).join("") + `<div class="hw-row" data-act="openf" role="button" tabindex="0">${icon("plus")}<span class="tt"><b>Open folder…</b></span></div>`,
-      adv: () => visible().filter(a => a.advisor_calls).map(a => `<div class="hw-row" data-open="${a.id}" role="button" tabindex="0">${icon("sparkle")}<span class="tt"><b>${esc(name(a))}</b><span>consulted the advisor ${a.advisor_calls} time${a.advisor_calls === 1 ? "" : "s"}</span></span></div>`).join(""),
-    }[open]();
-    el.scrollTop = keep;
-    el.querySelectorAll("[data-open]").forEach(b => (b.onclick = e => {
-      const s = e.target.closest("[data-stop]"), r = e.target.closest("[data-act-on]"), rs = e.target.closest("[data-resume]");
-      if (s) { e.stopPropagation(); invoke("stop", { agent: +s.dataset.stop }); return; }
-      if (rs) {
+    each(root => {
+      const el = root.querySelector(".home-open");
+      if (!el) return;
+      const t = snap.tickets || [], act = activity.data;
+      const by = sts => t.filter(x => sts.includes(x.state)).length;
+      const keep = el.scrollTop;
+      el.innerHTML = {
+        agents: inbox,
+        tix: () => t.length ? `<div class="tix">${[["Needs you", ["proposed", "in_review", "ready_for_human", "needs_info"], "wait"], ["Running", ["queued", "in_progress"], "run"], ["Ready", ["ready_for_agent", "needs_triage"], ""], ["Done", ["done"], "done"], ["Failed", ["failed"], "fail"]].map(([l, sts, d]) => `<button class="tix-c" data-tix><span class="dot ${d}"></span><b>${by(sts)}</b><span>${l}</span></button>`).join("")}</div>` : `<div class="hw-empty">The main agent turns your goal into tickets.</div>`,
+        git: () => act ? `<div class="big">${act.days.reduce((a, b) => a + b, 0)}<span>commits in 14 days on every branch of ${esc(base(activity.path))}</span><span class="sp"></span><span class="add">+${act.added.toLocaleString()}</span><span class="del">−${act.removed.toLocaleString()}</span></div>${bars(act.days)}` : `<div class="hw-empty">${project() ? "Not a git repository yet." : "Open a project to see its activity."}</div>`,
+        proj: () => (prefs.projects || []).slice(0, 8).map(p => `<div class="hw-row" data-proj="${esc(p)}" role="button" tabindex="0">${icon("folder")}<span class="tt"><b>${esc(base(p))}</b><span>${esc(p)}</span></span>${hasProject && p === snap.workspace ? `<span class="meta on">open</span>` : p === project() ? `<span class="meta">chosen</span>` : ""}</div>`).join("") + `<div class="hw-row" data-act="openf" role="button" tabindex="0">${icon("plus")}<span class="tt"><b>Open folder…</b></span></div>`,
+        adv: () => visible().filter(a => a.advisor_calls).map(a => `<div class="hw-row" data-open="${a.id}" role="button" tabindex="0">${icon("sparkle")}<span class="tt"><b>${esc(name(a))}</b><span>consulted the advisor ${a.advisor_calls} time${a.advisor_calls === 1 ? "" : "s"}</span></span></div>`).join(""),
+      }[open]();
+      el.scrollTop = keep;
+      el.querySelectorAll("[data-open]").forEach(b => (b.onclick = e => {
+        const s = e.target.closest("[data-stop]"), r = e.target.closest("[data-act-on]"), rs = e.target.closest("[data-resume]");
+        if (s) { e.stopPropagation(); invoke("stop", { agent: +s.dataset.stop }); return; }
+        if (rs) {
         e.stopPropagation();
         invoke("resume", { agent: +rs.dataset.resume })
           .then(t => { toast(t, "ok"); setTimeout(() => refresh(false), 400); })
@@ -127,10 +144,11 @@ var Home = (() => {
       if (r) { e.stopPropagation(); actOn(agent(+r.dataset.actOn)); return; }
       openIn({ kind: "agent", agent: +b.dataset.open });
     }));
-    el.querySelectorAll("[data-proj]").forEach(b => (b.onclick = () => { proj = b.dataset.proj; bar(); activity.path = ""; loadActivity(); pills(); }));
-    el.querySelectorAll("[data-tix]").forEach(b => (b.onclick = () => setDrawer(true)));
-    const of = el.querySelector("[data-act=openf]"); if (of) of.onclick = pickProject;
-    const byv = el.querySelector("[data-act=view]"); if (byv) byv.onclick = startByView;
+      el.querySelectorAll("[data-proj]").forEach(b => (b.onclick = () => { proj = b.dataset.proj; bar(); activity.path = ""; loadActivity(); pills(); }));
+      el.querySelectorAll("[data-tix]").forEach(b => (b.onclick = () => setDrawer(true)));
+      const of = el.querySelector("[data-act=openf]"); if (of) of.onclick = pickProject;
+      const byv = el.querySelector("[data-act=view]"); if (byv) byv.onclick = startByView;
+    });
   }
 
   // The same project, started by view instead of by task: open it, switch to
@@ -149,19 +167,30 @@ var Home = (() => {
   // Home has been swapped out — the canvases took its place, or the project
   // changed under it — and every write past the await would then be a null.
   // Hold the root, and leave quietly if it is gone.
+  //
+  // A home drawn without its composer has no chips to write into, which is not a
+  // failure: that line belongs to whoever rendered it (the ADE's own composer
+  // carries the same project, branch and machine, and two of them is one too
+  // many).
   async function bar() {
-    const root = document.querySelector(".home");
+    // Only a home drawn with a composer has these; the ADE's has none, and it is
+    // the one the reader is looking at.
+    const root = firstWith(".hc-above [data-act=proj] .v");
     if (!root) return;
+    const proj = root.querySelector(".hc-above [data-act=proj] .v");
     const p = project(), c = choice();
-    root.querySelector(".hc-above [data-act=proj] .v").textContent = p ? base(p) : "Choose a project";
+    proj.textContent = p ? base(p) : "Choose a project";
     root.querySelector(".hc-above .mach").textContent = machine().name;
     const main = agent(MAIN);
     root.querySelector(".hc-above .br").textContent = (hasProject && main && main.branch) || "backspace/run";
     root.querySelector(".hc-model .lg").innerHTML = Logos.mark(Picker.cliOf(c.model));
     const label = await Picker.label(c.model);
-    if (!root.isConnected) return;
-    root.querySelector(".hc-model .v").textContent = label;
-    root.querySelector(".hc-model .eff").textContent = Effort.name(Picker.cliOf(c.model), c.effort);
+    // The root outlives this await (the canvas grid is reused, not replaced) but
+    // its contents do not: look again, and leave if the composer has moved on.
+    const v = root.querySelector(".hc-model .v"), eff = root.querySelector(".hc-model .eff");
+    if (!v || !eff) return;
+    v.textContent = label;
+    eff.textContent = Effort.name(Picker.cliOf(c.model), c.effort);
   }
 
   function projMenu(anchor) {
@@ -189,7 +218,9 @@ var Home = (() => {
 
   // The picker unfolds from the composer; the inbox steps aside meanwhile.
   function togglePicker() {
-    const home = document.querySelector(".home"), panel = home.querySelector(".hc-panel"), btn = home.querySelector("[data-act=model]");
+    const home = firstWith(".hc-panel");
+    if (!home) return;
+    const panel = home.querySelector(".hc-panel"), btn = home.querySelector("[data-act=model]");
     if (picking) { Picker.close(); return; }
     picking = true; panel.hidden = false; home.classList.add("picking"); btn.setAttribute("aria-expanded", "true");
     Picker.mount(panel, choice(), choose, () => { picking = false; panel.hidden = true; home.classList.remove("picking"); btn.setAttribute("aria-expanded", "false"); });
@@ -206,7 +237,8 @@ var Home = (() => {
   }
 
   async function send(parallel) {
-    const ta = document.querySelector(".hc textarea"), text = ta && ta.value.trim();
+    const bar = firstWith(".hc textarea");
+    const ta = bar && bar.querySelector(".hc textarea"), text = ta && ta.value.trim();
     if (!text || !(await ensureProject())) return;
     if (parallel) {
       try {
@@ -218,20 +250,30 @@ var Home = (() => {
     open = "agents"; pills();
   }
 
-  function render(g) {
+  /// Draw the home into `g`.
+  ///
+  /// `composer: false` leaves the ask line out and keeps the rest — the hero,
+  /// the pills and the inbox. That is how Code → ADE shows it: the same screen
+  /// behind its own composer, rather than a second home written from scratch.
+  function render(g, opts = {}) {
+    const withComposer = opts.composer !== false;
+    roots.add(g);
     let home = g.querySelector(".home");
-    if (!home) {
-      g.className = "grid home-wrap";
-      g.innerHTML = shell();
+    if (!home || home.dataset.composer !== String(withComposer)) {
+      g.className = "grid home-wrap" + (withComposer ? "" : " no-hc");
+      g.innerHTML = shell(withComposer);
       home = g.querySelector(".home");
-      home.querySelector("[data-act=proj]").onclick = e => projMenu(e.currentTarget);
-      home.querySelector("[data-act=model]").onclick = togglePicker;
-      home.querySelector("[data-act=send]").onclick = () => send(false);
-      home.querySelector("[data-act=par]").onclick = () => send(true);
-      const ta = home.querySelector("textarea");
-      ta.onkeydown = e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(e.ctrlKey || e.metaKey); } };
-      ta.oninput = () => { ta.style.height = "auto"; ta.style.height = Math.min(200, ta.scrollHeight) + "px"; };
-      requestAnimationFrame(() => ta.focus());
+      home.dataset.composer = String(withComposer);
+      if (withComposer) {
+        home.querySelector("[data-act=proj]").onclick = e => projMenu(e.currentTarget);
+        home.querySelector("[data-act=model]").onclick = togglePicker;
+        home.querySelector("[data-act=send]").onclick = () => send(false);
+        home.querySelector("[data-act=par]").onclick = () => send(true);
+        const ta = home.querySelector("textarea");
+        ta.onkeydown = e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(e.ctrlKey || e.metaKey); } };
+        ta.oninput = () => { ta.style.height = "auto"; ta.style.height = Math.min(200, ta.scrollHeight) + "px"; };
+        requestAnimationFrame(() => ta.focus());
+      }
       picking = false;
     }
     bar();
