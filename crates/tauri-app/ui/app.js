@@ -306,9 +306,9 @@ function applyAppearance() {
     if (!a.fg || k !== "--fg") set(k, v);
   }
   const trans = a.translucent === false && !!prefs.appearance;
-  set("--glass", trans ? (dark ? "rgb(36, 30, 38)" : "rgb(252, 249, 252)") : null);
-  set("--glass-side", trans ? (dark ? "rgb(48, 42, 50)" : "rgb(244, 241, 245)") : null);
-  set("--glass-main", trans ? (dark ? "rgb(20, 17, 22)" : "rgb(246, 243, 247)") : null);
+  set("--glass", trans ? (dark ? "rgb(26, 21, 28)" : "rgb(252, 249, 252)") : null);
+  set("--glass-side", trans ? (dark ? "rgb(34, 29, 36)" : "rgb(244, 241, 245)") : null);
+  set("--glass-main", trans ? (dark ? "rgb(14, 12, 16)" : "rgb(246, 243, 247)") : null);
 }
 function applyTheme() {
   const r = document.documentElement;
@@ -2389,7 +2389,7 @@ addEventListener("DOMContentLoaded", async () => {
     prefs.tabs.unshift({ name: "Bench", panes: [{ kind: "agent", agent: 0, url: null }, { kind: "files", agent: 0, url: null }, { kind: "agent", agent: 1, url: null }, { kind: "agent", agent: 2, url: null }].slice(0, boot.layout), layout: null });
     prefs.active_tab = 0;
   }
-  applyTheme(); renderSeg(); setSide(!narrow());
+  applyTheme(); renderSeg(); setSide(false);
   S.mode = prefs.mode || "chat";
   S.codeView = prefs.code_view === "pair" ? "pair" : "agents";
   S.chatView = prefs.chat_view === "agents" ? "agents" : "chat";

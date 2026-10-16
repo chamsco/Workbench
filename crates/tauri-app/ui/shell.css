@@ -308,10 +308,11 @@ button.rp-row:hover { background: var(--hover); }
    What shows in the gap between starting and finding: the CLI scan is running,
    and the route list is empty for a few seconds. It used to show the connect
    panel in that gap, which reads as "you have nothing" rather than "wait". */
-/* Fills the pane and centres on both axes, over a near-black ground: while the
-   scan runs there is nothing behind it worth showing. Renders as a sibling of
-   the composer dock rather than inside it, so it needs the absolute box. */
-.looking { position: absolute; inset: 0; z-index: 20; display: grid; place-content: center; justify-items: center; gap: 12px; padding: 24px; text-align: center; background: rgba(9, 8, 11, 0.95); }
+/* Fixed to the window, not the pane: anchored to its parent it inherited the
+   pane's box, which put it off-centre. Darker than the app's own ground (it is
+   the one screen with nothing behind it worth showing) and it fades out into
+   the real face. */
+.looking { position: fixed; inset: 0; z-index: 20; display: grid; place-content: center; justify-items: center; gap: 12px; padding: 24px; text-align: center; background: rgba(9, 8, 11, 0.97); }
 
 /* Nothing to navigate to yet: the sidebar is not there, not merely empty. */
 .win.booting .side, .win.booting .gutter-side, .win.booting .rail { display: none; }
