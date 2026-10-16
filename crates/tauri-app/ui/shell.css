@@ -50,6 +50,17 @@
 .tbar .modes button { height: 24px; padding: 0 9px; border-radius: 7px; font-size: 12px; font-weight: 500; color: var(--fg-3); }
 .tbar .modes button[aria-selected="true"] { background: var(--pill-on); color: var(--fg); box-shadow: none; font-weight: 600; }
 .tbar .modes button .ic { width: 13px; height: 13px; }
+
+/* ---------- Chat | Agents lives in the sidebar -----------------------------
+   The sidebar copy, then the title-bar copy which only shows once the sidebar
+   is collapsed — so the switch is never more than one click away, and it always
+   sits in the same frosted group as the zone buttons. */
+.side-head .modes { display: flex; gap: 2px; padding: 2px; margin: 0 0 8px; border-radius: 9px; background: var(--chip); box-shadow: none; flex: none; }
+.side-head .modes button { flex: 1; height: 26px; padding: 0 10px; border-radius: 7px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; font-size: 12px; font-weight: 500; color: var(--fg-3); }
+.side-head .modes button[aria-selected="true"] { background: var(--pill-on); color: var(--fg); font-weight: 600; box-shadow: none; }
+.side-head .modes button .ic { width: 13px; height: 13px; }
+.win:not(.side-closed) .tbar .modes { display: none; }
+.win.side-closed .side-head .modes { display: none; }
 .vbtn { position: relative; height: 28px; padding: 0 8px 0 10px; border-radius: 9px; display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; background: var(--chip); color: var(--fg); flex: none; }
 .vbtn .ic { width: 14px; height: 14px; }
 .vbtn .ud { width: 12px; height: 12px; color: var(--fg-3); }
@@ -266,7 +277,9 @@ button.rp-row:hover { background: var(--hover); }
 .code-composer { padding-bottom: 2px; }
 .hc-ic { width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; color: var(--fg-3); }
 .hc-ic:hover { background: var(--hover); color: var(--fg); }
-.hc-plan { height: 26px; padding: 0 8px; border-radius: 8px; display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--fg-3); }
+/* Fixed width: turning Plan on used to add an ✕ to the label, which widened the
+   button and shifted the whole centred composer row. */
+.hc-plan { height: 26px; padding: 0 8px; min-width: 78px; justify-content: center; border-radius: 8px; display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--fg-3); }
 .hc-plan:hover { background: var(--hover); color: var(--fg); }
 .hc-plan[aria-pressed="true"] { background: color-mix(in srgb, var(--amber) 16%, transparent); color: var(--amber); }
 .hc-plan .x { opacity: 0.7; }
@@ -274,6 +287,26 @@ button.rp-row:hover { background: var(--hover); }
    violet — the app's colour for a temporary thing — not amber like Plan. */
 .hc-plan.hc-ghost[aria-pressed="true"] { background: color-mix(in srgb, var(--violet) 18%, transparent); color: var(--violet); }
 .hc-plan:disabled { opacity: 0.5; }
+
+/* ---------- the ghost toggle, to Whirl's incognito button ------------------
+   A 32px circle wearing the tools' translucent well when off, filling with ink
+   when on, so the mode reads at a glance. Icon only: the ghost says it all. */
+.ghost-toggle { position: relative; width: 32px; height: 32px; flex: none; display: grid; place-items: center; border-radius: 50%; background: var(--chip); color: var(--fg-3); box-shadow: inset 0 0 0 1px var(--pane-edge), inset 0 1px 0 0 rgba(255, 255, 255, 0.07); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); transition: background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease; }
+.ghost-toggle:hover { color: var(--fg); }
+.ghost-toggle[aria-pressed="true"] { background: var(--fg); color: var(--win-bg); box-shadow: 0 2px 12px rgba(0, 0, 0, 0.35); }
+.ghost-toggle:disabled { opacity: 0.6; }
+.ghost-ic { position: relative; width: 18px; height: 18px; display: grid; place-items: center; }
+.ghost-glyph { position: absolute; inset: 0; display: grid; place-items: center; }
+
+/* ---------- popovers rise in from their anchor -----------------------------
+   The model picker, the view menu, search: one entrance, so a menu never just
+   blinks into place. transform only, and never a filter — Chromium refuses to
+   paint a descendant backdrop-filter under an ancestor that has one. */
+.pop { animation: pop-in 0.16s cubic-bezier(0.22, 0.61, 0.36, 1); }
+@keyframes pop-in { from { opacity: 0; transform: translateY(-4px) scale(0.97); } }
+.settings { animation: settings-in 0.18s cubic-bezier(0.22, 0.61, 0.36, 1); }
+@keyframes settings-in { from { opacity: 0; transform: translateY(6px) scale(0.995); } }
+@media (prefers-reduced-motion: reduce) { .pop, .settings { animation: none; } }
 .hc-model .lg { display: inline-flex; } .hc-model .lg .logo { width: 14px; height: 14px; }
 .hc-model .v { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 160px; }
 .hc-send:disabled { opacity: 0.35; cursor: default; }

@@ -139,6 +139,15 @@ export function ChatApp({ sideEl, user }: { sideEl: HTMLElement; user: string })
       <AgentEditors />
       <TracePanel />
       <main className="whirl-pane raised relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-surface md:rounded-lg md:border md:border-border">
+        {/* Whirl's perch: the corner holds exactly one cluster, so the ghost
+            sits where a thread toolbar would. */}
+        {inThread && thread && (
+          <div className="pointer-events-none absolute right-3 top-3 z-10">
+            <div className="pointer-events-auto">
+              <GhostToggle thread={thread} />
+            </div>
+          </div>
+        )}
         <div className="relative flex min-h-0 min-w-0 flex-1">
           <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
             <div className="min-h-0 flex-1">
@@ -180,11 +189,6 @@ export function ChatApp({ sideEl, user }: { sideEl: HTMLElement; user: string })
                     className={cn("pointer-events-auto", inThread && "pb-4")}
                   >
                     {replying && <ReplyChip to={replying} onCancel={() => setReplyTo(null)} />}
-                    {inThread && thread && (
-                      <div className="hc-above">
-                        <GhostToggle thread={thread} />
-                      </div>
-                    )}
                     {scope ? (
                       <CodeComposer
                         value={draft}

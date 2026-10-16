@@ -209,13 +209,18 @@ var Shell = (() => {
     code: [["pair", "bubble", "Chat", "You and one CLI, turn by turn, in the project"], ["agents", "team", "Agents", "A planner splits the goal into tickets; agents build each one"]],
   };
   function renderModes() {
-    const z = S.mode, m = $("#modes"), v = VIEWS[z];
-    m.hidden = !v;
-    if (!v) { m.innerHTML = ""; return; }
+    const z = S.mode, v = VIEWS[z];
     const cur = z === "chat" ? S.chatView : S.codeView;
-    m.setAttribute("aria-label", v.map(x => x[2]).join(" or "));
-    m.innerHTML = v.map(([k, ic, l, t]) => `<button role="tab" data-view="${k}" aria-selected="${cur === k}" title="${t}">${icon(ic)}${l}</button>`).join("");
-    $$("[data-view]", m).forEach(b => (b.onclick = () => (z === "chat" ? setChatView(b.dataset.view) : setCodeView(b.dataset.view))));
+    // Two homes for one switch: the sidebar usually, the title bar when the
+    // sidebar is collapsed. CSS picks which is showing, so both stay in sync.
+    for (const m of [$("#modesSide"), $("#modes")]) {
+      if (!m) continue;
+      m.hidden = !v;
+      if (!v) { m.innerHTML = ""; continue; }
+      m.setAttribute("aria-label", v.map(x => x[2]).join(" or "));
+      m.innerHTML = v.map(([k, ic, l, t]) => `<button role="tab" data-view="${k}" aria-selected="${cur === k}" title="${t}">${icon(ic)}${l}</button>`).join("");
+      $$("[data-view]", m).forEach(b => (b.onclick = () => (z === "chat" ? setChatView(b.dataset.view) : setCodeView(b.dataset.view))));
+    }
   }
   function renderSide() {
     const z = S.mode, zl = $("#zoneList");

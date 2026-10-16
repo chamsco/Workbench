@@ -278,8 +278,8 @@ const nightly = () => !!window.__BOOT && window.__BOOT.channel === "nightly";
 // Contrast dims or sharpens the secondary text ramp, as a straight linear
 // interpolation from the background toward each level's designed colour.
 const RAMP = {
-  light: { bg: [255, 255, 255], fg: [[28, 26, 31], [78, 73, 85], [125, 119, 133], [168, 162, 174]] },
-  dark: { bg: [23, 22, 27], fg: [[236, 232, 239], [189, 182, 195], [138, 131, 144], [95, 89, 101]] },
+  light: { bg: [255, 255, 255], fg: [[20, 19, 23], [78, 73, 85], [125, 119, 133], [168, 162, 174]] },
+  dark: { bg: [23, 22, 27], fg: [[255, 255, 255], [222, 217, 228], [176, 170, 186], [124, 118, 132]] },
 };
 const mixHex = (from, to, t) => "#" + from.map((c, i) => Math.round(c + (to[i] - c) * t).toString(16).padStart(2, "0")).join("");
 function contrastVars(pal, contrast) {
@@ -297,7 +297,12 @@ function applyAppearance() {
   set("--font-ui", a.ui_font);
   set("--font-mono", a.code_font);
   // Contrast only moves the secondary levels; an explicit foreground wins.
-  for (const [k, v] of contrastVars(RAMP[dark ? "dark" : "light"], a.contrast > 0 ? a.contrast : 1)) {
+  // Contrast is a position along the ramp, and the neutral is the TOP of that
+  // range, not the middle of it. Reading an unset contrast as 1 landed at
+  // t = 0.5, so every default install drew its text at half strength toward the
+  // background — which is why the UI read as dim no matter what the theme said.
+  const c = a.contrast > 0 ? a.contrast : 1.4;
+  for (const [k, v] of contrastVars(RAMP[dark ? "dark" : "light"], c)) {
     if (!a.fg || k !== "--fg") set(k, v);
   }
   const trans = a.translucent === false && !!prefs.appearance;
@@ -1136,7 +1141,9 @@ function syncArt() {
   const chatSurface =
     S.mode === "chat" ||
     (S.mode === "code" && (S.codeView === "pair" || !hasProject || S.wb === "home"));
-  if (window.Art) Art.setVivid(chatSurface && !S.settings);
+  // Settings is a frosted card: it needs the painting behind it, or the frost has
+  // nothing to show and it reads as the flat slab it used to be.
+  if (window.Art) Art.setVivid(chatSurface || S.settings);
 }
 function renderGrid() {
   syncArt();
@@ -1884,7 +1891,7 @@ async function refreshShare() { share = await invoke("share_status").catch(() =>
 // the shell command; applyAppearance() turns it into custom properties.
 const ACCENTS = ["#cf5a24", "#2a66d9", "#187f45", "#6a4fd6", "#bf3a2f", "#1c1a1f"];
 function appearancePanel() {
-  const a = prefs.appearance || {}; const c = a.contrast > 0 ? a.contrast : 1;
+  const a = prefs.appearance || {}; const c = a.contrast > 0 ? a.contrast : 1.4;
   const sw = (k, v, cls = "") => `<label class="swatch ${cls}"><input type="color" data-ap="${k}" value="${esc(v || "#ffffff")}" aria-label="${k}"><span style="background:${esc(v || "#ffffff")}"></span></label>`;
   const font = (k, cur, ph) => `<input class="tx" style="width:190px" data-apv="${k}" value="${esc(cur || "")}" placeholder="${ph}" aria-label="${k}">`;
   return `<div class="ap">
