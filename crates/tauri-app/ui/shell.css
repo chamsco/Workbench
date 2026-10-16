@@ -357,3 +357,12 @@ button.rp-row:hover { background: var(--hover); }
 .rp-none { display: grid; justify-items: center; gap: 4px; padding: 48px 12px; text-align: center; font-size: 12px; color: var(--fg-3); }
 .rp-none .ic { width: 22px; height: 22px; margin-bottom: 6px; }
 .rp-none b { color: var(--fg); font-weight: 600; }
+
+/* ---------- the ghost collapse owns its transition --------------------------
+   `.win.side-closed .side` earlier in this file sets a transition that omits
+   width, and --side-w is a custom property, so it cannot be transitioned at
+   all: the rail snapped shut in one frame while only its opacity moved. This
+   file loads last, so the same selector here wins. */
+.win.ghost-side .side {
+  transition: width 0.28s cubic-bezier(0.32, 0.72, 0, 1), transform 0.28s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.2s ease, visibility 0s linear 0.28s;
+}

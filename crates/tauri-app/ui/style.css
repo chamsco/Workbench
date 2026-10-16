@@ -170,7 +170,15 @@ body { margin: 0; background: var(--desk-base); color: var(--fg); font: 13px/1.4
    open. Mirrors .side-closed, and is a class rather than a one-shot call so
    nothing that re-renders the shell can bring it back. */
 .win.ghost-side { --side-w: 0px; }
-.win.ghost-side .side { visibility: hidden; transform: translateX(-24px); opacity: 0; }
+/* Animated, not snapped. The width is set here rather than left to --side-w:
+   a custom property cannot be transitioned, so the rail used to collapse in a
+   single frame while only its opacity moved. */
+.win.ghost-side .side {
+  width: 0 !important; min-width: 0 !important; padding-left: 0; padding-right: 0; overflow: hidden;
+  visibility: hidden; transform: translateX(-24px); opacity: 0;
+  transition: width 0.28s cubic-bezier(0.32, 0.72, 0, 1), transform 0.28s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.2s ease, visibility 0s linear 0.28s;
+}
+@media (prefers-reduced-motion: reduce) { .win.ghost-side .side { transition: none; } }
 .win.ghost-side .gutter-side { display: none; }
 
 /* ---------- main column */
