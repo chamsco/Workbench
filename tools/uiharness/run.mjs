@@ -36,6 +36,9 @@ const HELP = `uiharness — headless Chromium for the Backspace desktop UI
   --eval-file <path>    same, with the expression read from a file (repeatable)
   --wait <ms>           extra settle time after ready, before evals (default 600)
   --url <path>          navigate to this app path instead of ${DEFAULT_PATH}
+  --shot-mode full|viewport
+                        full = captureBeyondViewport (default), viewport = the
+                        visible box only; for tracking down capture oddities
   --chrome <path>       Chromium binary (default ${DEFAULT_CHROME})
   --ui-root <path>      static UI root (default crates/tauri-app/ui)
   --keep                leave the browser and the temp profile behind
@@ -221,11 +224,8 @@ export async function main(argv) {
   let sessionId;
   let exitCode = 0;
 
-  const consoleLines = [];
   const record = (prefix, text) => {
-    const line = `${prefix} ${text}`;
-    consoleLines.push(line);
-    process.stdout.write(line + "\n");
+    process.stdout.write(`${prefix} ${text}\n`);
   };
   // A subresource that never arrived is a real problem, but Chrome reports it
   // twice — once as an anonymous "Failed to load resource" console error and
@@ -292,8 +292,8 @@ export async function main(argv) {
         if (isNetwork) {
           const url = e.url || "(unknown url)";
           if (/favicon/i.test(url)) return;
-          // "/__harness/index.html" 404s are the harness's own doing, not the
-          // app's: they mean a path the app asked for is not on disk.
+          // The app asked for something that is not on disk. Attributed by URL
+          // rather than counted, so a missing chunk or stylesheet names itself.
           netProblems.set(url, e.text || "failed");
         } else if (!/Failed to load resource/i.test(e.text || "")) {
           failures.push(`${prefix} ${e.text}`);

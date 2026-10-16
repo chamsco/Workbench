@@ -65,10 +65,15 @@ const FENCE = /```openui[^\n]*\n([\s\S]*?)(?:```|$)/g;
  * it was being thrown away into console.warn.
  */
 function explain(errs: OpenUIError[]): string {
-  const e = errs[0];
-  if (!e) return "the renderer produced nothing";
-  if (e.code === "unknown-component") return `it used ${e.component ?? "a part"} — not a part this build has`;
-  if (e.code === "null-required" || e.code === "excess-args") return "it was written with named arguments, which this language does not take";
+  // The renderer prepends a generic "produced no renderable root" whenever the
+  // root is missing, so the first error is the least useful one. The specific
+  // one is further down: pick it out by code.
+  const find = (...codes: string[]) => errs.find((e) => codes.includes(e.code));
+  const unknown = find("unknown-component");
+  if (unknown) return `it used ${unknown.component ?? "a part"} — not a part this build has`;
+  if (find("null-required", "excess-args")) return "it was written with named arguments, which this language does not take";
+  if (errs.length === 0) return "the renderer produced nothing";
+  const e = errs[errs.length - 1];
   if (e.code === "parse-failed" || e.code === "parse-exception") return "it is not valid openui-lang";
   return e.message;
 }
@@ -122,17 +127,20 @@ function useDark() {
  */
 function OpenUIBlock({ source, dark, streaming }: { source: string; dark: boolean; streaming: boolean }) {
   const host = useRef<HTMLDivElement>(null);
-  const errs = useRef<OpenUIError[]>([]);
+  // The renderer's own errors, tagged with the source they belong to. Reset by
+  // replacing the record, never by clearing it in an effect: the Renderer's
+  // effects run before this component's, so a reset here would land after the
+  // errors arrived and wipe them — which is exactly what it did.
+  const errs = useRef<{ src: string; list: OpenUIError[] }>({ src: "", list: [] });
   const [why, setWhy] = useState<string | null>(null);
   useEffect(() => {
-    errs.current = [];
     setWhy(null);
     if (streaming) return;
     const el = host.current;
     if (!el) return;
     // One frame for the renderer to mount, then ask whether anything is there.
     const id = requestAnimationFrame(() => {
-      if (el.childElementCount === 0) setWhy(explain(errs.current));
+      if (el.childElementCount === 0) setWhy(explain(errs.current.src === source ? errs.current.list : []));
     });
     return () => cancelAnimationFrame(id);
   }, [source, streaming]);
@@ -146,7 +154,7 @@ function OpenUIBlock({ source, dark, streaming }: { source: string; dark: boolea
           library={openuiChatLibrary}
           isStreaming={streaming}
           onError={(e) => {
-            errs.current = e;
+            errs.current = { src: source, list: e };
           }}
         />
       </ThemeProvider>
@@ -171,8 +179,20 @@ export function fenceBareOpenUI(text: string): string {
   if (!/^\s*root\s*=\s*[A-Za-z_]\w*\s*\(/m.test(text)) return text;
   const lines = text.split("\n");
   const out: string[] = [];
+  // A block the model already fenced is left exactly as it is. Re-fencing it —
+  // which is what this did — puts a second ```openui directly after the first,
+  // so FENCE below closes on that line: the block parses as empty ("the
+  // renderer produced nothing") and the rest of the program is then printed as
+  // Markdown prose, which is the one outcome this file exists to prevent. It
+  // fired on any correctly fenced block, which is to say on the common case.
+  let fenced = false;
   for (let i = 0; i < lines.length; i++) {
-    if (!/^\s*root\s*=\s*[A-Za-z_]\w*\s*\(/.test(lines[i])) {
+    if (/^\s*```/.test(lines[i])) {
+      fenced = !fenced;
+      out.push(lines[i]);
+      continue;
+    }
+    if (fenced || !/^\s*root\s*=\s*[A-Za-z_]\w*\s*\(/.test(lines[i])) {
       out.push(lines[i]);
       continue;
     }
