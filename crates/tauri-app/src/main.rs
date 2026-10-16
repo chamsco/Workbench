@@ -228,15 +228,18 @@ struct ShareStatus {
 }
 
 #[tauri::command]
-fn share_status(f: F) -> ShareStatus {
-    let p = f.prefs().share;
-    ShareStatus {
-        enabled: p.enabled,
-        addr: p.addr,
-        token: p.token,
-        sharing: f.sharing(),
-        error: f.share_error(),
-    }
+async fn share_status(f: F<'_>) -> Res<ShareStatus> {
+    blocking(f, |f| {
+        let p = f.prefs().share;
+        Ok(ShareStatus {
+            enabled: p.enabled,
+            addr: p.addr,
+            token: p.token,
+            sharing: f.sharing(),
+            error: f.share_error(),
+        })
+    })
+    .await
 }
 
 #[tauri::command]
@@ -520,8 +523,13 @@ fn has_project(f: F) -> bool {
 // ---------------------------------------------------------------- CLIs, models, routers
 
 #[tauri::command]
-fn harnesses(f: F) -> Vec<HarnessInfo> {
-    f.harnesses()
+async fn harnesses(f: F<'_>) -> Res<Vec<HarnessInfo>> {
+    // Off the main thread. This scans the machine — spawning codex, claude,
+    // cursor-agent, opencode to read their versions and sign-in state — and a
+    // synchronous command runs on the UI thread in Tauri v2, so the window
+    // stopped pumping messages and Windows put "(Not responding)" in the title
+    // bar for the whole scan. Same shape as `rescan` below.
+    blocking(f, |f| Ok(f.harnesses())).await
 }
 
 /// Open a CLI's own sign-in (Sign in with ChatGPT for Codex) in a terminal.
@@ -1327,8 +1335,8 @@ async fn trace_test(cfg: backspace_core::trace::Export) -> Res<()> {
 // ---------------------------------------------------------------- companion
 
 #[tauri::command]
-fn companion_status(f: F) -> serde_json::Value {
-    f.companion_status()
+async fn companion_status(f: F<'_>) -> Res<serde_json::Value> {
+    blocking(f, |f| Ok(f.companion_status())).await
 }
 
 #[tauri::command]
