@@ -113,20 +113,22 @@ function OpenUIBlock({ source, dark, streaming }: { source: string; dark: boolea
  * OpenUI Lang written without the fence.
  *
  * The fenced case is handled below, but a small local model will often emit the
- * language bare — `root = Card(children: [...])` — and then it was not source at
- * all to the Markdown renderer, it was prose. The reader got a paragraph of
- * Python-looking noise in the middle of the reply. It is source either way, so
- * it is cut here. Balanced-paren walk, so a multi-line call goes as a unit; if
- * the expression never closes, only its first line goes, and the rest of the
- * reply is left alone.
+ * language bare — `root = Card(children: [...])` — and then the Markdown
+ * renderer had no idea it was source, so the reader got a paragraph of
+ * Python-looking noise in the middle of the reply.
+ *
+ * The answer is not to delete it: the model did say something, and it is
+ * expressible as real UI. So the block gets the fence it was missing and the
+ * normal OpenUI path draws it. Balanced-paren walk, so a multi-line call goes as
+ * a unit; an expression that never closes is left alone rather than half-fenced.
  */
-export function stripBareOpenUI(text: string): string {
+export function fenceBareOpenUI(text: string): string {
   if (!/^\s*root\s*=\s*[A-Za-z_]\w*\s*\(/m.test(text)) return text;
   const lines = text.split("\n");
-  const keep: string[] = [];
+  const out: string[] = [];
   for (let i = 0; i < lines.length; i++) {
     if (!/^\s*root\s*=\s*[A-Za-z_]\w*\s*\(/.test(lines[i])) {
-      keep.push(lines[i]);
+      out.push(lines[i]);
       continue;
     }
     let depth = 0;
@@ -142,14 +144,19 @@ export function stripBareOpenUI(text: string): string {
         break;
       }
     }
-    i = closed ? j : i;
+    if (!closed) {
+      out.push(lines[i]);
+      continue;
+    }
+    out.push("```openui", ...lines.slice(i, j + 1), "```");
+    i = j;
   }
-  return keep.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  return out.join("\n");
 }
 
 export function RichText({ text, streaming }: { text: string; streaming: boolean }) {
   const dark = useDark();
-  const clean = stripBareOpenUI(text);
+  const clean = fenceBareOpenUI(text);
   if (!clean.includes("```openui")) return <Markdown streaming={streaming}>{clean}</Markdown>;
   const parts: { md?: string; ui?: string; open?: boolean }[] = [];
   let last = 0;
