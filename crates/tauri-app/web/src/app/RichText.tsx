@@ -109,17 +109,56 @@ function OpenUIBlock({ source, dark, streaming }: { source: string; dark: boolea
   );
 }
 
+/**
+ * OpenUI Lang written without the fence.
+ *
+ * The fenced case is handled below, but a small local model will often emit the
+ * language bare — `root = Card(children: [...])` — and then it was not source at
+ * all to the Markdown renderer, it was prose. The reader got a paragraph of
+ * Python-looking noise in the middle of the reply. It is source either way, so
+ * it is cut here. Balanced-paren walk, so a multi-line call goes as a unit; if
+ * the expression never closes, only its first line goes, and the rest of the
+ * reply is left alone.
+ */
+export function stripBareOpenUI(text: string): string {
+  if (!/^\s*root\s*=\s*[A-Za-z_]\w*\s*\(/m.test(text)) return text;
+  const lines = text.split("\n");
+  const keep: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (!/^\s*root\s*=\s*[A-Za-z_]\w*\s*\(/.test(lines[i])) {
+      keep.push(lines[i]);
+      continue;
+    }
+    let depth = 0;
+    let j = i;
+    let closed = false;
+    for (; j < lines.length; j++) {
+      for (const ch of lines[j]) {
+        if (ch === "(") depth++;
+        else if (ch === ")") depth--;
+      }
+      if (depth <= 0) {
+        closed = true;
+        break;
+      }
+    }
+    i = closed ? j : i;
+  }
+  return keep.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
 export function RichText({ text, streaming }: { text: string; streaming: boolean }) {
   const dark = useDark();
-  if (!text.includes("```openui")) return <Markdown streaming={streaming}>{text}</Markdown>;
+  const clean = stripBareOpenUI(text);
+  if (!clean.includes("```openui")) return <Markdown streaming={streaming}>{clean}</Markdown>;
   const parts: { md?: string; ui?: string; open?: boolean }[] = [];
   let last = 0;
-  for (const m of text.matchAll(FENCE)) {
-    if (m.index! > last) parts.push({ md: text.slice(last, m.index) });
+  for (const m of clean.matchAll(FENCE)) {
+    if (m.index! > last) parts.push({ md: clean.slice(last, m.index) });
     parts.push({ ui: m[1], open: !m[0].trimEnd().endsWith("```") });
     last = m.index! + m[0].length;
   }
-  if (last < text.length) parts.push({ md: text.slice(last) });
+  if (last < clean.length) parts.push({ md: clean.slice(last) });
   return (
     <>
       {parts.map((p, i) =>

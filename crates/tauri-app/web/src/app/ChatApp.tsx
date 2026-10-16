@@ -67,6 +67,14 @@ export function ChatApp({ sideEl, user }: { sideEl: HTMLElement; user: string })
   const replying = replyTo && thread ? thread.messages.find((m) => m.id === replyTo) : undefined;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const anyRoute = useMemo(() => host.routes().some((g) => g.items.some((i) => i.route && !i.disabled)), [epoch]);
+  // The scan runs every coding CLI on the machine to read its version and
+  // sign-in state. Until it answers, the route list is empty — which is not the
+  // same thing as having nothing, so the connect panel waits a beat.
+  const [scanWaited, setScanWaited] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setScanWaited(true), 6000);
+    return () => clearTimeout(t);
+  }, []);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const clis = useMemo(
     () =>
@@ -166,7 +174,7 @@ export function ChatApp({ sideEl, user }: { sideEl: HTMLElement; user: string })
               </AnimatePresence>
             </div>
             {agentsMode && !scope && !inThread ? null : !anyRoute && !inThread ? (
-              <NoModels />
+              scanWaited ? <NoModels /> : <LookingForModels />
             ) : (
               <div
                 className={cn(
@@ -189,8 +197,6 @@ export function ChatApp({ sideEl, user }: { sideEl: HTMLElement; user: string })
                     className={cn("pointer-events-auto", inThread && "pb-4")}
                   >
                     {replying && <ReplyChip to={replying} onCancel={() => setReplyTo(null)} />}
-                    {/* The silver sits on the chatbox, not on the transcript. */}
-                    <div className="chatbox">
                     {scope ? (
                       <CodeComposer
                         value={draft}
@@ -230,7 +236,6 @@ export function ChatApp({ sideEl, user }: { sideEl: HTMLElement; user: string })
                       textareaRef={composerRef}
                     />
                     )}
-                    </div>
                   </motion.div>
                   {scope && !inThread && <PairNote route={route} folder={baseName(scope)} />}
                   <AnimatePresence mode="popLayout" initial={false}>
@@ -315,6 +320,21 @@ function Suggestions({ onPick }: { onPick: (p: string) => void }) {
 }
 
 /* Nothing to talk to yet: say what can be connected, in Whirl's well. */
+/** The gap between starting and finding. */
+function LookingForModels() {
+  return (
+    <div className="looking">
+      <span className="looking-dots" aria-hidden>
+        <i />
+        <i />
+        <i />
+      </span>
+      <p>Looking for the models on this machine…</p>
+      <p className="looking-sub">Checking your coding CLIs, Ollama and any router you have set up.</p>
+    </div>
+  );
+}
+
 function NoModels() {
   const host = getHost();
   const btn =
