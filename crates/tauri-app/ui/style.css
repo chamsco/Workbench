@@ -103,7 +103,12 @@ body { margin: 0; background: var(--desk-base); color: var(--fg); font: 13px/1.4
 @keyframes drift { to { transform: translate(4vw, 3vw) scale(1.08); } }
 
 .win {
-  --side-w: 212px; --rail-w: 52px;
+  /* The width the user dragged to lives in --side-w-user, which only the drag
+     gutter writes inline. --side-w is the width actually in force, so the
+     closed and ghost rules below can still take it to zero: an inline style
+     beats every selector, and before this the first drag of the gutter made
+     the sidebar impossible to collapse for the rest of the session. */
+  --side-w: var(--side-w-user, 212px); --rail-w: 52px;
   position: relative; min-width: 0; min-height: 0;
   display: grid; grid-template-columns: var(--rail-w) var(--side-w) 1fr; grid-template-rows: minmax(0, 1fr) auto;
   /* clip, not hidden: a hidden box can still be scrolled (focus, or the side
@@ -114,7 +119,9 @@ body { margin: 0; background: var(--desk-base); color: var(--fg); font: 13px/1.4
   box-shadow: var(--shadow-win), inset 0 0.5px 0 var(--glass-hi);
   border: 0.5px solid var(--glass-edge);
 }
-.win.side-closed { --side-w: 0px; }
+/* Both halves: the custom property for anything that reads it, and the track
+   width itself, which is what actually collapses the layout. */
+.win.side-closed { --side-w: 0px; grid-template-columns: 0px minmax(0, 1fr); }
 .lights { position: absolute; top: 16px; left: 16px; display: flex; gap: 8px; z-index: 5; }
 .lights span { width: 12px; height: 12px; border-radius: 50%; display: grid; place-items: center; font: 700 9px/1 var(--font-ui); color: transparent; box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.18); }
 .lights span:nth-child(1) { background: #ff5f57; } .lights span:nth-child(2) { background: #febc2e; } .lights span:nth-child(3) { background: #28c840; }
@@ -169,7 +176,7 @@ body { margin: 0; background: var(--desk-base); color: var(--fg); font: 13px/1.4
 /* A ghost chat: no list to show, so the sidebar is gone for as long as it is
    open. Mirrors .side-closed, and is a class rather than a one-shot call so
    nothing that re-renders the shell can bring it back. */
-.win.ghost-side { --side-w: 0px; }
+.win.ghost-side { --side-w: 0px; grid-template-columns: 0px minmax(0, 1fr); }
 /* Animated, not snapped. The width is set here rather than left to --side-w:
    a custom property cannot be transitioned, so the rail used to collapse in a
    single frame while only its opacity moved. */

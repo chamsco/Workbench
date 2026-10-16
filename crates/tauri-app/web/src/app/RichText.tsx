@@ -5,22 +5,73 @@
 // cost per turn stays a couple of thousand tokens.
 
 import { Component, type ReactNode, useEffect, useRef, useState } from "react";
-import { Renderer, createLibrary } from "@openuidev/react-lang";
+import { Renderer, createLibrary, type OpenUIError } from "@openuidev/react-lang";
 import { ThemeProvider, openuiChatLibrary } from "@openuidev/react-ui";
 import "@openuidev/react-ui/layered/styles/index.css";
 
 import { Markdown } from "@/components/thread/markdown";
 
-// What the model is taught; the renderer takes the whole chat library, so
-// anything it writes still shows.
-const TAUGHT = ["Card", "CardHeader", "TextContent", "Callout", "Table", "Col", "BarChart", "LineChart", "PieChart", "Series", "Slice", "Steps", "StepsItem", "FollowUpBlock", "FollowUpItem", "Tag", "TagBlock", "CodeBlock", "Separator", "ListBlock", "ListItem"];
+// What the model is taught.
+//
+// The renderer takes the whole chat library, so anything it writes still shows —
+// but the parser validates every call against that library, and silently drops
+// what is not in it. Card's signature (which the prompt prints) lists Form among
+// its children, so a model shown this list without Form writes one anyway: it
+// invents FormInput, FormSelect, TextAreaMulti and named arguments, and then the
+// whole block parses to nothing. The Forms group is the shape a real answer
+// takes when it asks the reader something, so it is taught with the rest.
+const TAUGHT = [
+  "Card", "CardHeader", "TextContent", "Callout", "Table", "Col", "BarChart", "LineChart", "PieChart",
+  "Series", "Slice", "Steps", "StepsItem", "FollowUpBlock", "FollowUpItem", "Tag", "TagBlock",
+  "CodeBlock", "Separator", "ListBlock", "ListItem",
+  // Forms — these names exactly. There is no FormInput, FormSelect or FormField.
+  "Form", "FormControl", "Label", "Input", "TextArea", "Select", "SelectItem", "DatePicker", "Slider",
+  "CheckBoxGroup", "CheckBoxItem", "RadioGroup", "RadioItem", "SwitchGroup", "SwitchItem",
+  "Chips", "ChipItem", "OptionCards", "OptionCard", "Button", "Buttons",
+];
+
+/**
+ * The mistakes that actually made blocks draw nothing.
+ *
+ * `createLibrary(...).prompt()` writes its own §Forms section and its own rules
+ * — but only from what the library spec is given, and this build hands it
+ * `{ preamble: "", additionalRules: [] }`. So the language's own guidance
+ * ("arguments are positional", "define one FormControl per field") never
+ * reaches the model, while the leaky Card signature above does.
+ */
+const RULES = [
+  "Write the block as statements, one per line, and start it with `root = `.",
+  "Arguments are POSITIONAL, in the order the signature lists them. `Card([TextContent(\"hi\")])` is right; `Card(children=[TextContent(\"hi\")])` parses to nothing and draws nothing. Named arguments are never valid.",
+  "Every statement except root must be referenced by another statement, or it is silently dropped.",
+  "A form is three kinds of statement: the input, its FormControl label, and the Form that lists the controls. `who = Input(\"who\", \"Your name\", \"text\")`, `f1 = FormControl(\"Name\", who)`, `form = Form(\"myform\", Button(\"Send\"), [f1])`, then put `form` in the Card's children.",
+  "Never invent a component name. The field parts are FormControl, Label, Input, TextArea, Select, SelectItem, DatePicker, Slider, CheckBoxGroup, CheckBoxItem, RadioGroup, RadioItem, SwitchGroup, SwitchItem, Chips, ChipItem, OptionCards, OptionCard, Button and Buttons — there is no FormInput, FormTextarea, TextAreaMulti or FormSelect.",
+  "There are no methods on a statement. `Form.getFieldValue(\"x\")` does not exist. A field's value reaches an action through a `$binding` passed as the input's last argument, used inside `Action([@ToAssistant(\"...\")])`.",
+  "Submitting is an action: `Button(\"Break it down\", Action([@ToAssistant(\"Help me break down this task\")]))`.",
+];
 
 export function richPrompt(): string {
   const comps = TAUGHT.map((k) => (openuiChatLibrary.components as Record<string, any>)[k]).filter(Boolean);
-  return createLibrary({ components: comps, root: "Card" }).prompt({ preamble: "", additionalRules: [] });
+  return createLibrary({ components: comps, root: "Card" }).prompt({ preamble: "", additionalRules: RULES });
 }
 
 const FENCE = /```openui[^\n]*\n([\s\S]*?)(?:```|$)/g;
+
+/**
+ * What the parser said, in a sentence a reader can act on.
+ *
+ * The renderer reaches `if (!result?.root) return null` for every kind of
+ * invalid block, so "the renderer produced nothing" was the only thing the
+ * notice could say — true, and useless. The parser knows exactly what is wrong;
+ * it was being thrown away into console.warn.
+ */
+function explain(errs: OpenUIError[]): string {
+  const e = errs[0];
+  if (!e) return "the renderer produced nothing";
+  if (e.code === "unknown-component") return `it used ${e.component ?? "a part"} — not a part this build has`;
+  if (e.code === "null-required" || e.code === "excess-args") return "it was written with named arguments, which this language does not take";
+  if (e.code === "parse-failed" || e.code === "parse-exception") return "it is not valid openui-lang";
+  return e.message;
+}
 
 /**
  * A ````openui` block the renderer cannot turn into UI.
@@ -71,23 +122,33 @@ function useDark() {
  */
 function OpenUIBlock({ source, dark, streaming }: { source: string; dark: boolean; streaming: boolean }) {
   const host = useRef<HTMLDivElement>(null);
-  const [empty, setEmpty] = useState(false);
+  const errs = useRef<OpenUIError[]>([]);
+  const [why, setWhy] = useState<string | null>(null);
   useEffect(() => {
+    errs.current = [];
+    setWhy(null);
     if (streaming) return;
     const el = host.current;
     if (!el) return;
     // One frame for the renderer to mount, then ask whether anything is there.
     const id = requestAnimationFrame(() => {
-      if (el.childElementCount === 0) setEmpty(true);
+      if (el.childElementCount === 0) setWhy(explain(errs.current));
     });
     return () => cancelAnimationFrame(id);
   }, [source, streaming]);
 
-  if (empty) return <FailedBlock source={source} why="the renderer produced nothing" />;
+  if (why) return <FailedBlock source={source} why={why} />;
   return (
     <div ref={host} className="openui-block my-3">
       <ThemeProvider mode={dark ? "dark" : "light"}>
-        <Renderer response={source} library={openuiChatLibrary} isStreaming={streaming} />
+        <Renderer
+          response={source}
+          library={openuiChatLibrary}
+          isStreaming={streaming}
+          onError={(e) => {
+            errs.current = e;
+          }}
+        />
       </ThemeProvider>
     </div>
   );

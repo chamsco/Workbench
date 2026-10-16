@@ -3,17 +3,24 @@
 // a hover pill, the spinner while a reply runs, the ⋯ menu — over
 // Backspace's threads. Rendered into the vanilla sidebar through a portal.
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   IconAlertTriangleFilled,
+  IconBox,
+  IconCheck,
+  IconChevronDown,
   IconCircleFilled,
+  IconCloud,
+  IconDeviceDesktop,
   IconDots,
   IconEdit,
+  IconFolderPlus,
   IconGitBranch,
   IconLoader2,
   IconPencil,
   IconPin,
   IconPinFilled,
+  IconPlus,
   IconSearch,
   IconTrash,
 } from "@tabler/icons-react";
@@ -26,7 +33,9 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -39,7 +48,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { getHost, goHome, inScope, openThread, pin, remove, rename, setQuery, useChat, type ThreadInfo } from "../bridge";
+import { getHost, goHome, inScope, openThread, pin, remove, rename, setQuery, useChat, type ColonyStatus, type ThreadInfo } from "../bridge";
 
 const DAY = 864e5;
 const sameDay = (a: number, b: number) => new Date(a).toDateString() === new Date(b).toDateString();
@@ -75,6 +84,8 @@ export function ThreadList({ onNewChat }: { onNewChat: () => void }) {
     <div className="whirl-side flex flex-col gap-3">
       <div className="flex flex-col gap-0.5">
         <SidebarRow icon={IconEdit} label={scope ? "New thread" : "New chat"} onClick={onNewChat} />
+        <SidebarRow icon={IconFolderPlus} label="New project" title="Open a folder to work in" onClick={() => getHost().newProject()} />
+        <EnvironmentRow />
         <label className="group/row relative flex h-8 w-full items-center gap-2.5 rounded-lg px-2.5 text-[13.5px]/4 font-medium text-foreground-soft">
           <RowPill className="group-focus-within/row:bg-accent" />
           <IconSearch size={16} className="relative shrink-0" />
@@ -116,6 +127,91 @@ export function ThreadList({ onNewChat }: { onNewChat: () => void }) {
         </div>
       )}
     </div>
+  );
+}
+
+/* Where the next thread runs.
+ *
+ * One row, like T3 Code's environment picker: this machine, or a machine the
+ * harness is paired with — switching it moves the agents, the worktrees and the
+ * work. Colony's named workspaces are listed under it when visor-core is there;
+ * they are created and driven by agents (see Settings → Workspaces and Colony),
+ * so picking one opens the page that manages them rather than pretending a
+ * thread can be pinned to it, which the core cannot do today. */
+function EnvironmentRow() {
+  const host = getHost();
+  const { epoch } = useChat();
+  const [open, setOpen] = useState(false);
+  const [colony, setColony] = useState<ColonyStatus | null>(null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const all = useMemo(() => host.machines(), [epoch]);
+  const here = all.find((m) => m.selected);
+  const workspaces = colony?.ready ? colony.workspaces ?? [] : [];
+
+  useEffect(() => {
+    if (!open || colony) return;
+    let live = true;
+    host.colony().then((c) => live && setColony(c), () => live && setColony(null));
+    return () => {
+      live = false;
+    };
+  }, [open, colony, host]);
+
+  return (
+    <DropdownMenu open={open} onOpenChange={setOpen}>
+      <DropdownMenuTrigger
+        title="Where the next thread runs"
+        className="group/row relative flex h-8 w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 text-[13.5px]/4 font-medium text-foreground-soft"
+      >
+        <RowPill />
+        <span className="relative shrink-0">{here && !here.local ? <IconCloud size={16} /> : <IconDeviceDesktop size={16} />}</span>
+        <span className="relative min-w-0 flex-1 truncate">{here ? (here.local ? "This machine" : here.name) : host.machineName()}</span>
+        <IconChevronDown size={14} className="relative shrink-0 text-muted-foreground" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="min-w-56 p-1">
+        <DropdownMenuGroup>
+          <DropdownMenuLabel className="px-2 py-1 text-[10.5px]">Start on</DropdownMenuLabel>
+          {all.map((m) => (
+            <DropdownMenuItem key={m.index} className="gap-2 px-2 py-1.5" onClick={() => void host.pickMachine(m.index)}>
+              {m.local ? <IconDeviceDesktop size={15} /> : <IconCloud size={15} />}
+              <span className="flex min-w-0 flex-col">
+                <span className="truncate">{m.local ? "This machine" : m.name}</span>
+                {!m.local && (
+                  <span className="truncate text-[11px] text-muted-foreground">
+                    {m.url} · {m.link.state}
+                  </span>
+                )}
+              </span>
+              {m.selected && <IconCheck size={14} className="ml-auto shrink-0" />}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuGroup>
+        {workspaces.length > 0 && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuGroup>
+              <DropdownMenuLabel className="px-2 py-1 text-[10.5px]">Colony workspaces</DropdownMenuLabel>
+              {workspaces.map((w) => (
+                <DropdownMenuItem key={w.name} className="gap-2 px-2 py-1.5" onClick={() => host.openSettings("colony")}>
+                  <IconBox size={15} />
+                  <span className="flex min-w-0 flex-col">
+                    <span className="truncate">{w.name}</span>
+                    <span className="truncate text-[11px] text-muted-foreground">
+                      {[w.provider, w.os, w.state].filter(Boolean).join(" · ")}
+                    </span>
+                  </span>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuGroup>
+          </>
+        )}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem className="gap-2 px-2 py-1.5" onClick={() => host.openSettings("machines")}>
+          <IconPlus size={15} className="text-muted-foreground" />
+          Add a machine…
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

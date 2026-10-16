@@ -51,6 +51,14 @@
 .tbar .modes button[aria-selected="true"] { background: var(--pill-on); color: var(--fg); box-shadow: none; font-weight: 600; }
 .tbar .modes button .ic { width: 13px; height: 13px; }
 
+/* ---------- Code's title is the folder it is working in ---------------------
+   A project, not an app name: the folder, switchable from the title itself. */
+.zone-head .zt.proj { height: 26px; padding: 0 8px 0 7px; border-radius: 8px; background: var(--chip); }
+.zone-head .zt.proj:hover { background: var(--hover); }
+.zone-head .zt.proj b { font-weight: 600; max-width: 34ch; overflow: hidden; text-overflow: ellipsis; }
+.zone-head .zt.proj.quiet b { color: var(--fg-2); font-weight: 500; }
+.zone-head .zt.proj .ic:last-child { width: 12px; height: 12px; color: var(--fg-3); }
+
 /* ---------- Chat | Agents shares the sidebar's top line ---------------------
    One row with the collapse control, right-aligned, in the same frosted chip as
    the zone buttons. The title-bar copy only shows once the sidebar is gone, so

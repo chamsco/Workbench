@@ -2343,7 +2343,7 @@ var Models = (() => {
   g.addEventListener("pointerdown", e => {
     e.preventDefault(); g.setPointerCapture(e.pointerId);
     const left = win.getBoundingClientRect().left;
-    const move = ev => { const w = Math.min(380, Math.max(176, ev.clientX - left)); win.style.setProperty("--side-w", w + "px"); place(); };
+    const move = ev => { const w = Math.min(380, Math.max(176, ev.clientX - left)); win.style.setProperty("--side-w-user", w + "px"); place(); };
     const upf = () => { g.removeEventListener("pointermove", move); g.removeEventListener("pointerup", upf); };
     g.addEventListener("pointermove", move); g.addEventListener("pointerup", upf);
   });

@@ -156,7 +156,7 @@ var Chat = (() => {
   // ---------------------------------------------------------------- Whirl
   // The chat face is Whirl's (web/ → chat-web/whirl.js) when its bundle
   // loaded; the vanilla rendering below stays as the fallback.
-  let whirl = false, scope = null, agentsMode = false;
+  let whirl = false, scope = null, agentsMode = false, sideWasOpen = false;
   // Pair shows the chat face scoped to the open project: its threads, and
   // new ones bound to it. Elsewhere, the plain chat list.
   function setScope(s, agents) {
@@ -182,7 +182,17 @@ var Chat = (() => {
     // A ghost chat is never listed and never saved, so the sidebar has nothing
     // to show while you are in one. The class is what enforces it — a one-shot
     // call could be undone by anything that re-renders the shell.
-    ghostSide: on => { const w = document.getElementById("win"); w.classList.toggle("ghost-side", on); setSide(!on); },
+    //
+    // Leaving puts the sidebar back the way it was found. It used to force it
+    // open, which fights the app's own "the sidebar starts closed" default and
+    // made the ghost look like the thing that had changed it.
+    ghostSide: on => {
+      const w = document.getElementById("win");
+      if (w.classList.contains("ghost-side") === !!on) return;
+      w.classList.toggle("ghost-side", !!on);
+      if (on) { sideWasOpen = !w.classList.contains("side-closed"); setSide(false); }
+      else if (sideWasOpen) setSide(true);
+    },
     runSetup: () => Onboard.open(),
     toast,
     openUrl: url => invoke("open_url", { url }),
@@ -201,6 +211,18 @@ var Chat = (() => {
       effortName: (cli, e) => Effort.name(cli, e),
     },
     machineName: () => machine().name,
+    // Start somewhere: the sidebar's environment row picks which machine the
+    // work runs on, and which folder it runs in. Both are the app's own state,
+    // read here rather than duplicated in the chat face.
+    machines: () => machines.map(m => ({ index: m.index, name: m.name, local: !!m.local, url: m.url || "", selected: !!m.selected, project: m.project || null, link: m.link || { state: "online" } })),
+    pickMachine: async index => {
+      if (machines[index] && machines[index].selected) return;
+      await invoke("select_machine", { index });
+      S.pane.clear(); S.review = null; S.ticket = null;
+      await refresh(true);
+    },
+    colony: () => invoke("colony_status").catch(() => null),
+    newProject: () => pickProject(),
     projectMenu: anchor => Shell.projectMenu(anchor),
     openPanel: tab => window.RPanel && RPanel.show(tab),
   });

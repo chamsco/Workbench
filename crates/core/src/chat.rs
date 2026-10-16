@@ -1449,9 +1449,15 @@ impl Chats {
         if let Some(g) = GENUI_PROMPT.read().unwrap().clone().filter(|_| plain) {
             let rich = format!("# Rich answers
 
-When structure helps the reader (a comparison, steps, a table, a chart, a form, follow-up choices), put it in a fenced ```openui block written in OpenUI Lang; keep the rest in Markdown. Most answers need none.
+When structure helps the reader (a comparison, steps, a table, a chart, a form, follow-up choices), put it in one fenced ```openui block written in OpenUI Lang; keep the rest in Markdown. Most answers need none.
 
-The language is the one defined below and nothing else. In particular: one expression, starting with the component named in the grammar's root rule — not `root = Card(...)`, not Python or JavaScript call syntax with named arguments, no assignment, no `children:` keyword. If you are not sure the block parses, write Markdown instead: a block that cannot be drawn is worse than no block.
+The language is the one defined below and nothing else. Three things separate a block that draws from one that draws nothing at all:
+
+- Statements, one per line, each `name = Expression`. The block's entry point is `root = Card(...)`; every other statement must be referenced by one, or it is silently dropped.
+- Arguments are POSITIONAL, in the order the signature below lists them. Never `children=[...]`, never `subtitle=`: one named argument and the whole block parses to nothing.
+- Only the components in the grammar below exist. There is no FormInput, FormSelect, FormTextarea or TextAreaMulti, and a statement has no methods (`Form.getFieldValue(...)` is not a thing).
+
+Ask the reader for input with the real form parts: `f = FormControl(\"Name\", Input(\"name\", \"Your name\", \"text\"))`, then `form = Form(\"myform\", Button(\"Send\"), [f])`, then put `form` in the Card's children. If you are not sure the block parses, write Markdown instead: a block that cannot be drawn is worse than no block.
 
 {g}");
             req.system = Some(match req.system.take() {

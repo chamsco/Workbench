@@ -173,9 +173,9 @@ export function ChatApp({ sideEl, user }: { sideEl: HTMLElement; user: string })
                     {scope && <CodeSide scope={scope} />}
                   </motion.div>
                 )}
-                {!inThread && agentsMode && !scope && (
+                {!inThread && (agentsMode || scope) && (
                   <motion.div key="agents-home" {...THREAD_SWAP} className="h-full min-h-0">
-                    <AgentsHome />
+                    <AgentsHome roomy={!!scope} />
                   </motion.div>
                 )}
               </AnimatePresence>
@@ -188,12 +188,12 @@ export function ChatApp({ sideEl, user }: { sideEl: HTMLElement; user: string })
               <div
                 className={cn(
                   "pointer-events-none absolute inset-x-0 bottom-0 z-10 flex flex-col justify-end px-3 md:px-6",
-                  !inThread && "top-0 justify-center pb-16",
+                  !inThread && !scope && "top-0 justify-center pb-16",
                 )}
               >
                 <div className="mx-auto w-full max-w-2xl">
                   <AnimatePresence mode="popLayout" initial={false}>
-                    {!inThread && (
+                    {!inThread && !scope && (
                       <motion.div key="greeting" {...TRIM_FADE}>
                         <Greeting user={user} project={scope} />
                       </motion.div>
@@ -203,7 +203,7 @@ export function ChatApp({ sideEl, user }: { sideEl: HTMLElement; user: string })
                     layout="position"
                     transition={DOCK_SPRING}
                     transformTemplate={pinRasterPath}
-                    className={cn("pointer-events-auto", inThread && "pb-4")}
+                    className={cn("pointer-events-auto", (inThread || scope) && "pb-4")}
                   >
                     {replying && <ReplyChip to={replying} onCancel={() => setReplyTo(null)} />}
                     {scope ? (

@@ -150,11 +150,15 @@ export function AgentsSide() {
 
 // ---------------------------------------------------------------- home
 
-export function AgentsHome() {
+/** The home of the agent tab, and of the Workbench's Chat view — one screen,
+ *  so the agents are in the same place whichever door you came through.
+ *  `roomy` leaves the bottom of the pane to the composer dock, which the
+ *  Workbench keeps (it is how you start work on the project). */
+export function AgentsHome({ roomy = false }: { roomy?: boolean }) {
   const { agents, threads } = useChat();
   const groups = threads.filter((t) => (t.members?.length ?? 0) > 0 && !t.app);
   return (
-    <div className="h-full overflow-y-auto px-6 pt-10 pb-16">
+    <div className={`h-full overflow-y-auto px-6 pt-10 ${roomy ? "pb-56" : "pb-16"}`}>
       <div className="mx-auto flex max-w-3xl flex-col gap-6">
         <div>
           <h1 className="text-[24px]/8 font-medium tracking-tight">Your agents</h1>

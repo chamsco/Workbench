@@ -255,14 +255,31 @@ var Shell = (() => {
       $("#ppNew", pop).onclick = () => { closePop(); pickProject(); };
     });
   }
+  // Code is a project, so the project is what the title says — not the app's
+  // name, which is the same in every window. Click it to switch folders.
+  function codeTitle() {
+    const p = hasProject && snap.workspace ? snap.workspace : null;
+    return p
+      ? `<button class="zt proj" id="zhProj" data-popper title="${esc(p)} — switch project">${icon("folder")}<b>${esc(base(p))}</b>${icon("chevd")}</button>`
+      : `<button class="zt proj quiet" id="zhProj" data-popper title="No folder open — open one">${icon("folder")}<b>Workbench</b><span class="sub">no folder</span>${icon("chevd")}</button>`;
+  }
+  // The window title (taskbar, alt-tab) follows the same rule.
+  function syncWindowTitle() {
+    const p = S.mode === "code" && hasProject && snap.workspace ? base(snap.workspace) : "";
+    document.title = p ? `${p} · Backspace` : "Backspace";
+  }
   function renderHead() {
     const z = S.mode, h = $("#zoneHead");
     if (S.settings) h.innerHTML = `<span class="zt">${icon("gear")}Settings</span>`;
     else if (z === "memory") h.innerHTML = `<span class="zt">${icon("memory")}Memory</span>`;
     else if (z === "apps") h.innerHTML = `<span class="zt">${icon("apps")}Apps</span>`;
+    else if (z === "code") h.innerHTML = codeTitle();
     else if (z.startsWith("app:") && window.Apps) h.innerHTML = Apps.head(z.slice(4));
     else h.innerHTML = "";
     if (z.startsWith("app:") && window.Apps) Apps.wireHead(h, z.slice(4));
+    const zh = $("#zhProj");
+    if (zh) zh.onclick = () => projectMenu(zh);
+    syncWindowTitle();
   }
 
   // ---------------------------------------------------------------- window buttons
@@ -315,7 +332,7 @@ var Shell = (() => {
   }
   // The project arriving (at launch, or opened elsewhere) can change which
   // section Code shows; lay out again when it does.
-  function refresh() { if (elFor(S.mode) !== laid) layout(); renderStatus(); renderRail(); renderZones(); if (S.mode === "code" && S.codeView === "pair") { renderPairProj(); renderHead(); } }
+  function refresh() { if (elFor(S.mode) !== laid) layout(); renderStatus(); renderRail(); renderZones(); if (S.mode === "code") { if (S.codeView === "pair") renderPairProj(); renderHead(); } }
 
   // ---------------------------------------------------------------- status bar
   // After an agent control plane's footer: where you are (branch, project),

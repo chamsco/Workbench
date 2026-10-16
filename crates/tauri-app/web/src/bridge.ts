@@ -138,6 +138,25 @@ export type RouteGroup = { name: string; sub?: string; items: RouteItem[] };
 
 export type Account = { plan: string; used: number; allowance: number; period: string };
 
+/** One machine the harness can run on: this one, or a paired remote. */
+export type Machine = {
+  index: number;
+  name: string;
+  local: boolean;
+  url?: string;
+  selected: boolean;
+  project?: string | null;
+  link: { state: string; error?: string | null };
+};
+
+/** What Colony knows: the named, disposable machines agents create and drive. */
+export type ColonyStatus = {
+  ready: boolean;
+  visor?: string | null;
+  message?: string | null;
+  workspaces?: { name: string; provider: string; os: string; state: string; ip?: string | null }[] | null;
+};
+
 /** What the vanilla shell provides. */
 export type Host = {
   invoke: <T = unknown>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
@@ -173,6 +192,14 @@ export type Host = {
     effortName: (cli: string, effort: string | null) => string;
   };
   machineName: () => string;
+  /** Every machine work can run on, this one first. */
+  machines: () => Machine[];
+  /** Switch which machine the work happens on. */
+  pickMachine: (index: number) => Promise<void>;
+  /** The Colony workspaces on this machine; null when visor-core is missing. */
+  colony: () => Promise<ColonyStatus | null>;
+  /** Open another project folder — the folder a thread works in. */
+  newProject: () => void;
   projectMenu: (anchor: HTMLElement) => void;
   /** Open Code's side panel on a tab: changes, history, files, sessions. */
   openPanel: (tab: string) => void;
