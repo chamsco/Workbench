@@ -62,15 +62,15 @@ What is missing from a plain chat is everything *around* the model:
 
 It is a **workshop around your models**, not another chatbot.
 
-<p align="center"><img src="docs/assets/app-design.png" alt="The Workbench window: a project's agents in the sidebar, four live agent sessions in a 2 by 2 canvas grid, and a terminal, with a review waiting in the title bar." width="100%"></p>
+<p align="center"><img src="docs/assets/app-canvases.png" alt="The Workbench window mid-run: the main agent and three worker agents in a 2 by 2 canvas grid, each streaming its own tool calls, with the project's agents and worktrees listed in the sidebar." width="100%"></p>
 
-<p align="center"><em>The design both desktop shells reproduce: four agents at once, plus your own shell, in one window.</em></p>
+<p align="center"><em>A real run: four agents at once — the main agent plus three workers, each in its own session, each on its own branch.</em></p>
 
 ## See it move
 
-<p align="center"><img src="docs/assets/tour.gif" alt="A pointer moves through the Workbench window: the 2 by 2 canvas view, the Tickets list, the diagram-first review of a plan, and PLAN.md." width="100%"></p>
+<p align="center"><img src="docs/assets/tour.gif" alt="The view switches from four live agent sessions to the wall of every agent tiled, then a canvas's picker lists everything a canvas can show, then back to the four sessions." width="100%"></p>
 
-<p align="center"><em>The shell, the ticket list, the diagram-first review, and the plan — in eight seconds.</em></p>
+<p align="center"><em>Four agents working · the Wall of every agent · what a canvas can be — captured from the app while it ran.</em></p>
 
 ## Quick start
 
@@ -158,7 +158,7 @@ The same five steps as the diagram at the top, with the details:
 **Every review starts with a diagram the harness draws from its own data** —
 never one the agent drew:
 
-<p align="center"><img src="docs/assets/app-review-plan.png" alt="The Diagram tab showing the plan as a wave chart: schema in wave 1, api and ui in wave 2, each node labelled with its criteria count and whether it has a check." width="100%"></p>
+<p align="center"><img src="docs/assets/app-review-plan.png" alt="The diagram-first review, maximized: the plan drawn as waves — schema, auth and api in wave 1, then ui, docs and tests in wave 2 — beside the six tickets with their acceptance criteria and Approve, Reject and Session buttons. The header counts 6 tickets, 2 waves, 3 most in parallel, 6 of 6 with checks." width="100%"></p>
 
 - **Plan** — the ticket graph in waves, how many run in parallel, which tickets
   have no check.
@@ -166,9 +166,7 @@ never one the agent drew:
   the check that passed, where it merges, and exact per-file line counts.
 - **Final** — every ticket with its state and route, plus anything left open.
 
-<p align="center"><img src="docs/assets/app-real-review.png" alt="The same diagram-first review in the real app, in light mode: a plan with 3 tickets, 2 waves and 3 of 3 with checks, the ticket graph on the left and a Plan summary card with Approve, Reject and Session buttons." width="100%"></p>
-
-<p align="center"><em>The real review, light mode. The plan, its waves, and which tickets have checks — drawn from the harness's own data.</em></p>
+<p align="center"><em>Every review opens on a diagram the harness drew from its own data — never one an agent drew. This plan is pending: nothing has started yet.</em></p>
 
 ### Start cheap, escalate on evidence
 
@@ -209,8 +207,6 @@ fixing it; you can file one from the Tickets view. Tickets also open in a drawer
 from the review pill in the sidebar — hover it a moment, or click to pin it. You
 can file there, and open one for its details; "Check for updates" sits just below.
 
-<p align="center"><img src="docs/assets/app-tickets.png" alt="The Tickets view open in the sidebar, grouped into Needs you, Ready and Done, each row showing its number, title and state." width="100%"></p>
-
 A **triage agent** (read-only, forced to `low` effort) verifies the claim,
 checks for duplicates, and classifies it. Ready ones appear in the owner's next
 `work_tickets` report.
@@ -226,9 +222,9 @@ reading [the benchmark](bench/README.md):
 - **`backspace-tauri` (Tauri 2)** — HTML/CSS/JS in the system webview, with live
   dev-server previews *inside* the app. This is the fuller shell.
 
-<p align="center"><img src="docs/assets/app-real-run.png" alt="The real Tauri shell during a run: the main agent's transcript on the left, the review drawer on the right, and the run's spend in the sidebar." width="100%"></p>
+<p align="center"><img src="docs/assets/app-wall.png" alt="The Wall view: every agent's session tiled at once — the main agent, three workers streaming output, and three more waiting with the note that they start when their blockers merge." width="100%"></p>
 
-<p align="center"><em>The real shell mid-run. This session was driven by a mock model, so the model names and ticket text are placeholders — the layout is the app.</em></p>
+<p align="center"><em>The <b>Wall</b>: every agent's session at once, including the ones still blocked. <code>ui</code>, <code>docs</code> and <code>tests</code> say they start when <code>schema</code> merges.</em></p>
 
 ### Zones
 
@@ -250,6 +246,11 @@ project's folder, so a build, a git command or a REPL runs where the work is.
 `+` opens a tab with a name and a layout (1, 2, 3, 2×2, 1 over 2, 2 over 1,
 1 | 2); an unnamed tab shows its actual arrangement. Drag a tab to reorder it;
 right-click or double-click to rename, duplicate or close it.
+
+Any canvas can become any of these, from its own "show something else here"
+control — or from the picker an empty canvas offers:
+
+<p align="center"><img src="docs/assets/app-picker.png" alt="The New canvas picker over a running 2 by 2 grid: cards for Main agent, Browser, Diagram review, Worktree, PLAN.md, Team chat, Conversation, Terminal and Visual options, with a row of the project's agent sessions underneath." width="100%"></p>
 
 Drag a canvas by its header to rearrange: a dotted `+` slot shows where it will
 land, other canvases slide out of the way, dropping on the middle of another

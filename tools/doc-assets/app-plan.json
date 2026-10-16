@@ -1,0 +1,18 @@
+[
+  { "waitFor": "document.body.innerText.includes('Working')", "timeout": 45000 },
+  { "wait": 2500 },
+  { "shot": "01-canvases" },
+
+  { "clickSel": ".vbtn", "settle": 900 },
+  { "clickSel": "[data-wb='wall']", "settle": 2800 },
+  { "shot": "02-wall" },
+
+  { "clickSel": ".vbtn", "settle": 900 },
+  { "clickSel": "[data-wb='canvases']", "settle": 1800 },
+
+  { "clickSel": "[aria-label='Show something else here']", "settle": 1100 },
+  { "shot": "03-picker" },
+  { "clickSel": ".chooser [data-k='agent']", "settle": 2000 },
+  { "shot": "04-canvases"
+  }
+]

@@ -1,0 +1,11 @@
+[
+  { "waitFor": "snap.approvals.some(a => a.state.state === 'pending')", "timeout": 60000 },
+  { "wait": 1000 },
+  { "clickSel": "[aria-label='Show something else here']", "settle": 1100 },
+  { "clickSel": ".chooser [data-k='diagram']", "settle": 2600 },
+  { "clickSel": "[aria-label='Maximize canvas']", "settle": 1400 },
+  { "clickSel": "[data-z='in']", "settle": 350 },
+  { "clickSel": "[data-z='in']", "settle": 350 },
+  { "clickSel": "[data-z='in']", "settle": 900 },
+  { "shot": "review-plan" }
+]
