@@ -612,28 +612,31 @@ body { margin: 0; background: var(--desk-base); color: var(--fg); font: 13px/1.4
 .canvas[hidden] { display: none !important; }
 .settings { background: var(--sheet); }
 
-/* ---------- the agent surfaces: one opaque sheet, no layers behind the text ---
-   Agents, and Workbench → a project's chat, are the two places a thread is read.
-   Both get a single background slightly darker than the desktop, so the text
-   sits on paper rather than on a stack of translucent panes. Scoped by the
-   window's mode class, so canvases, Apps and Settings keep the glass. */
+/* ---------- the chat surfaces sit on the painting, like Home ---------------
+   Agents, and Workbench → a project's chat (Pair), used to paint one opaque
+   sheet over everything so the text sat on paper. Home shows the window's
+   backdrop painting at full strength, so these two match it instead: no sheet,
+   and the composer is the only card. Still scoped by the window's mode class,
+   so canvases, Apps and Settings keep the glass. */
 .win.m-chat .mainc,
-.win.pair-on .mainc { background: var(--sheet); }
-.win.m-chat .side,
-.win.pair-on .side { background: var(--sheet-side); }
+.win.pair-on .mainc { background: transparent; }
 .win.m-chat .chat,
-.win.m-chat .pane,
-.win.m-chat .port,
-.win.pair-on .chat,
-.win.pair-on .pane {
-  background: var(--sheet);
-  border-color: var(--sheet-edge);
-}
+.win.pair-on .chat { background: transparent; border-color: transparent; }
 .win.m-chat .tbar,
 .win.pair-on .tbar { background: transparent; }
-/* Whirl's own surfaces inside the chat iframe: same paper, no translucency. */
+/* Whirl's own pane (the chat face): no paper, no frost of its own. */
 .win.m-chat .chat-wrap,
-.win.pair-on .chat-wrap { background: var(--sheet); }
+.win.pair-on .chat-wrap { background: transparent; }
+.win.m-chat .whirl-pane,
+.win.pair-on .whirl-pane {
+  background: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  border-color: transparent;
+  /* .dark .raised draws inset hairlines; with no card they would read as a
+     faint outline floating on the painting. */
+  box-shadow: none;
+}
 .win.m-chat .composer,
 .win.pair-on .composer { background: var(--pane); }
 /* Canvases are often narrow: the review stacks its list over the drawing, and the card under it. */

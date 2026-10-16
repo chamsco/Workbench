@@ -1129,9 +1129,14 @@ function renderAlt() {
 // Rich answers (OpenUI) in Chat: on unless turned off in Settings.
 function richOn() { try { return localStorage.getItem("bs.rich") !== "0"; } catch { return true; } }
 
-// The painting is at full strength only on Home (Code's workbench, Home view).
+// The painting is at full strength on Home (Code's workbench, Home view) and on
+// the two chat surfaces, which sit on it the same way. Everywhere else it is
+// muted toward the page, so panes full of text stay readable.
 function syncArt() {
-  if (window.Art) Art.setVivid(S.mode === "code" && S.codeView !== "pair" && !S.settings && (!hasProject || S.wb === "home"));
+  const chatSurface =
+    S.mode === "chat" ||
+    (S.mode === "code" && (S.codeView === "pair" || !hasProject || S.wb === "home"));
+  if (window.Art) Art.setVivid(chatSurface && !S.settings);
 }
 function renderGrid() {
   syncArt();

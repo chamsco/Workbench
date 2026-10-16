@@ -135,14 +135,18 @@ async function listClickable() {
 }
 
 async function clickSelector(selector) {
+  // querySelectorAll, not querySelector: the shell keeps hidden duplicates of
+  // some controls (an old rail, a template), and the first match is often 0x0.
   const box = await evaluate(`(() => {
-    const el = document.querySelector(${JSON.stringify(selector)});
-    if (!el) return null;
-    const r = el.getBoundingClientRect();
-    if (r.width < 2 || r.height < 2) return null;
-    return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2),
-             tag: el.tagName, cls: String(el.className).slice(0, 50),
-             text: (el.textContent || "").replace(/\\s+/g, " ").trim().slice(0, 40) };
+    const els = [...document.querySelectorAll(${JSON.stringify(selector)})];
+    for (const el of els) {
+      const r = el.getBoundingClientRect();
+      if (r.width < 2 || r.height < 2) continue;
+      return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2),
+               tag: el.tagName, cls: String(el.className).slice(0, 50),
+               text: (el.textContent || "").replace(/\\s+/g, " ").trim().slice(0, 40) };
+    }
+    return null;
   })()`);
   if (!box) throw new Error(`no visible element for ${selector}`);
   const base = { x: box.x, y: box.y, button: "left", clickCount: 1 };

@@ -60,6 +60,11 @@
 .vmenu .pi .rb { margin-left: auto; font-style: normal; font-size: 10px; min-width: 15px; height: 15px; line-height: 15px; text-align: center; border-radius: 8px; background: var(--amber); color: #000; }
 .vmenu .pi:disabled { opacity: 0.4; }
 #win.wb-alt #tabs, #win.wb-alt #addCanvas { display: none !important; }
+/* The tab strip belongs to the window, not to the row of controls on the left,
+   so it is centred on the title bar rather than flowing after them. Taken out
+   of the flex row, which leaves the spacer to divide the rest. */
+.tbar { position: relative; }
+#tabs { position: absolute; left: 50%; transform: translateX(-50%); max-width: min(46%, 620px); justify-content: flex-start; }
 .tab { border: 0; background: var(--chip); }
 .srchbtn { white-space: nowrap; flex: none; height: 28px; padding: 0 8px 0 10px; border-radius: 9px; display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: var(--fg-2); background: var(--chip); }
 .srchbtn:hover { color: var(--fg); }
@@ -265,6 +270,10 @@ button.rp-row:hover { background: var(--hover); }
 .hc-plan:hover { background: var(--hover); color: var(--fg); }
 .hc-plan[aria-pressed="true"] { background: color-mix(in srgb, var(--amber) 16%, transparent); color: var(--amber); }
 .hc-plan .x { opacity: 0.7; }
+/* The ghost toggle: a chat that is never written to disk. Pressed, it reads
+   violet — the app's colour for a temporary thing — not amber like Plan. */
+.hc-plan.hc-ghost[aria-pressed="true"] { background: color-mix(in srgb, var(--violet) 18%, transparent); color: var(--violet); }
+.hc-plan:disabled { opacity: 0.5; }
 .hc-model .lg { display: inline-flex; } .hc-model .lg .logo { width: 14px; height: 14px; }
 .hc-model .v { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 160px; }
 .hc-send:disabled { opacity: 0.35; cursor: default; }

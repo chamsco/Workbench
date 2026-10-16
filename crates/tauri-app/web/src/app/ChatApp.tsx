@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 import { SuggestionCards } from "@/components/suggestion-cards";
 import { Composer } from "./Composer";
 import { CodeComposer, CodeSide } from "./CodeComposer";
+import { GhostToggle } from "./GhostToggle";
 import { ReplyChip } from "./Extras";
 import { AgentEditors, AgentsHome, AgentsSide, AgentThreadHeader } from "./Agents";
 import { TracePanel } from "./Trace";
@@ -179,6 +180,11 @@ export function ChatApp({ sideEl, user }: { sideEl: HTMLElement; user: string })
                     className={cn("pointer-events-auto", inThread && "pb-4")}
                   >
                     {replying && <ReplyChip to={replying} onCancel={() => setReplyTo(null)} />}
+                    {inThread && thread && (
+                      <div className="hc-above">
+                        <GhostToggle thread={thread} />
+                      </div>
+                    )}
                     {scope ? (
                       <CodeComposer
                         value={draft}

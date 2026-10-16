@@ -92,6 +92,10 @@ export type Thread = {
   pinned: boolean;
   route: Route;
   messages: Msg[];
+  /** How long this thread lives. A ghost is never written to disk. */
+  life?: "keep" | "ghost" | "temporal";
+  expires_at?: number | null;
+  ttl_minutes?: number | null;
   branched_from?: string | null;
   project?: string | null;
   app?: string | null;
@@ -115,6 +119,10 @@ export type ThreadInfo = {
   members?: string[];
   /** Why its last reply failed (a usage limit, a crash), if it did. */
   failed?: string | null;
+  /** A ghost chat: listed while you are in it, gone when you leave. */
+  ghost?: boolean;
+  /** A temporal chat: when it forgets itself, for the countdown. */
+  expires_at?: number | null;
 };
 
 export type RouteItem = {
@@ -346,6 +354,12 @@ export function linkPreview(url: string): LinkMeta | null | undefined {
 }
 export const rename = (id: string, title: string) => host.invoke("chat_rename", { id, title });
 export const pin = (id: string, pinned: boolean) => host.invoke("chat_pin", { id, pinned });
+
+/** How long a chat lives. `ghost` is never written to disk, so closing it is
+ *  the same as destroying it; `temporal` is saved but forgets itself after
+ *  `ttlMinutes` without a message. `keep` is an ordinary chat and undoes both. */
+export const setLife = (id: string, life: "keep" | "ghost" | "temporal", ttlMinutes: number | null = null) =>
+  host.invoke("chat_life", { id, life, ttlMinutes }).then(() => refresh());
 export async function remove(id: string) {
   await host.invoke("chat_delete", { id });
   if (state.id === id) set({ id: null, thread: null });
