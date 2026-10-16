@@ -25,35 +25,19 @@ const FENCE = /```openui[^\n]*\n([\s\S]*?)(?:```|$)/g;
 /**
  * A ````openui` block the renderer cannot turn into UI.
  *
- * This used to be impossible to see: when the model wrote the language wrong,
- * or wrote something that is not the language at all (a Python-looking
- * `root = Card(children: [...])`, which small local models like to produce),
- * the renderer either threw where React could not catch it or quietly rendered
- * nothing, and the raw text showed up in the middle of the reply as prose.
- * Now the block is kept — the model did say something — but labelled as
- * something that could not be drawn, with the source one click away so it can
- * be copied back to the model.
+ * No source, ever. It is not prose and it is not the answer: showing it gave the
+ * reader a wall of `Card(children: [...])` in the middle of a reply, and the
+ * "Show source" toggle only made that opt-in rather than impossible. What is
+ * left is one quiet line, and the reason is logged for whoever is teaching the
+ * model the language.
  */
 function FailedBlock({ source, why }: { source: string; why: string }) {
-  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    console.warn("[openui] block not drawn:", why, "|", source.slice(0, 400));
+  }, [source, why]);
   return (
-    <div className="openui-failed my-3 rounded-lg border border-amber-500/30 bg-amber-500/[0.06] p-3 text-sm">
-      <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400">
-        <span aria-hidden>⚠</span>
-        <span className="font-medium">This block could not be drawn as UI: {why}</span>
-        <button
-          type="button"
-          className="ml-auto rounded px-2 py-0.5 text-xs underline decoration-dotted hover:bg-amber-500/10"
-          onClick={() => setOpen((v) => !v)}
-        >
-          {open ? "Hide source" : "Show source"}
-        </button>
-      </div>
-      {open && (
-        <pre className="mt-2 max-h-64 overflow-auto rounded bg-black/[0.04] p-2 text-xs dark:bg-white/[0.06]">
-          <code>{source}</code>
-        </pre>
-      )}
+    <div className="openui-failed my-3 rounded-lg border border-amber-500/25 bg-amber-500/[0.05] px-3 py-2 text-[13px] text-amber-700 dark:text-amber-400">
+      <span aria-hidden>⚠</span> That answer had a diagram this build could not draw ({why}).
     </div>
   );
 }
