@@ -75,6 +75,12 @@ export function ChatApp({ sideEl, user }: { sideEl: HTMLElement; user: string })
     const t = setTimeout(() => setScanWaited(true), 6000);
     return () => clearTimeout(t);
   }, []);
+  // A ghost chat has no list to show, so the sidebar stays out of the way for as
+  // long as it is open. Declared here, on every change of thread, rather than
+  // fired once when the thread is created.
+  useEffect(() => {
+    host.ghostSide?.(thread?.life === "ghost");
+  }, [thread?.id, thread?.life]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const clis = useMemo(
     () =>

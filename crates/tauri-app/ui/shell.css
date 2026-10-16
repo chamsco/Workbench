@@ -308,7 +308,9 @@ button.rp-row:hover { background: var(--hover); }
    What shows in the gap between starting and finding: the CLI scan is running,
    and the route list is empty for a few seconds. It used to show the connect
    panel in that gap, which reads as "you have nothing" rather than "wait". */
-.looking { display: grid; justify-items: center; gap: 12px; padding: 24px; text-align: center; animation: looking-in 0.3s cubic-bezier(0.22, 0.61, 0.36, 1); }
+/* Fills the pane and centres on both axes. It renders as a sibling of the
+   composer dock rather than inside it, so without this it sat at the top. */
+.looking { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 12px; padding: 24px; text-align: center; animation: looking-in 0.3s cubic-bezier(0.22, 0.61, 0.36, 1); }
 @keyframes looking-in { from { opacity: 0; transform: translateY(6px); } }
 .looking p { margin: 0; font-size: 15px; color: var(--fg); }
 .looking .looking-sub { font-size: 12.5px; color: var(--fg-3); }

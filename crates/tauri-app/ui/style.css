@@ -166,6 +166,13 @@ body { margin: 0; background: var(--desk-base); color: var(--fg); font: 13px/1.4
 .gutter-side { position: absolute; top: 0; bottom: 0; width: 7px; margin-left: -3px; cursor: col-resize; z-index: 4; }
 .win.side-closed .gutter-side { display: none; }
 
+/* A ghost chat: no list to show, so the sidebar is gone for as long as it is
+   open. Mirrors .side-closed, and is a class rather than a one-shot call so
+   nothing that re-renders the shell can bring it back. */
+.win.ghost-side { --side-w: 0px; }
+.win.ghost-side .side { visibility: hidden; transform: translateX(-24px); opacity: 0; }
+.win.ghost-side .gutter-side { display: none; }
+
 /* ---------- main column */
 .mainc { min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--glass-main); }
 .tbar { height: 38px; flex: none; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 8px; padding: 0 10px; }

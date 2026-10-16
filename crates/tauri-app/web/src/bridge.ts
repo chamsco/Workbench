@@ -176,8 +176,8 @@ export type Host = {
   projectMenu: (anchor: HTMLElement) => void;
   /** Open Code's side panel on a tab: changes, history, files, sessions. */
   openPanel: (tab: string) => void;
-  /** Collapse the app sidebar (a ghost chat has no list to show). */
-  collapseSide?: () => void;
+  /** A ghost chat is open: keep the sidebar out of the way. */
+  ghostSide?: (on: boolean) => void;
 };
 export type CodeRun = { permission: string; effort: string | null };
 
@@ -334,9 +334,6 @@ export async function send(text: string, files: NewFile[], route: Route | null, 
     });
     id = t.id;
     set({ id, thread: t, ghost: false });
-    // A ghost chat is not in the list and is not saved, so the list has nothing
-    // to offer while you are in it: the sidebar gets out of the way.
-    if (ghost) host.collapseSide?.();
   }
   const replyTo = state.replyTo;
   set({ replyTo: null });

@@ -180,8 +180,9 @@ var Chat = (() => {
     account: () => Providers.account,
     openSettings: sec => openSettings(sec),
     // A ghost chat is never listed and never saved, so the sidebar has nothing
-    // to show while you are in one: it gets out of the way.
-    collapseSide: () => setSide(false),
+    // to show while you are in one. The class is what enforces it — a one-shot
+    // call could be undone by anything that re-renders the shell.
+    ghostSide: on => { const w = document.getElementById("win"); w.classList.toggle("ghost-side", on); setSide(!on); },
     runSetup: () => Onboard.open(),
     toast,
     openUrl: url => invoke("open_url", { url }),
