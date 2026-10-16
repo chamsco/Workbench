@@ -153,12 +153,13 @@ export function ChatApp({ sideEl, user }: { sideEl: HTMLElement; user: string })
       <AgentEditors />
       <TracePanel />
       <main className="whirl-pane raised relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-surface md:rounded-lg md:border md:border-border">
-        {/* Whirl's perch, on the face a chat starts from: the corner holds
-            exactly one cluster, and a chat's life is chosen before it exists. */}
-        {!inThread && (
+        {/* Whirl's perch. The toggle holds the corner on the face a chat starts
+            from AND all through a ghost chat — a ghost never routes, so nothing
+            else claims the corner, and it is how you leave one. */}
+        {(!inThread || thread?.life === "ghost") && (
           <div className="pointer-events-none absolute right-3 top-3 z-10">
             <div className="pointer-events-auto">
-              <GhostToggle />
+              <GhostToggle thread={thread ?? undefined} />
             </div>
           </div>
         )}
@@ -180,7 +181,9 @@ export function ChatApp({ sideEl, user }: { sideEl: HTMLElement; user: string })
               </AnimatePresence>
             </div>
             {agentsMode && !scope && !inThread ? null : !anyRoute && !inThread ? (
-              scanWaited ? <NoModels /> : <LookingForModels />
+              <AnimatePresence initial={false}>
+                {scanWaited ? <NoModels key="none" /> : <LookingForModels key="looking" />}
+              </AnimatePresence>
             ) : (
               <div
                 className={cn(
@@ -228,7 +231,9 @@ export function ChatApp({ sideEl, user }: { sideEl: HTMLElement; user: string })
                       generating={busy}
                       floating={inThread}
                       placeholder={
-                        agent
+                        thread?.life === "ghost"
+                          ? "Ask anything — off the record"
+                          : agent
                           ? `Message ${agent.name}`
                           : group
                             ? `Message ${thread?.title ?? "the group"} (@Name to ask one agent)`
@@ -326,10 +331,26 @@ function Suggestions({ onPick }: { onPick: (p: string) => void }) {
 }
 
 /* Nothing to talk to yet: say what can be connected, in Whirl's well. */
-/** The gap between starting and finding. */
+/** The gap between starting and finding.
+ *
+ *  It covers the pane in near-black and lasts until the CLI scan answers, then
+ *  fades out into the real face. The sidebar is not merely empty during it, it
+ *  is not there: there is nothing to navigate to yet, and offering a list of
+ *  chats while the app says it has no model reads as broken. */
 function LookingForModels() {
+  useEffect(() => {
+    const w = document.getElementById("win");
+    w?.classList.add("booting");
+    return () => w?.classList.remove("booting");
+  }, []);
   return (
-    <div className="looking">
+    <motion.div
+      className="looking"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.28, ease: [0.22, 0.61, 0.36, 1] }}
+    >
       <span className="looking-dots" aria-hidden>
         <i />
         <i />
@@ -337,7 +358,7 @@ function LookingForModels() {
       </span>
       <p>Looking for the models on this machine…</p>
       <p className="looking-sub">Checking your coding CLIs, Ollama and any router you have set up.</p>
-    </div>
+    </motion.div>
   );
 }
 

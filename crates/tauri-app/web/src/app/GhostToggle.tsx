@@ -17,12 +17,31 @@ import { AnimatePresence, motion } from "motion/react";
 import { IconGhost2, IconGhost2Filled } from "@tabler/icons-react";
 
 import { pinRasterPath } from "@/lib/motion";
-import { getHost, setGhost, useChat } from "../bridge";
+import { getHost, goHome, remove, setGhost, useChat, type Thread } from "../bridge";
 
 const GHOST_SPRING = { type: "spring", stiffness: 520, damping: 28 } as const;
 
-export function GhostToggle() {
-  const on = useChat().ghost;
+/** `thread` is set while a ghost chat is open. Whirl keeps the toggle in that
+ *  corner for the whole incognito chat — the thread never routes, so nothing
+ *  else claims the perch — and clicking it there is how you leave. A ghost was
+ *  never written to disk, so leaving deletes it; that is confirmed first. */
+export function GhostToggle({ thread }: { thread?: Thread }) {
+  const pending = useChat().ghost;
+  const inGhost = thread?.life === "ghost";
+  const on = inGhost || pending;
+
+  const click = async () => {
+    if (inGhost && thread) {
+      const ok = confirm("Leave ghost? This chat was never saved — leaving deletes it for good.");
+      if (!ok) return;
+      await remove(thread.id);
+      goHome();
+      getHost().toast("Ghost chat deleted");
+      return;
+    }
+    setGhost(!pending);
+    getHost().toast(pending ? "Kept: new chats are saved again" : "Ghost: the next chat will not be saved");
+  };
 
   return (
     <motion.button
@@ -31,15 +50,14 @@ export function GhostToggle() {
       aria-pressed={on}
       aria-label={on ? "Leave ghost mode" : "Start a ghost chat"}
       title={
-        on
-          ? "Ghost: the next chat is never written to disk"
-          : "Start a ghost chat — never written to disk, gone when you close it"
+        inGhost
+          ? "Leave ghost — this chat was never saved, so leaving deletes it"
+          : on
+            ? "Ghost: the next chat is never written to disk"
+            : "Start a ghost chat — never written to disk, gone when you close it"
       }
       whileTap={{ scale: 0.96 }}
-      onClick={() => {
-        setGhost(!on);
-        getHost().toast(on ? "Kept: new chats are saved again" : "Ghost: the next chat will not be saved");
-      }}
+      onClick={() => void click()}
     >
       <span className="ghost-ic">
         <AnimatePresence initial={false} mode="popLayout">
