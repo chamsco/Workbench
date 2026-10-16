@@ -176,6 +176,8 @@ export type Host = {
   projectMenu: (anchor: HTMLElement) => void;
   /** Open Code's side panel on a tab: changes, history, files, sessions. */
   openPanel: (tab: string) => void;
+  /** Collapse the app sidebar (a ghost chat has no list to show). */
+  collapseSide?: () => void;
 };
 export type CodeRun = { permission: string; effort: string | null };
 
@@ -200,6 +202,10 @@ type State = {
   replyTo: string | null;
   /** Chat's Agents side: named agents and groups instead of plain chats. */
   agentsMode: boolean;
+  /** The next chat starts as a ghost: never written to disk. Decided before the
+   *  thread exists, because a chat's life is fixed at creation — the only way
+   *  back out of a ghost is to delete it. */
+  ghost: boolean;
   agents: Agent[];
   /** On the Agents side with no thread: which agent's card is open in the editor. */
   editing: Agent | "new" | null;
@@ -210,7 +216,7 @@ type State = {
 
 let state: State = {
   threads: [], id: null, thread: null, epoch: 0, query: "", scope: null, replyTo: null,
-  agentsMode: false, agents: [], editing: null, grouping: false, traceOpen: null,
+  agentsMode: false, agents: [], editing: null, grouping: false, traceOpen: null, ghost: false,
 };
 const subs = new Set<() => void>();
 const emit = () => subs.forEach((f) => f());
@@ -306,6 +312,9 @@ export async function createGroup(title: string, goal: string, members: string[]
 
 export const setReplyTo = (replyTo: string | null) => set({ replyTo });
 
+/** Choose how the next chat lives, before it exists. */
+export const setGhost = (ghost: boolean) => set({ ghost });
+
 export function setQuery(query: string) {
   set({ query });
 }
@@ -317,9 +326,17 @@ export async function send(text: string, files: NewFile[], route: Route | null, 
   let id = state.id;
   if (!id) {
     if (!route) throw new Error("Connect a model first");
-    const t = await host.invoke<Thread>("chat_new", { route, scope: { project: state.scope } });
+    // The life is fixed here, at creation, and never changes afterwards.
+    const ghost = state.ghost;
+    const t = await host.invoke<Thread>("chat_new", {
+      route,
+      scope: { project: state.scope, life: ghost ? "ghost" : "keep" },
+    });
     id = t.id;
-    set({ id, thread: t });
+    set({ id, thread: t, ghost: false });
+    // A ghost chat is not in the list and is not saved, so the list has nothing
+    // to offer while you are in it: the sidebar gets out of the way.
+    if (ghost) host.collapseSide?.();
   }
   const replyTo = state.replyTo;
   set({ replyTo: null });

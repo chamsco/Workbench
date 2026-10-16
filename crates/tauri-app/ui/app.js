@@ -1878,12 +1878,16 @@ async function docsPane(body) {
 
 // ------------------------------------------------------------------ settings
 function openSettings(section) {
-  S.settings = true; $("#settings").hidden = false; renderSettings(); if (window.Shell) Shell.layout();
+  S.settings = true; $("#settings").hidden = false;
+  // Settings is a page of its own, so the sidebar and the rail step aside and it
+  // spans the window instead of sitting in a column beside them.
+  $("#win").classList.add("settings-on");
+  renderSettings(); if (window.Shell) Shell.layout();
   refreshCompanion();
   if (section) { const el = $(`#set-${section}`), box = $("#settings"); if (el) box.scrollTop = el.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop - 12; const f = $(`#set-${section} input`); if (f) f.focus({ preventScroll: true }); }
   refreshShare();
 }
-function closeSettings() { if (!S.settings) return; S.settings = false; $("#settings").hidden = true; if (window.Shell) Shell.layout(); }
+function closeSettings() { if (!S.settings) return; S.settings = false; $("#settings").hidden = true; $("#win").classList.remove("settings-on"); if (window.Shell) Shell.layout(); }
 let companion = null;
 async function refreshCompanion() { companion = await invoke("companion_status").catch(() => null); if (S.settings) renderSettings(); }
 async function refreshShare() { share = await invoke("share_status").catch(() => null); if (S.settings) renderSettings(); }

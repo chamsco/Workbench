@@ -139,12 +139,12 @@ export function ChatApp({ sideEl, user }: { sideEl: HTMLElement; user: string })
       <AgentEditors />
       <TracePanel />
       <main className="whirl-pane raised relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-surface md:rounded-lg md:border md:border-border">
-        {/* Whirl's perch: the corner holds exactly one cluster, so the ghost
-            sits where a thread toolbar would. */}
-        {inThread && thread && (
+        {/* Whirl's perch, on the face a chat starts from: the corner holds
+            exactly one cluster, and a chat's life is chosen before it exists. */}
+        {!inThread && (
           <div className="pointer-events-none absolute right-3 top-3 z-10">
             <div className="pointer-events-auto">
-              <GhostToggle thread={thread} />
+              <GhostToggle />
             </div>
           </div>
         )}
@@ -189,6 +189,8 @@ export function ChatApp({ sideEl, user }: { sideEl: HTMLElement; user: string })
                     className={cn("pointer-events-auto", inThread && "pb-4")}
                   >
                     {replying && <ReplyChip to={replying} onCancel={() => setReplyTo(null)} />}
+                    {/* The silver sits on the chatbox, not on the transcript. */}
+                    <div className="chatbox">
                     {scope ? (
                       <CodeComposer
                         value={draft}
@@ -228,6 +230,7 @@ export function ChatApp({ sideEl, user }: { sideEl: HTMLElement; user: string })
                       textareaRef={composerRef}
                     />
                     )}
+                    </div>
                   </motion.div>
                   {scope && !inThread && <PairNote route={route} folder={baseName(scope)} />}
                   <AnimatePresence mode="popLayout" initial={false}>

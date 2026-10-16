@@ -179,6 +179,9 @@ var Chat = (() => {
     usable,
     account: () => Providers.account,
     openSettings: sec => openSettings(sec),
+    // A ghost chat is never listed and never saved, so the sidebar has nothing
+    // to show while you are in one: it gets out of the way.
+    collapseSide: () => setSide(false),
     runSetup: () => Onboard.open(),
     toast,
     openUrl: url => invoke("open_url", { url }),

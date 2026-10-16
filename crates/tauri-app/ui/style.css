@@ -610,9 +610,10 @@ body { margin: 0; background: var(--desk-base); color: var(--fg); font: 13px/1.4
 @media (max-width: 760px) { .form3 { grid-template-columns: 1fr; } .drawer { width: calc(100% - 12px); } }
 
 .canvas[hidden] { display: none !important; }
-/* Frosted, like the side panel and the rest of the floating surfaces, instead of
-   the flat slab it used to be a different colour from everything else. */
-.settings { background: var(--card-strong); border-color: var(--pane-edge); -webkit-backdrop-filter: blur(24px) saturate(1.25); backdrop-filter: blur(24px) saturate(1.25); }
+/* Frosted, like the side panel, and full width: Settings is its own page, so the
+   sidebar and the rail step aside rather than boxing it in. */
+.settings { position: fixed; inset: 38px 6px 6px 6px; background: var(--card-strong); border-color: var(--pane-edge); -webkit-backdrop-filter: blur(24px) saturate(1.25); backdrop-filter: blur(24px) saturate(1.25); }
+#win.settings-on .side, #win.settings-on .rail { opacity: 0; pointer-events: none; }
 
 /* ---------- the chat surfaces sit on the painting, like Home ---------------
    Agents, and Workbench → a project's chat (Pair), used to paint one opaque
@@ -631,17 +632,13 @@ body { margin: 0; background: var(--desk-base); color: var(--fg); font: 13px/1.4
 .win.pair-on .chat-wrap { background: transparent; }
 .win.m-chat .whirl-pane,
 .win.pair-on .whirl-pane {
-  /* A solid edge with a glistening metal sweep: light from the top-left, a dark
-     waist across the middle, and the light coming back at the foot. The fill
-     stays thin enough that the painting reads through it. */
-  border: 1px solid transparent;
-  border-radius: 12px;
-  background:
-    linear-gradient(color-mix(in srgb, var(--win-bg) 46%, transparent), color-mix(in srgb, var(--win-bg) 64%, transparent)) padding-box,
-    linear-gradient(145deg, rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0.10) 30%, rgba(255, 255, 255, 0.02) 52%, rgba(255, 255, 255, 0.16) 74%, rgba(255, 255, 255, 0.44)) border-box;
+  /* Every chat looks like Agents' Home: the painting at full strength, no card
+     around the transcript. The only edged surface is the chatbox itself. */
+  background: transparent;
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
-  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.34);
+  border-color: transparent;
+  box-shadow: none;
 }
 .win.m-chat .composer,
 .win.pair-on .composer { background: var(--pane); }
