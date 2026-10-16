@@ -157,6 +157,21 @@ export type ColonyStatus = {
   workspaces?: { name: string; provider: string; os: string; state: string; ip?: string | null }[] | null;
 };
 
+/** Code → ADE's home: what is true of the project right now. */
+export type CodeHome = {
+  /** The branch the project folder is on ("" when it is not a repo yet). */
+  branch: string;
+  /** A repo with no commit yet, so every file is new. */
+  fresh: boolean;
+  files: { status: string; path: string; added: number; removed: number }[];
+  worktrees: { agent: string; title: string; branch: string; path: string }[];
+  tickets: { key: string; title: string; state: string }[];
+  /** Approvals waiting on you. */
+  needs: number;
+  running: number;
+  agents: number;
+};
+
 /** What the vanilla shell provides. */
 export type Host = {
   invoke: <T = unknown>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
@@ -200,6 +215,10 @@ export type Host = {
   colony: () => Promise<ColonyStatus | null>;
   /** Open another project folder — the folder a thread works in. */
   newProject: () => void;
+  /** What the project looks like now: branch, changes, worktrees, tickets. */
+  codeHome: (scope: string) => Promise<CodeHome>;
+  /** Switch Code between its two surfaces: the ADE and the IDE. */
+  setCodeView: (v: "pair" | "agents") => void;
   projectMenu: (anchor: HTMLElement) => void;
   /** Open Code's side panel on a tab: changes, history, files, sessions. */
   openPanel: (tab: string) => void;

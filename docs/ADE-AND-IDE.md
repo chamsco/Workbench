@@ -67,15 +67,45 @@ Concrete first slice (not built): an `Artifact` enum on `ProjectState`
 renderer per variant inline in the thread. That is where "enriched chat" comes
 from — the answer stays prose, and the thing it is about is a real object.
 
+## Shipped 17 Oct 2026: the two names inside Code
+
+The rail rename is still open, but Code's own switch now says what it is. It read
+"Chat | Agents" — Chat's axis, borrowed — and now reads **ADE | IDE**:
+
+- **ADE** (`prefs.code_view: "pair"`) is the agent development environment: the
+  chat face scoped to the project, as before, but it lands on a coding home
+  rather than the agent grid. `web/src/app/CodeHome.tsx` shows the folder, its
+  branch, the sessions you have already had in it, what is uncommitted, the
+  tickets and the worktrees, and the composer under it starts the next session.
+  The data comes from `Host.codeHome()` in `chat.js`, so the face never reaches
+  into the shell's internals for `snap`.
+- **IDE** (`"agents"`) is the project's workspace: canvases, worktrees, tickets.
+  It opens on **one full-window session canvas** — a project's default tab is
+  already `TabSpec::defaults()`, one agent canvas, and `app.js` no longer
+  overrides `S.wb` to `"home"` for a project. The canvas pane keeps every option
+  it had (Team chat, Terminal, Files, Browser, Diagram, PLAN.md, Visual options)
+  and the view menu keeps Home and Wall.
+- The IDE's session canvas carries the chrome an IDE is read through: a **session
+  card** at the top of the transcript (`sessionCard()`) naming the CLI, its
+  version, the model and effort it is on, how it is signed in, and the folder —
+  and a **status line** (`statusHTML()`) reading `<mode> on (shift+tab to cycle)
+  · N agents`. Shift+Tab really does cycle the CLI's permission mode in the IDE
+  (`cyclePerm()`), which is why the line can say so.
+
+Stored values are still `"pair"` and `"agents"`, so no prefs migration was
+needed. An existing `prefs.wb_view: "home"` still wins over the new canvases
+default — the view menu switches it.
+
 ## What is left
 
-1. **The rename and the rail order** — `shell.js` `ZONES` is
+1. **The rail rename and its order** — `shell.js` `ZONES` is
    `["chat","bubble","Chat"], ["code","codei","Code"], …`; the labels and the
    order change, and `prefs.mode` values need a migration (`"chat"` → `"ade"`,
-   `"code"` → `"workspace"`) so an existing prefs file keeps working.
-2. **The workspace view inside the ADE** — today Pair mode already scopes the
-   chat face to a project (`inScope` in `web/src/bridge.ts`), which is most of
-   the way. It needs to become a first-class surface rather than a scoped chat.
+   `"code"` → `"workspace"`) so an existing prefs file keeps working. Only the
+   labels *inside* Code have moved so far.
+2. **The workspace view inside the ADE** — the IDE is a first-class surface now,
+   but the ADE's own home is read-only: it shows tickets and worktrees, it does
+   not yet open one in place.
 3. **The artifact type**, per above.
 4. **The old Chat design** (asked for on 16 Oct): brought back as the ADE's own
    look — the opaque layer rather than the frosted one, with the agent/project

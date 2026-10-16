@@ -145,15 +145,23 @@ var Home = (() => {
     else openView({ kind: "empty", agent: 0, url: null });
   }
 
+  // The model's name is a promise (the picker owns it), so this can resume after
+  // Home has been swapped out — the canvases took its place, or the project
+  // changed under it — and every write past the await would then be a null.
+  // Hold the root, and leave quietly if it is gone.
   async function bar() {
+    const root = document.querySelector(".home");
+    if (!root) return;
     const p = project(), c = choice();
-    document.querySelector(".hc-above [data-act=proj] .v").textContent = p ? base(p) : "Choose a project";
-    document.querySelector(".hc-above .mach").textContent = machine().name;
+    root.querySelector(".hc-above [data-act=proj] .v").textContent = p ? base(p) : "Choose a project";
+    root.querySelector(".hc-above .mach").textContent = machine().name;
     const main = agent(MAIN);
-    document.querySelector(".hc-above .br").textContent = (hasProject && main && main.branch) || "backspace/run";
-    document.querySelector(".hc-model .lg").innerHTML = Logos.mark(Picker.cliOf(c.model));
-    document.querySelector(".hc-model .v").textContent = await Picker.label(c.model);
-    document.querySelector(".hc-model .eff").textContent = Effort.name(Picker.cliOf(c.model), c.effort);
+    root.querySelector(".hc-above .br").textContent = (hasProject && main && main.branch) || "backspace/run";
+    root.querySelector(".hc-model .lg").innerHTML = Logos.mark(Picker.cliOf(c.model));
+    const label = await Picker.label(c.model);
+    if (!root.isConnected) return;
+    root.querySelector(".hc-model .v").textContent = label;
+    root.querySelector(".hc-model .eff").textContent = Effort.name(Picker.cliOf(c.model), c.effort);
   }
 
   function projMenu(anchor) {

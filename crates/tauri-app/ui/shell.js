@@ -204,9 +204,15 @@ var Shell = (() => {
   // The switch in the title bar, the same in both zones: Chat (you and one
   // model, turn by turn) | Agents (named agents in Chat; the planner and its
   // workers in Code).
+  //
+  // Code's two surfaces are named for what they are (docs/ADE-AND-IDE.md): the
+  // **ADE** is the agent development environment — one session with the
+  // project's CLI — and the **IDE** is the project's own workspace, the
+  // canvases, worktrees and tickets. "Chat | Agents" was Chat's axis, borrowed.
+  // The stored values stay `pair` and `agents`, so no prefs file needs migrating.
   const VIEWS = {
     chat: [["chat", "bubble", "Chat", "One model, one conversation"], ["agents", "team", "Agents", "Your named agents, one to one or in groups"]],
-    code: [["pair", "bubble", "Chat", "You and one CLI, turn by turn, in the project"], ["agents", "team", "Agents", "A planner splits the goal into tickets; agents build each one"]],
+    code: [["pair", "bubble", "ADE", "Agent development environment: you and one CLI, one session, in the project"], ["agents", "grid", "IDE", "The project: canvases, worktrees, tickets"]],
   };
   function renderModes() {
     const z = S.mode, v = VIEWS[z];

@@ -797,6 +797,63 @@ function mascot() {
   rows.forEach((row, y) => [...row].forEach((c, x) => { if (c === "X") r += `<rect x="${x * 4}" y="${y * 4}" width="4" height="4"/>`; }));
   return `<svg viewBox="0 0 48 28" fill="var(--bs-accent)" aria-hidden="true">${r}</svg>`;
 }
+
+// The session card: what this canvas is actually talking to.
+//
+// The IDE opens on a session, and the three things you would otherwise go to
+// Settings to check are which CLI, on which model and effort, and on whose
+// account — plus the folder it is working in. An IDE shows that at the top of
+// the session rather than in a preference pane.
+function sessionCard(a, path) {
+  const cli = (window.Picker && Picker.cliOf(prefs.worker || "")) || "auto";
+  const h = (Providers.list || []).find(x => x.id === cli);
+  const auto = cli === "auto" || !h;
+  const name = auto ? "Backspace" : h.name || cli;
+  const version = !auto && h.version ? ` v${esc(h.version)}` : "";
+  // A plan we can name is the Cloud one; a CLI's own subscription is not
+  // something this app can read, so it says signed in or not and stops there.
+  const account = Providers.account && Providers.account.plan
+    ? Providers.account.plan[0].toUpperCase() + Providers.account.plan.slice(1)
+    : !auto && h.installed
+      ? (h.auth === "authenticated" ? "signed in" : esc(h.auth || "not signed in"))
+      : "";
+  const routed = a.decision
+    ? `${esc(a.decision.model)} with ${esc(Effort.name(cli, a.decision.effort))} effort`
+    : "not routed yet";
+  // How it got there is a hover, not a line: it matters when a route looks
+  // wrong, and it is noise the rest of the time.
+  const why = a.decision
+    ? `routed by ${a.decision.source}${a.decision.confidence > 0 ? ` (${Math.round(a.decision.confidence * 100)}% confident)` : ""}`
+    : "";
+  return `<div class="banner">${auto ? mascot() : Providers.avatar(cli, "sm")}<div class="bt">
+    <div class="bt-h">${esc(name)}${version}</div>
+    <div title="${esc(why)}">${routed}${account ? ` <span class="bt-plan">· ${esc(account)}</span>` : ""}</div>
+    <div class="bt-p">${esc(path)}</div>
+  </div></div>`;
+}
+
+// The permission mode the CLI runs under, in the words the picker uses, and the
+// cycle shift+tab walks — the IDE's status line, and the one keystroke an IDE
+// user already expects to change it.
+const PERM_NAME = { supervised: "supervised", edits: "auto-accept edits", auto: "auto", full: "full access" };
+const permName = () => PERM_NAME[prefs.cli_permission || "edits"] || "auto-accept edits";
+function cyclePerm() {
+  const order = ["edits", "auto", "full"];
+  const cur = prefs.cli_permission || "edits";
+  const next = order[(order.indexOf(cur) + 1) % order.length];
+  prefs.cli_permission = next;
+  invoke("set_agent_run", { planner: prefs.planner || null, worker: prefs.worker || null, permission: next, effort: prefs.cli_effort || null }).catch(() => {});
+  toast(`CLI permissions: ${PERM_NAME[next]}`, "ok");
+  renderGrid();
+}
+// Shift+Tab cycles it in the IDE, where there is no composer to mean plan mode.
+addEventListener("keydown", e => {
+  if (e.key !== "Tab" || !e.shiftKey) return;
+  if (S.mode !== "code" || S.codeView !== "agents" || S.settings) return;
+  if (e.target.closest("textarea")) return;
+  e.preventDefault();
+  cyclePerm();
+});
 function logHTML(e) {
   const t = e.text;
   switch (e.kind) {
@@ -816,7 +873,7 @@ function logHTML(e) {
 }
 function agentBody(a) {
   const path = a.worktree || snap.workspace;
-  let h = `<div class="banner">${mascot()}<div class="bt"><div>Backspace v0.1.0</div><div>${esc(route(a))}${a.decision && a.decision.confidence > 0 ? ` · routed by ${esc(a.decision.source)} (${Math.round(a.decision.confidence * 100)}% confident)` : a.decision ? ` · routed by ${esc(a.decision.source)}` : ""}</div><div>${esc(path)}</div></div></div>`;
+  let h = sessionCard(a, path);
   h += a.log.map(logHTML).join("");
   h += artifactHTML(a);
   if (a.status === "running") h += `<div class="ln spin"><span class="spin-g">${SPIN[spinI]}</span> Working… (${esc(a.decision ? a.decision.model : "routing")} · ↓ ${a.input_tokens.toLocaleString()} tokens)</div>`;
@@ -936,6 +993,7 @@ function statusHTML(a) {
     : t ? `check: ${esc(t.check || "none")} · ${esc(t.state.replace(/_/g, "-"))}` : esc(a.status);
   return `<div class="st">[${esc(a.decision ? `${a.decision.model} @ ${a.decision.effort}` : "not routed")}] <span style="color:var(--blue)">▣ ${esc(snap.name)}</span> | <span style="color:var(--green)">⎇ ${esc(a.branch || "-")}</span></div>
     <div class="st"><span class="bar">${"█".repeat(filled)}${"░".repeat(10 - filled)}</span> ${Math.round(share * 100)}% of spend | <span style="color:var(--amber)">$${subtree(a.id).toFixed(3)}</span> | ${a.input_tokens.toLocaleString()}↓ ${a.output_tokens.toLocaleString()}↑</div>
+    <div class="hint">▸▸ <span class="b1">${esc(permName())}</span> on <span class="dim">(shift+tab to cycle)</span> · ${snap.agents.length} agent${snap.agents.length === 1 ? "" : "s"}</div>
     <div class="hint">▸▸ ${hint}</div>`;
 }
 async function filesBody(id, el, ps) {
@@ -2393,8 +2451,11 @@ addEventListener("DOMContentLoaded", async () => {
   S.mode = prefs.mode || "chat";
   S.codeView = prefs.code_view === "pair" ? "pair" : "agents";
   S.chatView = prefs.chat_view === "agents" ? "agents" : "chat";
-  // The old Inbox lives on Home now.
-  S.wb = WB.some(([k]) => k === prefs.wb_view) ? prefs.wb_view : "home";
+  // The IDE opens on the session canvas. A project's default tab is one agent
+  // canvas filling the window (core prefs TabSpec::defaults), which is what the
+  // IDE is for; Home is still in the view menu, and it is what shows with no
+  // project open, where a canvas would have nothing to draw.
+  S.wb = WB.some(([k]) => k === prefs.wb_view) ? prefs.wb_view : "canvases";
   Art.apply(prefs.backdrop);
   // A folder given on the command line, or a bench run: start in Code.
   const first = await invoke("snapshot");

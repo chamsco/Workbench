@@ -366,6 +366,21 @@ button.rp-row:hover { background: var(--hover); }
 .rp-none .ic { width: 22px; height: 22px; margin-bottom: 6px; }
 .rp-none b { color: var(--fg); font-weight: 600; }
 
+/* ---------- the session card: what this canvas is talking to ----------------
+   The IDE opens on a session, so the three things you would otherwise go to
+   Settings for — which CLI, on which model and effort, on whose account — sit
+   at the top of the session, with the folder it is working in. */
+.banner { align-items: flex-start; gap: 11px; margin: 2px 0 16px; padding: 12px 14px; border-radius: 12px; background: var(--card); box-shadow: inset 0 0 0 1px var(--well-outline), inset 0 1px 0 0 var(--well-highlight); }
+.banner > svg, .banner .pav { width: 30px; height: 30px; flex: none; border-radius: 9px; }
+.banner .pav .logo { width: 19px; height: 19px; }
+.banner .bt { min-width: 0; }
+.banner .bt .bt-h { font-weight: 650; font-size: 13.5px; }
+.banner .bt .bt-plan { color: var(--fg-3); }
+.banner .bt .bt-p { font: 11.5px var(--font-mono); color: var(--fg-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 64ch; }
+/* The status line that says which mode the CLI is in, and how many agents are
+   on the machine — the one an IDE user reads without looking away. */
+.hint .dim { color: var(--fg-4); margin-left: 2px; }
+
 /* ---------- the ghost collapse owns its transition --------------------------
    `.win.side-closed .side` earlier in this file sets a transition that omits
    width, and --side-w is a custom property, so it cannot be transitioned at
