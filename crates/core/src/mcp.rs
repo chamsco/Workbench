@@ -62,9 +62,11 @@ fn memory_save(scope: &str, text: &str) -> Result<String> {
     if crate::memory::looks_secret(text) {
         bail!("that looks like a secret; memory does not keep credentials");
     }
-    let m = crate::memory::Memory::open(crate::prefs::Prefs::data_dir());
-    let n = m.add(text, Some(scope.to_string()), "agent")?;
-    Ok(format!("Saved (id {}). The user can see and undo it in Memory.", n.id))
+    // This server is its own process: it never writes the memory repo, it
+    // proposes, and the app files the note (Memory::drain).
+    let c = crate::memory::NoteCandidate { text: text.to_string(), scope: Some(scope.to_string()), source: "agent".into(), thread: None };
+    crate::memory::propose(&crate::prefs::Prefs::data_dir(), &c)?;
+    Ok("Proposed. It is filed into memory on the next pass, merged with any note it repeats; the user can see and undo it.".into())
 }
 
 /// What the bot this server runs for may not do (`Agent::deny`): its rules
@@ -170,7 +172,7 @@ pub fn serve() -> Result<()> {
                 if memory_scope().is_some() {
                     tools.push(json!({"name": "memory_search", "description": "Search the user's memory (an Agent Memory Repo: notes and any topic files) for what this task needs: preferences, decisions, facts about people and projects, saved queries.",
                         "inputSchema": {"type": "object", "properties": {"query": {"type": "string", "description": "Words that must all appear"}}, "required": ["query"]}}));
-                    tools.push(json!({"name": "memory_save", "description": "Save one line worth knowing in later sessions: a preference, a decision, a fact the user would otherwise repeat. Not for things cheap to rediscover or only true for this task. Never secrets. Saved to your own notes; the user can see and undo it.",
+                    tools.push(json!({"name": "memory_save", "description": "Propose one line worth knowing in later sessions: a preference, a decision, a fact the user would otherwise repeat. Not for things cheap to rediscover or only true for this task. Never secrets. It is filed into your own notes on the next pass, merged with any note it repeats; the user can see and undo it.",
                         "inputSchema": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}}));
                 }
                 tools.retain(|t| !denied(&deny, t["name"].as_str().unwrap_or(""), None));

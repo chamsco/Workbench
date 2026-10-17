@@ -118,6 +118,53 @@ pub struct Memory {
     rejected_path: PathBuf,
     store: Mutex<Store>,
     learner: crate::memory_learn::Learner,
+    /// Notes agents proposed, one file each, waiting for `drain`.
+    inbox: PathBuf,
+    /// The last receipts `drain` wrote, newest last.
+    receipts_path: PathBuf,
+}
+
+/// A note an agent proposes. Agents never write the memory repo themselves
+/// (an MCP server is its own process, and two writers race on the same
+/// files and the same git index): they drop one of these in the inbox with
+/// `propose`, and the process that owns `Memory` files it in `drain`.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct NoteCandidate {
+    pub text: String,
+    /// None: everywhere; otherwise a project path or `agent:<id>`.
+    pub scope: Option<String>,
+    /// Who proposed it ("agent", "chat", …).
+    #[serde(default)]
+    pub source: String,
+    #[serde(default)]
+    pub thread: Option<String>,
+}
+
+/// What one `drain` did: every candidate is either kept, merged into a note
+/// it repeats, or dropped with the reason.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+pub struct Receipt {
+    pub at: u64,
+    pub kept: Vec<String>,
+    pub merged: Vec<String>,
+    /// (text, why).
+    pub dropped: Vec<(String, String)>,
+    /// The one commit the batch made; None when nothing changed.
+    pub commit: Option<String>,
+}
+
+const MAX_RECEIPTS: usize = 50;
+
+/// Queue a note for the Librarian. Safe from any process: the file appears
+/// whole (written aside, then renamed in) or not at all.
+pub fn propose(data_dir: &Path, c: &NoteCandidate) -> Result<()> {
+    let inbox = data_dir.join("memory-inbox");
+    std::fs::create_dir_all(&inbox)?;
+    let name = format!("{:013}-{}", now_ms(), new_id());
+    let tmp = inbox.join(format!("{name}.tmp"));
+    std::fs::write(&tmp, serde_json::to_vec(c)?)?;
+    std::fs::rename(&tmp, inbox.join(format!("{name}.json")))?;
+    Ok(())
 }
 
 /// Words of a note, for telling near-duplicates apart.
@@ -323,6 +370,8 @@ impl Memory {
             rejected_path: dir.join("memory-rejected.json"),
             store: Mutex::new(Store::default()),
             learner: crate::memory_learn::Learner::open(dir.clone()),
+            inbox: dir.join("memory-inbox"),
+            receipts_path: dir.join("memory-receipts.json"),
             root,
         };
         let fresh = !m.root.join("MEMORY.md").exists();
@@ -579,8 +628,15 @@ impl Memory {
         Ok(())
     }
 
-    /// Newest first.
+    /// Newest first, after filing whatever agents proposed.
     pub fn list(&self) -> Vec<Note> {
+        self.drain();
+        self.notes()
+    }
+
+    /// Newest first, without filing the inbox: what a process that must not
+    /// write (an agent's MCP server searching) reads.
+    fn notes(&self) -> Vec<Note> {
         let mut st = self.store.lock().unwrap();
         self.sync(&mut st);
         let mut v = st.notes.clone();
@@ -741,7 +797,116 @@ impl Memory {
         self.write(&mut st, &format!("Delete: {}", short(&n.text)))
     }
 
-    /// Apply a batch of changes as one commit (dreaming, an agent's save).
+    /// File everything agents proposed since the last pass, as one commit with
+    /// a receipt. None when the inbox was empty. Two processes draining at
+    /// once each take different files: a candidate is claimed by renaming it,
+    /// which only one of them can do.
+    pub fn drain(&self) -> Option<Receipt> {
+        let mut names: Vec<PathBuf> = std::fs::read_dir(&self.inbox)
+            .ok()?
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.extension().is_some_and(|x| x == "json"))
+            .collect();
+        names.sort();
+        let mut taken = vec![];
+        for p in names {
+            let claim = p.with_extension(format!("taken-{}", std::process::id()));
+            if std::fs::rename(&p, &claim).is_ok() {
+                taken.push(claim);
+            }
+        }
+        if taken.is_empty() {
+            return None;
+        }
+        let mut r = Receipt { at: now_ms(), ..Receipt::default() };
+        let mut st = self.store.lock().unwrap();
+        self.sync(&mut st);
+        for path in &taken {
+            let Some(c) = std::fs::read(path).ok().and_then(|b| serde_json::from_slice::<NoteCandidate>(&b).ok()) else {
+                r.dropped.push((path.file_name().unwrap_or_default().to_string_lossy().into(), "unreadable".into()));
+                continue;
+            };
+            let text: String = c.text.trim().replace(['\n', '\r'], " ");
+            let why = if text.is_empty() {
+                Some("empty")
+            } else if text.chars().count() > 400 {
+                Some("longer than one line")
+            } else if looks_secret(&text) {
+                Some("looks like a secret")
+            } else if self.was_rejected(&text) {
+                Some("you said not to remember this")
+            } else {
+                None
+            };
+            if let Some(why) = why {
+                r.dropped.push((text, why.into()));
+                continue;
+            }
+            let scope = c.scope.filter(|s| !s.is_empty());
+            let now = now_ms();
+            if let Some(n) = st.notes.iter_mut().find(|n| n.project == scope && similar(&n.text, &text)) {
+                // Same claim, newer wording: one note, not two.
+                n.text = text.clone();
+                n.updated = now;
+                n.on = true;
+                r.merged.push(text);
+                continue;
+            }
+            st.notes.push(Note {
+                id: new_id(),
+                text: text.clone(),
+                project: scope,
+                source: if c.source.is_empty() { "agent".into() } else { c.source },
+                thread: c.thread,
+                created: now,
+                updated: now,
+                on: true,
+                kind: String::new(),
+                importance: 1.0,
+                uses: 0,
+                features: vec![],
+            });
+            r.kept.push(text);
+        }
+        if !r.kept.is_empty() || !r.merged.is_empty() {
+            let mut msg = format!("Librarian: kept {}, merged {}, dropped {}\n", r.kept.len(), r.merged.len(), r.dropped.len());
+            for t in &r.kept {
+                msg.push_str(&format!("\n+ {}", short(t)));
+            }
+            for t in &r.merged {
+                msg.push_str(&format!("\n~ {}", short(t)));
+            }
+            for (t, why) in &r.dropped {
+                msg.push_str(&format!("\n- {} ({why})", short(t)));
+            }
+            let before = self.head();
+            if self.write(&mut st, &msg).is_ok() {
+                r.commit = self.head().filter(|h| Some(h) != before.as_ref());
+            }
+        }
+        drop(st);
+        for p in &taken {
+            let _ = std::fs::remove_file(p);
+        }
+        let mut all = self.receipts();
+        all.push(r.clone());
+        let skip = all.len().saturating_sub(MAX_RECEIPTS);
+        if let Ok(b) = serde_json::to_vec_pretty(&all[skip..]) {
+            let _ = std::fs::write(&self.receipts_path, b);
+        }
+        Some(r)
+    }
+
+    /// What the last passes of `drain` did, oldest first.
+    pub fn receipts(&self) -> Vec<Receipt> {
+        std::fs::read(&self.receipts_path)
+            .ok()
+            .and_then(|b| serde_json::from_slice(&b).ok())
+            .unwrap_or_default()
+    }
+
+    /// Apply a batch of changes as one commit (dreaming).
     pub(crate) fn apply(&self, msg: &str, f: impl FnOnce(&mut Vec<Note>)) -> Result<()> {
         let mut st = self.store.lock().unwrap();
         self.sync(&mut st);
@@ -787,7 +952,7 @@ impl Memory {
             terms.iter().all(|t| s.contains(t.as_str()))
         };
         let mut notes: Vec<Note> = self
-            .list()
+            .notes()
             .into_iter()
             .filter(|n| n.on && scopes.contains(&n.project) && hit(&n.text))
             .collect();
@@ -828,6 +993,7 @@ impl Memory {
     /// The notes a chat or agent in `project` gets, as a block for its
     /// system prompt; None when there are none.
     pub fn context(&self, project: Option<&str>) -> Option<String> {
+        self.drain();
         let mut st = self.store.lock().unwrap();
         self.sync(&mut st);
         let mut notes: Vec<Note> = st
@@ -898,6 +1064,54 @@ mod tests {
         m.forget(&n.id).unwrap();
         assert!(m.was_rejected("The user likes green tea"));
         assert!(m.capture("Remember that I like green tea", None, None).is_none());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn the_librarian_files_a_batch_as_one_commit() {
+        let dir = std::env::temp_dir().join(format!("bs-mem-lib-{}", now_ms()));
+        let m = Memory::open(dir.clone());
+        m.add("The user deploys with fly.io", None, "").unwrap();
+        let n = m.capture("Remember that I like green tea", None, None).unwrap();
+        m.forget(&n.id).unwrap();
+        let commits = || {
+            let o = std::process::Command::new("git").arg("-C").arg(m.root()).args(["rev-list", "--count", "HEAD"]).output().unwrap();
+            String::from_utf8_lossy(&o.stdout).trim().parse::<u32>().unwrap()
+        };
+        let before = commits();
+        let c = |t: &str, scope: Option<&str>| NoteCandidate { text: t.into(), scope: scope.map(String::from), source: "agent".into(), thread: None };
+        for cand in [
+            c("The staging database is read-only", Some("/w/a")),
+            c("Integration tests need the fake CLI on PATH", Some("/w/a")),
+            c("The user reviews PRs from a phone", None),
+            c("Releases are cut on Fridays", None),
+            c("The user deploys with fly.io now", None),
+            c("The staging database is read only", Some("/w/a")),
+            c("   ", None),
+            c("api_key=abc123 for the staging box", None),
+            c("The user likes green tea", None),
+            c(&"x".repeat(401), None),
+        ] {
+            propose(&dir, &cand).unwrap();
+        }
+        let r = m.drain().unwrap();
+        assert_eq!((r.kept.len(), r.merged.len(), r.dropped.len()), (4, 2, 4), "{r:?}");
+        let mut why: Vec<&str> = r.dropped.iter().map(|(_, w)| w.as_str()).collect();
+        why.sort();
+        assert_eq!(why, ["empty", "longer than one line", "looks like a secret", "you said not to remember this"]);
+        assert_eq!(commits(), before + 1, "one commit for the whole batch");
+        assert!(r.commit.is_some());
+        // The repeat refreshed the note instead of adding one.
+        let all = m.list();
+        assert_eq!(all.iter().filter(|n| n.text.contains("fly.io")).count(), 1);
+        assert_eq!(all.iter().filter(|n| n.text.contains("staging database")).count(), 1);
+        assert_eq!(m.receipts().last(), Some(&r));
+        // The inbox is empty afterwards, and an empty pass makes no commit.
+        assert!(m.drain().is_none());
+        assert_eq!(commits(), before + 1);
+        // Agents' reads file the inbox first, so a proposal shows up there.
+        propose(&dir, &c("The user prefers squash merges", None)).unwrap();
+        assert!(m.context(None).unwrap().contains("squash merges"));
         let _ = std::fs::remove_dir_all(dir);
     }
 
