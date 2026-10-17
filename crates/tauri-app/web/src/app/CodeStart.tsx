@@ -1,17 +1,17 @@
 // Code → ADE's landing: the zone's own home, not a second one.
 //
 // This is `home.js` — the "What should your agents work on?" screen — drawn into
-// a node the chat face owns, with its ask line left out. The ADE's composer sits
-// under it and carries the same project / branch / machine chips, so the hero,
-// the pills and the inbox are what belong here. One screen, one implementation:
-// if the home grows a pill, the ADE has it the same afternoon.
+// a node the chat face owns. It is drawn whole, ask line and all: the composer
+// belongs under the hero, and the inbox under that, as one column. (The chat
+// face's own composer steps aside for it — see ChatApp.) One screen, one
+// implementation: if the home grows a pill, the ADE has it the same afternoon.
 
 import { useEffect, useRef } from "react";
 
 import { useChat } from "../bridge";
 
 /** The vanilla home, mounted where React asks for it. */
-type HomeModule = { render: (el: HTMLElement, opts?: { composer?: boolean }) => void };
+type HomeModule = { render: (el: HTMLElement) => void };
 
 export function CodeStart() {
   const host = useRef<HTMLDivElement>(null);
@@ -31,7 +31,7 @@ export function CodeStart() {
     const home = (window as unknown as { Home?: HomeModule }).Home;
     if (!home) return;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    home.render(inner, { composer: false });
+    home.render(inner);
   }, [epoch]);
 
   return <div ref={host} className="h-full min-h-0" />;

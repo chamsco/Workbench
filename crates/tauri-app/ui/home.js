@@ -14,10 +14,10 @@ var Home = (() => {
   let proj = null, open = "agents", picking = false, activity = { path: "", at: 0, data: null };
 
   // The home can be mounted twice at once: the canvas zone draws one, and Code →
-  // ADE draws another behind its own composer. Every refresh therefore walks the
-  // roots that are still in the document — `document.querySelector(".home")`
-  // wrote both screens' pills into whichever came first, which is a screen the
-  // reader may not even be looking at.
+  // ADE draws another. Every refresh therefore walks the roots that are still in
+  // the document — `document.querySelector(".home")` wrote both screens' pills
+  // into whichever came first, which is a screen the reader may not even be
+  // looking at.
   const roots = new Set();
   function each(fn) {
     for (const r of [...roots]) {
@@ -25,18 +25,24 @@ var Home = (() => {
       fn(r);
     }
   }
-  const firstWith = sel => [...roots].find(r => r.isConnected && r.querySelector(sel)) || null;
+  // What the reader is looking at, when more than one home is mounted: the
+  // canvas zone's home is display:none behind the ADE's, and a picker opened
+  // from a hidden composer is a picker nobody can see.
+  const firstWith = sel =>
+    [...roots].find(r => r.isConnected && r.offsetParent !== null && r.querySelector(sel)) ||
+    [...roots].find(r => r.isConnected && r.querySelector(sel)) ||
+    null;
 
   const project = () => proj || (hasProject && snap.workspace) || (prefs.projects || [])[0] || null;
   const choice = () => ({ model: prefs.worker || "", permission: prefs.cli_permission || "edits", effort: prefs.cli_effort || null });
   const name = a => (a.id === MAIN ? "Main agent" : a.title);
   const visible = () => treeOrder().map(agent).filter(a => a && a.kind !== "triage");
 
-  function shell(withComposer = true) {
+  function shell() {
     return `<div class="home">
       <div class="home-hero">
         <h1>What should your agents work on?</h1>
-        ${withComposer ? `<div class="hc-above">
+        <div class="hc-above">
           <button class="hc-chip" data-act="proj" data-popper>${icon("folder")}<span class="v"></span>${icon("chevd")}</button>
           <span class="hc-chip quiet">${icon("branch")}<span class="br">backspace/run</span></span>
           <span class="hc-chip quiet">${icon("pc")}<span class="mach"></span></span>
@@ -51,7 +57,7 @@ var Home = (() => {
             <button class="hc-send" data-act="send" aria-label="Start">${icon("up")}</button>
           </div>
           <div class="hc-panel" hidden></div>
-        </div>` : ""}
+        </div>
         <div class="home-dock">
           <div class="home-pills" role="tablist" aria-label="What's going on"></div>
           <div class="home-open"></div>
@@ -168,29 +174,35 @@ var Home = (() => {
   // changed under it — and every write past the await would then be a null.
   // Hold the root, and leave quietly if it is gone.
   //
-  // A home drawn without its composer has no chips to write into, which is not a
-  // failure: that line belongs to whoever rendered it (the ADE's own composer
-  // carries the same project, branch and machine, and two of them is one too
-  // many).
+  // Every mounted home gets the chips, not just one: the canvas zone and the ADE
+  // can both hold a home at once (the ADE's is the one on screen), and a chip
+  // line that only one of them received is a chip line that is wrong half the
+  // time. The model's name is a promise, so it is written after the await and
+  // only into the roots that still have the element.
   async function bar() {
-    // Only a home drawn with a composer has these; the ADE's has none, and it is
-    // the one the reader is looking at.
-    const root = firstWith(".hc-above [data-act=proj] .v");
-    if (!root) return;
-    const proj = root.querySelector(".hc-above [data-act=proj] .v");
-    const p = project(), c = choice();
-    proj.textContent = p ? base(p) : "Choose a project";
-    root.querySelector(".hc-above .mach").textContent = machine().name;
-    const main = agent(MAIN);
-    root.querySelector(".hc-above .br").textContent = (hasProject && main && main.branch) || "backspace/run";
-    root.querySelector(".hc-model .lg").innerHTML = Logos.mark(Picker.cliOf(c.model));
+    const live = [];
+    each(r => {
+      const proj = r.querySelector(".hc-above [data-act=proj] .v");
+      if (!proj) return;
+      const p = project();
+      proj.textContent = p ? base(p) : "Choose a project";
+      r.querySelector(".hc-above .mach").textContent = machine().name;
+      const main = agent(MAIN);
+      r.querySelector(".hc-above .br").textContent = (hasProject && main && main.branch) || "backspace/run";
+      r.querySelector(".hc-model .lg").innerHTML = Logos.mark(Picker.cliOf(choice().model));
+      live.push(r);
+    });
+    if (!live.length) return;
+    const c = choice();
     const label = await Picker.label(c.model);
-    // The root outlives this await (the canvas grid is reused, not replaced) but
-    // its contents do not: look again, and leave if the composer has moved on.
-    const v = root.querySelector(".hc-model .v"), eff = root.querySelector(".hc-model .eff");
-    if (!v || !eff) return;
-    v.textContent = label;
-    eff.textContent = Effort.name(Picker.cliOf(c.model), c.effort);
+    for (const r of live) {
+      // The root outlives this await (the canvas grid is reused, not replaced)
+      // but its contents do not: look again, and skip one that has moved on.
+      const v = r.querySelector(".hc-model .v"), eff = r.querySelector(".hc-model .eff");
+      if (!v || !eff) continue;
+      v.textContent = label;
+      eff.textContent = Effort.name(Picker.cliOf(c.model), c.effort);
+    }
   }
 
   function projMenu(anchor) {
@@ -217,10 +229,13 @@ var Home = (() => {
   }
 
   // The picker unfolds from the composer; the inbox steps aside meanwhile.
+  // `firstWith` hands back the root the home was drawn into, so the element the
+  // "picking" class belongs on is the `.home` inside it — that is what the CSS
+  // moves the hero up for.
   function togglePicker() {
-    const home = firstWith(".hc-panel");
-    if (!home) return;
-    const panel = home.querySelector(".hc-panel"), btn = home.querySelector("[data-act=model]");
+    const root = firstWith(".hc-panel");
+    if (!root) return;
+    const home = root.querySelector(".home"), panel = root.querySelector(".hc-panel"), btn = root.querySelector("[data-act=model]");
     if (picking) { Picker.close(); return; }
     picking = true; panel.hidden = false; home.classList.add("picking"); btn.setAttribute("aria-expanded", "true");
     Picker.mount(panel, choice(), choose, () => { picking = false; panel.hidden = true; home.classList.remove("picking"); btn.setAttribute("aria-expanded", "false"); });
@@ -250,30 +265,24 @@ var Home = (() => {
     open = "agents"; pills();
   }
 
-  /// Draw the home into `g`.
-  ///
-  /// `composer: false` leaves the ask line out and keeps the rest — the hero,
-  /// the pills and the inbox. That is how Code → ADE shows it: the same screen
-  /// behind its own composer, rather than a second home written from scratch.
-  function render(g, opts = {}) {
-    const withComposer = opts.composer !== false;
+  /// Draw the home into `g` — the hero, the ask line under it, then the pills
+  /// and the inbox, as one column. Whoever draws it gets all of it: Code → ADE
+  /// shows this screen whole, and the chat face's own composer steps aside.
+  function render(g) {
     roots.add(g);
     let home = g.querySelector(".home");
-    if (!home || home.dataset.composer !== String(withComposer)) {
-      g.className = "grid home-wrap" + (withComposer ? "" : " no-hc");
-      g.innerHTML = shell(withComposer);
+    if (!home) {
+      g.className = "grid home-wrap";
+      g.innerHTML = shell();
       home = g.querySelector(".home");
-      home.dataset.composer = String(withComposer);
-      if (withComposer) {
-        home.querySelector("[data-act=proj]").onclick = e => projMenu(e.currentTarget);
-        home.querySelector("[data-act=model]").onclick = togglePicker;
-        home.querySelector("[data-act=send]").onclick = () => send(false);
-        home.querySelector("[data-act=par]").onclick = () => send(true);
-        const ta = home.querySelector("textarea");
-        ta.onkeydown = e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(e.ctrlKey || e.metaKey); } };
-        ta.oninput = () => { ta.style.height = "auto"; ta.style.height = Math.min(200, ta.scrollHeight) + "px"; };
-        requestAnimationFrame(() => ta.focus());
-      }
+      home.querySelector("[data-act=proj]").onclick = e => projMenu(e.currentTarget);
+      home.querySelector("[data-act=model]").onclick = togglePicker;
+      home.querySelector("[data-act=send]").onclick = () => send(false);
+      home.querySelector("[data-act=par]").onclick = () => send(true);
+      const ta = home.querySelector("textarea");
+      ta.onkeydown = e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(e.ctrlKey || e.metaKey); } };
+      ta.oninput = () => { ta.style.height = "auto"; ta.style.height = Math.min(200, ta.scrollHeight) + "px"; };
+      requestAnimationFrame(() => ta.focus());
       picking = false;
     }
     bar();

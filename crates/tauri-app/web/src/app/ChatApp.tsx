@@ -181,7 +181,10 @@ export function ChatApp({ sideEl, user }: { sideEl: HTMLElement; user: string })
                 )}
               </AnimatePresence>
             </div>
-            {agentsMode && !scope && !inThread ? null : !anyRoute && !inThread ? (
+            {/* The landing is a whole screen: the home behind it draws its own
+                composer under the hero, so the face's dock steps aside for it.
+                A thread open, or the plain chat, keeps the dock. */}
+            {!inThread && (agentsMode || scope) ? null : !anyRoute && !inThread ? (
               <AnimatePresence initial={false}>
                 {scanWaited ? <NoModels key="none" /> : <LookingForModels key="looking" />}
               </AnimatePresence>
