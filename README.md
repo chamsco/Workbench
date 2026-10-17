@@ -274,7 +274,9 @@ The status bar shows the branch, the project and its ticket count, who is
 working, the split, the phone link, a motion toggle (Full or Reduced), and the
 tokens and cost so far.
 
-**Machines** switch from the sidebar foot — your laptop, or a machine you
+**Machines** are the root of the sidebar: **This machine** sits at the top, and
+expanding it shows the folder it is running right now, with its canvases and
+threads under it. The ⋯ beside that row lists your laptop and any machine you
 follow. To follow one, run the harness headless somewhere and share it:
 
 ```sh

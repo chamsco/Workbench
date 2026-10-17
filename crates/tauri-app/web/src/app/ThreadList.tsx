@@ -4,7 +4,7 @@
 // navigate by, so the threads you have had in it and the canvases it is showing
 // both hang under its folder. Rendered into the vanilla sidebar through a portal.
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   IconActivity,
   IconAlertTriangleFilled,
@@ -143,6 +143,34 @@ export function ThreadList({ onNewChat }: { onNewChat: () => void }) {
   // moment a canvas is added or removed. (`saveTabs` nudges the store too.)
   const canvases = inCode ? host.canvases() : [];
 
+  const tree =
+    folders.length === 0 ? (
+      <div className="px-2.5 py-2 text-[13px]/5 text-muted-foreground">
+        {project ? "Nothing in this project yet. Ask a CLI to change something; it works in the folder." : "No chats yet. Start one with any model you've connected."}
+      </div>
+    ) : (
+      folders.map((f) => (
+        <section key={f.path ?? "chats"} className="flex flex-col gap-0.5">
+          <div className="flex h-6 items-center gap-1.5 px-2 text-[11px]/4 font-semibold text-muted-foreground/80">
+            <IconFolder size={13} className="shrink-0" />
+            <span className="min-w-0 truncate" title={f.path ?? undefined}>
+              {f.name}
+            </span>
+            {f.open && canvases.length > 0 && <span className="ml-auto shrink-0 font-normal text-muted-foreground/60">{canvases.length}</span>}
+          </div>
+          {f.open && canvases.map((c) => <CanvasRow key={`c${c.index}`} canvas={c} />)}
+          {f.items.map((t) => (
+            <ThreadRow key={t.id} thread={t} active={t.id === id} inIde={inCode} />
+          ))}
+          {f.items.length === 0 && !(f.open && canvases.length > 0) && (
+            <div className="px-2.5 py-1 text-[12.5px]/5 text-muted-foreground">
+              {query ? "No match" : "No threads yet"}
+            </div>
+          )}
+        </section>
+      ))
+    );
+
   return (
     <div className="whirl-side flex flex-col gap-2.5">
       <div className="flex items-center gap-0.5 px-0.5">
@@ -171,36 +199,9 @@ export function ThreadList({ onNewChat }: { onNewChat: () => void }) {
         </label>
       )}
 
-      {folders.length === 0 ? (
-        <div className="px-2.5 py-2 text-[13px]/5 text-muted-foreground">
-          {project ? "Nothing in this project yet. Ask a CLI to change something; it works in the folder." : "No chats yet. Start one with any model you've connected."}
-        </div>
-      ) : (
-        folders.map((f) => (
-          <section key={f.path ?? "chats"} className="flex flex-col gap-0.5">
-            <div className="flex h-6 items-center gap-1.5 px-2 text-[11px]/4 font-semibold text-muted-foreground/80">
-              <IconFolder size={13} className="shrink-0" />
-              <span className="min-w-0 truncate" title={f.path ?? undefined}>
-                {f.name}
-              </span>
-              {f.open && canvases.length > 0 && <span className="ml-auto shrink-0 font-normal text-muted-foreground/60">{canvases.length}</span>}
-            </div>
-            {f.open && canvases.map((c) => <CanvasRow key={`c${c.index}`} canvas={c} />)}
-            {f.items.map((t) => (
-              <ThreadRow key={t.id} thread={t} active={t.id === id} inIde={inCode} />
-            ))}
-            {f.items.length === 0 && !(f.open && canvases.length > 0) && (
-              <div className="px-2.5 py-1 text-[12.5px]/5 text-muted-foreground">
-                {query ? "No match" : "No threads yet"}
-              </div>
-            )}
-          </section>
-        ))
-      )}
-
-      <div className="mt-auto pt-1">
-        <EnvironmentRow />
-      </div>
+      {/* The machine is the root of the tree, and the folder it is running right
+          now hangs under it: which machine you are on, then what it holds. */}
+      <EnvironmentRow forceOpen={searching}>{tree}</EnvironmentRow>
     </div>
   );
 }
@@ -237,88 +238,111 @@ const CANVAS_ICON: Record<string, Icon> = {
   empty: IconWindow,
 };
 
-/* Where the next thread runs.
+/* The root of the tree: which machine the work runs on, and — expanded — the
+ * folder it is running right now, with everything that folder holds.
  *
  * One row, like T3 Code's environment picker: this machine, or a machine the
- * harness is paired with — switching it moves the agents, the worktrees and the
- * work. Colony's named workspaces are listed under it when visor-core is there;
- * they are created and driven by agents (see Settings → Workspaces and Colony),
- * so picking one opens the page that manages them rather than pretending a
- * thread can be pinned to it, which the core cannot do today. */
-function EnvironmentRow() {
+ * harness is paired with. Switching it moves the agents, the worktrees and the
+ * work, which is the ⋯ beside the row. Colony's named workspaces are listed
+ * there too when visor-core is there; they are created and driven by agents (see
+ * Settings → Workspaces and Colony), so picking one opens the page that manages
+ * them rather than pretending a thread can be pinned to it, which the core
+ * cannot do today. */
+function EnvironmentRow({ children, forceOpen }: { children: ReactNode; forceOpen?: boolean }) {
   const host = getHost();
   const { epoch } = useChat();
-  const [open, setOpen] = useState(false);
+  // Expanded by default: the folder you are running now is the point of the row,
+  // and a collapsed tree should be a choice rather than the way it lands. A
+  // search opens it, or matches would be hidden behind a collapsed root.
+  const [open, setOpen] = useState(true);
+  const expanded = open || !!forceOpen;
+  const [menuOpen, setMenuOpen] = useState(false);
   const [colony, setColony] = useState<ColonyStatus | null>(null);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const all = useMemo(() => host.machines(), [epoch]);
   const here = all.find((m) => m.selected);
+  const name = here ? (here.local ? "This machine" : here.name) : host.machineName();
   const workspaces = colony?.ready ? colony.workspaces ?? [] : [];
 
   useEffect(() => {
-    if (!open || colony) return;
+    if (!menuOpen || colony) return;
     let live = true;
     host.colony().then((c) => live && setColony(c), () => live && setColony(null));
     return () => {
       live = false;
     };
-  }, [open, colony, host]);
+  }, [menuOpen, colony, host]);
 
   return (
-    <DropdownMenu open={open} onOpenChange={setOpen}>
-      <DropdownMenuTrigger
-        title="Where the next thread runs"
-        className="group/row relative flex h-8 w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 text-[13.5px]/4 font-medium text-foreground-soft"
-      >
-        <RowPill />
-        <span className="relative shrink-0">{here && !here.local ? <IconCloud size={16} /> : <IconDeviceDesktop size={16} />}</span>
-        <span className="relative min-w-0 flex-1 truncate">{here ? (here.local ? "This machine" : here.name) : host.machineName()}</span>
-        <IconChevronDown size={14} className="relative shrink-0 text-muted-foreground" />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="min-w-56 p-1">
-        <DropdownMenuGroup>
-          <DropdownMenuLabel className="px-2 py-1 text-[10.5px]">Start on</DropdownMenuLabel>
-          {all.map((m) => (
-            <DropdownMenuItem key={m.index} className="gap-2 px-2 py-1.5" onClick={() => void host.pickMachine(m.index)}>
-              {m.local ? <IconDeviceDesktop size={15} /> : <IconCloud size={15} />}
-              <span className="flex min-w-0 flex-col">
-                <span className="truncate">{m.local ? "This machine" : m.name}</span>
-                {!m.local && (
-                  <span className="truncate text-[11px] text-muted-foreground">
-                    {m.url} · {m.link.state}
-                  </span>
-                )}
-              </span>
-              {m.selected && <IconCheck size={14} className="ml-auto shrink-0" />}
-            </DropdownMenuItem>
-          ))}
-        </DropdownMenuGroup>
-        {workspaces.length > 0 && (
-          <>
-            <DropdownMenuSeparator />
+    <div className="flex min-h-0 flex-col gap-0.5">
+      <div className="group/row group/thread relative">
+        <button
+          type="button"
+          aria-expanded={expanded}
+          title={`${name} — the folder it is running right now`}
+          onClick={() => setOpen((o) => !o)}
+          className="group/row relative flex h-8 w-full cursor-pointer items-center gap-2.5 rounded-lg pr-8 pl-2.5 text-[13.5px]/4 font-medium text-foreground-soft"
+        >
+          <RowPill />
+          <span className="relative shrink-0">{here && !here.local ? <IconCloud size={16} /> : <IconDeviceDesktop size={16} />}</span>
+          <span className="relative min-w-0 flex-1 truncate text-left">{name}</span>
+          <IconChevronDown size={14} className={cn("relative shrink-0 text-muted-foreground transition-transform duration-150", expanded && "rotate-180")} />
+        </button>
+        <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
+          <DropdownMenuTrigger
+            aria-label="Where the next thread runs"
+            title="Where the next thread runs"
+            className="absolute top-1/2 right-1 flex size-6 -translate-y-1/2 cursor-pointer items-center justify-center rounded-md text-foreground-soft opacity-0 transition-opacity duration-150 group-hover/thread:opacity-100 hover:text-foreground data-popup-open:opacity-100 coarse:opacity-100"
+          >
+            <IconDots size={16} />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="min-w-56 p-1">
             <DropdownMenuGroup>
-              <DropdownMenuLabel className="px-2 py-1 text-[10.5px]">Colony workspaces</DropdownMenuLabel>
-              {workspaces.map((w) => (
-                <DropdownMenuItem key={w.name} className="gap-2 px-2 py-1.5" onClick={() => host.openSettings("colony")}>
-                  <IconBox size={15} />
+              <DropdownMenuLabel className="px-2 py-1 text-[10.5px]">Start on</DropdownMenuLabel>
+              {all.map((m) => (
+                <DropdownMenuItem key={m.index} className="gap-2 px-2 py-1.5" onClick={() => void host.pickMachine(m.index)}>
+                  {m.local ? <IconDeviceDesktop size={15} /> : <IconCloud size={15} />}
                   <span className="flex min-w-0 flex-col">
-                    <span className="truncate">{w.name}</span>
-                    <span className="truncate text-[11px] text-muted-foreground">
-                      {[w.provider, w.os, w.state].filter(Boolean).join(" · ")}
-                    </span>
+                    <span className="truncate">{m.local ? "This machine" : m.name}</span>
+                    {!m.local && (
+                      <span className="truncate text-[11px] text-muted-foreground">
+                        {m.url} · {m.link.state}
+                      </span>
+                    )}
                   </span>
+                  {m.selected && <IconCheck size={14} className="ml-auto shrink-0" />}
                 </DropdownMenuItem>
               ))}
             </DropdownMenuGroup>
-          </>
-        )}
-        <DropdownMenuSeparator />
-        <DropdownMenuItem className="gap-2 px-2 py-1.5" onClick={() => host.openSettings("machines")}>
-          <IconPlus size={15} className="text-muted-foreground" />
-          Add a machine…
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+            {workspaces.length > 0 && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuGroup>
+                  <DropdownMenuLabel className="px-2 py-1 text-[10.5px]">Colony workspaces</DropdownMenuLabel>
+                  {workspaces.map((w) => (
+                    <DropdownMenuItem key={w.name} className="gap-2 px-2 py-1.5" onClick={() => host.openSettings("colony")}>
+                      <IconBox size={15} />
+                      <span className="flex min-w-0 flex-col">
+                        <span className="truncate">{w.name}</span>
+                        <span className="truncate text-[11px] text-muted-foreground">
+                          {[w.provider, w.os, w.state].filter(Boolean).join(" · ")}
+                        </span>
+                      </span>
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuGroup>
+              </>
+            )}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem className="gap-2 px-2 py-1.5" onClick={() => host.openSettings("machines")}>
+              <IconPlus size={15} className="text-muted-foreground" />
+              Add a machine…
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+      {expanded && <div className="flex min-h-0 flex-col gap-0.5 pl-2">{children}</div>}
+    </div>
   );
 }
 

@@ -44,11 +44,13 @@
   const rows = [...(sideEl ? sideEl.querySelectorAll("button") : [])].map((b) => b.textContent.trim()).filter(Boolean);
   out.sidebarRows = rows.slice(0, 6);
 
-  // Where the next thread runs: open the picker.
-  const envTrigger = [...(sideEl ? sideEl.querySelectorAll("button") : [])].find((b) => /This machine|halo-box/.test(b.textContent));
-  out.envTrigger = envTrigger ? envTrigger.textContent.trim() : null;
-  if (envTrigger) {
-    envTrigger.click();
+  // Where the next thread runs. The row itself is the tree's root now (it
+  // expands to the folder being run); the picker is the ⋯ beside it.
+  const machineRow = sideEl ? sideEl.querySelector('button[aria-expanded]') : null;
+  out.envTrigger = machineRow ? machineRow.textContent.trim() : null;
+  const envMenuBtn = sideEl ? sideEl.querySelector('button[aria-label="Where the next thread runs"]') : null;
+  if (envMenuBtn) {
+    envMenuBtn.click();
     await frames(3);
     await settle(250);
     const pop = document.querySelector('[data-slot="dropdown-menu-content"]');

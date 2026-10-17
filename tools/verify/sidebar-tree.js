@@ -73,6 +73,27 @@
     panes: document.querySelectorAll(".pane").length,
   };
 
+  // The machine is the root, and expanding it shows the folder running now: the
+  // row sits above the folder, and collapsing it takes the folder away.
+  const machineRow = () => document.querySelector("#chatList button[aria-expanded]");
+  const folderName = () => {
+    const head = document.querySelector("#chatList section > div");
+    return head ? strip(head.textContent.replace(/\d+$/, "")) : null;
+  };
+  const root = {
+    label: strip(machineRow() ? machineRow().textContent : ""),
+    aboveFolder: (machineRow() ? machineRow().getBoundingClientRect().bottom : 1e9) <= (document.querySelector("#chatList section > div")?.getBoundingClientRect().top ?? -1),
+    running: folderName(),
+  };
+  if (machineRow()) {
+    machineRow().click();
+    await settle(400);
+    root.collapsed = folderName();
+    machineRow().click();
+    await settle(400);
+    root.reExpanded = folderName();
+  }
+
   // ADE: the same tree, and the zone's own home behind its composer.
   setCodeView("pair");
   await settle(900);
@@ -89,5 +110,5 @@
     ownComposer: chat ? chat.querySelectorAll(".code-composer textarea").length : -1,
   };
 
-  return { ide, ade, windowTitle: document.title };
+  return { ide, root, ade, windowTitle: document.title };
 })()
