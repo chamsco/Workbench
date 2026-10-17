@@ -535,6 +535,27 @@ impl Chats {
         gone
     }
 
+    /// Forget every ghost thread, and return the ones that went.
+    ///
+    /// A ghost is never on disk, so there is nothing to purge after a restart —
+    /// but one can still be in memory when the mode is entered again (a delete
+    /// that failed, a second window over the same core). Whirl scrubs its
+    /// incognito threads on the way in for the same reason.
+    pub fn purge_ghosts(&self) -> Vec<String> {
+        let gone: Vec<String> = self
+            .threads
+            .lock()
+            .unwrap()
+            .values()
+            .filter(|t| t.life.is_ghost())
+            .map(|t| t.id.clone())
+            .collect();
+        for id in &gone {
+            let _ = self.delete(id);
+        }
+        gone
+    }
+
     /// Give a thread a bounded life, or take the bound away. Ghost hides it
     /// from the list at once; Keep on a temporary thread stops it expiring.
     pub fn set_life(&self, id: &str, life: Life, ttl_minutes: Option<u64>) -> Result<Thread> {
@@ -1920,6 +1941,30 @@ mod tests {
         let (c2, _rt2) = chats(&dir);
         assert!(c2.thread(&g.id).is_none(), "a ghost came back after a restart");
         assert!(c2.threads.lock().unwrap().is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+        drop(rt);
+    }
+
+    /// Entering the mode again forgets anything a previous one left behind, and
+    /// leaves ordinary chats alone. Whirl's `purgeIncognito` on enter.
+    #[test]
+    fn purging_ghosts_removes_only_ghosts() {
+        let dir = tmp("ghost-purge");
+        let (c, rt) = chats(&dir);
+        let g = c.create_in(
+            route(),
+            Scope { life: Life::Ghost, ..Default::default() },
+        );
+        let kept = c.create(route());
+        // An attachment of the ghost's goes with it: the files are the chat.
+        std::fs::create_dir_all(c.files_dir(&g.id)).unwrap();
+        std::fs::write(c.files_dir(&g.id).join("shot.png"), b"x").unwrap();
+
+        assert_eq!(c.purge_ghosts(), vec![g.id.clone()]);
+        assert!(c.thread(&g.id).is_none(), "a ghost outlived the purge");
+        assert!(!c.files_dir(&g.id).exists(), "its files outlived it");
+        assert!(c.thread(&kept.id).is_some(), "a kept chat was purged");
+        assert!(c.purge_ghosts().is_empty(), "purging twice is a no-op");
         let _ = std::fs::remove_dir_all(&dir);
         drop(rt);
     }

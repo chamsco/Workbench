@@ -54,7 +54,7 @@ const NAMELESS = ["What's on your mind?", "Ready when you are", "Let's get into 
 
 export function ChatApp({ sideEl, user }: { sideEl: HTMLElement; user: string }) {
   const host = getHost();
-  const { id, thread, threads, epoch, scope, replyTo, agentsMode } = useChat();
+  const { id, thread, threads, epoch, scope, replyTo, agentsMode, ghost } = useChat();
   const [draft, setDraft] = useState("");
   const [homeRoute, setHomeRoute] = useState<Route | null>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
@@ -77,11 +77,13 @@ export function ChatApp({ sideEl, user }: { sideEl: HTMLElement; user: string })
     return () => clearTimeout(t);
   }, []);
   // A ghost chat has no list to show, so the sidebar stays out of the way for as
-  // long as it is open. Declared here, on every change of thread, rather than
-  // fired once when the thread is created.
+  // long as it is open — and from the moment the mode is switched on, before the
+  // thread exists: Whirl hides the shell as incognito opens, not on the first
+  // message. Declared here, on every change, rather than fired once when the
+  // thread is created.
   useEffect(() => {
-    host.ghostSide?.(thread?.life === "ghost");
-  }, [thread?.id, thread?.life]);
+    host.ghostSide?.(ghost || thread?.life === "ghost");
+  }, [ghost, thread?.id, thread?.life]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const clis = useMemo(
     () =>

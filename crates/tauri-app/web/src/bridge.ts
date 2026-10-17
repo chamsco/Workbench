@@ -297,15 +297,32 @@ export async function refresh() {
   set({ threads, agents, thread, id: thread ? state.id : null, epoch: state.epoch + 1 });
 }
 
+/** A ghost is a one-off: the moment it stops being the thread on screen it is
+ *  destroyed, whichever way you left it. Whirl purges its ephemeral thread on
+ *  exit (`purgeIncognito`); this is that, at the one place every exit path goes
+ *  through. Leaving is never made to wait for the delete — the move is instant,
+ *  the delete is bookkeeping. */
+function forget(ghost: Thread | null | undefined) {
+  if (ghost?.life !== "ghost") return;
+  void host
+    .invoke("chat_delete", { id: ghost.id })
+    .then(() => refresh())
+    .catch(() => {});
+}
+
 export async function openThread(id: string) {
+  const leaving = state.thread;
   const thread = await host.invoke<Thread | null>("chat_thread", { id }).catch(() => null);
   set({ id: thread ? id : null, thread, replyTo: null });
   const threads = await host.invoke<ThreadInfo[]>("chat_list").catch(() => state.threads);
   set({ threads });
+  if (leaving?.id !== id) forget(leaving);
 }
 
 export function goHome() {
+  const leaving = state.thread;
   set({ id: null, thread: null, replyTo: null });
+  forget(leaving);
 }
 
 type Scoped = { project?: string | null; app?: string | null; agent?: string | null; members?: string[] };
@@ -319,6 +336,7 @@ export const inScope = (t: Scoped, scope: string | null, agentsMode = state.agen
 export function setScope(scope: string | null, agentsMode = false) {
   if (scope === state.scope && agentsMode === state.agentsMode) return;
   const keep = state.thread && inScope(state.thread, scope, agentsMode);
+  if (!keep) forget(state.thread);
   set({ scope, agentsMode, editing: null, grouping: false, ...(keep ? {} : { id: null, thread: null, replyTo: null }) });
 }
 
@@ -359,8 +377,13 @@ export async function createGroup(title: string, goal: string, members: string[]
 
 export const setReplyTo = (replyTo: string | null) => set({ replyTo });
 
-/** Choose how the next chat lives, before it exists. */
-export const setGhost = (ghost: boolean) => set({ ghost });
+/** Choose how the next chat lives, before it exists. Turning the mode on also
+ *  scrubs any ghost an earlier one left in the core, like Whirl's
+ *  `purgeIncognito` on enter. */
+export const setGhost = (ghost: boolean) => {
+  set({ ghost });
+  if (ghost) void host.invoke("chat_purge_ghosts").catch(() => {});
+};
 
 export function setQuery(query: string) {
   set({ query });

@@ -817,6 +817,13 @@ fn chat_purge(f: F) -> Vec<String> {
     f.chats().purge_expired()
 }
 
+/// Forget every ghost chat. The face calls this as the mode goes on, so a
+/// one-off left in memory by an earlier one cannot be reached again.
+#[tauri::command]
+fn chat_purge_ghosts(f: F) -> Vec<String> {
+    f.chats().purge_ghosts()
+}
+
 // ------------------------------------------------------- local tiny models
 
 /// The small models on this machine, for Settings → Local models. Blocks for
@@ -1874,6 +1881,7 @@ fn main() -> anyhow::Result<()> {
             chat_new,
             chat_life,
             chat_purge,
+            chat_purge_ghosts,
             memory_list,
             memory_forget,
             memory_dreams,
