@@ -216,8 +216,8 @@ export type Host = {
   /** Switch Code between its two surfaces: the ADE and the IDE. */
   setCodeView: (v: "pair" | "agents") => void;
   projectMenu: (anchor: HTMLElement) => void;
-  /** Fold the sidebar away; the header's button brings it back. */
-  hideSide: () => void;
+  /** Open or fold the sidebar. */
+  setSide: (open: boolean) => void;
   /** Open Code's side panel on a tab: changes, history, files, sessions. */
   openPanel: (tab: string) => void;
   /** A ghost chat is open: keep the sidebar out of the way. */

@@ -5,6 +5,7 @@
 // both hang under its folder. Rendered into the vanilla sidebar through a portal.
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import {
   IconActivity,
   IconAlertTriangleFilled,
@@ -110,6 +111,20 @@ export function ThreadList({ onNewChat }: { onNewChat: () => void }) {
   const { threads: all, id, query, scope, epoch } = useChat();
   const host = getHost();
   const [searching, setSearching] = useState(false);
+  // The shell owns the fold (a class on #win); follow it so the toggle says
+  // what it will do.
+  const win = document.getElementById("win");
+  // Under 760px the card floats over the page and "open" is the class instead.
+  const isClosed = () =>
+    !!win && (win.classList.contains("side-closed") || (matchMedia("(max-width: 760px)").matches && !win.classList.contains("side-open")));
+  const [sideClosed, setSideClosed] = useState(isClosed);
+  useEffect(() => {
+    if (!win) return;
+    setSideClosed(isClosed());
+    const o = new MutationObserver(() => setSideClosed(isClosed()));
+    o.observe(win, { attributes: true, attributeFilter: ["class"] });
+    return () => o.disconnect();
+  }, [win]);
 
   // In Code the sidebar belongs to the *project*, not to the chat face's scope:
   // the IDE shows the same tree with no thread open at all, and `scope` is null
@@ -173,36 +188,56 @@ export function ThreadList({ onNewChat }: { onNewChat: () => void }) {
       ))
     );
 
+  // New chat on the left (its chevron picks the project it starts in), search
+  // and the sidebar toggle together on the right. Drawn into #sidePills, which
+  // sits over the window rather than inside the card, so they stay put when
+  // the card folds away.
+  const pills = (
+    <div className="flex w-full items-center justify-between gap-2">
+      <div className="side-pill flex h-8 items-center rounded-full pr-0.5 text-foreground-soft">
+        <button
+          type="button"
+          onClick={onNewChat}
+          className="flex h-full cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-full pr-1 pl-2.5 text-[12.5px] font-medium hover:text-foreground"
+        >
+          <IconEdit size={14} />
+          {scope || inCode ? "New thread" : "New chat"}
+        </button>
+        <button
+          type="button"
+          aria-label="Projects"
+          title="Projects"
+          data-popper=""
+          onClick={(e) => host.projectMenu(e.currentTarget)}
+          className="flex size-6 cursor-pointer items-center justify-center rounded-full hover:bg-accent hover:text-foreground"
+        >
+          <IconSelector size={13} />
+        </button>
+      </div>
+      <div className="side-pill flex h-8 items-center gap-0.5 rounded-full px-0.5">
+        <Act
+          icon={IconSearch}
+          label="Search"
+          on={searching}
+          onClick={() => {
+            if (sideClosed) {
+              host.setSide(true);
+              setSearching(true);
+              return;
+            }
+            setSearching((s) => !s);
+            if (searching) setQuery("");
+          }}
+        />
+        <Act icon={IconLayoutSidebar} label={sideClosed ? "Show sidebar" : "Hide sidebar"} onClick={() => host.setSide(sideClosed)} />
+      </div>
+    </div>
+  );
+  const pillSlot = document.getElementById("sidePills");
+
   return (
     <div className="whirl-side flex flex-col gap-2.5">
-      {/* Two pills: New chat on the left (its chevron picks the project it
-          starts in), search and the sidebar toggle together on the right. */}
-      <div className="flex items-center justify-between gap-2 px-0.5">
-        <div className="flex h-8 items-center rounded-full bg-accent/70 pr-0.5 text-foreground-soft">
-          <button
-            type="button"
-            onClick={onNewChat}
-            className="flex h-full cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-full pr-1 pl-2.5 text-[12.5px] font-medium hover:text-foreground"
-          >
-            <IconEdit size={14} />
-            {scope || inCode ? "New thread" : "New chat"}
-          </button>
-          <button
-            type="button"
-            aria-label="Projects"
-            title="Projects"
-            data-popper=""
-            onClick={(e) => host.projectMenu(e.currentTarget)}
-            className="flex size-6 cursor-pointer items-center justify-center rounded-full hover:bg-accent hover:text-foreground"
-          >
-            <IconSelector size={13} />
-          </button>
-        </div>
-        <div className="flex h-8 items-center gap-0.5 rounded-full bg-accent/70 px-0.5">
-          <Act icon={IconSearch} label="Search" on={searching} onClick={() => { setSearching((s) => !s); if (searching) setQuery(""); }} />
-          <Act icon={IconLayoutSidebar} label="Hide sidebar" onClick={() => host.hideSide()} />
-        </div>
-      </div>
+      {pillSlot ? createPortal(pills, pillSlot) : pills}
       {searching && (
         <label className="group/row relative flex h-8 w-full items-center gap-2.5 rounded-lg px-2.5 text-[13.5px]/4 font-medium text-foreground-soft">
           <RowPill className="group-focus-within/row:bg-accent" />

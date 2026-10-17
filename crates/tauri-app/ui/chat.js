@@ -244,7 +244,7 @@ var Chat = (() => {
     showThread: () => { if (S.mode === "code" && S.codeView !== "pair") setCodeView("pair"); },
     setCodeView: v => setCodeView(v === "agents" ? "agents" : "pair"),
     projectMenu: anchor => Shell.projectMenu(anchor),
-    hideSide: () => setSide(false),
+    setSide: open => setSide(open),
     openPanel: tab => window.RPanel && RPanel.show(tab),
   });
   function mountWhirl() {

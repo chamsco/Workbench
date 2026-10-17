@@ -579,4 +579,3 @@ input.tx.mono { font-family: var(--font-mono); font-size: 12px; }
 .okp { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--green, #1f7a4d); margin: 0 0 10px; }
 .okp .ic { width: 14px; height: 14px; }
 @media (max-width: 640px) { .bya { grid-template-columns: 1fr; } }
-.win.whirl-on #sideClose { display: none; }
