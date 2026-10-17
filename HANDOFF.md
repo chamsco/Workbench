@@ -52,9 +52,15 @@ What was verified this round, and what was not:
 
 Still open, and worth doing next (in the order I would take them):
 
-1. **The four-phase plan** (`docs/PLAN-FOUR-PHASES-2026-10-17.md`): specification,
-   execution, testing, deployment, with a decision model over all four. That is
-   the next build, and the plan lists what already exists for each piece.
+1. **The phase plan** (`docs/PLAN-PHASES-2026-10-17.md`): specification,
+   execution, testing, deployment, plus a fifth that runs underneath all of
+   them, the **Librarian** (the single writer to the memory repo: subagents
+   propose, the main agent compiles, the Librarian decides, places, supersedes
+   and commits once per batch). The plan also picks the decision model per
+   decision kind: rules, then a local model (this machine has qwen3:1.7b,
+   granite3.2:2b, gemma4), then Jev, then the strong model, with a bake-off in
+   `tools/decide-eval/` before any gate depends on a model. That is the next
+   build, and the plan lists what already exists for each piece.
 2. **The two security items in the prune plan**, which are code and not
    comments: `companion.rs:87` accepts a URL-borne token the comment says must
    not be a credential, and `prefs.rs:218` lets `allow_lan: false` sit beside a

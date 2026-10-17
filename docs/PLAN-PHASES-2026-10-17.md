@@ -1,10 +1,15 @@
-# The four phases: specification, execution, testing, deployment
+# The phases: specification, execution, testing, deployment, and the Librarian
 
 Plan written 17 Oct 2026, at `790b733`, after parking pane stacks (`pane-stacks`
 branch) and taking Team chat out of the picker. Nothing in this document is
 built yet. It is the build order for turning Workbench from "a chat window with
 a coding harness behind it" into a pipeline you can trust end to end, with one
-decision model over all four phases.
+decision model over all of it.
+
+Four phases run in a line (specify, execute, test, ship) and a fifth runs
+underneath all of them, the **Librarian**, which owns what the system remembers.
+It has its own gate, artifact and model line, so it is a phase in the same sense
+the others are. It is also the only writer to the memory repo.
 
 Three references shape it, all read this session:
 
@@ -18,6 +23,12 @@ Three references shape it, all read this session:
   dig-in). Our own reading of it is [ENDO-NOTES.md](ENDO-NOTES.md).
 - [mattpocock/skills](https://github.com/mattpocock/skills) for specification:
   `grilling`, `to-spec`, `to-tickets`, `wayfinder`, `tdd`, `triage`.
+- [TypeSafe Jev](https://typesafe.ai) and its
+  [OpenRouter listing](https://openrouter.ai/typesafe/jev-1.14-20261014) for the
+  decision model, priced independently in the
+  [Decision Layer Benchmark](https://github.com/GOhaike/decision-layer-benchmark).
+- [Ollama](https://ollama.com) and the local runtimes `model_server.rs` already
+  discovers, for the offline, private tier of the same thing.
 
 ## What is already here (do not rebuild it)
 
@@ -45,7 +56,7 @@ Two things follow from that table. First, phase 1 is mostly about turning an
 existing config flag and skill into a real mode with a gate, not about inventing
 an interview. Second, phases 3 and 4 are where the repo is genuinely thin.
 
-## The spine: one decision model, five gates, one markdown chain
+## The spine: one decision model, six gates, one markdown chain
 
 ### The decision model
 
@@ -94,7 +105,72 @@ Cost ceiling: gate decisions default to `Rules` then `SmallModel`; a
 `StrongModel` call at a gate needs a reason recorded in the trace. The budget
 accounting is `max_project_usd` per project and a per-phase sub-budget.
 
-### The five gates and the markdown chain
+### Which model answers, and what it costs
+
+The interface above is not an invention. `router.rs:307` already talks to
+[TypeSafe Jev](https://typesafe.ai) in exactly this shape: one POST carries a
+`state` (role, task, context) and a map of typed `questions` (`choice` with
+criteria, `score` with a rubric), and the reply is `answers` plus confidence and
+usage. Jev is sold as a *decision model*, built to answer typed questions with
+calibrated probabilities and write no prose. So the `Decider` should be the
+generalisation of what Jev already does, with four tiers behind one interface.
+
+| Tier | What answers | What it is allowed to decide | Cost |
+|---|---|---|---|
+| 0 | `Rules` | routing inside a tier, budget arithmetic, "is the check green", dedupe, placement | free |
+| 1 | a local model (Ollama, LM Studio, llama.cpp, MLX; `model_server.rs` already finds them) | classification: playbook, affected tests, is this note worth keeping, which note does it merge into | free, offline, 0.3–2 s |
+| 2 | Jev, `router.rs` backend, direct or through OpenRouter `typesafe/jev-1.14-20261014` | route and effort (already), plus the cheap gates: spec completeness, test adequacy, review verdict | state billed once per request, then ~30 tokens per extra question |
+| 3 | the strong model (`AdvisorConfig.model`, Opus class) | only the judgment gates, and only when tier 2's confidence is under the bar or the decision is irreversible | about one worker turn per call |
+
+**The evidence for tier 2.** The independent
+[Decision Layer Benchmark](https://github.com/GOhaike/decision-layer-benchmark)
+priced a five-question decision layer at 100,000 requests a day for 30 days:
+**$315 a month on Jev**, against a tuned stack 2.5× (Claude Haiku 5.5) to 133×
+(GPT-5.6 Sol) more expensive. It also measured that the shared state is billed
+once per request (2,011 input tokens for one question, 2,133 for five), which is
+why a decider must **batch every question for a turn into one call**. At this
+app's volume the tier is noise on the bill, so the reason to try local first is
+not price. It is latency, privacy, and working with no key at all.
+
+**The caveat that shapes the design.** TypeSafe's own docs, quoted by that
+benchmark, say the 1.13 line was unreliable at arithmetic, counting and date
+comparison, reads instructions literally, leans toward the first `choice`
+option, and can be moved by adversarial text in the state. 1.14 is current and
+must be pinned by exact id. Three rules follow, and they are not negotiable:
+
+1. **A model may only block, never allow.** A sign-off from tier 1 or 2 can stop
+   a gate. Only a rule, a system of record, or a human may open one. The
+   benchmark's own policy rule (`policy/refunds.rego`) is built this way for
+   exactly this reason.
+2. **State is data, never instructions.** Every decision carries its inputs as
+   structured fields, with untrusted text (agent notes, ticket bodies, model
+   output) quoted into a field, never concatenated into the instructions. The
+   Librarian reads text written by other models, so it is the first place this
+   matters.
+3. **Pin, and shadow-run before trusting.** Pin the exact model id, keep the
+   heuristic as the fallback, and run the bake-off below on our own decisions
+   before any gate depends on a model.
+
+**What is on this machine.** Ollama is installed with `qwen3:1.7b`,
+`granite3.2:2b`, `gemma4` and a llama.cpp entry already pulled (20.6 GB of
+blobs). `model_server::pick` already ranks families per need, and its
+`Need::Classify` order is `lfm2.5, granite, qwen3, smollm`, so `granite3.2:2b` is
+the local decider this machine already has, with `qwen3:1.7b` behind it. No
+`TYPESAFE_API_KEY` or other provider key is set in this shell, so today tier 2
+cannot run and tier 1 is the only decider that works. That is an argument for
+building tier 1 first, not last.
+
+**The bake-off is the lever.** `tools/decide-eval/` with about sixty decisions
+taken from real history and labelled by hand once: which comment kind is this
+(from `docs/comment-prune/`), which playbook is this ticket, is this note worth
+keeping, does this spec still have an open question, are these tests enough. Run
+`heuristic`, `granite3.2:2b`, `qwen3:1.7b`, `gemma4`, `jev-1.14.0` and a
+Haiku-class model over the set, and report **accuracy, latency and cost per
+decision kind**. Choose per kind; one model does not have to answer everything.
+That report is what turns "which decision model" into a number a gate can
+depend on.
+
+### The six gates and the markdown chain
 
 Every phase ends in an artifact and a gate. The artifact is markdown because it
 is readable by the human, diffable by git, and quotable by the next phase's
@@ -107,10 +183,13 @@ prompt. One writer per file, one gate per file.
 | 3 | Testing | `TEST-PLAN.md` | Decision model + tester agent, **from the spec** | Does every acceptance criterion have a test? |
 | 4 | Testing | `TEST-REPORT.md` | Test runner + decision model | Is the evidence real, and is it enough? |
 | 5 | Deployment | `RELEASE.md` | Decision model + human | Is everything green, and can we undo it? |
+| 6 | Every phase | `MEMORY.md` index + batch receipts | the Librarian | Is the durable knowledge captured, and does it agree with the spec? |
 
 Files live in the project folder so they travel with the work and show in the
 docs canvas. `SPEC.md`, `PLAN.md`, `TEST-PLAN.md` are committed; `TEST-REPORT.md`
-and `RELEASE.md` are per-run and may be gitignored if they get noisy.
+and `RELEASE.md` are per-run and may be gitignored if they get noisy. Gate 6's
+artifact is different: it lives in the memory repo, which is its own git repo, so
+the Librarian commits there and leaves a one-line receipt in the project.
 
 Each file has a fixed skeleton. `SPEC.md`:
 
@@ -359,6 +438,70 @@ the artifact records both answers.
 one release. A prefs or thread schema change ships with a downgrade path, or it
 does not ship. That rule is cheap now and priceless after the first bad release.
 
+## The fifth phase: the Librarian
+
+**What it is.** One role that owns memory and is the only writer to the Agent
+Memory Repo. Today any agent can call `memory_save` (`mcp.rs:173`) and write
+straight into the repo. That means two agents can leave contradictory notes with
+nobody to adjudicate, and nothing decides whether a note is worth keeping beyond
+a learned scorer. The Librarian is the adjudicator.
+
+**The pyramid** is the intake path, and it is deliberately three stages:
+
+1. **A subagent proposes.** Its result carries `NoteCandidate { claim,
+   why_it_matters, scope, evidence, confidence }` rows. It never writes. A worker
+   that learned "this crate rebuilds in 40 s if you skip the incremental dir" is
+   reporting, not editing memory.
+2. **The main agent compiles.** Within the turn it dedupes, drops the
+   self-evident, ranks, and sends one `MemoryBatch` tagged with the ticket,
+   thread and commit it came from. Compiling is context work, and the main agent
+   already holds the turn.
+3. **The Librarian decides and writes.** Keep, merge, supersede or drop each
+   candidate, place it in a topic file, update the index, and make **one git
+   commit per batch** with a receipt (`kept 3, merged 1, dropped 2`, each with a
+   reason). The UI shows the receipt. `memory revert` already exists for undo.
+
+**What it does that nothing does today.** `Memory::capture` (`memory.rs:648`)
+scores one message with `learner.propose`, merges on `similar()` text, and
+writes. The Librarian adds four operations on top, and each one is the reason it
+exists:
+
+- **Place.** Choose the topic file and the index line, instead of appending to
+  whatever scope the message came from.
+- **Supersede.** Same claim, newer evidence: update the existing note, keep the
+  old wording in history, rather than adding a near-duplicate.
+- **Drop with a reason.** Consult `was_rejected` (the 500-entry deny list),
+  recognise a task-local fact, and say why it dropped.
+- **Compact.** The dream pass (`memory_dream.rs`) already tidies nightly. The
+  Librarian is the role that runs it with judgment, merging duplicates and
+  re-indexing.
+
+**The breadth.** `MEMORY.md` becomes a two-level index the Librarian maintains:
+one line per topic with a one-line summary and a count, then the notes. Prompt
+injection changes shape with it. Today `context()` (`memory.rs:830`) ranks a
+flat list into a 6,000-character budget (`BUDGET`, `memory.rs:86`). Index-first
+injection gives an agent awareness of *what exists* for a fraction of the tokens,
+and it can `memory_search` when it needs depth. That is the breadth of memory:
+knowing what is in there, not just the top few notes.
+
+**Which model.** Tier 1, the local one, by default. Note-worthiness is a
+classification, notes are the most private text the system holds, and a local
+model keeps them on the machine. It escalates to tier 2 only when two notes
+contradict and neither is obviously newer. Nothing in memory needs a strong
+model, and nothing about it should leave the machine without being asked.
+
+**Gate 6: is the durable knowledge captured?** At the end of every phase and
+every ticket batch: every accepted decision and constraint in `SPEC.md` and
+`PLAN.md` has a note or an explicit "not durable, skip"; no kept note
+contradicts the spec; the index is under its line budget; the batch receipt
+exists. Rules decide it first, because "a note per accepted decision" is
+checkable. The model may only veto.
+
+**Migration.** `memory_save` keeps its name and becomes an enqueue. The tool
+description changes from "save" to "propose", the write happens in the
+Librarian's drain, and the tool returns the receipt. The direct-write path is
+deleted in the same change, so there is one writer from that day on.
+
 ## Build order
 
 Each milestone ends in something visible or measurable. Do not start the next
@@ -367,16 +510,21 @@ until the previous one's proof exists.
 | # | Milestone | Proof |
 |---|---|---|
 | 1 | Foundations: skill parser fixed; missing mattpocock skills vendored; `phase.rs` state + gate records; `Decider` interface with a `Rules` implementation and trace spans | Unit tests for the parser and the decider; a gate record visible on the project |
-| 2 | Plan/Fast in the composer; the grilling loop; `SPEC.md` written and gated; the "do not interview" instruction gone | A spec for a real small change, whose gate refused at least once before passing |
-| 3 | Playbooks per ticket; role→tier table; account/cost truth fixed; gate 2 | A spec driven to an approved plan: every acceptance line mapped, every ticket with a check |
-| 4 | Ready-frontier swarm with budgets; durable run queue | Two tickets running at once in separate worktrees, one failing and parking without spending the ceiling |
-| 5 | `TEST-PLAN.md` from the spec; named e2e suite; `cargo-mutants` in CI with `--in-diff`; Windows and Ubuntu jobs | A red build caused by a surviving mutant, then green |
-| 6 | Decision-model gates 3 and 4; `TEST-REPORT.md`; pipeline evals with fake models | The eval suite drives a spec through gates 1–4 and fails exactly where expected |
-| 7 | Versioned releases, checksums, `SOURCE`, changelog, rollback exercise; gate 5 | One real release with its `RELEASE.md`, installable, and a downgrade that works |
-| 8 | Endo hardening as it becomes the bottleneck: snapshot-on-connect, typed tool errors, permission rules, dig-in | The IPC payload stops carrying the whole project state; a tool failure renders from data |
+| 2 | The decision-model bake-off: `tools/decide-eval/`, the labelled set, the local tier behind the `Decider` interface | A report with accuracy, latency and cost per decision kind for six candidates, and one sentence per decision saying which model answers it |
+| 3 | Plan/Fast in the composer; the grilling loop; `SPEC.md` written and gated; the "do not interview" instruction gone | A spec for a real small change, whose gate refused at least once before passing |
+| 4 | Playbooks per ticket; role→tier table; account/cost truth fixed; gate 2 | A spec driven to an approved plan: every acceptance line mapped, every ticket with a check |
+| 5 | Ready-frontier swarm with budgets; durable run queue | Two tickets running at once in separate worktrees, one failing and parking without spending the ceiling |
+| 6 | `TEST-PLAN.md` from the spec; named e2e suite; `cargo-mutants` in CI with `--in-diff`; Windows and Ubuntu jobs | A red build caused by a surviving mutant, then green |
+| 7 | Decision-model gates 3 and 4; `TEST-REPORT.md`; pipeline evals with fake models | The eval suite drives a spec through gates 1–4 and fails exactly where expected |
+| 8 | Librarian intake: `NoteCandidate` / `MemoryBatch`, `memory_save` becomes an enqueue, single writer, one commit per batch, receipts in the UI | A batch of ten candidates keeps four, merges two, drops four with reasons, and the memory repo log shows exactly one commit |
+| 9 | Librarian curation: topic placement, supersede, index, compaction, index-first injection; gate 6 | A contradicting note supersedes the old one; a rejected note never returns; the injected block is smaller than today's 6 KB flat list and the agent can still answer a question only an old note covers |
+| 10 | Versioned releases, checksums, `SOURCE`, changelog, rollback exercise; gate 5 | One real release with its `RELEASE.md`, installable, and a downgrade that works |
+| 11 | Endo hardening as it becomes the bottleneck: snapshot-on-connect, typed tool errors, permission rules, dig-in | The IPC payload stops carrying the whole project state; a tool failure renders from data |
 
-Milestones 1–2 are the ones that make the rest possible, and they are small.
-Milestones 5–7 are where the repo is thinnest, so expect them to take the
+Milestones 1–3 are the ones that make the rest possible, and they are small.
+Milestone 2 before 3 matters: the spec gate is the first thing that trusts a
+model answer, so the bake-off has to exist before a gate depends on it.
+Milestones 6–7 and 10 are where the repo is thinnest, so expect them to take the
 longest.
 
 ## Non-goals, for this pass
@@ -385,9 +533,15 @@ longest.
 - No work on the GPUI shell (`crates/app`), Cloud, or the phone link.
 - No pane stacks (parked on `pane-stacks`) and no Team chat (hidden, not
   deleted). They come back after the pipeline is real.
-- No new model providers. The decision model uses routes that already exist.
+- No new provider integrations. The four decider tiers use Jev, Ollama and the
+  CLIs that are already wired.
 - The decision model never becomes the only gate for something destructive.
   Human approval stays in front of anything that publishes or deletes.
+- No agent writes the memory repo directly once the Librarian lands. The direct
+  write is deleted, so there is one writer and one commit per batch.
+- No training or fine-tuning. The bake-off chooses among models that already
+  exist; a fine-tune is a later decision with its own evidence.
+- No cloud model on the path that reads your notes, unless you switch it on.
 
 ## Open questions for you
 
@@ -406,3 +560,18 @@ shape rather than the details:
    the price of one worker turn each) and always visible in the trace.
 4. **Mutation testing on the UI?** I propose Rust only for now. The TS surface
    has no coverage today, so mutation there would just measure nothing.
+5. **Do you have a TypeSafe key, and should Jev go direct or through
+   OpenRouter?** Direct is one less hop and TypeSafe's own billing. OpenRouter
+   means one key for every model, and Jev 1.14 is listed there
+   (`typesafe/jev-1.14-20261014`).
+6. **One Librarian, or one per project?** I propose one for the whole machine,
+   because the memory repo is one git repo and a single writer is what makes it
+   safe. Per-project writers would need a locked queue between them.
+7. **Which local model leads?** The bake-off decides, but I expect
+   `granite3.2:2b` for classification and `qwen3:1.7b` for anything that needs
+   extraction. Both are already on this machine.
+8. **Should gate decisions be allowed to leave the machine at all?** Local-only
+   is the safest default and works today. Sending redacted structural questions
+   to Jev buys better routing and gate judgment. My default: local for anything
+   that contains your text, Jev for structure only, and a switch you can turn
+   off.
