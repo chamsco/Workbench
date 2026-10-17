@@ -24,9 +24,9 @@
     </nav>
     <aside class="side" id="side" aria-label="Machine, projects and agents">
       <div class="side-top" data-tauri-drag-region>
-        <div class="modes" id="modesSide" role="tablist"></div>
         <button class="ib" id="sideClose" aria-label="Hide sidebar" data-icon="sidebar"></button>
       </div>
+      <div class="side-modes"><div class="modes" id="modesSide" role="tablist"></div></div>
       <div class="side-head">
         <div class="zone-title" id="zoneTitle"></div>
         <button class="newbtn chat-only" id="newChat" title="New chat (⌘N)"><span data-icon="compose"></span>New chat<kbd>⌘N</kbd></button>
@@ -39,6 +39,9 @@
       <div class="list zone-list" id="zoneList"></div>
       <div class="ports code-only agents-only" id="ports"></div>
     </aside>
+    <!-- New chat, search and the sidebar toggle: drawn by the chat face, and
+         outside the card so they stay put while it folds away. -->
+    <div class="side-pills" id="sidePills"></div>
     <div class="gutter-side" id="sideGut" role="separator" aria-orientation="vertical" aria-label="Resize sidebar"></div>
     <div class="mainc">
       <header class="tbar" data-tauri-drag-region>
