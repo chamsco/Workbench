@@ -1111,10 +1111,15 @@ function chooser(slot, body) {
 }
 
 // ------------------------------------------------------------------ workbench views
-// The same project three ways: Canvases (tabs of split canvases), Wall (every
-// agent's session tiled, as many as there are) and Inbox (what needs you,
-// then what is running, then what is done). Picked per user, kept in prefs.
-const WB = [["home", "home", "Start", "Start work, and what needs you"], ["canvases", "window", "Canvases", "Sessions, files and previews side by side"], ["wall", "monitor", "Wall", "Every agent's session, tiled"]];
+// The IDE's two views: Canvases (tabs of split canvases) and Wall (every agent's
+// session tiled, as many as there are). Picked per user, kept in prefs. The
+// Inbox — what needs you — rides beside them in the footer, not here.
+//
+// Start is not one of them any more: it is the ADE's landing — the home with
+// the composer — and the IDE is the project's workspace, whose canvases hold no
+// chat (docs/ADE-AND-IDE.md). Keeping it here let a stored `wb_view: "home"`
+// open the IDE on a chatbox, which is exactly what the IDE must not do.
+const WB = [["canvases", "window", "Canvases", "Sessions, files and previews side by side"], ["wall", "monitor", "Wall", "Every agent's session, tiled"]];
 const busy = a => !!a && ["running", "queued", "awaiting_approval"].includes(a.status);
 const lastLine = a => { const e = [...a.log].reverse().find(e => e.kind !== "user") || a.log[a.log.length - 1]; return e ? e.text.split("\n")[0] : "No activity yet"; };
 // Why an agent needs the human, or null.
@@ -1131,18 +1136,18 @@ function needsYou(a) {
   if (a.id === MAIN && a.status === "idle" && last && last.kind === "assistant") return { why: "Asked you something", reply: true };
   return null;
 }
-// The view menu in the title bar: Home, Canvases, Wall.
+// The view menu in the title bar: Canvases, Wall.
 function renderWbv() {
   const n = snap.agents.filter(needsYou).length, cur = WB.find(([k]) => k === S.wb) || WB[0];
   const b = $("#viewBtn");
-  b.innerHTML = `${icon(cur[1])}<span>${cur[2]}</span>${n && S.wb !== "home" ? `<i class="rb">${n}</i>` : ""}${icon("updown", "ud")}`;
-  b.onclick = () => openPop(b, `<div class="vmenu">${WB.map(([k, ic, l, d]) => `<button class="pi${S.wb === k ? " on" : ""}" data-wb="${k}" ${!hasProject && k !== "home" ? "disabled" : ""}>${icon(ic)}<span class="vt"><b>${l}</b><small>${d}</small></span>${k === "home" && n ? `<i class="rb">${n}</i>` : ""}</button>`).join("")}</div>`, pop => {
+  b.innerHTML = `${icon(cur[1])}<span>${cur[2]}</span>${n ? `<i class="rb">${n}</i>` : ""}${icon("updown", "ud")}`;
+  b.onclick = () => openPop(b, `<div class="vmenu">${WB.map(([k, ic, l, d]) => `<button class="pi${S.wb === k ? " on" : ""}" data-wb="${k}" ${!hasProject ? "disabled" : ""}>${icon(ic)}<span class="vt"><b>${l}</b><small>${d}</small></span></button>`).join("")}</div>`, pop => {
     $$("[data-wb]", pop).forEach(x => (x.onclick = () => { closePop(); setWb(x.dataset.wb); }));
   });
   $("#win").classList.toggle("wb-alt", S.wb !== "canvases" || !hasProject);
 }
 function setWb(v) {
-  S.wb = WB.some(([k]) => k === v) ? v : "home";
+  S.wb = WB.some(([k]) => k === v) ? v : "canvases";
   prefs.wb_view = S.wb; invoke("set_view_prefs", { chatView: null, motion: null, wbView: S.wb });
   renderGrid();
 }
@@ -1186,7 +1191,7 @@ function actOn(a) {
 }
 function renderAlt() {
   const g = $("#grid"); S.els = new Map(); S.ph = null;
-  if (S.wb === "wall") renderWall(g); else Home.render(g);
+  renderWall(g);
 }
 
 // Canvases sit absolutely at the rectangles of the tab's layout tree, so a
@@ -1201,7 +1206,7 @@ function richOn() { try { return localStorage.getItem("bs.rich") !== "0"; } catc
 function syncArt() {
   const chatSurface =
     S.mode === "chat" ||
-    (S.mode === "code" && (S.codeView === "pair" || !hasProject || S.wb === "home"));
+    (S.mode === "code" && (S.codeView === "pair" || !hasProject));
   // Settings is a frosted card: it needs the painting behind it, or the frost has
   // nothing to show and it reads as the flat slab it used to be.
   if (window.Art) Art.setVivid(chatSurface || S.settings);

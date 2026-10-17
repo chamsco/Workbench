@@ -80,11 +80,14 @@ The rail rename is still open, but Code's own switch now says what it is. It rea
   The data comes from `Host.codeHome()` in `chat.js`, so the face never reaches
   into the shell's internals for `snap`.
 - **IDE** (`"agents"`) is the project's workspace: canvases, worktrees, tickets.
-  It opens on **one full-window session canvas** — a project's default tab is
-  already `TabSpec::defaults()`, one agent canvas, and `app.js` no longer
-  overrides `S.wb` to `"home"` for a project. The canvas pane keeps every option
-  it had (Team chat, Terminal, Files, Browser, Diagram, PLAN.md, Visual options)
-  and the view menu keeps Home and Wall.
+  It opens on **one full-window empty canvas** — a project's default tab is
+  `TabSpec::defaults()`, one empty canvas, whose whole face is the chooser — so
+  the IDE asks what you want open instead of opening a chat. The canvas pane
+  keeps every option it had (Main agent, Browser, Diagram review, Worktree,
+  PLAN.md, Team chat, Conversation, Terminal, Visual options). Its view menu is
+  **Canvases** and **Wall**: Start is the ADE's landing, and a canvas holds no
+  chat, so it is not an IDE view. A stored `prefs.wb_view: "home"` therefore
+  lands on Canvases rather than opening the IDE on the home screen.
 - The IDE's session canvas carries the chrome an IDE is read through: a **session
   card** at the top of the transcript (`sessionCard()`) naming the CLI, its
   version, the model and effort it is on, how it is signed in, and the folder —
@@ -93,8 +96,9 @@ The rail rename is still open, but Code's own switch now says what it is. It rea
   (`cyclePerm()`), which is why the line can say so.
 
 Stored values are still `"pair"` and `"agents"`, so no prefs migration was
-needed. An existing `prefs.wb_view: "home"` still wins over the new canvases
-default — the view menu switches it.
+needed. Both surfaces draw the same sidebar (`#chatList`, the project tree):
+`chat.css` forces it visible wherever Code is showing, and the vanilla
+Projects/Workers list stands aside for it.
 
 ## What is left
 
