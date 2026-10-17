@@ -9,7 +9,7 @@ import { IconArrowBackUp, IconBookmark, IconCheck, IconMoodSmile, IconX } from "
 
 import { MessageActionButton } from "@/components/thread/message-action-button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { getHost, linkPreview, react, setReplyTo, type Msg } from "../bridge";
+import { getHost, linkPreview, react, setReplyTo, type Msg, type SpecVerdict } from "../bridge";
 
 export const TAPBACKS = ["❤️", "👍", "👎", "😂", "‼️", "❓"];
 
@@ -162,5 +162,29 @@ export function LinkCard({ text, align = "start" }: { text: string; align?: "sta
         {meta.description && <span className="line-clamp-2 text-[12.5px]/5 text-muted-foreground">{meta.description}</span>}
       </div>
     </button>
+  );
+}
+
+/** The spec gate's answer under the Plan reply that wrote SPEC.md: passed, or
+ *  each rule that refused it, so the next round knows what to answer. */
+export function SpecCard({ verdict }: { verdict?: SpecVerdict | null }): ReactNode {
+  if (!verdict) return null;
+  return (
+    <div
+      data-spec={verdict.passed ? "passed" : "refused"}
+      className="mt-2 flex w-full max-w-md flex-col gap-1.5 self-start rounded-2xl bg-well px-3.5 py-2.5 text-[12.5px]/5 shadow-[inset_0_0_0_1px_var(--well-outline),inset_0_1px_0_0_var(--well-highlight)]"
+    >
+      <span className="flex items-center gap-1.5 font-medium">
+        {verdict.passed ? <IconCheck size={14} className="text-emerald-500" /> : <IconX size={14} className="text-amber-500" />}
+        {verdict.passed ? "SPEC.md passed the gate. Next: the plan." : `SPEC.md refused: ${verdict.gaps.length} to fix`}
+      </span>
+      {!verdict.passed && (
+        <ul className="flex list-disc flex-col gap-0.5 pl-5 text-muted-foreground">
+          {verdict.gaps.map((g) => (
+            <li key={g}>{g}</li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }

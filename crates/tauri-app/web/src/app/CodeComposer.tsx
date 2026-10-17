@@ -2,12 +2,15 @@
 // (ui/home.js, shell.css .hc), after Cursor's agent window. Project, branch
 // and machine sit above it; the text spans the card; under it, attach, Plan
 // mode (read and propose, change nothing; Shift+Tab), the CLI with its
-// effort, and send. The CLI and effort picker (ui/picker.js) unfolds from
+// effort, and send. Plan | Fast: Plan grills you and writes SPEC.md, which a
+// gate of plain rules judges (core spec.rs); Fast just does it. A thread keeps
+// the mode its last message was sent in. The CLI and effort picker (ui/picker.js) unfolds from
 // the card itself, the same one the agents use.
 
 import { useEffect, useRef, useState, type RefObject } from "react";
 import {
   IconArrowUp,
+  IconBolt,
   IconChevronDown,
   IconDeviceDesktop,
   IconFolder,
@@ -15,7 +18,6 @@ import {
   IconListCheck,
   IconPaperclip,
   IconPlayerStopFilled,
-  IconX,
 } from "@tabler/icons-react";
 
 import { useAttachments } from "@/lib/use-attachments";
@@ -35,6 +37,8 @@ export function CodeComposer({
   generating,
   inThread,
   scope,
+  planned = false,
+  threadId = null,
   textareaRef,
 }: {
   value: string;
@@ -46,11 +50,15 @@ export function CodeComposer({
   generating: boolean;
   inThread: boolean;
   scope: string;
+  /** The mode the thread's last message went in. */
+  planned?: boolean;
+  threadId?: string | null;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
 }) {
   const host = getHost();
   const attachments = useAttachments();
-  const [plan, setPlan] = useState(false);
+  const [plan, setPlan] = useState(planned);
+  useEffect(() => setPlan(planned), [threadId, planned]);
   const [picking, setPicking] = useState(false);
   const [sending, setSending] = useState(false);
   const [run, setRun] = useState(host.codeRun);
@@ -133,7 +141,7 @@ export function CodeComposer({
         </div>
       )}
       <div
-        className={`hc${plan ? " plan" : ""}`}
+        className={`hc${plan ? " is-plan" : ""}`}
         onDragOver={(e) => e.dataTransfer.types.includes("Files") && e.preventDefault()}
         onDrop={(e) => {
           e.preventDefault();
@@ -175,7 +183,7 @@ export function CodeComposer({
               attachments.addFiles(pasted);
             }
           }}
-          placeholder={plan ? "Plan changes" : `Ask ${name} to change ${baseName(scope)}`}
+          placeholder={plan ? `Describe what ${baseName(scope)} needs; ${name} asks until the spec is complete` : `Ask ${name} to change ${baseName(scope)}`}
           aria-label="Message"
         />
         <div className="hc-bar">
@@ -192,17 +200,16 @@ export function CodeComposer({
           <button type="button" className="hc-ic" aria-label="Attach files" title="Attach files" onClick={() => fileRef.current?.click()}>
             <IconPaperclip size={15} />
           </button>
-          <button
-            type="button"
-            className="hc-plan"
-            aria-pressed={plan}
-            title="Plan mode: read the project and propose, change nothing (Shift+Tab)"
-            onClick={() => setPlan((p) => !p)}
-          >
-            <IconListCheck size={14} />
-            Plan
-            {plan && <IconX size={12} className="x" />}
-          </button>
+          <div className="hc-mode" role="radiogroup" aria-label="Mode" title="Plan: questions first, then a SPEC.md checked by rules. Fast: straight to the change. (Shift+Tab)">
+            <button type="button" role="radio" aria-checked={plan} className={plan ? "on" : ""} onClick={() => setPlan(true)}>
+              <IconListCheck size={13} />
+              Plan
+            </button>
+            <button type="button" role="radio" aria-checked={!plan} className={plan ? "" : "on"} onClick={() => setPlan(false)}>
+              <IconBolt size={13} />
+              Fast
+            </button>
+          </div>
           <span className="sp" />
           <button type="button" className="hc-model" aria-expanded={picking} onClick={togglePicker}>
             {route && <Logo id={cli ?? route.provider} size={14} />}

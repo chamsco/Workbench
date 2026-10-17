@@ -6,7 +6,11 @@
 //! person, and says which: a model may refuse a gate, but only a rule or a
 //! person opens one (docs/PLAN-PHASES v2).
 
+use std::path::Path;
+
 use serde::{Deserialize, Serialize};
+
+const FILE: &str = ".backspace/phase.json";
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
 #[serde(rename_all = "snake_case")]
@@ -78,6 +82,36 @@ impl PhaseState {
         self.gates.last().unwrap()
     }
 
+    /// A spec gate answer, whatever phase the project is in. The spec is the
+    /// root of everything after it: a refused rewrite sends the project back
+    /// to Specify, and a passing one moves it on only from Specify.
+    pub fn record_spec(&mut self, passed: bool, at: u64, note: &str) -> &Gate {
+        if self.phase == Phase::Specify {
+            return self.record(passed, GateBy::Rules, at, crate::spec::FILE, note);
+        }
+        if !passed {
+            self.phase = Phase::Specify;
+        }
+        self.gates.push(Gate { phase: Phase::Specify, passed, by: GateBy::Rules, at, artifact: crate::spec::FILE.into(), note: note.to_string() });
+        self.gates.last().unwrap()
+    }
+
+    /// The project's phase, from `<project>/.backspace/phase.json`. Its own
+    /// file, not the harness's state.json: the spec gate runs from Code chat
+    /// while a harness may be rewriting that one.
+    pub fn load(project: &Path) -> PhaseState {
+        std::fs::read_to_string(project.join(FILE)).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
+    }
+
+    pub fn save(&self, project: &Path) -> anyhow::Result<()> {
+        let path = project.join(FILE);
+        std::fs::create_dir_all(path.parent().unwrap())?;
+        let tmp = path.with_extension("json.tmp");
+        std::fs::write(&tmp, serde_json::to_string_pretty(self)?)?;
+        std::fs::rename(tmp, path)?;
+        Ok(())
+    }
+
     /// May the main agent create tickets? Only once the spec gate is behind us.
     pub fn may_plan(&self) -> bool {
         self.phase != Phase::Specify
@@ -109,6 +143,30 @@ mod tests {
         assert_eq!(p.phase, Phase::Specify);
         p.record(true, GateBy::Human, 2, "SPEC.md", "approved by hand");
         assert_eq!(p.phase, Phase::Plan);
+    }
+
+    #[test]
+    fn a_refused_respec_reopens_specify_and_a_pass_does_not_skip_ahead() {
+        let mut p = PhaseState::default();
+        p.record_spec(true, 1, "ok");
+        assert_eq!(p.phase, Phase::Plan);
+        p.record_spec(true, 2, "ok again");
+        assert_eq!(p.phase, Phase::Plan, "a second pass must not jump to Execute");
+        p.record_spec(false, 3, "Open questions: 1");
+        assert_eq!(p.phase, Phase::Specify);
+        assert!(p.gates.iter().all(|g| g.phase == Phase::Specify));
+    }
+
+    #[test]
+    fn loads_and_saves_beside_the_project() {
+        let dir = std::env::temp_dir().join(format!("phase-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(PhaseState::load(&dir), PhaseState::default());
+        let mut p = PhaseState::default();
+        p.record_spec(true, 1, "ok");
+        p.save(&dir).unwrap();
+        assert_eq!(PhaseState::load(&dir), p);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
