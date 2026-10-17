@@ -21,6 +21,7 @@ import {
   IconFolderPlus,
   IconGitBranch,
   IconLayoutCards,
+  IconLayoutSidebar,
   IconLoader2,
   IconMessageReply,
   IconMessages,
@@ -29,6 +30,7 @@ import {
   IconPinFilled,
   IconPlus,
   IconSearch,
+  IconSelector,
   IconSitemap,
   IconSparkles,
   IconTerminal2,
@@ -173,10 +175,33 @@ export function ThreadList({ onNewChat }: { onNewChat: () => void }) {
 
   return (
     <div className="whirl-side flex flex-col gap-2.5">
-      <div className="flex items-center gap-0.5 px-0.5">
-        <Act icon={IconEdit} label={scope || inCode ? "New thread" : "New chat"} onClick={onNewChat} />
-        <Act icon={IconFolder} label="Projects" popper onClick={(el) => host.projectMenu(el)} />
-        <Act icon={IconSearch} label="Search" on={searching} onClick={() => { setSearching((s) => !s); if (searching) setQuery(""); }} />
+      {/* Two pills: New chat on the left (its chevron picks the project it
+          starts in), search and the sidebar toggle together on the right. */}
+      <div className="flex items-center justify-between gap-2 px-0.5">
+        <div className="flex h-8 items-center rounded-full bg-accent/70 pr-0.5 text-foreground-soft">
+          <button
+            type="button"
+            onClick={onNewChat}
+            className="flex h-full cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-full pr-1 pl-2.5 text-[12.5px] font-medium hover:text-foreground"
+          >
+            <IconEdit size={14} />
+            {scope || inCode ? "New thread" : "New chat"}
+          </button>
+          <button
+            type="button"
+            aria-label="Projects"
+            title="Projects"
+            data-popper=""
+            onClick={(e) => host.projectMenu(e.currentTarget)}
+            className="flex size-6 cursor-pointer items-center justify-center rounded-full hover:bg-accent hover:text-foreground"
+          >
+            <IconSelector size={13} />
+          </button>
+        </div>
+        <div className="flex h-8 items-center gap-0.5 rounded-full bg-accent/70 px-0.5">
+          <Act icon={IconSearch} label="Search" on={searching} onClick={() => { setSearching((s) => !s); if (searching) setQuery(""); }} />
+          <Act icon={IconLayoutSidebar} label="Hide sidebar" onClick={() => host.hideSide()} />
+        </div>
       </div>
       {searching && (
         <label className="group/row relative flex h-8 w-full items-center gap-2.5 rounded-lg px-2.5 text-[13.5px]/4 font-medium text-foreground-soft">
