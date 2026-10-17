@@ -6,9 +6,8 @@
 //   1. dragging a canvas by its header onto the middle of another stacks them
 //   2. the folded card shows only its header; clicking it opens that card
 //   3. the open card's unstack button gives it back a rectangle of its own
-//   4. a stack saved in prefs draws instead of throwing (the JS mirror used to
-//      know only leaf and split, so a stack from the GPUI shell took the tab
-//      down with it)
+//   4. a stack saved in prefs draws instead of throwing: the layout mirror has
+//      to know `stack`, not only leaf and split
 //   5. a tab holds more than four canvases now that a stack can carry them
 (async () => {
   const H = window.__H;
