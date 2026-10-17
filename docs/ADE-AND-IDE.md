@@ -98,7 +98,11 @@ The rail rename is still open, but Code's own switch now says what it is. It rea
 Stored values are still `"pair"` and `"agents"`, so no prefs migration was
 needed. Both surfaces draw the same sidebar (`#chatList`, the project tree):
 `chat.css` forces it visible wherever Code is showing, and the vanilla
-Projects/Workers list stands aside for it.
+Projects/Workers list stands aside for it. The card stays glass in both, and it
+shows the painting at one strength in either surface: the ADE's backdrop is
+vivid, so there the card carries its own layer of page colour and comes out at
+the muted strength the rest of the app paints (`shell.css`,
+`.win.m-code.art-vivid .side`). What the zone paints is untouched.
 
 ## What is left
 
