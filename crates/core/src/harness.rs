@@ -406,6 +406,7 @@ impl Harness {
             canvas_ops: vec![],
             options: vec![],
             artifacts: vec![],
+            phase: Default::default(),
         };
         // A project opened before carries on: tickets, approvals, spend and
         // the board come back; what was running is marked interrupted.

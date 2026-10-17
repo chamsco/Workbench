@@ -185,6 +185,9 @@ pub struct ProjectState {
     /// things they refer to (see `artifact`). Bounded by `MAX_ARTIFACTS`.
     #[serde(default)]
     pub artifacts: Vec<crate::artifact::Artifact>,
+    /// Specify → plan → execute → test → ship, and every gate answer so far.
+    #[serde(default)]
+    pub phase: crate::phase::PhaseState,
 }
 
 /// An agent opening or closing a canvas: a browser on its dev server, its
@@ -225,6 +228,7 @@ impl ProjectState {
             canvas_ops: vec![],
             options: vec![],
             artifacts: vec![],
+            phase: Default::default(),
         }
     }
 

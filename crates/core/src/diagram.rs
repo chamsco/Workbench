@@ -423,6 +423,7 @@ mod tests {
             canvas_ops: vec![],
             options: vec![],
             artifacts: vec![],
+            phase: Default::default(),
         }
     }
 
