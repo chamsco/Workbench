@@ -1,7 +1,7 @@
 # Handoff: Backspace (ohMyHarness → Workbench), v0
 
-**Latest session, 17 Oct 2026** (commits `cae2c37`, `b25a509`, `dd9bbbb`).
-Three things, no new crate:
+**Latest session, 17 Oct 2026** (commits `cae2c37`, `dd9bbbb`, and the revert
+that parked stacks). Three things, no new crate:
 
 - **Ghost chats are one-off, and now behave like Whirl's incognito.** Two
   defects, both reproduced in the UI harness before the fix: turning the mode
@@ -13,50 +13,55 @@ Three things, no new crate:
   `chat_purge_ghosts`) scrubs leftovers as the mode is entered, which is
   Whirl's `purgeIncognito` on enter. `tools/verify/ghost-flow.js` drives the
   whole flow through `window.WhirlChat` and the real composer.
-- **Panes stack.** `core::layout` has modelled a stack of leaves for a while
-  but both shells drew it as a pile of 12px strips, and the Tauri shell never
-  drew it at all: its JS mirror knew only leaf and split, so a stack saved by
-  the GPUI shell threw. A stack is now a column of cards: one open, the rest
-  folded to their header. `Node::activate` expands a card where it lies, a
-  drop on the middle of a canvas shares its spot instead of swapping, a folded
-  header expands on click, and the open card's header unstacks it. `MAX_STACK`
-  is 6 and a tab holds 8 canvases. Worth seeing: `tools/verify/pane-stack.js`
-  drives it, `up` from `b25a509` has no stacks at all.
+- **Panes stack, parked.** The accordion was built and verified, then set
+  aside on the owner's call: it lives on branch **`pane-stacks`**
+  (`b25a509`), not on `main`. That commit makes a stack a column of cards, one
+  open and the rest folded to a 30px header, adds `Node::activate`, lets a
+  drop on the middle of a canvas stack, and raises a tab to eight canvases.
+  `tools/verify/pane-stack.js` and `pane-stack-shot.js` are in that commit and
+  are deleted here with it. To bring it back: `git cherry-pick b25a509`, but
+  read the revert first, because `main` has moved since.
 - **A comment-prune plan**, `docs/COMMENT-PRUNE-2026-10-17.md`, from a swarm
   in the pstack shape (13 auditors, 13 verifiers). 233 delete, 26 refactor,
   23 keep. Raw slices in `docs/comment-prune/`. The 15 Oct audit's fuller
   census (1718/57/333) is listed as the backlog, and the four places the two
   disagree are called out rather than merged. **Nothing was deleted.**
+- **Team chat is no longer offered.** The canvas type and its renderer stay, so
+  a tab that already holds one keeps working; it is gone from the "+" picker
+  and from the empty-canvas chooser. Put the `board` entry back in `VIEWS`
+  (`ui/app.js`) to offer it again.
 
-**Both surfaces changed, so a running app must be restarted.** `web/` was
-touched, so `ui/chat-web` was rebuilt and is committed; the Tauri shell
-(`app.js`, `chat.js`, `style.css`) is plain assets and needs no build, but the
-running binary has to be restarted to pick them up.
+**The chat face changed, so a running app must be restarted.** `web/` was
+touched (the ghost fix), so `ui/chat-web` was rebuilt and is committed; the
+Tauri shell (`app.js`, `chat.js`, `style.css`) is plain assets and needs no
+build, but the running binary has to be restarted to pick them up.
 
 What was verified this round, and what was not:
 
 - **Ran:** `cargo test --workspace --exclude backspace` (166 passed, 0 failed)
-  and `cargo check -p backspace` (the GPUI shell still compiles against the
-  changed layout). 14 layout tests cover the accordion, including a short
-  rectangle where the headers give way.
-- **Ran:** `tools/verify/ghost-flow.js` and `tools/verify/pane-stack.js` in
-  the uiharness, both green; `pane-stack-shot.js` produced
-  `tools/verify/out/pane-stack.png` (that directory is gitignored).
+  against the stack and ghost work, and `cargo check -p backspace` (the GPUI
+  shell still compiles against the changed layout). The stacks themselves are
+  now off `main`, so on this tree the layout covers the old leaf/split shapes
+  only.
+- **Ran:** `tools/verify/ghost-flow.js` in the uiharness, green, plus the
+  older `ghost-real.js` for the collapse, and a boot check confirming `VIEWS`
+  no longer offers Team chat.
 - **Not done:** nobody has clicked either feature in a real window. The ghost
   work was checked against the real face bundle but not against a real core, so
-  `chat_purge_ghosts` is only covered by its Rust test. Stacks were not tried
-  with a live terminal or webview inside a folded card, which is the case most
-  likely to surprise (their bodies are hidden, not resized).
+  `chat_purge_ghosts` is only covered by its Rust test.
 
 Still open, and worth doing next (in the order I would take them):
 
-1. **The two security items in the prune plan**, which are code and not
+1. **The four-phase plan** (`docs/PLAN-FOUR-PHASES-2026-10-17.md`): specification,
+   execution, testing, deployment, with a decision model over all four. That is
+   the next build, and the plan lists what already exists for each piece.
+2. **The two security items in the prune plan**, which are code and not
    comments: `companion.rs:87` accepts a URL-borne token the comment says must
    not be a credential, and `prefs.rs:218` lets `allow_lan: false` sit beside a
    LAN address. One typed `Listen` closes the second.
-2. The generated comments in `crates/core/src/harness.rs`, where the numbered
+3. The generated comments in `crates/core/src/harness.rs`, where the numbered
    steps lost one of their number and the compiler note at 2792 is a fragment.
-3. The three big refactors the audits name and no sweep will fix: `ToolDef`
+4. The three big refactors the audits name and no sweep will fix: `ToolDef`
    forcing `Box::leak`, the duplicated layout grammar in `ui/app.js`, and the
    two chat renderers behind `chat.js`'s `whirl` fork.
 4. Everything already open from the 14 Oct block below.

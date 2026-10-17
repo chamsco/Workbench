@@ -6,25 +6,23 @@
 //! (`row` puts `a` left of `b`, `col` puts it above).
 //!
 //! A node can also be a **stack**: `{"stack": [0, 3, 1], "active": 1}` — the
-//! same leaves sharing one column, like cards in a tray. They keep their order
-//! top to bottom and `active` is the one that is expanded: it takes the whole
-//! rectangle bar the headers of the cards above and below it, and the others
-//! show only their header. A stack is what a drop *on* a canvas means when it
-//! is not a split: you asked for the same spot, so they share it rather than
-//! swapping or halving.
+//! same leaves sharing one rectangle, like cards on a pile. They are in front
+//! order (last on top) and `active` is the one that takes the pointer. A stack
+//! is what a drop *on* a canvas means when it is not a split: you asked for the
+//! same spot, so the two share it rather than swapping or halving.
 
 use serde::{Deserialize, Serialize};
 
 /// The leaf id of the drop placeholder in a drag preview.
 pub const PH: usize = usize::MAX;
 
-/// How many cards one stack may hold. Past this the headers eat the room the
-/// expanded card is there to use.
-pub const MAX_STACK: usize = 6;
-/// The header a collapsed card shows, in the shell's own units (CSS pixels for
-/// the Tauri shell, logical for GPUI). The expanded card takes what is left of
-/// the stack's rectangle.
-pub const STACK_HEAD: f32 = 30.;
+/// How many cards one stack may hold. Past this the edges are too thin to name.
+pub const MAX_STACK: usize = 4;
+/// The visible strip of a card behind the front one, in the shell's own units
+/// (CSS pixels for the Tauri shell, logical for GPUI). A stack's shared
+/// rectangle is inset by `strip * (len - 1)` so the front card still fills what
+/// is left.
+pub const STACK_STRIP: f32 = 12.;
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -194,38 +192,23 @@ impl Node {
         }
     }
 
-    /// Bring `leaf` to the end of the stack holding it and expand it there, so
-    /// the card that was open collapses to its header.
+    /// Bring `leaf` to the front of the stack holding it. The one that was in
+    /// front stays in the stack, underneath.
     pub fn raise(&self, leaf: usize) -> Node {
         match self {
             Node::Leaf { .. } => self.clone(),
-            Node::Stack { stack, .. } => {
+            Node::Stack { stack, active } => {
                 let Some(pos) = stack.iter().position(|l| *l == leaf) else {
                     return self.clone();
                 };
                 let mut s = stack.clone();
                 let l = s.remove(pos);
                 s.push(l);
-                Node::Stack { stack: s.clone(), active: s.len() - 1 }
+                let n = s.len();
+                Node::Stack { stack: s, active: (*active).min(n.saturating_sub(1)) }
             }
             Node::Split { dir, ratio, a, b } => {
                 Node::split(*dir, *ratio, a.raise(leaf), b.raise(leaf))
-            }
-        }
-    }
-
-    /// Expand `leaf` where it lies, leaving the order of the column alone. A
-    /// card that is already in front stays in front of nothing; the one that
-    /// was open collapses. This is what a click on a folded header means.
-    pub fn activate(&self, leaf: usize) -> Node {
-        match self {
-            Node::Leaf { .. } => self.clone(),
-            Node::Stack { stack, .. } => match stack.iter().position(|l| *l == leaf) {
-                Some(pos) => Node::Stack { stack: stack.clone(), active: pos },
-                None => self.clone(),
-            },
-            Node::Split { dir, ratio, a, b } => {
-                Node::split(*dir, *ratio, a.activate(leaf), b.activate(leaf))
             }
         }
     }
@@ -305,9 +288,9 @@ impl Node {
     }
 
     /// Rectangles for every leaf and gutter inside `r`, `gap` apart. A stack
-    /// lays its cards out as a column: each one gets the stack's full width,
-    /// the cards that are not open get `STACK_HEAD` at the top edge they fall
-    /// on, and the open one gets everything that is left between them.
+    /// lays its back cards out as strips across the top of the shared
+    /// rectangle and hands the front card what is left, so the front canvas
+    /// stays whole and the cards behind only ever show an edge.
     pub fn layout(&self, r: Rect, gap: f32) -> (Vec<(usize, Rect)>, Vec<Gutter>) {
         let mut leaves = vec![];
         let mut gutters = vec![];
@@ -330,20 +313,33 @@ impl Node {
                 if n == 0 {
                     return;
                 }
-                let open = (*active).min(n - 1);
-                // The headers give way together on a rectangle too short to
-                // hold them all, so the open card is never squeezed to nothing.
-                let head = STACK_HEAD.min(r.h / n as f32);
+                let front = (*active).min(n - 1);
+                let strips = (n - 1) as f32;
                 let mut y = r.y;
                 for (i, leaf) in stack.iter().enumerate() {
-                    let h = if i == open {
-                        (r.h - head * (n - 1) as f32).max(0.)
-                    } else {
-                        head
-                    };
-                    leaves.push((*leaf, Rect { x: r.x, y, w: r.w, h }));
-                    y += h;
+                    if i == front {
+                        continue;
+                    }
+                    leaves.push((
+                        *leaf,
+                        Rect {
+                            x: r.x,
+                            y,
+                            w: (r.w - strips * 6.).max(0.),
+                            h: STACK_STRIP,
+                        },
+                    ));
+                    y += STACK_STRIP;
                 }
+                leaves.push((
+                    stack[front],
+                    Rect {
+                        x: r.x,
+                        y,
+                        w: r.w,
+                        h: (r.h - strips * STACK_STRIP).max(0.),
+                    },
+                ));
             }
             Node::Split { dir, ratio, a, b } => {
                 let (ra, g, rb) = match dir {
@@ -729,56 +725,30 @@ mod tests {
     }
 
     #[test]
-    fn stacking_two_keeps_both_and_raising_expands_the_one_brought_forward() {
+    fn stacking_two_keeps_both_and_raising_swaps_which_is_in_front() {
         let t = Node::default_for(2);
         assert!(!t.is_stacked(0));
-        // Dropping 1 onto 0 makes a stack of both, 1 expanded.
+        // Dropping 1 onto 0 makes a stack of both, 1 in front.
         let after = t.moved(1, 0, Side::Stack, 1);
         assert!(after.valid_for(2), "no canvas is lost");
         assert!(after.is_stacked(0) && after.is_stacked(1));
         assert_eq!(after.stack_of(0), Some((vec![0, 1], 1)));
         assert_eq!(names(&after), vec![vec![0, 1]]);
-        // The expanded card fills the space; the one above it is a header.
+        // The front card fills the space; the one behind is a strip.
         let (leaves, gutters) = after.layout(R, 0.);
         assert!(gutters.is_empty(), "a stack is not a split");
         let r = |i| leaves.iter().find(|(l, _)| *l == i).unwrap().1;
-        assert_eq!((r(0).x, r(0).w), (0., 1000.), "a card is full width");
-        assert_eq!(r(0).y, 0., "the collapsed card sits at the top");
-        assert_eq!(r(0).h, STACK_HEAD, "and shows only its header");
-        assert_eq!(r(1).y, STACK_HEAD, "the expanded card starts below it");
-        assert_eq!(r(1).h, 600. - STACK_HEAD, "and takes everything left");
-        // Expanding the card at the top reorders the column and gives it the
-        // room; the other one folds to its header.
+        assert_eq!(r(0).y, 0., "the card behind shows its edge at the top");
+        assert_eq!(r(0).h, STACK_STRIP, "just an edge");
+        assert_eq!(r(1).y, STACK_STRIP, "the front card starts below it");
+        assert_eq!(r(1).h, 600. - STACK_STRIP, "and takes everything that is left");
+        // Raising the back card brings it forward and pushes the other back.
         let raised = after.raise(0);
         assert_eq!(raised.stack_of(0), Some((vec![1, 0], 1)));
         let (leaves, _) = raised.layout(R, 0.);
         let r = |i| leaves.iter().find(|(l, _)| *l == i).unwrap().1;
-        assert_eq!(r(1).h, STACK_HEAD, "the card that was open is a header now");
-        assert_eq!(r(0).h, 600. - STACK_HEAD, "and this one has the room");
-        // A click on a folded header expands it where it lies: the order of the
-        // column does not change under the pointer.
-        let lit = after.activate(0);
-        assert_eq!(lit.stack_of(0), Some((vec![0, 1], 0)), "no reorder");
-        let (leaves, _) = lit.layout(R, 0.);
-        let r = |i| leaves.iter().find(|(l, _)| *l == i).unwrap().1;
-        assert_eq!(r(0).h, 600. - STACK_HEAD);
-        assert_eq!((r(1).y, r(1).h), (600. - STACK_HEAD, STACK_HEAD), "below it");
-    }
-
-    /// A rectangle too short for the headers gives all of them the same slice
-    /// and never squeezes the expanded card past zero.
-    #[test]
-    fn a_short_stack_shares_the_headers_out() {
-        let t = Node::stack(vec![0, 1, 2, 3], 2);
-        let short = Rect { x: 0., y: 0., w: 400., h: 80. };
-        let (leaves, _) = t.layout(short, 0.);
-        let r = |i| leaves.iter().find(|(l, _)| *l == i).unwrap().1;
-        assert_eq!(r(0).h, 20., "80 / 4 cards");
-        assert_eq!(r(2).h, 20., "and the open one is no smaller");
-        assert_eq!(r(3).y, 60.);
-        // Past the point of no room nothing goes negative.
-        let (leaves, _) = t.layout(Rect { w: 400., h: 0., ..short }, 0.);
-        assert!(leaves.iter().all(|(_, r)| r.h >= 0.));
+        assert_eq!(r(1).h, STACK_STRIP, "the card that was in front is now an edge");
+        assert_eq!(r(0).h, 600. - STACK_STRIP, "and this one has the room");
     }
 
     #[test]
@@ -793,9 +763,8 @@ mod tests {
         let (leaves, _) = three.layout(R, 0.);
         assert_eq!(leaves.len(), 3);
         let r = |i| leaves.iter().find(|(l, _)| *l == i).unwrap().1;
-        assert_eq!(r(2).h, 600. - 2. * STACK_HEAD);
-        assert_eq!((r(1).h, r(0).h), (STACK_HEAD, STACK_HEAD));
-        assert_eq!((r(0).y, r(1).y, r(2).y), (0., STACK_HEAD, 2. * STACK_HEAD));
+        assert_eq!(r(2).h, 600. - 2. * STACK_STRIP);
+        assert_eq!((r(1).h, r(0).h), (STACK_STRIP, STACK_STRIP));
         // A pane that cannot take another card swaps instead.
         assert_eq!(zone_maybe_stack(R, 500., 300., false), Side::Center);
     }

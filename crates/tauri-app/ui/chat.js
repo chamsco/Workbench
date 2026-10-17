@@ -236,10 +236,6 @@ var Chat = (() => {
     openCanvas: index => {
       closePop();
       S.focus = index; S.max = null;
-      // Picking a canvas in the tree opens it: a card in a stack comes to the
-      // front, or the click lands on a header it never showed.
-      const t = tab();
-      if (L.stackOf(tree(t), index)) { t.layout = L.activate(tree(t), index); saveTabs(); }
       setMode("code"); setCodeView("agents"); setWb("canvases");
       renderTabs(); renderGrid();
     },
