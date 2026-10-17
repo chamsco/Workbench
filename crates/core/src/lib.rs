@@ -24,6 +24,7 @@ pub mod memory_dream;
 pub mod mcp;
 pub mod model_server;
 pub mod options;
+pub mod phase;
 pub mod trace;
 pub mod prefs;
 pub mod project;
