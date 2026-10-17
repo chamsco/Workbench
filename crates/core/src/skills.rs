@@ -24,6 +24,7 @@ pub fn user_dir() -> Option<std::path::PathBuf> {
 
 const DEFAULTS: &[(&str, Files)] = vendored! {
     "grilling" => ["SKILL.md"],
+    "to-spec" => ["SKILL.md"],
     "to-tickets" => ["SKILL.md"],
     "triage" => ["SKILL.md", "AGENT-BRIEF.md", "OUT-OF-SCOPE.md"],
     "tdd" => ["SKILL.md", "tests.md", "mocking.md"],
@@ -242,6 +243,7 @@ mod tests {
         let s = Skills::load(Path::new("/nonexistent"));
         for name in [
             "grilling",
+            "to-spec",
             "to-tickets",
             "triage",
             "tdd",
@@ -266,6 +268,7 @@ mod tests {
             s.by_name["ponytail"].description
         );
         assert!(s.by_name["ponytail"].description.ends_with("Levels: lite, full (default), ultra."));
+        assert!(s.by_name["to-spec"].description.starts_with("Turn the current conversation into a spec"));
         assert!(s.read("nope", None).is_none());
     }
 

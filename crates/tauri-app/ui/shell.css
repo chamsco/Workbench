@@ -334,7 +334,8 @@ button.rp-row:hover { background: var(--hover); }
 /* On the chat pane (not the painting) the card is a step lighter than what is under it. */
 .code-composer .hc { background: color-mix(in srgb, var(--fg) 7%, var(--card-strong)); box-shadow: 0 10px 32px rgba(0, 0, 0, 0.22), inset 0 0 0 0.5px color-mix(in srgb, var(--fg) 10%, transparent); }
 .code-composer .hc textarea { min-height: 0; max-height: 200px; }
-.code-composer .hc.plan { box-shadow: 0 10px 32px rgba(0, 0, 0, 0.22), inset 0 0 0 1px color-mix(in srgb, var(--amber) 45%, transparent); }
+/* Not `.plan`: that is the billing card's class (chat.css), which padded the composer. */
+.code-composer .hc.is-plan { box-shadow: 0 10px 32px rgba(0, 0, 0, 0.22), inset 0 0 0 1px color-mix(in srgb, var(--amber) 45%, transparent); }
 .code-composer { padding-bottom: 2px; }
 .hc-ic { width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; color: var(--fg-3); }
 .hc-ic:hover { background: var(--hover); color: var(--fg); }
@@ -348,6 +349,13 @@ button.rp-row:hover { background: var(--hover); }
    violet — the app's colour for a temporary thing — not amber like Plan. */
 .hc-plan.hc-ghost[aria-pressed="true"] { background: color-mix(in srgb, var(--violet) 18%, transparent); color: var(--violet); }
 .hc-plan:disabled { opacity: 0.5; }
+/* Plan | Fast: two halves of one well, the chosen one lit (Plan in amber, as
+   the card's edge is; Fast in plain ink). */
+.hc-mode { display: inline-flex; height: 26px; padding: 2px; gap: 2px; border-radius: 8px; background: var(--chip); box-shadow: inset 0 0 0 1px var(--pane-edge); }
+.hc-mode button { display: inline-flex; align-items: center; gap: 4px; padding: 0 8px; border-radius: 6px; font-size: 12px; color: var(--fg-3); transition: background-color 0.15s ease, color 0.15s ease; }
+.hc-mode button:hover { color: var(--fg); }
+.hc-mode button.on { background: var(--hover); color: var(--fg); }
+.hc-mode button.on:first-child { background: color-mix(in srgb, var(--amber) 16%, transparent); color: var(--amber); }
 
 /* ---------- the ghost toggle, to Whirl's incognito button ------------------
    A 32px circle wearing the tools' translucent well when off, filling with ink

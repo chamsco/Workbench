@@ -531,7 +531,10 @@ impl Harness {
     }
 
     pub fn snapshot(&self) -> ProjectState {
-        self.inner.state.lock().unwrap().clone()
+        let mut s = self.inner.state.lock().unwrap().clone();
+        // The spec gate writes the phase from Code chat, in its own file.
+        s.phase = crate::phase::PhaseState::load(&self.inner.root);
+        s
     }
 
     /// Record an artifact as the main agent, the same thing the `produce` tool
