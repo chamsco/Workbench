@@ -36,24 +36,42 @@ should cover and then wakes itself). Design and decisions:
   `routine_delete`, `routine_run`, `routines_sync`. The bridge is in
   `web/src/bridge.ts` (`Project`, `Routine`, project page state, status and wake
   helpers).
+- **The reference's question interaction is a message primitive now**: a bot can
+  put fenced `ask` / `routine` JSON blocks in a reply and the chat face draws
+  them as a question card (options, Skip, Answer) and a routine proposal (Add
+  routine / Not now); `Agents::brief_in` teaches both conventions, "Start its
+  job" invites the ask block, and `web/src/app/ask.tsx` is the renderer. Answer
+  sends `Answer: …`, Skip sends `Skip this question.`, Add routine goes through
+  the same `routine_save` as the sheet. Invalid JSON is one quiet line, never
+  source.
+- **A shell/Tailwind collision found and fixed**: `ui/style.css`'s shell-wide
+  `.grid { height: 100% }` (Code's canvas container) is unlayered, so it beat
+  Tailwind's `.grid` utility everywhere in the window; inside the chat face
+  every grid inherited the full height (the ask card's checkbox drew 2px of
+  border). The rule is now scoped to `#grid` — the only element that carries it
+  (`app.js`/`home.js` set `#grid.className`) — and the uiharness asserts the
+  checkbox is 16x16 so it cannot come back silently.
 
 **Ran:** `cargo test -p backspace-core` green (113 lib + every integration
 suite, including the new routine next-wake maths with a negative UTC offset,
 routine save/booking, brief/personality/project text, and the projects store);
 `cargo check -p backspace-tauri` green; `npx tsc --noEmit` green;
-`npm run build` wrote `ui/chat-web`. The uiharness acceptance is
-`tools/verify/agents-projects.js` (72 checks: switch, sidebar statuses, home,
-new-bot sheet, bot page + Start its job really sending, 3-step routine dialog,
-project page + back), with screenshots in
-`tools/verify/out/agents-{home,bot-page,new-bot,project-page,routine}.png`.
+`npm run build` wrote `ui/chat-web`; the existing Code-surface verify
+(`sidebar-and-canvas.js`) still runs clean after the CSS scoping. The uiharness
+acceptance is `tools/verify/agents-projects.js` — **83 checks, four runs, all
+green, no page errors** — covering the switch, sidebar statuses, home, new-bot
+sheet, bot page + Start its job really sending, 3-step routine dialog, project
+page + back, the ask card answering with the real payload, the routine proposal
+adding with the real payload, and the checkbox regression. Screenshots in
+`tools/verify/out/agents-{home,bot-page,new-bot,ask,project-page,routine}.png`.
 **Not yet done:** nobody has clicked it in a real window. The chat face changed,
-so a running app needs a restart; the Tauri shell assets need no build.
+so a running app needs a restart; the Tauri shell assets (`style.css`) are plain
+assets and need no build.
 
-Still open from this work: the reference's chat-driven question cards
-(Ask/Skip) are still the routine sheet's job, not a message type; routines only
-run while Backspace is open; a Chat project's `machine` is stored and shown but
-only "this Mac" is settable; opening a Chat project in Workbench (tickets,
-branches, approvals) is the natural next step.
+Still open from this work: routines only run while Backspace is open; a Chat
+project's `machine` is stored and shown but only "this Mac" is settable; opening
+a Chat project in Workbench (tickets, branches, approvals) is the natural next
+step; the ask card takes choices only (no free-text "Other" field).
 
 ---
 

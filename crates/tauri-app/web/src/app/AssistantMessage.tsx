@@ -41,12 +41,15 @@ export function AssistantMessage({
   avatar,
   interrupted,
   onResume,
+  answered,
 }: {
   avatar?: ReactNode;
   /** Cut off because Backspace closed. */
   interrupted?: boolean;
   /** Carry on with this stopped reply. */
   onResume?: () => void;
+  /** A user message exists after this one: a question card here is spent. */
+  answered?: boolean;
   message: ChatMessage;
   error?: string | null;
   answeredBy?: string;
@@ -75,7 +78,7 @@ export function AssistantMessage({
           {answeredBy}
         </div>
       )}
-      {showText && <RichText streaming={streamingNow || !caughtUp} text={text} />}
+      {showText && <RichText streaming={streamingNow || !caughtUp} text={text} answered={answered} />}
       {streamingNow && !showText && (
         <div className="flex h-7 items-center gap-2 text-[14px]/5 text-muted-foreground">
           <IconLoader2 size={15} className="animate-spin" />

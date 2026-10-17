@@ -541,6 +541,22 @@ impl Agents {
                 "\nA message starting `Routine · <name>` is a routine that is due now: carry it out, then say in one line what you did.",
             );
         }
+        // Two fenced blocks the chat face draws as controls: a question with
+        // choices, and a routine the user adds with one click. Both are plain
+        // Markdown to every other reader (CLI, phone), which is why they are
+        // taught as fences and not as tool calls.
+        s.push_str(concat!(
+            "\n\nWhen you need something from the user and the answer is a few discrete choices, ask with a fenced `ask` block ",
+            "instead of a paragraph question. Its body is one JSON object: ",
+            "{\"question\": \"Which topics?\", \"multiple\": true, \"options\": [\"AI and coding agents\", \"Apple and the Mac\", \"Open source\"]}. ",
+            "Give 2 to 6 short options, ask at most one question per reply, and never write the options twice in prose.",
+        ));
+        s.push_str(concat!(
+            "\n\nWhen a recurring job would help, propose it with a fenced `routine` block: ",
+            "{\"name\": \"Morning digest\", \"instructions\": \"what to do when it fires\", \"kind\": \"daily\", \"time\": \"08:00\"}. ",
+            "kind is daily, weekdays, weekly or every; weekly adds \"days\" as ISO weekdays 1-7 and every adds \"every_minutes\". ",
+            "The user adds it with one click. A routine you propose is not scheduled until they do.",
+        ));
         s
     }
 
@@ -1131,6 +1147,9 @@ mod tests {
         assert!(brief.contains("acme-site project"));
         assert!(brief.contains("Every day at 08:00"));
         assert!(brief.contains("Routine · <name>"));
+        // The two fenced blocks the chat face turns into controls.
+        assert!(brief.contains("fenced `ask` block") && brief.contains("\"options\""));
+        assert!(brief.contains("fenced `routine` block") && brief.contains("\"kind\""));
         assert!(!ag.brief(&a).contains("acme-site project"));
         let _ = std::fs::remove_dir_all(dir);
     }

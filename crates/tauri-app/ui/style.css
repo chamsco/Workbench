@@ -212,7 +212,11 @@ body { margin: 0; background: var(--desk-base); color: var(--fg); font: 13px/1.4
 .env[hidden] { display: none !important; }
 
 /* ---------- terminals grid */
-.grid { height: 100%; display: grid; }
+/* Scoped to the canvas container, not a bare `.grid`: the chat face draws
+   Tailwind components in the same window, and its `grid` utility means only
+   `display: grid` — a shell-wide `.grid { height: 100% }` broke every one of
+   them (a 16px checkbox drew 2px of border). */
+#grid { height: 100%; display: grid; }
 .grid.L1 { grid-template: minmax(0, 1fr) / minmax(0, 1fr); }
 .grid.L2 { grid-template-columns: calc((100% - 6px) * var(--cx)) 6px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
 .grid.L4 { grid-template-columns: calc((100% - 6px) * var(--cx)) 6px minmax(0, 1fr); grid-template-rows: calc((100% - 6px) * var(--ry)) 6px minmax(0, 1fr); }
@@ -392,7 +396,7 @@ body { margin: 0; background: var(--desk-base); color: var(--fg); font: 13px/1.4
   .tbar .left { order: -1; }
   .tabs { justify-content: flex-start; }
   .cta .lbl { display: none; }
-  .grid { display: flex !important; flex-direction: column; gap: 6px; height: auto; }
+  #grid { display: flex !important; flex-direction: column; gap: 6px; height: auto; }
   .gut { display: none; }
   .pane { min-height: 420px; }
   #env-terminals { overflow-y: auto; }

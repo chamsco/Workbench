@@ -500,17 +500,22 @@ export async function openAgentThread(a: Agent, project?: Project | null) {
   await refresh();
 }
 
+/** One more turn in an existing thread (the ask card's answer, a retry, a
+ *  routine proposal accepted): the thread already exists, so no creation. */
+export async function sendTo(thread: Thread, text: string) {
+  await host.invoke("chat_send", { id: thread.id, text, files: [] });
+  await refresh();
+}
+
 /** Kuvo's "Start its job": the bot begins its own job in its thread. */
 export async function startJob(thread: Thread) {
   if (!host.usable(thread.route)) {
     throw new Error(`${host.providerName(thread.route)} isn't available. Pick another model.`);
   }
-  await host.invoke("chat_send", {
-    id: thread.id,
-    text: "Start your job now. Tell me anything you need from me, and keep it short.",
-    files: [],
-  });
-  await refresh();
+  await sendTo(
+    thread,
+    "Start your job now. If you need details before you can start, ask me with an ask block offering the likely choices; otherwise tell me anything you need from me, and keep it short.",
+  );
 }
 
 /** The bot's conversation with no project — the sidebar row's action. */

@@ -503,6 +503,52 @@ typecheck with `npx tsc --noEmit` from `crates/tauri-app/web` and never write
 5. A note in `HANDOFF.md`: what was built, what was verified, what needs a
    restart, what is next.
 
+## Message controls: a question with choices, and a routine proposal
+
+The reference's "Which topics should your digest cover?" with Skip / Answer is
+now a real message primitive, not a screenshot. A bot can put two fenced JSON
+blocks in a reply; the chat face draws them as controls and every other reader
+(a CLI, the phone, a plain Markdown viewer) sees a code block.
+
+````
+```ask
+{"question": "Which topics should your digest cover?", "multiple": true,
+ "options": ["AI and coding agents", "Apple and the Mac", "Open source"]}
+```
+````
+
+````
+```routine
+{"name": "Morning digest", "instructions": "What to do when it fires.",
+ "kind": "daily", "time": "08:00"}
+```
+````
+
+- **Ask card** (`web/src/app/ask.tsx`): the question, its options as checkboxes
+  (or radios when `multiple` is false), Skip and Answer. Answer sends
+  `Answer: a, b` into the thread; Skip sends `Skip this question.`; a user
+  message anywhere after the card marks it answered (ThreadView passes
+  `answered` down), so it cannot be answered twice.
+- **Routine proposal**: name, schedule (`routineWhen`), the instructions, and
+  Add routine / Not now. Add routine saves it through the same
+  `routine_save` path the sheet uses; the card then says Added because the bot
+  has a routine with that name. A reply from a non-bot thread shows it without
+  the Add button.
+- **Teaching the model**: `Agents::brief_in` ends with both conventions — one
+  question per reply, 2–6 short options, "a routine you propose is not scheduled
+  until the user adds one". "Start its job" also invites the ask block
+  explicitly. Invalid JSON is never shown as source: it is one quiet line.
+- **Why fences and not tools**: a reply can be read back by another model or a
+  CLI; a fence costs a line where a tool round-trip costs a turn and can fail.
+  The same reasoning is why they are taught in the brief and not in OpenUI's
+  richer language.
+- **A shell CSS collision found on the way**: `ui/style.css` had a shell-wide
+  `.grid { height: 100%; display: grid }` for Code's canvas container. Because
+  it is unlayered it beat Tailwind's `.grid` utility in the chat face, so every
+  Tailwind grid inherited the full height (the ask card's 16px checkbox drew a
+  2px border). The shell rule is now scoped to `#grid`, which is the only
+  element that ever carried it (`app.js`/`home.js` all set `#grid.className`).
+
 ## As built (same session)
 
 Small deviations from the sketches above, recorded so the next reader does not
@@ -539,10 +585,6 @@ think they were missed:
 
 ## Not in this cut (named so nobody thinks it was forgotten)
 
-- Chat-driven structured question cards (Ask/Skip) from the reference. The
-  routine sheet is the "bot asks what its routine covers" moment for now;
-  making the bot itself ask with buttons needs a message payload the thread view
-  renders, which is a separate piece.
 - Running routines while the app is closed (the reference's machine-hosted
   bots). Ours fires while Backspace is open, like the rest of Fleet.
 - Remote machines for Chat projects (`machine` is stored and shown, and
@@ -551,3 +593,7 @@ think they were missed:
 - Bots waking on an event other than a routine; webhooks already exist and are
   unchanged.
 - Multi-account/model per routine; a routine uses its bot's route.
+- A routine proposal cannot edit an existing routine of the same name; the
+  card says Added instead. Editing goes through the routine sheet.
+- The ask card collects choices only, not free text next to them; "Other" would
+  need a text field in the card (the composer already covers it).

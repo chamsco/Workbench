@@ -10,6 +10,7 @@ import { ThemeProvider, openuiChatLibrary } from "@openuidev/react-ui";
 import "@openuidev/react-ui/layered/styles/index.css";
 
 import { Markdown } from "@/components/thread/markdown";
+import { AskCard, parseAsk, parseRoutine, RoutineProposalCard, splitFences } from "./ask";
 
 // What the model is taught.
 //
@@ -53,8 +54,6 @@ export function richPrompt(): string {
   const comps = TAUGHT.map((k) => (openuiChatLibrary.components as Record<string, any>)[k]).filter(Boolean);
   return createLibrary({ components: comps, root: "Card" }).prompt({ preamble: "", additionalRules: RULES });
 }
-
-const FENCE = /```openui[^\n]*\n([\s\S]*?)(?:```|$)/g;
 
 /**
  * What the parser said, in a sentence a reader can act on.
@@ -219,29 +218,49 @@ export function fenceBareOpenUI(text: string): string {
   return out.join("\n");
 }
 
-export function RichText({ text, streaming }: { text: string; streaming: boolean }) {
+export function RichText({ text, streaming, answered = false }: { text: string; streaming: boolean; answered?: boolean }) {
   const dark = useDark();
   const clean = fenceBareOpenUI(text);
-  if (!clean.includes("```openui")) return <Markdown streaming={streaming}>{clean}</Markdown>;
-  const parts: { md?: string; ui?: string; open?: boolean }[] = [];
-  let last = 0;
-  for (const m of clean.matchAll(FENCE)) {
-    if (m.index! > last) parts.push({ md: clean.slice(last, m.index) });
-    parts.push({ ui: m[1], open: !m[0].trimEnd().endsWith("```") });
-    last = m.index! + m[0].length;
-  }
-  if (last < clean.length) parts.push({ md: clean.slice(last) });
+  const fenced = clean.includes("```openui") || clean.includes("```ask") || clean.includes("```routine");
+  if (!fenced) return <Markdown streaming={streaming}>{clean}</Markdown>;
+  const parts = splitFences(clean);
   return (
     <>
-      {parts.map((p, i) =>
-        p.ui != null ? (
-          <CatchRender key={i} fallback={<FailedBlock source={p.ui} why="the renderer rejected it" />}>
-            <OpenUIBlock source={p.ui} dark={dark} streaming={streaming && !!p.open} />
-          </CatchRender>
-        ) : p.md!.trim() ? (
-          <Markdown key={i} streaming={streaming && i === parts.length - 1}>{p.md!}</Markdown>
-        ) : null,
-      )}
+      {parts.map((p, i) => {
+        if (p.kind === "md") {
+          return p.text.trim() ? (
+            <Markdown key={i} streaming={streaming && i === parts.length - 1}>
+              {p.text}
+            </Markdown>
+          ) : null;
+        }
+        // A question or a proposal is only a control once its closing fence has
+        // arrived; half a JSON object is not something to draw.
+        if (p.open && p.tag !== "openui") return null;
+        if (p.tag === "openui") {
+          return (
+            <CatchRender key={i} fallback={<FailedBlock source={p.body} why="the renderer rejected it" />}>
+              <OpenUIBlock source={p.body} dark={dark} streaming={streaming && p.open} />
+            </CatchRender>
+          );
+        }
+        if (p.tag === "ask") {
+          const spec = parseAsk(p.body);
+          return spec ? <AskCard key={i} spec={spec} answered={answered} /> : <UnreadableBlock key={i} what="question" />;
+        }
+        const spec = parseRoutine(p.body);
+        return spec ? <RoutineProposalCard key={i} spec={spec} /> : <UnreadableBlock key={i} what="routine" />;
+      })}
     </>
   );
 }
+
+/** A fence that is not the JSON we expect: say so quietly, never show source. */
+function UnreadableBlock({ what }: { what: string }) {
+  return (
+    <div className="my-2 text-[12px]/4 text-muted-foreground">
+      That reply had a {what} this build could not read.
+    </div>
+  );
+}
+

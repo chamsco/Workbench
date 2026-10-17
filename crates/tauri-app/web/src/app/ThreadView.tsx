@@ -19,6 +19,7 @@ import { UserMessage } from "@/components/thread/user-message";
 import { AssistantMessage } from "./AssistantMessage";
 import { LinkCard, Quote, RememberButton, ReplyButton, TapbackButton, Tapbacks } from "./Extras";
 import { agentById, branch, edit, getHost, retry, resume, toChatMessage, useChat, type Msg, type Thread } from "../bridge";
+import { MessageActions } from "./ask";
 import { Avatar } from "./Agents";
 
 const PREVIOUS_TURN_PEEK_PX = 72;
@@ -66,18 +67,23 @@ export function ThreadView({ thread, header }: { thread: Thread; header?: React.
                 "mx-auto w-full max-w-2xl pt-8 pb-[max(11rem,calc(var(--dock-clearance,0px)+0.75rem))]",
               )}
             >
-              {header}
-              {thread.messages.map((m, i) => (
-                <Row
-                  key={m.id}
-                  thread={thread}
-                  raw={m}
-                  message={messages[i]}
-                  canRetry={m.id === lastAssistant && !generating}
-                  generating={generating}
-                  epoch={epoch}
-                />
-              ))}
+              <MessageActions.Provider value={{ thread }}>
+                {header}
+                {thread.messages.map((m, i) => (
+                  <Row
+                    key={m.id}
+                    thread={thread}
+                    raw={m}
+                    message={messages[i]}
+                    canRetry={m.id === lastAssistant && !generating}
+                    generating={generating}
+                    epoch={epoch}
+                    // A question card is spent once the user has said anything
+                    // after it, whichever way they answered (card, Skip, prose).
+                    answered={thread.messages.slice(i + 1).some((x) => x.role === "user")}
+                  />
+                ))}
+              </MessageActions.Provider>
             </MessageScrollerContent>
           </MessageScrollerViewport>
           <MessageScrollerButton className="bottom-32" />
@@ -93,12 +99,15 @@ const Row = memo(function Row({
   message,
   canRetry,
   generating,
+  answered,
 }: {
   thread: Thread;
   raw: Msg;
   message: ChatMessage;
   canRetry: boolean;
   generating: boolean;
+  /** A user message exists after this one: a question card here is spent. */
+  answered: boolean;
   /** Bumps when a link preview or attachment lands. */
   epoch: number;
 }) {
@@ -138,6 +147,7 @@ const Row = memo(function Row({
             message={message}
             error={raw.error}
             answeredBy={answeredBy}
+            answered={answered}
             avatar={raw.author ? <Avatar agent={author} size={22} /> : undefined}
             ad={raw.ad}
             onRetry={canRetry ? () => void retry(thread.id).catch(toast) : undefined}

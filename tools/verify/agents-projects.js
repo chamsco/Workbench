@@ -1,7 +1,9 @@
 // tools/verify/agents-projects.js — acceptance for Chat's Agents side after
 // docs/AGENTS-PROJECTS-ROUTINES-2026-10-17.md: bots with a name/face/job, the
-// Start From sheet, the bot page with "Start its job", routines on a clock, and
-// projects that collect a folder's bots, chats and routines.
+// Start From sheet, the bot page with "Start its job", routines on a clock,
+// projects that collect a folder's bots, chats and routines, and the two
+// controls a bot can put in a reply (a question with options, and a routine
+// proposal) drawn by ask.tsx from fenced JSON.
 //
 // Driven through the real UI (the Chat -> Agents switch in #modesSide, the
 // sidebar rows, the real dialogs), with the Tauri commands mocked in
@@ -28,9 +30,17 @@
 //     --eval-file tools/verify/agents-new-bot.js \
 //     --shot tools/verify/out/agents-new-bot.png
 //
+//   # the same walk, then leaves Herald's thread with the bot's question card
+//   # and routine proposal on screen
+//   node tools/uiharness/run.mjs --wait 900 \
+//     --eval-file tools/verify/agents-projects.js \
+//     --eval-file tools/verify/agents-ask.js \
+//     --shot tools/verify/out/agents-ask.png
+//
 // Screenshots: tools/verify/out/agents-home.png,
 //              tools/verify/out/agents-bot-page.png,
-//              tools/verify/out/agents-new-bot.png.
+//              tools/verify/out/agents-new-bot.png,
+//              tools/verify/out/agents-ask.png.
 // Exit code 0 means the page booted and nothing threw; read the RESULT report
 // (`failed` + `checks[].ok`) for the acceptance verdict.
 (async () => {
@@ -182,7 +192,10 @@
     job: "Writes me a short morning brief: what changed overnight, what's due today, and the one thing to do first.",
     avatar: { emoji: "🌅", color: "#ca8a04" },
     personality: "Direct and brief. Leads with the answer, skips the pleasantries, and says plainly when something's wrong.",
-    routines: [routine({ id: "r-herald", name: "Morning digest", kind: "daily", time: "08:00", next_run: nineDaysOut })],
+    // Named "Daily brief", not "Morning digest": the question-card thread later
+    // proposes a routine called "Morning digest", and a bot that already has a
+    // routine of that name shows the proposal as already Added.
+    routines: [routine({ id: "r-herald", name: "Daily brief", kind: "daily", time: "08:00", next_run: nineDaysOut })],
   });
   const COURIER = agent({
     id: "a-courier",
@@ -237,8 +250,13 @@
   const T_UNREAD = threadInfo({ id: "t-unread", title: "Inbox triage", agent: "a-tally", unread: true, updated: now - 120_000, preview: "Three things need a reply." });
   const T_GROUP = threadInfo({ id: "t-group", title: "Launch week", updated: now - 500_000, preview: "Herald and Courier", members: ["a-herald", "a-courier"] });
   const T_PROJECT = threadInfo({ id: "t-project", title: "Almanac launch notes", agent: "a-courier", project: ALMANAC, updated: now - 300_000, preview: "The brief is in the folder." });
-  // Two agent threads (one busy, one unread), one group, one project thread.
-  const THREADS = [T_BUSY, T_UNREAD, T_GROUP, T_PROJECT];
+  // The bot asked a question and proposed a routine in its reply (fenced ask /
+  // routine JSON, see docs/AGENTS-PROJECTS-ROUTINES-2026-10-17.md and ask.tsx).
+  // Herald's own thread, so clicking its sidebar row opens the cards.
+  const T_ASK = threadInfo({ id: "t-ask", title: "Morning setup", agent: "a-herald", updated: now - 1_800_000, preview: "I need one thing before I start." });
+  // Two agent threads (one busy, one unread), one group, one project thread,
+  // and the question-card thread.
+  const THREADS = [T_BUSY, T_UNREAD, T_GROUP, T_PROJECT, T_ASK];
 
   const project = (o) => ({ id: "p", name: "Project", folder: "C:\\", machine: "", agents: [], created: now - 9 * DAY, updated: now - DAY, ...o });
   const ALMANAC_P = project({ id: "p-almanac", name: "Almanac", folder: ALMANAC, agents: ["a-herald", "a-courier"] });
@@ -274,18 +292,67 @@
     "t-project": fullThread({ id: "t-project", title: "Almanac launch notes", agent: "a-courier", project: ALMANAC }),
   };
 
+  // The two cards the bot can put in a reply: a question with options and a
+  // routine proposal, as the fenced JSON the bot is told to write. The message
+  // list is mutable so answering the card can append the user turn — that is
+  // what makes the card draw itself as answered on the refresh that follows.
+  const msg = (o) => ({
+    id: "m",
+    role: "assistant",
+    text: "",
+    at: now,
+    status: "done",
+    reactions: [],
+    attachments: [],
+    error: null,
+    reply_to: null,
+    model: null,
+    ad: null,
+    cost_usd: null,
+    via: null,
+    ...o,
+  });
+  const ASK_JSON = {
+    question: "Which topics should your digest cover?",
+    multiple: true,
+    options: ["AI and coding agents", "Apple and the Mac", "Open source", "Startups and funding"],
+  };
+  const ROUTINE_JSON = { name: "Morning digest", instructions: "Brief me in two minutes.", kind: "daily", time: "08:00" };
+  const ASK_TEXT = `I need one thing before I start.\n\n\`\`\`ask\n${JSON.stringify(ASK_JSON)}\n\`\`\``;
+  const ROUTINE_TEXT = `When you're ready, I can wake up for this.\n\n\`\`\`routine\n${JSON.stringify(ROUTINE_JSON)}\n\`\`\``;
+  const askMsgs = [];
+  const resetAsk = () => {
+    askMsgs.length = 0;
+    askMsgs.push(
+      msg({ id: "m-ask-question", text: ASK_TEXT, at: now - 900_000 }),
+      msg({ id: "m-ask-routine", text: ROUTINE_TEXT, at: now - 800_000 }),
+    );
+  };
+  resetAsk();
+
   H.mock("agents_list", () => BOTS);
   H.mock("chat_list", () => THREADS);
   H.mock("agent_projects", () => PROJECTS);
   H.mock("routines_sync", () => BOTS);
-  H.mock("chat_thread", (a) => (a && FULL[a.id]) || null);
+  H.mock("chat_thread", (a) => {
+    if (!a) return null;
+    if (a.id === "t-ask") return fullThread({ id: "t-ask", title: "Morning setup", agent: "a-herald", messages: askMsgs.slice() });
+    return FULL[a.id] || null;
+  });
   H.mock("chat_new", (a) => {
     const scope = (a && a.scope) || {};
     return fullThread({ id: "t-new", title: "New chat", agent: scope.agent || null, project: scope.project || null });
   });
-  H.mock("chat_send", () => null);
+  H.mock("chat_send", (a) => {
+    // A card's answer is a real user turn; appending it is what turns the card
+    // into its "Answered" state on the refresh that follows.
+    if (a && a.id === "t-ask" && typeof a.text === "string" && a.text) {
+      askMsgs.push(msg({ id: `m-ask-user-${askMsgs.length}`, role: "user", text: a.text, at: Date.now() }));
+    }
+    return null;
+  });
   H.mock("agent_save", (a) => (a && a.agent) || BOTS[0]);
-  H.mock("routine_save", (a) => (a && a.agent) || BOTS[0]);
+  H.mock("routine_save", (a) => BOTS.find((b) => a && b.id === a.agent) || BOTS[0]);
   H.mock("agent_project_assign", (a) => PROJECTS.find((p) => p.id === (a && a.project)) || PROJECTS[0]);
 
   // Populate the face's store from the mocks (the app boots before an eval can
@@ -490,6 +557,113 @@
     }
   }
 
+  // ---------------------------------------------------------------- ask + routine cards
+  // A bot can put two controls in a reply (ask.tsx): a question with options the
+  // reader answers, and a routine it proposes adding. Both ride fenced JSON in
+  // the assistant's text, and the answer is a normal user turn in the thread.
+  stage = "ask cards";
+  const askCard = () => [...document.querySelectorAll('[aria-label="Question from the bot"]')].find(visible) || null;
+  const proposalCard = () => [...document.querySelectorAll('[aria-label="Routine the bot proposes"]')].find(visible) || null;
+  const askOption = (text) => {
+    const card = askCard();
+    if (!card) return null;
+    return [...card.querySelectorAll('[role="checkbox"],[role="radio"]')].find((b) => visible(b) && new RegExp(text, "i").test(txt(b))) || null;
+  };
+  const openedAskThread = await clickBtn(/Herald/i, sideRoot(), 800);
+  check("ask.threadOpens", openedAskThread && /Herald/i.test(mainText()), openedAskThread ? `main pane: ${tail(mainText())}` : `sidebar: ${tail(sideText())}`);
+  check(
+    "ask.card",
+    !!askCard() && /Which topics should your digest cover\?/i.test(txt(askCard())),
+    askCard() ? `card: ${tail(txt(askCard()))}` : `no [aria-label="Question from the bot"]; main pane: ${tail(mainText())}`,
+  );
+  const askOptions = askCard() ? [...askCard().querySelectorAll('[role="checkbox"],[role="radio"]')].filter(visible) : [];
+  const ASK_OPTION_TEXTS = ["AI and coding agents", "Apple and the Mac", "Open source", "Startups and funding"];
+  check(
+    "ask.options",
+    askOptions.length === 4 && ASK_OPTION_TEXTS.every((t) => askOptions.some((b) => new RegExp(t, "i").test(txt(b)))),
+    `${askOptions.length} options: ${askOptions.map((b) => txt(b)).join(" | ") || "(none)"}`,
+  );
+  // The shell stylesheet's unlayered `.grid { height: 100% }` (Code's canvas
+  // container) used to beat Tailwind's `.grid` utility inside the chat face and
+  // squash this 16px checkbox box to 16x2 — the option rendered as a dash.
+  // Scoped to #grid now; keep the box square.
+  const firstBox = askOptions[0] ? askOptions[0].querySelector("span") : null;
+  const boxRect = firstBox ? firstBox.getBoundingClientRect() : null;
+  check(
+    "ask.checkboxSquare",
+    !!boxRect && Math.abs(boxRect.width - 16) <= 1.5 && Math.abs(boxRect.height - 16) <= 1.5,
+    boxRect
+      ? `${Math.round(boxRect.width)}x${Math.round(boxRect.height)} px (expected 16x16; the shell .grid height:100% bug made it 16x2)`
+      : "no checkbox span on the first option",
+  );
+  const answerAtStart = btn(/^Answer$/i, askCard());
+  check(
+    "ask.controls",
+    !!btn(/^Skip$/i, askCard()) && !!answerAtStart && answerAtStart.disabled,
+    `Skip=${!!btn(/^Skip$/i, askCard())} Answer=${!!answerAtStart} answerDisabled=${answerAtStart ? answerAtStart.disabled : "?"}`,
+  );
+  const openSource = askOption("Open source");
+  if (openSource) {
+    openSource.click();
+    await waitUI(300);
+  }
+  const answerAfterPick = btn(/^Answer$/i, askCard());
+  const pickedBox = askOption("Open source");
+  check(
+    "ask.optionSelects",
+    !!pickedBox && pickedBox.getAttribute("aria-checked") === "true" && !!answerAfterPick && !answerAfterPick.disabled,
+    `openSourceChecked=${pickedBox ? pickedBox.getAttribute("aria-checked") : "?"} answerDisabled=${answerAfterPick ? answerAfterPick.disabled : "?"}`,
+  );
+  const sendsBeforeAnswer = calls("chat_send").length;
+  if (answerAfterPick) {
+    answerAfterPick.click();
+    await waitUI(800);
+  }
+  const answerArgs = lastArgs("chat_send");
+  check(
+    "ask.answers",
+    calls("chat_send").length > sendsBeforeAnswer && /Answer: Open source/.test(JSON.stringify(answerArgs || {})),
+    `chat_send args: ${JSON.stringify(answerArgs)}`,
+  );
+  // The refresh after the answer brings the user turn back, and a question card
+  // with a user message after it must draw as spent, not as live options.
+  const answeredCard = askCard();
+  const leftoverOptions = answeredCard ? [...answeredCard.querySelectorAll('[role="checkbox"],[role="radio"]')].filter(visible) : [];
+  check(
+    "ask.answeredAfterUserturn",
+    !!answeredCard && /Answered/i.test(txt(answeredCard)) && leftoverOptions.length === 0,
+    answeredCard ? `card: ${tail(txt(answeredCard))} options=${leftoverOptions.length}` : "question card vanished",
+  );
+
+  const proposalText = txt(proposalCard());
+  check(
+    "routineProposal.card",
+    !!proposalCard() && /Morning digest/i.test(proposalText) && /Every day at 08:00/i.test(proposalText),
+    proposalCard() ? `card: ${tail(proposalText)}` : `no [aria-label="Routine the bot proposes"]; main pane: ${tail(mainText())}`,
+  );
+  check(
+    "routineProposal.controls",
+    !!btn(/^Add routine$/i, proposalCard()) && !!btn(/^Not now$/i, proposalCard()),
+    `card: ${tail(proposalText)}`,
+  );
+  const savesBeforeProposal = calls("routine_save").length;
+  const addProposal = btn(/^Add routine$/i, proposalCard());
+  if (addProposal) {
+    addProposal.click();
+    await waitUI(800);
+  }
+  const savedRoutine = lastArgs("routine_save");
+  check(
+    "routineProposal.adds",
+    calls("routine_save").length > savesBeforeProposal &&
+      !!savedRoutine &&
+      !!savedRoutine.routine &&
+      savedRoutine.routine.name === "Morning digest" &&
+      savedRoutine.routine.kind === "daily" &&
+      savedRoutine.routine.time === "08:00",
+    `routine_save args: ${JSON.stringify(savedRoutine)}`,
+  );
+
   // ---------------------------------------------------------------- project page
   stage = "project page";
   const projSide = sideSection("Projects");
@@ -525,7 +699,7 @@
   report.failed = report.checks.filter((c) => !c.ok).length;
   report.calls = cmds;
 
-  // The two screenshot eval files run after this one in the same uiharness
+  // The screenshot eval files run after this one in the same uiharness
   // invocation; they drive these helpers from the home state left above.
   const openBot = async (name = "Keeper") => {
     const b = btn(new RegExp(name, "i"), sideRoot());
@@ -557,6 +731,9 @@
     openBot,
     openNewBot,
     pickTemplate,
+    // Put the question-card thread back to unanswered, so a screenshot run
+    // taken after this one's Answer click still shows the live options.
+    resetAsk,
     state: () => ({
       agentsOn: win.classList.contains("agents-on"),
       dialogOpen: !!dialogEl(),
