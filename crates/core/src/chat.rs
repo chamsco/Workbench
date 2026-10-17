@@ -1299,14 +1299,16 @@ impl Chats {
             let t = ts.get(id)?;
             (t.system.clone(), t.project.clone())
         };
+        let project = project.map(PathBuf::from).filter(|p| p.is_dir());
         let brief = call
             .agent
             .as_ref()
-            .and_then(|a| ctx.agents.as_ref().map(|ag| ag.brief(a)));
-        // An agent's own notes live under the scope "agent:<id>".
+            .and_then(|a| ctx.agents.as_ref().map(|ag| ag.brief_in(a, project.as_deref())));
+        // A bot working on a project reads that project's notes; its own notes
+        // ("agent:<id>") are the fallback when it is not on one.
         let scope = match &call.agent {
-            Some(a) => Some(format!("agent:{}", a.id)),
-            None => project,
+            Some(a) => project.as_ref().map(|p| p.display().to_string()).or_else(|| Some(format!("agent:{}", a.id))),
+            None => project.as_ref().map(|p| p.display().to_string()),
         };
         let mem = ctx
             .memory
@@ -1496,7 +1498,10 @@ Ask the reader for input with the real form parts: `f = FormControl(\"Name\", In
         // folder, allowed to edit it. Otherwise a scratch folder per thread.
         let agent_dir = call.agent.as_ref().and_then(|a| ctx.agents.as_ref().map(|ag| ag.workspace(&a.id)));
         let computer = call.agent.as_ref().and_then(|a| ctx.agents.as_ref().and_then(|ag| ag.computer_env(a)));
-        let project = agent_dir.or_else(|| self.project_of(id));
+        // A thread that carries a project folder works there (that is how a bot
+        // works on a project); without one it keeps the bot's own workspace.
+        let thread_project = self.project_of(id);
+        let project = thread_project.clone().or(agent_dir);
         // Code chat runs the CLI the way the picker says, like the agents do.
         if call.agent.is_none() && project.is_some() {
             req.permission = Some(ctx.prefs.cli_permission.clone()).filter(|p| !p.is_empty());
@@ -1525,9 +1530,9 @@ Ask the reader for input with the real form parts: `f = FormControl(\"Name\", In
         }
         // Agents and Pair may search memory and save to their own notes.
         let mem_scope = match &call.agent {
-            Some(a) if a.memory => Some(format!("agent:{}", a.id)),
+            Some(a) if a.memory => thread_project.as_ref().map(|p| p.display().to_string()).or_else(|| Some(format!("agent:{}", a.id))),
             Some(_) => None,
-            None => self.threads.lock().unwrap().get(id).and_then(|t| t.project.clone()),
+            None => thread_project.as_ref().map(|p| p.display().to_string()),
         }
         .filter(|_| ctx.prefs.memory_on && ctx.memory.is_some());
         if let Some(s) = &mem_scope {

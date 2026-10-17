@@ -49,6 +49,7 @@ fn a_webhook_wakes_only_its_bot() {
             name: "Triage".into(),
             job: "Sorts incoming issues.".into(),
             avatar: Avatar::default(),
+            personality: String::new(),
             // No such CLI: the reply fails at once, which is fine here.
             route: Route { kind: RouteKind::Cli, provider: "nope".into(), model: None },
             shared: vec![],
@@ -57,6 +58,7 @@ fn a_webhook_wakes_only_its_bot() {
             off: vec![],
             apps_off: vec![],
             hook: secret.into(),
+            routines: vec![],
             created: 0,
             updated: 0,
         })

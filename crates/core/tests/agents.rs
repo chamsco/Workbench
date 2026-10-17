@@ -44,6 +44,7 @@ fn agent(name: &str, job: &str) -> Agent {
         name: name.into(),
         job: job.into(),
         avatar: Avatar::default(),
+        personality: String::new(),
         route: Route { kind: RouteKind::Cli, provider: "claude".into(), model: None },
         shared: vec![],
         computer: Computer::default(),
@@ -51,6 +52,7 @@ fn agent(name: &str, job: &str) -> Agent {
         off: vec![],
         apps_off: vec![],
         hook: String::new(),
+        routines: vec![],
         created: 0,
         updated: 0,
     }

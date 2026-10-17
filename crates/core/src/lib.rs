@@ -27,6 +27,7 @@ pub mod options;
 pub mod trace;
 pub mod prefs;
 pub mod project;
+pub mod projects;
 pub mod provider;
 pub mod remote;
 pub mod router;

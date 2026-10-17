@@ -8,13 +8,15 @@ use anyhow::{anyhow, bail, Result};
 use serde::Serialize;
 use serde_json::json;
 
-use crate::chat::{Chats, Ctx};
+use crate::agents::{Agent, Routine};
+use crate::chat::{now_ms, Chats, Ctx, Scope};
 use crate::cloud::{Account, Overage, Plan};
 use crate::files::FileEntry;
 use crate::harness::Harness;
 use crate::harnesses::HarnessInfo;
 use crate::prefs::{MachineCfg, Prefs};
 use crate::project::{AgentStatus, ProjectState};
+use crate::projects::Projects;
 use crate::remote::{Link, Remote};
 use crate::update::UpdateInfo;
 
@@ -193,6 +195,7 @@ pub struct Fleet {
     memory: Arc<crate::memory::Memory>,
     apps: Arc<crate::apps::Apps>,
     agents: Arc<crate::agents::Agents>,
+    projects: Arc<Projects>,
     harnesses: Mutex<Vec<HarnessInfo>>,
     http: reqwest::Client,
     remotes: Mutex<Vec<Arc<Remote>>>,
@@ -241,6 +244,7 @@ impl Fleet {
             memory: Arc::new(crate::memory::Memory::open(Prefs::data_dir())),
             apps: Arc::new(crate::apps::Apps::open(Prefs::data_dir().join("apps"))),
             agents: Arc::new(crate::agents::Agents::open(Prefs::data_dir().join("agents"))),
+            projects: Arc::new(Projects::open(Prefs::data_dir())),
             harnesses: Mutex::new(Vec::new()),
             http: reqwest::Client::new(),
             remotes: Mutex::new(remotes),
@@ -257,6 +261,7 @@ impl Fleet {
             rt,
         });
         fleet.schedule_dreams();
+        fleet.schedule_routines();
         if prefs.companion.enabled {
             fleet.start_companion();
         }
@@ -282,6 +287,10 @@ impl Fleet {
 
     pub fn agents(&self) -> &Arc<crate::agents::Agents> {
         &self.agents
+    }
+
+    pub fn projects(&self) -> &Arc<Projects> {
+        &self.projects
     }
 
     pub fn apps(&self) -> &Arc<crate::apps::Apps> {
@@ -389,6 +398,117 @@ impl Fleet {
                 let _ = f.dream();
             })
             .ok();
+    }
+
+    // ------------------------------------------------------------ routines
+
+    /// Fire one of a bot's routines now (the UI's "Run now"). Booked as a
+    /// manual run: moving `next_run` belongs to the scheduler, not to this.
+    pub fn run_routine(&self, agent: &str, routine: &str) -> Result<()> {
+        let a = self.agents.get(agent).ok_or_else(|| anyhow!("no such agent"))?;
+        let r = a.routines.iter().find(|r| r.id == routine).cloned().ok_or_else(|| anyhow!("no such routine"))?;
+        self.fire_routine(&a, &r, false)
+    }
+
+    /// Post a routine into the bot's thread for its project (or for its own
+    /// folder), creating that thread on the first fire. `scheduled` separates
+    /// the clock having fired from the user pressing Run now.
+    fn fire_routine(&self, a: &Agent, r: &Routine, scheduled: bool) -> Result<()> {
+        let folder = if r.project.trim().is_empty() {
+            None
+        } else {
+            Some(self.projects.get(&r.project).ok_or_else(|| anyhow!("that project is gone"))?.folder)
+        };
+        let chats = self.chats();
+        let latest = chats
+            .list()
+            .into_iter()
+            .filter(|t| t.agent.as_deref() == Some(a.id.as_str()) && t.members.is_empty() && t.project.as_deref() == folder.as_deref())
+            .max_by_key(|t| t.updated);
+        let id = match latest {
+            // Leave it due: the next tick tries again.
+            Some(t) if t.busy => bail!("the bot is busy with another reply"),
+            Some(t) => t.id,
+            None => chats
+                .create_in(
+                    a.route.clone(),
+                    // A routine-made thread already has a message, so the
+                    // sidebar names it after the routine that started it.
+                    Scope { agent: Some(a.id.clone()), project: folder.clone(), title: Some(format!("Routine · {}", r.name)), ..Default::default() },
+                )
+                .id,
+        };
+        let what = if r.instructions.trim().is_empty() { r.name.trim() } else { r.instructions.trim() };
+        let text = format!("A routine is due. Do it now, as your job says: {what}. When you are done, say in one line what you did.");
+        chats.event(&id, &format!("Routine · {}", r.name), &text, self.chat_ctx())?;
+        // The message is in; bookkeeping that fails (the routine was deleted
+        // meanwhile) must not make the scheduler post it again.
+        let _ = if scheduled {
+            self.agents.routine_ran(&a.id, &r.id, now_ms())
+        } else {
+            self.agents.routine_posted(&a.id, &r.id)
+        };
+        self.poke();
+        Ok(())
+    }
+
+    /// Fires due routines while the app is open. Best effort: one that cannot
+    /// run stays due, and the next 30 s tick tries again.
+    fn schedule_routines(self: &Arc<Self>) {
+        let weak = Arc::downgrade(self);
+        std::thread::Builder::new()
+            .name("routines".into())
+            .spawn(move || loop {
+                std::thread::sleep(std::time::Duration::from_secs(30));
+                let Some(f) = weak.upgrade() else { return };
+                let now = now_ms();
+                // One routine per bot per tick, and not while it is answering
+                // something else (its own folder and a project are different
+                // threads, but the bot is the same).
+                let busy: std::collections::HashSet<String> =
+                    f.chats.list().into_iter().filter(|t| t.busy).filter_map(|t| t.agent).collect();
+                for a in f.agents.list() {
+                    if busy.contains(&a.id) {
+                        continue;
+                    }
+                    let due = a
+                        .routines
+                        .iter()
+                        .filter(|r| r.enabled && r.next_run > 0 && r.next_run <= now)
+                        .min_by_key(|r| r.next_run)
+                        .cloned();
+                    if let Some(r) = due {
+                        let _ = f.fire_routine(&a, &r, true);
+                    }
+                }
+            })
+            .ok();
+    }
+
+    /// The UI's clock zone, once on mount: store the offset on every routine
+    /// and recompute the next wake. Returns the bots after the update.
+    pub fn routines_sync(&self, offset_minutes: i32) -> Vec<Agent> {
+        let now = now_ms();
+        for mut a in self.agents.list() {
+            let mut changed = false;
+            for r in &mut a.routines {
+                if r.utc_offset_minutes != offset_minutes {
+                    r.utc_offset_minutes = offset_minutes;
+                    changed = true;
+                }
+                if r.enabled {
+                    let next = r.next_after(now);
+                    if next != r.next_run {
+                        r.next_run = next;
+                        changed = true;
+                    }
+                }
+            }
+            if changed {
+                let _ = self.agents.save(a);
+            }
+        }
+        self.agents.list()
     }
 
     // ------------------------------------------------------------ companion

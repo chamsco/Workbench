@@ -6,7 +6,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use backspace_core::agents::{Agent, ComputerStatus};
+use backspace_core::agents::{Agent, ComputerStatus, Routine};
 use backspace_core::apps::Installed;
 use backspace_core::chat::{Attachment, Life, Route, Scope, Thread, ThreadInfo};
 use backspace_core::memory::Note;
@@ -17,6 +17,7 @@ use backspace_core::fleet::{Fleet, MachineInfo};
 use backspace_core::harnesses::HarnessInfo;
 use backspace_core::prefs::RouterCfg;
 use backspace_core::prefs::{Prefs, TabSpec};
+use backspace_core::projects::Project;
 use backspace_core::update::UpdateInfo;
 use backspace_core::{Harness, ProjectState};
 use tauri::{Emitter, Manager, State};
@@ -1511,7 +1512,7 @@ async fn chat_send(
         if t.as_ref().is_some_and(|t| t.app.is_some()) {
             return Ok(None);
         }
-        let scope = t.and_then(|t| t.agent.map(|a| format!("agent:{a}")).or(t.project));
+        let scope = t.and_then(|t| t.project.or_else(|| t.agent.map(|a| format!("agent:{a}"))));
         Ok(f.memory().capture(&text, scope, Some(id.clone())))
     })
     .await
@@ -1557,6 +1558,52 @@ async fn agent_computer(f: F<'_>, id: String, action: String) -> Res<ComputerSta
         _ => f.agents().status(&id),
     })
     .await
+}
+
+// ---------------------------------------------------------------- chat projects
+
+#[tauri::command]
+fn agent_projects(f: F) -> Vec<Project> {
+    f.projects().list()
+}
+
+#[tauri::command]
+async fn agent_project_save(f: F<'_>, project: Project) -> Res<Project> {
+    blocking(f, move |f| f.projects().save(project)).await
+}
+
+#[tauri::command]
+async fn agent_project_delete(f: F<'_>, id: String) -> Res<()> {
+    blocking(f, move |f| f.projects().delete(&id)).await
+}
+
+#[tauri::command]
+async fn agent_project_assign(f: F<'_>, project: String, agent: String, on: bool) -> Res<Project> {
+    blocking(f, move |f| f.projects().assign(&project, &agent, on)).await
+}
+
+// ---------------------------------------------------------------- routines
+
+#[tauri::command]
+async fn routine_save(f: F<'_>, agent: String, routine: Routine) -> Res<Agent> {
+    blocking(f, move |f| f.agents().routine_save(&agent, routine)).await
+}
+
+#[tauri::command]
+async fn routine_delete(f: F<'_>, agent: String, routine: String) -> Res<Agent> {
+    blocking(f, move |f| f.agents().routine_delete(&agent, &routine)).await
+}
+
+#[tauri::command]
+async fn routine_run(f: F<'_>, agent: String, routine: String) -> Res<()> {
+    blocking(f, move |f| f.run_routine(&agent, &routine)).await
+}
+
+/// The UI sends its clock offset (minutes east of UTC) once on mount, so every
+/// stored routine's next wake is recomputed for the machine it is on now.
+#[tauri::command]
+async fn routines_sync(f: F<'_>, offset: i32) -> Res<Vec<Agent>> {
+    blocking(f, move |f| Ok(f.routines_sync(offset))).await
 }
 
 #[tauri::command]
@@ -1898,6 +1945,14 @@ fn main() -> anyhow::Result<()> {
             agent_save,
             agent_delete,
             agent_computer,
+            agent_projects,
+            agent_project_save,
+            agent_project_delete,
+            agent_project_assign,
+            routine_save,
+            routine_delete,
+            routine_run,
+            routines_sync,
             companion_status,
             set_companion,
             set_companion_lan,

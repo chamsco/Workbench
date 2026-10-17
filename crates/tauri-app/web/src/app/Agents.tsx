@@ -1,22 +1,31 @@
-// The Agents side of Chat (after Noodle): agents with a name, a job and
-// their own folder and computer; one-to-one threads and groups with a goal.
-// Built from the same Whirl pieces as the rest of the chat face: wells,
-// row pills, the frosted dialog.
+// The Agents side of Chat (after Noodle): bots with a name, a face and a job on
+// a clock; one-to-one threads, groups with a goal, and projects they work in.
+// This file is the glue: it lays the sidebar, the home and the thread header out
+// of the pieces bots-ui and projects-ui own (bot-create, routines, projects) and
+// keeps the advanced editor an existing bot has always had.
+//
+// Built from the same Whirl pieces as the rest of the chat face: wells, row
+// pills, the frosted dialog.
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   IconApps,
+  IconClock,
   IconCloudComputing,
   IconCopy,
   IconDeviceDesktop,
   IconFolder,
+  IconFolderPlus,
   IconLoader2,
+  IconPencil,
   IconPlayerPlay,
   IconPlayerStop,
   IconPlug,
   IconPlus,
   IconRefresh,
+  IconSearch,
   IconServer,
+  IconTrash,
   IconUsersGroup,
   IconUserPlus,
   IconWebhook,
@@ -27,56 +36,60 @@ import { RowPill } from "@/components/row-pill";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { RoutePicker } from "./RoutePicker";
+import { Avatar, COLORS, FACES, Stack } from "./avatar";
+import { NewBotDialog, BotHome } from "./bot-create";
+import { RoutineDialog, UpcomingRoutines } from "./routines";
+import { ProjectDialog, ProjectsSide, projectFolderName } from "./projects";
 import {
   agentById,
+  agentStatus,
+  assignProject,
   computer,
   createGroup,
   deleteAgent,
   editAgent,
   editGroup,
+  editProject,
+  editRoutine,
   getHost,
-  openAgent,
+  goHome,
+  nextRoutine,
+  nextWakeLabel,
+  openAgentThread,
+  openProject,
   openThread,
+  removeRoutine,
+  routineWhen,
   saveAgent,
+  startBot,
   useChat,
   type Agent,
   type Computer,
   type Connection,
   type ComputerStatus,
+  type Project,
   type Route,
   type Thread,
   type ThreadInfo,
 } from "../bridge";
 
 const WELL = "shadow-[inset_0_0_0_1px_var(--well-outline),inset_0_1px_0_0_var(--well-highlight)]";
-const COLORS = ["#f97316", "#e11d48", "#8b5cf6", "#2563eb", "#0891b2", "#16a34a", "#ca8a04", "#64748b"];
-const EMOJI = ["🧭", "✍️", "🔬", "🎬", "🧪", "📈", "🛠️", "🎨", "📚", "🤖", "🦊", "🐙"];
+const field = `h-9 w-full rounded-xl bg-well px-3 text-[13.5px] outline-none ${WELL}`;
+const label = "text-[12px] font-medium text-muted-foreground";
+const sel = "h-8 cursor-pointer rounded-lg border border-border bg-background px-2 text-[12.5px] outline-none disabled:cursor-default disabled:opacity-50";
+const iconBtn = "grid size-8 flex-none cursor-pointer place-items-center rounded-full text-muted-foreground hover:bg-accent hover:text-foreground";
 
-const blankComputer = (): Computer => ({ kind: "folder", image: "", desktop: false, host: "", user: "", port: 0, key: "", desktop_url: "" });
+/** A bot's job field holds the one-liner and the long backstory ("one\n\nlong");
+ *  every list that has room for one line shows only the first. */
+const oneLine = (job: string) => job.split("\n").find((l) => l.trim())?.trim() ?? "";
 
-export function Avatar({ agent, size = 32, ring = false }: { agent?: Agent; size?: number; ring?: boolean }) {
-  const color = agent?.avatar.color || "#64748b";
-  const emoji = agent?.avatar.emoji;
-  return (
-    <span
-      className={`inline-grid shrink-0 place-items-center rounded-full font-semibold text-white ${ring ? "ring-2 ring-(--surface)" : ""}`}
-      style={{ width: size, height: size, background: color, fontSize: emoji ? size * 0.5 : size * 0.42 }}
-      aria-hidden
-    >
-      {emoji || (agent?.name || "?").slice(0, 1).toUpperCase()}
-    </span>
-  );
-}
-
-function Stack({ ids, size = 22 }: { ids: string[]; size?: number }) {
-  return (
-    <span className="flex -space-x-2">
-      {ids.slice(0, 3).map((id) => (
-        <Avatar key={id} agent={agentById(id)} size={size} ring />
-      ))}
-    </span>
-  );
-}
+/** The status dot's tone, shared by the sidebar, the cards and the header. */
+const STATUS_DOT: Record<ReturnType<typeof agentStatus>["kind"], string> = {
+  working: "bg-emerald-500",
+  needs: "bg-sky-500",
+  wake: "bg-amber-500",
+  idle: "bg-foreground/20",
+};
 
 const computerLabel = (c: Computer, remote = false) =>
   remote ? "Lives elsewhere (A2A)" : c.kind === "docker" ? (c.desktop ? "Own desktop (Docker)" : "Own Linux computer (Docker)") : c.kind === "ssh" ? `Server ${c.host}` : "Its folder on this machine";
@@ -86,64 +99,127 @@ const ComputerIcon = ({ c, size = 14 }: { c: Computer; size?: number }) =>
 // ---------------------------------------------------------------- sidebar
 
 export function AgentsSide() {
-  const { agents, threads, id } = useChat();
+  const { agents, threads, id, project } = useChat();
+  const [filter, setFilter] = useState("");
+  const q = filter.trim().toLowerCase();
+  const shown = q ? agents.filter((a) => a.name.toLowerCase().includes(q) || a.job.toLowerCase().includes(q)) : agents;
+  const chats = threads.filter((t) => !!t.agent && !t.app && (t.members?.length ?? 0) === 0).sort((x, y) => y.updated - x.updated);
   const groups = threads.filter((t) => (t.members?.length ?? 0) > 0 && !t.app);
   const lastWith = (a: Agent) => threads.filter((t) => t.agent === a.id).sort((x, y) => y.updated - x.updated)[0];
   const row = "group/row relative flex h-11 w-full cursor-pointer items-center gap-2.5 rounded-lg px-2 text-left";
   return (
     <div className="whirl-side flex flex-col gap-3">
       <div className="flex flex-col gap-0.5">
-        <button type="button" onClick={() => editAgent("new")} className="group/row relative flex h-8 w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 text-[13.5px]/4 font-medium text-foreground-soft">
+        <button type="button" onClick={() => startBot()} className="group/row relative flex h-8 w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 text-[13.5px]/4 font-medium text-foreground-soft">
           <RowPill />
           <IconUserPlus size={16} className="relative shrink-0" />
-          <span className="relative">New agent</span>
+          <span className="relative">New bot</span>
         </button>
-        <button type="button" onClick={() => editGroup(true)} disabled={agents.length === 0} className="group/row relative flex h-8 w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 text-[13.5px]/4 font-medium text-foreground-soft disabled:cursor-default disabled:opacity-50">
-          <RowPill />
-          <IconUsersGroup size={16} className="relative shrink-0" />
-          <span className="relative">New group</span>
-        </button>
+        <div className="group/row relative flex h-8 w-full items-center gap-2.5 rounded-lg px-2.5 text-[13.5px]/4 font-medium text-foreground-soft">
+          <RowPill className="group-focus-within/row:bg-accent" />
+          <IconSearch size={15} className="relative shrink-0" />
+          <input
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            onKeyDown={(e) => e.key === "Escape" && setFilter("")}
+            placeholder="Filter bots"
+            aria-label="Filter bots"
+            className="relative h-full min-w-0 flex-1 bg-transparent outline-none placeholder:text-foreground-soft"
+          />
+          {filter && (
+            <button type="button" onClick={() => setFilter("")} aria-label="Clear filter" className="relative grid size-5 cursor-pointer place-items-center rounded-md text-muted-foreground hover:text-foreground">
+              <IconX size={13} />
+            </button>
+          )}
+        </div>
       </div>
       <section>
-        <div className="flex h-5 items-center px-2.5 text-[10.5px]/4 font-medium text-muted-foreground/55">Agents</div>
-        {agents.length === 0 && <div className="px-2.5 py-1.5 text-[12.5px]/5 text-muted-foreground">No agents yet. Give one a name and a job.</div>}
-        {agents.map((a) => {
+        {/* The section label is the way home: a bot thread hides the home, and
+            this is the one place on the side that is always in reach. */}
+        <button
+          type="button"
+          onClick={goHome}
+          title="Back to your bots"
+          className="flex h-5 w-full cursor-pointer items-center px-2.5 text-left text-[10.5px]/4 font-medium text-muted-foreground/55 hover:text-foreground"
+        >
+          Bots
+        </button>
+        {agents.length === 0 && <div className="px-2.5 py-1.5 text-[12.5px]/5 text-muted-foreground">No bots yet. Give one a name, a face and a job.</div>}
+        {agents.length > 0 && shown.length === 0 && <div className="px-2.5 py-1.5 text-[12.5px]/5 text-muted-foreground">No bots match.</div>}
+        {shown.map((a) => {
           const t = lastWith(a);
           const on = !!t && t.id === id;
+          const st = agentStatus(a, t);
+          // A bot assigned to the project on screen is doing its work here.
+          const onProject = !!project && project.agents.includes(a.id);
           return (
-            <button key={a.id} type="button" className={row} onClick={() => void openAgent(a)} title={a.job}>
+            <button key={a.id} type="button" className={row} onClick={() => void openAgentThread(a, null)} title={oneLine(a.job)}>
               <RowPill className={on ? "bg-accent" : ""} />
               <span className="relative">
                 <Avatar agent={a} size={28} />
-                {t?.busy && <span className="absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full bg-emerald-500 ring-2 ring-(--surface)" />}
               </span>
               <span className="relative flex min-w-0 flex-1 flex-col">
                 <span className="truncate text-[13.5px]/4 font-medium text-foreground">{a.name}</span>
-                <span className="truncate text-[11.5px]/4 text-muted-foreground">{t?.preview || a.job || "No messages yet"}</span>
+                <span className="flex min-w-0 items-center gap-1.5 text-[11.5px]/4 text-muted-foreground">
+                  <span className={`size-1.5 shrink-0 rounded-full ${STATUS_DOT[st.kind]}`} aria-hidden />
+                  <span className="truncate">{st.label}</span>
+                  {onProject && (
+                    <span className="shrink-0" title="Assigned to the project on screen">
+                      <IconFolder size={11} aria-hidden />
+                    </span>
+                  )}
+                </span>
               </span>
               {t?.unread && !on && <span className="relative size-2 shrink-0 rounded-full bg-sky-500" />}
             </button>
           );
         })}
       </section>
-      {groups.length > 0 && (
-        <section>
-          <div className="flex h-5 items-center px-2.5 text-[10.5px]/4 font-medium text-muted-foreground/55">Groups</div>
-          {groups.map((g) => (
-            <button key={g.id} type="button" className={row} onClick={() => void openThread(g.id)}>
-              <RowPill className={g.id === id ? "bg-accent" : ""} />
+      <section>
+        <div className="flex h-5 items-center px-2.5 text-[10.5px]/4 font-medium text-muted-foreground/55">Chats</div>
+        {chats.length === 0 && <div className="px-2.5 py-1.5 text-[12.5px]/5 text-muted-foreground">No chats yet. Message a bot to start one.</div>}
+        {chats.map((t) => {
+          const bot = agentById(t.agent);
+          return (
+            <button key={t.id} type="button" className={row} onClick={() => void openThread(t.id)} title={t.preview || t.title}>
+              <RowPill className={t.id === id ? "bg-accent" : ""} />
               <span className="relative">
-                <Stack ids={g.members ?? []} size={20} />
+                <Avatar agent={bot} size={26} />
               </span>
               <span className="relative flex min-w-0 flex-1 flex-col">
-                <span className="truncate text-[13.5px]/4 font-medium text-foreground">{g.title}</span>
-                <span className="truncate text-[11.5px]/4 text-muted-foreground">{g.preview || `${g.members?.length ?? 0} agents`}</span>
+                <span className="truncate text-[13.5px]/4 font-medium text-foreground">{t.title}</span>
+                <span className="truncate text-[11.5px]/4 text-muted-foreground">{t.preview || "No messages yet"}</span>
               </span>
-              {g.busy && <IconLoader2 size={14} className="relative animate-spin text-muted-foreground" />}
+              {t.unread && t.id !== id && <span className="relative size-2 shrink-0 rounded-full bg-sky-500" />}
             </button>
-          ))}
-        </section>
-      )}
+          );
+        })}
+        <div className="mt-1 flex h-5 items-center px-2.5 text-[10.5px]/4 font-medium text-muted-foreground/55">Groups</div>
+        {groups.map((g) => (
+          <button key={g.id} type="button" className={row} onClick={() => void openThread(g.id)}>
+            <RowPill className={g.id === id ? "bg-accent" : ""} />
+            <span className="relative">
+              <Stack ids={g.members ?? []} size={20} />
+            </span>
+            <span className="relative flex min-w-0 flex-1 flex-col">
+              <span className="truncate text-[13.5px]/4 font-medium text-foreground">{g.title}</span>
+              <span className="truncate text-[11.5px]/4 text-muted-foreground">{g.preview || `${g.members?.length ?? 0} bots`}</span>
+            </span>
+            {g.busy && <IconLoader2 size={14} className="relative animate-spin text-muted-foreground" />}
+          </button>
+        ))}
+        <button
+          type="button"
+          onClick={() => editGroup(true)}
+          disabled={agents.length === 0}
+          className="group/row relative flex h-8 w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 text-[13.5px]/4 font-medium text-foreground-soft disabled:cursor-default disabled:opacity-50"
+        >
+          <RowPill />
+          <IconUsersGroup size={16} className="relative shrink-0" />
+          <span className="relative">New group</span>
+        </button>
+      </section>
+      <ProjectsSide />
     </div>
   );
 }
@@ -151,26 +227,42 @@ export function AgentsSide() {
 // ---------------------------------------------------------------- home
 
 export function AgentsHome() {
-  const { agents, threads } = useChat();
+  const { agents, threads, projects } = useChat();
   const groups = threads.filter((t) => (t.members?.length ?? 0) > 0 && !t.app);
   return (
     <div className="h-full overflow-y-auto px-6 pt-10 pb-16">
       <div className="mx-auto flex max-w-3xl flex-col gap-6">
-        <div>
-          <h1 className="text-[24px]/8 font-medium tracking-tight">Your agents</h1>
-          <p className="mt-1 max-w-[60ch] text-[13.5px]/6 text-muted-foreground">
-            Give each one a name and a job. Talk to one, or put several in a group with a goal: they read each other's messages and split the work. Each works in its own folder, or on its own computer.
-          </p>
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <h1 className="text-[24px]/8 font-medium tracking-tight">Your bots</h1>
+            <p className="mt-1 max-w-[60ch] text-[13.5px]/6 text-muted-foreground">
+              Each bot has a name, a face and a job. Talk to one, or put several in a group with a goal: they read each other's messages and split the work. A bot works in its own folder, or on one of your projects.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => startBot()}
+            className="mt-1 flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full bg-primary px-3.5 py-2 text-[13px] font-medium text-primary-foreground hover:bg-(--primary-hover)"
+          >
+            <IconUserPlus size={15} />
+            New bot
+          </button>
         </div>
         <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
           {agents.map((a) => (
             <AgentCard key={a.id} agent={a} />
           ))}
-          <button type="button" onClick={() => editAgent("new")} className="flex min-h-36 cursor-pointer flex-col items-center justify-center gap-2 rounded-2xl border-[1.5px] border-dashed border-border text-[13.5px] font-medium text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground">
+          <button
+            type="button"
+            onClick={() => startBot()}
+            className="flex min-h-36 cursor-pointer flex-col items-center justify-center gap-2 rounded-2xl border-[1.5px] border-dashed border-border text-[13.5px] font-medium text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground"
+          >
             <IconPlus size={20} />
-            New agent
+            New bot
           </button>
         </div>
+        <UpcomingRoutines agents={agents} />
+        <ProjectsBlock projects={projects} />
         {agents.length > 1 && (
           <div className="flex flex-col gap-2">
             <div className="flex items-center justify-between">
@@ -203,6 +295,9 @@ export function AgentsHome() {
 
 function AgentCard({ agent }: { agent: Agent }) {
   const host = getHost();
+  const { threads } = useChat();
+  const last = threads.filter((t) => t.agent === agent.id).sort((x, y) => y.updated - x.updated)[0];
+  const st = agentStatus(agent, last);
   return (
     <div className={`flex min-h-36 flex-col gap-2 rounded-2xl bg-well p-4 ${WELL}`}>
       <div className="flex items-center gap-3">
@@ -212,13 +307,13 @@ function AgentCard({ agent }: { agent: Agent }) {
           <span className="truncate text-[11.5px] text-muted-foreground">{host.routeName(agent.route)}</span>
         </div>
       </div>
-      <p className="line-clamp-2 flex-1 text-[12.5px]/5 text-muted-foreground">{agent.job || "No job yet."}</p>
+      <p className="line-clamp-2 flex-1 text-[12.5px]/5 text-muted-foreground">{oneLine(agent.job) || "No job yet."}</p>
       <div className="flex items-center gap-1.5 text-[11.5px] text-muted-foreground">
-        <ComputerIcon c={agent.computer} size={13} />
-        <span className="truncate">{computerLabel(agent.computer, agent.route.kind === "a2a")}</span>
+        <span className={`size-1.5 shrink-0 rounded-full ${STATUS_DOT[st.kind]}`} aria-hidden />
+        <span className="truncate">{st.label}</span>
       </div>
       <div className="flex items-center gap-1.5">
-        <button type="button" onClick={() => void openAgent(agent)} className="cursor-pointer rounded-full bg-primary px-3 py-1.5 text-[12.5px] font-medium text-primary-foreground hover:bg-(--primary-hover)">
+        <button type="button" onClick={() => void openAgentThread(agent, null)} className="cursor-pointer rounded-full bg-primary px-3 py-1.5 text-[12.5px] font-medium text-primary-foreground hover:bg-(--primary-hover)">
           Message
         </button>
         <button type="button" onClick={() => editAgent(agent)} className="cursor-pointer rounded-full px-3 py-1.5 text-[12.5px] font-medium hover:bg-accent">
@@ -229,18 +324,83 @@ function AgentCard({ agent }: { agent: Agent }) {
   );
 }
 
+function ProjectsBlock({ projects }: { projects: Project[] }) {
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center justify-between">
+        <h2 className="text-[14px] font-semibold">Projects</h2>
+        <button type="button" onClick={() => editProject("new")} className="flex cursor-pointer items-center gap-1.5 rounded-full px-3 py-1.5 text-[13px] font-medium hover:bg-accent">
+          <IconFolderPlus size={15} />
+          New project
+        </button>
+      </div>
+      {projects.length === 0 ? (
+        <div className={`rounded-2xl bg-well px-4 py-3 text-[13px]/5 text-muted-foreground ${WELL}`}>
+          A project is a folder plus the bots that work in it. Create one, assign a bot, and every chat you start there runs in that folder.
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
+          {projects.map((p) => (
+            <button key={p.id} type="button" onClick={() => openProject(p)} className={`flex flex-col gap-2 rounded-2xl bg-well p-4 text-left ${WELL}`}>
+              <span className="flex items-center gap-2.5">
+                <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-foreground/[0.06] text-muted-foreground">
+                  <IconFolder size={16} />
+                </span>
+                <span className="min-w-0 flex-1 truncate text-[14px] font-semibold">{projectFolderName(p)}</span>
+              </span>
+              <span className="truncate font-mono text-[11.5px]/4 text-muted-foreground" title={p.folder}>
+                {p.folder}
+              </span>
+              <span className="flex items-center justify-between text-[11.5px] text-muted-foreground">
+                <span>{p.agents.length === 1 ? "1 bot" : `${p.agents.length} bots`}</span>
+                <span className="font-medium text-foreground/70">Open</span>
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------- thread header
 
 export function AgentThreadHeader({ thread }: { thread: Thread }) {
+  const { threads } = useChat();
   const a = agentById(thread.agent);
   const members = thread.members ?? [];
+  const info = threads.find((t) => t.id === thread.id);
+  // A bot with nothing said yet gets its own front page: what it is for, the
+  // button that starts its job, and the routines it will wake for.
+  if (a && members.length === 0 && thread.messages.length === 0) return <BotHome agent={a} thread={thread} />;
   if (!a && members.length === 0) return null;
+  const st = a ? agentStatus(a, info) : null;
+  const next = a ? nextRoutine(a) : undefined;
+  const summary = a && a.routines.length > 0 ? `${a.routines.length} routine${a.routines.length === 1 ? "" : "s"}${next ? ` · next wake ${nextWakeLabel(next.next_run)}` : ""}` : "";
   return (
     <div className="flex flex-col items-center gap-1 pt-8 pb-4 text-center">
-      {a ? <Avatar agent={a} size={56} /> : <Stack ids={members} size={40} />}
+      {a ? <Avatar agent={a} size={40} /> : <Stack ids={members} size={40} />}
       <div className="mt-1.5 text-[19px]/7 font-semibold tracking-tight">{a ? a.name : thread.title}</div>
-      <div className="max-w-md text-[13px]/5 text-muted-foreground">{a ? a.job : thread.goal}</div>
-      {!a && <div className="text-[12.5px]/5 text-muted-foreground">{members.map((m) => agentById(m)?.name ?? "removed").join(", ")}</div>}
+      <div className="max-w-md text-[13px]/5 text-muted-foreground">{a ? oneLine(a.job) : thread.goal}</div>
+      {a && st ? (
+        <div className="flex items-center gap-2 text-[12.5px]/5 text-muted-foreground">
+          <span className="flex items-center gap-1.5">
+            <span className={`size-1.5 shrink-0 rounded-full ${STATUS_DOT[st.kind]}`} aria-hidden />
+            {st.label}
+          </span>
+          {summary && (
+            <>
+              <span aria-hidden>·</span>
+              <button type="button" onClick={() => editAgent(a)} className="flex cursor-pointer items-center gap-1 rounded-full px-1.5 py-0.5 hover:bg-accent hover:text-foreground" title="Edit its routines">
+                <IconClock size={12} />
+                {summary}
+              </button>
+            </>
+          )}
+        </div>
+      ) : (
+        <div className="text-[12.5px]/5 text-muted-foreground">{members.map((m) => agentById(m)?.name ?? "removed").join(", ")}</div>
+      )}
       {a && <ComputerBar agent={a} />}
     </div>
   );
@@ -307,44 +467,32 @@ export function AgentEditors() {
   const { editing, grouping } = useChat();
   return (
     <>
-      {editing && <AgentEditor key={editing === "new" ? "new" : editing.id} agent={editing === "new" ? null : editing} />}
+      {/* Store-driven sheets: each renders only while its own field is open, so
+          nothing else has to know about them. */}
+      <NewBotDialog />
+      <RoutineDialog />
+      <ProjectDialog />
+      {editing && editing !== "new" && <AgentEditor key={editing.id} agent={editing} />}
       {grouping && <GroupEditor />}
     </>
   );
 }
 
-const field = `h-9 w-full rounded-xl bg-well px-3 text-[13.5px] outline-none ${WELL}`;
-const label = "text-[12px] font-medium text-muted-foreground";
-
-function AgentEditor({ agent }: { agent: Agent | null }) {
+function AgentEditor({ agent }: { agent: Agent }) {
   const host = getHost();
-  const [a, setA] = useState<Agent>(
-    () =>
-      agent ?? {
-        id: "",
-        name: "",
-        job: "",
-        avatar: { emoji: EMOJI[Math.floor(Math.random() * EMOJI.length)], color: COLORS[Math.floor(Math.random() * COLORS.length)] },
-        route: (host.defaultRoute() ?? { kind: "cli", provider: "claude", model: null }) as Route,
-        shared: [],
-        computer: blankComputer(),
-        memory: true,
-        off: [],
-        apps_off: [],
-        hook: "",
-        created: 0,
-        updated: 0,
-      },
-  );
+  const { agents } = useChat();
+  const [a, setA] = useState<Agent>(agent);
   const [err, setErr] = useState("");
   const [confirmDel, setConfirmDel] = useState(false);
   const set = (p: Partial<Agent>) => setA((x) => ({ ...x, ...p }));
   const setC = (p: Partial<Computer>) => setA((x) => ({ ...x, computer: { ...x.computer, ...p } }));
   const save = async () => {
     try {
-      const saved = await saveAgent(a);
+      // Routines are saved by their own sheet while this editor is open, so the
+      // editor's copy can be stale: keep the store's list and save the rest.
+      const live = agents.find((x) => x.id === a.id);
+      await saveAgent(live ? { ...a, routines: live.routines } : a);
       editAgent(null);
-      if (!agent) await openAgent(saved);
     } catch (e) {
       setErr(String(e));
     }
@@ -358,7 +506,7 @@ function AgentEditor({ agent }: { agent: Agent | null }) {
     <Dialog open onOpenChange={(o) => !o && editAgent(null)}>
       <DialogContent className="max-h-[86vh] overflow-y-auto sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>{agent ? `Edit ${agent.name}` : "New agent"}</DialogTitle>
+          <DialogTitle>Edit {agent.name}</DialogTitle>
           <DialogDescription>A name, a job, and where it works. It remembers what you do together.</DialogDescription>
         </DialogHeader>
         <div className="flex flex-col gap-3.5">
@@ -370,9 +518,9 @@ function AgentEditor({ agent }: { agent: Agent | null }) {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-1">
-            {EMOJI.map((e) => (
-              <button key={e} type="button" onClick={() => set({ avatar: { ...a.avatar, emoji: e } })} className={`grid size-8 cursor-pointer place-items-center rounded-full text-[16px] ${a.avatar.emoji === e ? "bg-foreground/10" : "hover:bg-accent"}`}>
-                {e}
+            {FACES.map((f) => (
+              <button key={f} type="button" onClick={() => set({ avatar: { ...a.avatar, emoji: f } })} className={`grid size-8 cursor-pointer place-items-center rounded-full text-[16px] ${a.avatar.emoji === f ? "bg-foreground/10" : "hover:bg-accent"}`}>
+                {f}
               </button>
             ))}
             <span className="mx-1 h-5 w-px bg-border" />
@@ -383,6 +531,10 @@ function AgentEditor({ agent }: { agent: Agent | null }) {
           <div className="flex flex-col gap-1">
             <span className={label}>Job and backstory</span>
             <textarea className={`${field} h-auto min-h-24 py-2 leading-5`} value={a.job} placeholder="Plans launches. Breaks a goal into a week of steps, keeps everyone on the date, and asks before changing scope." onChange={(e) => set({ job: e.target.value })} />
+          </div>
+          <div className="flex flex-col gap-1">
+            <span className={label}>Personality</span>
+            <textarea className={`${field} h-auto min-h-14 py-2 leading-5`} value={a.personality} placeholder="How it talks, in one or two sentences" onChange={(e) => set({ personality: e.target.value })} />
           </div>
           <div className="flex items-center justify-between gap-2">
             <span className={label}>Runs on</span>
@@ -425,24 +577,83 @@ function AgentEditor({ agent }: { agent: Agent | null }) {
             <input type="checkbox" checked={a.memory} onChange={(e) => set({ memory: e.target.checked })} />
             Give it your memory notes (global and its own){a.route.kind === "a2a" ? ". They'd leave this machine." : ""}
           </label>
+          <BotRoutines agent={a} />
+          <BotProjects agent={a} />
           <BotRules a={a} set={set} />
           <BotApps a={a} set={set} />
-          <BotReach a={a} was={agent?.hook} set={set} />
+          <BotReach a={a} was={agent.hook} set={set} />
           {err && <div className="text-[12.5px] text-red-500">{err}</div>}
         </div>
         <DialogFooter>
-          {agent && (
-            <Button variant="ghost" className="mr-auto text-red-500" onClick={() => (confirmDel ? void deleteAgent(agent.id).then(() => editAgent(null)) : setConfirmDel(true))}>
-              {confirmDel ? `Delete ${agent.name} and its folder?` : "Delete"}
-            </Button>
-          )}
+          <Button variant="ghost" className="mr-auto text-red-500" onClick={() => (confirmDel ? void deleteAgent(agent.id).then(() => editAgent(null)) : setConfirmDel(true))}>
+            {confirmDel ? `Delete ${agent.name} and its folder?` : "Delete"}
+          </Button>
           <Button variant="ghost" onClick={() => editAgent(null)}>
             Cancel
           </Button>
-          <Button onClick={() => void save()}>{agent ? "Save" : "Create"}</Button>
+          <Button onClick={() => void save()}>Save</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** Routines the editor lists from the store rather than its own unsaved copy:
+ *  adding one opens its own sheet and saves straight away. */
+function BotRoutines({ agent }: { agent: Agent }) {
+  const host = getHost();
+  const { agents } = useChat();
+  const live = agents.find((x) => x.id === agent.id) ?? agent;
+  const [confirm, setConfirm] = useState<string | null>(null);
+  const remove = async (id: string) => {
+    if (confirm !== id) {
+      setConfirm(id);
+      return;
+    }
+    setConfirm(null);
+    try {
+      await removeRoutine(agent.id, id);
+    } catch (e) {
+      host.toast(String(e), "err");
+    }
+  };
+  return (
+    <Group title="Routines" note="Its job on a clock. It wakes itself up, carries the routine out where it lives, and says in one line what it did.">
+      {live.routines.length === 0 && <div className="px-3.5 py-3 text-[12.5px]/5 text-muted-foreground">No routines yet. Add one and {live.name} will wake itself up.</div>}
+      {live.routines.map((r) => (
+        <Line key={r.id} icon={<IconClock size={16} />} title={r.name || "Untitled routine"} sub={`${routineWhen(r)}${r.enabled && r.next_run ? ` · next wake ${nextWakeLabel(r.next_run)}` : ""}`}>
+          <button type="button" className={iconBtn} title="Edit" aria-label={`Edit ${r.name || "routine"}`} onClick={() => { setConfirm(null); editRoutine(agent.id, r); }}>
+            <IconPencil size={15} />
+          </button>
+          <button type="button" className={`${iconBtn} ${confirm === r.id ? "text-red-500" : ""}`} title={confirm === r.id ? "Click again to delete" : "Delete"} aria-label={confirm === r.id ? `Confirm deleting ${r.name || "routine"}` : `Delete ${r.name || "routine"}`} onClick={() => void remove(r.id)}>
+            <IconTrash size={15} />
+          </button>
+        </Line>
+      ))}
+      <button type="button" className="flex min-h-12 cursor-pointer items-center gap-3 px-3.5 text-left text-[13.5px] font-medium hover:bg-accent" onClick={() => editRoutine(agent.id)}>
+        <span className="grid size-8 place-items-center rounded-full bg-foreground/[0.06] text-muted-foreground">
+          <IconPlus size={16} />
+        </span>
+        Add routine
+      </button>
+    </Group>
+  );
+}
+
+/** Which projects the bot is assigned to. The switch saves at once, unlike the
+ *  rest of the editor, because assignment is its own relation, not a field. */
+function BotProjects({ agent }: { agent: Agent }) {
+  const host = getHost();
+  const { projects } = useChat();
+  return (
+    <Group title="Projects" note="Each project is a folder with the bots that work in it. When this bot works there, that folder is its working directory.">
+      {projects.length === 0 && <div className="px-3.5 py-3 text-[12.5px]/5 text-muted-foreground">No projects yet. Create one from the sidebar, then assign bots to it here.</div>}
+      {projects.map((p) => (
+        <Line key={p.id} icon={<IconFolder size={16} />} title={p.name} sub={<span className="block truncate font-mono text-[11.5px]" title={p.folder}>{p.folder}</span>}>
+          <Switch on={p.agents.includes(agent.id)} label={`${agent.name} on ${p.name}`} onChange={(on) => void assignProject(p.id, agent.id, on).catch((e) => host.toast(String(e), "err"))} />
+        </Line>
+      ))}
+    </Group>
   );
 }
 
@@ -488,8 +699,6 @@ function Switch({ on, disabled, label, onChange }: { on: boolean; disabled?: boo
   );
 }
 
-const iconBtn = "grid size-8 flex-none cursor-pointer place-items-center rounded-full text-muted-foreground hover:bg-accent hover:text-foreground";
-const sel = "h-8 cursor-pointer rounded-lg border border-border bg-background px-2 text-[12.5px] outline-none disabled:cursor-default disabled:opacity-50";
 /** `list` with `k` taken out (on) or put in (off). */
 const turn = (list: string[], k: string, on: boolean) => (on ? list.filter((x) => x !== k) : [...list.filter((x) => x !== k), k]);
 
@@ -509,7 +718,7 @@ const takesApps = (r: Route) => r.kind === "cli" && (r.provider === "claude" || 
 
 function BotRules({ a, set }: { a: Agent; set: (p: Partial<Agent>) => void }) {
   const host = getHost();
-    return (
+  return (
     <Group
       title="Rules"
       note={
@@ -692,7 +901,7 @@ function GroupEditor() {
                   <Avatar agent={a} size={26} />
                   <span className="flex min-w-0 flex-1 flex-col">
                     <span className="text-[13.5px] font-medium">{a.name}</span>
-                    <span className="truncate text-[11.5px] text-muted-foreground">{a.job}</span>
+                    <span className="truncate text-[11.5px] text-muted-foreground">{oneLine(a.job)}</span>
                   </span>
                   {i >= 0 && <span className="grid size-5 place-items-center rounded-full bg-foreground text-[11px] font-semibold text-(--surface)">{i + 1}</span>}
                 </button>
@@ -705,10 +914,7 @@ function GroupEditor() {
           <Button variant="ghost" onClick={() => editGroup(false)}>
             Cancel
           </Button>
-          <Button
-            disabled={ordered.length === 0}
-            onClick={() => void createGroup(title.trim() || "New group", goal.trim(), ordered).catch((e) => setErr(String(e)))}
-          >
+          <Button disabled={ordered.length === 0} onClick={() => void createGroup(title.trim() || "New group", goal.trim(), ordered).catch((e) => setErr(String(e)))}>
             Start group
           </Button>
         </DialogFooter>
@@ -717,4 +923,6 @@ function GroupEditor() {
   );
 }
 
+// Re-exported from the face's old home so nothing that imported them here breaks.
+export { Avatar, Stack };
 export type { ThreadInfo };

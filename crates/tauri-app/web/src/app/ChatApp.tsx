@@ -17,11 +17,12 @@ import { CodeComposer, CodeSide } from "./CodeComposer";
 import { GhostToggle } from "./GhostToggle";
 import { ReplyChip } from "./Extras";
 import { AgentEditors, AgentsHome, AgentsSide, AgentThreadHeader } from "./Agents";
+import { ProjectHome } from "./projects";
 import { CodeStart } from "./CodeStart";
 import { TracePanel } from "./Trace";
 import { ThreadList } from "./ThreadList";
 import { ThreadView } from "./ThreadView";
-import { agentById, getHost, goHome, saveAgent, send, setReplyTo, setRoute, stop, useChat, type Route } from "../bridge";
+import { agentById, getHost, goHome, saveAgent, send, setReplyTo, setRoute, stop, syncRoutines, useChat, type Route } from "../bridge";
 
 const baseName = (p: string) => p.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || p;
 
@@ -54,10 +55,16 @@ const NAMELESS = ["What's on your mind?", "Ready when you are", "Let's get into 
 
 export function ChatApp({ sideEl, user }: { sideEl: HTMLElement; user: string }) {
   const host = getHost();
-  const { id, thread, threads, epoch, scope, replyTo, agentsMode, ghost } = useChat();
+  const { id, thread, threads, epoch, scope, replyTo, agentsMode, ghost, project } = useChat();
   const [draft, setDraft] = useState("");
   const [homeRoute, setHomeRoute] = useState<Route | null>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  // Next wakes are absolute times computed in the core with an offset the UI
+  // sent at save time; re-send this machine's offset once on mount so a DST
+  // change (or a save from an older build) cannot leave them an hour out.
+  useEffect(() => {
+    void syncRoutines();
+  }, []);
   const inThread = !!thread;
   const busy = !!thread && threads.some((t) => t.id === thread.id && t.busy);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -177,8 +184,8 @@ export function ChatApp({ sideEl, user }: { sideEl: HTMLElement; user: string })
                   </motion.div>
                 )}
                 {!inThread && (agentsMode || scope) && (
-                  <motion.div key={scope ? "code-start" : "agents-home"} {...THREAD_SWAP} className="h-full min-h-0">
-                    {scope ? <CodeStart /> : <AgentsHome />}
+                  <motion.div key={scope ? "code-start" : project ? `project-${project.id}` : "agents-home"} {...THREAD_SWAP} className="h-full min-h-0">
+                    {scope ? <CodeStart /> : project ? <ProjectHome /> : <AgentsHome />}
                   </motion.div>
                 )}
               </AnimatePresence>

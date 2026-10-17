@@ -1,6 +1,63 @@
 # Handoff: Backspace (ohMyHarness → Workbench), v0
 
-**Latest session, 17 Oct 2026** (commits `cae2c37`, `dd9bbbb`, and the revert
+**Session, 17 Oct 2026 — bots, projects and routines in Chat's Agents side.**
+The owner sent Kuvo Code screenshots (bots with a name, face and job; a "Start
+From" sheet; a bot page with "Start its job"; a bot that asks what its routine
+should cover and then wakes itself). Design and decisions:
+`docs/AGENTS-PROJECTS-ROUTINES-2026-10-17.md`. What landed:
+
+- **Projects are a folder plus the bots assigned to it** (`crates/core/src/projects.rs`,
+  `<data>/agent-projects.json`). Deliberately separate from Workbench projects:
+  no tickets, branches or approvals. One project per canonical folder; a bot can
+  be on several. Agents assigned to a project and talked to from it run in the
+  project folder instead of their own workspace (`chat.rs` cwd choice) and read
+  project memory.
+- **Routines are part of a bot** (`Agent.personality`, `Agent.routines`), because
+  a routine needs the bot's model, rules, memory, folder and computer. Own
+  creation flow (`RoutineDialog`: what → when → where) reachable from the bot
+  page, the advanced editor and Upcoming routines. `fleet.rs` fires due routines
+  while the app is open: 30 s weak-ref tick, posts `Routine · <name>` into the
+  bot's (project) thread via the same `chats.event` the webhook uses, then
+  advances the wake; a busy bot stays due. Manual "Run now" posts without moving
+  the wake.
+- **New-bot sheet** (`bot-create.tsx`): Start From (7 templates) → Name & job →
+  Look (colour + face) → Personality (9 chips) → Job → Model → Lives On (This
+  Mac / a project), plus "add its first routine". `Agent.job` stores the
+  one-liner, a blank line, then the long instructions; every subtitle shows the
+  first line.
+- **Bot page** (`BotHome`) for an empty agent thread: avatar, job, status,
+  the Kuvo copy, "Start its job", routine cards with next wake / Run now / edit.
+- **Sidebar/home** (`Agents.tsx`, `projects.tsx`): New bot, filter, **Bots** with
+  Working… / Needs you / Wakes … / Watching status lines, **Chats** + Groups,
+  **Projects**; home has bot cards, Upcoming routines, project cards. The "Bots"
+  label is the way home (and from a project thread it lands on the project page).
+- **Commands** (`main.rs`): `agent_projects`, `agent_project_save`,
+  `agent_project_delete`, `agent_project_assign`, `routine_save`,
+  `routine_delete`, `routine_run`, `routines_sync`. The bridge is in
+  `web/src/bridge.ts` (`Project`, `Routine`, project page state, status and wake
+  helpers).
+
+**Ran:** `cargo test -p backspace-core` green (113 lib + every integration
+suite, including the new routine next-wake maths with a negative UTC offset,
+routine save/booking, brief/personality/project text, and the projects store);
+`cargo check -p backspace-tauri` green; `npx tsc --noEmit` green;
+`npm run build` wrote `ui/chat-web`. The uiharness acceptance is
+`tools/verify/agents-projects.js` (72 checks: switch, sidebar statuses, home,
+new-bot sheet, bot page + Start its job really sending, 3-step routine dialog,
+project page + back), with screenshots in
+`tools/verify/out/agents-{home,bot-page,new-bot,project-page,routine}.png`.
+**Not yet done:** nobody has clicked it in a real window. The chat face changed,
+so a running app needs a restart; the Tauri shell assets need no build.
+
+Still open from this work: the reference's chat-driven question cards
+(Ask/Skip) are still the routine sheet's job, not a message type; routines only
+run while Backspace is open; a Chat project's `machine` is stored and shown but
+only "this Mac" is settable; opening a Chat project in Workbench (tickets,
+branches, approvals) is the natural next step.
+
+---
+
+**Earlier session, 17 Oct 2026** (commits `cae2c37`, `dd9bbbb`, and the revert
 that parked stacks). Three things, no new crate:
 
 - **Ghost chats are one-off, and now behave like Whirl's incognito.** Two

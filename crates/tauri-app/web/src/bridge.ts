@@ -59,11 +59,53 @@ export type Computer = {
   desktop_url: string;
 };
 
+/** A bot's job on a clock (see docs/AGENTS-PROJECTS-ROUTINES-2026-10-17.md).
+ *  Owned by the bot: it needs the bot's model, rules, memory and folder. */
+export type Routine = {
+  id: string;
+  name: string;
+  /** What to do when it fires. */
+  instructions: string;
+  kind: "daily" | "weekdays" | "weekly" | "every";
+  /** "HH:MM" local, for daily/weekdays/weekly. */
+  time: string;
+  /** ISO weekdays 1..7 (Mon..Sun), for weekly. */
+  days: number[];
+  /** Minutes between runs, for every. */
+  every_minutes: number;
+  /** A project id, or "" for the bot's own folder. */
+  project: string;
+  enabled: boolean;
+  last_run: number;
+  /** Absolute ms, computed by the core. */
+  next_run: number;
+  runs: number;
+  /** Minutes east of UTC (JS offset negated), so Rust can do local time. */
+  utc_offset_minutes: number;
+  created: number;
+  updated: number;
+};
+
+/** A Chat project: a folder plus the bots assigned to it. Not a Workbench
+ *  project (no tickets, branches or approvals). */
+export type Project = {
+  id: string;
+  name: string;
+  folder: string;
+  /** "" is this Mac. Stored and shown; only this Mac is settable today. */
+  machine: string;
+  agents: string[];
+  created: number;
+  updated: number;
+};
+
 export type Agent = {
   id: string;
   name: string;
   job: string;
   avatar: { emoji: string; color: string };
+  /** The style text appended to its system prompt (a personality chip). */
+  personality: string;
   route: Route;
   shared: string[];
   computer: Computer;
@@ -74,6 +116,7 @@ export type Agent = {
   apps_off: string[];
   /** Its webhook's secret; "" while the webhook is off. */
   hook: string;
+  routines: Routine[];
   created: number;
   updated: number;
 };
@@ -249,6 +292,16 @@ type State = {
    *  back out of a ghost is to delete it. */
   ghost: boolean;
   agents: Agent[];
+  /** Chat projects: folders with bots assigned. */
+  projects: Project[];
+  /** The project page is open; null is the agents home. */
+  project: Project | null;
+  /** The new-bot sheet is open, optionally for a project. */
+  creating: { project: string } | null;
+  /** The routine sheet is open: a bot's routine, or "new" for that bot. */
+  routineEdit: { agent: string; routine: Routine | "new" } | null;
+  /** The project sheet is open: an existing project to edit, or "new". */
+  projectDialog: Project | "new" | null;
   /** On the Agents side with no thread: which agent's card is open in the editor. */
   editing: Agent | "new" | null;
   grouping: boolean;
@@ -258,7 +311,8 @@ type State = {
 
 let state: State = {
   threads: [], id: null, thread: null, epoch: 0, query: "", scope: null, replyTo: null,
-  agentsMode: false, agents: [], editing: null, grouping: false, traceOpen: null, ghost: false,
+  agentsMode: false, agents: [], projects: [], project: null, creating: null, routineEdit: null,
+  projectDialog: null, editing: null, grouping: false, traceOpen: null, ghost: false,
 };
 const subs = new Set<() => void>();
 const emit = () => subs.forEach((f) => f());
@@ -286,15 +340,19 @@ export const nudge = () => set({ epoch: state.epoch + 1 });
 
 /** Pull the list and the open thread again (on every core change). */
 export async function refresh() {
-  const [threads, agents] = await Promise.all([
+  const [threads, agents, projects] = await Promise.all([
     host.invoke<ThreadInfo[]>("chat_list").catch(() => state.threads),
     host.invoke<Agent[]>("agents_list").catch(() => state.agents),
+    host.invoke<Project[]>("agent_projects").catch(() => state.projects),
   ]);
   let thread = state.thread;
   if (state.id) {
     thread = await host.invoke<Thread | null>("chat_thread", { id: state.id }).catch(() => null);
   }
-  set({ threads, agents, thread, id: thread ? state.id : null, epoch: state.epoch + 1 });
+  // A project page follows the store: a rename or an assignment is visible
+  // without reopening it, and a removed project closes itself.
+  const project = state.project ? projects.find((p) => p.id === state.project!.id) ?? null : null;
+  set({ threads, agents, projects, project, thread, id: thread ? state.id : null, epoch: state.epoch + 1 });
 }
 
 /** A ghost is a one-off: the moment it stops being the thread on screen it is
@@ -328,22 +386,92 @@ export function goHome() {
 type Scoped = { project?: string | null; app?: string | null; agent?: string | null; members?: string[] };
 const isAgentThread = (t: Scoped) => !!t.agent || (t.members?.length ?? 0) > 0;
 
-/** Threads that belong to what is showing: Pair's project, Chat's plain
- *  threads, or Chat's agents and groups. Apps' threads never show here. */
+/** Threads that belong to what is showing: Pair's project (threads without an
+ *  agent), or Chat's agents and groups (whatever project they also carry).
+ *  Apps' threads never show here. */
 export const inScope = (t: Scoped, scope: string | null, agentsMode = state.agentsMode) =>
-  !t.app && (t.project ?? null) === scope && isAgentThread(t) === (agentsMode && !scope);
+  !t.app && (agentsMode ? isAgentThread(t) : (t.project ?? null) === scope && !isAgentThread(t));
 
 export function setScope(scope: string | null, agentsMode = false) {
   if (scope === state.scope && agentsMode === state.agentsMode) return;
   const keep = state.thread && inScope(state.thread, scope, agentsMode);
   if (!keep) forget(state.thread);
-  set({ scope, agentsMode, editing: null, grouping: false, ...(keep ? {} : { id: null, thread: null, replyTo: null }) });
+  set({
+    scope,
+    agentsMode,
+    editing: null,
+    grouping: false,
+    project: null,
+    creating: null,
+    routineEdit: null,
+    projectDialog: null,
+    ...(keep ? {} : { id: null, thread: null, replyTo: null }),
+  });
 }
 
 export const agentById = (id?: string | null) => state.agents.find((a) => a.id === id);
 export const editAgent = (editing: Agent | "new" | null) => set({ editing });
 export const openTrace = (traceOpen: string | null) => set({ traceOpen });
 export const editGroup = (grouping: boolean) => set({ grouping });
+
+// ---------------------------------------------------------------- bots, projects, routines
+
+export const projectById = (id?: string | null) => state.projects.find((p) => p.id === id);
+
+/** Open the new-bot sheet, optionally for a project. */
+export const startBot = (project?: string) => set({ creating: { project: project ?? "" }, editing: null, routineEdit: null, projectDialog: null });
+export const cancelBot = () => set({ creating: null });
+/** Open a project page (null goes back to the agents home). */
+export const openProject = (project: Project | null) => {
+  if (!project) {
+    set({ project: null });
+    return;
+  }
+  set({ project, id: null, thread: null, replyTo: null, creating: null, editing: null, projectDialog: null });
+};
+/** Open the routine sheet for a bot: an existing routine, or "new". */
+export const editRoutine = (agent: string, routine?: Routine) => set({ routineEdit: { agent, routine: routine ?? "new" }, editing: null, creating: null });
+export const cancelRoutine = () => set({ routineEdit: null });
+/** Open the project sheet: an existing project to edit, or "new". */
+export const editProject = (project: Project | "new" | null) => set({ projectDialog: project, creating: null });
+export const cancelProject = () => set({ projectDialog: null });
+
+export async function saveAgentProject(p: Project): Promise<Project> {
+  const saved = await host.invoke<Project>("agent_project_save", { project: p });
+  await refresh();
+  return saved;
+}
+export async function deleteAgentProject(id: string) {
+  await host.invoke("agent_project_delete", { id });
+  if (state.project?.id === id) set({ project: null });
+  await refresh();
+}
+export async function assignProject(project: string, agent: string, on: boolean) {
+  await host.invoke<Project>("agent_project_assign", { project, agent, on });
+  await refresh();
+}
+export async function saveRoutine(agent: string, routine: Routine) {
+  await host.invoke<Agent>("routine_save", { agent, routine });
+  await refresh();
+}
+export async function removeRoutine(agent: string, routine: string) {
+  await host.invoke<Agent>("routine_delete", { agent, routine });
+  await refresh();
+}
+export async function runRoutine(agent: string, routine: string) {
+  await host.invoke("routine_run", { agent, routine });
+  await refresh();
+}
+/** Recompute next wakes for the machine's current UTC offset (once on mount,
+ *  and whenever the clock's zone changed under us). */
+export async function syncRoutines() {
+  try {
+    const agents = await host.invoke<Agent[]>("routines_sync", { offset: -new Date().getTimezoneOffset() });
+    if (Array.isArray(agents)) set({ agents });
+  } catch {
+    /* an older core without routines: leave the face alone */
+  }
+}
 
 export async function saveAgent(a: Agent): Promise<Agent> {
   const saved = await host.invoke<Agent>("agent_save", { agent: a });
@@ -358,13 +486,36 @@ export async function deleteAgent(id: string) {
 export const computer = (id: string, action: "status" | "start" | "stop") =>
   host.invoke<ComputerStatus>("agent_computer", { id, action });
 
-/** An agent's conversation: the latest thread with it, or a new one. */
-export async function openAgent(a: Agent) {
-  const t = state.threads.filter((t) => t.agent === a.id).sort((x, y) => y.updated - x.updated)[0];
+/** An agent's conversation: the latest thread with it, or a new one. With a
+ *  project, the thread carries the project folder, so the bot works there. */
+export async function openAgentThread(a: Agent, project?: Project | null) {
+  const folder = project?.folder ?? null;
+  const t = state.threads
+    .filter((t) => t.agent === a.id && (t.project ?? null) === folder)
+    .sort((x, y) => y.updated - x.updated)[0];
   if (t) return openThread(t.id);
-  const nt = await host.invoke<Thread>("chat_new", { route: a.route, scope: { agent: a.id } });
+  const scope = folder ? { agent: a.id, project: folder } : { agent: a.id };
+  const nt = await host.invoke<Thread>("chat_new", { route: a.route, scope });
   set({ id: nt.id, thread: nt });
   await refresh();
+}
+
+/** Kuvo's "Start its job": the bot begins its own job in its thread. */
+export async function startJob(thread: Thread) {
+  if (!host.usable(thread.route)) {
+    throw new Error(`${host.providerName(thread.route)} isn't available. Pick another model.`);
+  }
+  await host.invoke("chat_send", {
+    id: thread.id,
+    text: "Start your job now. Tell me anything you need from me, and keep it short.",
+    files: [],
+  });
+  await refresh();
+}
+
+/** The bot's conversation with no project — the sidebar row's action. */
+export async function openAgent(a: Agent) {
+  return openAgentThread(a, null);
 }
 
 export async function createGroup(title: string, goal: string, members: string[]) {
@@ -506,4 +657,58 @@ export function toChatMessage(t: Thread, m: Msg): ChatMessage {
       url: fileUrl(t.id, a.id, a.mime),
     })),
   };
+}
+
+// ---------------------------------------------------------------- display
+// Formatting only: the schedule itself (and every next wake) comes from the
+// core, so the face and the scheduler cannot disagree.
+
+const WEEKDAYS = ["", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const hhmm = (d: Date) => `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+
+/** "Every day at 08:00", "Mon, Wed at 07:30", "Every 6 hours". */
+export function routineWhen(r: Routine): string {
+  if (!r.enabled) return "Paused";
+  const at = r.time || "08:00";
+  switch (r.kind) {
+    case "daily":
+      return `Every day at ${at}`;
+    case "weekdays":
+      return `Weekdays at ${at}`;
+    case "weekly": {
+      const days = [...(r.days.length ? r.days : [1])].sort((a, b) => a - b).map((d) => WEEKDAYS[d]).filter(Boolean).join(", ");
+      return `${days} at ${at}`;
+    }
+    case "every":
+      return r.every_minutes % 60 === 0 && r.every_minutes >= 60
+        ? `Every ${r.every_minutes / 60} hour${r.every_minutes === 60 ? "" : "s"}`
+        : `Every ${r.every_minutes} min`;
+    default:
+      return "Not scheduled";
+  }
+}
+
+/** "today at 08:00", "tomorrow at 08:00", "Tue at 08:00", "in 3 days". */
+export function nextWakeLabel(ms: number): string {
+  if (!ms) return "not scheduled";
+  const d = new Date(ms);
+  const now = new Date();
+  const dayOf = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const days = Math.round((dayOf(d) - dayOf(now)) / 86_400_000);
+  if (days <= 0) return `today at ${hhmm(d)}`;
+  if (days === 1) return `tomorrow at ${hhmm(d)}`;
+  if (days < 7) return `${d.toLocaleDateString([], { weekday: "short" })} at ${hhmm(d)}`;
+  return `in ${days} days`;
+}
+
+export const nextRoutine = (a: Agent): Routine | undefined =>
+  a.routines.filter((r) => r.enabled && r.next_run > 0).sort((x, y) => x.next_run - y.next_run)[0];
+
+/** Kuvo's status line: Working…, Needs you, Wakes tomorrow at 08:00, Watching. */
+export function agentStatus(a: Agent, thread?: ThreadInfo | null): { label: string; kind: "working" | "needs" | "wake" | "idle" } {
+  if (thread?.busy) return { label: "Working…", kind: "working" };
+  if (thread?.unread) return { label: "Needs you", kind: "needs" };
+  const r = nextRoutine(a);
+  if (r) return { label: `Wakes ${nextWakeLabel(r.next_run)}`, kind: "wake" };
+  return { label: "Watching", kind: "idle" };
 }
