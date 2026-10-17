@@ -7,8 +7,10 @@
 // First run walks through setup (onboard.js); providers.js renders the
 // CLI/model list both setup and Settings use.
 //
-// Tabs on the left of the title bar each hold up to four canvases (2x2 at
-// four). A canvas shows an agent session, a worktree, a browser, the diagram
+// Tabs on the left of the title bar each hold canvases arranged as a tree of
+// splits, or as a stack: a column of cards where one is open and the rest show
+// their header. A canvas shows an agent session, a worktree, a browser, the
+// diagram
 // review or PLAN.md; a new canvas starts as a picker. Tickets open in a drawer
 // off the review pill; machines switch from the sidebar foot; settings sit
 // behind the gear. Tabs, theme and machines persist in the shared prefs file
@@ -176,12 +178,31 @@ function saveTabs() {
 
 
 // ------------------------------------------------------------------ layout tree
-// Mirrors core::layout: {leaf: i} | {dir: "row"|"col", ratio, a, b}. Rust
-// owns the format (prefs.json); this copy draws it and applies drags.
+// Mirrors core::layout: {leaf: i} | {dir: "row"|"col", ratio, a, b} |
+// {stack: [i...], active}. Rust owns the format (prefs.json); this copy draws
+// it and applies drags.
 const PH = -1;
+// A stack is a column of cards: the one at `active` is expanded, the rest show
+// their header. Same numbers as core::layout.
+const STACK_HEAD = 30, MAX_STACK = 6;
+// Canvases a tab may hold. Splitting past four makes rectangles nobody can use;
+// a stack is what lets a tab hold more than the split cap.
+const MAX_PANES = 8;
 const L = {
   leaf: i => ({ leaf: i }),
   split: (dir, ratio, a, b) => ({ dir, ratio, a, b }),
+  // A stack of one is just that canvas: a one-card stack and a leaf would draw
+  // the same and drift apart.
+  stack: (leaves, active) => (leaves.length <= 1 ? L.leaf(leaves[0] ?? 0)
+    : ({ stack: leaves.slice(), active: Math.max(0, Math.min(active | 0, leaves.length - 1)) })),
+  isStack: t => !!t && "stack" in t,
+  // The stack holding `leaf`, or null when it stands on its own.
+  stackOf(t, leaf) {
+    if (!t || typeof t !== "object") return null;
+    if ("stack" in t) return t.stack.includes(leaf) ? t.stack.slice() : null;
+    if ("leaf" in t) return null;
+    return L.stackOf(t.a, leaf) || L.stackOf(t.b, leaf);
+  },
   defaultFor(n) {
     const l = L.leaf, s = L.split;
     if (n <= 1) return l(0);
@@ -196,7 +217,11 @@ const L = {
     if (id === "left1") return s("row", 0.5, l(0), s("col", 0.5, l(1), l(2)));
     return L.defaultFor(+id || 1);
   },
-  leaves: t => ("leaf" in t ? [t.leaf] : [...L.leaves(t.a), ...L.leaves(t.b)]),
+  leaves(t) {
+    if ("leaf" in t) return [t.leaf];
+    if ("stack" in t) return t.stack.slice();
+    return [...L.leaves(t.a), ...L.leaves(t.b)];
+  },
   valid(t, n) {
     if (!t || typeof t !== "object") return false;
     const l = L.leaves(t).slice().sort((a, b) => a - b);
@@ -204,6 +229,21 @@ const L = {
   },
   layout(t, r, gap, path = [], out = { leaves: [], gutters: [] }) {
     if ("leaf" in t) { out.leaves.push({ leaf: t.leaf, r }); return out; }
+    if ("stack" in t) {
+      const n = t.stack.length;
+      if (!n) return out;
+      const open = Math.min(Math.max(t.active | 0, 0), n - 1);
+      // Headers give way together on a rectangle too short to hold them, so the
+      // expanded card is never squeezed to nothing.
+      const head = Math.min(STACK_HEAD, r.h / n);
+      let y = r.y;
+      t.stack.forEach((leaf, i) => {
+        const h = i === open ? Math.max(0, r.h - head * (n - 1)) : head;
+        out.leaves.push({ leaf, r: { ...r, y, h }, stacked: true, open: i === open });
+        y += h;
+      });
+      return out;
+    }
     let ra, g, rb;
     if (t.dir === "row") {
       const wa = Math.max(0, (r.w - gap) * t.ratio);
@@ -218,11 +258,19 @@ const L = {
     return out;
   },
   setRatio(t, path, v) {
-    if (!path.length) { if (!("leaf" in t)) t.ratio = Math.min(0.9, Math.max(0.1, v)); return; }
+    if ("leaf" in t || "stack" in t) return;
+    if (!path.length) { t.ratio = Math.min(0.9, Math.max(0.1, v)); return; }
     L.setRatio(path[0] ? t.b : t.a, path.slice(1), v);
   },
   remove(t, x) {
     if ("leaf" in t) return t.leaf === x ? null : t;
+    if ("stack" in t) {
+      const i = t.stack.indexOf(x);
+      if (i < 0) return t;
+      const s = t.stack.slice(); s.splice(i, 1);
+      if (!s.length) return null;
+      return L.stack(s, t.active > i ? t.active - 1 : t.active);
+    }
     const a = L.remove(t.a, x), b = L.remove(t.b, x);
     return a && b ? { ...t, a, b } : a || b;
   },
@@ -230,11 +278,57 @@ const L = {
     if ("leaf" in t) {
       if (t.leaf !== target) return t;
       const T = L.leaf(target), N = L.leaf(nw);
-      return { left: L.split("row", 0.5, N, T), right: L.split("row", 0.5, T, N), top: L.split("col", 0.5, N, T), bottom: L.split("col", 0.5, T, N) }[side] || N;
+      return { left: L.split("row", 0.5, N, T), right: L.split("row", 0.5, T, N), top: L.split("col", 0.5, N, T), bottom: L.split("col", 0.5, T, N), stack: L.stack([target, nw], 1), center: L.stack([target, nw], 1) }[side] || N;
+    }
+    if ("stack" in t) {
+      if (!t.stack.includes(target)) return t;
+      if (side === "center" || side === "stack") {
+        const s = t.stack.slice(), at = s.indexOf(nw);
+        if (at >= 0) { s.splice(at, 1); s.push(nw); }
+        else if (s.length < MAX_STACK) s.push(nw);
+        // Full: the card under the pointer gives up its place, exactly as a
+        // swap would, rather than the drop doing nothing.
+        else s[s.indexOf(target)] = nw;
+        return L.stack(s, s.length - 1);
+      }
+      // Dragged to an edge of a card: it leaves the stack and splits there.
+      const rest = L.remove(t, target);
+      return rest ? L.insert(rest, target, side, nw) : t;
     }
     return { ...t, a: L.insert(t.a, target, side, nw), b: L.insert(t.b, target, side, nw) };
   },
-  map: (t, f) => ("leaf" in t ? L.leaf(f(t.leaf)) : { ...t, a: L.map(t.a, f), b: L.map(t.b, f) }),
+  // Add `pane` to the stack holding `target`, taking it out of the tree first
+  // when it is already in there, so a canvas is never in two places.
+  stackWith(t, target, pane) {
+    if (!L.leaves(t).includes(pane)) return L.pushOnto(t, target, pane);
+    const rest = L.remove(t, pane);
+    return rest ? L.pushOnto(rest, target, pane) : t;
+  },
+  pushOnto(t, target, nw) {
+    if ("leaf" in t) return t.leaf === target ? L.stack([target, nw], 1) : t;
+    if ("stack" in t) {
+      if (!t.stack.includes(target) || t.stack.includes(nw)) return t;
+      const s = t.stack.slice();
+      // Full: the oldest card leaves as a canvas of its own rather than
+      // vanishing, which is where a card goes when it no longer fits.
+      const spill = s.length >= MAX_STACK ? s.shift() : null;
+      s.push(nw);
+      const st = L.stack(s, s.length - 1);
+      return spill == null ? st : L.split("col", 0.75, L.leaf(spill), st);
+    }
+    return { ...t, a: L.pushOnto(t.a, target, nw), b: L.pushOnto(t.b, target, nw) };
+  },
+  // Expand `leaf` where it lies, leaving the order of the column alone.
+  activate(t, leaf) {
+    if ("leaf" in t) return t;
+    if ("stack" in t) { const i = t.stack.indexOf(leaf); return i < 0 ? t : { ...t, active: i }; }
+    return { ...t, a: L.activate(t.a, leaf), b: L.activate(t.b, leaf) };
+  },
+  map(t, f) {
+    if ("leaf" in t) return L.leaf(f(t.leaf));
+    if ("stack" in t) return { ...t, stack: t.stack.map(f) };
+    return { ...t, a: L.map(t.a, f), b: L.map(t.b, f) };
+  },
   rename: (t, from, to) => L.map(t, l => (l === from ? to : l)),
   swap: (t, x, y) => L.map(t, l => (l === x ? y : l === y ? x : l)),
   renumber: (t, removed) => L.map(t, l => (l > removed ? l - 1 : l)),
@@ -242,14 +336,26 @@ const L = {
   moved(t, d, target, side, shown) {
     if (d === target) return L.rename(t, d, shown);
     if (side === "center") return L.rename(L.swap(t, d, target), d, shown);
+    if (side === "stack") return L.stackWith(t, target, shown);
     const rest = L.remove(t, d);
     return rest ? L.insert(rest, target, side, shown) : L.rename(t, d, shown);
   },
-  // Outer quarter on each side splits there; the middle swaps.
-  zone(r, x, y) {
+  // Take `leaf` out of its stack and give it the top half of the stack's spot.
+  popOut(t, leaf) {
+    if ("leaf" in t) return t;
+    if ("stack" in t) {
+      if (!t.stack.includes(leaf)) return t;
+      const rest = L.remove(t, leaf);
+      return rest ? L.split("col", 0.5, L.leaf(leaf), rest) : L.leaf(leaf);
+    }
+    return { ...t, a: L.popOut(t.a, leaf), b: L.popOut(t.b, leaf) };
+  },
+  // Outer quarter on each side splits there; the middle shares the spot with
+  // the canvas under the pointer when it can take another card, else swaps.
+  zone(r, x, y, canStack = true) {
     const dx = (x - r.x) / Math.max(1, r.w), dy = (y - r.y) / Math.max(1, r.h);
     const e = [[dx, "left"], [1 - dx, "right"], [dy, "top"], [1 - dy, "bottom"]].sort((a, b) => a[0] - b[0])[0];
-    return e[0] < 0.25 ? e[1] : "center";
+    return e[0] < 0.25 ? e[1] : (canStack ? "stack" : "center");
   },
 };
 const PRESETS = [["1", "1", 1], ["2", "2", 2], ["3", "3", 3], ["4", "2×2", 4], ["top1", "1 over 2", 3], ["bottom1", "2 over 1", 3], ["left1", "1 | 2", 3]];
@@ -637,9 +743,9 @@ function newTabPop(anchor) {
 const VIEWS = [["board", "bubble", "Team chat"], ["conversation", "reply", "Conversation"], ["terminal", "term", "Terminal"], ["files", "folder", "Worktree files"], ["browser", "globe", "Browser"], ["diagram", "diagram", "Diagram review"], ["docs", "doc", "PLAN.md"], ["options", "opts", "Visual options"], ["empty", "window", "Empty canvas"]];
 $("#addCanvas").dataset.popper = "";
 $("#addCanvas").onclick = e => {
-  const full = tab().panes.length >= 4;
+  const full = tab().panes.length >= MAX_PANES;
   const agents = treeOrder().map(id => agent(id));
-  openPop(e.currentTarget, full ? `<h5>Add a canvas</h5><div class="note">This tab already has four canvases. Close one, or open a new tab with ⌘T.</div>` :
+  openPop(e.currentTarget, full ? `<h5>Add a canvas</h5><div class="note">This tab already has ${MAX_PANES} canvases. Close one, or stack them: drag a canvas by its header onto the middle of another.</div>` :
     `<h5>Sessions</h5>${agents.length ? agents.map(a => `<button class="pi" data-agent="${a.id}"><span class="agent">${icon("sparkle")}</span>${esc(a.id === MAIN ? "Main agent" : a.title)}<span class="k">${esc(a.status.replace("_", " "))}</span></button>`).join("") : `<div class="note">No agents on this machine yet.</div>`}
      <hr><h5>Views</h5>${VIEWS.map(([k, ic, l]) => `<button class="pi" data-kind="${k}">${icon(ic)}${l}</button>`).join("")}`, pop => {
     $$("[data-agent]", pop).forEach(b => (b.onclick = () => addCanvas({ kind: "agent", agent: +b.dataset.agent })));
@@ -648,7 +754,7 @@ $("#addCanvas").onclick = e => {
 };
 function addCanvas(spec) {
   closePop();
-  const t = tab(); if (t.panes.length >= 4) return;
+  const t = tab(); if (t.panes.length >= MAX_PANES) return;
   // Split the focused canvas along its longer side.
   const g = $("#grid"), tr = tree(t), n = t.panes.length;
   const { leaves } = L.layout(tr, { x: 0, y: 0, w: g.clientWidth || 1000, h: g.clientHeight || 600 }, 6);
@@ -1034,16 +1140,30 @@ function buildPane(p, slot) {
   el.className = "pane" + (slot === S.focus ? " on" : "");
   el.dataset.slot = slot;
   const ps = pstate(slot);
-  el.innerHTML = `<header class="ph">${paneIcon(p)}<span class="t">${esc(paneTitle(p))}</span><span class="sp"></span>
+  const st = L.stackOf(tree(tab()), slot);
+  el.innerHTML = `<header class="ph">${paneIcon(p)}<span class="t">${esc(paneTitle(p))}</span>
+    ${st ? `<span class="scnt" title="Card ${st.indexOf(slot) + 1} of ${st.length} in this stack">${st.length}</span>` : ""}
+    <span class="sp"></span>
     ${p.kind === "agent" && busy(agent(p.agent)) ? `<button class="ib stopb" data-act="stop" aria-label="Stop this agent" title="Stop">${icon("stop")}</button>` : ""}
     ${p.kind === "agent" ? `<button class="ib" data-act="trace" aria-label="Trace" title="Trace: every tool call, timed">${icon("trace")}</button><button class="ib" data-act="files" aria-label="Open worktree files">${icon("folder")}</button>` : ""}
     ${p.kind !== "empty" ? `<button class="ib" data-act="swap" aria-label="Show something else here" title="Show something else here">${icon("window")}</button>` : ""}
+    ${st ? `<button class="ib" data-act="pop" aria-label="Take this canvas out of the stack" title="Take it out of the stack">${icon("updown")}</button>` : ""}
     ${tab().panes.length > 1 ? `<button class="ib" data-act="max" aria-label="Maximize canvas">${icon("expand")}</button>` : ""}
     <button class="ib" data-act="close" aria-label="Close canvas">${icon("close")}</button></header>`;
   el.querySelector(".ph").addEventListener("pointerdown", e => { if (!e.target.closest("button")) paneDrag(e, el, slot); });
+  // A click on a folded card's header expands it. A drag that just ended is not
+  // a click: the pointer went somewhere, and the card it landed on decides.
+  el.querySelector(".ph").addEventListener("click", e => {
+    if (e.target.closest("button") || performance.now() - (S.dragAt || 0) < 300) return;
+    const t = tab();
+    if (!L.stackOf(tree(t), slot)) return;
+    t.layout = L.activate(tree(t), slot);
+    S.focus = slot; saveTabs(); renderGrid(); renderList();
+  });
   el.addEventListener("pointerdown", () => { if (S.focus !== slot) { S.focus = slot; $$(".pane").forEach(x => x.classList.toggle("on", +x.dataset.slot === slot)); renderList(); } });
   const act = (k, f) => { const b = el.querySelector(`[data-act=${k}]`); if (b) b.onclick = f; };
   act("max", () => { S.max = S.max == null ? slot : null; renderGrid(); });
+  act("pop", () => { const t = tab(); t.layout = L.popOut(tree(t), slot); saveTabs(); renderGrid(); });
   act("swap", () => { setPane(slot, { kind: "empty", agent: 0, url: null }); });
   act("files", () => setPane(slot, { kind: "files", agent: p.agent, url: null }));
   act("trace", () => setPane(slot, { kind: "trace", agent: p.agent, url: null }));
@@ -1240,11 +1360,19 @@ function position(tr) {
     ? { leaves: [{ leaf: S.max, r: { x: 0, y: 0, w: W, h: H } }], gutters: [] }
     : L.layout(tr, { x: 0, y: 0, w: W, h: H }, 6);
   S.ph.hidden = true;
-  leaves.forEach(({ leaf, r }) => {
+  leaves.forEach(({ leaf, r, stacked, open }) => {
     const el = leaf === PH ? S.ph : S.els.get(leaf);
     if (!el) return;
     el.hidden = false;
     Object.assign(el.style, { left: r.x + "px", top: r.y + "px", width: r.w + "px", height: r.h + "px" });
+    if (leaf === PH) { el.classList.toggle("card", !!stacked); return; }
+    // A folded card is a header and nothing else: the body is hidden rather
+    // than merely clipped, so a terminal or a webview in there stops painting.
+    const folded = !!stacked && !open;
+    el.classList.toggle("stacked", !!stacked);
+    el.classList.toggle("folded", folded);
+    const body = el.lastElementChild;
+    if (body && body.classList.contains("ph") === false) body.hidden = folded;
   });
   $$(".gut", g).forEach(x => x.remove());
   if (!S.drag) gutters.forEach(gt => g.appendChild(gutter(gt)));
@@ -1350,7 +1478,9 @@ function paneDrag(e, el, slot) {
     const x = ev.clientX - d.gr.left, y = ev.clientY - d.gr.top;
     const hit = d.leaves.find(l => x >= l.r.x && x < l.r.x + l.r.w && y >= l.r.y && y < l.r.y + l.r.h);
     if (!hit) return;
-    const side = hit.leaf === slot ? "center" : L.zone(hit.r, x, y);
+    // The middle of a canvas shares its spot when it can take another card.
+    const room = (L.stackOf(d.base, hit.leaf) || []).length < MAX_STACK && hit.leaf !== slot;
+    const side = hit.leaf === slot ? "center" : L.zone(hit.r, x, y, room);
     const key = hit.leaf + side;
     if (key === d.key) return;
     d.key = key; d.target = hit.leaf; d.side = side;
@@ -1359,6 +1489,9 @@ function paneDrag(e, el, slot) {
   const end = drop => {
     removeEventListener("pointermove", move); removeEventListener("pointerup", up); removeEventListener("keydown", esc_);
     if (!d) return;
+    // The pointerup that ends a drag also fires a click on the header, and a
+    // click there means "expand this card". The drag already said what it meant.
+    S.dragAt = performance.now();
     d.shield.remove();
     $$("#tabs .drop-to").forEach(b => b.classList.remove("drop-to"));
     // Land from where the pointer let go: the transition starts there.
@@ -1375,7 +1508,7 @@ function paneDrag(e, el, slot) {
 }
 function moveToTab(slot, ti) {
   const from = tab(), to = prefs.tabs[ti];
-  if (to.panes.length >= 4) { renderGrid(); flash($(`#tabs [data-tab="${ti}"]`)); return; }
+  if (to.panes.length >= MAX_PANES) { renderGrid(); flash($(`#tabs [data-tab="${ti}"]`)); return; }
   const spec = from.panes[slot];
   if (from.panes.length > 1) { from.layout = L.renumber(L.remove(tree(from), slot), slot); from.panes.splice(slot, 1); }
   else from.panes[0] = { kind: "empty", agent: 0, url: null };
@@ -1843,7 +1976,7 @@ function applyCanvasOps() {
     }
     if (prefs.tabs.some(t => t.panes.some(p => sameCanvas(p, spec)))) continue;
     const t = tab();
-    if (t.panes.length < 4) {
+    if (t.panes.length < MAX_PANES) {
       const g = $("#grid"), tr = tree(t), n = t.panes.length;
       const { leaves } = L.layout(tr, { x: 0, y: 0, w: g.clientWidth || 1000, h: g.clientHeight || 600 }, 6);
       const f = leaves[leaves.length - 1];
