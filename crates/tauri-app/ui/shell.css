@@ -83,6 +83,12 @@
 .side-modes .modes button .ic { width: 12px; height: 12px; }
 .win:not(.side-closed) .tbar .modes { display: none; }
 .win.side-closed .side-modes .modes { display: none; }
+/* Chat keeps the switch in the middle of the title bar, open or folded: the
+   card holds the threads, the switch belongs to the window. Code keeps it in
+   the card, where it sits with the project tree it switches. */
+.win.m-chat .side-modes { display: none; }
+.win.m-chat .tbar .modes { display: flex; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); }
+.win.m-chat .tbar .modes[hidden] { display: none; }
 
 /* ---------- New chat | search + sidebar, over the top of the card ----------
    Laid over the window rather than inside the card, so when the card folds
