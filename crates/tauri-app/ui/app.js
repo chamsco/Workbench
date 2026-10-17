@@ -2454,11 +2454,10 @@ addEventListener("DOMContentLoaded", async () => {
   S.mode = prefs.mode || "chat";
   S.codeView = prefs.code_view === "pair" ? "pair" : "agents";
   S.chatView = prefs.chat_view === "agents" ? "agents" : "chat";
-  // One landing screen for the whole zone, and one name for it. Code shows the
-  // same home in both of its surfaces — the ADE draws it behind its own composer
-  // (Home.render with `composer: false`) — so it is not "Home", it is where Code
-  // starts: Start, then Canvases, then Wall, in the view menu.
-  S.wb = WB.some(([k]) => k === prefs.wb_view) ? prefs.wb_view : "home";
+  // The IDE opens on its canvases — one empty canvas, which asks what to put
+  // here. Start is the ADE's landing (it draws the same home behind its own
+  // composer), and it stays in the menu for anyone who wants it over here too.
+  S.wb = WB.some(([k]) => k === prefs.wb_view) ? prefs.wb_view : "canvases";
   Art.apply(prefs.backdrop);
   // A folder given on the command line, or a bench run: start in Code.
   const first = await invoke("snapshot");

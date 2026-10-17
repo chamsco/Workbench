@@ -239,23 +239,10 @@ var Shell = (() => {
     else if (z === "apps" || z.startsWith("app:")) { window.Apps && Apps.renderSide(zl); }
     else zl.innerHTML = "";
     if (z === "chat" || (z === "code" && S.codeView === "pair")) { if (window.Chat) Chat.renderThreads(); }
-    if (z === "code" && S.codeView === "pair") renderPairProj();
   }
-  // Pair's sidebar: the open project (switch from the recents), then its threads.
-  function renderPairProj() {
-    const el = $("#pairProj");
-    const cur = hasProject && snap.workspace;
-    const recents = (prefs.projects || []).filter(p => p !== cur).slice(0, 6);
-    el.innerHTML = (cur
-      ? `<button class="row proj on" id="ppCur" data-popper title="${esc(cur)}">${icon("folder")}<span class="lab">${esc(base(cur))}</span>${icon("chev", "chev")}</button>`
-      : `<button class="row add" id="ppOpen">${icon("plus")}<span class="lab">Open folder…</span><kbd>⌘O</kbd></button>`) +
-      (!cur && recents.length ? `<div class="sec-t">Recent</div>` + recents.map(p => `<button class="row proj" data-pp="${esc(p)}" title="${esc(p)}">${icon("folder")}<span class="lab">${esc(base(p))}</span></button>`).join("") : "");
-    const o = $("#ppOpen", el); if (o) o.onclick = pickProject;
-    $$("[data-pp]", el).forEach(b => (b.onclick = () => openProject(b.dataset.pp)));
-    const c = $("#ppCur", el);
-    if (c) c.onclick = () => projectMenu(c);
-  }
-  // Switch project: the recents, or another folder.
+  // Switch project: the recents, or another folder. One menu, and one way in —
+  // the folder icon at the top of the sidebar. There used to be a project row
+  // above it that said the same thing in a quarter of the width.
   function projectMenu(anchor) {
     const recents = (prefs.projects || []).filter(p => p !== (hasProject && snap.workspace)).slice(0, 6);
     openPop(anchor, `<div class="ph-t">Projects</div>${recents.map(p => `<button class="pi" data-pp="${esc(p)}">${icon("folder")}${esc(base(p))}</button>`).join("")}
@@ -341,7 +328,7 @@ var Shell = (() => {
   }
   // The project arriving (at launch, or opened elsewhere) can change which
   // section Code shows; lay out again when it does.
-  function refresh() { if (elFor(S.mode) !== laid) layout(); renderStatus(); renderRail(); renderZones(); if (S.mode === "code") { if (S.codeView === "pair") renderPairProj(); renderHead(); } }
+  function refresh() { if (elFor(S.mode) !== laid) layout(); renderStatus(); renderRail(); renderZones(); if (S.mode === "code") renderHead(); }
 
   // ---------------------------------------------------------------- status bar
   // After an agent control plane's footer: where you are (branch, project),

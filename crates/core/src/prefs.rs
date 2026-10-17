@@ -406,8 +406,10 @@ impl TabSpec {
     }
 
     pub fn defaults() -> Vec<TabSpec> {
-        // One canvas to start; you (or the agents) add the rest as the work grows.
-        vec![TabSpec::new(None, vec![PaneSpec::agent(0)])]
+        // One empty canvas to start. The IDE asks what you want to open here
+        // rather than guessing a session: the chooser is the canvas's own face,
+        // and it is a click either way.
+        vec![TabSpec::new(None, vec![PaneSpec::of("empty")])]
     }
 }
 

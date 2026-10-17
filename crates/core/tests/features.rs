@@ -227,6 +227,11 @@ fn each_project_remembers_its_own_canvases() {
     assert_eq!(fresh.tabs.len(), TabSpec::defaults().len());
     assert_eq!(fresh.active, 0);
 
+    // The default canvas is the picker, not a guess at what to show. The IDE
+    // opens on it, and its whole job is to ask.
+    assert_eq!(fresh.tabs[0].panes.len(), 1);
+    assert_eq!(fresh.tabs[0].panes[0].kind, "empty", "a new project opens on the canvas chooser");
+
     // Active tab is clamped, and an empty save cannot wipe a layout.
     p.set_tabs_for("C:\\code\\alpha", vec![one.clone(), two.clone()], 9);
     assert_eq!(p.tabs_for("C:\\code\\alpha").active, 1);

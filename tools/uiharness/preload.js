@@ -64,7 +64,8 @@
       mode: "chat",
       code_view: "agents",
       chat_view: "chat",
-      wb_view: "home",
+      // No `wb_view`: a fresh install, so the app's own default for Code's view
+      // is what an eval sees. A fixture that pinned it hid the default entirely.
       motion: "full",
       appearance: {},
       projects: [],

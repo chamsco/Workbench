@@ -76,15 +76,18 @@ function ago(ms: number) {
 }
 
 /** One icon, no label: the sidebar's own actions. A row of words up here pushes
- *  everything below it down and says nothing the icon does not. */
-function Act({ icon: ActIcon, label, onClick, on }: { icon: Icon; label: string; onClick: () => void; on?: boolean }) {
+ *  everything below it down and says nothing the icon does not. `popper` marks
+ *  the ones that open a menu from the shell — the outside-click handler needs
+ *  to know the button is part of the menu. */
+function Act({ icon: ActIcon, label, onClick, on, popper }: { icon: Icon; label: string; onClick: (el: HTMLElement) => void; on?: boolean; popper?: boolean }) {
   return (
     <button
       type="button"
       aria-label={label}
       title={label}
       aria-pressed={on}
-      onClick={onClick}
+      data-popper={popper ? "" : undefined}
+      onClick={(e) => onClick(e.currentTarget)}
       className={cn(
         "relative flex size-7 cursor-pointer items-center justify-center rounded-lg text-foreground-soft hover:bg-accent hover:text-foreground",
         on && "bg-accent text-foreground",
@@ -144,7 +147,7 @@ export function ThreadList({ onNewChat }: { onNewChat: () => void }) {
     <div className="whirl-side flex flex-col gap-2.5">
       <div className="flex items-center gap-0.5 px-0.5">
         <Act icon={IconEdit} label={scope || inCode ? "New thread" : "New chat"} onClick={onNewChat} />
-        <Act icon={IconFolderPlus} label="Open a project folder" onClick={() => host.newProject()} />
+        <Act icon={IconFolder} label="Projects" popper onClick={(el) => host.projectMenu(el)} />
         <Act icon={IconSearch} label="Search" on={searching} onClick={() => { setSearching((s) => !s); if (searching) setQuery(""); }} />
       </div>
       {searching && (
