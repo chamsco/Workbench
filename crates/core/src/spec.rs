@@ -95,6 +95,37 @@ pub fn check(spec: &str) -> Vec<String> {
     gaps
 }
 
+/// The spec's acceptance lines, numbered from 1 as `A1`, `A2`, … by the
+/// coverage gate.
+pub fn acceptance(spec: &str) -> Vec<String> {
+    sections(spec).into_iter().find(|(h, _)| h.eq_ignore_ascii_case("Acceptance")).map(|(_, b)| items(&b)).unwrap_or_default()
+}
+
+/// Gate 2: does the plan cover the spec? Every acceptance line is delivered
+/// by at least one ticket, every ticket delivers at least one, and nothing
+/// names a line that isn't there. `tickets` is (key, covers).
+pub fn coverage(spec: &str, tickets: &[(&str, &[String])]) -> Vec<String> {
+    let lines = acceptance(spec);
+    let id = |i: usize| format!("A{}", i + 1);
+    let mut gaps = Vec::new();
+    for (key, covers) in tickets {
+        if covers.is_empty() {
+            gaps.push(format!("Ticket {key} covers no acceptance line: name the A# it delivers, or drop it"));
+        }
+        for c in covers.iter() {
+            if !(0..lines.len()).any(|i| id(i) == *c) {
+                gaps.push(format!("Ticket {key} covers {c}, which {FILE} doesn't have (it has A1 to A{})", lines.len()));
+            }
+        }
+    }
+    for (i, line) in lines.iter().enumerate() {
+        if !tickets.iter().any(|(_, covers)| covers.contains(&id(i))) {
+            gaps.push(format!("No ticket covers {}: {}", id(i), short(line)));
+        }
+    }
+    gaps
+}
+
 /// The last ```spec block in a reply, without its fences.
 pub fn extract(reply: &str) -> Option<String> {
     let mut found = None;
@@ -270,6 +301,19 @@ mod tests {
 
         let gone = GOOD.replace("## Out of scope\n\n- Per-thread themes.\n\n", "");
         assert_eq!(check(&gone), vec!["Missing section: ## Out of scope"]);
+    }
+
+    #[test]
+    fn coverage_names_every_hole() {
+        let a = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let (both, one, stray, none) = (a(&["A1", "A2"]), a(&["A1"]), a(&["A1", "A9"]), a(&[]));
+        assert_eq!(acceptance(GOOD).len(), 2);
+        assert!(coverage(GOOD, &[("theme", &both)]).is_empty());
+        assert!(coverage(GOOD, &[("api", &one), ("ui", &a(&["A2"]))]).is_empty());
+        assert_eq!(coverage(GOOD, &[("theme", &one)]), vec!["No ticket covers A2: Click Settings → Theme → Dark; the window turns dark."]);
+        assert_eq!(coverage(GOOD, &[("theme", &stray)])[0], "Ticket theme covers A9, which SPEC.md doesn't have (it has A1 to A2)");
+        let gaps = coverage(GOOD, &[("theme", &both), ("polish", &none)]);
+        assert_eq!(gaps, vec!["Ticket polish covers no acceptance line: name the A# it delivers, or drop it"]);
     }
 
     #[test]
