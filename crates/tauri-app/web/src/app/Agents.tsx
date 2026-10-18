@@ -25,6 +25,7 @@ import {
   IconRefresh,
   IconSearch,
   IconServer,
+  IconSparkles,
   IconTrash,
   IconUsersGroup,
   IconUserPlus,
@@ -38,6 +39,7 @@ import { Button } from "@/components/ui/button";
 import { RoutePicker } from "./RoutePicker";
 import { Avatar, COLORS, FACES, Stack } from "./avatar";
 import { NewBotDialog, BotHome } from "./bot-create";
+import { DelegateDialog } from "./Delegate";
 import { RoutineDialog, UpcomingRoutines } from "./routines";
 import { ProjectDialog, ProjectsSide, projectFolderName } from "./projects";
 import {
@@ -56,6 +58,7 @@ import {
   nextRoutine,
   nextWakeLabel,
   openAgentThread,
+  openDelegate,
   openProject,
   openThread,
   removeRoutine,
@@ -114,6 +117,18 @@ export function AgentsSide() {
           <RowPill />
           <IconUserPlus size={16} className="relative shrink-0" />
           <span className="relative">New bot</span>
+        </button>
+        {/* The Delegate sheet: the work waiting on the fleet, and who gets it. */}
+        <button
+          type="button"
+          onClick={() => openDelegate()}
+          title="Hand out tasks and see which model each one goes to"
+          className="group/row relative flex h-8 w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 text-[13.5px]/4 font-medium text-foreground-soft"
+        >
+          <RowPill />
+          <IconSparkles size={16} className="relative shrink-0" />
+          <span className="relative flex-1 text-left">Delegate</span>
+          <span className="relative text-[11px] font-normal text-muted-foreground/60">tasks</span>
         </button>
         <div className="group/row relative flex h-8 w-full items-center gap-2.5 rounded-lg px-2.5 text-[13.5px]/4 font-medium text-foreground-soft">
           <RowPill className="group-focus-within/row:bg-accent" />
@@ -470,6 +485,7 @@ export function AgentEditors() {
       {/* Store-driven sheets: each renders only while its own field is open, so
           nothing else has to know about them. */}
       <NewBotDialog />
+      <DelegateDialog />
       <RoutineDialog />
       <ProjectDialog />
       {editing && editing !== "new" && <AgentEditor key={editing.id} agent={editing} />}

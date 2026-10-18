@@ -9,6 +9,7 @@ use std::sync::Arc;
 use backspace_core::agents::{Agent, ComputerStatus, Routine};
 use backspace_core::apps::Installed;
 use backspace_core::chat::{Attachment, Life, Route, Scope, Thread, ThreadInfo};
+use backspace_core::delegate::{self, Delegation, Snapshot};
 use backspace_core::memory::Note;
 use backspace_core::cloud::{Account, Overage, Plan, PlanInfo};
 use backspace_core::diagram::{self, Diagram};
@@ -1606,6 +1607,83 @@ async fn routines_sync(f: F<'_>, offset: i32) -> Res<Vec<Agent>> {
     blocking(f, move |f| Ok(f.routines_sync(offset))).await
 }
 
+// ---------------------------------------------------------------- delegation
+
+/// The Delegate sheet's board, beside the chats and agents it draws.
+fn delegation() -> Delegation {
+    Delegation::open(Prefs::data_dir())
+}
+
+/// The config the open project routes with, for the sheet's prices. No project
+/// open still finds `~/config/backspace/config.toml` or the built-in default.
+fn delegation_cfg(fleet: &Arc<Fleet>) -> backspace_core::Config {
+    let root = fleet
+        .local()
+        .map(|h| h.root().to_path_buf())
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+    backspace_core::Config::load(&root)
+        .map(|(c, _)| c)
+        .unwrap_or_else(|_| {
+            backspace_core::Config::parse(backspace_core::config::DEFAULT_CONFIG)
+                .expect("the built-in config parses")
+        })
+}
+
+/// After a write: let `auto` fill what is waiting, save, and hand the sheet
+/// its data back in one round trip.
+fn delegation_after(fleet: &Arc<Fleet>, mut board: delegate::Board) -> Res<Snapshot> {
+    let agents = fleet.agents().list();
+    let cfg = delegation_cfg(fleet);
+    delegate::auto_assign(&mut board, &agents, &cfg);
+    delegation().save(&board).map_err(err)?;
+    Ok(delegate::snapshot(&board, &agents, &cfg))
+}
+
+#[tauri::command]
+fn delegate_state(f: F) -> Snapshot {
+    let agents = f.agents().list();
+    let cfg = delegation_cfg(f.inner());
+    delegate::snapshot(&delegation().load(), &agents, &cfg)
+}
+
+#[tauri::command]
+fn delegate_add(f: F, title: String, est_min: Option<u32>) -> Res<Snapshot> {
+    let board = delegation().add(&title, est_min).map_err(err)?;
+    delegation_after(f.inner(), board)
+}
+
+#[tauri::command]
+fn delegate_update(f: F, id: String, title: String, est_min: Option<u32>) -> Res<Snapshot> {
+    let board = delegation().update(&id, &title, est_min).map_err(err)?;
+    delegation_after(f.inner(), board)
+}
+
+#[tauri::command]
+fn delegate_delete(f: F, id: String) -> Res<Snapshot> {
+    let board = delegation().delete(&id).map_err(err)?;
+    delegation_after(f.inner(), board)
+}
+
+#[tauri::command]
+fn delegate_assign(f: F, id: String, agent: Option<String>) -> Res<Snapshot> {
+    let board = delegation().assign(&id, agent.as_deref()).map_err(err)?;
+    delegation_after(f.inner(), board)
+}
+
+#[tauri::command]
+fn delegate_auto(f: F, on: bool) -> Res<Snapshot> {
+    let board = delegation().set_auto(on).map_err(err)?;
+    delegation_after(f.inner(), board)
+}
+
+/// The open project's unsettled tickets, as tasks. Imported once each.
+#[tauri::command]
+fn delegate_import(f: F) -> Res<Snapshot> {
+    let tickets = f.local().map(|h| h.snapshot().tickets).unwrap_or_default();
+    let board = delegation().from_tickets(&tickets).map_err(err)?;
+    delegation_after(f.inner(), board)
+}
+
 #[tauri::command]
 fn chat_stop(f: F, id: String) {
     f.chats().stop(&id);
@@ -1953,6 +2031,13 @@ fn main() -> anyhow::Result<()> {
             routine_delete,
             routine_run,
             routines_sync,
+            delegate_state,
+            delegate_add,
+            delegate_update,
+            delegate_delete,
+            delegate_assign,
+            delegate_auto,
+            delegate_import,
             companion_status,
             set_companion,
             set_companion_lan,

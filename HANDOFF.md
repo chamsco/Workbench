@@ -1,5 +1,58 @@
 # Handoff: Backspace (ohMyHarness → Workbench), v0
 
+**Session, 18 Oct 2026 — the phase audit, skills, and the Delegate sheet.**
+Branch `nightly/feature/delegation`. The owner sent the Delegate mockup
+(unassigned tasks on the left, bots with model, `$/min`, `Busy until` and a
+queue on the right, drag to assign, an Auto switch) and asked three things:
+how the decision model is wired per phase and where it breaks, whether skills
+can be added/deleted, and a nightly branch where routing is visible and
+overridable. Audit, decisions and limits: `docs/DELEGATION-2026-10-18.md`.
+
+- **The audit's headline** (verified against the code, not the plan): routing
+  is per *role*, never per phase; `route_for(role, job, task, context)` has no
+  phase field (`router.rs:187`). `Phase::Test`/`Ship`/`Done` are unreachable;
+  gates 3–5 have no code. Plan mode's spec prompt and read-only permission are
+  set *after* the non-CLI early return (`chat.rs:1532` vs `1548-1557`), so with
+  an API/local route no `SPEC.md` is written and gate 1 never runs. A failed
+  check and a human rejection do **not** escalate, although
+  `default-config.toml` says they do (`harness.rs:2438-2496`). `pin_main`
+  discards Jev's model choice (`router.rs:287-299`). `may_plan()` is dead code.
+- **Skills.** Built-ins are compiled in (`include_str!`, `skills.rs:11-34`) and
+  can only be shadowed, never deleted or disabled. A user folder adds one; a
+  `<project>/.backspace/skills` folder silently overrides a built-in for every
+  role, and agents can write there. Details and the minimal safe change (a
+  `disabled_skills` list plus add/delete/enable commands) are in the doc; none
+  of it is built.
+- **The Delegate sheet.** `crates/core/src/delegate.rs`: a `Board` of tasks in
+  `<data>/delegation.json`, `auto_assign` (shortest queue, then cheaper minute,
+  then older bot, with the reason recorded), and `snapshot` (each bot's queue
+  priced at `(in·4k + out·1.2k)/1e6` a minute; a CLI is free). `from_tickets`
+  imports the open project's unsettled tickets once each. Commands in
+  `main.rs` (`delegate_state/add/update/delete/assign/auto/import`).
+  `web/src/app/Delegate.tsx` draws the mockup: drag a card to a bot or back,
+  chips with the assignment's note on hover, a select for keyboard/touch, Auto,
+  and "From plan". Opened from Chat → Agents → Delegate.
+- **Deliberately not done:** nothing dispatches (assigning does not spawn a
+  worker); the price is an estimate; Auto is a two-line rule, not Jev. Wiring
+  it to the router needs the phase field first.
+
+**Ran:** `cargo test -p backspace-core` (the crate's suites, including 7 new
+`delegate` unit tests); `cargo check -p backspace-tauri` with
+`TAURI_CONFIG='{"app":{"macOSPrivateApi":false}}'` (the plain `cargo check`
+trips tauri-build's private-API allowlist; the real build is through
+`tauri build`); `tsc --noEmit`; a production `vite build` into
+`ui/chat-web/`; and `tools/verify/delegate.js` in the uiharness — **22 checks,
+no page errors**, screenshot `docs/assets/delegate.png`. Note for the next
+session: on this machine esbuild hangs when its cwd is inside the workspace,
+so the web bundle was built from a `/tmp` copy of `web/` and copied back.
+
+Still open from this work: the four gaps above; a phase field through
+`Router` and one `[router.phases]` table; decision spans + a memo; human
+override at the spec gate (`record_spec` accepts only `Rules`); and making a
+delegated task actually open a bot thread and send it.
+
+---
+
 **Session, 17 Oct 2026 — bots, projects and routines in Chat's Agents side.**
 The owner sent Kuvo Code screenshots (bots with a name, face and job; a "Start
 From" sheet; a bot page with "Start its job"; a bot that asks what its routine
