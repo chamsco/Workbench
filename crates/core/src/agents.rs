@@ -490,7 +490,16 @@ impl Agents {
         if a.computer.kind == "docker" {
             let _ = docker(&["rm", "-f", &container(id)]);
         }
-        std::fs::remove_dir_all(self.agent_dir(id))?;
+        let dir = self.agent_dir(id);
+        if std::fs::remove_dir_all(&dir).is_err() && a.computer.kind == "docker" {
+            // On Linux the container wrote its files as its own root, which
+            // this user cannot remove; let the image clear them, then retry.
+            let mount = format!("{}:/x", self.home(id).display());
+            let _ = docker(&["run", "--rm", "-v", &mount, image_of(&a.computer), "sh", "-c", "rm -rf /x/* /x/.[!.]*"]);
+        }
+        if dir.exists() {
+            std::fs::remove_dir_all(&dir)?;
+        }
         Ok(())
     }
 

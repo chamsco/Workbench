@@ -230,6 +230,8 @@ export function ChatApp({ sideEl, user }: { sideEl: HTMLElement; user: string })
                         generating={busy}
                         inThread={inThread}
                         scope={scope}
+                        planned={!!thread?.messages.findLast((m) => m.role === "user")?.plan}
+                        threadId={thread?.id ?? null}
                         textareaRef={composerRef}
                       />
                     ) : (

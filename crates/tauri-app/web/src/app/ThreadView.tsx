@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/message-scroller";
 import { UserMessage } from "@/components/thread/user-message";
 import { AssistantMessage } from "./AssistantMessage";
-import { LinkCard, Quote, RememberButton, ReplyButton, TapbackButton, Tapbacks } from "./Extras";
+import { LinkCard, Quote, SpecCard, RememberButton, ReplyButton, TapbackButton, Tapbacks } from "./Extras";
 import { agentById, branch, edit, getHost, retry, resume, toChatMessage, useChat, type Msg, type Thread } from "../bridge";
 import { MessageActions } from "./ask";
 import { Avatar } from "./Agents";
@@ -157,7 +157,12 @@ const Row = memo(function Row({
             quote={<Quote of={of} align="start" />}
             badge={<Tapbacks thread={thread.id} msg={raw} />}
             actions={actions}
-            below={<LinkCard text={raw.text} />}
+            below={
+              <>
+                <SpecCard verdict={raw.spec} />
+                <LinkCard text={raw.text} />
+              </>
+            }
           />
         )}
       </div>

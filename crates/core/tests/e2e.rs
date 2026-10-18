@@ -86,6 +86,21 @@ fn respond(req: &Value) -> Value {
         return text("a CLI worker must not reach the API model");
     }
 
+    // ---- gate 2: a plan that leaves a SPEC.md acceptance line uncovered is refused
+    if main && c.first.contains("spec-project") {
+        let ticket = |covers: Value| json!({"tickets": [
+            {"key": "theme", "title": "Dark theme", "what_to_build": "a dark theme",
+             "acceptance": ["dark"], "check": "true", "covers": covers}]});
+        return match c.last_tool {
+            None => tool_call("create_tickets", ticket(json!(["A1"]))),
+            Some(t) if t.contains("gate 2 refused") && t.contains("No ticket covers A2") => {
+                tool_call("create_tickets", ticket(json!(["A1", "A2"])))
+            }
+            Some(t) if t.contains("Plan APPROVED") => text("planned"),
+            Some(t) => unexpected(t),
+        };
+    }
+
     // ---- visual options: show variants, wait for the pick, then finish
     if main && c.first.contains("options-project") {
         return match c.last_tool {
@@ -470,6 +485,24 @@ max_output_tokens = 0
         .iter()
         .any(|l| l.text == format!("← {}: hello.txt is ready", w.key)));
     let _ = std::fs::remove_dir_all(&bin);
+}
+
+#[test]
+fn a_plan_must_cover_the_spec() {
+    let (h, ws) = open_project("spec");
+    std::fs::write(ws.join("SPEC.md"), "# Dark\n\n## Acceptance\n\n- `cargo test theme` passes\n- Click Dark; it turns dark.\n").unwrap();
+    let mut phase = backspace_core::phase::PhaseState::default();
+    phase.record_spec(true, 1, "ok");
+    phase.save(&ws).unwrap();
+    h.send("spec-project: add dark mode");
+    run_until(&h, |_, _| Ok(()), |s| s.phase.phase == backspace_core::phase::Phase::Execute);
+    let s = h.snapshot();
+    let plan: Vec<(bool, backspace_core::phase::GateBy)> =
+        s.phase.gates.iter().filter(|g| g.phase == backspace_core::phase::Phase::Plan).map(|g| (g.passed, g.by)).collect();
+    use backspace_core::phase::GateBy::*;
+    assert_eq!(plan, vec![(false, Rules), (true, Human)], "{:#?}", s.phase);
+    assert!(s.phase.gates[1].note.contains("No ticket covers A2"));
+    assert_eq!(s.ticket("theme").unwrap().covers, vec!["A1", "A2"]);
 }
 
 #[test]

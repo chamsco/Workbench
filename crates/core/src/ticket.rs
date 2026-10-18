@@ -91,6 +91,10 @@ pub struct Ticket {
     pub assignee: Option<AgentId>,
     pub budget_usd: Option<f64>,
     pub notes: Vec<String>,
+    /// The SPEC.md acceptance lines this ticket delivers (`A1`, `A3`), for
+    /// the plan's coverage gate (spec.rs).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub covers: Vec<String>,
 }
 
 impl Ticket {
@@ -136,6 +140,7 @@ impl Ticket {
             assignee: None,
             budget_usd: v["budget_usd"].as_f64(),
             notes: vec![],
+            covers: list("covers").into_iter().map(|c| c.trim().to_uppercase()).collect(),
         })
     }
 

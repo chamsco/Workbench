@@ -1,0 +1,26 @@
+# Runs the Rust test suites (runner, core, cli, colony — the workspace's
+# default members) on every pull request and every push to main. The macOS
+# workflow only builds the app; this is the one that says whether it works.
+name: Tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: tests-linux
+      - name: cargo test
+        run: cargo test --no-fail-fast

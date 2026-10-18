@@ -22,6 +22,7 @@ use tokio::sync::{mpsc, oneshot, watch, Semaphore};
 
 use crate::config::{Config, Isolation};
 use crate::effort::Effort;
+use crate::phase::GateBy;
 use crate::git;
 use crate::project::*;
 use crate::provider::{self, Block, Message, Role, Stop, ToolDef};
@@ -406,6 +407,7 @@ impl Harness {
             canvas_ops: vec![],
             options: vec![],
             artifacts: vec![],
+            phase: Default::default(),
         };
         // A project opened before carries on: tickets, approvals, spend and
         // the board come back; what was running is marked interrupted.
@@ -530,7 +532,10 @@ impl Harness {
     }
 
     pub fn snapshot(&self) -> ProjectState {
-        self.inner.state.lock().unwrap().clone()
+        let mut s = self.inner.state.lock().unwrap().clone();
+        // The spec gate writes the phase from Code chat, in its own file.
+        s.phase = crate::phase::PhaseState::load(&self.inner.root);
+        s
     }
 
     /// Record an artifact as the main agent, the same thing the `produce` tool
@@ -2510,7 +2515,7 @@ async fn submit(inner: &Arc<Inner>, c: &Conversation, input: &Value) -> Result<T
 // ---------------------------------------------------------------- tickets
 
 async fn create_tickets(inner: &Arc<Inner>, caller: AgentId, input: &Value) -> Result<String> {
-    let (keys, needs_approval) = create_batch(inner, caller, input)?;
+    let (keys, needs_approval) = create_batch(inner, caller, input, true)?;
     if !needs_approval {
         return Ok(format!("Created {}. Dispatch them with work_tickets.", keys.join(", ")));
     }
@@ -2518,8 +2523,9 @@ async fn create_tickets(inner: &Arc<Inner>, caller: AgentId, input: &Value) -> R
 }
 
 /// Add a batch of tickets (proposed when the plan needs your approval).
-/// Returns their keys and whether it does.
-fn create_batch(inner: &Inner, caller: AgentId, input: &Value) -> Result<(Vec<String>, bool)> {
+/// Returns their keys and whether it does. `planned`: the planner made it,
+/// so it answers to gate 2; a task you started yourself does not.
+fn create_batch(inner: &Inner, caller: AgentId, input: &Value, planned: bool) -> Result<(Vec<String>, bool)> {
     let specs = input["tickets"]
         .as_array()
         .context("`tickets` must be an array")?;
@@ -2557,13 +2563,61 @@ fn create_batch(inner: &Inner, caller: AgentId, input: &Value) -> Result<(Vec<St
             }
             batch.push(t);
         }
+        if caller == MAIN && planned {
+            // Earlier tickets count toward coverage only where they said what they cover.
+            let earlier = s.tickets.iter().filter(|t| t.owner == MAIN && !t.covers.is_empty() && t.state != TicketState::Wontfix);
+            plan_gate(&inner.root, earlier.chain(batch.iter()))?;
+        }
         s.tickets.extend(batch.iter().cloned());
         Ok(batch)
     })?;
+    if caller == MAIN && planned && !needs_approval {
+        plan_passed(&inner.root, GateBy::Rules);
+    }
     for t in &batch {
         t.write(&inner.root);
     }
     Ok((batch.iter().map(|t| t.key.clone()).collect(), needs_approval))
+}
+
+/// Gate 2, when the project has a SPEC.md (Plan mode wrote one): no tickets
+/// before the spec gate passed, and the plan must cover every acceptance line
+/// by rules alone (spec::coverage). A refusal is recorded and named back to
+/// the planner; without a SPEC.md (Fast) there is no gate.
+fn plan_gate<'a>(root: &Path, tickets: impl Iterator<Item = &'a Ticket>) -> Result<()> {
+    let Ok(spec) = std::fs::read_to_string(root.join(crate::spec::FILE)) else { return Ok(()) };
+    let mut phase = crate::phase::PhaseState::load(root);
+    if phase.phase == crate::phase::Phase::Specify {
+        bail!("{} hasn't passed its gate yet; finish the spec in Plan mode before making tickets", crate::spec::FILE);
+    }
+    let tickets: Vec<(&str, &[String])> = tickets.map(|t| (t.key.as_str(), t.covers.as_slice())).collect();
+    let gaps = crate::spec::coverage(&spec, &tickets);
+    if gaps.is_empty() {
+        return Ok(());
+    }
+    if phase.phase == crate::phase::Phase::Plan {
+        phase.record(false, GateBy::Rules, crate::chat::now_ms(), PLAN_ARTIFACT, &gaps.join("; "));
+        let _ = phase.save(root);
+    }
+    bail!(
+        "The plan doesn't cover {} (gate 2 refused it):\n{}\nGive each ticket `covers` with the acceptance lines it delivers (A1 is the first) and call create_tickets again.",
+        crate::spec::FILE,
+        gaps.iter().map(|g| format!("- {g}")).collect::<Vec<_>>().join("\n")
+    )
+}
+
+const PLAN_ARTIFACT: &str = ".backspace/tickets";
+
+/// The plan was accepted: by the rules alone, or by you on top of them.
+fn plan_passed(root: &Path, by: GateBy) {
+    if !root.join(crate::spec::FILE).exists() {
+        return;
+    }
+    let mut phase = crate::phase::PhaseState::load(root);
+    if phase.phase == crate::phase::Phase::Plan {
+        phase.record(true, by, crate::chat::now_ms(), PLAN_ARTIFACT, "every acceptance line has a ticket");
+        let _ = phase.save(root);
+    }
 }
 
 /// Ask for your verdict on proposed tickets; on a no they are discarded.
@@ -2609,6 +2663,9 @@ async fn approve_plan(inner: &Arc<Inner>, caller: AgentId, keys: Vec<String>) ->
         Verdict::Approved => {
             for k in &keys {
                 inner.ticket(k, |t| t.state = TicketState::ReadyForAgent);
+            }
+            if caller == MAIN {
+                plan_passed(&inner.root, GateBy::Human);
             }
             format!(
                 "Plan APPROVED by the user: {}. Dispatch with work_tickets.",
@@ -3084,7 +3141,7 @@ fn start_task(inner: &Arc<Inner>, rt: &tokio::runtime::Handle, text: &str) -> Re
     let title: String = text.lines().next().unwrap_or(text).chars().take(70).collect();
     let input = json!({"tickets": [{"key": key, "title": title, "what_to_build": text,
         "acceptance": ["It does what the task asks", "Existing tests and checks still pass"]}]});
-    create_batch(inner, MAIN, &input)?;
+    create_batch(inner, MAIN, &input, false)?;
     // You asked for it: no plan approval; the work itself still comes to review.
     inner.ticket(&key, |t| t.state = TicketState::ReadyForAgent);
     inner.log(MAIN, LogKind::System, format!("started `{key}` in parallel: {title}"));
@@ -3374,6 +3431,7 @@ pub(crate) fn create_tickets_tool() -> ToolDef {
                 "check": {"type": "string", "description": "shell command that must exit 0 before review, e.g. `cargo test todo_api`. Strongly recommended."},
                 "out_of_scope": {"type": "array", "items": {"type": "string"}},
                 "blocked_by": {"type": "array", "items": {"type": "string"}, "description": "keys of your earlier tickets that must be done first"},
+                "covers": {"type": "array", "items": {"type": "string"}, "description": "when the project has a SPEC.md: the acceptance lines this ticket delivers, numbered from the top of its Acceptance section (A1, A2, …). Every line needs a ticket and every ticket needs a line, or the plan is refused."},
                 "budget_usd": {"type": "number"}
             }, "required": ["key", "title", "what_to_build", "acceptance"]}}
         }, "required": ["tickets"]}),
@@ -3501,7 +3559,7 @@ async fn bridge_handle(
         p if p.starts_with("/v1/plan/") && (body["me"] != "main" || inner.planner.is_none()) => {
             Err(anyhow!("only the main agent plans"))
         }
-        "/v1/plan/create" => create_batch(&inner, MAIN, &body).map(|(keys, needs)| {
+        "/v1/plan/create" => create_batch(&inner, MAIN, &body, true).map(|(keys, needs)| {
             let keys_s = keys.join(", ");
             if needs {
                 inner.planner_queue.lock().unwrap().push(PlanAction::Approve(keys));

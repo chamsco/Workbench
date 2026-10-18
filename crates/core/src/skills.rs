@@ -24,6 +24,7 @@ pub fn user_dir() -> Option<std::path::PathBuf> {
 
 const DEFAULTS: &[(&str, Files)] = vendored! {
     "grilling" => ["SKILL.md"],
+    "to-spec" => ["SKILL.md"],
     "to-tickets" => ["SKILL.md"],
     "triage" => ["SKILL.md", "AGENT-BRIEF.md", "OUT-OF-SCOPE.md"],
     "tdd" => ["SKILL.md", "tests.md", "mocking.md"],
@@ -207,18 +208,30 @@ impl Skills {
 fn skill(name: &str, files: BTreeMap<String, String>) -> Skill {
     let description = files
         .get("SKILL.md")
-        .and_then(|md| {
-            let fm = md.strip_prefix("---")?.split("\n---").next()?;
-            fm.lines()
-                .find_map(|l| l.strip_prefix("description:"))
-                .map(|d| d.trim().trim_matches('"').to_string())
-        })
+        .and_then(|md| description(md.strip_prefix("---")?.split("\n---").next()?))
         .unwrap_or_default();
     Skill {
         name: name.to_string(),
         description,
         files,
     }
+}
+
+/// The frontmatter's `description`, either on its own line or as a YAML block
+/// scalar (`>` folds the indented lines into one, `|` keeps their breaks), the
+/// way upstream skills write it.
+fn description(frontmatter: &str) -> Option<String> {
+    let mut lines = frontmatter.lines();
+    let first = lines.find_map(|l| l.strip_prefix("description:"))?.trim();
+    if !first.starts_with(['>', '|']) {
+        return Some(first.trim_matches('"').to_string());
+    }
+    let block: Vec<&str> = lines
+        .take_while(|l| l.trim().is_empty() || l.starts_with([' ', '\t']))
+        .map(str::trim)
+        .collect();
+    let sep = if first.starts_with('>') { " " } else { "\n" };
+    Some(block.join(sep).trim().to_string())
 }
 
 #[cfg(test)]
@@ -230,6 +243,7 @@ mod tests {
         let s = Skills::load(Path::new("/nonexistent"));
         for name in [
             "grilling",
+            "to-spec",
             "to-tickets",
             "triage",
             "tdd",
@@ -247,7 +261,26 @@ mod tests {
             .unwrap()
             .contains("Agent Brief"));
         assert!(s.read("ponytail", None).unwrap().contains("lazy senior"));
+        // A folded block (`description: >`) is the sentence under it, not `>`.
+        assert!(
+            s.by_name["ponytail"].description.starts_with("Lazy senior dev mode: the smallest change"),
+            "{:?}",
+            s.by_name["ponytail"].description
+        );
+        assert!(s.by_name["ponytail"].description.ends_with("Levels: lite, full (default), ultra."));
+        assert!(s.by_name["to-spec"].description.starts_with("Turn the current conversation into a spec"));
         assert!(s.read("nope", None).is_none());
+    }
+
+    #[test]
+    fn description_reads_plain_folded_and_literal() {
+        assert_eq!(description("name: a\ndescription: \"Quoted.\"\n").as_deref(), Some("Quoted."));
+        assert_eq!(
+            description("description: >\n  One line\n  and the next.\nlicense: MIT").as_deref(),
+            Some("One line and the next.")
+        );
+        assert_eq!(description("description: |\n  Kept\n  apart.\n").as_deref(), Some("Kept\napart."));
+        assert_eq!(description("name: a"), None);
     }
 
     #[test]

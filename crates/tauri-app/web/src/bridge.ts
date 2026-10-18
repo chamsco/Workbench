@@ -32,7 +32,13 @@ export type Msg = {
   author_name?: string | null;
   trace?: string | null;
   interrupted?: boolean;
+  /** Sent in Plan mode. */
+  plan?: boolean;
+  /** The spec gate's answer, on a Plan reply that wrote SPEC.md. */
+  spec?: SpecVerdict | null;
 };
+
+export type SpecVerdict = { passed: boolean; gaps: string[]; at: number };
 
 export type Span = {
   span_id: string;
@@ -259,6 +265,8 @@ export type Host = {
   /** Switch Code between its two surfaces: the ADE and the IDE. */
   setCodeView: (v: "pair" | "agents") => void;
   projectMenu: (anchor: HTMLElement) => void;
+  /** Open or fold the sidebar. */
+  setSide: (open: boolean) => void;
   /** Open Code's side panel on a tab: changes, history, files, sessions. */
   openPanel: (tab: string) => void;
   /** A ghost chat is open: keep the sidebar out of the way. */

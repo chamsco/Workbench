@@ -120,6 +120,9 @@ pub struct Msg {
     /// Sent in Plan mode: its reply, and any retry, resume or edit of it, reads and proposes only.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub plan: bool,
+    /// The spec gate's answer, on a Plan reply that wrote `SPEC.md`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spec: Option<crate::spec::Verdict>,
 }
 
 impl Msg {
@@ -144,6 +147,7 @@ impl Msg {
             trace: None,
             interrupted: false,
             plan: false,
+            spec: None,
         }
     }
 }
@@ -901,6 +905,7 @@ impl Chats {
                 trace: None,
                 interrupted: false,
                 plan: ctx.plan,
+                spec: None,
             });
             t.updated = now;
             Chats::touched(t);
@@ -1096,7 +1101,11 @@ impl Chats {
                 let _ = me.edit_thread(&tid, |t| t.cli_session = None);
             }
             me.running.lock().unwrap().remove(&tid);
+            let spec = res.is_ok() && call.agent.is_none() && (ctx.plan || me.plan_of(&tid));
             me.finish(&tid, &mid, res);
+            if spec {
+                me.file_spec(&tid, &mid);
+            }
             me.unread.lock().unwrap().insert(tid);
             me.poke();
         });
@@ -1326,6 +1335,35 @@ impl Chats {
         ts.get(id).and_then(|t| t.messages.iter().rev().find(|m| m.role == Role::User)).is_some_and(|m| m.plan)
     }
 
+    /// A Plan reply in a project: the app writes the spec it carries and the
+    /// rules judge it (spec.rs); the verdict sits on the reply.
+    fn file_spec(&self, id: &str, mid: &str) {
+        let Some(project) = self.project_of(id) else { return };
+        let Some(text) = self.peek(id).and_then(|t| t.messages.iter().find(|m| m.id == mid).map(|m| m.text.clone())) else {
+            return;
+        };
+        let verdict = match crate::spec::file(&project, &text, now_ms()) {
+            Ok(v) => v,
+            Err(e) => Some(crate::spec::Verdict { passed: false, gaps: vec![format!("Couldn't write {}: {e:#}", crate::spec::FILE)], at: now_ms() }),
+        };
+        if let Some(v) = verdict {
+            let _ = self.edit_thread(id, |t| {
+                if let Some(m) = t.messages.iter_mut().find(|m| m.id == mid) {
+                    m.spec = Some(v);
+                }
+            });
+        }
+    }
+
+    /// What the gate found missing in this thread's latest spec, if it refused it.
+    fn spec_gaps(&self, id: &str) -> Vec<String> {
+        let ts = self.threads.lock().unwrap();
+        ts.get(id)
+            .and_then(|t| t.messages.iter().rev().find_map(|m| m.spec.as_ref()))
+            .map(|v| v.gaps.clone())
+            .unwrap_or_default()
+    }
+
     fn project_of(&self, id: &str) -> Option<PathBuf> {
         let ts = self.threads.lock().unwrap();
         ts.get(id)
@@ -1511,7 +1549,12 @@ Ask the reader for input with the real form parts: `f = FormControl(\"Name\", In
         req.edit = project.is_some() && !plan;
         if plan {
             req.permission = Some("plan".into());
-            req.system = Some(format!("{}{PLAN_MODE}", req.system.take().map(|s| s + "\n\n").unwrap_or_default()));
+            // In a project, Plan mode specifies: it grills, then writes SPEC.md.
+            let mode = match self.project_of(id).filter(|_| call.agent.is_none()) {
+                Some(p) => crate::spec::prompt(&p, &self.spec_gaps(id)),
+                None => PLAN_MODE.to_string(),
+            };
+            req.system = Some(format!("{}{mode}", req.system.take().map(|s| s + "\n\n").unwrap_or_default()));
         }
         req.cwd = match project {
             Some(p) => p,
@@ -1866,6 +1909,7 @@ mod tests {
                     trace: None,
                     interrupted: false,
                     plan: false,
+                    spec: None,
                 });
             }
         })
