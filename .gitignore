@@ -5,3 +5,5 @@ capsule/agentd/agentd.exe
 capsule/agentd/agentd.exe~
 # Screenshots the UI harness writes (tools/uiharness); the harness itself is committed.
 tools/verify/out/
+# WorkBuddy AI's local session memory, not part of the project.
+.workbuddy-ai/
