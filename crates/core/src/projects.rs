@@ -81,7 +81,7 @@ impl Projects {
         }
         p.folder = dunce::canonicalize(&folder).unwrap_or(folder).display().to_string();
         p.machine = p.machine.trim().to_string();
-        let now = now_ms();
+        let now = next_stamp(&all);
         if p.id.is_empty() {
             p.id = new_id();
             p.created = now;
@@ -130,11 +130,19 @@ impl Projects {
             all[i].agents.retain(|a| a != agent);
         }
         if on != was {
-            all[i].updated = now_ms();
+            let stamp = next_stamp(&all);
+            all[i].updated = stamp;
             self.write(&all)?;
         }
         Ok(all[i].clone())
     }
+}
+
+/// A stamp strictly newer than every project's, so "the just-edited one is
+/// newest" holds even when two saves land in the same millisecond.
+fn next_stamp(all: &[Project]) -> u64 {
+    let latest = all.iter().map(|p| p.updated).max().unwrap_or(0);
+    now_ms().max(latest.saturating_add(1))
 }
 
 /// Two project folder strings are the same folder when they resolve the same.
