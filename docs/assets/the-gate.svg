@@ -1,0 +1,107 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 300" width="960" height="300" role="img" aria-labelledby="t d">
+  <title id="t">A ticket's life: agent, check, review, merge</title>
+  <desc id="d">A ticket goes to one agent, which works on its own branch and worktree. A check command must pass. If it fails, the ticket goes straight back to the same agent with the error. Only work that passes reaches you, as a diff you can read, and then it merges.</desc>
+
+  <style>
+    .bg    { fill: #0f0e13; }
+    .edge  { fill: none; stroke: #ffffff; stroke-opacity: .07; }
+    .card  { fill: #17161d; stroke: #ffffff; stroke-opacity: .085; }
+    .cardyou { fill: #1a161f; stroke: rgba(255,158,194,.28); }
+    .cap   { fill: #6f6779; font: 600 9.5px/1 -apple-system, "Segoe UI", system-ui, sans-serif; letter-spacing: 1.3px; }
+    .ttl   { fill: #f3eff8; font: 600 13px/1 -apple-system, "Segoe UI", system-ui, sans-serif; }
+    .sub   { fill: #8d8499; font: 400 10.5px/1 -apple-system, "Segoe UI", system-ui, sans-serif; }
+    .you   { fill: #ffb7d3; }
+    .flow  { fill: none; stroke: #5c5568; stroke-width: 1.4; }
+    .fail  { fill: none; stroke: #ff8f8f; stroke-width: 1.4; stroke-dasharray: 4 5; stroke-opacity: .8; }
+    .glyph { fill: none; stroke: #8d8499; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+    .ok    { fill: none; stroke: #7ee2b8; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+
+    .a { animation-duration: 6s; animation-iteration-count: 1; animation-fill-mode: forwards; animation-timing-function: linear; }
+    .draw { stroke-dasharray: 1; }
+    .pop  { transform-box: fill-box; transform-origin: center; }
+    .march { animation: march 1.6s linear infinite; }
+    @keyframes march { to { stroke-dashoffset: -18; } }
+
+    @keyframes n1 { 0%,1%{opacity:0;transform:translateY(7px)} 6%{opacity:1;transform:none} 100%{opacity:1} }
+    @keyframes n2 { 0%,8%{opacity:0;transform:translateY(7px)} 14%{opacity:1;transform:none} 100%{opacity:1} }
+    @keyframes n3 { 0%,16%{opacity:0;transform:translateY(7px)} 22%{opacity:1;transform:none} 100%{opacity:1} }
+    @keyframes n4 { 0%,24%{opacity:0;transform:translateY(7px)} 30%{opacity:1;transform:none} 100%{opacity:1} }
+    @keyframes e1 { 0%,6%{stroke-dashoffset:1;opacity:0} 6.1%{opacity:1} 10%{stroke-dashoffset:0;opacity:1} 100%{opacity:1} }
+    @keyframes e2 { 0%,14%{stroke-dashoffset:1;opacity:0} 14.1%{opacity:1} 18%{stroke-dashoffset:0;opacity:1} 100%{opacity:1} }
+    @keyframes e3 { 0%,22%{stroke-dashoffset:1;opacity:0} 22.1%{opacity:1} 26%{stroke-dashoffset:0;opacity:1} 100%{opacity:1} }
+    @keyframes tick { 0%,30%{opacity:0;transform:scale(.5)} 34%{opacity:1;transform:scale(1)} 100%{opacity:1;transform:scale(1)} }
+    @keyframes loopin { 0%,33%{opacity:0} 37%{opacity:1} 100%{opacity:1} }
+
+    .n1{animation-name:n1} .n2{animation-name:n2} .n3{animation-name:n3} .n4{animation-name:n4}
+    .e1{animation-name:e1} .e2{animation-name:e2} .e3{animation-name:e3}
+    .tick{animation-name:tick} .loop{animation-name:loopin}
+
+    @media (prefers-reduced-motion: reduce) {
+      .a { animation: none !important; opacity: 1; }
+      .march { animation: none; }
+      .n1,.n2,.n3,.n4,.tick { transform: none; }
+      .draw { stroke-dashoffset: 0 !important; }
+    }
+  </style>
+
+  <rect class="bg" width="960" height="300" rx="16"/>
+  <rect class="edge" x=".5" y=".5" width="959" height="299" rx="16"/>
+
+  <text class="cap" x="7" y="52">WHAT HAPPENS TO ONE TICKET</text>
+
+  <!-- 1 · ticket -->
+  <g class="a n1">
+    <rect class="card" x="7" y="80" width="196" height="76" rx="12"/>
+    <rect class="glyph" x="23" y="106" width="16" height="20" rx="3"/>
+    <path class="glyph" d="M27,112 H35 M27,117 H33"/>
+    <text class="ttl" x="47" y="116">Ticket</text>
+    <text class="sub" x="47" y="134">one small slice</text>
+  </g>
+
+  <!-- 2 · agent -->
+  <g class="a n2">
+    <rect class="card" x="261" y="80" width="196" height="76" rx="12"/>
+    <path class="glyph" d="M277,112 v10 a5,5 0 0 0 5,5 h6 M277,106 v10 M277,106 a3,3 0 1 0 .1,0"/>
+    <circle class="glyph" cx="291" cy="127" r="2.6"/>
+    <text class="ttl" x="305" y="116">Agent</text>
+    <text class="sub" x="305" y="134">own branch, own copy</text>
+  </g>
+
+  <!-- 3 · check -->
+  <g class="a n3">
+    <rect class="card" x="511" y="80" width="196" height="76" rx="12"/>
+    <path class="glyph" d="M527,108 l5,5 l-5,5"/>
+    <path class="glyph" d="M536,118 h8"/>
+    <text class="ttl" x="555" y="116">Check</text>
+    <text class="sub" x="555" y="134">a command must pass</text>
+  </g>
+  <g class="a tick pop">
+    <circle class="ok" cx="690" cy="98" r="9"/>
+    <path class="ok" d="M686,98.2 L688.8,101.2 L694.2,95.4"/>
+  </g>
+
+  <!-- 4 · you -->
+  <g class="a n4">
+    <rect class="cardyou" x="761" y="80" width="192" height="76" rx="12"/>
+    <path class="glyph" d="M777,113 q8,-7 16,0 q-8,7 -16,0 M785,113 a2,2 0 1 0 .1,0"/>
+    <text class="ttl you" x="805" y="116">You</text>
+    <text class="sub" x="805" y="134">read the diff, merge</text>
+  </g>
+
+  <!-- the flow -->
+  <path class="flow a e1 draw" pathLength="1" d="M203,118 H255"/>
+  <path class="flow a e2 draw" pathLength="1" d="M457,118 H505"/>
+  <path class="flow a e3 draw" pathLength="1" d="M707,118 H755"/>
+  <path class="flow" d="M255,118 l-4,-3.6 v7.2 z" fill="#5c5568" stroke="none"/>
+  <path class="flow" d="M505,118 l-4,-3.6 v7.2 z" fill="#5c5568" stroke="none"/>
+  <path class="flow" d="M755,118 l-4,-3.6 v7.2 z" fill="#5c5568" stroke="none"/>
+
+  <!-- the loop back -->
+  <g class="a loop">
+    <path class="fail march" d="M605,156 V196 H359 V160"/>
+    <path class="fail" d="M359,156 l-4,6 l8,0 z" fill="#ff8f8f" stroke="none"/>
+    <text class="sub" x="482" y="214" text-anchor="middle" fill="#c98a8a">fails · back to the same agent, with the error</text>
+  </g>
+
+  <text class="sub" x="480" y="264" text-anchor="middle" fill="#6f6779">Nothing reaches you until it passes. That is the whole point.</text>
+</svg>

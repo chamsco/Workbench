@@ -5,14 +5,18 @@ this repo. Nothing is a hand-taken screenshot that will silently rot.
 
 | Image | Where it comes from |
 |---|---|
-| `how-it-works.svg` | hand-authored, animated SVG — the hero diagram |
-| `tour.gif` | the **real app**: four beats captured during one scripted run |
-| `app-canvases.png` | the real app — four agents at once, mid-run |
+| `how-it-works.svg` | hand-authored, animated SVG — one sentence in, many agents, one diff out |
+| `the-gate.svg` | hand-authored, animated SVG — what happens to a single ticket |
+| `decision-ladder.svg` | hand-authored, animated SVG — where a ticket starts, and when it escalates |
+| `architecture.svg` | hand-authored, animated SVG — three front doors, one harness |
+| `app-ade.png` | the real UI — the ADE workspace, with the prompt composer and the first agent card |
+| `tour.gif` | the **real app**: three beats captured during one scripted run |
+| `app-review-plan.png` | the real app — a plan awaiting approval, diagram first |
+| `app-canvases.png` | the real app — four agents at once (the tour GIF's first beat, kept as a still) |
 | `app-wall.png` | the real app — the Wall, every agent tiled |
 | `app-picker.png` | the real app — what a canvas can show |
-| `app-review-plan.png` | the real app — a plan awaiting approval, diagram first |
 
-The stills are 1440×900 at 1× because that is the app's own window; the GIF is
+The stills are 1440×900 at 1× because that is the app's own window. The GIF is
 downscaled to 1000 px wide on the way out.
 
 ## Requirements
@@ -84,6 +88,35 @@ Prefer `clickSel` where you can. Text matching picks the *smallest* element
 containing the string, which is right for a menu item and wrong for a chip inside
 a pane that also has a header with the same words.
 
+### When the window won't open
+
+The CDP route above needs a real WebView2 window, and WebView2 starts by shelling
+out to `reg.exe` for its browser policy. In a locked-down sandbox that call is
+blocked, the shell exits immediately, and no amount of retrying helps — the error
+is `PROGRAM BLOCKED BY SECURITY POLICY`.
+
+For those cases there is [`tools/uiharness`](../uiharness): it loads the *real*
+`crates/tauri-app/ui` into headless Chromium with a `preload.js` that stands in for
+the Tauri IPC. Same components, same CSS, same bridge — only the Rust side is
+mocked. Chat-box stills, when we need them, come from this path, because the live
+window could not be opened in the sandbox we used.
+
+```sh
+node tools/uiharness/run.mjs --eval-file seed.js --shot out.png --size 1440x1080
+```
+
+Three things bite when you seed a state this way:
+
+- **Mock before the first frame.** Some commands are read once at mount —
+  `chat_list` is called from `setHost`. An `--eval-file` runs after that, so mock
+  the command *and* then call `window.__H.fire("state", {})`, which makes the app
+  ask again.
+- **A programmatic `.click()` is not a user click.** It skips the app's own
+  home → thread transition, which is what dims the painted backdrop. Call
+  `window.Art.setVivid(false)` yourself or the art stays loud behind the text.
+- **The transcript scrolls itself to the bottom.** Size the viewport so the whole
+  exchange fits; setting `scrollTop = 0` just clips the last message instead.
+
 ### Making the GIF
 
 ```powershell
@@ -95,18 +128,32 @@ fade, 12 fps, encoded with `palettegen/stats_mode=diff` and
 `paletteuse/diff_mode=rectangle` — that last option is what keeps four
 1440×900 beats under 2 MB.
 
-## The hero SVG
+## The animated SVGs
 
-`docs/assets/how-it-works.svg` is written by hand — it has to be, because it is
-the argument the README opens with. If you edit it, keep the rules it was built
-with:
+`how-it-works.svg`, `the-gate.svg`, `decision-ladder.svg` and `architecture.svg`
+are written by hand — they have to be, because each one is the argument of the
+section it sits in. If you edit one, keep the rules they were built with:
 
-- Only `transform` and `opacity` are animated, so it stays cheap.
-- The entrance is staggered per node and uses one strong ease-out.
+- **They play once and settle.** `animation-iteration-count: 1` with
+  `animation-fill-mode: forwards`, so the last keyframe is the finished diagram.
+  A loop would leave the picture half-built most of the time, and blank at the
+  moment someone scrolls past.
+- Only `transform`, `opacity` and `stroke-dashoffset` are animated.
+- One strong ease-out, staggered per node; nothing moves after it lands.
+- Drawable paths carry `pathLength="1"`, so a dash-offset of 1 hides them exactly.
 - Motion is presentational only: `prefers-reduced-motion` resolves to the
   finished diagram, which carries the same information.
-- One shared 7 s cycle, with the fade-out at the same percentage in every
-  keyframe, so the loop never drifts out of phase.
+- No arrowheads on curved fan lines — a marker paints even while its path is
+  dash-hidden, and four of them converge into a blob.
+
+To look at a frame without a browser open, `target/svgcheck/render-svg.mjs` (a
+scratch script, not part of the build) renders any of them at a chosen time with
+Playwright.
+
+**Don't verify them with a full-page screenshot.** A `fullPage: true` capture
+re-creates the image document for every SVG on the page, which resets its CSS
+animation clock to zero — you photograph the blank first frame and conclude the
+diagram is broken. Scroll to the section and shoot the viewport instead.
 
 ## The design mock
 

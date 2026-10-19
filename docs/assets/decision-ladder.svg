@@ -1,0 +1,101 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 400" width="960" height="400" role="img" aria-labelledby="t d">
+  <title id="t">Where a ticket starts, and when it escalates</title>
+  <desc id="d">Jev reads the ticket's brief and picks a starting model and effort — here, medium. The agent escalates one step at a time, and only when its check failed, a reviewer sent it back, it looped on the same tool call, or it ran out of turns. Advisor, scout and triage each have one job. Every finished ticket writes its route and outcome to a log, so the next run starts from evidence.</desc>
+
+  <style>
+    .bg     { fill: #0f0e13; }
+    .edge   { fill: none; stroke: #ffffff; stroke-opacity: .07; }
+    .cap    { fill: #6f6779; font: 600 9.5px/1 -apple-system, "Segoe UI", system-ui, sans-serif; letter-spacing: 1.3px; }
+    .card   { fill: #17161d; stroke: #ffffff; stroke-opacity: .085; }
+    .ttl    { fill: #f3eff8; font: 600 12.5px/1 -apple-system, "Segoe UI", system-ui, sans-serif; }
+    .sub    { fill: #8d8499; font: 400 10.5px/1 -apple-system, "Segoe UI", system-ui, sans-serif; }
+    .tiny   { fill: #6f6779; font: 400 10px/1 -apple-system, "Segoe UI", system-ui, sans-serif; }
+    .rung   { fill: #1a1821; stroke: #ffffff; stroke-opacity: .07; }
+    .rungtx { fill: #a49cb0; font: 500 10.5px/1 ui-monospace, "SF Mono", Consolas, monospace; }
+    .start  { fill: rgba(255,158,194,.12); stroke: rgba(255,158,194,.5); stroke-width: 1; }
+    .starttx{ fill: #ffb7d3; font: 600 10.5px/1 ui-monospace, "SF Mono", Consolas, monospace; }
+    .climb  { fill: none; stroke: #ff9ec2; stroke-width: 1.4; stroke-dasharray: 4 3.5; stroke-opacity: .75; }
+    .wire   { fill: none; stroke: #4f4859; stroke-width: 1.3; }
+
+    .a { animation-duration: 7s; animation-iteration-count: 1; animation-fill-mode: forwards; animation-timing-function: linear; }
+    .pop { transform-box: fill-box; transform-origin: center; }
+
+    @keyframes l1 { 0%,2%{opacity:0;transform:translateX(-6px)} 7%{opacity:1;transform:none} 100%{opacity:1;transform:none} }
+    @keyframes l2 { 0%,6%{opacity:0;transform:translateX(-6px)} 11%{opacity:1;transform:none} 100%{opacity:1;transform:none} }
+    @keyframes l3 { 0%,10%{opacity:0;transform:translateX(-6px)} 15%{opacity:1;transform:none} 100%{opacity:1;transform:none} }
+    @keyframes l4 { 0%,14%{opacity:0;transform:translateX(-6px)} 19%{opacity:1;transform:none} 100%{opacity:1;transform:none} }
+    @keyframes l5 { 0%,18%{opacity:0;transform:translateX(-6px)} 23%{opacity:1;transform:none} 100%{opacity:1;transform:none} }
+    @keyframes l6 { 0%,22%{opacity:0;transform:translateX(-6px)} 27%{opacity:1;transform:none} 100%{opacity:1;transform:none} }
+    @keyframes jev  { 0%,28%{opacity:0;transform:scale(.94)} 33%{opacity:1;transform:scale(1)} 100%{opacity:1;transform:scale(1)} }
+    @keyframes arr  { 0%,33%{opacity:0} 38%{opacity:1} 100%{opacity:1} }
+    @keyframes climb{ 0%,40%{opacity:0} 47%{opacity:1} 100%{opacity:1} }
+    @keyframes trig { 0%,50%{opacity:0;transform:translateX(-5px)} 55%{opacity:1;transform:none} 100%{opacity:1;transform:none} }
+    @keyframes out  { 0%,66%{opacity:0} 71%{opacity:1} 100%{opacity:1} }
+
+    .l1{animation-name:l1} .l2{animation-name:l2} .l3{animation-name:l3} .l4{animation-name:l4} .l5{animation-name:l5} .l6{animation-name:l6}
+    .jev{animation-name:jev} .arr{animation-name:arr} .climb{animation-name:climb} .trig{animation-name:trig} .out{animation-name:out}
+
+    @media (prefers-reduced-motion: reduce) {
+      .a { animation: none !important; opacity: 1; }
+      .l1,.l2,.l3,.l4,.l5,.l6,.jev,.trig { transform: none; }
+    }
+  </style>
+
+  <rect class="bg" width="960" height="400" rx="16"/>
+  <rect class="edge" x=".5" y=".5" width="959" height="399" rx="16"/>
+
+  <text class="cap" x="28" y="38">WHERE A TICKET STARTS</text>
+  <text class="cap" x="620" y="38">WHEN IT ESCALATES</text>
+
+  <!-- who picks the start -->
+  <g class="a jev pop">
+    <rect class="card" x="28" y="103" width="200" height="92" rx="11"/>
+    <text class="ttl" x="46" y="127">Jev</text>
+    <text class="sub" x="46" y="145">reads the brief, picks a</text>
+    <text class="sub" x="46" y="161">model and an effort</text>
+    <text class="tiny" x="46" y="179">a starting point, not a verdict</text>
+  </g>
+  <g class="a arr">
+    <path class="wire" d="M232,149 C260,149 254,101 282,101"/>
+    <path d="M290,101 l-5,-3.4 v6.8 z" fill="#4f4859"/>
+  </g>
+
+  <!-- effort, cheapest first; the arrow lands on the one Jev picked -->
+  <g class="a l1"><rect class="rung" x="300" y="56" width="170" height="26" rx="7"/><text class="rungtx" x="314" y="73">low</text></g>
+  <g class="a l2"><rect class="start" x="300" y="88" width="170" height="26" rx="7"/><text class="starttx" x="314" y="105">medium</text></g>
+  <g class="a l3"><rect class="rung" x="300" y="120" width="170" height="26" rx="7"/><text class="rungtx" x="314" y="137">high</text></g>
+  <g class="a l4"><rect class="rung" x="300" y="152" width="170" height="26" rx="7"/><text class="rungtx" x="314" y="169">xhigh</text></g>
+  <g class="a l5"><rect class="rung" x="300" y="184" width="170" height="26" rx="7"/><text class="rungtx" x="314" y="201">max</text></g>
+  <g class="a l6"><rect class="rung" x="300" y="216" width="170" height="26" rx="7"/><text class="rungtx" x="314" y="233">ultra</text></g>
+
+  <!-- one step at a time, down the list -->
+  <g class="a climb">
+    <path class="climb" d="M506,101 V232"/>
+    <path class="climb" d="M499,131 H513 M499,163 H513 M499,195 H513" stroke-opacity=".5"/>
+    <path d="M506,238 l-3.4,-5 h6.8 z" fill="#ff9ec2" fill-opacity=".85"/>
+  </g>
+
+  <!-- the triggers -->
+  <g class="a trig">
+    <text class="sub" x="620" y="66">The agent escalates one step — more effort</text>
+    <text class="sub" x="620" y="82">first, then the cheapest stronger model —</text>
+    <text class="sub" x="620" y="98">and only when something is actually wrong:</text>
+    <g fill="#6f6779">
+      <circle cx="624" cy="122" r="2.4"/><circle cx="624" cy="144" r="2.4"/>
+      <circle cx="624" cy="166" r="2.4"/><circle cx="624" cy="188" r="2.4"/>
+    </g>
+    <text class="sub" x="638" y="126" fill="#c9c1d6">its check failed</text>
+    <text class="sub" x="638" y="148" fill="#c9c1d6">a reviewer sent it back</text>
+    <text class="sub" x="638" y="170" fill="#c9c1d6">it looped on the same tool call</text>
+    <text class="sub" x="638" y="192" fill="#c9c1d6">it ran out of turns</text>
+  </g>
+
+  <!-- the rest of the cast -->
+  <g class="a out">
+    <path class="wire" d="M28,272 H932" stroke-opacity=".08"/>
+    <text class="cap" x="28" y="298">THE OTHERS, AND THE ONE JOB EACH HAS</text>
+    <text class="sub" x="28" y="322" fill="#c9c1d6">Advisor — a stronger model, asked before a plan locks, after a check fails twice, and before work is called done.</text>
+    <text class="sub" x="28" y="342" fill="#c9c1d6">Scout — up to three small read-only agents in parallel, to find files and read code. Triage — read-only, low effort, classifies filed tickets.</text>
+    <text class="tiny" x="28" y="368">Every finished ticket appends its route, escalations, cost and outcome to .backspace/outcomes.jsonl — so the next run starts from evidence.</text>
+  </g>
+</svg>
