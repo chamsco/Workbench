@@ -27,13 +27,13 @@ worked, and whether pushing a release was the fix.
   the app in place. There is no `tauri-plugin-updater`, and an unsigned,
   un-notarized bundle is a poor candidate for one. It is in the README's
   "What it doesn't do".
-- **The one-time catch.** Every app published so far has the old check compiled
-  into it, so none of them can see this fix: installing one build by hand, after
-  this reaches `main` and the workflow republishes `mac-latest`, is what starts
-  the chain — builds after that see every later build. The exception worth
-  knowing: the old check reads `/releases/latest`, so publishing **one
-  non-pre-release release** with a higher dotted tag would make even an already
-  installed app offer it.
+- **The one-time catch, done.** Every app published before this fix has the old
+  check compiled into it, so none of them can see the fix: the old check reads
+  `/releases/latest` and skips pre-releases, which is all this project
+  published. `v0.1.1` is the bridge — one non-pre-release carrying the same
+  build as `mac-latest` (`ba5c695`) — so an already-installed app is offered it.
+  It stays the repository's "latest" release; rolling builds keep going to the
+  `mac-latest` pre-release, which is what every fixed build asks for.
 - **The merge.** `Agents.tsx`, `bridge.ts` and the committed bundle conflicted
   with main's new sidebar. Both sides had only added fields to `bridge.ts`; main
   had moved "New bot" out of the sidebar to the home page's KPI line, so the
