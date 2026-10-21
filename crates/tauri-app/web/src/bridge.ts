@@ -129,6 +129,55 @@ export type Agent = {
   updated: number;
 };
 
+/** One piece of work on the Delegate board (core `delegate::Task`). */
+export type DelegateTask = {
+  id: string;
+  title: string;
+  detail: string;
+  /** Minutes it is expected to take; the queue and its price are built from it. */
+  est_min: number;
+  /** The bot it is delegated to; null is Unassigned. */
+  agent: string | null;
+  /** How it got there: "auto", "manual", or "" while unassigned. */
+  source: "auto" | "manual" | "";
+  /** One line saying why it went where it did. */
+  note: string;
+  /** A Workbench ticket key, when it came from the project's plan. */
+  ticket: string;
+  created: number;
+  updated: number;
+};
+
+/** One bot on the Delegate board, with its queue and what it would cost. */
+export type DelegateAgent = {
+  id: string;
+  name: string;
+  job: string;
+  emoji: string;
+  color: string;
+  /** "claude-sonnet-5-5", "codex", … */
+  model: string;
+  provider: string;
+  /** Rough dollars a minute; 0 for a subscription CLI. */
+  usd_per_min: number;
+  /** A CLI agent costs nothing at the margin, so the row says "Free". */
+  free: boolean;
+  queued_min: number;
+  cost_usd: number;
+  /** When its queue would be done, ms; 0 when it is free. */
+  busy_until: number;
+  tasks: DelegateTask[];
+};
+
+/** Everything the Delegate sheet draws, computed by the core. */
+export type DelegateSnapshot = {
+  auto: boolean;
+  unassigned: DelegateTask[];
+  agents: DelegateAgent[];
+  queues_usd: number;
+  queued_min: number;
+};
+
 /** An outside MCP server bots can be given (prefs.connections). */
 export type Connection = { id: string; name: string; target: string };
 
@@ -324,12 +373,15 @@ type State = {
   cardOpen: string | null;
   /** The reply whose trace is open. */
   traceOpen: string | null;
+  /** The Delegate sheet is open: the fleet's tasks and who they go to. */
+  delegateOpen: boolean;
 };
 
 let state: State = {
   threads: [], id: null, thread: null, epoch: 0, query: "", scope: null, replyTo: null,
   agentsMode: false, agents: [], projects: [], project: null, artifact: null, botPage: null, creating: null, routineEdit: null,
   projectDialog: null, editing: null, grouping: false, traceOpen: null, ghost: false, cardOpen: null,
+  delegateOpen: false,
 };
 const subs = new Set<() => void>();
 const emit = () => subs.forEach((f) => f());
@@ -425,6 +477,7 @@ export function setScope(scope: string | null, agentsMode = false) {
     routineEdit: null,
     projectDialog: null,
     cardOpen: null,
+    delegateOpen: false,
     ...(keep ? {} : { id: null, thread: null, replyTo: null }),
   });
 }
@@ -435,6 +488,28 @@ export const openTrace = (traceOpen: string | null) => set({ traceOpen });
 export const editGroup = (grouping: boolean) => set({ grouping });
 /** The shapeshift card sheet: a saved card open, or null. */
 export const openCard = (cardOpen: string | null) => set({ cardOpen });
+
+// ---------------------------------------------------------------- delegation
+
+/** Open the Delegate sheet: the tasks waiting on the fleet and the bot each
+ *  one goes to. Its data is fetched by the sheet itself, so opening is cheap. */
+export const openDelegate = () => set({ delegateOpen: true });
+export const closeDelegate = () => set({ delegateOpen: false });
+
+/** The board, priced and grouped by the core. */
+export const delegateState = () => host.invoke<DelegateSnapshot>("delegate_state");
+export const delegateAdd = (title: string, estMin: number | null = null) =>
+  host.invoke<DelegateSnapshot>("delegate_add", { title, estMin });
+export const delegateUpdate = (id: string, title: string, estMin: number | null = null) =>
+  host.invoke<DelegateSnapshot>("delegate_update", { id, title, estMin });
+export const delegateDelete = (id: string) => host.invoke<DelegateSnapshot>("delegate_delete", { id });
+/** Hand a task to a bot, or (null) drop it back into Unassigned. */
+export const delegateAssign = (id: string, agent: string | null) =>
+  host.invoke<DelegateSnapshot>("delegate_assign", { id, agent });
+/** Turn automatic attribution on (filling what waits) or off. */
+export const delegateAuto = (on: boolean) => host.invoke<DelegateSnapshot>("delegate_auto", { on });
+/** Pull the open project's unsettled tickets onto the board, once each. */
+export const delegateImport = () => host.invoke<DelegateSnapshot>("delegate_import");
 
 // ---------------------------------------------------------------- bots, projects, routines
 

@@ -10,6 +10,7 @@ pub mod chat;
 pub mod cloud;
 pub mod companion;
 pub mod config;
+pub mod delegate;
 pub mod diagram;
 pub mod effort;
 pub mod files;
