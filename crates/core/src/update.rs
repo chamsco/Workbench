@@ -20,13 +20,10 @@ pub const REPO: &str = "chamsco/Workbench";
 /// The rolling pre-release the macOS workflow replaces on every push to main.
 pub const ROLLING_TAG: &str = "mac-latest";
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
-/// The commit this binary was built from, or "" for a build made by hand.
-/// Baked in by `build.rs`, which only sets it when the environment holds a
-/// real commit; see `build.rs`.
-pub const BUILD: &str = match option_env!("BACKSPACE_BUILD") {
-    Some(sha) => sha,
-    None => "",
-};
+// The commit this binary was built from, or "" for a build made by hand.
+// Written by `build.rs`, which only writes it when the environment holds a real
+// commit; see `build.rs` for what that file is and why it is a file.
+include!(concat!(env!("OUT_DIR"), "/build_stamp.rs"));
 
 #[derive(Serialize, Clone, Debug)]
 pub struct UpdateInfo {
@@ -189,5 +186,22 @@ mod tests {
         assert_eq!(super::short("841a8f548f1d6c76bdc58f2bee5b6acb8882ad75"), "841a8f5");
         assert_eq!(super::short("841a8f5"), "841a8f5");
         assert_eq!(super::short(""), "");
+    }
+
+    /// The fast twin of the macOS workflow's "The app knows which commit it is"
+    /// step. CI exports `BACKSPACE_BUILD` for this job exactly as that build
+    /// exports it, so a stamp that stops reaching the binary fails here -- in a
+    /// minute, on Linux -- instead of in the app, where losing it means an
+    /// update that is never offered to anyone.
+    #[test]
+    fn the_stamp_is_the_commit_the_build_was_given() {
+        if let Ok(said) = std::env::var("BACKSPACE_BUILD") {
+            let said = said.trim().to_ascii_lowercase();
+            assert_eq!(
+                BUILD,
+                said.as_str(),
+                "build.rs did not bake the commit the build was given"
+            );
+        }
     }
 }

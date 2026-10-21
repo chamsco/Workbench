@@ -56,16 +56,29 @@ jobs:
           npx --yes @tauri-apps/cli@2 build --target universal-apple-darwin --bundles app,dmg \
             -c '{"bundle":{"active":true,"icon":["icons/icon.icns","icons/icon.png"],"macOS":{"signingIdentity":"-","minimumSystemVersion":"11.0"}}}'
 
-      # If the environment above stops reaching rustc, the app silently stops
-      # ever seeing an update. Fail the build instead. The bundled binary keeps
-      # the crate's name, `backspace-tauri`, not the product name.
+      # If the environment above stops reaching the build, the app silently
+      # stops ever seeing an update. Fail the build instead. The bundled binary
+      # keeps the crate's name, `backspace-tauri`, not the product name, and
+      # both it and the binary cargo produced are checked: a stale bundle must
+      # not pass for a stamp that never got baked.
       - name: The app knows which commit it is
         run: |
           short="${GITHUB_SHA:0:7}"
-          bin=$(find target/universal-apple-darwin/release/bundle/macos/Backspace.app/Contents/MacOS -type f | head -1)
-          [ -n "$bin" ] || { echo "::error::no binary inside Backspace.app"; exit 1; }
-          grep -aq "$short" "$bin" || { echo "::error::stamp $short is not in $bin"; exit 1; }
-          echo "$bin is stamped with $short"
+          dir=target/universal-apple-darwin/release
+          built="$dir/backspace-tauri"
+          bundled=$(find "$dir/bundle/macos/Backspace.app/Contents/MacOS" -type f | head -1)
+
+          # What the build scripts read, which is what the check below finds in
+          # the binary. Printed whichever way the check goes: a failure here is
+          # about a value crossing three programs, and the log should say which.
+          find target -name build_stamp.rs -print -exec cat {} \; || true
+
+          [ -f "$built" ] || { echo "::error::cargo built no $built"; exit 1; }
+          [ -n "$bundled" ] || { echo "::error::no binary inside Backspace.app"; exit 1; }
+          for bin in "$built" "$bundled"; do
+            grep -aq "$short" "$bin" || { echo "::error::no stamp $short in $bin"; exit 1; }
+            echo "$bin is stamped with $short"
+          done
 
       - name: Collect
         run: |
@@ -81,6 +94,10 @@ jobs:
           path: out/*
 
       - name: Publish to the "mac-latest" pre-release
+        # Only a push to main moves the rolling release. A manual run on a
+        # branch is how the build above gets tested, and it must not be mistaken
+        # for a build of main.
+        if: github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

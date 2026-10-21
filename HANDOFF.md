@@ -343,7 +343,7 @@ State as of 7 Oct 2026, commit `56ff91a` on `main`.
   `git remote set-url origin https://github.com/chamsco/Workbench`
   It also needs `chamsco/Workbench` added to the session's repo scope.
 - **Branch:** work and push on `main`. The owner has asked for a push after each milestone.
-- **Commit trailer:** every commit ends with `Co-Authored-By: Claude …` and a `Claude-Session:` line. No model IDs appear in commits.
+- **Commit trailer:** every agent commit ends with its own attribution and a session line — `Co-Authored-By: Claude …` + `Claude-Session: <date>` from a Claude session, `Co-Authored-By: Backspace Agent <agent@backspace.invalid>` + `Agent-Session: <date>` from any other. Attribute the agent that actually wrote the commit. No model IDs appear in commits.
 - **Related repo:** `chamsco/AnarchyMessenger`. It was compared with this one and never modified.
 - **Not in the repo:** `HARNESSES.md` (the owner's roadmap note) was attached in chat, not committed. Ask for it if needed.
 

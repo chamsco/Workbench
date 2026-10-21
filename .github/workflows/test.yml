@@ -22,5 +22,11 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: tests-linux
+      # The app has to know which commit it is, and the macOS workflow is a
+      # four-minute way to find out it does not. Exporting the same variable here
+      # makes `cargo test` say so in a minute; see the test at the end of
+      # crates/core/src/update.rs.
       - name: cargo test
+        env:
+          BACKSPACE_BUILD: ${{ github.sha }}
         run: cargo test --no-fail-fast
