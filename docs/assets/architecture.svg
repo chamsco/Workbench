@@ -1,0 +1,103 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 452" width="960" height="452" role="img" aria-labelledby="t d">
+  <title id="t">Three front doors, one harness, one runner</title>
+  <desc id="d">The Tauri app, the native GPUI app and the headless CLI all talk to crates/core, which holds chat, the planner, tickets, git worktrees, routing, skills, memory and traces. Core drives crates/runner, which turns one turn into a stream of events for any provider: Claude Code, Codex, Cursor, Ollama, OpenRouter, or any A2A agent. Colony sits beside it for disposable machines.</desc>
+
+  <style>
+    .bg    { fill: #0f0e13; }
+    .edge  { fill: none; stroke: #ffffff; stroke-opacity: .07; }
+    .card  { fill: #17161d; stroke: #ffffff; stroke-opacity: .085; }
+    .hero  { fill: #1b1723; stroke: rgba(255,158,194,.3); }
+    .cap   { fill: #6f6779; font: 600 9.5px/1 -apple-system, "Segoe UI", system-ui, sans-serif; letter-spacing: 1.3px; }
+    .ttl   { fill: #f3eff8; font: 600 12.5px/1 -apple-system, "Segoe UI", system-ui, sans-serif; }
+    .sub   { fill: #8d8499; font: 400 10.5px/1 -apple-system, "Segoe UI", system-ui, sans-serif; }
+    .mono  { fill: #7f7789; font: 400 9.5px/1 ui-monospace, "SF Mono", Consolas, monospace; }
+    .list  { fill: #a49cb0; font: 400 10.5px/1 -apple-system, "Segoe UI", system-ui, sans-serif; }
+    .link  { fill: none; stroke: #4f4859; stroke-width: 1.3; }
+    .pulse { fill: #ff9ec2; }
+
+    .a { animation-duration: 7s; animation-iteration-count: 1; animation-fill-mode: forwards; animation-timing-function: linear; }
+    .draw { stroke-dasharray: 1; }
+    .rise { transform-box: fill-box; }
+
+    @keyframes s1 { 0%,2%{opacity:0;transform:translateY(7px)} 7%{opacity:1;transform:none} 100%{opacity:1} }
+    @keyframes s2 { 0%,5%{opacity:0;transform:translateY(7px)} 10%{opacity:1;transform:none} 100%{opacity:1} }
+    @keyframes s3 { 0%,8%{opacity:0;transform:translateY(7px)} 13%{opacity:1;transform:none} 100%{opacity:1} }
+    @keyframes bus { 0%,13%{stroke-dashoffset:1;opacity:0} 13.1%{opacity:1} 20%{stroke-dashoffset:0;opacity:1} 100%{opacity:1} }
+    @keyframes core { 0%,20%{opacity:0;transform:translateY(8px)} 26%{opacity:1;transform:none} 100%{opacity:1} }
+    @keyframes down1 { 0%,26%{stroke-dashoffset:1;opacity:0} 26.1%{opacity:1} 31%{stroke-dashoffset:0;opacity:1} 100%{opacity:1} }
+    @keyframes runner { 0%,31%{opacity:0;transform:translateY(8px)} 37%{opacity:1;transform:none} 100%{opacity:1} }
+    @keyframes down2 { 0%,37%{stroke-dashoffset:1;opacity:0} 37.1%{opacity:1} 42%{stroke-dashoffset:0;opacity:1} 100%{opacity:1} }
+    @keyframes prov { 0%,42%{opacity:0;transform:translateY(8px)} 48%{opacity:1;transform:none} 100%{opacity:1} }
+    @keyframes run { 0%,50%{transform:translateY(0);opacity:0} 52%{opacity:1} 66%{transform:translateY(126px);opacity:1} 70%{transform:translateY(126px);opacity:0} 100%{transform:translateY(0);opacity:0} }
+
+    .s1{animation-name:s1} .s2{animation-name:s2} .s3{animation-name:s3} .bus{animation-name:bus}
+    .core{animation-name:core} .d1{animation-name:down1} .runner{animation-name:runner}
+    .d2{animation-name:down2} .prov{animation-name:prov} .run{animation-name:run}
+
+    @media (prefers-reduced-motion: reduce) {
+      .a { animation: none !important; opacity: 1; }
+      .s1,.s2,.s3,.core,.runner,.prov { transform: none; }
+      .draw { stroke-dashoffset: 0 !important; }
+      .run { display: none; }
+    }
+  </style>
+
+  <rect class="bg" width="960" height="452" rx="16"/>
+  <rect class="edge" x=".5" y=".5" width="959" height="451" rx="16"/>
+
+  <text class="cap" x="24" y="34">THREE FRONT DOORS</text>
+
+  <g class="a s1 rise">
+    <rect class="card" x="24" y="52" width="280" height="64" rx="11"/>
+    <text class="ttl" x="42" y="79">Tauri 2 app</text>
+    <text class="sub" x="42" y="97">the full app — chat, code, memory</text>
+  </g>
+  <g class="a s2 rise">
+    <rect class="card" x="352" y="52" width="280" height="64" rx="11"/>
+    <text class="ttl" x="370" y="79">GPUI app</text>
+    <text class="sub" x="370" y="97">native, no webview, starts fast</text>
+  </g>
+  <g class="a s3 rise">
+    <rect class="card" x="680" y="52" width="256" height="64" rx="11"/>
+    <text class="ttl" x="698" y="79">CLI</text>
+    <text class="sub" x="698" y="97">headless — scan, serve, logs</text>
+  </g>
+
+  <path class="link a bus draw" pathLength="1" d="M164,116 V133 H808 V116"/>
+  <path class="link a bus draw" pathLength="1" d="M480,133 V150"/>
+
+  <g class="a core rise">
+    <rect class="hero" x="24" y="150" width="912" height="84" rx="12"/>
+    <text class="mono" x="44" y="175">crates/core</text>
+    <text class="ttl" x="44" y="197">The harness</text>
+    <text class="list" x="44" y="216">chat · planner · tickets · git worktrees · routing · skills · memory · board · traces · MCP</text>
+  </g>
+
+  <path class="link a d1 draw" pathLength="1" d="M480,234 V268"/>
+  <path class="link a d1 draw" pathLength="1" d="M784,234 V268"/>
+
+  <g class="a runner rise">
+    <rect class="card" x="24" y="268" width="576" height="60" rx="11"/>
+    <text class="mono" x="44" y="291">crates/runner</text>
+    <text class="ttl" x="152" y="291">One turn in, a stream of events out</text>
+    <text class="sub" x="44" y="310">MIT on its own — another app can depend on it</text>
+  </g>
+  <g class="a runner rise">
+    <rect class="card" x="632" y="268" width="304" height="60" rx="11"/>
+    <text class="mono" x="652" y="291">crates/colony</text>
+    <text class="ttl" x="748" y="291">Disposable machines</text>
+    <text class="sub" x="652" y="310">WSL2 or Hyper-V, created per task</text>
+  </g>
+
+  <path class="link a d2 draw" pathLength="1" d="M480,328 V362"/>
+
+  <g class="a prov rise">
+    <rect class="card" x="24" y="362" width="912" height="44" rx="11"/>
+    <text class="mono" x="44" y="389">PROVIDERS</text>
+    <text class="list" x="124" y="389">Claude Code · Codex · Cursor · Grok · OpenCode · Ollama · LM Studio · OpenRouter · any A2A agent</text>
+  </g>
+
+  <circle class="a run pulse" cx="480" cy="240" r="3"/>
+
+  <text class="sub" x="24" y="440" fill="#5c5568">Nothing below knows what is above it. That is why the runner can be lifted out.</text>
+</svg>

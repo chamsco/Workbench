@@ -223,17 +223,20 @@ export function NewBotDialog(): ReactElement | null {
   const { creating } = useChat();
   if (!creating) return null;
   // Remount per opening (the sheet unmounts on close), so no half-filled form
-  // can come back when the sheet is opened again.
-  return <NewBotSheet key={creating.project || "mac"} openedFor={creating.project} />;
+  // can come back when the sheet is opened again. The key carries the spec
+  // too: "create an agent Watcher" twice with different names must remount.
+  return <NewBotSheet key={`${creating.project || "mac"}:${creating.prefill?.name ?? ""}:${creating.prefill?.job ?? ""}`} openedFor={creating.project} prefill={creating.prefill} />;
 }
 
-function NewBotSheet({ openedFor }: { openedFor: string }) {
+function NewBotSheet({ openedFor, prefill }: { openedFor: string; prefill?: { name: string; job: string } }) {
   const { projects } = useChat();
   const host = getHost();
   const [template, setTemplate] = useState<BotTemplate | null>(null);
-  const [picking, setPicking] = useState(true);
-  const [name, setName] = useState("");
-  const [job, setJob] = useState("");
+  // A spec from the hero prompt skips the template gallery: the line already
+  // said what to make.
+  const [picking, setPicking] = useState(!prefill);
+  const [name, setName] = useState(prefill?.name ?? "");
+  const [job, setJob] = useState(prefill?.job ?? "");
   const [instructions, setInstructions] = useState("");
   const [emoji, setEmoji] = useState(FACES[0]);
   const [color, setColor] = useState(COLORS[7]);
@@ -294,7 +297,10 @@ function NewBotSheet({ openedFor }: { openedFor: string }) {
         // The model takes one backstory and the sidebar shows one line: the
         // one-liner leads, the long job follows it.
         job: composeJob(job, instructions),
-        avatar: { emoji, color },
+        // The emoji draws nothing any more — it seeds the blink phase, so a
+        // bot made from scratch phases off its own name rather than sharing
+        // one phase with every other bot made from scratch.
+        avatar: { emoji: emoji === FACES[0] && !template ? name.trim() : emoji, color },
         personality,
         route: r,
         shared: [],
@@ -349,7 +355,7 @@ function NewBotSheet({ openedFor }: { openedFor: string }) {
 
         <div className="mt-3 flex flex-col gap-4">
           <Section title="Start From">
-            {picking || !template ? (
+            {picking || (!template && !prefill) ? (
               <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
                 {BOT_TEMPLATES.map((t) => {
                   const on = template?.id === t.id;
@@ -376,12 +382,29 @@ function NewBotSheet({ openedFor }: { openedFor: string }) {
                   );
                 })}
               </div>
-            ) : (
+            ) : template ? (
               <div className={`flex items-center gap-2.5 rounded-xl bg-well p-2.5 ${WELL}`}>
                 <Avatar agent={preview} size={32} />
                 <span className="flex min-w-0 flex-1 flex-col">
                   <span className="truncate text-[13px] font-semibold">{template.name}</span>
                   <span className="truncate text-[11.5px] text-muted-foreground">{template.blurb}</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setPicking(true)}
+                  className="cursor-pointer rounded-full px-2.5 py-1 text-[12px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
+                >
+                  Change
+                </button>
+              </div>
+            ) : (
+              /* Opened from the hero prompt ("create an agent named Watcher…"):
+                 the line is the starting point, not a template. */
+              <div className={`flex items-center gap-2.5 rounded-xl bg-well p-2.5 ${WELL}`}>
+                <Avatar agent={preview} size={32} />
+                <span className="flex min-w-0 flex-1 flex-col">
+                  <span className="truncate text-[13px] font-semibold">{prefill!.name || "From your line"}</span>
+                  <span className="truncate text-[11.5px] text-muted-foreground">{prefill!.job || "Read out of what you typed"}</span>
                 </span>
                 <button
                   type="button"
@@ -438,17 +461,19 @@ function NewBotSheet({ openedFor }: { openedFor: string }) {
               ))}
             </div>
             <div className="flex flex-wrap items-center gap-1">
-              {FACES.map((f) => (
+              {/* Colour is the only shape axis left: every bot is the same brain
+                  now, so the old shape row would have shown sixteen identical
+                  faces. The stored emoji still seeds the blink phase. */}
+              {COLORS.map((c) => (
                 <button
-                  key={f}
+                  key={c}
                   type="button"
-                  aria-label={`Face ${f}`}
-                  aria-pressed={emoji === f}
-                  onClick={() => setEmoji(f)}
-                  className={`grid size-8 cursor-pointer place-items-center rounded-full text-[16px] ${emoji === f ? "bg-foreground/10 ring-1 ring-foreground/25" : "hover:bg-accent"}`}
-                >
-                  {f}
-                </button>
+                  aria-label={`Colour ${c}`}
+                  aria-pressed={color === c}
+                  onClick={() => setColor(c)}
+                  className={`size-7 cursor-pointer rounded-full ${color === c ? "ring-2 ring-foreground ring-offset-2 ring-offset-(--surface)" : ""}`}
+                  style={{ background: c }}
+                />
               ))}
             </div>
           </Section>
