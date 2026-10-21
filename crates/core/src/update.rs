@@ -25,6 +25,21 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 // `build_stamp.rs` for why it is not carried alongside the build instead.
 include!("build_stamp.rs");
 
+/// The commit, kept in the file byte for byte.
+///
+/// Nothing here reads it, and that is the problem. A release build folds what
+/// the app says about itself: `is_newer` compares seven bytes, `build` copies
+/// seven bytes, and seven bytes fit in a register, so the optimizer turns the
+/// commit into immediate instructions and drops the text. The workflow then
+/// cannot ask the finished app which commit it was built from -- `strings` on
+/// the bundle finds nothing -- and neither can anyone debugging a release. One
+/// static keeps the whole commit in the file, so "the app knows its commit" is
+/// something the build can prove rather than assume.
+///
+/// `#[used]` is what stops the linker dropping it along with the rest.
+#[used]
+pub static STAMP_IN_THE_BINARY: &str = BUILD;
+
 #[derive(Serialize, Clone, Debug)]
 pub struct UpdateInfo {
     /// The version of the build you are running, e.g. "0.1.0".

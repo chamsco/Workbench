@@ -62,46 +62,30 @@ jobs:
             -c '{"bundle":{"active":true,"icon":["icons/icon.icns","icons/icon.png"],"macOS":{"signingIdentity":"-","minimumSystemVersion":"11.0"}}}'
 
       # If the stamp stops reaching the binary, the app silently stops ever
-      # seeing an update: it has nothing to compare a release's commit with, and
-      # says so to no one. Fail the build instead. The bundled binary keeps the
-      # crate's name, `backspace-tauri`, not the product name.
+      # seeing an update, and says so to no one. Fail the build instead. The
+      # bundled binary keeps the crate's name, `backspace-tauri`, not the
+      # product name.
       #
-      # Two readers, `strings` and `grep -a`, because one of them has said "no"
-      # to a string that is certainly in these binaries. Printed for both, so a
-      # red run says which reader and which file.
+      # `strings` reads these, not `grep -a`: the grep on this runner (BSD grep
+      # 2.6.0-FreeBSD) finds nothing at all in them, not even `chamsco/Workbench`,
+      # which is certainly there. Check that first, then the stamp.
       - name: The app knows which commit it is
         run: |
-          short="${GITHUB_SHA:0:7}"
           dir=target/universal-apple-darwin/release
           bundled=$(find "$dir/bundle/macos/Backspace.app/Contents/MacOS" -type f | head -1)
-          echo "grep: $(command -v grep) -- $(grep --version 2>&1 | head -1)"
-
-          says() {  # says <file> <string>: a count from each reader
-            printf '   %-24s strings=%s grep=%s\n' "$2" \
-              "$(strings -a "$1" | grep -c -- "$2" || true)" \
-              "$(grep -ac -- "$2" "$1" || true)"
-          }
-
-          for f in "$dir/backspace-tauri" "$bundled"; do
-            echo "== $f"
-            ls -l "$f" | awk '{print "   " $5 " bytes"}'
-            file "$f" | sed 's/^/   /' | cut -c1-110
-            # "chamsco" is certainly in the app: it is half of the repo the
-            # update check asks. If neither reader sees it, the readers are
-            # blind and nothing below means anything.
-            says "$f" "chamsco"
-            # Which update.rs is in there: the new one asks for the commit a
-            # release was built from, the old one for a version number.
-            says "$f" "releases/tags/mac-latest"
-            says "$f" "releases/latest"
-            says "$f" "$short"
-          done
+          count() { strings -a "$1" | grep -c -F -- "$2" || true; }
 
           for bin in "$dir/backspace-tauri" "$bundled"; do
             [ -f "$bin" ] || { echo "::error::no $bin"; exit 1; }
-            n=$(strings -a "$bin" | grep -c -- "$short" || true)
-            [ "$n" -gt 0 ] || { echo "::error::no stamp $short in $bin"; exit 1; }
-            echo "$bin is stamped with $short"
+            echo "$bin, $(wc -c < "$bin" | tr -d ' ') bytes"
+            # Half of the repo the update check asks for: long enough that the
+            # compiler cannot fold it into instructions, so it is a fair test of
+            # the reader, and only in the fixed update.rs.
+            [ "$(count "$bin" "chamsco/Workbench")" -gt 0 ] \
+              || { echo "::error::cannot read a string that is certainly there"; exit 1; }
+            n=$(count "$bin" "$GITHUB_SHA")
+            echo "   stamp $GITHUB_SHA: $n"
+            [ "$n" -gt 0 ] || { echo "::error::no stamp $GITHUB_SHA in $bin"; exit 1; }
           done
 
       - name: Collect

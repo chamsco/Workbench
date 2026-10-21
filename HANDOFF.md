@@ -19,7 +19,10 @@ worked, and whether pushing a release was the fix.
   carries its commit in `target_commitish`, and a different commit means main
   moved and a newer build is out. A hand build has no stamp and is never offered
   an update. `UpdateInfo` gained `build`; both shells' copy now says "build", not
-  "version".
+  "version". The binary keeps a `#[used]` copy of the commit as well: a release
+  build folds the seven bytes the check actually uses into machine instructions,
+  so without it no one -- the workflow included -- can read a shipped app's
+  commit back out of it.
 - **Still manual.** "Download & Update" opens the release page; nothing replaces
   the app in place. There is no `tauri-plugin-updater`, and an unsigned,
   un-notarized bundle is a poor candidate for one. It is in the README's
