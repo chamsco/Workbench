@@ -29,6 +29,12 @@ layout of Home (`crates/tauri-app/ui/home.js`) come from
 > OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 > SOFTWARE.
 
+## ascii-sharks
+
+The ASCII hammerhead used by the "Sharks" backgrounds in
+`crates/tauri-app/ui/art.js` comes from
+[ascii-sharks](https://github.com/stackedlol/ascii-sharks) by stackedlol.
+
 ## Lobe Icons
 
 The CLI and model marks in `crates/tauri-app/ui/logos.js` are the SVGs from

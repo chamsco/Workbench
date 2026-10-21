@@ -85,3 +85,9 @@
 .bdrop[aria-pressed="true"] { border-color: var(--blue); }
 .bdrop .sw { height: 52px; border-radius: 6px; background: var(--desk-base) center / cover; image-rendering: pixelated; border: 0.5px solid var(--pane-edge); }
 .bdrop .sw-aurora { background: radial-gradient(circle at 25% 30%, var(--blob-a), transparent 60%), radial-gradient(circle at 80% 20%, var(--blob-b), transparent 55%), var(--desk-base); }
+/* The ASCII backdrops are text, so their swatches are too: a few glyphs of the
+   hammerhead on the ground that ink is meant for. */
+.bdrop .sw-sharks-white, .bdrop .sw-sharks-black { display: grid; place-items: center; overflow: hidden; font: 600 8px/1.05 var(--font-mono); white-space: pre; letter-spacing: 0; }
+.bdrop .sw-sharks-white { background: linear-gradient(160deg, #1a1820, #0a090d); color: rgba(255, 255, 255, 0.64); }
+.bdrop .sw-sharks-black { background: linear-gradient(160deg, #fbf9fc, #dedae3); color: rgba(18, 16, 22, 0.62); }
+.bdrop .sw-sharks-white::after, .bdrop .sw-sharks-black::after { content: "  ;'    .oo\a  S%X   %8S8\a ;%t   XX%%S"; }

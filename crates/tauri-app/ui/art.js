@@ -9,17 +9,41 @@
 // see THIRD_PARTY_NOTICES.md), as are the paintings in art/.
 //
 // Art.apply(id) sets the backdrop from Settings → Appearance: a painting
-// muted behind the whole window, the old aurora, or nothing.
+// muted behind the whole window, the old aurora, an ASCII sea, or nothing.
 
 var Art = (() => {
   const BAYER8 = [0, 32, 8, 40, 2, 34, 10, 42, 48, 16, 56, 24, 50, 18, 58, 26, 12, 44, 4, 36, 14, 46, 6, 38, 60, 28, 52, 20, 62, 30, 54, 22, 3, 35, 11, 43, 1, 33, 9, 41, 51, 19, 59, 27, 49, 17, 57, 25, 15, 47, 7, 39, 13, 45, 5, 37, 63, 31, 55, 23, 61, 29, 53, 21].map(v => (v + 0.5) / 64);
 
   // The backdrops Settings offers. The harbour follows the time of day in a
-  // light theme and is always the night in a dark one.
+  // light theme and is always the night in a dark one. The sharks are the
+  // hammerhead from stackedlol/ascii-sharks (see THIRD_PARTY_NOTICES.md): text
+  // rather than a painting, in the two inks the repo draws it in.
   const BACKDROPS = [
     ["harbour", "Harbour"], ["dawn", "Lighthouse at dawn"], ["night", "Moorings at night"],
     ["open-sea", "Open sea"], ["fog", "Fog"], ["aurora", "Aurora"], ["plain", "Plain"],
+    ["sharks-white", "Sharks, white"], ["sharks-black", "Sharks, black"],
   ];
+  // The art, line for line, as the repo's README sets it.
+  const SHARK = [
+    "                            ;'",
+    "                             %%'",
+    "                              .t;.               .oooo",
+    "                               S;:S%              %8S8.",
+    "                                ;:tt%t '..        XX%%S",
+    "t'                            ''XSSS8SSX%XX8#.    %XSX%",
+    " :;'               ;.''X8%8XX%%S%%S%SStt%tSX8S#X8't%ttt.",
+    "  ::%'       ''8XXXSSt%Stttttt%8@%%@%8@8%Sttt%%%%SSSSS%tt.",
+    "  'SXXtt%t%%%S%:;StS%ttSS%tSXSt88@@%8%@8%tStS%%X%SS%%S%;;t",
+    " .@##88#@...'@@@@#@8@88X88#XXXSX8SX88SX8%SS%S%%S88St%t%%%.",
+    "  %;%t             :.    '.'##@###@X#888XX##8@@@#.X%XS%.",
+    " .%t                            ;%%%#@@##@@@.     SXS%%",
+    " t.                            .%;%%%.            %%XXS",
+    "                              '%t:t              .SXSS'",
+    "                             '::.                ooooo",
+    "                            .S'",
+    "                            .",
+  ];
+  const school = () => `<div class="sea">${["s1", "s2", "s3"].map(c => `<pre class="${c}">${SHARK.join("\n")}</pre>`).join("")}</div>`;
   const dark = () => {
     const t = document.documentElement.dataset.theme;
     return t ? t === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
@@ -125,6 +149,14 @@ var Art = (() => {
       layer = document.createElement("div");
       layer.id = "winArt"; layer.className = "win-art"; layer.setAttribute("aria-hidden", "true");
       win.prepend(layer);
+    }
+    // The sharks are text, not a painting: one layer of pre, under the glass,
+    // shown by CSS only while a shark backdrop is the one in force.
+    if (!document.getElementById("winAscii")) {
+      const sea = document.createElement("div");
+      sea.id = "winAscii"; sea.className = "win-ascii"; sea.setAttribute("aria-hidden", "true");
+      sea.innerHTML = school();
+      layer.after(sea);
     }
     win.dataset.backdrop = current;
     document.querySelector(".desk").dataset.backdrop = current;
