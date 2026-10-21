@@ -10,13 +10,16 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   IconApps,
+  IconChevronRight,
   IconClock,
   IconCloudComputing,
   IconCopy,
   IconDeviceDesktop,
+  IconEdit,
   IconFolder,
-  IconFolderPlus,
   IconLoader2,
+  IconMessageCircle,
+  IconMessages,
   IconPencil,
   IconPlayerPlay,
   IconPlayerStop,
@@ -37,11 +40,18 @@ import { RowPill } from "@/components/row-pill";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { RoutePicker } from "./RoutePicker";
-import { Avatar, COLORS, FACES, Stack } from "./avatar";
+import { Avatar, COLORS, Stack } from "./avatar";
 import { NewBotDialog, BotHome } from "./bot-create";
 import { DelegateDialog } from "./Delegate";
-import { RoutineDialog, UpcomingRoutines } from "./routines";
-import { ProjectDialog, ProjectsSide, projectFolderName } from "./projects";
+import { HomePrompt } from "./HomePrompt";
+import { ActivitySide, ActivityToggle, AskCard } from "./activity-side";
+import { openAsks, useAsks } from "./activity";
+import { ArtifactsSide } from "./artifacts";
+import { RoutineDialog } from "./routines";
+import { ProjectDialog } from "./projects";
+import { CardGlyph, CardsAgenda, CardSheet } from "./shapeshift";
+import { useCards } from "../shapeshift";
+import { concludeSession, endSession, liveState, scrollToSession, sessionFor, sessionLabel, touchSession, useNow, useSessions } from "./sessions";
 import {
   agentById,
   agentStatus,
@@ -58,8 +68,9 @@ import {
   nextRoutine,
   nextWakeLabel,
   openAgentThread,
+  openBot,
+  openCard,
   openDelegate,
-  openProject,
   openThread,
   removeRoutine,
   routineWhen,
@@ -102,52 +113,72 @@ const ComputerIcon = ({ c, size = 14 }: { c: Computer; size?: number }) =>
 // ---------------------------------------------------------------- sidebar
 
 export function AgentsSide() {
-  const { agents, threads, id, project } = useChat();
+  const { agents, threads, id, project, cardOpen } = useChat();
+  const cards = useCards();
   const [filter, setFilter] = useState("");
+  // The sidebar's two faces: the lists, or what the bots have been up to.
+  const [side, setSide] = useState<"bots" | "activity">("bots");
+  // Which bot folders are unfolded. A bot's threads and cards hang under it,
+  // folder-style: one click opens the folder, the name opens its page.
+  const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set());
   const q = filter.trim().toLowerCase();
   const shown = q ? agents.filter((a) => a.name.toLowerCase().includes(q) || a.job.toLowerCase().includes(q)) : agents;
-  const chats = threads.filter((t) => !!t.agent && !t.app && (t.members?.length ?? 0) === 0).sort((x, y) => y.updated - x.updated);
   const groups = threads.filter((t) => (t.members?.length ?? 0) > 0 && !t.app);
-  const lastWith = (a: Agent) => threads.filter((t) => t.agent === a.id).sort((x, y) => y.updated - x.updated)[0];
+  const withBot = (a: Agent) => threads.filter((t) => t.agent === a.id).sort((x, y) => y.updated - x.updated);
   const row = "group/row relative flex h-11 w-full cursor-pointer items-center gap-2.5 rounded-lg px-2 text-left";
+  const toggle = (botId: string) =>
+    setOpen((cur) => {
+      const next = new Set(cur);
+      if (next.has(botId)) next.delete(botId);
+      else next.add(botId);
+      return next;
+    });
   return (
     <div className="whirl-side flex flex-col gap-3">
-      <div className="flex flex-col gap-0.5">
-        <button type="button" onClick={() => startBot()} className="group/row relative flex h-8 w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 text-[13.5px]/4 font-medium text-foreground-soft">
-          <RowPill />
-          <IconUserPlus size={16} className="relative shrink-0" />
-          <span className="relative">New bot</span>
-        </button>
-        {/* The Delegate sheet: the work waiting on the fleet, and who gets it. */}
-        <button
-          type="button"
-          onClick={() => openDelegate()}
-          title="Hand out tasks and see which model each one goes to"
-          className="group/row relative flex h-8 w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 text-[13.5px]/4 font-medium text-foreground-soft"
-        >
-          <RowPill />
-          <IconSparkles size={16} className="relative shrink-0" />
-          <span className="relative flex-1 text-left">Delegate</span>
-          <span className="relative text-[11px] font-normal text-muted-foreground/60">tasks</span>
-        </button>
-        <div className="group/row relative flex h-8 w-full items-center gap-2.5 rounded-lg px-2.5 text-[13.5px]/4 font-medium text-foreground-soft">
-          <RowPill className="group-focus-within/row:bg-accent" />
-          <IconSearch size={15} className="relative shrink-0" />
-          <input
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            onKeyDown={(e) => e.key === "Escape" && setFilter("")}
-            placeholder="Filter bots"
-            aria-label="Filter bots"
-            className="relative h-full min-w-0 flex-1 bg-transparent outline-none placeholder:text-foreground-soft"
-          />
-          {filter && (
-            <button type="button" onClick={() => setFilter("")} aria-label="Clear filter" className="relative grid size-5 cursor-pointer place-items-center rounded-md text-muted-foreground hover:text-foreground">
-              <IconX size={13} />
+      {/* One switch, two faces. The activity face is where the bots' day lands:
+          what they did, and what they are waiting on you for — the badge
+          counts the questions, so it earns its place even closed. */}
+      <ActivityToggle view={side} onView={setSide} />
+      {side === "activity" ? (
+        <ActivitySide />
+      ) : (
+        <>
+          <div className="flex flex-col gap-0.5">
+            <button type="button" onClick={() => goHome()} className="group/row relative flex h-8 w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 text-[13.5px]/4 font-medium text-foreground-soft">
+              <RowPill />
+              <IconEdit size={15} className="relative shrink-0" />
+              <span className="relative">New chat</span>
             </button>
-          )}
-        </div>
-      </div>
+            {/* The Delegate sheet: the work waiting on the fleet, and who gets it. */}
+            <button
+              type="button"
+              onClick={() => openDelegate()}
+              title="Hand out tasks and see which model each one goes to"
+              className="group/row relative flex h-8 w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 text-[13.5px]/4 font-medium text-foreground-soft"
+            >
+              <RowPill />
+              <IconSparkles size={16} className="relative shrink-0" />
+              <span className="relative flex-1 text-left">Delegate</span>
+              <span className="relative text-[11px] font-normal text-muted-foreground/60">tasks</span>
+            </button>
+            <div className="group/row relative flex h-8 w-full items-center gap-2.5 rounded-lg px-2.5 text-[13.5px]/4 font-medium text-foreground-soft">
+              <RowPill className="group-focus-within/row:bg-accent" />
+              <IconSearch size={15} className="relative shrink-0" />
+              <input
+                value={filter}
+                onChange={(e) => setFilter(e.target.value)}
+                onKeyDown={(e) => e.key === "Escape" && setFilter("")}
+                placeholder="Filter bots"
+                aria-label="Filter bots"
+                className="relative h-full min-w-0 flex-1 bg-transparent outline-none placeholder:text-foreground-soft"
+              />
+              {filter && (
+                <button type="button" onClick={() => setFilter("")} aria-label="Clear filter" className="relative grid size-5 cursor-pointer place-items-center rounded-md text-muted-foreground hover:text-foreground">
+                  <IconX size={13} />
+                </button>
+              )}
+            </div>
+          </div>
       <section>
         {/* The section label is the way home: a bot thread hides the home, and
             this is the one place on the side that is always in reach. */}
@@ -162,54 +193,92 @@ export function AgentsSide() {
         {agents.length === 0 && <div className="px-2.5 py-1.5 text-[12.5px]/5 text-muted-foreground">No bots yet. Give one a name, a face and a job.</div>}
         {agents.length > 0 && shown.length === 0 && <div className="px-2.5 py-1.5 text-[12.5px]/5 text-muted-foreground">No bots match.</div>}
         {shown.map((a) => {
-          const t = lastWith(a);
+          const chats = withBot(a);
+          const t = chats[0];
           const on = !!t && t.id === id;
           const st = agentStatus(a, t);
           // A bot assigned to the project on screen is doing its work here.
           const onProject = !!project && project.agents.includes(a.id);
+          const owed = cards.filter((c) => c.for === a.id && !c.done);
+          const unfolded = open.has(a.id);
           return (
-            <button key={a.id} type="button" className={row} onClick={() => void openAgentThread(a, null)} title={oneLine(a.job)}>
-              <RowPill className={on ? "bg-accent" : ""} />
-              <span className="relative">
-                <Avatar agent={a} size={28} />
-              </span>
-              <span className="relative flex min-w-0 flex-1 flex-col">
-                <span className="truncate text-[13.5px]/4 font-medium text-foreground">{a.name}</span>
-                <span className="flex min-w-0 items-center gap-1.5 text-[11.5px]/4 text-muted-foreground">
-                  <span className={`size-1.5 shrink-0 rounded-full ${STATUS_DOT[st.kind]}`} aria-hidden />
-                  <span className="truncate">{st.label}</span>
-                  {onProject && (
-                    <span className="shrink-0" title="Assigned to the project on screen">
-                      <IconFolder size={11} aria-hidden />
+            <div key={a.id} className="flex flex-col">
+              {/* The bot itself: the folder chevron on the left, the name (its
+                  page) the rest of the row. */}
+              <div className={`relative flex h-11 items-center gap-1 rounded-lg pr-2 ${on ? "bg-accent" : ""}`}>
+                <button
+                  type="button"
+                  onClick={() => toggle(a.id)}
+                  aria-expanded={unfolded}
+                  aria-label={`${unfolded ? "Fold" : "Unfold"} ${a.name}'s threads and cards`}
+                  className="grid size-7 shrink-0 cursor-pointer place-items-center rounded-md text-muted-foreground hover:text-foreground"
+                >
+                  <IconChevronRight size={14} className={`transition-transform duration-150 ${unfolded ? "rotate-90" : ""}`} />
+                </button>
+                <button type="button" className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 text-left" onClick={() => openBot(a.id)} title={`${oneLine(a.job)} — open ${a.name}'s page`}>
+                  <Avatar agent={a} size={28} state={st.kind === "wake" ? "wake" : st.kind} />
+                  <span className="flex min-w-0 flex-1 flex-col">
+                    <span className="truncate text-[13.5px]/4 font-medium text-foreground">{a.name}</span>
+                    <span className="flex min-w-0 items-center gap-1.5 text-[11.5px]/4 text-muted-foreground">
+                      <span className={`size-1.5 shrink-0 rounded-full ${STATUS_DOT[st.kind]}`} aria-hidden />
+                      <span className="truncate">{st.label}</span>
+                      {onProject && (
+                        <span className="shrink-0" title="Assigned to the project on screen">
+                          <IconFolder size={11} aria-hidden />
+                        </span>
+                      )}
                     </span>
+                  </span>
+                  {t?.unread && !on && <span className="size-2 shrink-0 rounded-full bg-sky-500" />}
+                </button>
+              </div>
+              {/* The folder: what this bot has — its threads and the cards
+                  written for it. Same row language as the sections, one step
+                  in and one size down. */}
+              {unfolded && (
+                <div className="flex flex-col gap-0.5 pb-1 pl-[26px]">
+                  <button type="button" onClick={() => void openAgentThread(a, null)} className="group/row relative flex h-8 w-full cursor-pointer items-center gap-2 rounded-lg px-2 text-left text-[12.5px]/4 font-medium text-foreground-soft">
+                    <RowPill />
+                    <IconMessageCircle size={13} className="relative shrink-0" />
+                    <span className="relative">Message {a.name}</span>
+                  </button>
+                  {chats.map((c) => (
+                    <button key={c.id} type="button" onClick={() => void openThread(c.id)} className="group/row relative flex h-9 w-full cursor-pointer items-center gap-2 rounded-lg px-2 text-left" title={c.preview || c.title}>
+                      <RowPill className={c.id === id ? "bg-accent" : ""} />
+                      <span className="relative grid size-6 shrink-0 place-items-center rounded-full bg-foreground/[0.06] text-muted-foreground">
+                        <IconMessages size={12} />
+                      </span>
+                      <span className="relative flex min-w-0 flex-1 flex-col">
+                        <span className="truncate text-[12.5px]/4 font-medium text-foreground">{c.title}</span>
+                        <span className="truncate text-[11px]/4 text-muted-foreground">{c.preview || "No messages yet"}</span>
+                      </span>
+                      {c.unread && c.id !== id && <span className="relative size-1.5 shrink-0 rounded-full bg-sky-500" />}
+                    </button>
+                  ))}
+                  {owed.map((c) => (
+                    <button key={c.id} type="button" onClick={() => openCard(c.id)} className="group/row relative flex h-9 w-full cursor-pointer items-center gap-2 rounded-lg px-2 text-left" title={c.text}>
+                      <RowPill className={c.id === cardOpen ? "bg-accent" : ""} />
+                      <span className="relative grid size-6 shrink-0 place-items-center rounded-full bg-foreground/[0.06] text-muted-foreground">
+                        <CardGlyph kind={c.kind} size={12} />
+                      </span>
+                      <span className="relative flex min-w-0 flex-1 flex-col">
+                        <span className="truncate text-[12.5px]/4 font-medium text-foreground">{c.title}</span>
+                        <span className="truncate text-[11px]/4 text-muted-foreground">{c.detail}</span>
+                      </span>
+                    </button>
+                  ))}
+                  {chats.length === 0 && owed.length === 0 && (
+                    <div className="px-2 py-1 text-[11.5px]/4 text-muted-foreground">Nothing yet — message it, or give it a card.</div>
                   )}
-                </span>
-              </span>
-              {t?.unread && !on && <span className="relative size-2 shrink-0 rounded-full bg-sky-500" />}
-            </button>
+                </div>
+              )}
+            </div>
           );
         })}
       </section>
       <section>
-        <div className="flex h-5 items-center px-2.5 text-[10.5px]/4 font-medium text-muted-foreground/55">Chats</div>
-        {chats.length === 0 && <div className="px-2.5 py-1.5 text-[12.5px]/5 text-muted-foreground">No chats yet. Message a bot to start one.</div>}
-        {chats.map((t) => {
-          const bot = agentById(t.agent);
-          return (
-            <button key={t.id} type="button" className={row} onClick={() => void openThread(t.id)} title={t.preview || t.title}>
-              <RowPill className={t.id === id ? "bg-accent" : ""} />
-              <span className="relative">
-                <Avatar agent={bot} size={26} />
-              </span>
-              <span className="relative flex min-w-0 flex-1 flex-col">
-                <span className="truncate text-[13.5px]/4 font-medium text-foreground">{t.title}</span>
-                <span className="truncate text-[11.5px]/4 text-muted-foreground">{t.preview || "No messages yet"}</span>
-              </span>
-              {t.unread && t.id !== id && <span className="relative size-2 shrink-0 rounded-full bg-sky-500" />}
-            </button>
-          );
-        })}
-        <div className="mt-1 flex h-5 items-center px-2.5 text-[10.5px]/4 font-medium text-muted-foreground/55">Groups</div>
+        <div className="flex h-5 items-center px-2.5 text-[10.5px]/4 font-medium text-muted-foreground/55">Group chats</div>
+        {groups.length === 0 && <div className="px-2.5 py-1.5 text-[12.5px]/5 text-muted-foreground">No groups yet. Say “@bot and @bot” in the prompt, or start one here.</div>}
         {groups.map((g) => (
           <button key={g.id} type="button" className={row} onClick={() => void openThread(g.id)}>
             <RowPill className={g.id === id ? "bg-accent" : ""} />
@@ -234,7 +303,11 @@ export function AgentsSide() {
           <span className="relative">New group</span>
         </button>
       </section>
-      <ProjectsSide />
+      {/* Artifacts last: the web views of what already exists — projects and
+          cards — the surface a card becomes once it is a real thing. */}
+      <ArtifactsSide />
+        </>
+      )}
     </div>
   );
 }
@@ -242,139 +315,102 @@ export function AgentsSide() {
 // ---------------------------------------------------------------- home
 
 export function AgentsHome() {
-  const { agents, threads, projects } = useChat();
-  const groups = threads.filter((t) => (t.members?.length ?? 0) > 0 && !t.app);
   return (
     <div className="h-full overflow-y-auto px-6 pt-10 pb-16">
       <div className="mx-auto flex max-w-3xl flex-col gap-6">
-        <div className="flex items-start justify-between gap-4">
-          <div className="min-w-0">
-            <h1 className="text-[24px]/8 font-medium tracking-tight">Your bots</h1>
-            <p className="mt-1 max-w-[60ch] text-[13.5px]/6 text-muted-foreground">
-              Each bot has a name, a face and a job. Talk to one, or put several in a group with a goal: they read each other's messages and split the work. A bot works in its own folder, or on one of your projects.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => startBot()}
-            className="mt-1 flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full bg-primary px-3.5 py-2 text-[13px] font-medium text-primary-foreground hover:bg-(--primary-hover)"
-          >
-            <IconUserPlus size={15} />
-            New bot
-          </button>
+        {/* The prompt first, the way the screenshot starts: one line in, a
+            plan under it, Enter routes it. Everything below is what the
+            agents are already doing. */}
+        <HomePrompt />
+        <div className="flex flex-col gap-2.5">
+          <AgentKpis />
+          <AgentStrip />
         </div>
-        <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
-          {agents.map((a) => (
-            <AgentCard key={a.id} agent={a} />
-          ))}
-          <button
-            type="button"
-            onClick={() => startBot()}
-            className="flex min-h-36 cursor-pointer flex-col items-center justify-center gap-2 rounded-2xl border-[1.5px] border-dashed border-border text-[13.5px] font-medium text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground"
-          >
-            <IconPlus size={20} />
-            New bot
-          </button>
-        </div>
-        <UpcomingRoutines agents={agents} />
-        <ProjectsBlock projects={projects} />
-        {agents.length > 1 && (
-          <div className="flex flex-col gap-2">
-            <div className="flex items-center justify-between">
-              <h2 className="text-[14px] font-semibold">Groups</h2>
-              <button type="button" onClick={() => editGroup(true)} className="flex cursor-pointer items-center gap-1.5 rounded-full px-3 py-1.5 text-[13px] font-medium hover:bg-accent">
-                <IconUsersGroup size={15} /> New group
-              </button>
-            </div>
-            {groups.length === 0 ? (
-              <div className={`rounded-2xl bg-well px-4 py-3 text-[13px]/5 text-muted-foreground ${WELL}`}>
-                A group is one conversation with a whole team: a planner, a writer and a researcher in the same thread, and you step in whenever you like.
-              </div>
-            ) : (
-              groups.map((g) => (
-                <button key={g.id} type="button" onClick={() => void openThread(g.id)} className={`flex cursor-pointer items-center gap-3 rounded-2xl bg-well px-4 py-3 text-left ${WELL}`}>
-                  <Stack ids={g.members ?? []} size={26} />
-                  <span className="flex min-w-0 flex-col">
-                    <span className="truncate text-[14px] font-medium">{g.title}</span>
-                    <span className="truncate text-[12.5px] text-muted-foreground">{g.preview || (g.members ?? []).map((m) => agentById(m)?.name).filter(Boolean).join(", ")}</span>
-                  </span>
-                </button>
-              ))
-            )}
-          </div>
-        )}
+        {/* The cards as an agenda: what is coming and when, one line each —
+            the shape a reminders list has. Right under it, what the agents
+            are waiting on you for, answerable without leaving the page. */}
+        <CardsAgenda />
+        <NeedsFromYou />
       </div>
     </div>
   );
 }
 
-function AgentCard({ agent }: { agent: Agent }) {
-  const host = getHost();
-  const { threads } = useChat();
-  const last = threads.filter((t) => t.agent === agent.id).sort((x, y) => y.updated - x.updated)[0];
-  const st = agentStatus(agent, last);
+/** One line of what you have: the agents, plus the two things that only count
+ *  once they exist — routines and projects. A KPI, not a section: a number
+ *  beside its label, shown only when there is one to count. "New bot" rides
+ *  the same line, because that is the one action this page is for. */
+function AgentKpis() {
+  const { agents, projects } = useChat();
+  const routines = agents.reduce((n, a) => n + a.routines.length, 0);
+  const kpi = (label: string, n: number) => (
+    <span className="flex items-baseline gap-1.5">
+      <span className="text-[12px] font-medium text-muted-foreground/70">{label}</span>
+      <span className="text-[13.5px] font-semibold tabular-nums">{n}</span>
+    </span>
+  );
   return (
-    <div className={`flex min-h-36 flex-col gap-2 rounded-2xl bg-well p-4 ${WELL}`}>
-      <div className="flex items-center gap-3">
-        <Avatar agent={agent} size={36} />
-        <div className="flex min-w-0 flex-col">
-          <span className="truncate text-[14.5px] font-semibold">{agent.name}</span>
-          <span className="truncate text-[11.5px] text-muted-foreground">{host.routeName(agent.route)}</span>
-        </div>
-      </div>
-      <p className="line-clamp-2 flex-1 text-[12.5px]/5 text-muted-foreground">{oneLine(agent.job) || "No job yet."}</p>
-      <div className="flex items-center gap-1.5 text-[11.5px] text-muted-foreground">
-        <span className={`size-1.5 shrink-0 rounded-full ${STATUS_DOT[st.kind]}`} aria-hidden />
-        <span className="truncate">{st.label}</span>
-      </div>
-      <div className="flex items-center gap-1.5">
-        <button type="button" onClick={() => void openAgentThread(agent, null)} className="cursor-pointer rounded-full bg-primary px-3 py-1.5 text-[12.5px] font-medium text-primary-foreground hover:bg-(--primary-hover)">
-          Message
-        </button>
-        <button type="button" onClick={() => editAgent(agent)} className="cursor-pointer rounded-full px-3 py-1.5 text-[12.5px] font-medium hover:bg-accent">
-          Edit
-        </button>
-      </div>
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+      {kpi("Agents", agents.length)}
+      {routines > 0 && kpi("Routines", routines)}
+      {projects.length > 0 && kpi("Projects", projects.length)}
+      <button
+        type="button"
+        onClick={() => startBot()}
+        className="ml-auto flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full px-3 py-1.5 text-[13px] font-medium hover:bg-accent"
+      >
+        <IconUserPlus size={15} />
+        New bot
+      </button>
     </div>
   );
 }
 
-function ProjectsBlock({ projects }: { projects: Project[] }) {
+/** The agent row: a chip per bot with what it is doing right now. Clicking
+ *  one opens its page. The KPI line above already carries the count, so this
+ *  row is only the live part — who is working, who needs you, who wakes next. */
+function AgentStrip() {
+  const { agents, threads } = useChat();
+  if (agents.length === 0) return null;
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex items-center justify-between">
-        <h2 className="text-[14px] font-semibold">Projects</h2>
-        <button type="button" onClick={() => editProject("new")} className="flex cursor-pointer items-center gap-1.5 rounded-full px-3 py-1.5 text-[13px] font-medium hover:bg-accent">
-          <IconFolderPlus size={15} />
-          New project
-        </button>
-      </div>
-      {projects.length === 0 ? (
-        <div className={`rounded-2xl bg-well px-4 py-3 text-[13px]/5 text-muted-foreground ${WELL}`}>
-          A project is a folder plus the bots that work in it. Create one, assign a bot, and every chat you start there runs in that folder.
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
-          {projects.map((p) => (
-            <button key={p.id} type="button" onClick={() => openProject(p)} className={`flex flex-col gap-2 rounded-2xl bg-well p-4 text-left ${WELL}`}>
-              <span className="flex items-center gap-2.5">
-                <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-foreground/[0.06] text-muted-foreground">
-                  <IconFolder size={16} />
-                </span>
-                <span className="min-w-0 flex-1 truncate text-[14px] font-semibold">{projectFolderName(p)}</span>
-              </span>
-              <span className="truncate font-mono text-[11.5px]/4 text-muted-foreground" title={p.folder}>
-                {p.folder}
-              </span>
-              <span className="flex items-center justify-between text-[11.5px] text-muted-foreground">
-                <span>{p.agents.length === 1 ? "1 bot" : `${p.agents.length} bots`}</span>
-                <span className="font-medium text-foreground/70">Open</span>
-              </span>
-            </button>
-          ))}
-        </div>
-      )}
+    <div className="flex flex-wrap items-center gap-1.5">
+      {agents.map((a) => {
+        const last = threads.filter((t) => t.agent === a.id).sort((x, y) => y.updated - x.updated)[0];
+        const st = agentStatus(a, last);
+        return (
+          <button
+            key={a.id}
+            type="button"
+            onClick={() => openBot(a.id)}
+            className={`flex cursor-pointer items-center gap-1.5 rounded-full bg-well py-1 pr-3 pl-1.5 text-[12.5px] font-medium ${WELL}`}
+            title={`${st.label} — open ${a.name}'s page`}
+          >
+            <Avatar agent={a} size={20} />
+            {a.name}
+            <span className={`size-1.5 shrink-0 rounded-full ${STATUS_DOT[st.kind]}`} aria-hidden />
+          </button>
+        );
+      })}
     </div>
+  );
+}
+
+/** What the agents are waiting on you for. The same ask cards the activity
+ *  feed answers, one level up: right under the agenda, so the new-chat page
+ *  also says what it owes you. An answer goes into the bot's thread as a
+ *  message, the same way it does in the feed. */
+function NeedsFromYou() {
+  const asks = useAsks();
+  const now = useNow(30_000);
+  const open = openAsks(asks);
+  if (open.length === 0) return null;
+  return (
+    <section className="flex flex-col gap-2">
+      <h2 className="text-[14px] font-semibold">Agents need this from you</h2>
+      {open.map((a) => (
+        <AskCard key={a.id} ask={a} now={now} />
+      ))}
+    </section>
   );
 }
 
@@ -417,6 +453,42 @@ export function AgentThreadHeader({ thread }: { thread: Thread }) {
         <div className="text-[12.5px]/5 text-muted-foreground">{members.map((m) => agentById(m)?.name ?? "removed").join(", ")}</div>
       )}
       {a && <ComputerBar agent={a} />}
+      <SessionBar thread={thread} />
+    </div>
+  );
+}
+
+/** The session's life, on the thread it belongs to: how long it has been
+ *  going, the wrap-up countdown once either side says it is ending, and the
+ *  one word that brings an idle session back. */
+function SessionBar({ thread }: { thread: Thread }) {
+  const sessions = useSessions();
+  const now = useNow(1000);
+  const s = sessionFor(thread.id);
+  if (!s) return null;
+  const st = liveState(s, now);
+  const chip = "cursor-pointer rounded-full px-2 py-0.5 font-medium hover:bg-accent hover:text-foreground";
+  return (
+    <div className="mt-1 flex items-center gap-2 text-[12.5px]/5 text-muted-foreground">
+      <button type="button" onClick={() => scrollToSession(s.id)} className="flex cursor-pointer items-center gap-1.5 hover:text-foreground" title={`${s.title} — scroll back to where this session began`}>
+        <IconMessages size={12} />
+        {sessionLabel(s, now)}
+      </button>
+      {st === "awake" && (
+        <button type="button" className={chip} onClick={() => concludeSession(s.id)} title="Say your goodbyes — the session ends when the talking stops">
+          End session
+        </button>
+      )}
+      {st === "concluding" && (
+        <button type="button" className={chip} onClick={() => endSession(s.id)} title="End it now">
+          End now
+        </button>
+      )}
+      {st === "idle" && (
+        <button type="button" className={chip} onClick={() => touchSession(s.id)} title="Pick this session back up">
+          Reopen
+        </button>
+      )}
     </div>
   );
 }
@@ -488,6 +560,7 @@ export function AgentEditors() {
       <DelegateDialog />
       <RoutineDialog />
       <ProjectDialog />
+      <CardSheet />
       {editing && editing !== "new" && <AgentEditor key={editing.id} agent={editing} />}
       {grouping && <GroupEditor />}
     </>
@@ -534,12 +607,9 @@ function AgentEditor({ agent }: { agent: Agent }) {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-1">
-            {FACES.map((f) => (
-              <button key={f} type="button" onClick={() => set({ avatar: { ...a.avatar, emoji: f } })} className={`grid size-8 cursor-pointer place-items-center rounded-full text-[16px] ${a.avatar.emoji === f ? "bg-foreground/10" : "hover:bg-accent"}`}>
-                {f}
-              </button>
-            ))}
-            <span className="mx-1 h-5 w-px bg-border" />
+            {/* Colour is the only shape axis left: every bot is the same brain
+                now, so the old shape row would have shown sixteen identical
+                faces. The stored emoji still seeds the blink phase. */}
             {COLORS.map((c) => (
               <button key={c} type="button" aria-label={`Colour ${c}`} onClick={() => set({ avatar: { ...a.avatar, color: c } })} className={`size-6 cursor-pointer rounded-full ${a.avatar.color === c ? "ring-2 ring-foreground ring-offset-2 ring-offset-(--surface)" : ""}`} style={{ background: c }} />
             ))}

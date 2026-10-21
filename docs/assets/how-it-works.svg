@@ -1,115 +1,186 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 470" width="880" height="470" role="img" aria-labelledby="t d">
-  <title id="t">How Workbench turns one sentence into merged code</title>
-  <desc id="d">Five steps. You describe the goal, approve a plan, and review the diff. Workbench interviews you, runs one agent per ticket on its own branch, and checks the work before you see it.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 372" width="960" height="372" role="img" aria-labelledby="t d">
+  <title id="t">One sentence in, many agents, one diff out</title>
+  <desc id="d">You type one sentence. Workbench turns it into a plan of five tickets that you approve. Four agents then work in parallel, each on its own branch, each with a check that must pass. One check fails and runs again. The work converges into a single diff, which you approve and merge.</desc>
 
   <defs>
-    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+    <linearGradient id="pink" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#ff9ec2"/>
-      <stop offset="1" stop-color="#a99bff"/>
+      <stop offset="1" stop-color="#b3a4ff"/>
     </linearGradient>
-    <linearGradient id="spine" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#ff9ec2"/>
-      <stop offset="1" stop-color="#a99bff"/>
-    </linearGradient>
+    <marker id="tip" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0,1 L8,5 L0,9" fill="none" stroke="#5c5568" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
   </defs>
 
   <style>
-    .panel  { fill: #17161c; }
-    .hem    { fill: none; stroke: #ffffff; stroke-opacity: .07; }
-    .h1     { fill: #f4f1f7; font: 650 20px/1 -apple-system, "Segoe UI", system-ui, sans-serif; letter-spacing: -.2px; }
-    .h2     { fill: #9c95a8; font: 400 12.5px/1 -apple-system, "Segoe UI", system-ui, sans-serif; }
-    .ttl    { fill: #f1edf6; font: 600 14px/1 -apple-system, "Segoe UI", system-ui, sans-serif; }
-    .sub    { fill: #a29bb0; font: 400 11.5px/1 -apple-system, "Segoe UI", system-ui, sans-serif; }
-    .you    { fill: #ffb7d3; font-weight: 600; }
-    .num    { fill: #cfc8da; font: 600 11px/1 ui-monospace, "SF Mono", Consolas, monospace; }
-    .numyou { fill: #1b1a21; }
-    .track  { stroke: #ffffff; stroke-opacity: .12; stroke-width: 2; stroke-linecap: round; }
-    .dot    { fill: #1f1e26; stroke: #ffffff; stroke-opacity: .16; }
-    .dotyou { fill: url(#accent); stroke: none; }
-    .ring   { fill: none; stroke: url(#accent); stroke-width: 1.6; }
-    .node, .halo, .fillbar, .comet { animation-duration: 7s; animation-iteration-count: infinite; animation-timing-function: linear; }
-    .node { opacity: 0; }
-    .halo { transform-box: fill-box; transform-origin: center; opacity: 0; }
-    .fillbar { transform-box: fill-box; transform-origin: 50% 0%; }
-    .comet { opacity: 0; }
+    .bg     { fill: #0f0e13; }
+    .edge   { fill: none; stroke: #ffffff; stroke-opacity: .07; }
+    .cap    { fill: #6f6779; font: 600 9.5px/1 -apple-system, "Segoe UI", system-ui, sans-serif; letter-spacing: 1.3px; }
+    .capyou { fill: #ffa8ca; }
+    .card   { fill: #17161d; stroke: #ffffff; stroke-opacity: .085; }
+    .lbl    { fill: #6f6779; font: 600 9px/1 -apple-system, "Segoe UI", system-ui, sans-serif; letter-spacing: 1.1px; }
+    .big    { fill: #f3eff8; font: 600 15px/1 -apple-system, "Segoe UI", system-ui, sans-serif; letter-spacing: -.15px; }
+    .mid    { fill: #f3eff8; font: 600 12.5px/1 -apple-system, "Segoe UI", system-ui, sans-serif; }
+    .small  { fill: #8d8499; font: 400 10.5px/1 -apple-system, "Segoe UI", system-ui, sans-serif; }
+    .mono   { fill: #7f7789; font: 400 9.5px/1 ui-monospace, "SF Mono", Consolas, monospace; }
+    .add    { fill: #7ee2b8; font: 600 14px/1 ui-monospace, "SF Mono", Consolas, monospace; }
+    .del    { fill: #ff8f8f; font: 600 14px/1 ui-monospace, "SF Mono", Consolas, monospace; }
+    .wire   { fill: none; stroke: #5c5568; stroke-width: 1.3; marker-end: url(#tip); }
+    .fanline { fill: none; stroke: #4f4859; stroke-width: 1.25; }
 
-    @keyframes n0 { 0%{opacity:0;transform:translateY(9px)} 5%{opacity:1;transform:translateY(0)} 86%{opacity:1;transform:translateY(0)} 92%{opacity:0;transform:translateY(0)} 100%{opacity:0;transform:translateY(0)} }
-    @keyframes n1 { 0%,12%{opacity:0;transform:translateY(9px)} 17%{opacity:1;transform:translateY(0)} 86%{opacity:1;transform:translateY(0)} 92%{opacity:0;transform:translateY(0)} 100%{opacity:0;transform:translateY(0)} }
-    @keyframes n2 { 0%,24%{opacity:0;transform:translateY(9px)} 29%{opacity:1;transform:translateY(0)} 86%{opacity:1;transform:translateY(0)} 92%{opacity:0;transform:translateY(0)} 100%{opacity:0;transform:translateY(0)} }
-    @keyframes n3 { 0%,36%{opacity:0;transform:translateY(9px)} 41%{opacity:1;transform:translateY(0)} 86%{opacity:1;transform:translateY(0)} 92%{opacity:0;transform:translateY(0)} 100%{opacity:0;transform:translateY(0)} }
-    @keyframes n4 { 0%,48%{opacity:0;transform:translateY(9px)} 53%{opacity:1;transform:translateY(0)} 86%{opacity:1;transform:translateY(0)} 92%{opacity:0;transform:translateY(0)} 100%{opacity:0;transform:translateY(0)} }
-    .n0{animation-name:n0} .n1{animation-name:n1} .n2{animation-name:n2} .n3{animation-name:n3} .n4{animation-name:n4}
+    .chip   { fill: #1a1821; stroke: #ffffff; stroke-opacity: .075; }
+    .pill   { fill: rgba(255,158,194,.13); stroke: rgba(255,158,194,.55); stroke-width: 1; }
+    .pilltx { fill: #ffb7d3; font: 600 10px/1 -apple-system, "Segoe UI", system-ui, sans-serif; }
+    .okbg   { fill: rgba(126,226,184,.15); stroke: rgba(126,226,184,.55); stroke-width: 1; }
+    .badbg  { fill: rgba(255,122,122,.15); stroke: rgba(255,122,122,.6); stroke-width: 1; }
+    .okmk   { fill: none; stroke: #7ee2b8; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+    .badmk  { fill: none; stroke: #ff8f8f; stroke-width: 1.7; stroke-linecap: round; }
 
-    @keyframes r0 { 0%{opacity:.30;transform:scale(.55)} 13%{opacity:0;transform:scale(1.7)} 100%{opacity:0;transform:scale(1.7)} }
-    @keyframes r1 { 0%,12%{opacity:.30;transform:scale(.55)} 25%{opacity:0;transform:scale(1.7)} 100%{opacity:0;transform:scale(1.7)} }
-    @keyframes r2 { 0%,24%{opacity:.30;transform:scale(.55)} 37%{opacity:0;transform:scale(1.7)} 100%{opacity:0;transform:scale(1.7)} }
-    @keyframes r3 { 0%,36%{opacity:.30;transform:scale(.55)} 49%{opacity:0;transform:scale(1.7)} 100%{opacity:0;transform:scale(1.7)} }
-    @keyframes r4 { 0%,48%{opacity:.30;transform:scale(.55)} 61%{opacity:0;transform:scale(1.7)} 100%{opacity:0;transform:scale(1.7)} }
-    .r0{animation-name:r0} .r1{animation-name:r1} .r2{animation-name:r2} .r3{animation-name:r3} .r4{animation-name:r4}
+    .a { animation-duration: 7s; animation-iteration-count: 1; animation-fill-mode: forwards; animation-timing-function: linear; }
+    .draw { stroke-dasharray: 1; }
+    .pop  { transform-box: fill-box; transform-origin: center; }
 
-    @keyframes spine { 0%{transform:scaleY(.01);opacity:1} 52%{transform:scaleY(1);opacity:1} 86%{transform:scaleY(1);opacity:1} 92%{transform:scaleY(1);opacity:0} 100%{transform:scaleY(1);opacity:0} }
-    .fillbar { animation-name: spine; animation-timing-function: cubic-bezier(.23,1,.32,1); }
+    /* ---- 0–3.5s: the goal ---- */
+    @keyframes goal { 0%{opacity:0;transform:translateY(8px)} 3.5%{opacity:1;transform:none} 100%{opacity:1;transform:none} }
+    @keyframes arr1 { 0%,4%{stroke-dashoffset:1;opacity:0} 4.1%{opacity:1} 8%{stroke-dashoffset:0;opacity:1} 100%{opacity:1} }
+    /* ---- 7–16s: the plan, and your first decision ---- */
+    @keyframes plan { 0%,7%{opacity:0;transform:translateY(8px)} 11%{opacity:1;transform:none} 100%{opacity:1} }
+    @keyframes appr1 { 0%,12%{opacity:0;transform:scale(.86)} 16%{opacity:1;transform:scale(1)} 100%{opacity:1;transform:scale(1)} }
+    /* ---- 17–33s: fan out ---- */
+    @keyframes fan  { 0%,15%{stroke-dashoffset:1;opacity:0} 15.1%{opacity:1} 20%{stroke-dashoffset:0;opacity:1} 100%{opacity:1} }
+    @keyframes c1 { 0%,17%{opacity:0;transform:translateX(-7px)} 21%{opacity:1;transform:none} 100%{opacity:1} }
+    @keyframes c2 { 0%,19%{opacity:0;transform:translateX(-7px)} 23%{opacity:1;transform:none} 100%{opacity:1} }
+    @keyframes c3 { 0%,21%{opacity:0;transform:translateX(-7px)} 25%{opacity:1;transform:none} 100%{opacity:1} }
+    @keyframes c4 { 0%,23%{opacity:0;transform:translateX(-7px)} 27%{opacity:1;transform:none} 100%{opacity:1} }
+    /* ---- 36–58s: checks. one of them fails, and runs again ---- */
+    @keyframes b1 { 0%,36%{opacity:0;transform:scale(.55)} 39%{opacity:1;transform:scale(1)} 100%{opacity:1;transform:scale(1)} }
+    @keyframes b3 { 0%,40%{opacity:0;transform:scale(.55)} 43%{opacity:1;transform:scale(1)} 100%{opacity:1;transform:scale(1)} }
+    @keyframes b2bad { 0%,45%{opacity:0;transform:scale(.55)} 48%{opacity:1;transform:scale(1)} 55%{opacity:1;transform:scale(1)} 57%{opacity:0;transform:scale(1)} 100%{opacity:0;transform:scale(.55)} }
+    @keyframes b4 { 0%,49%{opacity:0;transform:scale(.55)} 52%{opacity:1;transform:scale(1)} 100%{opacity:1;transform:scale(1)} }
+    @keyframes b2ok { 0%,57%{opacity:0;transform:scale(.55)} 60%{opacity:1;transform:scale(1)} 100%{opacity:1;transform:scale(1)} }
+    @keyframes retry { 0%,45%{opacity:0} 48%{opacity:1} 57%{opacity:1} 59%{opacity:0} 100%{opacity:0} }
+    /* ---- 60–82s: fan in, and your second decision ---- */
+    @keyframes fanin { 0%,60%{stroke-dashoffset:1;opacity:0} 60.1%{opacity:1} 67%{stroke-dashoffset:0;opacity:1} 100%{opacity:1} }
+    @keyframes diff { 0%,66%{opacity:0;transform:translateY(8px)} 70%{opacity:1;transform:none} 100%{opacity:1} }
+    @keyframes appr2 { 0%,72%{opacity:0;transform:scale(.86)} 76%{opacity:1;transform:scale(1)} 79%{opacity:1;transform:scale(1)} 81%{opacity:0;transform:scale(1)} 100%{opacity:0;transform:scale(.86)} }
+    @keyframes merged { 0%,81%{opacity:0;transform:scale(.86)} 85%{opacity:1;transform:scale(1)} 100%{opacity:1;transform:scale(1)} }
 
-    /* The pulse travels at a constant speed: it is the one continuous motion here. */
-    @keyframes comet { 0%{transform:translateY(0);opacity:0} 3%{opacity:1} 49%{opacity:1} 52%{transform:translateY(296px);opacity:0} 100%{transform:translateY(296px);opacity:0} }
-    .comet { animation-name: comet; animation-timing-function: cubic-bezier(.23,1,.32,1); }
+    .goal{animation-name:goal} .arr1{animation-name:arr1} .plan{animation-name:plan} .appr1{animation-name:appr1}
+    .fan{animation-name:fan} .c1{animation-name:c1} .c2{animation-name:c2} .c3{animation-name:c3} .c4{animation-name:c4}
+    .b1{animation-name:b1} .b3{animation-name:b3} .b2bad{animation-name:b2bad} .b4{animation-name:b4} .b2ok{animation-name:b2ok} .retry{animation-name:retry}
+    .fanin{animation-name:fanin} .diff{animation-name:diff} .appr2{animation-name:appr2} .merged{animation-name:merged}
 
     @media (prefers-reduced-motion: reduce) {
-      /* Fewer and gentler: the finished diagram is the comprehension-preserving form. */
-      .node, .halo, .fillbar, .comet { animation: none !important; }
-      .node { opacity: 1; transform: none; }
-      .fillbar { opacity: 1; transform: none; }
-      .comet, .halo { opacity: 0; }
+      .a { animation: none !important; opacity: 1; }
+      .goal,.plan,.diff,.c1,.c2,.c3,.c4 { transform: none; }
+      .appr1,.appr2,.b1,.b3,.b4,.b2ok,.merged { transform: none; }
+      .b2bad,.retry,.appr2 { display: none; }
+      .draw { stroke-dashoffset: 0 !important; }
     }
   </style>
 
-  <rect class="panel" x="0" y="0" width="880" height="470" rx="18"/>
-  <rect class="hem" x="0.5" y="0.5" width="879" height="469" rx="18"/>
+  <rect class="bg" width="960" height="372" rx="16"/>
+  <rect class="edge" x=".5" y=".5" width="959" height="371" rx="16"/>
 
-  <text class="h1" x="34" y="47">From one sentence to merged code</text>
-  <text class="h2" x="34" y="73">Workbench runs the whole loop. You make two decisions, both marked in pink.</text>
+  <text class="cap capyou" x="28" y="40">YOU</text>
+  <text class="cap" x="210" y="40">IT PLANS</text>
+  <text class="cap" x="400" y="40">AGENTS · IN PARALLEL</text>
+  <text class="cap capyou" x="636" y="40">YOU</text>
 
-  <line class="track" x1="74" y1="122" x2="74" y2="418"/>
-  <rect class="fillbar" x="73.2" y="122" width="1.6" height="296" fill="url(#spine)" rx="0.8"/>
-  <circle class="comet" cx="74" cy="122" r="4" fill="url(#accent)"/>
-
-  <g class="node n0">
-    <circle class="halo r0" cx="74" cy="122" r="19" fill="url(#accent)"/>
-    <circle class="dot" cx="74" cy="122" r="13"/>
-    <text class="num" x="74" y="126" text-anchor="middle">1</text>
-    <text class="ttl" x="104" y="127">You describe the goal</text>
-    <text class="sub" x="104" y="146">Plain English. Point it at a folder.</text>
+  <!-- 1 · the goal -->
+  <g class="a goal">
+    <rect class="card" x="28" y="154" width="152" height="92" rx="12"/>
+    <text class="lbl" x="44" y="177">GOAL</text>
+    <text class="big" x="44" y="201">“add signup</text>
+    <text class="big" x="44" y="220">and login”</text>
+    <text class="small" x="44" y="238">one sentence</text>
   </g>
 
-  <g class="node n1">
-    <circle class="halo r1" cx="74" cy="196" r="19" fill="url(#accent)"/>
-    <circle class="dotyou" cx="74" cy="196" r="13"/>
-    <text class="num numyou" x="74" y="200" text-anchor="middle">2</text>
-    <text class="ttl" x="104" y="201">It interviews you, then writes the plan</text>
-    <text class="sub" x="104" y="220">Numbered questions, then tickets. <tspan class="you">You approve the plan.</tspan></text>
+  <path class="wire a arr1 draw" pathLength="1" d="M184,200 L206,200"/>
+
+  <!-- 2 · the plan -->
+  <g class="a plan">
+    <rect class="card" x="210" y="148" width="150" height="104" rx="12"/>
+    <text class="lbl" x="226" y="171">PLAN</text>
+    <text class="big" x="226" y="195">5 tickets</text>
+    <text class="small" x="226" y="213">2 waves · 3 at once</text>
+  </g>
+  <g class="a appr1 pop">
+    <rect class="pill" x="226" y="221" width="86" height="22" rx="11"/>
+    <text class="pilltx" x="269" y="236" text-anchor="middle">Approve</text>
   </g>
 
-  <g class="node n2">
-    <circle class="halo r2" cx="74" cy="270" r="19" fill="url(#accent)"/>
-    <circle class="dot" cx="74" cy="270" r="13"/>
-    <text class="num" x="74" y="274" text-anchor="middle">3</text>
-    <text class="ttl" x="104" y="275">Agents build it in parallel</text>
-    <text class="sub" x="104" y="294">One agent per ticket, each on its own git branch.</text>
+  <!-- 3 · fan out to one agent per ticket -->
+  <path class="fanline a fan draw" pathLength="1" d="M360,200 C381,200 380,110 400,110"/>
+  <path class="fanline a fan draw" pathLength="1" d="M360,200 C381,200 380,170 400,170"/>
+  <path class="fanline a fan draw" pathLength="1" d="M360,200 C381,200 380,230 400,230"/>
+  <path class="fanline a fan draw" pathLength="1" d="M360,200 C381,200 380,290 400,290"/>
+
+  <g class="a c1">
+    <rect class="chip" x="400" y="87" width="196" height="46" rx="10"/>
+    <text class="mid" x="416" y="107">schema</text>
+    <text class="mono" x="416" y="121">backspace/schema</text>
+  </g>
+  <g class="a c2">
+    <rect class="chip" x="400" y="147" width="196" height="46" rx="10"/>
+    <text class="mid" x="416" y="167">auth</text>
+    <text class="mono" x="416" y="181">backspace/auth</text>
+  </g>
+  <g class="a c3">
+    <rect class="chip" x="400" y="207" width="196" height="46" rx="10"/>
+    <text class="mid" x="416" y="227">api</text>
+    <text class="mono" x="416" y="241">backspace/api</text>
+  </g>
+  <g class="a c4">
+    <rect class="chip" x="400" y="267" width="196" height="46" rx="10"/>
+    <text class="mid" x="416" y="287">ui</text>
+    <text class="mono" x="416" y="301">backspace/ui</text>
   </g>
 
-  <g class="node n3">
-    <circle class="halo r3" cx="74" cy="344" r="19" fill="url(#accent)"/>
-    <circle class="dot" cx="74" cy="344" r="13"/>
-    <text class="num" x="74" y="348" text-anchor="middle">4</text>
-    <text class="ttl" x="104" y="349">Checks run before you look</text>
-    <text class="sub" x="104" y="368">A failing ticket goes straight back to its agent.</text>
+  <!-- 4 · checks, before you are asked to look -->
+  <g class="a b1 pop">
+    <circle class="okbg" cx="570" cy="110" r="10"/>
+    <path class="okmk" d="M565.5,110.2 L568.6,113.4 L574.6,107"/>
+  </g>
+  <g class="a b3 pop">
+    <circle class="okbg" cx="570" cy="230" r="10"/>
+    <path class="okmk" d="M565.5,230.2 L568.6,233.4 L574.6,227"/>
+  </g>
+  <g class="a b2bad pop">
+    <circle class="badbg" cx="570" cy="170" r="10"/>
+    <path class="badmk" d="M566.6,166.6 L573.4,173.4 M573.4,166.6 L566.6,173.4"/>
+  </g>
+  <g class="a b4 pop">
+    <circle class="okbg" cx="570" cy="290" r="10"/>
+    <path class="okmk" d="M565.5,290.2 L568.6,293.4 L574.6,287"/>
+  </g>
+  <g class="a b2ok pop">
+    <circle class="okbg" cx="570" cy="170" r="10"/>
+    <path class="okmk" d="M565.5,170.2 L568.6,173.4 L574.6,167"/>
+  </g>
+  <rect class="a retry" x="400.75" y="147.75" width="194.5" height="44.5" rx="10" fill="none" stroke="#ff8f8f" stroke-opacity=".75" stroke-width="1.5"/>
+
+  <!-- 5 · fan in to one diff -->
+  <path class="fanline a fanin draw" pathLength="1" d="M596,110 C617,110 616,200 636,200"/>
+  <path class="fanline a fanin draw" pathLength="1" d="M596,170 C617,170 616,200 636,200"/>
+  <path class="fanline a fanin draw" pathLength="1" d="M596,230 C617,230 616,200 636,200"/>
+  <path class="fanline a fanin draw" pathLength="1" d="M596,290 C617,290 616,200 636,200"/>
+
+  <g class="a diff">
+    <rect class="card" x="636" y="148" width="290" height="104" rx="12"/>
+    <text class="lbl" x="652" y="171">DIFF</text>
+    <text class="add" x="652" y="194">+412</text>
+    <text class="del" x="700" y="194">−96</text>
+    <text class="small" x="652" y="211">6 files · 3 branches · all checks green</text>
+  </g>
+  <g class="a appr2 pop">
+    <rect class="pill" x="652" y="221" width="118" height="22" rx="11"/>
+    <text class="pilltx" x="711" y="236" text-anchor="middle">Approve &amp; merge</text>
+  </g>
+  <g class="a merged pop">
+    <rect class="okbg" x="652" y="221" width="86" height="22" rx="11"/>
+    <text x="695" y="236" text-anchor="middle" fill="#7ee2b8" font-family="-apple-system, 'Segoe UI', system-ui, sans-serif" font-size="10" font-weight="600">✓ merged</text>
   </g>
 
-  <g class="node n4">
-    <circle class="halo r4" cx="74" cy="418" r="19" fill="url(#accent)"/>
-    <circle class="dotyou" cx="74" cy="418" r="13"/>
-    <text class="num numyou" x="74" y="422" text-anchor="middle">5</text>
-    <text class="ttl" x="104" y="423"><tspan class="you">You review the diff</tspan>, then it merges</text>
-    <text class="sub" x="104" y="442">Approve it, or send it back with your feedback.</text>
-  </g>
+  <text class="small" x="480" y="348" text-anchor="middle">You decide twice. Everything between the two decisions is automatic.</text>
 </svg>

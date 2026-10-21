@@ -7,3 +7,7 @@ capsule/agentd/agentd.exe~
 tools/verify/out/
 # WorkBuddy AI's local session memory, not part of the project.
 .workbuddy-ai/
+# The mock-host page the UI walkthrough drives against the built face. It has to
+# sit next to whirl.js/css to resolve them, but it is a test harness, not part of
+# the app: never commit it.
+crates/tauri-app/ui/chat-web/shapeshift-demo.html

@@ -7,8 +7,8 @@
 // mentions of integrations and the question form are Whirl-backend
 // features; the attach menu offers "Ask another CLI" instead.
 
-import { useLayoutEffect, useRef, useState, type RefObject } from "react";
-import { IconCloudUpload, IconPaperclip, IconPlus, IconTerminal2 } from "@tabler/icons-react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { IconCheck, IconCloudUpload, IconPaperclip, IconPlus, IconTerminal2, IconWand } from "@tabler/icons-react";
 import { AnimatePresence, motion } from "motion/react";
 
 import { cn } from "@/lib/utils";
@@ -24,7 +24,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { RoutePicker } from "./RoutePicker";
-import type { NewFile, Route } from "../bridge";
+import { Avatar } from "./avatar";
+import { mentionAtCaret } from "./mentions";
+import type { Agent, NewFile, Route } from "../bridge";
 
 const MAX_TEXTAREA_HEIGHT_PX = 160;
 const CONTROL_GAP_PX = 6;
@@ -47,6 +49,10 @@ export function Composer({
   clis,
   textareaRef,
   hideRoute = false,
+  everyday = false,
+  onEverydayChange,
+  onEverydaySubmit,
+  roster,
 }: {
   value: string;
   onValueChange: (v: string) => void;
@@ -62,6 +68,15 @@ export function Composer({
   textareaRef: RefObject<HTMLTextAreaElement | null>;
   /** Groups: each agent runs on its own model, so there is no one to pick. */
   hideRoute?: boolean;
+  /** Everyday mode (shapeshift): Enter saves a card instead of sending a
+   *  message, Esc leaves. The composer stays the composer. */
+  everyday?: boolean;
+  onEverydayChange?: (on: boolean) => void;
+  onEverydaySubmit?: (text: string) => void;
+  /** Who a group message can be aimed at with @Name. The core already honours
+   *  the name — named_in queues only the members named — so this is the
+   *  typing aid, not the routing. */
+  roster?: Agent[];
 }) {
   const attachments = useAttachments();
   const [sending, setSending] = useState(false);
@@ -78,6 +93,36 @@ export function Composer({
   const [insets, setInsets] = useState({ left: 42, right: 138 });
   const [contentWidth, setContentWidth] = useState(0);
   const hasBreak = value.includes("\n");
+
+  // Who the caret is addressing: the group roster, autocompleted. Name
+  // matching only (a job match is not an address), prefix before substring,
+  // Esc dismisses until the token itself changes.
+  const [caret, setCaret] = useState(0);
+  const mention = mentionAtCaret(value, caret);
+  const [dismissed, setDismissed] = useState(-1);
+  const [pick, setPick] = useState(0);
+  const options = useMemo(() => {
+    if (!mention || !roster?.length || dismissed === mention.start) return [];
+    const q = mention.query.trim().toLowerCase();
+    if (!q) return roster.slice(0, 6);
+    const prefix = roster.filter((a) => a.name.toLowerCase().startsWith(q));
+    return (prefix.length ? prefix : roster.filter((a) => a.name.toLowerCase().includes(q))).slice(0, 6);
+  }, [mention, roster, dismissed]);
+  useEffect(() => setPick(options.length ? 0 : -1), [options.length]);
+
+  const address = (a: Agent) => {
+    if (!mention) return;
+    const next = `${value.slice(0, mention.start)}@${a.name} ${value.slice(caret)}`;
+    onValueChange(next);
+    requestAnimationFrame(() => {
+      const el = textareaRef.current;
+      if (!el) return;
+      const at = mention.start + a.name.length + 2;
+      el.focus();
+      el.setSelectionRange(at, at);
+      setCaret(at);
+    });
+  };
 
   useLayoutEffect(() => {
     const content = contentRef.current;
@@ -138,7 +183,8 @@ export function Composer({
     }
   };
 
-  const mention = (id: string) => {
+  // The ＋ menu's CLI mention: a one-reply @, prepended.
+  const mentionCli = (id: string) => {
     const next = `@${id} ${value.replace(/^@\S+\s*/, "")}`;
     onValueChange(next);
     requestAnimationFrame(() => {
@@ -170,6 +216,36 @@ export function Composer({
         if (e.dataTransfer.files.length) attachments.addFiles(e.dataTransfer.files);
       }}
     >
+      {/* Who the caret is addressing: the group roster, one keystroke away. */}
+      <AnimatePresence>
+        {options.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 4 }}
+            transition={{ duration: 0.12, ease: "linear" }}
+            className="absolute bottom-full left-2 z-30 mb-2 w-72 overflow-hidden rounded-2xl bg-surface p-1 shadow-[0_16px_50px_rgba(0,0,0,.28)] ring-1 ring-border"
+          >
+            <div className="px-2.5 py-1 text-[10.5px]/4 font-medium text-muted-foreground/55">Address in the group</div>
+            {options.map((a, i) => (
+              <button
+                key={a.id}
+                type="button"
+                onMouseEnter={() => setPick(i)}
+                onClick={() => address(a)}
+                className={`flex w-full cursor-pointer items-center gap-2.5 rounded-xl px-2.5 py-1.5 text-left ${i === pick ? "bg-accent" : ""}`}
+              >
+                <Avatar agent={a} size={24} />
+                <span className="flex min-w-0 flex-1 flex-col">
+                  <span className="truncate text-[13px]/4 font-medium">{a.name}</span>
+                  <span className="truncate text-[11px]/4 text-muted-foreground">{a.job.split("\n")[0] || "No job yet"}</span>
+                </span>
+                <span className="shrink-0 font-mono text-[10.5px] text-muted-foreground">@{a.name}</span>
+              </button>
+            ))}
+          </motion.div>
+        )}
+      </AnimatePresence>
       <div ref={contentRef} className="relative p-2">
         <AnimatePresence initial={false}>
           {attachments.drafts.length > 0 && (
@@ -206,11 +282,49 @@ export function Composer({
             value={value}
             rows={1}
             autoFocus
-            onChange={(e) => onValueChange(e.target.value)}
+            onChange={(e) => {
+              onValueChange(e.target.value);
+              setCaret(e.target.selectionStart ?? e.target.value.length);
+            }}
+            onSelect={(e) => setCaret(e.currentTarget.selectionStart ?? 0)}
+            onClick={(e) => setCaret(e.currentTarget.selectionStart ?? 0)}
+            onKeyUp={(e) => {
+              if (e.key.startsWith("Arrow") || e.key === "Home" || e.key === "End") {
+                setCaret(e.currentTarget.selectionStart ?? 0);
+              }
+            }}
             onKeyDown={(e) => {
+              if (e.key === "Escape" && everyday) {
+                e.preventDefault();
+                onEverydayChange?.(false);
+                return;
+              }
+              if (options.length > 0) {
+                if (e.key === "ArrowDown") {
+                  e.preventDefault();
+                  setPick((i) => (i + 1) % options.length);
+                  return;
+                }
+                if (e.key === "ArrowUp") {
+                  e.preventDefault();
+                  setPick((i) => (i - 1 + options.length) % options.length);
+                  return;
+                }
+                if (e.key === "Enter" || e.key === "Tab") {
+                  e.preventDefault();
+                  address(options[Math.max(0, pick)]);
+                  return;
+                }
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  if (mention) setDismissed(mention.start);
+                  return;
+                }
+              }
               if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
                 e.preventDefault();
-                void submit();
+                if (everyday) onEverydaySubmit?.(value);
+                else void submit();
               }
             }}
             onPaste={(e) => {
@@ -220,7 +334,7 @@ export function Composer({
                 attachments.addFiles(pasted);
               }
             }}
-            placeholder={placeholder}
+            placeholder={everyday ? "An everyday thing — buy milk, eggs and bread" : placeholder}
             aria-label="Message"
             className="relative block h-full w-full resize-none overflow-y-auto bg-transparent px-1.5 py-1.5 field-text caret-foreground outline-none placeholder:text-muted-foreground"
           />
@@ -251,6 +365,12 @@ export function Composer({
               <IconPlus size={18} stroke={2.5} className="transition-[rotate] duration-200 group-data-popup-open:rotate-45" />
             </DropdownMenuTrigger>
             <DropdownMenuContent side="top" align="start" sideOffset={8} className="min-w-52 p-1">
+              <DropdownMenuItem className={ITEM} onClick={() => onEverydayChange?.(!everyday)}>
+                <IconWand size={15} className="text-muted-foreground" />
+                Everyday task
+                {everyday && <IconCheck size={14} className="ml-auto" />}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
               <DropdownMenuItem className={ITEM} onClick={() => fileRef.current?.click()}>
                 <IconPaperclip size={15} className="text-muted-foreground" />
                 Add photos & files
@@ -262,7 +382,7 @@ export function Composer({
                     Ask another CLI, for one reply
                   </DropdownMenuLabel>
                   {clis.map((c) => (
-                    <DropdownMenuItem key={c.id} className={ITEM} onClick={() => mention(c.id)}>
+                    <DropdownMenuItem key={c.id} className={ITEM} onClick={() => mentionCli(c.id)}>
                       <IconTerminal2 size={15} className="text-muted-foreground" />
                       {c.name}
                       <span className="ml-auto font-mono text-[11.5px] text-muted-foreground">@{c.id}</span>
@@ -275,13 +395,24 @@ export function Composer({
         </div>
         <div ref={rightRef} className="absolute right-2 bottom-2 flex items-center gap-1.5">
           {!hideRoute && <RoutePicker value={route} onValueChange={onRouteChange} />}
-          <SendButton
-            state={generating && onStop ? "stop" : sending ? "sending" : "send"}
-            canSend={canSend}
-            onSend={() => void submit()}
-            onStop={onStop}
-            onQueue={() => {}}
-          />
+          {everyday ? (
+            <button
+              type="button"
+              disabled={value.trim().length === 0}
+              onClick={() => onEverydaySubmit?.(value)}
+              className="flex h-9 cursor-pointer items-center gap-1.5 rounded-full bg-primary px-3.5 text-[12.5px] font-medium text-primary-foreground transition-[background-color,scale] duration-150 hover:bg-(--primary-hover) active:scale-[0.97] disabled:cursor-default disabled:opacity-40"
+            >
+              <IconWand size={14} /> Save card
+            </button>
+          ) : (
+            <SendButton
+              state={generating && onStop ? "stop" : sending ? "sending" : "send"}
+              canSend={canSend}
+              onSend={() => void submit()}
+              onStop={onStop}
+              onQueue={() => {}}
+            />
+          )}
         </div>
       </div>
       <AnimatePresence>

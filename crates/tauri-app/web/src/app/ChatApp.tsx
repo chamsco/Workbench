@@ -17,16 +17,22 @@ import { CodeComposer, CodeSide } from "./CodeComposer";
 import { GhostToggle } from "./GhostToggle";
 import { ReplyChip } from "./Extras";
 import { AgentEditors, AgentsHome, AgentsSide, AgentThreadHeader } from "./Agents";
+import { AgentPage } from "./agent-page";
 import { ProjectHome } from "./projects";
+import { ArtifactView } from "./artifacts";
 import { CodeStart } from "./CodeStart";
 import { TracePanel } from "./Trace";
 import { ThreadList } from "./ThreadList";
 import { ThreadView } from "./ThreadView";
-import { agentById, getHost, goHome, saveAgent, send, setReplyTo, setRoute, stop, syncRoutines, useChat, type Route } from "../bridge";
+import { ShapeShiftPreview, saveEveryday } from "./shapeshift";
+import { agentById, getHost, goHome, saveAgent, send, setReplyTo, setRoute, stop, syncRoutines, useChat, type Agent, type Route } from "../bridge";
 
 const baseName = (p: string) => p.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || p;
 
 const DOCK_SPRING = { type: "spring", stiffness: 380, damping: 38, mass: 0.9 } as const;
+// The everyday strip grows out of the dock's top edge: a touch stiffer than
+// the dock so it reads as part of the composer, not a second surface.
+const STRIP_SPRING = { type: "spring", stiffness: 900, damping: 55, mass: 0.5 } as const;
 const TRIM_FADE = {
   initial: { opacity: 0, y: 10, filter: "blur(4px)" },
   animate: { opacity: 1, y: 0, filter: "blur(0px)", transitionEnd: SHED_BLUR },
@@ -55,9 +61,13 @@ const NAMELESS = ["What's on your mind?", "Ready when you are", "Let's get into 
 
 export function ChatApp({ sideEl, user }: { sideEl: HTMLElement; user: string }) {
   const host = getHost();
-  const { id, thread, threads, epoch, scope, replyTo, agentsMode, ghost, project } = useChat();
+  const { id, thread, threads, epoch, scope, replyTo, agentsMode, ghost, project, botPage, artifact, agents } = useChat();
   const [draft, setDraft] = useState("");
   const [homeRoute, setHomeRoute] = useState<Route | null>(null);
+  // Everyday mode (shapeshift): the composer's ＋ menu turns it on, Esc turns
+  // it off, Enter saves a card instead of sending a message. Session state,
+  // like the draft: nothing about it outlives the window.
+  const [everyday, setEveryday] = useState(false);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   // Next wakes are absolute times computed in the core with an offset the UI
   // sent at save time; re-send this machine's offset once on mount so a DST
@@ -129,6 +139,13 @@ export function ChatApp({ sideEl, user }: { sideEl: HTMLElement; user: string })
 
   const agent = agentById(thread?.agent);
   const group = (thread?.members?.length ?? 0) > 0;
+  // Who a group message can be aimed at with @Name: the roster, resolved. The
+  // core already honours the name (named_in queues only the members named),
+  // so the composer's job is only to make it easy to type.
+  const roster = useMemo(
+    () => (thread?.members ?? []).map((id) => agents.find((a) => a.id === id)).filter((a): a is Agent => !!a),
+    [thread?.members, agents],
+  );
   const changeRoute = async (r: Route) => {
     if (agent) {
       // An agent's thread answers with the agent's model: change the agent.
@@ -177,15 +194,24 @@ export function ChatApp({ sideEl, user }: { sideEl: HTMLElement; user: string })
           <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
             <div className="min-h-0 flex-1">
               <AnimatePresence mode="popLayout" initial={false}>
-                {inThread && (
+                {inThread && !artifact && (
                   <motion.div key={thread.id} {...THREAD_SWAP} className="relative h-full min-h-0">
                     <ThreadView thread={thread} header={<AgentThreadHeader thread={thread} />} />
                     {scope && <CodeSide scope={scope} />}
                   </motion.div>
                 )}
-                {!inThread && (agentsMode || scope) && (
-                  <motion.div key={scope ? "code-start" : project ? `project-${project.id}` : "agents-home"} {...THREAD_SWAP} className="h-full min-h-0">
-                    {scope ? <CodeStart /> : project ? <ProjectHome /> : <AgentsHome />}
+                {!inThread && (agentsMode || scope) && !artifact && (
+                  <motion.div key={scope ? "code-start" : botPage ? `bot-${botPage}` : project ? `project-${project.id}` : "agents-home"} {...THREAD_SWAP} className="h-full min-h-0">
+                    {scope ? <CodeStart /> : botPage ? <AgentPage /> : project ? <ProjectHome /> : <AgentsHome />}
+                  </motion.div>
+                )}
+                {/* An artifact is a web view you step into: it takes the pane,
+                    the thread keeps the dock — you can tick the card or read
+                    the project and keep talking, and "All bots" drops you back
+                    exactly where the thread was. */}
+                {artifact && (
+                  <motion.div key={`artifact-${artifact.kind}-${artifact.id}`} {...THREAD_SWAP} className="h-full min-h-0">
+                    <ArtifactView />
                   </motion.div>
                 )}
               </AnimatePresence>
@@ -218,6 +244,35 @@ export function ChatApp({ sideEl, user }: { sideEl: HTMLElement; user: string })
                     transformTemplate={pinRasterPath}
                     className={cn("pointer-events-auto", (inThread || scope) && "pb-4")}
                   >
+                    {/* The shapeshift strip: the same composer, one mode up.
+                        It grows out of the dock's top edge and folds back into
+                        it, so everyday entry never moves the composer. */}
+                    <AnimatePresence initial={false}>
+                      {everyday && (
+                        <motion.div
+                          key="everyday"
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: "auto", opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          transition={{ height: STRIP_SPRING, opacity: { duration: 0.15, ease: EASE_OUT } }}
+                          className="overflow-hidden"
+                        >
+                          <ShapeShiftPreview
+                            text={draft}
+                            onExit={() => setEveryday(false)}
+                            onSample={(t) => {
+                              setDraft(t);
+                              requestAnimationFrame(() => {
+                                const el = composerRef.current;
+                                if (!el) return;
+                                el.focus();
+                                el.setSelectionRange(t.length, t.length);
+                              });
+                            }}
+                          />
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
                     {replying && <ReplyChip to={replying} onCancel={() => setReplyTo(null)} />}
                     {scope ? (
                       <CodeComposer
@@ -245,6 +300,12 @@ export function ChatApp({ sideEl, user }: { sideEl: HTMLElement; user: string })
                       onStop={thread ? () => void stop(thread.id) : undefined}
                       generating={busy}
                       floating={inThread}
+                      everyday={everyday}
+                      onEverydayChange={setEveryday}
+                      onEverydaySubmit={(t) => {
+                        saveEveryday(t);
+                        setDraft("");
+                      }}
                       placeholder={
                         thread?.life === "ghost"
                           ? "Ask anything — off the record"
@@ -260,6 +321,7 @@ export function ChatApp({ sideEl, user }: { sideEl: HTMLElement; user: string })
                       }
                       clis={clis}
                       textareaRef={composerRef}
+                      roster={group ? roster : undefined}
                     />
                     )}
                   </motion.div>

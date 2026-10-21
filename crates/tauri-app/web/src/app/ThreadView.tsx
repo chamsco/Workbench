@@ -21,17 +21,31 @@ import { LinkCard, Quote, SpecCard, RememberButton, ReplyButton, TapbackButton, 
 import { agentById, branch, edit, getHost, retry, resume, toChatMessage, useChat, type Msg, type Thread } from "../bridge";
 import { MessageActions } from "./ask";
 import { Avatar } from "./Agents";
+import { sessionForMessage, sessionLabel, useNow, useSessions, type Session } from "./sessions";
 
 const PREVIOUS_TURN_PEEK_PX = 72;
 const EDGE_THRESHOLD_PX = 128;
 
 export function ThreadView({ thread, header }: { thread: Thread; header?: React.ReactNode }) {
   const { epoch } = useChat();
+  const sessions = useSessions();
+  const now = useNow(30_000);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const messages = useMemo(() => thread.messages.map((m) => toChatMessage(thread, m)), [thread, epoch]);
   const generating = computeIsGenerating(messages);
   const host = getHost();
   const lastAssistant = [...thread.messages].reverse().find((m) => m.role === "assistant")?.id;
+  // Which sitting each message belongs to: the one that had already started
+  // when the message was sent. A sitting's first message carries its marker.
+  const openers = useMemo(() => {
+    const seen = new Set<string>();
+    return thread.messages.map((m) => {
+      const s = sessionForMessage(sessions, thread.id, m.at);
+      if (!s || seen.has(s.id)) return undefined;
+      seen.add(s.id);
+      return s;
+    });
+  }, [sessions, thread.id, thread.messages]);
 
   if (messages.length === 0) {
     if (thread.agent || (thread.members?.length ?? 0) > 0) {
@@ -78,6 +92,10 @@ export function ThreadView({ thread, header }: { thread: Thread; header?: React.
                     canRetry={m.id === lastAssistant && !generating}
                     generating={generating}
                     epoch={epoch}
+                    // The sitting this message opened, when it opens one: the
+                    // marker the transcript scrolls back to.
+                    opens={openers[i]}
+                    now={now}
                     // A question card is spent once the user has said anything
                     // after it, whichever way they answered (card, Skip, prose).
                     answered={thread.messages.slice(i + 1).some((x) => x.role === "user")}
@@ -100,6 +118,8 @@ const Row = memo(function Row({
   canRetry,
   generating,
   answered,
+  opens,
+  now,
 }: {
   thread: Thread;
   raw: Msg;
@@ -108,6 +128,10 @@ const Row = memo(function Row({
   generating: boolean;
   /** A user message exists after this one: a question card here is spent. */
   answered: boolean;
+  /** The session this message is the first of, when it is one. */
+  opens?: Session;
+  /** Ticking clock for the session marker's label. */
+  now: number;
   /** Bumps when a link preview or attachment lands. */
   epoch: number;
 }) {
@@ -127,6 +151,17 @@ const Row = memo(function Row({
   return (
     <MessageScrollerItem messageId={message.id} scrollAnchor={user}>
       <div data-message-id={raw.id} className="flex min-w-0 flex-col">
+        {/* The sitting's marker: the session's name and how it is doing, at
+            the message where it began. Clicking a session anywhere scrolls
+            this into view — the scroll-back-up of one long thread. */}
+        {opens && (
+          <div id={`session-${opens.id}`} data-session={opens.id} className="flex scroll-mt-28 items-center gap-2.5 pb-3 pt-2">
+            <span className="text-[11px]/4 font-medium text-muted-foreground/60">{sessionLabel(opens, now)}</span>
+            <span className="max-w-[60%] truncate rounded-full bg-foreground/[0.05] px-2.5 py-1 text-[11.5px]/4 font-medium text-muted-foreground" title={opens.title}>
+              {opens.title}
+            </span>
+          </div>
+        )}
         {user ? (
           <UserMessage
             message={message}
