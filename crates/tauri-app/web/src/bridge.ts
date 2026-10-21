@@ -7,6 +7,8 @@
 import { useSyncExternalStore } from "react";
 
 import type { ChatMessage, MessageStatus } from "@/lib/messages";
+import { concludeSession, ensureSession, isGoodbye, renewSession, sessionFor, touchSession } from "./app/sessions";
+import { detectShift } from "./app/shift";
 
 export type RouteKind = "cli" | "local" | "router" | "cloud" | "a2a";
 export type Route = { kind: RouteKind; provider: string; model: string | null };
@@ -304,8 +306,13 @@ type State = {
   projects: Project[];
   /** The project page is open; null is the agents home. */
   project: Project | null;
-  /** The new-bot sheet is open, optionally for a project. */
-  creating: { project: string } | null;
+  /** An artifact is open: the web view of a project or a card. */
+  artifact: { kind: "project" | "card"; id: string } | null;
+  /** A bot's own page is open: its sessions, cards, routines and projects. */
+  botPage: string | null;
+  /** The new-bot sheet is open, optionally for a project, optionally with a
+   *  spec the hero prompt already parsed out of the line. */
+  creating: { project: string; prefill?: { name: string; job: string } } | null;
   /** The routine sheet is open: a bot's routine, or "new" for that bot. */
   routineEdit: { agent: string; routine: Routine | "new" } | null;
   /** The project sheet is open: an existing project to edit, or "new". */
@@ -313,14 +320,16 @@ type State = {
   /** On the Agents side with no thread: which agent's card is open in the editor. */
   editing: Agent | "new" | null;
   grouping: boolean;
+  /** The shapeshift card sheet is open, by card id. */
+  cardOpen: string | null;
   /** The reply whose trace is open. */
   traceOpen: string | null;
 };
 
 let state: State = {
   threads: [], id: null, thread: null, epoch: 0, query: "", scope: null, replyTo: null,
-  agentsMode: false, agents: [], projects: [], project: null, creating: null, routineEdit: null,
-  projectDialog: null, editing: null, grouping: false, traceOpen: null, ghost: false,
+  agentsMode: false, agents: [], projects: [], project: null, artifact: null, botPage: null, creating: null, routineEdit: null,
+  projectDialog: null, editing: null, grouping: false, traceOpen: null, ghost: false, cardOpen: null,
 };
 const subs = new Set<() => void>();
 const emit = () => subs.forEach((f) => f());
@@ -379,15 +388,16 @@ function forget(ghost: Thread | null | undefined) {
 export async function openThread(id: string) {
   const leaving = state.thread;
   const thread = await host.invoke<Thread | null>("chat_thread", { id }).catch(() => null);
-  set({ id: thread ? id : null, thread, replyTo: null });
+  set({ id: thread ? id : null, thread, replyTo: null, artifact: null });
   const threads = await host.invoke<ThreadInfo[]>("chat_list").catch(() => state.threads);
   set({ threads });
+  if (thread) ensureSession(thread);
   if (leaving?.id !== id) forget(leaving);
 }
 
 export function goHome() {
   const leaving = state.thread;
-  set({ id: null, thread: null, replyTo: null });
+  set({ id: null, thread: null, replyTo: null, botPage: null, project: null, artifact: null });
   forget(leaving);
 }
 
@@ -410,9 +420,11 @@ export function setScope(scope: string | null, agentsMode = false) {
     editing: null,
     grouping: false,
     project: null,
+    botPage: null,
     creating: null,
     routineEdit: null,
     projectDialog: null,
+    cardOpen: null,
     ...(keep ? {} : { id: null, thread: null, replyTo: null }),
   });
 }
@@ -421,13 +433,30 @@ export const agentById = (id?: string | null) => state.agents.find((a) => a.id =
 export const editAgent = (editing: Agent | "new" | null) => set({ editing });
 export const openTrace = (traceOpen: string | null) => set({ traceOpen });
 export const editGroup = (grouping: boolean) => set({ grouping });
+/** The shapeshift card sheet: a saved card open, or null. */
+export const openCard = (cardOpen: string | null) => set({ cardOpen });
 
 // ---------------------------------------------------------------- bots, projects, routines
 
 export const projectById = (id?: string | null) => state.projects.find((p) => p.id === id);
 
-/** Open the new-bot sheet, optionally for a project. */
-export const startBot = (project?: string) => set({ creating: { project: project ?? "" }, editing: null, routineEdit: null, projectDialog: null });
+/** A bot's own page: its sessions, cards, routines and projects. The project
+ *  page and it are the same idea one level apart — a folder with bots, a bot
+ *  with its threads — so opening one closes the other. The page is a whole
+ *  face of its own (like the project's), so it also steps out of whatever
+ *  thread was open; an artifact, by contrast, layers over one. */
+export const openBot = (botPage: string | null) => set({ botPage, id: null, thread: null, replyTo: null, project: null, artifact: null, creating: null, editing: null, projectDialog: null });
+export const closeBot = () => set({ botPage: null });
+
+/** An artifact is a web view of a project or a card — what the sidebar's
+ *  Artifacts section lists, and what a card becomes once it is a real thing. */
+export const openArtifact = (artifact: { kind: "project" | "card"; id: string } | null) => set({ artifact, botPage: null, project: null, creating: null, editing: null, projectDialog: null });
+export const closeArtifact = () => set({ artifact: null });
+
+/** Open the new-bot sheet, optionally for a project, optionally with a spec
+ *  the hero prompt already read out of the line ("an agent named Watcher"). */
+export const startBot = (project?: string, prefill?: { name: string; job: string }) =>
+  set({ creating: { project: project ?? "", prefill }, editing: null, routineEdit: null, projectDialog: null });
 export const cancelBot = () => set({ creating: null });
 /** Open a project page (null goes back to the agents home). */
 export const openProject = (project: Project | null) => {
@@ -435,7 +464,7 @@ export const openProject = (project: Project | null) => {
     set({ project: null });
     return;
   }
-  set({ project, id: null, thread: null, replyTo: null, creating: null, editing: null, projectDialog: null });
+  set({ project, id: null, thread: null, replyTo: null, creating: null, editing: null, projectDialog: null, artifact: null });
 };
 /** Open the routine sheet for a bot: an existing routine, or "new". */
 export const editRoutine = (agent: string, routine?: Routine) => set({ routineEdit: { agent, routine: routine ?? "new" }, editing: null, creating: null });
@@ -458,9 +487,10 @@ export async function assignProject(project: string, agent: string, on: boolean)
   await host.invoke<Project>("agent_project_assign", { project, agent, on });
   await refresh();
 }
-export async function saveRoutine(agent: string, routine: Routine) {
-  await host.invoke<Agent>("routine_save", { agent, routine });
+export async function saveRoutine(agent: string, routine: Routine): Promise<Agent> {
+  const saved = await host.invoke<Agent>("routine_save", { agent, routine });
   await refresh();
+  return saved;
 }
 export async function removeRoutine(agent: string, routine: string) {
   await host.invoke<Agent>("routine_delete", { agent, routine });
@@ -502,15 +532,26 @@ export async function openAgentThread(a: Agent, project?: Project | null) {
     .filter((t) => t.agent === a.id && (t.project ?? null) === folder)
     .sort((x, y) => y.updated - x.updated)[0];
   if (t) return openThread(t.id);
-  const scope = folder ? { agent: a.id, project: folder } : { agent: a.id };
+  // A ghost one-off with a bot: the life is fixed at creation, exactly as in
+  // send(), and the flag clears the moment the thread exists — it decides
+  // the NEXT chat, it is not a mode the app sits in. A thread that already
+  // exists is opened as it is: a ghost was never written to disk, so it can
+  // never come back from the list.
+  const ghost = state.ghost;
+  const scope = folder
+    ? { agent: a.id, project: folder, life: ghost ? "ghost" : "keep" }
+    : { agent: a.id, life: ghost ? "ghost" : "keep" };
   const nt = await host.invoke<Thread>("chat_new", { route: a.route, scope });
-  set({ id: nt.id, thread: nt });
+  set({ id: nt.id, thread: nt, ghost: false });
+  ensureSession(nt);
   await refresh();
 }
 
 /** One more turn in an existing thread (the ask card's answer, a retry, a
- *  routine proposal accepted): the thread already exists, so no creation. */
-export async function sendTo(thread: Thread, text: string) {
+ *  routine proposal accepted): the thread already exists, so no creation.
+ *  Takes any thread-shaped value — a full Thread from a view, a ThreadInfo
+ *  from the list — because all it needs is the id. */
+export async function sendTo(thread: { id: string }, text: string) {
   await host.invoke("chat_send", { id: thread.id, text, files: [] });
   await refresh();
 }
@@ -534,8 +575,15 @@ export async function openAgent(a: Agent) {
 export async function createGroup(title: string, goal: string, members: string[]) {
   const first = state.agents.find((a) => a.id === members[0]);
   if (!first) throw new Error("Pick at least one agent");
-  const t = await host.invoke<Thread>("chat_new", { route: first.route, scope: { members, goal, title } });
-  set({ id: t.id, thread: t, grouping: false });
+  // Same rule as a bot thread: the ghost flag decides this one chat's life at
+  // creation and clears the moment it exists.
+  const ghost = state.ghost;
+  const t = await host.invoke<Thread>("chat_new", {
+    route: first.route,
+    scope: { members, goal, title, life: ghost ? "ghost" : "keep" },
+  });
+  set({ id: t.id, thread: t, grouping: false, botPage: null, ghost: false });
+  ensureSession(t);
   await refresh();
 }
 
@@ -576,6 +624,15 @@ export async function send(text: string, files: NewFile[], route: Route | null, 
     const t = state.thread;
     const who = t?.agent ? agentById(t.agent)?.name : (t?.members?.length ?? 0) > 0 ? "Your team" : "Backspace";
     host.onCaptured(note, who || "Backspace");
+  }
+  // The session's clock: a word from you wakes it; a polite full stop
+  // ("no thanks that's all") starts the wrap-up countdown; a line that is a
+  // different errand opens a new sitting in the same thread.
+  if (state.thread && (state.thread.agent || (state.thread.members?.length ?? 0) > 0)) {
+    const sitting = sessionFor(id);
+    if (isGoodbye(text)) sitting && concludeSession(sitting.id);
+    else if (sitting && detectShift(text, sitting.title)) renewSession(state.thread, sitting.machine, text);
+    else if (sitting) touchSession(sitting.id);
   }
   await refresh();
 }

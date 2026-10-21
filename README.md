@@ -1,5 +1,5 @@
 <h1 align="center">Workbench</h1>
-
+<h2 align="center"> Project / Overseer </h2>
 <p align="center"><b>Say what you want built. A team of AI agents plans it, builds it in parallel,<br/>checks its own work, and hands you a diff to approve.</b></p>
 
 <p align="center">
@@ -235,7 +235,7 @@ the runtime is down the job fails loudly rather than quietly spending money.
 
 | | |
 |---|---|
-| **Chat** | Threads from any model or CLI you're signed into. Named agents with a job and a folder. Groups. |
+| **Chat** | Threads from any model or CLI you're signed into. Named agents with a job and a folder. Groups. Ghost one-offs. |
 | **Memory** | Notes that outlive the session, stored as a git repo of Markdown you can edit. |
 | **Skills** | Instructions an agent loads when the job fits — or ones you wrote. |
 | **Apps** | Small views with their own agent: a folder, a manifest, a page. |
@@ -272,6 +272,11 @@ Chat has two views: **Chat** (the threads above) and **Agents**:
 - A **group** has members and a goal. Each message gets sequential turns: the
   members you name (`@Kira`) first, otherwise everyone in order. A member with
   nothing to add says `PASS`; one that names another hands it the turn.
+- **Ghost chats.** The ghost button (top right, on the face you start from)
+  makes the *next* chat a one-off: never written to disk, never listed, gone
+  the moment you leave it — a plain chat, one bot's thread or a group alike.
+  Turning it on scrubs any ghost an earlier one left behind. The limit is
+  honest: a reply that already went to a provider has left this machine.
 - **Computer use.** An agent can have a computer — a folder, a Docker container
   with its home mounted, or a VPS over SSH — reached through `computer_run`,
   `computer_read` and `computer_write`.
