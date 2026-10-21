@@ -22,5 +22,12 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: tests-linux
+      # The app has to know which commit it is, and the macOS workflow is a
+      # four-minute way to find out it does not. Writing the same file here, and
+      # asking the test at the end of crates/core/src/update.rs to agree with it,
+      # says so in a minute. See crates/core/src/build_stamp.rs.
       - name: cargo test
-        run: cargo test --no-fail-fast
+        run: |
+          printf 'pub const BUILD: &str = "%s";\n' "$GITHUB_SHA" \
+            > crates/core/src/build_stamp.rs
+          cargo test --no-fail-fast

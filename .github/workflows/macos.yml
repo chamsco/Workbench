@@ -45,27 +45,48 @@ jobs:
         working-directory: crates/tauri-app
         run: npx --yes @tauri-apps/cli@2 icon icons/icon.png -o icons
 
+      # The update check compares the commit you are running with the commit the
+      # release was built from, so the app has to know its own. It is written into
+      # the source the compiler reads, after the cache has been restored and
+      # before anything is built: see crates/core/src/build_stamp.rs.
+      - name: Say which commit this build is
+        run: |
+          printf 'pub const BUILD: &str = "%s";\n' "$GITHUB_SHA" \
+            > crates/core/src/build_stamp.rs
+          cat crates/core/src/build_stamp.rs
+
       - name: Build Backspace.app and .dmg
         working-directory: crates/tauri-app
-        # The update check compares the commit you are running with the commit
-        # this release is built from, so the build has to know its own. A build
-        # without it reports no update, ever: see crates/core/src/update.rs.
-        env:
-          BACKSPACE_BUILD: ${{ github.sha }}
         run: |
           npx --yes @tauri-apps/cli@2 build --target universal-apple-darwin --bundles app,dmg \
             -c '{"bundle":{"active":true,"icon":["icons/icon.icns","icons/icon.png"],"macOS":{"signingIdentity":"-","minimumSystemVersion":"11.0"}}}'
 
-      # If the environment above stops reaching rustc, the app silently stops
-      # ever seeing an update. Fail the build instead. The bundled binary keeps
-      # the crate's name, `backspace-tauri`, not the product name.
+      # If the stamp stops reaching the binary, the app silently stops ever
+      # seeing an update, and says so to no one. Fail the build instead. The
+      # bundled binary keeps the crate's name, `backspace-tauri`, not the
+      # product name.
+      #
+      # `strings` reads these, not `grep -a`: the grep on this runner (BSD grep
+      # 2.6.0-FreeBSD) finds nothing at all in them, not even `chamsco/Workbench`,
+      # which is certainly there. Check that first, then the stamp.
       - name: The app knows which commit it is
         run: |
-          short="${GITHUB_SHA:0:7}"
-          bin=$(find target/universal-apple-darwin/release/bundle/macos/Backspace.app/Contents/MacOS -type f | head -1)
-          [ -n "$bin" ] || { echo "::error::no binary inside Backspace.app"; exit 1; }
-          grep -aq "$short" "$bin" || { echo "::error::stamp $short is not in $bin"; exit 1; }
-          echo "$bin is stamped with $short"
+          dir=target/universal-apple-darwin/release
+          bundled=$(find "$dir/bundle/macos/Backspace.app/Contents/MacOS" -type f | head -1)
+          count() { strings -a "$1" | grep -c -F -- "$2" || true; }
+
+          for bin in "$dir/backspace-tauri" "$bundled"; do
+            [ -f "$bin" ] || { echo "::error::no $bin"; exit 1; }
+            echo "$bin, $(wc -c < "$bin" | tr -d ' ') bytes"
+            # Half of the repo the update check asks for: long enough that the
+            # compiler cannot fold it into instructions, so it is a fair test of
+            # the reader, and only in the fixed update.rs.
+            [ "$(count "$bin" "chamsco/Workbench")" -gt 0 ] \
+              || { echo "::error::cannot read a string that is certainly there"; exit 1; }
+            n=$(count "$bin" "$GITHUB_SHA")
+            echo "   stamp $GITHUB_SHA: $n"
+            [ "$n" -gt 0 ] || { echo "::error::no stamp $GITHUB_SHA in $bin"; exit 1; }
+          done
 
       - name: Collect
         run: |
@@ -81,6 +102,10 @@ jobs:
           path: out/*
 
       - name: Publish to the "mac-latest" pre-release
+        # Only a push to main moves the rolling release. A manual run on a
+        # branch is how the build above gets tested, and it must not be mistaken
+        # for a build of main.
+        if: github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

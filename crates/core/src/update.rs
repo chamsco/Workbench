@@ -3,14 +3,14 @@
 //! The macOS workflow publishes one pre-release, `mac-latest`, and replaces it
 //! on every push to main. Its tag never moves and its version never changes, so
 //! there is no number to compare: what changes is the commit it was built from.
-//! The workflow exports that commit as `BACKSPACE_BUILD`, `build.rs` bakes it
-//! into the binary, and this asks the release which commit *it* was built from.
+//! The workflow writes that commit into `build_stamp.rs` before building, this
+//! binary carries it, and this asks the release which commit *it* was built from.
 //! A different commit means main moved and there is a newer build to install.
 //!
 //! A versioned release, if the project ever publishes one, still takes the same
 //! path: its `target_commitish` is the commit, so the comparison is unchanged.
 //!
-//! A build made by hand has no baked commit, so it is never offered an update.
+//! A build made by hand has no commit recorded, so it is never offered an update.
 
 use anyhow::Result;
 use serde::Serialize;
@@ -20,13 +20,25 @@ pub const REPO: &str = "chamsco/Workbench";
 /// The rolling pre-release the macOS workflow replaces on every push to main.
 pub const ROLLING_TAG: &str = "mac-latest";
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
-/// The commit this binary was built from, or "" for a build made by hand.
-/// Baked in by `build.rs`, which only sets it when the environment holds a
-/// real commit; see `build.rs`.
-pub const BUILD: &str = match option_env!("BACKSPACE_BUILD") {
-    Some(sha) => sha,
-    None => "",
-};
+// The commit this binary was built from, or "" for a build made by hand. CI
+// writes it before building, into the source the compiler reads: see
+// `build_stamp.rs` for why it is not carried alongside the build instead.
+include!("build_stamp.rs");
+
+/// The commit, kept in the file byte for byte.
+///
+/// Nothing here reads it, and that is the problem. A release build folds what
+/// the app says about itself: `is_newer` compares seven bytes, `build` copies
+/// seven bytes, and seven bytes fit in a register, so the optimizer turns the
+/// commit into immediate instructions and drops the text. The workflow then
+/// cannot ask the finished app which commit it was built from -- `strings` on
+/// the bundle finds nothing -- and neither can anyone debugging a release. One
+/// static keeps the whole commit in the file, so "the app knows its commit" is
+/// something the build can prove rather than assume.
+///
+/// `#[used]` is what stops the linker dropping it along with the rest.
+#[used]
+pub static STAMP_IN_THE_BINARY: &str = BUILD;
 
 #[derive(Serialize, Clone, Debug)]
 pub struct UpdateInfo {
@@ -189,5 +201,18 @@ mod tests {
         assert_eq!(super::short("841a8f548f1d6c76bdc58f2bee5b6acb8882ad75"), "841a8f5");
         assert_eq!(super::short("841a8f5"), "841a8f5");
         assert_eq!(super::short(""), "");
+    }
+
+    /// The fast twin of the macOS workflow's "The app knows which commit it is"
+    /// step. Both workflows write the commit into `build_stamp.rs` before
+    /// building, so a stamp that stops reaching the binary fails here -- in a
+    /// minute, on Linux -- instead of in the app, where losing it means an
+    /// update that is never offered to anyone. `GITHUB_SHA` is unset outside CI,
+    /// and a build by hand has no commit to record.
+    #[test]
+    fn the_stamp_is_the_commit_the_build_was_given() {
+        if let Ok(said) = std::env::var("GITHUB_SHA") {
+            assert_eq!(BUILD, said.trim().to_ascii_lowercase().as_str());
+        }
     }
 }

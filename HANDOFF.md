@@ -14,11 +14,15 @@ worked, and whether pushing a release was the fix.
   dotted-version comparison could not have matched even with a 200.
 - **What it does now.** The check asks
   `/repos/chamsco/Workbench/releases/tags/mac-latest` and compares *commits*.
-  `crates/core/build.rs` bakes `BACKSPACE_BUILD` into the binary (the workflow
-  sets it to `github.sha`), the release carries its commit in
-  `target_commitish`, and a different commit means main moved and a newer build
-  is out. A hand build has no stamp and is never offered an update. `UpdateInfo`
-  gained `build`; both shells' copy now says "build", not "version".
+  The workflow writes the commit it is building into
+  `crates/core/src/build_stamp.rs` before building (`GITHUB_SHA`), the release
+  carries its commit in `target_commitish`, and a different commit means main
+  moved and a newer build is out. A hand build has no stamp and is never offered
+  an update. `UpdateInfo` gained `build`; both shells' copy now says "build", not
+  "version". The binary keeps a `#[used]` copy of the commit as well: a release
+  build folds the seven bytes the check actually uses into machine instructions,
+  so without it no one -- the workflow included -- can read a shipped app's
+  commit back out of it.
 - **Still manual.** "Download & Update" opens the release page; nothing replaces
   the app in place. There is no `tauri-plugin-updater`, and an unsigned,
   un-notarized bundle is a poor candidate for one. It is in the README's
@@ -343,7 +347,7 @@ State as of 7 Oct 2026, commit `56ff91a` on `main`.
   `git remote set-url origin https://github.com/chamsco/Workbench`
   It also needs `chamsco/Workbench` added to the session's repo scope.
 - **Branch:** work and push on `main`. The owner has asked for a push after each milestone.
-- **Commit trailer:** every commit ends with `Co-Authored-By: Claude …` and a `Claude-Session:` line. No model IDs appear in commits.
+- **Commit trailer:** every agent commit ends with its own attribution and a session line — `Co-Authored-By: Claude …` + `Claude-Session: <date>` from a Claude session, `Co-Authored-By: Backspace Agent <agent@backspace.invalid>` + `Agent-Session: <date>` from any other. Attribute the agent that actually wrote the commit. No model IDs appear in commits.
 - **Related repo:** `chamsco/AnarchyMessenger`. It was compared with this one and never modified.
 - **Not in the repo:** `HARNESSES.md` (the owner's roadmap note) was attached in chat, not committed. Ask for it if needed.
 
