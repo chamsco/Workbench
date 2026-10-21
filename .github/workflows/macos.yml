@@ -84,6 +84,22 @@ jobs:
             if grep -aq "$short" "$bin"; then echo "    carries $short"; else echo "    does NOT carry $short"; fi
           done
 
+          # Which update.rs is in there, and where the value stopped. A control
+          # first: if a string that is certainly present cannot be found, the
+          # probes below mean nothing.
+          grep -aq "chamsco" "$dir/backspace-tauri" \
+            || { echo "::error::grep cannot find a string that is certainly there"; exit 1; }
+          for p in "releases/tags/mac-latest" "releases/latest" "$short" "9fe0a47" "c2f1394"; do
+            printf '  binary %-26s ' "$p"
+            if grep -aq "$p" "$dir/backspace-tauri"; then echo yes; else echo no; fi
+          done
+          rlib=$(ls target/*/release/deps/libbackspace_core-*.rlib 2>/dev/null | head -1)
+          echo "  rlib: ${rlib:-none}"
+          for p in "releases/tags/mac-latest" "releases/latest" "$short" "9fe0a47"; do
+            printf '  rlib   %-26s ' "$p"
+            if [ -n "$rlib" ] && grep -aq "$p" "$rlib"; then echo yes; else echo no; fi
+          done
+
           # The binary that ships, and the binary cargo produced for it.
           dir=target/universal-apple-darwin/release
           bundled=$(find "$dir/bundle/macos/Backspace.app/Contents/MacOS" -type f | head -1)
