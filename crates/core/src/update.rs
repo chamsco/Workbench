@@ -3,14 +3,14 @@
 //! The macOS workflow publishes one pre-release, `mac-latest`, and replaces it
 //! on every push to main. Its tag never moves and its version never changes, so
 //! there is no number to compare: what changes is the commit it was built from.
-//! The workflow exports that commit as `BACKSPACE_BUILD`, `build.rs` bakes it
-//! into the binary, and this asks the release which commit *it* was built from.
+//! The workflow writes that commit into `build_stamp.rs` before building, this
+//! binary carries it, and this asks the release which commit *it* was built from.
 //! A different commit means main moved and there is a newer build to install.
 //!
 //! A versioned release, if the project ever publishes one, still takes the same
 //! path: its `target_commitish` is the commit, so the comparison is unchanged.
 //!
-//! A build made by hand has no baked commit, so it is never offered an update.
+//! A build made by hand has no commit recorded, so it is never offered an update.
 
 use anyhow::Result;
 use serde::Serialize;
@@ -20,10 +20,10 @@ pub const REPO: &str = "chamsco/Workbench";
 /// The rolling pre-release the macOS workflow replaces on every push to main.
 pub const ROLLING_TAG: &str = "mac-latest";
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
-// The commit this binary was built from, or "" for a build made by hand.
-// Written by `build.rs`, which only writes it when the environment holds a real
-// commit; see `build.rs` for what that file is and why it is a file.
-include!(concat!(env!("OUT_DIR"), "/build_stamp.rs"));
+// The commit this binary was built from, or "" for a build made by hand. CI
+// writes it before building, into the source the compiler reads: see
+// `build_stamp.rs` for why it is not carried alongside the build instead.
+include!("build_stamp.rs");
 
 #[derive(Serialize, Clone, Debug)]
 pub struct UpdateInfo {
@@ -189,19 +189,15 @@ mod tests {
     }
 
     /// The fast twin of the macOS workflow's "The app knows which commit it is"
-    /// step. CI exports `BACKSPACE_BUILD` for this job exactly as that build
-    /// exports it, so a stamp that stops reaching the binary fails here -- in a
+    /// step. Both workflows write the commit into `build_stamp.rs` before
+    /// building, so a stamp that stops reaching the binary fails here -- in a
     /// minute, on Linux -- instead of in the app, where losing it means an
-    /// update that is never offered to anyone.
+    /// update that is never offered to anyone. `GITHUB_SHA` is unset outside CI,
+    /// and a build by hand has no commit to record.
     #[test]
     fn the_stamp_is_the_commit_the_build_was_given() {
-        if let Ok(said) = std::env::var("BACKSPACE_BUILD") {
-            let said = said.trim().to_ascii_lowercase();
-            assert_eq!(
-                BUILD,
-                said.as_str(),
-                "build.rs did not bake the commit the build was given"
-            );
+        if let Ok(said) = std::env::var("GITHUB_SHA") {
+            assert_eq!(BUILD, said.trim().to_ascii_lowercase().as_str());
         }
     }
 }

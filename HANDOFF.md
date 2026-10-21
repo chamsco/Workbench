@@ -14,11 +14,12 @@ worked, and whether pushing a release was the fix.
   dotted-version comparison could not have matched even with a 200.
 - **What it does now.** The check asks
   `/repos/chamsco/Workbench/releases/tags/mac-latest` and compares *commits*.
-  `crates/core/build.rs` bakes `BACKSPACE_BUILD` into the binary (the workflow
-  sets it to `github.sha`), the release carries its commit in
-  `target_commitish`, and a different commit means main moved and a newer build
-  is out. A hand build has no stamp and is never offered an update. `UpdateInfo`
-  gained `build`; both shells' copy now says "build", not "version".
+  The workflow writes the commit it is building into
+  `crates/core/src/build_stamp.rs` before building (`GITHUB_SHA`), the release
+  carries its commit in `target_commitish`, and a different commit means main
+  moved and a newer build is out. A hand build has no stamp and is never offered
+  an update. `UpdateInfo` gained `build`; both shells' copy now says "build", not
+  "version".
 - **Still manual.** "Download & Update" opens the release page; nothing replaces
   the app in place. There is no `tauri-plugin-updater`, and an unsigned,
   un-notarized bundle is a poor candidate for one. It is in the README's

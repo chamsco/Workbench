@@ -45,64 +45,43 @@ jobs:
         working-directory: crates/tauri-app
         run: npx --yes @tauri-apps/cli@2 icon icons/icon.png -o icons
 
-      # `target/universal-apple-darwin/` is not cargo's: `lipo` and the bundler
-      # write it, and the cache above hands it back on the next run. Take it
-      # away first, so the binary checked below, and the app that ships, are
-      # both what this build produced and not what the last one left behind.
-      - name: Nothing but this build's app
+      # The update check compares the commit you are running with the commit the
+      # release was built from, so the app has to know its own. It is written into
+      # the source the compiler reads, after the cache has been restored and
+      # before anything is built: see crates/core/src/build_stamp.rs.
+      - name: Say which commit this build is
         run: |
-          ls -l target/universal-apple-darwin/release/backspace-tauri 2>/dev/null \
-            || echo "nothing to clear: no universal binary in the cache"
-          rm -rf target/universal-apple-darwin
+          printf 'pub const BUILD: &str = "%s";\n' "$GITHUB_SHA" \
+            > crates/core/src/build_stamp.rs
+          cat crates/core/src/build_stamp.rs
 
       - name: Build Backspace.app and .dmg
         working-directory: crates/tauri-app
-        # The update check compares the commit you are running with the commit
-        # this release is built from, so the build has to know its own. A build
-        # without it reports no update, ever: see crates/core/src/update.rs.
-        env:
-          BACKSPACE_BUILD: ${{ github.sha }}
         run: |
           npx --yes @tauri-apps/cli@2 build --target universal-apple-darwin --bundles app,dmg \
             -c '{"bundle":{"active":true,"icon":["icons/icon.icns","icons/icon.png"],"macOS":{"signingIdentity":"-","minimumSystemVersion":"11.0"}}}'
 
-      # If the environment above stops reaching the build, the app silently
-      # stops ever seeing an update. Fail the build instead. The bundled binary
-      # keeps the crate's name, `backspace-tauri`, not the product name, and
-      # both it and the binary cargo produced are checked.
+      # If the stamp stops reaching the binary, the app silently stops ever
+      # seeing an update: it has nothing to compare a release's commit with, and
+      # says so to no one. Fail the build instead. The bundled binary keeps the
+      # crate's name, `backspace-tauri`, not the product name.
       - name: The app knows which commit it is
         run: |
           short="${GITHUB_SHA:0:7}"
-
-          # What the build scripts read, and what came out of the build. A
-          # missing stamp is one value crossing three programs, and the log
-          # should say which of them lost it. Nothing here fails on its own.
-          find target -name build_stamp.rs -print -exec cat {} \; || true
-          echo "backspace-tauri binaries, and whether each carries $short:"
-          for bin in $(find target -type f -name backspace-tauri); do
-            ls -l "$bin"
-            if grep -aq "$short" "$bin"; then echo "    carries $short"; else echo "    does NOT carry $short"; fi
-          done
-
-          # Which update.rs is in there, and where the value stopped. A control
-          # first: if a string that is certainly present cannot be found, the
-          # probes below mean nothing.
-          grep -aq "chamsco" "$dir/backspace-tauri" \
-            || { echo "::error::grep cannot find a string that is certainly there"; exit 1; }
-          for p in "releases/tags/mac-latest" "releases/latest" "$short" "9fe0a47" "c2f1394"; do
-            printf '  binary %-26s ' "$p"
-            if grep -aq "$p" "$dir/backspace-tauri"; then echo yes; else echo no; fi
-          done
-          rlib=$(ls target/*/release/deps/libbackspace_core-*.rlib 2>/dev/null | head -1)
-          echo "  rlib: ${rlib:-none}"
-          for p in "releases/tags/mac-latest" "releases/latest" "$short" "9fe0a47"; do
-            printf '  rlib   %-26s ' "$p"
-            if [ -n "$rlib" ] && grep -aq "$p" "$rlib"; then echo yes; else echo no; fi
-          done
-
-          # The binary that ships, and the binary cargo produced for it.
           dir=target/universal-apple-darwin/release
           bundled=$(find "$dir/bundle/macos/Backspace.app/Contents/MacOS" -type f | head -1)
+
+          # A string that is certainly in the app, first: if this is not found,
+          # the checks below prove nothing.
+          grep -aq "chamsco" "$dir/backspace-tauri" \
+            || { echo "::error::cannot find a string that is certainly in the binary"; exit 1; }
+
+          # Which update.rs is in there, besides the stamp: the new one asks for
+          # the commit a release was built from, the old one for a version.
+          for said in "releases/tags/mac-latest" "releases/latest"; do
+            if grep -aq "$said" "$dir/backspace-tauri"; then echo "the app has $said"; else echo "the app has no $said"; fi
+          done
+
           for bin in "$dir/backspace-tauri" "$bundled"; do
             [ -f "$bin" ] || { echo "::error::no $bin"; exit 1; }
             grep -aq "$short" "$bin" || { echo "::error::no stamp $short in $bin"; exit 1; }
