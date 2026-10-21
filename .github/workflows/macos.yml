@@ -45,6 +45,16 @@ jobs:
         working-directory: crates/tauri-app
         run: npx --yes @tauri-apps/cli@2 icon icons/icon.png -o icons
 
+      # `target/universal-apple-darwin/` is not cargo's: `lipo` and the bundler
+      # write it, and the cache above hands it back on the next run. Take it
+      # away first, so the binary checked below, and the app that ships, are
+      # both what this build produced and not what the last one left behind.
+      - name: Nothing but this build's app
+        run: |
+          ls -l target/universal-apple-darwin/release/backspace-tauri 2>/dev/null \
+            || echo "nothing to clear: no universal binary in the cache"
+          rm -rf target/universal-apple-darwin
+
       - name: Build Backspace.app and .dmg
         working-directory: crates/tauri-app
         # The update check compares the commit you are running with the commit
@@ -59,23 +69,26 @@ jobs:
       # If the environment above stops reaching the build, the app silently
       # stops ever seeing an update. Fail the build instead. The bundled binary
       # keeps the crate's name, `backspace-tauri`, not the product name, and
-      # both it and the binary cargo produced are checked: a stale bundle must
-      # not pass for a stamp that never got baked.
+      # both it and the binary cargo produced are checked.
       - name: The app knows which commit it is
         run: |
           short="${GITHUB_SHA:0:7}"
-          dir=target/universal-apple-darwin/release
-          built="$dir/backspace-tauri"
-          bundled=$(find "$dir/bundle/macos/Backspace.app/Contents/MacOS" -type f | head -1)
 
-          # What the build scripts read, which is what the check below finds in
-          # the binary. Printed whichever way the check goes: a failure here is
-          # about a value crossing three programs, and the log should say which.
+          # What the build scripts read, and what came out of the build. A
+          # missing stamp is one value crossing three programs, and the log
+          # should say which of them lost it. Nothing here fails on its own.
           find target -name build_stamp.rs -print -exec cat {} \; || true
+          echo "backspace-tauri binaries, and whether each carries $short:"
+          for bin in $(find target -type f -name backspace-tauri); do
+            ls -l "$bin"
+            if grep -aq "$short" "$bin"; then echo "    carries $short"; else echo "    does NOT carry $short"; fi
+          done
 
-          [ -f "$built" ] || { echo "::error::cargo built no $built"; exit 1; }
-          [ -n "$bundled" ] || { echo "::error::no binary inside Backspace.app"; exit 1; }
-          for bin in "$built" "$bundled"; do
+          # The binary that ships, and the binary cargo produced for it.
+          dir=target/universal-apple-darwin/release
+          bundled=$(find "$dir/bundle/macos/Backspace.app/Contents/MacOS" -type f | head -1)
+          for bin in "$dir/backspace-tauri" "$bundled"; do
+            [ -f "$bin" ] || { echo "::error::no $bin"; exit 1; }
             grep -aq "$short" "$bin" || { echo "::error::no stamp $short in $bin"; exit 1; }
             echo "$bin is stamped with $short"
           done
