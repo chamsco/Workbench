@@ -2674,11 +2674,11 @@ impl Workbench {
             Upd::Checking => ("Checking…".to_string(), false, None),
             Upd::Done(Err(e)) => (e.clone(), false, None),
             Upd::Done(Ok(u)) if u.newer => (
-                format!("Version {} is available.", u.latest),
+                format!("Build {} is available.", u.latest),
                 true,
                 Some(u.url.clone()),
             ),
-            Upd::Done(Ok(_)) => ("You're on the latest release.".to_string(), false, None),
+            Upd::Done(Ok(_)) => ("You're on the latest build.".to_string(), false, None),
         };
         let check_updates = self.prefs.check_updates;
         let share_on = share.enabled;

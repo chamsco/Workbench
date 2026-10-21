@@ -1,5 +1,48 @@
 # Handoff: Backspace (ohMyHarness → Workbench), v0
 
+**Session, 21 Oct 2026 — the update check, and the branch caught up.**
+Branch `nightly/feature/delegation`, now merged with `origin/main` (the Chat
+face redesign, PR #6). The owner asked why updating from inside the app never
+worked, and whether pushing a release was the fix.
+
+- **Why it never worked.** `update.rs` asked
+  `/repos/chamsco/ohMyHarness/releases/latest`. Two faults, either fatal: the
+  repo is the pre-rename name, and `/releases/latest` ignores pre-releases —
+  and the only release is the rolling `mac-latest` pre-release. The endpoint
+  404'd, which the code read as "nothing newer", so every published build has
+  said "Up to date v0.1.0". The tag is not a version either, so the
+  dotted-version comparison could not have matched even with a 200.
+- **What it does now.** The check asks
+  `/repos/chamsco/Workbench/releases/tags/mac-latest` and compares *commits*.
+  `crates/core/build.rs` bakes `BACKSPACE_BUILD` into the binary (the workflow
+  sets it to `github.sha`), the release carries its commit in
+  `target_commitish`, and a different commit means main moved and a newer build
+  is out. A hand build has no stamp and is never offered an update. `UpdateInfo`
+  gained `build`; both shells' copy now says "build", not "version".
+- **Still manual.** "Download & Update" opens the release page; nothing replaces
+  the app in place. There is no `tauri-plugin-updater`, and an unsigned,
+  un-notarized bundle is a poor candidate for one. It is in the README's
+  "What it doesn't do".
+- **The one-time catch.** Every app published so far has the old check compiled
+  into it, so none of them can see this fix: installing one build by hand, after
+  this reaches `main` and the workflow republishes `mac-latest`, is what starts
+  the chain — builds after that see every later build. The exception worth
+  knowing: the old check reads `/releases/latest`, so publishing **one
+  non-pre-release release** with a higher dotted tag would make even an already
+  installed app offer it.
+- **The merge.** `Agents.tsx`, `bridge.ts` and the committed bundle conflicted
+  with main's new sidebar. Both sides had only added fields to `bridge.ts`; main
+  had moved "New bot" out of the sidebar to the home page's KPI line, so the
+  Delegate row now sits under "New chat". The bundle was regenerated with
+  `npm run build`, not hand-merged. main changed no Rust files at all.
+
+**Ran:** `npx tsc --noEmit`; `npm run build`; the update logic re-run against
+the live release payload (`target_commitish` parses, the same commit is not
+newer, a different one is). **Not run:** anything `cargo` — this machine has no
+Rust toolchain, so the Rust above was written but never compiled. `test.yml`
+runs `cargo test` on a pull request, and `macos.yml` has a new step that fails
+the build if the app does not carry its commit; those are the first real checks.
+
 **Session, 18 Oct 2026 — the phase audit, skills, and the Delegate sheet.**
 Branch `nightly/feature/delegation`. The owner sent the Delegate mockup
 (unassigned tasks on the left, bots with model, `$/min`, `Busy until` and a
