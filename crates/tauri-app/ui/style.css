@@ -439,6 +439,15 @@ body { margin: 0; background: var(--desk-base); color: var(--fg); font: 13px/1.4
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --sheet: rgba(32, 28, 35, 0.94); } }
 :root[data-theme="dark"] { --sheet: rgba(32, 28, 35, 0.94); }
 
+/* Pages that are paper rather than glass (Apps, Memory). Solid, so a painting
+   behind the window never bands through a page of text and cards, and a card
+   tone that lifts off it in either theme. */
+:root { --paper: #faf8fb; --paper-card: #ffffff; --paper-line: rgba(24, 18, 30, 0.08); }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --paper: #15141a; --paper-card: #1e1d24; --paper-line: rgba(255, 255, 255, 0.07); }
+}
+:root[data-theme="dark"] { --paper: #15141a; --paper-card: #1e1d24; --paper-line: rgba(255, 255, 255, 0.07); }
+
 /* ===================================================================== redesign
    Tabs on the left hold up to four canvases each; the sidebar and main column
    share one sheet of glass; tickets live in a drawer off the review pill;

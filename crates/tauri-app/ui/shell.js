@@ -266,9 +266,9 @@ var Shell = (() => {
   }
   function renderHead() {
     const z = S.mode, h = $("#zoneHead");
+    // Apps and Memory carry their own H1 at the top of the sheet. Naming them
+    // again here, a line above the page, was the title said twice.
     if (S.settings) h.innerHTML = `<span class="zt">${icon("gear")}Settings</span>`;
-    else if (z === "memory") h.innerHTML = `<span class="zt">${icon("memory")}Memory</span>`;
-    else if (z === "apps") h.innerHTML = `<span class="zt">${icon("apps")}Apps</span>`;
     else if (z === "code") h.innerHTML = codeTitle();
     else if (z.startsWith("app:") && window.Apps) h.innerHTML = Apps.head(z.slice(4));
     else h.innerHTML = "";
