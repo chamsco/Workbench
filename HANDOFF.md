@@ -1,5 +1,36 @@
 # Handoff: Backspace (ohMyHarness → Workbench), v0
 
+**Session, 22 Oct 2026 — Code owns its engine.**
+
+- **The workbench moved into the app.** Everything Code draws is now
+  `crates/tauri-app/ui/extensions/code/code.js`: the per-project tab layout
+  and its persistence, the tab strip (drag, rename, the new-tab presets), the
+  canvas tree and grid, every pane (session, files, terminal, browser,
+  diagram, docs, options, trace), the wall, the tickets drawer and the view
+  menu. `app.js` went from 2,528 lines to about 1,085 and keeps the runtime —
+  agents, approvals, projects, machines, prefs, settings, updates, the
+  sidebar's rows.
+- **The project title is the app's head.** `Frame.register` takes `head()` and
+  `windowTitle()`; the shell asks the frame instead of building Code's folder
+  button itself. `codeTitle()` is gone from `shell.js`. A `head()` that returns
+  `null` (Chat) leaves the head empty.
+- **The seams are explicit.** The ADE sidebar, Home and Chat call the code
+  app's public object (`Code.tab()`, `Code.openView()`, `Code.renderGrid()`,
+  `Code.setDrawer()`); the frame asks `Code.layout()` on a layout pass and
+  `Code.afterData()` after a refresh. No app function is global any more.
+- **One formatting note:** the engine's body sits at column 0 inside its IIFE
+  — a 1,500-line re-indent would have buried the move in the diff. It can be
+  formatted on its own later.
+
+**Ran:** the real `ui/` in the T3 preview against the `__TAURI__` stub. Booted
+to Chat, switched to Code, forced a project and a two-pane tab, then exercised
+the tab strip (switch, unnamed layout icon), the New-tab presets (a 2×2 tab
+appearing and switching), add-canvas (Browser added as a third pane), the
+tickets drawer, the wall view and Chat ↔ Code switching; no console errors
+beyond the stale one from before the reload, and the head/title read the
+project (`Workbench`, `Workbench · Backspace`). **Not run:** Rust — no
+toolchain here; the macOS workflow compiles and publishes `mac-latest`.
+
 **Session, 22 Oct 2026 — the window becomes a frame.**
 
 - **The window hosts apps.** `crates/tauri-app/ui/frame.js` reads

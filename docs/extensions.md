@@ -52,8 +52,8 @@ classes all come from there.
 
 ## The host contract
 
-A native extension calls `Frame.register(spec)` when its script runs (Chat does
-it at the end of `chat.js`; `extensions/code/code.js` is only that call):
+A native extension calls `Frame.register(spec)` when its script runs, at the
+end of its file:
 
 - `mount(el)` — build inside the section, once. Code puts its `#grid` there.
 - `init()` — after the shell and its data are up.
@@ -65,16 +65,32 @@ it at the end of `chat.js`; `extensions/code/code.js` is only that call):
 - `classes()` — window classes while the app is active (Code: `pair-on`).
 - `newInstance(anchor)` — the chip's New; `anchor` is the button, for a
   popover.
+- `head()` — HTML for the title bar's head while the app is active, or `null`
+  when it has nothing to say. Code returns the project's folder (or
+  "No folder") and wires it to its project menu in the shell.
+- `windowTitle()` — the document title (taskbar, alt-tab), or `null` for just
+  "Backspace". Code names the project it has open.
 
 State lives in prefs, as it always has. `prefs.uses` is the On list: written by
 `Frame.setOn`, by the chip, and by Settings → General. Off apps stay in the
 switcher, dimmed; going to one turns it on. The last app cannot be turned off.
 
-## What still lives in the shell
+## What is where
 
-Stage 1 moved the apps out, not their engines. Chat's renderer is `chat.js`;
-Code's tabs/canvases engine is still `app.js` (tabs, `renderGrid`, the drawer,
-project switching), and `shell.js` still knows Code's project title. Moving the
-canvas engine into `extensions/code/` and the project title into the
-extension's head is the next step; after that `shell.js` no longer names an
-app.
+Each app owns its surface. `chat.js` draws the conversation, its composer and
+the thread; `extensions/code/code.js` is the whole workbench — the tab strip,
+the per-project layout, the canvases and their panes (session, files,
+terminal, browser, diagram, docs, options, trace), the wall, the tickets
+drawer, the view menu and the project title. The project title is the app's
+`head()`, which is why the shell no longer names Code.
+
+`app.js` is the runtime both apps read: agents and approvals, projects and
+machines, prefs, the snapshot, settings, updates, and the agent rows in the
+sidebar. `shell.js` is the window: rail, switcher, title bar, split and
+status. Neither names an app.
+
+Two seams remain, both one-way and by design. The ADE sidebar (in `app.js`)
+and Home read the open tab through `Code.tab()` and link into
+`Code.openView()`, because the tab belongs to the workbench; and Chat's
+`openCanvas` turns the app on and asks `Code` for the canvas. Agents are the
+runtime's, so Home and the sidebar keep drawing their rows.
