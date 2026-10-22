@@ -43,9 +43,24 @@
     <div class="side-pills" id="sidePills"></div>
     <div class="gutter-side" id="sideGut" role="separator" aria-orientation="vertical" aria-label="Resize sidebar"></div>
     <div class="mainc">
-      <header class="tbar" data-tauri-drag-region>
-        <button class="ib" id="sideOpen" aria-label="Show sidebar" data-icon="sidebar" hidden></button>
-        <div class="zones" id="zones" role="tablist" aria-label="Apps"></div>
+      <!-- The frame's bar: window lights (left), the app trail (centre), and
+           the frame's verbs (right). Nothing app-specific lives here; an app's
+           own controls sit in the row under it. -->
+      <header class="tbar" id="tbar" data-tauri-drag-region>
+        <div class="tb-start">
+          <button class="ib" id="sideOpen" aria-label="Show sidebar" data-icon="sidebar" hidden></button>
+        </div>
+        <nav class="zones trail" id="zones" role="tablist" aria-label="Apps"></nav>
+        <div class="tb-end">
+          <button class="srchbtn" id="searchBtn" aria-label="Search" title="Search projects, agents and chats" data-popper><span data-icon="search"></span><span class="srch-txt">Search</span><kbd>Ctrl K</kbd></button>
+          <button class="ib" id="pulseBtn" aria-label="Pulse" title="Pulse: what needs you" aria-pressed="false" data-icon="sparkle"></button>
+          <button class="ib" id="gearBtn" aria-label="Settings" title="Settings" data-icon="gear"></button>
+          <div class="caps" id="caps"></div>
+        </div>
+      </header>
+      <!-- The app's own row. For now the frame still draws these controls, but
+           they belong to the app and move into its surface in the next slice. -->
+      <div class="approw" id="appRow" data-tauri-drag-region>
         <div class="appbar" id="appbar" hidden></div>
         <div class="modes" id="modes" role="tablist"></div>
         <button class="vbtn code-only agents-only" id="viewBtn" aria-haspopup="menu" data-popper></button>
@@ -54,13 +69,8 @@
         <div class="zone-head" id="zoneHead"></div>
         <div class="chat-head chat-only" id="chatHead"></div>
         <span class="sp" data-tauri-drag-region></span>
-        <div class="right">
-          <button class="srchbtn" id="searchBtn" aria-label="Search" title="Search projects, agents and chats" data-popper><span data-icon="search"></span><span class="srch-txt">Search</span><kbd>Ctrl K</kbd></button>
-          <button class="ib code-only" id="panelBtn" aria-label="Side panel: history, files, sessions" title="History, files and sessions" aria-pressed="false" data-icon="panelr"></button>
-          <button class="ib" id="gearBtn" aria-label="Settings" title="Settings" data-icon="gear"></button>
-        </div>
-        <div class="caps" id="caps"></div>
-      </header>
+        <button class="ib code-only" id="panelBtn" aria-label="Side panel: history, files, sessions" title="History, files and sessions" aria-pressed="false" data-icon="panelr"></button>
+      </div>
       <div class="body" id="body">
         <!-- Chat and Workbench are extensions: the frame makes their sections
              from extensions/<id>/extension.json and loads their scripts. -->
@@ -73,6 +83,15 @@
       <section class="settings" id="settings" hidden></section>
       <aside class="drawer" id="drawer" aria-label="Tickets and reviews" hidden></aside>
     </div>
+    <!-- Pulse: the frame's surface for what needs you. The assistant half of
+         it lands with the drawer; today it reads the agents and approvals. -->
+    <aside class="pulse" id="pulse" aria-label="Pulse" hidden>
+      <header class="phead">
+        <span class="plive"><i></i>Pulse</span>
+        <button class="ib" id="pulseClose" aria-label="Close Pulse"></button>
+      </header>
+      <div class="pbody" id="pulseBody"></div>
+    </aside>
     <footer class="status" aria-label="Status">
       <button class="upd" id="upd"></button>
       <div class="machines" id="machines" role="group" aria-label="Machines"></div>

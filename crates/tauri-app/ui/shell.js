@@ -12,8 +12,8 @@ var Shell = (() => {
   // the reading order the window has always had — Apps, Agents, Workbench,
   // Memory — and each app's manifest carries its own number.
   const PAGES = [
-    ["apps", "apps", "Apps", 0],
     ["memory", "memory", "Memory", 30],
+    ["apps", "apps", "Apps", 40],
   ];
   const zones = () => PAGES.concat((window.Frame ? Frame.zones() : [
     { id: "chat", name: "Chat", icon: "bubble", order: 10 },
@@ -159,15 +159,15 @@ var Shell = (() => {
     $$("#rail [data-z]").forEach(b => (b.onclick = () => openZone(b.dataset.z)));
     $("#gear").setAttribute("aria-selected", !!S.settings);
   }
-  // The title bar's switcher: every app, side by side as icons. An app that is
-  // off stays here, dimmed — click it to turn it back on. Then pinned apps.
-  // Settings is the gear on the right.
+  // The frame's trail: every app, named, side by side in the centre of the
+  // bar. An app that is off stays here, dimmed — click it to turn it back on.
+  // Pinned apps follow. Settings and Pulse are the two on the right.
   function renderZones() {
     const el = $("#zones"); if (!el) return;
     const z = S.settings ? "" : S.mode;
     const apps = window.Apps ? Apps.pinned() : [];
-    el.innerHTML = zones().map(([k, ic, l]) => `<button role="tab" aria-selected="${z === k}" data-zz="${k}" title="${l}${isOff(k) ? " — off" : ""}" aria-label="${l}${isOff(k) ? " (off)" : ""}" class="${isOff(k) ? "off" : ""}">${icon(ic)}${badge(k)}</button>`).join("")
-      + apps.map(a => `<button role="tab" aria-selected="${z === "app:" + a.id}" data-zz="app:${esc(a.id)}" title="${esc(a.name)}" aria-label="${esc(a.name)}">${Apps.glyph(a, "xs")}</button>`).join("");
+    el.innerHTML = zones().map(([k, ic, l]) => `<button role="tab" aria-selected="${z === k}" data-zz="${k}" title="${l}${isOff(k) ? " — off" : ""}" aria-label="${l}${isOff(k) ? " (off)" : ""}" class="${isOff(k) ? "off" : ""}">${icon(ic)}<span class="zl">${l}</span>${badge(k)}</button>`).join("")
+      + apps.map(a => `<button role="tab" aria-selected="${z === "app:" + a.id}" data-zz="app:${esc(a.id)}" title="${esc(a.name)}" aria-label="${esc(a.name)}">${Apps.glyph(a, "xs")}<span class="zl">${esc(a.name)}</span></button>`).join("");
     $$("[data-zz]", el).forEach(x => (x.onclick = () => openZone(x.dataset.zz)));
     $("#gearBtn").setAttribute("aria-pressed", !!S.settings);
   }
@@ -326,12 +326,21 @@ var Shell = (() => {
     $("#searchBtn").onclick = search;
     $("#gearBtn").onclick = () => (S.settings ? closeSettings() : openSettings());
     $("#gear").onclick = () => (S.settings ? closeSettings() : openSettings());
+    $("#pulseClose").innerHTML = icon("close");
+    $("#pulseBtn").onclick = () => setPulse(!pulseOn);
+    $("#pulseClose").onclick = () => setPulse(false);
+    addEventListener("pointerdown", e => {
+      if (pulseOn && !e.target.closest("#pulse") && !e.target.closest("#pulseBtn")) setPulse(false);
+    }, true);
+    addEventListener("keydown", e => {
+      if (pulseOn && e.key === "Escape") { e.preventDefault(); e.stopPropagation(); setPulse(false); }
+    }, true);
     if (window.Memory) await Memory.init();
     if (window.Apps) await Apps.init();
   }
   // The project arriving (at launch, or opened elsewhere) can change which
   // section Code shows; lay out again when it does.
-  function refresh() { if (elFor(S.mode) !== laid) layout(); renderStatus(); renderRail(); renderZones(); if (S.mode === "code") renderHead(); }
+  function refresh() { if (elFor(S.mode) !== laid) layout(); renderStatus(); renderRail(); renderZones(); renderPulse(); if (S.mode === "code") renderHead(); }
 
   // ---------------------------------------------------------------- status bar
   // After an agent control plane's footer: where you are (branch, project),
@@ -415,5 +424,61 @@ var Shell = (() => {
     setSplit("desktop", 0.45);
   }
 
-  return { projectMenu, search, init, layout, showing, renderStatus, memToast, openDesktop, setMotion, renderSide, renderRail, refresh, setSplit, toggleSplit, elFor, glyph };
+  // ---------------------------------------------------------------- Pulse
+  // The frame's surface for what needs you: approvals waiting, work running,
+  // anything that failed. It reads the same snapshot the sidebar does, so it
+  // is never a second inbox with its own state. The assistant half of Pulse
+  // (a quick chat on the same models) lands with the drawer.
+  let pulseOn = false;
+  function pulseRows() {
+    const ags = (snap && snap.agents) || [];
+    const p = typeof pending === "function" ? pending() : [];
+    const waiting = p.map(ap => {
+      const a = typeof agent === "function" ? agent(ap.agent) : null;
+      return {
+        kind: "wait", id: ap.agent,
+        title: ap.kind === "plan" ? "A plan is ready" : "Work is ready for review",
+        sub: (a && a.title) || (snap && snap.name) || "Project",
+        note: ap.kind === "plan" ? `${(ap.tickets || []).length} tickets` : "Review",
+      };
+    });
+    const failed = ags.filter(a => a.status === "failed" && !p.some(ap => ap.agent === a.id)).map(a => ({
+      kind: "bad", id: a.id, title: a.id === 0 ? "The main agent failed" : a.title,
+      sub: typeof lastLine === "function" ? lastLine(a) : "", note: "Failed",
+    }));
+    const working = ags
+      .filter(a => (typeof busy === "function" ? busy(a) : a.status === "running") && !p.some(ap => ap.agent === a.id))
+      .map(a => ({
+        kind: "run", id: a.id, title: a.id === 0 ? "Main agent" : a.title,
+        sub: typeof lastLine === "function" ? lastLine(a) : "", note: "Working",
+      }));
+    return { waiting: waiting.concat(failed), working };
+  }
+  function pulseGo(id) {
+    setPulse(false);
+    S.codeView = "agents";
+    setMode("code");
+    if (window.Code && Number.isFinite(id)) Code.openIn({ kind: "agent", agent: id });
+  }
+  function renderPulse() {
+    const { waiting, working } = pulseRows();
+    const btn = $("#pulseBtn");
+    if (btn) { btn.setAttribute("aria-pressed", String(pulseOn)); btn.classList.toggle("has", waiting.length > 0); }
+    if (!pulseOn) return;
+    const body = $("#pulseBody"); if (!body) return;
+    const row = r => `<button class="prow ${r.kind}" data-agent="${r.id}"><span class="pico">${icon(r.kind === "wait" ? "ticket" : r.kind === "bad" ? "warn" : "activity")}</span><span class="pt"><b>${esc(r.title)}</b><small>${esc(r.sub)}</small></span><span class="pn">${esc(r.note)}</span></button>`;
+    body.innerHTML =
+      `<div class="pmeta">${waiting.length ? `${waiting.length} waiting` : "Nothing waiting"} · ${working.length} working</div>` +
+      `<section class="psec"><h3>Needs you</h3>${waiting.length ? waiting.map(row).join("") : `<div class="pempty">Nothing needs you. The agents are quiet.</div>`}</section>` +
+      (working.length ? `<section class="psec"><h3>Working</h3>${working.map(row).join("")}</section>` : "");
+    $$("[data-agent]", body).forEach(b => (b.onclick = () => pulseGo(+b.dataset.agent)));
+  }
+  function setPulse(on) {
+    pulseOn = !!on;
+    const el = $("#pulse");
+    if (el) el.hidden = !pulseOn;
+    renderPulse();
+  }
+
+  return { projectMenu, search, init, layout, showing, renderStatus, memToast, openDesktop, setMotion, renderSide, renderRail, refresh, setSplit, toggleSplit, elFor, glyph, setPulse };
 })();
