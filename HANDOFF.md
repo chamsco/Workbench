@@ -18,6 +18,7 @@
 **Ran:** nothing locally — no Xcode in the cloud container.
 `.github/workflows/ios.yml` builds, runs the unit tests on a simulator and
 uploads demo screenshots; that run is the compile.
+
 **Session, 22 Oct 2026 — the first terminal is Brainpowr Code.**
 
 - **A project's first terminal canvas opens Brainpowr Code** instead of a bare
