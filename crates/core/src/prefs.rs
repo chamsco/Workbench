@@ -106,6 +106,9 @@ pub struct Prefs {
     /// Model servers on the local network the user added (Settings → Local
     /// models → On the network), probed alongside this machine's own.
     pub lan_models: Vec<LanServer>,
+    /// Downloaded models the user left running in an engine
+    /// (model_engine.rs), started again at launch.
+    pub engines: Vec<String>,
 }
 
 impl Default for Prefs {
@@ -152,6 +155,7 @@ impl Default for Prefs {
             local_tasks: vec![],
             model_serve: ModelServeCfg::default(),
             lan_models: vec![],
+            engines: vec![],
         }
     }
 }

@@ -274,6 +274,11 @@ impl Fleet {
         if prefs.model_serve.enabled {
             fleet.start_models();
         }
+        // The engines left running last time; slow to load, so off this thread.
+        let p2 = prefs.clone();
+        std::thread::spawn(move || {
+            crate::model_engine::restore(&p2);
+        });
         if prefs.share.enabled {
             if let Err(e) = fleet.start_sharing() {
                 *fleet.share_error.lock().unwrap() = Some(e.to_string());

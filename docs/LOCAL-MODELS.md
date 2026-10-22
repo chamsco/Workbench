@@ -119,6 +119,11 @@ than Ollama. The small-jobs picker offers other machines' tiny models as
 `backspace:<host>/<model>`. Headless: `backspace-cli serve-models 0.0.0.0:7422`
 (token from `BACKSPACE_TOKEN`, else prefs).
 
-Not done: Backspace does not download models or launch engines itself
-(Atomic's core does both); it serves what the runtimes already run. Plain HTTP:
+**Getting and running models** (model_engine.rs). Settings → Local models →
+Get models pulls into Ollama, or downloads a GGUF from Hugging Face into
+`<data>/models/` and runs it with `llama-server` on a port from 8090. Running
+engines appear with this machine's runtimes, so the model server serves them
+by their file name (`Qwen3-1.7B-Q4_K_M`). They restart at launch and stop at
+quit. The engine binary itself is not downloaded: install llama.cpp
+(`brew install llama.cpp`, `winget install llama.cpp`). Plain HTTP:
 over anything but a trusted LAN, use Tailscale/WireGuard or an SSH tunnel.

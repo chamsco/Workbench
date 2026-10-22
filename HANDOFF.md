@@ -1,5 +1,34 @@
 # Handoff: Backspace (ohMyHarness → Workbench), v0
 
+**Session, 22 Oct 2026 — getting models and starting engines.**
+
+- **`crates/core/src/model_engine.rs`** is the other half of Atomic Chat's
+  core. It does two things. *Get* a model: `POST /api/pull` into Ollama, or
+  download one GGUF from Hugging Face. The download goes to
+  `<data>/models/<org>__<repo>/`, resumes from a `.part`, and finds the file
+  by quant through the repo's tree API. *Run* it: `llama-server -m <file>`
+  on a free port from 8090, `--alias` = the file name without `.gguf`.
+  Running engines join `model_server::detect`, so the model server, Chat and
+  small jobs see them with no extra wiring. Engines the user started are
+  `prefs.engines` and come back at launch; `RunEvent::Exit` stops them all.
+  `ollama serve` can be started too.
+- Downloads and pulls are background jobs (`jobs()`, `cancel`). Settings →
+  Local models → Get models shows five suggested small models (Pull into
+  Ollama / Download GGUF), any Ollama name, any HF repo's GGUF files, and
+  the downloaded files with Start / Stop / Delete. While a job runs, only
+  the progress rows redraw.
+- No engine binary is downloaded: if `llama-server` is missing the panel says
+  how to install it (`brew install llama.cpp`, `winget install llama.cpp`,
+  or the release page).
+
+**Ran:** unit tests (repo tree filtering, quant pick, path containment, pull
+progress). A one-off end-to-end test, since removed: a fake `llama-server`
+on `BACKSPACE_CLI_PATH` was started, listed as a runtime, served through
+`served()` and stopped, and a 3 MB download through `fetch` came out
+byte-identical. UI screenshot with mocks, including the polling path.
+**Not run:** real Hugging Face (blocked from this container), real Ollama
+pull, real llama-server, Range resume against a real server, macOS.
+
 **Session, 22 Oct 2026 — the model server.**
 
 - **One URL for every model, like Atomic Chat's `:1337`.**

@@ -536,6 +536,8 @@ pub fn detect(prefs: &Prefs, extra_urls: &[String]) -> Vec<LocalRuntime> {
         .collect();
         // One panicking probe must not hide the others.
         v.extend(cs.into_iter().filter_map(|h| h.join().ok()));
+        // The engines this app started on downloaded files (model_engine.rs).
+        v.extend(crate::model_engine::runtimes());
         v
     });
     // One runtime per address: a router pointed at a known runtime's own

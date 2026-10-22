@@ -1092,6 +1092,73 @@ var Models = (() => {
           ${f.needs_token ? `<input class="tx mono" data-lantok="${i}" placeholder="Token" style="max-width:12em">` : ""}<button class="btn" data-lanadd="${i}">Add</button></div>`).join("") : `<p class="lead">Nothing new found on this network.</p>`) : ""}
       <div class="line"><span class="lab">Find model servers<small>Backspace servers that are open to the network, and Ollama, LM Studio, Atomic Chat or llama.cpp on the usual ports.</small></span><button class="btn" id="lanScan" ${scanning ? "disabled" : ""}>${scanning ? "Looking…" : "Scan the network"}</button></div>
       <div class="line"><span class="lab">Add by address<small>An OpenAI-compatible URL, e.g. <code>http://192.168.1.20:11434/v1</code>.</small></span><input class="tx mono" id="lanUrl" placeholder="http://…/v1"><input class="tx mono" id="lanTok" placeholder="Token (if any)" style="max-width:10em"><button class="btn" id="lanAddUrl">Add</button></div>`;
+  // Get models (model_engine.rs): pull into Ollama, or download a GGUF and
+  // run it in llama-server. Redraws itself every second while a download
+  // runs, and the whole panel once one finishes, so the new model is listed.
+  let getTimer = 0;
+  const jobsHtml = (L, pct, running) => L.jobs.map(j => `<div class="mrow"><span class="mi">${icon(j.status === "done" ? "check" : j.status === "failed" ? "warn" : "download")}</span><span class="lab">${esc(j.label)}<small>${j.status === "running" ? `${j.note ? esc(j.note) + " · " : ""}${pct(j) != null ? pct(j) + "% · " : ""}${size(j.done)}${j.total ? " of " + size(j.total) : ""}` : j.status === "failed" ? esc(j.error || "failed") : j.status}</small>${j.status === "running" && pct(j) != null ? `<progress max="100" value="${pct(j)}" style="width:100%"></progress>` : ""}</span>${j.status === "running" ? `<button class="btn" data-mcancel="${esc(j.id)}">Cancel</button>` : ""}</div>`).join("")
+    + (running.length < L.jobs.length ? `<div class="line"><span class="lab"></span><button class="btn" id="mmClear">Clear finished</button></div>` : "");
+  // While something downloads only the progress rows are redrawn, so what the
+  // user is typing below them stays put.
+  async function drawGet(g, redrawAll, onlyJobs) {
+    clearTimeout(getTimer);
+    if (!g || !g.isConnected) return;
+    let L;
+    try { L = await invoke("model_library"); } catch (e) { g.innerHTML = `<div class="err">${esc(String(e))}</div>`; return; }
+    if (!g.isConnected) return;
+    const running = L.jobs.filter(j => j.status === "running");
+    const pct = j => j.total ? Math.min(100, Math.round(j.done / j.total * 100)) : null;
+    const act = async (fn, ok) => { try { await fn(); if (ok) toast(ok, "ok"); } catch (e) { toast(String(e), "err"); } drawGet(g, redrawAll); };
+    const tick = () => { getTimer = setTimeout(() => drawGet(g, redrawAll, true), 1000); };
+    if (onlyJobs && running.length) {
+      const jb = $("#mmJobs", g);
+      if (jb) { jb.innerHTML = jobsHtml(L, pct, running); bindJobs(); }
+      return tick();
+    }
+    function bindJobs() {
+      $$("[data-mcancel]", g).forEach(b => (b.onclick = () => act(() => invoke("model_cancel", { id: b.dataset.mcancel }))));
+      const cl = $("#mmClear", g); if (cl) cl.onclick = () => act(() => invoke("model_clear_jobs"));
+    }
+    const pulled = (last && last.runtimes || []).filter(r => r.id === "ollama").flatMap(r => r.models.map(m => m.id));
+    g.innerHTML = `<h3 class="subh">Get models</h3>
+      <div id="mmJobs">${jobsHtml(L, pct, running)}</div>
+      ${L.suggested.map(s => `<div class="mrow"><span class="mi">${icon("cpu")}</span><span class="lab">${esc(s.name)}<small>${esc(s.note)} · <span class="mono">${esc(s.ollama)}</span> · <span class="mono">${esc(s.repo)}</span></small></span>
+        ${L.ollama ? `<button class="btn" data-mpull="${esc(s.ollama)}" ${pulled.includes(s.ollama) ? "disabled" : ""}>${pulled.includes(s.ollama) ? "In Ollama" : "Pull into Ollama"}</button>` : ""}
+        <button class="btn" data-mdl="${esc(s.repo)}" data-mq="${esc(s.quant)}">Download GGUF</button></div>`).join("")}
+      <div class="line"><span class="lab">Any Ollama model<small>A name from ollama.com/library, e.g. <code>mistral:7b</code>.</small></span><input class="tx mono" id="mmPullName" placeholder="name:tag" style="max-width:12em"><button class="btn" id="mmPullGo" ${L.ollama ? "" : "disabled"}>Pull</button></div>
+      <div class="line"><span class="lab">Any GGUF on Hugging Face<small>A repository, e.g. <code>unsloth/Qwen3-8B-GGUF</code>; pick a file.</small></span><input class="tx mono" id="mmRepo" placeholder="org/name" style="max-width:14em"><button class="btn" id="mmRepoGo">List files</button></div>
+      <div id="mmRepoFiles"></div>
+      ${L.downloaded.map(f => `<div class="prow${f.engine && !f.engine.exited ? "" : " dim"}"><span class="mi">${icon("box")}</span>
+        <div class="pmain"><div class="pname">${esc(f.name)} <span class="pver">${size(f.size)}</span></div>
+          <span class="pst ${f.engine && !f.engine.exited ? "ok" : "off"}">${f.engine ? (f.engine.exited ? "Stopped unexpectedly" : "Serving") : "Not running"}</span>
+          ${f.engine ? `<div class="pmsg mono">${esc(f.engine.base_url)}${f.engine.exited ? " · log: " + esc(f.engine.log) : ""}</div>` : ""}</div>
+        ${f.engine && !f.engine.exited ? `<button class="btn" data-estop="${esc(f.path)}">Stop</button>` : `<button class="btn" data-estart="${esc(f.path)}" ${L.llama_server ? "" : "disabled"}>Start</button>`}
+        <button class="btn" data-mdel="${esc(f.path)}">Delete</button></div>`).join("")}
+      ${L.downloaded.length && !L.llama_server ? `<p class="warnp">${icon("warn")}Downloaded models run in llama.cpp's <code>llama-server</code>, which isn't installed. Install it with <code>${esc(L.llama_install)}</code>, then Start.</p>` : ""}
+      ${L.ollama ? "" : `<p class="lead">Ollama isn't installed, so pulls are off; GGUF downloads still work with llama-server.</p>`}
+      <p class="lead">Files go to <span class="mono">${esc(L.dir)}</span>. Started models come back when the app opens and stop when it quits.</p>`;
+    $$("[data-mpull]", g).forEach(b => (b.onclick = () => act(() => invoke("model_pull", { name: b.dataset.mpull }))));
+    $$("[data-mdl]", g).forEach(b => (b.onclick = () => act(() => invoke("model_download", { repo: b.dataset.mdl, file: "", quant: b.dataset.mq }))));
+    bindJobs();
+    $("#mmPullGo", g).onclick = () => act(() => invoke("model_pull", { name: $("#mmPullName", g).value.trim() }));
+    $("#mmRepoGo", g).onclick = async () => {
+      const repo = $("#mmRepo", g).value.trim(), out = $("#mmRepoFiles", g);
+      out.innerHTML = `<div class="nothing">Listing ${esc(repo)}…</div>`;
+      try {
+        const files = await invoke("model_repo_files", { repo });
+        out.innerHTML = files.length ? files.map(f => `<div class="mrow"><span class="mi">${icon("box")}</span><span class="lab mono">${esc(f.file)}<small>${f.size ? size(f.size) : ""}</small></span><button class="btn" data-mfile="${esc(f.file)}">Download</button></div>`).join("") : `<p class="lead">No GGUF files in ${esc(repo)}.</p>`;
+        $$("[data-mfile]", out).forEach(b => (b.onclick = () => act(() => invoke("model_download", { repo, file: b.dataset.mfile, quant: "" }))));
+      } catch (e) { out.innerHTML = `<div class="err">${esc(String(e))}</div>`; }
+    };
+    $$("[data-estart]", g).forEach(b => (b.onclick = () => act(() => invoke("engine_start", { path: b.dataset.estart }), "Starting; a model takes a few seconds to load")));
+    $$("[data-estop]", g).forEach(b => (b.onclick = () => act(() => invoke("engine_stop", { path: b.dataset.estop }))));
+    $$("[data-mdel]", g).forEach(b => (b.onclick = () => act(() => invoke("model_delete", { path: b.dataset.mdel }), "Deleted")));
+    // A pull or download that just finished changes the runtimes above.
+    const was = g.dataset.running === "1";
+    g.dataset.running = running.length ? "1" : "";
+    if (running.length) tick();
+    else if (was) redrawAll();
+  }
   async function draw(box, wtBox) {
     box.innerHTML = `<div class="nothing">Looking for Ollama, LM Studio, llama.cpp and MLX…</div>`;
     let d, sv = null;
@@ -1118,7 +1185,9 @@ var Models = (() => {
           <div class="pmsg mono">${esc(r.base_url)}${r.version ? " · v" + esc(r.version) : ""}</div></div></div>`).join("")}
       ${runtimes.length ? "" : `<p class="lead">Nothing found. Install <a href="#" data-url="https://ollama.com/download">Ollama</a>, or start LM Studio, <code>llama-server</code> or <code>mlx_lm.server</code>, then rescan.</p>`}
       <div class="line"><span class="lab">${d.endpoint ? `An OpenAI-compatible endpoint is up at <code class="mono">${esc(d.endpoint)}</code>` : "No local endpoint is up."}${d.recommend ? `<small>Suggested right now: <b>${esc(d.recommend.model)}</b> on ${esc(d.recommend.base_url)}</small>` : ""}</span><button class="btn" id="mmScan">Rescan</button></div>
+      <div id="mmGet"></div>
       ${serveHtml(sv, remote, d.lan || [])}`;
+    drawGet($("#mmGet", box), () => draw(box, wtBox));
     const pick = $("#mmPick", box);
     if (pick) pick.onclick = e => openPop(e.currentTarget, `<h5>Small jobs run on</h5>
       <button class="pi" data-m=""><span class="agent">${icon("sparkle")}</span>Leave it to the main model<span class="k">default</span></button>

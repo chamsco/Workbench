@@ -933,6 +933,86 @@ fn lan_remove(f: F, base_url: String) {
     f.update_prefs(|p| p.lan_models.retain(|l| l.base_url.trim_end_matches('/') != base_url));
 }
 
+// ------------------------------------------------- getting models, engines
+
+/// Settings → Local models → Get models: the suggestions, the files on this
+/// machine and their engines, the downloads in flight, and whether
+/// llama-server and Ollama are there to use.
+#[tauri::command]
+fn model_library() -> serde_json::Value {
+    use backspace_core::model_engine as me;
+    serde_json::json!({
+        "suggested": me::SUGGESTED,
+        "downloaded": me::downloaded(),
+        "jobs": me::jobs(),
+        "llama_server": me::llama_server().map(|p| p.display().to_string()),
+        "llama_install": me::llama_install_hint(),
+        "ollama": backspace_core::harnesses::which("ollama").is_some(),
+        "dir": me::models_dir().display().to_string(),
+    })
+}
+
+#[tauri::command]
+fn model_pull(f: F, name: String) -> Res<String> {
+    backspace_core::model_engine::ollama_pull(&f.prefs(), &name).map_err(err)
+}
+
+/// A GGUF from Hugging Face; an empty `file` takes the `quant` one.
+#[tauri::command]
+fn model_download(repo: String, file: String, quant: String) -> Res<String> {
+    backspace_core::model_engine::hf_download(&repo, &file, if quant.is_empty() { "Q4_K_M" } else { &quant }).map_err(err)
+}
+
+#[tauri::command]
+async fn model_repo_files(repo: String) -> Res<Vec<backspace_core::model_engine::RepoFile>> {
+    tauri::async_runtime::spawn_blocking(move || backspace_core::model_engine::hf_files(&repo))
+        .await
+        .map_err(err)?
+        .map_err(err)
+}
+
+#[tauri::command]
+fn model_cancel(id: String) {
+    backspace_core::model_engine::cancel(&id);
+}
+
+#[tauri::command]
+fn model_clear_jobs() {
+    backspace_core::model_engine::clear_jobs();
+}
+
+/// Serve a downloaded file, and start it again on the next launch.
+#[tauri::command]
+fn engine_start(f: F, path: String) -> Res<backspace_core::model_engine::EngineInfo> {
+    let info = backspace_core::model_engine::start(&path).map_err(err)?;
+    f.update_prefs(|p| {
+        if !p.engines.contains(&info.path) {
+            p.engines.push(info.path.clone());
+        }
+    });
+    Ok(info)
+}
+
+#[tauri::command]
+fn engine_stop(f: F, path: String) {
+    let path = backspace_core::model_engine::canonical(&path);
+    backspace_core::model_engine::stop(&path);
+    f.update_prefs(|p| p.engines.retain(|e| e != &path));
+}
+
+#[tauri::command]
+fn model_delete(f: F, path: String) -> Res<()> {
+    let path = backspace_core::model_engine::canonical(&path);
+    backspace_core::model_engine::delete(&path).map_err(err)?;
+    f.update_prefs(|p| p.engines.retain(|e| e != &path));
+    Ok(())
+}
+
+#[tauri::command]
+fn ollama_start() -> Res<()> {
+    backspace_core::model_engine::start_ollama().map_err(err)
+}
+
 // ---------------------------------------------------- skills and worktrees
 
 /// Settings → Agent skills: every skill this machine can load, where it came
@@ -2109,6 +2189,16 @@ fn main() -> anyhow::Result<()> {
             delegate_assign,
             delegate_auto,
             delegate_import,
+            model_library,
+            model_pull,
+            model_download,
+            model_repo_files,
+            model_cancel,
+            model_clear_jobs,
+            engine_start,
+            engine_stop,
+            model_delete,
+            ollama_start,
             model_serve_status,
             set_model_serve,
             lan_scan,
@@ -2169,7 +2259,13 @@ fn main() -> anyhow::Result<()> {
             });
             Ok(())
         })
-        .run(tauri::generate_context!())?;
+        .build(tauri::generate_context!())?
+        // An engine the app started must not outlive it holding the GPU.
+        .run(|_, event| {
+            if let tauri::RunEvent::Exit = event {
+                backspace_core::model_engine::stop_all();
+            }
+        });
     Ok(())
 }
 
