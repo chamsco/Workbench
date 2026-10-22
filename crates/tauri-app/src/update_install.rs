@@ -82,10 +82,16 @@ while kill -0 "$pid" 2>/dev/null; do sleep 0.2; done
 sleep 0.4
 old="$target.old.$$"
 rm -rf "$old"
-if ! mv "$target" "$old"; then exit 1; fi
+# Whatever happens below, the app comes back: a failed swap must not leave the
+# person with no window and no way in but Finder.
+if ! mv "$target" "$old"; then
+  /usr/bin/open "$target" 2>/dev/null
+  exit 1
+fi
 if ! /usr/bin/ditto "$new" "$target"; then
   rm -rf "$target"
   mv "$old" "$target"
+  /usr/bin/open "$target" 2>/dev/null
   exit 1
 fi
 rm -rf "$old"
