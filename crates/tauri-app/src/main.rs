@@ -845,10 +845,17 @@ fn chat_purge_ghosts(f: F) -> Vec<String> {
 #[tauri::command]
 fn local_models(f: F) -> serde_json::Value {
     let prefs = f.prefs();
-    let runtimes = backspace_core::model_server::detect(&prefs, &[]);
+    // This machine's runtimes and the ones it reaches (the network, connected
+    // machines) side by side, so the slower set does not add to the faster.
+    let (runtimes, remote) = std::thread::scope(|s| {
+        let r = s.spawn(|| backspace_core::model_server::remote_runtimes(&prefs));
+        (backspace_core::model_server::detect(&prefs, &[]), r.join().unwrap_or_default())
+    });
     let recommend = backspace_core::model_server::recommend(&runtimes);
     serde_json::json!({
         "runtimes": runtimes,
+        "remote": remote,
+        "lan": prefs.lan_models.iter().map(|l| serde_json::json!({"name": l.name, "base_url": l.base_url})).collect::<Vec<_>>(),
         "recommend": recommend.map(|(url, model)| serde_json::json!({"base_url": url, "model": model})),
         "endpoint": backspace_core::model_server::best_endpoint(&prefs),
         "chosen": prefs.subagent_model,
@@ -874,6 +881,52 @@ fn set_local_tasks(f: F, tasks: Vec<String>) {
             .filter(|t| known.contains(&t.as_str()))
             .collect();
     });
+}
+
+// ------------------------------------------------------- model server
+
+/// Settings → Local models → Serve: the model server's URLs, token and state.
+#[tauri::command]
+fn model_serve_status(f: F) -> serde_json::Value {
+    f.model_serve_status()
+}
+
+#[tauri::command]
+fn set_model_serve(f: F, enabled: bool, allow_lan: bool, new_token: bool) -> serde_json::Value {
+    f.inner().set_model_serve(enabled, allow_lan, new_token);
+    f.model_serve_status()
+}
+
+/// Model servers on the local network. A few seconds: a broadcast, then a
+/// sweep of the usual runtime ports.
+#[tauri::command]
+async fn lan_scan(f: F<'_>) -> Res<Vec<backspace_core::model_gateway::Found>> {
+    blocking(f, |f| Ok(backspace_core::model_gateway::discover(&f.prefs()))).await
+}
+
+/// Save a server on the network, once it lists models with that token.
+#[tauri::command]
+async fn lan_add(f: F<'_>, name: String, base_url: String, token: String) -> Res<Vec<String>> {
+    blocking(f, move |f| {
+        let base_url = base_url.trim().trim_end_matches('/').to_string();
+        if !base_url.starts_with("http://") && !base_url.starts_with("https://") {
+            anyhow::bail!("give the server's URL, e.g. http://192.168.1.20:11434/v1");
+        }
+        let models = backspace_core::model_gateway::check_lan(&base_url, token.trim())?;
+        let name = if name.trim().is_empty() { backspace_core::model_server::host_of(&base_url) } else { name.trim().to_string() };
+        f.update_prefs(|p| {
+            p.lan_models.retain(|l| l.base_url.trim_end_matches('/') != base_url);
+            p.lan_models.push(backspace_core::prefs::LanServer { name, base_url, token: token.trim().to_string() });
+        });
+        Ok(models)
+    })
+    .await
+}
+
+#[tauri::command]
+fn lan_remove(f: F, base_url: String) {
+    let base_url = base_url.trim_end_matches('/').to_string();
+    f.update_prefs(|p| p.lan_models.retain(|l| l.base_url.trim_end_matches('/') != base_url));
 }
 
 // ---------------------------------------------------- skills and worktrees
@@ -2051,6 +2104,11 @@ fn main() -> anyhow::Result<()> {
             delegate_assign,
             delegate_auto,
             delegate_import,
+            model_serve_status,
+            set_model_serve,
+            lan_scan,
+            lan_add,
+            lan_remove,
             companion_status,
             set_companion,
             set_companion_lan,

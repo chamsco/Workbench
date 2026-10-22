@@ -719,9 +719,45 @@ pub fn scan(prefs: &Prefs) -> Vec<HarnessInfo> {
             .filter_map(|h| h.join().ok())
             .collect()
     });
+    out.extend(model_server(prefs));
     out.extend(prefs.remote_agents.iter().map(remote_agent));
     apply_toggles(&mut out, &prefs.harnesses);
     out
+}
+
+/// The model server (model_gateway.rs) as a router Chat can pick: the models
+/// it reaches beyond Ollama, which is listed on its own. Absent when the
+/// server is off or reaches nothing else, so a plain Ollama setup looks the
+/// same as before. Read from the catalog in-process, not over HTTP: a cold
+/// catalog takes longer than a probe may wait.
+fn model_server(prefs: &Prefs) -> Option<HarnessInfo> {
+    if !prefs.model_serve.enabled {
+        return None;
+    }
+    let models: Vec<String> = crate::model_gateway::catalog(false)
+        .into_iter()
+        .filter(|s| s.runtime != "ollama")
+        .map(|s| s.id)
+        .collect();
+    if models.is_empty() {
+        return None;
+    }
+    Some(HarnessInfo {
+        id: format!("router:{}", crate::model_gateway::ROUTER_ID),
+        name: "Model server".into(),
+        kind: Kind::Router,
+        installed: true,
+        path: Some(prefs.model_serve.local_url()),
+        version: None,
+        auth: Auth::Authenticated,
+        detail: Some(format!("{} models on this machine and the network", models.len())),
+        message: None,
+        enabled: false,
+        user_set: false,
+        models,
+        chat: true,
+        install: "",
+    })
 }
 
 /// A connected A2A agent as a provider. Not probed on every scan: its

@@ -6,6 +6,10 @@
 //!                                        share a harness so other machines
 //!                                        can follow it (default 127.0.0.1:7420;
 //!                                        token from BACKSPACE_TOKEN or printed)
+//!   backspace-cli serve-models [addr]    the model server alone (default
+//!                                        127.0.0.1:7422): every model this
+//!                                        machine reaches on one OpenAI URL;
+//!                                        another machine needs the token
 //!   backspace-cli scan                   which coding CLIs, local models and
 //!                                        routers this machine has
 //!   backspace-cli cloud [addr]           the development Backspace Cloud
@@ -44,12 +48,13 @@ fn main() -> Result<()> {
         [cmd] if cmd == "scan" => scan(),
         // The tiny local models, and which one small delegated jobs would use.
         [cmd] if cmd == "models" => models(),
+        [cmd, rest @ ..] if cmd == "serve-models" && rest.len() <= 1 => serve_models(rest.first().map(String::as_str)),
         [cmd, rest @ ..] if cmd == "cloud" && rest.len() <= 1 => cloud(
             rest.first().map_or("127.0.0.1:7430", |s| s.as_str()),
         ),
         [ws, goal @ ..] if !goal.is_empty() => run(PathBuf::from(ws), goal.join(" ")),
         _ => bail!(
-            "usage: backspace-cli init-config | <workspace> <goal> | serve <workspace> [addr] | scan | models | cloud [addr]"
+            "usage: backspace-cli init-config | <workspace> <goal> | serve <workspace> [addr] | scan | models | serve-models [addr] | cloud [addr]"
         ),
     }
 }
@@ -82,6 +87,29 @@ fn scan() -> Result<()> {
     Ok(())
 }
 
+/// The model server without the app, for a box on the network with a GPU and
+/// no screen. Open to the network when the address is not loopback, and then
+/// it answers discovery too.
+fn serve_models(addr: Option<&str>) -> Result<()> {
+    let prefs = backspace_core::prefs::Prefs::load();
+    let addr = addr.map(str::to_string).unwrap_or_else(|| prefs.model_serve.bind_addr());
+    let token = std::env::var("BACKSPACE_TOKEN").unwrap_or(prefs.model_serve.token);
+    // 0.0.0.0 is every interface here, not "this machine only".
+    let lan = !(addr.starts_with("127.") || addr.starts_with("localhost") || addr.starts_with("[::1]"));
+    let port: u16 = addr.rsplit(':').next().and_then(|p| p.parse().ok()).unwrap_or(7422);
+    println!("serving models at http://{addr}/v1");
+    if lan {
+        println!("other machines: Authorization: Bearer {token}");
+    }
+    let rt = tokio::runtime::Runtime::new()?;
+    rt.block_on(async move {
+        if lan {
+            tokio::spawn(backspace_core::model_gateway::answer_discovery(port));
+        }
+        backspace_core::model_gateway::serve(addr, token).await
+    })
+}
+
 /// The tiny local models (Settings → Local models, without the UI): what is
 /// running, which models are small enough to delegate to, and what would be
 /// used right now.
@@ -106,6 +134,18 @@ fn models() -> Result<()> {
                 if m.tiny { "tiny" } else { "" },
                 m.size_bytes.map(|b| format!("  {}", backspace_core::model_server::human_size(b))).unwrap_or_default()
             );
+        }
+    }
+    for r in backspace_core::model_server::remote_runtimes(&prefs) {
+        println!(
+            "{:<10} {:<34} {:<9} {}",
+            r.host.as_deref().unwrap_or(""),
+            r.base_url,
+            if r.running { "running" } else { "offline" },
+            r.message.clone().unwrap_or_default()
+        );
+        for m in &r.models {
+            println!("    {:<44} {}", m.id, if m.tiny { "tiny" } else { "" });
         }
     }
     match backspace_core::model_server::recommend(&runtimes) {

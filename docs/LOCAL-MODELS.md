@@ -51,8 +51,8 @@ ollama pull smollm2:360m      # 0.68 GB — CPU-only fallback
 The first two are pulled. `qwen3:1.7b` is the default recommendation: it is on
 both the Extract and the Summarize preference lists in `model_server.rs`.
 
-**`lfm2.5:2.6b` does not exist.** The tag is hard-coded at `model_server.rs:631`
-and in tests, and it 404s, as do `lfm2:2.6b` / `lfm2:1.2b` / `lfm2:700m`. The
+**`lfm2.5:2.6b` does not exist.** The tag was hard-coded in the Ollama hint
+(now `qwen3:1.7b`) and is still in tests, and it 404s, as do `lfm2:2.6b` / `lfm2:1.2b` / `lfm2:700m`. The
 only LFM2.5 tag, `lfm2.5:latest`, is an 8.5B MoE (4.8 GB), which `is_tiny`
 rejects. That preference is therefore unsatisfiable as written and should be
 swapped for a real family.
@@ -84,3 +84,41 @@ Two things to know since 16 Oct:
 - Ollama listens on `OLLAMA_HOST=http://0.0.0.0:11434`, i.e. every interface,
   not loopback only. Worth changing to `127.0.0.1:11434` unless something else
   on the LAN needs it.
+
+## Serving them (model_gateway.rs, 22 Oct 2026)
+
+Like Atomic Chat's `localhost:1337`, the app serves one OpenAI-compatible URL
+for every model it can reach: **`http://127.0.0.1:7422/v1`**.
+
+```bash
+curl http://127.0.0.1:7422/v1/models
+curl http://127.0.0.1:7422/v1/chat/completions -H 'content-type: application/json' \
+  -d '{"model":"qwen3:1.7b","stream":true,"messages":[{"role":"user","content":"hi"}]}'
+```
+
+| Who asks | Token | Sees |
+|---|---|---|
+| A tool on this machine | none | this machine's runtimes, the network servers you added, connected machines (`<host>/<model>`) |
+| A browser page (any `Origin`) | required | same |
+| Another machine (only with "Reachable from my network") | required | this machine's runtimes only |
+| A connected machine via the share link, `<share url>/v1/llm` | share token | this machine's runtimes only |
+| The phone via the companion link, `<phone url>/v1/llm` | phone token | this machine's runtimes only |
+
+Remote callers never get relayed models, so two servers that add each other
+cannot bounce a request between them.
+
+**Finding servers.** Settings → Local models → On the network → *Scan the
+network* broadcasts on UDP 7422 (Backspace servers open to the network answer)
+and sweeps this machine's /24 for 11434 (Ollama), 1234 (LM Studio), 1337
+(Atomic Chat) and 8080 (llama.cpp). Anything that lists models can be added;
+so can any URL by hand. An Ollama on another machine only answers if it
+listens beyond loopback (`OLLAMA_HOST=0.0.0.0`).
+
+**Using them.** Chat lists *Model server* as a provider once it reaches more
+than Ollama. The small-jobs picker offers other machines' tiny models as
+`backspace:<host>/<model>`. Headless: `backspace-cli serve-models 0.0.0.0:7422`
+(token from `BACKSPACE_TOKEN`, else prefs).
+
+Not done: Backspace does not download models or launch engines itself
+(Atomic's core does both); it serves what the runtimes already run. Plain HTTP:
+over anything but a trusted LAN, use Tailscale/WireGuard or an SSH tunnel.

@@ -1,5 +1,42 @@
 # Handoff: Backspace (ohMyHarness → Workbench), v0
 
+**Session, 22 Oct 2026 — the model server.**
+
+- **One URL for every model, like Atomic Chat's `:1337`.**
+  `crates/core/src/model_gateway.rs` serves `http://127.0.0.1:7422/v1`
+  (OpenAI-compatible: `/models`, `/chat/completions`, `/completions`,
+  `/embeddings`, `/responses`). A request names a model; the server finds the
+  runtime that has it (Ollama, LM Studio, llama.cpp, MLX, a server on the
+  network, a connected machine), rewrites the id and streams the answer back.
+  Other machines' models are listed as `<host>/<model>`. On by default,
+  loopback only, keyless for tools on this machine; a request with an `Origin`
+  (a browser page) needs the token.
+- **The network.** `prefs.model_serve.allow_lan` binds `0.0.0.0`, wants the
+  token, serves only this machine's own runtimes (no relaying, so two servers
+  that list each other cannot loop) and answers a UDP broadcast on 7422.
+  `discover()` sends that broadcast and sweeps the /24 for 11434, 1234, 1337
+  and 8080. Servers you add are `prefs.lan_models`.
+- **Through the connection.** The share link (remote.rs) and the phone link
+  (companion.rs) serve the same routes under `/v1/llm` with their own tokens,
+  so a connected machine (Settings → Machines) shows its models here and the
+  phone can chat with the desk's models.
+- **Where it shows.** Settings → Local models gains Serve and On the network
+  (scan, add by address, remove). Chat lists a "Model server" router when it
+  reaches anything beyond Ollama (`router:backspace`); small jobs can pick
+  `backspace:<host>/<model>`. `backspace-cli serve-models [addr]` runs it with
+  no app, for a GPU box with no screen.
+- Fixed the Ollama hint that suggested the non-existent `lfm2.5:2.6b`.
+
+**Ran:** `cargo test -p backspace-core` (142 pass, incl. a loopback streaming
+test of the proxy); `cargo check -p backspace-tauri`; by hand, a fake
+OpenAI server on :1234 behind two `serve-models` (one LAN with a token, one
+loopback that adds the first as a network server): listing, streamed chat
+through both hops, 401 for an `Origin` and for a LAN caller without the
+token, and 404 when the LAN caller asks for a relayed model. Settings panel
+screenshot in the uiharness with mocks. **Not run:** real Ollama/LM Studio,
+two physical machines, macOS build, the share/phone `/v1/llm` routes end to
+end (they call the same handler).
+
 **Session, 22 Oct 2026 — Code owns its engine.**
 
 - **The workbench moved into the app.** Everything Code draws is now

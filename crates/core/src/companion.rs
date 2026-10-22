@@ -139,6 +139,12 @@ async fn handle(
     if !(bearer || query_token) {
         return respond(&mut stream, 401, &json!({"error": "bad token"})).await;
     }
+    // The models on the desk, OpenAI-compatible, so the phone can chat with
+    // them directly (model_gateway.rs). This machine's own only.
+    if let Some(rest) = req.path.strip_prefix("/v1/llm") {
+        let rest = rest.to_string();
+        return crate::model_gateway::handle_llm(&mut stream, &req, &rest, true).await;
+    }
     let body: Value = if req.body.is_empty() {
         Value::Null
     } else {

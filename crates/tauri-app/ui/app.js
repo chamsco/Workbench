@@ -649,7 +649,7 @@ function renderSettings() {
       <div class="line stack"><span class="lab">Agents run on<small>The planner and the workers, what they may do, and how hard they think. Applies when a project opens.${hasProject ? ` <button class="lnk" id="reopen">Reopen ${esc(snap.name)} now</button>` : ""}</small></span><div class="segc" id="workerSeg"></div></div>
       <div id="keyRows"></div></section>
     <section id="set-accounts"><h2>Accounts</h2><p class="lead">Several logins per coding CLI, each in its own profile directory, kept apart. When one hits its usage limit it is parked and the next turn picks another — never on a plain rate limit, only when the CLI itself reports a limit. Backspace never holds the credentials: the CLI signs in to its own profile directory.</p><div id="setAccounts"></div></section>
-    <section id="set-models"><h2>Local models</h2><p class="lead">Small models on this machine, for the small jobs a big agent delegates: reading, classifying, summarising, extracting. Ollama, LM Studio, llama.cpp and MLX are all found where they run.</p><div id="setLocal"></div></section>
+    <section id="set-models"><h2>Local models</h2><p class="lead">Small models on this machine, for the small jobs a big agent delegates: reading, classifying, summarising, extracting. Ollama, LM Studio, llama.cpp and MLX are all found where they run, and the model server puts them, and the ones on your network, behind one URL.</p><div id="setLocal"></div></section>
     <section id="set-skills"><h2>Agent skills</h2><p class="lead">Markdown playbooks an agent loads on demand. Each role gets some injected; every agent can load any of them. Drop a folder with a <code>SKILL.md</code> into <code>~/.config/backspace/skills/</code> or <code>&lt;workspace&gt;/.backspace/skills/</code> to replace one or add your own.</p><div id="setSkills"></div></section>
     <section id="set-worktrees"><h2>Managed worktrees</h2><p class="lead">Each ticket's agent gets its own git branch and worktree, forked from its parent's branch. Worktrees are kept after a run so you can reopen a ticket; each one carries its own copy of dependencies.</p><div id="setWorktrees"></div></section>
     <section id="set-colony"><h2>Workspaces and Colony</h2><p class="lead">Colony gives an agent a real machine of its own: a WSL2 distro or a Hyper-V VM, started on demand, addressable by name, thrown away when the task is done. Backspace drives visor-core's JSON CLI.</p><div id="setColony"></div></section>
@@ -962,17 +962,41 @@ async function renderArchived(el) {
 var Models = (() => {
   const size = b => { const u = ["B", "KiB", "MiB", "GiB", "TiB"]; let i = 0, n = b || 0; while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; } return (i ? n.toFixed(1) : n) + " " + u[i]; };
   const KIND = { ollama: "Ollama", mlx: "MLX", lmstudio: "LM Studio", llamacpp: "llama.cpp", custom: "Custom" };
-  let last = null;
+  let last = null, found = null, scanning = false;
+  // The model server and the network (model_gateway.rs): the URL to hand any
+  // OpenAI tool, whether other machines may use it, and the servers on the
+  // network this machine reaches. Models on another machine are picked as
+  // "backspace:<host>/<model>", which the model server routes.
+  const serveHtml = (sv, remote, lan) => !sv ? "" : `<h3 class="subh">Serve</h3>
+      <div class="line"><span class="lab">Model server<small>${sv.error ? esc(sv.error) : sv.enabled ? `One OpenAI-compatible URL for every model on this page, for any tool on this machine: <code class="mono">${esc(sv.url)}</code>` : "Off. Chat and small jobs can't use models on other machines."}</small></span><button class="toggle" role="switch" id="msOn" aria-checked="${!!sv.enabled}" aria-label="Model server"></button></div>
+      ${sv.enabled ? `<div class="line"><span class="lab">Reachable from my network<small>${sv.allow_lan ? (sv.lan_url ? `Other machines use <code class="mono">${esc(sv.lan_url)}</code> with the token as a Bearer key. They get this machine's own models only.` : "On, but this machine has no address on a local network.") : "Off (recommended): this machine only."}</small></span><button class="toggle" role="switch" id="msLan" aria-checked="${!!sv.allow_lan}" aria-label="Reachable from my network"></button></div>` : ""}
+      ${sv.enabled && sv.allow_lan ? `<div class="line"><span class="lab">Token<small class="mono">${esc(sv.token)}</small></span><button class="btn" id="msCopy">${icon("copy")}Copy</button><button class="btn" id="msNew">New token</button></div>` : ""}
+      <h3 class="subh">On the network</h3>
+      ${remote.length ? remote.map(r => `<div class="prow${r.running ? "" : " dim"}"><span class="mi">${icon("cloud")}</span>
+        <div class="pmain"><div class="pname">${esc(r.host || r.name)} <span class="pver">${r.id.startsWith("machine:") ? "Connected machine" : "Network"}</span></div>
+          <span class="pst ${r.running ? "ok" : "off"}">${r.running ? `${r.models.length} model${r.models.length === 1 ? "" : "s"}` : "Offline"}</span>
+          ${r.message ? `<div class="pmsg">${esc(r.message)}</div>` : ""}
+          <div class="pmodels">${r.models.slice(0, 12).map(m => `<span title="${esc(m.id)}">${esc(m.id)}${m.tiny ? " ·" : ""}</span>`).join("")}</div>
+          <div class="pmsg mono">${esc(r.base_url)}</div></div>
+        ${r.id.startsWith("lan:") ? `<button class="btn" data-lanrm="${esc(r.base_url)}">Remove</button>` : ""}</div>`).join("")
+        : `<p class="lead">No servers on the network yet. Machines you connect (Settings → Machines) share their models here too.</p>`}
+      ${found ? (found.filter(f => !f.added).length ? found.filter(f => !f.added).map((f, i) => `<div class="mrow"><span class="mi">${icon("cpu")}</span><span class="lab">${esc(f.name)}<small>${esc(f.kind)} · <span class="mono">${esc(f.base_url)}</span>${f.needs_token ? " · wants a token" : ` · ${f.models.length} model${f.models.length === 1 ? "" : "s"}`}</small></span>
+          ${f.needs_token ? `<input class="tx mono" data-lantok="${i}" placeholder="Token" style="max-width:12em">` : ""}<button class="btn" data-lanadd="${i}">Add</button></div>`).join("") : `<p class="lead">Nothing new found on this network.</p>`) : ""}
+      <div class="line"><span class="lab">Find model servers<small>Backspace servers that are open to the network, and Ollama, LM Studio, Atomic Chat or llama.cpp on the usual ports.</small></span><button class="btn" id="lanScan" ${scanning ? "disabled" : ""}>${scanning ? "Looking…" : "Scan the network"}</button></div>
+      <div class="line"><span class="lab">Add by address<small>An OpenAI-compatible URL, e.g. <code>http://192.168.1.20:11434/v1</code>.</small></span><input class="tx mono" id="lanUrl" placeholder="http://…/v1"><input class="tx mono" id="lanTok" placeholder="Token (if any)" style="max-width:10em"><button class="btn" id="lanAddUrl">Add</button></div>`;
   async function draw(box, wtBox) {
     box.innerHTML = `<div class="nothing">Looking for Ollama, LM Studio, llama.cpp and MLX…</div>`;
-    let d;
-    try { d = await invoke("local_models"); } catch (e) { box.innerHTML = `<div class="err">${esc(String(e))}</div>`; return; }
+    let d, sv = null;
+    try { [d, sv] = await Promise.all([invoke("local_models"), invoke("model_serve_status").catch(() => null)]); } catch (e) { box.innerHTML = `<div class="err">${esc(String(e))}</div>`; return; }
     last = d;
     if (!box.isConnected) return;
     const chosen = d.chosen || "";
     const tasks = (d.tasks && d.tasks.length ? d.tasks : ["scouts"]);
     const runtimes = d.runtimes || [];
-    const tiny = runtimes.flatMap(r => r.models.filter(m => m.tiny).map(m => ({ ...m, runtime: r.id, up: r.running })));
+    const remote = d.remote || [];
+    // Another machine's tiny models only reach a job through the model server.
+    const tiny = runtimes.flatMap(r => r.models.filter(m => m.tiny).map(m => ({ ...m, runtime: r.id, up: r.running })))
+      .concat(sv && sv.enabled ? remote.flatMap(r => r.models.filter(m => m.tiny).map(m => ({ ...m, id: (r.host || r.name) + "/" + m.id, runtime: "backspace", up: r.running }))) : []);
     box.innerHTML = `<div class="line"><span class="lab">Small jobs go to<small>Reading, classifying, summarising and extracting, when a subscription model delegates them. One small local model, one task at a time.</small></span>
         <button class="btn" id="mmPick" data-popper>${chosen ? esc(chosen) : "Leave it to the main model"}${icon("chevd")}</button></div>
       <div class="line"><span class="lab">…for these jobs<small>${chosen ? "Scouts are read-only lookups, the safest to hand over. Triage classifies a filed ticket. Workers build a ticket, so pick this only if the small model is up for it." : "Choose a model above first."}</small></span>
@@ -985,7 +1009,8 @@ var Models = (() => {
           <div class="pmodels">${r.models.slice(0, 12).map(m => `<span title="${esc(m.id)}">${esc(m.id)}${m.tiny ? " ·" : ""}</span>`).join("")}</div>
           <div class="pmsg mono">${esc(r.base_url)}${r.version ? " · v" + esc(r.version) : ""}</div></div></div>`).join("")}
       ${runtimes.length ? "" : `<p class="lead">Nothing found. Install <a href="#" data-url="https://ollama.com/download">Ollama</a>, or start LM Studio, <code>llama-server</code> or <code>mlx_lm.server</code>, then rescan.</p>`}
-      <div class="line"><span class="lab">${d.endpoint ? `An OpenAI-compatible endpoint is up at <code class="mono">${esc(d.endpoint)}</code>` : "No local endpoint is up."}${d.recommend ? `<small>Suggested right now: <b>${esc(d.recommend.model)}</b> on ${esc(d.recommend.base_url)}</small>` : ""}</span><button class="btn" id="mmScan">Rescan</button></div>`;
+      <div class="line"><span class="lab">${d.endpoint ? `An OpenAI-compatible endpoint is up at <code class="mono">${esc(d.endpoint)}</code>` : "No local endpoint is up."}${d.recommend ? `<small>Suggested right now: <b>${esc(d.recommend.model)}</b> on ${esc(d.recommend.base_url)}</small>` : ""}</span><button class="btn" id="mmScan">Rescan</button></div>
+      ${serveHtml(sv, remote, d.lan || [])}`;
     const pick = $("#mmPick", box);
     if (pick) pick.onclick = e => openPop(e.currentTarget, `<h5>Small jobs run on</h5>
       <button class="pi" data-m=""><span class="agent">${icon("sparkle")}</span>Leave it to the main model<span class="k">default</span></button>
@@ -1003,6 +1028,29 @@ var Models = (() => {
       prefs.local_tasks = next; draw(box, wtBox);
     }));
     $$("[data-url]", box).forEach(b => (b.onclick = e => { e.preventDefault(); invoke("open_url", { url: b.dataset.url }); }));
+    if (sv) {
+      const setServe = async (enabled, allowLan, newToken) => { await invoke("set_model_serve", { enabled, allowLan, newToken }).catch(e => toast(String(e), "err")); draw(box, wtBox); };
+      $("#msOn", box).onclick = () => setServe(!sv.enabled, sv.allow_lan, false);
+      const lan = $("#msLan", box); if (lan) lan.onclick = () => setServe(true, !sv.allow_lan, false);
+      const cp = $("#msCopy", box); if (cp) cp.onclick = () => { navigator.clipboard.writeText(sv.token); toast("Token copied", "ok"); };
+      const nt = $("#msNew", box); if (nt) nt.onclick = async () => { await setServe(true, true, true); toast("Machines using the old token were signed out", "ok"); };
+      const add = async (name, url, token) => {
+        try { const ms = await invoke("lan_add", { name, baseUrl: url, token }); toast(`Added ${name || url}: ${ms.length} model${ms.length === 1 ? "" : "s"}`, "ok"); found = found && found.filter(f => f.base_url !== url); draw(box, wtBox); }
+        catch (e) { toast(String(e), "err"); }
+      };
+      $("#lanScan", box).onclick = async () => {
+        scanning = true; draw(box, wtBox);
+        try { found = await invoke("lan_scan"); } catch (e) { toast(String(e), "err"); }
+        scanning = false; if (box.isConnected) draw(box, wtBox);
+      };
+      $("#lanAddUrl", box).onclick = () => add("", $("#lanUrl", box).value.trim(), $("#lanTok", box).value.trim());
+      const fresh = (found || []).filter(f => !f.added);
+      $$("[data-lanadd]", box).forEach(b => (b.onclick = () => {
+        const f = fresh[+b.dataset.lanadd], t = $(`[data-lantok="${b.dataset.lanadd}"]`, box);
+        add(f.name, f.base_url, t ? t.value.trim() : "");
+      }));
+      $$("[data-lanrm]", box).forEach(b => (b.onclick = async () => { await invoke("lan_remove", { baseUrl: b.dataset.lanrm }); draw(box, wtBox); }));
+    }
     if (wtBox) renderWorktrees(wtBox);
   }
   return { mount: (box, wtBox) => { if (box) draw(box, wtBox); }, size, get last() { return last; } };

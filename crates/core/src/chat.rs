@@ -1464,6 +1464,10 @@ impl Chats {
                 Target::Cli { provider: route.provider.clone(), bin }
             }
             RouteKind::Local => Target::Ollama { url: ctx.prefs.ollama_url.trim_end_matches('/').to_string() },
+            // This machine's model server: whatever it reaches, keyless on loopback.
+            RouteKind::Router if route.provider == crate::model_gateway::ROUTER_ID => {
+                Target::OpenAi { base: ctx.prefs.model_serve.local_url(), key: String::new() }
+            }
             RouteKind::Router => {
                 let r = ctx
                     .prefs
