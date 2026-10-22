@@ -21,6 +21,8 @@
 .win-ascii { position: absolute; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; display: none; color: #fff; }
 .win[data-backdrop="sharks-white"] .win-ascii { display: block; opacity: 0.22; }
 .win[data-backdrop="sharks-black"] .win-ascii { display: block; opacity: 0.18; color: #0b0a0e; }
+/* Koi: one warm ink that reads on a dark window and a light one alike. */
+.win[data-backdrop="koi"] .win-ascii { display: block; opacity: 0.34; color: #f27a2e; }
 .win-ascii .sea { position: absolute; inset: 0; -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 32%); mask-image: linear-gradient(to bottom, transparent 0, #000 32%); }
 .win-ascii pre { position: absolute; margin: 0; font: 500 clamp(6px, 0.8vw, 13px)/1.02 var(--font-mono); white-space: pre; }
 .win-ascii .s1 { left: 0; bottom: -7%; font-size: clamp(11px, 1.15vw, 19px); }
