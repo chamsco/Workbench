@@ -51,7 +51,31 @@ pub struct UpdateInfo {
     pub url: String,
     /// The commit this build came from, short; "" when built by hand.
     pub build: String,
+    /// Can this build download the update and swap itself? macOS only: the
+    /// release carries a `.app`, and nothing else knows how to install one.
+    pub installs: bool,
+    /// What changed between this build and the newest one, newest first, at
+    /// most `CHANGES_SHOWN` of them. Empty when nothing is newer, or when
+    /// GitHub would not say.
+    pub changes: Vec<Change>,
+    /// How many more changes there are than `changes` shows.
+    pub more: usize,
+    /// The whole comparison on GitHub, for "N more changes" and "Read more".
+    pub changes_url: String,
 }
+
+/// One line of "What's changed": a pull request when the commit names one.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+pub struct Change {
+    pub title: String,
+    /// The GitHub login of whoever wrote it, when GitHub knows it.
+    pub author: String,
+    /// The pull request it came in by, or 0 for a commit pushed straight.
+    pub pr: u64,
+}
+
+/// How many changes the update popover lists before "N more on GitHub".
+pub const CHANGES_SHOWN: usize = 8;
 
 pub async fn check(http: &reqwest::Client) -> Result<UpdateInfo> {
     let res = http
@@ -85,13 +109,104 @@ pub async fn check(http: &reqwest::Client) -> Result<UpdateInfo> {
         .map(String::from)
         .unwrap_or_else(releases_url);
     let target = release_commit(&v);
-    Ok(UpdateInfo {
-        current: VERSION.into(),
+    let newer = target.as_deref().is_some_and(|t| is_newer(t, BUILD));
+    let mut info = UpdateInfo {
         latest: target.as_deref().map(short).unwrap_or_default().to_string(),
-        newer: target.as_deref().is_some_and(|t| is_newer(t, BUILD)),
+        newer,
         url,
-        build: short(BUILD).to_string(),
+        ..idle()
+    };
+    if let (true, Some(target)) = (newer, target) {
+        info.changes_url = compare_url(BUILD, &target);
+        // Best effort: an update with no list is still an update.
+        if let Ok(all) = changes(http, BUILD, &target).await {
+            info.more = all.len().saturating_sub(CHANGES_SHOWN);
+            info.changes = all.into_iter().take(CHANGES_SHOWN).collect();
+        }
+    }
+    Ok(info)
+}
+
+/// The changes between two commits, newest first: the merged pull requests
+/// when main takes them, every commit when it does not.
+async fn changes(http: &reqwest::Client, from: &str, to: &str) -> Result<Vec<Change>> {
+    let v: Value = http
+        .get(format!(
+            "https://api.github.com/repos/{REPO}/compare/{from}...{to}"
+        ))
+        .header("user-agent", "backspace")
+        .header("accept", "application/vnd.github+json")
+        .timeout(std::time::Duration::from_secs(8))
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    Ok(changes_in(&v))
+}
+
+fn changes_in(v: &Value) -> Vec<Change> {
+    let Some(commits) = v["commits"].as_array() else {
+        return Vec::new();
+    };
+    let mut out: Vec<Change> = commits
+        .iter()
+        .filter_map(|c| {
+            let author = c["author"]["login"].as_str().unwrap_or_default();
+            change(c["commit"]["message"].as_str()?, author)
+        })
+        .collect();
+    // A merged pull request brings its own commits in with its merge, and the
+    // merge's title says it all. When main takes pull requests, the pull
+    // requests are the changelog; the rest is their working history.
+    if out.iter().any(|c| c.pr != 0) {
+        out.retain(|c| c.pr != 0);
+    }
+    out.reverse();
+    out
+}
+
+/// One commit message as a line of the changelog, or `None` for a merge that
+/// says nothing (`Merge branch 'main' into ...`).
+fn change(message: &str, author: &str) -> Option<Change> {
+    let mut lines = message.lines().map(str::trim).filter(|l| !l.is_empty());
+    let head = lines.next()?;
+    if let Some(rest) = head.strip_prefix("Merge pull request #") {
+        // "Merge pull request #18 from owner/branch", then the PR's title.
+        let pr = rest.split_whitespace().next()?.parse().ok()?;
+        let title = lines.next().unwrap_or(head).to_string();
+        let author = rest
+            .split(" from ")
+            .nth(1)
+            .and_then(|b| b.split('/').next())
+            .unwrap_or(author);
+        return Some(Change {
+            title,
+            author: author.to_string(),
+            pr,
+        });
+    }
+    if head.starts_with("Merge ") {
+        return None;
+    }
+    // A squash merge: "Title (#18)".
+    let (title, pr) = match head.strip_suffix(')').and_then(|h| h.rsplit_once(" (#")) {
+        Some((t, n)) if n.bytes().all(|b| b.is_ascii_digit()) => (t, n.parse().unwrap_or(0)),
+        _ => (head, 0),
+    };
+    Some(Change {
+        title: title.to_string(),
+        author: author.to_string(),
+        pr,
     })
+}
+
+fn compare_url(from: &str, to: &str) -> String {
+    format!(
+        "https://github.com/{REPO}/compare/{}...{}",
+        short(from),
+        short(to)
+    )
 }
 
 /// The zipped app in the rolling release: where it is and how big it is.
@@ -137,6 +252,10 @@ fn idle() -> UpdateInfo {
         newer: false,
         url: releases_url(),
         build: short(BUILD).to_string(),
+        installs: cfg!(target_os = "macos"),
+        changes: Vec::new(),
+        more: 0,
+        changes_url: String::new(),
     }
 }
 
@@ -225,6 +344,46 @@ mod tests {
         assert!(!super::is_newer("841a8f548f1d6c76bdc58f2bee5b6acb8882ad75", "841a8f5"));
         // A build made by hand has no commit, so it is never told to update.
         assert!(!super::is_newer("841a8f5", ""));
+    }
+
+    #[test]
+    fn a_merged_pull_request_reads_as_its_title() {
+        let c = super::change(
+            "Merge pull request #18 from chamsco/frame/code-engine\n\nCode engine in the frame",
+            "web-flow",
+        );
+        assert_eq!(
+            c,
+            Some(Change {
+                title: "Code engine in the frame".into(),
+                author: "chamsco".into(),
+                pr: 18
+            })
+        );
+        assert_eq!(super::change("Merge branch 'main' into x", "a"), None);
+        let squash = super::change("fix(web): stop reloading (#231)\n\nbody", "ann").unwrap();
+        assert_eq!(
+            (squash.title.as_str(), squash.pr),
+            ("fix(web): stop reloading", 231)
+        );
+        let plain = super::change("tidy (the thing)", "ann").unwrap();
+        assert_eq!((plain.title.as_str(), plain.pr), ("tidy (the thing)", 0));
+    }
+
+    #[test]
+    fn the_changelog_is_pull_requests_newest_first() {
+        let v = json!({ "commits": [
+            { "author": { "login": "ann" }, "commit": { "message": "wip" } },
+            { "author": null, "commit": { "message": "Merge pull request #1 from ann/a\n\nFirst" } },
+            { "author": { "login": "bo" }, "commit": { "message": "Second (#2)" } },
+        ]});
+        let titles: Vec<_> = super::changes_in(&v).into_iter().map(|c| c.title).collect();
+        assert_eq!(titles, ["Second", "First"]);
+        // No pull requests at all: every commit is a change.
+        let v = json!({ "commits": [
+            { "commit": { "message": "one" } }, { "commit": { "message": "two" } },
+        ]});
+        assert_eq!(super::changes_in(&v).len(), 2);
     }
 
     #[test]
