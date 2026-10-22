@@ -521,12 +521,13 @@ We'd rather you knew these before you trust it.
   slow as a 1:1 chat.
 - **The headless flags for Codex, Cursor, Grok, OpenCode and Antigravity** follow
   their docs, but were only exercised against Claude Code.
-- **Updates are manual.** The app compares the commit it was built from with the
-  commit the rolling `mac-latest` build was built from, and "Download & Update"
-  opens that release in your browser. It does not replace the app in place — the
-  `.dmg` is yours to drag over the old app. A build made by hand
+- **Updates install on macOS, and only from a macOS build.** The app compares the
+  commit it was built from with the commit the rolling `mac-latest` build was
+  built from, then downloads that release's `Backspace-mac.app.zip`, checks it is
+  Backspace, and swaps it in on relaunch. A build made by hand
   (`cargo run -p backspace-tauri`) has no commit to compare, so it never reports
-  an update.
+  an update; on Linux the command says so instead of pretending. A copy running
+  from a mounted `.dmg` is read-only, so it refuses before downloading.
 
 <details>
 <summary><b>The longer list</b></summary>
