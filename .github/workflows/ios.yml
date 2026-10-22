@@ -1,0 +1,79 @@
+# Builds the phone app (mobile/ios), runs its unit tests on a simulator, and
+# saves screenshots of the demo so a change can be looked at without a Mac.
+name: iOS app
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths: ["mobile/ios/**", ".github/workflows/ios.yml"]
+  push:
+    branches: [main]
+    paths: ["mobile/ios/**", ".github/workflows/ios.yml"]
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: mobile/ios
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate the Xcode project
+        run: brew install xcodegen && xcodegen generate
+
+      - name: Pick a simulator
+        run: |
+          UDID=$(xcrun simctl list devices available --json | python3 -c '
+          import json, sys
+          d = json.load(sys.stdin)["devices"]
+          ios = sorted((k for k in d if ".iOS-" in k), key=lambda k: [int(x) for x in k.rsplit("iOS-", 1)[1].split("-")], reverse=True)
+          print(next(x["udid"] for k in ios for x in d[k] if x["name"].startswith("iPhone 16") or x["name"].startswith("iPhone 15")))
+          ')
+          echo "UDID=$UDID" >> "$GITHUB_ENV"
+          xcrun simctl list devices | grep "$UDID"
+
+      - name: Build and test
+        run: |
+          set -o pipefail
+          xcodebuild test -project Backspace.xcodeproj -scheme Backspace \
+            -destination "id=$UDID" -derivedDataPath build CODE_SIGNING_ALLOWED=NO | tail -n 80
+
+      - name: Screenshots of the demo
+        run: |
+          APP=build/Build/Products/Debug-iphonesimulator/Backspace.app
+          ID=computer.backspace.phone
+          mkdir -p shots
+          xcrun simctl boot "$UDID" || true
+          xcrun simctl bootstatus "$UDID" -b
+          xcrun simctl status_bar "$UDID" override --time 9:41 --batteryLevel 100 --cellularBars 4 || true
+          xcrun simctl install "$UDID" "$APP"
+          shot() {
+            name=$1; shift
+            xcrun simctl terminate "$UDID" "$ID" 2>/dev/null || true
+            xcrun simctl launch "$UDID" "$ID" "$@"
+            sleep 6
+            xcrun simctl io "$UDID" screenshot "shots/$name.png"
+          }
+          xcrun simctl ui "$UDID" appearance dark
+          shot 1-pair
+          shot 2-chat -demo YES -startChat t1
+          shot 3-tasks -demo YES -startTab tasks
+          shot 4-make -demo YES -startTab make
+          shot 5-drawer -demo YES -startDrawer YES -startChat t2
+          shot 6-empty -demo YES
+          xcrun simctl ui "$UDID" appearance light
+          shot 7-chat-light -demo YES -startChat t1
+          shot 8-tasks-light -demo YES -startTab tasks
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ios-screenshots
+          path: mobile/ios/shots/
+          if-no-files-found: ignore

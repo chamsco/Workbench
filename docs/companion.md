@@ -6,7 +6,8 @@ project's tickets and merges. The desktop app is the server; the phone is a
 thin client on the same network.
 
 Status: **the desktop side is built** (Settings → Phone, `crates/core/src/companion.rs`).
-The phone app is not started yet; this file is its contract and plan.
+The iPhone app is started in SwiftUI (`mobile/ios`, see its README): pairing,
+chats, approvals and Memory quick-add. This file is its contract and plan.
 
 ## Pairing
 

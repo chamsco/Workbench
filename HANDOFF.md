@@ -1,5 +1,24 @@
 # Handoff: Backspace (ohMyHarness → Workbench), v0
 
+**Session, 22 Oct 2026 — the phone app starts.**
+
+- **SwiftUI, in `mobile/ios`.** Step 1 of `docs/companion.md`'s plan, against
+  the companion API the desktop already serves. The project is XcodeGen
+  (`project.yml`); the `.xcodeproj` is generated, not committed.
+- **The frame from the mockups.** Menu, orb and machine across the top; a
+  floating Chat / Tasks / Make bar; chats in a drawer from the left. Tasks are
+  the open project's approvals (swipe right approves, left sends back) and its
+  open tickets. Make is a prompt box, templates and earlier chats.
+- **Pairing.** QR scan, a pasted `backspace://pair` link (also opens the app),
+  or address and token by hand; `/v1/hello` is checked first and the pairing
+  lives in the keychain. *Try a demo* runs on canned data (`DemoBackend`).
+- **Not in v1:** push, live events (it polls), attachments, voice, several
+  Macs, local models served to the phone.
+
+**Ran:** nothing locally — no Xcode in the cloud container.
+`.github/workflows/ios.yml` builds, runs the unit tests on a simulator and
+uploads demo screenshots; that run is the compile.
+
 **Session, 22 Oct 2026 — Code owns its engine.**
 
 - **The workbench moved into the app.** Everything Code draws is now
