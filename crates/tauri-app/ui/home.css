@@ -91,5 +91,5 @@
 .bdrop .sw-sharks-white { background: linear-gradient(160deg, #1a1820, #0a090d); color: rgba(255, 255, 255, 0.64); }
 .bdrop .sw-sharks-black { background: linear-gradient(160deg, #fbf9fc, #dedae3); color: rgba(18, 16, 22, 0.62); }
 .bdrop .sw-koi { display: grid; place-items: center; overflow: hidden; font: 600 8px/1.05 var(--font-mono); white-space: pre; letter-spacing: 0; background: linear-gradient(160deg, #1a1820, #0a090d); color: rgba(242, 122, 46, 0.85); }
-.bdrop .sw-koi::after { content: "   _..--''-._\a ,( %  @  o '.\a (( @  %   _>\a  `'-..__..-'"; }
+.bdrop .sw-koi::after { content: "    .;.     .%@;\a;%;.':%%%@@%%@@%%:.\a ':%%%%@@%%%@@@%%%:'\a;%;'.:%%%@@%%@@%%:'\a    ':'     '%@;"; }
 .bdrop .sw-sharks-white::after, .bdrop .sw-sharks-black::after { content: "  ;'    .oo\a  S%X   %8S8\a ;%t   XX%%S"; }
