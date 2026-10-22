@@ -22,7 +22,7 @@
       <button class="rz" id="gear" aria-label="Settings" data-tip="Settings"><span class="sq" data-icon="gear"></span></button>
     </nav>
     <!-- The window's own bar, above the frame: the app trail in the middle;
-         search, settings and the AI chat drawer on the right. Whatever app is
+         search, settings and the AI shortcut on the right. Whatever app is
          open draws only inside the frame below it. -->
     <header class="wbar" id="wbar" data-tauri-drag-region>
       <span class="sp" data-tauri-drag-region></span>
@@ -31,7 +31,7 @@
       <div class="right">
         <button class="srchbtn" id="searchBtn" aria-label="Search" title="Search projects, agents and chats" data-popper><span data-icon="search"></span><span class="srch-txt">Search</span><kbd>Ctrl K</kbd></button>
         <button class="ib" id="gearBtn" aria-label="Settings" title="Settings" data-icon="gear"></button>
-        <button class="ib" id="chatDock" aria-label="AI chat" title="AI chat" aria-pressed="false" data-icon="bubble"></button>
+        <button class="ib" id="aiBtn" aria-label="Ask AI" title="Ask AI (⌘I)" aria-pressed="false" data-icon="sparkle"></button>
       </div>
       <div class="caps" id="caps"></div>
     </header>
@@ -106,6 +106,7 @@
 <script src="onboard.js"></script>
 <script src="memory.js"></script>
 <script src="apps.js"></script>
+<script src="ai.js"></script>
 <script src="shell.js"></script>
 <!-- The chat face: Whirl's components on Backspace (web/, MIT). Deferred, so
      it is defined before app.js boots on DOMContentLoaded. -->

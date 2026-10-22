@@ -86,13 +86,11 @@ export function ChatApp({ sideEl, user }: { sideEl: HTMLElement; user: string })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const anyRoute = useMemo(() => host.routes().some((g) => g.items.some((i) => i.route && !i.disabled)), [epoch]);
   // The scan runs every coding CLI on the machine to read its version and
-  // sign-in state. Until it answers, the route list is empty — which is not the
-  // same thing as having nothing, so the connect panel waits a beat.
-  const [scanWaited, setScanWaited] = useState(false);
-  useEffect(() => {
-    const t = setTimeout(() => setScanWaited(true), 6000);
-    return () => clearTimeout(t);
-  }, []);
+  // sign-in state, after the app's own loader is gone. Until it answers the
+  // route list is empty — which is not the same as having nothing — so the face
+  // stays the normal home and only offers to connect once the scan has said no.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const scanned = useMemo(() => host.scanned(), [epoch]);
   // A ghost chat has no list to show, so the sidebar stays out of the way for as
   // long as it is open — and from the moment the mode is switched on, before the
   // thread exists: Whirl hides the shell as incognito opens, not on the first
@@ -219,10 +217,8 @@ export function ChatApp({ sideEl, user }: { sideEl: HTMLElement; user: string })
             {/* The landing is a whole screen: the home behind it draws its own
                 composer under the hero, so the face's dock steps aside for it.
                 A thread open, or the plain chat, keeps the dock. */}
-            {!inThread && (agentsMode || scope) ? null : !anyRoute && !inThread ? (
-              <AnimatePresence initial={false}>
-                {scanWaited ? <NoModels key="none" /> : <LookingForModels key="looking" />}
-              </AnimatePresence>
+            {!inThread && (agentsMode || scope) ? null : !anyRoute && scanned && !inThread ? (
+              <NoModels />
             ) : (
               <div
                 className={cn(
@@ -408,37 +404,6 @@ function Suggestions({ onPick }: { onPick: (p: string) => void }) {
 }
 
 /* Nothing to talk to yet: say what can be connected, in Whirl's well. */
-/** The gap between starting and finding.
- *
- *  It covers the pane in near-black and lasts until the CLI scan answers, then
- *  fades out into the real face. The sidebar is not merely empty during it, it
- *  is not there: there is nothing to navigate to yet, and offering a list of
- *  chats while the app says it has no model reads as broken. */
-function LookingForModels() {
-  useEffect(() => {
-    const w = document.getElementById("win");
-    w?.classList.add("booting");
-    return () => w?.classList.remove("booting");
-  }, []);
-  return (
-    <motion.div
-      className="looking"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.28, ease: [0.22, 0.61, 0.36, 1] }}
-    >
-      <span className="looking-dots" aria-hidden>
-        <i />
-        <i />
-        <i />
-      </span>
-      <p>Looking for the models on this machine…</p>
-      <p className="looking-sub">Checking your coding CLIs, Ollama and any router you have set up.</p>
-    </motion.div>
-  );
-}
-
 function NoModels() {
   const host = getHost();
   const btn =

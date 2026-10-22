@@ -38,26 +38,7 @@ var Shell = (() => {
     if (z.startsWith("app:") && window.Apps) return Apps.frame(z.slice(4)) || "apps";
     return "chat";
   }
-  // The AI chat drawer: the chat face docked on the right of whatever app is
-  // open (top-right button). In the IDE it is the project's threads beside the
-  // canvases and starts open; elsewhere it starts closed. It is not offered
-  // where the chat face already fills the frame (Chat, the ADE, Settings), and
-  // a split you opened takes that side instead. Per viewer, so localStorage.
-  const DOCK = "bs.ideChat";
-  const dock = (() => { const d = { ide: true, on: false, w: 0.3 }; try { return Object.assign(d, JSON.parse(localStorage.getItem(DOCK))); } catch { return d; } })();
-  const saveDock = () => { try { localStorage.setItem(DOCK, JSON.stringify(dock)); } catch {} };
-  const inIde = () => S.mode === "code" && S.codeView === "agents" && !!(snap && snap.workspace);
-  const canDock = () => !S.settings && !prefs.split && S.mode !== "chat" && elFor(S.mode) !== "chat";
-  const docked = () => canDock() && (inIde() ? dock.ide : dock.on);
-  function toggleDock(on = !docked()) {
-    if (inIde()) dock.ide = on; else dock.on = on;
-    saveDock();
-    layout();
-    if (window.Code) Code.layout();
-    if (showing("chat") && window.Chat) Chat.render();
-  }
   const secondary = () => {
-    if (docked()) return "chat";
     const sp = prefs.split;
     if (!sp || !sp.what) return null;
     if (sp.what.startsWith("app:") && !(window.Apps && Apps.get(sp.what.slice(4)))) return null;
@@ -70,11 +51,11 @@ var Shell = (() => {
     return elFor(S.mode) === id || secondary() === id;
   }
 
-  let laid = null, laidDock = false;
+  let laid = null;
   function layout() {
-    const prim = elFor(S.mode), sec = S.settings ? null : secondary(), dk = sec && docked();
-    laid = prim; laidDock = !!dk;
-    const r = !sec ? 1 : dk ? 1 - Math.min(0.5, Math.max(0.2, dock.w)) : Math.min(0.8, Math.max(0.2, prefs.split.ratio || 0.5));
+    const prim = elFor(S.mode), sec = S.settings ? null : secondary();
+    laid = prim;
+    const r = sec ? Math.min(0.8, Math.max(0.2, prefs.split.ratio || 0.5)) : 1;
     for (const el of $$("#body > .zone")) {
       if (el.id === prim && !S.settings) { el.hidden = false; el.style.left = "0"; el.style.right = (1 - r) * 100 + "%"; el.classList.remove("second"); }
       else if (el.id === sec) { el.hidden = false; el.style.left = r * 100 + "%"; el.style.right = "0"; el.classList.add("second"); }
@@ -83,16 +64,7 @@ var Shell = (() => {
     const gut = $("#splitGut"), head = $("#splitHead");
     gut.hidden = head.hidden = !sec;
     $("#win").classList.toggle("split-on", !!sec);
-    $("#win").classList.toggle("dock-on", !!dk);
-    const db = $("#chatDock");
-    if (db) { db.hidden = !canDock(); db.setAttribute("aria-pressed", !!dk); }
-    if (dk) {
-      gut.style.left = `calc(${r * 100}% - 3px)`;
-      head.style.left = r * 100 + "%";
-      head.innerHTML = `<span class="sh-t">${icon("bubble")}Chat</span><span class="sp"></span>
-        <button class="ib" id="shClose" title="Hide the chat" aria-label="Hide the chat">${icon("close")}</button>`;
-      $("#shClose").onclick = () => toggleDock(false);
-    } else if (sec) {
+    if (sec) {
       gut.style.left = `calc(${r * 100}% - 3px)`;
       head.style.left = r * 100 + "%";
       const what = prefs.split.what;
@@ -104,7 +76,7 @@ var Shell = (() => {
     }
 
     // Chat's scope follows whoever shows it: a project in Pair, else none.
-    if (window.Chat && Chat.setScope) Chat.setScope(S.mode === "code" && (prim === "chat" || sec === "chat") ? snap.workspace : null, S.mode === "chat" && S.chatView === "agents");
+    if (window.Chat && Chat.setScope) Chat.setScope(S.mode === "code" && prim === "chat" ? snap.workspace : null, S.mode === "chat" && S.chatView === "agents");
     // The face's sidebar is a tree of the project and the zone it is in, and it
     // reads both from here: tell it the shell moved. A nudge, not a fetch.
     if (window.WhirlChat && window.WhirlChat.shell) window.WhirlChat.shell();
@@ -154,22 +126,13 @@ var Shell = (() => {
       e.preventDefault(); gut.setPointerCapture(e.pointerId);
       const box = $("#body").getBoundingClientRect();
       $("#win").classList.add("dragging-split");
-      const dk = docked();
-      gut.onpointermove = ev => {
-        const x = (ev.clientX - box.left) / box.width;
-        if (dk) dock.w = Math.min(0.5, Math.max(0.2, 1 - x)); else prefs.split.ratio = Math.min(0.8, Math.max(0.2, x));
-        layout();
-      };
+      gut.onpointermove = ev => { prefs.split.ratio = Math.min(0.8, Math.max(0.2, (ev.clientX - box.left) / box.width)); layout(); };
       gut.onpointerup = () => {
         gut.onpointermove = gut.onpointerup = null; $("#win").classList.remove("dragging-split");
-        if (dk) { saveDock(); if (window.Code) Code.layout(); return; }
         clearTimeout(saveT); saveT = setTimeout(() => invoke("set_split", { split: prefs.split }), 200);
       };
     };
-    gut.ondblclick = () => {
-      if (docked()) { dock.w = 0.3; saveDock(); layout(); return; }
-      prefs.split.ratio = 0.5; layout(); invoke("set_split", { split: prefs.split });
-    };
+    gut.ondblclick = () => { prefs.split.ratio = 0.5; layout(); invoke("set_split", { split: prefs.split }); };
   }
 
   // ---------------------------------------------------------------- rail
@@ -357,15 +320,15 @@ var Shell = (() => {
     renderCaps(); wireGutter();
     document.documentElement.classList.toggle("reduce-motion", prefs.motion === "reduced");
     $("#searchBtn").onclick = search;
-    $("#chatDock").onclick = () => toggleDock();
+    $("#aiBtn").onclick = () => Ask.toggle();
     $("#gearBtn").onclick = () => (S.settings ? closeSettings() : openSettings());
     $("#gear").onclick = () => (S.settings ? closeSettings() : openSettings());
     if (window.Memory) await Memory.init();
     if (window.Apps) await Apps.init();
   }
   // The project arriving (at launch, or opened elsewhere) can change which
-  // section Code shows, and whether the AI chat drawer docks; lay out again when it does.
-  function refresh() { if (elFor(S.mode) !== laid || docked() !== laidDock) layout(); renderStatus(); renderRail(); renderZones(); if (S.mode === "code") renderHead(); }
+  // section Code shows; lay out again when it does.
+  function refresh() { if (elFor(S.mode) !== laid) layout(); renderStatus(); renderRail(); renderZones(); if (S.mode === "code") renderHead(); }
 
   // ---------------------------------------------------------------- status bar
   // After an agent control plane's footer: where you are (branch, project),
@@ -479,5 +442,5 @@ var Shell = (() => {
     setSplit("desktop", 0.45);
   }
 
-  return { projectMenu, search, init, layout, toggleDock, showing, renderStatus, memToast, openDesktop, setMotion, renderSide, renderRail, refresh, setSplit, toggleSplit, elFor, glyph };
+  return { projectMenu, search, init, layout, showing, renderStatus, memToast, openDesktop, setMotion, renderSide, renderRail, refresh, setSplit, toggleSplit, elFor, glyph };
 })();

@@ -1,24 +1,32 @@
 # Handoff: Backspace (ohMyHarness → Workbench), v0
 
-**Session, 22 Oct 2026 — the window bar and the frame (after Atomic Chat).**
+**Session, 22 Oct 2026 — the window bar, the frame, and Ask.**
 
-- **Two layers.** A full-width `.wbar` (new `#wbar` in `index.html`) sits on
-  top of the window: the app trail (`#zones`) centred, search, settings and the
-  AI chat button on the right, Windows/Linux caption buttons at the end and
-  84px clear on macOS for the lights. The sidebar card and the page sit in a
-  second grid row under it, so nothing an app draws ends up under the lights.
-- **The app header is the app's.** `.tbar` keeps only app controls: Chat |
-  Agents or ADE | IDE centred, Code's tabs and project, the history panel.
-  Apps and Memory hide the empty bar while their sidebar is open.
-- **AI chat drawer.** The IDE chat dock became a drawer for every app except
-  where the chat face already fills the frame (Chat, the ADE, Settings). It
-  starts open in the IDE (`dock.ide`) and closed elsewhere (`dock.on`), in
-  `localStorage` `bs.ideChat`. Scoped to the project in Code, unscoped
-  elsewhere.
+- **Two layers.** A full-width `.wbar` (`#wbar` in `index.html`) sits on top:
+  the app trail (`#zones`) centred; search, settings and Ask on the right;
+  caption buttons at the end on Windows/Linux, 84px clear on macOS for the
+  lights. The sidebar card and the page sit in a second grid row under it.
+- **Apps stay contained.** Nothing docks beside an app any more: the IDE chat
+  dock from the previous session is gone (the split view you open yourself
+  still works). `.tbar` holds only the app's own controls.
+- **Ask (`ui/ai.js`).** The sparkle at the top right or ⌘I floats a chatbox
+  over the bottom fifth of the window, the frame blurred behind it. Typing
+  lists matching moves (apps, projects, chats) first; a sentence goes to the
+  default model in a thread of its own (scoped to the open project in Code) and
+  the reply streams above the box. "Open in Chat" continues it there.
+- **No second loader.** The whirl face's "Looking for the models…" overlay and
+  its 6s timer are gone (and `.looking`, `.win.booting`). The face shows its
+  normal home until `host.scanned()` (the CLI scan has answered: a finished
+  scan always lists the CLIs it knows), and offers "Connect a model" only when
+  the scan found nothing.
+- **The face mounts at boot** (`Chat.init`), because it also draws the
+  sidebar tree Workbench uses: since launch lands on Apps, the IDE had no tree
+  until Chat had been visited once.
+- **Sidebar rows line up.** Thread rows in the tree lead with a 13px glyph and
+  share the canvas rows' size, so titles start on one line.
 
-**Ran:** `tools/uiharness` at 1366 (os-win and os-mac classes) and 720: Apps
-with the drawer, Chat, the IDE with three canvases, Settings. The
-`renderSkills` page error on Settings is the harness stub, not this change.
+**Ran:** `tools/uiharness` at 1366 (os-win/os-mac classes) and 720: Apps, Chat,
+the IDE tree, Ask with a mocked reply. `tsc` and `vite build` clean.
 
 **Session, 22 Oct 2026 — Apps first, a quieter bar, and the IDE's chat.**
 

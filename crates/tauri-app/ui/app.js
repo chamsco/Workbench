@@ -465,11 +465,12 @@ TAURI.event.listen("update:progress", e => {
 });
 
 addEventListener("keydown", e => {
-  if (e.key === "Escape") { if (!$("#pop").hidden) closePop(); else if (S.settings) closeSettings(); else if (S.drawer) Code.setDrawer(false); }
+  if (e.key === "Escape") { if (window.Ask && $("#ask") && !$("#ask").hidden) Ask.close(); else if (!$("#pop").hidden) closePop(); else if (S.settings) closeSettings(); else if (S.drawer) Code.setDrawer(false); }
   if (!(e.metaKey || e.ctrlKey)) return;
   if (!$("#onboard").hidden) return;
   if (e.key === "n") { e.preventDefault(); setMode("chat"); Chat.newChat(); return; }
   if (e.key === "k") { e.preventDefault(); Shell.search(); return; }
+  if (e.key === "i") { e.preventDefault(); Ask.toggle(); return; }
   if (e.key === "o") { e.preventDefault(); pickProject(); return; }
   if (e.key === "j") { e.preventDefault(); setMode(S.mode === "chat" ? "code" : "chat"); return; }
   if (e.key === "/" ) { e.preventDefault(); if (window.Shell) Shell.toggleSplit(); return; }

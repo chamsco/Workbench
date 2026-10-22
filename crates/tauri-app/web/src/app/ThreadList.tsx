@@ -24,6 +24,7 @@ import {
   IconLayoutCards,
   IconLayoutSidebar,
   IconLoader2,
+  IconMessage,
   IconMessageReply,
   IconMessages,
   IconPencil,
@@ -435,15 +436,19 @@ function ThreadRow({ thread, active, inIde }: { thread: ThreadInfo; active: bool
         type="button"
         onClick={open}
         title={thread.preview || thread.title}
-        className="relative flex h-8 w-full cursor-pointer items-center rounded-lg pr-8 pl-6 text-[13.5px]/4 font-medium text-foreground-soft"
+        className="relative flex h-7 w-full cursor-pointer items-center rounded-lg pr-8 pl-6 text-[12.5px]/4 font-medium text-foreground-soft"
       >
         <RowPill className={`group-has-data-popup-open/thread:bg-accent ${active ? "bg-accent" : ""}`} />
-        <span className="relative flex min-w-0 flex-1 items-center gap-1.5 text-left">
+        {/* Every row in the tree leads with a 13px glyph, so a thread's title
+            starts on the same line as a canvas's label beside it. */}
+        <span className="relative flex min-w-0 flex-1 items-center gap-2 text-left">
           {thread.pinned ? (
-            <IconPinFilled size={12} className="shrink-0" aria-label="Pinned" />
+            <IconPinFilled size={13} className="shrink-0" aria-label="Pinned" />
           ) : thread.title.endsWith("(branch)") ? (
             <IconGitBranch size={13} className="shrink-0" aria-label="Branched thread" />
-          ) : null}
+          ) : (
+            <IconMessage size={13} className="shrink-0 text-muted-foreground" aria-hidden />
+          )}
           <span className="block min-w-0 flex-1 truncate">{thread.title}</span>
           <span className="relative shrink-0 text-[11px] font-normal text-muted-foreground/60 transition-opacity duration-150 group-hover/thread:opacity-0">
             {ago(thread.updated)}

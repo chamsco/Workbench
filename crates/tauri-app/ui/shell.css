@@ -45,7 +45,48 @@
 .wbar .right { display: flex; align-items: center; gap: 6px; }
 .wbar .right .ib { background: var(--chip); border-radius: 9px; width: 28px; height: 28px; }
 .wbar .right .ib[aria-pressed="true"] { background: var(--pill-on); color: var(--fg); }
-.wbar #chatDock[hidden] { display: none; }
+
+/* ---------- Ask: the AI shortcut ------------------------------------------
+   A chatbox floating over the bottom fifth of the window. The band around it
+   blurs the frame, fading up into it, so the app stays where it was and
+   readable above; the box is the only thing in focus. */
+.ask { position: absolute; inset: 0; z-index: 30; pointer-events: none; }
+.ask[hidden] { display: none; }
+.ask-blur { position: absolute; left: 0; right: 0; bottom: 0; height: 20%; min-height: 150px; pointer-events: auto;
+  -webkit-backdrop-filter: blur(14px) saturate(1.2); backdrop-filter: blur(14px) saturate(1.2);
+  background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--win-bg) 55%, transparent) 45%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 38%); mask-image: linear-gradient(to bottom, transparent, #000 38%);
+  opacity: 0; transition: opacity 0.2s ease; }
+.ask-box { position: absolute; left: 50%; bottom: 22px; width: min(640px, calc(100% - 32px)); transform: translate(-50%, 12px); pointer-events: auto;
+  display: flex; flex-direction: column; gap: 6px; padding: 8px; border-radius: 18px;
+  background: var(--card-strong); -webkit-backdrop-filter: blur(24px) saturate(1.4); backdrop-filter: blur(24px) saturate(1.4);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.35), inset 0 0.5px 0 var(--glass-hi);
+  opacity: 0; transition: opacity 0.2s ease, transform 0.24s cubic-bezier(.2, .8, .2, 1); }
+.ask.on .ask-blur { opacity: 1; }
+.ask.on .ask-box { opacity: 1; transform: translate(-50%, 0); }
+.ask-in { display: flex; align-items: center; gap: 9px; height: 40px; padding: 0 8px 0 12px; border-radius: 12px; background: var(--hover); }
+.ask-in > .ic { width: 15px; height: 15px; color: var(--bs-accent); flex: none; }
+.ask-in input { flex: 1; min-width: 0; background: transparent; border: 0; outline: 0; font-size: 14px; color: var(--fg); }
+.ask-in kbd { font: 10.5px var(--font-ui); color: var(--fg-3); padding: 1px 5px; border-radius: 5px; background: var(--chip); }
+.ask-foot { display: flex; align-items: center; gap: 6px; padding: 0 6px; height: 22px; font-size: 11.5px; color: var(--fg-3); }
+.ask-open { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px; border-radius: 6px; color: var(--fg-2); }
+.ask-open:hover { background: var(--hover); color: var(--fg); }
+.ask-open .ic { width: 12px; height: 12px; }
+.ask-open[hidden] { display: none; }
+.ask-out { max-height: 38vh; overflow-y: auto; padding: 6px 8px 2px; display: grid; gap: 8px; font-size: 13.5px; line-height: 1.5; }
+.ask-out[hidden], .ask-hits[hidden] { display: none; }
+.ask-q { justify-self: end; max-width: 80%; padding: 6px 11px; border-radius: 12px; background: var(--pill-on); color: var(--fg); }
+.ask-a { color: var(--fg); }
+.ask-a > :first-child { margin-top: 0; } .ask-a > :last-child { margin-bottom: 0; }
+.ask-a.err { color: var(--red, #e5484d); }
+.ask-dots { display: inline-flex; gap: 4px; } .ask-dots i { width: 5px; height: 5px; border-radius: 50%; background: var(--fg-3); animation: pulse 1.2s ease-in-out infinite; }
+.ask-dots i:nth-child(2) { animation-delay: 0.15s; } .ask-dots i:nth-child(3) { animation-delay: 0.3s; }
+.ask-hits { display: grid; gap: 1px; }
+.ask-hits .pi { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 10px; border-radius: 9px; font-size: 13px; }
+.ask-hits .pi.on, .ask-hits .pi:hover { background: var(--hover); }
+.ask-hits .st-s { margin-left: auto; color: var(--fg-3); font-size: 11.5px; }
+.ask-tip { padding: 2px 10px; font-size: 11px; color: var(--fg-4); }
+@media (prefers-reduced-motion: reduce) { .ask-blur, .ask-box { transition: none; } }
 .os-mac .wbar { padding-left: 84px; }
 .os-win .wbar { padding-right: 0; }
 .win > .side, .win > .gutter-side, .win > .mainc { grid-row: 2; }
@@ -143,7 +184,7 @@
   transition: width 0.28s cubic-bezier(.2, .8, .2, 1);
 }
 .win.whirl-on:is(.m-chat, .m-code).side-closed .side-pills { width: 68px; }
-.win.whirl-on.ghost-side .side-pills, .win.booting .side-pills { display: none; }
+.win.whirl-on.ghost-side .side-pills { display: none; }
 .side-pill { background: var(--chip); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); }
 .win.whirl-on:is(.m-chat, .m-code) #sideClose, .win.whirl-on:is(.m-chat, .m-code) #sideOpen { display: none !important; }
 .win.whirl-on:is(.m-chat, .m-code) .tbar { transition: padding-left 0.28s cubic-bezier(.2, .8, .2, 1); }
@@ -406,27 +447,6 @@ button.rp-row:hover { background: var(--hover); }
    edge itself) and that is a different composer, not a border. Removed rather
    than shipped half-right; see the note in the handoff. */
 
-/* ---------- "looking for models" ------------------------------------------
-   What shows in the gap between starting and finding: the CLI scan is running,
-   and the route list is empty for a few seconds. It used to show the connect
-   panel in that gap, which reads as "you have nothing" rather than "wait". */
-/* Fixed to the window, not the pane: anchored to its parent it inherited the
-   pane's box, which put it off-centre. Darker than the app's own ground (it is
-   the one screen with nothing behind it worth showing) and it fades out into
-   the real face. */
-.looking { position: fixed; inset: 0; z-index: 20; display: grid; place-content: center; justify-items: center; gap: 12px; padding: 24px; text-align: center; background: rgba(9, 8, 11, 0.97); }
-
-/* Nothing to navigate to yet: the sidebar is not there, not merely empty. */
-.win.booting .side, .win.booting .gutter-side, .win.booting .rail { display: none; }
-@keyframes looking-in { from { opacity: 0; transform: translateY(6px); } }
-.looking p { margin: 0; font-size: 15px; color: var(--fg); }
-.looking .looking-sub { font-size: 12.5px; color: var(--fg-3); }
-.looking-dots { display: inline-flex; gap: 7px; height: 16px; align-items: center; }
-.looking-dots i { width: 7px; height: 7px; border-radius: 50%; background: var(--fg-2); animation: looking-bob 1.05s ease-in-out infinite; }
-.looking-dots i:nth-child(2) { animation-delay: 0.14s; }
-.looking-dots i:nth-child(3) { animation-delay: 0.28s; }
-@keyframes looking-bob { 0%, 100% { transform: translateY(2px); opacity: 0.4; } 50% { transform: translateY(-3px); opacity: 1; } }
-@media (prefers-reduced-motion: reduce) { .looking { animation: none; } .looking-dots i { animation: none; opacity: 0.75; } }
 
 /* ---------- popovers rise in from their anchor -----------------------------
    The model picker, the view menu, search: one entrance, so a menu never just
