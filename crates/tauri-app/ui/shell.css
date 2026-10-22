@@ -21,11 +21,26 @@
 .win-ascii { position: absolute; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; display: none; color: #fff; }
 .win[data-backdrop="sharks-white"] .win-ascii { display: block; opacity: 0.22; }
 .win[data-backdrop="sharks-black"] .win-ascii { display: block; opacity: 0.18; color: #0b0a0e; }
+/* Koi: one warm ink that reads on a dark window and a light one alike. */
+.win[data-backdrop="koi"] .win-ascii { display: block; opacity: 0.34; color: #f27a2e; }
 .win-ascii .sea { position: absolute; inset: 0; -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 32%); mask-image: linear-gradient(to bottom, transparent 0, #000 32%); }
 .win-ascii pre { position: absolute; margin: 0; font: 500 clamp(6px, 0.8vw, 13px)/1.02 var(--font-mono); white-space: pre; }
-.win-ascii .s1 { right: 3%; bottom: -7%; font-size: clamp(11px, 1.15vw, 19px); }
-.win-ascii .s2 { left: 2%; bottom: 16%; font-size: clamp(7px, 0.6vw, 10px); transform: scaleX(-1); opacity: 0.6; }
-.win-ascii .s3 { right: 16%; top: 36%; font-size: clamp(5px, 0.42vw, 7px); opacity: 0.45; }
+.win-ascii .s1 { left: 0; bottom: -7%; font-size: clamp(11px, 1.15vw, 19px); }
+.win-ascii .s2 { left: 0; bottom: 16%; font-size: clamp(7px, 0.6vw, 10px); scale: -1 1; opacity: 0.6; }
+.win-ascii .s3 { left: 0; top: 36%; font-size: clamp(5px, 0.42vw, 7px); opacity: 0.45; }
+/* They swim: across the window the way each one faces (the art's hammer is on
+   the right, so s2, mirrored, goes left), slowly and at three speeds so the
+   school never lines up, with a bob on its own clock. Negative delays start
+   them mid-crossing rather than all off-screen at launch. The drift is on
+   `translate`, the bob on `transform` and s2's mirror on `scale`, so none of
+   the three overwrites another. */
+.win-ascii .s1 { animation: swim-r 72s linear -30s infinite, bob 7s ease-in-out infinite; }
+.win-ascii .s2 { animation: swim-l 96s linear -70s infinite, bob 9s ease-in-out -3s infinite; }
+.win-ascii .s3 { animation: swim-r 130s linear -55s infinite, bob 11s ease-in-out -6s infinite; }
+@keyframes swim-r { from { translate: -100% 0; } to { translate: 100vw 0; } }
+@keyframes swim-l { from { translate: 100vw 0; } to { translate: -100% 0; } }
+@keyframes bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-1.2em); } }
+@media (prefers-reduced-motion: reduce) { .win-ascii pre { animation: none; } .win-ascii .s1 { translate: calc(97vw - 100%) 0; } .win-ascii .s2 { translate: 2vw 0; } .win-ascii .s3 { translate: calc(84vw - 100%) 0; } }
 .side, .mainc, .status { position: relative; z-index: 1; }
 .gutter-side { z-index: 2; }
 .desk:not([data-backdrop="aurora"]) .blob { display: none; }

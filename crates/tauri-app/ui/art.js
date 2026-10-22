@@ -21,7 +21,7 @@ var Art = (() => {
   const BACKDROPS = [
     ["harbour", "Harbour"], ["dawn", "Lighthouse at dawn"], ["night", "Moorings at night"],
     ["open-sea", "Open sea"], ["fog", "Fog"], ["aurora", "Aurora"], ["plain", "Plain"],
-    ["sharks-white", "Sharks, white"], ["sharks-black", "Sharks, black"],
+    ["sharks-white", "Sharks, white"], ["sharks-black", "Sharks, black"], ["koi", "Koi"],
   ];
   // The art, line for line, as the repo's README sets it.
   const SHARK = [
@@ -43,7 +43,29 @@ var Art = (() => {
     "                            .S'",
     "                            .",
   ];
-  const school = () => `<div class="sea">${["s1", "s2", "s3"].map(c => `<pre class="${c}">${SHARK.join("\n")}</pre>`).join("")}</div>`;
+  // A koi drawn for this app, seen from above like the hammerhead and facing
+  // the same way (head on the right), so the school's swim directions hold.
+  const KOI = [
+    "                                .:%%%:.",
+    "                               :%@@@@@%.",
+    "                .:.           .%@@@@@%'",
+    "   .:%%:.       %%%:.       .:%@@@%%:",
+    "  :%%%%%%:.     ':%%%:..:;%%%%%%%%%%%%%%;:.",
+    "   ':%%%%%%%:.:;%%%%%%@@@@@@%%%%%@@@@@@@%%%%:.",
+    "      ':%%%%%%%%%%%%%%@@@@@@@%%%%%@@@@@@@@@%%%%%:.",
+    "        :%%%%%%%%%%%%%@@@@@@@%%%%%@@@@@@@@@@%%%%%%:",
+    "        :%%%%%%%%%%%%%@@@@@@@%%%%%@@@@@@@@@@%%%%%%:",
+    "      .:%%%%%%%%%%%%%%@@@@@@@%%%%%@@@@@@@@@%%%%%:'",
+    "   .:%%%%%%%:':;%%%%%%@@@@@@%%%%%@@@@@@@@%%%%:'",
+    "  :%%%%%%:'     .:%%%:''':;%%%%%%%%%%%%%%;:'",
+    "   ':%%:'       %%%:'       ':%@@@%%:",
+    "                ':'           '%@@@@@%.",
+    "                               :%@@@@@%'",
+    "                                ':%%%:'",
+  ];
+  const ART = { sharks: SHARK, koi: KOI };
+  const species = id => (/^sharks-/.test(id) ? "sharks" : id === "koi" ? "koi" : null);
+  const school = art => `<div class="sea">${["s1", "s2", "s3"].map(c => `<pre class="${c}">${art.join("\n")}</pre>`).join("")}</div>`;
   const dark = () => {
     const t = document.documentElement.dataset.theme;
     return t ? t === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
@@ -150,14 +172,16 @@ var Art = (() => {
       layer.id = "winArt"; layer.className = "win-art"; layer.setAttribute("aria-hidden", "true");
       win.prepend(layer);
     }
-    // The sharks are text, not a painting: one layer of pre, under the glass,
-    // shown by CSS only while a shark backdrop is the one in force.
-    if (!document.getElementById("winAscii")) {
-      const sea = document.createElement("div");
+    // The sharks and the koi are text, not a painting: one layer of pre, under
+    // the glass, shown by CSS only while one of them is the backdrop in force.
+    let sea = document.getElementById("winAscii");
+    if (!sea) {
+      sea = document.createElement("div");
       sea.id = "winAscii"; sea.className = "win-ascii"; sea.setAttribute("aria-hidden", "true");
-      sea.innerHTML = school();
       layer.after(sea);
     }
+    const kind = species(current);
+    if (kind && sea.dataset.kind !== kind) { sea.dataset.kind = kind; sea.innerHTML = school(ART[kind]); }
     win.dataset.backdrop = current;
     document.querySelector(".desk").dataset.backdrop = current;
     draw();
