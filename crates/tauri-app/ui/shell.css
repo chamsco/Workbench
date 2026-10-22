@@ -517,3 +517,39 @@ button.rp-row:hover { background: var(--hover); }
 .win.ghost-side .side {
   transition: width 0.28s cubic-bezier(0.32, 0.72, 0, 1), transform 0.28s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.2s ease, visibility 0s linear 0.28s;
 }
+
+/* ---------- updates: downloading, ready to restart, what changed, the ask */
+.status .upd .uspin { width: 11px; height: 11px; border-radius: 50%; border: 1.5px solid color-mix(in srgb, var(--fg-3) 35%, transparent); border-top-color: var(--fg-2); animation: uspin 0.8s linear infinite; flex: none; }
+@keyframes uspin { to { transform: rotate(360deg); } }
+.status .upd.ready { width: 26px; height: 26px; padding: 0; border-radius: 50%; justify-content: center; background: var(--chip); color: var(--fg); }
+.status .upd.ready:hover { background: var(--hover); }
+.upd .ur { position: relative; display: inline-flex; }
+.upd .ur > .ic { width: 15px; height: 15px; }
+.upd .ub { position: absolute; right: -4px; bottom: -4px; width: 10px; height: 10px; border-radius: 50%; background: var(--green); color: var(--desk-base); display: grid; place-items: center; box-shadow: 0 0 0 1.5px var(--sheet); }
+.upd .ub .ic { width: 8px; height: 8px; stroke-width: 2.4; }
+.updpop { position: fixed; -webkit-backdrop-filter: blur(30px) saturate(1.6); backdrop-filter: blur(30px) saturate(1.6); z-index: 40; width: 380px; max-width: calc(100vw - 16px); max-height: min(480px, 70vh); overflow-y: auto; padding: 12px 14px; border-radius: 11px; background: var(--sheet); border: 0.5px solid var(--pane-edge); box-shadow: 0 14px 34px rgba(0, 0, 0, 0.28); color: var(--fg); font-size: 12.5px; animation: pop-in 0.16s cubic-bezier(0.22, 0.61, 0.36, 1); }
+.updpop .uh { display: block; text-align: left; font-weight: 600; font-size: 13px; line-height: 1.35; color: var(--fg); padding: 0; }
+.updpop .uh:hover { text-decoration: underline; text-underline-offset: 2px; }
+.updpop h6 { margin: 12px 0 6px; font-size: 11.5px; font-weight: 600; color: var(--fg-2); }
+.updpop ul { margin: 0; padding-left: 16px; list-style: disc; display: grid; gap: 6px; color: var(--fg-2); line-height: 1.4; }
+.updpop a { color: inherit; text-decoration: underline; text-decoration-color: var(--fg-4); text-underline-offset: 2px; }
+.updpop .more { display: inline-flex; align-items: center; gap: 4px; margin-top: 10px; font-size: 11.5px; color: var(--fg-3); }
+.updpop .more .ic, .updtoast a .ic { width: 11px; height: 11px; }
+.updtoast { position: fixed; -webkit-backdrop-filter: blur(30px) saturate(1.6); backdrop-filter: blur(30px) saturate(1.6); z-index: 45; top: 44px; right: 14px; width: 340px; max-width: calc(100vw - 28px); display: flex; gap: 10px; align-items: flex-start; padding: 12px 34px 12px 14px; border-radius: 11px; background: var(--sheet); border: 0.5px solid var(--pane-edge); box-shadow: 0 14px 34px rgba(0, 0, 0, 0.28); color: var(--fg); font-size: 12.5px; animation: memin 0.2s ease-out; transition: opacity 0.18s, transform 0.18s; }
+.updtoast.out { opacity: 0; transform: translateY(-6px); }
+.updtoast .ok { color: var(--green); flex: none; margin-top: 1px; }
+.updtoast .ok .ic { width: 15px; height: 15px; border: 1.4px solid currentColor; border-radius: 50%; padding: 2px; box-sizing: border-box; }
+.updtoast b { font-weight: 600; font-size: 13px; }
+.updtoast p { margin: 3px 0 0; color: var(--fg-3); line-height: 1.4; }
+.updtoast a { color: var(--fg-2); display: inline-flex; align-items: center; gap: 3px; text-decoration: underline; text-decoration-color: var(--fg-4); text-underline-offset: 2px; }
+.updtoast .x { position: absolute; top: 8px; right: 8px; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; color: var(--fg-3); }
+.updtoast .x:hover { background: var(--hover); color: var(--fg); }
+.updtoast .x .ic { width: 11px; height: 11px; }
+.updask { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; background: rgba(0, 0, 0, 0.42); animation: memin 0.14s ease-out; }
+.updask .box { -webkit-backdrop-filter: blur(30px) saturate(1.6); backdrop-filter: blur(30px) saturate(1.6); width: 520px; max-width: calc(100vw - 32px); border-radius: 14px; background: var(--sheet); border: 0.5px solid var(--pane-edge); box-shadow: 0 24px 60px rgba(0, 0, 0, 0.4); overflow: hidden; }
+.updask h3 { margin: 0; padding: 22px 24px 0; font-size: 17px; font-weight: 600; line-height: 1.3; color: var(--fg); }
+.updask p { margin: 6px 0 0; padding: 0 24px 22px; color: var(--fg-3); font-size: 12.5px; line-height: 1.45; }
+.updask .acts { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 18px; border-top: 0.5px solid var(--pane-edge); background: color-mix(in srgb, var(--fg) 3%, transparent); }
+.updask .btn.primary { background: #3d6ff2; color: #fff; }
+.updask .btn.primary:hover { background: #2f5fe0; }
+@media (prefers-reduced-motion: reduce) { .status .upd .uspin { animation-duration: 2.4s; } .updpop, .updtoast, .updask { animation: none; } }
