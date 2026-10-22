@@ -650,25 +650,28 @@ body { margin: 0; background: var(--desk-base); color: var(--fg); font: 13px/1.4
 .settings { position: fixed; inset: 38px 6px 6px 6px; background: var(--card-strong); border-color: var(--pane-edge); -webkit-backdrop-filter: blur(24px) saturate(1.25); backdrop-filter: blur(24px) saturate(1.25); }
 #win.settings-on .side, #win.settings-on .rail { opacity: 0; pointer-events: none; }
 
-/* ---------- the chat surfaces sit on the painting, like Home ---------------
-   Agents, and Workbench → a project's chat (Pair), used to paint one opaque
-   sheet over everything so the text sat on paper. Home shows the window's
-   backdrop painting at full strength, so these two match it instead: no sheet,
-   and the composer is the only card. Still scoped by the window's mode class,
-   so canvases, Apps and Settings keep the glass. */
+/* ---------- the chat surfaces are a page on paper -------------------------
+   Chat → Agents, and Workbench → a project's chat (Pair), are reading
+   surfaces like Apps and Memory: one solid sheet under the transcript, so a
+   painting behind the window never bands through a paragraph, and the chatbox
+   is the one card that lifts off it. Scoped by the window's mode class, so
+   canvases, Apps and Settings keep the glass. */
 .win.m-chat .mainc,
 .win.pair-on .mainc { background: transparent; }
 .win.m-chat .chat,
-.win.pair-on .chat { background: transparent; border-color: transparent; }
+.win.pair-on .chat {
+  background: var(--paper);
+  border-radius: 12px;
+  border-color: transparent;
+  box-shadow: 0 0 0 0.5px var(--pane-edge);
+}
 .win.m-chat .tbar,
 .win.pair-on .tbar { background: transparent; }
-/* Whirl's own pane (the chat face): no paper, no frost of its own. */
+/* Whirl's own pane (the chat face) is the sheet's inside, not a second card. */
 .win.m-chat .chat-wrap,
 .win.pair-on .chat-wrap { background: transparent; }
 .win.m-chat .whirl-pane,
 .win.pair-on .whirl-pane {
-  /* Every chat looks like Agents' Home: the painting at full strength, no card
-     around the transcript. The only edged surface is the chatbox itself. */
   background: transparent;
   -webkit-backdrop-filter: none;
   backdrop-filter: none;

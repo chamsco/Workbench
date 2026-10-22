@@ -447,6 +447,14 @@ input.tx.mono { font-family: var(--font-mono); font-size: 12px; }
 .win.whirl-on.m-chat #list { display: none; }
 .whirl-list { padding: 4px 12px 8px; }
 .win.whirl-on .chat { padding: 0 6px 6px 0; }
+/* The chatbox is the one card on the sheet. Whirl rounds it at 26px and paints
+   it with the well; a hairline and a soft shadow lift it off the page. */
+.win.m-chat #chat [class*="rounded-[26px]"],
+.win.pair-on #chat [class*="rounded-[26px]"] {
+  background: var(--paper-card);
+  border-color: var(--paper-line);
+  box-shadow: 0 1px 2px rgba(24, 18, 30, 0.05), 0 10px 30px -18px rgba(24, 18, 30, 0.3);
+}
 .pmsg code { font: 11px var(--font-mono); padding: 1px 5px; border-radius: 5px; background: var(--pill-on); }
 .plan .btn.wide { font-size: 13px; }
 
