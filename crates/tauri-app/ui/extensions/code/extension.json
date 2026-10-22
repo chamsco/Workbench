@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "id": "code",
+  "name": "Workbench",
+  "description": "The agent workbench: canvases, tabs, worktrees and tickets for a project.",
+  "icon": "codei",
+  "order": 20,
+  "section": "canvas",
+  "className": "canvas zone",
+  "view": { "kind": "native", "script": "code.js" },
+  "action": { "label": "New tab", "icon": "plus" }
+}

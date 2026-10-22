@@ -7,7 +7,6 @@
 <style>@layer bs-reset;</style>
 <link rel="stylesheet" href="chat-web/whirl.css">
 <link rel="stylesheet" href="style.css">
-<link rel="stylesheet" href="chat.css">
 <link rel="stylesheet" href="home.css">
 <link rel="stylesheet" href="shell.css">
 </head>
@@ -46,7 +45,8 @@
     <div class="mainc">
       <header class="tbar" data-tauri-drag-region>
         <button class="ib" id="sideOpen" aria-label="Show sidebar" data-icon="sidebar" hidden></button>
-        <div class="zones" id="zones" role="tablist" aria-label="Zones"></div>
+        <div class="zones" id="zones" role="tablist" aria-label="Apps"></div>
+        <div class="appbar" id="appbar" hidden></div>
         <div class="modes" id="modes" role="tablist"></div>
         <button class="vbtn code-only agents-only" id="viewBtn" aria-haspopup="menu" data-popper></button>
         <nav class="tabs code-only agents-only" id="tabs" role="tablist" aria-label="Tabs"></nav>
@@ -55,15 +55,15 @@
         <div class="chat-head chat-only" id="chatHead"></div>
         <span class="sp" data-tauri-drag-region></span>
         <div class="right">
-          <button class="srchbtn" id="searchBtn" aria-label="Search" title="Search projects, agents and chats" data-popper><span data-icon="search"></span>Search<kbd>Ctrl K</kbd></button>
+          <button class="srchbtn" id="searchBtn" aria-label="Search" title="Search projects, agents and chats" data-popper><span data-icon="search"></span><span class="srch-txt">Search</span><kbd>Ctrl K</kbd></button>
           <button class="ib code-only" id="panelBtn" aria-label="Side panel: history, files, sessions" title="History, files and sessions" aria-pressed="false" data-icon="panelr"></button>
           <button class="ib" id="gearBtn" aria-label="Settings" title="Settings" data-icon="gear"></button>
         </div>
         <div class="caps" id="caps"></div>
       </header>
       <div class="body" id="body">
-        <section class="canvas zone" id="canvas"><div class="grid" id="grid"></div></section>
-        <section class="chat zone" id="chat" hidden></section>
+        <!-- Chat and Workbench are extensions: the frame makes their sections
+             from extensions/<id>/extension.json and loads their scripts. -->
         <section class="memory zone" id="memory" hidden></section>
         <section class="apps zone" id="apps" hidden></section>
         <div class="split-gut" id="splitGut" role="separator" aria-orientation="vertical" aria-label="Resize split" hidden></div>
@@ -89,12 +89,12 @@
 <input type="file" id="filePick" multiple hidden>
 <script src="logos.js"></script>
 <script src="art.js"></script>
+<script src="frame.js"></script>
 <script src="app.js"></script>
 <script src="picker.js"></script>
 <script src="home.js"></script>
 <script src="rpanel.js"></script>
 <script src="providers.js"></script>
-<script src="chat.js"></script>
 <script src="onboard.js"></script>
 <script src="memory.js"></script>
 <script src="apps.js"></script>
