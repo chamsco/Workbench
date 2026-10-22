@@ -38,15 +38,20 @@ var Shell = (() => {
     if (z.startsWith("app:") && window.Apps) return Apps.frame(z.slice(4)) || "apps";
     return "chat";
   }
-  // The IDE's chat: the project's threads docked to the right of the canvases,
-  // so the grid of panes is a multiplexer with a conversation beside it. A
-  // split you opened takes that side instead. Per viewer, so localStorage.
+  // The AI chat drawer: the chat face docked on the right of whatever app is
+  // open (top-right button). In the IDE it is the project's threads beside the
+  // canvases and starts open; elsewhere it starts closed. It is not offered
+  // where the chat face already fills the frame (Chat, the ADE, Settings), and
+  // a split you opened takes that side instead. Per viewer, so localStorage.
   const DOCK = "bs.ideChat";
-  const dock = (() => { try { return Object.assign({ on: true, w: 0.3 }, JSON.parse(localStorage.getItem(DOCK))); } catch { return { on: true, w: 0.3 }; } })();
+  const dock = (() => { const d = { ide: true, on: false, w: 0.3 }; try { return Object.assign(d, JSON.parse(localStorage.getItem(DOCK))); } catch { return d; } })();
   const saveDock = () => { try { localStorage.setItem(DOCK, JSON.stringify(dock)); } catch {} };
-  const docked = () => !prefs.split && dock.on && S.mode === "code" && S.codeView === "agents" && !!(snap && snap.workspace) && elFor("code") !== "chat";
-  function toggleDock(on = !dock.on) {
-    dock.on = on; saveDock();
+  const inIde = () => S.mode === "code" && S.codeView === "agents" && !!(snap && snap.workspace);
+  const canDock = () => !S.settings && !prefs.split && S.mode !== "chat" && elFor(S.mode) !== "chat";
+  const docked = () => canDock() && (inIde() ? dock.ide : dock.on);
+  function toggleDock(on = !docked()) {
+    if (inIde()) dock.ide = on; else dock.on = on;
+    saveDock();
     layout();
     if (window.Code) Code.layout();
     if (showing("chat") && window.Chat) Chat.render();
@@ -80,7 +85,7 @@ var Shell = (() => {
     $("#win").classList.toggle("split-on", !!sec);
     $("#win").classList.toggle("dock-on", !!dk);
     const db = $("#chatDock");
-    if (db) db.setAttribute("aria-pressed", !!dk);
+    if (db) { db.hidden = !canDock(); db.setAttribute("aria-pressed", !!dk); }
     if (dk) {
       gut.style.left = `calc(${r * 100}% - 3px)`;
       head.style.left = r * 100 + "%";
@@ -359,7 +364,7 @@ var Shell = (() => {
     if (window.Apps) await Apps.init();
   }
   // The project arriving (at launch, or opened elsewhere) can change which
-  // section Code shows, and whether the IDE docks its chat; lay out again when it does.
+  // section Code shows, and whether the AI chat drawer docks; lay out again when it does.
   function refresh() { if (elFor(S.mode) !== laid || docked() !== laidDock) layout(); renderStatus(); renderRail(); renderZones(); if (S.mode === "code") renderHead(); }
 
   // ---------------------------------------------------------------- status bar

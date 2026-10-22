@@ -21,6 +21,20 @@
       <span class="sp" data-tauri-drag-region></span>
       <button class="rz" id="gear" aria-label="Settings" data-tip="Settings"><span class="sq" data-icon="gear"></span></button>
     </nav>
+    <!-- The window's own bar, above the frame: the app trail in the middle;
+         search, settings and the AI chat drawer on the right. Whatever app is
+         open draws only inside the frame below it. -->
+    <header class="wbar" id="wbar" data-tauri-drag-region>
+      <span class="sp" data-tauri-drag-region></span>
+      <div class="zones" id="zones" role="tablist" aria-label="Apps"></div>
+      <span class="sp" data-tauri-drag-region></span>
+      <div class="right">
+        <button class="srchbtn" id="searchBtn" aria-label="Search" title="Search projects, agents and chats" data-popper><span data-icon="search"></span><span class="srch-txt">Search</span><kbd>Ctrl K</kbd></button>
+        <button class="ib" id="gearBtn" aria-label="Settings" title="Settings" data-icon="gear"></button>
+        <button class="ib" id="chatDock" aria-label="AI chat" title="AI chat" aria-pressed="false" data-icon="bubble"></button>
+      </div>
+      <div class="caps" id="caps"></div>
+    </header>
     <aside class="side" id="side" aria-label="Machine, projects and agents">
       <div class="side-top" data-tauri-drag-region>
         <button class="ib" id="sideClose" aria-label="Hide sidebar" data-icon="sidebar"></button>
@@ -37,14 +51,13 @@
       <div class="list zone-list" id="zoneList"></div>
       <div class="ports code-only agents-only" id="ports"></div>
     </aside>
-    <!-- New chat, search and the sidebar toggle: drawn by the chat face, and
-         outside the card so they stay put while it folds away. -->
+    <!-- Search and the sidebar toggle: drawn by the chat face, and outside the
+         card so they stay put while it folds away. -->
     <div class="side-pills" id="sidePills"></div>
     <div class="gutter-side" id="sideGut" role="separator" aria-orientation="vertical" aria-label="Resize sidebar"></div>
     <div class="mainc">
       <header class="tbar" data-tauri-drag-region>
         <button class="ib" id="sideOpen" aria-label="Show sidebar" data-icon="sidebar" hidden></button>
-        <div class="zones" id="zones" role="tablist" aria-label="Apps"></div>
         <div class="modes" id="modes" role="tablist"></div>
         <button class="vbtn code-only agents-only" id="viewBtn" aria-haspopup="menu" data-popper></button>
         <nav class="tabs code-only agents-only" id="tabs" role="tablist" aria-label="Tabs"></nav>
@@ -53,12 +66,8 @@
         <div class="chat-head chat-only" id="chatHead"></div>
         <span class="sp" data-tauri-drag-region></span>
         <div class="right">
-          <button class="srchbtn" id="searchBtn" aria-label="Search" title="Search projects, agents and chats" data-popper><span data-icon="search"></span><span class="srch-txt">Search</span><kbd>Ctrl K</kbd></button>
-          <button class="ib code-only agents-only" id="chatDock" aria-label="Chat beside the canvases" title="Chat beside the canvases" aria-pressed="false" data-icon="bubble"></button>
           <button class="ib code-only" id="panelBtn" aria-label="Side panel: history, files, sessions" title="History, files and sessions" aria-pressed="false" data-icon="panelr"></button>
-          <button class="ib" id="gearBtn" aria-label="Settings" title="Settings" data-icon="gear"></button>
         </div>
-        <div class="caps" id="caps"></div>
       </header>
       <div class="body" id="body">
         <!-- Chat and Workbench are extensions: the frame makes their sections

@@ -1,5 +1,25 @@
 # Handoff: Backspace (ohMyHarness → Workbench), v0
 
+**Session, 22 Oct 2026 — the window bar and the frame (after Atomic Chat).**
+
+- **Two layers.** A full-width `.wbar` (new `#wbar` in `index.html`) sits on
+  top of the window: the app trail (`#zones`) centred, search, settings and the
+  AI chat button on the right, Windows/Linux caption buttons at the end and
+  84px clear on macOS for the lights. The sidebar card and the page sit in a
+  second grid row under it, so nothing an app draws ends up under the lights.
+- **The app header is the app's.** `.tbar` keeps only app controls: Chat |
+  Agents or ADE | IDE centred, Code's tabs and project, the history panel.
+  Apps and Memory hide the empty bar while their sidebar is open.
+- **AI chat drawer.** The IDE chat dock became a drawer for every app except
+  where the chat face already fills the frame (Chat, the ADE, Settings). It
+  starts open in the IDE (`dock.ide`) and closed elsewhere (`dock.on`), in
+  `localStorage` `bs.ideChat`. Scoped to the project in Code, unscoped
+  elsewhere.
+
+**Ran:** `tools/uiharness` at 1366 (os-win and os-mac classes) and 720: Apps
+with the drawer, Chat, the IDE with three canvases, Settings. The
+`renderSkills` page error on Settings is the harness stub, not this change.
+
 **Session, 22 Oct 2026 — Apps first, a quieter bar, and the IDE's chat.**
 
 - **Launch lands on Apps.** `S.mode` starts at `apps` every time (a folder on
