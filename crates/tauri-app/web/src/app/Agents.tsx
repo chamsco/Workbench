@@ -40,7 +40,7 @@ import { RowPill } from "@/components/row-pill";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { RoutePicker } from "./RoutePicker";
-import { Avatar, COLORS, Stack } from "./avatar";
+import { AccessoryPicker, Avatar, COLORS, Stack } from "./avatar";
 import { NewBotDialog, BotHome } from "./bot-create";
 import { DelegateDialog } from "./Delegate";
 import { HomePrompt } from "./HomePrompt";
@@ -607,13 +607,11 @@ function AgentEditor({ agent }: { agent: Agent }) {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-1">
-            {/* Colour is the only shape axis left: every bot is the same brain
-                now, so the old shape row would have shown sixteen identical
-                faces. The stored emoji still seeds the blink phase. */}
             {COLORS.map((c) => (
               <button key={c} type="button" aria-label={`Colour ${c}`} onClick={() => set({ avatar: { ...a.avatar, color: c } })} className={`size-6 cursor-pointer rounded-full ${a.avatar.color === c ? "ring-2 ring-foreground ring-offset-2 ring-offset-(--surface)" : ""}`} style={{ background: c }} />
             ))}
           </div>
+          <AccessoryPicker agent={a} value={a.avatar.accessory ?? ""} onChange={(k) => set({ avatar: { ...a.avatar, accessory: k } })} size={26} />
           <div className="flex flex-col gap-1">
             <span className={label}>Job and backstory</span>
             <textarea className={`${field} h-auto min-h-24 py-2 leading-5`} value={a.job} placeholder="Plans launches. Breaks a goal into a week of steps, keeps everyone on the date, and asks before changing scope." onChange={(e) => set({ job: e.target.value })} />

@@ -325,6 +325,10 @@ pub struct Avatar {
     pub emoji: String,
     #[serde(default)]
     pub color: String,
+    /// What the brain wears: "" (nothing), or a name the face knows how to
+    /// draw ("glasses", "tophat", "beanie", "bow", "crown", "headphones").
+    #[serde(default)]
+    pub accessory: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]

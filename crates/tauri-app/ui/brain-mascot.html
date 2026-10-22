@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Brain Mascot</title>
+<style>
+  :root { --bg: #ffffff; --brain: #ff8597; --fold: #ff6178; --face: #ffffff; }
+  html, body { margin: 0; height: 100%; background: var(--bg); }
+  body { display: grid; place-items: center; }
+  #brain { width: min(480px, 90vw); overflow: visible; }
+  #tilt { transform-box: view-box; transform-origin: 768px 860px; } /* lean from the base, like a head on a neck */
+  #look { transform-box: view-box; transform-origin: 768px 580px; }
+  .fold { fill: none; stroke: var(--fold); stroke-width: 32; stroke-linecap: round; stroke-linejoin: round; }
+  .eye { fill: var(--face); transform-box: fill-box; transform-origin: center; transition: transform 90ms ease-in; }
+  .blink .eye { transform: scaleY(0.08); }
+  .mouth { fill: none; stroke: var(--face); stroke-width: 30; stroke-linecap: round; }
+</style>
+</head>
+<body>
+<svg id="brain" viewBox="180 120 1180 760" role="img" aria-label="Brain mascot">
+  <g id="tilt">
+    <!-- body: overlapping lobes, one flat color -->
+    <g fill="var(--brain)">
+      <ellipse cx="768" cy="520" rx="430" ry="270"/>
+      <circle cx="640" cy="330" r="170"/><circle cx="895" cy="330" r="170"/>
+      <circle cx="430" cy="440" r="170"/><circle cx="1105" cy="440" r="170"/>
+      <circle cx="360" cy="615" r="150"/><circle cx="1180" cy="615" r="150"/>
+      <circle cx="525" cy="705" r="145"/><circle cx="1015" cy="705" r="145"/>
+      <circle cx="690" cy="745" r="110"/><circle cx="845" cy="745" r="110"/>
+    </g>
+    <!-- folds -->
+    <path class="fold" d="M767 245 V462"/>
+    <path class="fold" d="M582 312 C650 278 718 285 767 380 C816 285 884 278 950 312"/>
+    <path class="fold" d="M412 462 C440 395 490 377 541 377"/>
+    <path class="fold" d="M1122 462 C1094 395 1044 377 993 377"/>
+    <path class="fold" d="M362 502 C330 558 330 600 362 638"/>
+    <path class="fold" d="M1162 502 C1194 558 1194 600 1162 638"/>
+    <!-- face follows the cursor -->
+    <g id="look">
+      <g id="eyes">
+        <rect class="eye" x="545" y="480" width="98" height="192" rx="49"/>
+        <rect class="eye" x="890" y="480" width="98" height="192" rx="49"/>
+      </g>
+      <path class="mouth" d="M720 642 C745 675 790 675 815 645"/>
+    </g>
+  </g>
+</svg>
+<script>
+  const svg = document.getElementById('brain');
+  const look = document.getElementById('look');
+  const tilt = document.getElementById('tilt');
+  const eyes = document.getElementById('eyes');
+
+  // target pointer direction, normalised to -1..1 with a soft falloff
+  const target = { x: 0, y: 0 };
+  addEventListener('pointermove', (e) => {
+    const r = svg.getBoundingClientRect();
+    const dx = (e.clientX - (r.left + r.width / 2)) / (innerWidth / 2);
+    const dy = (e.clientY - (r.top + r.height / 2)) / (innerHeight / 2);
+    target.x = Math.tanh(dx * 1.6);
+    target.y = Math.tanh(dy * 1.6);
+  });
+  document.addEventListener('pointerleave', () => { target.x = 0; target.y = 0; });
+
+  // springs: the body leads, the face follows a beat later on a softer one
+  // The lean has its own spring on its own target, so it ramps at the same
+  // pace instead of as the (late) product of the lagging x and y.
+  const body = { x: 0, y: 0, vx: 0, vy: 0, lean: 0, vl: 0 };
+  const face = { x: 0, y: 0, vx: 0, vy: 0 };
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.min((now - last) / 1000, 0.05); last = now;
+    const stiff = 44, damp = 11.25; // soft: a little lag behind the cursor
+    body.vx += ((target.x - body.x) * stiff - body.vx * damp) * dt;
+    body.vy += ((target.y - body.y) * stiff - body.vy * damp) * dt;
+    const leanTo = (Math.max(0, -target.y) - Math.max(0, target.y)) * target.x;
+    body.vl += ((leanTo - body.lean) * stiff - body.vl * damp) * dt;
+    body.x += body.vx * dt; body.y += body.vy * dt; body.lean += body.vl * dt;
+    face.vx += ((target.x - face.x) * 25 - face.vx * 8.75) * dt;
+    face.vy += ((target.y - face.y) * 25 - face.vy * 8.75) * dt;
+    face.x += face.vx * dt; face.y += face.vy * dt;
+
+    // The two halves mirror: looking up tips the body back on its base, the
+    // crown swinging toward the cursor's side; looking down tips it forward
+    // from the crown, the base swinging toward it. Plain left/right only
+    // leans the face (slides, tips and slants), the body stays upright.
+    const up = Math.max(0, -body.y), down = Math.max(0, body.y);
+    tilt.style.transformOrigin = up >= down ? '768px 860px' : '768px 180px';
+    tilt.style.transform = `rotate(${body.lean * 11}deg) scale(${1 + (up + down) * 0.02}, ${1 - (up + down) * 0.06})`;
+    const mirror = 1 - 2 * Math.min(1, Math.max(0, face.y) * 3);
+    look.style.transform = `translate(${face.x * 110}px, ${face.y * 85}px) rotate(${face.x * 8 * mirror}deg) skewX(${face.x * 14 * mirror}deg)`;
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  function blink() {
+    eyes.classList.add('blink');
+    setTimeout(() => eyes.classList.remove('blink'), 130);
+    if (Math.random() < 0.2) setTimeout(blink, 260); // occasional double blink
+  }
+  (function schedule() {
+    setTimeout(() => { blink(); schedule(); }, 2200 + Math.random() * 3500);
+  })();
+</script>
+</body>
+</html>

@@ -13,7 +13,7 @@ import { IconDeviceDesktop, IconFolder, IconLoader2, IconPlayerPlay } from "@tab
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { RoutePicker } from "./RoutePicker";
-import { Avatar, COLORS, FACES } from "./avatar";
+import { AccessoryPicker, Avatar, COLORS, FACES } from "./avatar";
 import { RoutineCards } from "./routines";
 import {
   agentStatus,
@@ -240,6 +240,7 @@ function NewBotSheet({ openedFor, prefill }: { openedFor: string; prefill?: { na
   const [instructions, setInstructions] = useState("");
   const [emoji, setEmoji] = useState(FACES[0]);
   const [color, setColor] = useState(COLORS[7]);
+  const [accessory, setAccessory] = useState("");
   const [personality, setPersonality] = useState("");
   const [route, setRoute] = useState<Route | null>(() => host.defaultRoute());
   const [project, setProject] = useState(openedFor);
@@ -260,7 +261,7 @@ function NewBotSheet({ openedFor, prefill }: { openedFor: string; prefill?: { na
     id: "",
     name: name || template?.botName || "New bot",
     job: composeJob(job, instructions),
-    avatar: { emoji, color },
+    avatar: { emoji, color, accessory },
     personality,
     route: route ?? FALLBACK_ROUTE,
     shared: [],
@@ -300,7 +301,7 @@ function NewBotSheet({ openedFor, prefill }: { openedFor: string; prefill?: { na
         // The emoji draws nothing any more — it seeds the blink phase, so a
         // bot made from scratch phases off its own name rather than sharing
         // one phase with every other bot made from scratch.
-        avatar: { emoji: emoji === FACES[0] && !template ? name.trim() : emoji, color },
+        avatar: { emoji: emoji === FACES[0] && !template ? name.trim() : emoji, color, accessory },
         personality,
         route: r,
         shared: [],
@@ -460,22 +461,7 @@ function NewBotSheet({ openedFor, prefill }: { openedFor: string; prefill?: { na
                 />
               ))}
             </div>
-            <div className="flex flex-wrap items-center gap-1">
-              {/* Colour is the only shape axis left: every bot is the same brain
-                  now, so the old shape row would have shown sixteen identical
-                  faces. The stored emoji still seeds the blink phase. */}
-              {COLORS.map((c) => (
-                <button
-                  key={c}
-                  type="button"
-                  aria-label={`Colour ${c}`}
-                  aria-pressed={color === c}
-                  onClick={() => setColor(c)}
-                  className={`size-7 cursor-pointer rounded-full ${color === c ? "ring-2 ring-foreground ring-offset-2 ring-offset-(--surface)" : ""}`}
-                  style={{ background: c }}
-                />
-              ))}
-            </div>
+            <AccessoryPicker agent={preview} value={accessory} onChange={setAccessory} />
           </Section>
 
           <Section

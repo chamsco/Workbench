@@ -111,7 +111,7 @@ export type Agent = {
   id: string;
   name: string;
   job: string;
-  avatar: { emoji: string; color: string };
+  avatar: { emoji: string; color: string; accessory?: string };
   /** The style text appended to its system prompt (a personality chip). */
   personality: string;
   route: Route;
