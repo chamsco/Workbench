@@ -143,7 +143,6 @@ var Onboard = (() => {
         <div class="ob-more">
           <div>${icon("memory")}<b>Memory</b><span>Notes every chat and agent gets.</span></div>
           <div>${icon("apps")}<b>Apps</b><span>Views with their own agent. Try Prompt Lab.</span></div>
-          <div>${icon("phone")}<b>Phone</b><span>Pair it in Settings when the app ships.</span></div>
         </div>
         <div class="home-actions">${uses.includes("chat") ? `<button class="btn primary big" id="obChat">${icon("compose")}Start chatting</button>` : ""}${uses.includes("code") ? `<button class="btn ${uses.includes("chat") ? "" : "primary "}big" id="obCode">${icon("folder")}Open a project</button>` : ""}</div></div>`, { next: null, skip: false });
       const pick = $("#obRoute");

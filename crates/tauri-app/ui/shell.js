@@ -358,7 +358,7 @@ var Shell = (() => {
       <button class="st ${running.length || chatBusy.length ? "live" : ""}" data-st="who"><i class="sd"></i>${who}</button>
       <span class="sp"></span>
       ${prefs.split ? `<button class="st" data-st="split" title="Close the split">${icon("splitv")}Split</button>` : ""}
-      <button class="st" data-st="phone" title="Settings → Phone">${icon("phone")}${phone ? "Phone on" : "Phone off"}</button>
+      ${nightly() ? `<button class="st" data-st="phone" title="Settings → Phone">${icon("phone")}${phone ? "Phone on" : "Phone off"}</button>` : ""}
       <button class="st" data-st="motion" title="Animations: full or reduced">${icon("motion")}Motion: ${motion}</button>
       <span class="st nb" title="Tokens and spend in this project">${fmt(tok)} tok${cost ? ` · $${cost.toFixed(2)}` : ""}</span>`;
     $$("[data-st]", el).forEach(b => (b.onclick = () => {

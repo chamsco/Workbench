@@ -6,7 +6,7 @@
   <a href="https://github.com/chamsco/Workbench/releases/tag/mac-latest"><img src="https://img.shields.io/badge/macOS-download%20the%20app-18181b?style=flat-square&amp;logo=apple&amp;logoColor=white" alt="Download the macOS app"></a>
   <img src="https://img.shields.io/badge/license-MIT-3da639?style=flat-square" alt="MIT licensed">
   <img src="https://img.shields.io/badge/status-0.1%2C%20expect%20changes-d97706?style=flat-square" alt="Pre-1.0: expect breaking changes">
-  <img src="https://img.shields.io/badge/built%20with-Rust%20%2B%20GPUI%20%2F%20Tauri-dea584?style=flat-square&amp;logo=rust&amp;logoColor=white" alt="Built with Rust, GPUI and Tauri">
+  <img src="https://img.shields.io/badge/built%20with-Rust%20%2B%20Tauri-dea584?style=flat-square&amp;logo=rust&amp;logoColor=white" alt="Built with Rust and Tauri">
 </p>
 
 <p align="center"><sub>
@@ -107,7 +107,6 @@ export ANTHROPIC_API_KEY=...      # and/or OPENROUTER_API_KEY
 export TYPESAFE_API_KEY=...       # optional: smart model routing
 
 cargo run --release -p backspace-tauri -- ~/projects/my-app   # the full app
-cargo run --release -p backspace -- ~/projects/my-app         # native, lighter
 cargo run --release -p backspace-cli -- scan                  # what CLIs did it find?
 ```
 
@@ -441,7 +440,7 @@ done. It drives the `visor-core` JSON CLI in [`capsule/`](capsule). Design:
 
 ## Under the hood
 
-<p align="center"><img src="docs/assets/architecture.svg" alt="Three front doors — the Tauri app, the native GPUI app and the headless CLI — all talk to crates/core, which holds chat, the planner, tickets, worktrees, routing, skills, memory and traces. Core drives crates/runner, which turns one turn into events for any provider. Colony sits beside it." width="100%"></p>
+<p align="center"><img src="docs/assets/architecture.svg" alt="Two front doors — the Tauri app and the headless CLI — all talk to crates/core, which holds chat, the planner, tickets, worktrees, routing, skills, memory and traces. Core drives crates/runner, which turns one turn into events for any provider. Colony sits beside it." width="100%"></p>
 
 Four rules the code keeps:
 
@@ -462,12 +461,11 @@ Four rules the code keeps:
 | `crates/core` | The harness: router, providers, tools, tickets, worktrees, skills, accounts, local models |
 | `crates/colony` | Durable, chat-addressable workspaces (WSL2 / Hyper-V) |
 | `crates/cli` | Headless shell — logs to stdout, approvals on stdin |
-| `crates/app` | Desktop shell, GPUI (native) |
 | `crates/tauri-app` | Desktop shell, Tauri 2 (the design's HTML in the system webview) |
 | `capsule/` | Colony's hypervisor core: `visor-core` (Rust) + `agentd` (Go) |
 | `apps/` | App SDK (`sdk.js`) and the Prompt Lab example |
-| `design/` | `workbench.html` — the clickable design both shells reproduce |
-| `bench/` | GPUI vs Tauri benchmark ([bench/README.md](bench/README.md)) |
+| `design/` | `workbench.html` — the clickable design the app reproduces |
+| `bench/` | Startup benchmark and the deterministic mock model (`mock.py`) the doc screenshots use |
 
 | You want to | Start at |
 |---|---|
@@ -513,8 +511,6 @@ We'd rather you knew these before you trust it.
 - **Merge conflicts go back to the agent**, but that path is covered by the git
   unit test only, not the end-to-end tests.
 - **The heuristic router is crude by design.** Routing quality comes from Jev.
-- **Chat, setup, Cloud, Memory, Apps, the rail and the phone link exist only in
-  the Tauri shell.** The GPUI shell is the coding workbench only.
 - **The phone app doesn't exist yet** — only its link and API. The link is plain
   HTTP with a token; use Tailscale away from home.
 - **Group turns run one after another**, so a group of four is about four times as

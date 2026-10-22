@@ -256,23 +256,9 @@ fn prefs(f: F) -> Prefs {
     f.prefs()
 }
 
-#[tauri::command]
-fn set_tabs(f: F, tabs: Vec<TabSpec>, active: usize) {
-    // Bench runs keep their scripted tab out of the user's prefs.
-    if std::env::var_os("BACKSPACE_LAYOUT").is_some() {
-        return;
-    }
-    f.update_prefs(|p| {
-        if !tabs.is_empty() {
-            p.active_tab = active.min(tabs.len() - 1);
-            p.tabs = tabs;
-        }
-    });
-}
-
 /// Save a canvas layout under a project, so opening another project cannot
 /// overwrite it. An empty `workspace` writes the global layout (no project
-/// open), which is what the old `set_tabs` did for everyone.
+/// open).
 #[tauri::command]
 fn set_tabs_for(f: F, workspace: String, tabs: Vec<TabSpec>, active: usize) {
     if std::env::var_os("BACKSPACE_LAYOUT").is_some() {
@@ -517,11 +503,6 @@ fn forget_project(f: F, path: String) {
     f.forget_project(&path);
 }
 
-#[tauri::command]
-fn has_project(f: F) -> bool {
-    f.local().is_some()
-}
-
 // ---------------------------------------------------------------- CLIs, models, routers
 
 #[tauri::command]
@@ -635,11 +616,6 @@ fn set_uses(f: F, uses: Vec<String>) {
     if !uses.is_empty() {
         f.update_prefs(|p| p.uses = uses);
     }
-}
-
-#[tauri::command]
-fn set_worker(f: F, worker: Option<String>) {
-    f.update_prefs(|p| p.worker = worker.filter(|w| !w.is_empty()));
 }
 
 /// Who runs a project and how: the planner's and workers' model, what CLIs
@@ -809,14 +785,6 @@ fn chat_life(f: F, id: String, life: Life, ttl_minutes: Option<u64>) -> Res<Thre
     f.chats()
         .set_life(&id, life, ttl_minutes)
         .map_err(|e| e.to_string())
-}
-
-/// Forget every chat that has expired. Called once at boot and on a timer, so a
-/// temporal chat that ran out while the app was closed is gone before it is
-/// listed.
-#[tauri::command]
-fn chat_purge(f: F) -> Vec<String> {
-    f.chats().purge_expired()
 }
 
 /// Forget every ghost chat. The face calls this as the mode goes on, so a
@@ -1881,6 +1849,15 @@ fn main() -> anyhow::Result<()> {
         let f = fleet.clone();
         std::thread::spawn(move || f.rescan());
     }
+    // A temporal chat forgets itself on time: once now, for one that ran out
+    // while the app was closed, then every minute.
+    {
+        let f = fleet.clone();
+        std::thread::spawn(move || loop {
+            f.chats().purge_expired();
+            std::thread::sleep(std::time::Duration::from_secs(60));
+        });
+    }
     let changes = fleet.changes();
 
     // App views: bsapp://localhost/<id>/<path> (http://bsapp.localhost/...
@@ -1948,7 +1925,6 @@ fn main() -> anyhow::Result<()> {
             share_status,
             set_share,
             prefs,
-            set_tabs,
             set_tabs_for,
             tabs_for,
             set_theme,
@@ -1960,7 +1936,6 @@ fn main() -> anyhow::Result<()> {
             open_project,
             close_project,
             forget_project,
-            has_project,
             harnesses,
             rescan,
             cli_login,
@@ -1977,7 +1952,6 @@ fn main() -> anyhow::Result<()> {
             set_memory_on,
             set_view_prefs,
             set_uses,
-            set_worker,
             api_keys,
             set_api_key,
             set_default_route,
@@ -2005,7 +1979,6 @@ fn main() -> anyhow::Result<()> {
             chat_thread,
             chat_new,
             chat_life,
-            chat_purge,
             chat_purge_ghosts,
             memory_list,
             memory_forget,

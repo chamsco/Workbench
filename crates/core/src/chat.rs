@@ -510,7 +510,7 @@ impl Chats {
 
     /// Forget every expired temporal thread, and return the ones that went.
     ///
-    /// Called on a timer by the shell and once when the app opens, so a chat
+    /// Called once when the app opens and then every minute, so a chat
     /// that expired while nothing was running is gone before it is listed.
     pub fn purge_expired(&self) -> Vec<String> {
         self.purge_at(now_ms())
