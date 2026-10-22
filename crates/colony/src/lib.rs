@@ -8,7 +8,7 @@
 //!
 //! This crate is the Workbench-side half of the `capsule/` project. It drives
 //! `visor-core`'s JSON CLI (`capsule/core`) through [`VisorCli`], which
-//! implements [`Backend`]. [`FakeBackend`] is the same trait in memory, so the
+//! implements [`Backend`]. `FakeBackend` (tests only) is the same trait in memory, so the
 //! registry's whole lifecycle is tested without a VM, WSL, Hyper-V or a
 //! network. See `docs/COLONY.md` for what is implemented and what is not.
 //!
@@ -27,6 +27,7 @@
 
 mod backend;
 mod colony;
+#[cfg(test)]
 mod fake;
 mod model;
 mod prompt;
@@ -34,6 +35,7 @@ mod tools;
 
 pub use backend::{create_args, parse_error, workspace_from_cli, Backend, VisorCli, EXE};
 pub use colony::{Colony, STATE_FILE};
+#[cfg(test)]
 pub use fake::FakeBackend;
 pub use model::{Capabilities, CreateSpec, ExecOut, ProviderKind, State, Workspace};
 pub use prompt::chat_prompt;

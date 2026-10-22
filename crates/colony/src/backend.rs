@@ -1,7 +1,7 @@
 //! The backend: what actually makes and runs workspaces.
 //!
 //! [`Backend`] is the seam. [`VisorCli`] is the real one — it shells out to
-//! `visor-core`'s JSON CLI. [`crate::FakeBackend`] is the same seam in memory.
+//! `visor-core`'s JSON CLI. `FakeBackend` (tests only) is the same seam in memory.
 //! Colony only ever calls these eight methods, so the registry is one code
 //! path for a VM and for a test.
 

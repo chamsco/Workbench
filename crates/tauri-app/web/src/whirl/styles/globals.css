@@ -21,8 +21,7 @@
 @custom-variant sidebar-collapsed (&:where([data-sidebar-collapsed], [data-sidebar-collapsed] *));
 
 /* Touch-first devices — no hover to reveal things with, so hover-gated
-   affordances (row ⋯ menus, message action icons) stay visible. Same query
-   as lib/coarse-pointer.ts; keep the two in step. */
+   affordances (row ⋯ menus, message action icons) stay visible. */
 @custom-variant coarse (@media (hover: none) and (pointer: coarse));
 
 /* Content riding the sidebar collapse: the same duration/curve as the width

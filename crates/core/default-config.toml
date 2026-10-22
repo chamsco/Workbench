@@ -3,9 +3,10 @@
 # default wholesale: no hidden merging, what you see is what runs.
 
 [router]
-# "jev" asks TypeSafe Jev to pick model + effort per agent; falls back to
-# "heuristic" automatically when the key is missing or the call fails.
-backend = "jev"
+# "heuristic" picks model + effort per agent from rules. "jev" asks TypeSafe
+# Jev instead (needs TYPESAFE_API_KEY) and falls back to "heuristic" when the
+# key is missing or the call fails.
+backend = "heuristic"
 jev_endpoint = "https://api.typesafe.ai/v1/systemone"
 jev_model = "jev-latest"
 jev_api_key_env = "TYPESAFE_API_KEY"
