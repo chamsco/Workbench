@@ -1,5 +1,44 @@
 # Handoff: Backspace (ohMyHarness → Workbench), v0
 
+**Session, 22 Oct 2026 — the update installs itself, and Chat sits on paper.**
+
+- **Updating is no longer manual.** The pill still finds a newer commit on
+  `mac-latest`; clicking it now calls `install_update` (new
+  `crates/tauri-app/src/update_install.rs`). It downloads the release's own
+  `Backspace-mac.app.zip` — the artefact a person gets — streams it into
+  `$TMPDIR/backspace-update-<pid>`, unpacks it with `ditto -x -k`, checks that
+  `CFBundleIdentifier` is `computer.backspace.app`, then writes `swap.sh` and
+  quits into it. The script waits for this pid, moves the old bundle aside,
+  copies the new one in, puts the old one back if that copy fails, strips
+  quarantine, opens the app and deletes the temp folder. Every failure after
+  the quit ends with a bundle reopened: there is no window left to show an
+  error in.
+- **It refuses where it cannot write.** The bundle's parent is probed with a
+  real file before 25 MB is spent, so a build running from a mounted dmg says
+  so instead of unpacking into nowhere.
+- **Progress.** An `update:progress` event (`{stage, pct}`) drives the pill and
+  Settings → Updates: Preparing, Downloading 42%, Unpacking, Installing,
+  Restarting. The button reads "Install & Restart". There is no done state: on
+  success the window is gone and a new one is what comes back.
+- **The one-time install stands.** Only builds from `08b0371` on can replace
+  themselves; an installed 0.1.0 still opens the release page. One manual
+  install (v0.1.1 still carries the bridge build), then the pill does the rest.
+- **Chat → Agents is paper.** The chat zone floated translucent over the
+  backdrop painting, which washed the prose out at any real wallpaper. It now
+  uses the sheet Apps and Memory use (`--paper`, 12px radius, a hairline, the
+  composer as the only card), and the chat face's own theme
+  (`crates/tauri-app/web/src/styles.css`, rebuilt into `ui/chat-web`) takes the
+  app's paper/card/line/text tokens, so the pane, bubbles, menus, dialogs and
+  code chrome match in light and dark. `npm run build` reproduces the committed
+  bundle byte for byte — check that before hand-editing anything under
+  `ui/chat-web`.
+
+**Ran:** the macOS workflow on both branches (`39756652257` compiled the
+installer, `39760466628` built and published `c30c3ff` as `mac-latest`),
+`npm run build`, and the real `ui/` in a headless page against a stubbed
+`__TAURI__`, measuring computed styles in both themes. **Not run:** nothing
+local in Rust — no toolchain here, so the workflow is the only compile.
+
 **Session, 21 Oct 2026 — the update check, and the branch caught up.**
 Branch `nightly/feature/delegation`, now merged with `origin/main` (the Chat
 face redesign, PR #6). The owner asked why updating from inside the app never
