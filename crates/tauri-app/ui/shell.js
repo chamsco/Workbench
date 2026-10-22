@@ -38,7 +38,21 @@ var Shell = (() => {
     if (z.startsWith("app:") && window.Apps) return Apps.frame(z.slice(4)) || "apps";
     return "chat";
   }
+  // The IDE's chat: the project's threads docked to the right of the canvases,
+  // so the grid of panes is a multiplexer with a conversation beside it. A
+  // split you opened takes that side instead. Per viewer, so localStorage.
+  const DOCK = "bs.ideChat";
+  const dock = (() => { try { return Object.assign({ on: true, w: 0.3 }, JSON.parse(localStorage.getItem(DOCK))); } catch { return { on: true, w: 0.3 }; } })();
+  const saveDock = () => { try { localStorage.setItem(DOCK, JSON.stringify(dock)); } catch {} };
+  const docked = () => !prefs.split && dock.on && S.mode === "code" && S.codeView === "agents" && !!(snap && snap.workspace) && elFor("code") !== "chat";
+  function toggleDock(on = !dock.on) {
+    dock.on = on; saveDock();
+    layout();
+    if (window.Code) Code.layout();
+    if (showing("chat") && window.Chat) Chat.render();
+  }
   const secondary = () => {
+    if (docked()) return "chat";
     const sp = prefs.split;
     if (!sp || !sp.what) return null;
     if (sp.what.startsWith("app:") && !(window.Apps && Apps.get(sp.what.slice(4)))) return null;
@@ -51,11 +65,11 @@ var Shell = (() => {
     return elFor(S.mode) === id || secondary() === id;
   }
 
-  let laid = null;
+  let laid = null, laidDock = false;
   function layout() {
-    const prim = elFor(S.mode), sec = S.settings ? null : secondary();
-    laid = prim;
-    const r = sec ? Math.min(0.8, Math.max(0.2, prefs.split.ratio || 0.5)) : 1;
+    const prim = elFor(S.mode), sec = S.settings ? null : secondary(), dk = sec && docked();
+    laid = prim; laidDock = !!dk;
+    const r = !sec ? 1 : dk ? 1 - Math.min(0.5, Math.max(0.2, dock.w)) : Math.min(0.8, Math.max(0.2, prefs.split.ratio || 0.5));
     for (const el of $$("#body > .zone")) {
       if (el.id === prim && !S.settings) { el.hidden = false; el.style.left = "0"; el.style.right = (1 - r) * 100 + "%"; el.classList.remove("second"); }
       else if (el.id === sec) { el.hidden = false; el.style.left = r * 100 + "%"; el.style.right = "0"; el.classList.add("second"); }
@@ -64,7 +78,16 @@ var Shell = (() => {
     const gut = $("#splitGut"), head = $("#splitHead");
     gut.hidden = head.hidden = !sec;
     $("#win").classList.toggle("split-on", !!sec);
-    if (sec) {
+    $("#win").classList.toggle("dock-on", !!dk);
+    const db = $("#chatDock");
+    if (db) db.setAttribute("aria-pressed", !!dk);
+    if (dk) {
+      gut.style.left = `calc(${r * 100}% - 3px)`;
+      head.style.left = r * 100 + "%";
+      head.innerHTML = `<span class="sh-t">${icon("bubble")}Chat</span><span class="sp"></span>
+        <button class="ib" id="shClose" title="Hide the chat" aria-label="Hide the chat">${icon("close")}</button>`;
+      $("#shClose").onclick = () => toggleDock(false);
+    } else if (sec) {
       gut.style.left = `calc(${r * 100}% - 3px)`;
       head.style.left = r * 100 + "%";
       const what = prefs.split.what;
@@ -76,12 +99,11 @@ var Shell = (() => {
     }
 
     // Chat's scope follows whoever shows it: a project in Pair, else none.
-    if (window.Chat && Chat.setScope) Chat.setScope(S.mode === "code" && prim === "chat" ? snap.workspace : null, S.mode === "chat" && S.chatView === "agents");
+    if (window.Chat && Chat.setScope) Chat.setScope(S.mode === "code" && (prim === "chat" || sec === "chat") ? snap.workspace : null, S.mode === "chat" && S.chatView === "agents");
     // The face's sidebar is a tree of the project and the zone it is in, and it
     // reads both from here: tell it the shell moved. A nudge, not a fetch.
     if (window.WhirlChat && window.WhirlChat.shell) window.WhirlChat.shell();
     renderRail(); renderZones(); renderHead(); renderModes(); renderStatus();
-    if (window.Frame) Frame.renderBar();
     if (window.Code) Code.syncArt();
     if (window.RPanel) RPanel.render();
     // Whatever app owns a visible section gets to draw into it; the frame does
@@ -127,13 +149,22 @@ var Shell = (() => {
       e.preventDefault(); gut.setPointerCapture(e.pointerId);
       const box = $("#body").getBoundingClientRect();
       $("#win").classList.add("dragging-split");
-      gut.onpointermove = ev => { prefs.split.ratio = Math.min(0.8, Math.max(0.2, (ev.clientX - box.left) / box.width)); layout(); };
+      const dk = docked();
+      gut.onpointermove = ev => {
+        const x = (ev.clientX - box.left) / box.width;
+        if (dk) dock.w = Math.min(0.5, Math.max(0.2, 1 - x)); else prefs.split.ratio = Math.min(0.8, Math.max(0.2, x));
+        layout();
+      };
       gut.onpointerup = () => {
         gut.onpointermove = gut.onpointerup = null; $("#win").classList.remove("dragging-split");
+        if (dk) { saveDock(); if (window.Code) Code.layout(); return; }
         clearTimeout(saveT); saveT = setTimeout(() => invoke("set_split", { split: prefs.split }), 200);
       };
     };
-    gut.ondblclick = () => { prefs.split.ratio = 0.5; layout(); invoke("set_split", { split: prefs.split }); };
+    gut.ondblclick = () => {
+      if (docked()) { dock.w = 0.3; saveDock(); layout(); return; }
+      prefs.split.ratio = 0.5; layout(); invoke("set_split", { split: prefs.split });
+    };
   }
 
   // ---------------------------------------------------------------- rail
@@ -230,16 +261,13 @@ var Shell = (() => {
   function renderModes() {
     const z = S.mode, v = VIEWS[z];
     const cur = z === "chat" ? S.chatView : S.codeView;
-    // Two homes for one switch: the sidebar usually, the title bar when the
-    // sidebar is collapsed. CSS picks which is showing, so both stay in sync.
-    for (const m of [$("#modesSide"), $("#modes")]) {
-      if (!m) continue;
-      m.hidden = !v;
-      if (!v) { m.innerHTML = ""; continue; }
-      m.setAttribute("aria-label", v.map(x => x[2]).join(" or "));
-      m.innerHTML = v.map(([k, ic, l, t]) => `<button role="tab" data-view="${k}" aria-selected="${cur === k}" title="${t}">${icon(ic)}${l}</button>`).join("");
-      $$("[data-view]", m).forEach(b => (b.onclick = () => (z === "chat" ? setChatView(b.dataset.view) : setCodeView(b.dataset.view))));
-    }
+    const m = $("#modes");
+    if (!m) return;
+    m.hidden = !v;
+    if (!v) { m.innerHTML = ""; return; }
+    m.setAttribute("aria-label", v.map(x => x[2]).join(" or "));
+    m.innerHTML = v.map(([k, ic, l, t]) => `<button role="tab" data-view="${k}" aria-selected="${cur === k}" title="${t}">${icon(ic)}${l}</button>`).join("");
+    $$("[data-view]", m).forEach(b => (b.onclick = () => (z === "chat" ? setChatView(b.dataset.view) : setCodeView(b.dataset.view))));
   }
   function renderSide() {
     const z = S.mode, zl = $("#zoneList");
@@ -324,18 +352,20 @@ var Shell = (() => {
     renderCaps(); wireGutter();
     document.documentElement.classList.toggle("reduce-motion", prefs.motion === "reduced");
     $("#searchBtn").onclick = search;
+    $("#chatDock").onclick = () => toggleDock();
     $("#gearBtn").onclick = () => (S.settings ? closeSettings() : openSettings());
     $("#gear").onclick = () => (S.settings ? closeSettings() : openSettings());
     if (window.Memory) await Memory.init();
     if (window.Apps) await Apps.init();
   }
   // The project arriving (at launch, or opened elsewhere) can change which
-  // section Code shows; lay out again when it does.
-  function refresh() { if (elFor(S.mode) !== laid) layout(); renderStatus(); renderRail(); renderZones(); if (S.mode === "code") renderHead(); }
+  // section Code shows, and whether the IDE docks its chat; lay out again when it does.
+  function refresh() { if (elFor(S.mode) !== laid || docked() !== laidDock) layout(); renderStatus(); renderRail(); renderZones(); if (S.mode === "code") renderHead(); }
 
   // ---------------------------------------------------------------- status bar
   // After an agent control plane's footer: where you are (branch, project),
-  // who is working, tokens and spend, then the phone link and Motion.
+  // who is working (only while something is), then the phone link, Motion and
+  // what you have left to spend.
   let chatBusy = [];
   async function renderStatus() {
     const el = $("#status"); if (!el) return;
@@ -344,26 +374,24 @@ var Shell = (() => {
     chatBusy = list.filter(t => t.busy);
     const ags = (snap && snap.agents) || [];
     const running = ags.filter(a => a.status && a.status.state === "running");
-    const tok = ags.reduce((n, a) => n + (a.input_tokens || 0) + (a.output_tokens || 0), 0);
-    const cost = (snap && snap.total_cost_usd) || 0;
     const branch = ags[0] && ags[0].branch;
     const tickets = (snap && snap.tickets) || [];
     const done = tickets.filter(t => /merged|done|approved/i.test(JSON.stringify(t.state || ""))).length;
     const who = running.length
       ? `${running.length === 1 ? esc(running[0].title || "Main agent") : running.length + " agents"} working`
-      : chatBusy.length ? `${esc(chatBusy[0].title.slice(0, 28))} replying${chatBusy.length > 1 ? ` +${chatBusy.length - 1}` : ""}` : "Idle";
-    const fmt = n => (n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? (n / 1e3).toFixed(1) + "k" : String(n));
+      : chatBusy.length ? `${esc(chatBusy[0].title.slice(0, 28))} replying${chatBusy.length > 1 ? ` +${chatBusy.length - 1}` : ""}` : "";
     const motion = prefs.motion === "reduced" ? "Reduced" : "Full";
     const phone = prefs.companion && prefs.companion.enabled;
+    const u = await usage();
     el.innerHTML = `
       ${hasProject && snap.workspace ? `<button class="st" data-st="code" title="Open the project">${icon("branch")}${esc(branch || "no branch")}</button>
       <button class="st" data-st="code" title="${esc(snap.workspace)}">${icon("folder")}${esc(snap.name || base(snap.workspace))}${tickets.length ? `<span class="dim">${done}/${tickets.length} tickets</span>` : ""}</button>` : ""}
-      <button class="st ${running.length || chatBusy.length ? "live" : ""}" data-st="who"><i class="sd"></i>${who}</button>
+      ${who ? `<button class="st live" data-st="who"><i class="sd"></i>${who}</button>` : ""}
       <span class="sp"></span>
       ${prefs.split ? `<button class="st" data-st="split" title="Close the split">${icon("splitv")}Split</button>` : ""}
       <button class="st" data-st="phone" title="Settings → Phone">${icon("phone")}${phone ? "Phone on" : "Phone off"}</button>
       <button class="st" data-st="motion" title="Animations: full or reduced">${icon("motion")}Motion: ${motion}</button>
-      <span class="st nb" title="Tokens and spend in this project">${fmt(tok)} tok${cost ? ` · $${cost.toFixed(2)}` : ""}</span>`;
+      <button class="st nb usage${u.low ? " low" : ""}" data-st="usage" title="${esc(u.tip)}">${u.pct != null ? `<span class="ubar"><i style="width:${Math.round(u.pct * 100)}%"></i></span>` : ""}${esc(u.txt)}</button>`;
     $$("[data-st]", el).forEach(b => (b.onclick = () => {
       const k = b.dataset.st;
       if (k === "code") setMode("code");
@@ -371,7 +399,38 @@ var Shell = (() => {
       else if (k === "split") setSplit(null);
       else if (k === "phone") openSettings("phone");
       else if (k === "motion") setMotion(prefs.motion === "reduced" ? "full" : "reduced");
+      else if (k === "usage") openSettings(u.go);
     }));
+  }
+
+  // What is left, from whoever meters it: Backspace Cloud's allowance first,
+  // then a CLI login's own quota report, else what this project has spent.
+  // Nothing here is estimated — a quota only shows when its owner reported it.
+  let accts = null, acctsAt = 0;
+  async function usage() {
+    const fmt = n => (n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? (n / 1e3).toFixed(1) + "k" : String(n));
+    const resets = ms => { const d = new Date(ms); return d.toDateString() === new Date().toDateString() ? d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : d.toLocaleDateString([], { month: "short", day: "numeric" }); };
+    const cloud = window.Providers && Providers.account;
+    if (cloud && cloud.allowance) {
+      const left = Math.max(0, cloud.allowance - cloud.used);
+      return { txt: `${fmt(left)} left`, pct: left / cloud.allowance, low: left / cloud.allowance < 0.15, go: "providers",
+        tip: `Backspace Cloud: ${cloud.used} of ${cloud.allowance} replies used this ${cloud.period}, resets ${resets(cloud.resets_at)}${cloud.payg_usd ? ` · $${cloud.payg_usd.toFixed(2)} pay-as-you-go` : ""}` };
+    }
+    if (Date.now() - acctsAt > 30000) { acctsAt = Date.now(); accts = await invoke("accounts").then(d => d.accounts || []).catch(() => accts); }
+    const live = (accts || []).filter(a => a.enabled && a.usage);
+    const metered = live.find(a => a.usage.limit);
+    if (metered) {
+      const { used = 0, limit, resets_at } = metered.usage, left = Math.max(0, limit - (used || 0));
+      return { txt: `${fmt(left)} left`, pct: left / limit, low: left / limit < 0.15, go: "accounts",
+        tip: `${metered.name}: ${used || 0} of ${limit} used${resets_at ? `, resets ${resets(resets_at)}` : ""}${metered.usage.report ? ` · ${metered.usage.report}` : ""}` };
+    }
+    const capped = live.find(a => a.health && a.health.cooldown_until > Date.now());
+    if (capped) return { txt: "Limit reached", pct: 0, low: true, go: "accounts", tip: `${capped.name}: ${capped.usage.report || "usage limit"}, usable again ${resets(capped.health.cooldown_until)}` };
+    const ags = (snap && snap.agents) || [];
+    const tok = ags.reduce((n, a) => n + (a.input_tokens || 0) + (a.output_tokens || 0), 0);
+    const cost = (snap && snap.total_cost_usd) || 0;
+    return { txt: cost ? `$${cost.toFixed(2)} used` : "Usage", pct: null, go: "accounts",
+      tip: `No provider has reported a quota yet. This project: ${fmt(tok)} tokens${cost ? `, $${cost.toFixed(2)}` : ""}.` };
   }
   function setMotion(m) {
     prefs.motion = m;
@@ -415,5 +474,5 @@ var Shell = (() => {
     setSplit("desktop", 0.45);
   }
 
-  return { projectMenu, search, init, layout, showing, renderStatus, memToast, openDesktop, setMotion, renderSide, renderRail, refresh, setSplit, toggleSplit, elFor, glyph };
+  return { projectMenu, search, init, layout, toggleDock, showing, renderStatus, memToast, openDesktop, setMotion, renderSide, renderRail, refresh, setSplit, toggleSplit, elFor, glyph };
 })();

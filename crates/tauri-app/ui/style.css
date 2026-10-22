@@ -796,6 +796,10 @@ body.dragging-any, body.dragging-any * { cursor: grabbing !important; user-selec
 .status .st .ic { width: 12px; height: 12px; }
 .status .st .dim { color: var(--fg-4); margin-left: 4px; }
 .status .nb { font-variant-numeric: tabular-nums; font-family: var(--font-mono); font-size: 11px; }
+.status .usage .ubar { width: 34px; height: 4px; border-radius: 2px; background: var(--hover); overflow: hidden; }
+.status .usage .ubar i { display: block; height: 100%; border-radius: inherit; background: var(--bs-accent); }
+.status .usage.low { color: var(--amber); }
+.status .usage.low .ubar i { background: var(--amber); }
 .status .sd { width: 6px; height: 6px; border-radius: 50%; background: var(--fg-4); }
 .status .live { color: var(--fg-2); }
 .status .live .sd { background: var(--bs-accent); animation: pulse 1.4s ease-in-out infinite; }

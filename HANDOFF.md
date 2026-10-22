@@ -1,5 +1,32 @@
 # Handoff: Backspace (ohMyHarness → Workbench), v0
 
+**Session, 22 Oct 2026 — Apps first, a quieter bar, and the IDE's chat.**
+
+- **Launch lands on Apps.** `S.mode` starts at `apps` every time (a folder on
+  the command line still opens Code). Apps was already first in the switcher.
+- **The app chip is gone.** `Frame.renderBar` and `#appbar` are removed; On/off
+  lives in Settings → General only, New is each app's own control.
+- **The view switch is centred.** Chat | Agents and ADE | IDE sit in the middle
+  of the title bar in both zones; the sidebar copy (`#modesSide`) is gone.
+  Below 1280px the IDE puts it back in the row so it never covers the tabs.
+- **Sidebar top.** The pill over the card is search + sidebar toggle; New chat
+  (with its project chevron) is the card's first row (`ThreadList.tsx`).
+- **Footer.** No add-machine `+`, no "Idle" (the who-chip shows only while
+  something works). `0 tok` is now a usage chip: Cloud's replies left, else a
+  CLI login's own reported quota, else a cooldown, else project spend
+  (`Shell` `usage()`); it opens the matching Settings section.
+- **The IDE docks a chat.** With a project open, the IDE shows the project's
+  chat face on the right (30%, 20–50% by dragging the gutter), scoped like the
+  ADE. `#chatDock` in the title bar toggles it; a split you open takes that
+  side instead. Per viewer, in `localStorage` (`bs.ideChat`).
+
+**Ran:** the real `ui/` in `tools/uiharness` (headless Chromium, `--no-sandbox`
+wrapper) at 1366 and 1053: boot on Apps, Chat with the new sidebar top and the
+centred switch, the IDE with three canvases and the docked chat. `tsc` and
+`vite build` clean. **Not run:** Rust (unchanged), the real Tauri window.
+`tools/verify/shot.js` still calls the old global `useTabsFor` (now
+`Code.loadTabs`).
+
 **Session, 22 Oct 2026 — Code owns its engine.**
 
 - **The workbench moved into the app.** Everything Code draws is now
