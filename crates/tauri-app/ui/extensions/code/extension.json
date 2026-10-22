@@ -7,6 +7,6 @@
   "order": 20,
   "section": "canvas",
   "className": "canvas zone",
-  "view": { "kind": "native", "script": "code.js" },
+  "view": { "kind": "native", "script": "code.js", "style": "code.css" },
   "action": { "label": "New tab", "icon": "plus" }
 }
