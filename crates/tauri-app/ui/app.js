@@ -113,6 +113,9 @@ let prefs = { theme: "system", tabs: [], active_tab: 0, check_updates: true };
 let machines = [], share = null, upd = null, hasProject = true;
 // The update being downloaded and swapped in: { stage, pct } while it runs.
 let installing = null;
+// The newest build is downloaded, unpacked and checked, and waits for a
+// restart. This is the state the footer's "Update ready" is about.
+let updReady = false;
 const S = {
   mode: "chat", codeView: "agents", chatView: "chat", wb: "canvases",
   focus: 0, max: null, side: "projects", review: null,
@@ -267,11 +270,15 @@ function toast(text, kind = "") {
 const base = p => String(p).replace(/[\\/]+$/, "").split(/[\\/]/).pop() || p;
 
 // ------------------------------------------------------------------ popovers
-function openPop(anchor, html, wire) {
+function openPop(anchor, html, wire, above = false, cls = "") {
   const pop = $("#pop");
+  pop.className = "pop" + (cls ? " " + cls : "");
   pop.innerHTML = html; pop.hidden = false;
-  const r = anchor.getBoundingClientRect(), pw = pop.offsetWidth;
-  pop.style.top = r.bottom + 6 + "px";
+  const r = anchor.getBoundingClientRect(), pw = pop.offsetWidth, ph = pop.offsetHeight;
+  // Above the anchor for the ones that live in the footer: the menu popovers
+  // all hang from the title bar, where down is the only room there is.
+  pop.style.top = (above ? Math.max(8, r.top - ph - 6) : r.bottom + 6) + "px";
+  pop.style.bottom = "auto";
   pop.style.left = Math.max(8, Math.min(innerWidth - pw - 8, r.left)) + "px";
   wire && wire(pop);
   const first = pop.querySelector("input, button:not([disabled])"); if (first) first.focus();
@@ -413,34 +420,70 @@ function renderMachines() {
   $("#addMachine").onclick = () => openSettings("machines");
 }
 
-// ------------------------------------------------------------------ update pill
+// ------------------------------------------------------------------ updates
+// The shape is T3 Code's: a check that finds a newer build downloads it in
+// the background, the footer turns into "Update ready" when it is on disk,
+// and installing stays a separate, deliberate click because it ends every
+// running task. The popover carries what changed; the dialog says what it
+// costs. Nothing here is a progress bar for its own sake -- the label only
+// changes when the build does.
 function renderUpd() {
   const b = $("#upd");
   b.hidden = false;
-  b.classList.toggle("new", !!(upd && upd.newer) || !!installing);
+  b.classList.toggle("new", !!(upd && upd.newer) || !!installing || updReady);
   if (installing) {
     const pct = installing.stage === "Downloading" ? ` ${installing.pct}%` : "";
     b.innerHTML = `${icon("down")}<span class="lbl">${esc(installing.stage)}${pct}</span>`;
-    b.title = "Backspace is fetching the new build; it reopens when it's in place.";
-  } else if (upd === "checking") b.innerHTML = `Checking…`;
+    b.title = "Backspace is fetching the new build; it keeps running until you restart.";
+  } else if (upd === "checking") { b.innerHTML = `Checking…`; b.title = "Asking GitHub for the newest build."; }
+  else if (updReady && upd && upd.newer) {
+    b.innerHTML = `${icon("down")}<span class="lbl">Update ready</span><span class="n">${esc(upd.latest)}</span>`;
+    b.title = `Build ${upd.latest} is downloaded. Click to see what changed, then restart to install it.`;
+  }
   else if (upd && upd.error) { b.innerHTML = `${icon("reload")}Check for updates`; b.title = upd.error; }
   else if (upd && upd.newer) { b.innerHTML = `${icon("down")}<span class="lbl">Update to ${esc(upd.latest)}</span>`; b.title = `A newer Backspace is out: build ${upd.latest}. You have ${upd.build || upd.current}.`; }
   else if (upd) { b.innerHTML = `${icon("check")}<span class="lbl">Up to date</span><span class="n">v${esc(upd.current)}</span>`; b.title = `Backspace ${upd.current} · click to check again`; }
   else b.innerHTML = `${icon("reload")}<span class="lbl">Check for updates</span>`;
 }
-async function checkUpdate() {
-  upd = "checking"; renderUpd();
-  upd = await invoke("check_update").catch(e => ({ error: String(e) }));
-  renderUpd(); if (S.settings) renderSettings();
-}
-$("#upd").onclick = () => (upd && upd.newer ? installUpdate() : checkUpdate());
 
-// Download the build the check found and let it replace this one. The command
-// only returns if something went wrong: on success the app quits into the swap
-// script, which reopens it, so there is no "done" state to render.
+async function checkUpdate() {
+  if (installing) return;
+  upd = "checking"; renderUpd(); if (S.settings) renderSettings();
+  const r = await invoke("check_update").catch(e => ({ error: String(e) }));
+  // A network wobble after a download must not hide the build waiting on disk.
+  if (!(updReady && r && r.error)) upd = r;
+  renderUpd(); if (S.settings) renderSettings();
+  // The download starts on its own, the way T3's does: by the time the person
+  // wonders about the update, the answer can be "restart" instead of "wait".
+  if (upd && upd.newer && !upd.error && !updReady) downloadUpdate();
+}
+
+// Fetch the build without replacing anything. When this resolves the new app is
+// sitting in the temporary folder and the footer can honestly say "ready".
+async function downloadUpdate() {
+  if (installing || updReady || !(upd && upd.newer)) return;
+  installing = { stage: "Preparing", pct: 0 };
+  renderUpd(); syncUpdButton(); if (S.settings) renderSettings();
+  let done = false;
+  try {
+    await invoke("download_update");
+    updReady = true; done = true;
+  } catch (e) {
+    toast(`Couldn't download the update: ${e}`, "err");
+  } finally {
+    installing = null;
+    renderUpd(); syncUpdButton(); if (S.settings) renderSettings();
+  }
+  if (done) toast("Update downloaded. Restart the app from the update button to install it.", "ok");
+}
+
+// Replace this app with the downloaded one. On success the app quits into the
+// swap script and this promise never resolves, so there is nothing to say after
+// the invoke; the only path back here is a failure.
 async function installUpdate() {
   if (installing) return;
-  installing = { stage: "Preparing", pct: 0 };
+  closeUpdModal(); closePop();
+  installing = { stage: "Installing", pct: 94 };
   renderUpd(); syncUpdButton();
   try {
     await invoke("install_update");
@@ -450,20 +493,85 @@ async function installUpdate() {
     toast(`Couldn't install the update: ${e}`, "err");
   }
 }
+
+// The changelog and the one button that restarts. It opens upward: the update
+// chip is in the footer, and a menu that opens downward from there is off the
+// bottom of the window.
+function openUpdPop() {
+  const b = $("#upd");
+  const u = upd || {};
+  const ready = updReady && !installing;
+  const notes = (u.notes || []).slice(0, 6);
+  const more = Math.max(0, (u.total_notes || 0) - notes.length);
+  const title = installing ? "Downloading the update…"
+    : ready ? `Update ${esc(u.latest || "")} downloaded.`
+    : `Update ${esc(u.latest || "")} is available.`;
+  const body = installing ? "Backspace is fetching it in the background. You can keep working."
+    : ready ? "Restart the app from the update button to install it."
+    : "The download starts on its own; this menu changes when it is ready.";
+  const action = ready ? `<button class="btn primary" id="updInstall">Restart and install</button>`
+    : `<button class="btn primary" id="updFetch" ${installing ? "disabled" : ""}>${installing ? `${esc(installing.stage)}…` : "Download"}</button>`;
+  const href = u.url || "https://github.com/chamsco/Workbench/releases";
+  openPop(b, `<div class="updpop">
+    <div class="up-head"><span class="ic">${icon("down")}</span><div><b>${title}</b><small>${body}</small></div></div>
+    ${notes.length ? `<h5>What's changed</h5><ul class="up-notes">${notes.map(n => `<li>${esc(n)}</li>`).join("")}</ul>` : ""}
+    <a class="up-more" id="updMore" href="${esc(href)}">${more ? `${more} more ${more === 1 ? "change" : "changes"}` : "Release notes"} on GitHub ↗</a>
+    <div class="up-foot"><button class="btn" id="updLater">Later</button>${action}</div>
+  </div>`, p => {
+    $("#updLater", p).onclick = closePop;
+    $("#updMore", p).onclick = e => { e.preventDefault(); invoke("open_url", { url: href }); };
+    const fetch = $("#updFetch", p); if (fetch) fetch.onclick = downloadUpdate;
+    const go = $("#updInstall", p); if (go) go.onclick = askInstall;
+  }, true, "updpop");
+}
+
+// The last click. Replacing the app quits every window, so the dialog says so
+// before the swap script is handed the bundle.
+function askInstall() {
+  closePop();
+  const m = $("#updModal");
+  if (!m) return;
+  $("#updVer").textContent = (upd && upd.latest) || "the new build";
+  $("#updConfirm").disabled = false;
+  $("#updConfirm").innerHTML = "Confirm";
+  m.hidden = false;
+  $("#updConfirm").focus();
+}
+function closeUpdModal() { const m = $("#updModal"); if (m) m.hidden = true; }
+$("#updCancel").onclick = closeUpdModal;
+$("#updConfirm").onclick = () => installUpdate();
+$("#updModal").addEventListener("pointerdown", e => { if (e.target.id === "updModal") closeUpdModal(); });
+
 function syncUpdButton() {
   const g = $("#updGo");
   if (!g) return;
   g.disabled = !!installing;
-  if (!installing) { g.innerHTML = "Install & Restart"; return; }
-  g.innerHTML = installing.stage === "Downloading" ? `Downloading ${installing.pct}%` : `${esc(installing.stage)}…`;
+  if (installing) {
+    g.innerHTML = installing.stage === "Downloading" ? `Downloading ${installing.pct}%` : `${esc(installing.stage)}…`;
+    return;
+  }
+  g.innerHTML = updReady ? "Restart & install" : "Download update";
 }
+
+$("#upd").onclick = () => {
+  if (installing) return;
+  if (upd && upd.newer) {
+    if (!$("#pop").hidden && $("#pop").querySelector(".updpop")) closePop();
+    else openUpdPop();
+  } else checkUpdate();
+};
 TAURI.event.listen("update:progress", e => {
   installing = e.payload || installing;
   renderUpd(); syncUpdButton();
 });
 
 addEventListener("keydown", e => {
-  if (e.key === "Escape") { if (!$("#pop").hidden) closePop(); else if (S.settings) closeSettings(); else if (S.drawer) Code.setDrawer(false); }
+  if (e.key === "Escape") {
+    if (!$("#updModal").hidden) closeUpdModal();
+    else if (!$("#pop").hidden) closePop();
+    else if (S.settings) closeSettings();
+    else if (S.drawer) Code.setDrawer(false);
+  }
   if (!(e.metaKey || e.ctrlKey)) return;
   if (!$("#onboard").hidden) return;
   if (e.key === "n") { e.preventDefault(); setMode("chat"); Chat.newChat(); return; }
@@ -669,8 +777,8 @@ function renderSettings() {
       <pre class="cmd">ssh -L 7420:${esc(sh.addr)} you@this-machine   # then add http://127.0.0.1:7420 elsewhere</pre></section>
     <section id="set-updates"><h2>Updates</h2>
       <div class="line"><span class="lab">Check for updates automatically</span><button class="toggle" role="switch" aria-checked="${prefs.check_updates}" id="updT" aria-label="Check for updates automatically"></button></div>
-      <div class="line"><span class="lab">Backspace ${esc(u && u.current || "0.1.0")}<small>${u && u.error ? esc(u.error) : u && u.newer ? `Build ${esc(u.latest)} is available${u.build ? `, you have ${esc(u.build)}` : ""}.` : u ? `You're on the latest build.${u.build ? ` Built from ${esc(u.build)}.` : ""}` : "Not checked yet."}</small></span>
-        ${u && u.newer ? `<button class="btn primary" id="updGo">Install & Restart</button>` : `<button class="btn" id="updNow">Check now</button>`}</div></section>
+      <div class="line"><span class="lab">Backspace ${esc(u && u.current || "0.1.0")}<small>${u && u.error ? esc(u.error) : installing ? `Downloading the new build: ${installing.stage === "Downloading" ? installing.pct + "%" : installing.stage.toLowerCase() + "…"}` : updReady && u && u.newer ? `Build ${esc(u.latest)} is downloaded and waiting for a restart.` : u && u.newer ? `Build ${esc(u.latest)} is available${u.build ? `, you have ${esc(u.build)}` : ""}. Downloading it in the background.` : u ? `You're on the latest build.${u.build ? ` Built from ${esc(u.build)}.` : ""}` : "Not checked yet."}</small></span>
+        ${u && u.newer ? `<button class="btn primary" id="updGo">${updReady ? "Restart & install" : "Download update"}</button>` : `<button class="btn" id="updNow">Check now</button>`}</div></section>
     <section id="set-home"><h2>Archived threads</h2><p class="lead">Threads you archived. They keep their messages and can be restored from Chat.</p><div id="setArchived"></div></section>
   </div></div></div>`;
   Object.entries(keep).forEach(([id, v]) => { const i = $("#" + id, el); if (i && v) i.value = v; });
@@ -770,7 +878,7 @@ function renderSettings() {
   $("#shNew").onclick = () => setShare(sh.enabled, true);
   $("#updT").onclick = async () => { prefs.check_updates = !prefs.check_updates; await invoke("set_check_updates", { on: prefs.check_updates }); renderUpd(); renderSettings(); };
   const now = $("#updNow"); if (now) now.onclick = checkUpdate;
-  const go = $("#updGo"); if (go) { go.onclick = installUpdate; syncUpdButton(); }
+  const go = $("#updGo"); if (go) { go.onclick = () => (updReady ? askInstall() : downloadUpdate()); syncUpdButton(); }
 }
 
 // Settings → Coding: which harness runs workers, and the API keys.

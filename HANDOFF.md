@@ -1,5 +1,29 @@
 # Handoff: Backspace (ohMyHarness → Workbench), v0
 
+**Session, 22 Oct 2026 — the update waits for a restart.**
+
+- **The update downloads in the background.** `check_update` still answers "is
+  main ahead of me?", and on a newer build the app now calls the new
+  `download_update`, which fetches, unpacks and identity-checks the bundle in
+  the temporary folder and keeps it in a mutex. The footer says "Update
+  ready"; a toast says how to finish. `install_update` is the second, separate
+  click: it hands the staged bundle to the swap script and exits. Called with
+  nothing staged it stages first, so the command still works alone.
+- **The T3 Code flow around it.** The update chip opens a popover above the
+  footer: what changed (the first eight commit subjects from the GitHub compare
+  API, plus "N more changes on GitHub"), a link to the release, and "Restart
+  and install". That opens the app's first centered dialog — "Any running
+  tasks will be interrupted" — before anything is swapped. `UpdateInfo` grew
+  `notes` and `total_notes`; a failed compare leaves the update offered.
+
+**Ran:** the real `ui/` in the T3 preview against the `__TAURI__` stub, driving
+the updater's states directly: check → background download → "Update ready"
+chip + toast → popover above the footer with notes and "3 more changes" →
+centered confirm dialog (version filled, Confirm focused, Cancel closes).
+**Rust:** `cargo check -p backspace-tauri` (with the Tauri CLI's
+`macos-private-api` manifest patch) and `cargo test -p backspace-core --lib` —
+138 passed.
+
 **Session, 22 Oct 2026 — Code owns its engine.**
 
 - **The workbench moved into the app.** Everything Code draws is now

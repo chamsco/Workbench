@@ -465,6 +465,7 @@ body { margin: 0; background: var(--desk-base); color: var(--fg); font: 13px/1.4
 .upd { height: 22px; padding: 0 10px; border-radius: 999px; font-size: 11.5px; border: 1px solid var(--pill-edge); color: var(--fg-3); display: flex; align-items: center; gap: 5px; white-space: nowrap; }
 .upd:hover { color: var(--fg); background: var(--hover); }
 .upd.new { border-color: var(--fg-2); color: var(--fg); font-weight: 500; }
+.upd .n { color: var(--fg-4); font-size: 10.5px; font-weight: 400; }
 .cta[aria-expanded="true"] { background: var(--sel); }
 .cta .n { color: var(--fg-3); }
 
@@ -507,6 +508,31 @@ body { margin: 0; background: var(--desk-base); color: var(--fg); font: 13px/1.4
 .lays button[aria-pressed="true"] { background: var(--pill-on); color: var(--fg); border-color: var(--fg-3); }
 .pop .row-end { display: flex; justify-content: flex-end; gap: 6px; margin: 0 4px 2px; }
 .pop .note { margin: 2px 8px 6px; color: var(--fg-3); font-size: 11.5px; max-width: 260px; }
+
+/* Update popover and the restart dialog. The popover hangs above the footer,
+   where the update chip lives, and carries the changelog the check fetched;
+   the dialog is the one centered surface in the app, because replacing the
+   running build is the one action that ends every window. */
+.pop.updpop { width: 340px; max-width: calc(100vw - 16px); padding: 12px; }
+.updpop .up-head { display: flex; gap: 9px; align-items: flex-start; padding: 2px 2px 10px; }
+.updpop .up-head > .ic { color: var(--green); margin-top: 1px; flex: none; }
+.updpop .up-head b { display: block; font-size: 12.5px; font-weight: 600; }
+.updpop .up-head small { display: block; margin-top: 2px; color: var(--fg-3); font-size: 11.5px; line-height: 1.45; }
+.updpop h5 { margin: 0 2px 6px; }
+.updpop .up-notes { margin: 0 2px 8px; padding-left: 15px; color: var(--fg-2); font-size: 12px; line-height: 1.5; }
+.updpop .up-notes li { margin: 0 0 2px; }
+.updpop .up-notes li::marker { color: var(--fg-4); }
+.updpop .up-more { display: inline-block; margin: 0 2px 11px; color: var(--fg-3); font-size: 11.5px; text-decoration: none; }
+.updpop .up-more:hover { color: var(--fg); text-decoration: underline; }
+.updpop .up-foot { display: flex; justify-content: flex-end; gap: 6px; }
+.modal { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; background: rgba(0, 0, 0, 0.34); -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px); }
+.modal[hidden] { display: none; }
+.modal-card { width: min(380px, calc(100vw - 32px)); padding: 18px; border-radius: 13px; background: var(--sheet); border: 0.5px solid var(--pane-edge); box-shadow: 0 24px 60px rgba(0, 0, 0, 0.3); animation: pop-in 0.16s cubic-bezier(0.22, 0.61, 0.36, 1); }
+.modal-card h3 { margin: 0 0 8px; font-size: 14px; font-weight: 600; line-height: 1.35; }
+.modal-card h3 code { color: var(--fg-2); font: inherit; }
+.modal-card p { margin: 0 0 16px; color: var(--fg-3); font-size: 12.5px; line-height: 1.5; }
+.modal-foot { display: flex; justify-content: flex-end; gap: 7px; }
+@media (prefers-reduced-motion: reduce) { .modal-card { animation: none; } }
 
 /* sidebar: machine name up top, machine switcher at the foot */
 .brand .mic { width: 18px; height: 18px; color: var(--fg); }

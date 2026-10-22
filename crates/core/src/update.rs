@@ -51,6 +51,13 @@ pub struct UpdateInfo {
     pub url: String,
     /// The commit this build came from, short; "" when built by hand.
     pub build: String,
+    /// The commits between your build and the newest one, newest first, first
+    /// line only. Empty when the build is up to date, was made by hand, or
+    /// GitHub would not answer the compare.
+    pub notes: Vec<String>,
+    /// How many commits the compare found, including the ones `notes` leaves
+    /// out. The UI says "N more changes on GitHub" from this.
+    pub total_notes: usize,
 }
 
 pub async fn check(http: &reqwest::Client) -> Result<UpdateInfo> {
@@ -85,13 +92,65 @@ pub async fn check(http: &reqwest::Client) -> Result<UpdateInfo> {
         .map(String::from)
         .unwrap_or_else(releases_url);
     let target = release_commit(&v);
+    let newer = target.as_deref().is_some_and(|t| is_newer(t, BUILD));
+    let (notes, total_notes) = if newer {
+        match target.as_deref() {
+            Some(t) => compare_notes(http, BUILD, t).await.unwrap_or_default(),
+            None => (Vec::new(), 0),
+        }
+    } else {
+        (Vec::new(), 0)
+    };
     Ok(UpdateInfo {
         current: VERSION.into(),
         latest: target.as_deref().map(short).unwrap_or_default().to_string(),
-        newer: target.as_deref().is_some_and(|t| is_newer(t, BUILD)),
+        newer,
         url,
         build: short(BUILD).to_string(),
+        notes,
+        total_notes,
     })
+}
+
+/// The first lines of the commits between this build and the newest one.
+///
+/// The rolling release is rebuilt from main, so "what changed" is exactly the
+/// commits GitHub compares. Newest first is what a changelog does; the UI caps
+/// the list and counts the rest. A failure here is not a failed update check:
+/// no notes is better than no update.
+async fn compare_notes(
+    http: &reqwest::Client,
+    base: &str,
+    head: &str,
+) -> Result<(Vec<String>, usize)> {
+    if base.is_empty() || head.is_empty() || base == head {
+        return Ok((Vec::new(), 0));
+    }
+    let res = http
+        .get(format!(
+            "https://api.github.com/repos/{REPO}/compare/{base}...{head}"
+        ))
+        .header("user-agent", "backspace")
+        .header("accept", "application/vnd.github+json")
+        .timeout(std::time::Duration::from_secs(8))
+        .send()
+        .await?;
+    let v: Value = res.error_for_status()?.json().await?;
+    let total = v["total_commits"].as_u64().unwrap_or(0) as usize;
+    let notes: Vec<String> = v["commits"]
+        .as_array()
+        .map(|list| {
+            list.iter()
+                .rev()
+                .take(8)
+                .filter_map(|c| c["commit"]["message"].as_str())
+                .map(|m| m.lines().next().unwrap_or("").trim().to_string())
+                .filter(|m| !m.is_empty())
+                .collect()
+        })
+        .unwrap_or_default();
+    let total = total.max(notes.len());
+    Ok((notes, total))
 }
 
 /// The zipped app in the rolling release: where it is and how big it is.
@@ -137,6 +196,8 @@ fn idle() -> UpdateInfo {
         newer: false,
         url: releases_url(),
         build: short(BUILD).to_string(),
+        notes: Vec::new(),
+        total_notes: 0,
     }
 }
 

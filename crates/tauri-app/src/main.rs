@@ -335,11 +335,21 @@ async fn check_update(f: F<'_>) -> Res<UpdateInfo> {
         .map_err(err)
 }
 
-/// Download the newest build over this one, then quit into it.
+/// Fetch the newest build and keep it unpacked until `install_update`.
 ///
-/// The download, the swap and the relaunch all happen outside the UI thread
-/// and outside this process: the command returns only if something went
-/// wrong. The shell that runs on success is a new window on the same app.
+/// This is the half that can run while the person is still working: it only
+/// touches the temporary folder, so the footer can honestly say "Update ready"
+/// and the restart stays a separate, deliberate click.
+#[tauri::command]
+async fn download_update(app: tauri::AppHandle) -> Res<()> {
+    update_install::download(app).await.map_err(err)
+}
+
+/// Swap the downloaded build in and quit into it.
+///
+/// The swap and the relaunch happen outside the UI thread and outside this
+/// process: the command returns only if something went wrong. The shell that
+/// runs on success is a new window on the same app.
 #[tauri::command]
 async fn install_update(app: tauri::AppHandle) -> Res<()> {
     update_install::install(app).await.map_err(err)
@@ -1967,6 +1977,7 @@ fn main() -> anyhow::Result<()> {
             set_appearance,
             set_check_updates,
             check_update,
+            download_update,
             install_update,
             open_url,
             pick_folder,

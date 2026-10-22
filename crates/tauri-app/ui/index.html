@@ -74,7 +74,7 @@
       <aside class="drawer" id="drawer" aria-label="Tickets and reviews" hidden></aside>
     </div>
     <footer class="status" aria-label="Status">
-      <button class="upd" id="upd"></button>
+      <button class="upd" id="upd" data-popper></button>
       <div class="machines" id="machines" role="group" aria-label="Machines"></div>
       <button class="cta code-only agents-only" id="cta" aria-expanded="false" aria-controls="drawer"></button>
       <div class="stm" id="status"></div>
@@ -84,6 +84,15 @@
   </div>
 </div>
 <div class="pop" id="pop" hidden></div>
+<!-- The only centered dialog: installing an update replaces the running app,
+     so it asks once, plainly, and names the cost. -->
+<div class="modal" id="updModal" hidden>
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="updModalTitle">
+    <h3 id="updModalTitle">Install update <code id="updVer"></code> and restart Backspace?</h3>
+    <p>Any running tasks will be interrupted. Make sure you're ready before continuing.</p>
+    <div class="modal-foot"><button class="btn" id="updCancel">Cancel</button><button class="btn primary" id="updConfirm">Confirm</button></div>
+  </div>
+</div>
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 <div class="memtoast" id="memToast" role="status" aria-live="polite" hidden></div>
 <input type="file" id="filePick" multiple hidden>

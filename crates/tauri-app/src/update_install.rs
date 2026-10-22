@@ -37,17 +37,65 @@ fn say(app: &AppHandle, stage: &str, pct: u8) {
 }
 
 #[cfg(not(target_os = "macos"))]
+pub async fn download(_app: AppHandle) -> Result<()> {
+    Err(anyhow!("Backspace installs its own updates on macOS only"))
+}
+
+#[cfg(not(target_os = "macos"))]
 pub async fn install(_app: AppHandle) -> Result<()> {
     Err(anyhow!("Backspace installs its own updates on macOS only"))
 }
 
+/// A build that is downloaded, unpacked and checked, waiting for a restart.
+#[cfg(target_os = "macos")]
+struct Staged {
+    new_app: std::path::PathBuf,
+    tmp: std::path::PathBuf,
+}
+
+#[cfg(target_os = "macos")]
+static STAGED: std::sync::Mutex<Option<Staged>> = std::sync::Mutex::new(None);
+
+/// Fetch and unpack the newest build without touching the running app.
+///
+/// This is what makes the T3-style flow possible: the download can finish
+/// while the person is still working, the footer can say "Update ready", and
+/// the restart is a second, deliberate click. Nothing is swapped until
+/// `install` is called.
+#[cfg(target_os = "macos")]
+pub async fn download(app: AppHandle) -> Result<()> {
+    let staged = stage(&app).await?;
+    *STAGED.lock().unwrap() = Some(staged);
+    say(&app, "Ready", 96);
+    Ok(())
+}
+
+/// Swap the staged build in and quit into it.
+///
+/// If nothing was staged -- the download never happened, or this is a call
+/// from an older UI -- it stages first, so the command still does what its
+/// name says. On success this process exits and never returns.
 #[cfg(target_os = "macos")]
 pub async fn install(app: AppHandle) -> Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-    use std::process::{Command, Stdio};
+    // Take in its own statement: a temporary in a match scrutinee lives for
+    // the whole match, and the guard would then be held across the await,
+    // making this future non-Send.
+    let waiting = STAGED.lock().unwrap().take();
+    let staged = match waiting {
+        Some(staged) => staged,
+        None => stage(&app).await?,
+    };
+    apply(staged, &app)
+}
+
+/// Download, unpack, and prove the result is Backspace. Everything here is
+/// reversible: it only writes to the temporary folder.
+#[cfg(target_os = "macos")]
+async fn stage(app: &AppHandle) -> Result<Staged> {
+    use std::process::Command;
 
     let http = reqwest::Client::new();
-    say(&app, "Preparing", 2);
+    say(app, "Preparing", 2);
     let (url, size) = backspace_core::update::app_zip(&http).await?;
 
     let bundle = running_bundle()?;
@@ -56,9 +104,9 @@ pub async fn install(app: AppHandle) -> Result<()> {
     let tmp = std::env::temp_dir().join(format!("backspace-update-{}", std::process::id()));
     std::fs::create_dir_all(&tmp).context("couldn't make a place to download into")?;
     let zip = tmp.join("Backspace-mac.app.zip");
-    download(&http, &url, size, &zip, &app).await?;
+    fetch(&http, &url, size, &zip, app).await?;
 
-    say(&app, "Unpacking", 82);
+    say(app, "Unpacking", 82);
     let staged = tmp.join("app");
     std::fs::create_dir_all(&staged)?;
     run(Command::new("/usr/bin/ditto")
@@ -70,7 +118,19 @@ pub async fn install(app: AppHandle) -> Result<()> {
     let new_app = find_app(&staged)?;
     check_identity(&new_app)?;
 
-    say(&app, "Installing", 94);
+    Ok(Staged { new_app, tmp })
+}
+
+/// Hand the swap to a shell that waits for this process to exit.
+#[cfg(target_os = "macos")]
+fn apply(staged: Staged, app: &AppHandle) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    use std::process::{Command, Stdio};
+
+    let Staged { new_app, tmp } = staged;
+    let bundle = running_bundle()?;
+
+    say(app, "Installing", 94);
     let script = tmp.join("swap.sh");
     std::fs::write(
         &script,
@@ -114,12 +174,13 @@ rm -rf "$tmp"
         .spawn()
         .context("couldn't start the installer")?;
 
-    say(&app, "Restarting", 100);
+    say(app, "Restarting", 100);
     // The script is waiting for exactly this. No cleanup here: the script owns
     // the temporary folder and the old bundle from this point.
     app.exit(0);
     Ok(())
 }
+
 
 /// The `.app` this process is running out of, if it is running out of one.
 #[cfg(target_os = "macos")]
@@ -151,7 +212,7 @@ fn ensure_writable(bundle: &std::path::Path) -> Result<()> {
 }
 
 #[cfg(target_os = "macos")]
-async fn download(
+async fn fetch(
     http: &reqwest::Client,
     url: &str,
     size: u64,
