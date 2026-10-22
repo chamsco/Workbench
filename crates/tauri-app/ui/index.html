@@ -28,8 +28,8 @@
       <div class="side-modes"><div class="modes" id="modesSide" role="tablist"></div></div>
       <div class="side-head">
         <div class="zone-title" id="zoneTitle"></div>
-        <button class="newbtn chat-only" id="newChat" title="New chat (⌘N)"><span data-icon="compose"></span>New chat<kbd>⌘N</kbd></button>
         <label class="search chat-only"><span data-icon="search"></span><input id="search" placeholder="Search chats" aria-label="Search chats" autocomplete="off"><kbd>⌘K</kbd></label>
+        <button class="newbtn chat-only" id="newChat" title="New chat (⌘N)"><span data-icon="compose"></span>New chat<kbd>⌘N</kbd></button>
         <div class="brand code-only" id="brand"></div>
         <div class="seg code-only agents-only" role="group" aria-label="Sidebar view" id="seg"></div>
       </div>
@@ -61,7 +61,6 @@
       <!-- The app's own row. For now the frame still draws these controls, but
            they belong to the app and move into its surface in the next slice. -->
       <div class="approw" id="appRow" data-tauri-drag-region>
-        <div class="appbar" id="appbar" hidden></div>
         <div class="modes" id="modes" role="tablist"></div>
         <button class="vbtn code-only agents-only" id="viewBtn" aria-haspopup="menu" data-popper></button>
         <nav class="tabs code-only agents-only" id="tabs" role="tablist" aria-label="Tabs"></nav>
@@ -95,7 +94,6 @@
     <footer class="status" aria-label="Status">
       <button class="upd" id="upd"></button>
       <div class="machines" id="machines" role="group" aria-label="Machines"></div>
-      <button class="cta code-only agents-only" id="cta" aria-expanded="false" aria-controls="drawer"></button>
       <div class="stm" id="status"></div>
     </footer>
     <div class="scrim" id="scrim"></div>
