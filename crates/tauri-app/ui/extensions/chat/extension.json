@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "id": "chat",
+  "name": "Chat",
+  "description": "Threads with a model behind each: a coding CLI, Ollama, a router or Cloud.",
+  "icon": "bubble",
+  "order": 10,
+  "section": "chat",
+  "className": "chat zone",
+  "view": { "kind": "native", "script": "chat.js", "style": "chat.css" },
+  "action": { "label": "New chat", "icon": "compose" }
+}

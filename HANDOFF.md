@@ -1,5 +1,34 @@
 # Handoff: Backspace (ohMyHarness → Workbench), v0
 
+**Session, 22 Oct 2026 — the window becomes a frame.**
+
+- **The window hosts apps.** `crates/tauri-app/ui/frame.js` reads
+  `extensions/index.json`, gives each app a section in `#body`, loads its style
+  before `home.css` (the cascade did not move) and then its script, and knows
+  the app only by its manifest. Chat moved to `extensions/chat/`
+  (`chat.js`, `chat.css`, `extension.json`); Code's edge is
+  `extensions/code/code.js` (its engine is still `app.js`).
+- **The title bar names the app.** A chip after the switcher holds the name, an
+  On switch and New. On is `prefs.uses` (Settings → General keeps the same
+  toggles); New is the app's action — a chat, a tab. Off apps stay in the
+  switcher, dimmed; clicking one turns it on. The last app cannot be turned
+  off, and going to an off app turns it on.
+- **The shell stopped hardcoding the two.** `setMode` takes its ids from
+  `Frame.ids()`/`Frame.onIds()`, `Shell.elFor` asks the app which section is its
+  face (Code's ADE pair mode still uses the chat face), window classes come
+  from `Frame.syncClasses`, and the first paint of a visible section is
+  `Frame.paint` instead of a `Chat.render()` branch. `Workbench` no longer
+  repeats over the project in Code's title.
+- **Narrow bars.** The chip put the 1053px bar over budget; below 1180 the
+  search button is its icon, below 1060 the chip drops its On/New words, below
+  900 its name. `docs/extensions.md` has the manifest and the hooks.
+
+**Ran:** the real `ui/` in the T3 preview against the `__TAURI__` stub at 1053
+and 1366 in both themes — On/off (from the chip, a dimmed switcher icon, and
+Settings), New (a tab's layout popover, a chat), Memory/Apps hiding the chip,
+and the bar measured for overflow. **Not run:** Rust — no toolchain here, so
+the macOS workflow is the compile.
+
 **Session, 22 Oct 2026 — the update installs itself, and Chat sits on paper.**
 
 - **Updating is no longer manual.** The pill still finds a newer commit on

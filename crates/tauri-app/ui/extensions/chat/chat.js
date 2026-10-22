@@ -677,3 +677,14 @@ var Chat = (() => {
 
   return { init, refresh, render, renderThreads, renderComposerRoute, newChat, open, routeName, providerName, routePicker, md, options, flat, defaultRoute, usable, setScope };
 })();
+
+// Chat is an app the frame hosts: this is all the frame knows about it. The
+// manifest (same folder) says where it sits, what it is called and how to load
+// the script; the hooks below are the surface the frame drives.
+if (window.Frame) Frame.register({
+  id: "chat",
+  init: () => Chat.init(),
+  paint: on => { if (on && !document.getElementById("chat").childElementCount) Chat.render(); },
+  classes: () => (S.chatView === "agents" ? ["agents-on"] : []),
+  newInstance: () => Chat.newChat(),
+});

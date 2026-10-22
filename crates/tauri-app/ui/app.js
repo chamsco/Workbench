@@ -1,8 +1,12 @@
-// Backspace, Tauri edition. Two halves, switched at the top of the sidebar:
+// Backspace, Tauri edition. The window is a frame that hosts apps:
 //
-// - Chat (chat.js): threads with a model behind each: a coding CLI on this
-//   machine, Ollama, a router, or Backspace Cloud.
-// - Code: the agent workbench for a project folder, below.
+// - frame.js reads extensions/index.json, gives each app a section and loads
+//   its script. Chat (extensions/chat/) and Code (extensions/code/) live
+//   there; the frame knows them only by manifest, and draws the switcher, the
+//   app's name, On and New.
+// - This file keeps the window's shared state (prefs, the machine snapshot,
+//   settings, updates) and the Code app's engine: tabs of canvases, the agent
+//   grid, the drawer. The chat face is chat.js, in its own folder.
 //
 // First run walks through setup (onboard.js); providers.js renders the
 // CLI/model list both setup and Settings use.
@@ -340,22 +344,25 @@ for (const sel of ["#gear", "#gearBtn"]) {
   if (b) b.onclick = () => (S.settings ? closeSettings() : openSettings());
 }
 
-// The rail's zones (Chat, Code, Memory, Apps, and each open app) share the
-// window; the sidebar, title bar and body follow. Code has two views: Pair
-// (you and one CLI in the project) and Agents (the workbench).
+// The rail's apps share the window; the sidebar, title bar and body follow.
+// Chat and Workbench are extensions (extensions/index.json), so the list of
+// modes and the window's m-<id> classes come from the frame, not from here.
+// Code has two views: Pair (you and one CLI in the project) and Agents (the
+// workbench).
 const agentsOn = () => S.mode === "code" && S.codeView === "agents";
+const PAGES = ["memory", "apps"];
 function setMode(m, save = true) {
-  const uses = (prefs.uses && prefs.uses.length ? prefs.uses : ["chat", "code"]);
-  if ((m === "chat" || m === "code") && !uses.includes(m)) m = uses[0];
-  if (!m || (m.startsWith("app:") && !(window.Apps && Apps.get(m.slice(4))))) m = uses[0];
-  if (!["chat", "code", "memory", "apps"].includes(m) && !m.startsWith("app:")) m = uses[0];
+  const exts = window.Frame ? Frame.ids() : ["chat", "code"];
+  const on = window.Frame ? Frame.onIds() : exts;
+  m = m || "";
+  if ((!exts.includes(m) && !PAGES.includes(m) && !m.startsWith("app:")) || (exts.includes(m) && !on.includes(m))) m = on[0] || PAGES[0];
+  if (m.startsWith("app:") && !(window.Apps && Apps.get(m.slice(4)))) m = on[0] || PAGES[0];
   S.mode = m;
   const w = $("#win");
-  for (const z of ["chat", "code", "memory", "apps"]) w.classList.toggle("m-" + z, m === z);
+  for (const z of exts.concat(PAGES)) w.classList.toggle("m-" + z, m === z);
   w.classList.toggle("m-app", m.startsWith("app:"));
-  w.classList.toggle("pair-on", m === "code" && S.codeView === "pair");
-  w.classList.toggle("agents-on", m === "chat" && S.chatView === "agents");
-  w.classList.toggle("single-use", uses.length === 1);
+  if (window.Frame) { Frame.setActive(m); Frame.syncClasses(w); }
+  w.classList.toggle("single-use", on.length === 1);
   if (S.settings) { S.settings = false; $("#settings").hidden = true; }
   if (S.drawer && !agentsOn()) setDrawer(false);
   if (save) { prefs.mode = m; invoke("set_mode", { mode: m }); }
@@ -1284,12 +1291,13 @@ function position(tr) {
   $$(".gut", g).forEach(x => x.remove());
   if (!S.drag) gutters.forEach(gt => g.appendChild(gutter(gt)));
 }
-new ResizeObserver(() => {
+const gridRO = new ResizeObserver(() => {
   if (!S.els || S.drag) return;
   const g = $("#grid");
+  if (!g) return;
   g.classList.add("still"); position(tree(tab()));
   requestAnimationFrame(() => g.classList.remove("still"));
-}).observe($("#grid"));
+});
 
 // Live updates touch only transcripts, status lines and review canvases, so
 // typing and scroll positions survive.
@@ -2052,7 +2060,7 @@ function renderSettings() {
   el.innerHTML = `<div class="setwrap"><nav class="setnav" aria-label="Settings sections">${nav}</nav><div class="setbody"><div class="set">
     <div class="set-h"><h1>Settings</h1><span class="sp"></span><button class="btn" id="setRerun">Run setup again</button><button class="ib" id="setClose" aria-label="Close settings">${icon("close")}</button></div>
     <section id="set-general"><h2>General</h2><p class="lead">What Backspace is for, where it looks for projects, and the open project.</p>
-      <div class="line"><span class="lab">What shows in the app<small>With both on, switch from the top of the sidebar.</small></span><div class="segc">${[["chat", "Agents"], ["code", "Workbench"]].map(([k, l]) => `<button aria-pressed="${(prefs.uses || ["chat", "code"]).includes(k)}" data-use="${k}">${l}</button>`).join("")}</div></div>
+      <div class="line"><span class="lab">Apps<small>Off apps stay in the title bar, dimmed, until you turn one back on.</small></span><div class="segc">${(window.Frame ? Frame.zones() : [{ id: "chat", name: "Chat" }, { id: "code", name: "Workbench" }]).map(e => `<button aria-pressed="${(prefs.uses && prefs.uses.length ? prefs.uses : (window.Frame ? Frame.ids() : ["chat", "code"])).includes(e.id)}" data-use="${e.id}">${esc(e.name)}</button>`).join("")}</div></div>
       ${hasProject ? `<div class="line"><span class="lab">Workspace<small class="mono">${esc(snap.workspace || "—")}</small></span></div>
       <div class="line"><span class="lab">Config<small class="mono">${esc(snap.config_source || "built-in defaults")}</small></span></div>` : ""}</section>
     <section id="set-appearance"><h2>Appearance</h2><p class="lead">A theme, then the colours and fonts on top of it.</p>
@@ -2160,8 +2168,9 @@ function renderSettings() {
   const pc = $("#phoneCopy", el); if (pc) pc.onclick = () => { navigator.clipboard.writeText(companion.pair); toast("Pairing link copied", "ok"); };
   const pn = $("#phoneNew", el); if (pn) pn.onclick = async () => { companion = await invoke("set_companion", { enabled: true, newToken: true }); toast("Every paired phone was signed out", "ok"); renderSettings(); };
   $$("[data-use]", el).forEach(b => (b.onclick = async () => {
-    const cur = prefs.uses && prefs.uses.length ? prefs.uses : ["chat", "code"], k = b.dataset.use;
-    const next = ["chat", "code"].filter(u => (u === k ? !cur.includes(u) : cur.includes(u)));
+    const k = b.dataset.use, ids = window.Frame ? Frame.ids() : ["chat", "code"];
+    const cur = prefs.uses && prefs.uses.length ? prefs.uses : ids;
+    const next = ids.filter(u => (u === k ? !cur.includes(u) : cur.includes(u)));
     if (!next.length) { toast("Keep at least one on", "err"); return; }
     prefs.uses = next; await invoke("set_uses", { uses: next });
     setMode(S.mode, false); openSettings("general");
@@ -2475,13 +2484,18 @@ async function refresh(full) {
 TAURI.event.listen("state", () => { if (!queued) { queued = true; requestAnimationFrame(() => refresh(false)); } });
 addEventListener("resize", () => { setSide(!narrow()); });
 
-// After every script has run (chat.js and friends load after this one).
+// After every script has run. The frame loads the apps' scripts during boot.
 addEventListener("DOMContentLoaded", async () => {
   const boot = await invoke("boot");
   window.__BOOT = boot;
   // "os-<platform>" comes from shell.js; a bare "win" class would match ".win" (the window) and hide Code's title bar on Windows.
   document.documentElement.classList.add("native", "os-" + boot.platform);
   prefs = await invoke("prefs");
+  // The frame reads extensions/index.json, makes the apps' sections and loads
+  // their scripts. Nothing below can draw a chat or a canvas before this.
+  await Frame.load();
+  const grid0 = $("#grid");
+  if (grid0) gridRO.observe(grid0);
   // Before anything draws a tab, adopt the layout of the project that is
   // already open on this machine (or the global one when none is).
   await useTabsFor((await invoke("snapshot").catch(() => null) || {}).workspace || "");
@@ -2503,7 +2517,7 @@ addEventListener("DOMContentLoaded", async () => {
   const first = await invoke("snapshot");
   if (first.workspace && (boot.bench || !prefs.onboarded)) { S.mode = "code"; S.codeView = "agents"; }
   if (window.Shell) await Shell.init(boot);
-  if (window.Chat) await Chat.init();
+  await Frame.init();
   setMode(S.mode, false);
   await refresh(true);
   // Starting in Code: reopen the last project, as editors do.

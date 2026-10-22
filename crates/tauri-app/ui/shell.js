@@ -8,30 +8,30 @@
 // chat keeps its state when it is out of sight.
 
 var Shell = (() => {
-  // The order is the reading order: a plugin is a place you go, so Apps leads;
-  // then the two surfaces of the agent machine — Agents (threads, artifacts,
-  // composer) and Workbench (canvases, worktrees, tickets) — then Memory.
-  //
-  // The keys stay `chat` and `code`: they are written into prefs.json, a
-  // user's tabs are filed under `prefs.mode`, and renaming them would need a
-  // migration to buy nothing a label does not. Only what you read changed.
-  const ZONES = [
-    ["apps", "apps", "Apps"],
-    ["chat", "bubble", "Agents"],
-    ["code", "codei", "Workbench"],
-    ["memory", "memory", "Memory"],
+  // Pages the frame owns. The apps come from extensions/index.json; order is
+  // the reading order the window has always had — Apps, Agents, Workbench,
+  // Memory — and each app's manifest carries its own number.
+  const PAGES = [
+    ["apps", "apps", "Apps", 0],
+    ["memory", "memory", "Memory", 30],
   ];
+  const zones = () => PAGES.concat((window.Frame ? Frame.zones() : [
+    { id: "chat", name: "Chat", icon: "bubble", order: 10 },
+    { id: "code", name: "Workbench", icon: "codei", order: 20 },
+  ]).map(e => [e.id, e.icon, e.name, e.order])).sort((a, b) => a[3] - b[3]);
   let platform = "web", saveT = null;
 
-  const uses = () => (prefs.uses && prefs.uses.length ? prefs.uses : ["chat", "code"]);
-  const zoneName = z => z === "desktop" ? "Agent computer" : z.startsWith("app:") ? ((window.Apps && Apps.get(z.slice(4))) || { name: "App" }).name : (ZONES.find(x => x[0] === z) || [0, 0, z])[2];
+  const isExt = z => !!(window.Frame && Frame.has(z));
+  const isOff = z => isExt(z) && !Frame.enabled(z);
+  const zoneName = z => z === "desktop" ? "Agent computer" : z.startsWith("app:") ? ((window.Apps && Apps.get(z.slice(4))) || { name: "App" }).name : (zones().find(x => x[0] === z) || [0, 0, z])[2];
 
   // ---------------------------------------------------------------- panes
   // Which section shows a zone: Code is the workbench, or the chat face
   // scoped to the project in Pair (until a project is open).
   function elFor(z) {
-    if (z === "code") return S.codeView === "pair" && hasProject && snap.workspace ? "chat" : "canvas";
-    if (z === "chat") return "chat";
+    // An app says which section is its face right now (Workbench is the canvas
+    // grid in the IDE, the chat face in the ADE).
+    if (isExt(z)) return Frame.elFor(z);
     if (z === "memory") return "memory";
     if (z === "apps") return "apps";
     if (z === "desktop") return $("#desktop") ? "desktop" : "chat";
@@ -81,9 +81,12 @@ var Shell = (() => {
     // reads both from here: tell it the shell moved. A nudge, not a fetch.
     if (window.WhirlChat && window.WhirlChat.shell) window.WhirlChat.shell();
     renderRail(); renderZones(); renderHead(); renderModes(); renderStatus();
+    if (window.Frame) Frame.renderBar();
     if (typeof syncArt === "function") syncArt();
     if (window.RPanel) RPanel.render();
-    if ((prim === "chat" || sec === "chat") && window.Chat && !$("#chat").childElementCount) Chat.render();
+    // Whatever app owns a visible section gets to draw into it; the frame does
+    // not know how. Chat mounts lazily here.
+    if (window.Frame) Frame.paint(prim, sec);
     if (prim === "memory" || sec === "memory") window.Memory && Memory.refresh();
     if (prim === "apps" || sec === "apps") window.Apps && Apps.renderZone();
   }
@@ -106,10 +109,10 @@ var Shell = (() => {
     if (prefs.split) setSplit(null); else splitMenu($("#searchBtn"));
   }
   function splitMenu(anchor) {
-    const opts = ZONES.filter(([z]) => (z !== "chat" && z !== "code") || uses().includes(z))
+    const opts = zones()
       .map(([z, ic, l]) => [z, icon(ic), l])
       .concat((window.Apps ? Apps.installed() : []).map(a => ["app:" + a.id, Apps.glyph(a, "xs"), a.name]))
-      .filter(([z]) => (z === "code" ? "canvas" : elFor(z)) !== elFor(S.mode));
+      .filter(([z]) => elFor(z) !== elFor(S.mode));
     openPop(anchor, `<div class="ph-t">Open beside ${esc(zoneName(S.mode))}</div>
       ${opts.map(([z, ic, l]) => `<button class="pi" data-sp="${esc(z)}">${ic}${esc(l)}</button>`).join("")}
       ${prefs.split ? `<div class="psep"></div><button class="pi" data-sp="">${icon("close")}Close split</button>` : ""}`, pop => {
@@ -136,29 +139,36 @@ var Shell = (() => {
   // ---------------------------------------------------------------- rail
   function glyph(z, cls = "") {
     if (z.startsWith("app:") && window.Apps) { const a = Apps.get(z.slice(4)); if (a) return Apps.glyph(a, cls); }
-    const zz = ZONES.find(x => x[0] === z);
+    const zz = zones().find(x => x[0] === z);
     return zz ? icon(zz[1]) : "";
+  }
+  // Going to an app that is off turns it on: the dimmed icon is a way back,
+  // not a dead end.
+  function openZone(z) {
+    if (S.settings) closeSettings();
+    if (isOff(z)) Frame.setOn(z, true, true);
+    setMode(z);
   }
   function renderRail() {
     const cur = S.settings ? "" : S.mode;
-    $("#railZones").innerHTML = ZONES.filter(([z]) => (z !== "chat" && z !== "code") || uses().includes(z)).map(([z, ic, l]) =>
-      `<button class="rz" role="tab" data-z="${z}" aria-selected="${cur === z}" aria-label="${l}" data-tip="${l}"><span class="sq">${icon(ic)}${badge(z)}</span></button>`).join("");
+    $("#railZones").innerHTML = zones().map(([z, ic, l]) =>
+      `<button class="rz${isOff(z) ? " off" : ""}" role="tab" data-z="${z}" aria-selected="${cur === z}" aria-label="${l}${isOff(z) ? " (off)" : ""}" data-tip="${l}"><span class="sq">${icon(ic)}${badge(z)}</span></button>`).join("");
     const pinned = window.Apps ? Apps.pinned() : [];
     $("#railApps").innerHTML = pinned.length ? `<div class="rsep"></div>` + pinned.map(a =>
       `<button class="rz rzapp" data-z="app:${esc(a.id)}" aria-selected="${cur === "app:" + a.id}" aria-label="${esc(a.name)}" data-tip="${esc(a.name)}"><span class="sq">${Apps.glyph(a)}</span></button>`).join("") : "";
-    $$("#rail [data-z]").forEach(b => (b.onclick = () => { if (S.settings) closeSettings(); setMode(b.dataset.z); }));
+    $$("#rail [data-z]").forEach(b => (b.onclick = () => openZone(b.dataset.z)));
     $("#gear").setAttribute("aria-selected", !!S.settings);
   }
-  // The title bar's zones, side by side as icons: Chat, Code, Memory, Apps,
-  // then pinned apps. Settings is the gear on the right.
+  // The title bar's switcher: every app, side by side as icons. An app that is
+  // off stays here, dimmed — click it to turn it back on. Then pinned apps.
+  // Settings is the gear on the right.
   function renderZones() {
     const el = $("#zones"); if (!el) return;
     const z = S.settings ? "" : S.mode;
-    const zs = ZONES.filter(([k]) => (k !== "chat" && k !== "code") || uses().includes(k));
     const apps = window.Apps ? Apps.pinned() : [];
-    el.innerHTML = zs.map(([k, ic, l]) => `<button role="tab" aria-selected="${z === k}" data-zz="${k}" title="${l}" aria-label="${l}">${icon(ic)}${badge(k)}</button>`).join("")
+    el.innerHTML = zones().map(([k, ic, l]) => `<button role="tab" aria-selected="${z === k}" data-zz="${k}" title="${l}${isOff(k) ? " — off" : ""}" aria-label="${l}${isOff(k) ? " (off)" : ""}" class="${isOff(k) ? "off" : ""}">${icon(ic)}${badge(k)}</button>`).join("")
       + apps.map(a => `<button role="tab" aria-selected="${z === "app:" + a.id}" data-zz="app:${esc(a.id)}" title="${esc(a.name)}" aria-label="${esc(a.name)}">${Apps.glyph(a, "xs")}</button>`).join("");
-    $$("[data-zz]", el).forEach(x => (x.onclick = () => { if (S.settings) closeSettings(); setMode(x.dataset.zz); }));
+    $$("[data-zz]", el).forEach(x => (x.onclick = () => openZone(x.dataset.zz)));
     $("#gearBtn").setAttribute("aria-pressed", !!S.settings);
   }
 
@@ -170,7 +180,7 @@ var Shell = (() => {
     const anchor = $("#searchBtn");
     const chats = ((await invoke("chat_list").catch(() => null)) || []).filter(t => !t.app && !t.project && !t.agent && !t.members.length);
     const all = [
-      ...ZONES.filter(([k]) => (k !== "chat" && k !== "code") || uses().includes(k)).map(([k, ic, l]) => ({ ic, t: l, s: "Go to", go: () => setMode(k) })),
+      ...zones().map(([k, ic, l]) => ({ ic, t: l, s: "Go to", go: () => openZone(k) })),
       ...(prefs.projects || []).map(p => ({ ic: "folder", t: base(p), s: p, go: () => openProject(p) })),
       ...((snap && snap.agents) || []).filter(a => a.kind !== "triage").map(a => ({ ic: "sparkle", t: a.id === 0 ? "Main agent" : a.title, s: `${snap.name} · ${a.status.replace(/_/g, " ")}`, go: () => { S.codeView = "agents"; setMode("code"); openIn({ kind: "agent", agent: a.id }); } })),
       ...chats.map(t => ({ ic: "bubble", t: t.title || "Chat", s: "Chat", go: () => { setMode("chat"); if (window.Chat && Chat.open) Chat.open(t.id); } })),
@@ -251,13 +261,14 @@ var Shell = (() => {
       $("#ppNew", pop).onclick = () => { closePop(); pickProject(); };
     });
   }
-  // Code is a project, so the project is what the title says — not the app's
-  // name, which is the same in every window. Click it to switch folders.
+  // The folder, switchable from the title itself. The app's name is in the
+  // frame's chip now, so this is just the project — "Workbench" twice was one
+  // title too many.
   function codeTitle() {
     const p = hasProject && snap.workspace ? snap.workspace : null;
     return p
       ? `<button class="zt proj" id="zhProj" data-popper title="${esc(p)} — switch project">${icon("folder")}<b>${esc(base(p))}</b>${icon("chevd")}</button>`
-      : `<button class="zt proj quiet" id="zhProj" data-popper title="No folder open — open one">${icon("folder")}<b>Workbench</b><span class="sub">no folder</span>${icon("chevd")}</button>`;
+      : `<button class="zt proj quiet" id="zhProj" data-popper title="No folder open — open one">${icon("folder")}<b>No folder</b>${icon("chevd")}</button>`;
   }
   // The window title (taskbar, alt-tab) follows the same rule.
   function syncWindowTitle() {

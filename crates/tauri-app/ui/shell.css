@@ -71,7 +71,37 @@
 .zones button .ic, .zones button svg { width: 15px; height: 15px; }
 .zones button:hover { color: var(--fg); }
 .zones button[aria-selected="true"] { background: var(--pill-on); color: var(--fg); }
+.zones button.off { opacity: 0.4; }
+.zones button.off:hover { opacity: 0.8; }
 .zones .rb, .vbtn .rb { position: absolute; top: -3px; right: -3px; font-style: normal; min-width: 14px; height: 14px; padding: 0 3px; border-radius: 7px; background: var(--amber); color: #000; font-size: 9.5px; line-height: 14px; text-align: center; }
+
+/* ---------- the app chip -------------------------------------------------
+   The frame names the app it is hosting, and owns On and New. The switcher
+   sits beside it; the chip is the app's title, so it holds the name and the
+   two verbs and nothing else. */
+.appbar { display: flex; align-items: center; gap: 7px; height: 28px; padding: 0 5px 0 9px; border-radius: 9px; background: var(--chip); flex: none; }
+.appbar[hidden] { display: none; }
+.appbar .ab-name { display: inline-flex; align-items: center; gap: 5px; min-width: 0; color: var(--fg); font-size: 12.5px; font-weight: 600; white-space: nowrap; }
+.appbar .ab-name .ic { width: 14px; height: 14px; color: var(--fg-3); }
+.appbar .ab-name b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+.appbar .ab-sw { display: inline-flex; align-items: center; gap: 5px; color: var(--fg-3); font-size: 10.5px; font-weight: 500; letter-spacing: 0.02em; }
+.appbar .toggle { width: 27px; height: 16px; }
+.appbar .toggle::after { left: 2px; top: 2px; width: 12px; height: 12px; }
+.appbar .toggle[aria-checked="true"]::after { transform: translateX(11px); }
+.appbar .ab-new { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 7px; border-radius: 6px; color: var(--fg-2); font-size: 11.5px; font-weight: 500; }
+.appbar .ab-new:hover { background: var(--hover); color: var(--fg); }
+.appbar .ab-new .ic { width: 12px; height: 12px; }
+/* Narrow: the app's name and its two words stay as long as they fit; the
+   search button gives up its label first. Without this the bar is over budget
+   and the project collapses under the search. */
+@media (max-width: 1180px) {
+  .srchbtn { width: 28px; padding: 0; justify-content: center; }
+  .srchbtn .srch-txt, .srchbtn kbd { display: none; }
+}
+@media (max-width: 900px) { .appbar .ab-name b { display: none; } }
+@media (max-width: 1060px) { .appbar .ab-new span, .appbar .ab-lbl { display: none; } }
+/* A web extension fills its section with its own page. */
+.body > .zone > iframe { display: block; width: 100%; height: 100%; border: 0; background: #fff; }
 .tbar .modes button { height: 24px; padding: 0 9px; border-radius: 7px; font-size: 12px; font-weight: 500; color: var(--fg-3); }
 .tbar .modes button[aria-selected="true"] { background: var(--pill-on); color: var(--fg); box-shadow: none; font-weight: 600; }
 .tbar .modes button .ic { width: 13px; height: 13px; }
@@ -100,7 +130,7 @@
    card holds the threads, the switch belongs to the window. Code keeps it in
    the card, where it sits with the project tree it switches. */
 .win.m-chat .side-modes { display: none; }
-.win.m-chat .tbar .modes { display: flex; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); }
+.win.m-chat .tbar .modes { display: flex; }
 .win.m-chat .tbar .modes[hidden] { display: none; }
 
 /* ---------- New chat | search + sidebar, over the top of the card ----------

@@ -4,7 +4,7 @@ The Tauri app's chat face. It is [Whirl](https://github.com/whirlchat/whirl)'s
 chat components (MIT, see `src/whirl/LICENSE`) — the thread view, Markdown
 rendering, composer, sidebar rows, dialogs and design tokens — running on
 Backspace's own data: `src/bridge.ts` talks to the Tauri commands that the
-vanilla shell (`../ui/chat.js`) hands over, in place of Whirl's Convex and
+vanilla shell (`../ui/extensions/chat/chat.js`) hands over, in place of Whirl's Convex and
 Clerk backend.
 
 - `src/whirl/` — files taken from Whirl's `apps/v2`, mostly unchanged.
