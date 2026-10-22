@@ -37,6 +37,28 @@ screenshot in the uiharness with mocks. **Not run:** real Ollama/LM Studio,
 two physical machines, macOS build, the share/phone `/v1/llm` routes end to
 end (they call the same handler).
 
+**Session, 22 Oct 2026 — the first terminal is Brainpowr Code.**
+
+- **A project's first terminal canvas opens Brainpowr Code** instead of a bare
+  shell (`brainpowrPane()` in `extensions/code/code.js`, styles in the new
+  `extensions/code/code.css`). It is drawn like a TUI: sessions and running
+  tasks in a plum sidebar, a pink ASCII brain and a pixel wordmark in the
+  middle, the slash commands, a prompt box and the model under it.
+- **It is HTML, not a process in the PTY.** The terminal canvas is not an
+  emulator (`TERM=dumb`), so a real full-screen TUI cannot draw there yet.
+- **Sessions are the project's chat threads** (`chat_new` with
+  `scope.project`), so they are the same threads the ADE lists. `/model` is the
+  chat route picker; `/tasks` opens the tickets drawer; `/shell` turns the
+  canvas into a plain shell and typing `brainpowr` there turns it back.
+  "First" is the first terminal pane across the project's tabs, in order;
+  every other terminal stays a shell.
+
+**Ran:** the real `ui/` in `tools/uiharness` with mocked threads, tickets and a
+two-terminal tab at 1440 and 1053: home screen, opening a session (markdown,
+streaming spinner), the `/` list with arrows, `/help`, `/shell` and back, and
+esc folding the sidebar; no console errors. **Not run:** a real CLI reply —
+no Tauri here.
+
 **Session, 22 Oct 2026 — Code owns its engine.**
 
 - **The workbench moved into the app.** Everything Code draws is now

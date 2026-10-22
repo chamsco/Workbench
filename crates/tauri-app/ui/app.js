@@ -111,7 +111,7 @@ let snap = { name: "", agents: [], approvals: [], tickets: [], total_cost_usd: 0
 let prefs = { theme: "system", tabs: [], active_tab: 0, check_updates: true };
 
 let machines = [], share = null, upd = null, hasProject = true;
-// The update being downloaded and swapped in: { stage, pct } while it runs.
+// The update being downloaded: { stage, pct } while it runs.
 let installing = null;
 const S = {
   mode: "chat", codeView: "agents", chatView: "chat", wb: "canvases",
@@ -413,15 +413,27 @@ function renderMachines() {
   $("#addMachine").onclick = () => openSettings("machines");
 }
 
-// ------------------------------------------------------------------ update pill
+// ------------------------------------------------------------------ updates
+// A check that finds a newer build downloads it in the background while the
+// footer says "Updating Backspace". Once it is staged a toast says so, once,
+// and the footer button becomes a restart button: hovering it shows what
+// changed, clicking it asks before restarting, because the restart stops
+// whatever is running.
+let staged = false, updToastShown = false;
 function renderUpd() {
   const b = $("#upd");
   b.hidden = false;
   b.classList.toggle("new", !!(upd && upd.newer) || !!installing);
-  if (installing) {
+  b.classList.toggle("ready", staged);
+  b.removeAttribute("aria-label");
+  if (staged) {
+    b.innerHTML = `<span class="ur">${icon("reload")}<span class="ub">${icon("check")}</span></span>`;
+    b.title = "";
+    b.setAttribute("aria-label", `Restart to install build ${upd.latest}`);
+  } else if (installing) {
     const pct = installing.stage === "Downloading" ? ` ${installing.pct}%` : "";
-    b.innerHTML = `${icon("down")}<span class="lbl">${esc(installing.stage)}${pct}</span>`;
-    b.title = "Backspace is fetching the new build; it reopens when it's in place.";
+    b.innerHTML = `<span class="uspin" aria-hidden="true"></span><span class="lbl">Updating Backspace${pct}</span>`;
+    b.title = `${installing.stage}: build ${upd && upd.latest || ""}. Backspace keeps running until you restart.`;
   } else if (upd === "checking") b.innerHTML = `Checking…`;
   else if (upd && upd.error) { b.innerHTML = `${icon("reload")}Check for updates`; b.title = upd.error; }
   else if (upd && upd.newer) { b.innerHTML = `${icon("down")}<span class="lbl">Update to ${esc(upd.latest)}</span>`; b.title = `A newer Backspace is out: build ${upd.latest}. You have ${upd.build || upd.current}.`; }
@@ -429,38 +441,134 @@ function renderUpd() {
   else b.innerHTML = `${icon("reload")}<span class="lbl">Check for updates</span>`;
 }
 async function checkUpdate() {
+  if (installing || staged) return;
   upd = "checking"; renderUpd();
   upd = await invoke("check_update").catch(e => ({ error: String(e) }));
   renderUpd(); if (S.settings) renderSettings();
+  if (upd && upd.newer && upd.installs) downloadUpdate(true);
 }
-$("#upd").onclick = () => (upd && upd.newer ? installUpdate() : checkUpdate());
-
-// Download the build the check found and let it replace this one. The command
-// only returns if something went wrong: on success the app quits into the swap
-// script, which reopens it, so there is no "done" state to render.
-async function installUpdate() {
+$("#upd").onclick = () => {
+  if (staged) return confirmUpdate();
   if (installing) return;
+  if (upd && upd.newer) return upd.installs ? downloadUpdate(false) : invoke("open_url", { url: upd.url });
+  checkUpdate();
+};
+
+// Fetch and stage the build the check found. `quiet` is the automatic
+// download after a check: a failure there leaves the "Update to" button to
+// try again by hand, instead of interrupting with an error nobody asked for.
+async function downloadUpdate(quiet) {
+  if (installing || staged) return;
   installing = { stage: "Preparing", pct: 0 };
   renderUpd(); syncUpdButton();
   try {
-    await invoke("install_update");
+    await invoke("download_update");
+    staged = true;
+    installing = null;
+    renderUpd(); syncUpdButton();
+    updToast();
   } catch (e) {
     installing = null;
     renderUpd(); syncUpdButton();
-    toast(`Couldn't install the update: ${e}`, "err");
+    $("#upd").title = `Couldn't download the update: ${e}`;
+    if (!quiet) toast(`Couldn't download the update: ${e}`, "err");
   }
 }
 function syncUpdButton() {
   const g = $("#updGo");
   if (!g) return;
   g.disabled = !!installing;
-  if (!installing) { g.innerHTML = "Install & Restart"; return; }
+  if (staged) { g.innerHTML = "Restart to install"; return; }
+  if (!installing) { g.innerHTML = upd && upd.installs ? "Download update" : "Open the release"; return; }
   g.innerHTML = installing.stage === "Downloading" ? `Downloading ${installing.pct}%` : `${esc(installing.stage)}…`;
 }
+function updGo() {
+  if (staged) confirmUpdate();
+  else if (upd && upd.installs) downloadUpdate(false);
+  else if (upd) invoke("open_url", { url: upd.url });
+}
 TAURI.event.listen("update:progress", e => {
-  installing = e.payload || installing;
+  // "Ready" arrives just before the command returns, which says it better.
+  if (staged || !e.payload || e.payload.stage === "Ready") return;
+  installing = e.payload;
   renderUpd(); syncUpdButton();
 });
+
+// Where GitHub keeps this repo: the comparison's URL starts with it.
+const updRepo = () => ((upd && upd.changes_url) || "").split("/compare/")[0];
+
+// "Update downloaded": once per staged build, in the corner, until closed.
+function updToast() {
+  if (updToastShown) return;
+  updToastShown = true;
+  const t = document.createElement("div");
+  t.className = "updtoast"; t.setAttribute("role", "status");
+  t.innerHTML = `<span class="ok">${icon("check")}</span><div><b>Update downloaded</b>
+    <p>Restart the app from the update button to install it. <a href="#" data-url="${esc(upd.changes_url || upd.url)}">Read more${icon("ext")}</a></p></div>
+    <button class="x" aria-label="Dismiss">${icon("close")}</button>`;
+  const close = () => { t.classList.add("out"); setTimeout(() => t.remove(), 180); };
+  $(".x", t).onclick = close;
+  $("[data-url]", t).onclick = e => { e.preventDefault(); invoke("open_url", { url: e.currentTarget.dataset.url }); };
+  document.body.appendChild(t);
+  setTimeout(close, 15000);
+}
+
+// What changed, over the restart button while the pointer is on it.
+let updPopT = null;
+function updPop(show) {
+  clearTimeout(updPopT);
+  let p = $("#updPop");
+  if (!show) { updPopT = setTimeout(() => p && p.remove(), 160); return; }
+  if (p || !staged) return;
+  const repo = updRepo(), list = upd.changes || [];
+  p = document.createElement("div");
+  p.id = "updPop"; p.className = "updpop";
+  p.innerHTML = `<button class="uh">Update ${esc(upd.latest)} downloaded. Click to restart and install.</button>
+    ${list.length ? `<h6>What's changed</h6><ul>${list.map(c => `<li>${esc(c.title)}${c.author ? ` by @${esc(c.author)}` : ""}${c.pr && repo ? ` in <a href="#" data-url="${esc(repo)}/pull/${c.pr}">#${c.pr}</a>` : ""}</li>`).join("")}</ul>` : ""}
+    ${upd.changes_url ? `<a href="#" class="more" data-url="${esc(upd.changes_url)}">${upd.more ? `${upd.more} more change${upd.more === 1 ? "" : "s"} on GitHub` : list.length ? "Compare on GitHub" : "See what's changed on GitHub"}${icon("ext")}</a>` : ""}`;
+  $(".uh", p).onclick = () => { p.remove(); confirmUpdate(); };
+  $$("[data-url]", p).forEach(a => (a.onclick = e => { e.preventDefault(); invoke("open_url", { url: a.dataset.url }); }));
+  p.onmouseenter = () => clearTimeout(updPopT);
+  p.onmouseleave = () => updPop(false);
+  document.body.appendChild(p);
+  const r = $("#upd").getBoundingClientRect();
+  p.style.left = Math.max(8, Math.min(innerWidth - p.offsetWidth - 8, r.left)) + "px";
+  p.style.bottom = innerHeight - r.top + 6 + "px";
+}
+$("#upd").onmouseenter = () => updPop(true);
+$("#upd").onmouseleave = () => updPop(false);
+
+// Ask before the restart: it quits mid-task, and nothing comes back by itself.
+function confirmUpdate() {
+  if (!staged || $("#updAsk")) return;
+  updPop(false);
+  const d = document.createElement("div");
+  d.id = "updAsk"; d.className = "updask";
+  d.innerHTML = `<div class="box" role="alertdialog" aria-modal="true" aria-labelledby="updAskT" aria-describedby="updAskD">
+    <h3 id="updAskT">Install update ${esc(upd.latest)} and restart Backspace?</h3>
+    <p id="updAskD">Any running tasks will be interrupted. Make sure you're ready before continuing.</p>
+    <div class="acts"><button class="btn" id="updNo">Cancel</button><button class="btn primary" id="updYes">Confirm</button></div></div>`;
+  const close = () => { removeEventListener("keydown", key, true); d.remove(); };
+  const go = async () => {
+    $("#updYes", d).disabled = true; $("#updYes", d).textContent = "Restarting…";
+    try { await invoke("restart_to_update"); }
+    catch (e) {
+      // The staged build is spent either way; the button offers it again.
+      close(); staged = false; renderUpd(); syncUpdButton();
+      toast(`Couldn't install the update: ${e}`, "err");
+    }
+  };
+  const key = e => {
+    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); close(); }
+    if (e.key === "Enter" && !e.target.closest("#updNo")) { e.preventDefault(); e.stopPropagation(); go(); }
+  };
+  addEventListener("keydown", key, true);
+  d.onpointerdown = e => { if (e.target === d) close(); };
+  $("#updNo", d).onclick = close;
+  $("#updYes", d).onclick = go;
+  document.body.appendChild(d);
+  $("#updYes", d).focus();
+}
 
 addEventListener("keydown", e => {
   if (e.key === "Escape") { if (!$("#pop").hidden) closePop(); else if (S.settings) closeSettings(); else if (S.drawer) Code.setDrawer(false); }
@@ -670,7 +778,7 @@ function renderSettings() {
     <section id="set-updates"><h2>Updates</h2>
       <div class="line"><span class="lab">Check for updates automatically</span><button class="toggle" role="switch" aria-checked="${prefs.check_updates}" id="updT" aria-label="Check for updates automatically"></button></div>
       <div class="line"><span class="lab">Backspace ${esc(u && u.current || "0.1.0")}<small>${u && u.error ? esc(u.error) : u && u.newer ? `Build ${esc(u.latest)} is available${u.build ? `, you have ${esc(u.build)}` : ""}.` : u ? `You're on the latest build.${u.build ? ` Built from ${esc(u.build)}.` : ""}` : "Not checked yet."}</small></span>
-        ${u && u.newer ? `<button class="btn primary" id="updGo">Install & Restart</button>` : `<button class="btn" id="updNow">Check now</button>`}</div></section>
+        ${u && u.newer ? `<button class="btn primary" id="updGo"></button>` : `<button class="btn" id="updNow">Check now</button>`}</div></section>
     <section id="set-home"><h2>Archived threads</h2><p class="lead">Threads you archived. They keep their messages and can be restored from Chat.</p><div id="setArchived"></div></section>
   </div></div></div>`;
   Object.entries(keep).forEach(([id, v]) => { const i = $("#" + id, el); if (i && v) i.value = v; });
@@ -770,7 +878,7 @@ function renderSettings() {
   $("#shNew").onclick = () => setShare(sh.enabled, true);
   $("#updT").onclick = async () => { prefs.check_updates = !prefs.check_updates; await invoke("set_check_updates", { on: prefs.check_updates }); renderUpd(); renderSettings(); };
   const now = $("#updNow"); if (now) now.onclick = checkUpdate;
-  const go = $("#updGo"); if (go) { go.onclick = installUpdate; syncUpdButton(); }
+  const go = $("#updGo"); if (go) { go.onclick = updGo; syncUpdButton(); }
 }
 
 // Settings → Coding: which harness runs workers, and the API keys.

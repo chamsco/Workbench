@@ -622,6 +622,7 @@ function paneTitle(p) {
     case "board": return `Team chat · ${(snap.board || []).length}`;
     case "options": { const o = (snap.options || []).find(x => x.id === p.option) || (snap.options || []).slice(-1)[0]; return o ? `Options · ${o.title}` : "Visual options"; }
     case "trace": return `Trace · ${a ? (a.id === MAIN ? "main" : a.key) : ""}`;
+    case "terminal": return p === firstTerminal() && !(S.pane.get(prefs.active_tab + ":" + tab().panes.indexOf(p)) || {}).shell ? "Brainpowr Code" : "Terminal";
     default: return "New canvas";
   }
 }
@@ -686,7 +687,7 @@ function fillPane(p, slot, body, ps) {
   else if (p.kind === "docs") docsPane(body);
   else if (p.kind === "board") boardPane(body, ps);
   else if (p.kind === "conversation") conversationPane(p, body, ps);
-  else if (p.kind === "terminal") terminalPane(body, ps);
+  else if (p.kind === "terminal") (isBrainpowr(p, ps) ? brainpowrPane(p, body, ps) : terminalPane(body, ps, p));
   else if (p.kind === "options") optionsPane(p, body, ps);
   else if (p.kind === "trace") tracePane(p, body, ps);
   else chooser(slot, body);
@@ -1267,7 +1268,7 @@ function conversationPane(p, body, ps) {
 // A real shell (a PTY: ConPTY on Windows, forkpty elsewhere) in the project's
 // folder. Not a terminal emulator — the canvas draws plain text — so full-screen
 // TUIs are not the point; running a build, a git command or a REPL is.
-function terminalPane(body, ps) {
+function terminalPane(body, ps, p) {
   const dir = snap.workspace || (machine() && machine().local ? "" : "");
   const history = (ps.lines = ps.lines || []);
   const draw = () => { body.querySelector(".tterm").textContent = history.join(""); body.querySelector(".tterm").scrollTop = body.querySelector(".tterm").scrollHeight; };
@@ -1302,6 +1303,8 @@ function terminalPane(body, ps) {
   const go = async () => {
     const line = inp.value; inp.value = "";
     if (!line.trim() && ps.term) return;
+    // The first terminal was Brainpowr Code until `/shell`; this takes it back.
+    if (line.trim() === "brainpowr" && p && p === firstTerminal()) { ps.cleanup(); ps.shell = false; ps.lines = []; brainpowrPane(p, body, ps); renderPaneTitles(); return; }
     push(`❯ ${line}\n`);
     if (!ps.term) { await start(); }
     try { await invoke("terminal_write", { id: ps.term, line }); } catch (e) { push(String(e) + "\n"); }
@@ -1313,6 +1316,239 @@ function terminalPane(body, ps) {
   ps.cleanup = () => { closed = true; clearInterval(poll); clearTimeout(quietT); if (ps.term) invoke("terminal_close", { id: ps.term }).catch(() => {}); ps.term = null; ps.alive = false; };
   start();
   requestAnimationFrame(() => inp.focus());
+}
+
+// ------------------------------------------------------------------ Brainpowr Code
+// The project's first terminal is not a bare shell: it opens Brainpowr Code, a
+// coding CLI drawn the way a TUI is — sessions and tasks down the left, the
+// brain and the slash commands in the middle, a prompt box with the model under
+// it. Every terminal after the first is a shell, and `/shell` turns this one
+// into one too (typing `brainpowr` there turns it back).
+//
+// It is drawn in HTML rather than run in the PTY because the terminal canvas is
+// not an emulator (TERM=dumb, plain text), and a full-screen TUI needs one. The
+// sessions are the project's chat threads (`scope.project`), so a session
+// started here is the same thread the ADE lists, on the same route.
+const BP_VERSION = "v0.1.0";
+const BP_BRAIN = [
+  "                  ..::++########++::..",
+  "            .:+####+:....:+####+:....:+####+:.",
+  "         .+###+:..:+####+:....:+####+:...:+####+.",
+  "       :###+:..:+###+:...:+####+:...:+###+:..:+###+:",
+  "     .###+...+###:...:+###+:::+###+:::+####+...:+####.",
+  "    :###:..+###:...+###+:..:+###:...:+###:..:+###+:.:###:",
+  "   :###...###+..:+###:...+###+...+###+:..:+###:...+###.:###",
+  "   ###+..:###:..:###+..:+###:...:###+...+###+:..:+###..:+##+",
+  "   :###:..+###+...:+###+:..:+###+:...+###:...+###+:..+###:",
+  "    +###+...:+####+:...:+###+:..:+####+:..:+####+:..:###+",
+  "     :+####+:...:+####+:....:+###+:...:+####+:..:+####:",
+  "       .:+#####+:::...:+####+:::...:+#######+:::+###+:",
+  "           .::++########++::..        :+###+:::######+.",
+  "                                       +###:  :+####:",
+  "                                       :###+   .:##:.",
+  "                                        +###:",
+  "                                        :###+",
+  "                                         :##.",
+];
+// Three shades of pink by density, so the folds read as depth.
+const bpBrain = () => BP_BRAIN.map(l => esc(l).replace(/(#+)|(\++)|([.:]+)/g, (m, h, p) => `<i class="${h ? "b1" : p ? "b2" : "b3"}">${m}</i>`)).join("\n");
+// The wordmark, from a 5-row pixel font: only the letters it spells.
+const BP_FONT = {
+  B: ["███ ", "█  █", "███ ", "█  █", "███ "], R: ["███ ", "█  █", "███ ", "█ █ ", "█  █"], A: [" ██ ", "█  █", "████", "█  █", "█  █"],
+  I: ["███", " █ ", " █ ", " █ ", "███"], N: ["█   █", "██  █", "█ █ █", "█  ██", "█   █"], P: ["███ ", "█  █", "███ ", "█   ", "█   "],
+  O: [" ██ ", "█  █", "█  █", "█  █", " ██ "], W: ["█   █", "█   █", "█ █ █", "██ ██", "█   █"], C: [" ███", "█   ", "█   ", "█   ", " ███"],
+  D: ["███ ", "█  █", "█  █", "█  █", "███ "], E: ["████", "█   ", "███ ", "█   ", "████"], " ": ["  ", "  ", "  ", "  ", "  "],
+};
+const bpWord = s => [0, 1, 2, 3, 4].map(r => [...s].map(c => BP_FONT[c][r]).join(" ")).join("\n");
+const BP_CMDS = [
+  ["/help", "list all slash commands"],
+  ["/sessions", "switch to a previous session"],
+  ["/new", "start a fresh session"],
+  ["/model", "change the model"],
+  ["/tasks", "open the project's tickets"],
+  ["/stop", "stop the reply in progress"],
+  ["/shell", "turn this canvas into a plain shell"],
+];
+// The first terminal of the project, across its tabs: the one that is Brainpowr.
+function firstTerminal() {
+  for (const t of prefs.tabs || []) { const p = (t.panes || []).find(p => p.kind === "terminal"); if (p) return p; }
+  return null;
+}
+const isBrainpowr = (p, ps) => p === firstTerminal() && !ps.shell;
+const bpAgo = ms => { const s = Math.max(0, (Date.now() - ms) / 1000); return s < 60 ? "now" : s < 3600 ? Math.floor(s / 60) + "m" : s < 86400 ? Math.floor(s / 3600) + "h" : Math.floor(s / 86400) + "d"; };
+function bpRouteHTML(r) {
+  if (!r) return `<span class="bp-dot off"></span><b>no model</b><span class="bp-sep">·</span><span>/model to pick one</span>`;
+  const where = r.kind === "cloud" ? "cloud" : r.kind === "router" ? "router" : r.kind === "a2a" ? "remote" : "local";
+  const prov = window.Chat ? Chat.providerName(r) : r.provider;
+  return `<span class="bp-dot"></span><b>${esc(where)}</b><span class="bp-sep">·</span><b>${esc(prov)}</b><span class="bp-sep">·</span><b>${esc(r.model || "default")}</b>`;
+}
+
+function brainpowrPane(p, body, ps) {
+  const bp = (ps.bp = ps.bp || { thread: null, threads: [], route: null, side: true, sel: 0 });
+  const dir = snap.workspace || "";
+  const mine = () => bp.threads.filter(t => dir && t.project === dir);
+  const route = () => (bp.t && bp.t.route) || bp.route || (window.Chat ? Chat.defaultRoute() : null);
+  const isDefault = () => { const r = route(), d = prefs.default_route; return !!r && (!bp.route && !bp.t || (d && d.kind === r.kind && d.provider === r.provider && (d.model || null) === (r.model || null))); };
+  const busyNow = () => !!bp.t && bp.t.messages.some(m => m.status === "sending" || m.status === "streaming");
+  const running = () => (snap.tickets || []).filter(t => ["queued", "in_progress"].includes(t.state));
+
+  body.innerHTML = `<div class="bp${bp.side ? "" : " side-off"}">
+    <aside class="bp-side">
+      <div class="bp-id"><pre class="bp-mini" aria-hidden="true">▗▟▙▟▙▖
+▜████▛
+  ▝▌  </pre><div><b>brainpowr-code</b><small>${BP_VERSION}</small></div><button class="bp-k bp-fold" data-bp="fold" title="Hide the sidebar (esc)" aria-label="Hide the sidebar">«</button></div>
+      <div class="bp-h"><b>SESSIONS</b><button class="bp-k" data-bp="new">+ new</button></div>
+      <div class="bp-list bp-sess"></div>
+      <div class="bp-h"><b>TASKS</b><span class="bp-n"></span><button class="bp-k" data-bp="tasks">+ new</button></div>
+      <div class="bp-list bp-tasks"></div>
+      <div class="bp-sfoot"><button class="bp-k" data-bp="menu">≡ Menu</button><span>esc</span></div>
+    </aside>
+    <main class="bp-main">
+      <button class="bp-k bp-unfold" data-bp="fold" title="Show the sidebar (esc)" aria-label="Show the sidebar">»</button>
+      <div class="bp-scroll"></div>
+      <div class="bp-slash" hidden></div>
+      <div class="bp-box">
+        <label class="bp-in"><span class="bp-caret">❯</span><textarea rows="1" placeholder="Ask anything about your codebase…" aria-label="Message Brainpowr Code" spellcheck="false"></textarea><button class="bp-send" data-bp="send">send →</button></label>
+        <button class="bp-model" data-bp="model" title="Change the model (/model)"><span class="bp-route"></span><span class="bp-def"></span></button>
+      </div>
+      <div class="bp-keys"><span>[enter]</span> send · <span>[alt+enter]</span> newline · <span>[esc]</span> menu · <span>[ctrl+c]</span> stop</div>
+    </main></div>`;
+  const $b = s => body.querySelector(s);
+  const ta = $b("textarea"), scroll = $b(".bp-scroll"), slash = $b(".bp-slash");
+
+  const home = () => `<div class="bp-home"><pre class="bp-brain" aria-hidden="true">${bpBrain()}</pre>
+    <pre class="bp-word" aria-label="Brainpowr Code">${bpWord("BRAINPOWR CODE")}</pre>
+    <div class="bp-tag">${esc(dir ? base(dir) : "no project open")} · your project's coding agent</div>
+    <ul class="bp-cmds">${BP_CMDS.slice(0, 6).map(([c, d]) => `<li><button data-cmd="${c}">${c}</button><span>${esc(d)}</span></li>`).join("")}</ul></div>`;
+  const transcript = () => {
+    const ms = bp.t ? bp.t.messages : [];
+    return `<div class="bp-log">${ms.map(m => m.role === "user"
+      ? `<div class="bp-u"><span class="bp-caret">❯</span>${esc(m.text)}</div>`
+      : `<div class="bp-a">${m.text ? (window.Chat ? Chat.md(m.text) : esc(m.text)) : ""}${m.status === "sending" || m.status === "streaming" ? `<div class="bp-spin"><span class="spin-g">${SPIN[spinI]}</span> ${m.text ? "Writing…" : "Thinking…"}</div>` : ""}${m.status === "error" ? `<div class="bp-err">${esc(m.error || "failed")}</div>` : ""}${m.status === "stopped" ? `<div class="bp-note">[stopped]</div>` : ""}${m.model ? `<div class="bp-note">${esc(m.model)}${m.cost_usd ? ` · $${m.cost_usd.toFixed(4)}` : ""}</div>` : ""}</div>`).join("")}
+      ${(bp.notes || []).map(n => `<div class="bp-sys">${n}</div>`).join("")}</div>`;
+  };
+  const drawMain = () => {
+    const atBottom = scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight < 40;
+    scroll.innerHTML = bp.t || (bp.notes && bp.notes.length) ? transcript() : home();
+    $$("[data-cmd]", scroll).forEach(b => (b.onclick = () => run(b.dataset.cmd)));
+    $$(".copyc", scroll).forEach(b => (b.onclick = () => { navigator.clipboard.writeText(b.closest(".code").querySelector("code").textContent); b.innerHTML = icon("check") + "Copied"; }));
+    $$("[data-href]", scroll).forEach(a => (a.onclick = () => invoke("open_url", { url: a.dataset.href }).catch(() => {})));
+    if (atBottom || bp.stick) { scroll.scrollTop = scroll.scrollHeight; bp.stick = false; }
+  };
+  const drawSide = () => {
+    const ss = mine();
+    $b(".bp-sess").innerHTML = ss.length
+      ? ss.slice(0, 12).map(t => `<button class="bp-row${bp.t && bp.t.id === t.id ? " on" : ""}" data-th="${esc(t.id)}" title="${esc(t.title || t.preview || "")}"><span class="bp-t">${esc(t.title || t.preview || "Untitled")}</span><span class="bp-ago${t.busy ? " spin-g" : ""}">${t.busy ? SPIN[spinI] : bpAgo(t.updated)}</span></button>`).join("") + (ss.length > 12 ? `<div class="bp-more">↓ ${ss.length - 12} more</div>` : "")
+      : `<div class="bp-none">(no sessions yet)</div>`;
+    $$("[data-th]", $b(".bp-sess")).forEach(b => (b.onclick = () => openThread(b.dataset.th)));
+    const rn = running();
+    $b(".bp-n").textContent = `${rn.length} running`;
+    $b(".bp-tasks").innerHTML = rn.length ? rn.slice(0, 8).map(t => `<div class="bp-row"><span class="bp-t">${esc(t.key)} ${esc(t.title)}</span><span class="bp-ago spin-g">${SPIN[spinI]}</span></div>`).join("") : `<div class="bp-none">(no active tasks)</div>`;
+  };
+  const drawRoute = () => { $b(".bp-route").innerHTML = bpRouteHTML(route()); $b(".bp-def").textContent = isDefault() ? "default" : ""; };
+  const draw = () => { drawSide(); drawMain(); drawRoute(); };
+
+  const note = html => { (bp.notes = bp.notes || []).push(html); bp.stick = true; drawMain(); };
+  const refresh = async () => {
+    try { bp.threads = await invoke("chat_list"); } catch { }
+    if (bp.thread) { try { bp.t = await invoke("chat_thread", { id: bp.thread }) || null; } catch { } }
+    if (body.isConnected) draw();
+  };
+  async function openThread(id) { bp.thread = id; bp.notes = []; bp.stick = true; await refresh(); ta.focus(); }
+  function fresh() { bp.thread = null; bp.t = null; bp.notes = []; draw(); ta.focus(); }
+  function pickModel() {
+    if (!window.Chat) return;
+    Chat.routePicker($b(".bp-model"), route(), async r => {
+      if (bp.t) { await invoke("chat_set_route", { id: bp.t.id, route: r }).catch(e => toast(String(e), "err")); await refresh(); }
+      else { bp.route = r; drawRoute(); }
+    });
+  }
+  function run(cmd) {
+    closeSlash(); ta.value = "";
+    switch (cmd) {
+      case "/help": note(`<b>commands</b>\n${BP_CMDS.map(([c, d]) => `  <span class="bp-c">${c.padEnd(10)}</span> ${esc(d)}`).join("\n")}`); break;
+      case "/sessions": {
+        const ss = mine();
+        if (!bp.side) { bp.side = true; body.querySelector(".bp").classList.remove("side-off"); }
+        note(ss.length ? `<b>sessions in ${esc(base(dir))}</b>\n${ss.slice(0, 12).map((t, i) => `  <button class="bp-c" data-open="${esc(t.id)}">${String(i + 1).padStart(2)}</button>  ${esc(t.title || t.preview || "Untitled")} <span class="bp-dim">${bpAgo(t.updated)}</span>`).join("\n")}` : "no sessions in this project yet");
+        $$("[data-open]", scroll).forEach(b => (b.onclick = () => openThread(b.dataset.open)));
+        break;
+      }
+      case "/new": fresh(); break;
+      case "/model": pickModel(); break;
+      case "/tasks": setDrawer(true); break;
+      case "/stop": if (bp.t) invoke("chat_stop", { id: bp.t.id }); break;
+      case "/shell": ps.shell = true; ps.bpStop(); terminalPane(body, ps, p); renderPaneTitles(); return;
+      default: note(`<span class="bp-err">unknown command ${esc(cmd)}</span> · /help lists them`);
+    }
+  }
+  async function send() {
+    const text = ta.value.trim(); if (!text) return;
+    if (text.startsWith("/")) { run(text.split(/\s+/)[0]); return; }
+    if (!dir) { note(`<span class="bp-err">open a project folder first</span>`); return; }
+    const r = route();
+    if (!r) { note(`<span class="bp-err">no model to send to</span> · /model picks one`); return; }
+    ta.value = ""; grow();
+    try {
+      if (!bp.t) { const t = await invoke("chat_new", { route: r, scope: { project: dir } }); bp.thread = t.id; bp.t = t; bp.route = null; }
+      bp.notes = []; bp.stick = true;
+      await invoke("chat_send", { id: bp.t.id, text, files: [], replyTo: null });
+    } catch (e) { ta.value = text; toast(String(e), "err"); }
+    refresh();
+  }
+
+  // The slash list: typing "/" shows the commands that match, ↑↓ and enter pick.
+  const hits = () => { const q = ta.value.trim().toLowerCase(); return q.startsWith("/") && !/\s/.test(q) ? BP_CMDS.filter(([c]) => c.startsWith(q)) : []; };
+  function closeSlash() { slash.hidden = true; slash.innerHTML = ""; }
+  function drawSlash() {
+    const h = hits();
+    if (!h.length) { closeSlash(); return; }
+    bp.sel = Math.min(bp.sel, h.length - 1);
+    slash.hidden = false;
+    slash.innerHTML = h.map(([c, d], i) => `<button class="bp-sl${i === bp.sel ? " on" : ""}" data-cmd="${c}"><b>${c}</b><span>${esc(d)}</span></button>`).join("");
+    $$("[data-cmd]", slash).forEach(b => (b.onmousedown = e => { e.preventDefault(); run(b.dataset.cmd); }));
+  }
+  const grow = () => { ta.style.height = "auto"; ta.style.height = Math.min(ta.scrollHeight, 160) + "px"; };
+  ta.oninput = () => { bp.sel = 0; grow(); drawSlash(); };
+  ta.onkeydown = e => {
+    const h = slash.hidden ? [] : hits();
+    if (h.length && (e.key === "ArrowDown" || e.key === "ArrowUp")) { e.preventDefault(); bp.sel = (bp.sel + (e.key === "ArrowDown" ? 1 : -1) + h.length) % h.length; drawSlash(); return; }
+    if (h.length && (e.key === "Tab" || e.key === "Enter") && !e.altKey) { e.preventDefault(); run(h[bp.sel][0]); return; }
+    if (e.key === "Enter" && e.altKey) { e.preventDefault(); const i = ta.selectionStart; ta.setRangeText("\n", i, ta.selectionEnd, "end"); grow(); return; }
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); return; }
+    if (e.key === "c" && e.ctrlKey && ta.selectionStart === ta.selectionEnd) { if (busyNow()) { e.preventDefault(); run("/stop"); } return; }
+  };
+  body.querySelector(".bp").addEventListener("keydown", e => {
+    if (e.key !== "Escape") return;
+    e.preventDefault(); e.stopPropagation();
+    if (!slash.hidden) { closeSlash(); return; }
+    toggleSide();
+  });
+  const toggleSide = () => { bp.side = !bp.side; body.querySelector(".bp").classList.toggle("side-off", !bp.side); };
+  $$("[data-bp]", body).forEach(b => (b.onclick = () => {
+    const k = b.dataset.bp;
+    if (k === "fold" || k === "menu") toggleSide();
+    else if (k === "new") fresh();
+    else if (k === "tasks") setDrawer(true);
+    else if (k === "send") send();
+    else if (k === "model") pickModel();
+  }));
+
+  // One poll per pane, fast while a reply is arriving and slow otherwise; a
+  // repaint restarts it rather than stacking another.
+  if (ps.bpStop) ps.bpStop();
+  let timer = null, alive = true;
+  const tick = async () => {
+    if (!alive) return;
+    if (!body.isConnected) { alive = false; return; }
+    await refresh();
+    timer = setTimeout(tick, busyNow() || mine().some(t => t.busy) ? 600 : 3000);
+  };
+  ps.bpStop = () => { alive = false; clearTimeout(timer); };
+  ps.cleanup = () => { ps.bpStop(); };
+  draw();
+  // The pane is attached after it is filled, so the first look waits a frame.
+  requestAnimationFrame(() => { tick(); ta.focus(); });
 }
 
 // ------------------------------------------------------------------ visual options

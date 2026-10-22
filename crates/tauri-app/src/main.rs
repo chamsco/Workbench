@@ -335,14 +335,18 @@ async fn check_update(f: F<'_>) -> Res<UpdateInfo> {
         .map_err(err)
 }
 
-/// Download the newest build over this one, then quit into it.
-///
-/// The download, the swap and the relaunch all happen outside the UI thread
-/// and outside this process: the command returns only if something went
-/// wrong. The shell that runs on success is a new window on the same app.
+/// Download the newest build and keep it staged, without interrupting
+/// anything. Returns when the update is ready for `restart_to_update`.
 #[tauri::command]
-async fn install_update(app: tauri::AppHandle) -> Res<()> {
-    update_install::install(app).await.map_err(err)
+async fn download_update(app: tauri::AppHandle) -> Res<()> {
+    update_install::download(app).await.map_err(err)
+}
+
+/// Quit into the staged update. The swap and the relaunch happen outside this
+/// process: the command returns only if something went wrong.
+#[tauri::command]
+fn restart_to_update(app: tauri::AppHandle) -> Res<()> {
+    update_install::restart(app).map_err(err)
 }
 
 /// Can this URL be shown inside the app's own frame?
@@ -2020,7 +2024,8 @@ fn main() -> anyhow::Result<()> {
             set_appearance,
             set_check_updates,
             check_update,
-            install_update,
+            download_update,
+            restart_to_update,
             open_url,
             pick_folder,
             open_project,
