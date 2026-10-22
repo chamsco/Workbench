@@ -94,6 +94,41 @@ pub async fn check(http: &reqwest::Client) -> Result<UpdateInfo> {
     })
 }
 
+/// The zipped app in the rolling release: where it is and how big it is.
+///
+/// The install path downloads exactly what a person gets by hand — the same
+/// `Backspace-mac.app.zip` the workflow packs with `ditto -c -k` — instead of
+/// carrying a second kind of update that only the app understands.
+pub async fn app_zip(http: &reqwest::Client) -> Result<(String, u64)> {
+    let res = http
+        .get(format!(
+            "https://api.github.com/repos/{REPO}/releases/tags/{ROLLING_TAG}"
+        ))
+        .header("user-agent", "backspace")
+        .header("accept", "application/vnd.github+json")
+        .timeout(std::time::Duration::from_secs(15))
+        .send()
+        .await
+        .map_err(|e| anyhow::anyhow!("couldn't reach GitHub ({})", e.without_url()))?;
+    let v: Value = res.error_for_status()?.json().await?;
+    let none = || anyhow::anyhow!("that release has no app to install");
+    let asset = v["assets"]
+        .as_array()
+        .and_then(|list| {
+            list.iter().find(|a| {
+                a["name"]
+                    .as_str()
+                    .is_some_and(|n| n.ends_with(".app.zip"))
+            })
+        })
+        .ok_or_else(none)?;
+    let url = asset["browser_download_url"].as_str().unwrap_or_default();
+    if url.is_empty() {
+        return Err(anyhow::anyhow!("that release has no app to install"));
+    }
+    Ok((url.to_string(), asset["size"].as_u64().unwrap_or(0)))
+}
+
 /// Nothing to offer, because no rolling build is published at all.
 fn idle() -> UpdateInfo {
     UpdateInfo {

@@ -24,6 +24,8 @@ use backspace_core::{Harness, ProjectState};
 use tauri::{Emitter, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 
+mod update_install;
+
 type Res<T> = Result<T, String>;
 type F<'a> = State<'a, Arc<Fleet>>;
 
@@ -331,6 +333,16 @@ async fn check_update(f: F<'_>) -> Res<UpdateInfo> {
         .await
         .map_err(err)?
         .map_err(err)
+}
+
+/// Download the newest build over this one, then quit into it.
+///
+/// The download, the swap and the relaunch all happen outside the UI thread
+/// and outside this process: the command returns only if something went
+/// wrong. The shell that runs on success is a new window on the same app.
+#[tauri::command]
+async fn install_update(app: tauri::AppHandle) -> Res<()> {
+    update_install::install(app).await.map_err(err)
 }
 
 /// Can this URL be shown inside the app's own frame?
@@ -1955,6 +1967,7 @@ fn main() -> anyhow::Result<()> {
             set_appearance,
             set_check_updates,
             check_update,
+            install_update,
             open_url,
             pick_folder,
             open_project,

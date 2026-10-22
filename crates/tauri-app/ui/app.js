@@ -139,6 +139,8 @@ async function useTabsFor(workspace) {
   return tabsNow;
 }
 let machines = [], share = null, upd = null, hasProject = true;
+// The update being downloaded and swapped in: { stage, pct } while it runs.
+let installing = null;
 const S = {
   mode: "chat", codeView: "agents", chatView: "chat", wb: "canvases",
   focus: 0, max: null, side: "projects", review: null,
@@ -762,8 +764,12 @@ function showDiagram() {
 function renderUpd() {
   const b = $("#upd");
   b.hidden = false;
-  b.classList.toggle("new", !!(upd && upd.newer));
-  if (upd === "checking") b.innerHTML = `Checking…`;
+  b.classList.toggle("new", !!(upd && upd.newer) || !!installing);
+  if (installing) {
+    const pct = installing.stage === "Downloading" ? ` ${installing.pct}%` : "";
+    b.innerHTML = `${icon("down")}<span class="lbl">${esc(installing.stage)}${pct}</span>`;
+    b.title = "Backspace is fetching the new build; it reopens when it's in place.";
+  } else if (upd === "checking") b.innerHTML = `Checking…`;
   else if (upd && upd.error) { b.innerHTML = `${icon("reload")}Check for updates`; b.title = upd.error; }
   else if (upd && upd.newer) { b.innerHTML = `${icon("down")}<span class="lbl">Update to ${esc(upd.latest)}</span>`; b.title = `A newer Backspace is out: build ${upd.latest}. You have ${upd.build || upd.current}.`; }
   else if (upd) { b.innerHTML = `${icon("check")}<span class="lbl">Up to date</span><span class="n">v${esc(upd.current)}</span>`; b.title = `Backspace ${upd.current} · click to check again`; }
@@ -774,7 +780,34 @@ async function checkUpdate() {
   upd = await invoke("check_update").catch(e => ({ error: String(e) }));
   renderUpd(); if (S.settings) renderSettings();
 }
-$("#upd").onclick = () => (upd && upd.newer ? invoke("open_url", { url: upd.url }) : checkUpdate());
+$("#upd").onclick = () => (upd && upd.newer ? installUpdate() : checkUpdate());
+
+// Download the build the check found and let it replace this one. The command
+// only returns if something went wrong: on success the app quits into the swap
+// script, which reopens it, so there is no "done" state to render.
+async function installUpdate() {
+  if (installing) return;
+  installing = { stage: "Preparing", pct: 0 };
+  renderUpd(); syncUpdButton();
+  try {
+    await invoke("install_update");
+  } catch (e) {
+    installing = null;
+    renderUpd(); syncUpdButton();
+    toast(`Couldn't install the update: ${e}`, "err");
+  }
+}
+function syncUpdButton() {
+  const g = $("#updGo");
+  if (!g) return;
+  g.disabled = !!installing;
+  if (!installing) { g.innerHTML = "Install & Restart"; return; }
+  g.innerHTML = installing.stage === "Downloading" ? `Downloading ${installing.pct}%` : `${esc(installing.stage)}…`;
+}
+TAURI.event.listen("update:progress", e => {
+  installing = e.payload || installing;
+  renderUpd(); syncUpdButton();
+});
 
 addEventListener("keydown", e => {
   if (e.key === "Escape") { if (!$("#pop").hidden) closePop(); else if (S.settings) closeSettings(); else if (S.drawer) setDrawer(false); }
@@ -2067,7 +2100,7 @@ function renderSettings() {
     <section id="set-updates"><h2>Updates</h2>
       <div class="line"><span class="lab">Check for updates automatically</span><button class="toggle" role="switch" aria-checked="${prefs.check_updates}" id="updT" aria-label="Check for updates automatically"></button></div>
       <div class="line"><span class="lab">Backspace ${esc(u && u.current || "0.1.0")}<small>${u && u.error ? esc(u.error) : u && u.newer ? `Build ${esc(u.latest)} is available${u.build ? `, you have ${esc(u.build)}` : ""}.` : u ? `You're on the latest build.${u.build ? ` Built from ${esc(u.build)}.` : ""}` : "Not checked yet."}</small></span>
-        ${u && u.newer ? `<button class="btn primary" id="updGo">Download & Update</button>` : `<button class="btn" id="updNow">Check now</button>`}</div></section>
+        ${u && u.newer ? `<button class="btn primary" id="updGo">Install & Restart</button>` : `<button class="btn" id="updNow">Check now</button>`}</div></section>
     <section id="set-home"><h2>Archived threads</h2><p class="lead">Threads you archived. They keep their messages and can be restored from Chat.</p><div id="setArchived"></div></section>
   </div></div></div>`;
   Object.entries(keep).forEach(([id, v]) => { const i = $("#" + id, el); if (i && v) i.value = v; });
@@ -2166,7 +2199,7 @@ function renderSettings() {
   $("#shNew").onclick = () => setShare(sh.enabled, true);
   $("#updT").onclick = async () => { prefs.check_updates = !prefs.check_updates; await invoke("set_check_updates", { on: prefs.check_updates }); renderUpd(); renderSettings(); };
   const now = $("#updNow"); if (now) now.onclick = checkUpdate;
-  const go = $("#updGo"); if (go) go.onclick = () => invoke("open_url", { url: u.url });
+  const go = $("#updGo"); if (go) { go.onclick = installUpdate; syncUpdButton(); }
 }
 
 // Settings → Coding: which harness runs workers, and the API keys.
