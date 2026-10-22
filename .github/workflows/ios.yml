@@ -42,7 +42,9 @@ jobs:
         run: |
           set -o pipefail
           xcodebuild test -project Backspace.xcodeproj -scheme Backspace \
-            -destination "id=$UDID" -derivedDataPath build CODE_SIGNING_ALLOWED=NO | tail -n 80
+            -destination "id=$UDID" -derivedDataPath build CODE_SIGNING_ALLOWED=NO > xcodebuild.log 2>&1 \
+            || { grep -E "error:|failed:|XCTAssert" -A2 xcodebuild.log | head -n 200; tail -n 30 xcodebuild.log; exit 1; }
+          grep -E "Test Suite|Executed" xcodebuild.log | tail -n 10
 
       - name: Screenshots of the demo
         run: |

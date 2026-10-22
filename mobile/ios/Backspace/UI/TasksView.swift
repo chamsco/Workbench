@@ -163,7 +163,7 @@ struct ApprovalCard: View {
                 Text(stat).font(.caption.monospaced()).foregroundStyle(.secondary)
             }
             HStack(spacing: 10) {
-                Button { withAnimation { store.hidden.insert(approval.id) } } label: {
+                Button { withAnimation { _ = store.hidden.insert(approval.id) } } label: {
                     Text("Hide").frame(maxWidth: .infinity).padding(.vertical, 12)
                         .overlay(Capsule().stroke(Color.bsEdge, lineWidth: 1.5))
                 }
