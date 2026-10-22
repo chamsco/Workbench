@@ -1,12 +1,18 @@
 //! Installing an update from inside the app.
 //!
 //! `backspace_core::update` answers "is main ahead of me?". This acts on the
-//! answer: it downloads the same `Backspace-mac.app.zip` a person would, unpacks
-//! it with `ditto`, and hands a small shell script the job of waiting for this
-//! process to exit before it swaps the bundle in place of the running one and
-//! opens it again. The app is replaced only after the download has been checked
-//! to be a Backspace, so a half-finished download can never leave the machine
-//! without an app.
+//! answer in two steps, so the download never interrupts anyone:
+//!
+//! - `download` fetches the same `Backspace-mac.app.zip` a person would,
+//!   unpacks it with `ditto`, checks it is a Backspace and keeps it staged.
+//!   The app goes on running; the shell says the update is ready.
+//! - `restart` is the person's say-so: it hands a small shell script the job
+//!   of waiting for this process to exit before it swaps the staged bundle in
+//!   place of the running one and opens it again.
+//!
+//! The app is replaced only after the download has been checked to be a
+//! Backspace, so a half-finished download can never leave the machine without
+//! an app.
 //!
 //! macOS only: the release's asset is a `.app` inside a zip, not an installer
 //! package, so there is nothing to run and no pkg receipt to keep.
@@ -36,15 +42,35 @@ fn say(app: &AppHandle, stage: &str, pct: u8) {
     );
 }
 
-#[cfg(not(target_os = "macos"))]
-pub async fn install(_app: AppHandle) -> Result<()> {
-    Err(anyhow!("Backspace installs its own updates on macOS only"))
+/// A downloaded, unpacked and checked update, waiting for a restart.
+#[cfg(target_os = "macos")]
+struct Staged {
+    /// The new `.app`, unpacked.
+    app: std::path::PathBuf,
+    /// The folder it was unpacked in, which the swap script removes.
+    tmp: std::path::PathBuf,
+    /// The running bundle it replaces.
+    bundle: std::path::PathBuf,
 }
 
 #[cfg(target_os = "macos")]
-pub async fn install(app: AppHandle) -> Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-    use std::process::{Command, Stdio};
+static STAGED: std::sync::Mutex<Option<Staged>> = std::sync::Mutex::new(None);
+
+#[cfg(not(target_os = "macos"))]
+pub async fn download(_app: AppHandle) -> Result<()> {
+    Err(anyhow!("Backspace installs its own updates on macOS only"))
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn restart(_app: AppHandle) -> Result<()> {
+    Err(anyhow!("Backspace installs its own updates on macOS only"))
+}
+
+/// Fetch the newest build and stage it. Returns once it is ready to swap in;
+/// a second call while one is staged downloads again and replaces it.
+#[cfg(target_os = "macos")]
+pub async fn download(app: AppHandle) -> Result<()> {
+    use std::process::Command;
 
     let http = reqwest::Client::new();
     say(&app, "Preparing", 2);
@@ -53,10 +79,16 @@ pub async fn install(app: AppHandle) -> Result<()> {
     let bundle = running_bundle()?;
     ensure_writable(&bundle)?;
 
-    let tmp = std::env::temp_dir().join(format!("backspace-update-{}", std::process::id()));
+    // One folder per download, so replacing a staged update never deletes
+    // the one that replaces it.
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or_default();
+    let tmp = std::env::temp_dir().join(format!("backspace-update-{}-{stamp}", std::process::id()));
     std::fs::create_dir_all(&tmp).context("couldn't make a place to download into")?;
     let zip = tmp.join("Backspace-mac.app.zip");
-    download(&http, &url, size, &zip, &app).await?;
+    fetch(&http, &url, size, &zip, &app).await?;
 
     say(&app, "Unpacking", 82);
     let staged = tmp.join("app");
@@ -70,11 +102,55 @@ pub async fn install(app: AppHandle) -> Result<()> {
     let new_app = find_app(&staged)?;
     check_identity(&new_app)?;
 
-    say(&app, "Installing", 94);
+    say(&app, "Ready", 100);
+    let old = STAGED.lock().unwrap().replace(Staged {
+        app: new_app,
+        tmp,
+        bundle,
+    });
+    if let Some(old) = old {
+        let _ = std::fs::remove_dir_all(old.tmp);
+    }
+    Ok(())
+}
+
+/// Quit into the staged update: the script swaps it in and reopens the app.
+#[cfg(target_os = "macos")]
+pub fn restart(app: AppHandle) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    use std::process::{Command, Stdio};
+
+    let staged = STAGED.lock().unwrap().take();
+    let Staged {
+        app: new_app,
+        tmp,
+        bundle,
+    } = staged.ok_or_else(|| anyhow!("there is no downloaded update to install"))?;
     let script = tmp.join("swap.sh");
-    std::fs::write(
-        &script,
-        r#"#!/bin/bash
+    std::fs::write(&script, SWAP)?;
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755))?;
+
+    Command::new("/bin/bash")
+        .arg(&script)
+        .arg(std::process::id().to_string())
+        .arg(&bundle)
+        .arg(&new_app)
+        .arg(&tmp)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .context("couldn't start the installer")?;
+
+    say(&app, "Restarting", 100);
+    // The script is waiting for exactly this. No cleanup here: the script owns
+    // the temporary folder and the old bundle from this point.
+    app.exit(0);
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+const SWAP: &str = r#"#!/bin/bash
 # Runs after Backspace has quit. $1 pid, $2 the app to replace, $3 the new
 # one, $4 the temporary folder. Puts the old bundle back if the copy fails.
 pid=$1; target=$2; new=$3; tmp=$4
@@ -98,28 +174,7 @@ rm -rf "$old"
 /usr/bin/xattr -dr com.apple.quarantine "$target" 2>/dev/null
 /usr/bin/open "$target"
 rm -rf "$tmp"
-"#,
-    )?;
-    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755))?;
-
-    Command::new("/bin/bash")
-        .arg(&script)
-        .arg(std::process::id().to_string())
-        .arg(&bundle)
-        .arg(&new_app)
-        .arg(&tmp)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .context("couldn't start the installer")?;
-
-    say(&app, "Restarting", 100);
-    // The script is waiting for exactly this. No cleanup here: the script owns
-    // the temporary folder and the old bundle from this point.
-    app.exit(0);
-    Ok(())
-}
+"#;
 
 /// The `.app` this process is running out of, if it is running out of one.
 #[cfg(target_os = "macos")]
@@ -151,7 +206,7 @@ fn ensure_writable(bundle: &std::path::Path) -> Result<()> {
 }
 
 #[cfg(target_os = "macos")]
-async fn download(
+async fn fetch(
     http: &reqwest::Client,
     url: &str,
     size: u64,
