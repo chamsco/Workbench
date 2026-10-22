@@ -204,6 +204,20 @@ var Frame = (() => {
     if (ext.action && ext.action.url) invoke("open_url", { url: ext.action.url });
   }
 
+  // ---------------------------------------------------------------- the head
+  // The title-bar head is the app's too: Code puts the project's folder there,
+  // an app could put its name. `null` means the app has nothing to say.
+  function head(id) {
+    const ext = byId.get(id || active);
+    if (ext && ext.head) { try { return ext.head(); } catch { return null; } }
+    return null;
+  }
+  function windowTitle(id) {
+    const ext = byId.get(id || active);
+    if (ext && ext.windowTitle) { try { return ext.windowTitle(); } catch { return null; } }
+    return null;
+  }
+
   // ---------------------------------------------------------------- the chip
   function renderBar() {
     const el = document.getElementById("appbar");
@@ -227,5 +241,5 @@ var Frame = (() => {
     return list.map(e => ({ id: e.id, name: e.name || e.id, icon: e.icon || "bubble", order: e.order ?? 100, description: e.description || "" }));
   }
 
-  return { load, register, init, ids, zones, has, get, enabled, onIds, setOn, setActive, syncClasses, paint, elFor, newInstance, renderBar };
+  return { load, register, init, ids, zones, has, get, enabled, onIds, setOn, setActive, syncClasses, paint, elFor, head, windowTitle, newInstance, renderBar };
 })();

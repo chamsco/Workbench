@@ -82,7 +82,7 @@ var Shell = (() => {
     if (window.WhirlChat && window.WhirlChat.shell) window.WhirlChat.shell();
     renderRail(); renderZones(); renderHead(); renderModes(); renderStatus();
     if (window.Frame) Frame.renderBar();
-    if (typeof syncArt === "function") syncArt();
+    if (window.Code) Code.syncArt();
     if (window.RPanel) RPanel.render();
     // Whatever app owns a visible section gets to draw into it; the frame does
     // not know how. Chat mounts lazily here.
@@ -95,7 +95,7 @@ var Shell = (() => {
     prefs.split = what ? { what, ratio: ratio || (prefs.split && prefs.split.ratio) || 0.5 } : null;
     invoke("set_split", { split: prefs.split });
     layout();
-    if (showing("canvas")) { renderTabs(); renderGrid(); }
+    if (showing("canvas") && window.Code) Code.layout();
     if (showing("chat") && window.Chat) Chat.render();
   }
   function swap() {
@@ -182,7 +182,7 @@ var Shell = (() => {
     const all = [
       ...zones().map(([k, ic, l]) => ({ ic, t: l, s: "Go to", go: () => openZone(k) })),
       ...(prefs.projects || []).map(p => ({ ic: "folder", t: base(p), s: p, go: () => openProject(p) })),
-      ...((snap && snap.agents) || []).filter(a => a.kind !== "triage").map(a => ({ ic: "sparkle", t: a.id === 0 ? "Main agent" : a.title, s: `${snap.name} · ${a.status.replace(/_/g, " ")}`, go: () => { S.codeView = "agents"; setMode("code"); openIn({ kind: "agent", agent: a.id }); } })),
+      ...((snap && snap.agents) || []).filter(a => a.kind !== "triage").map(a => ({ ic: "sparkle", t: a.id === 0 ? "Main agent" : a.title, s: `${snap.name} · ${a.status.replace(/_/g, " ")}`, go: () => { S.codeView = "agents"; setMode("code"); Code.openIn({ kind: "agent", agent: a.id }); } })),
       ...chats.map(t => ({ ic: "bubble", t: t.title || "Chat", s: "Chat", go: () => { setMode("chat"); if (window.Chat && Chat.open) Chat.open(t.id); } })),
     ];
     openPop(anchor, `<div class="srch"><label>${icon("search")}<input placeholder="Search projects, agents and chats" aria-label="Search"></label><div class="srch-r"></div></div>`, pop => {
@@ -261,27 +261,19 @@ var Shell = (() => {
       $("#ppNew", pop).onclick = () => { closePop(); pickProject(); };
     });
   }
-  // The folder, switchable from the title itself. The app's name is in the
-  // frame's chip now, so this is just the project — "Workbench" twice was one
-  // title too many.
-  function codeTitle() {
-    const p = hasProject && snap.workspace ? snap.workspace : null;
-    return p
-      ? `<button class="zt proj" id="zhProj" data-popper title="${esc(p)} — switch project">${icon("folder")}<b>${esc(base(p))}</b>${icon("chevd")}</button>`
-      : `<button class="zt proj quiet" id="zhProj" data-popper title="No folder open — open one">${icon("folder")}<b>No folder</b>${icon("chevd")}</button>`;
-  }
-  // The window title (taskbar, alt-tab) follows the same rule.
+  // The window title (taskbar, alt-tab) and the head are the app's to say;
+  // Code names the project, everything else is just the window.
   function syncWindowTitle() {
-    const p = S.mode === "code" && hasProject && snap.workspace ? base(snap.workspace) : "";
-    document.title = p ? `${p} · Backspace` : "Backspace";
+    const t = window.Frame ? Frame.windowTitle() : null;
+    document.title = t || "Backspace";
   }
   function renderHead() {
     const z = S.mode, h = $("#zoneHead");
     // Apps and Memory carry their own H1 at the top of the sheet. Naming them
     // again here, a line above the page, was the title said twice.
     if (S.settings) h.innerHTML = `<span class="zt">${icon("gear")}Settings</span>`;
-    else if (z === "code") h.innerHTML = codeTitle();
     else if (z.startsWith("app:") && window.Apps) h.innerHTML = Apps.head(z.slice(4));
+    else if (window.Frame && Frame.head(z) != null) h.innerHTML = Frame.head(z) || "";
     else h.innerHTML = "";
     if (z.startsWith("app:") && window.Apps) Apps.wireHead(h, z.slice(4));
     const zh = $("#zhProj");

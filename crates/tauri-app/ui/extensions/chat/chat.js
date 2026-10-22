@@ -229,15 +229,15 @@ var Chat = (() => {
     zone: () => S.mode,
     project: () => (hasProject && snap.workspace) || null,
     canvases: () => {
-      const t = tab();
+      const t = window.Code ? Code.tab() : null;
       if (!t) return [];
-      return t.panes.map((p, i) => ({ index: i, kind: p.kind, label: paneTitle(p) }));
+      return t.panes.map((p, i) => ({ index: i, kind: p.kind, label: Code.paneTitle(p) }));
     },
     openCanvas: index => {
       closePop();
       S.focus = index; S.max = null;
-      setMode("code"); setCodeView("agents"); setWb("canvases");
-      renderTabs(); renderGrid();
+      setMode("code"); setCodeView("agents"); Code.setWb("canvases");
+      Code.renderTabs(); Code.renderGrid();
     },
     // Read in the ADE: a thread belongs to that surface, whichever one the tree
     // was clicked in.

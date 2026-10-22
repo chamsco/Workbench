@@ -147,11 +147,11 @@ var Home = (() => {
           .catch(err => toast(String(err), "err"));
         return;
       }
-      if (r) { e.stopPropagation(); actOn(agent(+r.dataset.actOn)); return; }
-      openIn({ kind: "agent", agent: +b.dataset.open });
+      if (r) { e.stopPropagation(); Code.actOn(agent(+r.dataset.actOn)); return; }
+      Code.openIn({ kind: "agent", agent: +b.dataset.open });
     }));
       el.querySelectorAll("[data-proj]").forEach(b => (b.onclick = () => { proj = b.dataset.proj; bar(); activity.path = ""; loadActivity(); pills(); }));
-      el.querySelectorAll("[data-tix]").forEach(b => (b.onclick = () => setDrawer(true)));
+      el.querySelectorAll("[data-tix]").forEach(b => (b.onclick = () => Code.setDrawer(true)));
       const of = el.querySelector("[data-act=openf]"); if (of) of.onclick = pickProject;
       const byv = el.querySelector("[data-act=view]"); if (byv) byv.onclick = startByView;
     });
@@ -164,9 +164,10 @@ var Home = (() => {
     try { await invoke("set_view_prefs", { chatView: null, motion: null, wbView: "canvases" }); } catch { }
     prefs.wb_view = "canvases"; S.wb = "canvases";
     setMode("code", false); setCodeView("agents");
-    const empty = tab().panes.findIndex(p => p.kind === "empty");
-    if (empty >= 0) { S.focus = empty; renderTabs(); renderGrid(); }
-    else openView({ kind: "empty", agent: 0, url: null });
+    const t = window.Code ? Code.tab() : null;
+    const empty = t ? t.panes.findIndex(p => p.kind === "empty") : -1;
+    if (empty >= 0) { S.focus = empty; Code.renderTabs(); Code.renderGrid(); }
+    else Code.openView({ kind: "empty", agent: 0, url: null });
   }
 
   // The model's name is a promise (the picker owns it), so this can resume after
