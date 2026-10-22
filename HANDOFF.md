@@ -1,5 +1,20 @@
 # Handoff: Backspace (ohMyHarness → Workbench), v0
 
+**Session, 22 Oct 2026 — Our own sea.**
+
+- **The sharks are ours now.** stackedlol/ascii-sharks has no licence, so its
+  hammerhead is gone and `crates/tauri-app/ui/ocean.js` draws the Sharks and
+  Koi backdrops from scratch: each animal is a spine of points following its
+  head (so turns travel down the body), its outline is laid along that spine
+  and inked into a character grid. Sharks hunt three schools of small fish
+  that scatter from them and leave a wake; koi meander and avoid each other.
+  `Art.apply` starts it for a shark or koi backdrop and stops it otherwise.
+  The ascii-sharks entry left THIRD_PARTY_NOTICES.md.
+
+**Ran:** the real `ui/` in headless Chromium: Sharks white (dark), Sharks
+black (light) and Koi animate at ~55-60 fps with no page errors; with
+reduced motion the frame is still; switching to Plain removes the canvas.
+
 **Session, 22 Oct 2026 — the first terminal is Brainpowr Code.**
 
 - **A project's first terminal canvas opens Brainpowr Code** instead of a bare
