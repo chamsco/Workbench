@@ -1,41 +1,51 @@
-/* Whirl's design system (MIT, ./whirl/LICENSE), then Backspace's glass:
-   the pane and the composer wells go translucent over the window's frost,
-   and the hover tones become see-through so they read on the frosted
-   sidebar too. */
+/* Whirl's design system (MIT, ./whirl/LICENSE), then Backspace's paper: the
+   chat is a page like Apps and Memory, so its surfaces are tints of the app's
+   paper instead of glass over the window's painting. The shell paints the
+   sheet behind the transcript; these tokens make the pane, the wells, the
+   menus and the dialogs land in the same light on it. */
 @import "./whirl/styles/globals.css";
 
 @source "./";
 
 :root {
-  --surface: rgb(255 255 255 / 0.74);
-  --well: rgb(243 243 243 / 0.82);
-  --well-translucent: rgb(246 246 246 / 0.66);
+  --surface: var(--paper, #faf8fb);
+  --well: color-mix(in srgb, var(--paper, #faf8fb) 92%, var(--fg, #1c1a1f));
+  --well-translucent: color-mix(in srgb, var(--paper, #faf8fb) 86%, transparent);
   --background: transparent;
   --accent: rgb(0 0 0 / 0.055);
   --accent-pressed: rgb(0 0 0 / 0.035);
-  --popover-translucent: rgb(255 255 255 / 0.86);
-  --foreground: #0f0f10;
-  --muted-foreground: oklch(0.42 0 0);
+  --card: var(--paper-card, #fff);
+  --popover: var(--paper-card, #fff);
+  --popover-translucent: color-mix(in srgb, var(--paper-card, #fff) 92%, transparent);
+  --border: var(--paper-line, rgb(24 18 30 / 0.08));
+  --well-outline: var(--paper-line, rgb(24 18 30 / 0.08));
+  --well-highlight: var(--paper-card, #fff);
+  --foreground: var(--fg, #1c1a1f);
+  --foreground-soft: var(--fg-2, #4e4955);
+  --muted-foreground: var(--fg-2, #4e4955);
 }
 .dark {
-  --surface: rgb(24 24 26 / 0.72);
-  --well: rgb(44 44 46 / 0.78);
-  --well-translucent: rgb(40 40 42 / 0.66);
+  --surface: var(--paper, #15141a);
+  --well: color-mix(in srgb, var(--paper, #15141a) 92%, var(--fg, #fff));
+  --well-translucent: color-mix(in srgb, var(--paper, #15141a) 80%, transparent);
   --background: transparent;
   --accent: rgb(255 255 255 / 0.07);
   --accent-pressed: rgb(255 255 255 / 0.045);
-  --popover-translucent: rgb(36 36 38 / 0.88);
-  /* The chat sits on the window's painting now, not on a flat sheet: the muted
-     greys that read fine there vanish against it, so the body goes to solid
-     white and the secondary text lifts with it. */
-  --foreground: #ffffff;
-  --muted-foreground: oklch(0.8 0 0);
+  --card: var(--paper-card, #1e1d24);
+  --popover: var(--paper-card, #1e1d24);
+  --popover-translucent: color-mix(in srgb, var(--paper-card, #1e1d24) 92%, transparent);
+  --border: var(--paper-line, rgb(255 255 255 / 0.07));
+  --well-outline: var(--paper-line, rgb(255 255 255 / 0.07));
+  --well-highlight: var(--paper-card, #1e1d24);
+  --foreground: var(--fg, #fff);
+  --foreground-soft: var(--fg-2, #ded9e3);
+  --muted-foreground: var(--fg-2, #ded9e3);
 }
 
-/* The pane floats on the window's glass. */
+/* The pane is the page's inside: no frost of its own on a solid sheet. */
 .whirl-pane {
-  -webkit-backdrop-filter: blur(28px) saturate(1.5);
-  backdrop-filter: blur(28px) saturate(1.5);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 /* Inter is Whirl's face; Backspace keeps the platform's (SF Pro on a Mac)
