@@ -311,7 +311,10 @@ function offlineNote() {
     : `<div class="offline-note"><b>Connecting to ${esc(m.name)}…</b></div>`;
 }
 function renderList() {
-  if (!agentsOn()) { if (window.Shell) Shell.renderSide(); return; }
+  // The zone's own title and list go first, so a page left behind (Apps,
+  // Memory) never keeps its heading over the IDE.
+  if (window.Shell) Shell.renderSide();
+  if (!agentsOn()) return;
   let h = offlineNote();
   if (S.side === "projects") {
     const m = machine();
@@ -404,13 +407,12 @@ function renderMachines() {
     const [c, why] = machineState(m);
     const tip = `${m.name}${m.local ? " (this machine)" : " · " + m.url}${m.project ? " · " + m.project : ""} · ${why}`;
     return `<button class="mach" aria-pressed="${m.selected}" data-m="${m.index}" title="${esc(tip)}" aria-label="${esc(tip)}">${icon(m.local ? "pc" : "cloud")}<span class="mn">${esc(m.name)}</span><span class="md ${c}"></span></button>`;
-  }).join("") + `<button class="mach add" id="addMachine" title="Add a machine" aria-label="Add a machine">${icon("plus")}</button>`;
+  }).join("");
   $$("#machines [data-m]").forEach(b => (b.onclick = async () => {
     await invoke("select_machine", { index: +b.dataset.m });
     S.pane.clear(); S.review = null; S.ticket = null;
     await refresh(true);
   }));
-  $("#addMachine").onclick = () => openSettings("machines");
 }
 
 // ------------------------------------------------------------------ update pill
@@ -1066,7 +1068,8 @@ addEventListener("DOMContentLoaded", async () => {
     prefs.active_tab = 0;
   }
   applyTheme(); renderSeg(); setSide(false);
-  S.mode = prefs.mode || "chat";
+  // Every launch lands on Apps; the zone you were last in is a click away.
+  S.mode = "apps";
   S.codeView = prefs.code_view === "pair" ? "pair" : "agents";
   S.chatView = prefs.chat_view === "agents" ? "agents" : "chat";
   // The IDE opens on its canvases — one empty canvas, which asks what to put
