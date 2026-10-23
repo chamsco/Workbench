@@ -306,6 +306,9 @@ fn set_appearance(f: F, appearance: backspace_core::prefs::Appearance) {
         a.bg = hex_or_empty(&a.bg);
         a.fg = hex_or_empty(&a.fg);
         a.contrast = a.contrast_or_default();
+        if !matches!(a.window.as_str(), "frosted" | "clear" | "solid") {
+            a.window.clear();
+        }
         p.appearance = a;
     });
 }
@@ -2105,6 +2108,16 @@ fn main() -> anyhow::Result<()> {
             {
                 use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial};
                 let _ = apply_vibrancy(&win, NSVisualEffectMaterial::Sidebar, None, None);
+            }
+            // The window is transparent everywhere; the page paints itself
+            // opaque unless Settings → Appearance → Window is See-through, and
+            // then Windows lays Mica (or, before 11, a blur) under it.
+            #[cfg(target_os = "windows")]
+            {
+                use window_vibrancy::{apply_blur, apply_mica};
+                if apply_mica(&win, None).is_err() {
+                    let _ = apply_blur(&win, Some((18, 18, 20, 120)));
+                }
             }
             // The fleet coalesces changes; the UI coalesces again per frame.
             std::thread::spawn(move || {

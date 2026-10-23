@@ -646,3 +646,8 @@ cargo run -p backspace-runner --example ask -- claude "hi"
 - Stress-test their ideas and lead with what's wrong.
 - They write fast and informally, so take the intent, not the literal words.
 - They expect work committed and pushed, not just proposed.
+
+### 2026-10-23 — glass frame, Window setting
+- Settings → Appearance → Window: Frosted (default; the painting runs behind the whole window at full strength and the sidebar, page and chat are blurred glass on it), See-through (the window is transparent and the desktop shows through; macOS vibrancy, Windows Mica or blur, Linux no blur so the panes are thicker), Solid (the opaque frame, painting only in Code's card).
+- Stored as `appearance.window` ("" | frosted | clear | solid), read off `:root[data-window]` in shell.css. Replaces `appearance.translucent`, whose serde default of false made every install solid.
+- tauri.windows/linux.conf.json now set `transparent: true` (macOS already did). The page paints itself opaque unless See-through is on. Not run on a real Windows/Linux/macOS window yet.

@@ -137,7 +137,7 @@ var Art = (() => {
     return () => { alive = false; ro.disconnect(); document.removeEventListener("visibilitychange", vis); cv.width = cv.height = 0; };
   }
 
-  let stopDesk = null, current = null, vivid = false;
+  let stopDesk = null, current = null, vivid = false, glass = false;
   // The window's backdrop: one painting behind the title bar, the sidebar
   // and the page, dissolving before the middle of the window. Full strength
   // on Home; elsewhere muted toward the page so panes stay readable.
@@ -167,7 +167,7 @@ var Art = (() => {
     if (stopDesk) { stopDesk(); stopDesk = null; }
     const s = src(current);
     if (!layer) return;
-    if (s) stopDesk = band(layer, s, { position: 0.4, fade: 0.5, mute: vivid ? muteFor(s) : 0.6 + muteFor(s) / 2, cell: 2, bg: "--win-bg" });
+    if (s) stopDesk = band(layer, s, { position: 0.4, fade: 0.5, mute: vivid || glass ? muteFor(s) : 0.6 + muteFor(s) / 2, cell: 2, bg: "--win-bg" });
     else layer.innerHTML = "";
   }
   // Home shows the painting at full strength.
@@ -177,8 +177,15 @@ var Art = (() => {
     document.getElementById("win").classList.toggle("art-vivid", v);
     if (current) draw();
   }
+  // Frosted panes (Settings → Appearance → Window) keep the text readable on
+  // their own, so under them the painting is at full strength everywhere.
+  function setGlass(g) {
+    if (g === glass) return;
+    glass = g;
+    if (current) draw();
+  }
   // A theme change swaps the harbour's light.
   matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => current && apply(current));
 
-  return { band, apply, setVivid, src, muteFor, BACKDROPS, current: () => current, light };
+  return { band, apply, setVivid, setGlass, src, muteFor, BACKDROPS, current: () => current, light };
 })();

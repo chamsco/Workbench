@@ -417,14 +417,15 @@ button.rp-row:hover { background: var(--hover); }
    tiles, the tree, the machine), the page as a card with its header, and the
    page's chat with its composer at the foot. No bar runs across the top and
    none along the bottom; the window is dragged by the sidebar's row and the
-   page header. The painting only shows where an app leaves its card clear
-   (Code's ADE). */
-:root { --win-bg: #f3f3f1; --frame-bg: #fbfbfa; --frame-edge: #e3e3e0; --dcard: #ffffff; --dcard-edge: #e6e6e3; --tile-on: rgba(0, 0, 0, 0.07); }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --win-bg: #0d0d0e; --frame-bg: #121213; --frame-edge: #232325; --dcard: #161617; --dcard-edge: #26262a; --tile-on: rgba(255, 255, 255, 0.09); } }
-:root[data-theme="dark"] { --win-bg: #0d0d0e; --frame-bg: #121213; --frame-edge: #232325; --dcard: #161617; --dcard-edge: #26262a; --tile-on: rgba(255, 255, 255, 0.09); }
+   page header. Settings → Appearance → Window picks what it is made of:
+   frosted glass over the painting (the default), the desktop seen through it,
+   or solid panes, where the painting only shows in Code's card. */
+:root { --win-bg: #f3f3f1; --frame-bg: #fbfbfa; --frame-edge: #e3e3e0; --dcard: #ffffff; --dcard-edge: #e6e6e3; --tile-on: rgba(0, 0, 0, 0.07); --glass-side-mix: 56%; --glass-page-mix: 70%; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --win-bg: #0d0d0e; --frame-bg: #121213; --frame-edge: #232325; --dcard: #161617; --dcard-edge: #26262a; --tile-on: rgba(255, 255, 255, 0.09); --glass-side-mix: 22%; --glass-page-mix: 44%; } }
+:root[data-theme="dark"] { --win-bg: #0d0d0e; --frame-bg: #121213; --frame-edge: #232325; --dcard: #161617; --dcard-edge: #26262a; --tile-on: rgba(255, 255, 255, 0.09); --glass-side-mix: 22%; --glass-page-mix: 44%; }
 
 .win { --side-w: var(--side-w-user, 300px); }
-#win:not(.m-code) .win-art, #win:not(.m-code) .win-ascii { display: none; }
+:root[data-window="solid"] #win:not(.m-code) :is(.win-art, .win-ascii), :root[data-window="clear"] #win :is(.win-art, .win-ascii) { display: none; }
 #win .side, #win .chatcol { background: var(--win-bg); }
 /* The tree is the window's, not Chat's: Home shows it too. */
 #win.m-home #chatList { display: block !important; }
@@ -499,8 +500,8 @@ button.rp-row:hover { background: var(--hover); }
    (8px in from the window, the sidebar's width on the left), and dimmed under
    a layer of the window's colour so the page reads dark. */
 #win.m-code .mainc { background: color-mix(in srgb, var(--win-bg) 58%, transparent); border-color: color-mix(in srgb, var(--fg) 12%, transparent) !important; }
-#win.m-code .win-art, #win.m-code .win-ascii { clip-path: inset(8px 8px 8px var(--side-w) round 12px); }
-#win.m-code:is(.side-closed, .ghost-side) .win-art, #win.m-code:is(.side-closed, .ghost-side) .win-ascii { clip-path: inset(8px round 12px); }
+:root[data-window="solid"] #win.m-code :is(.win-art, .win-ascii) { clip-path: inset(8px 8px 8px var(--side-w) round 12px); }
+:root[data-window="solid"] #win.m-code:is(.side-closed, .ghost-side) :is(.win-art, .win-ascii) { clip-path: inset(8px round 12px); }
 /* Settings is a page too: it fills the card under the header, and the card
    takes the whole window, since Settings brings its own list of sections. */
 #win.settings-on { --side-w: 0px; --chat-on: 0px; }
@@ -523,6 +524,26 @@ button.rp-row:hover { background: var(--hover); }
 .mem-ht { justify-content: flex-end; }
 #win .apps.zone, #win .memory.zone { padding: 0; }
 #win .apps.zone > .apz, #win .memory.zone > .mem { max-width: none; padding: 22px max(24px, calc((100% - 820px) / 2)) 48px; background: transparent; box-shadow: none; border-radius: 0; }
+
+/* ---------- the glass ------------------------------------------------------
+   Frosted: the painting runs behind the whole window and every pane is a
+   sheet of glass on it, the sidebar and the chat thinner than the page so the
+   painting reads at the edges; Code's card stays the clear, dimmed one.
+   See-through: the window itself is transparent (tauri.*.conf.json) and the
+   same sheets sit on the desktop. macOS blurs what is behind (vibrancy), and
+   Windows lays Mica under it; Linux has no blur, so the sheets are thicker. */
+:root:is([data-window="frosted"], [data-window="clear"]) { --glass-line: color-mix(in srgb, var(--fg) 11%, transparent); }
+:root[data-window="frosted"] #win .side, :root[data-window="frosted"] #win > .chatcol { background: color-mix(in srgb, var(--win-bg) var(--glass-side-mix), transparent); -webkit-backdrop-filter: blur(28px) saturate(1.6); backdrop-filter: blur(28px) saturate(1.6); }
+:root[data-window="frosted"] #win:not(.m-code) .mainc { background: color-mix(in srgb, var(--frame-bg) var(--glass-page-mix), transparent); -webkit-backdrop-filter: blur(30px) saturate(1.4); backdrop-filter: blur(30px) saturate(1.4); }
+:root:is([data-window="frosted"], [data-window="clear"]) #win .mainc { border-color: var(--glass-line) !important; }
+:root:is([data-window="frosted"], [data-window="clear"]) #win .tbar { border-bottom-color: var(--glass-line) !important; }
+:root:is([data-window="frosted"], [data-window="clear"]) #win .settings { background: transparent; }
+:root:is([data-window="frosted"], [data-window="clear"]) :is(.dc, .cc-box, .cc-hits) { background: color-mix(in srgb, var(--dcard) 50%, transparent); border-color: var(--glass-line); }
+:root[data-window="clear"] body, :root[data-window="clear"] .desk, :root[data-window="clear"] #win { background: transparent !important; }
+:root[data-window="clear"] #win .side, :root[data-window="clear"] #win > .chatcol { background: color-mix(in srgb, var(--win-bg) 46%, transparent); }
+:root[data-window="clear"] #win .mainc { background: color-mix(in srgb, var(--frame-bg) 70%, transparent); }
+.os-linux:root[data-window="clear"] #win .side, .os-linux:root[data-window="clear"] #win > .chatcol { background: color-mix(in srgb, var(--win-bg) 80%, transparent); }
+.os-linux:root[data-window="clear"] #win .mainc { background: color-mix(in srgb, var(--frame-bg) 88%, transparent); }
 
 /* ---------- the page's chat (ai.js) */
 .chatcol { position: relative; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
