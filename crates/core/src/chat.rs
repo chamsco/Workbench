@@ -280,6 +280,23 @@ pub struct ThreadInfo {
     pub expires_at: Option<u64>,
 }
 
+/// See `Chats::activity`.
+#[derive(Serialize, Clone, Debug, Default)]
+pub struct Activity {
+    pub prompts: Vec<Prompt>,
+    /// Epoch hours (ms / 3,600,000) with at least one message.
+    pub hours: Vec<u64>,
+    pub sessions: usize,
+}
+
+/// One message you (or an agent, `agent`) sent, and the provider it went to.
+#[derive(Serialize, Clone, Debug)]
+pub struct Prompt {
+    pub at: u64,
+    pub provider: String,
+    pub agent: bool,
+}
+
 pub fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -634,6 +651,35 @@ impl Chats {
     pub fn thread(&self, id: &str) -> Option<Thread> {
         self.unread.lock().unwrap().remove(id);
         self.threads.lock().unwrap().get(id).cloned()
+    }
+
+    /// What happened since `since` (epoch ms), for Home's "Last 30 days" card:
+    /// every prompt with who answered it, the hours anything was said in, and
+    /// how many threads were active. Days are left to the caller, which knows
+    /// the local time zone.
+    pub fn activity(&self, since: u64) -> Activity {
+        let mut a = Activity::default();
+        let mut hours = std::collections::BTreeSet::new();
+        for t in self.threads.lock().unwrap().values().filter(|t| !t.hidden) {
+            let mut live = false;
+            for m in t.messages.iter().filter(|m| m.at >= since) {
+                live = true;
+                hours.insert(m.at / 3_600_000);
+                if m.role == Role::User {
+                    a.prompts.push(Prompt {
+                        at: m.at,
+                        provider: m.via.as_ref().unwrap_or(&t.route).provider.clone(),
+                        agent: m.author.is_some(),
+                    });
+                }
+            }
+            if live {
+                a.sessions += 1;
+            }
+        }
+        a.prompts.sort_by_key(|p| p.at);
+        a.hours = hours.into_iter().collect();
+        a
     }
 
     /// Read a thread without marking it read (background jobs).
@@ -1865,6 +1911,50 @@ mod tests {
         }
         assert_eq!(b64_encode(b"Man"), "TWFu");
         assert_eq!(b64_encode(b"Ma"), "TWE=");
+    }
+
+    #[test]
+    fn activity_counts_prompts_hours_and_sessions() {
+        let dir = tmp("activity");
+        let (c, _rt) = chats(&dir);
+        let old = c.create(route());
+        let t = c.create(route());
+        let msg = |id: &str, role, at, author: Option<&str>| Msg {
+            id: id.into(),
+            role,
+            text: "x".into(),
+            at,
+            status: Status::Done,
+            error: None,
+            reply_to: None,
+            reactions: vec![],
+            attachments: vec![],
+            model: None,
+            ad: None,
+            cost_usd: None,
+            edited: false,
+            via: None,
+            author: author.map(Into::into),
+            author_name: None,
+            trace: None,
+            interrupted: false,
+            plan: false,
+            spec: None,
+        };
+        let h = 3_600_000;
+        c.edit_thread(&old.id, |t| t.messages.push(msg("o", Role::User, h, None))).unwrap();
+        c.edit_thread(&t.id, |t| {
+            t.messages.push(msg("a", Role::User, 100 * h, None));
+            t.messages.push(msg("b", Role::Assistant, 100 * h + 5, None));
+            t.messages.push(msg("c", Role::User, 102 * h, Some("planner")));
+        })
+        .unwrap();
+        let a = c.activity(50 * h);
+        assert_eq!(a.sessions, 1);
+        assert_eq!(a.hours, vec![100, 102]);
+        assert_eq!(a.prompts.len(), 2);
+        assert_eq!(a.prompts[0].provider, "ollama");
+        assert!(!a.prompts[0].agent && a.prompts[1].agent);
     }
 
     #[test]

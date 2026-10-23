@@ -1,7 +1,8 @@
-// The window around the zones: the rail on the far left (Apps, Agents,
-// Code, Memory, apps pinned from the catalog, Settings at the foot), the
-// title bar's window buttons for each OS, and the split view that puts a
-// second zone or app beside the first.
+// The window around the zones: the sidebar's own row (back, forward, the
+// toggle, search, settings) and its grid of app tiles (Home, Chat, Code,
+// Memory, apps pinned from the catalog, + for the catalog itself), the page
+// card's header, the window buttons for each OS, and the split view that puts
+// a second zone or app beside the first.
 //
 // Each zone draws into its own <section class="zone"> inside #body. Showing
 // one never moves or rebuilds the others, so an app's iframe or a running
@@ -9,9 +10,10 @@
 
 var Shell = (() => {
   // Pages the frame owns. The apps come from extensions/index.json; order is
-  // the reading order the window has always had — Apps, Agents, Code,
-  // Memory — and each app's manifest carries its own number.
+  // the reading order of the tiles — Home, Chat, Code, Memory — and each app's
+  // manifest carries its own number. Apps is the catalog behind the + tile.
   const PAGES = [
+    ["home", "home", "Home", -10],
     ["apps", "apps", "Apps", 0],
     ["memory", "memory", "Memory", 30],
   ];
@@ -32,6 +34,7 @@ var Shell = (() => {
     // An app says which section is its face right now (Workbench is the canvas
     // grid in the IDE, the chat face in the ADE).
     if (isExt(z)) return Frame.elFor(z);
+    if (z === "home") return "dash";
     if (z === "memory") return "memory";
     if (z === "apps") return "apps";
     if (z === "desktop") return $("#desktop") ? "desktop" : "chat";
@@ -51,10 +54,30 @@ var Shell = (() => {
     return elFor(S.mode) === id || secondary() === id;
   }
 
+  // Back and forward walk the pages you opened, as a browser's do.
+  // A walk moves `at` before it opens the page, so remember() sees no change.
+  const hist = { back: [], fwd: [], at: null };
+  function remember() {
+    if (S.settings || S.mode === hist.at) return;
+    if (hist.at) { hist.back.push(hist.at); hist.fwd = []; if (hist.back.length > 50) hist.back.shift(); }
+    hist.at = S.mode;
+  }
+  function walk(dir) {
+    const from = dir < 0 ? hist.back : hist.fwd, to = dir < 0 ? hist.fwd : hist.back;
+    const z = from.pop(); if (!z) return;
+    to.push(hist.at); hist.at = z;
+    openZone(z);
+  }
+  function renderNav() {
+    $("#navBack").disabled = !hist.back.length;
+    $("#navFwd").disabled = !hist.fwd.length;
+  }
+
   let laid = null;
   function layout() {
     const prim = elFor(S.mode), sec = S.settings ? null : secondary();
     laid = prim;
+    remember();
     const r = sec ? Math.min(0.8, Math.max(0.2, prefs.split.ratio || 0.5)) : 1;
     for (const el of $$("#body > .zone")) {
       if (el.id === prim && !S.settings) { el.hidden = false; el.style.left = "0"; el.style.right = (1 - r) * 100 + "%"; el.classList.remove("second"); }
@@ -80,7 +103,7 @@ var Shell = (() => {
     // The face's sidebar is a tree of the project and the zone it is in, and it
     // reads both from here: tell it the shell moved. A nudge, not a fetch.
     if (window.WhirlChat && window.WhirlChat.shell) window.WhirlChat.shell();
-    renderRail(); renderZones(); renderHead(); renderModes(); renderStatus();
+    renderRail(); renderZones(); renderHead(); renderModes(); renderStatus(); renderNav();
     if (window.Code) Code.syncArt();
     if (window.RPanel) RPanel.render();
     // Whatever app owns a visible section gets to draw into it; the frame does
@@ -88,6 +111,7 @@ var Shell = (() => {
     if (window.Frame) Frame.paint(prim, sec);
     if (prim === "memory" || sec === "memory") window.Memory && Memory.refresh();
     if (prim === "apps" || sec === "apps") window.Apps && Apps.renderZone();
+    if (prim === "dash" || sec === "dash") window.Dash && Dash.render();
   }
 
   function setSplit(what, ratio) {
@@ -158,16 +182,17 @@ var Shell = (() => {
     $$("#rail [data-z]").forEach(b => (b.onclick = () => openZone(b.dataset.z)));
     $("#gear").setAttribute("aria-selected", !!S.settings);
   }
-  // The title bar's switcher: every app, side by side as icons; the open one
-  // also shows its name. An app that is
-  // off stays here, dimmed — click it to turn it back on. Then pinned apps.
-  // Settings is the gear on the right.
+  // The sidebar's tiles: every app as an icon, then pinned apps, then + for
+  // the catalog. An app that is off stays here, dimmed — click it to turn it
+  // back on. The name is the tooltip; the page header says where you are.
   function renderZones() {
     const el = $("#zones"); if (!el) return;
     const z = S.settings ? "" : S.mode;
     const apps = window.Apps ? Apps.pinned() : [];
-    el.innerHTML = zones().map(([k, ic, l]) => `<button role="tab" aria-selected="${z === k}" data-zz="${k}" title="${l}${isOff(k) ? " — off" : ""}" aria-label="${l}${isOff(k) ? " (off)" : ""}" class="${isOff(k) ? "off" : ""}">${icon(ic)}<span class="zl">${l}</span>${badge(k)}</button>`).join("")
-      + apps.map(a => `<button role="tab" aria-selected="${z === "app:" + a.id}" data-zz="app:${esc(a.id)}" title="${esc(a.name)}" aria-label="${esc(a.name)}">${Apps.glyph(a, "xs")}<span class="zl">${esc(a.name)}</span></button>`).join("");
+    const tile = (k, glyph, l, off) => `<button role="tab" aria-selected="${z === k}" data-zz="${esc(k)}" title="${esc(l)}${off ? " — off" : ""}" aria-label="${esc(l)}${off ? " (off)" : ""}" class="${off ? "off" : ""}">${glyph}${badge(k)}</button>`;
+    el.innerHTML = zones().filter(([k]) => k !== "apps").map(([k, ic, l]) => tile(k, icon(ic), l, isOff(k))).join("")
+      + apps.map(a => tile("app:" + a.id, Apps.glyph(a, "xs"), a.name, false)).join("")
+      + `<button class="add" data-zz="apps" aria-selected="${z === "apps"}" title="Add an app" aria-label="Apps: add one">${icon("plus")}</button>`;
     $$("[data-zz]", el).forEach(x => (x.onclick = () => openZone(x.dataset.zz)));
     $("#gearBtn").setAttribute("aria-pressed", !!S.settings);
   }
@@ -232,8 +257,8 @@ var Shell = (() => {
     const cur = z === "chat" ? S.chatView : S.codeView;
     const m = $("#modes");
     if (!m) return;
-    m.hidden = !v;
-    if (!v) { m.innerHTML = ""; return; }
+    m.hidden = !v || !!S.settings;
+    if (!v || S.settings) { m.innerHTML = ""; return; }
     m.setAttribute("aria-label", v.map(x => x[2]).join(" or "));
     m.innerHTML = v.map(([k, ic, l, t]) => `<button role="tab" data-view="${k}" aria-selected="${cur === k}" title="${t}">${icon(ic)}${l}</button>`).join("");
     $$("[data-view]", m).forEach(b => (b.onclick = () => (z === "chat" ? setChatView(b.dataset.view) : setCodeView(b.dataset.view))));
@@ -241,7 +266,7 @@ var Shell = (() => {
   function renderSide() {
     const z = S.mode, zl = $("#zoneList");
     renderModes();
-    $("#zoneTitle").innerHTML = z === "code" || z === "chat" ? "" : `<h2>${esc(z.startsWith("app:") ? "Apps" : zoneName(z))}</h2>`;
+    $("#zoneTitle").innerHTML = z === "code" || z === "chat" || z === "home" ? "" : `<h2>${esc(z.startsWith("app:") ? "Apps" : zoneName(z))}</h2>`;
     if (z === "memory") { window.Memory && Memory.renderSide(zl); }
     else if (z === "apps" || z.startsWith("app:")) { window.Apps && Apps.renderSide(zl); }
     else zl.innerHTML = "";
@@ -271,11 +296,23 @@ var Shell = (() => {
     if (S.settings) h.innerHTML = `<span class="zt">${icon("gear")}Settings</span>`;
     else if (z.startsWith("app:") && window.Apps) h.innerHTML = Apps.head(z.slice(4));
     else if (window.Frame && Frame.head(z) != null) h.innerHTML = Frame.head(z) || "";
+    else if (!isExt(z)) h.innerHTML = `<span class="zt page">${glyph(z)}${esc(zoneName(z))}</span>`;
     else h.innerHTML = "";
     if (z.startsWith("app:") && window.Apps) Apps.wireHead(h, z.slice(4));
     const zh = $("#zhProj");
     if (zh) zh.onclick = () => projectMenu(zh);
     syncWindowTitle();
+    renderLine();
+  }
+  // The header's middle on a page with nothing else there: the last thing you
+  // asked in the chat beside it, and when.
+  function renderLine() {
+    const el = $("#pageLine"); if (!el) return;
+    const z = S.mode, last = window.Ask && Ask.last();
+    const quiet = !S.settings && (z === "home" || z === "apps" || z === "memory" || z.startsWith("app:"));
+    el.hidden = !(quiet && last);
+    el.textContent = quiet && last ? `${last.text.replace(/\s+/g, " ")} · ${new Date(last.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })}` : "";
+    el.title = el.textContent;
   }
 
   // ---------------------------------------------------------------- window buttons
@@ -319,14 +356,17 @@ var Shell = (() => {
     platform = boot.platform || "web";
     document.documentElement.classList.add("os-" + platform);
     renderCaps(); wireGutter();
-    $("#searchBtn kbd").textContent = platform === "mac" ? "⌘K" : "Ctrl K";
+    $("#searchBtn").title = `Search projects, agents and chats (${platform === "mac" ? "⌘K" : "Ctrl K"})`;
     document.documentElement.classList.toggle("reduce-motion", prefs.motion === "reduced");
     $("#searchBtn").onclick = search;
     $("#aiBtn").onclick = () => Ask.toggle();
+    $("#navBack").onclick = () => walk(-1);
+    $("#navFwd").onclick = () => walk(1);
     $("#gearBtn").onclick = () => (S.settings ? closeSettings() : openSettings());
     $("#gear").onclick = () => (S.settings ? closeSettings() : openSettings());
     if (window.Memory) await Memory.init();
     if (window.Apps) await Apps.init();
+    if (window.Ask) await Ask.init();
   }
   // The project arriving (at launch, or opened elsewhere) can change which
   // section Code shows; lay out again when it does.
@@ -444,5 +484,5 @@ var Shell = (() => {
     setSplit("desktop", 0.45);
   }
 
-  return { projectMenu, search, init, layout, showing, renderStatus, memToast, openDesktop, setMotion, renderSide, renderRail, refresh, setSplit, toggleSplit, elFor, glyph };
+  return { projectMenu, search, init, layout, showing, renderStatus, memToast, openDesktop, setMotion, renderSide, renderRail, refresh, setSplit, toggleSplit, elFor, glyph, renderLine, usage, walk };
 })();

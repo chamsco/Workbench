@@ -33,70 +33,6 @@
 .desk[data-backdrop="aurora"] .blob.c { display: none; }
 .desk:not([data-backdrop="aurora"]) { background: var(--desk-base); }
 
-/* ---------- the window bar and the frame ---------------------------------
-   Two layers, after Atomic Chat. The window bar runs the full width on top: the
-   app trail in the middle, search, settings and the AI chat drawer on the
-   right, the OS's own buttons at either end. Under it is the frame — the
-   sidebar card and the page — and an app only ever draws in there, so the
-   traffic lights never sit over anything an app owns. */
-.win { --wbar-h: 40px; grid-template-rows: var(--wbar-h) minmax(0, 1fr) auto; }
-.wbar { grid-column: 1 / -1; grid-row: 1; position: relative; z-index: 6; display: flex; align-items: center; gap: 6px; padding: 0 10px; min-width: 0; }
-.wbar > .zones { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); }
-.wbar .right { display: flex; align-items: center; gap: 6px; }
-.wbar .right .ib { background: var(--chip); border-radius: 9px; width: 28px; height: 28px; }
-.wbar .right .ib[aria-pressed="true"] { background: var(--pill-on); color: var(--fg); }
-
-/* ---------- Ask: the AI shortcut ------------------------------------------
-   A chatbox floating over the bottom fifth of the window. The band around it
-   blurs the frame, fading up into it, so the app stays where it was and
-   readable above; the box is the only thing in focus. */
-.ask { position: absolute; inset: 0; z-index: 30; pointer-events: none; }
-.ask[hidden] { display: none; }
-.ask-blur { position: absolute; left: 0; right: 0; bottom: 0; height: 20%; min-height: 150px; pointer-events: auto;
-  -webkit-backdrop-filter: blur(14px) saturate(1.2); backdrop-filter: blur(14px) saturate(1.2);
-  background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--win-bg) 55%, transparent) 45%);
-  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 38%); mask-image: linear-gradient(to bottom, transparent, #000 38%);
-  opacity: 0; transition: opacity 0.2s ease; }
-.ask-box { position: absolute; left: 50%; bottom: 22px; width: min(640px, calc(100% - 32px)); transform: translate(-50%, 12px); pointer-events: auto;
-  display: flex; flex-direction: column; gap: 6px; padding: 8px; border-radius: 18px;
-  background: var(--card-strong); -webkit-backdrop-filter: blur(24px) saturate(1.4); backdrop-filter: blur(24px) saturate(1.4);
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.35), inset 0 0.5px 0 var(--glass-hi);
-  opacity: 0; transition: opacity 0.2s ease, transform 0.24s cubic-bezier(.2, .8, .2, 1); }
-.ask.on .ask-blur { opacity: 1; }
-.ask.on .ask-box { opacity: 1; transform: translate(-50%, 0); }
-.ask-in { display: flex; align-items: center; gap: 9px; height: 40px; padding: 0 8px 0 12px; border-radius: 12px; background: var(--hover); }
-.ask-in > .ic { width: 15px; height: 15px; color: var(--bs-accent); flex: none; }
-.ask-in input { flex: 1; min-width: 0; background: transparent; border: 0; outline: 0; font-size: 14px; color: var(--fg); }
-.ask-in kbd { font: 10.5px var(--font-ui); color: var(--fg-3); padding: 1px 5px; border-radius: 5px; background: var(--chip); }
-.ask-foot { display: flex; align-items: center; gap: 6px; padding: 0 6px; height: 22px; font-size: 11.5px; color: var(--fg-3); }
-.ask-open { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px; border-radius: 6px; color: var(--fg-2); }
-.ask-open:hover { background: var(--hover); color: var(--fg); }
-.ask-open .ic { width: 12px; height: 12px; }
-.ask-open[hidden] { display: none; }
-.ask-out { max-height: 38vh; overflow-y: auto; padding: 6px 8px 2px; display: grid; gap: 8px; font-size: 13.5px; line-height: 1.5; }
-.ask-out[hidden], .ask-hits[hidden] { display: none; }
-.ask-q { justify-self: end; max-width: 80%; padding: 6px 11px; border-radius: 12px; background: var(--pill-on); color: var(--fg); }
-.ask-a { color: var(--fg); }
-.ask-a > :first-child { margin-top: 0; } .ask-a > :last-child { margin-bottom: 0; }
-.ask-a.err { color: var(--red, #e5484d); }
-.ask-dots { display: inline-flex; gap: 4px; } .ask-dots i { width: 5px; height: 5px; border-radius: 50%; background: var(--fg-3); animation: pulse 1.2s ease-in-out infinite; }
-.ask-dots i:nth-child(2) { animation-delay: 0.15s; } .ask-dots i:nth-child(3) { animation-delay: 0.3s; }
-.ask-hits { display: grid; gap: 1px; }
-.ask-hits .pi { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 10px; border-radius: 9px; font-size: 13px; }
-.ask-hits .pi.on, .ask-hits .pi:hover { background: var(--hover); }
-.ask-hits .st-s { margin-left: auto; color: var(--fg-3); font-size: 11.5px; }
-.ask-tip { padding: 2px 10px; font-size: 11px; color: var(--fg-4); }
-@media (prefers-reduced-motion: reduce) { .ask-blur, .ask-box { transition: none; } }
-.os-mac .wbar { padding-left: 84px; }
-.os-win .wbar { padding-right: 0; }
-.win > .side, .win > .gutter-side, .win > .mainc { grid-row: 2; }
-.win > .status { grid-row: 3; }
-.win > .side { margin-top: 0; }
-@media (max-width: 760px) { .win > .side { top: var(--wbar-h); } }
-/* Apps and Memory have no app header; with the sidebar open their page starts
-   level with its card instead of under an empty bar. */
-.win:is(.m-apps, .m-memory, .m-app):not(.side-closed) .tbar { display: none; }
-
 /* Lines out: chrome is told apart by space and tone, not borders. */
 .side, .tbar, .mainc, .status { border: 0 !important; }
 .tbar, .mainc, .status { box-shadow: none; }
@@ -105,20 +41,8 @@
 .set section { border-top: 0; }
 .drawer { border: 0; }
 
-/* ---------- the sidebar: a glass card that slides in and out */
-.side { margin: 6px 0 6px 6px; border-radius: 12px; background: var(--card); -webkit-backdrop-filter: blur(22px) saturate(1.3); backdrop-filter: blur(22px) saturate(1.3); box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18); transition: transform 0.28s cubic-bezier(.2, .8, .2, 1), opacity 0.2s ease, visibility 0s; }
-/* One material, in both of Code's surfaces. The card is glass, so what it shows
-   is whatever is behind it — and the ADE paints the backdrop at full strength
-   while the rest of the app mutes it. It carries its own layer of page colour
-   there, so the same amount of the painting comes through as in the IDE: the
-   glass, the tint and the zone's own painting are all untouched, and the ADE
-   keeps its bright backdrop outside the card. 64% is the muted strength the
-   IDE already has (0.6 + muteFor/2 over muteFor), so the two cards land on the
-   same colour to within a couple of percent. */
-.win.m-code.art-vivid .side { background: linear-gradient(var(--card), var(--card)), linear-gradient(color-mix(in srgb, var(--win-bg) 64%, transparent), color-mix(in srgb, var(--win-bg) 64%, transparent)); }
-/* Under 760px the card floats over the page instead of beside it (style.css), so
-   there is no zone painting behind it to equalise and it keeps its own glass. */
-@media (max-width: 760px) { .win.m-code.art-vivid .side { background: var(--glass); } }
+/* ---------- the sidebar slides in and out (its look is under "the frame") */
+.side { transition: transform 0.28s cubic-bezier(.2, .8, .2, 1), opacity 0.2s ease, visibility 0s; }
 .win.side-closed .side { visibility: hidden; transform: translateX(-24px); opacity: 0; transition: transform 0.28s cubic-bezier(.2, .8, .2, 1), opacity 0.2s ease, visibility 0s linear 0.28s; }
 .side .side-head { padding: 2px 10px 6px; }
 .side .row:hover, .side .row.sel { background: color-mix(in srgb, var(--fg) 8%, transparent); }
@@ -173,29 +97,6 @@
   .win.m-code .tbar .modes:not([hidden]) { position: static; transform: none; }
 }
 
-/* ---------- search + sidebar, over the top of the card --------------------
-   Laid over the window rather than inside the card, so when the card folds
-   away the pill stays where it was and the title bar makes room for it. New
-   chat is the first row of the card, under it. Only Chat and Code have a sidebar of
-   threads; elsewhere the old toggle does the job. */
-.side-pills { display: none; }
-.win.whirl-on:is(.m-chat, .m-code) .side-pills {
-  --pl: 14px;
-  position: absolute; z-index: 9; top: calc(var(--wbar-h) + 3px); left: var(--pl); width: calc(var(--side-w-user, 212px) - var(--pl) - 2px);
-  display: flex;
-  transition: width 0.28s cubic-bezier(.2, .8, .2, 1);
-}
-.win.whirl-on:is(.m-chat, .m-code).side-closed .side-pills { width: 68px; }
-.win.whirl-on.ghost-side .side-pills { display: none; }
-.side-pill { background: var(--chip); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); }
-.win.whirl-on:is(.m-chat, .m-code) #sideClose, .win.whirl-on:is(.m-chat, .m-code) #sideOpen { display: none !important; }
-.win.whirl-on:is(.m-chat, .m-code) .tbar { transition: padding-left 0.28s cubic-bezier(.2, .8, .2, 1); }
-.win.whirl-on:is(.m-chat, .m-code).side-closed .tbar { padding-left: 90px; }
-@media (max-width: 760px) {
-  .win.whirl-on:is(.m-chat, .m-code):not(.side-open) .side-pills { width: 68px; }
-  .win.whirl-on:is(.m-chat, .m-code):not(.side-open) .tbar { padding-left: 90px; }
-}
-@media (prefers-reduced-motion: reduce) { .side-pills, .win .tbar { transition: none !important; } }
 .vbtn { position: relative; height: 28px; padding: 0 8px 0 10px; border-radius: 9px; display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; background: var(--chip); color: var(--fg); flex: none; }
 .vbtn .ic { width: 14px; height: 14px; }
 .vbtn .ud { width: 12px; height: 12px; color: var(--fg-3); }
@@ -229,21 +130,17 @@
 .srch-r .pi .st-t { overflow: hidden; text-overflow: ellipsis; }
 .srch-r .pi .st-s { margin-left: auto; color: var(--fg-4); font-size: 11px; max-width: 45%; overflow: hidden; text-overflow: ellipsis; }
 
-/* ---------- footer: updates, machines, tickets, then who is working */
-.status { background: transparent; height: 30px; padding: 0 8px; gap: 4px; }
-.status .upd { height: 22px; border: 0; background: transparent; padding: 0 7px; border-radius: 6px; flex: none; }
-.status .upd:hover { background: var(--hover); }
-.status .stm { flex: 1; min-width: 0; display: flex; align-items: center; gap: 2px; overflow: hidden; }
-.status .cta { height: 22px; border: 0; padding: 0 8px; border-radius: 6px; flex: none; }
-.status .cta.hot { color: var(--amber); }
-.status .machines { background: transparent; padding: 0; gap: 2px; flex: none; }
-.status .mach { width: auto; height: 22px; padding: 0 8px; gap: 6px; display: inline-flex; align-items: center; border-radius: 6px; font-size: 11.5px; color: var(--fg-3); }
-.status .mach .ic { width: 12px; height: 12px; }
-.status .mach[aria-pressed="true"] { background: var(--chip); color: var(--fg); box-shadow: none; }
-.status .mach .md { position: static; width: 7px; height: 7px; border-radius: 50%; }
-.status .mach .md.green { background: var(--green); box-shadow: 0 0 6px color-mix(in srgb, var(--green) 70%, transparent); }
-.status .mach .md.orange { background: #f0a040; }
-.status .mach .md.red { background: var(--red); }
+/* ---------- the machine row at the foot of the sidebar: the switcher, updates */
+.side-machine .upd { height: 22px; border: 0; background: transparent; padding: 0 7px; border-radius: 6px; flex: none; }
+.side-machine .upd:hover { background: var(--hover); }
+.side-machine .machines { background: transparent; padding: 0; gap: 2px; flex: none; }
+.side-machine .mach { width: auto; height: 22px; padding: 0 8px; gap: 6px; display: inline-flex; align-items: center; border-radius: 6px; font-size: 11.5px; color: var(--fg-3); }
+.side-machine .mach .ic { width: 12px; height: 12px; }
+.side-machine .mach[aria-pressed="true"] { background: var(--chip); color: var(--fg); box-shadow: none; }
+.side-machine .mach .md { position: static; width: 7px; height: 7px; border-radius: 50%; }
+.side-machine .mach .md.green { background: var(--green); box-shadow: 0 0 6px color-mix(in srgb, var(--green) 70%, transparent); }
+.side-machine .mach .md.orange { background: #f0a040; }
+.side-machine .mach .md.red { background: var(--red); }
 .side-acts, .side-foot, .ports { display: none !important; }
 
 /* ---------- Chat: the same gutter on both sides of the conversation */
@@ -514,3 +411,156 @@ button.rp-row:hover { background: var(--hover); }
 .win.ghost-side .side {
   transition: width 0.28s cubic-bezier(0.32, 0.72, 0, 1), transform 0.28s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.2s ease, visibility 0s linear 0.28s;
 }
+
+/* ---------- the frame -------------------------------------------------------
+   Three columns on one flat window: the sidebar (the window's own row, the app
+   tiles, the tree, the machine), the page as a card with its header, and the
+   page's chat with its composer at the foot. No bar runs across the top and
+   none along the bottom; the window is dragged by the sidebar's row and the
+   page header. The painting only shows where an app leaves its card clear
+   (Code's ADE). */
+:root { --win-bg: #f3f3f1; --frame-bg: #fbfbfa; --frame-edge: #e3e3e0; --dcard: #ffffff; --dcard-edge: #e6e6e3; --tile-on: rgba(0, 0, 0, 0.07); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --win-bg: #0d0d0e; --frame-bg: #121213; --frame-edge: #232325; --dcard: #161617; --dcard-edge: #26262a; --tile-on: rgba(255, 255, 255, 0.09); } }
+:root[data-theme="dark"] { --win-bg: #0d0d0e; --frame-bg: #121213; --frame-edge: #232325; --dcard: #161617; --dcard-edge: #26262a; --tile-on: rgba(255, 255, 255, 0.09); }
+
+.win { --side-w: var(--side-w-user, 300px); }
+#win:not(.m-code) .win-art, #win:not(.m-code) .win-ascii { display: none; }
+#win .side, #win .chatcol { background: var(--win-bg); }
+/* The tree is the window's, not Chat's: Home shows it too. */
+#win.m-home #chatList { display: block !important; }
+#win.m-home .whirl-new { display: none; }
+#win:not(.m-chat):not(.m-code) .side-pills { display: none; }
+#win.whirl-on:is(.m-chat, .m-code) #searchBtn { display: none; }
+.side-machine { margin-top: auto; }
+#win { --chat-w: 340px; --chat-on: var(--chat-w); grid-template-columns: var(--side-w) minmax(0, 1fr) var(--chat-on); grid-template-rows: minmax(0, 1fr); background: var(--win-bg); }
+#win.chat-off, #win.m-chat { --chat-on: 0px; }
+/* Chat is a chat already: the column steps aside while it is open. */
+#win.m-chat > .chatcol, #win.m-chat .gutter-chat, #win.m-chat #aiBtn { display: none; }
+#win.m-chat .mainc { margin-right: 8px; }
+#win > .side, #win > .mainc, #win > .chatcol { grid-row: 1; }
+#win > .side { grid-column: 1; }
+#win > .mainc { grid-column: 2; }
+#win > .chatcol { grid-column: 3; }
+#win > .status { display: none; }
+#win:not(.dragging-chat) { transition: grid-template-columns 0.28s cubic-bezier(.2, .8, .2, 1); }
+.win-art { height: 100%; }
+
+/* The sidebar is the window itself, not a card on it. */
+#win .side { margin: 0; border-radius: 0; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
+.side .side-top { height: 52px; flex: none; display: flex; align-items: center; gap: 2px; padding: 0 10px 0 12px; justify-content: flex-start; }
+.side .side-top .lights-gap { width: 0; flex: none; }
+.os-mac .side .side-top .lights-gap, :root:not(.native) .side .side-top .lights-gap { width: 64px; }
+.side .side-top .ib { width: 28px; height: 28px; border-radius: 8px; background: transparent; color: var(--fg-3); }
+.side .side-top .ib:hover:not(:disabled) { background: var(--hover); color: var(--fg); }
+.side .side-top .ib:disabled { opacity: 0.35; }
+.side .side-top .ib .ic { width: 16px; height: 16px; }
+.side .side-top .ib[aria-pressed="true"] { color: var(--fg); background: var(--tile-on); }
+#sideOpen, #sideClose { background: transparent; }
+#sideOpen { width: 28px; height: 28px; border-radius: 8px; }
+/* Chat's face draws search and its own toggle into the row; ours steps aside. */
+.side-pills { display: contents; }
+.side-pills:empty { display: none; }
+.side-pills .side-pill { background: transparent !important; -webkit-backdrop-filter: none; backdrop-filter: none; height: 28px; padding: 0; gap: 2px; }
+.side-pills .side-pill button { width: 28px; height: 28px; border-radius: 8px; color: var(--fg-3); }
+.side-pills .side-pill button:hover { background: var(--hover); color: var(--fg); }
+.win.whirl-on:is(.m-chat, .m-code) #sideClose { display: none; }
+.lights { top: 20px; left: 16px; }
+/* The window buttons on Windows and Linux, at the top right corner. */
+#win > .caps { position: absolute; top: 0; right: 0; z-index: 8; display: flex; }
+
+/* The app tiles: every app as a square, then + for the catalog. */
+.side > .zones { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 12px 14px; background: transparent; border-radius: 0; }
+.side > .zones button { width: 38px; height: 38px; min-width: 0; padding: 0; border-radius: 10px; display: grid; place-items: center; color: var(--fg-2); }
+.side > .zones button .ic, .side > .zones button svg, .side > .zones button .ag { width: 19px; height: 19px; }
+.side > .zones button:hover { background: var(--hover); color: var(--fg); }
+.side > .zones button[aria-selected="true"] { background: var(--tile-on); color: var(--fg); }
+.side > .zones button.add { color: var(--fg-3); }
+.side > .zones button.add .ic { width: 16px; height: 16px; }
+
+/* The machine at the foot: one row per machine, the one you are on lit. */
+.side-machine { flex: none; display: flex; align-items: center; gap: 4px; padding: 8px 10px 12px; }
+.side-machine .machines { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.side-machine .mach { width: 100%; height: 34px; padding: 0 8px; gap: 10px; justify-content: flex-start; border-radius: 9px; font-size: 13.5px; font-weight: 500; color: var(--fg-2); }
+.side-machine .mach:hover { background: var(--hover); color: var(--fg); }
+.side-machine .mach[aria-pressed="true"] { background: transparent; color: var(--fg); }
+.side-machine .mach .ic { width: 22px; height: 22px; padding: 4px; border-radius: 7px; background: var(--tile-on); color: var(--fg); }
+.side-machine .mach .mn { flex: 1; min-width: 0; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.side-machine .upd { flex: none; height: 28px; max-width: 46%; overflow: hidden; white-space: nowrap; font-size: 11.5px; color: var(--fg-3); display: inline-flex; align-items: center; gap: 5px; }
+.side-machine .upd .ic { width: 13px; height: 13px; }
+.side-machine .upd:not(.new) .lbl, .side-machine .upd:not(.new) .n { display: none; }
+.side-machine .upd.new { color: var(--bs-accent); }
+
+/* The page: a card with its header, on the window. */
+#win .mainc { margin: 8px 0 8px; border: 1px solid var(--frame-edge) !important; border-radius: 12px; background: var(--frame-bg); overflow: hidden; }
+#win.side-closed .mainc, #win.ghost-side .mainc { margin-left: 8px; }
+#win.chat-off .mainc { margin-right: 8px; }
+#win.m-code.art-vivid .mainc { background: transparent; }
+/* Settings is a page too: it fills the card under the header, and the card
+   takes the whole window, since Settings brings its own list of sections. */
+#win.settings-on { --side-w: 0px; --chat-on: 0px; }
+#win.settings-on .mainc { margin-left: 8px; margin-right: 8px; }
+#win.settings-on .side, #win.settings-on .chatcol, #win.settings-on .gutter-chat { visibility: hidden; }
+.os-mac #win.settings-on .tbar { padding-left: 76px; }
+#win .settings { position: absolute; inset: 44px 0 0 0; border: 0; border-radius: 0; background: var(--frame-bg); -webkit-backdrop-filter: none; backdrop-filter: none; }
+#win .tbar { height: 44px; padding: 0 10px 0 12px; background: transparent; }
+#win.side-closed .tbar { padding-left: 12px; }
+.os-mac #win.side-closed .tbar { padding-left: 76px; }
+.tbar .zt.page { display: inline-flex; align-items: center; gap: 9px; font-size: 14px; font-weight: 600; color: var(--fg); }
+.tbar .zt.page .ic, .tbar .zt.page .ag { width: 16px; height: 16px; color: var(--fg-2); }
+.page-line { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); max-width: 52%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 12px var(--font-mono); color: var(--fg-3); pointer-events: none; }
+.page-line[hidden] { display: none; }
+.tbar .right .ib { background: transparent; }
+.tbar .right .ib:hover { background: var(--hover); }
+.tbar .right #aiBtn[aria-pressed="true"] { background: transparent; color: var(--fg-2); }
+/* Apps and Memory are named by the header; their own H1 would say it twice. */
+.apz-h h1, .mem-h h1 { display: none; }
+.mem-ht { justify-content: flex-end; }
+#win .apps.zone, #win .memory.zone { padding: 0; }
+#win .apps.zone > .apz, #win .memory.zone > .mem { max-width: none; padding: 22px max(24px, calc((100% - 820px) / 2)) 48px; background: transparent; box-shadow: none; border-radius: 0; }
+
+/* ---------- the page's chat (ai.js) */
+.chatcol { position: relative; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+#win.chat-off .chatcol { visibility: hidden; }
+.gutter-chat { position: absolute; top: 0; bottom: 0; right: calc(var(--chat-on) - 4px); width: 8px; cursor: col-resize; z-index: 4; }
+#win.chat-off .gutter-chat { display: none; }
+.cc-top { height: 44px; flex: none; display: flex; align-items: center; gap: 2px; padding: 0 8px 0 14px; }
+.os-win .cc-top, .os-linux .cc-top { padding-right: 140px; }
+.cc-top .ib { width: 28px; height: 28px; border-radius: 8px; }
+.cc-top .ib .ic { width: 15px; height: 15px; }
+.cc-out { flex: 1; min-height: 0; overflow-y: auto; padding: 0 14px 12px 14px; display: flex; flex-direction: column; gap: 14px; font-size: 14px; line-height: 1.55; color: var(--fg); }
+.cc-q { align-self: flex-end; max-width: 86%; padding: 8px 12px; border-radius: 12px; background: var(--tile-on); white-space: pre-wrap; word-break: break-word; }
+.cc-a > :first-child { margin-top: 0; } .cc-a > :last-child { margin-bottom: 0; }
+.cc-a ul, .cc-a ol { padding-left: 1.2em; margin: 8px 0; }
+.cc-a ul { list-style: disc; } .cc-a ol { list-style: decimal; }
+.cc-a li + li { margin-top: 4px; }
+.cc-a.err { color: var(--red, #e5484d); }
+.cc-done { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--fg-3); margin-bottom: -6px; }
+.cc-done .ic { width: 12px; height: 12px; }
+.cc-done span { color: var(--fg-4); }
+.cc-empty { margin: auto 0 0; color: var(--fg-3); font-size: 13px; }
+.cc-hits { margin: 0 10px 6px; display: grid; gap: 1px; padding: 4px; border-radius: 10px; background: var(--dcard); border: 1px solid var(--dcard-edge); }
+.cc-hits[hidden] { display: none; }
+.cc-hits .pi { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px; border-radius: 7px; font-size: 13px; }
+.cc-hits .pi.on, .cc-hits .pi:hover { background: var(--hover); }
+.cc-hits .st-s { margin-left: auto; color: var(--fg-3); font-size: 11.5px; }
+.cc-box { flex: none; margin: 0 8px 8px; padding: 10px 10px 8px 14px; border-radius: 14px; background: var(--dcard); border: 1px solid var(--dcard-edge); }
+.cc-box textarea { width: 100%; resize: none; border: 0; outline: 0; background: transparent; font: 14px/1.45 var(--font-ui); color: var(--fg); min-height: 42px; max-height: 30vh; }
+.cc-box textarea::placeholder { color: var(--fg-3); }
+.cc-bar { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
+.cc-bar .ib { width: 26px; height: 26px; margin-left: -6px; }
+.cc-model { font-size: 12px; color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cc-send { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; background: var(--tile-on); color: var(--fg); flex: none; }
+.cc-send:hover { background: var(--fg); color: var(--win-bg); }
+.cc-send .ic { width: 15px; height: 15px; }
+.ask-dots { display: inline-flex; gap: 4px; } .ask-dots i { width: 5px; height: 5px; border-radius: 50%; background: var(--fg-3); animation: pulse 1.2s ease-in-out infinite; }
+.ask-dots i:nth-child(2) { animation-delay: 0.15s; } .ask-dots i:nth-child(3) { animation-delay: 0.3s; }
+.ask-tip { padding: 2px 8px; font-size: 11px; color: var(--fg-4); }
+
+/* Narrow: the chat floats over the page instead of taking a column. */
+@media (max-width: 1000px) {
+  #win { --chat-on: 0px; }
+  #win .mainc { margin-right: 8px; }
+  #win:not(.chat-off) > .chatcol { position: absolute; top: 8px; right: 8px; bottom: 8px; width: min(340px, calc(100% - 16px)); z-index: 20; border-radius: 12px; background: var(--frame-bg); border: 1px solid var(--frame-edge); box-shadow: 0 18px 48px rgba(0, 0, 0, 0.35); }
+  .gutter-chat { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { #win { transition: none !important; } }

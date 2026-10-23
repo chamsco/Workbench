@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use backspace_core::agents::{Agent, ComputerStatus, Routine};
 use backspace_core::apps::Installed;
-use backspace_core::chat::{Attachment, Life, Route, Scope, Thread, ThreadInfo};
+use backspace_core::chat::{Activity, Attachment, Life, Route, Scope, Thread, ThreadInfo};
 use backspace_core::delegate::{self, Delegation, Snapshot};
 use backspace_core::memory::Note;
 use backspace_core::cloud::{Account, Overage, Plan, PlanInfo};
@@ -801,6 +801,13 @@ struct NewFile {
 #[tauri::command]
 fn chat_list(f: F) -> Vec<ThreadInfo> {
     f.chats().list()
+}
+
+/// Home's "Last 30 days": every prompt since `since` (epoch ms), the hours
+/// anything was said in, and how many threads were active.
+#[tauri::command]
+fn chat_activity(f: F, since: u64) -> Activity {
+    f.chats().activity(since)
 }
 
 #[tauri::command]
@@ -1995,6 +2002,7 @@ fn main() -> anyhow::Result<()> {
             set_api_key,
             set_default_route,
             chat_list,
+            chat_activity,
             local_models,
             set_subagent_model,
             set_local_tasks,

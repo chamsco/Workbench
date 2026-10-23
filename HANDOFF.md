@@ -1,5 +1,38 @@
 # Handoff: Backspace (ohMyHarness → Workbench), v0
 
+**Session, 23 Oct 2026 — the frame, after Charles's target design.**
+
+- **Three columns on a flat window.** The sidebar is the window itself; the
+  page is a bordered card with its header; the page's chat is a column on the
+  right with its composer at the foot. The full-width window bar (#24) and the
+  footer are gone. `#win` grid: `--side-w | 1fr | --chat-on`.
+- **The sidebar's row** holds the lights' gap (macOS), Back/Forward (a page
+  history in `shell.js`, `walk()`), the sidebar toggle, search and settings.
+  Under it the **app tiles** (`#zones`): Home, Chat, Code, Memory, pinned
+  apps, and + for the Apps catalog. The **machine switcher** and updates sit
+  at the foot (`.side-machine`, `#machines`, `#upd`).
+- **The tree** (ThreadList.tsx) folds per folder (square while open, chevron
+  while shut), hangs threads off a guide line and leads each with a check;
+  Home shows it too.
+- **Home is the landing page** (`dash.js`, `dash.css`, zone `home`, section
+  `#dash`): today's date; Last 30 days (prompts you typed, sessions, active
+  hours, busiest weekday, prompts per day by provider, you vs agents) from the
+  new `chat_activity` command (`Chats::activity`, tested); Plan usage from
+  Accounts; Recent threads; Projects. Weather/sports from the target were left
+  out: no data source.
+- **Ask is the right column** (`ai.js`): one thread, kept in localStorage
+  (`bs.ask`), folded with the sparkle in the page header or ⌘I, width by
+  dragging its edge (`bs.chatcol.w`). It steps aside in Chat, and floats over
+  the page under 1000px. The header's middle line is its last prompt.
+- **Settings** fills the window's card. **Motion** moved there (Appearance);
+  Phone was already there. The painting now shows only inside Code's card.
+
+**Ran:** `cargo test -p backspace-core --lib` (139 passed), `cargo check -p
+backspace-tauri`, `vite build`; `tools/uiharness` at 1486×921 with mocked
+threads/activity/accounts on Home, Chat, Code, Memory, Apps, Settings, light
+theme and 900px: no page errors beyond the stub's existing Agent skills one.
+Before/after pictures: `docs/screenshots/pr-29/frame/`.
+
 **Session, 23 Oct 2026 — UI cleanup on top of the window bar.**
 
 - **One name for the code app: Code.** It was Code on the Apps page and
