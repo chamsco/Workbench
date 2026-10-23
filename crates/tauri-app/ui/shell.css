@@ -469,10 +469,17 @@ button.rp-row:hover { background: var(--hover); }
 .lights { top: 20px; left: 16px; }
 /* The window buttons on Windows and Linux, at the top right corner. */
 #win > .caps { position: absolute; top: 0; right: 0; z-index: 8; display: flex; }
-/* With no chat column they sit inside the page card's header, clear of its
-   rounded corner, rather than on top of its edge. */
-#win:is(:not(.m-home), .chat-off, .settings-on) > .caps { top: 9px; right: 9px; height: 44px; border-top-right-radius: 11px; overflow: hidden; }
-#win:is(:not(.m-home), .chat-off, .settings-on) > .caps button { height: 44px; }
+/* The window's own buttons get a strip of their own: wherever the page card
+   would reach the corner they sit in (top right on Windows and Linux, top
+   left on macOS), the card starts 40px down instead of 8px. */
+#win > .caps { height: 40px; align-items: center; }
+#win > .caps button { height: 40px; }
+:is(.os-win, .os-linux) #win:is(:not(.m-home), .chat-off, .settings-on) > .mainc,
+.os-mac #win:is(.side-closed, .ghost-side, .settings-on) > .mainc { margin-top: 40px; }
+/* The strip drags the window like a title bar would. */
+#win > .capstrip { display: none; position: absolute; z-index: 7; top: 0; left: var(--side-w); right: 0; height: 40px; }
+:is(.os-win, .os-linux) #win:is(:not(.m-home), .chat-off, .settings-on) > .capstrip,
+.os-mac #win:is(.side-closed, .ghost-side, .settings-on) > .capstrip { display: block; }
 
 /* The app tiles: every app as a square, then + for the catalog. */
 .side > .zones { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 12px 14px; background: transparent; border-radius: 0; }
@@ -511,11 +518,9 @@ button.rp-row:hover { background: var(--hover); }
 #win.settings-on { --side-w: 0px; --chat-on: 0px; }
 #win.settings-on .mainc { margin-left: 8px; margin-right: 8px; }
 #win.settings-on .side, #win.settings-on .chatcol, #win.settings-on .gutter-chat { visibility: hidden; }
-.os-mac #win.settings-on .tbar { padding-left: 76px; }
 #win .settings { position: absolute; inset: 45px 0 0 0; border: 0; border-radius: 0; background: var(--frame-bg); -webkit-backdrop-filter: none; backdrop-filter: none; }
 #win .tbar { height: 44px; flex: none; box-sizing: content-box; padding: 0 10px 0 12px; background: transparent; border-bottom: 1px solid var(--frame-edge) !important; }
 #win.side-closed .tbar { padding-left: 12px; }
-.os-mac #win.side-closed .tbar { padding-left: 76px; }
 .tbar .zt.page { display: inline-flex; align-items: center; gap: 9px; font-size: 14px; font-weight: 600; color: var(--fg); }
 .tbar .zt.page .ic, .tbar .zt.page .ag { width: 16px; height: 16px; color: var(--fg-2); }
 .page-line { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); max-width: 52%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 12px var(--font-mono); color: var(--fg-3); pointer-events: none; }
@@ -595,6 +600,4 @@ button.rp-row:hover { background: var(--hover); }
   .gutter-chat { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { #win { transition: none !important; } }
-/* Windows and Linux draw their window buttons at the top right; with no chat
-   column there, the page header keeps clear of them. */
-:is(.os-win, .os-linux) #win:is(:not(.m-home), .chat-off, .settings-on) .tbar { padding-right: 132px; }
+

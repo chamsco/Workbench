@@ -655,3 +655,7 @@ cargo run -p backspace-runner --example ask -- claude "hi"
 ### 2026-10-23 — chat column on Home only
 - The right chat column (Ask) shows only on Home; every other page's card takes the full width, 8px in, rounded. ⌘I only toggles it on Home.
 - With no column, the Windows/Linux window buttons sit inside the card's header instead of over its top edge.
+
+### 2026-10-23 — room for the window buttons
+- Windows/Linux: wherever the page card would reach the top-right corner (every page but Home with its chat open, and Settings), the card starts 40px down and the min/max/close buttons sit in that strip, which drags the window (`.capstrip`).
+- macOS: the traffic lights keep their 64px gap in the sidebar row; with the sidebar closed or in Settings, the card starts 40px down instead of padding its header.
