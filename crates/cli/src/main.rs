@@ -10,6 +10,10 @@
 //!                                        127.0.0.1:7422): every model this
 //!                                        machine reaches on one OpenAI URL;
 //!                                        another machine needs the token
+//!   backspace-cli engine [install [variant]]
+//!                                        Brainpowr Engine: its llama.cpp build,
+//!                                        the downloaded models, what is loaded;
+//!                                        install puts the build for this machine
 //!   backspace-cli scan                   which coding CLIs, local models and
 //!                                        routers this machine has
 //!   backspace-cli cloud [addr]           the development Backspace Cloud
@@ -49,12 +53,14 @@ fn main() -> Result<()> {
         // The tiny local models, and which one small delegated jobs would use.
         [cmd] if cmd == "models" => models(),
         [cmd, rest @ ..] if cmd == "serve-models" && rest.len() <= 1 => serve_models(rest.first().map(String::as_str)),
+        [cmd] if cmd == "engine" => engine_status(),
+        [cmd, sub, rest @ ..] if cmd == "engine" && sub == "install" && rest.len() <= 1 => engine_install(rest.first().map(String::as_str)),
         [cmd, rest @ ..] if cmd == "cloud" && rest.len() <= 1 => cloud(
             rest.first().map_or("127.0.0.1:7430", |s| s.as_str()),
         ),
         [ws, goal @ ..] if !goal.is_empty() => run(PathBuf::from(ws), goal.join(" ")),
         _ => bail!(
-            "usage: backspace-cli init-config | <workspace> <goal> | serve <workspace> [addr] | scan | models | serve-models [addr] | cloud [addr]"
+            "usage: backspace-cli init-config | <workspace> <goal> | serve <workspace> [addr] | scan | models | serve-models [addr] | engine [install [variant]] | cloud [addr]"
         ),
     }
 }
@@ -84,6 +90,45 @@ fn scan() -> Result<()> {
             h.detail.or(h.message).unwrap_or_default()
         );
     }
+    Ok(())
+}
+
+/// Brainpowr Engine at a glance.
+fn engine_status() -> Result<()> {
+    let e = backspace_core::model_engine::engine();
+    let st = e.status();
+    println!("llama.cpp {}: {}", st.tag, st.binary.as_deref().unwrap_or("not installed (backspace-cli engine install)"));
+    println!("builds for this machine: {}", st.variants.iter().map(|a| format!("{} ({})", a.variant, a.accel)).collect::<Vec<_>>().join(", "));
+    for m in e.models() {
+        println!(
+            "    {:<44} {:>9}  {}",
+            m.id,
+            backspace_core::model_server::human_size(m.size),
+            [m.meta.architecture.clone(), m.meta.context_length.map(|c| format!("ctx {c}"))].into_iter().flatten().collect::<Vec<_>>().join(" · ")
+        );
+    }
+    Ok(())
+}
+
+/// Install the best llama.cpp build for this machine, or the one named.
+fn engine_install(variant: Option<&str>) -> Result<()> {
+    use backspace_core::brainpowr_engine::backend;
+    let v = match variant {
+        Some(v) => v.to_string(),
+        None => backend::variants().first().map(|a| a.variant.to_string()).ok_or_else(|| anyhow::anyhow!("no llama.cpp build for this machine; install llama-server yourself"))?,
+    };
+    let home = backspace_core::model_engine::engine().home().to_path_buf();
+    let stop = std::sync::atomic::AtomicBool::new(false);
+    let last = std::sync::Mutex::new(0u64);
+    let i = backend::install(&home, &v, &|done, total| {
+        let pct = done * 100 / total.max(1);
+        let mut l = last.lock().unwrap();
+        if pct >= *l + 10 || done == total {
+            *l = pct;
+            eprintln!("{v}: {pct}%");
+        }
+    }, &stop)?;
+    println!("installed llama.cpp {} {} → {}", i.tag, i.variant, home.join("backends").join(&i.tag).join(&i.variant).join(&i.server).display());
     Ok(())
 }
 

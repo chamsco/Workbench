@@ -6,6 +6,8 @@ license.workspace = true
 
 [dependencies]
 backspace-runner = { path = "../runner" }
+# Loads and runs downloaded models (crates/engine).
+brainpowr-engine = { path = "../engine" }
 # Durable workspaces (the `colony_*` tools); docs/COLONY.md.
 backspace-colony = { path = "../colony" }
 anyhow.workspace = true

@@ -1092,8 +1092,25 @@ var Models = (() => {
           ${f.needs_token ? `<input class="tx mono" data-lantok="${i}" placeholder="Token" style="max-width:12em">` : ""}<button class="btn" data-lanadd="${i}">Add</button></div>`).join("") : `<p class="lead">Nothing new found on this network.</p>`) : ""}
       <div class="line"><span class="lab">Find model servers<small>Backspace servers that are open to the network, and Ollama, LM Studio, Atomic Chat or llama.cpp on the usual ports.</small></span><button class="btn" id="lanScan" ${scanning ? "disabled" : ""}>${scanning ? "Looking…" : "Scan the network"}</button></div>
       <div class="line"><span class="lab">Add by address<small>An OpenAI-compatible URL, e.g. <code>http://192.168.1.20:11434/v1</code>.</small></span><input class="tx mono" id="lanUrl" placeholder="http://…/v1"><input class="tx mono" id="lanTok" placeholder="Token (if any)" style="max-width:10em"><button class="btn" id="lanAddUrl">Add</button></div>`;
-  // Get models (model_engine.rs): pull into Ollama, or download a GGUF and
-  // run it in llama-server. Redraws itself every second while a download
+  // Brainpowr Engine (crates/engine): the llama.cpp build it runs, and how
+  // many models it keeps in memory for how long.
+  const idle = n => n < 60 ? `${n}s` : n < 3600 ? `${Math.round(n / 60)} min` : `${Math.round(n / 3600)} h`;
+  function engineHtml(L) {
+    const E = L.engine, have = E.installed.map(i => i.variant);
+    const busy = v => L.jobs.some(j => j.id === "engine:" + v && j.status === "running");
+    const st = E.settings;
+    return `<h3 class="subh">Brainpowr Engine</h3>
+      <div class="line"><span class="lab">llama.cpp ${esc(E.tag)}<small>${E.binary ? `${E.bundled ? "Runs the build installed here" : "Runs the <code>llama-server</code> on your PATH"} · <span class="mono">${esc(E.binary)}</span>` : "No build yet. Install the first one listed: it is the best fit for this machine."}</small></span></div>
+      ${E.variants.map((v, i) => `<div class="mrow"><span class="mi">${icon(have.includes(v.variant) ? "check" : "cpu")}</span><span class="lab">${esc(v.accel)}${i === 0 ? " (best here)" : ""}<small class="mono">${esc(v.variant)} · ${size(v.size)}</small></span>
+        ${have.includes(v.variant) ? `<button class="btn" data-eun="${esc(v.variant)}">Remove</button>` : `<button class="btn" data-einst="${esc(v.variant)}" ${busy(v.variant) ? "disabled" : ""}>${busy(v.variant) ? "Installing…" : "Install"}</button>`}</div>`).join("")}
+      ${E.variants.length ? "" : `<p class="lead">No prebuilt llama.cpp for this machine. Put <code>llama-server</code> on your PATH and it is used instead.</p>`}
+      <div class="line"><span class="lab">Memory<small>Models in memory at once (the least recently used makes room), minutes idle before one unloads (0 keeps them), context size, and layers on the GPU.</small></span></div>
+      <div class="line" style="flex-wrap:wrap;gap:10px"><span class="lab"></span>
+        ${[["max_loaded", "at once", 1], ["idle_minutes", "idle min", 0], ["ctx", "context", 512], ["gpu_layers", "GPU layers", 0]].map(([k, l, min]) => `<label class="mono" style="font-size:11px">${l} <input class="tx mono" type="number" min="${min}" data-eset="${k}" value="${st[k]}" style="max-width:6em"></label>`).join("")}
+        <button class="btn" id="engSave">Save</button></div>`;
+  }
+  // Get models (model_engine.rs): pull into Ollama, or download a GGUF for
+  // Brainpowr Engine. Redraws itself every second while a download
   // runs, and the whole panel once one finishes, so the new model is listed.
   let getTimer = 0;
   const jobsHtml = (L, pct, running) => L.jobs.map(j => `<div class="mrow"><span class="mi">${icon(j.status === "done" ? "check" : j.status === "failed" ? "warn" : "download")}</span><span class="lab">${esc(j.label)}<small>${j.status === "running" ? `${j.note ? esc(j.note) + " · " : ""}${pct(j) != null ? pct(j) + "% · " : ""}${size(j.done)}${j.total ? " of " + size(j.total) : ""}` : j.status === "failed" ? esc(j.error || "failed") : j.status}</small>${j.status === "running" && pct(j) != null ? `<progress max="100" value="${pct(j)}" style="width:100%"></progress>` : ""}</span>${j.status === "running" ? `<button class="btn" data-mcancel="${esc(j.id)}">Cancel</button>` : ""}</div>`).join("")
@@ -1128,15 +1145,21 @@ var Models = (() => {
       <div class="line"><span class="lab">Any Ollama model<small>A name from ollama.com/library, e.g. <code>mistral:7b</code>.</small></span><input class="tx mono" id="mmPullName" placeholder="name:tag" style="max-width:12em"><button class="btn" id="mmPullGo" ${L.ollama ? "" : "disabled"}>Pull</button></div>
       <div class="line"><span class="lab">Any GGUF on Hugging Face<small>A repository, e.g. <code>unsloth/Qwen3-8B-GGUF</code>; pick a file.</small></span><input class="tx mono" id="mmRepo" placeholder="org/name" style="max-width:14em"><button class="btn" id="mmRepoGo">List files</button></div>
       <div id="mmRepoFiles"></div>
-      ${L.downloaded.map(f => `<div class="prow${f.engine && !f.engine.exited ? "" : " dim"}"><span class="mi">${icon("box")}</span>
+      ${engineHtml(L)}
+      ${L.downloaded.map(f => { const s = f.loaded, m = f.meta || {};
+        const info = [m.architecture, m.size_label, m.context_length ? `trained on ${m.context_length} tokens` : "", m.embedding ? "embeddings" : ""].filter(Boolean).join(" · ");
+        return `<div class="prow${s ? "" : " dim"}"><span class="mi">${icon("box")}</span>
         <div class="pmain"><div class="pname">${esc(f.name)} <span class="pver">${size(f.size)}</span></div>
-          <span class="pst ${f.engine && !f.engine.exited ? "ok" : "off"}">${f.engine ? (f.engine.exited ? "Stopped unexpectedly" : "Serving") : "Not running"}</span>
-          ${f.engine ? `<div class="pmsg mono">${esc(f.engine.base_url)}${f.engine.exited ? " · log: " + esc(f.engine.log) : ""}</div>` : ""}</div>
-        ${f.engine && !f.engine.exited ? `<button class="btn" data-estop="${esc(f.path)}">Stop</button>` : `<button class="btn" data-estart="${esc(f.path)}" ${L.llama_server ? "" : "disabled"}>Start</button>`}
-        <button class="btn" data-mdel="${esc(f.path)}">Delete</button></div>`).join("")}
-      ${L.downloaded.length && !L.llama_server ? `<p class="warnp">${icon("warn")}Downloaded models run in llama.cpp's <code>llama-server</code>, which isn't installed. Install it with <code>${esc(L.llama_install)}</code>, then Start.</p>` : ""}
-      ${L.ollama ? "" : `<p class="lead">Ollama isn't installed, so pulls are off; GGUF downloads still work with llama-server.</p>`}
-      <p class="lead">Files go to <span class="mono">${esc(L.dir)}</span>. Started models come back when the app opens and stop when it quits.</p>`;
+          <span class="pst ${s ? "ok" : "off"}">${s ? `In memory${s.pinned ? ", kept" : ` · idle ${idle(s.idle_secs)}`}` : f.pinned ? "Kept; loads when the app opens" : "Loads on the first request"}</span>
+          ${info ? `<div class="pmsg">${esc(info)}</div>` : ""}
+          ${s ? `<div class="pmsg mono">${esc(s.base_url)} · pid ${s.pid}</div>` : ""}</div>
+        ${s ? `<button class="btn" data-munload="${esc(f.name)}">Unload</button>` : `<button class="btn" data-mload="${esc(f.name)}" ${L.engine.binary ? "" : "disabled"}>Load</button>`}
+        <button class="btn" data-mpin="${esc(f.name)}" aria-pressed="${f.pinned}" title="Keep it in memory, and load it when the app opens">${f.pinned ? "Kept" : "Keep loaded"}</button>
+        <button class="btn" data-mdel="${esc(f.path)}">Delete</button></div>`; }).join("")}
+      ${L.downloaded.length && !L.engine.binary ? `<p class="warnp">${icon("warn")}Downloaded models need a llama.cpp build. Install one above.</p>` : ""}
+      ${L.downloaded.length && L.engine.binary && !L.serving ? `<p class="warnp">${icon("warn")}The model server is off, so nothing can reach these models. Turn it on under Serve.</p>` : ""}
+      ${L.ollama ? "" : `<p class="lead">Ollama isn't installed, so pulls are off; GGUF downloads still run in Brainpowr Engine.</p>`}
+      <p class="lead">Files go to <span class="mono">${esc(L.dir)}</span>. Brainpowr Engine loads a model on the first request for it and unloads it when idle; kept models load when the app opens. All stop when the app quits.</p>`;
     $$("[data-mpull]", g).forEach(b => (b.onclick = () => act(() => invoke("model_pull", { name: b.dataset.mpull }))));
     $$("[data-mdl]", g).forEach(b => (b.onclick = () => act(() => invoke("model_download", { repo: b.dataset.mdl, file: "", quant: b.dataset.mq }))));
     bindJobs();
@@ -1150,8 +1173,14 @@ var Models = (() => {
         $$("[data-mfile]", out).forEach(b => (b.onclick = () => act(() => invoke("model_download", { repo, file: b.dataset.mfile, quant: "" }))));
       } catch (e) { out.innerHTML = `<div class="err">${esc(String(e))}</div>`; }
     };
-    $$("[data-estart]", g).forEach(b => (b.onclick = () => act(() => invoke("engine_start", { path: b.dataset.estart }), "Starting; a model takes a few seconds to load")));
-    $$("[data-estop]", g).forEach(b => (b.onclick = () => act(() => invoke("engine_stop", { path: b.dataset.estop }))));
+    $$("[data-mload]", g).forEach(b => (b.onclick = () => { b.disabled = true; b.textContent = "Loading…"; act(() => invoke("model_load", { id: b.dataset.mload }), "Loaded"); }));
+    $$("[data-munload]", g).forEach(b => (b.onclick = () => act(() => invoke("model_unload", { id: b.dataset.munload }))));
+    $$("[data-mpin]", g).forEach(b => (b.onclick = () => act(() => invoke("model_pin", { id: b.dataset.mpin, pinned: b.getAttribute("aria-pressed") !== "true" }))));
+    $$("[data-einst]", g).forEach(b => (b.onclick = () => act(() => invoke("engine_install", { variant: b.dataset.einst }))));
+    $$("[data-eun]", g).forEach(b => (b.onclick = () => act(() => invoke("engine_uninstall", { variant: b.dataset.eun }), "Removed")));
+    const es = $("#engSave", g);
+    if (es) es.onclick = () => act(() => invoke("engine_settings", { settings: { ...L.engine.settings,
+      ...Object.fromEntries($$("[data-eset]", g).map(i => [i.dataset.eset, Math.max(+i.min || 0, parseInt(i.value, 10) || 0)])) } }), "Saved");
     $$("[data-mdel]", g).forEach(b => (b.onclick = () => act(() => invoke("model_delete", { path: b.dataset.mdel }), "Deleted")));
     // A pull or download that just finished changes the runtimes above.
     const was = g.dataset.running === "1";

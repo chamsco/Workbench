@@ -106,9 +106,12 @@ pub struct Prefs {
     /// Model servers on the local network the user added (Settings → Local
     /// models → On the network), probed alongside this machine's own.
     pub lan_models: Vec<LanServer>,
-    /// Downloaded models the user left running in an engine
-    /// (model_engine.rs), started again at launch.
-    pub engines: Vec<String>,
+    /// Downloaded models kept in memory and loaded at launch (model_engine.rs).
+    pub pinned_models: Vec<String>,
+    /// Brainpowr Engine: context, idle unload, models at once, GPU layers.
+    pub engine: brainpowr_engine::Settings,
+    /// Which installed llama.cpp build to run; None: the best for this machine.
+    pub engine_variant: Option<String>,
 }
 
 impl Default for Prefs {
@@ -155,7 +158,9 @@ impl Default for Prefs {
             local_tasks: vec![],
             model_serve: ModelServeCfg::default(),
             lan_models: vec![],
-            engines: vec![],
+            pinned_models: vec![],
+            engine: Default::default(),
+            engine_variant: None,
         }
     }
 }

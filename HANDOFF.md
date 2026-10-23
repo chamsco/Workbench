@@ -1,5 +1,32 @@
 # Handoff: Backspace (ohMyHarness → Workbench), v0
 
+**Session, 23 Oct 2026 — Brainpowr Engine.**
+
+- **`crates/engine`** (package `brainpowr-engine`) is a new crate that knows
+  nothing about Backspace. It is modeled on atomic-chat-core (MIT):
+  - `backend.rs` installs a pinned llama.cpp `b11463` build. Asset names and
+    sha256 are copied from Atomic's upstream-releases-baseline.json. It
+    downloads, verifies, unpacks (zip-slip safe) and records the build in
+    `installed.json`.
+  - `gguf.rs` reads the header metadata.
+  - `session.rs` runs one `llama-server` per model. It does lazy load, LRU
+    eviction, pinning, the idle reaper and error classification.
+- `model_engine.rs` lost its start/stop engines code. It now exposes
+  `engine()`, `install_backend` (a job `engine:<variant>`), `restore` (loads
+  pinned models) and `stop_all` (on app exit). It lists the runtime
+  `brainpowr`, and `model_gateway::handle_llm` calls `engine().ensure(id)`
+  before it forwards. Prefs: `engine` (Settings), `engine_variant`,
+  `pinned_models`. The old `engines` pref was dropped.
+- UI: Settings → Local models gets a Brainpowr Engine section (builds,
+  memory settings) plus Load/Unload/Keep loaded per downloaded model. CLI:
+  `backspace-cli engine [install [variant]]`.
+- **Ran:** 11 engine tests, including a fake python `llama-server` for LRU,
+  pinning and OOM. A gateway end to end with a fake server: the cold request
+  loaded in 0.6s, the warm one took 19ms. UI checked in the uiharness with
+  mocks. **Not run:** a real llama.cpp download (GitHub returns 403 here;
+  a hash mismatch fails safely), real inference, macOS/Windows.
+  `spec_gate` failed once and passed on rerun; it is unrelated and flaky.
+
 **Session, 22 Oct 2026 — getting models and starting engines.**
 
 - **`crates/core/src/model_engine.rs`** is the other half of Atomic Chat's

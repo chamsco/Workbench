@@ -214,7 +214,8 @@ pub fn local_subagent(cfg: &mut Config, prefs: &crate::prefs::Prefs) {
             "llamacpp" => "http://127.0.0.1:8080/v1".to_string(),
             "mlx" => "http://127.0.0.1:8081/v1".to_string(),
             // The model server: a model on the network or a connected machine.
-            "backspace" => prefs.model_serve.local_url(),
+            // The model server, and Brainpowr Engine's downloaded models behind it.
+            "backspace" | "brainpowr" => prefs.model_serve.local_url(),
             other => match prefs.routers.iter().find(|r| r.id == other || r.name.eq_ignore_ascii_case(other)) {
                 Some(r) => r.base_url.trim_end_matches('/').to_string(),
                 None => return,

@@ -119,11 +119,26 @@ than Ollama. The small-jobs picker offers other machines' tiny models as
 `backspace:<host>/<model>`. Headless: `backspace-cli serve-models 0.0.0.0:7422`
 (token from `BACKSPACE_TOKEN`, else prefs).
 
-**Getting and running models** (model_engine.rs). Settings → Local models →
-Get models pulls into Ollama, or downloads a GGUF from Hugging Face into
-`<data>/models/` and runs it with `llama-server` on a port from 8090. Running
-engines appear with this machine's runtimes, so the model server serves them
-by their file name (`Qwen3-1.7B-Q4_K_M`). They restart at launch and stop at
-quit. The engine binary itself is not downloaded: install llama.cpp
-(`brew install llama.cpp`, `winget install llama.cpp`). Plain HTTP:
+**Getting and running models** (model_engine.rs, crates/engine). Settings →
+Local models → Get models pulls into Ollama, or downloads a GGUF from Hugging
+Face into `<data>/models/`. Downloaded GGUFs run in **Brainpowr Engine**
+(`crates/engine`, modeled on atomic-chat-core):
+
+- It installs one pinned llama.cpp build (`b11463`) for this machine:
+  Metal on Apple Silicon, Vulkan or CPU on Windows/Linux, CUDA only on Linux
+  arm64. The build comes from ggml-org's GitHub release, is sha256-checked
+  against hashes pinned in `backend.rs`, and is unpacked into
+  `<data>/brainpowr/backends/<tag>/<variant>/`. A `llama-server` on PATH is
+  used when nothing is installed. CLI: `backspace-cli engine install`.
+- The model server lists every GGUF by file name (`Qwen3-1.7B-Q4_K_M`) under
+  runtime `brainpowr`. The first request for one starts its own
+  `llama-server` (a port from 8090, `/health` polled, up to 180s), then
+  forwards it. Later requests go straight through.
+- Memory: `max_loaded` models at once (default 1; the least recently used is
+  unloaded to make room), unloaded after `idle_minutes` (default 15).
+  "Keep loaded" pins a model, so it is exempt and loads at launch. Load
+  failures are reported with Atomic's codes (out of memory, unsupported
+  architecture, bad file).
+
+Plain HTTP:
 over anything but a trusted LAN, use Tailscale/WireGuard or an SSH tunnel.

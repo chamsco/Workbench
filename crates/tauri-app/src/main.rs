@@ -936,20 +936,25 @@ fn lan_remove(f: F, base_url: String) {
 // ------------------------------------------------- getting models, engines
 
 /// Settings → Local models → Get models: the suggestions, the files on this
-/// machine and their engines, the downloads in flight, and whether
-/// llama-server and Ollama are there to use.
+/// machine and what is loaded, the downloads in flight, Brainpowr Engine's
+/// state, and whether Ollama is there to pull into.
 #[tauri::command]
-fn model_library() -> serde_json::Value {
-    use backspace_core::model_engine as me;
-    serde_json::json!({
-        "suggested": me::SUGGESTED,
-        "downloaded": me::downloaded(),
-        "jobs": me::jobs(),
-        "llama_server": me::llama_server().map(|p| p.display().to_string()),
-        "llama_install": me::llama_install_hint(),
-        "ollama": backspace_core::harnesses::which("ollama").is_some(),
-        "dir": me::models_dir().display().to_string(),
+async fn model_library(f: F<'_>) -> Res<serde_json::Value> {
+    blocking(f, |f| {
+        use backspace_core::model_engine as me;
+        let prefs = f.prefs();
+        Ok(serde_json::json!({
+            "suggested": me::SUGGESTED,
+            "downloaded": me::downloaded(&prefs),
+            "jobs": me::jobs(),
+            "engine": me::engine().status(),
+            "variant": prefs.engine_variant,
+            "serving": prefs.model_serve.enabled,
+            "ollama": backspace_core::harnesses::which("ollama").is_some(),
+            "dir": me::models_dir().display().to_string(),
+        }))
     })
+    .await
 }
 
 #[tauri::command]
@@ -981,31 +986,65 @@ fn model_clear_jobs() {
     backspace_core::model_engine::clear_jobs();
 }
 
-/// Serve a downloaded file, and start it again on the next launch.
+/// Load a downloaded model now instead of on its first request.
 #[tauri::command]
-fn engine_start(f: F, path: String) -> Res<backspace_core::model_engine::EngineInfo> {
-    let info = backspace_core::model_engine::start(&path).map_err(err)?;
-    f.update_prefs(|p| {
-        if !p.engines.contains(&info.path) {
-            p.engines.push(info.path.clone());
-        }
-    });
-    Ok(info)
+async fn model_load(f: F<'_>, id: String) -> Res<backspace_core::brainpowr_engine::SessionInfo> {
+    blocking(f, move |_| backspace_core::model_engine::engine().ensure(&id)).await
 }
 
 #[tauri::command]
-fn engine_stop(f: F, path: String) {
-    let path = backspace_core::model_engine::canonical(&path);
-    backspace_core::model_engine::stop(&path);
-    f.update_prefs(|p| p.engines.retain(|e| e != &path));
+fn model_unload(id: String) {
+    backspace_core::model_engine::engine().unload(&id);
+}
+
+/// Keep a model in memory (and load it when the app opens), or stop keeping it.
+#[tauri::command]
+fn model_pin(f: F, id: String, pinned: bool) {
+    f.update_prefs(|p| {
+        p.pinned_models.retain(|m| m != &id);
+        if pinned {
+            p.pinned_models.push(id.clone());
+        }
+    });
+    backspace_core::model_engine::apply(&f.prefs());
 }
 
 #[tauri::command]
 fn model_delete(f: F, path: String) -> Res<()> {
-    let path = backspace_core::model_engine::canonical(&path);
     backspace_core::model_engine::delete(&path).map_err(err)?;
-    f.update_prefs(|p| p.engines.retain(|e| e != &path));
+    let known: Vec<String> = backspace_core::model_engine::engine().models().into_iter().map(|m| m.id).collect();
+    f.update_prefs(|p| p.pinned_models.retain(|m| known.contains(m)));
     Ok(())
+}
+
+/// Install a llama.cpp build for Brainpowr Engine; a job with progress.
+#[tauri::command]
+fn engine_install(f: F, variant: String) -> Res<String> {
+    let id = backspace_core::model_engine::install_backend(&variant).map_err(err)?;
+    f.update_prefs(|p| p.engine_variant = Some(variant.clone()));
+    backspace_core::model_engine::apply(&f.prefs());
+    Ok(id)
+}
+
+#[tauri::command]
+fn engine_uninstall(f: F, variant: String) -> Res<()> {
+    let e = backspace_core::model_engine::engine();
+    e.unload_all();
+    backspace_core::brainpowr_engine::backend::uninstall(e.home(), &variant).map_err(err)?;
+    f.update_prefs(|p| {
+        if p.engine_variant.as_deref() == Some(variant.as_str()) {
+            p.engine_variant = None;
+        }
+    });
+    backspace_core::model_engine::apply(&f.prefs());
+    Ok(())
+}
+
+/// Context, idle unload, models at once, GPU layers.
+#[tauri::command]
+fn engine_settings(f: F, settings: backspace_core::brainpowr_engine::Settings) {
+    f.update_prefs(|p| p.engine = settings);
+    backspace_core::model_engine::apply(&f.prefs());
 }
 
 #[tauri::command]
@@ -2195,9 +2234,13 @@ fn main() -> anyhow::Result<()> {
             model_repo_files,
             model_cancel,
             model_clear_jobs,
-            engine_start,
-            engine_stop,
+            model_load,
+            model_unload,
+            model_pin,
             model_delete,
+            engine_install,
+            engine_uninstall,
+            engine_settings,
             ollama_start,
             model_serve_status,
             set_model_serve,

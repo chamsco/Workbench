@@ -289,6 +289,23 @@ pub(crate) async fn handle_llm(
         )
         .await;
     };
+    // A downloaded file: Brainpowr Engine loads it now if it is not in memory,
+    // and the request goes to the session it answers on.
+    let mut s = s;
+    if s.runtime == crate::model_engine::RUNTIME_ID {
+        let id = s.model.clone();
+        let loaded = tokio::task::spawn_blocking(move || crate::model_engine::engine().ensure(&id)).await?;
+        match loaded {
+            Ok(session) => s.base = session.base_url,
+            Err(e) => {
+                return respond(stream, 503, &error(&format!("{} could not be loaded: {e:#}", s.model), "model_load_failed")).await;
+            }
+        }
+        let res = forward(stream, &s, rest, body).await;
+        // The idle timer counts from the end of an answer, not its start.
+        crate::model_engine::engine().touch(&s.model);
+        return res;
+    }
     forward(stream, &s, rest, body).await
 }
 

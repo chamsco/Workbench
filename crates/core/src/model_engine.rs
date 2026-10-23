@@ -7,12 +7,14 @@
 //! - **Hugging Face GGUF**: one file into `<data>/models/<org>__<repo>/`,
 //!   resumed from a `.part` on the next try, then started as an engine.
 //!
-//! An engine is `llama-server -m <file>` on a free loopback port, owned by
-//! this process: [`detect`](crate::model_server::detect) lists it with this
-//! machine's runtimes, so the model server, Chat and the small jobs see it the
-//! moment it is up. Engines the user started come back on the next launch
-//! (`prefs.engines`) and stop when the app quits ([`stop_all`]). `ollama
-//! serve` can be started the same way when Ollama is installed but stopped.
+//! Downloaded files run in Brainpowr Engine (crates/engine): a pinned
+//! llama.cpp build it installs itself, a model loaded on the first request
+//! for it and unloaded when idle. [`runtimes`] lists every downloaded file
+//! under the model server's URL, so the model server, Chat and the small jobs
+//! see a model the moment it is on disk; the gateway calls
+//! [`Engine::ensure`] before it forwards. Pinned models load at launch
+//! (`prefs.pinned_models`); everything unloads when the app quits
+//! ([`stop_all`]). `ollama serve` can be started when Ollama is stopped.
 //!
 //! Every long call here (a download, a pull) runs on its own thread and
 //! reports through [`jobs`]; nothing blocks for longer than a request.
@@ -20,21 +22,19 @@
 use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use anyhow::{anyhow, bail, Result};
+use brainpowr_engine::Engine;
 use serde::Serialize;
 use serde_json::Value;
 
 use crate::harnesses::which;
 use crate::model_server::{is_tiny, LocalKind, LocalModel, LocalRuntime};
 use crate::prefs::Prefs;
-
-/// Engines take ports from here up; Backspace's own sit at 742x.
-const FIRST_PORT: u16 = 8090;
 
 // ---------------------------------------------------------------- suggestions
 
@@ -467,54 +467,42 @@ async fn fetch(url: &str, dest: &Path, id: &str, cancel: &AtomicBool) -> Result<
     Ok(())
 }
 
-/// A GGUF file on this machine.
+/// A GGUF file on this machine, as the engine sees it.
 #[derive(Serialize, Clone, Debug, PartialEq)]
 pub struct Downloaded {
     pub path: String,
+    /// The id it is served as: the file name without `.gguf`.
     pub name: String,
     pub size: u64,
-    /// The engine serving it, when one is.
-    pub engine: Option<EngineInfo>,
+    pub meta: brainpowr_engine::gguf::Meta,
+    /// Its session, while it is in memory.
+    pub loaded: Option<brainpowr_engine::SessionInfo>,
+    /// Kept in memory, and loaded when the app opens.
+    pub pinned: bool,
 }
 
-/// Every finished GGUF under [`models_dir`].
-pub fn downloaded() -> Vec<Downloaded> {
-    let engines = engines();
-    let mut out = Vec::new();
-    let Ok(dirs) = std::fs::read_dir(models_dir()) else {
-        return out;
-    };
-    for d in dirs.flatten().filter(|d| d.path().is_dir()) {
-        let Ok(files) = std::fs::read_dir(d.path()) else {
-            continue;
-        };
-        for f in files.flatten() {
-            let p = f.path();
-            if p.extension().and_then(|e| e.to_str()) != Some("gguf") {
-                continue;
-            }
-            // The same spelling an engine records, so the two match.
-            let path = dunce::canonicalize(&p)
-                .unwrap_or(p.clone())
-                .display()
-                .to_string();
-            out.push(Downloaded {
-                name: alias(&p),
-                size: f.metadata().map(|m| m.len()).unwrap_or(0),
-                engine: engines.iter().find(|e| e.path == path).cloned(),
-                path,
-            });
-        }
-    }
-    out.sort_by(|a, b| a.name.cmp(&b.name));
-    out
+/// Every downloaded GGUF, with what is loaded.
+pub fn downloaded(prefs: &Prefs) -> Vec<Downloaded> {
+    let e = engine();
+    let sessions = e.sessions();
+    e.models()
+        .into_iter()
+        .map(|m| Downloaded {
+            loaded: sessions.iter().find(|s| s.model == m.id).cloned(),
+            pinned: prefs.pinned_models.contains(&m.id),
+            name: m.id,
+            path: m.path,
+            size: m.size,
+            meta: m.meta,
+        })
+        .collect()
 }
 
-/// Delete a downloaded file, stopping its engine first. Only files under
+/// Delete a downloaded file, unloading it first. Only files under
 /// [`models_dir`] can go.
 pub fn delete(path: &str) -> Result<()> {
     let p = inside_models(path)?;
-    stop(path);
+    engine().unload(&alias(&p));
     std::fs::remove_file(&p)?;
     if let Some(dir) = p.parent() {
         let _ = std::fs::remove_dir(dir);
@@ -531,28 +519,6 @@ fn inside_models(path: &str) -> Result<PathBuf> {
     Ok(p)
 }
 
-// ---------------------------------------------------------------- engines
-
-/// A running `llama-server`, as the UI shows it.
-#[derive(Serialize, Clone, Debug, PartialEq)]
-pub struct EngineInfo {
-    /// The model id it answers to: the file name without `.gguf`.
-    pub model: String,
-    pub path: String,
-    pub port: u16,
-    pub base_url: String,
-    /// It exited (the log says why).
-    pub exited: bool,
-    pub log: String,
-}
-
-struct Engine {
-    info: EngineInfo,
-    child: Child,
-}
-
-static ENGINES: Mutex<Vec<Engine>> = Mutex::new(Vec::new());
-
 /// The id a file is served as: `Qwen3-1.7B-Q4_K_M` for `Qwen3-1.7B-Q4_K_M.gguf`.
 fn alias(path: &Path) -> String {
     path.file_stem()
@@ -561,169 +527,133 @@ fn alias(path: &Path) -> String {
         .to_string()
 }
 
-/// The engines this process started, with the exited ones marked.
-pub fn engines() -> Vec<EngineInfo> {
-    let mut v = ENGINES.lock().unwrap();
-    v.iter_mut()
-        .map(|e| {
-            e.info.exited = !matches!(e.child.try_wait(), Ok(None));
-            e.info.clone()
-        })
-        .collect()
+// ---------------------------------------------------------------- the engine
+
+/// The runtime id downloaded models are served under.
+pub const RUNTIME_ID: &str = "brainpowr";
+
+static ENGINE: OnceLock<Arc<Engine>> = OnceLock::new();
+
+/// Brainpowr Engine (crates/engine) for this app: builds and logs under
+/// `<data>/brainpowr`, models from [`models_dir`], settings from prefs.
+pub fn engine() -> &'static Arc<Engine> {
+    ENGINE.get_or_init(|| {
+        let prefs = Prefs::load();
+        let e = Engine::new(Prefs::data_dir().join("brainpowr"), models_dir(), prefs.engine.clone());
+        e.prefer(prefs.engine_variant.clone());
+        e.set_pinned(prefs.pinned_models.clone());
+        e
+    })
 }
 
-/// `llama-server` on this machine, if any.
-pub fn llama_server() -> Option<PathBuf> {
-    which("llama-server")
+/// Settings changed: the engine follows at once.
+pub fn apply(prefs: &Prefs) {
+    let e = engine();
+    e.set_settings(prefs.engine.clone());
+    e.prefer(prefs.engine_variant.clone());
+    e.set_pinned(prefs.pinned_models.clone());
 }
 
-/// How to get `llama-server`, for the place the user is on.
-pub fn llama_install_hint() -> &'static str {
-    if cfg!(target_os = "macos") {
-        "brew install llama.cpp"
-    } else if cfg!(windows) {
-        "winget install llama.cpp"
-    } else {
-        "https://github.com/ggml-org/llama.cpp/releases"
-    }
-}
-
-/// Serve a downloaded file with `llama-server` on the next free loopback
-/// port. Already running: returns that one.
-pub fn start(path: &str) -> Result<EngineInfo> {
-    let p = inside_models(path)?;
-    let path = p.display().to_string();
-    {
-        let mut v = ENGINES.lock().unwrap();
-        // A crashed one is replaced, not reported as running.
-        v.retain_mut(|e| matches!(e.child.try_wait(), Ok(None)) || e.info.path != path);
-        if let Some(e) = v.iter().find(|e| e.info.path == path) {
-            return Ok(e.info.clone());
-        }
-    }
-    let bin = llama_server()
-        .ok_or_else(|| anyhow!("llama-server is not installed: {}", llama_install_hint()))?;
-    let port = free_port()?;
-    let model = alias(&p);
-    let log = models_dir().join("logs").join(format!("{model}.log"));
-    std::fs::create_dir_all(log.parent().unwrap_or(&models_dir()))?;
-    let out = std::fs::File::create(&log)?;
-    let child = Command::new(bin)
-        .args([
-            "-m",
-            &path,
-            "--host",
-            "127.0.0.1",
-            "--port",
-            &port.to_string(),
-            "--alias",
-            &model,
-        ])
-        .stdin(Stdio::null())
-        .stdout(out.try_clone()?)
-        .stderr(out)
-        .spawn()
-        .map_err(|e| anyhow!("starting llama-server: {e}"))?;
-    let info = EngineInfo {
-        model,
-        path,
-        port,
-        base_url: format!("http://127.0.0.1:{port}/v1"),
-        exited: false,
-        log: log.display().to_string(),
-    };
-    ENGINES.lock().unwrap().push(Engine {
-        info: info.clone(),
-        child,
+/// Install a llama.cpp build in the background, as a job like a download.
+pub fn install_backend(variant: &str) -> Result<String> {
+    let id = format!("engine:{variant}");
+    let cancel = begin(&id, &format!("llama.cpp {} ({variant})", brainpowr_engine::backend::PINNED_TAG), "engine")?;
+    let (jid, variant) = (id.clone(), variant.to_string());
+    std::thread::spawn(move || {
+        let home = engine().home().to_path_buf();
+        let progress = |done: u64, total: u64| {
+            update(&jid, |j| {
+                j.done = done;
+                j.total = Some(total);
+            })
+        };
+        let res = brainpowr_engine::backend::install(&home, &variant, &progress, &cancel)
+            .map(|i| Some(home.join("backends").join(&i.tag).join(&i.variant).join(&i.server).display().to_string()));
+        finish(&jid, res, &cancel);
     });
-    Ok(info)
+    Ok(id)
 }
 
-/// A path as engines and prefs record it: canonical when the file exists.
-pub fn canonical(path: &str) -> String {
-    dunce::canonicalize(path)
-        .map(|p| p.display().to_string())
-        .unwrap_or_else(|_| path.to_string())
-}
-
-/// Stop the engine serving a file. Nothing running: nothing to do.
-pub fn stop(path: &str) {
-    let canon = canonical(path);
-    let mut v = ENGINES.lock().unwrap();
-    v.retain_mut(|e| {
-        if e.info.path != canon {
-            return true;
+/// The pinned models, loaded at launch. Off the calling thread: a model takes
+/// seconds to load. Returns nothing; a failure shows on the next status.
+pub fn restore(prefs: &Prefs) {
+    let ids = prefs.pinned_models.clone();
+    if ids.is_empty() {
+        return;
+    }
+    std::thread::spawn(move || {
+        for id in ids {
+            let _ = engine().ensure(&id);
         }
-        let _ = e.child.kill();
-        let _ = e.child.wait();
-        false
     });
 }
 
-/// Every engine this process started; called as the app quits, so a closed
-/// app does not leave a model holding the GPU.
+/// Every model in memory, unloaded; called as the app quits, so a closed app
+/// does not leave a model holding the GPU.
 pub fn stop_all() {
-    for mut e in ENGINES.lock().unwrap().drain(..) {
-        let _ = e.child.kill();
-        let _ = e.child.wait();
+    if let Some(e) = ENGINE.get() {
+        e.unload_all();
     }
 }
 
-/// The engines the user left running last time, started again. A file that
-/// is gone is dropped from the list; other failures are left for Settings.
-pub fn restore(prefs: &Prefs) -> Vec<String> {
-    prefs
-        .engines
-        .iter()
-        .filter(|p| Path::new(p).exists() && start(p).is_err())
-        .cloned()
-        .collect()
-}
-
-fn free_port() -> Result<u16> {
-    let taken: Vec<u16> = ENGINES
-        .lock()
-        .unwrap()
-        .iter()
-        .map(|e| e.info.port)
-        .collect();
-    (FIRST_PORT..FIRST_PORT + 100)
-        .filter(|p| !taken.contains(p))
-        .find(|p| std::net::TcpListener::bind(("127.0.0.1", *p)).is_ok())
-        .ok_or_else(|| anyhow!("no free port between {FIRST_PORT} and {}", FIRST_PORT + 100))
-}
-
-/// The running engines as runtimes, for [`crate::model_server::detect`]. Not
-/// probed: the engine answers to the alias it was started with, and one still
-/// loading the file says so with a 503 the client sees.
-pub fn runtimes() -> Vec<LocalRuntime> {
-    engines()
-        .into_iter()
-        .filter(|e| !e.exited)
-        .map(|e| {
-            let size = std::fs::metadata(&e.path).ok().map(|m| m.len());
-            LocalRuntime {
-                id: format!("engine:{}", e.model),
-                name: format!("{} (llama-server)", e.model),
-                kind: LocalKind::LlamaCpp,
-                base_url: e.base_url.clone(),
-                installed: true,
-                running: true,
-                models: vec![LocalModel {
-                    tiny: is_tiny(&e.model, None, size),
-                    id: e.model.clone(),
-                    runtime: format!("engine:{}", e.model),
-                    size_bytes: size,
+/// The downloaded models as one runtime for [`crate::model_server::detect`].
+/// Its URL is the model server's: that is where a request makes the engine
+/// load the model. Running whenever a llama.cpp build is there to load with.
+pub fn runtimes(prefs: &Prefs) -> Vec<LocalRuntime> {
+    let e = engine();
+    let models = e.models();
+    if models.is_empty() {
+        return vec![];
+    }
+    let bin = e.binary();
+    vec![LocalRuntime {
+        id: RUNTIME_ID.into(),
+        name: "Brainpowr Engine".into(),
+        kind: LocalKind::LlamaCpp,
+        base_url: prefs.model_serve.local_url(),
+        installed: bin.is_some(),
+        running: bin.is_some() && prefs.model_serve.enabled,
+        models: models
+            .into_iter()
+            .map(|m| {
+                let params = m.meta.size_label.as_deref().and_then(params_from_label);
+                LocalModel {
+                    tiny: is_tiny(&m.id, params, Some(m.size)),
+                    params_b: params,
+                    size_bytes: Some(m.size),
+                    context: m.meta.context_length,
+                    family: m.meta.architecture.clone(),
+                    runtime: RUNTIME_ID.into(),
+                    id: m.id,
                     ..Default::default()
-                }],
-                version: None,
-                message: None,
-                install: "",
-                host: None,
-                key: String::new(),
-            }
-        })
-        .collect()
+                }
+            })
+            .collect(),
+        version: Some(brainpowr_engine::backend::PINNED_TAG.into()),
+        message: if bin.is_none() {
+            Some("No llama.cpp build yet: install one under Get models.".into())
+        } else if !prefs.model_serve.enabled {
+            Some("Turn the model server on to use these.".into())
+        } else {
+            None
+        },
+        install: "",
+        host: None,
+        key: String::new(),
+    }]
+}
+
+/// `1.7B` → 1.7; `8x7B` and other shapes say nothing simple.
+fn params_from_label(label: &str) -> Option<f32> {
+    let l = label.trim().to_ascii_uppercase();
+    let (n, mul) = if let Some(n) = l.strip_suffix('B') {
+        (n, 1.0)
+    } else if let Some(n) = l.strip_suffix('M') {
+        (n, 0.001)
+    } else {
+        return None;
+    };
+    n.parse::<f32>().ok().filter(|x| x.is_finite() && *x > 0.0).map(|x| x * mul)
 }
 
 #[cfg(test)]
@@ -788,6 +718,13 @@ mod tests {
         assert!(p.ends_with("unsloth__Qwen3-1.7B-GGUF/Qwen3-1.7B-Q4_K_M.gguf"));
         assert!(local_path("a/b", "notes.txt").is_err());
         assert_eq!(alias(&p), "Qwen3-1.7B-Q4_K_M");
+    }
+
+    #[test]
+    fn size_labels_read_as_parameters() {
+        assert_eq!(params_from_label("1.7B"), Some(1.7));
+        assert_eq!(params_from_label("360M"), Some(0.36));
+        assert_eq!(params_from_label("8x7B"), None);
     }
 
     #[test]
