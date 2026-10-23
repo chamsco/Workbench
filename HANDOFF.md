@@ -651,3 +651,7 @@ cargo run -p backspace-runner --example ask -- claude "hi"
 - Settings → Appearance → Window: Frosted (default; the painting runs behind the whole window at full strength and the sidebar, page and chat are blurred glass on it), See-through (the window is transparent and the desktop shows through; macOS vibrancy, Windows Mica or blur, Linux no blur so the panes are thicker), Solid (the opaque frame, painting only in Code's card).
 - Stored as `appearance.window` ("" | frosted | clear | solid), read off `:root[data-window]` in shell.css. Replaces `appearance.translucent`, whose serde default of false made every install solid.
 - tauri.windows/linux.conf.json now set `transparent: true` (macOS already did). The page paints itself opaque unless See-through is on. Not run on a real Windows/Linux/macOS window yet.
+
+### 2026-10-23 — chat column on Home only
+- The right chat column (Ask) shows only on Home; every other page's card takes the full width, 8px in, rounded. ⌘I only toggles it on Home.
+- With no column, the Windows/Linux window buttons sit inside the card's header instead of over its top edge.

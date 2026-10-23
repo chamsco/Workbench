@@ -470,7 +470,7 @@ addEventListener("keydown", e => {
   if (!$("#onboard").hidden) return;
   if (e.key === "n") { e.preventDefault(); setMode("chat"); Chat.newChat(); return; }
   if (e.key === "k") { e.preventDefault(); Shell.search(); return; }
-  if (e.key === "i") { e.preventDefault(); Ask.toggle(); return; }
+  if (e.key === "i" && S.mode === "home") { e.preventDefault(); Ask.toggle(); return; }
   if (e.key === "o") { e.preventDefault(); pickProject(); return; }
   if (e.key === "j") { e.preventDefault(); setMode(S.mode === "chat" ? "code" : "chat"); return; }
   if (e.key === "/" ) { e.preventDefault(); if (window.Shell) Shell.toggleSplit(); return; }

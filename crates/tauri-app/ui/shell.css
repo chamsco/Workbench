@@ -434,11 +434,11 @@ button.rp-row:hover { background: var(--hover); }
 #win.whirl-on:is(.m-chat, .m-code) #searchBtn { display: none; }
 .side-machine { margin-top: auto; }
 #win { --chat-w: 340px; --chat-on: var(--chat-w); grid-template-columns: var(--side-w) minmax(0, 1fr) var(--chat-on); grid-template-rows: minmax(0, 1fr); background: var(--win-bg); }
-#win.chat-off, #win.m-chat, #win.m-code { --chat-on: 0px; }
-/* Chat is a chat already, and Code has its own sessions: the column steps
-   aside while either is open. */
-#win:is(.m-chat, .m-code) > .chatcol, #win:is(.m-chat, .m-code) .gutter-chat, #win:is(.m-chat, .m-code) #aiBtn { display: none; }
-#win:is(.m-chat, .m-code) .mainc { margin-right: 8px; }
+#win.chat-off, #win:not(.m-home) { --chat-on: 0px; }
+/* The column is Home's: every other page takes the window's whole width,
+   still 8px in from its edges with its rounded corners. */
+#win:not(.m-home) > .chatcol, #win:not(.m-home) .gutter-chat, #win:not(.m-home) #aiBtn { display: none; }
+#win:not(.m-home) .mainc { margin-right: 8px; }
 #win > .side, #win > .mainc, #win > .chatcol { grid-row: 1; }
 #win > .side { grid-column: 1; }
 #win > .mainc { grid-column: 2; }
@@ -469,6 +469,10 @@ button.rp-row:hover { background: var(--hover); }
 .lights { top: 20px; left: 16px; }
 /* The window buttons on Windows and Linux, at the top right corner. */
 #win > .caps { position: absolute; top: 0; right: 0; z-index: 8; display: flex; }
+/* With no chat column they sit inside the page card's header, clear of its
+   rounded corner, rather than on top of its edge. */
+#win:is(:not(.m-home), .chat-off, .settings-on) > .caps { top: 9px; right: 9px; height: 44px; border-top-right-radius: 11px; overflow: hidden; }
+#win:is(:not(.m-home), .chat-off, .settings-on) > .caps button { height: 44px; }
 
 /* The app tiles: every app as a square, then + for the catalog. */
 .side > .zones { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 12px 14px; background: transparent; border-radius: 0; }
@@ -593,4 +597,4 @@ button.rp-row:hover { background: var(--hover); }
 @media (prefers-reduced-motion: reduce) { #win { transition: none !important; } }
 /* Windows and Linux draw their window buttons at the top right; with no chat
    column there, the page header keeps clear of them. */
-:is(.os-win, .os-linux) #win:is(.m-chat, .m-code, .chat-off, .settings-on) .tbar { padding-right: 132px; }
+:is(.os-win, .os-linux) #win:is(:not(.m-home), .chat-off, .settings-on) .tbar { padding-right: 132px; }
