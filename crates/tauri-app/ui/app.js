@@ -757,7 +757,7 @@ function renderSettings() {
       <div class="line stack"><span class="lab">Agents run on<small>The planner and the workers, what they may do, and how hard they think. Applies when a project opens.${hasProject ? ` <button class="lnk" id="reopen">Reopen ${esc(snap.name)} now</button>` : ""}</small></span><div class="segc" id="workerSeg"></div></div>
       <div id="keyRows"></div></section>
     <section id="set-accounts"><h2>Accounts</h2><p class="lead">Several logins per coding CLI, each in its own profile directory, kept apart. When one hits its usage limit it is parked and the next turn picks another — never on a plain rate limit, only when the CLI itself reports a limit. Backspace never holds the credentials: the CLI signs in to its own profile directory.</p><div id="setAccounts"></div></section>
-    <section id="set-models"><h2>Local models</h2><p class="lead">Small models on this machine, for the small jobs a big agent delegates: reading, classifying, summarising, extracting. Ollama, LM Studio, llama.cpp and MLX are all found where they run.</p><div id="setLocal"></div></section>
+    <section id="set-models"><h2>Local models</h2><p class="lead">Small models on this machine, for the small jobs a big agent delegates: reading, classifying, summarising, extracting. Ollama, LM Studio, llama.cpp and MLX are all found where they run, and the model server puts them, and the ones on your network, behind one URL.</p><div id="setLocal"></div></section>
     <section id="set-skills"><h2>Agent skills</h2><p class="lead">Markdown playbooks an agent loads on demand. Each role gets some injected; every agent can load any of them. Drop a folder with a <code>SKILL.md</code> into <code>~/.config/backspace/skills/</code> or <code>&lt;workspace&gt;/.backspace/skills/</code> to replace one or add your own.</p><div id="setSkills"></div></section>
     <section id="set-worktrees"><h2>Managed worktrees</h2><p class="lead">Each ticket's agent gets its own git branch and worktree, forked from its parent's branch. Worktrees are kept after a run so you can reopen a ticket; each one carries its own copy of dependencies.</p><div id="setWorktrees"></div></section>
     <section id="set-colony"><h2>Workspaces and Colony</h2><p class="lead">Colony gives an agent a real machine of its own: a WSL2 distro or a Hyper-V VM, started on demand, addressable by name, thrown away when the task is done. Backspace drives visor-core's JSON CLI.</p><div id="setColony"></div></section>
@@ -1070,17 +1070,137 @@ async function renderArchived(el) {
 var Models = (() => {
   const size = b => { const u = ["B", "KiB", "MiB", "GiB", "TiB"]; let i = 0, n = b || 0; while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; } return (i ? n.toFixed(1) : n) + " " + u[i]; };
   const KIND = { ollama: "Ollama", mlx: "MLX", lmstudio: "LM Studio", llamacpp: "llama.cpp", custom: "Custom" };
-  let last = null;
+  let last = null, found = null, scanning = false;
+  // The model server and the network (model_gateway.rs): the URL to hand any
+  // OpenAI tool, whether other machines may use it, and the servers on the
+  // network this machine reaches. Models on another machine are picked as
+  // "backspace:<host>/<model>", which the model server routes.
+  const serveHtml = (sv, remote, lan) => !sv ? "" : `<h3 class="subh">Serve</h3>
+      <div class="line"><span class="lab">Model server<small>${sv.error ? esc(sv.error) : sv.enabled ? `One OpenAI-compatible URL for every model on this page, for any tool on this machine: <code class="mono">${esc(sv.url)}</code>` : "Off. Chat and small jobs can't use models on other machines."}</small></span><button class="toggle" role="switch" id="msOn" aria-checked="${!!sv.enabled}" aria-label="Model server"></button></div>
+      ${sv.enabled ? `<div class="line"><span class="lab">Reachable from my network<small>${sv.allow_lan ? (sv.lan_url ? `Other machines use <code class="mono">${esc(sv.lan_url)}</code> with the token as a Bearer key. They get this machine's own models only.` : "On, but this machine has no address on a local network.") : "Off (recommended): this machine only."}</small></span><button class="toggle" role="switch" id="msLan" aria-checked="${!!sv.allow_lan}" aria-label="Reachable from my network"></button></div>` : ""}
+      ${sv.enabled && sv.allow_lan ? `<div class="line"><span class="lab">Token<small class="mono">${esc(sv.token)}</small></span><button class="btn" id="msCopy">${icon("copy")}Copy</button><button class="btn" id="msNew">New token</button></div>` : ""}
+      <h3 class="subh">On the network</h3>
+      ${remote.length ? remote.map(r => `<div class="prow${r.running ? "" : " dim"}"><span class="mi">${icon("cloud")}</span>
+        <div class="pmain"><div class="pname">${esc(r.host || r.name)} <span class="pver">${r.id.startsWith("machine:") ? "Connected machine" : "Network"}</span></div>
+          <span class="pst ${r.running ? "ok" : "off"}">${r.running ? `${r.models.length} model${r.models.length === 1 ? "" : "s"}` : "Offline"}</span>
+          ${r.message ? `<div class="pmsg">${esc(r.message)}</div>` : ""}
+          <div class="pmodels">${r.models.slice(0, 12).map(m => `<span title="${esc(m.id)}">${esc(m.id)}${m.tiny ? " ·" : ""}</span>`).join("")}</div>
+          <div class="pmsg mono">${esc(r.base_url)}</div></div>
+        ${r.id.startsWith("lan:") ? `<button class="btn" data-lanrm="${esc(r.base_url)}">Remove</button>` : ""}</div>`).join("")
+        : `<p class="lead">No servers on the network yet. Machines you connect (Settings → Machines) share their models here too.</p>`}
+      ${found ? (found.filter(f => !f.added).length ? found.filter(f => !f.added).map((f, i) => `<div class="mrow"><span class="mi">${icon("cpu")}</span><span class="lab">${esc(f.name)}<small>${esc(f.kind)} · <span class="mono">${esc(f.base_url)}</span>${f.needs_token ? " · wants a token" : ` · ${f.models.length} model${f.models.length === 1 ? "" : "s"}`}</small></span>
+          ${f.needs_token ? `<input class="tx mono" data-lantok="${i}" placeholder="Token" style="max-width:12em">` : ""}<button class="btn" data-lanadd="${i}">Add</button></div>`).join("") : `<p class="lead">Nothing new found on this network.</p>`) : ""}
+      <div class="line"><span class="lab">Find model servers<small>Backspace servers that are open to the network, and Ollama, LM Studio, Atomic Chat or llama.cpp on the usual ports.</small></span><button class="btn" id="lanScan" ${scanning ? "disabled" : ""}>${scanning ? "Looking…" : "Scan the network"}</button></div>
+      <div class="line"><span class="lab">Add by address<small>An OpenAI-compatible URL, e.g. <code>http://192.168.1.20:11434/v1</code>.</small></span><input class="tx mono" id="lanUrl" placeholder="http://…/v1"><input class="tx mono" id="lanTok" placeholder="Token (if any)" style="max-width:10em"><button class="btn" id="lanAddUrl">Add</button></div>`;
+  // Brainpowr Engine (crates/engine): the llama.cpp build it runs, and how
+  // many models it keeps in memory for how long.
+  const idle = n => n < 60 ? `${n}s` : n < 3600 ? `${Math.round(n / 60)} min` : `${Math.round(n / 3600)} h`;
+  function engineHtml(L) {
+    const E = L.engine, have = E.installed.map(i => i.variant);
+    const busy = v => L.jobs.some(j => j.id === "engine:" + v && j.status === "running");
+    const st = E.settings;
+    return `<h3 class="subh">Brainpowr Engine</h3>
+      <div class="line"><span class="lab">llama.cpp ${esc(E.tag)}<small>${E.binary ? `${E.bundled ? "Runs the build installed here" : "Runs the <code>llama-server</code> on your PATH"} · <span class="mono">${esc(E.binary)}</span>` : "No build yet. Install the first one listed: it is the best fit for this machine."}</small></span></div>
+      ${E.variants.map((v, i) => `<div class="mrow"><span class="mi">${icon(have.includes(v.variant) ? "check" : "cpu")}</span><span class="lab">${esc(v.accel)}${i === 0 ? " (best here)" : ""}<small class="mono">${esc(v.variant)} · ${size(v.size)}</small></span>
+        ${have.includes(v.variant) ? `<button class="btn" data-eun="${esc(v.variant)}">Remove</button>` : `<button class="btn" data-einst="${esc(v.variant)}" ${busy(v.variant) ? "disabled" : ""}>${busy(v.variant) ? "Installing…" : "Install"}</button>`}</div>`).join("")}
+      ${E.variants.length ? "" : `<p class="lead">No prebuilt llama.cpp for this machine. Put <code>llama-server</code> on your PATH and it is used instead.</p>`}
+      <div class="line"><span class="lab">Memory<small>Models in memory at once (the least recently used makes room), minutes idle before one unloads (0 keeps them), context size, and layers on the GPU.</small></span></div>
+      <div class="line" style="flex-wrap:wrap;gap:10px"><span class="lab"></span>
+        ${[["max_loaded", "at once", 1], ["idle_minutes", "idle min", 0], ["ctx", "context", 512], ["gpu_layers", "GPU layers", 0]].map(([k, l, min]) => `<label class="mono" style="font-size:11px">${l} <input class="tx mono" type="number" min="${min}" data-eset="${k}" value="${st[k]}" style="max-width:6em"></label>`).join("")}
+        <button class="btn" id="engSave">Save</button></div>`;
+  }
+  // Get models (model_engine.rs): pull into Ollama, or download a GGUF for
+  // Brainpowr Engine. Redraws itself every second while a download
+  // runs, and the whole panel once one finishes, so the new model is listed.
+  let getTimer = 0;
+  const jobsHtml = (L, pct, running) => L.jobs.map(j => `<div class="mrow"><span class="mi">${icon(j.status === "done" ? "check" : j.status === "failed" ? "warn" : "download")}</span><span class="lab">${esc(j.label)}<small>${j.status === "running" ? `${j.note ? esc(j.note) + " · " : ""}${pct(j) != null ? pct(j) + "% · " : ""}${size(j.done)}${j.total ? " of " + size(j.total) : ""}` : j.status === "failed" ? esc(j.error || "failed") : j.status}</small>${j.status === "running" && pct(j) != null ? `<progress max="100" value="${pct(j)}" style="width:100%"></progress>` : ""}</span>${j.status === "running" ? `<button class="btn" data-mcancel="${esc(j.id)}">Cancel</button>` : ""}</div>`).join("")
+    + (running.length < L.jobs.length ? `<div class="line"><span class="lab"></span><button class="btn" id="mmClear">Clear finished</button></div>` : "");
+  // While something downloads only the progress rows are redrawn, so what the
+  // user is typing below them stays put.
+  async function drawGet(g, redrawAll, onlyJobs) {
+    clearTimeout(getTimer);
+    if (!g || !g.isConnected) return;
+    let L;
+    try { L = await invoke("model_library"); } catch (e) { g.innerHTML = `<div class="err">${esc(String(e))}</div>`; return; }
+    if (!g.isConnected) return;
+    const running = L.jobs.filter(j => j.status === "running");
+    const pct = j => j.total ? Math.min(100, Math.round(j.done / j.total * 100)) : null;
+    const act = async (fn, ok) => { try { await fn(); if (ok) toast(ok, "ok"); } catch (e) { toast(String(e), "err"); } drawGet(g, redrawAll); };
+    const tick = () => { getTimer = setTimeout(() => drawGet(g, redrawAll, true), 1000); };
+    if (onlyJobs && running.length) {
+      const jb = $("#mmJobs", g);
+      if (jb) { jb.innerHTML = jobsHtml(L, pct, running); bindJobs(); }
+      return tick();
+    }
+    function bindJobs() {
+      $$("[data-mcancel]", g).forEach(b => (b.onclick = () => act(() => invoke("model_cancel", { id: b.dataset.mcancel }))));
+      const cl = $("#mmClear", g); if (cl) cl.onclick = () => act(() => invoke("model_clear_jobs"));
+    }
+    const pulled = (last && last.runtimes || []).filter(r => r.id === "ollama").flatMap(r => r.models.map(m => m.id));
+    g.innerHTML = `<h3 class="subh">Get models</h3>
+      <div id="mmJobs">${jobsHtml(L, pct, running)}</div>
+      ${L.suggested.map(s => `<div class="mrow"><span class="mi">${icon("cpu")}</span><span class="lab">${esc(s.name)}<small>${esc(s.note)} · <span class="mono">${esc(s.ollama)}</span> · <span class="mono">${esc(s.repo)}</span></small></span>
+        ${L.ollama ? `<button class="btn" data-mpull="${esc(s.ollama)}" ${pulled.includes(s.ollama) ? "disabled" : ""}>${pulled.includes(s.ollama) ? "In Ollama" : "Pull into Ollama"}</button>` : ""}
+        <button class="btn" data-mdl="${esc(s.repo)}" data-mq="${esc(s.quant)}">Download GGUF</button></div>`).join("")}
+      <div class="line"><span class="lab">Any Ollama model<small>A name from ollama.com/library, e.g. <code>mistral:7b</code>.</small></span><input class="tx mono" id="mmPullName" placeholder="name:tag" style="max-width:12em"><button class="btn" id="mmPullGo" ${L.ollama ? "" : "disabled"}>Pull</button></div>
+      <div class="line"><span class="lab">Any GGUF on Hugging Face<small>A repository, e.g. <code>unsloth/Qwen3-8B-GGUF</code>; pick a file.</small></span><input class="tx mono" id="mmRepo" placeholder="org/name" style="max-width:14em"><button class="btn" id="mmRepoGo">List files</button></div>
+      <div id="mmRepoFiles"></div>
+      ${engineHtml(L)}
+      ${L.downloaded.map(f => { const s = f.loaded, m = f.meta || {};
+        const info = [m.architecture, m.size_label, m.context_length ? `trained on ${m.context_length} tokens` : "", m.embedding ? "embeddings" : ""].filter(Boolean).join(" · ");
+        return `<div class="prow${s ? "" : " dim"}"><span class="mi">${icon("box")}</span>
+        <div class="pmain"><div class="pname">${esc(f.name)} <span class="pver">${size(f.size)}</span></div>
+          <span class="pst ${s ? "ok" : "off"}">${s ? `In memory${s.pinned ? ", kept" : ` · idle ${idle(s.idle_secs)}`}` : f.pinned ? "Kept; loads when the app opens" : "Loads on the first request"}</span>
+          ${info ? `<div class="pmsg">${esc(info)}</div>` : ""}
+          ${s ? `<div class="pmsg mono">${esc(s.base_url)} · pid ${s.pid}</div>` : ""}</div>
+        ${s ? `<button class="btn" data-munload="${esc(f.name)}">Unload</button>` : `<button class="btn" data-mload="${esc(f.name)}" ${L.engine.binary ? "" : "disabled"}>Load</button>`}
+        <button class="btn" data-mpin="${esc(f.name)}" aria-pressed="${f.pinned}" title="Keep it in memory, and load it when the app opens">${f.pinned ? "Kept" : "Keep loaded"}</button>
+        <button class="btn" data-mdel="${esc(f.path)}">Delete</button></div>`; }).join("")}
+      ${L.downloaded.length && !L.engine.binary ? `<p class="warnp">${icon("warn")}Downloaded models need a llama.cpp build. Install one above.</p>` : ""}
+      ${L.downloaded.length && L.engine.binary && !L.serving ? `<p class="warnp">${icon("warn")}The model server is off, so nothing can reach these models. Turn it on under Serve.</p>` : ""}
+      ${L.ollama ? "" : `<p class="lead">Ollama isn't installed, so pulls are off; GGUF downloads still run in Brainpowr Engine.</p>`}
+      <p class="lead">Files go to <span class="mono">${esc(L.dir)}</span>. Brainpowr Engine loads a model on the first request for it and unloads it when idle; kept models load when the app opens. All stop when the app quits.</p>`;
+    $$("[data-mpull]", g).forEach(b => (b.onclick = () => act(() => invoke("model_pull", { name: b.dataset.mpull }))));
+    $$("[data-mdl]", g).forEach(b => (b.onclick = () => act(() => invoke("model_download", { repo: b.dataset.mdl, file: "", quant: b.dataset.mq }))));
+    bindJobs();
+    $("#mmPullGo", g).onclick = () => act(() => invoke("model_pull", { name: $("#mmPullName", g).value.trim() }));
+    $("#mmRepoGo", g).onclick = async () => {
+      const repo = $("#mmRepo", g).value.trim(), out = $("#mmRepoFiles", g);
+      out.innerHTML = `<div class="nothing">Listing ${esc(repo)}…</div>`;
+      try {
+        const files = await invoke("model_repo_files", { repo });
+        out.innerHTML = files.length ? files.map(f => `<div class="mrow"><span class="mi">${icon("box")}</span><span class="lab mono">${esc(f.file)}<small>${f.size ? size(f.size) : ""}</small></span><button class="btn" data-mfile="${esc(f.file)}">Download</button></div>`).join("") : `<p class="lead">No GGUF files in ${esc(repo)}.</p>`;
+        $$("[data-mfile]", out).forEach(b => (b.onclick = () => act(() => invoke("model_download", { repo, file: b.dataset.mfile, quant: "" }))));
+      } catch (e) { out.innerHTML = `<div class="err">${esc(String(e))}</div>`; }
+    };
+    $$("[data-mload]", g).forEach(b => (b.onclick = () => { b.disabled = true; b.textContent = "Loading…"; act(() => invoke("model_load", { id: b.dataset.mload }), "Loaded"); }));
+    $$("[data-munload]", g).forEach(b => (b.onclick = () => act(() => invoke("model_unload", { id: b.dataset.munload }))));
+    $$("[data-mpin]", g).forEach(b => (b.onclick = () => act(() => invoke("model_pin", { id: b.dataset.mpin, pinned: b.getAttribute("aria-pressed") !== "true" }))));
+    $$("[data-einst]", g).forEach(b => (b.onclick = () => act(() => invoke("engine_install", { variant: b.dataset.einst }))));
+    $$("[data-eun]", g).forEach(b => (b.onclick = () => act(() => invoke("engine_uninstall", { variant: b.dataset.eun }), "Removed")));
+    const es = $("#engSave", g);
+    if (es) es.onclick = () => act(() => invoke("engine_settings", { settings: { ...L.engine.settings,
+      ...Object.fromEntries($$("[data-eset]", g).map(i => [i.dataset.eset, Math.max(+i.min || 0, parseInt(i.value, 10) || 0)])) } }), "Saved");
+    $$("[data-mdel]", g).forEach(b => (b.onclick = () => act(() => invoke("model_delete", { path: b.dataset.mdel }), "Deleted")));
+    // A pull or download that just finished changes the runtimes above.
+    const was = g.dataset.running === "1";
+    g.dataset.running = running.length ? "1" : "";
+    if (running.length) tick();
+    else if (was) redrawAll();
+  }
   async function draw(box, wtBox) {
     box.innerHTML = `<div class="nothing">Looking for Ollama, LM Studio, llama.cpp and MLX…</div>`;
-    let d;
-    try { d = await invoke("local_models"); } catch (e) { box.innerHTML = `<div class="err">${esc(String(e))}</div>`; return; }
+    let d, sv = null;
+    try { [d, sv] = await Promise.all([invoke("local_models"), invoke("model_serve_status").catch(() => null)]); } catch (e) { box.innerHTML = `<div class="err">${esc(String(e))}</div>`; return; }
     last = d;
     if (!box.isConnected) return;
     const chosen = d.chosen || "";
     const tasks = (d.tasks && d.tasks.length ? d.tasks : ["scouts"]);
     const runtimes = d.runtimes || [];
-    const tiny = runtimes.flatMap(r => r.models.filter(m => m.tiny).map(m => ({ ...m, runtime: r.id, up: r.running })));
+    const remote = d.remote || [];
+    // Another machine's tiny models only reach a job through the model server.
+    const tiny = runtimes.flatMap(r => r.models.filter(m => m.tiny).map(m => ({ ...m, runtime: r.id, up: r.running })))
+      .concat(sv && sv.enabled ? remote.flatMap(r => r.models.filter(m => m.tiny).map(m => ({ ...m, id: (r.host || r.name) + "/" + m.id, runtime: "backspace", up: r.running }))) : []);
     box.innerHTML = `<div class="line"><span class="lab">Small jobs go to<small>Reading, classifying, summarising and extracting, when a subscription model delegates them. One small local model, one task at a time.</small></span>
         <button class="btn" id="mmPick" data-popper>${chosen ? esc(chosen) : "Leave it to the main model"}${icon("chevd")}</button></div>
       <div class="line"><span class="lab">…for these jobs<small>${chosen ? "Scouts are read-only lookups, the safest to hand over. Triage classifies a filed ticket. Workers build a ticket, so pick this only if the small model is up for it." : "Choose a model above first."}</small></span>
@@ -1093,7 +1213,10 @@ var Models = (() => {
           <div class="pmodels">${r.models.slice(0, 12).map(m => `<span title="${esc(m.id)}">${esc(m.id)}${m.tiny ? " ·" : ""}</span>`).join("")}</div>
           <div class="pmsg mono">${esc(r.base_url)}${r.version ? " · v" + esc(r.version) : ""}</div></div></div>`).join("")}
       ${runtimes.length ? "" : `<p class="lead">Nothing found. Install <a href="#" data-url="https://ollama.com/download">Ollama</a>, or start LM Studio, <code>llama-server</code> or <code>mlx_lm.server</code>, then rescan.</p>`}
-      <div class="line"><span class="lab">${d.endpoint ? `An OpenAI-compatible endpoint is up at <code class="mono">${esc(d.endpoint)}</code>` : "No local endpoint is up."}${d.recommend ? `<small>Suggested right now: <b>${esc(d.recommend.model)}</b> on ${esc(d.recommend.base_url)}</small>` : ""}</span><button class="btn" id="mmScan">Rescan</button></div>`;
+      <div class="line"><span class="lab">${d.endpoint ? `An OpenAI-compatible endpoint is up at <code class="mono">${esc(d.endpoint)}</code>` : "No local endpoint is up."}${d.recommend ? `<small>Suggested right now: <b>${esc(d.recommend.model)}</b> on ${esc(d.recommend.base_url)}</small>` : ""}</span><button class="btn" id="mmScan">Rescan</button></div>
+      <div id="mmGet"></div>
+      ${serveHtml(sv, remote, d.lan || [])}`;
+    drawGet($("#mmGet", box), () => draw(box, wtBox));
     const pick = $("#mmPick", box);
     if (pick) pick.onclick = e => openPop(e.currentTarget, `<h5>Small jobs run on</h5>
       <button class="pi" data-m=""><span class="agent">${icon("sparkle")}</span>Leave it to the main model<span class="k">default</span></button>
@@ -1111,6 +1234,29 @@ var Models = (() => {
       prefs.local_tasks = next; draw(box, wtBox);
     }));
     $$("[data-url]", box).forEach(b => (b.onclick = e => { e.preventDefault(); invoke("open_url", { url: b.dataset.url }); }));
+    if (sv) {
+      const setServe = async (enabled, allowLan, newToken) => { await invoke("set_model_serve", { enabled, allowLan, newToken }).catch(e => toast(String(e), "err")); draw(box, wtBox); };
+      $("#msOn", box).onclick = () => setServe(!sv.enabled, sv.allow_lan, false);
+      const lan = $("#msLan", box); if (lan) lan.onclick = () => setServe(true, !sv.allow_lan, false);
+      const cp = $("#msCopy", box); if (cp) cp.onclick = () => { navigator.clipboard.writeText(sv.token); toast("Token copied", "ok"); };
+      const nt = $("#msNew", box); if (nt) nt.onclick = async () => { await setServe(true, true, true); toast("Machines using the old token were signed out", "ok"); };
+      const add = async (name, url, token) => {
+        try { const ms = await invoke("lan_add", { name, baseUrl: url, token }); toast(`Added ${name || url}: ${ms.length} model${ms.length === 1 ? "" : "s"}`, "ok"); found = found && found.filter(f => f.base_url !== url); draw(box, wtBox); }
+        catch (e) { toast(String(e), "err"); }
+      };
+      $("#lanScan", box).onclick = async () => {
+        scanning = true; draw(box, wtBox);
+        try { found = await invoke("lan_scan"); } catch (e) { toast(String(e), "err"); }
+        scanning = false; if (box.isConnected) draw(box, wtBox);
+      };
+      $("#lanAddUrl", box).onclick = () => add("", $("#lanUrl", box).value.trim(), $("#lanTok", box).value.trim());
+      const fresh = (found || []).filter(f => !f.added);
+      $$("[data-lanadd]", box).forEach(b => (b.onclick = () => {
+        const f = fresh[+b.dataset.lanadd], t = $(`[data-lantok="${b.dataset.lanadd}"]`, box);
+        add(f.name, f.base_url, t ? t.value.trim() : "");
+      }));
+      $$("[data-lanrm]", box).forEach(b => (b.onclick = async () => { await invoke("lan_remove", { baseUrl: b.dataset.lanrm }); draw(box, wtBox); }));
+    }
     if (wtBox) renderWorktrees(wtBox);
   }
   return { mount: (box, wtBox) => { if (box) draw(box, wtBox); }, size, get last() { return last; } };

@@ -206,6 +206,10 @@ pub struct Fleet {
     serving: Mutex<Option<tokio::task::AbortHandle>>,
     companion: Mutex<Option<tokio::task::AbortHandle>>,
     companion_error: Mutex<Option<String>>,
+    /// The model server and, while it is open to the network, its discovery
+    /// answerer (model_gateway.rs).
+    models: Mutex<Vec<tokio::task::AbortHandle>>,
+    models_error: Mutex<Option<String>>,
     share_error: Mutex<Option<String>>,
     dreamer: crate::memory_dream::Dreamer,
     dreaming: Mutex<bool>,
@@ -255,6 +259,8 @@ impl Fleet {
             serving: Mutex::new(None),
             companion: Mutex::new(None),
             companion_error: Mutex::new(None),
+            models: Mutex::new(vec![]),
+            models_error: Mutex::new(None),
             share_error: Mutex::new(None),
             dreamer: crate::memory_dream::Dreamer::open(Prefs::data_dir()),
             dreaming: Mutex::new(false),
@@ -265,6 +271,11 @@ impl Fleet {
         if prefs.companion.enabled {
             fleet.start_companion();
         }
+        if prefs.model_serve.enabled {
+            fleet.start_models();
+        }
+        // The pinned models; slow to load, so restore() goes off this thread.
+        crate::model_engine::restore(&prefs);
         if prefs.share.enabled {
             if let Err(e) = fleet.start_sharing() {
                 *fleet.share_error.lock().unwrap() = Some(e.to_string());
@@ -572,6 +583,86 @@ impl Fleet {
         } else if let Some(h) = self.companion.lock().unwrap().take() {
             h.abort();
         }
+    }
+
+    // ------------------------------------------------------------ model server
+
+    fn start_models(self: &Arc<Self>) {
+        for h in self.models.lock().unwrap().drain(..) {
+            h.abort();
+        }
+        let c = self.prefs().model_serve;
+        *self.models_error.lock().unwrap() = None;
+        let me = Arc::downgrade(self);
+        let (addr, token) = (c.bind_addr(), c.token.clone());
+        let mut tasks = vec![self
+            .rt
+            .spawn(async move {
+                if let Err(e) = crate::model_gateway::serve(addr, token).await {
+                    if let Some(f) = me.upgrade() {
+                        *f.models_error.lock().unwrap() = Some(e.to_string());
+                        let _ = f.notify.try_send(());
+                    }
+                }
+            })
+            .abort_handle()];
+        // Only a server the network may use says so on the network. A busy
+        // UDP port costs discovery, not the server, so its error is dropped.
+        if c.allow_lan {
+            let port = c.port();
+            tasks.push(
+                self.rt
+                    .spawn(async move {
+                        let _ = crate::model_gateway::answer_discovery(port).await;
+                    })
+                    .abort_handle(),
+            );
+        }
+        *self.models.lock().unwrap() = tasks;
+    }
+
+    /// Settings → Local models → Serve: on or off, open to the network or
+    /// not, optionally with a new token. Restarts the server either way.
+    pub fn set_model_serve(self: &Arc<Self>, enabled: bool, allow_lan: bool, new_token: bool) {
+        self.update_prefs(|p| {
+            p.model_serve.enabled = enabled;
+            p.model_serve.allow_lan = allow_lan;
+            if new_token {
+                p.model_serve.token = crate::remote::new_token();
+            }
+        });
+        if enabled {
+            self.start_models();
+        } else {
+            for h in self.models.lock().unwrap().drain(..) {
+                h.abort();
+            }
+            *self.models_error.lock().unwrap() = None;
+        }
+        self.poke();
+    }
+
+    /// The model server as Settings shows it: the URL tools on this machine
+    /// use, the one the network uses (only while it is open to it), the token
+    /// and any error binding the port.
+    pub fn model_serve_status(&self) -> serde_json::Value {
+        let c = self.prefs().model_serve;
+        let lan = c
+            .allow_lan
+            .then(crate::companion::lan_ip)
+            .flatten()
+            .map(|ip| format!("http://{ip}:{}/v1", c.port()));
+        let error = self.models_error.lock().unwrap().clone();
+        serde_json::json!({
+            "enabled": c.enabled,
+            "running": c.enabled && !self.models.lock().unwrap().is_empty() && error.is_none(),
+            "allow_lan": c.allow_lan,
+            "url": c.local_url(),
+            "lan_url": lan,
+            "token": c.token,
+            "name": crate::model_gateway::machine_name(),
+            "error": error,
+        })
     }
 
     /// What Settings shows: on or off, the address a phone uses, the

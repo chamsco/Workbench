@@ -849,10 +849,17 @@ fn chat_purge_ghosts(f: F) -> Vec<String> {
 #[tauri::command]
 fn local_models(f: F) -> serde_json::Value {
     let prefs = f.prefs();
-    let runtimes = backspace_core::model_server::detect(&prefs, &[]);
+    // This machine's runtimes and the ones it reaches (the network, connected
+    // machines) side by side, so the slower set does not add to the faster.
+    let (runtimes, remote) = std::thread::scope(|s| {
+        let r = s.spawn(|| backspace_core::model_server::remote_runtimes(&prefs));
+        (backspace_core::model_server::detect(&prefs, &[]), r.join().unwrap_or_default())
+    });
     let recommend = backspace_core::model_server::recommend(&runtimes);
     serde_json::json!({
         "runtimes": runtimes,
+        "remote": remote,
+        "lan": prefs.lan_models.iter().map(|l| serde_json::json!({"name": l.name, "base_url": l.base_url})).collect::<Vec<_>>(),
         "recommend": recommend.map(|(url, model)| serde_json::json!({"base_url": url, "model": model})),
         "endpoint": backspace_core::model_server::best_endpoint(&prefs),
         "chosen": prefs.subagent_model,
@@ -878,6 +885,171 @@ fn set_local_tasks(f: F, tasks: Vec<String>) {
             .filter(|t| known.contains(&t.as_str()))
             .collect();
     });
+}
+
+// ------------------------------------------------------- model server
+
+/// Settings → Local models → Serve: the model server's URLs, token and state.
+#[tauri::command]
+fn model_serve_status(f: F) -> serde_json::Value {
+    f.model_serve_status()
+}
+
+#[tauri::command]
+fn set_model_serve(f: F, enabled: bool, allow_lan: bool, new_token: bool) -> serde_json::Value {
+    f.inner().set_model_serve(enabled, allow_lan, new_token);
+    f.model_serve_status()
+}
+
+/// Model servers on the local network. A few seconds: a broadcast, then a
+/// sweep of the usual runtime ports.
+#[tauri::command]
+async fn lan_scan(f: F<'_>) -> Res<Vec<backspace_core::model_gateway::Found>> {
+    blocking(f, |f| Ok(backspace_core::model_gateway::discover(&f.prefs()))).await
+}
+
+/// Save a server on the network, once it lists models with that token.
+#[tauri::command]
+async fn lan_add(f: F<'_>, name: String, base_url: String, token: String) -> Res<Vec<String>> {
+    blocking(f, move |f| {
+        let base_url = base_url.trim().trim_end_matches('/').to_string();
+        if !base_url.starts_with("http://") && !base_url.starts_with("https://") {
+            anyhow::bail!("give the server's URL, e.g. http://192.168.1.20:11434/v1");
+        }
+        let models = backspace_core::model_gateway::check_lan(&base_url, token.trim())?;
+        let name = if name.trim().is_empty() { backspace_core::model_server::host_of(&base_url) } else { name.trim().to_string() };
+        f.update_prefs(|p| {
+            p.lan_models.retain(|l| l.base_url.trim_end_matches('/') != base_url);
+            p.lan_models.push(backspace_core::prefs::LanServer { name, base_url, token: token.trim().to_string() });
+        });
+        Ok(models)
+    })
+    .await
+}
+
+#[tauri::command]
+fn lan_remove(f: F, base_url: String) {
+    let base_url = base_url.trim_end_matches('/').to_string();
+    f.update_prefs(|p| p.lan_models.retain(|l| l.base_url.trim_end_matches('/') != base_url));
+}
+
+// ------------------------------------------------- getting models, engines
+
+/// Settings → Local models → Get models: the suggestions, the files on this
+/// machine and what is loaded, the downloads in flight, Brainpowr Engine's
+/// state, and whether Ollama is there to pull into.
+#[tauri::command]
+async fn model_library(f: F<'_>) -> Res<serde_json::Value> {
+    blocking(f, |f| {
+        use backspace_core::model_engine as me;
+        let prefs = f.prefs();
+        Ok(serde_json::json!({
+            "suggested": me::SUGGESTED,
+            "downloaded": me::downloaded(&prefs),
+            "jobs": me::jobs(),
+            "engine": me::engine().status(),
+            "variant": prefs.engine_variant,
+            "serving": prefs.model_serve.enabled,
+            "ollama": backspace_core::harnesses::which("ollama").is_some(),
+            "dir": me::models_dir().display().to_string(),
+        }))
+    })
+    .await
+}
+
+#[tauri::command]
+fn model_pull(f: F, name: String) -> Res<String> {
+    backspace_core::model_engine::ollama_pull(&f.prefs(), &name).map_err(err)
+}
+
+/// A GGUF from Hugging Face; an empty `file` takes the `quant` one.
+#[tauri::command]
+fn model_download(repo: String, file: String, quant: String) -> Res<String> {
+    backspace_core::model_engine::hf_download(&repo, &file, if quant.is_empty() { "Q4_K_M" } else { &quant }).map_err(err)
+}
+
+#[tauri::command]
+async fn model_repo_files(repo: String) -> Res<Vec<backspace_core::model_engine::RepoFile>> {
+    tauri::async_runtime::spawn_blocking(move || backspace_core::model_engine::hf_files(&repo))
+        .await
+        .map_err(err)?
+        .map_err(err)
+}
+
+#[tauri::command]
+fn model_cancel(id: String) {
+    backspace_core::model_engine::cancel(&id);
+}
+
+#[tauri::command]
+fn model_clear_jobs() {
+    backspace_core::model_engine::clear_jobs();
+}
+
+/// Load a downloaded model now instead of on its first request.
+#[tauri::command]
+async fn model_load(f: F<'_>, id: String) -> Res<backspace_core::brainpowr_engine::SessionInfo> {
+    blocking(f, move |_| backspace_core::model_engine::engine().ensure(&id)).await
+}
+
+#[tauri::command]
+fn model_unload(id: String) {
+    backspace_core::model_engine::engine().unload(&id);
+}
+
+/// Keep a model in memory (and load it when the app opens), or stop keeping it.
+#[tauri::command]
+fn model_pin(f: F, id: String, pinned: bool) {
+    f.update_prefs(|p| {
+        p.pinned_models.retain(|m| m != &id);
+        if pinned {
+            p.pinned_models.push(id.clone());
+        }
+    });
+    backspace_core::model_engine::apply(&f.prefs());
+}
+
+#[tauri::command]
+fn model_delete(f: F, path: String) -> Res<()> {
+    backspace_core::model_engine::delete(&path).map_err(err)?;
+    let known: Vec<String> = backspace_core::model_engine::engine().models().into_iter().map(|m| m.id).collect();
+    f.update_prefs(|p| p.pinned_models.retain(|m| known.contains(m)));
+    Ok(())
+}
+
+/// Install a llama.cpp build for Brainpowr Engine; a job with progress.
+#[tauri::command]
+fn engine_install(f: F, variant: String) -> Res<String> {
+    let id = backspace_core::model_engine::install_backend(&variant).map_err(err)?;
+    f.update_prefs(|p| p.engine_variant = Some(variant.clone()));
+    backspace_core::model_engine::apply(&f.prefs());
+    Ok(id)
+}
+
+#[tauri::command]
+fn engine_uninstall(f: F, variant: String) -> Res<()> {
+    let e = backspace_core::model_engine::engine();
+    e.unload_all();
+    backspace_core::brainpowr_engine::backend::uninstall(e.home(), &variant).map_err(err)?;
+    f.update_prefs(|p| {
+        if p.engine_variant.as_deref() == Some(variant.as_str()) {
+            p.engine_variant = None;
+        }
+    });
+    backspace_core::model_engine::apply(&f.prefs());
+    Ok(())
+}
+
+/// Context, idle unload, models at once, GPU layers.
+#[tauri::command]
+fn engine_settings(f: F, settings: backspace_core::brainpowr_engine::Settings) {
+    f.update_prefs(|p| p.engine = settings);
+    backspace_core::model_engine::apply(&f.prefs());
+}
+
+#[tauri::command]
+fn ollama_start() -> Res<()> {
+    backspace_core::model_engine::start_ollama().map_err(err)
 }
 
 // ---------------------------------------------------- skills and worktrees
@@ -2056,6 +2228,25 @@ fn main() -> anyhow::Result<()> {
             delegate_assign,
             delegate_auto,
             delegate_import,
+            model_library,
+            model_pull,
+            model_download,
+            model_repo_files,
+            model_cancel,
+            model_clear_jobs,
+            model_load,
+            model_unload,
+            model_pin,
+            model_delete,
+            engine_install,
+            engine_uninstall,
+            engine_settings,
+            ollama_start,
+            model_serve_status,
+            set_model_serve,
+            lan_scan,
+            lan_add,
+            lan_remove,
             companion_status,
             set_companion,
             set_companion_lan,
@@ -2111,7 +2302,13 @@ fn main() -> anyhow::Result<()> {
             });
             Ok(())
         })
-        .run(tauri::generate_context!())?;
+        .build(tauri::generate_context!())?
+        // An engine the app started must not outlive it holding the GPU.
+        .run(|_, event| {
+            if let tauri::RunEvent::Exit = event {
+                backspace_core::model_engine::stop_all();
+            }
+        });
     Ok(())
 }
 

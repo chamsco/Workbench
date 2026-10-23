@@ -1,5 +1,98 @@
 # Handoff: Backspace (ohMyHarness → Workbench), v0
 
+**Session, 23 Oct 2026 — Brainpowr Engine.**
+
+- **`crates/engine`** (package `brainpowr-engine`) is a new crate that knows
+  nothing about Backspace. It is modeled on atomic-chat-core (MIT):
+  - `backend.rs` installs a pinned llama.cpp `b11463` build. Asset names and
+    sha256 are copied from Atomic's upstream-releases-baseline.json. It
+    downloads, verifies, unpacks (zip-slip safe) and records the build in
+    `installed.json`.
+  - `gguf.rs` reads the header metadata.
+  - `session.rs` runs one `llama-server` per model. It does lazy load, LRU
+    eviction, pinning, the idle reaper and error classification.
+- `model_engine.rs` lost its start/stop engines code. It now exposes
+  `engine()`, `install_backend` (a job `engine:<variant>`), `restore` (loads
+  pinned models) and `stop_all` (on app exit). It lists the runtime
+  `brainpowr`, and `model_gateway::handle_llm` calls `engine().ensure(id)`
+  before it forwards. Prefs: `engine` (Settings), `engine_variant`,
+  `pinned_models`. The old `engines` pref was dropped.
+- UI: Settings → Local models gets a Brainpowr Engine section (builds,
+  memory settings) plus Load/Unload/Keep loaded per downloaded model. CLI:
+  `backspace-cli engine [install [variant]]`.
+- **Ran:** 11 engine tests, including a fake python `llama-server` for LRU,
+  pinning and OOM. A gateway end to end with a fake server: the cold request
+  loaded in 0.6s, the warm one took 19ms. UI checked in the uiharness with
+  mocks. **Not run:** a real llama.cpp download (GitHub returns 403 here;
+  a hash mismatch fails safely), real inference, macOS/Windows.
+  `spec_gate` failed once and passed on rerun; it is unrelated and flaky.
+
+**Session, 22 Oct 2026 — getting models and starting engines.**
+
+- **`crates/core/src/model_engine.rs`** is the other half of Atomic Chat's
+  core. It does two things. *Get* a model: `POST /api/pull` into Ollama, or
+  download one GGUF from Hugging Face. The download goes to
+  `<data>/models/<org>__<repo>/`, resumes from a `.part`, and finds the file
+  by quant through the repo's tree API. *Run* it: `llama-server -m <file>`
+  on a free port from 8090, `--alias` = the file name without `.gguf`.
+  Running engines join `model_server::detect`, so the model server, Chat and
+  small jobs see them with no extra wiring. Engines the user started are
+  `prefs.engines` and come back at launch; `RunEvent::Exit` stops them all.
+  `ollama serve` can be started too.
+- Downloads and pulls are background jobs (`jobs()`, `cancel`). Settings →
+  Local models → Get models shows five suggested small models (Pull into
+  Ollama / Download GGUF), any Ollama name, any HF repo's GGUF files, and
+  the downloaded files with Start / Stop / Delete. While a job runs, only
+  the progress rows redraw.
+- No engine binary is downloaded: if `llama-server` is missing the panel says
+  how to install it (`brew install llama.cpp`, `winget install llama.cpp`,
+  or the release page).
+
+**Ran:** unit tests (repo tree filtering, quant pick, path containment, pull
+progress). A one-off end-to-end test, since removed: a fake `llama-server`
+on `BACKSPACE_CLI_PATH` was started, listed as a runtime, served through
+`served()` and stopped, and a 3 MB download through `fetch` came out
+byte-identical. UI screenshot with mocks, including the polling path.
+**Not run:** real Hugging Face (blocked from this container), real Ollama
+pull, real llama-server, Range resume against a real server, macOS.
+
+**Session, 22 Oct 2026 — the model server.**
+
+- **One URL for every model, like Atomic Chat's `:1337`.**
+  `crates/core/src/model_gateway.rs` serves `http://127.0.0.1:7422/v1`
+  (OpenAI-compatible: `/models`, `/chat/completions`, `/completions`,
+  `/embeddings`, `/responses`). A request names a model; the server finds the
+  runtime that has it (Ollama, LM Studio, llama.cpp, MLX, a server on the
+  network, a connected machine), rewrites the id and streams the answer back.
+  Other machines' models are listed as `<host>/<model>`. On by default,
+  loopback only, keyless for tools on this machine; a request with an `Origin`
+  (a browser page) needs the token.
+- **The network.** `prefs.model_serve.allow_lan` binds `0.0.0.0`, wants the
+  token, serves only this machine's own runtimes (no relaying, so two servers
+  that list each other cannot loop) and answers a UDP broadcast on 7422.
+  `discover()` sends that broadcast and sweeps the /24 for 11434, 1234, 1337
+  and 8080. Servers you add are `prefs.lan_models`.
+- **Through the connection.** The share link (remote.rs) and the phone link
+  (companion.rs) serve the same routes under `/v1/llm` with their own tokens,
+  so a connected machine (Settings → Machines) shows its models here and the
+  phone can chat with the desk's models.
+- **Where it shows.** Settings → Local models gains Serve and On the network
+  (scan, add by address, remove). Chat lists a "Model server" router when it
+  reaches anything beyond Ollama (`router:backspace`); small jobs can pick
+  `backspace:<host>/<model>`. `backspace-cli serve-models [addr]` runs it with
+  no app, for a GPU box with no screen.
+- Fixed the Ollama hint that suggested the non-existent `lfm2.5:2.6b`.
+
+**Ran:** `cargo test -p backspace-core` (142 pass, incl. a loopback streaming
+test of the proxy); `cargo check -p backspace-tauri`; by hand, a fake
+OpenAI server on :1234 behind two `serve-models` (one LAN with a token, one
+loopback that adds the first as a network server): listing, streamed chat
+through both hops, 401 for an `Origin` and for a LAN caller without the
+token, and 404 when the LAN caller asks for a relayed model. Settings panel
+screenshot in the uiharness with mocks. **Not run:** real Ollama/LM Studio,
+two physical machines, macOS build, the share/phone `/v1/llm` routes end to
+end (they call the same handler).
+
 **Session, 22 Oct 2026 — Our own sea.**
 
 - **The sharks are ours now.** stackedlol/ascii-sharks has no licence, so its

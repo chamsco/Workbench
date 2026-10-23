@@ -18,6 +18,7 @@
 //!   POST /v1/message  {"to","text"}     post on the agents' board as "you"
 //!   POST /v1/option   {"id","variant"}  the user's pick on a set of options
 //!   POST /v1/image    {"path"}          {"text"} an image as a data: URL
+//!   *    /v1/llm/...                      this machine's models, OpenAI-compatible
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -98,6 +99,8 @@ pub(crate) struct Request {
     pub(crate) path: String,
     pub(crate) query: String,
     pub(crate) auth: Option<String>,
+    /// Sent by browsers; tools (curl, SDKs) leave it out.
+    pub(crate) origin: Option<String>,
     pub(crate) body: Vec<u8>,
 }
 
@@ -123,12 +126,13 @@ pub(crate) async fn read_request(stream: &mut TcpStream) -> Result<Request> {
     let method = first.next().unwrap_or("").to_string();
     let target = first.next().unwrap_or("/");
     let (path, query) = target.split_once('?').unwrap_or((target, ""));
-    let (mut len, mut auth) = (0usize, None);
+    let (mut len, mut auth, mut origin) = (0usize, None, None);
     for l in lines {
         if let Some((k, v)) = l.split_once(':') {
             match k.trim().to_ascii_lowercase().as_str() {
                 "content-length" => len = v.trim().parse().unwrap_or(0),
                 "authorization" => auth = Some(v.trim().to_string()),
+                "origin" => origin = Some(v.trim().to_string()),
                 _ => {}
             }
         }
@@ -150,6 +154,7 @@ pub(crate) async fn read_request(stream: &mut TcpStream) -> Result<Request> {
         path: path.to_string(),
         query: query.to_string(),
         auth,
+        origin,
         body,
     })
 }
@@ -202,6 +207,12 @@ async fn handle(mut stream: TcpStream, api: Arc<dyn Api>, token: &str) -> Result
         .is_some_and(|t| same(t, token));
     if !authed {
         return respond(&mut stream, 401, &json!({"error": "bad token"})).await;
+    }
+    // This machine's models, OpenAI-compatible (model_gateway.rs): a
+    // connected machine uses `<url>/v1/llm` as a base URL with this token.
+    if let Some(rest) = req.path.strip_prefix("/v1/llm") {
+        let rest = rest.to_string();
+        return crate::model_gateway::handle_llm(&mut stream, &req, &rest, true).await;
     }
     let body: Value = if req.body.is_empty() {
         Value::Null

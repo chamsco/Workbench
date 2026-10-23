@@ -576,6 +576,7 @@ body { margin: 0; background: var(--desk-base); color: var(--fg); font: 13px/1.4
 .set section { padding: 18px 0; border-top: 0.5px solid var(--pane-edge); }
 .set section:first-of-type { border-top: 0; }
 .set h2 { margin: 0 0 4px; font-size: 14px; }
+.set h3.subh { margin: 18px 0 2px; font-size: 12px; font-weight: 600; color: var(--fg-2); text-transform: uppercase; letter-spacing: .04em; }
 .set .lead { margin: 0 0 12px; color: var(--fg-3); font-size: 12.5px; line-height: 1.5; }
 .set .line { display: flex; align-items: center; gap: 10px; min-height: 34px; }
 .set .line > .lab { flex: 1; min-width: 0; }
