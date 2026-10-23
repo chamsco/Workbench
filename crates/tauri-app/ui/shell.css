@@ -501,8 +501,8 @@ button.rp-row:hover { background: var(--hover); }
 #win.settings-on .mainc { margin-left: 8px; margin-right: 8px; }
 #win.settings-on .side, #win.settings-on .chatcol, #win.settings-on .gutter-chat { visibility: hidden; }
 .os-mac #win.settings-on .tbar { padding-left: 76px; }
-#win .settings { position: absolute; inset: 44px 0 0 0; border: 0; border-radius: 0; background: var(--frame-bg); -webkit-backdrop-filter: none; backdrop-filter: none; }
-#win .tbar { height: 44px; padding: 0 10px 0 12px; background: transparent; }
+#win .settings { position: absolute; inset: 45px 0 0 0; border: 0; border-radius: 0; background: var(--frame-bg); -webkit-backdrop-filter: none; backdrop-filter: none; }
+#win .tbar { height: 44px; flex: none; box-sizing: content-box; padding: 0 10px 0 12px; background: transparent; border-bottom: 1px solid var(--frame-edge) !important; }
 #win.side-closed .tbar { padding-left: 12px; }
 .os-mac #win.side-closed .tbar { padding-left: 76px; }
 .tbar .zt.page { display: inline-flex; align-items: center; gap: 9px; font-size: 14px; font-weight: 600; color: var(--fg); }
