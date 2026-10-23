@@ -271,5 +271,76 @@ var Picker = (() => {
     undo = () => { teardown(); pop.remove(); removeEventListener("pointerdown", outside, true); removeEventListener("keydown", esc, true); undo = null; };
   }
 
-  return { open, mount, close, label, cliOf, MODEL };
+  return { open, mount, close, label, cliOf, items, MODEL };
+})();
+
+// Who runs a project, in two parts, the way a Claude project does it: the
+// orchestrator plans and talks to you, the executor builds each ticket. The
+// executor is either one harness for every ticket, or the router's pick per
+// ticket from the models you allow.
+var Runs = (() => {
+  const exclude = () => prefs.worker_exclude || [];
+  const plain = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+
+  async function orchestratorLabel() { return Picker.label(prefs.planner); }
+  async function executorLabel() {
+    if (prefs.worker) return Picker.label(prefs.worker);
+    const n = exclude().length;
+    return n ? `Router · ${n} excluded` : "Router decides";
+  }
+
+  // Saved now; it applies when the project next opens, so reopen it if
+  // nothing is running.
+  let reopenT = null;
+  async function save() {
+    await invoke("set_agent_run", { planner: prefs.planner || null, worker: prefs.worker || null, permission: prefs.cli_permission || "edits", effort: prefs.cli_effort || null });
+    await invoke("set_worker_exclude", { exclude: exclude() });
+    clearTimeout(reopenT);
+    reopenT = setTimeout(async () => {
+      if (!hasProject || !machine().local) return;
+      if (snap.agents.some(busy)) toast("Applies when you next open the project; agents are working.");
+      else await invoke("open_project", { path: snap.workspace }).catch(e => toast(String(e), "err"));
+    }, 900);
+  }
+
+  // The orchestrator: the model picker, setting only the planner.
+  function pickOrchestrator(anchor, done) {
+    Picker.open(anchor, { model: prefs.planner || "", permission: prefs.cli_permission || "edits", effort: prefs.cli_effort || null }, async c => {
+      prefs.planner = c.model || null; prefs.cli_permission = c.permission; prefs.cli_effort = c.effort;
+      await save(); done && done();
+    });
+  }
+
+  // The executor as a menu: router or one harness, and for the router the
+  // models it may use.
+  async function pickExecutor(anchor, done) {
+    const [models, clis] = await Promise.all([invoke("router_models").catch(() => []), Picker.items().catch(() => [])]);
+    const draw = pop => {
+      const router = !prefs.worker;
+      pop.innerHTML = `<div class="ex">
+        <div class="ex-h"><b>Executor</b><span>Who builds each ticket</span></div>
+        <div class="segc ex-mode"><button aria-pressed="${router}" data-mode="router">Router decides</button><button aria-pressed="${!router}" data-mode="fixed">One harness</button></div>
+        ${router ? `<p class="ex-note">The router picks a model per ticket and climbs to a stronger one only when a check fails. Untick any it may not use.</p>
+          <div class="ex-list">${models.map(m => `<label class="ex-row${m.usable ? "" : " off"}"><input type="checkbox" data-allow="${plain(m.id)}" ${exclude().includes(m.id) ? "" : "checked"}><span><b>${plain(m.id)}</b><small>${plain(m.description)}${m.usable ? "" : " · no key"}</small></span></label>`).join("") || `<p class="ex-note">No API models configured.</p>`}</div>`
+        : `<div class="ex-list">${clis.filter(i => i.id).map(i => `<button class="pi ex-cli${prefs.worker === i.id ? " on" : ""}" data-cli="${plain(i.id)}" ${i.ok ? "" : "disabled"}>${window.Logos ? Logos.mark(i.cli) : ""}<span><b>${plain(i.name)}</b><small>${plain(i.sub)}</small></span></button>`).join("")}</div>`}
+      </div>`;
+      pop.querySelectorAll("[data-mode]").forEach(b => (b.onclick = async () => {
+        if (b.dataset.mode === "router") prefs.worker = null;
+        else if (!prefs.worker) { const first = clis.find(i => i.id && i.ok); if (!first) { toast("No coding CLI is signed in", "err"); return; } prefs.worker = first.id; }
+        await save(); draw(pop); done && done();
+      }));
+      pop.querySelectorAll("[data-allow]").forEach(c => (c.onchange = async () => {
+        const id = c.dataset.allow, ex = exclude().filter(x => x !== id);
+        if (!c.checked) ex.push(id);
+        if (models.length && ex.length >= models.length) { c.checked = true; toast("The router needs at least one model", "err"); return; }
+        prefs.worker_exclude = ex; await save(); done && done();
+      }));
+      pop.querySelectorAll("[data-cli]").forEach(b => (b.onclick = async () => { prefs.worker = b.dataset.cli; await save(); draw(pop); done && done(); }));
+    };
+    // Drawn once off-screen so the menu is placed at its real size.
+    const first = document.createElement("div"); draw(first);
+    openPop(anchor, first.innerHTML, draw);
+  }
+
+  return { orchestratorLabel, executorLabel, pickOrchestrator, pickExecutor };
 })();

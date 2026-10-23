@@ -262,6 +262,7 @@ impl Fleet {
         });
         fleet.schedule_dreams();
         fleet.schedule_routines();
+        fleet.schedule_relay();
         if prefs.companion.enabled {
             fleet.start_companion();
         }
@@ -454,6 +455,20 @@ impl Fleet {
 
     /// Fires due routines while the app is open. Best effort: one that cannot
     /// run stays due, and the next 30 s tick tries again.
+    /// Harness tiles' letters (relay.rs): picked up and delivered, and the
+    /// next waiting one started for any tile that is free.
+    fn schedule_relay(self: &Arc<Self>) {
+        let weak = Arc::downgrade(self);
+        std::thread::Builder::new()
+            .name("relay".into())
+            .spawn(move || loop {
+                std::thread::sleep(std::time::Duration::from_millis(700));
+                let Some(f) = weak.upgrade() else { return };
+                f.chats.pump(f.chat_ctx());
+            })
+            .ok();
+    }
+
     fn schedule_routines(self: &Arc<Self>) {
         let weak = Arc::downgrade(self);
         std::thread::Builder::new()
@@ -636,6 +651,7 @@ impl Fleet {
                 permission: Some(prefs.cli_permission),
                 effort: prefs.cli_effort,
                 tracing: Some(prefs.tracing),
+                exclude: prefs.worker_exclude,
             },
         )?;
         let root = h.root().display().to_string();

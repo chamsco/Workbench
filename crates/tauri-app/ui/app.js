@@ -712,7 +712,9 @@ function bindAppearance(el) {
 }
 // Settings → what each pane is, and where the left nav points.
 const SET_NAV = [
-  ["Personal", [["general", "General", "sliders"], ["appearance", "Appearance", "palette"], ["notify", "Notifications", "bubble"], ["chat", "Chat behavior", "compose"], ["phone", "Phone", "phone"]]],
+  ["Personal", [["general", "General", "sliders"], ["appearance", "Appearance", "palette"], ["notify", "Notifications", "bubble"], ["phone", "Phone", "phone"]]],
+  // Each app's own settings.
+  ["Apps", [["chat", "Chat", "compose"], ["code", "Workbench", "window"]]],
   ["Integrations", [["providers", "Agent providers", "plug"], ["mcp", "MCP and connections", "grid"], ["machines", "Machines", "cloud"]]],
   ["Coding", [["coding", "Models and writing", "codei"], ["accounts", "Accounts", "route"], ["models", "Local models", "cpu"], ["skills", "Agent skills", "book"], ["worktrees", "Managed worktrees", "branch"], ["colony", "Workspaces and Colony", "box"]]],
   ["System", [["tracing", "Tracing", "activity"], ["projects", "Projects", "folder"], ["share", "Share this machine", "share"], ["updates", "Updates", "download"]]],
@@ -738,13 +740,17 @@ function renderSettings() {
       <div class="line stack"><span class="lab">Background<small>Behind the window, and across the top of Home.</small></span><div class="bdrops">${Art.BACKDROPS.map(([k, l]) => `<button class="bdrop" aria-pressed="${Art.current() === k}" data-bd="${k}" title="${l}"><span class="sw sw-${k}" ${Art.src(k) ? `style="background-image:url('${Art.src(k)}')"` : ""}></span><span>${l}</span></button>`).join("")}</div></div></section>
     <section id="set-notify"><h2>Notifications</h2><div class="line"><span class="lab">When something needs you<small>A plan to approve, work to review, an agent that failed, a chat that hit a limit.</small></span><div class="segc">${[["system", "System"], ["app", "In the app"], ["off", "Off"]].map(([k, l]) => `<button aria-pressed="${(prefs.notify || "system") === k}" data-nt="${k}">${l}</button>`).join("")}</div></div>
       <div class="line"><span class="lab"></span><button class="btn" id="ntTest">Send a test notification</button></div></section>
-    <section id="set-chat"><h2>Chat behavior</h2><div class="line"><span class="lab">New chats go to<small>You can switch per chat from the composer.</small></span><button class="btn" id="setRoute" data-popper>${esc(window.Chat ? Chat.routeName(prefs.default_route) : "Pick")}</button></div>
+    <section id="set-chat"><h2>Chat</h2><p class="lead">Settings for the Chat app.</p><div class="line"><span class="lab">New chats go to<small>You can switch per chat from the composer.</small></span><button class="btn" id="setRoute" data-popper>${esc(window.Chat ? Chat.routeName(prefs.default_route) : "Pick")}</button></div>
       <div class="line"><span class="lab">Rich answers<small>Models may answer with charts, tables, steps and forms (OpenUI). Off: Markdown only, and a shorter prompt.</small></span><button class="toggle" role="switch" id="richT" aria-checked="${richOn()}" aria-label="Rich answers"></button></div></section>
     <section id="set-phone"><h2>Phone</h2><p class="lead">The Backspace phone app (coming soon) follows your chats, saves notes to Memory and approves a project's work. Turn this on and scan the code with it to pair. Plain HTTP with a token, so treat it as a network you trust — a paired phone can drive agents that run commands.</p>
       <div class="line"><span class="lab">Let my phone connect<small>${companion && companion.error ? esc(companion.error) : companion && companion.running ? `Listening on ${esc(companion.url || companion.addr)}` : "Off"}</small></span><button class="toggle" role="switch" id="phoneT" aria-checked="${!!(companion && companion.enabled)}" aria-label="Let my phone connect"></button></div>
       <div class="line"><span class="lab">Reachable from my network<small>${companion && companion.allow_lan ? "On: the port answers on your LAN, where a phone can reach it." : "Off (recommended): this machine only, so only the desktop can reach it."}</small></span><button class="toggle" role="switch" id="phoneLan" aria-checked="${!!(companion && companion.allow_lan)}" aria-label="Reachable from my network"></button></div>
       ${companion && companion.enabled && !companion.allow_lan ? `<p class="warnp">${icon("warn")}Turn on "Reachable from my network" before pairing a phone; a phone needs the LAN listener.</p>` : ""}
       ${companion && companion.enabled && companion.allow_lan && companion.pair ? `<div class="pair"><div class="qr" id="phoneQr" aria-label="Pairing code"></div><div class="pair-t"><b>Scan with the Backspace app</b><span>Or enter <code>${esc(companion.url)}</code> and the token by hand.</span><div class="pair-b"><button class="btn" id="phoneCopy">${icon("copy")}Copy pairing link</button><button class="btn" id="phoneNew">Unpair all phones</button></div></div></div>` : companion && companion.enabled && companion.allow_lan && !companion.url ? `<p class="warnp">${icon("warn")}This machine has no address on a local network, so a phone can't reach it.</p>` : ""}</section>
+    <section id="set-code"><h2>Workbench</h2><p class="lead">Like a Claude project: an orchestrator plans the work and talks to you, an executor builds each ticket. Both apply when a project opens.${hasProject ? ` <button class="lnk" id="reopen">Reopen ${esc(snap.name)} now</button>` : ""}</p>
+      <div class="line"><span class="lab">Orchestrator<small>Plans, splits the work into tickets, reviews it, and is who you talk to in the ADE. Also what CLIs may do without asking, and how hard they think.</small></span><div class="segc" id="workerSeg"></div></div>
+      <div class="line"><span class="lab">Executor<small>One harness for every ticket, or the router's pick per ticket from the models you allow.</small></span><button class="btn" id="execSeg" data-popper></button></div>
+      <div class="line"><span class="lab">Harness tiles<small>Put a harness in any canvas of the IDE. Tiles in a tab can message each other: type <code>@name</code> in one, or let the harness use its <code>message_tile</code> tool. Right-click a tile's header to make it the tab's coordinator. A message for a busy tile waits until its turn ends, and a chain of hand-offs stops after six.</small></span></div></section>
     <section id="set-providers"><h2>Agent providers</h2><p class="lead">What Chat and projects can use. Backspace scans this machine for each CLI, its version and whether it is signed in; switch off any you don't want offered.</p><div id="setProviders"></div>
       ${nightly() ? `<div class="line"><span class="lab">Backspace Cloud</span><span class="lead" style="margin:0">Chat without installing anything. Free with a short ad under each reply, or a paid plan.</span></div><div id="setPlan"></div>` : ""}</section>
     <section id="set-mcp"><h2>MCP and connections</h2><p class="lead">Outside tools a bot can be given through the Model Context Protocol. Add a server by command or URL; every bot you give it to can call its tools.</p><div id="setConnections"></div></section>
@@ -754,7 +760,7 @@ function renderSettings() {
       <div class="form3"><input class="tx" id="mName" placeholder="Name, e.g. Cloud" aria-label="Machine name"><input class="tx mono" id="mUrl" placeholder="http://10.0.0.5:7420" aria-label="Address"><input class="tx mono" id="mTok" placeholder="Token" aria-label="Token"><button class="btn primary" id="mAdd">Add</button></div>
       <div class="err" id="mErr" role="alert"></div></section>
     <section id="set-coding"><h2>Models and writing</h2><p class="lead">A project's planner runs on an API model (Anthropic or OpenRouter, keys below). Each ticket's worker can run on the router's pick, or be handed to a coding CLI you're signed in to: it works in the ticket's own git worktree, then goes through the same checks and your review.</p>
-      <div class="line stack"><span class="lab">Agents run on<small>The planner and the workers, what they may do, and how hard they think. Applies when a project opens.${hasProject ? ` <button class="lnk" id="reopen">Reopen ${esc(snap.name)} now</button>` : ""}</small></span><div class="segc" id="workerSeg"></div></div>
+      <div class="line"><span class="lab">Who runs a project<small>The orchestrator and the executor are the Workbench app's settings.</small></span><button class="btn" data-setnav="code">Workbench settings</button></div>
       <div id="keyRows"></div></section>
     <section id="set-accounts"><h2>Accounts</h2><p class="lead">Several logins per coding CLI, each in its own profile directory, kept apart. When one hits its usage limit it is parked and the next turn picks another — never on a plain rate limit, only when the CLI itself reports a limit. Backspace never holds the credentials: the CLI signs in to its own profile directory.</p><div id="setAccounts"></div></section>
     <section id="set-models"><h2>Local models</h2><p class="lead">Small models on this machine, for the small jobs a big agent delegates: reading, classifying, summarising, extracting. Ollama, LM Studio, llama.cpp and MLX are all found where they run.</p><div id="setLocal"></div></section>
@@ -888,12 +894,11 @@ async function renderCoding(el) {
   const hs = window.Providers ? Providers.list : [];
   const ok = id => !id || hs.some(h => h.id === id && h.installed && h.enabled);
   const perm = { edits: "Auto-accept edits", auto: "Auto", full: "Full access" }[prefs.cli_permission || "edits"];
-  const cli = Picker.cliOf(prefs.worker), eff = Effort.name(cli, prefs.cli_effort);
-  seg.innerHTML = `<button class="btn" data-mpick>${Logos.mark(cli)}${esc(await Picker.label(prefs.worker))} · ${perm}${eff ? ` · ${eff}` : ""}${icon("chevd")}</button>`;
-  seg.querySelector("button").onclick = e => Picker.open(e.currentTarget, { model: prefs.worker || "", permission: prefs.cli_permission || "edits", effort: prefs.cli_effort || null }, async c => {
-    prefs.worker = prefs.planner = c.model || null; prefs.cli_permission = c.permission; prefs.cli_effort = c.effort;
-    await invoke("set_agent_run", { planner: prefs.planner, worker: prefs.worker, permission: c.permission, effort: c.effort });
-  });
+  const cli = Picker.cliOf(prefs.planner), eff = Effort.name(cli, prefs.cli_effort);
+  seg.innerHTML = `<button class="btn" data-mpick>${Logos.mark(cli)}${esc(await Picker.label(prefs.planner))} · ${perm}${eff ? ` · ${eff}` : ""}${icon("chevd")}</button>`;
+  seg.querySelector("button").onclick = e => Runs.pickOrchestrator(e.currentTarget, () => renderCoding(el));
+  const ex = $("#execSeg", el);
+  if (ex) { ex.innerHTML = `${icon("branch")}${esc(await Runs.executorLabel())}${icon("chevd")}`; ex.onclick = e => Runs.pickExecutor(e.currentTarget, () => renderCoding(el)); }
   const ro = $("#reopen", el); if (ro) ro.onclick = () => { const p = snap.workspace; closeSettings(); openProject(p); };
   const keys = (await invoke("api_keys").catch(() => null)) || [];
   const names = { ANTHROPIC_API_KEY: ["Anthropic", "Claude models for the planner and workers"], OPENROUTER_API_KEY: ["OpenRouter", "Any model through one key"], TYPESAFE_API_KEY: ["Jev router", "Optional: smarter model choice per agent"] };

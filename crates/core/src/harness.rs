@@ -112,6 +112,8 @@ pub struct Overrides {
     pub effort: Option<String>,
     /// Where traces go besides this machine.
     pub tracing: Option<crate::trace::Export>,
+    /// Models the router may not give a worker.
+    pub exclude: Vec<String>,
 }
 
 pub struct Harness {
@@ -345,6 +347,7 @@ impl Harness {
                 cfg.router.pin_sub = Some(w);
             }
         }
+        cfg.router.exclude_sub.extend(over.exclude.iter().cloned());
         let rt = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .build()?;
@@ -1539,7 +1542,7 @@ fn escalate(inner: &Inner, c: &mut Conversation, reason: &str) -> bool {
         .cfg
         .usable_models()
         .into_iter()
-        .filter(|m| m.tier > spec.tier)
+        .filter(|m| m.tier > spec.tier && !inner.cfg.router.exclude_sub.contains(&m.id))
         .min_by(|a, b| {
             a.tier
                 .cmp(&b.tier)

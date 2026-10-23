@@ -670,6 +670,40 @@ fn set_agent_run(f: F, planner: Option<String>, worker: Option<String>, permissi
     });
 }
 
+/// The executor's exclusions: models the router may not give a worker.
+#[tauri::command]
+fn set_worker_exclude(f: F, exclude: Vec<String>) {
+    f.update_prefs(|p| p.worker_exclude = exclude.into_iter().filter(|m| !m.trim().is_empty()).collect());
+}
+
+/// The models the router picks workers from (the project's config, or the
+/// built-in one), and whether each has a key right now.
+#[tauri::command]
+fn router_models(f: F) -> Res<Vec<serde_json::Value>> {
+    let root = f.local().map(|h| h.root().to_path_buf()).unwrap_or_else(Prefs::data_dir);
+    let (cfg, _) = backspace_core::config::Config::load(&root).map_err(err)?;
+    let usable: Vec<String> = cfg.usable_models().iter().map(|m| m.id.clone()).collect();
+    Ok(cfg
+        .models
+        .iter()
+        .filter(|m| cfg.cli_of(&m.id).is_none())
+        .map(|m| serde_json::json!({ "id": m.id, "description": m.description, "tier": m.tier, "usable": usable.contains(&m.id) }))
+        .collect())
+}
+
+/// The open tab's harness tiles, so they can reach each other (relay.rs).
+/// Hands back the names as stored: unique, and typeable after an `@`.
+#[tauri::command]
+fn relay_tiles(tiles: Vec<backspace_core::relay::Tile>) -> Res<Vec<backspace_core::relay::Tile>> {
+    backspace_core::relay::set_tiles(&Prefs::data_dir(), tiles).map_err(err)
+}
+
+/// Letters waiting for each of these tiles while it works.
+#[tauri::command]
+fn relay_waiting(f: F, threads: Vec<String>) -> Vec<usize> {
+    threads.iter().map(|t| f.chats().waiting(t)).collect()
+}
+
 #[tauri::command]
 fn set_backdrop(f: F, backdrop: String) {
     f.update_prefs(|p| p.backdrop = backdrop);
@@ -1950,6 +1984,10 @@ fn main() -> anyhow::Result<()> {
             git_changes,
             git_diff,
             set_agent_run,
+            set_worker_exclude,
+            router_models,
+            relay_tiles,
+            relay_waiting,
             set_backdrop,
             file_ticket,
             post_message,

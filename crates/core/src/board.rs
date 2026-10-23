@@ -336,7 +336,7 @@ pub(crate) fn do_agents(b: &Bridge) -> Result<String> {
         .to_string())
 }
 
-/// `msg ...` and `mcp` for any Backspace binary. None when `args` (after
+/// `msg ...`, `tile ...` and `mcp` for any Backspace binary. None when `args` (after
 /// the program name) are not one of these, so the binary carries on.
 pub fn client_main(args: &[String]) -> Option<i32> {
     match args.first().map(String::as_str) {
@@ -347,6 +347,16 @@ pub fn client_main(args: &[String]) -> Option<i32> {
             }
             Err(e) => {
                 eprintln!("backspace msg: {e:#}");
+                1
+            }
+        }),
+        Some("tile") => Some(match crate::relay::cli(&args[1..]) {
+            Ok(out) => {
+                println!("{out}");
+                0
+            }
+            Err(e) => {
+                eprintln!("backspace tile: {e:#}");
                 1
             }
         }),

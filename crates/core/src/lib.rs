@@ -31,6 +31,7 @@ pub mod prefs;
 pub mod project;
 pub mod projects;
 pub mod provider;
+pub mod relay;
 pub mod remote;
 pub mod router;
 pub mod skills;

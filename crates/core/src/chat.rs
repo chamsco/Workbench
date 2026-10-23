@@ -375,6 +375,11 @@ pub fn b64_decode(s: &str) -> Option<Vec<u8>> {
     Some(out)
 }
 
+/// Written by, or sent from, another harness tile (relay.rs).
+fn is_tile(m: &Msg) -> bool {
+    m.author.as_deref().is_some_and(|a| a.starts_with("tile:"))
+}
+
 /// `@codex ...` at the start of a message: answer with that CLI.
 pub fn mention(text: &str) -> Option<Route> {
     let w = text.trim_start().strip_prefix('@')?;
@@ -410,6 +415,27 @@ pub struct Chats {
     http: reqwest::Client,
     /// The latest Cloud account seen in a reply.
     account: Mutex<Option<Account>>,
+    /// Harness tiles (relay.rs): letters waiting for a busy tile, per thread.
+    inbox: Mutex<HashMap<String, std::collections::VecDeque<Inbound>>>,
+    /// The letter a tile's running turn answers, so its answer can go back.
+    answering: Mutex<HashMap<String, Inbound>>,
+    /// Hand-offs so far in the chain each thread's latest turn belongs to;
+    /// a turn the user started is 0.
+    hops: Mutex<HashMap<String, u8>>,
+}
+
+/// A message from another tile, waiting or being answered.
+#[derive(Clone, Debug)]
+struct Inbound {
+    /// The sending tile's thread.
+    from: String,
+    text: String,
+    /// Send the answer back to `from`.
+    reply: bool,
+    /// Instead of a turn for `from`, the answer is posted in its thread (an
+    /// @mention the user typed there).
+    as_note: bool,
+    hops: u8,
 }
 
 /// OpenUI's prompt for rich answers (charts, tables, steps, forms), set by
@@ -474,6 +500,9 @@ impl Chats {
             rt,
             http: reqwest::Client::new(),
             account: Mutex::new(None),
+            inbox: Mutex::new(HashMap::new()),
+            answering: Mutex::new(HashMap::new()),
+            hops: Mutex::new(HashMap::new()),
         })
     }
 
@@ -848,6 +877,8 @@ impl Chats {
         if let Some(h) = self.running.lock().unwrap().remove(id) {
             h.abort();
         }
+        // A stopped tile owes nobody an answer; the next letter waits for `pump`.
+        self.answering.lock().unwrap().remove(id);
         let _ = self.edit_thread(id, |t| {
             if let Some(m) = t.messages.last_mut() {
                 if matches!(m.status, Status::Sending | Status::Streaming) {
@@ -910,7 +941,161 @@ impl Chats {
             t.updated = now;
             Chats::touched(t);
         })?;
+        self.hops.lock().unwrap().insert(id.to_string(), 0);
+        // `@codex ...` naming another harness tile hands the message to that
+        // tile: it answers in its own session, and the answer is posted here.
+        let tiles = crate::relay::tiles(&self.dir);
+        if let Some((to, rest)) = crate::relay::mention(&tiles, id, text).filter(|(_, r)| !r.is_empty()) {
+            let text = self.with_context(id, &tiles, &rest);
+            let inb = Inbound { from: id.to_string(), text, reply: true, as_note: true, hops: 1 };
+            return self.take_letter(&to.thread.clone(), inb, ctx);
+        }
         self.reply(id, ctx, mention(text))
+    }
+
+    // ------------------------------------------------------------ tiles
+
+    /// A letter from one harness tile to another (relay.rs), from a tile's
+    /// `message_tile` call.
+    pub fn deliver(self: &Arc<Self>, l: &crate::relay::Letter, ctx: Ctx) -> Result<()> {
+        let hops = self.hops.lock().unwrap().get(&l.from).copied().unwrap_or(0) + 1;
+        if hops > crate::relay::MAX_HOPS {
+            let why = format!(
+                "(Not delivered: this request has been handed on {} times already. Ask again to carry on.)",
+                crate::relay::MAX_HOPS
+            );
+            self.note(&l.from, &l.to, &why);
+            bail!("too many hand-offs");
+        }
+        let inb = Inbound { from: l.from.clone(), text: l.text.clone(), reply: l.reply, as_note: false, hops };
+        self.take_letter(&l.to, inb, ctx)
+    }
+
+    /// Deliver what tiles posted, and start the next waiting letter of every
+    /// tile that is free. The app calls this every second or so.
+    pub fn pump(self: &Arc<Self>, ctx: Ctx) {
+        for l in crate::relay::drain(&self.dir) {
+            let _ = self.deliver(&l, ctx.clone());
+        }
+        let ready: Vec<String> = self
+            .inbox
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(_, q)| !q.is_empty())
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in ready.into_iter().filter(|id| !self.is_busy(id)) {
+            let next = self.inbox.lock().unwrap().get_mut(&id).and_then(|q| q.pop_front());
+            if let Some(n) = next {
+                let _ = self.start_letter(&id, n, ctx.clone());
+            }
+        }
+    }
+
+    /// Letters waiting for a tile while it works.
+    pub fn waiting(&self, id: &str) -> usize {
+        self.inbox.lock().unwrap().get(id).map_or(0, |q| q.len())
+    }
+
+    fn tile_label(&self, id: &str) -> String {
+        crate::relay::tiles(&self.dir)
+            .into_iter()
+            .find(|t| t.thread == id)
+            .map(|t| t.label)
+            .unwrap_or_else(|| "another harness".into())
+    }
+
+    /// What the user typed after `@tile`, with this tile's last answer, so
+    /// "@codex review that" means something over there.
+    fn with_context(&self, id: &str, tiles: &[crate::relay::Tile], ask: &str) -> String {
+        let last = self.peek(id).and_then(|t| {
+            t.messages
+                .iter()
+                .rev()
+                .find(|m| m.role == Role::Assistant && m.status == Status::Done && !m.text.trim().is_empty())
+                .map(|m| m.text.clone())
+        });
+        let me = crate::relay::find(tiles, id).map(|t| t.label.clone()).unwrap_or_else(|| "the other tile".into());
+        match last {
+            Some(t) => {
+                let snip: String = t.chars().take(4000).collect();
+                format!("{ask}\n\n---\nFor context, what `{me}` last said in its session:\n\n{snip}")
+            }
+            None => ask.to_string(),
+        }
+    }
+
+    /// Hand a letter to a tile now, or queue it while the tile is busy.
+    fn take_letter(self: &Arc<Self>, to: &str, inb: Inbound, ctx: Ctx) -> Result<()> {
+        if !self.threads.lock().unwrap().contains_key(to) {
+            bail!("that tile's session is gone");
+        }
+        if self.is_busy(to) || self.waiting(to) > 0 {
+            self.inbox.lock().unwrap().entry(to.to_string()).or_default().push_back(inb);
+            self.poke();
+            return Ok(());
+        }
+        self.start_letter(to, inb, ctx)
+    }
+
+    /// A letter as the tile's next turn: posted under the sender's name, then answered.
+    fn start_letter(self: &Arc<Self>, to: &str, inb: Inbound, ctx: Ctx) -> Result<()> {
+        let mut m = Msg::new(Role::User, inb.text.clone(), Status::Done);
+        m.author = Some(format!("tile:{}", inb.from));
+        m.author_name = Some(self.tile_label(&inb.from));
+        self.edit_thread(to, |t| {
+            t.updated = m.at;
+            Chats::touched(t);
+            t.messages.push(m);
+        })?;
+        self.hops.lock().unwrap().insert(to.to_string(), inb.hops);
+        self.answering.lock().unwrap().insert(to.to_string(), inb);
+        let res = self.reply(to, ctx, None);
+        if res.is_err() {
+            self.answering.lock().unwrap().remove(to);
+        }
+        res
+    }
+
+    /// Something another tile said, posted in this thread without a turn. A
+    /// resumed CLI session reads it with the next message (`request`).
+    fn note(&self, to: &str, from: &str, text: &str) {
+        let mut m = Msg::new(Role::Assistant, text.to_string(), Status::Done);
+        m.author = Some(format!("tile:{from}"));
+        m.author_name = Some(self.tile_label(from));
+        let _ = self.edit_thread(to, |t| {
+            t.updated = m.at;
+            Chats::touched(t);
+            t.messages.push(m);
+        });
+        self.unread.lock().unwrap().insert(to.to_string());
+        self.poke();
+    }
+
+    /// A tile finished a turn: its answer goes back to whoever asked, and the
+    /// next letter waiting for it starts.
+    fn after_turn(self: &Arc<Self>, tid: &str, mid: &str, ctx: &Ctx) {
+        let inb = self.answering.lock().unwrap().remove(tid);
+        if let Some(inb) = inb.filter(|i| i.reply) {
+            let label = self.tile_label(tid);
+            let m = self.peek(tid).and_then(|t| t.messages.into_iter().find(|m| m.id == mid));
+            let body = match m {
+                Some(m) if m.status == Status::Error => format!("(`{label}` failed: {})", m.error.unwrap_or_default()),
+                Some(m) if m.status == Status::Done => m.text,
+                _ => format!("(`{label}` stopped before it answered)"),
+            };
+            if inb.as_note {
+                self.note(&inb.from, tid, &body);
+            } else {
+                let back = Inbound { from: tid.to_string(), text: body, reply: false, as_note: false, hops: inb.hops };
+                let _ = self.take_letter(&inb.from, back, ctx.clone());
+            }
+        }
+        let next = self.inbox.lock().unwrap().get_mut(tid).and_then(|q| q.pop_front());
+        if let Some(n) = next {
+            let _ = self.start_letter(tid, n, ctx.clone());
+        }
     }
 
     /// Something from outside for an agent (its webhook): posted in its
@@ -1095,6 +1280,10 @@ impl Chats {
     fn spawn_reply(self: &Arc<Self>, id: &str, mid: String, route: Route, ctx: Ctx, call: Call, mentioned: bool) {
         let me = self.clone();
         let tid = id.to_string();
+        // Held until the handle is in: a reply that fails at once (nothing
+        // listening) must not remove itself before it is added, or the thread
+        // would read as busy for good.
+        let mut running = self.running.lock().unwrap();
         let task = self.rt.spawn(async move {
             let res = me.run(&tid, &mid, &route, &ctx, &call).await;
             if mentioned {
@@ -1106,13 +1295,12 @@ impl Chats {
             if spec {
                 me.file_spec(&tid, &mid);
             }
+            me.after_turn(&tid, &mid, &ctx);
             me.unread.lock().unwrap().insert(tid);
             me.poke();
         });
-        self.running
-            .lock()
-            .unwrap()
-            .insert(id.to_string(), task.abort_handle());
+        running.insert(id.to_string(), task.abort_handle());
+        drop(running);
         self.poke();
     }
 
@@ -1158,6 +1346,8 @@ impl Chats {
             if named.is_empty() { roster.clone().into() } else { named.into() };
         let me = self.clone();
         let tid = id.to_string();
+        // Held until the handle is in (see `spawn_reply`).
+        let mut running = self.running.lock().unwrap();
         let task = self.rt.spawn(async move {
             let mut turns = 0;
             while let Some(a) = queue.pop_front() {
@@ -1199,10 +1389,8 @@ impl Chats {
             me.unread.lock().unwrap().insert(tid);
             me.poke();
         });
-        self.running
-            .lock()
-            .unwrap()
-            .insert(id.to_string(), task.abort_handle());
+        running.insert(id.to_string(), task.abort_handle());
+        drop(running);
         self.poke();
         Ok(())
     }
@@ -1436,7 +1624,11 @@ impl Chats {
         hist.iter()
             .map(|m| Turn {
                 user: m.role == Role::User,
-                text: m.text.clone(),
+                // A letter from another tile says who it is from.
+                text: match (&m.author_name, m.role == Role::User && is_tile(m)) {
+                    (Some(who), true) => format!("[From `{who}`, another harness tiled next to you]\n\n{}", m.text),
+                    _ => m.text.clone(),
+                },
                 who: m.author_name.clone().or_else(|| m.via.as_ref().map(|v| v.provider.clone())),
                 files: m
                     .attachments
@@ -1488,6 +1680,29 @@ impl Chats {
         };
         let (hist, session) = self.history_for(id, call);
         let mut turns = self.turns(id, &hist);
+        // A resumed CLI session saw only its own turns. What was said here
+        // without it since (another tile's answer, an @tile hand-off) goes in
+        // front of the new message.
+        if session.is_some() && !call.resume && hist.len() > 1 {
+            let last = hist.len() - 1;
+            let own = |m: &Msg| m.role == Role::Assistant && !is_tile(m) && m.via.is_none();
+            if let Some(i) = hist[..last].iter().rposition(own) {
+                let missed: Vec<String> = hist[i + 1..last]
+                    .iter()
+                    .map(|m| {
+                        let who = match (&m.author_name, m.role) {
+                            (Some(n), _) if is_tile(m) => format!("`{n}`"),
+                            (_, Role::User) => "The user".into(),
+                            _ => "Another model".into(),
+                        };
+                        format!("{who}: {}", m.text.chars().take(4000).collect::<String>())
+                    })
+                    .collect();
+                if let (false, Some(t)) = (missed.is_empty(), turns.last_mut()) {
+                    t.text = format!("Said in this session while you were not answering:\n\n{}\n\n---\n\n{}", missed.join("\n\n"), t.text);
+                }
+            }
+        }
         if call.resume {
             const GO_ON: &str = "You were cut off before you finished (the app closed, or the user paused you). \
                 Carry on from exactly where you stopped. Don't repeat what you already said or did; \
@@ -1581,6 +1796,20 @@ Ask the reader for input with the real form parts: `f = FormControl(\"Name\", In
         if let Some(s) = &mem_scope {
             env.insert(crate::mcp::ENV_MEMORY.into(), s.clone().into());
         }
+        // A harness tile: who else is in the tab, and how to reach them.
+        let tile = crate::relay::brief(&crate::relay::tiles(&self.dir), id);
+        if let Some(b) = &tile {
+            let b = if matches!(route.provider.as_str(), "claude" | "codex") {
+                b.clone()
+            } else {
+                // No MCP for this CLI here: the same thing from its shell.
+                let exe = std::env::current_exe().map(|e| e.display().to_string()).unwrap_or_else(|_| "backspace".into());
+                format!("{b}\nYou have no `message_tile` tool: run `\"{exe}\" tile send <name> \"text\"` in your shell instead (`tile list` lists them).\n")
+            };
+            req.system = Some(format!("{}{b}", req.system.take().map(|s| s + "\n\n").unwrap_or_default()));
+            env.insert(crate::relay::ENV_TILE.into(), id.into());
+            req.env.push((crate::relay::ENV_TILE.into(), id.into()));
+        }
         // A bot's rules, however it is called (its thread or a group): the
         // CLI's own tools it may not use, and what `backspace mcp` leaves out.
         let deny = call.agent.as_ref().map(|a| a.deny()).unwrap_or_default();
@@ -1591,7 +1820,7 @@ Ask the reader for input with the real form parts: `f = FormControl(\"Name\", In
         }
         let mut servers = serde_json::Map::new();
         // Installed apps' tools, the agent's computer and memory, through `backspace mcp`.
-        if !crate::mcp::app_tools(&deny).is_empty() || computer.is_some() || mem_scope.is_some() {
+        if !crate::mcp::app_tools(&deny).is_empty() || computer.is_some() || mem_scope.is_some() || tile.is_some() {
             if let Ok(exe) = std::env::current_exe() {
                 servers.insert("backspace".into(), json!({"command": exe.display().to_string(), "args": ["mcp"], "env": env}));
             }
@@ -2132,5 +2361,112 @@ mod tests {
         assert_eq!(serde_json::to_string(&Life::Ghost).unwrap(), "\"ghost\"");
         assert_eq!(serde_json::from_str::<Life>("\"temporal\"").unwrap(), Life::Temporal);
         assert_eq!(serde_json::from_str::<Life>("\"keep\"").unwrap(), Life::Keep);
+    }
+
+    // ------------------------------------------------------------ tiles
+
+    /// A context whose local model answers nothing, quickly: nothing listens on port 9.
+    fn dead_ctx() -> Ctx {
+        let mut prefs = Prefs::default();
+        prefs.ollama_url = "http://127.0.0.1:9".into();
+        Ctx { prefs, memory: None, agents: None, plan: false }
+    }
+
+    fn settle(c: &Chats, ids: &[&str]) {
+        for _ in 0..200 {
+            if ids.iter().all(|id| !c.is_busy(id) && c.waiting(id) == 0 && !c.answering.lock().unwrap().contains_key(*id)) {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        panic!("tiles never settled");
+    }
+
+    /// Two tiles, `claude` and `codex`, in a fresh data folder.
+    fn two_tiles(name: &str) -> (Arc<Chats>, tokio::runtime::Runtime, String, String) {
+        let dir = tmp(name);
+        let (c, rt) = chats(&dir);
+        let a = c.create(route()).id;
+        let b = c.create(route()).id;
+        let tile = |t: &str, l: &str| crate::relay::Tile { thread: t.into(), label: l.into(), runs: String::new(), coordinator: false };
+        crate::relay::set_tiles(&dir, vec![tile(&a, "claude"), tile(&b, "codex")]).unwrap();
+        (c, rt, a, b)
+    }
+
+    #[test]
+    fn a_letter_is_a_turn_and_its_answer_goes_back() {
+        let (c, _rt, a, b) = two_tiles("letter");
+        let l = crate::relay::Letter { from: a.clone(), to: b.clone(), text: "run the tests".into(), reply: true };
+        c.deliver(&l, dead_ctx()).unwrap();
+        settle(&c, &[&a, &b]);
+        let bt = c.thread(&b).unwrap();
+        assert_eq!(bt.messages[0].author_name.as_deref(), Some("claude"));
+        assert_eq!(bt.messages[0].text, "run the tests");
+        assert_eq!(bt.messages[1].role, Role::Assistant);
+        // The answer (here a failure) came back to `claude` as its next turn,
+        // and that turn's answer does not bounce back again.
+        let at = c.thread(&a).unwrap();
+        assert!(at.messages[0].author_name.as_deref() == Some("codex") && at.messages[0].text.contains("`codex` failed"), "{:?}", at.messages[0]);
+        assert_eq!(at.messages.len(), 2);
+        assert_eq!(c.thread(&b).unwrap().messages.len(), 2);
+    }
+
+    #[test]
+    fn a_busy_tile_gets_its_letter_after_the_turn() {
+        let (c, rt, a, b) = two_tiles("busy");
+        let fake = rt.spawn(async { tokio::time::sleep(Duration::from_secs(60)).await });
+        c.running.lock().unwrap().insert(b.clone(), fake.abort_handle());
+        let l = crate::relay::Letter { from: a.clone(), to: b.clone(), text: "later".into(), reply: false };
+        c.deliver(&l, dead_ctx()).unwrap();
+        assert_eq!(c.waiting(&b), 1);
+        assert!(c.thread(&b).unwrap().messages.is_empty(), "nothing reaches a tile mid-turn");
+        c.stop(&b);
+        c.pump(dead_ctx());
+        settle(&c, &[&b]);
+        assert_eq!(c.thread(&b).unwrap().messages[0].text, "later");
+        assert!(c.thread(&a).unwrap().messages.is_empty(), "no answer was asked for");
+    }
+
+    #[test]
+    fn a_chain_of_hand_offs_stops() {
+        let (c, _rt, a, b) = two_tiles("hops");
+        c.hops.lock().unwrap().insert(a.clone(), crate::relay::MAX_HOPS);
+        let l = crate::relay::Letter { from: a.clone(), to: b.clone(), text: "again".into(), reply: true };
+        assert!(c.deliver(&l, dead_ctx()).is_err());
+        assert!(c.thread(&b).unwrap().messages.is_empty());
+        assert!(c.thread(&a).unwrap().messages[0].text.contains("Not delivered"));
+    }
+
+    #[test]
+    fn at_a_tile_hands_over_and_posts_the_answer_here() {
+        let (c, _rt, a, b) = two_tiles("mention");
+        c.send(&a, "@codex check the build", vec![], None, dead_ctx()).unwrap();
+        settle(&c, &[&a, &b]);
+        let bt = c.thread(&b).unwrap();
+        assert!(bt.messages[0].text.starts_with("check the build"));
+        let at = c.thread(&a).unwrap();
+        assert_eq!(at.messages.len(), 2, "the user's message and codex's answer, and no turn of claude's");
+        assert_eq!((at.messages[1].role, at.messages[1].author_name.as_deref()), (Role::Assistant, Some("codex")));
+    }
+
+    #[test]
+    fn a_resumed_session_reads_what_it_missed() {
+        let (c, _rt, a, _b) = two_tiles("missed");
+        let mut own = Msg::new(Role::Assistant, "done with the parser".into(), Status::Done);
+        own.model = Some("m".into());
+        let ask = Msg::new(Role::User, "@codex review it".into(), Status::Done);
+        let mut note = Msg::new(Role::Assistant, "two bugs in lexer.rs".into(), Status::Done);
+        note.author = Some("tile:x".into());
+        note.author_name = Some("codex".into());
+        let now = Msg::new(Role::User, "fix what codex found".into(), Status::Done);
+        let empty = Msg::new(Role::Assistant, String::new(), Status::Sending);
+        c.edit_thread(&a, |t| {
+            t.cli_session = Some("s1".into());
+            t.messages = vec![Msg::new(Role::User, "write a parser".into(), Status::Done), own, ask, note, now, empty];
+        })
+        .unwrap();
+        let req = c.request(&a, &route(), &dead_ctx(), &Call::default()).unwrap();
+        let last = &req.history.last().unwrap().text;
+        assert!(last.contains("The user: @codex review it") && last.contains("`codex`: two bugs") && last.ends_with("fix what codex found"), "{last}");
     }
 }

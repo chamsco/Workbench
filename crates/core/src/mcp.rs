@@ -9,6 +9,8 @@
 //!   `computer_write`), when started for an agent that has one (agents.rs);
 //! - memory (`memory_search`, `memory_save`), when started with a memory
 //!   scope (memory.rs);
+//! - the other harness tiles (`list_tiles`, `message_tile`), when started in
+//!   one (relay.rs);
 //! - every enabled app's tools (apps.rs).
 //!
 //! Which tools it lists depends only on the environment the CLI was given.
@@ -29,6 +31,11 @@ pub const ENV_MEMORY: &str = "BACKSPACE_MEMORY";
 
 fn memory_scope() -> Option<String> {
     std::env::var(ENV_MEMORY).ok().filter(|s| !s.is_empty())
+}
+
+/// The harness tile (its thread) a CLI was started in, if any (relay.rs).
+fn tile() -> Option<String> {
+    std::env::var(crate::relay::ENV_TILE).ok().filter(|s| !s.is_empty())
 }
 
 fn memory_search(scope: &str, query: &str) -> Result<String> {
@@ -169,6 +176,12 @@ pub fn serve() -> Result<()> {
                     tools.push(json!({"name": "computer_write", "description": "Write a file on your own computer (creates folders as needed).",
                         "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"]}}));
                 }
+                if tile().is_some() {
+                    tools.push(json!({"name": "list_tiles", "description": "The other coding harnesses tiled next to you in the user's IDE: their names, what runs them, and which one coordinates.",
+                        "inputSchema": {"type": "object", "properties": {}}}));
+                    tools.push(json!({"name": "message_tile", "description": "Hand another harness tile something to do or answer, by name. It becomes that harness's next turn (it waits if the harness is busy), and with `reply` (the default) its answer comes back to you as your next message, so end your turn after sending if you need the answer to go on.",
+                        "inputSchema": {"type": "object", "properties": {"to": {"type": "string"}, "text": {"type": "string"}, "reply": {"type": "boolean", "description": "Send me its answer (default true)"}}, "required": ["to", "text"]}}));
+                }
                 if memory_scope().is_some() {
                     tools.push(json!({"name": "memory_search", "description": "Search the user's memory (an Agent Memory Repo: notes and any topic files) for what this task needs: preferences, decisions, facts about people and projects, saved queries.",
                         "inputSchema": {"type": "object", "properties": {"query": {"type": "string", "description": "Words that must all appear"}}, "required": ["query"]}}));
@@ -209,6 +222,17 @@ pub fn serve() -> Result<()> {
                             "computer_read" => crate::agents::read(&env, a["path"].as_str().unwrap_or("")),
                             _ => crate::agents::write(&env, a["path"].as_str().unwrap_or(""), a["content"].as_str().unwrap_or("")),
                         },
+                    },
+                    "list_tiles" | "message_tile" => match tile() {
+                        None => Err(anyhow!("you are not in a harness tile")),
+                        Some(me) if name == "list_tiles" => crate::relay::list(&crate::prefs::Prefs::data_dir(), &me),
+                        Some(me) => crate::relay::send(
+                            &crate::prefs::Prefs::data_dir(),
+                            &me,
+                            a["to"].as_str().unwrap_or(""),
+                            a["text"].as_str().unwrap_or(""),
+                            a["reply"].as_bool().unwrap_or(true),
+                        ),
                     },
                     "memory_search" | "memory_save" => match memory_scope() {
                         None => Err(anyhow!("memory is not open to this session")),

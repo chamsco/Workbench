@@ -34,7 +34,9 @@ var Home = (() => {
     null;
 
   const project = () => proj || (hasProject && snap.workspace) || (prefs.projects || [])[0] || null;
-  const choice = () => ({ model: prefs.worker || "", permission: prefs.cli_permission || "edits", effort: prefs.cli_effort || null });
+  // The composer's model chip is the orchestrator: it plans and talks to you.
+  // Who builds each ticket is the executor chip beside it (Runs, picker.js).
+  const choice = () => ({ model: prefs.planner || "", permission: prefs.cli_permission || "edits", effort: prefs.cli_effort || null });
   const name = a => (a.id === MAIN ? "Main agent" : a.title);
   const visible = () => treeOrder().map(agent).filter(a => a && a.kind !== "triage");
 
@@ -53,7 +55,8 @@ var Home = (() => {
             <span class="hc-hint"><kbd>↵</kbd> start <kbd>Ctrl ↵</kbd> in parallel</span>
             <span class="sp"></span>
             <button class="hc-par" data-act="par" title="Start another task in parallel, on its own branch">${icon("branch")}Parallel</button>
-            <button class="hc-model" data-act="model" aria-expanded="false"><span class="lg"></span><span class="v"></span><span class="eff"></span>${icon("chevd")}</button>
+            <button class="hc-exec" data-act="exec" data-popper title="Executor: who builds each ticket">${icon("branch")}<span class="v"></span>${icon("chevd")}</button>
+            <button class="hc-model" data-act="model" aria-expanded="false" title="Orchestrator: plans the work and talks to you"><span class="lg"></span><span class="v"></span><span class="eff"></span>${icon("chevd")}</button>
             <button class="hc-send" data-act="send" aria-label="Start">${icon("up")}</button>
           </div>
           <div class="hc-panel" hidden></div>
@@ -196,6 +199,8 @@ var Home = (() => {
     if (!live.length) return;
     const c = choice();
     const label = await Picker.label(c.model);
+    const ex = await Runs.executorLabel();
+    for (const r of live) { const v = r.querySelector(".hc-exec .v"); if (v) v.textContent = ex; }
     for (const r of live) {
       // The root outlives this await (the canvas grid is reused, not replaced)
       // but its contents do not: look again, and skip one that has moved on.
@@ -217,7 +222,7 @@ var Home = (() => {
   // nothing is running.
   let reopenT = null;
   async function choose(c) {
-    prefs.worker = c.model || null; prefs.planner = c.model || null;
+    prefs.planner = c.model || null;
     prefs.cli_permission = c.permission; prefs.cli_effort = c.effort;
     await invoke("set_agent_run", { planner: prefs.planner, worker: prefs.worker, permission: c.permission, effort: c.effort });
     bar();
@@ -278,6 +283,7 @@ var Home = (() => {
       home = g.querySelector(".home");
       home.querySelector("[data-act=proj]").onclick = e => projMenu(e.currentTarget);
       home.querySelector("[data-act=model]").onclick = togglePicker;
+      home.querySelector("[data-act=exec]").onclick = e => Runs.pickExecutor(e.currentTarget, bar);
       home.querySelector("[data-act=send]").onclick = () => send(false);
       home.querySelector("[data-act=par]").onclick = () => send(true);
       const ta = home.querySelector("textarea");
