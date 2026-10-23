@@ -24,6 +24,9 @@
   (`bs.ask`), folded with the sparkle in the page header or ⌘I, width by
   dragging its edge (`bs.chatcol.w`). It steps aside in Chat, and floats over
   the page under 1000px. The header's middle line is its last prompt.
+- **Code has no right column** (it has its own sessions). Its painting is
+  clipped to the card (`clip-path` on `.win-art`, rounded 12px) and dimmed
+  under 58% of the window colour.
 - **Settings** fills the window's card. **Motion** moved there (Appearance);
   Phone was already there. The painting now shows only inside Code's card.
 

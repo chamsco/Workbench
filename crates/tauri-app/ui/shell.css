@@ -433,10 +433,11 @@ button.rp-row:hover { background: var(--hover); }
 #win.whirl-on:is(.m-chat, .m-code) #searchBtn { display: none; }
 .side-machine { margin-top: auto; }
 #win { --chat-w: 340px; --chat-on: var(--chat-w); grid-template-columns: var(--side-w) minmax(0, 1fr) var(--chat-on); grid-template-rows: minmax(0, 1fr); background: var(--win-bg); }
-#win.chat-off, #win.m-chat { --chat-on: 0px; }
-/* Chat is a chat already: the column steps aside while it is open. */
-#win.m-chat > .chatcol, #win.m-chat .gutter-chat, #win.m-chat #aiBtn { display: none; }
-#win.m-chat .mainc { margin-right: 8px; }
+#win.chat-off, #win.m-chat, #win.m-code { --chat-on: 0px; }
+/* Chat is a chat already, and Code has its own sessions: the column steps
+   aside while either is open. */
+#win:is(.m-chat, .m-code) > .chatcol, #win:is(.m-chat, .m-code) .gutter-chat, #win:is(.m-chat, .m-code) #aiBtn { display: none; }
+#win:is(.m-chat, .m-code) .mainc { margin-right: 8px; }
 #win > .side, #win > .mainc, #win > .chatcol { grid-row: 1; }
 #win > .side { grid-column: 1; }
 #win > .mainc { grid-column: 2; }
@@ -494,7 +495,12 @@ button.rp-row:hover { background: var(--hover); }
 #win .mainc { margin: 8px 0 8px; border: 1px solid var(--frame-edge) !important; border-radius: 12px; background: var(--frame-bg); overflow: hidden; }
 #win.side-closed .mainc, #win.ghost-side .mainc { margin-left: 8px; }
 #win.chat-off .mainc { margin-right: 8px; }
-#win.m-code.art-vivid .mainc { background: transparent; }
+/* Code's painting belongs to its card: clipped to the card's own rounded box
+   (8px in from the window, the sidebar's width on the left), and dimmed under
+   a layer of the window's colour so the page reads dark. */
+#win.m-code .mainc { background: color-mix(in srgb, var(--win-bg) 58%, transparent); border-color: color-mix(in srgb, var(--fg) 12%, transparent) !important; }
+#win.m-code .win-art, #win.m-code .win-ascii { clip-path: inset(8px 8px 8px var(--side-w) round 12px); }
+#win.m-code:is(.side-closed, .ghost-side) .win-art, #win.m-code:is(.side-closed, .ghost-side) .win-ascii { clip-path: inset(8px round 12px); }
 /* Settings is a page too: it fills the card under the header, and the card
    takes the whole window, since Settings brings its own list of sections. */
 #win.settings-on { --side-w: 0px; --chat-on: 0px; }
@@ -564,3 +570,6 @@ button.rp-row:hover { background: var(--hover); }
   .gutter-chat { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { #win { transition: none !important; } }
+/* Windows and Linux draw their window buttons at the top right; with no chat
+   column there, the page header keeps clear of them. */
+:is(.os-win, .os-linux) #win:is(.m-chat, .m-code, .chat-off, .settings-on) .tbar { padding-right: 132px; }
