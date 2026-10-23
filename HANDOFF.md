@@ -1,5 +1,27 @@
 # Handoff: Backspace (ohMyHarness → Workbench), v0
 
+**Session, 23 Oct 2026 — UI cleanup on top of the window bar.**
+
+- **One name for the code app: Code.** It was Code on the Apps page and
+  Workbench in the trail, Settings and onboarding (which also called Chat
+  "Agents"). `extensions/code/extension.json`, `shell.js`, `app.js`,
+  `onboard.js`.
+- **The trail says where you are.** The open app's button shows its name next
+  to its icon (`.zones .zl`); the others stay icon-only.
+- **Apps page copy.** Built-in Chat/Code say Turn off / Turn on (it toggles
+  `prefs.uses`, nothing is removed); the empty states no longer point at a
+  catalog or examples that are not there.
+- **Sidebar toggle on the left** in Apps and Memory, where Chat and Code keep
+  theirs.
+- **The search key reads ⌘K on macOS**, Ctrl K elsewhere.
+- **Code fixes.** Its sidebar with no project says "Open a project…" instead
+  of Chat's "No chats yet"; the home's machine chip no longer inherits the
+  footer's 26px `.mach` box (it read "Loca"); the grid's ResizeObserver no
+  longer throws while there is no tab.
+
+**Ran:** `tools/uiharness` at 1440×900 on Apps, Chat, Code (ADE and IDE),
+Memory and Settings: no page errors. `vite build` clean.
+
 **Session, 22 Oct 2026 — the window bar, the frame, and Ask.**
 
 - **Two layers.** A full-width `.wbar` (`#wbar` in `index.html`) sits on top:

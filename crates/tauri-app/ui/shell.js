@@ -1,5 +1,5 @@
 // The window around the zones: the rail on the far left (Apps, Agents,
-// Workbench, Memory, apps pinned from the catalog, Settings at the foot), the
+// Code, Memory, apps pinned from the catalog, Settings at the foot), the
 // title bar's window buttons for each OS, and the split view that puts a
 // second zone or app beside the first.
 //
@@ -9,7 +9,7 @@
 
 var Shell = (() => {
   // Pages the frame owns. The apps come from extensions/index.json; order is
-  // the reading order the window has always had — Apps, Agents, Workbench,
+  // the reading order the window has always had — Apps, Agents, Code,
   // Memory — and each app's manifest carries its own number.
   const PAGES = [
     ["apps", "apps", "Apps", 0],
@@ -17,7 +17,7 @@ var Shell = (() => {
   ];
   const zones = () => PAGES.concat((window.Frame ? Frame.zones() : [
     { id: "chat", name: "Chat", icon: "bubble", order: 10 },
-    { id: "code", name: "Workbench", icon: "codei", order: 20 },
+    { id: "code", name: "Code", icon: "codei", order: 20 },
   ]).map(e => [e.id, e.icon, e.name, e.order])).sort((a, b) => a[3] - b[3]);
   let platform = "web", saveT = null;
 
@@ -158,15 +158,16 @@ var Shell = (() => {
     $$("#rail [data-z]").forEach(b => (b.onclick = () => openZone(b.dataset.z)));
     $("#gear").setAttribute("aria-selected", !!S.settings);
   }
-  // The title bar's switcher: every app, side by side as icons. An app that is
+  // The title bar's switcher: every app, side by side as icons; the open one
+  // also shows its name. An app that is
   // off stays here, dimmed — click it to turn it back on. Then pinned apps.
   // Settings is the gear on the right.
   function renderZones() {
     const el = $("#zones"); if (!el) return;
     const z = S.settings ? "" : S.mode;
     const apps = window.Apps ? Apps.pinned() : [];
-    el.innerHTML = zones().map(([k, ic, l]) => `<button role="tab" aria-selected="${z === k}" data-zz="${k}" title="${l}${isOff(k) ? " — off" : ""}" aria-label="${l}${isOff(k) ? " (off)" : ""}" class="${isOff(k) ? "off" : ""}">${icon(ic)}${badge(k)}</button>`).join("")
-      + apps.map(a => `<button role="tab" aria-selected="${z === "app:" + a.id}" data-zz="app:${esc(a.id)}" title="${esc(a.name)}" aria-label="${esc(a.name)}">${Apps.glyph(a, "xs")}</button>`).join("");
+    el.innerHTML = zones().map(([k, ic, l]) => `<button role="tab" aria-selected="${z === k}" data-zz="${k}" title="${l}${isOff(k) ? " — off" : ""}" aria-label="${l}${isOff(k) ? " (off)" : ""}" class="${isOff(k) ? "off" : ""}">${icon(ic)}<span class="zl">${l}</span>${badge(k)}</button>`).join("")
+      + apps.map(a => `<button role="tab" aria-selected="${z === "app:" + a.id}" data-zz="app:${esc(a.id)}" title="${esc(a.name)}" aria-label="${esc(a.name)}">${Apps.glyph(a, "xs")}<span class="zl">${esc(a.name)}</span></button>`).join("");
     $$("[data-zz]", el).forEach(x => (x.onclick = () => openZone(x.dataset.zz)));
     $("#gearBtn").setAttribute("aria-pressed", !!S.settings);
   }
@@ -318,6 +319,7 @@ var Shell = (() => {
     platform = boot.platform || "web";
     document.documentElement.classList.add("os-" + platform);
     renderCaps(); wireGutter();
+    $("#searchBtn kbd").textContent = platform === "mac" ? "⌘K" : "Ctrl K";
     document.documentElement.classList.toggle("reduce-motion", prefs.motion === "reduced");
     $("#searchBtn").onclick = search;
     $("#aiBtn").onclick = () => Ask.toggle();

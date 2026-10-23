@@ -164,7 +164,11 @@ export function ThreadList({ onNewChat }: { onNewChat: () => void }) {
   const tree =
     folders.length === 0 ? (
       <div className="px-2.5 py-2 text-[13px]/5 text-muted-foreground">
-        {project ? "Nothing in this project yet. Ask a CLI to change something; it works in the folder." : "No chats yet. Start one with any model you've connected."}
+        {project
+          ? "Nothing in this project yet. Ask a CLI to change something; it works in the folder."
+          : inCode
+            ? "Open a project to see its threads and canvases."
+            : "No chats yet. Start one with any model you've connected."}
       </div>
     ) : (
       folders.map((f) => (
