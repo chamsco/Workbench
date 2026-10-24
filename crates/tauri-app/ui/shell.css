@@ -420,12 +420,12 @@ button.rp-row:hover { background: var(--hover); }
    page header. Settings → Appearance → Window picks what it is made of:
    frosted glass over the painting (the default), the desktop seen through it,
    or solid panes, where the painting only shows in Code's card. */
-:root { --win-bg: #f3f3f1; --frame-bg: #fbfbfa; --frame-edge: #e3e3e0; --dcard: #ffffff; --dcard-edge: #e6e6e3; --tile-on: rgba(0, 0, 0, 0.07); --glass-side-mix: 56%; --glass-page-mix: 70%; }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --win-bg: #0d0d0e; --frame-bg: #121213; --frame-edge: #232325; --dcard: #161617; --dcard-edge: #26262a; --tile-on: rgba(255, 255, 255, 0.09); --glass-side-mix: 22%; --glass-page-mix: 44%; } }
-:root[data-theme="dark"] { --win-bg: #0d0d0e; --frame-bg: #121213; --frame-edge: #232325; --dcard: #161617; --dcard-edge: #26262a; --tile-on: rgba(255, 255, 255, 0.09); --glass-side-mix: 22%; --glass-page-mix: 44%; }
+:root { --win-bg: #f3f3f1; --frame-bg: #fbfbfa; --frame-edge: #e3e3e0; --dcard: #ffffff; --dcard-edge: #e6e6e3; --tile-on: rgba(0, 0, 0, 0.07); --glass-mix: 30%; --glass-page-mix: 70%; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --win-bg: #0d0d0e; --frame-bg: #121213; --frame-edge: #232325; --dcard: #161617; --dcard-edge: #26262a; --tile-on: rgba(255, 255, 255, 0.09); --glass-mix: 30%; --glass-page-mix: 44%; } }
+:root[data-theme="dark"] { --win-bg: #0d0d0e; --frame-bg: #121213; --frame-edge: #232325; --dcard: #161617; --dcard-edge: #26262a; --tile-on: rgba(255, 255, 255, 0.09); --glass-mix: 30%; --glass-page-mix: 44%; }
 
 .win { --side-w: var(--side-w-user, 300px); }
-:root[data-window="solid"] #win:not(.m-code) :is(.win-art, .win-ascii), :root[data-window="clear"] #win :is(.win-art, .win-ascii) { display: none; }
+:root[data-window="solid"] #win:not(.m-code, .m-chat) :is(.win-art, .win-ascii), :root[data-window="clear"] #win :is(.win-art, .win-ascii) { display: none; }
 #win .side, #win .chatcol { background: var(--win-bg); }
 /* The tree is the window's, not Chat's: Home shows it too. */
 #win.m-home #chatList { display: block !important; }
@@ -467,18 +467,17 @@ button.rp-row:hover { background: var(--hover); }
 .side-pills .side-pill button:hover { background: var(--hover); color: var(--fg); }
 .win.whirl-on:is(.m-chat, .m-code) #sideClose { display: none; }
 .lights { top: 20px; left: 16px; }
-/* The window buttons on Windows and Linux, at the top right corner. */
-#win > .caps { position: absolute; top: 0; right: 0; z-index: 8; display: flex; }
-/* The window's own buttons get a strip of their own: wherever the page card
-   would reach the corner they sit in (top right on Windows and Linux, top
-   left on macOS), the card starts 40px down instead of 8px. */
-#win > .caps { height: 40px; align-items: center; }
-#win > .caps button { height: 40px; }
-:is(.os-win, .os-linux) #win:is(:not(.m-home), .chat-off, .settings-on) > .mainc,
+/* The window buttons on Windows and Linux sit inside the page card, at the
+   right end of its header (shell.js moves them there), so the card keeps the
+   same 8px from every edge of the window. macOS keeps its lights on the
+   sidebar, and the card steps down for them when the sidebar is away. */
+#win .tbar .caps { display: flex; align-self: center; align-items: center; gap: 2px; margin-left: 6px; }
+.os-win #win .tbar .caps button { width: 34px; height: 30px; border-radius: 8px; display: grid; place-items: center; background: transparent; color: var(--fg-2); }
+.os-win #win .tbar .caps button:hover { background: var(--hover); color: var(--fg); }
+.os-win #win .tbar .caps button[data-cap="close"]:hover { background: #c42b1c; color: #fff; }
+.os-win #win .tbar .caps .ic { width: 14px; height: 14px; }
 .os-mac #win:is(.side-closed, .ghost-side, .settings-on) > .mainc { margin-top: 40px; }
-/* The strip drags the window like a title bar would. */
 #win > .capstrip { display: none; position: absolute; z-index: 7; top: 0; left: var(--side-w); right: 0; height: 40px; }
-:is(.os-win, .os-linux) #win:is(:not(.m-home), .chat-off, .settings-on) > .capstrip,
 .os-mac #win:is(.side-closed, .ghost-side, .settings-on) > .capstrip { display: block; }
 
 /* The app tiles: every app as a square, then + for the catalog. */
@@ -498,10 +497,17 @@ button.rp-row:hover { background: var(--hover); }
 .side-machine .mach[aria-pressed="true"] { background: transparent; color: var(--fg); }
 .side-machine .mach .ic { width: 22px; height: 22px; padding: 4px; border-radius: 7px; background: var(--tile-on); color: var(--fg); }
 .side-machine .mach .mn { flex: 1; min-width: 0; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.side-machine .upd { flex: none; height: 28px; max-width: 46%; overflow: hidden; white-space: nowrap; font-size: 11.5px; color: var(--fg-3); display: inline-flex; align-items: center; gap: 5px; }
-.side-machine .upd .ic { width: 13px; height: 13px; }
-.side-machine .upd:not(.new) .lbl, .side-machine .upd:not(.new) .n { display: none; }
-.side-machine .upd.new { color: var(--bs-accent); }
+/* The update pill: a slim round frame on a little glass, always there. Its
+   colour is its state (app.js renderUpd). */
+.side-machine .upd { flex: none; height: 26px; max-width: 52%; padding: 0 10px 0 8px; border-radius: 999px; overflow: hidden; white-space: nowrap; font-size: 11.5px; font-weight: 500; color: var(--fg-2); display: inline-flex; align-items: center; gap: 5px; --uc: var(--fg-3); background: color-mix(in srgb, var(--uc) 12%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--uc) 45%, transparent); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); transition: background-color 0.15s ease; }
+.side-machine .upd:hover { background: color-mix(in srgb, var(--uc) 22%, transparent); }
+.side-machine .upd .ic { width: 13px; height: 13px; flex: none; color: var(--uc); }
+.side-machine .upd .lbl { overflow: hidden; text-overflow: ellipsis; }
+.side-machine .upd.new { --uc: #f08a24; color: var(--fg); }
+.side-machine .upd.bad { --uc: var(--red); }
+.side-machine .upd.ok { --uc: var(--green); }
+.side-machine .upd.busy .ic { animation: updspin 0.9s linear infinite; }
+@keyframes updspin { to { transform: rotate(360deg); } }
 
 /* The page: a card with its header, on the window. */
 #win .mainc { margin: 8px 0 8px; border: 1px solid var(--frame-edge) !important; border-radius: 12px; background: var(--frame-bg); overflow: hidden; }
@@ -510,16 +516,16 @@ button.rp-row:hover { background: var(--hover); }
 /* Code's painting belongs to its card: clipped to the card's own rounded box
    (8px in from the window, the sidebar's width on the left), and dimmed under
    a layer of the window's colour so the page reads dark. */
-#win.m-code .mainc { background: color-mix(in srgb, var(--win-bg) 58%, transparent); border-color: color-mix(in srgb, var(--fg) 12%, transparent) !important; }
-:root[data-window="solid"] #win.m-code :is(.win-art, .win-ascii) { clip-path: inset(8px 8px 8px var(--side-w) round 12px); }
-:root[data-window="solid"] #win.m-code:is(.side-closed, .ghost-side) :is(.win-art, .win-ascii) { clip-path: inset(8px round 12px); }
+#win:is(.m-code, .m-chat) .mainc { background: color-mix(in srgb, var(--win-bg) 58%, transparent); border-color: color-mix(in srgb, var(--fg) 12%, transparent) !important; }
+:root[data-window="solid"] #win:is(.m-code, .m-chat) :is(.win-art, .win-ascii) { clip-path: inset(8px 8px 8px var(--side-w) round 12px); }
+:root[data-window="solid"] #win:is(.m-code, .m-chat):is(.side-closed, .ghost-side) :is(.win-art, .win-ascii) { clip-path: inset(8px round 12px); }
 /* Settings is a page too: it fills the card under the header, and the card
    takes the whole window, since Settings brings its own list of sections. */
 #win.settings-on { --side-w: 0px; --chat-on: 0px; }
 #win.settings-on .mainc { margin-left: 8px; margin-right: 8px; }
 #win.settings-on .side, #win.settings-on .chatcol, #win.settings-on .gutter-chat { visibility: hidden; }
 #win .settings { position: absolute; inset: 45px 0 0 0; border: 0; border-radius: 0; background: var(--frame-bg); -webkit-backdrop-filter: none; backdrop-filter: none; }
-#win .tbar { height: 44px; flex: none; box-sizing: content-box; padding: 0 10px 0 12px; background: transparent; border-bottom: 1px solid var(--frame-edge) !important; }
+#win .tbar { height: 44px; flex: none; box-sizing: content-box; padding: 0 10px 0 12px; background: transparent; border-bottom: 0 !important; }
 #win.side-closed .tbar { padding-left: 12px; }
 .tbar .zt.page { display: inline-flex; align-items: center; gap: 9px; font-size: 14px; font-weight: 600; color: var(--fg); }
 .tbar .zt.page .ic, .tbar .zt.page .ag { width: 16px; height: 16px; color: var(--fg-2); }
@@ -542,16 +548,21 @@ button.rp-row:hover { background: var(--hover); }
    same sheets sit on the desktop. macOS blurs what is behind (vibrancy), and
    Windows lays Mica under it; Linux has no blur, so the sheets are thicker. */
 :root:is([data-window="frosted"], [data-window="clear"]) { --glass-line: color-mix(in srgb, var(--fg) 11%, transparent); }
-:root[data-window="frosted"] #win .side, :root[data-window="frosted"] #win > .chatcol { background: color-mix(in srgb, var(--win-bg) var(--glass-side-mix), transparent); -webkit-backdrop-filter: blur(28px) saturate(1.6); backdrop-filter: blur(28px) saturate(1.6); }
-:root[data-window="frosted"] #win:not(.m-code) .mainc { background: color-mix(in srgb, var(--frame-bg) var(--glass-page-mix), transparent); -webkit-backdrop-filter: blur(30px) saturate(1.4); backdrop-filter: blur(30px) saturate(1.4); }
+/* One sheet of glass under the sidebar, the chat column and the 8px around
+   the card, so all three are the same 30% tint and blur. It has a hole where
+   the card is (shell.js sets its clip-path), so the card shows the painting
+   its own way: clear and dimmed in Code and Chat, frosted elsewhere. */
+#win { isolation: isolate; }
+#win > .glass { position: absolute; inset: 0; z-index: 0; pointer-events: none; display: none; }
+:root:is([data-window="frosted"], [data-window="clear"]) #win > .glass { display: block; background: color-mix(in srgb, var(--win-bg) var(--glass-mix), transparent); -webkit-backdrop-filter: blur(28px) saturate(1.5); backdrop-filter: blur(28px) saturate(1.5); }
+:root:is([data-window="frosted"], [data-window="clear"]) #win .side, :root:is([data-window="frosted"], [data-window="clear"]) #win > .chatcol { background: transparent; -webkit-backdrop-filter: none; backdrop-filter: none; }
+:root[data-window="frosted"] #win:not(.m-code, .m-chat) .mainc { background: color-mix(in srgb, var(--frame-bg) var(--glass-page-mix), transparent); -webkit-backdrop-filter: blur(30px) saturate(1.4); backdrop-filter: blur(30px) saturate(1.4); }
 :root:is([data-window="frosted"], [data-window="clear"]) #win .mainc { border-color: var(--glass-line) !important; }
-:root:is([data-window="frosted"], [data-window="clear"]) #win .tbar { border-bottom-color: var(--glass-line) !important; }
 :root:is([data-window="frosted"], [data-window="clear"]) #win .settings { background: transparent; }
 :root:is([data-window="frosted"], [data-window="clear"]) :is(.dc, .cc-box, .cc-hits) { background: color-mix(in srgb, var(--dcard) 50%, transparent); border-color: var(--glass-line); }
 :root[data-window="clear"] body, :root[data-window="clear"] .desk, :root[data-window="clear"] #win { background: transparent !important; }
-:root[data-window="clear"] #win .side, :root[data-window="clear"] #win > .chatcol { background: color-mix(in srgb, var(--win-bg) 46%, transparent); }
 :root[data-window="clear"] #win .mainc { background: color-mix(in srgb, var(--frame-bg) 70%, transparent); }
-.os-linux:root[data-window="clear"] #win .side, .os-linux:root[data-window="clear"] #win > .chatcol { background: color-mix(in srgb, var(--win-bg) 80%, transparent); }
+.os-linux:root[data-window="clear"] { --glass-mix: 80%; }
 .os-linux:root[data-window="clear"] #win .mainc { background: color-mix(in srgb, var(--frame-bg) 88%, transparent); }
 
 /* ---------- the page's chat (ai.js) */
@@ -607,3 +618,22 @@ button.rp-row:hover { background: var(--hover); }
 .tbar .zt.crumb .ic { width: 16px; height: 16px; }
 .tbar .crumb-sep { display: inline-flex; margin: 0 6px; color: var(--fg-4); }
 .tbar .crumb-sep .ic { width: 12px; height: 12px; }
+
+/* ---------- the folded sidebar's rail
+   With the sidebar hidden, a slim glass trail sits centred on the left edge:
+   the apps, a line, then what is live (shell.js renderRun). */
+#win.side-closed:not(.settings-on) > .rail { display: flex !important; position: absolute; left: 8px; top: 50%; transform: translateY(-50%); z-index: 6; width: 46px; max-height: calc(100% - 32px); overflow: visible; padding: 6px 0; gap: 4px; border: 0; border-radius: 999px; background: color-mix(in srgb, var(--win-bg) 40%, transparent); box-shadow: inset 0 0 0 1px var(--glass-line, var(--pane-edge)); -webkit-backdrop-filter: blur(18px) saturate(1.4); backdrop-filter: blur(18px) saturate(1.4); }
+#win.side-closed > .rail :is(.sp, #gear) { display: none; }
+#win.side-closed:not(.settings-on) .mainc { margin-left: 62px; }
+#win.side-closed .rail .rz[aria-selected="true"] .sq { background: var(--tile-on); color: var(--fg); }
+#win.side-closed .rail .rz:hover .sq { background: var(--hover); color: var(--fg); }
+.rail-run { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.rail-run:empty { display: none; }
+.rz.live .rs { position: absolute; right: 3px; bottom: 3px; width: 8px; height: 8px; border-radius: 999px; box-shadow: 0 0 0 2px color-mix(in srgb, var(--win-bg) 80%, transparent); }
+.rz.live.run .rs { right: 2px; bottom: 2px; width: 10px; height: 10px; background: none; border: 2px solid color-mix(in srgb, var(--fg) 25%, transparent); border-top-color: var(--fg); animation: updspin 0.8s linear infinite; box-shadow: none; }
+.rz.live.need .rs { width: 12px; height: 6px; right: 1px; background: var(--blue); animation: needpulse 1.4s ease-in-out infinite; }
+.rz.live.done .rs { background: var(--green); }
+.rz.live.bad .rs { background: var(--red); }
+@keyframes needpulse { 50% { opacity: 0.35; transform: scale(0.85); } }
+.reduce-motion .rz.live .rs { animation: none; }
+#win.side-closed .rail .rsep { width: 20px; background: color-mix(in srgb, var(--fg) 20%, transparent); margin: 3px 0; }

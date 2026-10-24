@@ -74,7 +74,7 @@
 .dmem-h h2 { margin: 0; font-size: 17px; font-weight: 600; letter-spacing: -0.01em; color: var(--fg); }
 .dmem-h .dlink { display: inline-flex; align-items: center; gap: 2px; font-size: 12.5px; color: var(--fg-3); }
 .dmem-h .dlink .ic { width: 12px; height: 12px; }
-.folds { display: grid; grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: 6px; }
+.folds { margin-top: 6px; display: grid; grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: 6px; }
 .fold { display: grid; justify-items: center; gap: 2px; padding: 12px 8px 12px; border-radius: 14px; background: transparent; color: var(--fg); text-align: center; transition: background-color 0.15s ease; }
 .fold:hover, .fold:focus-visible { background: var(--dcard); }
 .fold b { margin-top: 8px; font-size: 13.5px; font-weight: 600; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -96,7 +96,7 @@
 .fold-art .fw { display: flex; }
 .fold-art .fw i { width: 18px; height: 18px; margin-right: -5px; border-radius: 50%; display: grid; place-items: center; font: 600 9.5px/1 var(--font-ui); font-style: normal; color: #fff; box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--fc) 80%, #000); }
 .fold-art .fu { height: 18px; padding: 0 7px; border-radius: 9px; display: inline-flex; align-items: center; font-size: 10px; font-weight: 500; color: #fff; background: rgba(0, 0, 0, 0.22); white-space: nowrap; }
-.ma-h { margin: 8px 0 2px; font-size: 13.5px; font-weight: 600; color: var(--fg); }
+.ma-h { margin: 2px 0 0; font-size: 13.5px; font-weight: 600; color: var(--fg); }
 .ma { display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px 6px; border-radius: 0; border-bottom: 1px solid var(--dcard-edge); text-align: left; color: var(--fg-2); font-size: 13px; }
 .ma:last-child { border-bottom: 0; }
 .ma:hover { background: var(--hover); }

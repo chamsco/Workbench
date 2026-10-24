@@ -174,13 +174,46 @@ var Shell = (() => {
   }
   function renderRail() {
     const cur = S.settings ? "" : S.mode;
-    $("#railZones").innerHTML = zones().map(([z, ic, l]) =>
+    $("#railZones").innerHTML = zones().filter(([z]) => z !== "apps" && z !== "memory").map(([z, ic, l]) =>
       `<button class="rz${isOff(z) ? " off" : ""}" role="tab" data-z="${z}" aria-selected="${cur === z}" aria-label="${l}${isOff(z) ? " (off)" : ""}" data-tip="${l}"><span class="sq">${icon(ic)}${badge(z)}</span></button>`).join("");
     const pinned = window.Apps ? Apps.pinned() : [];
     $("#railApps").innerHTML = pinned.length ? `<div class="rsep"></div>` + pinned.map(a =>
       `<button class="rz rzapp" data-z="app:${esc(a.id)}" aria-selected="${cur === "app:" + a.id}" aria-label="${esc(a.name)}" data-tip="${esc(a.name)}"><span class="sq">${Apps.glyph(a)}</span></button>`).join("") : "";
     $$("#rail [data-z]").forEach(b => (b.onclick = () => openZone(b.dataset.z)));
     $("#gear").setAttribute("aria-selected", !!S.settings);
+    renderRun();
+  }
+  // With the sidebar folded, the rail stands in for it: the apps, then what is
+  // live right now. A chat thread or an agent shows while it runs (spinning),
+  // needs you (a blue pulse), has finished unread (green) or has failed (red).
+  let runChats = [];
+  function runItems() {
+    const out = [];
+    for (const t of runChats) {
+      const st = t.failed ? "bad" : t.busy ? "run" : t.unread ? "done" : "";
+      if (st) out.push({ st, ic: "bubble", name: t.title || "Chat", go: () => { setMode("chat"); if (window.Chat) Chat.open(t.id); } });
+    }
+    const asks = new Set((typeof snap !== "undefined" && snap.approvals || []).filter(a => a.state.state === "pending").map(a => a.agent));
+    for (const a of (typeof snap !== "undefined" && snap.agents) || []) {
+      const st = asks.has(a.id) || a.status === "awaiting_approval" ? "need" : a.status === "running" || a.status === "queued" ? "run" : a.status === "failed" ? "bad" : "";
+      if (st) out.push({ st, ic: "grid", name: a.name || a.id, go: () => openZone("code") });
+    }
+    return out.slice(0, 8);
+  }
+  function renderRun() {
+    const el = $("#railRun"); if (!el) return;
+    const items = runItems();
+    const word = { run: "working", need: "needs you", done: "finished", bad: "failed" };
+    el.innerHTML = items.length ? `<div class="rsep"></div>` + items.map((x, i) =>
+      `<button class="rz live ${x.st}" data-run="${i}" aria-label="${esc(x.name)}: ${word[x.st]}" data-tip="${esc(x.name)} · ${word[x.st]}"><span class="sq">${icon(x.ic)}</span><i class="rs"></i></button>`).join("") : "";
+    $$("[data-run]", el).forEach(b => (b.onclick = () => items[+b.dataset.run].go()));
+  }
+  async function pollRun() {
+    if ($("#win").classList.contains("side-closed")) {
+      runChats = await invoke("chat_list").catch(() => runChats) || [];
+      renderRun();
+    }
+    setTimeout(pollRun, 3000);
   }
   // The sidebar's tiles: every app as an icon, then pinned apps, then + for
   // the catalog. An app that is off stays here, dimmed — click it to turn it
@@ -320,11 +353,11 @@ var Shell = (() => {
 
   // ---------------------------------------------------------------- window buttons
   // macOS draws its own lights over the rail (titleBarStyle Overlay). Windows
-  // and Linux run undecorated: Windows gets its caption buttons flush in the
-  // top-right corner, Linux the round GNOME/KDE-style ones.
+  // and Linux run undecorated, and their buttons end the page card's header.
   function renderCaps() {
     const caps = $("#caps");
     if (platform !== "win" && platform !== "linux") { caps.innerHTML = ""; return; }
+    $(".tbar .right").append(caps);
     caps.innerHTML = `<button data-cap="min" aria-label="Minimize" title="Minimize">${icon("wmin")}</button>` +
       `<button data-cap="max" aria-label="Maximize" title="Maximize">${icon("wmax")}</button>` +
       `<button data-cap="close" aria-label="Close" title="Close">${icon("wclose")}</button>`;
@@ -355,10 +388,24 @@ var Shell = (() => {
     }
   }
 
+  // The window's glass has a hole where the page card is, so the card shows
+  // the painting its own way. Redrawn whenever the card moves or resizes.
+  function holeGlass() {
+    const g = $("#glass"), m = $("#win > .mainc"), w = $("#win");
+    if (!g || !m) return;
+    const W = w.clientWidth, H = w.clientHeight, a = m.getBoundingClientRect(), o = w.getBoundingClientRect();
+    if (!a.width) { g.style.clipPath = ""; return; }
+    const x = a.left - o.left, y = a.top - o.top, r = 12, X = x + a.width, Y = y + a.height;
+    g.style.clipPath = `path(evenodd, "M0 0H${W}V${H}H0Z M${x + r} ${y}H${X - r}A${r} ${r} 0 0 1 ${X} ${y + r}V${Y - r}A${r} ${r} 0 0 1 ${X - r} ${Y}H${x + r}A${r} ${r} 0 0 1 ${x} ${Y - r}V${y + r}A${r} ${r} 0 0 1 ${x + r} ${y}Z")`;
+  }
+
   async function init(boot) {
     platform = boot.platform || "web";
     document.documentElement.classList.add("os-" + platform);
-    renderCaps(); wireGutter();
+    renderCaps(); wireGutter(); pollRun();
+    const card = $("#win > .mainc");
+    if (card && window.ResizeObserver) new ResizeObserver(() => holeGlass()).observe(card);
+    $("#win").addEventListener("transitionend", holeGlass);
     $("#searchBtn").title = `Search projects, agents and chats (${platform === "mac" ? "⌘K" : "Ctrl K"})`;
     document.documentElement.classList.toggle("reduce-motion", prefs.motion === "reduced");
     $("#searchBtn").onclick = search;

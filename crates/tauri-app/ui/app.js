@@ -395,12 +395,13 @@ function renderCard() {
     row(run ? "run" : "acc", "Workers running", run) + row(pending().length ? "wait" : "", "Waiting on you", pending().length) +
     row("done", "Worktrees", wts) + row("", "Spent", `$${snap.total_cost_usd.toFixed(3)} · router $${snap.router_cost_usd.toFixed(3)}`);
 }
-// The footer's machines: each by name, with a dot for how it is: green
-// while agents work on it, orange when it is idle, red when unreachable.
+// The footer's machines: each by name, with a dot only when there is
+// something to say: green while agents work on it, orange while it connects,
+// red when unreachable. Idle has no dot.
 function machineState(m) {
   if (m.link.state === "offline") return ["red", "Unreachable: " + (m.link.error || "no answer")];
   if (m.link.state === "connecting") return ["orange", "Connecting…"];
-  return m.running > 0 || m.pending > 0 ? ["green", `${m.running} working${m.pending ? `, ${m.pending} waiting on you` : ""}`] : ["orange", "Idle: no agents working"];
+  return m.running > 0 || m.pending > 0 ? ["green", `${m.running} working${m.pending ? `, ${m.pending} waiting on you` : ""}`] : ["", "Idle: no agents working"];
 }
 function renderMachines() {
   $("#machines").innerHTML = machines.map(m => {
@@ -419,16 +420,19 @@ function renderMachines() {
 function renderUpd() {
   const b = $("#upd");
   b.hidden = false;
-  b.classList.toggle("new", !!(upd && upd.newer) || !!installing);
+  // The pill's colour is its state: orange there is an update to take, red the
+  // last check or install failed, green this is the newest build.
+  const st = installing || (upd && upd.newer) ? "new" : upd === "checking" ? "busy" : upd && upd.error ? "bad" : upd ? "ok" : "";
+  b.className = "upd" + (st ? " " + st : "");
   if (installing) {
     const pct = installing.stage === "Downloading" ? ` ${installing.pct}%` : "";
     b.innerHTML = `${icon("down")}<span class="lbl">${esc(installing.stage)}${pct}</span>`;
     b.title = "Backspace is fetching the new build; it reopens when it's in place.";
-  } else if (upd === "checking") b.innerHTML = `Checking…`;
-  else if (upd && upd.error) { b.innerHTML = `${icon("reload")}Check for updates`; b.title = upd.error; }
+  } else if (upd === "checking") { b.innerHTML = `${icon("reload")}<span class="lbl">Checking</span>`; b.title = "Checking for a newer build"; }
+  else if (upd && upd.error) { b.innerHTML = `${icon("close")}<span class="lbl">Update failed</span>`; b.title = `${upd.error} · click to try again`; }
   else if (upd && upd.newer) { b.innerHTML = `${icon("down")}<span class="lbl">Update to ${esc(upd.latest)}</span>`; b.title = `A newer Backspace is out: build ${upd.latest}. You have ${upd.build || upd.current}.`; }
-  else if (upd) { b.innerHTML = `${icon("check")}<span class="lbl">Up to date</span><span class="n">v${esc(upd.current)}</span>`; b.title = `Backspace ${upd.current} · click to check again`; }
-  else b.innerHTML = `${icon("reload")}<span class="lbl">Check for updates</span>`;
+  else if (upd) { b.innerHTML = `${icon("check")}<span class="lbl">Up to date</span>`; b.title = `Backspace ${upd.current} · click to check again`; }
+  else { b.innerHTML = `${icon("reload")}<span class="lbl">Check for updates</span>`; b.title = "Check for a newer build"; }
 }
 async function checkUpdate() {
   upd = "checking"; renderUpd();
@@ -447,7 +451,7 @@ async function installUpdate() {
   try {
     await invoke("install_update");
   } catch (e) {
-    installing = null;
+    installing = null; upd = { error: `Couldn't install the update: ${e}` };
     renderUpd(); syncUpdButton();
     toast(`Couldn't install the update: ${e}`, "err");
   }
@@ -1057,7 +1061,10 @@ async function refresh(full) {
 }
 // Coalesce bursts of harness events into one refresh per frame.
 TAURI.event.listen("state", () => { if (!queued) { queued = true; requestAnimationFrame(() => refresh(false)); } });
-addEventListener("resize", () => { setSide(!narrow()); });
+// Only crossing the narrow width resets the sidebar; any other resize (a drag,
+// maximize) leaves it as you set it.
+let wasNarrow = narrow();
+addEventListener("resize", () => { if (narrow() !== wasNarrow) { wasNarrow = narrow(); setSide(!wasNarrow); } });
 
 // After every script has run. The frame loads the apps' scripts during boot.
 addEventListener("DOMContentLoaded", async () => {
@@ -1077,7 +1084,7 @@ addEventListener("DOMContentLoaded", async () => {
     prefs.tabs.unshift({ name: "Bench", panes: [{ kind: "agent", agent: 0, url: null }, { kind: "files", agent: 0, url: null }, { kind: "agent", agent: 1, url: null }, { kind: "agent", agent: 2, url: null }].slice(0, boot.layout), layout: null });
     prefs.active_tab = 0;
   }
-  applyTheme(); renderSeg(); setSide(false);
+  applyTheme(); renderSeg(); setSide(!narrow());
   // Every launch lands on Home; the zone you were last in is a click away.
   S.mode = "home";
   S.codeView = prefs.code_view === "pair" ? "pair" : "agents";
