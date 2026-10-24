@@ -256,6 +256,16 @@ var Chat = (() => {
     $("#chatList").hidden = false;
     return true;
   }
+  // Code's two surfaces share one sidebar: the project, its threads and the
+  // canvases the IDE is showing. The ADE gets it because its chat face mounts
+  // Whirl; the IDE has to ask for the sidebar on its own, or it opens blank.
+  function mountSidebar() {
+    if (!mountWhirl()) {
+      if (whirl && window.WhirlChat && window.WhirlChat.refresh) window.WhirlChat.refresh();
+      return whirl;
+    }
+    return true;
+  }
 
   // ---------------------------------------------------------------- sidebar
   function renderThreads() {
@@ -675,7 +685,7 @@ var Chat = (() => {
     C.threads = await invoke("chat_list").catch(() => []);
   }
 
-  return { init, refresh, render, renderThreads, renderComposerRoute, newChat, open, routeName, providerName, routePicker, md, options, flat, defaultRoute, usable, setScope };
+  return { init, refresh, render, renderThreads, mountSidebar, renderComposerRoute, newChat, open, routeName, providerName, routePicker, md, options, flat, defaultRoute, usable, setScope };
 })();
 
 // Chat is an app the frame hosts: this is all the frame knows about it. The

@@ -315,7 +315,10 @@ function offlineNote() {
     : `<div class="offline-note"><b>Connecting to ${esc(m.name)}…</b></div>`;
 }
 function renderList() {
-  if (!agentsOn()) { if (window.Shell) Shell.renderSide(); return; }
+  // Code has one sidebar in both of its surfaces: the chat face's project
+  // tree. The old Projects/Workers list below is only a fallback for a build
+  // that did not load the chat extension.
+  if ((!agentsOn() || (window.Chat && Chat.mountSidebar)) && window.Shell) { Shell.renderSide(); return; }
   let h = offlineNote();
   if (S.side === "projects") {
     const m = machine();

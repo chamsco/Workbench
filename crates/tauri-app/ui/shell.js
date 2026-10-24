@@ -247,7 +247,13 @@ var Shell = (() => {
     if (z === "memory") { window.Memory && Memory.renderSide(zl); }
     else if (z === "apps" || z.startsWith("app:")) { window.Apps && Apps.renderSide(zl); }
     else zl.innerHTML = "";
-    if (z === "chat" || (z === "code" && S.codeView === "pair")) { if (window.Chat) Chat.renderThreads(); }
+    // Code's sidebar is the same tree in both surfaces. In the ADE the chat
+    // face mounts Whirl for us; the IDE has no chat face showing, so it asks
+    // for the sidebar itself rather than opening blank.
+    if (z === "chat") { if (window.Chat) Chat.renderThreads(); }
+    else if (z === "code" && window.Chat) {
+      if (Chat.mountSidebar) Chat.mountSidebar(); else Chat.renderThreads();
+    }
   }
   // Switch project: the recents, or another folder. One menu, and one way in —
   // the folder icon at the top of the sidebar. There used to be a project row
