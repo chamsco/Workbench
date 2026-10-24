@@ -317,7 +317,7 @@ export function AgentsSide() {
 
 export function AgentsHome() {
   return (
-    <div className="h-full overflow-y-auto px-6 pt-10 pb-16">
+    <div className="h-full overflow-y-auto px-6 pt-[clamp(36px,15vh,170px)] pb-16">
       <div className="mx-auto flex max-w-3xl flex-col gap-6">
         {/* The prompt first, the way the screenshot starts: one line in, a
             plan under it, Enter routes it. Everything below is what the
@@ -991,7 +991,7 @@ function GroupEditor() {
                     <span className="text-[13.5px] font-medium">{a.name}</span>
                     <span className="truncate text-[11.5px] text-muted-foreground">{oneLine(a.job)}</span>
                   </span>
-                  {i >= 0 && <span className="grid size-5 place-items-center rounded-full bg-foreground text-[11px] font-semibold text-(--surface)">{i + 1}</span>}
+                  {i >= 0 && <span className="grid size-5 place-items-center rounded-full bg-(--bs-accent) text-[11px] font-semibold text-white">{i + 1}</span>}
                 </button>
               );
             })}

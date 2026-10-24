@@ -1504,9 +1504,32 @@ async function tracePane(p, body, ps) {
     renderTabs(); renderGrid();
   }
 
+  // ---------------------------------------------------------------- terminal dock
+  // The header's terminal button: one shell in the project, docked under the
+  // page or to its right, whichever its menu is told.
+  const dock = { ps: {}, at: null };
+  function termMenu(anchor) {
+    const on = !!dock.at, pick = at => `<button class="pi" data-at="${at}">${icon(at === "under" ? "panelb" : "panelr")}${at === "under" ? "Under the page" : "To the right"}${dock.at === at ? `<span class="meta on">${icon("check")}</span>` : ""}</button>`;
+    openPop(anchor, `<div class="ph-t">Terminal</div>${pick("under")}${pick("right")}${on ? `<div class="psep"></div><button class="pi" data-at="">${icon("close")}Close the terminal</button>` : ""}`, pop => {
+      pop.querySelectorAll("[data-at]").forEach(b => (b.onclick = () => { closePop(); setDock(b.dataset.at || null); }));
+    });
+  }
+  function setDock(at) {
+    const mainc = $("#win > .mainc"); let el = $("#tdock");
+    mainc.classList.remove("term-under", "term-right");
+    $("#termBtn").setAttribute("aria-pressed", String(!!at));
+    if (!at) { if (dock.ps.cleanup) dock.ps.cleanup(); dock.ps = {}; if (el) el.remove(); dock.at = null; return; }
+    if (at !== "under" && at !== "right") return;
+    mainc.classList.add("term-" + at);
+    if (!el) { el = document.createElement("section"); el.id = "tdock"; el.className = "tdock"; el.setAttribute("aria-label", "Terminal"); mainc.append(el); }
+    if (!dock.at) terminalPane(el, dock.ps);
+    dock.at = at;
+  }
+  document.addEventListener("click", e => { const b = e.target.closest("#termBtn"); if (b) termMenu(b); });
+
   return {
     // state the frame's sidebar and the other apps read
-    loadTabs: useTabsFor, tab, paneTitle, wbView,
+    loadTabs: useTabsFor, tab, paneTitle, wbView, setDock,
     // the app's own surface
     mount, init, paint, elFor, classes, layout, afterData, head, windowTitle,
     // public verbs (the frame, the sidebar, Home and Chat call these)

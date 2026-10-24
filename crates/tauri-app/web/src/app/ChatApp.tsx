@@ -235,7 +235,9 @@ export function ChatApp({ sideEl, user }: { sideEl: HTMLElement; user: string })
               <div
                 className={cn(
                   "pointer-events-none absolute inset-x-0 bottom-0 z-10 flex flex-col justify-end px-3 md:px-6",
-                  !inThread && !scope && "top-0 justify-center pb-16",
+                  // The hero starts where Agents' and the ADE's do, so every composer
+                  // sits at the same height.
+                  !inThread && !scope && "top-0 justify-start pt-[clamp(36px,15vh,170px)]",
                 )}
               >
                 <div className="mx-auto w-full max-w-2xl">

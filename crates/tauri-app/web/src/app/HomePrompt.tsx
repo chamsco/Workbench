@@ -16,7 +16,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import {
+  IconCheck,
   IconClock,
+  IconCloud,
+  IconDeviceDesktop,
   IconFolder,
   IconHelp,
   IconMessageCircle,
@@ -28,6 +31,7 @@ import {
 } from "@tabler/icons-react";
 
 import { EASE_OUT, SHED_BLUR } from "@/lib/motion";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Avatar } from "./avatar";
 import { mentionAtCaret, mentionOptions } from "./mentions";
 import { planLine, routePlan, type Plan } from "./router";
@@ -78,6 +82,16 @@ export function HomePrompt() {
     setPick(options.length ? 0 : -1);
   }, [options.length]);
 
+  // The bot a leading @mention pins, if any; the Auto chip shows and sets it.
+  const pinned = useMemo(() => {
+    const m = /^@(\S+)\s/.exec(text);
+    return m ? (agents.find((a) => a.name.toLowerCase() === m[1].toLowerCase()) ?? null) : null;
+  }, [text, agents]);
+  const pin = (name: string | null) => {
+    const rest = text.replace(/^@\S+\s+/, "");
+    setText(name ? `@${name} ${rest}` : rest);
+    requestAnimationFrame(() => taRef.current?.focus());
+  };
   const insert = (name: string) => {
     if (!mention) return;
     const next = `${text.slice(0, mention.start)}@${name} ${text.slice(caret)}`;
@@ -219,14 +233,45 @@ export function HomePrompt() {
               <IconFolder size={13} />
               {project ? project.name : folder ? folder.split(/[\\/]/).pop() : "No project"}
             </button>
-            <span className="flex cursor-default items-center gap-1.5 rounded-full bg-foreground/[0.06] px-2.5 py-1 text-[12px] font-medium text-muted-foreground" title="Where the work happens">
-              <IconServer size={13} />
-              {host.machineName()}
-            </span>
-            <span className="flex cursor-default items-center gap-1.5 rounded-full bg-foreground/[0.06] px-2.5 py-1 text-[12px] font-medium text-muted-foreground" title="Routing is automatic — @mention to pin it">
-              <IconSparkles size={13} />
-              Auto{busy ? " · a bot is working" : ""}
-            </span>
+            <DropdownMenu>
+              <DropdownMenuTrigger className={CHIP} title="Where the work happens">
+                <IconServer size={13} />
+                {host.machineName()}
+              </DropdownMenuTrigger>
+              <DropdownMenuContent side="bottom" align="start" sideOffset={6} className="min-w-52 p-1">
+                <DropdownMenuLabel className="px-2 py-1 text-[10.5px]">Run on</DropdownMenuLabel>
+                {host.machines().map((m) => (
+                  <DropdownMenuItem key={m.index} className="gap-2 px-2 py-1.5" onClick={() => void host.pickMachine(m.index)}>
+                    {m.local ? <IconDeviceDesktop size={15} /> : <IconCloud size={15} />}
+                    <span className="truncate">{m.local ? "This machine" : m.name}</span>
+                    {m.selected && <IconCheck size={14} className="ml-auto shrink-0" />}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+            {/* Auto routes by what you wrote; picking a bot pins it, the same as
+                typing its @mention, which is what it does. */}
+            <DropdownMenu>
+              <DropdownMenuTrigger className={CHIP} title="Routing is automatic; pick a bot to send it to that one">
+                <IconSparkles size={13} />
+                {pinned ? pinned.name : "Auto"}
+                {busy ? " · a bot is working" : ""}
+              </DropdownMenuTrigger>
+              <DropdownMenuContent side="bottom" align="start" sideOffset={6} className="min-w-52 p-1">
+                <DropdownMenuItem className="gap-2 px-2 py-1.5" onClick={() => pin(null)}>
+                  <IconSparkles size={15} />
+                  Auto: the router picks
+                  {!pinned && <IconCheck size={14} className="ml-auto shrink-0" />}
+                </DropdownMenuItem>
+                {agents.map((a) => (
+                  <DropdownMenuItem key={a.id} className="gap-2 px-2 py-1.5" onClick={() => pin(a.name)}>
+                    <Avatar agent={a} size={18} />
+                    <span className="truncate">{a.name}</span>
+                    {pinned?.id === a.id && <IconCheck size={14} className="ml-auto shrink-0" />}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
             <span className="ml-auto text-[11px]/4 text-muted-foreground/70">
               {agents.length} bot{agents.length === 1 ? "" : "s"} · {projectById(project?.id)?.agents.length ?? 0} assigned
             </span>
@@ -269,3 +314,6 @@ export function HomePrompt() {
     </div>
   );
 }
+
+const CHIP =
+  "flex cursor-pointer items-center gap-1.5 rounded-full bg-foreground/[0.06] px-2.5 py-1 text-[12px] font-medium text-muted-foreground hover:text-foreground data-popup-open:text-foreground";

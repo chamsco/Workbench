@@ -50,6 +50,7 @@ const P = {
   check: '<path d="m3.4 8.4 3 3 6.2-6.6"/>',
   updown: '<path d="m5.4 6 2.6-2.6L10.6 6M5.4 10l2.6 2.6 2.6-2.6"/>',
   panelr: '<rect x="2.6" y="3" width="10.8" height="10" rx="2"/><path d="M9.6 3v10"/>',
+  panelb: '<rect x="2.6" y="3" width="10.8" height="10" rx="2"/><path d="M2.6 9.4h10.8"/>',
   lock: '<rect x="3.6" y="7" width="8.8" height="6" rx="1.4"/><path d="M5.6 7V5.2a2.4 2.4 0 0 1 4.8 0V7"/>',
   home: '<path d="M2.8 7.4 8 3l5.2 4.4M4.4 6.2V13h7.2V6.2"/>',
   trace: '<path d="M2.6 4h5M4.6 8h6M6.6 12h6.8"/>',

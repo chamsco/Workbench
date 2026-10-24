@@ -193,14 +193,14 @@ button.rp-row:hover { background: var(--hover); }
 .home.picking { height: auto; min-height: 100%; }
 .home.picking .home-hero { height: auto; }
 .home { position: relative; height: 100%; display: flex; justify-content: center; }
-.home-hero { position: relative; width: 100%; max-width: 720px; height: 100%; box-sizing: border-box; padding: clamp(36px, 15vh, 170px) 20px 14px; display: flex; flex-direction: column; transition: padding-top 0.3s cubic-bezier(.2, .8, .2, 1); }
+.home-hero { position: relative; width: 100%; max-width: 720px; height: 100%; box-sizing: border-box; padding: clamp(36px, 15vh, 170px) 20px 14px; display: flex; flex-direction: column; transition: padding-top 0.5s cubic-bezier(.22, 1, .36, 1); }
 .home.picking .home-hero { padding-top: clamp(16px, 4vh, 48px); }
 .home-hero h1 { margin: 0 0 16px; font-size: 24px; font-weight: 600; letter-spacing: -0.02em; text-align: center; color: #fff; text-shadow: 0 1px 14px rgba(0, 0, 0, 0.45); flex: none; }
 .win:not(.art-vivid) .home-hero h1, .win[data-backdrop="plain"] .home-hero h1, .win[data-backdrop="aurora"] .home-hero h1 { color: var(--fg); text-shadow: none; }
 /* One line, always: the chips name where the work happens, and a chip that wraps
    to a second line moves the composer under it. Long names truncate instead —
    "This machine" is halfway through a sentence by the time it fits at 11.5px. */
-.hc-above { display: flex; flex-wrap: nowrap; justify-content: flex-end; gap: 4px; margin-bottom: 6px; flex: none; min-width: 0; }
+.hc-above { display: flex; flex-wrap: nowrap; justify-content: center; gap: 4px; margin-bottom: 6px; flex: none; min-width: 0; }
 .hc { container-type: inline-size; flex: none; width: 100%; border-radius: 14px; background: var(--card-strong); box-shadow: 0 14px 40px rgba(0, 0, 0, 0.25); -webkit-backdrop-filter: blur(24px) saturate(1.4); backdrop-filter: blur(24px) saturate(1.4); }
 .hc textarea { display: block; width: 100%; box-sizing: border-box; resize: none; border: 0; outline: 0; background: transparent; color: var(--fg); font: 14px/1.5 var(--font-ui); padding: 14px 16px 4px; min-height: 58px; }
 .hc textarea::placeholder { color: var(--fg-3); }
@@ -219,9 +219,9 @@ button.rp-row:hover { background: var(--hover); }
 .hc-send { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; background: var(--fg); color: var(--win-bg); }
 .hc-send .ic { width: 15px; height: 15px; }
 /* The picker unfolds inside the composer, part of the same card. */
-.hc-panel { margin: 0 6px 6px; padding-top: 2px; animation: unfold 0.24s cubic-bezier(.2, .8, .2, 1); }
+.hc-panel { margin: 0 6px 6px; padding-top: 2px; animation: unfold 0.42s cubic-bezier(.22, 1, .36, 1); }
 .hc-panel[hidden] { display: none; }
-@keyframes unfold { from { opacity: 0; transform: translateY(-6px); } }
+@keyframes unfold { from { opacity: 0; transform: translateY(-10px); clip-path: inset(0 0 100% 0 round 10px); } to { clip-path: inset(0 0 0 0 round 10px); } }
 .hc-panel .mp-body { border-radius: 10px; background: color-mix(in srgb, var(--fg) 3.5%, transparent); }
 .hc-panel .mp-list { max-height: min(240px, 30vh); }
 .hc-chip { height: 24px; padding: 0 8px; border-radius: 7px; display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--fg-2); max-width: 240px; min-width: 0; background: var(--chip); }
@@ -230,6 +230,7 @@ button.rp-row:hover { background: var(--hover); }
 .hc-chip:not(.quiet):hover { color: var(--fg); }
 .hc-chip.quiet { color: var(--fg-3); }
 .home-dock { flex: 1; min-height: 0; display: flex; flex-direction: column; margin-top: 18px; transition: opacity 0.2s; }
+.home-dock { transition: opacity 0.3s ease; }
 .home.picking .home-dock { opacity: 0; pointer-events: none; }
 .home-pills { flex: none; display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
 .hpill { height: 30px; padding: 0 12px; border-radius: 999px; display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: var(--fg-2); background: var(--chip); white-space: nowrap; }
@@ -285,7 +286,7 @@ button.rp-row:hover { background: var(--hover); }
 .effort .fx { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1; }
 .effort .eh, .effort .ends { position: relative; z-index: 2; }
 .effort .rec { position: absolute; z-index: 2; }
-.effort .track { z-index: 0; background: color-mix(in srgb, var(--fg) 7%, transparent); }
+.effort .track { z-index: auto; background: color-mix(in srgb, var(--fg) 7%, transparent); }
 .effort .knob { z-index: 3; transition: none; }
 .effort .stop { z-index: 0; }
 .effort .stop.rec { width: 2px; height: 10px; margin: -5px 0 0 -1px; border-radius: 1px; background: var(--fg-3); }
@@ -637,3 +638,14 @@ button.rp-row:hover { background: var(--hover); }
 @keyframes needpulse { 50% { opacity: 0.35; transform: scale(0.85); } }
 .reduce-motion .rz.live .rs { animation: none; }
 #win.side-closed .rail .rsep { width: 20px; background: color-mix(in srgb, var(--fg) 20%, transparent); margin: 3px 0; }
+
+/* ---------- the terminal dock (code.js setDock): under the page or to its
+   right, and the page makes room for it. */
+.tdock { position: absolute; z-index: 4; display: flex; flex-direction: column; border-radius: 10px; overflow: hidden; background: color-mix(in srgb, var(--win-bg) 82%, transparent); box-shadow: inset 0 0 0 1px var(--glass-line, var(--frame-edge)); animation: unfold 0.32s cubic-bezier(.22, 1, .36, 1); }
+.tdock .tterm { background: transparent; flex: 1; min-height: 0; overflow: auto; margin: 0; padding: 10px 12px; white-space: pre-wrap; font: 12px/1.5 var(--font-mono); color: var(--fg-2); }
+.mainc.term-under .tdock { left: 8px; right: 8px; bottom: 8px; height: 260px; }
+.mainc.term-right .tdock { top: 52px; right: 8px; bottom: 8px; width: 420px; }
+.mainc.term-under > .body { margin-bottom: 268px; }
+.mainc.term-right > .body { margin-right: 428px; }
+#win:not(.m-code) .tdock { display: none; }
+#win:not(.m-code) .mainc > .body { margin: 0; }

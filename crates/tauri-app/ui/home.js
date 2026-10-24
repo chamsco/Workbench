@@ -44,8 +44,8 @@ var Home = (() => {
         <h1>What should your agents work on?</h1>
         <div class="hc-above">
           <button class="hc-chip" data-act="proj" data-popper>${icon("folder")}<span class="v"></span>${icon("chevd")}</button>
-          <span class="hc-chip quiet">${icon("branch")}<span class="br">backspace/run</span></span>
-          <span class="hc-chip quiet">${icon("pc")}<span class="mn"></span></span>
+          <button class="hc-chip" data-act="branch" data-popper title="The branch your agents work on">${icon("branch")}<span class="br">backspace/run</span>${icon("chevd")}</button>
+          <button class="hc-chip" data-act="mach" data-popper title="The machine the work runs on">${icon("pc")}<span class="mn"></span>${icon("chevd")}</button>
         </div>
         <div class="hc">
           <textarea rows="2" placeholder="Describe a task, a bug to fix, an idea to try…" aria-label="What should your agents work on?"></textarea>
@@ -213,6 +213,29 @@ var Home = (() => {
     });
   }
 
+  // The agents always work on backspace/run, a branch of their own beside
+  // yours; its menu says so and leads to where it is merged.
+  function branchMenu(anchor) {
+    openPop(anchor, `<div class="ph-t">backspace/run</div><div class="note">Your agents commit here, never on your branch. Merge it when their work is reviewed.</div>
+      <div class="psep"></div><button class="pi" data-b="git">${icon("branch")}Git activity</button><button class="pi" data-b="copy">${icon("copy")}Copy the branch name</button>`, pop => {
+      pop.querySelector("[data-b=git]").onclick = () => { closePop(); open = "git"; pills(); };
+      pop.querySelector("[data-b=copy]").onclick = () => { closePop(); navigator.clipboard && navigator.clipboard.writeText("backspace/run"); toast("Copied backspace/run", "ok"); };
+    });
+  }
+  // Where the work runs: this machine, or one it is paired with.
+  async function machMenu(anchor) {
+    const ms = await invoke("machines").catch(() => []);
+    openPop(anchor, `<div class="ph-t">Run on</div>${ms.map(m => `<button class="pi" data-m="${m.index}">${icon(m.local ? "pc" : "cloud")}${esc(m.local ? "This machine" : m.name)}${m.selected ? `<span class="meta on">${icon("check")}</span>` : ""}</button>`).join("")}
+      <div class="psep"></div><button class="pi" data-m="add">${icon("plus")}Add a machine…</button>`, pop => {
+      pop.querySelectorAll("[data-m]").forEach(b => (b.onclick = async () => {
+        closePop();
+        if (b.dataset.m === "add") { openSettings("machines"); return; }
+        await invoke("select_machine", { index: +b.dataset.m });
+        await refresh(true);
+      }));
+    });
+  }
+
   // A new choice applies when the project is next opened; reopen it now if
   // nothing is running.
   let reopenT = null;
@@ -277,6 +300,8 @@ var Home = (() => {
       g.innerHTML = shell();
       home = g.querySelector(".home");
       home.querySelector("[data-act=proj]").onclick = e => projMenu(e.currentTarget);
+      home.querySelector("[data-act=branch]").onclick = e => branchMenu(e.currentTarget);
+      home.querySelector("[data-act=mach]").onclick = e => machMenu(e.currentTarget);
       home.querySelector("[data-act=model]").onclick = togglePicker;
       home.querySelector("[data-act=send]").onclick = () => send(false);
       home.querySelector("[data-act=par]").onclick = () => send(true);
