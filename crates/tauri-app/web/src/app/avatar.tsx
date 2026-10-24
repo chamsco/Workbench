@@ -8,9 +8,12 @@
 // seeds the blink phase, so a row of bots never blinks in unison.
 
 import type { Agent } from "../bridge";
-import { Orb, Stack, type OrbState } from "./orb";
+import { ACCESSORIES, Orb, Stack, type OrbState } from "./orb";
 
-export const COLORS = ["#f97316", "#e11d48", "#8b5cf6", "#2563eb", "#0891b2", "#16a34a", "#ca8a04", "#64748b"];
+export { ACCESSORIES };
+
+// Body tones; each bot's folds are the same hue darkened (see orb.tsx `darken`).
+export const COLORS = ["#ff8597", "#fb923c", "#a78bfa", "#60a5fa", "#22d3ee", "#4ade80", "#facc15", "#94a3b8"];
 
 /** Blink-phase tokens. The core stores the chosen one in `avatar.emoji`; the
  *  face never draws it. Templates still set it, and a bot made from scratch
@@ -24,3 +27,29 @@ export function Avatar({ agent, size = 32, state = "idle" }: { agent?: Agent; si
 }
 
 export { Orb, Stack, type OrbState };
+
+const ACCESSORY_LABEL: Record<string, string> = {
+  "": "Nothing", glasses: "Glasses", tophat: "Top hat", beanie: "Beanie",
+  bow: "Bow", crown: "Crown", headphones: "Headphones",
+};
+
+/** What the brain wears: each choice previewed on the bot itself. */
+export function AccessoryPicker({ agent, value, onChange, size = 30 }: { agent: Agent; value: string; onChange: (v: string) => void; size?: number }) {
+  return (
+    <div className="flex flex-wrap items-center gap-1">
+      {ACCESSORIES.map((k) => (
+        <button
+          key={k || "none"}
+          type="button"
+          title={ACCESSORY_LABEL[k]}
+          aria-label={`Accessory: ${ACCESSORY_LABEL[k]}`}
+          aria-pressed={value === k}
+          onClick={() => onChange(k)}
+          className={`grid cursor-pointer place-items-center rounded-lg p-0.5 ${value === k ? "ring-2 ring-foreground" : "opacity-70 hover:opacity-100"}`}
+        >
+          <Orb agent={{ ...agent, avatar: { ...agent.avatar, accessory: k } }} size={size} />
+        </button>
+      ))}
+    </div>
+  );
+}

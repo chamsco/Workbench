@@ -434,6 +434,7 @@ mod tests {
             avatar: crate::agents::Avatar {
                 emoji: "🙂".into(),
                 color: "#64748b".into(),
+                ..Default::default()
             },
             personality: String::new(),
             route: Route {
