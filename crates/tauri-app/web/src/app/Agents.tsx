@@ -204,8 +204,8 @@ export function AgentsSide() {
           const unfolded = open.has(a.id);
           return (
             <div key={a.id} className="flex flex-col">
-              {/* The bot itself: the folder chevron on the left, the name (its
-                  page) the rest of the row. */}
+              {/* The bot itself: the folder chevron on the left, the name (your
+                  latest chat with it) the rest of the row. */}
               <div className={`relative flex h-11 items-center gap-1 rounded-lg pr-2 ${on ? "bg-accent" : ""}`}>
                 <button
                   type="button"
@@ -216,7 +216,7 @@ export function AgentsSide() {
                 >
                   <IconChevronRight size={14} className={`transition-transform duration-150 ${unfolded ? "rotate-90" : ""}`} />
                 </button>
-                <button type="button" className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 text-left" onClick={() => openBot(a.id)} title={`${oneLine(a.job)} — open ${a.name}'s page`}>
+                <button type="button" className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 text-left" onClick={() => void openAgentThread(a)} title={`${oneLine(a.job)} — your chat with ${a.name}`}>
                   <Avatar agent={a} size={28} state={st.kind === "wake" ? "wake" : st.kind} />
                   <span className="flex min-w-0 flex-1 flex-col">
                     <span className="truncate text-[13.5px]/4 font-medium text-foreground">{a.name}</span>
@@ -317,7 +317,7 @@ export function AgentsSide() {
 
 export function AgentsHome() {
   return (
-    <div className="h-full overflow-y-auto px-6 pt-10 pb-16">
+    <div className="h-full overflow-y-auto px-6 pt-[clamp(36px,15vh,170px)] pb-16">
       <div className="mx-auto flex max-w-3xl flex-col gap-6">
         {/* The prompt first, the way the screenshot starts: one line in, a
             plan under it, Enter routes it. Everything below is what the
@@ -991,7 +991,7 @@ function GroupEditor() {
                     <span className="text-[13.5px] font-medium">{a.name}</span>
                     <span className="truncate text-[11.5px] text-muted-foreground">{oneLine(a.job)}</span>
                   </span>
-                  {i >= 0 && <span className="grid size-5 place-items-center rounded-full bg-foreground text-[11px] font-semibold text-(--surface)">{i + 1}</span>}
+                  {i >= 0 && <span className="grid size-5 place-items-center rounded-full bg-(--bs-accent) text-[11px] font-semibold text-white">{i + 1}</span>}
                 </button>
               );
             })}

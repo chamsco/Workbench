@@ -60,15 +60,17 @@ export function AgentPage() {
   const sessions = useSessions();
   const now = useNow(1000);
   const status = agent ? agentStatus(agent, threads.find((t) => t.agent === agent.id && t.busy) ?? threads.find((t) => t.agent === agent.id) ?? null) : null;
+  // Hooks before the early return: on "All bots" the page renders once more
+  // with no bot while it animates out, and must call the same hooks.
+  const [line, setLine] = useState("");
+  const [card, setCard] = useState("");
+  const taRef = useRef<HTMLTextAreaElement>(null);
   if (!agent) return null;
   // Every sitting this bot has had, newest first, across all of its threads.
   const mine = sessions.filter((s) => s.agentIds.includes(agent.id)).sort((a, b) => b.startedAt - a.startedAt);
   const previews = new Map(threads.map((t) => [t.id, t.preview ?? ""]));
   const inProjects = projects.filter((p) => p.agents.includes(agent.id));
   const next = nextRoutine(agent);
-  const [line, setLine] = useState("");
-  const [card, setCard] = useState("");
-  const taRef = useRef<HTMLTextAreaElement>(null);
 
   const say = async () => {
     const text = line.trim();

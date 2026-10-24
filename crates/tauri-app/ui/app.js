@@ -50,6 +50,7 @@ const P = {
   check: '<path d="m3.4 8.4 3 3 6.2-6.6"/>',
   updown: '<path d="m5.4 6 2.6-2.6L10.6 6M5.4 10l2.6 2.6 2.6-2.6"/>',
   panelr: '<rect x="2.6" y="3" width="10.8" height="10" rx="2"/><path d="M9.6 3v10"/>',
+  panelb: '<rect x="2.6" y="3" width="10.8" height="10" rx="2"/><path d="M2.6 9.4h10.8"/>',
   lock: '<rect x="3.6" y="7" width="8.8" height="6" rx="1.4"/><path d="M5.6 7V5.2a2.4 2.4 0 0 1 4.8 0V7"/>',
   home: '<path d="M2.8 7.4 8 3l5.2 4.4M4.4 6.2V13h7.2V6.2"/>',
   trace: '<path d="M2.6 4h5M4.6 8h6M6.6 12h6.8"/>',
@@ -363,13 +364,14 @@ async function openProject(path) {
   const running = snap.agents.filter(a => a.status === "running").length;
   if (hasProject && running && !confirm(`${running} agent${running > 1 ? "s are" : " is"} still running in ${snap.name}. Switching projects stops them. Switch?`)) return;
   toast(`Opening ${base(path)}…`);
+  // Code comes up at once; the project fills it in when the harness has it.
+  if (S.mode !== "code") setMode("code");
   try {
     await invoke("open_project", { path });
-    prefs = await invoke("prefs");
     // The new project's own canvas layout, not the one we were just looking at.
+    prefs = await invoke("prefs");
     await Code.loadTabs(path);
     S.review = null; S.ticket = null;
-    if (S.mode !== "code") setMode("code");
     await refresh(true);
     if (window.Shell) Shell.layout();
     toast(`Opened ${base(path)}`, "ok");
@@ -395,12 +397,13 @@ function renderCard() {
     row(run ? "run" : "acc", "Workers running", run) + row(pending().length ? "wait" : "", "Waiting on you", pending().length) +
     row("done", "Worktrees", wts) + row("", "Spent", `$${snap.total_cost_usd.toFixed(3)} · router $${snap.router_cost_usd.toFixed(3)}`);
 }
-// The footer's machines: each by name, with a dot for how it is: green
-// while agents work on it, orange when it is idle, red when unreachable.
+// The footer's machines: each by name, with a dot only when there is
+// something to say: green while agents work on it, orange while it connects,
+// red when unreachable. Idle has no dot.
 function machineState(m) {
   if (m.link.state === "offline") return ["red", "Unreachable: " + (m.link.error || "no answer")];
   if (m.link.state === "connecting") return ["orange", "Connecting…"];
-  return m.running > 0 || m.pending > 0 ? ["green", `${m.running} working${m.pending ? `, ${m.pending} waiting on you` : ""}`] : ["orange", "Idle: no agents working"];
+  return m.running > 0 || m.pending > 0 ? ["green", `${m.running} working${m.pending ? `, ${m.pending} waiting on you` : ""}`] : ["", "Idle: no agents working"];
 }
 function renderMachines() {
   $("#machines").innerHTML = machines.map(m => {
@@ -419,16 +422,19 @@ function renderMachines() {
 function renderUpd() {
   const b = $("#upd");
   b.hidden = false;
-  b.classList.toggle("new", !!(upd && upd.newer) || !!installing);
+  // The pill's colour is its state: orange there is an update to take, red the
+  // last check or install failed, green this is the newest build.
+  const st = installing || (upd && upd.newer) ? "new" : upd === "checking" ? "busy" : upd && upd.error ? "bad" : upd ? "ok" : "";
+  b.className = "upd" + (st ? " " + st : "");
   if (installing) {
     const pct = installing.stage === "Downloading" ? ` ${installing.pct}%` : "";
     b.innerHTML = `${icon("down")}<span class="lbl">${esc(installing.stage)}${pct}</span>`;
     b.title = "Backspace is fetching the new build; it reopens when it's in place.";
-  } else if (upd === "checking") b.innerHTML = `Checking…`;
-  else if (upd && upd.error) { b.innerHTML = `${icon("reload")}Check for updates`; b.title = upd.error; }
+  } else if (upd === "checking") { b.innerHTML = `${icon("reload")}<span class="lbl">Checking</span>`; b.title = "Checking for a newer build"; }
+  else if (upd && upd.error) { b.innerHTML = `${icon("close")}<span class="lbl">Update failed</span>`; b.title = `${upd.error} · click to try again`; }
   else if (upd && upd.newer) { b.innerHTML = `${icon("down")}<span class="lbl">Update to ${esc(upd.latest)}</span>`; b.title = `A newer Backspace is out: build ${upd.latest}. You have ${upd.build || upd.current}.`; }
-  else if (upd) { b.innerHTML = `${icon("check")}<span class="lbl">Up to date</span><span class="n">v${esc(upd.current)}</span>`; b.title = `Backspace ${upd.current} · click to check again`; }
-  else b.innerHTML = `${icon("reload")}<span class="lbl">Check for updates</span>`;
+  else if (upd) { b.innerHTML = `${icon("check")}<span class="lbl">Up to date</span>`; b.title = `Backspace ${upd.current} · click to check again`; }
+  else { b.innerHTML = `${icon("reload")}<span class="lbl">Check for updates</span>`; b.title = "Check for a newer build"; }
 }
 async function checkUpdate() {
   upd = "checking"; renderUpd();
@@ -447,7 +453,7 @@ async function installUpdate() {
   try {
     await invoke("install_update");
   } catch (e) {
-    installing = null;
+    installing = null; upd = { error: `Couldn't install the update: ${e}` };
     renderUpd(); syncUpdButton();
     toast(`Couldn't install the update: ${e}`, "err");
   }
@@ -552,6 +558,7 @@ const richOn = () => { try { return localStorage.getItem("bs.rich") !== "0"; } c
 
 // ------------------------------------------------------------------ settings
 function openSettings(section) {
+  if (section) S.setSection = section;
   S.settings = true; $("#settings").hidden = false;
   // Settings is a page of its own, so the sidebar and the rail step aside and it
   // spans the window instead of sitting in a column beside them.
@@ -896,7 +903,7 @@ async function renderSkills(el) {
           <span>${esc(s.description || "No description.")}</span>
           <small>${esc(SKILL_ORIGIN[s.origin] || s.origin)}${s.injected && s.injected.length ? ` · injected into ${s.injected.map(esc).join(", ")}` : ""}${s.files.length > 1 ? ` · ${s.files.map(esc).join(", ")}` : ""}</small></div>`).join("")
       : `<div class="nothing">No skill matches “${esc(q)}”.</div>`}</div>`
-    + `<div class="line"><span class="lab">Add one<small>Write a folder with a <code>SKILL.md</code> in it. <b>${esc(d.user_dir || d.dirs[0] || "")}</b> is yours; a folder of the same name in <code>&lt;project&gt;/.backspace/skills/</code> overrides a built-in for that project only.</small></span>
+    + `<div class="line"><span class="lab">Add one<small>Write a folder with a <code>SKILL.md</code> in it. <b>${esc(d.user_dir || (d.dirs || [])[0] || "")}</b> is yours; a folder of the same name in <code>&lt;project&gt;/.backspace/skills/</code> overrides a built-in for that project only.</small></span>
         <button class="btn" id="skOpen">Open my skills folder</button><button class="btn" id="skTpl">Copy the template</button></div>`
     + `<div class="line"><span class="lab">Read from<small class="mono">${(d.dirs || []).map(esc).join(" · ")}</small></span></div>`;
   const qi = $("#skQ", box);
@@ -1056,7 +1063,10 @@ async function refresh(full) {
 }
 // Coalesce bursts of harness events into one refresh per frame.
 TAURI.event.listen("state", () => { if (!queued) { queued = true; requestAnimationFrame(() => refresh(false)); } });
-addEventListener("resize", () => { setSide(!narrow()); });
+// Only crossing the narrow width resets the sidebar; any other resize (a drag,
+// maximize) leaves it as you set it.
+let wasNarrow = narrow();
+addEventListener("resize", () => { if (narrow() !== wasNarrow) { wasNarrow = narrow(); setSide(!wasNarrow); } });
 
 // After every script has run. The frame loads the apps' scripts during boot.
 addEventListener("DOMContentLoaded", async () => {
@@ -1076,7 +1086,7 @@ addEventListener("DOMContentLoaded", async () => {
     prefs.tabs.unshift({ name: "Bench", panes: [{ kind: "agent", agent: 0, url: null }, { kind: "files", agent: 0, url: null }, { kind: "agent", agent: 1, url: null }, { kind: "agent", agent: 2, url: null }].slice(0, boot.layout), layout: null });
     prefs.active_tab = 0;
   }
-  applyTheme(); renderSeg(); setSide(false);
+  applyTheme(); renderSeg(); setSide(!narrow());
   // Every launch lands on Home; the zone you were last in is a click away.
   S.mode = "home";
   S.codeView = prefs.code_view === "pair" ? "pair" : "agents";

@@ -167,8 +167,8 @@ var Dash = (() => {
       return `<button class="ma" data-mf="${esc(n.project || "global")}"><span class="ma-who" style="--wc:${c}">${esc(l.charAt(0))}</span><span class="ma-b"><b>${esc(l)}</b> remembered <q>${esc(t)}</q> in <b>${esc(place)}</b></span><span class="dt-w">${esc(ago(n.created || n.updated || Date.now()))}</span></button>`;
     }).join("");
     return `<section class="dmem"><div class="dmem-h"><h2>Memory</h2><button class="dlink" data-mf="all">All notes${icon("chev")}</button></div>
-      <div class="folds">${fs.map(card).join("")}</div>
-      <h3 class="ma-h">Recent activity</h3>${rows || `<div class="dempty">Nothing remembered yet. Say "remember that…" in a chat, or open a folder and add a note.</div>`}</section>`;
+      <h3 class="ma-h">Recent activity</h3>${rows || `<div class="dempty">Nothing remembered yet. Say "remember that…" in a chat, or open a folder and add a note.</div>`}
+      <div class="folds">${fs.map(card).join("")}</div></section>`;
   }
 
   // ---------------------------------------------------------------- page

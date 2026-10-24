@@ -8,7 +8,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { IconAlertTriangleFilled, IconChevronRight, IconSettings } from "@tabler/icons-react";
 
 import { cn } from "@/lib/utils";
-import { editAgent, getHost, openTrace, saveAgent, useChat, type Agent, type Thread, type Trace } from "../bridge";
+import { editAgent, getHost, openBot, openTrace, saveAgent, useChat, type Agent, type Thread, type Trace } from "../bridge";
 import { RULES } from "./Agents";
 import { PERSONALITIES } from "./bot-create";
 import { Orb } from "./orb";
@@ -80,6 +80,9 @@ export function AgentSide({ agent, thread: open, threadId }: { agent: Agent; thr
       <div className="flex shrink-0 flex-col items-center gap-1 px-3 pt-4 pb-2">
         <div className="max-w-full truncate text-[15px] font-semibold text-foreground">{agent.name}</div>
         <Orb agent={agent} size={104} state={busy ? "working" : "idle"} />
+        <button type="button" onClick={() => openBot(agent.id)} className="text-[11.5px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline">
+          Sessions, cards and projects
+        </button>
       </div>
       <div className="flex shrink-0 justify-center gap-0.5 px-3 pb-2" role="tablist">
         {TABS.map(([id, label]) => (

@@ -15,10 +15,12 @@
 <div class="desk">
   <div class="blob a"></div><div class="blob b"></div><div class="blob c"></div>
   <div class="win" id="win">
+    <div class="glass" id="glass" aria-hidden="true"></div>
     <div class="lights" aria-hidden="true"><span>×</span><span>−</span><span>+</span></div>
     <nav class="rail" id="rail" aria-label="Zones" data-tauri-drag-region>
       <div class="rail-zones" id="railZones" role="tablist" aria-orientation="vertical"></div>
       <div class="rail-apps" id="railApps"></div>
+      <div class="rail-run" id="railRun"></div>
       <span class="sp" data-tauri-drag-region></span>
       <button class="rz" id="gear" aria-label="Settings" data-tip="Settings"><span class="sq" data-icon="gear"></span></button>
     </nav>
@@ -67,6 +69,7 @@
         <span class="sp" data-tauri-drag-region></span>
         <div class="page-line" id="pageLine"></div>
         <div class="right">
+          <button class="ib code-only" id="termBtn" aria-label="Terminal" title="Terminal: under the page or to its right" aria-pressed="false" data-popper data-icon="term"></button>
           <button class="ib code-only" id="panelBtn" aria-label="Side panel: history, files, sessions" title="History, files and sessions" aria-pressed="false" data-icon="panelr"></button>
           <button class="ib" id="aiBtn" aria-label="Chat panel" title="Chat panel (⌘I)" aria-pressed="true" data-icon="sparkle"></button>
         </div>

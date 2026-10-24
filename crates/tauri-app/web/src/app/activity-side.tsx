@@ -25,10 +25,10 @@ export function ActivityToggle({ view, onView }: { view: "bots" | "activity"; on
   const open = openAsks(asks).length;
   const tab = (v: "bots" | "activity") =>
     `flex h-7 flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-[9px] text-[12.5px] font-medium transition-colors ${
-      view === v ? "bg-foreground text-(--surface)" : "text-muted-foreground hover:text-foreground"
+      view === v ? "bg-foreground/[0.1] text-foreground" : "text-muted-foreground hover:text-foreground"
     }`;
   return (
-    <div role="tablist" aria-label="Sidebar" className="flex items-center gap-1 rounded-xl bg-well p-1 shadow-[inset_0_0_0_1px_var(--well-outline),inset_0_1px_0_0_var(--well-highlight)]">
+    <div role="tablist" aria-label="Sidebar" className="flex items-center gap-1 rounded-xl bg-foreground/[0.04] p-1 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_10%,transparent)]">
       <button type="button" role="tab" aria-selected={view === "bots"} className={tab("bots")} onClick={() => onView("bots")} title="Bots, group chats and artifacts">
         <IconList size={14} />
         Bots
@@ -81,7 +81,7 @@ export function ActivitySide() {
             onClick={() => setFilter(f)}
             aria-pressed={filter === f}
             className={`cursor-pointer rounded-full px-2.5 py-1 text-[12px] font-medium transition-colors ${
-              filter === f ? "bg-foreground text-(--surface)" : "text-muted-foreground hover:bg-accent hover:text-foreground"
+              filter === f ? "bg-foreground/[0.1] text-foreground" : "text-muted-foreground hover:bg-accent hover:text-foreground"
             }`}
           >
             {f === "all" ? "All" : f === "did" ? "Did" : "Asks"}

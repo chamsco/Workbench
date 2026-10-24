@@ -18,8 +18,8 @@
 // badge, a 1.2s hover closes the eyes into two smiles, and voice turns the
 // eyes into an equalizer and sways the whole head.
 //
-// The bot's colour is `avatar.color` (the mascot's pink by default); the folds
-// are that colour a step darker. The stored emoji draws nothing; it only phases
+// The bot's colour is `avatar.color`, any bright colour (a bot without one
+// gets one from its id); the folds are the same hue a step darker. The stored emoji draws nothing; it only phases
 // the blink, so a row of brains never blinks in unison.
 
 import { useEffect, useMemo, useRef } from "react";
@@ -61,14 +61,27 @@ const EYE = { w: 98, h: 194 };
 /** Mascot units to the 100-unit box: the head is ~1100 wide. */
 const FIT = 0.086;
 
-/** The folds: the body's colour a step darker (#FF7F95 → #FF5C7A in the
- *  drawing is seven points of lightness). */
-function deeper(hex: string, by = 0.07): string {
+/** The brain's colours: bright bodies, one per hue. */
+export const BRAIN_COLORS = ["#ff7f95", "#ff6f6f", "#ff9a5c", "#ffc24d", "#5fd38d", "#4cc9e8", "#6c9bff", "#a98bff", "#9aa8bb"];
+
+/** The two tones of a brain, from any colour: the body is that hue kept
+ *  bright (lightness at least 66%, so a dark pick still reads as a mascot),
+ *  and the folds are the same hue ten points darker. The drawing's own pair,
+ *  #FF7F95 and #FF5C7A, is seven points apart; other hues need a little more
+ *  to read at sidebar size. A bot with no colour gets one from its id. */
+export function brainTones(color: string | undefined, seed = ""): { body: string; folds: string } {
+  const pick = color && /^#[0-9a-f]{6}$/i.test(color) ? color : BRAIN_COLORS[hash(seed) % BRAIN_COLORS.length];
+  if (pick.toLowerCase() === "#ff7f95") return { body: "#ff7f95", folds: "#ff5c7a" };
+  const [h, s, l] = hsl(pick);
+  const body = Math.max(l, 0.66);
+  return { body: rgb(h, Math.max(s, 0.55), body), folds: rgb(h, Math.max(s, 0.55), body - 0.1) };
+}
+
+function hsl(hex: string): [number, number, number] {
   const n = Number.parseInt(hex.slice(1), 16);
-  if (hex.length !== 7 || !Number.isFinite(n)) return hex;
-  let r = ((n >> 16) & 255) / 255;
-  let g = ((n >> 8) & 255) / 255;
-  let b = (n & 255) / 255;
+  const r = ((n >> 16) & 255) / 255;
+  const g = ((n >> 8) & 255) / 255;
+  const b = (n & 255) / 255;
   const max = Math.max(r, g, b);
   const min = Math.min(r, g, b);
   const l = (max + min) / 2;
@@ -80,12 +93,14 @@ function deeper(hex: string, by = 0.07): string {
     else if (max === g) h = (b - r) / d + 2;
     else h = (r - g) / d + 4;
   }
-  h = (h * 60 + 360) % 360;
-  const L = Math.max(0, l - by);
-  const c = (1 - Math.abs(2 * L - 1)) * s;
+  return [(h * 60 + 360) % 360, s, l];
+}
+
+function rgb(h: number, s: number, l: number): string {
+  const c = (1 - Math.abs(2 * l - 1)) * s;
   const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
-  const m = L - c / 2;
-  [r, g, b] = h < 60 ? [c, x, 0] : h < 120 ? [x, c, 0] : h < 180 ? [0, c, x] : h < 240 ? [0, x, c] : h < 300 ? [x, 0, c] : [c, 0, x];
+  const m = l - c / 2;
+  const [r, g, b] = h < 60 ? [c, x, 0] : h < 120 ? [x, c, 0] : h < 180 ? [0, c, x] : h < 240 ? [0, x, c] : h < 300 ? [x, 0, c] : [c, 0, x];
   const to = (v: number) => Math.round((v + m) * 255);
   return `rgb(${to(r)},${to(g)},${to(b)})`;
 }
@@ -273,9 +288,8 @@ export function Orb({ agent, size = 32, state = "idle" }: { agent?: Agent; size?
   // The seed only phases the blink: every bot has a face whichever way it was
   // made, and a row of them never blinks in unison.
   const seed = agent?.avatar.emoji || agent?.id || agent?.name || "orb";
-  const color = agent?.avatar.color || "#ff7f95";
+  const { body: color, folds: foldTone } = useMemo(() => brainTones(agent?.avatar.color, seed), [agent?.avatar.color, seed]);
   const phase = useMemo(() => ((hash(seed) % 1000) / 1000) * BLINK_EVERY * 7, [seed]);
-  const foldTone = useMemo(() => deeper(color), [color]);
   const face = useRef<Face>({ el: null, head: null, folds: null, face: null, smile: null, eyes: [null, null, null], cheer: null, notif: null });
   const hover = useRef(false);
   const cheer = useRef(0);
