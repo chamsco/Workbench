@@ -209,7 +209,7 @@ var Shell = (() => {
     $$("[data-run]", el).forEach(b => (b.onclick = () => items[+b.dataset.run].go()));
   }
   async function pollRun() {
-    if ($("#win").classList.contains("side-closed")) {
+    if ($("#win").matches(".side-closed, .ghost-side")) {
       runChats = await invoke("chat_list").catch(() => runChats) || [];
       renderRun();
     }

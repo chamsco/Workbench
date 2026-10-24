@@ -125,9 +125,11 @@ Numbers use `tabular-nums` wherever they change or line up.
   layout.
 - **Shadows:** two only. `--shadow-pop` for menus and popovers, `--shadow-sheet`
   for modals. Cards on a page have no shadow.
-- **The frame:** the page card sits 8px in from the window, with `--r-lg`
-  corners. On Windows and Linux, the card starts 40px down wherever it would
-  reach the window buttons.
+- **The frame:** the page card sits 8px in from the window on every side, with
+  `--r-lg` corners. On Windows and Linux the window buttons end the card's
+  header; on macOS the card steps down 40px for the lights when the sidebar is
+  folded. The sidebar, the chat column and the 8px around the card are one
+  sheet of glass at 30%.
 
 ## Components
 
