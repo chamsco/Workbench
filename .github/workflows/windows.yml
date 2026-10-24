@@ -46,7 +46,8 @@ jobs:
       # Same stamp as the Mac build: the app knows which commit it is.
       - name: Say which commit this build is
         shell: bash
-        run: printf 'pub const BUILD: &str = "%s";\n' "$GITHUB_SHA" > crates/core/src/build_stamp.rs
+        run: |
+          printf 'pub const BUILD: &str = "%s";\n' "$GITHUB_SHA" > crates/core/src/build_stamp.rs
 
       - name: Build Backspace.exe and its installer
         working-directory: crates/tauri-app
