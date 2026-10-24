@@ -83,6 +83,7 @@ const P = {
   team: '<circle cx="8" cy="5.2" r="2.2"/><path d="M4 13.2c.4-2.3 2-3.6 4-3.6s3.6 1.3 4 3.6"/><circle cx="3.4" cy="6.6" r="1.5"/><circle cx="12.6" cy="6.6" r="1.5"/><path d="M1.4 11.6c.3-1.2 1-1.9 2-2.1M14.6 11.6c-.3-1.2-1-1.9-2-2.1"/>',
   motion: '<path d="M2.4 8h3l1.6-3.6 2 7.2 1.6-3.6h3"/>',
   tok: '<path d="M3 4.5h10M3 8h10M3 11.5h6"/>',
+  coin: '<circle cx="8" cy="8" r="5.8"/><path d="M8 4.4v7.2M10.2 6.2c-.4-.6-1.2-.9-2.2-.9-1.2 0-2 .5-2 1.4s.8 1.2 2 1.3 2 .5 2 1.4-.8 1.4-2 1.4c-1 0-1.9-.4-2.3-1"/>',
   monitor: '<rect x="2" y="2.8" width="12" height="8.4" rx="1.4"/><path d="M6 13.6h4M8 11.2v2.4"/>',
   swaph: '<path d="M2.6 5.4h10.2M10.4 3l2.4 2.4-2.4 2.4M13.4 10.6H3.2M5.6 8.2l-2.4 2.4 2.4 2.4"/>',
   wmax: '<rect x="3.5" y="3.5" width="9" height="9" rx="1"/>',
@@ -270,9 +271,12 @@ const base = p => String(p).replace(/[\\/]+$/, "").split(/[\\/]/).pop() || p;
 function openPop(anchor, html, wire) {
   const pop = $("#pop");
   pop.innerHTML = html; pop.hidden = false;
-  const r = anchor.getBoundingClientRect(), pw = pop.offsetWidth;
-  pop.style.top = r.bottom + 6 + "px";
-  pop.style.left = Math.max(8, Math.min(innerWidth - pw - 8, r.left)) + "px";
+  const r = anchor.getBoundingClientRect(), pw = pop.offsetWidth, ph = pop.offsetHeight;
+  // Above when below would leave the window: the footer's Usage popover sits at
+  // the bottom edge, and a popover there must open upward.
+  pop.style.top = Math.max(8, r.bottom + 6 + ph > innerHeight - 8 ? r.top - ph - 6 : r.bottom + 6) + "px";
+  const left = anchor.closest(".status") ? r.right - pw : r.left;
+  pop.style.left = Math.max(8, Math.min(innerWidth - pw - 8, left)) + "px";
   wire && wire(pop);
   const first = pop.querySelector("input, button:not([disabled])"); if (first) first.focus();
 }
@@ -311,7 +315,10 @@ function offlineNote() {
     : `<div class="offline-note"><b>Connecting to ${esc(m.name)}…</b></div>`;
 }
 function renderList() {
-  if (!agentsOn()) { if (window.Shell) Shell.renderSide(); return; }
+  // Code has one sidebar in both of its surfaces: the chat face's project
+  // tree. The old Projects/Workers list below is only a fallback for a build
+  // that did not load the chat extension.
+  if ((!agentsOn() || (window.Chat && Chat.mountSidebar)) && window.Shell) { Shell.renderSide(); return; }
   let h = offlineNote();
   if (S.side === "projects") {
     const m = machine();
@@ -397,20 +404,19 @@ function renderCard() {
 function machineState(m) {
   if (m.link.state === "offline") return ["red", "Unreachable: " + (m.link.error || "no answer")];
   if (m.link.state === "connecting") return ["orange", "Connecting…"];
-  return m.running > 0 || m.pending > 0 ? ["green", `${m.running} working${m.pending ? `, ${m.pending} waiting on you` : ""}`] : ["orange", "Idle: no agents working"];
+  return m.running > 0 || m.pending > 0 ? ["green", `${m.running} working${m.pending ? `, ${m.pending} waiting on you` : ""}`] : ["orange", "No agents working"];
 }
 function renderMachines() {
   $("#machines").innerHTML = machines.map(m => {
     const [c, why] = machineState(m);
     const tip = `${m.name}${m.local ? " (this machine)" : " · " + m.url}${m.project ? " · " + m.project : ""} · ${why}`;
     return `<button class="mach" aria-pressed="${m.selected}" data-m="${m.index}" title="${esc(tip)}" aria-label="${esc(tip)}">${icon(m.local ? "pc" : "cloud")}<span class="mn">${esc(m.name)}</span><span class="md ${c}"></span></button>`;
-  }).join("") + `<button class="mach add" id="addMachine" title="Add a machine" aria-label="Add a machine">${icon("plus")}</button>`;
+  }).join("");
   $$("#machines [data-m]").forEach(b => (b.onclick = async () => {
     await invoke("select_machine", { index: +b.dataset.m });
     S.pane.clear(); S.review = null; S.ticket = null;
     await refresh(true);
   }));
-  $("#addMachine").onclick = () => openSettings("machines");
 }
 
 // ------------------------------------------------------------------ updates
@@ -679,6 +685,7 @@ function appearancePanel() {
   const font = (k, cur, ph) => `<input class="tx" style="width:190px" data-apv="${k}" value="${esc(cur || "")}" placeholder="${ph}" aria-label="${k}">`;
   return `<div class="ap">
     <div class="line"><span class="lab">Theme</span><div class="segc">${[["system", "System"], ["light", "Light"], ["dark", "Dark"]].map(([k, l]) => `<button aria-pressed="${(prefs.theme || "system") === k}" data-theme="${k}">${l}</button>`).join("")}</div></div>
+    <div class="line"><span class="lab">Motion<small>Full animates the window: the painting swims, panes slide, popovers fade in. Reduced stills all of it. Your system's Reduce Motion setting also turns animations off.</small></span><div class="segc">${[["full", "Full"], ["reduced", "Reduced"]].map(([k, l]) => `<button aria-pressed="${(prefs.motion || "full") === k}" data-motion="${k}">${l}</button>`).join("")}</div></div>
     <div class="line"><span class="lab">Accent<small>Tabs, selection, the Choose pill. One colour per theme.</small></span><div class="ap-row">
       ${ACCENTS.map(h => `<button class="ap-chip${(a.accent || "#cf5a24") === h ? " on" : ""}" data-apset="accent" data-aphex="${h}" style="background:${h}" aria-label="Accent ${h}"></button>`).join("")}
       ${sw("accent", a.accent || "#cf5a24")}${sw("accent_dark", a.accent_dark || a.accent || "#f08a5d", "dark")}
@@ -705,6 +712,7 @@ function bindAppearance(el) {
     save(a);
   }));
   const t = $("#apTrans", el); if (t) t.onclick = () => { const a = read(); a.translucent = t.getAttribute("aria-checked") !== "true"; save(a); };
+  $$("[data-motion]", el).forEach(b => (b.onclick = () => { if (window.Shell && Shell.setMotion) Shell.setMotion(b.dataset.motion); renderSettings(); }));
   const cr = $("#apCon", el); if (cr) {
     cr.oninput = () => { const a = read(); a.contrast = +cr.value; prefs.appearance = a; applyAppearance(); el.querySelector("#apCon").previousElementSibling.querySelector("small").textContent = (+cr.value).toFixed(2) + "× — dims the secondary text, or sharpens it."; };
     cr.onchange = () => save(read());
@@ -730,7 +738,7 @@ function renderSettings() {
   el.innerHTML = `<div class="setwrap"><nav class="setnav" aria-label="Settings sections">${nav}</nav><div class="setbody"><div class="set">
     <div class="set-h"><h1>Settings</h1><span class="sp"></span><button class="btn" id="setRerun">Run setup again</button><button class="ib" id="setClose" aria-label="Close settings">${icon("close")}</button></div>
     <section id="set-general"><h2>General</h2><p class="lead">What Backspace is for, where it looks for projects, and the open project.</p>
-      <div class="line"><span class="lab">Apps<small>Off apps stay in the title bar, dimmed, until you turn one back on.</small></span><div class="segc">${(window.Frame ? Frame.zones() : [{ id: "chat", name: "Chat" }, { id: "code", name: "Workbench" }]).map(e => `<button aria-pressed="${(prefs.uses && prefs.uses.length ? prefs.uses : (window.Frame ? Frame.ids() : ["chat", "code"])).includes(e.id)}" data-use="${e.id}">${esc(e.name)}</button>`).join("")}</div></div>
+      <div class="line"><span class="lab">Apps<small>Off apps stay in the trail, dimmed, until you turn one back on.</small></span><div class="segc">${(window.Frame ? Frame.zones() : [{ id: "chat", name: "Chat" }, { id: "code", name: "Workbench" }]).map(e => `<button aria-pressed="${(prefs.uses && prefs.uses.length ? prefs.uses : (window.Frame ? Frame.ids() : ["chat", "code"])).includes(e.id)}" data-use="${e.id}">${esc(e.name)}</button>`).join("")}</div></div>
       ${hasProject ? `<div class="line"><span class="lab">Workspace<small class="mono">${esc(snap.workspace || "—")}</small></span></div>
       <div class="line"><span class="lab">Config<small class="mono">${esc(snap.config_source || "built-in defaults")}</small></span></div>` : ""}</section>
     <section id="set-appearance"><h2>Appearance</h2><p class="lead">A theme, then the colours and fonts on top of it.</p>
@@ -1174,7 +1182,10 @@ addEventListener("DOMContentLoaded", async () => {
     prefs.active_tab = 0;
   }
   applyTheme(); renderSeg(); setSide(false);
-  S.mode = prefs.mode || "chat";
+  // Apps is the frame's landing page: the trail leads with it, and a cold start
+  // opens it rather than remembering the last app. A bench run or a folder on
+  // the command line still starts in Code, where the work is.
+  S.mode = "apps";
   S.codeView = prefs.code_view === "pair" ? "pair" : "agents";
   S.chatView = prefs.chat_view === "agents" ? "agents" : "chat";
   // The IDE opens on its canvases — one empty canvas, which asks what to put

@@ -4,7 +4,7 @@
 // extension.json that says what to load; the frame reads extensions/index.json,
 // makes each app a section inside #body, loads its style and script in the
 // order the rest of the page expects, and hands it the walls it may use — the
-// switcher, the title-bar chip (name, On, New) and the shared state in prefs.
+// switcher, On/New and the shared state in prefs.
 //
 // A native extension is a classic script, like chat.js always was: it shares
 // the page's globals with the frame, so it reads prefs/S/snap and calls setMode
@@ -18,11 +18,11 @@
 //     paint(on),              // its section was laid out; `on` is whether it shows
 //     elFor(),                // which section shows the app right now (default: section)
 //     classes(),              // window classes while the app is active (e.g. pair-on)
-//     newInstance(anchor),    // the chip's New; anchor is the button
+//     newInstance(anchor),    // a new instance of the app; anchor is the button
 //   });
 //
-// The frame never names an app. The switcher, the chip, On and New all come
-// from the manifests; Settings writes the same prefs.uses list.
+// The frame never names an app. The switcher and On all come from the
+// manifests; Settings writes the same prefs.uses list.
 //
 // A web extension (view.kind = "web") is an iframe in the same section instead
 // of a script. It gets its own copy of the page; the app SDK bridge in apps.js
@@ -118,7 +118,6 @@ var Frame = (() => {
     list.sort((a, b) => (a.order || 100) - (b.order || 100));
     section(m);
     if (m.mount) m.mount(m.el);
-    if (typeof S !== "undefined" && S.mode) renderBar();
     return m;
   }
 
@@ -143,13 +142,12 @@ var Frame = (() => {
 
   // ---------------------------------------------------------------- showing
   function setActive(id) {
-    if (id === active) { renderBar(); return; }
+    if (id === active) return;
     const prev = byId.get(active);
     if (prev && prev.hide) { try { prev.hide(); } catch (e) { console.warn("frame: " + prev.id + " hide", e); } }
     active = id;
     const ext = byId.get(id);
     if (ext && ext.show) { try { ext.show(); } catch (e) { console.warn("frame: " + id + " show", e); } }
-    renderBar();
   }
 
   // Whether this app's surface (or any of its sections) is on screen now.
@@ -191,7 +189,6 @@ var Frame = (() => {
     prefs.uses = next;
     invoke("set_uses", { uses: next }).catch(e => toast(String(e), "err"));
     if (!on && typeof S !== "undefined" && S.mode === id) setMode(next[0]);
-    renderBar();
     if (window.Shell) Shell.renderRail();
     return true;
   }
@@ -218,28 +215,10 @@ var Frame = (() => {
     return null;
   }
 
-  // ---------------------------------------------------------------- the chip
-  function renderBar() {
-    const el = document.getElementById("appbar");
-    if (!el) return;
-    const ext = byId.get(active);
-    if (!ext) { el.hidden = true; el.innerHTML = ""; return; }
-    const on = enabled(ext.id);
-    const act = ext.action || {};
-    const name = esc(ext.name || ext.id);
-    el.hidden = false;
-    el.innerHTML = `<span class="ab-name" title="${esc(ext.description || ext.name)}">${icon(ext.icon || "bubble")}<b>${name}</b></span>
-      <span class="ab-sw" title="${on ? "Turn " + name + " off" : "Turn " + name + " on"}"><span class="ab-lbl">${on ? "On" : "Off"}</span><button class="toggle" role="switch" aria-checked="${on}" aria-label="${on ? "Turn " + name + " off" : "Turn " + name + " on"}"></button></span>
-      ${act.label ? `<button class="ab-new" id="appNew" title="${esc(act.label)}">${icon(act.icon || "plus")}<span>New</span></button>` : ""}`;
-    $(".ab-sw .toggle", el).onclick = () => setOn(ext.id, !on);
-    const nb = $("#appNew", el);
-    if (nb) nb.onclick = () => newInstance(ext.id, nb);
-  }
-
   // ---------------------------------------------------------------- the list
   function zones() {
     return list.map(e => ({ id: e.id, name: e.name || e.id, icon: e.icon || "bubble", order: e.order ?? 100, description: e.description || "" }));
   }
 
-  return { load, register, init, ids, zones, has, get, enabled, onIds, setOn, setActive, syncClasses, paint, elFor, head, windowTitle, newInstance, renderBar };
+  return { load, register, init, ids, zones, has, get, enabled, onIds, setOn, setActive, syncClasses, paint, elFor, head, windowTitle, newInstance };
 })();

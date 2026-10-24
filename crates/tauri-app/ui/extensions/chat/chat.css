@@ -14,7 +14,7 @@
 .win:not(.m-code) .code-only, .win:not(.m-chat):not(.pair-on) .chat-only { display: none !important; }
 .win.pair-on .agents-only, .win:not(.pair-on) .pair-only:not(.chat-only) { display: none !important; }
 .win:not(.m-memory):not(.m-apps):not(.m-app) .zone-list { display: none !important; }
-.win.m-code.no-project .tabs, .win.m-code.no-project #addCanvas, .win.m-code.no-project #cta { display: none !important; }
+.win.m-code.no-project .tabs, .win.m-code.no-project #addCanvas { display: none !important; }
 /* The Chat | Coding switch: a pill with the active half filled dark. */
 .modes { flex-basis: 100%; display: grid; grid-template-columns: 1fr 1fr; padding: 3px; border-radius: 999px; background: var(--hover); box-shadow: inset 0 0 0 0.5px var(--pane-edge); margin-bottom: 6px; }
 .modes button { height: 26px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border-radius: 999px; font-size: 12.5px; font-weight: 500; color: var(--fg-2); transition: background 0.18s, color 0.18s; }

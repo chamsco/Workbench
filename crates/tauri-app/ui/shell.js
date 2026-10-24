@@ -8,9 +8,9 @@
 // chat keeps its state when it is out of sight.
 
 var Shell = (() => {
-  // Pages the frame owns. The apps come from extensions/index.json; order is
-  // the reading order the window has always had — Apps, Agents, Workbench,
-  // Memory — and each app's manifest carries its own number.
+  // Pages the frame owns. The apps come from extensions/index.json. Apps is the
+  // landing page, so it leads the trail: Apps, Chat, Workbench, Memory. Each
+  // extension's manifest carries its own number (Chat 10, Workbench 20).
   const PAGES = [
     ["apps", "apps", "Apps", 0],
     ["memory", "memory", "Memory", 30],
@@ -81,7 +81,6 @@ var Shell = (() => {
     // reads both from here: tell it the shell moved. A nudge, not a fetch.
     if (window.WhirlChat && window.WhirlChat.shell) window.WhirlChat.shell();
     renderRail(); renderZones(); renderHead(); renderModes(); renderStatus();
-    if (window.Frame) Frame.renderBar();
     if (window.Code) Code.syncArt();
     if (window.RPanel) RPanel.render();
     // Whatever app owns a visible section gets to draw into it; the frame does
@@ -159,15 +158,15 @@ var Shell = (() => {
     $$("#rail [data-z]").forEach(b => (b.onclick = () => openZone(b.dataset.z)));
     $("#gear").setAttribute("aria-selected", !!S.settings);
   }
-  // The title bar's switcher: every app, side by side as icons. An app that is
-  // off stays here, dimmed — click it to turn it back on. Then pinned apps.
-  // Settings is the gear on the right.
+  // The frame's trail: every app, named, side by side in the centre of the
+  // bar. An app that is off stays here, dimmed — click it to turn it back on.
+  // Pinned apps follow. Settings and Pulse are the two on the right.
   function renderZones() {
     const el = $("#zones"); if (!el) return;
     const z = S.settings ? "" : S.mode;
     const apps = window.Apps ? Apps.pinned() : [];
-    el.innerHTML = zones().map(([k, ic, l]) => `<button role="tab" aria-selected="${z === k}" data-zz="${k}" title="${l}${isOff(k) ? " — off" : ""}" aria-label="${l}${isOff(k) ? " (off)" : ""}" class="${isOff(k) ? "off" : ""}">${icon(ic)}${badge(k)}</button>`).join("")
-      + apps.map(a => `<button role="tab" aria-selected="${z === "app:" + a.id}" data-zz="app:${esc(a.id)}" title="${esc(a.name)}" aria-label="${esc(a.name)}">${Apps.glyph(a, "xs")}</button>`).join("");
+    el.innerHTML = zones().map(([k, ic, l]) => `<button role="tab" aria-selected="${z === k}" data-zz="${k}" title="${l}${isOff(k) ? " — off" : ""}" aria-label="${l}${isOff(k) ? " (off)" : ""}" class="${isOff(k) ? "off" : ""}">${icon(ic)}<span class="zl">${l}</span>${badge(k)}</button>`).join("")
+      + apps.map(a => `<button role="tab" aria-selected="${z === "app:" + a.id}" data-zz="app:${esc(a.id)}" title="${esc(a.name)}" aria-label="${esc(a.name)}">${Apps.glyph(a, "xs")}<span class="zl">${esc(a.name)}</span></button>`).join("");
     $$("[data-zz]", el).forEach(x => (x.onclick = () => openZone(x.dataset.zz)));
     $("#gearBtn").setAttribute("aria-pressed", !!S.settings);
   }
@@ -248,7 +247,13 @@ var Shell = (() => {
     if (z === "memory") { window.Memory && Memory.renderSide(zl); }
     else if (z === "apps" || z.startsWith("app:")) { window.Apps && Apps.renderSide(zl); }
     else zl.innerHTML = "";
-    if (z === "chat" || (z === "code" && S.codeView === "pair")) { if (window.Chat) Chat.renderThreads(); }
+    // Code's sidebar is the same tree in both surfaces. In the ADE the chat
+    // face mounts Whirl for us; the IDE has no chat face showing, so it asks
+    // for the sidebar itself rather than opening blank.
+    if (z === "chat") { if (window.Chat) Chat.renderThreads(); }
+    else if (z === "code" && window.Chat) {
+      if (Chat.mountSidebar) Chat.mountSidebar(); else Chat.renderThreads();
+    }
   }
   // Switch project: the recents, or another folder. One menu, and one way in —
   // the folder icon at the top of the sidebar. There used to be a project row
@@ -326,17 +331,46 @@ var Shell = (() => {
     $("#searchBtn").onclick = search;
     $("#gearBtn").onclick = () => (S.settings ? closeSettings() : openSettings());
     $("#gear").onclick = () => (S.settings ? closeSettings() : openSettings());
+    $("#pulseClose").innerHTML = icon("close");
+    $("#pulseBtn").onclick = () => setPulse(!pulseOn);
+    $("#pulseClose").onclick = () => setPulse(false);
+    addEventListener("pointerdown", e => {
+      if (pulseOn && !e.target.closest("#pulse") && !e.target.closest("#pulseBtn")) setPulse(false);
+    }, true);
+    addEventListener("keydown", e => {
+      if (pulseOn && e.key === "Escape") { e.preventDefault(); e.stopPropagation(); setPulse(false); }
+    }, true);
     if (window.Memory) await Memory.init();
     if (window.Apps) await Apps.init();
   }
   // The project arriving (at launch, or opened elsewhere) can change which
   // section Code shows; lay out again when it does.
-  function refresh() { if (elFor(S.mode) !== laid) layout(); renderStatus(); renderRail(); renderZones(); if (S.mode === "code") renderHead(); }
+  function refresh() { if (elFor(S.mode) !== laid) layout(); renderStatus(); renderRail(); renderZones(); renderPulse(); if (S.mode === "code") renderHead(); }
 
   // ---------------------------------------------------------------- status bar
   // After an agent control plane's footer: where you are (branch, project),
-  // who is working, tokens and spend, then the phone link and Motion.
+  // who is working, the phone link and what the work has cost. Motion lives in
+  // Settings → Appearance, and when nobody is working there is nothing to say.
   let chatBusy = [];
+  // OpenRouter reports credits and usage per key; it is the only provider that
+  // does. Without a key the footer tracks the project's own spend, and the
+  // popover says where to add one. Cached for five minutes; Refresh asks again.
+  let usageInfo = null, usageAt = 0, usageBusy = false, usageP = null;
+  function loadUsage(force) {
+    if (!force && usageInfo && Date.now() - usageAt < 300000) return Promise.resolve(usageInfo);
+    // A second caller (the popover opened while the footer's first fetch is
+    // still out) waits on the same request instead of reading a null answer.
+    if (usageBusy) return usageP;
+    usageBusy = true;
+    usageP = invoke("usage")
+      .then(u => (usageInfo = u || { key: false }))
+      .catch(e => (usageInfo = { key: false, error: String(e) }))
+      .finally(() => { usageBusy = false; usageAt = Date.now(); renderStatus(); });
+    return usageP;
+  }
+  const money = (n, d = 2) => (n == null ? "—" : "$" + n.toFixed(d));
+  const fmtTok = n => (n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? (n / 1e3).toFixed(1) + "k" : String(n));
+
   async function renderStatus() {
     const el = $("#status"); if (!el) return;
     const list = (await invoke("chat_list").catch(() => null)) || [];
@@ -344,34 +378,74 @@ var Shell = (() => {
     chatBusy = list.filter(t => t.busy);
     const ags = (snap && snap.agents) || [];
     const running = ags.filter(a => a.status && a.status.state === "running");
-    const tok = ags.reduce((n, a) => n + (a.input_tokens || 0) + (a.output_tokens || 0), 0);
-    const cost = (snap && snap.total_cost_usd) || 0;
+    const busy = running.length || chatBusy.length;
     const branch = ags[0] && ags[0].branch;
     const tickets = (snap && snap.tickets) || [];
     const done = tickets.filter(t => /merged|done|approved/i.test(JSON.stringify(t.state || ""))).length;
     const who = running.length
       ? `${running.length === 1 ? esc(running[0].title || "Main agent") : running.length + " agents"} working`
-      : chatBusy.length ? `${esc(chatBusy[0].title.slice(0, 28))} replying${chatBusy.length > 1 ? ` +${chatBusy.length - 1}` : ""}` : "Idle";
-    const fmt = n => (n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? (n / 1e3).toFixed(1) + "k" : String(n));
-    const motion = prefs.motion === "reduced" ? "Reduced" : "Full";
+      : chatBusy.length ? `${esc(chatBusy[0].title.slice(0, 28))} replying${chatBusy.length > 1 ? ` +${chatBusy.length - 1}` : ""}` : "";
     const phone = prefs.companion && prefs.companion.enabled;
+    const u = usageInfo || {};
+    const cost = (snap && snap.total_cost_usd) || 0;
+    // A balance is the clearest thing to show when a key can report one;
+    // otherwise show what has been spent, and let the popover explain the rest.
+    const usageLabel = u.remaining != null ? `${money(u.remaining)} left`
+      : u.used != null ? `${money(u.used)} used`
+      : money(cost, cost > 0 && cost < 0.01 ? 3 : 2);
+    const usageTitle = u.remaining != null ? "OpenRouter credits remaining"
+      : u.used != null ? "OpenRouter usage" : "Usage in this project";
     el.innerHTML = `
       ${hasProject && snap.workspace ? `<button class="st" data-st="code" title="Open the project">${icon("branch")}${esc(branch || "no branch")}</button>
       <button class="st" data-st="code" title="${esc(snap.workspace)}">${icon("folder")}${esc(snap.name || base(snap.workspace))}${tickets.length ? `<span class="dim">${done}/${tickets.length} tickets</span>` : ""}</button>` : ""}
-      <button class="st ${running.length || chatBusy.length ? "live" : ""}" data-st="who"><i class="sd"></i>${who}</button>
+      ${who ? `<button class="st ${busy ? "live" : ""}" data-st="who"><i class="sd"></i>${who}</button>` : ""}
       <span class="sp"></span>
       ${prefs.split ? `<button class="st" data-st="split" title="Close the split">${icon("splitv")}Split</button>` : ""}
       <button class="st" data-st="phone" title="Settings → Phone">${icon("phone")}${phone ? "Phone on" : "Phone off"}</button>
-      <button class="st" data-st="motion" title="Animations: full or reduced">${icon("motion")}Motion: ${motion}</button>
-      <span class="st nb" title="Tokens and spend in this project">${fmt(tok)} tok${cost ? ` · $${cost.toFixed(2)}` : ""}</span>`;
+      <button class="st" data-st="usage" title="${usageTitle}">${icon("coin")}${usageLabel}</button>`;
     $$("[data-st]", el).forEach(b => (b.onclick = () => {
       const k = b.dataset.st;
       if (k === "code") setMode("code");
       else if (k === "who") { if (running.length) { S.codeView = "agents"; setMode("code"); } else if (chatBusy[0] && window.Chat) Chat.open(chatBusy[0].id); }
       else if (k === "split") setSplit(null);
       else if (k === "phone") openSettings("phone");
-      else if (k === "motion") setMotion(prefs.motion === "reduced" ? "full" : "reduced");
+      else if (k === "usage") showUsage(b);
     }));
+    if (!usageInfo) loadUsage();
+  }
+
+  function showUsage(anchor) {
+    const u = usageInfo || {};
+    const ags = (snap && snap.agents) || [];
+    const tok = ags.reduce((n, a) => n + (a.input_tokens || 0) + (a.output_tokens || 0), 0);
+    const cost = (snap && snap.total_cost_usd) || 0;
+    const row = (l, v, sub) => `<div class="urow"><span class="ul">${l}${sub ? `<small>${esc(sub)}</small>` : ""}</span><span class="uv">${v}</span></div>`;
+    const reset = u.reset ? (/^\d{4}-/.test(u.reset) ? "Resets " + new Date(u.reset).toLocaleDateString() : "Resets " + u.reset.replace(/_/g, " ")) : "";
+    const body = !usageInfo ? `<div class="unote">${icon("coin")}Checking OpenRouter…</div>`
+      : u.key ? `
+        ${u.remaining != null ? row("Credits remaining", `<b>${money(u.remaining)}</b>`, reset) : ""}
+        ${row("OpenRouter usage", money(u.used), u.monthly != null ? `${money(u.monthly)} this month` : "")}
+        ${u.remaining == null ? `<div class="unote">${icon("warn")}OpenRouter reports usage for this key but no balance, so there is no remaining credit to show.</div>` : ""}`
+      : `<div class="unote">${icon("coin")}Add an OpenRouter key in Settings → Models and writing to follow credits and the remaining balance. Until then this is the project's own spend.</div>`;
+    openPop(anchor, `<div class="ph-t">Usage</div>
+      <div class="upop">${body}${row("This project", money(cost, cost > 0 && cost < 0.01 ? 3 : 2))}${row("Tokens", fmtTok(tok))}</div>
+      ${u.error ? `<div class="unote">${icon("warn")}${esc(u.error)}</div>` : ""}
+      <div class="psep"></div>
+      <button class="pi" data-u="refresh">${icon("reload")}Refresh</button>
+      ${u.key ? `<button class="pi" data-u="open">${icon("ext")}OpenRouter activity<span class="k">↗</span></button>` : ""}`,
+      pop => {
+        $('[data-u="refresh"]', pop).onclick = async () => {
+          closePop(); await loadUsage(true); await renderStatus();
+          const a = $('[data-st="usage"]');
+          if (a) showUsage(a);
+        };
+        const open = $('[data-u="open"]', pop);
+        if (open) open.onclick = () => { closePop(); invoke("open_url", { url: "https://openrouter.ai/activity" }).catch(e => toast(String(e), "err")); };
+      });
+    if (!usageInfo) loadUsage(true).then(() => renderStatus()).then(() => {
+      const a = $('[data-st="usage"]');
+      if (a) { closePop(); showUsage(a); }
+    });
   }
   function setMotion(m) {
     prefs.motion = m;
@@ -415,5 +489,61 @@ var Shell = (() => {
     setSplit("desktop", 0.45);
   }
 
-  return { projectMenu, search, init, layout, showing, renderStatus, memToast, openDesktop, setMotion, renderSide, renderRail, refresh, setSplit, toggleSplit, elFor, glyph };
+  // ---------------------------------------------------------------- Pulse
+  // The frame's surface for what needs you: approvals waiting, work running,
+  // anything that failed. It reads the same snapshot the sidebar does, so it
+  // is never a second inbox with its own state. The assistant half of Pulse
+  // (a quick chat on the same models) lands with the drawer.
+  let pulseOn = false;
+  function pulseRows() {
+    const ags = (snap && snap.agents) || [];
+    const p = typeof pending === "function" ? pending() : [];
+    const waiting = p.map(ap => {
+      const a = typeof agent === "function" ? agent(ap.agent) : null;
+      return {
+        kind: "wait", id: ap.agent,
+        title: ap.kind === "plan" ? "A plan is ready" : "Work is ready for review",
+        sub: (a && a.title) || (snap && snap.name) || "Project",
+        note: ap.kind === "plan" ? `${(ap.tickets || []).length} tickets` : "Review",
+      };
+    });
+    const failed = ags.filter(a => a.status === "failed" && !p.some(ap => ap.agent === a.id)).map(a => ({
+      kind: "bad", id: a.id, title: a.id === 0 ? "The main agent failed" : a.title,
+      sub: typeof lastLine === "function" ? lastLine(a) : "", note: "Failed",
+    }));
+    const working = ags
+      .filter(a => (typeof busy === "function" ? busy(a) : a.status === "running") && !p.some(ap => ap.agent === a.id))
+      .map(a => ({
+        kind: "run", id: a.id, title: a.id === 0 ? "Main agent" : a.title,
+        sub: typeof lastLine === "function" ? lastLine(a) : "", note: "Working",
+      }));
+    return { waiting: waiting.concat(failed), working };
+  }
+  function pulseGo(id) {
+    setPulse(false);
+    S.codeView = "agents";
+    setMode("code");
+    if (window.Code && Number.isFinite(id)) Code.openIn({ kind: "agent", agent: id });
+  }
+  function renderPulse() {
+    const { waiting, working } = pulseRows();
+    const btn = $("#pulseBtn");
+    if (btn) { btn.setAttribute("aria-pressed", String(pulseOn)); btn.classList.toggle("has", waiting.length > 0); }
+    if (!pulseOn) return;
+    const body = $("#pulseBody"); if (!body) return;
+    const row = r => `<button class="prow ${r.kind}" data-agent="${r.id}"><span class="pico">${icon(r.kind === "wait" ? "ticket" : r.kind === "bad" ? "warn" : "activity")}</span><span class="pt"><b>${esc(r.title)}</b><small>${esc(r.sub)}</small></span><span class="pn">${esc(r.note)}</span></button>`;
+    body.innerHTML =
+      `<div class="pmeta">${waiting.length ? `${waiting.length} waiting` : "Nothing waiting"} · ${working.length} working</div>` +
+      `<section class="psec"><h3>Needs you</h3>${waiting.length ? waiting.map(row).join("") : `<div class="pempty">Nothing needs you. The agents are quiet.</div>`}</section>` +
+      (working.length ? `<section class="psec"><h3>Working</h3>${working.map(row).join("")}</section>` : "");
+    $$("[data-agent]", body).forEach(b => (b.onclick = () => pulseGo(+b.dataset.agent)));
+  }
+  function setPulse(on) {
+    pulseOn = !!on;
+    const el = $("#pulse");
+    if (el) el.hidden = !pulseOn;
+    renderPulse();
+  }
+
+  return { projectMenu, search, init, layout, showing, renderStatus, memToast, openDesktop, setMotion, renderSide, renderRail, refresh, setSplit, toggleSplit, elFor, glyph, setPulse };
 })();

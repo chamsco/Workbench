@@ -1,5 +1,35 @@
 # Handoff: Backspace (ohMyHarness → Workbench), v0
 
+**Session, 22 Oct 2026 — the frame's chrome, and what it costs.**
+
+- **Apps is the front door.** The trail reads Apps, Chat, Workbench, Memory, and
+  a cold start lands on Apps; bench runs and the first-run onboarding case still
+  open Code. The old `Chat [On] [New]` chip is gone: On lives in Settings →
+  General, and each app keeps its own New.
+- **The bar belongs to the frame.** Chat | Agents is centred under the trail
+  (Code's ADE | IDE stays with its tree). New chat sits under the sidebar's
+  search. The footer's `+` was the Add-a-machine button, and it is gone; so is
+  the Idle chip — the who chip only appears while work is running.
+- **Spend replaces `0 tok`.** The footer's coin chip reads the project's cost,
+  or OpenRouter's remaining credits when a key is present (5-minute cache,
+  Refresh). The popover shows credits remaining and the reset, OpenRouter usage
+  and this month, project spend, tokens, and a link to OpenRouter activity. No
+  key: project spend and a pointer to Settings → Models and writing. Backend:
+  `usage` in `main.rs` asks `/api/v1/credits`, then `/api/v1/key`.
+- **Motion moved to Settings → Appearance** with a sentence saying what Full
+  actually animates; the footer button is gone.
+- **The footer's review pill went too.** `/tasks` and a ticket in an agent's
+  log still open the tickets drawer.
+
+**Ran:** the real `ui/` in the T3 preview against the `__TAURI__` stub at
+1440×940: cold start Apps, trail order, centred Chat | Agents, New chat under
+the search, a footer without the old chip/plus/Idle/Motion, the usage popover
+above the footer with mocked credits and with no key (Refresh re-anchors), and
+Motion toggling `reduce-motion` from Settings. `cargo check -p
+backspace-tauri` passes. **Not run:** a live OpenRouter key (the HTTP shape is
+mocked), `cargo fmt`/`clippy` (those components are not installed in this
+toolchain).
+
 **Session, 22 Oct 2026 — Our own sea.**
 
 - **The sharks are ours now.** stackedlol/ascii-sharks has no licence, so its

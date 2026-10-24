@@ -720,6 +720,110 @@ fn set_api_key(f: F, name: String, value: String) -> Res<()> {
     Ok(())
 }
 
+/// What an OpenRouter key has spent and what is left. OpenRouter is the only
+/// provider the app talks to that publishes a balance; without a key the
+/// footer shows the project's own spend instead and the popover says so.
+#[derive(serde::Serialize, Default)]
+struct UsageInfo {
+    key: bool,
+    error: Option<String>,
+    remaining: Option<f64>,
+    used: Option<f64>,
+    total: Option<f64>,
+    monthly: Option<f64>,
+    reset: Option<String>,
+    free_tier: bool,
+}
+
+#[tauri::command]
+async fn usage(f: F<'_>) -> Res<UsageInfo> {
+    // Drop the State borrow before awaiting: the key is all this needs.
+    let key = {
+        let saved = f.prefs().api_keys;
+        saved
+            .get("OPENROUTER_API_KEY")
+            .filter(|v| !v.is_empty())
+            .cloned()
+            .or_else(|| std::env::var("OPENROUTER_API_KEY").ok().filter(|v| !v.is_empty()))
+    };
+    let Some(key) = key else {
+        return Ok(UsageInfo::default());
+    };
+    let client = reqwest::Client::builder()
+        .user_agent("Backspace/0.1 (usage)")
+        .timeout(std::time::Duration::from_secs(8))
+        .build()
+        .map_err(err)?;
+    let mut info = UsageInfo { key: true, ..Default::default() };
+    let mut problems: Vec<String> = Vec::new();
+
+    // Account credits: what was bought, and what all of it has cost. A plain
+    // inference key may not read this; the key endpoint below still answers.
+    match client
+        .get("https://openrouter.ai/api/v1/credits")
+        .bearer_auth(&key)
+        .send()
+        .await
+    {
+        Ok(r) if r.status().is_success() => {
+            if let Ok(v) = r.json::<serde_json::Value>().await {
+                let d = &v["data"];
+                info.total = d["total_credits"].as_f64();
+                info.used = d["total_usage"].as_f64();
+                if let (Some(t), Some(u)) = (info.total, info.used) {
+                    info.remaining = Some((t - u).max(0.0));
+                }
+            }
+        }
+        Ok(r) => problems.push(format!("credits HTTP {}", r.status().as_u16())),
+        Err(e) => problems.push(format!("credits: {e}")),
+    }
+
+    // The key itself: usage, the key's limit, and any budget that blocks it.
+    match client
+        .get("https://openrouter.ai/api/v1/key")
+        .bearer_auth(&key)
+        .send()
+        .await
+    {
+        Ok(r) if r.status().is_success() => {
+            if let Ok(v) = r.json::<serde_json::Value>().await {
+                let d = &v["data"];
+                if info.used.is_none() {
+                    info.used = d["usage"].as_f64();
+                }
+                info.monthly = d["usage_monthly"].as_f64();
+                if info.remaining.is_none() {
+                    info.remaining = d["limit_remaining"].as_f64();
+                }
+                if info.remaining.is_none() {
+                    info.remaining = d["effective_budget"]["remaining_usd"].as_f64();
+                }
+                if info.total.is_none() {
+                    info.total = d["limit"]
+                        .as_f64()
+                        .or_else(|| d["effective_budget"]["limit_usd"].as_f64());
+                }
+                info.free_tier = d["is_free_tier"].as_bool().unwrap_or(false);
+                info.reset = d["effective_budget"]["resets_at"]
+                    .as_str()
+                    .map(str::to_string)
+                    .or_else(|| d["effective_budget"]["reset_interval"].as_str().map(str::to_string))
+                    .or_else(|| d["limit_reset"].as_str().map(str::to_string));
+            }
+        }
+        Ok(r) => problems.push(format!("key HTTP {}", r.status().as_u16())),
+        Err(e) => problems.push(format!("key: {e}")),
+    }
+
+    // Only an error when neither endpoint answered: a provisioning-key-only
+    // /credits is expected to fail for an ordinary inference key.
+    if problems.len() == 2 {
+        info.error = Some(problems.join("; "));
+    }
+    Ok(info)
+}
+
 #[tauri::command]
 fn set_mode(f: F, mode: String) {
     f.update_prefs(|p| p.mode = mode);
@@ -1998,6 +2102,7 @@ fn main() -> anyhow::Result<()> {
             set_worker,
             api_keys,
             set_api_key,
+            usage,
             set_default_route,
             chat_list,
             local_models,

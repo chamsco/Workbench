@@ -173,7 +173,6 @@ function renderTabs() {
     b.addEventListener("pointerdown", e => tabDrag(e, b, i));
   });
   $("#newTab").onclick = e => newTabPop(e.currentTarget);
-  renderCta();
 }
 // Drag a tab along the bar: the others slide apart around a dotted slot.
 function tabDrag(e, el, i) {
@@ -291,31 +290,14 @@ function addCanvas(spec) {
   saveTabs(); closeSettings(); renderTabs(); renderGrid();
 }
 
-// ------------------------------------------------------------------ review pill + tickets drawer
-function renderCta() {
-  const n = pending().length, t = snap.tickets.length;
-  $("#cta").innerHTML = (n ? `<span class="dot wait"></span><span class="lbl">${n} to review</span>` : `${icon("check")}<span class="lbl">Nothing to review</span>`)
-    + `<span class="n">${t ? t + (t === 1 ? " ticket" : " tickets") : ""}</span>${icon("chev", "chev")}`;
-  $("#cta").classList.toggle("hot", n > 0);
-  $("#cta").setAttribute("aria-expanded", S.drawer);
-}
-(() => {
-  const cta = $("#cta"), dr = $("#drawer");
-  let openT = null, closeT = null;
-  const holding = () => S.pinned || dr.contains(document.activeElement);
-  const soon = () => { clearTimeout(closeT); closeT = setTimeout(() => { if (!holding()) setDrawer(false); }, 450); };
-  // A short delay before opening, so passing over the pill doesn't flash it.
-  cta.onmouseenter = () => { clearTimeout(closeT); clearTimeout(openT); openT = setTimeout(() => setDrawer(true), 320); };
-  cta.onmouseleave = () => { clearTimeout(openT); soon(); };
-  dr.onmouseenter = () => clearTimeout(closeT);
-  dr.onmouseleave = soon;
-  cta.onclick = () => { clearTimeout(openT); S.pinned = !S.pinned || !S.drawer; setDrawer(S.pinned); };
-})();
+// ------------------------------------------------------------------ tickets drawer
+// The tickets live in the drawer; the workbench opens it from a ticket in an
+// agent's log or "/tasks". The frame's footer used to carry a review pill for
+// it; the app keeps its own ways in now.
 function setDrawer(open) {
   S.drawer = open; if (!open) S.pinned = false;
   $("#drawer").hidden = !open;
   if (open) renderDrawer();
-  renderCta();
 }
 
 const T_GROUPS = [["Needs you", ["proposed", "in_review", "ready_for_human", "needs_info"]], ["Running", ["queued", "in_progress"]], ["Ready", ["ready_for_agent", "needs_triage"]], ["Done", ["done"]], ["Closed", ["failed", "wontfix"]]];
