@@ -233,6 +233,9 @@ impl Router {
                     .map(|p| !is_loopback(&p.base_url) || local_runtime_is_up(&p.base_url))
                     .unwrap_or(true)
         });
+        if role == AgentRole::Sub {
+            candidates.retain(|m| !self.cfg.router.exclude_sub.contains(&m.id));
+        }
         let candidates = candidates;
         if role == AgentRole::Sub {
             if let Some(pin) = self
@@ -505,6 +508,25 @@ mod tests {
             let main = rt.block_on(r.route(AgentRole::Main, "plan", "")).unwrap();
             assert_ne!(main.model, "claude-code");
         }
+    }
+
+    #[test]
+    fn excluded_models_never_get_a_worker() {
+        let mut cfg = Config::parse(DEFAULT_CONFIG).unwrap();
+        // Every API provider "local" and listening, so all their models are usable.
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://127.0.0.1:{}/v1", l.local_addr().unwrap().port());
+        for p in cfg.providers.values_mut().filter(|p| !p.is_cli()) {
+            p.base_url = url.clone();
+        }
+        cfg.router.backend = RouterBackend::Heuristic;
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let hard = "audit the auth flow for security holes";
+        let pick = |cfg: &Config| rt.block_on(Router::new(reqwest::Client::new(), cfg.clone()).route(AgentRole::Sub, hard, "")).unwrap().model;
+        assert_eq!(pick(&cfg), "claude-fable-5-1");
+        cfg.router.exclude_sub = vec!["claude-fable-5-1".into()];
+        let other = pick(&cfg);
+        assert!(!other.is_empty() && other != "claude-fable-5-1", "{other}");
     }
 
     #[test]

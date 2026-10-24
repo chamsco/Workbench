@@ -1,5 +1,9 @@
-//! Where a project stands in specify → plan → execute → test → ship, and the
-//! record of every gate it has passed or been refused at.
+//! Where a project stands in specify → plan → execute → test → ship →
+//! commit, and the record of every gate it has passed or been refused at.
+//!
+//! The app shows four stages over those phases (see [`Stage`]): Plan
+//! (specify, plan), Execute (execute, test), Ship, and Commit, where the
+//! Librarian files what the agents learned before the project is done.
 //!
 //! The phase lives on the project state, not in a prompt, so the harness and
 //! the UI read the same answer. A gate is passed by a rule, a model or a
@@ -12,7 +16,7 @@ use serde::{Deserialize, Serialize};
 
 const FILE: &str = ".backspace/phase.json";
 
-#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum Phase {
     #[default]
@@ -21,11 +25,13 @@ pub enum Phase {
     Execute,
     Test,
     Ship,
+    /// Shipped; the Librarian is filing the notes (stages.rs).
+    Commit,
     Done,
 }
 
 impl Phase {
-    pub const ALL: [Phase; 6] = [Phase::Specify, Phase::Plan, Phase::Execute, Phase::Test, Phase::Ship, Phase::Done];
+    pub const ALL: [Phase; 7] = [Phase::Specify, Phase::Plan, Phase::Execute, Phase::Test, Phase::Ship, Phase::Commit, Phase::Done];
 
     /// The phase a passed gate leads to.
     pub fn next(self) -> Phase {
@@ -34,7 +40,42 @@ impl Phase {
             Phase::Plan => Phase::Execute,
             Phase::Execute => Phase::Test,
             Phase::Test => Phase::Ship,
-            Phase::Ship | Phase::Done => Phase::Done,
+            Phase::Ship => Phase::Commit,
+            Phase::Commit | Phase::Done => Phase::Done,
+        }
+    }
+
+    /// The stage the app shows for this phase.
+    pub fn stage(self) -> Stage {
+        match self {
+            Phase::Specify | Phase::Plan => Stage::Plan,
+            Phase::Execute | Phase::Test => Stage::Execute,
+            Phase::Ship => Stage::Ship,
+            Phase::Commit | Phase::Done => Stage::Commit,
+        }
+    }
+}
+
+/// What the app shows: four stages, each with its own decision model and spend.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[serde(rename_all = "snake_case")]
+pub enum Stage {
+    Plan,
+    Execute,
+    Ship,
+    Commit,
+}
+
+impl Stage {
+    pub const ALL: [Stage; 4] = [Stage::Plan, Stage::Execute, Stage::Ship, Stage::Commit];
+
+    /// The key prefs and the UI use ("plan", "execute", "ship", "commit").
+    pub fn key(self) -> &'static str {
+        match self {
+            Stage::Plan => "plan",
+            Stage::Execute => "execute",
+            Stage::Ship => "ship",
+            Stage::Commit => "commit",
         }
     }
 }
@@ -68,6 +109,22 @@ pub struct PhaseState {
     pub phase: Phase,
     /// Every gate answer, oldest first.
     pub gates: Vec<Gate>,
+    /// Dollars spent per stage before the current one was entered: the agents'
+    /// work, and the decisions (routing and gate reviews) on top.
+    #[serde(default)]
+    pub spent: std::collections::BTreeMap<Stage, f64>,
+    #[serde(default)]
+    pub decided: std::collections::BTreeMap<Stage, f64>,
+    /// The project's total spend, and its decision spend, when the current
+    /// stage was entered; the current stage's own spend is what has gone on
+    /// top of these since.
+    #[serde(default)]
+    pub mark_usd: f64,
+    #[serde(default)]
+    pub mark_decided_usd: f64,
+    /// The stage the marks belong to.
+    #[serde(default)]
+    pub mark_stage: Option<Stage>,
 }
 
 impl PhaseState {
@@ -94,6 +151,44 @@ impl PhaseState {
         }
         self.gates.push(Gate { phase: Phase::Specify, passed, by: GateBy::Rules, at, artifact: crate::spec::FILE.into(), note: note.to_string() });
         self.gates.last().unwrap()
+    }
+
+    /// A decision model refused a gate the rules had already opened: the
+    /// project goes back to the phase that gate closes. Models may block,
+    /// never open.
+    pub fn veto(&mut self, phase: Phase, at: u64, artifact: &str, note: &str) {
+        self.gates.push(Gate { phase, passed: false, by: GateBy::Model, at, artifact: artifact.to_string(), note: note.to_string() });
+        if self.phase > phase {
+            self.phase = phase;
+        }
+    }
+
+    /// Put spend on the stage it happened in. `total` and `decided` are the
+    /// project's running totals now; whatever went on since the last call
+    /// belongs to the stage the project was in then. True when anything moved.
+    pub fn charge(&mut self, total: f64, decided: f64) -> bool {
+        let now = self.phase.stage();
+        let Some(was) = self.mark_stage else {
+            self.mark_stage = Some(now);
+            self.mark_usd = total;
+            self.mark_decided_usd = decided;
+            return true;
+        };
+        if was == now && total >= self.mark_usd && decided >= self.mark_decided_usd {
+            return false;
+        }
+        // A total that went down is a fresh project state: start counting again.
+        *self.spent.entry(was).or_default() += (total - self.mark_usd).max(0.0);
+        *self.decided.entry(was).or_default() += (decided - self.mark_decided_usd).max(0.0);
+        self.mark_stage = Some(now);
+        self.mark_usd = total;
+        self.mark_decided_usd = decided;
+        true
+    }
+
+    /// A decision a stage paid for outside the project's totals (a gate review).
+    pub fn add_decision(&mut self, stage: Stage, usd: f64) {
+        *self.decided.entry(stage).or_default() += usd.max(0.0);
     }
 
     /// The project's phase, from `<project>/.backspace/phase.json`. Its own
@@ -176,7 +271,41 @@ mod tests {
         let back: PhaseState = serde_json::from_str(&serde_json::to_string(&p).unwrap()).unwrap();
         assert_eq!(back, p);
         assert_eq!(serde_json::to_value(Phase::Execute).unwrap(), "execute");
-        assert_eq!(Phase::ALL.len(), 6);
+        assert_eq!(Phase::ALL.len(), 7);
+        assert_eq!(Phase::Ship.next(), Phase::Commit);
         assert_eq!(Phase::Done.next(), Phase::Done);
+    }
+
+    #[test]
+    fn four_stages_over_seven_phases() {
+        let stages: Vec<Stage> = Phase::ALL.iter().map(|p| p.stage()).collect();
+        assert_eq!(stages, [Stage::Plan, Stage::Plan, Stage::Execute, Stage::Execute, Stage::Ship, Stage::Commit, Stage::Commit]);
+        assert_eq!(serde_json::to_value(Stage::Commit).unwrap(), "commit");
+    }
+
+    #[test]
+    fn spend_lands_on_the_stage_it_happened_in() {
+        let mut p = PhaseState::default();
+        assert!(p.charge(1.0, 0.1), "the first call only sets the marks");
+        assert!(!p.charge(1.0, 0.1));
+        p.record(true, GateBy::Rules, 1, "SPEC.md", "ok");
+        p.record(true, GateBy::Rules, 2, "tickets", "ok");
+        assert!(p.charge(3.5, 0.3));
+        assert_eq!(p.spent[&Stage::Plan], 2.5);
+        assert!((p.decided[&Stage::Plan] - 0.2).abs() < 1e-9);
+        assert_eq!(p.mark_stage, Some(Stage::Execute));
+        p.add_decision(Stage::Execute, 0.05);
+        assert_eq!(p.decided[&Stage::Execute], 0.05);
+    }
+
+    #[test]
+    fn a_veto_closes_the_gate_again() {
+        let mut p = PhaseState::default();
+        p.record_spec(true, 1, "rules passed");
+        assert_eq!(p.phase, Phase::Plan);
+        p.veto(Phase::Specify, 2, "SPEC.md", "acceptance A2 can't be checked");
+        assert_eq!(p.phase, Phase::Specify);
+        let g = p.gates.last().unwrap();
+        assert!(!g.passed && g.by == GateBy::Model);
     }
 }

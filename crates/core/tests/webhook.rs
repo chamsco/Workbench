@@ -3,6 +3,7 @@
 //! lands in its thread under the sender's name, fenced as outside data.
 
 use std::io::{Read, Write};
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use backspace_core::agents::{Agent, Avatar, Computer};
@@ -11,6 +12,10 @@ use backspace_core::fleet::Fleet;
 use backspace_core::prefs::Prefs;
 
 /// `extra` is added to the request line's headers (a credential, say).
+/// Both tests point BACKSPACE_DATA (process-wide) at their own folder, so they
+/// take turns.
+static DATA: Mutex<()> = Mutex::new(());
+
 fn http_with(port: u16, method: &str, path: &str, body: &str, extra: &str) -> u16 {
     let deadline = Instant::now() + Duration::from_secs(10);
     let mut s = loop {
@@ -32,6 +37,7 @@ fn http(port: u16, method: &str, path: &str, body: &str) -> u16 {
 
 #[test]
 fn a_webhook_wakes_only_its_bot() {
+    let _turn = DATA.lock().unwrap_or_else(|e| e.into_inner());
     let dir = std::env::temp_dir().join(format!("bs-hook-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::env::set_var("BACKSPACE_DATA", &dir);
@@ -93,6 +99,7 @@ fn a_webhook_wakes_only_its_bot() {
 /// folder. Those are not the phone's contract, and must not be readable.
 #[test]
 fn the_phone_cannot_read_agent_or_group_threads() {
+    let _turn = DATA.lock().unwrap_or_else(|e| e.into_inner());
     use backspace_core::chat::{Route, RouteKind, Scope};
 
     let dir = std::env::temp_dir().join(format!("bs-phone-{}", std::process::id()));

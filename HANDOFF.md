@@ -1,5 +1,68 @@
 # Handoff: Backspace (ohMyHarness → Workbench), v0
 
+**Session, 24 Oct 2026 — Plan, Execute, Ship, Commit, and the note chain.**
+
+- **The stages were planned (docs/PLAN-PHASES-2026-10-17.md) and half built in
+  core, with no face.** Now `Phase` has `Commit`, `Stage` (Plan, Execute, Ship,
+  Commit) groups the phases for the app, and `phase.json` keeps spend per stage
+  (work, and the decisions on top, from `router_cost_usd`). A strip under
+  Home's composer (`ui/stages.js`) shows them, each stage's decision model
+  (click to pick, or "Rules only", which is free) and what stops its gate.
+- **Gates:** Plan is the spec and plan gates that already existed. Execute opens
+  by rules once every ticket is finished (`stages::execute_gaps`). Ship is yours
+  alone. Commit runs the Librarian. A stage's model is asked first and may only
+  refuse (`PhaseState::veto`, recorded as a model gate); an unreachable model
+  leaves the rules' answer standing and says so.
+- **Notes chain up:** `leave_note` (in-process agents and, through the bridge,
+  CLI workers) keeps a line on the agent (`AgentRecord.notes`). When a ticket's
+  work is accepted its notes move to its parent, deduped, so the main agent holds
+  the compiled list. At Commit the Librarian's model (or rules, with none) keeps
+  or drops each one with a reason, keepers go through `memory::propose`, and one
+  `drain` makes one memory commit with a receipt. The model can only drop what
+  it names; `drain` still refuses secrets and what you said not to remember.
+- **Not done:** the strip is on the ADE home only, not the IDE; Plan's and
+  Execute's model reviews exist for Execute, Ship and Commit but Plan's model is
+  not asked yet (its gates are the rules already there); no bake-off
+  (`tools/decide-eval`) yet, so no model is recommended per stage.
+
+**Session, 23 Oct 2026 — Orchestrator, executor, and harnesses that talk.**
+
+- **Who runs a project is two choices now.** The ADE composer's model chip is
+  the orchestrator (`prefs.planner`: plans, reviews, talks to you); a new
+  executor chip beside it says who builds each ticket: one harness
+  (`prefs.worker`) or the router, with the models it may not use
+  (`prefs.worker_exclude` → `router.exclude_sub`, honoured by routing and by
+  escalation). `Runs` in `ui/picker.js` draws both; Settings has them too.
+- **Per-app settings.** Settings gets an Apps group: Chat (what was "Chat
+  behavior") and Workbench (orchestrator, executor, harness tiles).
+- **Harness tiles.** A canvas can hold any harness in its own chat thread
+  (pane kind `harness`, with `thread`, `label`, `coordinator` on `PaneSpec`).
+  The open tab's tiles are written to `<data>/relay/tiles.json`
+  (`crates/core/src/relay.rs`). `@codex …` typed in a tile goes to the `codex`
+  tile with the sender's last answer as context, and the answer is posted back
+  without a turn; a harness can do the same itself through `backspace mcp`'s
+  `list_tiles` / `message_tile` (or `backspace tile send` for CLIs without
+  MCP), and then the answer comes back as its next turn. Right-click a tile's
+  header to make it the tab's coordinator: its brief says to split the work
+  and hand it out.
+- **What cannot work:** nothing reaches a CLI mid-turn. Each turn is its own
+  headless process, so a letter for a busy tile waits in `Chats::inbox` until
+  the turn ends (`Fleet::schedule_relay` pumps every 700 ms). A chain of
+  hand-offs stops at 6 (`relay::MAX_HOPS`). Terminal canvases are untouched:
+  typing into a PTY running an interactive TUI has no way to know when it is
+  ready or to read an answer back.
+- **Fixed on the way:** a reply that failed at once could remove itself from
+  `Chats::running` before it was added, leaving the thread busy for good; the
+  handle is now added under the lock.
+
+**Ran:** `cargo test -p backspace-core` (new tests for the relay, the queue,
+the hop cap, `@tile` hand-off, a resumed session reading what it missed, and
+router exclusions), `cargo check -p backspace-tauri`. The real `ui/` in
+`tools/uiharness` with `tools/verify/harness-tiles.js` (two tiles, the
+coordinator badge, the `@` chips, a waiting count, the header menu), the ADE
+executor menu and Settings → Workbench. **Not run:** real CLIs talking to each
+other — no signed-in CLI here.
+
 **Session, 22 Oct 2026 — Our own sea.**
 
 - **The sharks are ours now.** stackedlol/ascii-sharks has no licence, so its

@@ -262,6 +262,7 @@ impl Fleet {
         });
         fleet.schedule_dreams();
         fleet.schedule_routines();
+        fleet.schedule_relay();
         if prefs.companion.enabled {
             fleet.start_companion();
         }
@@ -454,6 +455,20 @@ impl Fleet {
 
     /// Fires due routines while the app is open. Best effort: one that cannot
     /// run stays due, and the next 30 s tick tries again.
+    /// Harness tiles' letters (relay.rs): picked up and delivered, and the
+    /// next waiting one started for any tile that is free.
+    fn schedule_relay(self: &Arc<Self>) {
+        let weak = Arc::downgrade(self);
+        std::thread::Builder::new()
+            .name("relay".into())
+            .spawn(move || loop {
+                std::thread::sleep(std::time::Duration::from_millis(700));
+                let Some(f) = weak.upgrade() else { return };
+                f.chats.pump(f.chat_ctx());
+            })
+            .ok();
+    }
+
     fn schedule_routines(self: &Arc<Self>) {
         let weak = Arc::downgrade(self);
         std::thread::Builder::new()
@@ -604,6 +619,168 @@ impl Fleet {
         self.rt.block_on(self.apps.install_url(&self.http, url))
     }
 
+    // ------------------------------------------------------------ stages
+
+    fn stage_facts(&self) -> Result<(Arc<Harness>, ProjectState)> {
+        let h = self.local().ok_or_else(|| anyhow!("open a project first"))?;
+        let snap = h.snapshot();
+        Ok((h, snap))
+    }
+
+    /// Where the open project stands in Plan → Execute → Ship → Commit: the
+    /// stage, each stage's decision model and spend, the last gate answers,
+    /// what stops the next gate, and the Librarian's last receipt.
+    pub fn stage_status(&self) -> Result<serde_json::Value> {
+        use crate::phase::{PhaseState, Stage};
+        let (h, snap) = self.stage_facts()?;
+        let root = h.root().to_path_buf();
+        let mut p = PhaseState::load(&root);
+        if p.charge(snap.total_cost_usd, snap.router_cost_usd) {
+            let _ = p.save(&root);
+        }
+        let prefs = self.prefs();
+        let now = p.phase.stage();
+        let live = |m: &std::collections::BTreeMap<Stage, f64>, st: Stage, since: f64, total: f64| {
+            m.get(&st).copied().unwrap_or(0.0) + if p.mark_stage == Some(st) { (total - since).max(0.0) } else { 0.0 }
+        };
+        let stages: Vec<serde_json::Value> = Stage::ALL
+            .iter()
+            .map(|&st| {
+                serde_json::json!({
+                    "key": st.key(),
+                    "state": if st < now { "done" } else if st == now && p.phase != crate::phase::Phase::Done { "current" } else if p.phase == crate::phase::Phase::Done { "done" } else { "todo" },
+                    "model": prefs.stage_models.get(st.key()),
+                    "spent": live(&p.spent, st, p.mark_usd, snap.total_cost_usd),
+                    "decided": live(&p.decided, st, p.mark_decided_usd, snap.router_cost_usd),
+                })
+            })
+            .collect();
+        let tickets: Vec<(String, crate::ticket::TicketState)> = snap.tickets.iter().map(|t| (t.key.clone(), t.state)).collect();
+        use crate::phase::Phase;
+        let (gaps, how): (Vec<String>, &str) = match p.phase {
+            Phase::Specify => (vec![format!("{} hasn't passed its gate: finish the spec in Plan mode", crate::spec::FILE)], "plan"),
+            Phase::Plan => (vec!["the plan isn't approved yet: the main agent proposes tickets, you approve them".into()], "plan"),
+            Phase::Execute | Phase::Test => (crate::stages::execute_gaps(&tickets), "rules"),
+            Phase::Ship => (vec![], "human"),
+            Phase::Commit => (vec![], "librarian"),
+            Phase::Done => (vec!["done".into()], "none"),
+        };
+        Ok(serde_json::json!({
+            "phase": p.phase,
+            "stage": if p.phase == Phase::Done { None } else { Some(now.key()) },
+            "stages": stages,
+            "gates": p.gates.iter().rev().take(6).collect::<Vec<_>>(),
+            "gaps": gaps,
+            "advance": how,
+            "notes": snap.agents.first().map_or(0, |a| a.notes.len()),
+            "receipt": self.memory.receipts().last(),
+            "total": snap.total_cost_usd,
+        }))
+    }
+
+    /// Open the current stage's gate, from the stage strip. Rules decide
+    /// Execute; you decide Ship; the Librarian files at Commit. A decision
+    /// model assigned to the stage is asked first and may refuse (the answer
+    /// is kept, and the project stays where it is), never open anything.
+    pub async fn advance_stage(self: &Arc<Self>) -> Result<serde_json::Value> {
+        use crate::phase::{GateBy, Phase, PhaseState};
+        let (h, snap) = self.stage_facts()?;
+        let root = h.root().to_path_buf();
+        let at = crate::chat::now_ms();
+        let mut p = PhaseState::load(&root);
+        p.charge(snap.total_cost_usd, snap.router_cost_usd);
+        p.save(&root)?;
+        let prefs = self.prefs();
+        let ctx = self.chat_ctx();
+        let stage = p.phase.stage();
+        let mut model_note: Option<String> = None;
+        // The stage's model reads the evidence and may refuse.
+        let ask = |evidence: String| {
+            let route = prefs.stage_models.get(stage.key()).cloned();
+            let chats = self.chats.clone();
+            let ctx = ctx.clone();
+            async move {
+                match route {
+                    None => Ok(None),
+                    Some(r) => crate::stages::review(&chats, r, stage, &evidence, ctx).await.map(Some),
+                }
+            }
+        };
+        let tickets: Vec<(String, String, crate::ticket::TicketState)> = snap.tickets.iter().map(|t| (t.key.clone(), t.title.clone(), t.state)).collect();
+        let summaries: Vec<(String, String)> = snap
+            .tickets
+            .iter()
+            .filter_map(|t| Some((t.key.clone(), snap.agents.get(t.assignee?)?.deliverable.as_ref()?.summary.clone())))
+            .collect();
+        match p.phase {
+            Phase::Specify | Phase::Plan => bail!("Plan finishes in Plan mode: write the spec, then approve the plan"),
+            Phase::Done => bail!("this project is done"),
+            Phase::Execute | Phase::Test => {
+                let gaps = crate::stages::execute_gaps(&tickets.iter().map(|(k, _, s)| (k.clone(), *s)).collect::<Vec<_>>());
+                if !gaps.is_empty() {
+                    bail!("Execute isn't finished: {}", gaps.join("; "));
+                }
+                match ask(crate::stages::execute_evidence(&tickets, &summaries)).await {
+                    Ok(Some(crate::stages::Review::Block(why))) => {
+                        crate::stages::vetoed(&root, Phase::Execute, ".backspace/tickets", &why, at)?;
+                        bail!("The Execute model refused: {why}");
+                    }
+                    Ok(_) => {}
+                    Err(e) => model_note = Some(format!("the Execute model couldn't be reached ({e:#}); the rules stood")),
+                }
+                if p.phase == Phase::Execute {
+                    crate::stages::passed(&root, GateBy::Rules, ".backspace/tickets", "every ticket finished", at)?;
+                }
+                crate::stages::passed(&root, GateBy::Rules, ".backspace/tickets", "no ticket failed", at)?;
+            }
+            Phase::Ship => {
+                match ask(crate::stages::execute_evidence(&tickets, &summaries)).await {
+                    Ok(Some(crate::stages::Review::Block(why))) => {
+                        crate::stages::vetoed(&root, Phase::Ship, "RELEASE", &why, at)?;
+                        bail!("The Ship model says not yet: {why}");
+                    }
+                    Ok(_) => {}
+                    Err(e) => model_note = Some(format!("the Ship model couldn't be reached ({e:#}); you decide")),
+                }
+                // Publishing is yours to decide: pressing the button is the approval.
+                crate::stages::passed(&root, GateBy::Human, "RELEASE", "approved by you", at)?;
+            }
+            Phase::Commit => {
+                let notes = h.take_notes();
+                let project = root.display().to_string();
+                let fates = match prefs.stage_models.get(stage.key()).cloned().filter(|_| !notes.is_empty()) {
+                    None => crate::stages::rule_fates(&notes),
+                    Some(r) => {
+                        let (sys, prompt) = crate::stages::librarian_prompt(&notes);
+                        match self.chats.ask(r, &sys, &prompt, ctx.clone()).await {
+                            Ok(reply) => crate::stages::parse_fates(&reply, notes.len()),
+                            Err(e) => {
+                                model_note = Some(format!("the Librarian's model couldn't be reached ({e:#}); the rules decided"));
+                                crate::stages::rule_fates(&notes)
+                            }
+                        }
+                    }
+                };
+                let filed = crate::stages::file(&self.memory, &Prefs::data_dir(), &project, &notes, &fates);
+                let (dropped, receipt) = match filed {
+                    Ok(x) => x,
+                    Err(e) => {
+                        h.return_notes(notes);
+                        return Err(e);
+                    }
+                };
+                let note = match &receipt {
+                    Some(r) => format!("Librarian: kept {}, merged {}, dropped {}", r.kept.len(), r.merged.len(), r.dropped.len()),
+                    None => format!("Librarian: nothing to file ({} dropped)", dropped.len()),
+                };
+                crate::stages::passed(&root, GateBy::Rules, "memory", &note, at)?;
+            }
+        }
+        let mut out = self.stage_status()?;
+        out["model_note"] = serde_json::json!(model_note);
+        Ok(out)
+    }
+
     /// What a chat send needs from prefs.
     pub fn chat_ctx(&self) -> Ctx {
         Ctx {
@@ -636,6 +813,7 @@ impl Fleet {
                 permission: Some(prefs.cli_permission),
                 effort: prefs.cli_effort,
                 tracing: Some(prefs.tracing),
+                exclude: prefs.worker_exclude,
             },
         )?;
         let root = h.root().display().to_string();
