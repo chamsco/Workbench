@@ -18,8 +18,8 @@
 // badge, a 1.2s hover closes the eyes into two smiles, and voice turns the
 // eyes into an equalizer and sways the whole head.
 //
-// The bot's colour is `avatar.color` (the mascot's pink by default); the folds
-// are that colour a step darker. The stored emoji draws nothing; it only phases
+// The bot's colour is `avatar.color`, any bright colour (a bot without one
+// gets one from its id); the folds are the same hue a step darker. The stored emoji draws nothing; it only phases
 // the blink, so a row of brains never blinks in unison.
 
 import { useEffect, useMemo, useRef } from "react";
@@ -60,6 +60,30 @@ const EYES = [
 const EYE = { w: 98, h: 194 };
 /** Mascot units to the 100-unit box: the head is ~1100 wide. */
 const FIT = 0.086;
+
+/** The brain's colours: bright bodies, one per hue. */
+export const BRAIN_COLORS = ["#ff7f95", "#ff6f6f", "#ff9a5c", "#ffc24d", "#5fd38d", "#4cc9e8", "#6c9bff", "#a98bff", "#9aa8bb"];
+
+/** Bots made before the brain had two tones were saved in the old, darker
+ *  palette: each is drawn as the bright colour of its hue. */
+const OLDER: Record<string, string> = {
+  "#f97316": "#ff9a5c",
+  "#e11d48": "#ff6f6f",
+  "#8b5cf6": "#a98bff",
+  "#2563eb": "#6c9bff",
+  "#0891b2": "#4cc9e8",
+  "#16a34a": "#5fd38d",
+  "#ca8a04": "#ffc24d",
+  "#64748b": "#9aa8bb",
+};
+
+/** The two tones of a brain: the body, and its folds in the same hue a step
+ *  darker (#FF7F95 → #FF5C7A in the drawing is seven points of lightness;
+ *  other hues need a little more to read at sidebar size). */
+export function brainTones(color: string | undefined, seed = ""): { body: string; folds: string } {
+  const body = OLDER[(color || "").toLowerCase()] ?? (color || BRAIN_COLORS[hash(seed) % BRAIN_COLORS.length]);
+  return { body, folds: deeper(body, body.toLowerCase() === "#ff7f95" ? 0.07 : 0.1) };
+}
 
 /** The folds: the body's colour a step darker (#FF7F95 → #FF5C7A in the
  *  drawing is seven points of lightness). */
@@ -273,9 +297,8 @@ export function Orb({ agent, size = 32, state = "idle" }: { agent?: Agent; size?
   // The seed only phases the blink: every bot has a face whichever way it was
   // made, and a row of them never blinks in unison.
   const seed = agent?.avatar.emoji || agent?.id || agent?.name || "orb";
-  const color = agent?.avatar.color || "#ff7f95";
+  const { body: color, folds: foldTone } = useMemo(() => brainTones(agent?.avatar.color, seed), [agent?.avatar.color, seed]);
   const phase = useMemo(() => ((hash(seed) % 1000) / 1000) * BLINK_EVERY * 7, [seed]);
-  const foldTone = useMemo(() => deeper(color), [color]);
   const face = useRef<Face>({ el: null, head: null, folds: null, face: null, smile: null, eyes: [null, null, null], cheer: null, notif: null });
   const hover = useRef(false);
   const cheer = useRef(0);
