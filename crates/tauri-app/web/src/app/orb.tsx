@@ -1,27 +1,26 @@
 // The face: a bot's brain.
 //
-// The design is the owner's: a FILLED, lumpy, organic brain in the bot's colour,
-// with the folds cut in as negative space and two white pill eyes. An earlier
-// pass used Tabler's `brain` icon — six stroked paths — which was close but
-// read as a line drawing; this one has body.
+// The design is the owner's "Brain Mascot": a pink brain built from lobes (a
+// ring of discs around one wide ellipse), its folds drawn on as thick round
+// strokes a shade deeper than the body, two tall white pill eyes and a small
+// smile. The geometry below is that drawing's own coordinates (about 1100 by
+// 700 units); the SVG scales it down into a 100-unit box.
 //
-// The silhouette is a union of discs: one core, a crown of lobes, two sides, a
-// base and a little stem underneath. That generator is exactly an organic lumpy
-// blob, and — the useful part — the valleys BETWEEN the discs are where the
-// folds belong, so the gyri are derived from the lobe layout rather than drawn
-// by hand. Anatomically the folds are the lobe boundaries; here they literally
-// are. One light smoothing pass takes the cusps off without erasing the lobes
-// (two passes, which is what the old blob engine used, flattens it to a circle).
+// It looks at the pointer the way the mascot does: the head leans into the
+// turn, the folds trail the face, the face slides further than the head, and
+// the eyes squash and tilt as they turn. It blinks on its own, now and then
+// twice. All of that runs on one shared rAF clock for every face on screen
+// (rects read in a single pass, DOM written through refs, so a frame never
+// touches React state). `frame()` stays pure in t, so a still frame is the
+// same image every time.
 //
-// Everything around the silhouette is the animation layer: one shared rAF clock
-// for every face on screen (rects read in a single pass, DOM written through
-// refs, so a frame never touches React state), breath, a slow wander, a blink
-// whose phase is the bot's own, a gaze that aims from THIS face at the pointer,
-// and a 1.2s hover that closes the eyes into two smiles. `frame()` stays pure
-// in t, so pause/resume/seek give the same image.
+// States add to that: working breathes faster and bobs, needs looks up at its
+// badge, a 1.2s hover closes the eyes into two smiles, and voice turns the
+// eyes into an equalizer and sways the whole head.
 //
-// The bot's colour is `avatar.color`. The stored emoji draws nothing; it only
-// phases the blink, so a row of brains never blinks in unison.
+// The bot's colour is `avatar.color` (the mascot's pink by default); the folds
+// are that colour a step darker. The stored emoji draws nothing; it only phases
+// the blink, so a row of brains never blinks in unison.
 
 import { useEffect, useMemo, useRef } from "react";
 
@@ -30,143 +29,65 @@ import { agentById, type Agent } from "../bridge";
 // ---------------------------------------------------------------- the brain
 
 const TAU = Math.PI * 2;
-const SAMPLES = 72;
-const ANGLES = Array.from({ length: SAMPLES }, (_, i) => (i / SAMPLES) * TAU);
-const COS = ANGLES.map(Math.cos);
-const SIN = ANGLES.map(Math.sin);
-
-/** A lobe: `a` degrees from the top (clockwise), `d` out from the centre, `r`
- *  its radius — all in ball radii. The last two are the base and the stem. */
-const LOBES = [
-  { a: 0, d: 0.0, r: 0.6 },
-  { a: 0, d: 0.46, r: 0.32 },
-  { a: 40, d: 0.48, r: 0.3 },
-  { a: -40, d: 0.48, r: 0.3 },
-  { a: 85, d: 0.52, r: 0.3 },
-  { a: -85, d: 0.52, r: 0.3 },
-  { a: 130, d: 0.48, r: 0.28 },
-  { a: -130, d: 0.48, r: 0.28 },
-  { a: 180, d: 0.34, r: 0.22 },
-  { a: 180, d: 0.64, r: 0.14 },
-];
-
-const polar = (aDeg: number, d: number) => {
-  const rad = (aDeg * Math.PI) / 180 - Math.PI / 2; // 0deg = the top
-  return { x: Math.cos(rad) * d, y: Math.sin(rad) * d };
-};
-const DISCS = LOBES.map((l) => ({ ...polar(l.a, l.d), r: l.r, a: l.a }));
-
-/** The union of the discs, sampled around the circle, cusps taken off. */
-const SIL = (() => {
-  let radii = ANGLES.map((_, i) => {
-    let best = 0;
-    for (const c of DISCS) {
-      const b = COS[i] * c.x + SIN[i] * c.y;
-      const disc = b * b - (c.x * c.x + c.y * c.y - c.r * c.r);
-      if (disc < 0) continue;
-      const t = b + Math.sqrt(disc);
-      if (t > best) best = t;
-    }
-    return best;
-  });
-  const next = new Array<number>(SAMPLES);
-  for (let i = 0; i < SAMPLES; i++) {
-    next[i] = (radii[(i - 1 + SAMPLES) % SAMPLES] + 2 * radii[i] + radii[(i + 1) % SAMPLES]) / 4;
-  }
-  return next.map((r) => Math.min(Math.max(r, 0.5), 1.3));
-})();
-
-/** Profile radius at an angle in degrees, interpolated between samples. */
-function radiusAt(aDeg: number): number {
-  const t = ((((aDeg + 360) % 360) / 360) * SAMPLES + SAMPLES) % SAMPLES;
-  const i = Math.floor(t);
-  return (SIL[i % SAMPLES] ?? 1) * (1 - (t - i)) + (SIL[(i + 1) % SAMPLES] ?? 1) * (t - i);
-}
-
-/** The ball radius in the viewBox, and the vertical squash: a brain is a touch
- *  wider than it is tall. */
-const R = 60;
-const SQUASH = 0.95;
 const r2 = (n: number) => Math.round(n * 100) / 100;
-/** A point on the profile, in viewBox units. */
-const at = (aDeg: number, rad: number) => {
-  const a = (aDeg * Math.PI) / 180 - Math.PI / 2;
-  return { x: Math.cos(a) * rad * R, y: Math.sin(a) * rad * R * SQUASH };
-};
 
-/** Closed polyline to Catmull-Rom cubics — centred tangents are enough. */
-function closedPath(pts: { x: number; y: number }[]): string {
-  const n = pts.length;
-  if (n < 3) return "";
-  let d = `M${r2(pts[0].x)} ${r2(pts[0].y)}`;
-  for (let i = 0; i < n; i++) {
-    const p0 = pts[(i - 1 + n) % n];
-    const p1 = pts[i];
-    const p2 = pts[(i + 1) % n];
-    const p3 = pts[(i + 2) % n];
-    d += `C${r2(p1.x + (p2.x - p0.x) / 6)} ${r2(p1.y + (p2.y - p0.y) / 6)} ${r2(p2.x - (p3.x - p1.x) / 6)} ${r2(p2.y + (p3.y - p1.y) / 6)} ${r2(p2.x)} ${r2(p2.y)}`;
-  }
-  return `${d}Z`;
-}
+/** The mascot's lobes, in its own units. */
+const LOBES: [number, number, number][] = [
+  [640, 342, 195], [895, 342, 195],
+  [445, 445, 180], [1092, 445, 180],
+  [362, 610, 146], [1172, 610, 146],
+  [520, 682, 160], [686, 692, 150],
+  [850, 692, 150], [1012, 682, 160],
+];
+const CORE = { cx: 768, cy: 520, rx: 410, ry: 270 };
+const FOLDS = [
+  "M768 218V458",
+  "M568 290C650 245 730 290 768 380",
+  "M968 290C886 245 806 290 768 380",
+  "M530 355C460 360 415 410 402 453",
+  "M1003 355C1073 360 1118 410 1131 453",
+  "M358 498C335 540 335 600 362 640",
+  "M1176 498C1200 540 1200 600 1172 632",
+];
+const SMILE = "M720 645Q768 700 815 645";
+/** The head's centre (its bounding box), the smile's centre and the eyes'. */
+const HEAD = { x: 767, y: 495 };
+const SMILE_C = { x: 767.5, y: 659 };
+const EYES = [
+  { x: 594, y: 575 },
+  { x: 939, y: 575 },
+];
+const EYE = { w: 98, h: 194 };
+/** Mascot units to the 100-unit box: the head is ~1100 wide. */
+const FIT = 0.086;
 
-/** The silhouette, once: every bot wears the same brain. */
-const SILHOUETTE = closedPath(ANGLES.map((_, i) => at((i / SAMPLES) * 360, SIL[i])));
-
-/** The folds, cut in as negative space. One per valley between neighbouring
- *  lobes — a coarser ring than the silhouette's, because five folds read as
- *  folds and eight read as noise — plus the longitudinal fissure from the crown
- *  down to just above the eyes. The eye zone is left clean. */
-const GYRI_RING = [
-  { a: 0, d: 0.46, r: 0.32 },
-  { a: 45, d: 0.5, r: 0.3 },
-  { a: -45, d: 0.5, r: 0.3 },
-  { a: 90, d: 0.52, r: 0.3 },
-  { a: -90, d: 0.52, r: 0.3 },
-  { a: 135, d: 0.48, r: 0.28 },
-  { a: -135, d: 0.48, r: 0.28 },
-  { a: 180, d: 0.34, r: 0.22 },
-].sort((x, y) => x.a - y.a);
-
-function folds(): string[] {
-  const out: string[] = [];
-  const n = GYRI_RING.length;
-  for (let i = 0; i < n; i++) {
-    const A = GYRI_RING[i];
-    const B = GYRI_RING[(i + 1) % n];
-    let va = (A.a + B.a) / 2;
-    if (Math.abs(A.a - B.a) > 180) va += 180; // wrap across the bottom
-    const dir = polar(va, 1);
-    // Folds live in the crown and on the shoulders. The eye zone and the stem
-    // stay clean: a fold arcing around the eyes reads as eyewear, not as a
-    // brain, and a symmetric pair of them reads as a designed face.
-    if (dir.y > -0.12) continue;
-    // Break the mirror symmetry the way a real brain's folds are broken:
-    // alternate the reach and the length so no two folds match.
-    const rad = radiusAt(va) * (i % 2 === 0 ? 0.78 : 0.86);
-    const span = 13 + (i % 3) * 6;
-    const p1 = at(va - span, rad);
-    const c = at(va, rad * 1.04); // bows along the lobe edge, not into the face
-    const p2 = at(va + span, rad);
-    out.push(`M${r2(p1.x)} ${r2(p1.y)}Q${r2(c.x)} ${r2(c.y)} ${r2(p2.x)} ${r2(p2.y)}`);
-  }
-  // The fissure: crown down to just above the eyes.
-  const t = at(0, radiusAt(0) * 0.94);
-  const m = at(0, 0.34);
-  const b = at(0, -0.16);
-  out.push(`M${r2(t.x)} ${r2(t.y)}Q${r2(m.x)} ${r2(m.y)} ${r2(b.x)} ${r2(b.y)}`);
-  return out;
-}
-
-/** The folds are the silhouette's colour lightened — the reference's negative
- *  space is a tint of the brain, not white. */
-function lighten(hex: string, amt: number): string {
+/** The folds: the body's colour a step darker (#FF7F95 → #FF5C7A in the
+ *  drawing is seven points of lightness). */
+function deeper(hex: string, by = 0.07): string {
   const n = Number.parseInt(hex.slice(1), 16);
-  if (!Number.isFinite(n)) return hex;
-  const r = (n >> 16) & 255;
-  const g = (n >> 8) & 255;
-  const b = n & 255;
-  const m = (c: number) => Math.round(c + (255 - c) * amt);
-  return `rgb(${m(r)},${m(g)},${m(b)})`;
+  if (hex.length !== 7 || !Number.isFinite(n)) return hex;
+  let r = ((n >> 16) & 255) / 255;
+  let g = ((n >> 8) & 255) / 255;
+  let b = (n & 255) / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  const d = max - min;
+  const s = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1));
+  let h = 0;
+  if (d) {
+    if (max === r) h = ((g - b) / d) % 6;
+    else if (max === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+  }
+  h = (h * 60 + 360) % 360;
+  const L = Math.max(0, l - by);
+  const c = (1 - Math.abs(2 * L - 1)) * s;
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+  const m = L - c / 2;
+  [r, g, b] = h < 60 ? [c, x, 0] : h < 120 ? [x, c, 0] : h < 180 ? [0, c, x] : h < 240 ? [0, x, c] : h < 300 ? [x, 0, c] : [c, 0, x];
+  const to = (v: number) => Math.round((v + m) * 255);
+  return `rgb(${to(r)},${to(g)},${to(b)})`;
 }
 
 // ---------------------------------------------------------------- the face
@@ -179,70 +100,88 @@ export type OrbState = "idle" | "working" | "needs" | "wake" | "voice";
  *  own rhythm. */
 export const voiceLevel = { v: -1 };
 
-/** Eyes, in viewBox units: white pills, wider apart than a blob's would be. */
-const EYE = { w: 8.5, h: 19, split: 18.5, gaze: 3.2 };
-/** The badge, parked off the top-right lobe. */
-const NOTIF = { x: 40, y: -38, r: 5.2 };
-const BLINK_EVERY = 4.6;
+/** The badge, parked off the top-right lobe, in the 100-unit box. */
+const NOTIF = { x: 40, y: -30, r: 5.2 };
+/** Blinks come every 2.2 to 5.8 s, as in the mascot; this is the mean. */
+const BLINK_EVERY = 4;
 /** Hover this long and the face cheers. */
 const CHEER_AT = 1.2;
 
-/** One frame of the face, pure in `t` (seconds), `look` (-1..1 toward the
- *  pointer) and `cheer` (0..1, the hover smile). */
-function frame(state: OrbState, t: number, look: { x: number; y: number }, cheer: number) {
-  if (state === "voice") return voiceFrame(t);
-  // Breath: quicker and deeper the busier the state.
-  const rate = state === "working" ? 2.1 : 1.05;
-  const depth = state === "working" ? 0.05 : 0.018;
-  const breath = Math.sin(t * rate);
-  const sx = 1 - depth * 0.6 * breath;
-  const sy = 1 + depth * breath;
-  // Wander: an idle face drifts a little, a working one bobs.
-  const dx = state === "idle" ? Math.sin(t * 0.23) * 1.5 : 0;
-  const dy = state === "working" ? Math.sin(t * rate + 1.2) * 1.2 : 0;
-  // Blink: two incommensurate periods so it never reads as a loop.
-  const lid = Math.max(0, Math.sin((t / BLINK_EVERY) * TAU + Math.sin(t * 0.37) * 0.6));
-  const blink = lid > 0.985 ? 1 - (lid - 0.985) / 0.015 : 0;
-  // Gaze: the state's own aim, plus the pointer's, plus idle wander.
-  const wander = state === "idle" ? { x: Math.sin(t * 0.31) * 0.35 + Math.sin(t * 0.73) * 0.2, y: Math.sin(t * 0.41 + 1) * 0.18 } : { x: 0, y: 0 };
-  const aim = state === "needs" ? { x: 0.55, y: -0.5 } : { x: 0, y: 0 };
-  const ex = (aim.x + wander.x + look.x * 0.5) * EYE.gaze;
-  const ey = (aim.y + wander.y + look.y * 0.5) * EYE.gaze;
-  const eh = EYE.h * (state === "working" ? 0.82 : 1) * (1 - blink) * (1 - cheer * 0.7);
-  const eyes = [-1, 1].map((s) => ({
-    x: s * EYE.split + ex,
-    y: ey,
-    w: EYE.w,
-    h: Math.max(eh, 0.6),
-    alpha: 1 - cheer,
-  }));
-  // The third eye is voice mode's middle bar; elsewhere it is not drawn.
-  eyes.push({ x: 0, y: 0, w: EYE.w, h: EYE.w, alpha: 0 });
-  return { sx, sy, dx, dy, rot: 0, eyes };
+type Eye = { x: number; y: number; w: number; h: number; rot: number; alpha: number };
+type Pose = { head: string; folds: string; face: string; smile: string; smileAlpha: number; eyes: Eye[] };
+
+/** Blink, 0..1: a 180ms close-and-open, at uneven intervals, sometimes twice.
+ *  Pure in t: the interval for each beat is a hash of its index. */
+function blinkAt(t: number): number {
+  const beat = Math.floor(t / BLINK_EVERY);
+  const jit = (k: number) => {
+    const s = Math.sin(k * 127.1 + 311.7) * 43758.5453;
+    return s - Math.floor(s);
+  };
+  const at = beat * BLINK_EVERY + jit(beat) * (BLINK_EVERY - 0.6);
+  const one = (t0: number) => {
+    const u = (t - t0) / 0.18;
+    return u >= 0 && u < 1 ? Math.sin(u * Math.PI) : 0;
+  };
+  return Math.max(one(at), jit(beat + 0.5) < 0.2 ? one(at + 0.33) : 0);
 }
 
-/** Voice mode: the eyes become an equalizer, a round dot, a tall bar and a
- *  round dot, and the whole brain sways and bobs while it listens or talks. */
-function voiceFrame(t: number) {
+/** One frame of the face, pure in `t` (seconds), `look` (-1..1 toward the
+ *  pointer, already eased) and `cheer` (0..1, the hover smile). */
+function frame(state: OrbState, t: number, look: { x: number; y: number }, cheer: number): Pose {
+  // The state's own aim, plus idle wander, on top of the pointer.
+  const wander = state === "idle" ? { x: Math.sin(t * 0.31) * 0.12 + Math.sin(t * 0.73) * 0.06, y: Math.sin(t * 0.41 + 1) * 0.06 } : { x: 0, y: 0 };
+  const aim = state === "needs" ? { x: 0.45, y: -0.4 } : { x: 0, y: 0 };
+  const x = Math.max(-1, Math.min(1, look.x + wander.x + aim.x));
+  const y = Math.max(-1, Math.min(1, look.y + wander.y + aim.y));
+  const down = Math.max(y, 0);
+  const up = Math.max(-y, 0);
+  // Breath and bob, in mascot units.
+  const rate = state === "working" || state === "voice" ? 2.4 : 1.05;
+  const depth = state === "working" ? 0.04 : state === "voice" ? 0.03 : 0.015;
+  const breath = Math.sin(t * rate);
   const fed = voiceLevel.v >= 0;
   const lv = fed ? Math.min(1, voiceLevel.v) : 0.45 + 0.55 * Math.abs(Math.sin(t * 6.1) * Math.sin(t * 2.3 + 0.7));
-  const wob = (k: number) => 0.5 + 0.5 * Math.sin(t * (9 + k * 2.7) + k * 1.9);
-  const gap = 15;
-  const eyes = [
-    { x: -gap, y: 0, w: 11, h: 11 + lv * 9 * wob(1), alpha: 1 },
-    { x: gap, y: 0, w: 11, h: 11 + lv * 9 * wob(2), alpha: 1 },
-    { x: 0, y: 0, w: 11, h: 15 + lv * 20 * (0.6 + 0.4 * wob(3)), alpha: 1 },
-  ];
-  const breath = Math.sin(t * 2.4);
-  return {
-    sx: 1 - 0.02 * breath,
-    sy: 1 + 0.03 * breath,
-    dx: Math.sin(t * 1.3) * 2,
-    dy: -Math.abs(Math.sin(t * 2.6)) * 3 * (0.4 + lv * 0.6),
-    rot: Math.sin(t * 1.7) * 4,
-    eyes,
-  };
+  const bob = state === "working" ? Math.sin(t * rate + 1.2) * 14 : state === "voice" ? -Math.abs(Math.sin(t * 2.6)) * 36 * (0.4 + lv * 0.6) : 0;
+  const sway = state === "voice" ? Math.sin(t * 1.7) * 4 : 0;
+  const swayX = state === "voice" ? Math.sin(t * 1.3) * 24 : 0;
+  // The mascot's look, verbatim: lean into the turn, tuck when looking down.
+  const head =
+    `translate(${r2(HEAD.x + x * 16 + swayX)} ${r2(HEAD.y + y * 10 + bob)}) rotate(${r2(x * 5 + x * down * 2 + sway)})`
+    + ` scale(${r2((1 - Math.abs(x) * 0.015) * (1 - depth * 0.6 * breath))} ${r2((1 - down * 0.04) * (1 + depth * breath))}) translate(${-HEAD.x} ${-HEAD.y})`;
+  const folds = `translate(${r2(x * 44)} ${r2(y * 30)}) skewX(${r2(-x * 3)}) scale(1 ${r2(1 + down * 0.07 - up * 0.05)})`;
+  const face = `translate(${r2(x * 82)} ${r2(y * 62)})`;
+  const smile =
+    `translate(${r2(SMILE_C.x + x * 16)} ${r2(SMILE_C.y - down * 8)}) rotate(${r2(-x * 16)})`
+    + ` scale(${r2(1 - Math.abs(x) * 0.08 + down * 0.08)} ${r2(1 - down * 0.1)}) translate(${-SMILE_C.x} ${-SMILE_C.y})`;
+
+  if (state === "voice") {
+    // The eyes become an equalizer: a dot, a tall bar, a dot.
+    const wob = (k: number) => 0.5 + 0.5 * Math.sin(t * (9 + k * 2.7) + k * 1.9);
+    const cx = (EYES[0].x + EYES[1].x) / 2;
+    const cy = EYES[0].y;
+    const w = 112;
+    const eyes = [
+      { x: cx - 190, y: cy, w, h: w + lv * 110 * wob(1), rot: 0, alpha: 1 },
+      { x: cx + 190, y: cy, w, h: w + lv * 110 * wob(2), rot: 0, alpha: 1 },
+      { x: cx, y: cy - 10, w, h: 170 + lv * 200 * (0.6 + 0.4 * wob(3)), rot: 0, alpha: 1 },
+    ];
+    return { head, folds, face, smile, smileAlpha: 0, eyes };
+  }
+
+  const b = blinkAt(t);
+  const squash = 1 - Math.abs(x) * 0.1 + down * 0.04;
+  const tall = (state === "working" ? 0.82 : 1) * (1 - b * 0.92) * (1 - down * 0.12) * (1 - cheer * 0.85);
+  const eyes = EYES.map((e) => {
+    const side = e.x < HEAD.x ? 1 : -1; // eyes drift together when looking down
+    return { x: e.x + side * down * 10, y: e.y, w: EYE.w * squash, h: Math.max(EYE.h * tall, 6), rot: -x * 22, alpha: 1 - cheer };
+  });
+  // The third eye is voice mode's middle bar; elsewhere it is not drawn.
+  eyes.push({ x: HEAD.x, y: EYES[0].y, w: EYE.w, h: EYE.w, rot: 0, alpha: 0 });
+  return { head, folds, face, smile, smileAlpha: 1, eyes };
 }
+
+const eyeTransform = (e: Eye) => `translate(${r2(e.x)} ${r2(e.y)}) rotate(${r2(e.rot)})`;
 
 /** A stadium centred on the origin: the exact outline of an eye. */
 function capsulePath(w: number, h: number): string {
@@ -274,25 +213,34 @@ function hash(s: string): number {
 /** One painted frame, the DOM refs a tick writes into. */
 type Face = {
   el: HTMLElement | null;
-  /** The group the breath/wander transform lands on. */
-  move: SVGGElement | null;
+  head: SVGGElement | null;
+  folds: SVGGElement | null;
+  face: SVGGElement | null;
+  smile: SVGPathElement | null;
   eyes: (SVGPathElement | null)[];
   cheer: SVGGElement | null;
   notif: SVGCircleElement | null;
 };
 
-// One pointer for every face, read inside each face's own frame.
-const pointer = { x: 0, y: 0 };
+// One pointer for every face, read inside each face's own frame. Until it has
+// moved, or once it leaves the window, every face looks ahead.
+const pointer = { x: 0, y: 0, in: false };
 if (typeof window !== "undefined") {
   window.addEventListener(
     "pointermove",
     (e) => {
       pointer.x = e.clientX;
       pointer.y = e.clientY;
+      pointer.in = true;
     },
     { passive: true },
   );
+  document.addEventListener("pointerleave", () => {
+    pointer.in = false;
+  });
 }
+/** How far the pointer has to be for a full turn; tanh keeps a far one soft. */
+const REACH = 420;
 
 const reduceMotion = () => typeof window !== "undefined" && !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 
@@ -320,18 +268,18 @@ const joinClock = (f: { read(): DOMRect | null; draw(t: number, rect: DOMRect | 
   };
 };
 
+
 export function Orb({ agent, size = 32, state = "idle" }: { agent?: Agent; size?: number; state?: OrbState }) {
   // The seed only phases the blink: every bot has a face whichever way it was
   // made, and a row of them never blinks in unison.
   const seed = agent?.avatar.emoji || agent?.id || agent?.name || "orb";
-  const color = agent?.avatar.color || "#64748b";
-  const phase = useMemo(() => ((hash(seed) % 1000) / 1000) * BLINK_EVERY, [seed]);
-  // The folds are the brain's own colour, lightened.
-  const foldTone = useMemo(() => lighten(color, 0.5), [color]);
-  const foldPaths = useMemo(() => folds(), []);
-  const face = useRef<Face>({ el: null, move: null, eyes: [null, null, null], cheer: null, notif: null });
+  const color = agent?.avatar.color || "#ff7f95";
+  const phase = useMemo(() => ((hash(seed) % 1000) / 1000) * BLINK_EVERY * 7, [seed]);
+  const foldTone = useMemo(() => deeper(color), [color]);
+  const face = useRef<Face>({ el: null, head: null, folds: null, face: null, smile: null, eyes: [null, null, null], cheer: null, notif: null });
   const hover = useRef(false);
   const cheer = useRef(0);
+  const look = useRef({ x: 0, y: 0 });
   // Live values the clock reads: the component may re-render (a new state, a
   // new colour) without restarting the loop.
   const live = useRef({ state, phase });
@@ -342,30 +290,32 @@ export function Orb({ agent, size = 32, state = "idle" }: { agent?: Agent; size?
   const draw = useMemo(
     () => (t: number, rect: DOMRect | null) => {
       const f = face.current;
-      if (!f.move) return;
+      if (!f.head) return;
       const st = live.current.state;
       // The gaze aims from THIS face at the pointer, so a bot in the corner
-      // looks where it should. A zero-size box (display:none parent) gives 0/0:
-      // keep the last aim.
-      let look = { x: 0, y: 0 };
-      if (rect && rect.width > 0) {
-        const dx = pointer.x - (rect.left + rect.width / 2);
-        const dy = pointer.y - (rect.top + rect.height / 2);
-        const m = Math.hypot(dx, dy);
-        if (m > 0 && Number.isFinite(dx) && Number.isFinite(dy)) look = { x: dx / m, y: dy / m };
+      // looks where it should, and eases there as the mascot does. A zero-size
+      // box (display:none parent) keeps the last aim.
+      let to = { x: 0, y: 0 };
+      if (pointer.in && rect && rect.width > 0) {
+        to = { x: Math.tanh((pointer.x - (rect.left + rect.width / 2)) / REACH), y: Math.tanh((pointer.y - (rect.top + rect.height / 2)) / REACH) };
       }
+      look.current = { x: look.current.x + (to.x - look.current.x) * 0.1, y: look.current.y + (to.y - look.current.y) * 0.1 };
       // The cheer eases in the clock, not in React state: a hover costs no
       // re-render, only a slow drift of one number.
-      const to = hover.current ? 1 : 0;
-      cheer.current = Math.abs(cheer.current - to) < 0.004 ? to : cheer.current + (to - cheer.current) * 0.12;
-      const g = frame(st, t + live.current.phase, look, cheer.current);
-      f.move.setAttribute("transform", `translate(${r2(g.dx)} ${r2(g.dy)}) rotate(${r2(g.rot)}) scale(${r2(g.sx)} ${r2(g.sy)})`);
+      const c = hover.current ? 1 : 0;
+      cheer.current = Math.abs(cheer.current - c) < 0.004 ? c : cheer.current + (c - cheer.current) * 0.12;
+      const g = frame(st, t + live.current.phase, look.current, st === "voice" ? 0 : cheer.current);
+      f.head.setAttribute("transform", g.head);
+      f.folds?.setAttribute("transform", g.folds);
+      f.face?.setAttribute("transform", g.face);
+      f.smile?.setAttribute("transform", g.smile);
+      f.smile?.setAttribute("opacity", String(g.smileAlpha));
       for (let i = 0; i < 3; i++) {
         const e = g.eyes[i];
         const el = f.eyes[i];
         if (!el) continue;
         el.setAttribute("d", capsulePath(e.w, e.h));
-        el.setAttribute("transform", `translate(${r2(e.x)} ${r2(e.y)})`);
+        el.setAttribute("transform", eyeTransform(e));
         el.setAttribute("opacity", String(e.alpha));
       }
       f.cheer?.setAttribute("opacity", String(st === "voice" ? 0 : cheer.current));
@@ -374,9 +324,9 @@ export function Orb({ agent, size = 32, state = "idle" }: { agent?: Agent; size?
     [],
   );
 
-  // The first paint is a still frame at t=0: the clock takes over on the next
-  // frame, and a reduced-motion visitor keeps exactly this image.
-  const still = useMemo(() => frame(state, phase + 0.42, { x: 0, y: 0 }, 0), [state, phase]);
+  // The first paint is a still frame, eyes open: the clock takes over on the
+  // next frame, and a reduced-motion visitor keeps exactly this image.
+  const still = useMemo(() => frame(state, 1, { x: 0, y: 0 }, 0), [state]);
 
   useEffect(
     () =>
@@ -410,45 +360,82 @@ export function Orb({ agent, size = 32, state = "idle" }: { agent?: Agent; size?
       }}
       aria-hidden
     >
-      <svg viewBox="-50 -50 100 100" width="100%" height="100%" aria-hidden focusable="false">
-        <g
-          ref={(n) => {
-            face.current.move = n;
-          }}
-          transform={`translate(${r2(still.dx)} ${r2(still.dy)}) rotate(${r2(still.rot)}) scale(${r2(still.sx)} ${r2(still.sy)})`}
-        >
-          {/* The brain: filled in the bot's colour, the folds cut into it. */}
-          <path d={SILHOUETTE} fill={color} />
-          <g fill="none" stroke={foldTone} strokeWidth="2.5" strokeLinecap="round">
-            {foldPaths.map((d) => (
-              <path key={d} d={d} />
-            ))}
-          </g>
-          {still.eyes.map((e, i) => (
-            <path
-              key={i}
-              ref={(n) => {
-                face.current.eyes[i] = n;
-              }}
-              d={capsulePath(e.w, e.h)}
-              fill="#fff"
-              opacity={e.alpha}
-              transform={`translate(${r2(e.x)} ${r2(e.y)})`}
-            />
-          ))}
-          {/* The cheer: the eyes close up into two smiles, gliding with `cheer`. */}
+      <svg viewBox="-50 -50 100 100" width="100%" height="100%" aria-hidden focusable="false" overflow="visible">
+        <g transform={`scale(${FIT}) translate(${-HEAD.x} ${-HEAD.y})`}>
           <g
             ref={(n) => {
-              face.current.cheer = n;
+              face.current.head = n;
             }}
-            stroke="#fff"
-            strokeWidth="3.6"
-            strokeLinecap="round"
-            fill="none"
-            opacity={0}
+            transform={still.head}
           >
-            <path d={`M${r2(-13 + 3)} 7 q${r2(4.5 + 1.5)} ${r2(-6.5 - 1.5)} ${r2(9 + 3)} 0`} />
-            <path d={`M${r2(4 - 3)} 7 q${r2(4.5 + 1.5)} ${r2(-6.5 - 1.5)} ${r2(9 + 3)} 0`} />
+            {/* The brain: lobes and a core in the bot's colour, folds a shade deeper. */}
+            <g fill={color}>
+              {LOBES.map(([cx, cy, r]) => (
+                <circle key={`${cx}-${cy}`} cx={cx} cy={cy} r={r} />
+              ))}
+              <ellipse cx={CORE.cx} cy={CORE.cy} rx={CORE.rx} ry={CORE.ry} />
+            </g>
+            <g
+              ref={(n) => {
+                face.current.folds = n;
+              }}
+              transform={still.folds}
+              fill="none"
+              stroke={foldTone}
+              strokeWidth="34"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              {FOLDS.map((d) => (
+                <path key={d} d={d} />
+              ))}
+            </g>
+            <g
+              ref={(n) => {
+                face.current.face = n;
+              }}
+              transform={still.face}
+            >
+              {still.eyes.map((e, i) => (
+                <path
+                  key={i}
+                  ref={(n) => {
+                    face.current.eyes[i] = n;
+                  }}
+                  d={capsulePath(e.w, e.h)}
+                  fill="#fff"
+                  opacity={e.alpha}
+                  transform={eyeTransform(e)}
+                />
+              ))}
+              <path
+                ref={(n) => {
+                  face.current.smile = n;
+                }}
+                d={SMILE}
+                transform={still.smile}
+                opacity={still.smileAlpha}
+                fill="none"
+                stroke="#fff"
+                strokeWidth="28"
+                strokeLinecap="round"
+              />
+              {/* The cheer: the eyes close up into two smiles, gliding with `cheer`. */}
+              <g
+                ref={(n) => {
+                  face.current.cheer = n;
+                }}
+                stroke="#fff"
+                strokeWidth="34"
+                strokeLinecap="round"
+                fill="none"
+                opacity={0}
+              >
+                {EYES.map((e) => (
+                  <path key={e.x} d={`M${e.x - 60} ${e.y + 10}q60 -70 120 0`} />
+                ))}
+              </g>
+            </g>
           </g>
         </g>
         <circle
@@ -501,9 +488,7 @@ export function Stack({ ids, size = 22 }: { ids: string[]; size?: number }) {
 
 /*
  * Attribution:
- *   Silhouette — generated here from a union of discs; the lobe layout and the
- *   folds derived from it are this file's own. The animation posture (shared
- *   clock, breath/blink/gaze expressions, capsule eyes, the 1.2s hover cheer) is
- *   after orbs (nikuscs/orbs, MIT), packages/avatar-blobs by Jérémy Perret,
- *   simplified to four states.
+ *   The brain, its look and its blink are the owner's "Brain Mascot" drawing
+ *   and script. The shared clock and the hover cheer are after orbs
+ *   (nikuscs/orbs, MIT), packages/avatar-blobs by Jérémy Perret.
  */

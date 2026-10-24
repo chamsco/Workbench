@@ -1,33 +1,44 @@
 // The agent's side panel: on the right of a bot's thread and of its page.
-// Three tabs: Context (what its next reply reads, as a treemap the way a disk
-// space map draws a drive), Traces (how each reply was made) and Settings (the
-// switches you reach for mid-conversation; the rest is a click away).
+// The bot itself sits on top, its name over its brain, and under it four tabs:
+// Settings (model, instructions, personality and the switches), Context (what
+// its next reply reads, as a map the way a disk space app draws a drive),
+// Traces (how each reply was made) and Routines (its jobs on a clock).
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { IconAlertTriangleFilled, IconChevronRight, IconSettings } from "@tabler/icons-react";
 
 import { cn } from "@/lib/utils";
 import { editAgent, getHost, openTrace, saveAgent, useChat, type Agent, type Thread, type Trace } from "../bridge";
 import { RULES } from "./Agents";
+import { PERSONALITIES } from "./bot-create";
+import { Orb } from "./orb";
+import { Logo, routeGlyphId, RoutePicker } from "./RoutePicker";
+import { RoutineCards } from "./routines";
 
 type Part = { group: string; label: string; tokens: number };
 type ContextMap = { window: number; model: string; parts: Part[]; last_input: number | null };
 
-// The dataviz palette, validated in both themes; one hue per kind of content.
-const HUE: Record<string, string> = {
-  Instructions: "#3b82f6",
-  Memory: "#2a9a72",
-  Conversation: "#c96a4a",
-  Files: "#8b6ff0",
+/** Each kind of content: its colour and the word under a tile's name. Grey for
+ *  what you wrote once, violet for memory, rose for the chat, blue for files,
+ *  after the context map the owner picked. */
+const KIND: Record<string, { hue: string; word: string }> = {
+  Instructions: { hue: "#7c8594", word: "Instructions" },
+  Memory: { hue: "#7a5cf0", word: "Memory" },
+  Conversation: { hue: "#d4568c", word: "Chat" },
+  Files: { hue: "#3a72e8", word: "File" },
 };
 const ORDER = ["Instructions", "Memory", "Conversation", "Files"];
+/** Below this share of the window, the used tiles would be slivers next to
+ *  Free: the map opens on what is used and Free waits behind the toggle. */
+const WHOLE_FROM = 0.2;
 
 const k = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(n >= 10_000 ? 0 : 1)}k` : String(n));
 
 const TABS = [
+  ["settings", "Settings"],
   ["context", "Context"],
   ["traces", "Traces"],
-  ["settings", "Settings"],
+  ["routines", "Routines"],
 ] as const;
 type Tab = (typeof TABS)[number][0];
 
@@ -49,9 +60,10 @@ export function AgentSide({ agent, thread: open, threadId }: { agent: Agent; thr
   const thread = open ?? read;
   const [tab, setTab] = useState<Tab>(() => {
     try {
-      return (localStorage.getItem("bs.agentSide") as Tab) || "context";
+      const t = localStorage.getItem("bs.agentSide") as Tab;
+      return TABS.some(([id]) => id === t) ? t : "settings";
     } catch {
-      return "context";
+      return "settings";
     }
   });
   const pick = (t: Tab) => {
@@ -62,9 +74,14 @@ export function AgentSide({ agent, thread: open, threadId }: { agent: Agent; thr
       /* private window */
     }
   };
+  const busy = thread?.messages.some((m) => m.role === "assistant" && m.status === "streaming");
   return (
     <aside className="agent-side flex w-[300px] shrink-0 flex-col border-l border-border" aria-label={`${agent.name}'s panel`}>
-      <div className="flex shrink-0 gap-1 px-3 pt-3 pb-2" role="tablist">
+      <div className="flex shrink-0 flex-col items-center gap-1 px-3 pt-4 pb-2">
+        <div className="max-w-full truncate text-[15px] font-semibold text-foreground">{agent.name}</div>
+        <Orb agent={agent} size={104} state={busy ? "working" : "idle"} />
+      </div>
+      <div className="flex shrink-0 justify-center gap-0.5 px-3 pb-2" role="tablist">
         {TABS.map(([id, label]) => (
           <button
             key={id}
@@ -73,7 +90,7 @@ export function AgentSide({ agent, thread: open, threadId }: { agent: Agent; thr
             aria-selected={tab === id}
             onClick={() => pick(id)}
             className={cn(
-              "h-7 rounded-md px-2.5 text-[12.5px] font-medium text-muted-foreground transition-colors hover:text-foreground",
+              "h-7 rounded-md px-2 text-[12.5px] font-medium text-muted-foreground transition-colors hover:text-foreground",
               tab === id && "bg-well text-foreground",
             )}
           >
@@ -82,9 +99,10 @@ export function AgentSide({ agent, thread: open, threadId }: { agent: Agent; thr
         ))}
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-4">
-        {tab === "context" && <ContextTab thread={thread} />}
-        {tab === "traces" && <TracesTab thread={thread} />}
         {tab === "settings" && <SettingsTab agent={agent} />}
+        {tab === "context" && <ContextTab thread={thread} agent={agent} />}
+        {tab === "traces" && <TracesTab thread={thread} />}
+        {tab === "routines" && <RoutineCards agent={agent} />}
       </div>
     </aside>
   );
@@ -92,10 +110,10 @@ export function AgentSide({ agent, thread: open, threadId }: { agent: Agent; thr
 
 // ------------------------------------------------------------------ context
 
-function ContextTab({ thread }: { thread: Thread | null }) {
+function ContextTab({ thread, agent }: { thread: Thread | null; agent: Agent }) {
   const { epoch } = useChat();
   const [map, setMap] = useState<ContextMap | null | undefined>(undefined);
-  const [whole, setWhole] = useState(false);
+  const [whole, setWhole] = useState<boolean | null>(null);
   const count = thread?.messages.length ?? 0;
   useEffect(() => {
     if (!thread) return setMap(null);
@@ -107,53 +125,45 @@ function ContextTab({ thread }: { thread: Thread | null }) {
     return () => {
       live = false;
     };
-  }, [thread?.id, count, epoch]);
+  }, [thread?.id, count, epoch, agent.route]);
 
   if (!thread) return <p className="py-2 text-[12.5px] text-muted-foreground">Start a conversation and its context window shows up here.</p>;
   if (map === undefined) return <p className="py-2 text-[12.5px] text-muted-foreground">Reading the context…</p>;
   if (!map) return <p className="py-2 text-[12.5px] text-muted-foreground">This conversation's context couldn't be read.</p>;
 
   const used = map.parts.reduce((s, p) => s + p.tokens, 0);
-  const pct = Math.min(100, (used / map.window) * 100);
-  const groups = ORDER.map((g) => ({ g, parts: map.parts.filter((p) => p.group === g) })).filter((x) => x.parts.length);
+  const share = used / map.window;
+  const pct = Math.min(100, share * 100);
+  const showFree = whole ?? share >= WHOLE_FROM;
+  const groups = ORDER.map((g) => ({ g, parts: map.parts.filter((p) => p.group === g && p.tokens > 0) })).filter((x) => x.parts.length);
   return (
-    <div className="grid gap-3">
-      <div>
-        <div className="flex items-baseline justify-between text-[12.5px]">
-          <span className="font-medium text-foreground">
-            {k(used)} <span className="font-normal text-muted-foreground">of {k(map.window)} tokens</span>
-          </span>
-          <span className="text-muted-foreground tabular-nums">{pct < 1 ? pct.toFixed(1) : Math.round(pct)}%</span>
-        </div>
-        <div className="mt-1.5 flex h-1.5 overflow-hidden rounded-full bg-well">
-          {groups.map(({ g, parts }) => (
-            <span key={g} style={{ width: `${(parts.reduce((s, p) => s + p.tokens, 0) / map.window) * 100}%`, background: HUE[g] }} />
-          ))}
-        </div>
-        <p className="mt-1.5 text-[11.5px] text-muted-foreground">
-          Estimated at four characters a token for {map.model}.
+    <div className="flex flex-col gap-2.5">
+      <div className="flex items-center gap-2">
+        <span className="inline-flex min-w-0 items-center gap-1.5 rounded-lg px-2 py-1 text-[12px] font-medium text-foreground shadow-[inset_0_0_0_1px_var(--border)]">
+          <Logo id={routeGlyphId(agent.route)} size={13} />
+          <span className="truncate">{map.model}</span>
+          <span className="rounded bg-well px-1 text-[11px] text-muted-foreground tabular-nums">{k(map.window)}</span>
+        </span>
+        <span className="ml-auto shrink-0 text-[12px] text-muted-foreground tabular-nums">
+          <b className="font-semibold text-foreground">{k(used)}</b> / {k(map.window)}
+        </span>
+        <span className="shrink-0 rounded-md bg-well px-1.5 py-0.5 text-[11.5px] font-semibold tabular-nums">{pct < 1 ? pct.toFixed(1) : Math.round(pct)}%</span>
+      </div>
+      <ContextMapView groups={groups} window={map.window} free={showFree ? Math.max(0, map.window - used) : 0} />
+      <div className="flex items-start justify-between gap-2 text-[11.5px] text-muted-foreground">
+        <p>
+          Estimated at four characters a token.
           {map.last_input != null && ` The last reply read ${k(map.last_input)}, by its trace.`}
         </p>
-      </div>
-      <div className="flex items-center justify-between">
-        <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11.5px] text-muted-foreground">
-          {groups.map(({ g }) => (
-            <span key={g} className="inline-flex items-center gap-1.5">
-              <i className="size-2 rounded-[2px]" style={{ background: HUE[g] }} />
-              {g}
-            </span>
-          ))}
-        </div>
         <button
           type="button"
-          onClick={() => setWhole((w) => !w)}
-          className="shrink-0 text-[11.5px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
-          title={whole ? "Show only what is used" : "Show the whole window, free space included"}
+          onClick={() => setWhole(!showFree)}
+          className="shrink-0 underline-offset-2 hover:text-foreground hover:underline"
+          title={showFree ? "Show only what is used" : "Show the whole window, free space included"}
         >
-          {whole ? "Used" : "Whole window"}
+          {showFree ? "Used only" : "Whole window"}
         </button>
       </div>
-      <Treemap groups={groups} free={whole ? Math.max(0, map.window - used) : 0} />
     </div>
   );
 }
@@ -213,66 +223,107 @@ function squarify(values: number[], r: Rect): Rect[] {
   return out;
 }
 
-function Treemap({ groups, free }: { groups: { g: string; parts: Part[] }[]; free: number }) {
+type Tile = { key: string; group: string; label: string; tokens: number; r: Rect };
+
+/** The map, standing up so it fits the panel: what is used on top, laid out
+ *  kind by kind, and the free space as one hatched band under it. */
+function ContextMapView({ groups, window: win, free }: { groups: { g: string; parts: Part[] }[]; window: number; free: number }) {
   const W = 276;
-  const H = 300;
-  const blocks = useMemo(() => {
-    const tops = [...groups.map((x) => x.parts.reduce((s, p) => s + p.tokens, 0)), ...(free ? [free] : [])];
-    const rects = squarify(tops, { x: 0, y: 0, w: W, h: H });
-    return rects.map((r, i) => {
-      const grp = groups[i];
-      if (!grp) return { key: "free", r, kids: [] as { p: Part; r: Rect }[] };
-      const head = r.h > 40 && r.w > 60 ? 16 : 0;
-      const inner = { x: r.x + 2, y: r.y + 2 + head, w: Math.max(0, r.w - 4), h: Math.max(0, r.h - 4 - head) };
-      const kr = squarify(grp.parts.map((p) => p.tokens), inner);
-      return { key: grp.g, r, head, kids: grp.parts.map((p, j) => ({ p, r: kr[j] })) };
+  const H = 500;
+  const GAP = 3;
+  const used = groups.reduce((s, x) => s + x.parts.reduce((t, p) => t + p.tokens, 0), 0);
+  const tiles = useMemo(() => {
+    const top = free ? Math.round((H * used) / (used + free)) : H;
+    const blocks = squarify(
+      groups.map((x) => x.parts.reduce((s, p) => s + p.tokens, 0)),
+      { x: 0, y: 0, w: W, h: top },
+    );
+    const out: Tile[] = [];
+    groups.forEach((grp, i) => {
+      const b = blocks[i];
+      const kr = squarify(grp.parts.map((p) => p.tokens), b);
+      grp.parts.forEach((p, j) => out.push({ key: `${grp.g}-${j}`, group: grp.g, label: p.label, tokens: p.tokens, r: kr[j] }));
     });
-  }, [groups, free]);
+    if (free) out.push({ key: "free", group: "Free", label: "Free", tokens: free, r: { x: 0, y: top, w: W, h: H - top } });
+    return out;
+  }, [groups, free, used]);
+  const box = useRef<HTMLDivElement>(null);
+  const [tip, setTip] = useState<{ t: Tile; x: number; y: number } | null>(null);
   return (
-    <div className="relative overflow-hidden rounded-lg" style={{ height: H }} role="img" aria-label="The context window as a map: the bigger a box, the more of the window it takes">
-      {blocks.map((b) =>
-        b.key === "free" ? (
+    <div
+      ref={box}
+      className="context-map relative rounded-xl p-1 shadow-[inset_0_0_0_1px_var(--border)]"
+      style={{ height: H + 8 }}
+      role="img"
+      aria-label="The context window as a map: the bigger a box, the more of the window it takes"
+      onPointerLeave={() => setTip(null)}
+    >
+      {tiles.map((t) => {
+        const kind = KIND[t.group];
+        const w = Math.max(0, t.r.w - GAP);
+        const h = Math.max(0, t.r.h - GAP);
+        const roomy = w > 46 && h > 34;
+        if (!kind)
+          return (
+            <div
+              key={t.key}
+              className="absolute rounded-md px-2 py-1.5 text-[12px]/4 text-muted-foreground/70"
+              style={{
+                left: 4 + t.r.x + GAP / 2,
+                top: 4 + t.r.y + GAP / 2,
+                width: w,
+                height: h,
+                background: "repeating-linear-gradient(135deg, color-mix(in srgb, var(--muted-foreground) 9%, transparent) 0 1px, transparent 1px 7px)",
+                border: "1px dashed color-mix(in srgb, var(--muted-foreground) 30%, transparent)",
+              }}
+            >
+              <div>Free</div>
+              <div className="tabular-nums">{k(t.tokens)}</div>
+            </div>
+          );
+        return (
           <div
-            key="free"
-            className="absolute grid place-items-center rounded-md text-[11px] text-muted-foreground"
-            style={{ left: b.r.x + 1, top: b.r.y + 1, width: b.r.w - 2, height: b.r.h - 2, background: "repeating-linear-gradient(135deg, var(--well, rgba(127,127,127,.08)) 0 6px, transparent 6px 12px)", boxShadow: "inset 0 0 0 1px var(--border)" }}
+            key={t.key}
+            className="absolute overflow-hidden rounded-md px-2 py-1.5 text-[12px]/4"
+            style={{
+              left: 4 + t.r.x + GAP / 2,
+              top: 4 + t.r.y + GAP / 2,
+              width: w,
+              height: h,
+              background: `color-mix(in srgb, ${kind.hue} 13%, transparent)`,
+              boxShadow: `inset 0 0 0 1px color-mix(in srgb, ${kind.hue} 30%, transparent)`,
+              color: `color-mix(in srgb, ${kind.hue} 82%, var(--foreground))`,
+            }}
+            onPointerMove={(e) => {
+              const b = box.current?.getBoundingClientRect();
+              if (b) setTip({ t, x: e.clientX - b.left, y: e.clientY - b.top });
+            }}
           >
-            Free
+            {roomy && (
+              <>
+                <div className="truncate font-medium">{t.label}</div>
+                <div className="truncate opacity-70 tabular-nums">
+                  {k(t.tokens)}
+                  {w > 80 ? ` · ${kind.word}` : ""}
+                </div>
+              </>
+            )}
           </div>
-        ) : (
-          <div
-            key={b.key}
-            className="absolute rounded-md"
-            style={{ left: b.r.x + 1, top: b.r.y + 1, width: b.r.w - 2, height: b.r.h - 2, background: `color-mix(in srgb, ${HUE[b.key]} 22%, transparent)` }}
-          >
-            {"head" in b && b.head ? (
-              <div className="truncate px-1.5 pt-0.5 text-[10.5px] font-semibold" style={{ color: HUE[b.key] }}>
-                {b.key}
-              </div>
-            ) : null}
-            {b.kids.map(({ p, r }, j) => (
-              <div
-                key={j}
-                title={`${p.label} · ${k(p.tokens)} tokens`}
-                className="absolute overflow-hidden rounded-[4px] px-1 py-0.5 text-[10px]/3 text-white"
-                style={{
-                  left: r.x - b.r.x,
-                  top: r.y - b.r.y,
-                  width: Math.max(0, r.w - 1),
-                  height: Math.max(0, r.h - 1),
-                  background: `color-mix(in srgb, ${HUE[b.key]} ${70 + (j % 3) * 10}%, #000)`,
-                }}
-              >
-                {r.w > 44 && r.h > 22 && (
-                  <>
-                    <div className="truncate">{p.label}</div>
-                    <div className="opacity-70 tabular-nums">{k(p.tokens)}</div>
-                  </>
-                )}
-              </div>
-            ))}
+        );
+      })}
+      {tip && KIND[tip.t.group] && (
+        <div
+          className="pointer-events-none absolute z-10 w-max max-w-[220px] rounded-xl bg-popover px-3 py-2 text-[12px]/5 text-popover-foreground shadow-lg ring-1 ring-border"
+          style={{ left: Math.min(tip.x + 12, 276 - 150), top: tip.y + 14 }}
+        >
+          <div className="flex items-center gap-1.5 font-medium">
+            <i className="size-2.5 shrink-0 rounded-[3px]" style={{ background: `color-mix(in srgb, ${KIND[tip.t.group].hue} 30%, transparent)`, boxShadow: `inset 0 0 0 1px ${KIND[tip.t.group].hue}` }} />
+            <span className="truncate">{tip.t.label}</span>
           </div>
-        ),
+          <div className="text-muted-foreground tabular-nums">
+            {KIND[tip.t.group].word} · {k(tip.t.tokens)} tokens · {((tip.t.tokens / win) * 100).toFixed(1)}%
+          </div>
+        </div>
       )}
     </div>
   );
@@ -343,12 +394,57 @@ function TracesTab({ thread }: { thread: Thread | null }) {
 
 // ----------------------------------------------------------------- settings
 
+const field = "w-full rounded-lg bg-well px-2.5 py-1.5 text-[12.5px]/5 text-foreground outline-none shadow-[inset_0_0_0_1px_var(--border)] focus:shadow-[inset_0_0_0_1px_var(--ring)]";
+
 function SettingsTab({ agent }: { agent: Agent }) {
   const host = getHost();
   const save = (p: Partial<Agent>) => void saveAgent({ ...agent, ...p }).catch((e) => host.toast(String(e), "err"));
+  // The text fields are drafts until they lose focus, so a keystroke is not a save.
+  const [job, setJob] = useState(agent.job);
+  const [persona, setPersona] = useState(agent.personality);
+  useEffect(() => setJob(agent.job), [agent.id, agent.job]);
+  useEffect(() => setPersona(agent.personality), [agent.id, agent.personality]);
   return (
-    <div className="flex flex-col gap-3 text-[12.5px]">
-      <Row title="Model" sub={host.routeName(agent.route)} />
+    <div className="flex flex-col gap-3.5 text-[12.5px]">
+      <div className="flex items-center justify-between gap-2">
+        <span className="font-medium text-foreground">Model</span>
+        <RoutePicker value={agent.route} onValueChange={(route) => save({ route })} />
+      </div>
+      <label className="flex flex-col gap-1">
+        <span className="font-medium text-foreground">Instructions</span>
+        <textarea
+          className={`${field} min-h-28 resize-y`}
+          value={job}
+          placeholder="What it does, and how. The first line is its job; the rest is its backstory."
+          onChange={(e) => setJob(e.target.value)}
+          onBlur={() => job !== agent.job && save({ job })}
+        />
+      </label>
+      <div className="flex flex-col gap-1">
+        <span className="font-medium text-foreground">Personality</span>
+        <div className="flex flex-wrap gap-1">
+          {PERSONALITIES.map((p) => (
+            <button
+              key={p.name}
+              type="button"
+              onClick={() => {
+                setPersona(p.text);
+                save({ personality: p.text });
+              }}
+              className={cn("h-6 rounded-full px-2 text-[11.5px] font-medium", persona === p.text ? "bg-foreground text-(--surface)" : "bg-well text-muted-foreground hover:text-foreground")}
+            >
+              {p.name}
+            </button>
+          ))}
+        </div>
+        <textarea
+          className={`${field} min-h-14 resize-y`}
+          value={persona}
+          placeholder="How it talks, in one or two sentences"
+          onChange={(e) => setPersona(e.target.value)}
+          onBlur={() => persona !== agent.personality && save({ personality: persona })}
+        />
+      </div>
       <Row title="Memory" sub="Reads and adds to the notes of the project it works in">
         <Toggle on={agent.memory} label="Memory" onChange={(on) => save({ memory: on })} />
       </Row>
@@ -363,7 +459,7 @@ function SettingsTab({ agent }: { agent: Agent }) {
       ))}
       <Row title="Computer" sub={agent.computer.kind === "docker" ? "Its own container" : agent.computer.kind === "ssh" ? agent.computer.host : "A folder on this machine"} />
       <button type="button" onClick={() => editAgent(agent)} className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md bg-well text-[12.5px] font-medium hover:text-foreground">
-        <IconSettings className="size-3.5" /> All of {agent.name}'s settings
+        <IconSettings className="size-3.5" /> Name, colour, computer and apps
       </button>
     </div>
   );
@@ -389,9 +485,9 @@ function Toggle({ on, label, onChange }: { on: boolean; label: string; onChange:
       aria-checked={on}
       aria-label={label}
       onClick={() => onChange(!on)}
-      className={cn("relative h-5 w-8 shrink-0 rounded-full transition-colors", on ? "bg-foreground" : "bg-well")}
+      className={cn("relative h-5 w-8 shrink-0 rounded-full transition-colors", on ? "bg-[#2f9e6e]" : "bg-[color-mix(in_srgb,var(--muted-foreground)_35%,transparent)]")}
     >
-      <span className={cn("absolute top-0.5 size-4 rounded-full bg-background transition-transform", on ? "translate-x-3.5" : "translate-x-0.5")} />
+      <span className={cn("absolute top-0.5 left-0 size-4 rounded-full bg-white shadow-sm transition-transform", on ? "translate-x-3.5" : "translate-x-0.5")} />
     </button>
   );
 }

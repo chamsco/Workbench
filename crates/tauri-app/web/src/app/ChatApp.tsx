@@ -5,7 +5,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { IconBolt, IconCloud, IconMicrophone, IconPlugConnected } from "@tabler/icons-react";
+import { IconBolt, IconCloud, IconPlugConnected } from "@tabler/icons-react";
 import { AnimatePresence, motion } from "motion/react";
 
 import { EASE_OUT, SHED_BLUR, pinRasterPath } from "@/lib/motion";
@@ -223,16 +223,6 @@ export function ChatApp({ sideEl, user }: { sideEl: HTMLElement; user: string })
                 )}
               </AnimatePresence>
             </div>
-            {inThread && agent && !voice && (
-              <button
-                type="button"
-                onClick={() => setVoice(true)}
-                title={`Talk with ${agent.name}`}
-                className="absolute right-3 top-3 z-10 inline-flex h-8 items-center gap-1.5 rounded-full bg-well px-3 text-[12.5px] font-medium text-muted-foreground hover:text-foreground"
-              >
-                <IconMicrophone className="size-4" /> Voice
-              </button>
-            )}
             {inThread && agent && voice && (
               <VoiceMode agent={agent} thread={thread} onSend={(t) => submit(t, [])} onClose={() => setVoice(false)} />
             )}
@@ -339,6 +329,7 @@ export function ChatApp({ sideEl, user }: { sideEl: HTMLElement; user: string })
                       }
                       clis={clis}
                       textareaRef={composerRef}
+                      onVoice={inThread && agent ? () => setVoice(true) : undefined}
                       roster={group ? roster : undefined}
                     />
                     )}
