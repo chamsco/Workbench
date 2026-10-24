@@ -552,6 +552,7 @@ const richOn = () => { try { return localStorage.getItem("bs.rich") !== "0"; } c
 
 // ------------------------------------------------------------------ settings
 function openSettings(section) {
+  if (section) S.setSection = section;
   S.settings = true; $("#settings").hidden = false;
   // Settings is a page of its own, so the sidebar and the rail step aside and it
   // spans the window instead of sitting in a column beside them.
@@ -896,7 +897,7 @@ async function renderSkills(el) {
           <span>${esc(s.description || "No description.")}</span>
           <small>${esc(SKILL_ORIGIN[s.origin] || s.origin)}${s.injected && s.injected.length ? ` · injected into ${s.injected.map(esc).join(", ")}` : ""}${s.files.length > 1 ? ` · ${s.files.map(esc).join(", ")}` : ""}</small></div>`).join("")
       : `<div class="nothing">No skill matches “${esc(q)}”.</div>`}</div>`
-    + `<div class="line"><span class="lab">Add one<small>Write a folder with a <code>SKILL.md</code> in it. <b>${esc(d.user_dir || d.dirs[0] || "")}</b> is yours; a folder of the same name in <code>&lt;project&gt;/.backspace/skills/</code> overrides a built-in for that project only.</small></span>
+    + `<div class="line"><span class="lab">Add one<small>Write a folder with a <code>SKILL.md</code> in it. <b>${esc(d.user_dir || (d.dirs || [])[0] || "")}</b> is yours; a folder of the same name in <code>&lt;project&gt;/.backspace/skills/</code> overrides a built-in for that project only.</small></span>
         <button class="btn" id="skOpen">Open my skills folder</button><button class="btn" id="skTpl">Copy the template</button></div>`
     + `<div class="line"><span class="lab">Read from<small class="mono">${(d.dirs || []).map(esc).join(" · ")}</small></span></div>`;
   const qi = $("#skQ", box);

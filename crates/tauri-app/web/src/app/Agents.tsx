@@ -204,8 +204,8 @@ export function AgentsSide() {
           const unfolded = open.has(a.id);
           return (
             <div key={a.id} className="flex flex-col">
-              {/* The bot itself: the folder chevron on the left, the name (its
-                  page) the rest of the row. */}
+              {/* The bot itself: the folder chevron on the left, the name (your
+                  latest chat with it) the rest of the row. */}
               <div className={`relative flex h-11 items-center gap-1 rounded-lg pr-2 ${on ? "bg-accent" : ""}`}>
                 <button
                   type="button"
@@ -216,7 +216,7 @@ export function AgentsSide() {
                 >
                   <IconChevronRight size={14} className={`transition-transform duration-150 ${unfolded ? "rotate-90" : ""}`} />
                 </button>
-                <button type="button" className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 text-left" onClick={() => openBot(a.id)} title={`${oneLine(a.job)} — open ${a.name}'s page`}>
+                <button type="button" className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 text-left" onClick={() => void openAgentThread(a)} title={`${oneLine(a.job)} — your chat with ${a.name}`}>
                   <Avatar agent={a} size={28} state={st.kind === "wake" ? "wake" : st.kind} />
                   <span className="flex min-w-0 flex-1 flex-col">
                     <span className="truncate text-[13.5px]/4 font-medium text-foreground">{a.name}</span>
