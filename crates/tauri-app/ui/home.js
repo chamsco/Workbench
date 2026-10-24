@@ -110,7 +110,7 @@ var Home = (() => {
   function inbox() {
     const all = visible();
     if (!all.length || (all.length === 1 && !all[0].log.some(e => e.kind === "user"))) {
-      return `<div class="hw-empty"><span>${hasProject ? "No agents yet. Describe a task above: the main agent plans it into tickets and workers build them." : "Pick a project above, then describe a task."}</span>
+      return `<div class="hw-empty"><span>${hasProject ? "No agents yet. Describe a task above to talk it through with the CLI, or Parallel to hand it to a worker on its own branch." : "Pick a project above, then describe a task."}</span>
         <span class="hw-alt">Or start this project by view: <button class="btn sm" data-act="view">${icon("window")}Open a canvas</button></span></div>`;
     }
     const needs = all.filter(needsYou), working = all.filter(a => !needsYou(a) && busy(a));
@@ -284,9 +284,22 @@ var Home = (() => {
         const key = await invoke("start_task", { text });
         toast(`Started ${key} in parallel, on its own branch`, "ok");
       } catch (e) { toast(String(e), "err"); return; }
-    } else await invoke("send", { text });
-    ta.value = ""; ta.style.height = "";
-    open = "agents"; pills();
+      ta.value = ""; ta.style.height = "";
+      open = "agents"; pills();
+      return;
+    }
+    // Enter opens a conversation with the CLI in the project, the way Claude
+    // Code or T3 Code do: the ADE's chat, not the IDE's main-agent canvas.
+    const cli = window.Picker ? Picker.cliOf(choice().model) : "auto";
+    const route = cli !== "auto" ? { kind: "cli", provider: cli, model: null } : window.Chat && Chat.defaultRoute();
+    if (!route) { toast("Pick a CLI first: no model is set up yet.", "err"); return; }
+    try {
+      const t = await invoke("chat_new", { route, scope: { project: snap.workspace } });
+      await invoke("chat_send", { id: t.id, text, files: [], replyTo: null });
+      ta.value = ""; ta.style.height = "";
+      setCodeView("pair");
+      if (window.Chat) await Chat.open(t.id);
+    } catch (e) { toast(String(e), "err"); }
   }
 
   /// Draw the home into `g` — the hero, the ask line under it, then the pills

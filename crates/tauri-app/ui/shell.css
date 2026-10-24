@@ -107,11 +107,9 @@
 .vmenu .pi .rb { margin-left: auto; font-style: normal; font-size: 10px; min-width: 15px; height: 15px; line-height: 15px; text-align: center; border-radius: 8px; background: var(--amber); color: #000; }
 .vmenu .pi:disabled { opacity: 0.4; }
 #win.wb-alt #tabs, #win.wb-alt #addCanvas { display: none !important; }
-/* The tab strip belongs to the window, not to the row of controls on the left,
-   so it is centred on the title bar rather than flowing after them. Taken out
-   of the flex row, which leaves the spacer to divide the rest. */
-.tbar { position: relative; }
-#tabs { position: absolute; left: 50%; transform: translateX(-50%); max-width: min(46%, 620px); justify-content: flex-start; }
+/* The tab strip flows after the controls on the left: the middle of the bar
+   is the ADE | IDE switch's, and centring both put one on the other. */
+#tabs { max-width: min(36%, 520px); justify-content: flex-start; }
 .tab { border: 0; background: var(--chip); }
 .srchbtn { white-space: nowrap; flex: none; height: 28px; padding: 0 8px 0 10px; border-radius: 9px; display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: var(--fg-2); background: var(--chip); }
 .srchbtn:hover { color: var(--fg); }
@@ -649,3 +647,12 @@ button.rp-row:hover { background: var(--hover); }
 .mainc.term-right > .body { margin-right: 428px; }
 #win:not(.m-code) .tdock { display: none; }
 #win:not(.m-code) .mainc > .body { margin: 0; }
+
+/* ---------- the project map (code.js projectMap) */
+.pmap { position: absolute; inset: 0; display: flex; flex-direction: column; }
+.pmap-h { display: flex; align-items: center; gap: 8px; padding: 10px 14px; font-size: 13px; color: var(--fg); }
+.pmap-h .btn .ic { width: 13px; height: 13px; margin-right: 4px; }
+.pmap-svg { flex: 1; min-height: 0; overflow: auto; display: grid; place-items: center; padding: 12px; }
+.pmap-svg svg { max-width: 100%; height: auto; }
+.pmap-svg .empty { display: grid; justify-items: center; gap: 10px; max-width: 360px; text-align: center; }
+.stage:has(.pmap) { cursor: default; }

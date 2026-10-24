@@ -364,13 +364,14 @@ async function openProject(path) {
   const running = snap.agents.filter(a => a.status === "running").length;
   if (hasProject && running && !confirm(`${running} agent${running > 1 ? "s are" : " is"} still running in ${snap.name}. Switching projects stops them. Switch?`)) return;
   toast(`Opening ${base(path)}…`);
+  // Code comes up at once; the project fills it in when the harness has it.
+  if (S.mode !== "code") setMode("code");
   try {
     await invoke("open_project", { path });
-    prefs = await invoke("prefs");
     // The new project's own canvas layout, not the one we were just looking at.
+    prefs = await invoke("prefs");
     await Code.loadTabs(path);
     S.review = null; S.ticket = null;
-    if (S.mode !== "code") setMode("code");
     await refresh(true);
     if (window.Shell) Shell.layout();
     toast(`Opened ${base(path)}`, "ok");

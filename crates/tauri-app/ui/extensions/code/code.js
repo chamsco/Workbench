@@ -43,7 +43,13 @@ async function useTabsFor(workspace) {
   return tabsNow;
 }
 
-const tab = () => prefs.tabs[prefs.active_tab];
+// A project with no tabs saved (a new folder, or prefs from before tabs)
+// still has one, so nothing that draws the grid meets an undefined tab.
+const tab = () => {
+  const ts = prefs.tabs;
+  if (!ts.length) ts.push({ name: "Canvas", panes: [{ kind: "agent", agent: 0, url: null }], layout: null });
+  return ts[Math.min(Math.max(0, prefs.active_tab || 0), ts.length - 1)];
+};
 const pstate = i => { const k = prefs.active_tab + ":" + i; if (!S.pane.has(k)) S.pane.set(k, {}); return S.pane.get(k); };
 
 let saveT = null;
@@ -1084,12 +1090,44 @@ async function diagramPane(body, ps) {
       <svg class="dgsvg" role="img" aria-label="${esc(d.title)}"></svg>
       <div class="facts"><span class="f title">${esc(d.title)}</span>${d.facts.map(([k, v]) => `<span class="f"><b>${esc(v)}</b> ${esc(k)}</span>`).join("")}</div>
       <div class="zoomc"><button class="ib" data-z="out" aria-label="Zoom out">−</button><button class="ib" data-z="in" aria-label="Zoom in">+</button><button class="ib" data-z="fit" aria-label="Fit">${icon("expand")}</button></div>
-      <div class="rcard"></div>` : `<div class="empty"><div class="mark">${icon("diagram")}</div><div class="nothing">Plans and deliverables appear here, drawn by the harness before you read them.</div></div>`}</div></div>`;
+      <div class="rcard"></div>` : `<div class="pmap"></div>`}</div></div>`;
   $$("[data-rv]", body).forEach(b => (b.onclick = () => { S.review = +b.dataset.rv; ps.view = null; diagramPane(body, ps); }));
-  if (!d) return;
+  if (!d) { projectMap(body.querySelector(".pmap"), ps); return; }
   const key = ap.id + ":" + d.nodes.length;
   if (key !== ps.key) { ps.view = null; ps.key = key; }
   drawDiagram(body.querySelector(".dgsvg"), d); reviewCard(body.querySelector(".rcard"), ap, d, label(ap), fb); wireStage(body.querySelector(".stage"), d, ps);
+}
+// With nothing to review, the canvas shows the project's map: a Mermaid
+// diagram the CLI wrote from its reading of the project, kept in the project
+// at .backspace/diagram.mmd and drawn by Pele. Draw / Redraw asks the CLI.
+const MAP = ".backspace/diagram.mmd";
+const MAP_ASK = `Read this project and write ${MAP}: one Mermaid flowchart (\`flowchart TD\`) of how it is built, with its main parts as nodes, what calls or feeds what as edges, and subgraphs for the big areas. At most 30 nodes, short labels. Write only that file; do not change anything else.`;
+async function projectMap(el, ps) {
+  if (!el) return;
+  const src = hasProject ? await invoke("read_file", { path: MAP }).catch(() => "") : "";
+  const asked = ps.mapAsked && ps.mapAsked === snap.workspace;
+  el.innerHTML = `<div class="pmap-h"><b>${esc(snap.name || "Project")} map</b><span class="sp"></span>${hasProject ? `<button class="btn sm" data-map="draw">${icon("diagram")}${src ? "Redraw" : "Draw it"}</button>` : ""}</div>
+    <div class="pmap-svg">${src ? "" : `<div class="empty"><div class="mark">${icon("diagram")}</div><div class="nothing">${!hasProject ? "Open a project to map it." : asked ? "Asked the CLI to read the project and draw it. It shows here when the file is written." : "No map of this project yet. Draw it asks the CLI to read the project and write one. Plans and deliverables to review show here too."}</div></div>`}</div>`;
+  const b = el.querySelector("[data-map=draw]");
+  if (b) b.onclick = async () => {
+    const cli = window.Picker ? Picker.cliOf(prefs.worker) : "auto";
+    const route = cli !== "auto" ? { kind: "cli", provider: cli, model: null } : window.Chat && Chat.defaultRoute();
+    if (!route) { toast("Pick a CLI first: no model is set up yet.", "err"); return; }
+    try {
+      const t = await invoke("chat_new", { route, scope: { project: snap.workspace } });
+      await invoke("chat_send", { id: t.id, text: MAP_ASK, files: [], replyTo: null });
+      ps.mapAsked = snap.workspace; ps.mapWas = src;
+      projectMap(el, ps);
+    } catch (e) { toast(String(e), "err"); }
+  };
+  if (src && window.WhirlChat && WhirlChat.mermaid) {
+    try { el.querySelector(".pmap-svg").innerHTML = await WhirlChat.mermaid(src); }
+    catch (e) { el.querySelector(".pmap-svg").innerHTML = `<div class="nothing">The map in ${MAP} does not parse: ${esc(String(e))}</div>`; }
+  }
+  // Waiting on the CLI: look again until the file changes.
+  clearTimeout(ps.mapT);
+  if (asked && src === (ps.mapWas || "") && el.isConnected) ps.mapT = setTimeout(() => projectMap(el, ps), 5000);
+  else if (asked) ps.mapAsked = null;
 }
 const pos = n => [40 + n.layer * (NW + GX), 120 + n.row * (NH + GY)];
 function drawDiagram(svg, d) {
