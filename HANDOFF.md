@@ -606,6 +606,11 @@ The README is current. Read its "Layout", "Run" and "Known limits" sections firs
   - Voice mode (`web/src/app/voice.tsx`) uses the webview's speech recognition and speechSynthesis. Never tried on a real mic; WebKitGTK has no recognition, so Linux falls back to typing.
   - Pele 1.9.0 renders Mermaid in chat and the agents organigram (`organigram.tsx`). It adds about 9.5 MB of lazy chunks in `ui/chat-web/`.
 
+- **Brain mascot, agent panel v2, Brainwave docs (PR #29, 2026-10-24).**
+  - Every agent's face is the owner's Brain Mascot (`orb.tsx`): lobes, folds, pill eyes, smile, cursor look, its own blink. Default colour pink `#ff7f95`.
+  - Agent panel: name and brain on top, then Settings (model, instructions, personality, switches), a vertical context map, Traces and Routines. Voice starts from the mic next to Send.
+  - The product plan, design system, research, architecture and to-do list are in `docs/brainwave/`. TODO.md is the working list.
+
 ## Open, in priority order
 
 1. **Mac build.** Check the first `macOS app` Actions run and fix it until it's green. Likely failures:
