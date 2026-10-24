@@ -1,5 +1,22 @@
 # Handoff: Backspace (ohMyHarness → Workbench), v0
 
+**Session, 24 Oct 2026 (evening): Charles's Windows walkthrough (PR #31).**
+
+- **Freeze:** opening Settings ran slow synchronous Tauri commands on the UI
+  thread (`worktrees`, `colony_status`, `local_models`, `skills_catalog`);
+  they, `set_harness` and `chat_activity` now use `blocking`. Keep any command
+  that walks disk, spawns or hits the network `async`.
+- **Frame:** sidebar open and Ask folded at launch; one 30% glass (`#glass`,
+  holed over the card by `holeGlass`) under sidebar, chat column and gutter;
+  window buttons inside the card header; a rail when the sidebar folds, with
+  live threads/agents; update pill coloured by state.
+- **Chat/ADE** sit on Code's card; composers start at one height. Agents'
+  Local and Auto chips work. ADE Enter opens a CLI chat in the project; the
+  Diagram canvas shows `.backspace/diagram.mmd` via Pele. Terminal dock in
+  Code's header (`Code.setDock`).
+- **Fixed:** React #300 on agent page → All bots; settings ignoring the asked
+  section; resize reopening a folded sidebar; empty tab list crashing the grid.
+
 **Session, 23 Oct 2026 — the frame, after Charles's target design.**
 
 - **Three columns on a flat window.** The sidebar is the window itself; the
