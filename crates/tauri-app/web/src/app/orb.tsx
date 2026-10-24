@@ -171,7 +171,13 @@ function lighten(hex: string, amt: number): string {
 
 // ---------------------------------------------------------------- the face
 
-export type OrbState = "idle" | "working" | "needs" | "wake";
+export type OrbState = "idle" | "working" | "needs" | "wake" | "voice";
+
+/** How loud the voice is right now, 0..1: voice mode writes it (the mic while
+ *  you talk, the reply's words while it speaks), every face in "voice" reads
+ *  it. A negative value means nothing is feeding it, and the face talks on its
+ *  own rhythm. */
+export const voiceLevel = { v: -1 };
 
 /** Eyes, in viewBox units: white pills, wider apart than a blob's would be. */
 const EYE = { w: 8.5, h: 19, split: 18.5, gaze: 3.2 };
@@ -184,6 +190,7 @@ const CHEER_AT = 1.2;
 /** One frame of the face, pure in `t` (seconds), `look` (-1..1 toward the
  *  pointer) and `cheer` (0..1, the hover smile). */
 function frame(state: OrbState, t: number, look: { x: number; y: number }, cheer: number) {
+  if (state === "voice") return voiceFrame(t);
   // Breath: quicker and deeper the busier the state.
   const rate = state === "working" ? 2.1 : 1.05;
   const depth = state === "working" ? 0.05 : 0.018;
@@ -209,7 +216,32 @@ function frame(state: OrbState, t: number, look: { x: number; y: number }, cheer
     h: Math.max(eh, 0.6),
     alpha: 1 - cheer,
   }));
-  return { sx, sy, dx, dy, eyes };
+  // The third eye is voice mode's middle bar; elsewhere it is not drawn.
+  eyes.push({ x: 0, y: 0, w: EYE.w, h: EYE.w, alpha: 0 });
+  return { sx, sy, dx, dy, rot: 0, eyes };
+}
+
+/** Voice mode: the eyes become an equalizer, a round dot, a tall bar and a
+ *  round dot, and the whole brain sways and bobs while it listens or talks. */
+function voiceFrame(t: number) {
+  const fed = voiceLevel.v >= 0;
+  const lv = fed ? Math.min(1, voiceLevel.v) : 0.45 + 0.55 * Math.abs(Math.sin(t * 6.1) * Math.sin(t * 2.3 + 0.7));
+  const wob = (k: number) => 0.5 + 0.5 * Math.sin(t * (9 + k * 2.7) + k * 1.9);
+  const gap = 15;
+  const eyes = [
+    { x: -gap, y: 0, w: 11, h: 11 + lv * 9 * wob(1), alpha: 1 },
+    { x: gap, y: 0, w: 11, h: 11 + lv * 9 * wob(2), alpha: 1 },
+    { x: 0, y: 0, w: 11, h: 15 + lv * 20 * (0.6 + 0.4 * wob(3)), alpha: 1 },
+  ];
+  const breath = Math.sin(t * 2.4);
+  return {
+    sx: 1 - 0.02 * breath,
+    sy: 1 + 0.03 * breath,
+    dx: Math.sin(t * 1.3) * 2,
+    dy: -Math.abs(Math.sin(t * 2.6)) * 3 * (0.4 + lv * 0.6),
+    rot: Math.sin(t * 1.7) * 4,
+    eyes,
+  };
 }
 
 /** A stadium centred on the origin: the exact outline of an eye. */
@@ -297,7 +329,7 @@ export function Orb({ agent, size = 32, state = "idle" }: { agent?: Agent; size?
   // The folds are the brain's own colour, lightened.
   const foldTone = useMemo(() => lighten(color, 0.5), [color]);
   const foldPaths = useMemo(() => folds(), []);
-  const face = useRef<Face>({ el: null, move: null, eyes: [null, null], cheer: null, notif: null });
+  const face = useRef<Face>({ el: null, move: null, eyes: [null, null, null], cheer: null, notif: null });
   const hover = useRef(false);
   const cheer = useRef(0);
   // Live values the clock reads: the component may re-render (a new state, a
@@ -327,8 +359,8 @@ export function Orb({ agent, size = 32, state = "idle" }: { agent?: Agent; size?
       const to = hover.current ? 1 : 0;
       cheer.current = Math.abs(cheer.current - to) < 0.004 ? to : cheer.current + (to - cheer.current) * 0.12;
       const g = frame(st, t + live.current.phase, look, cheer.current);
-      f.move.setAttribute("transform", `translate(${r2(g.dx)} ${r2(g.dy)}) scale(${r2(g.sx)} ${r2(g.sy)})`);
-      for (let i = 0; i < 2; i++) {
+      f.move.setAttribute("transform", `translate(${r2(g.dx)} ${r2(g.dy)}) rotate(${r2(g.rot)}) scale(${r2(g.sx)} ${r2(g.sy)})`);
+      for (let i = 0; i < 3; i++) {
         const e = g.eyes[i];
         const el = f.eyes[i];
         if (!el) continue;
@@ -336,7 +368,7 @@ export function Orb({ agent, size = 32, state = "idle" }: { agent?: Agent; size?
         el.setAttribute("transform", `translate(${r2(e.x)} ${r2(e.y)})`);
         el.setAttribute("opacity", String(e.alpha));
       }
-      f.cheer?.setAttribute("opacity", String(cheer.current));
+      f.cheer?.setAttribute("opacity", String(st === "voice" ? 0 : cheer.current));
       if (f.notif) f.notif.setAttribute("opacity", st === "needs" ? "1" : "0");
     },
     [],
@@ -383,7 +415,7 @@ export function Orb({ agent, size = 32, state = "idle" }: { agent?: Agent; size?
           ref={(n) => {
             face.current.move = n;
           }}
-          transform={`translate(${r2(still.dx)} ${r2(still.dy)}) scale(${r2(still.sx)} ${r2(still.sy)})`}
+          transform={`translate(${r2(still.dx)} ${r2(still.dy)}) rotate(${r2(still.rot)}) scale(${r2(still.sx)} ${r2(still.sy)})`}
         >
           {/* The brain: filled in the bot's colour, the folds cut into it. */}
           <path d={SILHOUETTE} fill={color} />
@@ -400,6 +432,7 @@ export function Orb({ agent, size = 32, state = "idle" }: { agent?: Agent; size?
               }}
               d={capsulePath(e.w, e.h)}
               fill="#fff"
+              opacity={e.alpha}
               transform={`translate(${r2(e.x)} ${r2(e.y)})`}
             />
           ))}

@@ -1352,6 +1352,12 @@ fn trace_get(f: F, id: String) -> Option<backspace_core::trace::Trace> {
     f.chats().trace(&id)
 }
 
+/// What a thread's next reply reads, piece by piece (the agent page's map).
+#[tauri::command]
+fn chat_context(f: F, id: String) -> Option<backspace_core::chat::ContextMap> {
+    f.chats().context_map(&id, &f.chat_ctx())
+}
+
 #[tauri::command]
 fn set_tracing(f: F, cfg: backspace_core::trace::Export) {
     f.update_prefs(|p| p.tracing = cfg);
@@ -2035,6 +2041,7 @@ fn main() -> anyhow::Result<()> {
             memory_forget,
             memory_dreams,
             trace_get,
+            chat_context,
             set_tracing,
             trace_test,
             memory_dream,

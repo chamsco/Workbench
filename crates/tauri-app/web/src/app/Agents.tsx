@@ -44,6 +44,7 @@ import { Avatar, COLORS, Stack } from "./avatar";
 import { NewBotDialog, BotHome } from "./bot-create";
 import { DelegateDialog } from "./Delegate";
 import { HomePrompt } from "./HomePrompt";
+import { Organigram } from "./organigram";
 import { ActivitySide, ActivityToggle, AskCard } from "./activity-side";
 import { openAsks, useAsks } from "./activity";
 import { ArtifactsSide } from "./artifacts";
@@ -326,6 +327,7 @@ export function AgentsHome() {
           <AgentKpis />
           <AgentStrip />
         </div>
+        <Organigram />
         {/* The cards as an agenda: what is coming and when, one line each —
             the shape a reminders list has. Right under it, what the agents
             are waiting on you for, answerable without leaving the page. */}
@@ -788,7 +790,7 @@ function Switch({ on, disabled, label, onChange }: { on: boolean; disabled?: boo
 /** `list` with `k` taken out (on) or put in (off). */
 const turn = (list: string[], k: string, on: boolean) => (on ? list.filter((x) => x !== k) : [...list.filter((x) => x !== k), k]);
 
-const RULES: [string, string, string][] = [
+export const RULES: [string, string, string][] = [
   ["edit", "Edit files", "Write, edit and delete files"],
   ["run", "Run commands", "Shell in its folder or its own computer"],
   ["web", "Read the web", "Open and read public pages"],

@@ -190,7 +190,8 @@ var Shell = (() => {
     const z = S.settings ? "" : S.mode;
     const apps = window.Apps ? Apps.pinned() : [];
     const tile = (k, glyph, l, off) => `<button role="tab" aria-selected="${z === k}" data-zz="${esc(k)}" title="${esc(l)}${off ? " — off" : ""}" aria-label="${esc(l)}${off ? " (off)" : ""}" class="${off ? "off" : ""}">${glyph}${badge(k)}</button>`;
-    el.innerHTML = zones().filter(([k]) => k !== "apps").map(([k, ic, l]) => tile(k, icon(ic), l, isOff(k))).join("")
+    // Memory lives on Home (its folders); Apps is the + at the end.
+    el.innerHTML = zones().filter(([k]) => k !== "apps" && k !== "memory").map(([k, ic, l]) => tile(k, icon(ic), l, isOff(k))).join("")
       + apps.map(a => tile("app:" + a.id, Apps.glyph(a, "xs"), a.name, false)).join("")
       + `<button class="add" data-zz="apps" aria-selected="${z === "apps"}" title="Add an app" aria-label="Apps: add one">${icon("plus")}</button>`;
     $$("[data-zz]", el).forEach(x => (x.onclick = () => openZone(x.dataset.zz)));
@@ -296,9 +297,11 @@ var Shell = (() => {
     if (S.settings) h.innerHTML = `<span class="zt">${icon("gear")}Settings</span>`;
     else if (z.startsWith("app:") && window.Apps) h.innerHTML = Apps.head(z.slice(4));
     else if (window.Frame && Frame.head(z) != null) h.innerHTML = Frame.head(z) || "";
+    else if (z === "memory" && window.Memory) h.innerHTML = `<button class="zt crumb" data-crumb="home">${glyph("home")}Home</button><span class="crumb-sep">${icon("chev")}</span><span class="zt page">${esc(Memory.crumb())}</span>`;
     else if (!isExt(z)) h.innerHTML = `<span class="zt page">${glyph(z)}${esc(zoneName(z))}</span>`;
     else h.innerHTML = "";
     if (z.startsWith("app:") && window.Apps) Apps.wireHead(h, z.slice(4));
+    const cr = $("[data-crumb]", h); if (cr) cr.onclick = () => setMode("home");
     const zh = $("#zhProj");
     if (zh) zh.onclick = () => projectMenu(zh);
     syncWindowTitle();
@@ -484,5 +487,5 @@ var Shell = (() => {
     setSplit("desktop", 0.45);
   }
 
-  return { projectMenu, search, init, layout, showing, renderStatus, memToast, openDesktop, setMotion, renderSide, renderRail, refresh, setSplit, toggleSplit, elFor, glyph, renderLine, usage, walk };
+  return { projectMenu, search, init, layout, showing, renderHead, renderStatus, memToast, openDesktop, setMotion, renderSide, renderRail, refresh, setSplit, toggleSplit, elFor, glyph, renderLine, usage, walk };
 })();

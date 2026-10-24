@@ -600,6 +600,12 @@ The README is current. Read its "Layout", "Run" and "Known limits" sections firs
   - Remote agents start with memory **off**, so your notes don't go to third parties.
 - **Mac build (CI).** Pushed but **never seen to pass**.
 
+- **Agents screen, Home memory, voice, Pele (PR #29).**
+  - An agent thread has a right panel (`web/src/app/agent-side.tsx`) with Context, Traces and Settings tabs. Context is a treemap from the `chat_context` command (`Chats::context_map`); its token counts are estimates (4 chars a token).
+  - Memory moved into Home as folder cards plus recent activity (`ui/dash.js`). The Memory tile is gone; a folder opens as Home › Folder.
+  - Voice mode (`web/src/app/voice.tsx`) uses the webview's speech recognition and speechSynthesis. Never tried on a real mic; WebKitGTK has no recognition, so Linux falls back to typing.
+  - Pele 1.9.0 renders Mermaid in chat and the agents organigram (`organigram.tsx`). It adds about 9.5 MB of lazy chunks in `ui/chat-web/`.
+
 ## Open, in priority order
 
 1. **Mac build.** Check the first `macOS app` Actions run and fix it until it's green. Likely failures:

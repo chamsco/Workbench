@@ -5,7 +5,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { IconBolt, IconCloud, IconPlugConnected } from "@tabler/icons-react";
+import { IconBolt, IconCloud, IconMicrophone, IconPlugConnected } from "@tabler/icons-react";
 import { AnimatePresence, motion } from "motion/react";
 
 import { EASE_OUT, SHED_BLUR, pinRasterPath } from "@/lib/motion";
@@ -17,6 +17,8 @@ import { CodeComposer, CodeSide } from "./CodeComposer";
 import { GhostToggle } from "./GhostToggle";
 import { ReplyChip } from "./Extras";
 import { AgentEditors, AgentsHome, AgentsSide, AgentThreadHeader } from "./Agents";
+import { AgentSide } from "./agent-side";
+import { VoiceMode } from "./voice";
 import { AgentPage } from "./agent-page";
 import { ProjectHome } from "./projects";
 import { ArtifactView } from "./artifacts";
@@ -68,6 +70,8 @@ export function ChatApp({ sideEl, user }: { sideEl: HTMLElement; user: string })
   // it off, Enter saves a card instead of sending a message. Session state,
   // like the draft: nothing about it outlives the window.
   const [everyday, setEveryday] = useState(false);
+  // Voice mode, in a bot's thread: ends when you leave the thread.
+  const [voice, setVoice] = useState(false);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   // Next wakes are absolute times computed in the core with an offset the UI
   // sent at save time; re-send this machine's offset once on mount so a DST
@@ -136,6 +140,11 @@ export function ChatApp({ sideEl, user }: { sideEl: HTMLElement; user: string })
   };
 
   const agent = agentById(thread?.agent);
+  // The bot this screen is about, whose panel sits on the right: the thread's,
+  // or the page's. Its page reads the context of its latest thread.
+  const sideAgent = agentsMode && !scope && !artifact ? (agent ?? (botPage ? agents.find((x) => x.id === botPage) ?? null : null)) : null;
+  useEffect(() => setVoice(false), [thread?.id]);
+  const sideThread = thread ?? (sideAgent ? threads.find((t) => t.agent === sideAgent.id) ?? null : null);
   const group = (thread?.members?.length ?? 0) > 0;
   // Who a group message can be aimed at with @Name: the roster, resolved. The
   // core already honours the name (named_in queues only the members named),
@@ -214,6 +223,19 @@ export function ChatApp({ sideEl, user }: { sideEl: HTMLElement; user: string })
                 )}
               </AnimatePresence>
             </div>
+            {inThread && agent && !voice && (
+              <button
+                type="button"
+                onClick={() => setVoice(true)}
+                title={`Talk with ${agent.name}`}
+                className="absolute right-3 top-3 z-10 inline-flex h-8 items-center gap-1.5 rounded-full bg-well px-3 text-[12.5px] font-medium text-muted-foreground hover:text-foreground"
+              >
+                <IconMicrophone className="size-4" /> Voice
+              </button>
+            )}
+            {inThread && agent && voice && (
+              <VoiceMode agent={agent} thread={thread} onSend={(t) => submit(t, [])} onClose={() => setVoice(false)} />
+            )}
             {/* The landing is a whole screen: the home behind it draws its own
                 composer under the hero, so the face's dock steps aside for it.
                 A thread open, or the plain chat, keeps the dock. */}
@@ -333,6 +355,7 @@ export function ChatApp({ sideEl, user }: { sideEl: HTMLElement; user: string })
               </div>
             )}
           </div>
+          {sideAgent && <AgentSide agent={sideAgent} thread={thread} threadId={sideThread?.id ?? null} />}
         </div>
       </main>
     </>

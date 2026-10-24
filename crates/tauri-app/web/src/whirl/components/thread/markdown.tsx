@@ -21,7 +21,20 @@ const PLUGINS: PluginConfig = {
   /* Single-dollar stays off: `$5 and $10` is money, not math. LaTeX-style
      `\(...\)` / `\[...\]` are normalized to `$$` before parsing instead. */
   math: createMathPlugin({ singleDollarTextMath: false }),
-  // Backspace: no Mermaid renderer (it is several MB); diagrams show as code.
+  // Mermaid diagrams draw through Pele (MIT, no dependencies), loaded the
+  // first time a reply has one; Mermaid itself is several MB.
+  mermaid: {
+    name: "mermaid",
+    type: "diagram",
+    language: "mermaid",
+    getMermaid: () => ({
+      initialize: () => {},
+      render: async (_id: string, source: string) => {
+        const { renderAsync } = await import("pele/lazy");
+        return { svg: (await renderAsync(source)).svg };
+      },
+    }),
+  },
 };
 
 /* Same pair the main app renders with — monochrome-friendly on both

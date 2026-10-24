@@ -65,3 +65,42 @@
 .dlink.add { display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; text-decoration: none; font-size: 12.5px; color: var(--fg-3); }
 .dlink.add:hover { color: var(--fg); }
 .dlink.add .ic { width: 12px; height: 12px; }
+
+/* Memory: folders like a file browser's, then the latest notes. Each folder is
+   drawn in CSS: a back with its tab, two sheets peeking out, and a frosted
+   front tinted the folder's colour (--fc). */
+.dmem { display: grid; gap: 10px; margin: 6px 0 4px; }
+.dmem-h { display: flex; align-items: baseline; justify-content: space-between; }
+.dmem-h h2 { margin: 0; font-size: 17px; font-weight: 600; letter-spacing: -0.01em; color: var(--fg); }
+.dmem-h .dlink { display: inline-flex; align-items: center; gap: 2px; font-size: 12.5px; color: var(--fg-3); }
+.dmem-h .dlink .ic { width: 12px; height: 12px; }
+.folds { display: grid; grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: 6px; }
+.fold { display: grid; justify-items: center; gap: 2px; padding: 12px 8px 12px; border-radius: 14px; background: transparent; color: var(--fg); text-align: center; transition: background-color 0.15s ease; }
+.fold:hover, .fold:focus-visible { background: var(--dcard); }
+.fold b { margin-top: 8px; font-size: 13.5px; font-weight: 600; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fold .fs { font-size: 12px; color: var(--fg-3); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fold-art { position: relative; width: 132px; height: 96px; }
+.fold-art .fb { position: absolute; inset: 10px 4px 6px; border-radius: 10px; background: color-mix(in srgb, var(--fc) 70%, #000); }
+.fold-art .fb::before { content: ""; position: absolute; left: 0; top: -8px; width: 46px; height: 14px; border-radius: 8px 10px 0 0; background: inherit; }
+.fold-art .fp { position: absolute; top: 2px; width: 52px; height: 60px; padding: 9px 7px; border-radius: 6px; background: #fbfbfa; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18); display: grid; align-content: start; gap: 5px; transition: transform 0.25s cubic-bezier(.2, .8, .2, 1); }
+.fold-art .fp i { display: block; height: 3px; border-radius: 2px; background: #d9d9dd; }
+.fold-art .fp i:nth-child(2) { width: 80%; } .fold-art .fp i:nth-child(3) { width: 60%; }
+.fold-art .p1 { left: 18px; transform: rotate(-8deg); }
+.fold-art .p2 { right: 18px; transform: rotate(6deg); }
+.fold:hover .p1 { transform: rotate(-12deg) translateY(-4px); }
+.fold:hover .p2 { transform: rotate(10deg) translateY(-5px); }
+.fold-art .ff { position: absolute; left: 0; right: 0; bottom: 0; height: 62px; border-radius: 11px; display: flex; align-items: flex-end; justify-content: space-between; gap: 4px; padding: 0 7px 7px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--fc) 55%, rgba(255, 255, 255, 0.35)) 0%, color-mix(in srgb, var(--fc) 92%, transparent) 100%);
+  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 8px 18px rgba(0, 0, 0, 0.22); }
+.fold-art .fw { display: flex; }
+.fold-art .fw i { width: 18px; height: 18px; margin-right: -5px; border-radius: 50%; display: grid; place-items: center; font: 600 9.5px/1 var(--font-ui); font-style: normal; color: #fff; box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--fc) 80%, #000); }
+.fold-art .fu { height: 18px; padding: 0 7px; border-radius: 9px; display: inline-flex; align-items: center; font-size: 10px; font-weight: 500; color: #fff; background: rgba(0, 0, 0, 0.22); white-space: nowrap; }
+.ma-h { margin: 8px 0 2px; font-size: 13.5px; font-weight: 600; color: var(--fg); }
+.ma { display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px 6px; border-radius: 0; border-bottom: 1px solid var(--dcard-edge); text-align: left; color: var(--fg-2); font-size: 13px; }
+.ma:last-child { border-bottom: 0; }
+.ma:hover { background: var(--hover); }
+.ma-who { flex: none; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font-weight: 600; font-size: 12px; color: var(--wc); background: color-mix(in srgb, var(--wc) 18%, transparent); }
+.ma-b { flex: 1; min-width: 0; line-height: 1.45; }
+.ma-b b { color: var(--fg); font-weight: 500; }
+.ma-b q { color: var(--fg); }

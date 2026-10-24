@@ -23,10 +23,12 @@ var Dash = (() => {
 
   async function load() {
     const today = dayKey(Date.now()), since = today - (DAYS - 1) * DAY;
-    const [act, threads, accts] = await Promise.all([
+    const [act, threads, accts, notes, bots] = await Promise.all([
       invoke("chat_activity", { since }).catch(() => null),
       invoke("chat_list").catch(() => null),
       invoke("accounts").then(d => d.accounts || []).catch(() => []),
+      invoke("memory_list").catch(() => []),
+      invoke("agents_list").catch(() => []),
     ]);
     const a = act || { prompts: [], hours: [], sessions: 0 };
     const mine = a.prompts.filter(p => !p.agent);
@@ -50,6 +52,7 @@ var Dash = (() => {
       busiest: busiest < 0 ? "—" : new Date(2024, 0, 7 + busiest).toLocaleDateString([], { weekday: "long" }),
       threads: (threads || []).filter(t => !t.ghost && !t.app).slice(0, 5),
       accounts: accts.filter(x => x.enabled),
+      notes: notes || [], bots: bots || [],
     };
     at = Date.now();
   }
@@ -124,13 +127,57 @@ var Dash = (() => {
     return `<section class="dc"><h3>Projects</h3>${rows || `<div class="dempty">No projects yet.</div>`}<button class="dlink add" data-act="open">${icon("plus")}Open a folder…</button></section>`;
   }
 
+  // ---------------------------------------------------------------- memory
+  // Memory is Home's: a folder per place a note applies (everywhere, each
+  // project, each agent's own), then the latest notes and who wrote them.
+  // Every app writes into the same folders its own way: Chat remembers from a
+  // conversation, an agent saves what it learns, the phone, a tidy.
+  const FOLDER = ["#3f5f5c", "#a7adb4", "#e8743b", "#5b6cf0", "#2a9a72", "#b0569a"];
+  const WHO = { you: ["You", "#7c6cf0"], chat: ["Chat", "#c96a4a"], phone: ["Phone", "#3b82f6"], dream: ["Tidy", "#8b8f98"], agent: ["Agent", "#2a9a72"], file: ["Repo", "#b0569a"], code: ["Code", "#3f5f5c"] };
+  const who = n => {
+    if (n.source === "agent" && n.project && n.project.startsWith("agent:")) {
+      const b = data.bots.find(x => x.id === n.project.slice(6));
+      if (b) return [b.name, b.avatar && b.avatar.color || "#2a9a72"];
+    }
+    return WHO[n.source] || [n.source ? n.source.charAt(0).toUpperCase() + n.source.slice(1) : "You", "#7c6cf0"];
+  };
+  const placeOf = f => f === "global" ? "Everywhere" : f.startsWith("agent:") ? ((data.bots.find(b => b.id === f.slice(6)) || {}).name || "An agent") : base(f);
+  function folders() {
+    const ns = data.notes, keys = ["global", ...new Set([...(prefs.projects || []), ...ns.map(n => n.project).filter(Boolean)])];
+    return keys.map((f, i) => {
+      const mine = ns.filter(n => (f === "global" ? !n.project : n.project === f));
+      const srcs = [...new Set(mine.map(n => n.source || "you"))];
+      return { f, name: placeOf(f), n: mine.length, srcs, last: mine.reduce((m, n) => Math.max(m, n.updated || n.created || 0), 0), color: FOLDER[i % FOLDER.length] };
+    }).filter(x => x.n || x.f === "global" || (prefs.projects || []).includes(x.f));
+  }
+  function memory() {
+    const fs = folders();
+    const card = x => {
+      const faces = x.srcs.slice(0, 3).map(s => { const [l, c] = WHO[s] || [s, "#8b8f98"]; return `<i style="background:${c}" title="${esc(l)}">${esc(l.charAt(0))}</i>`; }).join("");
+      const what = x.srcs.map(s => (WHO[s] || [s])[0]).slice(0, 2).join(", ");
+      return `<button class="fold" data-mf="${esc(x.f)}" style="--fc:${x.color}">
+        <span class="fold-art" aria-hidden="true"><span class="fb"></span><span class="fp p1"><i></i><i></i><i></i></span><span class="fp p2"><i></i><i></i><i></i></span>
+          <span class="ff">${faces ? `<span class="fw">${faces}</span>` : ""}${x.last ? `<span class="fu">Updated ${esc(ago(x.last))}</span>` : ""}</span></span>
+        <b>${esc(x.name)}</b><span class="fs">${x.n} note${x.n === 1 ? "" : "s"}${what ? " · " + esc(what) : ""}</span></button>`;
+    };
+    const recent = [...data.notes].sort((a, b) => (b.created || 0) - (a.created || 0)).slice(0, 5);
+    const rows = recent.map(n => {
+      const [l, c] = who(n), place = n.project ? placeOf(n.project) : "Everywhere";
+      const t = n.text.length > 90 ? n.text.slice(0, 88) + "…" : n.text;
+      return `<button class="ma" data-mf="${esc(n.project || "global")}"><span class="ma-who" style="--wc:${c}">${esc(l.charAt(0))}</span><span class="ma-b"><b>${esc(l)}</b> remembered <q>${esc(t)}</q> in <b>${esc(place)}</b></span><span class="dt-w">${esc(ago(n.created || n.updated || Date.now()))}</span></button>`;
+    }).join("");
+    return `<section class="dmem"><div class="dmem-h"><h2>Memory</h2><button class="dlink" data-mf="all">All notes${icon("chev")}</button></div>
+      <div class="folds">${fs.map(card).join("")}</div>
+      <h3 class="ma-h">Recent activity</h3>${rows || `<div class="dempty">Nothing remembered yet. Say "remember that…" in a chat, or open a folder and add a note.</div>`}</section>`;
+  }
+
   // ---------------------------------------------------------------- page
   async function render() {
     const el = $("#dash"); if (!el || busy) return;
     busy = true;
     try { if (!data || Date.now() - at > 60000) await load(); } finally { busy = false; }
     if (!data) return;
-    el.innerHTML = `<div class="dash-in">${head()}${month()}<div class="dgrid">${plans()}${threads()}${projects()}</div></div>`;
+    el.innerHTML = `<div class="dash-in">${head()}${memory()}${month()}<div class="dgrid">${plans()}${threads()}${projects()}</div></div>`;
     wire(el);
   }
   function wire(el) {
@@ -141,6 +188,7 @@ var Dash = (() => {
       if (window.Chat) Chat.open(b.dataset.t);
     }));
     $$("[data-p]", el).forEach(b => (b.onclick = () => { openProject(b.dataset.p); setMode("code"); }));
+    $$("[data-mf]", el).forEach(b => (b.onclick = () => window.Memory && Memory.open(b.dataset.mf)));
     $$("[data-go]", el).forEach(b => (b.onclick = () => openSettings(b.dataset.go)));
     const op = $('[data-act="open"]', el); if (op) op.onclick = () => pickProject();
     // One tooltip for the chart: the day, then each series' count.

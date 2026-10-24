@@ -601,3 +601,9 @@ button.rp-row:hover { background: var(--hover); }
 }
 @media (prefers-reduced-motion: reduce) { #win { transition: none !important; } }
 
+/* Home › a memory folder: Home is the way back. */
+.tbar .zt.crumb { display: inline-flex; align-items: center; gap: 9px; font-size: 14px; font-weight: 500; color: var(--fg-3); background: transparent; padding: 0; }
+.tbar .zt.crumb:hover { color: var(--fg); }
+.tbar .zt.crumb .ic { width: 16px; height: 16px; }
+.tbar .crumb-sep { display: inline-flex; margin: 0 6px; color: var(--fg-4); }
+.tbar .crumb-sep .ic { width: 12px; height: 12px; }
