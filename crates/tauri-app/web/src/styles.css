@@ -53,3 +53,19 @@
 #chat, #list .whirl-side, [data-base-ui-portal], [role="dialog"] {
   font-family: var(--font-ui);
 }
+
+/* Pele's diagrams (replies' Mermaid blocks, the agents' organigram) wear the
+   page's ink: its colours are CSS variables, so a theme change needs no
+   re-render. */
+.pele {
+  --pele-bg: transparent;
+  --pele-fg: var(--foreground);
+  --pele-muted: var(--muted-foreground);
+  --pele-line: color-mix(in srgb, var(--foreground) 45%, transparent);
+  --pele-surface: var(--card);
+  --pele-surface-alt: var(--well);
+  --pele-border: color-mix(in srgb, var(--foreground) 18%, transparent);
+  --pele-accent: var(--bs-accent, #cf5a24);
+  --pele-font: var(--font-ui);
+  --pele-radius: 8px;
+}

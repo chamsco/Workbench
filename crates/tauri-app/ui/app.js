@@ -191,10 +191,10 @@ function applyAppearance() {
   for (const [k, v] of contrastVars(RAMP[dark ? "dark" : "light"], c)) {
     if (!a.fg || k !== "--fg") set(k, v);
   }
-  const trans = a.translucent === false && !!prefs.appearance;
-  set("--glass", trans ? (dark ? "rgb(26, 21, 28)" : "rgb(252, 249, 252)") : null);
-  set("--glass-side", trans ? (dark ? "rgb(34, 29, 36)" : "rgb(244, 241, 245)") : null);
-  set("--glass-main", trans ? (dark ? "rgb(14, 12, 16)" : "rgb(246, 243, 247)") : null);
+  // The window's material: frosted glass over the painting, the desktop seen
+  // through it, or solid panes. shell.css reads it off the root.
+  r.dataset.window = a.window === "clear" || a.window === "solid" ? a.window : "frosted";
+  if (window.Art) Art.setGlass(r.dataset.window === "frosted");
 }
 function applyTheme() {
   const r = document.documentElement;
@@ -227,7 +227,7 @@ for (const sel of ["#gear", "#gearBtn"]) {
 // Code has two views: Pair (you and one CLI in the project) and Agents (the
 // workbench).
 const agentsOn = () => S.mode === "code" && S.codeView === "agents";
-const PAGES = ["memory", "apps"];
+const PAGES = ["home", "memory", "apps"];
 function setMode(m, save = true) {
   const exts = window.Frame ? Frame.ids() : ["chat", "code"];
   const on = window.Frame ? Frame.onIds() : exts;
@@ -465,11 +465,12 @@ TAURI.event.listen("update:progress", e => {
 });
 
 addEventListener("keydown", e => {
-  if (e.key === "Escape") { if (!$("#pop").hidden) closePop(); else if (S.settings) closeSettings(); else if (S.drawer) Code.setDrawer(false); }
+  if (e.key === "Escape") { if (window.Ask && $("#ask") && !$("#ask").hidden) Ask.close(); else if (!$("#pop").hidden) closePop(); else if (S.settings) closeSettings(); else if (S.drawer) Code.setDrawer(false); }
   if (!(e.metaKey || e.ctrlKey)) return;
   if (!$("#onboard").hidden) return;
   if (e.key === "n") { e.preventDefault(); setMode("chat"); Chat.newChat(); return; }
   if (e.key === "k") { e.preventDefault(); Shell.search(); return; }
+  if (e.key === "i" && S.mode === "home") { e.preventDefault(); Ask.toggle(); return; }
   if (e.key === "o") { e.preventDefault(); pickProject(); return; }
   if (e.key === "j") { e.preventDefault(); setMode(S.mode === "chat" ? "code" : "chat"); return; }
   if (e.key === "/" ) { e.preventDefault(); if (window.Shell) Shell.toggleSplit(); return; }
@@ -569,6 +570,7 @@ async function refreshShare() { share = await invoke("share_status").catch(() =>
 const ACCENTS = ["#cf5a24", "#2a66d9", "#187f45", "#6a4fd6", "#bf3a2f", "#1c1a1f"];
 function appearancePanel() {
   const a = prefs.appearance || {}; const c = a.contrast > 0 ? a.contrast : 1.4;
+  const win = a.window === "clear" || a.window === "solid" ? a.window : "frosted";
   const sw = (k, v, cls = "") => `<label class="swatch ${cls}"><input type="color" data-ap="${k}" value="${esc(v || "#ffffff")}" aria-label="${k}"><span style="background:${esc(v || "#ffffff")}"></span></label>`;
   const font = (k, cur, ph) => `<input class="tx" style="width:190px" data-apv="${k}" value="${esc(cur || "")}" placeholder="${ph}" aria-label="${k}">`;
   return `<div class="ap">
@@ -581,11 +583,16 @@ function appearancePanel() {
     <div class="line"><span class="lab">Foreground<small>Body text, on the background above.</small></span><div class="ap-row">${sw("fg", a.fg || "#1b1a1f")}<button class="btn" data-apreset="fg">Reset</button></div></div>
     <div class="line"><span class="lab">UI font<small>Empty uses Inter, then the system face.</small></span>${font("ui_font", a.ui_font, "Inter")}</div>
     <div class="line"><span class="lab">Code font<small>Logs, diffs and monospace blocks.</small></span>${font("code_font", a.code_font, "JetBrains Mono")}</div>
-    <div class="line"><span class="lab">Translucent window<small>Off makes the panes solid, for a busy backdrop or a screenshot.</small></span><button class="toggle" role="switch" id="apTrans" aria-checked="${a.translucent !== false}" aria-label="Translucent window"></button></div>
+    <div class="line"><span class="lab">Window<small>${WINDOWS.find(([k]) => k === win)[2]}</small></span><div class="segc">${WINDOWS.map(([k, l]) => `<button aria-pressed="${win === k}" data-apwin="${k}">${l}</button>`).join("")}</div></div>
     <div class="line"><span class="lab">Contrast<small>${c.toFixed(2)}× — dims the secondary text, or sharpens it.</small></span><input type="range" class="ap-range" id="apCon" min="0.6" max="1.4" step="0.05" value="${c}" aria-label="Contrast"></div>
   </div>`;
 }
-const APPEARANCE_KEYS = ["accent", "accent_dark", "bg", "fg", "ui_font", "code_font", "translucent", "contrast"];
+const APPEARANCE_KEYS = ["accent", "accent_dark", "bg", "fg", "ui_font", "code_font", "window", "contrast"];
+const WINDOWS = [
+  ["frosted", "Frosted", "Glass over the painting: the sidebar, the page and the chat blur what is behind them."],
+  ["clear", "See-through", "The desktop behind the window shows through the glass instead of the painting."],
+  ["solid", "Solid", "Opaque panes; the painting only shows inside Code."],
+];
 function bindAppearance(el) {
   const read = () => ({ ...(prefs.appearance || {}) });
   const save = async a => { prefs.appearance = a; applyTheme(); await invoke("set_appearance", { appearance: a }); renderSettings(); };
@@ -598,7 +605,7 @@ function bindAppearance(el) {
     if (k === "all") APPEARANCE_KEYS.forEach(x => delete a[x]); else if (k === "bg") a.bg = ""; else a.fg = "";
     save(a);
   }));
-  const t = $("#apTrans", el); if (t) t.onclick = () => { const a = read(); a.translucent = t.getAttribute("aria-checked") !== "true"; save(a); };
+  $$("[data-apwin]", el).forEach(b => (b.onclick = () => { const a = read(); a.window = b.dataset.apwin; save(a); }));
   const cr = $("#apCon", el); if (cr) {
     cr.oninput = () => { const a = read(); a.contrast = +cr.value; prefs.appearance = a; applyAppearance(); el.querySelector("#apCon").previousElementSibling.querySelector("small").textContent = (+cr.value).toFixed(2) + "× — dims the secondary text, or sharpens it."; };
     cr.onchange = () => save(read());
@@ -624,12 +631,13 @@ function renderSettings() {
   el.innerHTML = `<div class="setwrap"><nav class="setnav" aria-label="Settings sections">${nav}</nav><div class="setbody"><div class="set">
     <div class="set-h"><h1>Settings</h1><span class="sp"></span><button class="btn" id="setRerun">Run setup again</button><button class="ib" id="setClose" aria-label="Close settings">${icon("close")}</button></div>
     <section id="set-general"><h2>General</h2><p class="lead">What Backspace is for, where it looks for projects, and the open project.</p>
-      <div class="line"><span class="lab">Apps<small>Off apps stay in the title bar, dimmed, until you turn one back on.</small></span><div class="segc">${(window.Frame ? Frame.zones() : [{ id: "chat", name: "Chat" }, { id: "code", name: "Workbench" }]).map(e => `<button aria-pressed="${(prefs.uses && prefs.uses.length ? prefs.uses : (window.Frame ? Frame.ids() : ["chat", "code"])).includes(e.id)}" data-use="${e.id}">${esc(e.name)}</button>`).join("")}</div></div>
+      <div class="line"><span class="lab">Apps<small>Off apps stay in the sidebar, dimmed, until you turn one back on.</small></span><div class="segc">${(window.Frame ? Frame.zones() : [{ id: "chat", name: "Chat" }, { id: "code", name: "Code" }]).map(e => `<button aria-pressed="${(prefs.uses && prefs.uses.length ? prefs.uses : (window.Frame ? Frame.ids() : ["chat", "code"])).includes(e.id)}" data-use="${e.id}">${esc(e.name)}</button>`).join("")}</div></div>
       ${hasProject ? `<div class="line"><span class="lab">Workspace<small class="mono">${esc(snap.workspace || "—")}</small></span></div>
       <div class="line"><span class="lab">Config<small class="mono">${esc(snap.config_source || "built-in defaults")}</small></span></div>` : ""}</section>
     <section id="set-appearance"><h2>Appearance</h2><p class="lead">A theme, then the colours and fonts on top of it.</p>
       ${appearancePanel()}
-      <div class="line stack"><span class="lab">Background<small>Behind the window, and across the top of Home.</small></span><div class="bdrops">${Art.BACKDROPS.map(([k, l]) => `<button class="bdrop" aria-pressed="${Art.current() === k}" data-bd="${k}" title="${l}"><span class="sw sw-${k}" ${Art.src(k) ? `style="background-image:url('${Art.src(k)}')"` : ""}></span><span>${l}</span></button>`).join("")}</div></div></section>
+      <div class="line stack"><span class="lab">Background<small>The painting behind the window.</small></span><div class="bdrops">${Art.BACKDROPS.map(([k, l]) => `<button class="bdrop" aria-pressed="${Art.current() === k}" data-bd="${k}" title="${l}"><span class="sw sw-${k}" ${Art.src(k) ? `style="background-image:url('${Art.src(k)}')"` : ""}></span><span>${l}</span></button>`).join("")}</div></div>
+      <div class="line"><span class="lab">Motion<small>Reduced turns the window's animations off, the painting's included.</small></span><div class="segc">${[["full", "Full"], ["reduced", "Reduced"]].map(([k, l]) => `<button aria-pressed="${(prefs.motion === "reduced" ? "reduced" : "full") === k}" data-motion="${k}">${l}</button>`).join("")}</div></div></section>
     <section id="set-notify"><h2>Notifications</h2><div class="line"><span class="lab">When something needs you<small>A plan to approve, work to review, an agent that failed, a chat that hit a limit.</small></span><div class="segc">${[["system", "System"], ["app", "In the app"], ["off", "Off"]].map(([k, l]) => `<button aria-pressed="${(prefs.notify || "system") === k}" data-nt="${k}">${l}</button>`).join("")}</div></div>
       <div class="line"><span class="lab"></span><button class="btn" id="ntTest">Send a test notification</button></div></section>
     <section id="set-chat"><h2>Chat behavior</h2><div class="line"><span class="lab">New chats go to<small>You can switch per chat from the composer.</small></span><button class="btn" id="setRoute" data-popper>${esc(window.Chat ? Chat.routeName(prefs.default_route) : "Pick")}</button></div>
@@ -752,6 +760,7 @@ function renderSettings() {
   $$("[data-nt]", el).forEach(b => (b.onclick = async () => { prefs.notify = b.dataset.nt; await invoke("set_notify", { notify: prefs.notify }); renderSettings(); }));
   const nt = $("#ntTest", el); if (nt) nt.onclick = () => (prefs.notify === "app" ? toast("Backspace: notifications work.", "ok") : invoke("notify", { title: "Backspace", body: "Notifications work. You'll hear from your agents here." }).catch(e => toast(String(e), "err")));
   const rt = $("#richT", el); if (rt) rt.onclick = () => { const on = !richOn(); try { localStorage.setItem("bs.rich", on ? "1" : "0"); } catch {} if (window.setRich) window.setRich(on); renderSettings(); };
+  $$("[data-motion]", el).forEach(b => (b.onclick = () => { Shell.setMotion(b.dataset.motion); renderSettings(); }));
   $$("[data-bd]", el).forEach(b => (b.onclick = async () => { prefs.backdrop = b.dataset.bd; Art.apply(prefs.backdrop); renderSettings(); await invoke("set_backdrop", { backdrop: prefs.backdrop }); }));
   $$("[data-show]", el).forEach(b => (b.onclick = async () => { await invoke("select_machine", { index: +b.dataset.show }); S.pane.clear(); S.review = null; await refresh(true); renderSettings(); }));
   $$("[data-rm]", el).forEach(b => (b.onclick = async () => { await invoke("remove_machine", { index: +b.dataset.rm }); await refresh(true); renderSettings(); }));
@@ -1068,8 +1077,8 @@ addEventListener("DOMContentLoaded", async () => {
     prefs.active_tab = 0;
   }
   applyTheme(); renderSeg(); setSide(false);
-  // Every launch lands on Apps; the zone you were last in is a click away.
-  S.mode = "apps";
+  // Every launch lands on Home; the zone you were last in is a click away.
+  S.mode = "home";
   S.codeView = prefs.code_view === "pair" ? "pair" : "agents";
   S.chatView = prefs.chat_view === "agents" ? "agents" : "chat";
   // The IDE opens on its canvases — one empty canvas, which asks what to put

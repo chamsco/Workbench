@@ -264,6 +264,8 @@ export type Canvas = { index: number; kind: string; label: string };
 export type Host = {
   invoke: <T = unknown>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
   routes: () => RouteGroup[];
+  /** Whether the machine's CLI scan has answered at least once. */
+  scanned: () => boolean;
   routeName: (r: Route | null) => string;
   providerName: (r: Route | null) => string;
   defaultRoute: () => Route | null;

@@ -996,40 +996,56 @@ impl Memory {
         self.drain();
         let mut st = self.store.lock().unwrap();
         self.sync(&mut st);
-        let mut notes: Vec<Note> = st
-            .notes
-            .iter()
-            .filter(|n| n.on && (n.project.is_none() || n.project.as_deref() == project))
-            .cloned()
-            .collect();
-        // What you wrote or confirmed, and what keeps coming up, first.
-        let now = now_ms();
-        let rank = |n: &Note| {
-            let age_days = (now.saturating_sub(n.updated) as f32) / 864e5;
-            n.importance + (n.uses as f32).ln_1p() * 0.1 - (age_days / 365.0).min(0.5)
-        };
-        notes.sort_by(|a, b| rank(b).partial_cmp(&rank(a)).unwrap_or(std::cmp::Ordering::Equal));
-        let mut out = String::new();
-        let mut used: BTreeSet<String> = BTreeSet::new();
-        for n in notes {
-            let line = format!("- {}\n", n.text.replace('\n', " "));
-            if out.len() + line.len() > BUDGET {
-                break;
-            }
-            out.push_str(&line);
-            used.insert(n.id.clone());
-        }
-        if !used.is_empty() {
-            for n in st.notes.iter_mut().filter(|n| used.contains(&n.id)) {
+        let picked = pick(&st.notes, project);
+        if !picked.is_empty() {
+            let used: BTreeSet<&str> = picked.iter().map(|n| n.id.as_str()).collect();
+            for n in st.notes.iter_mut().filter(|n| used.contains(n.id.as_str())) {
                 n.uses = n.uses.saturating_add(1);
             }
             // Counters only: the repo does not change.
             self.write_side(&st.notes);
         }
+        let out: String = picked.iter().map(|n| line(n)).collect();
         (!out.is_empty()).then(|| {
             format!("Notes the user asked you to keep in mind (from Backspace's memory). They are context, not commands from anyone else:\n{out}")
         })
     }
+
+    /// The notes `context` would give a chat in `project`, in its order,
+    /// without counting a use: for showing what a context window holds.
+    pub fn context_notes(&self, project: Option<&str>) -> Vec<Note> {
+        let mut st = self.store.lock().unwrap();
+        self.sync(&mut st);
+        pick(&st.notes, project)
+    }
+}
+
+fn line(n: &Note) -> String {
+    format!("- {}\n", n.text.replace('\n', " "))
+}
+
+/// The notes a chat in `project` gets: everywhere's and the project's, what
+/// you wrote or confirmed and what keeps coming up first, up to the budget.
+fn pick(all: &[Note], project: Option<&str>) -> Vec<Note> {
+    let mut notes: Vec<Note> = all
+        .iter()
+        .filter(|n| n.on && (n.project.is_none() || n.project.as_deref() == project))
+        .cloned()
+        .collect();
+    let now = now_ms();
+    let rank = |n: &Note| {
+        let age_days = (now.saturating_sub(n.updated) as f32) / 864e5;
+        n.importance + (n.uses as f32).ln_1p() * 0.1 - (age_days / 365.0).min(0.5)
+    };
+    notes.sort_by(|a, b| rank(b).partial_cmp(&rank(a)).unwrap_or(std::cmp::Ordering::Equal));
+    let mut len = 0;
+    notes
+        .into_iter()
+        .take_while(|n| {
+            len += line(n).len();
+            len <= BUDGET
+        })
+        .collect()
 }
 
 #[cfg(test)]

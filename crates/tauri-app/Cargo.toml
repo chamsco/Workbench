@@ -28,6 +28,8 @@ qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 tauri = { version = "2.12", features = ["macos-private-api"] }
+
+[target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
 window-vibrancy = "0.6"
 
 [build-dependencies]

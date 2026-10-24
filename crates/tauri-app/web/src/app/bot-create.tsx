@@ -239,7 +239,7 @@ function NewBotSheet({ openedFor, prefill }: { openedFor: string; prefill?: { na
   const [job, setJob] = useState(prefill?.job ?? "");
   const [instructions, setInstructions] = useState("");
   const [emoji, setEmoji] = useState(FACES[0]);
-  const [color, setColor] = useState(COLORS[7]);
+  const [color, setColor] = useState(COLORS[0]);
   const [personality, setPersonality] = useState("");
   const [route, setRoute] = useState<Route | null>(() => host.defaultRoute());
   const [project, setProject] = useState(openedFor);

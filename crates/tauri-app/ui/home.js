@@ -45,7 +45,7 @@ var Home = (() => {
         <div class="hc-above">
           <button class="hc-chip" data-act="proj" data-popper>${icon("folder")}<span class="v"></span>${icon("chevd")}</button>
           <span class="hc-chip quiet">${icon("branch")}<span class="br">backspace/run</span></span>
-          <span class="hc-chip quiet">${icon("pc")}<span class="mach"></span></span>
+          <span class="hc-chip quiet">${icon("pc")}<span class="mn"></span></span>
         </div>
         <div class="hc">
           <textarea rows="2" placeholder="Describe a task, a bug to fix, an idea to try…" aria-label="What should your agents work on?"></textarea>
@@ -187,7 +187,7 @@ var Home = (() => {
       if (!proj) return;
       const p = project();
       proj.textContent = p ? base(p) : "Choose a project";
-      r.querySelector(".hc-above .mach").textContent = machine().name;
+      r.querySelector(".hc-above .mn").textContent = machine().name;
       const main = agent(MAIN);
       r.querySelector(".hc-above .br").textContent = (hasProject && main && main.branch) || "backspace/run";
       r.querySelector(".hc-model .lg").innerHTML = Logos.mark(Picker.cliOf(choice().model));

@@ -173,6 +173,8 @@ var Chat = (() => {
     remember: (text, source) => invoke("memory_add", { text, project: scope, source: source || "chat" }).then(() => { toast("Saved to Memory", "ok"); if (window.Memory) Memory.refresh(); }),
     invoke: (cmd, args) => invoke(cmd, args),
     routes: options,
+    // A finished scan always lists the CLIs it knows, installed or not.
+    scanned: () => (Providers.list || []).length > 0,
     routeName,
     providerName,
     defaultRoute,
@@ -673,6 +675,9 @@ var Chat = (() => {
     await Providers.load();
     await Providers.loadAccount();
     C.threads = await invoke("chat_list").catch(() => []);
+    // The face also draws the sidebar's tree that Workbench uses, so it mounts
+    // at boot rather than on the first visit to Chat: the app lands on Apps.
+    mountWhirl();
   }
 
   return { init, refresh, render, renderThreads, renderComposerRoute, newChat, open, routeName, providerName, routePicker, md, options, flat, defaultRoute, usable, setScope };
