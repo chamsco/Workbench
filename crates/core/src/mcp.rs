@@ -176,6 +176,10 @@ pub fn serve() -> Result<()> {
                     tools.push(json!({"name": "computer_write", "description": "Write a file on your own computer (creates folders as needed).",
                         "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"]}}));
                 }
+                if b.is_ok() {
+                    let t = crate::harness::note_tool();
+                    tools.push(json!({"name": t.name, "description": t.description, "inputSchema": t.schema}));
+                }
                 if tile().is_some() {
                     tools.push(json!({"name": "list_tiles", "description": "The other coding harnesses tiled next to you in the user's IDE: their names, what runs them, and which one coordinates.",
                         "inputSchema": {"type": "object", "properties": {}}}));
@@ -223,6 +227,7 @@ pub fn serve() -> Result<()> {
                             _ => crate::agents::write(&env, a["path"].as_str().unwrap_or(""), a["content"].as_str().unwrap_or("")),
                         },
                     },
+                    "leave_note" => board().and_then(|b| crate::board::do_note(b, a["text"].as_str().unwrap_or(""))),
                     "list_tiles" | "message_tile" => match tile() {
                         None => Err(anyhow!("you are not in a harness tile")),
                         Some(me) if name == "list_tiles" => crate::relay::list(&crate::prefs::Prefs::data_dir(), &me),

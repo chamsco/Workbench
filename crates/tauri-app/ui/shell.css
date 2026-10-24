@@ -555,3 +555,24 @@ button.rp-row:hover { background: var(--hover); }
 .ex-row small, .ex-cli small { display: block; color: var(--fg-3); font-size: 11px; white-space: normal; }
 .pop .pi.ex-cli { height: auto; padding: 5px 8px; white-space: normal; }
 .pop .pi.ex-cli.on { background: var(--sel); }
+
+/* The four stages under Home's composer (stages.js). */
+.stg { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; width: 100%; }
+.stg[hidden] { display: none; }
+.stg-row { display: flex; align-items: stretch; gap: 6px; flex-wrap: wrap; }
+.stg-s { flex: 1 1 150px; min-width: 0; display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; column-gap: 8px; row-gap: 4px; padding: 8px 10px; border-radius: 10px; border: 0.5px solid var(--pane-edge); background: var(--glass); opacity: .72; }
+.stg-s.current { opacity: 1; border-color: var(--bs-accent); }
+.stg-s.done { opacity: .9; }
+.stg-n { width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 700; background: var(--hover); color: var(--fg-2); align-self: center; }
+.stg-s.current .stg-n { background: var(--bs-accent); color: #fff; }
+.stg-s.done .stg-n { background: var(--green); color: #fff; }
+.stg-n .ic { width: 11px; height: 11px; }
+.stg-t b { display: block; font-size: 12.5px; }
+.stg-t small { color: var(--fg-3); font-size: 11px; }
+.stg-m { grid-column: 1 / -1; justify-self: start; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; padding: 2px 7px; border-radius: 999px; color: var(--fg-3); background: var(--hover); }
+.stg-m:hover { color: var(--fg); }
+.stg-go { align-self: center; padding: 7px 12px; border-radius: 9px; font-size: 12px; font-weight: 600; background: var(--bs-accent); color: #fff; }
+.stg-go[disabled] { opacity: .4; cursor: not-allowed; }
+.stg-note { font-size: 11.5px; color: var(--fg-3); padding: 0 2px; }
+.stg-note i { font-style: normal; color: var(--fg-4); }
+.stg-err { font-size: 11.5px; color: var(--red); }

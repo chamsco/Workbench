@@ -61,6 +61,7 @@ var Home = (() => {
           </div>
           <div class="hc-panel" hidden></div>
         </div>
+        <div class="stg" hidden></div>
         <div class="home-dock">
           <div class="home-pills" role="tablist" aria-label="What's going on"></div>
           <div class="home-open"></div>
@@ -295,6 +296,12 @@ var Home = (() => {
     bar();
     pills();
     loadActivity();
+    const stg = home.querySelector(".stg");
+    if (stg) {
+      stg.hidden = !hasProject;
+      if (hasProject && !stg._again) stg._again = Stages.mount(stg);
+      else if (stg._again) stg._again();
+    }
   }
 
   return { render };

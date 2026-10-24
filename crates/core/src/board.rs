@@ -336,6 +336,11 @@ pub(crate) fn do_agents(b: &Bridge) -> Result<String> {
         .to_string())
 }
 
+/// `leave_note`: one line worth remembering, from a worker in a CLI.
+pub(crate) fn do_note(b: &Bridge, text: &str) -> Result<String> {
+    Ok(call(b, "/v1/note", json!({ "me": b.me, "text": text }))?["text"].as_str().unwrap_or("").to_string())
+}
+
 /// `msg ...`, `tile ...` and `mcp` for any Backspace binary. None when `args` (after
 /// the program name) are not one of these, so the binary carries on.
 pub fn client_main(args: &[String]) -> Option<i32> {

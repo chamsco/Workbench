@@ -1,5 +1,30 @@
 # Handoff: Backspace (ohMyHarness → Workbench), v0
 
+**Session, 24 Oct 2026 — Plan, Execute, Ship, Commit, and the note chain.**
+
+- **The stages were planned (docs/PLAN-PHASES-2026-10-17.md) and half built in
+  core, with no face.** Now `Phase` has `Commit`, `Stage` (Plan, Execute, Ship,
+  Commit) groups the phases for the app, and `phase.json` keeps spend per stage
+  (work, and the decisions on top, from `router_cost_usd`). A strip under
+  Home's composer (`ui/stages.js`) shows them, each stage's decision model
+  (click to pick, or "Rules only", which is free) and what stops its gate.
+- **Gates:** Plan is the spec and plan gates that already existed. Execute opens
+  by rules once every ticket is finished (`stages::execute_gaps`). Ship is yours
+  alone. Commit runs the Librarian. A stage's model is asked first and may only
+  refuse (`PhaseState::veto`, recorded as a model gate); an unreachable model
+  leaves the rules' answer standing and says so.
+- **Notes chain up:** `leave_note` (in-process agents and, through the bridge,
+  CLI workers) keeps a line on the agent (`AgentRecord.notes`). When a ticket's
+  work is accepted its notes move to its parent, deduped, so the main agent holds
+  the compiled list. At Commit the Librarian's model (or rules, with none) keeps
+  or drops each one with a reason, keepers go through `memory::propose`, and one
+  `drain` makes one memory commit with a receipt. The model can only drop what
+  it names; `drain` still refuses secrets and what you said not to remember.
+- **Not done:** the strip is on the ADE home only, not the IDE; Plan's and
+  Execute's model reviews exist for Execute, Ship and Commit but Plan's model is
+  not asked yet (its gates are the rules already there); no bake-off
+  (`tools/decide-eval`) yet, so no model is recommended per stage.
+
 **Session, 23 Oct 2026 — Orchestrator, executor, and harnesses that talk.**
 
 - **Who runs a project is two choices now.** The ADE composer's model chip is

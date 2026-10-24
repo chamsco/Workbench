@@ -36,6 +36,7 @@ pub mod remote;
 pub mod router;
 pub mod skills;
 pub mod spec;
+pub mod stages;
 pub mod ticket;
 pub mod tools;
 pub mod update;
