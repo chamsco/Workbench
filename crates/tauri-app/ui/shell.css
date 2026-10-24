@@ -656,3 +656,4 @@ button.rp-row:hover { background: var(--hover); }
 .pmap-svg svg { max-width: 100%; height: auto; }
 .pmap-svg .empty { display: grid; justify-items: center; gap: 10px; max-width: 360px; text-align: center; }
 .stage:has(.pmap) { cursor: default; }
+#win.settings-on .tbar .right .code-only { display: none; }
