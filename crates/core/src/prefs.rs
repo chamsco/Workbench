@@ -149,7 +149,7 @@ impl Default for Prefs {
 }
 
 /// The Appearance panel: an accent, a background and a foreground on top of
-/// the light/dark theme, the two font stacks, translucency and contrast.
+/// the light/dark theme, the two font stacks, the window's material and contrast.
 /// Every field empty means "whatever the theme already says".
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
 #[serde(default)]
@@ -164,8 +164,9 @@ pub struct Appearance {
     pub ui_font: String,
     /// Empty: the platform monospace stack.
     pub code_font: String,
-    /// Off makes the window opaque (a solid `--pane`) instead of frosted.
-    pub translucent: bool,
+    /// What the window is made of: "" or "frosted" (glass over the painting),
+    /// "clear" (the desktop behind the window shows through), "solid".
+    pub window: String,
     /// 0.6 (softest) .. 1.4 (sharpest). 1.0 is the theme as designed.
     pub contrast: f32,
 }

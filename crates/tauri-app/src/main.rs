@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use backspace_core::agents::{Agent, ComputerStatus, Routine};
 use backspace_core::apps::Installed;
-use backspace_core::chat::{Attachment, Life, Route, Scope, Thread, ThreadInfo};
+use backspace_core::chat::{Activity, Attachment, Life, Route, Scope, Thread, ThreadInfo};
 use backspace_core::delegate::{self, Delegation, Snapshot};
 use backspace_core::memory::Note;
 use backspace_core::cloud::{Account, Overage, Plan, PlanInfo};
@@ -306,6 +306,9 @@ fn set_appearance(f: F, appearance: backspace_core::prefs::Appearance) {
         a.bg = hex_or_empty(&a.bg);
         a.fg = hex_or_empty(&a.fg);
         a.contrast = a.contrast_or_default();
+        if !matches!(a.window.as_str(), "frosted" | "clear" | "solid") {
+            a.window.clear();
+        }
         p.appearance = a;
     });
 }
@@ -801,6 +804,13 @@ struct NewFile {
 #[tauri::command]
 fn chat_list(f: F) -> Vec<ThreadInfo> {
     f.chats().list()
+}
+
+/// Home's "Last 30 days": every prompt since `since` (epoch ms), the hours
+/// anything was said in, and how many threads were active.
+#[tauri::command]
+fn chat_activity(f: F, since: u64) -> Activity {
+    f.chats().activity(since)
 }
 
 #[tauri::command]
@@ -1340,6 +1350,12 @@ fn memory_reveal(f: F) -> Res<()> {
 #[tauri::command]
 fn trace_get(f: F, id: String) -> Option<backspace_core::trace::Trace> {
     f.chats().trace(&id)
+}
+
+/// What a thread's next reply reads, piece by piece (the agent page's map).
+#[tauri::command]
+fn chat_context(f: F, id: String) -> Option<backspace_core::chat::ContextMap> {
+    f.chats().context_map(&id, &f.chat_ctx())
 }
 
 #[tauri::command]
@@ -1995,6 +2011,7 @@ fn main() -> anyhow::Result<()> {
             set_api_key,
             set_default_route,
             chat_list,
+            chat_activity,
             local_models,
             set_subagent_model,
             set_local_tasks,
@@ -2024,6 +2041,7 @@ fn main() -> anyhow::Result<()> {
             memory_forget,
             memory_dreams,
             trace_get,
+            chat_context,
             set_tracing,
             trace_test,
             memory_dream,
@@ -2097,6 +2115,16 @@ fn main() -> anyhow::Result<()> {
             {
                 use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial};
                 let _ = apply_vibrancy(&win, NSVisualEffectMaterial::Sidebar, None, None);
+            }
+            // The window is transparent everywhere; the page paints itself
+            // opaque unless Settings → Appearance → Window is See-through, and
+            // then Windows lays Mica (or, before 11, a blur) under it.
+            #[cfg(target_os = "windows")]
+            {
+                use window_vibrancy::{apply_blur, apply_mica};
+                if apply_mica(&win, None).is_err() {
+                    let _ = apply_blur(&win, Some((18, 18, 20, 120)));
+                }
             }
             // The fleet coalesces changes; the UI coalesces again per frame.
             std::thread::spawn(move || {

@@ -280,6 +280,23 @@ pub struct ThreadInfo {
     pub expires_at: Option<u64>,
 }
 
+/// See `Chats::activity`.
+#[derive(Serialize, Clone, Debug, Default)]
+pub struct Activity {
+    pub prompts: Vec<Prompt>,
+    /// Epoch hours (ms / 3,600,000) with at least one message.
+    pub hours: Vec<u64>,
+    pub sessions: usize,
+}
+
+/// One message you (or an agent, `agent`) sent, and the provider it went to.
+#[derive(Serialize, Clone, Debug)]
+pub struct Prompt {
+    pub at: u64,
+    pub provider: String,
+    pub agent: bool,
+}
+
 pub fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -438,6 +455,45 @@ struct Call {
     transcript: Option<String>,
     /// Carry on with a stopped reply instead of starting a new one.
     resume: bool,
+}
+
+/// One piece of a context window, for the agent page's map of it.
+#[derive(Serialize, Clone, Debug)]
+pub struct ContextPart {
+    /// "Instructions", "Memory", "Conversation" or "Files".
+    pub group: String,
+    pub label: String,
+    pub tokens: u64,
+}
+
+/// What a thread's next reply reads, and the window it reads it into.
+#[derive(Serialize, Clone, Debug)]
+pub struct ContextMap {
+    /// The model's window in tokens, as far as the app knows it.
+    pub window: u64,
+    pub model: String,
+    pub parts: Vec<ContextPart>,
+    pub last_input: Option<u64>,
+}
+
+/// Four characters a token: close enough for English and code to size a map.
+pub fn estimate_tokens(text: &str) -> u64 {
+    (text.chars().count() as u64).div_ceil(4)
+}
+
+/// A model's context window, from its name or its provider's usual one.
+pub fn window_of(route: &Route) -> u64 {
+    let m = route.model.as_deref().unwrap_or("").to_lowercase();
+    let p = route.provider.to_lowercase();
+    if m.contains("[1m]") || m.contains("gemini") || p == "gemini" {
+        1_000_000
+    } else if m.contains("gpt-5") || p == "codex" {
+        400_000
+    } else if m.contains("claude") || m.contains("opus") || m.contains("sonnet") || m.contains("haiku") || p == "claude" {
+        200_000
+    } else {
+        128_000
+    }
 }
 
 impl Chats {
@@ -634,6 +690,35 @@ impl Chats {
     pub fn thread(&self, id: &str) -> Option<Thread> {
         self.unread.lock().unwrap().remove(id);
         self.threads.lock().unwrap().get(id).cloned()
+    }
+
+    /// What happened since `since` (epoch ms), for Home's "Last 30 days" card:
+    /// every prompt with who answered it, the hours anything was said in, and
+    /// how many threads were active. Days are left to the caller, which knows
+    /// the local time zone.
+    pub fn activity(&self, since: u64) -> Activity {
+        let mut a = Activity::default();
+        let mut hours = std::collections::BTreeSet::new();
+        for t in self.threads.lock().unwrap().values().filter(|t| !t.hidden) {
+            let mut live = false;
+            for m in t.messages.iter().filter(|m| m.at >= since) {
+                live = true;
+                hours.insert(m.at / 3_600_000);
+                if m.role == Role::User {
+                    a.prompts.push(Prompt {
+                        at: m.at,
+                        provider: m.via.as_ref().unwrap_or(&t.route).provider.clone(),
+                        agent: m.author.is_some(),
+                    });
+                }
+            }
+            if live {
+                a.sessions += 1;
+            }
+        }
+        a.prompts.sort_by_key(|p| p.at);
+        a.hours = hours.into_iter().collect();
+        a
     }
 
     /// Read a thread without marking it read (background jobs).
@@ -1429,6 +1514,56 @@ impl Chats {
         crate::trace::load(&self.dir, id)
     }
 
+    /// What the next reply in this thread would read, piece by piece: the
+    /// thread's and the agent's brief, each memory note, each message. Token
+    /// counts are estimates (four characters a token); `last_input` is what
+    /// the last traced reply actually read, when its provider reported it.
+    pub fn context_map(&self, id: &str, ctx: &Ctx) -> Option<ContextMap> {
+        let t = self.peek(id)?;
+        let agent = t.agent.as_ref().and_then(|a| ctx.agents.as_ref().and_then(|ag| ag.get(a)));
+        let project = t.project.clone().map(PathBuf::from).filter(|p| p.is_dir());
+        let mut parts: Vec<ContextPart> = Vec::new();
+        fn add(parts: &mut Vec<ContextPart>, group: &str, label: String, tokens: u64) {
+            if tokens > 0 {
+                parts.push(ContextPart { group: group.into(), label, tokens });
+            }
+        }
+        let push = |parts: &mut Vec<ContextPart>, group: &str, label: String, text: &str| add(parts, group, label, estimate_tokens(text));
+        if let Some(sys) = &t.system {
+            push(&mut parts, "Instructions", "The app's brief".into(), sys);
+        }
+        if let (Some(a), Some(ag)) = (&agent, &ctx.agents) {
+            push(&mut parts, "Instructions", format!("{}'s brief", a.name), &ag.brief_in(a, project.as_deref()));
+        }
+        let scope = match &agent {
+            Some(a) => project.as_ref().map(|p| p.display().to_string()).or_else(|| Some(format!("agent:{}", a.id))),
+            None => project.as_ref().map(|p| p.display().to_string()),
+        };
+        let mem_on = ctx.prefs.memory_on && agent.as_ref().is_none_or(|a| a.memory);
+        if let (true, Some(m)) = (mem_on, &ctx.memory) {
+            for n in m.context_notes(scope.as_deref()) {
+                push(&mut parts, "Memory", n.text.chars().take(80).collect(), &n.text);
+            }
+        }
+        for m in t.messages.iter().filter(|m| !m.text.trim().is_empty()) {
+            let who = if m.role == Role::User { "You" } else { m.author_name.as_deref().unwrap_or("Reply") };
+            let first: String = m.text.split_whitespace().take(10).collect::<Vec<_>>().join(" ");
+            push(&mut parts, "Conversation", format!("{who}: {first}"), &m.text);
+            for a in &m.attachments {
+                add(&mut parts, "Files", a.name.clone(), (a.size / 4).max(1));
+            }
+        }
+        let last_input = t
+            .messages
+            .iter()
+            .rev()
+            .filter_map(|m| m.trace.as_ref())
+            .find_map(|tid| crate::trace::load(&self.dir, tid))
+            .and_then(|tr| tr.spans.first().and_then(|s| s.attrs.get("gen_ai.usage.input_tokens")).and_then(|v| v.as_u64()));
+        let route = agent.as_ref().map(|a| a.route.clone()).unwrap_or_else(|| t.route.clone());
+        Some(ContextMap { window: window_of(&route), model: route.model.clone().unwrap_or_else(|| route.provider.clone()), parts, last_input })
+    }
+
     // ------------------------------------------------------------ runner
 
     /// This thread's history as the runner's turns.
@@ -1865,6 +2000,71 @@ mod tests {
         }
         assert_eq!(b64_encode(b"Man"), "TWFu");
         assert_eq!(b64_encode(b"Ma"), "TWE=");
+    }
+
+    #[test]
+    fn context_map_counts_the_brief_and_each_message() {
+        let dir = tmp("ctxmap");
+        let (c, _rt) = chats(&dir);
+        let t = c.create(route());
+        c.edit_thread(&t.id, |t| {
+            t.system = Some("x".repeat(400));
+            t.messages.push(Msg::new(Role::User, "a".repeat(40), Status::Done));
+            t.messages.push(Msg::new(Role::Assistant, "b".repeat(80), Status::Done));
+            t.messages.push(Msg::new(Role::Assistant, String::new(), Status::Streaming));
+        })
+        .unwrap();
+        let ctx = Ctx { prefs: Prefs::default(), memory: None, agents: None, plan: false };
+        let m = c.context_map(&t.id, &ctx).unwrap();
+        let got: Vec<(&str, u64)> = m.parts.iter().map(|p| (p.group.as_str(), p.tokens)).collect();
+        assert_eq!(got, vec![("Instructions", 100), ("Conversation", 10), ("Conversation", 20)]);
+        assert!(m.parts[1].label.starts_with("You: "));
+        assert_eq!(window_of(&Route { kind: RouteKind::Cli, provider: "claude".into(), model: None }), 200_000);
+        assert_eq!(m.last_input, None);
+    }
+
+    #[test]
+    fn activity_counts_prompts_hours_and_sessions() {
+        let dir = tmp("activity");
+        let (c, _rt) = chats(&dir);
+        let old = c.create(route());
+        let t = c.create(route());
+        let msg = |id: &str, role, at, author: Option<&str>| Msg {
+            id: id.into(),
+            role,
+            text: "x".into(),
+            at,
+            status: Status::Done,
+            error: None,
+            reply_to: None,
+            reactions: vec![],
+            attachments: vec![],
+            model: None,
+            ad: None,
+            cost_usd: None,
+            edited: false,
+            via: None,
+            author: author.map(Into::into),
+            author_name: None,
+            trace: None,
+            interrupted: false,
+            plan: false,
+            spec: None,
+        };
+        let h = 3_600_000;
+        c.edit_thread(&old.id, |t| t.messages.push(msg("o", Role::User, h, None))).unwrap();
+        c.edit_thread(&t.id, |t| {
+            t.messages.push(msg("a", Role::User, 100 * h, None));
+            t.messages.push(msg("b", Role::Assistant, 100 * h + 5, None));
+            t.messages.push(msg("c", Role::User, 102 * h, Some("planner")));
+        })
+        .unwrap();
+        let a = c.activity(50 * h);
+        assert_eq!(a.sessions, 1);
+        assert_eq!(a.hours, vec![100, 102]);
+        assert_eq!(a.prompts.len(), 2);
+        assert_eq!(a.prompts[0].provider, "ollama");
+        assert!(!a.prompts[0].agent && a.prompts[1].agent);
     }
 
     #[test]

@@ -10,7 +10,7 @@
 import type { Agent } from "../bridge";
 import { Orb, Stack, type OrbState } from "./orb";
 
-export const COLORS = ["#f97316", "#e11d48", "#8b5cf6", "#2563eb", "#0891b2", "#16a34a", "#ca8a04", "#64748b"];
+export const COLORS = ["#ff7f95", "#f97316", "#e11d48", "#8b5cf6", "#2563eb", "#0891b2", "#16a34a", "#ca8a04", "#64748b"];
 
 /** Blink-phase tokens. The core stores the chosen one in `avatar.emoji`; the
  *  face never draws it. Templates still set it, and a bot made from scratch

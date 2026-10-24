@@ -834,6 +834,7 @@ const gridRO = new ResizeObserver(() => {
   if (!S.els || S.drag) return;
   const g = $("#grid");
   if (!g) return;
+  if (!tab()) return;
   g.classList.add("still"); position(tree(tab()));
   requestAnimationFrame(() => g.classList.remove("still"));
 });

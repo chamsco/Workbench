@@ -1,5 +1,63 @@
 # Handoff: Backspace (ohMyHarness → Workbench), v0
 
+**Session, 23 Oct 2026 — the frame, after Charles's target design.**
+
+- **Three columns on a flat window.** The sidebar is the window itself; the
+  page is a bordered card with its header; the page's chat is a column on the
+  right with its composer at the foot. The full-width window bar (#24) and the
+  footer are gone. `#win` grid: `--side-w | 1fr | --chat-on`.
+- **The sidebar's row** holds the lights' gap (macOS), Back/Forward (a page
+  history in `shell.js`, `walk()`), the sidebar toggle, search and settings.
+  Under it the **app tiles** (`#zones`): Home, Chat, Code, Memory, pinned
+  apps, and + for the Apps catalog. The **machine switcher** and updates sit
+  at the foot (`.side-machine`, `#machines`, `#upd`).
+- **The tree** (ThreadList.tsx) folds per folder (square while open, chevron
+  while shut), hangs threads off a guide line and leads each with a check;
+  Home shows it too.
+- **Home is the landing page** (`dash.js`, `dash.css`, zone `home`, section
+  `#dash`): today's date; Last 30 days (prompts you typed, sessions, active
+  hours, busiest weekday, prompts per day by provider, you vs agents) from the
+  new `chat_activity` command (`Chats::activity`, tested); Plan usage from
+  Accounts; Recent threads; Projects. Weather/sports from the target were left
+  out: no data source.
+- **Ask is the right column** (`ai.js`): one thread, kept in localStorage
+  (`bs.ask`), folded with the sparkle in the page header or ⌘I, width by
+  dragging its edge (`bs.chatcol.w`). It steps aside in Chat, and floats over
+  the page under 1000px. The header's middle line is its last prompt.
+- **Code has no right column** (it has its own sessions). Its painting is
+  clipped to the card (`clip-path` on `.win-art`, rounded 12px) and dimmed
+  under 58% of the window colour.
+- **Settings** fills the window's card. **Motion** moved there (Appearance);
+  Phone was already there. The painting now shows only inside Code's card.
+
+**Ran:** `cargo test -p backspace-core --lib` (139 passed), `cargo check -p
+backspace-tauri`, `vite build`; `tools/uiharness` at 1486×921 with mocked
+threads/activity/accounts on Home, Chat, Code, Memory, Apps, Settings, light
+theme and 900px: no page errors beyond the stub's existing Agent skills one.
+Before/after pictures: `docs/screenshots/pr-29/frame/`.
+
+**Session, 23 Oct 2026 — UI cleanup on top of the window bar.**
+
+- **One name for the code app: Code.** It was Code on the Apps page and
+  Workbench in the trail, Settings and onboarding (which also called Chat
+  "Agents"). `extensions/code/extension.json`, `shell.js`, `app.js`,
+  `onboard.js`.
+- **The trail says where you are.** The open app's button shows its name next
+  to its icon (`.zones .zl`); the others stay icon-only.
+- **Apps page copy.** Built-in Chat/Code say Turn off / Turn on (it toggles
+  `prefs.uses`, nothing is removed); the empty states no longer point at a
+  catalog or examples that are not there.
+- **Sidebar toggle on the left** in Apps and Memory, where Chat and Code keep
+  theirs.
+- **The search key reads ⌘K on macOS**, Ctrl K elsewhere.
+- **Code fixes.** Its sidebar with no project says "Open a project…" instead
+  of Chat's "No chats yet"; the home's machine chip no longer inherits the
+  footer's 26px `.mach` box (it read "Loca"); the grid's ResizeObserver no
+  longer throws while there is no tab.
+
+**Ran:** `tools/uiharness` at 1440×900 on Apps, Chat, Code (ADE and IDE),
+Memory and Settings: no page errors. `vite build` clean.
+
 **Session, 22 Oct 2026 — the window bar, the frame, and Ask.**
 
 - **Two layers.** A full-width `.wbar` (`#wbar` in `index.html`) sits on top:
@@ -542,6 +600,17 @@ The README is current. Read its "Layout", "Run" and "Known limits" sections firs
   - Remote agents start with memory **off**, so your notes don't go to third parties.
 - **Mac build (CI).** Pushed but **never seen to pass**.
 
+- **Agents screen, Home memory, voice, Pele (PR #29).**
+  - An agent thread has a right panel (`web/src/app/agent-side.tsx`) with Context, Traces and Settings tabs. Context is a treemap from the `chat_context` command (`Chats::context_map`); its token counts are estimates (4 chars a token).
+  - Memory moved into Home as folder cards plus recent activity (`ui/dash.js`). The Memory tile is gone; a folder opens as Home › Folder.
+  - Voice mode (`web/src/app/voice.tsx`) uses the webview's speech recognition and speechSynthesis. Never tried on a real mic; WebKitGTK has no recognition, so Linux falls back to typing.
+  - Pele 1.9.0 renders Mermaid in chat and the agents organigram (`organigram.tsx`). It adds about 9.5 MB of lazy chunks in `ui/chat-web/`.
+
+- **Brain mascot, agent panel v2, Brainwave docs (PR #29, 2026-10-24).**
+  - Every agent's face is the owner's Brain Mascot (`orb.tsx`): lobes, folds, pill eyes, smile, cursor look, its own blink. Default colour pink `#ff7f95`.
+  - Agent panel: name and brain on top, then Settings (model, instructions, personality, switches), a vertical context map, Traces and Routines. Voice starts from the mic next to Send.
+  - The product plan, design system, research, architecture and to-do list are in `docs/brainwave/`. TODO.md is the working list.
+
 ## Open, in priority order
 
 1. **Mac build.** Check the first `macOS app` Actions run and fix it until it's green. Likely failures:
@@ -588,3 +657,16 @@ cargo run -p backspace-runner --example ask -- claude "hi"
 - Stress-test their ideas and lead with what's wrong.
 - They write fast and informally, so take the intent, not the literal words.
 - They expect work committed and pushed, not just proposed.
+
+### 2026-10-23 — glass frame, Window setting
+- Settings → Appearance → Window: Frosted (default; the painting runs behind the whole window at full strength and the sidebar, page and chat are blurred glass on it), See-through (the window is transparent and the desktop shows through; macOS vibrancy, Windows Mica or blur, Linux no blur so the panes are thicker), Solid (the opaque frame, painting only in Code's card).
+- Stored as `appearance.window` ("" | frosted | clear | solid), read off `:root[data-window]` in shell.css. Replaces `appearance.translucent`, whose serde default of false made every install solid.
+- tauri.windows/linux.conf.json now set `transparent: true` (macOS already did). The page paints itself opaque unless See-through is on. Not run on a real Windows/Linux/macOS window yet.
+
+### 2026-10-23 — chat column on Home only
+- The right chat column (Ask) shows only on Home; every other page's card takes the full width, 8px in, rounded. ⌘I only toggles it on Home.
+- With no column, the Windows/Linux window buttons sit inside the card's header instead of over its top edge.
+
+### 2026-10-23 — room for the window buttons
+- Windows/Linux: wherever the page card would reach the top-right corner (every page but Home with its chat open, and Settings), the card starts 40px down and the min/max/close buttons sit in that strip, which drags the window (`.capstrip`).
+- macOS: the traffic lights keep their 64px gap in the sidebar row; with the sidebar closed or in Settings, the card starts 40px down instead of padding its header.
