@@ -339,6 +339,30 @@ pub fn summarize(home: &Path, now_ms: u64, days: u32, exclude: &str) -> Summary 
     sum
 }
 
+/// A tool whose logs live on this device, and whether Backspace can read them yet.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct Source {
+    pub id: &'static str,
+    pub name: &'static str,
+    /// Its data folder exists on this device.
+    pub found: bool,
+    /// A reader exists (otherwise it's listed so you can see what's missing).
+    pub supported: bool,
+    pub note: &'static str,
+}
+
+/// Every agent tool Backspace knows a log location for.
+pub fn sources(home: &Path) -> Vec<Source> {
+    let has = |rel: &str| home.join(rel).exists();
+    vec![
+        Source { id: "claude-code", name: "Claude Code", found: has(".claude/projects"), supported: true, note: "JSONL sessions" },
+        Source { id: "codex", name: "Codex", found: has(".codex/sessions"), supported: true, note: "JSONL rollouts" },
+        Source { id: "opencode", name: "OpenCode", found: has(".local/share/opencode/opencode.db"), supported: false, note: "SQLite database; needs a SQLite reader" },
+        Source { id: "cursor", name: "Cursor", found: has(".cursor/ai-tracking"), supported: false, note: "SQLite tracking data; needs a SQLite reader" },
+        Source { id: "gemini", name: "Gemini CLI", found: has(".gemini/tmp"), supported: false, note: "chat JSON; reader not written yet" },
+    ]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -349,6 +373,16 @@ mod tests {
         let p = d.join(format!("{name}.jsonl"));
         std::fs::write(&p, body).unwrap();
         p
+    }
+
+    #[test]
+    fn sources_report_what_exists() {
+        let d = std::env::temp_dir().join(format!("bs-src-{}", std::process::id()));
+        std::fs::create_dir_all(d.join(".codex/sessions")).unwrap();
+        let v = sources(&d);
+        assert!(v.iter().find(|s| s.id == "codex").unwrap().found);
+        assert!(!v.iter().find(|s| s.id == "claude-code").unwrap().found);
+        assert!(v.iter().filter(|s| s.supported).count() == 2);
     }
 
     #[test]

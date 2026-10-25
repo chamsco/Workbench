@@ -1324,6 +1324,26 @@ fn memory_reveal(f: F) -> Res<()> {
 
 // ---------------------------------------------------------------- tracing
 
+fn home_dir() -> Res<std::path::PathBuf> {
+    std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(Into::into).ok_or_else(|| "no home folder".to_string())
+}
+
+/// Counts from other tools' session logs on this machine (read-only, nothing but
+/// counts, timings and tool names; docs/ROADMAP-OBSERVABILITY.md).
+#[tauri::command]
+async fn usage_summary(days: u32) -> Res<backspace_core::usage::Summary> {
+    let home = home_dir()?;
+    let now = backspace_core::chat::now_ms();
+    tauri::async_runtime::spawn_blocking(move || backspace_core::usage::summarize(&home, now, days.clamp(1, 90), ""))
+        .await
+        .map_err(err)
+}
+
+#[tauri::command]
+fn usage_sources() -> Res<Vec<backspace_core::usage::Source>> {
+    Ok(backspace_core::usage::sources(&home_dir()?))
+}
+
 #[tauri::command]
 fn trace_get(f: F, id: String) -> Option<backspace_core::trace::Trace> {
     f.chats().trace(&id)
@@ -1933,6 +1953,8 @@ fn main() -> anyhow::Result<()> {
             memory_forget,
             memory_dreams,
             trace_get,
+            usage_summary,
+            usage_sources,
             set_tracing,
             trace_test,
             memory_dream,

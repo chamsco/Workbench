@@ -11,7 +11,7 @@
 // scrolls inside itself.
 
 var Home = (() => {
-  let proj = null, open = "agents", picking = false, activity = { path: "", at: 0, data: null };
+  let proj = null, open = "agents", picking = false, activity = { path: "", at: 0, data: null }, stats = { at: 0, data: null, err: "" };
 
   // The home can be mounted twice at once: the canvas zone draws one, and Code →
   // ADE draws another. Every refresh therefore walks the roots that are still in
@@ -86,6 +86,32 @@ var Home = (() => {
     if (activity.path === p) pills();
   }
 
+  // Usage from the session logs of the agent tools on this machine (read-only;
+  // counts, timings and tool names only). Loaded when the Stats pill opens.
+  async function loadStats() {
+    if (Date.now() - stats.at < 300_000) return;
+    stats.at = Date.now();
+    try { stats.data = await invoke("usage_summary", { days: 7 }); stats.err = ""; } catch (e) { stats.err = String(e); }
+    if (open === "stats") details();
+  }
+  const tokK = n => (n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : fmtK(n));
+  const dur = s => (s < 60 ? Math.round(s) + "s" : s < 3600 ? Math.round(s / 60) + "m" : (s / 3600).toFixed(1) + "h");
+  function statsView() {
+    loadStats();
+    const d = stats.data;
+    if (!d) return `<div class="hw-empty">${stats.err ? esc(stats.err) : "Reading the last 7 days of session logs…"}</div>`;
+    if (!d.sessions.length) return `<div class="hw-empty">No Claude Code or Codex sessions in the last 7 days.</div>`;
+    const tk = d.tokens, byModel = {};
+    for (const x of d.sessions) for (const [m, t] of Object.entries(x.models)) byModel[m] = (byModel[m] || 0) + t.input + t.output + t.cache_read + t.cache_write;
+    const models = Object.entries(byModel).sort((a, b) => b[1] - a[1]), top = Math.max(1, ...models.map(m => m[1]));
+    const kpi = (l, v, n) => `<button class="tix-c" data-tix><b>${v}</b><span>${l}${n ? ` · ${n}` : ""}</span></button>`;
+    const total = tk.input + tk.output + tk.cache_read + tk.cache_write;
+    return `<div class="tix">${kpi("tool calls", d.tool_calls.toLocaleString())}${kpi("prompts", d.prompts)}${kpi("error rate", d.tool_calls ? (d.errors / d.tool_calls * 100).toFixed(1) + "%" : "not logged")}${kpi("tokens", tokK(total), total ? Math.round(tk.cache_read / total * 100) + "% cache reads" : "")}${kpi("p95 latency", d.p95_latency_s == null ? "not logged" : dur(d.p95_latency_s))}</div>`
+      + models.map(([m, n]) => `<div class="hw-row"><span class="tt"><b>${esc(m)}</b><span><i style="display:block;height:5px;width:${Math.max(2, n / top * 100)}%;background:#7c9cff;border-radius:3px"></i></span></span><span class="meta">${tokK(n)}</span></div>`).join("")
+      + `<div class="grp-label">Biggest sessions · ${d.sessions.length} in 7 days</div>`
+      + d.sessions.slice(0, 6).map(x => `<div class="hw-row"><span class="tt"><b>${esc(x.project || "—")}${x.subagent ? ` <i class="tag">subagent</i>` : ""}</b><span>${esc(x.tool)} · ${x.prompts} prompts · ${x.tool_calls} calls${x.errors ? ` · ${x.errors} failed` : ""} · ${dur((x.end - x.start) / 1000)}</span></span><span class="meta">${tokK(x.tokens.input + x.tokens.output + x.tokens.cache_read + x.tokens.cache_write)}</span></div>`).join("");
+  }
+
   function pills() {
     each(r => {
       const el = r.querySelector(".home-pills");
@@ -99,6 +125,7 @@ var Home = (() => {
         ["git", act ? `${icon("branch")}${spark(act.days)}<b>${act.days.reduce((a, b) => a + b, 0)}</b><span class="dim">commits · 14d</span><span class="add">+${fmtK(act.added)}</span><span class="del">−${fmtK(act.removed)}</span>` : `${icon("branch")}Git activity`],
         ["proj", `${icon("folder")}${ps.length ? esc(ps.join(" · ")) : "Projects"}`],
       ];
+      P.push(["stats", `${icon("activity")}Stats${stats.data ? `<b>${stats.data.tool_calls.toLocaleString()}</b><span class="dim">calls · 7d</span>` : ""}`]);
       if (consults) P.push(["adv", `${icon("sparkle")}Advisor<b>${consults}</b><span class="dim">consult${consults === 1 ? "" : "s"}</span>`]);
       el.innerHTML = P.map(([k, h]) => `<button class="hpill" role="tab" aria-selected="${open === k}" data-pill="${k}">${h}</button>`).join("");
       el.querySelectorAll("[data-pill]").forEach(b => (b.onclick = () => { open = b.dataset.pill; pills(); }));
@@ -134,6 +161,7 @@ var Home = (() => {
         tix: () => t.length ? `<div class="tix">${[["Needs you", ["proposed", "in_review", "ready_for_human", "needs_info"], "wait"], ["Running", ["queued", "in_progress"], "run"], ["Ready", ["ready_for_agent", "needs_triage"], ""], ["Done", ["done"], "done"], ["Failed", ["failed"], "fail"]].map(([l, sts, d]) => `<button class="tix-c" data-tix><span class="dot ${d}"></span><b>${by(sts)}</b><span>${l}</span></button>`).join("")}</div>` : `<div class="hw-empty">The main agent turns your goal into tickets.</div>`,
         git: () => act ? `<div class="big">${act.days.reduce((a, b) => a + b, 0)}<span>commits in 14 days on every branch of ${esc(base(activity.path))}</span><span class="sp"></span><span class="add">+${act.added.toLocaleString()}</span><span class="del">−${act.removed.toLocaleString()}</span></div>${bars(act.days)}` : `<div class="hw-empty">${project() ? "Not a git repository yet." : "Open a project to see its activity."}</div>`,
         proj: () => (prefs.projects || []).slice(0, 8).map(p => `<div class="hw-row" data-proj="${esc(p)}" role="button" tabindex="0">${icon("folder")}<span class="tt"><b>${esc(base(p))}</b><span>${esc(p)}</span></span>${hasProject && p === snap.workspace ? `<span class="meta on">open</span>` : p === project() ? `<span class="meta">chosen</span>` : ""}</div>`).join("") + `<div class="hw-row" data-act="openf" role="button" tabindex="0">${icon("plus")}<span class="tt"><b>Open folder…</b></span></div>`,
+        stats: statsView,
         adv: () => visible().filter(a => a.advisor_calls).map(a => `<div class="hw-row" data-open="${a.id}" role="button" tabindex="0">${icon("sparkle")}<span class="tt"><b>${esc(name(a))}</b><span>consulted the advisor ${a.advisor_calls} time${a.advisor_calls === 1 ? "" : "s"}</span></span></div>`).join(""),
       }[open]();
       el.scrollTop = keep;

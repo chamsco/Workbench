@@ -2054,7 +2054,9 @@ function renderSettings() {
       <div class="line"><span class="lab">Collector<small>OTLP over HTTP; <code>/v1/traces</code> is added for you. Empty keeps traces here only.</small></span><input class="tx mono" id="trEp" value="${esc((prefs.tracing || {}).endpoint || "")}" placeholder="https://collector.example.com" style="width:260px" aria-label="Collector address"></div>
       <div class="line"><span class="lab">Header<small>For sign-in, e.g. <code>authorization: Bearer …</code></small></span><input class="tx mono" id="trHdr" value="${esc(Object.entries((prefs.tracing || {}).headers || {}).map(([k, v]) => k + ": " + v).join("; "))}" placeholder="authorization: Bearer …" style="width:260px" aria-label="Header"></div>
       <div class="line"><span class="lab">Send prompts and output too<small>Off: timings, models, token counts and tool names only.</small></span><button class="toggle" role="switch" id="trContent" aria-checked="${!!(prefs.tracing || {}).content}" aria-label="Send prompts and output too"></button></div>
-      <div class="line"><span class="lab"></span><button class="btn" id="trTest">Send a test trace</button><button class="btn primary" id="trSave">Save</button></div></section>
+      <div class="line"><span class="lab"></span><button class="btn" id="trTest">Send a test trace</button><button class="btn primary" id="trSave">Save</button></div>
+      <h3 style="margin:18px 0 6px">Other agents on this device</h3><p class="lead">The home page's Stats tab reads the session logs of these tools, read-only. It keeps counts, timings and tool names; never prompts or tool output.</p>
+      <div id="usageSrc"><div class="line"><span class="lab">Looking…</span></div></div></section>
     <section id="set-projects"><h2>Projects</h2>
       ${(prefs.projects || []).length ? prefs.projects.map(p => `<div class="mrow"><span class="mi">${icon("folder")}</span><span class="lab">${esc(base(p))}${hasProject && p === snap.workspace ? " · open" : ""}<small class="mono">${esc(p)}</small></span><button class="btn" data-popen="${esc(p)}">Open</button><button class="btn danger" data-pforget="${esc(p)}">Forget</button></div>`).join("") : `<p class="lead">No projects yet.</p>`}
       <div class="line"><span class="lab"></span><button class="btn primary" id="setOpenFolder">Open folder…</button></div></section>
@@ -2114,6 +2116,7 @@ function renderSettings() {
   };
   $("#trContent").onclick = e => e.currentTarget.setAttribute("aria-checked", String(e.currentTarget.getAttribute("aria-checked") !== "true"));
   $("#trSave").onclick = async () => { const cfg = trCfg(); await invoke("set_tracing", { cfg }).catch(e => toast(String(e), "err")); prefs.tracing = cfg; toast(cfg.endpoint ? "Traces will also go to " + cfg.endpoint : "Traces stay on this machine", "ok"); };
+  invoke("usage_sources").then(v => { const el = $("#usageSrc"); if (el) el.innerHTML = v.map(x => `<div class="line"><span class="lab">${esc(x.name)}<small>${esc(x.found ? (x.supported ? x.note : "Found. " + x.note) : "Not found on this device")}</small></span><span class="meta">${x.supported ? (x.found ? "counted" : "—") : x.found ? "not counted yet" : "—"}</span></div>`).join(""); }).catch(() => {});
   $("#trTest").onclick = async () => { try { await invoke("trace_test", { cfg: trCfg() }); toast("The collector accepted a test trace", "ok"); } catch (e) { toast(String(e), "err"); } };
   if (pt) pt.onclick = async () => { companion = await invoke("set_companion", { enabled: !(companion && companion.enabled), newToken: false }).catch(e => (toast(String(e), "err"), companion)); setTimeout(refreshCompanion, 400); renderSettings(); };
   const pl = $("#phoneLan", el);
