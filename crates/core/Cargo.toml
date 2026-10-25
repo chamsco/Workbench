@@ -18,3 +18,5 @@ tokio.workspace = true
 toml.workspace = true
 # Canonical paths without Windows' \? prefix, which git cannot take.
 dunce = "1"
+# Read-only reader for OpenCode's session database (usage.rs); bundled so no system SQLite is needed.
+rusqlite = { version = "0.32", features = ["bundled"] }

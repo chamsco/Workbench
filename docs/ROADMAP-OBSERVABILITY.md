@@ -37,8 +37,8 @@ Yes. Order: (1) this PC: Claude Code, Codex, Backspace chats; (2) other installe
 
 - [x] `usage.rs` + Claude Code and Codex readers, dedupe rules, 4 unit tests; matches the Python script on real logs (585 calls, 13 errors, 20 prompts, 87,394,745 tokens)
 - [x] `usage_summary` and `usage_sources` Tauri commands
-- [x] Home "Stats" tab (pill on the home dock: strip, tokens by model, biggest sessions). Waterfall reuse of `Trace.tsx` still open
-- [x] Settings -> Tracing: "Other agents on this device" list. Window and privacy toggles still open
-- [ ] Add readers for the other installed harnesses (OpenCode and Cursor need a SQLite reader; Gemini CLI has no logs here to test against)
+- [x] Home "Stats" tab (strip, tokens by model, biggest sessions with a click-through call waterfall)
+- [x] Settings -> Tracing: stats window (7/30/90 d) and per-tool on/off, stored on this device
+- [x] OpenCode reader (SQLite, read-only). Cursor and Gemini CLI: no readable logs here to build against
 - [ ] Per-device summaries over the phone link (after the companion security fix)
-- [ ] Weekly review: "Propose changes" diff for CLAUDE.md / AGENTS.md
+- [x] "Propose changes": suggested CLAUDE.md/AGENTS.md lines with the numbers behind them, never written

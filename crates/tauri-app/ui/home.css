@@ -85,3 +85,10 @@
 .bdrop[aria-pressed="true"] { border-color: var(--blue); }
 .bdrop .sw { height: 52px; border-radius: 6px; background: var(--desk-base) center / cover; image-rendering: pixelated; border: 0.5px solid var(--pane-edge); }
 .bdrop .sw-aurora { background: radial-gradient(circle at 25% 30%, var(--blob-a), transparent 60%), radial-gradient(circle at 80% 20%, var(--blob-b), transparent 55%), var(--desk-base); }
+
+/* Stats: one session's calls on a time axis. */
+.home .wf { margin: 2px 0 8px 12px; max-height: 220px; overflow: auto }
+.home .wf-r { display: grid; grid-template-columns: minmax(110px, 200px) 1fr 44px; gap: 8px; align-items: center; font-size: 12px; padding: 1px 0 }
+.home .wf-n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dim, #8b93a7) }
+.home .wf-t { position: relative; height: 8px; background: rgba(255, 255, 255, .05); border-radius: 3px }
+.home .wf-t i { position: absolute; top: 0; height: 100%; border-radius: 3px; min-width: 2px }

@@ -11,7 +11,7 @@
 // scrolls inside itself.
 
 var Home = (() => {
-  let proj = null, open = "agents", picking = false, activity = { path: "", at: 0, data: null }, stats = { at: 0, data: null, err: "" };
+  let proj = null, open = "agents", picking = false, activity = { path: "", at: 0, data: null }, stats = { at: 0, data: null, err: "", sel: null, propose: null, key: "" };
 
   // The home can be mounted twice at once: the canvas zone draws one, and Code →
   // ADE draws another. Every refresh therefore walks the roots that are still in
@@ -88,14 +88,27 @@ var Home = (() => {
 
   // Usage from the session logs of the agent tools on this machine (read-only;
   // counts, timings and tool names only). Loaded when the Stats pill opens.
+  // Settings → Tracing sets the window and which tools are counted (this device only).
+  const statsCfg = () => {
+    let days = 7, skip = [];
+    try { days = Number(localStorage.getItem("stats_days")) || 7; skip = JSON.parse(localStorage.getItem("stats_skip") || "[]"); } catch {}
+    return { days, skip };
+  };
   async function loadStats() {
-    if (Date.now() - stats.at < 300_000) return;
-    stats.at = Date.now();
-    try { stats.data = await invoke("usage_summary", { days: 7 }); stats.err = ""; } catch (e) { stats.err = String(e); }
+    const cfg = statsCfg(), key = JSON.stringify(cfg);
+    if (key === stats.key && Date.now() - stats.at < 300_000) return;
+    stats.at = Date.now(); stats.key = key; stats.propose = null;
+    try { stats.data = await invoke("usage_summary", cfg); stats.err = ""; } catch (e) { stats.err = String(e); }
     if (open === "stats") details();
   }
   const tokK = n => (n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : fmtK(n));
   const dur = s => (s < 60 ? Math.round(s) + "s" : s < 3600 ? Math.round(s / 60) + "m" : (s / 3600).toFixed(1) + "h");
+  // One session's calls on a time axis: green ok, red failed.
+  function waterfall(x) {
+    const total = Math.max(1, x.end - x.start), calls = x.calls || [];
+    if (!calls.length) return `<div class="hw-empty">This log doesn't record individual calls.</div>`;
+    return `<div class="wf">${calls.map(c => `<div class="wf-r"><span class="wf-n">${c.ok ? "✓" : "✕"} ${esc(c.name)}</span><span class="wf-t"><i style="left:${((c.start - x.start) / total * 100).toFixed(2)}%;width:${Math.max(0.4, c.dur_s * 1000 / total * 100).toFixed(2)}%;background:${c.ok ? "#3ecf8e" : "#ff6b6b"}"></i></span><span class="meta">${dur(c.dur_s)}</span></div>`).join("")}</div>${(x.calls.length < x.tool_calls) ? `<div class="hw-empty">First ${x.calls.length} of ${x.tool_calls} calls.</div>` : ""}`;
+  }
   function statsView() {
     loadStats();
     const d = stats.data;
@@ -104,12 +117,15 @@ var Home = (() => {
     const tk = d.tokens, byModel = {};
     for (const x of d.sessions) for (const [m, t] of Object.entries(x.models)) byModel[m] = (byModel[m] || 0) + t.input + t.output + t.cache_read + t.cache_write;
     const models = Object.entries(byModel).sort((a, b) => b[1] - a[1]), top = Math.max(1, ...models.map(m => m[1]));
+    const cfg = statsCfg();
     const kpi = (l, v, n) => `<button class="tix-c" data-tix><b>${v}</b><span>${l}${n ? ` · ${n}` : ""}</span></button>`;
     const total = tk.input + tk.output + tk.cache_read + tk.cache_write;
     return `<div class="tix">${kpi("tool calls", d.tool_calls.toLocaleString())}${kpi("prompts", d.prompts)}${kpi("error rate", d.tool_calls ? (d.errors / d.tool_calls * 100).toFixed(1) + "%" : "not logged")}${kpi("tokens", tokK(total), total ? Math.round(tk.cache_read / total * 100) + "% cache reads" : "")}${kpi("p95 latency", d.p95_latency_s == null ? "not logged" : dur(d.p95_latency_s))}</div>`
       + models.map(([m, n]) => `<div class="hw-row"><span class="tt"><b>${esc(m)}</b><span><i style="display:block;height:5px;width:${Math.max(2, n / top * 100)}%;background:#7c9cff;border-radius:3px"></i></span></span><span class="meta">${tokK(n)}</span></div>`).join("")
-      + `<div class="grp-label">Biggest sessions · ${d.sessions.length} in 7 days</div>`
-      + d.sessions.slice(0, 6).map(x => `<div class="hw-row"><span class="tt"><b>${esc(x.project || "—")}${x.subagent ? ` <i class="tag">subagent</i>` : ""}</b><span>${esc(x.tool)} · ${x.prompts} prompts · ${x.tool_calls} calls${x.errors ? ` · ${x.errors} failed` : ""} · ${dur((x.end - x.start) / 1000)}</span></span><span class="meta">${tokK(x.tokens.input + x.tokens.output + x.tokens.cache_read + x.tokens.cache_write)}</span></div>`).join("");
+      + `<div class="grp-label">Biggest sessions · ${d.sessions.length} in ${cfg.days} days · click one for its calls</div>`
+      + d.sessions.slice(0, 6).map(x => `<div class="hw-row" data-sess="${esc(x.tool + x.id)}" role="button" tabindex="0" aria-expanded="${stats.sel === x.tool + x.id}"><span class="tt"><b>${esc(x.project || "—")}${x.subagent ? ` <i class="tag">subagent</i>` : ""}</b><span>${esc(x.tool)} · ${x.prompts} prompts · ${x.tool_calls} calls${x.errors ? ` · ${x.errors} failed` : ""} · ${dur((x.end - x.start) / 1000)}</span></span><span class="meta">${tokK(x.tokens.input + x.tokens.output + x.tokens.cache_read + x.tokens.cache_write)}</span></div>${stats.sel === x.tool + x.id ? waterfall(x) : ""}`).join("")
+      + `<div class="grp-label">Config changes <button class="btn sm" data-propose>Propose changes</button></div>`
+      + (stats.propose ? `<pre class="mono" style="white-space:pre-wrap;font-size:12px;margin:6px 0;user-select:text">${esc(stats.propose.join(String.fromCharCode(10)))}</pre><div class="hw-empty">Suggestions for CLAUDE.md or AGENTS.md, from this window's numbers. Nothing is written.</div>` : `<div class="hw-empty">Reads the numbers above and suggests lines for CLAUDE.md or AGENTS.md. Nothing is written.</div>`);
   }
 
   function pills() {
@@ -165,6 +181,9 @@ var Home = (() => {
         adv: () => visible().filter(a => a.advisor_calls).map(a => `<div class="hw-row" data-open="${a.id}" role="button" tabindex="0">${icon("sparkle")}<span class="tt"><b>${esc(name(a))}</b><span>consulted the advisor ${a.advisor_calls} time${a.advisor_calls === 1 ? "" : "s"}</span></span></div>`).join(""),
       }[open]();
       el.scrollTop = keep;
+      el.querySelectorAll("[data-sess]").forEach(b => (b.onclick = () => { stats.sel = stats.sel === b.dataset.sess ? null : b.dataset.sess; details(); }));
+      const pr = el.querySelector("[data-propose]");
+      if (pr) pr.onclick = async () => { try { stats.propose = await invoke("usage_propose", statsCfg()); } catch (e) { stats.propose = ["- " + String(e)]; } details(); };
       el.querySelectorAll("[data-open]").forEach(b => (b.onclick = e => {
         const s = e.target.closest("[data-stop]"), r = e.target.closest("[data-act-on]"), rs = e.target.closest("[data-resume]");
         if (s) { e.stopPropagation(); invoke("stop", { agent: +s.dataset.stop }); return; }

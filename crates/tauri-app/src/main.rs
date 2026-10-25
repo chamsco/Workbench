@@ -1331,12 +1331,20 @@ fn home_dir() -> Res<std::path::PathBuf> {
 /// Counts from other tools' session logs on this machine (read-only, nothing but
 /// counts, timings and tool names; docs/ROADMAP-OBSERVABILITY.md).
 #[tauri::command]
-async fn usage_summary(days: u32) -> Res<backspace_core::usage::Summary> {
+async fn usage_summary(days: u32, skip: Vec<String>) -> Res<backspace_core::usage::Summary> {
     let home = home_dir()?;
     let now = backspace_core::chat::now_ms();
-    tauri::async_runtime::spawn_blocking(move || backspace_core::usage::summarize(&home, now, days.clamp(1, 90), ""))
+    tauri::async_runtime::spawn_blocking(move || backspace_core::usage::summarize(&home, now, days.clamp(1, 90), "", &skip))
         .await
         .map_err(err)
+}
+
+/// Lines worth adding to CLAUDE.md / AGENTS.md, from the same window. Shown for
+/// review; nothing is written.
+#[tauri::command]
+async fn usage_propose(days: u32, skip: Vec<String>) -> Res<Vec<String>> {
+    let sum = usage_summary(days, skip).await?;
+    Ok(backspace_core::usage::propose(&sum))
 }
 
 #[tauri::command]
@@ -1955,6 +1963,7 @@ fn main() -> anyhow::Result<()> {
             trace_get,
             usage_summary,
             usage_sources,
+            usage_propose,
             set_tracing,
             trace_test,
             memory_dream,

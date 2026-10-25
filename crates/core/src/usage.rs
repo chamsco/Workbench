@@ -34,6 +34,18 @@ impl Tokens {
     }
 }
 
+/// One finished tool call, for the waterfall (name and timing only).
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+pub struct Call {
+    pub name: String,
+    /// Unix ms.
+    pub start: u64,
+    pub dur_s: f64,
+    pub ok: bool,
+}
+
+const MAX_CALLS: usize = 400;
+
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 pub struct Session {
     /// First 8 characters of the log's session id.
@@ -53,6 +65,9 @@ pub struct Session {
     /// Tokens per model; synthetic messages are left out.
     pub models: BTreeMap<String, Tokens>,
     pub calls_by_tool: BTreeMap<String, u32>,
+    pub failed_by_tool: BTreeMap<String, u32>,
+    /// The first calls of the session, oldest first, for the waterfall.
+    pub calls: Vec<Call>,
     /// Seconds from tool call to tool result, per tool.
     pub latency_s: BTreeMap<String, Vec<f64>>,
     /// Model-call errors such as `usage_limit_reached` (not tool errors).
@@ -222,10 +237,18 @@ pub fn read_claude(path: &Path, since: u64, seen: &mut Seen) -> Option<Session> 
 
 fn finish(s: &mut Session, pending: &mut HashMap<String, (String, u64)>, id: &str, t: u64, failed: bool) {
     let Some((name, t0)) = pending.remove(id) else { return };
-    s.latency_s.entry(name).or_default().push(t.saturating_sub(t0) as f64 / 1000.0);
-    if failed {
+    record(s, name, t0, t.saturating_sub(t0), !failed);
+}
+
+fn record(s: &mut Session, name: String, start: u64, dur_ms: u64, ok: bool) {
+    if !ok {
         s.errors += 1;
+        *s.failed_by_tool.entry(name.clone()).or_default() += 1;
     }
+    if s.calls.len() < MAX_CALLS {
+        s.calls.push(Call { name: name.clone(), start, dur_s: dur_ms as f64 / 1000.0, ok });
+    }
+    s.latency_s.entry(name).or_default().push(dur_ms as f64 / 1000.0);
 }
 
 /// One Codex rollout. Tokens come from per-response `token_usage_record`s;
@@ -300,9 +323,76 @@ pub fn read_codex(path: &Path, since: u64) -> Option<Session> {
     (s.start != 0).then_some(s)
 }
 
+/// OpenCode keeps sessions in SQLite (`message` and `part` rows of JSON). Opened
+/// read-only, and only the session, message and part tables are queried; the
+/// credential tables in the same file are never touched.
+pub fn read_opencode(db: &Path, since: u64) -> Vec<Session> {
+    let Ok(c) = rusqlite::Connection::open_with_flags(db, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY) else { return vec![] };
+    let mut by: BTreeMap<String, Session> = BTreeMap::new();
+    let mut dirs: HashMap<String, (String, bool)> = HashMap::new();
+    if let Ok(mut q) = c.prepare("SELECT id, directory, parent_id FROM session") {
+        let rows = q.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, Option<String>>(1)?, r.get::<_, Option<String>>(2)?)));
+        for (id, dir, parent) in rows.into_iter().flatten().flatten() {
+            dirs.insert(id, (project_of(&dir.unwrap_or_default()), parent.is_some()));
+        }
+    }
+    let mut sess = |id: &str, t: u64, by: &mut BTreeMap<String, Session>| {
+        let (project, subagent) = dirs.get(id).cloned().unwrap_or_default();
+        let s = by.entry(id.to_string()).or_insert_with(|| Session { id: short(id.trim_start_matches("ses_")), tool: "opencode".into(), project, subagent, ..Default::default() });
+        if s.start == 0 || t < s.start {
+            s.start = t;
+        }
+        s.end = s.end.max(t);
+        id.to_string()
+    };
+    if let Ok(mut q) = c.prepare("SELECT session_id, time_created, data FROM message WHERE time_created >= ?1") {
+        let rows = q.query_map([since as i64], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, String>(2)?)));
+        for (sid, t, data) in rows.into_iter().flatten().flatten() {
+            let Ok(o) = serde_json::from_str::<Value>(&data) else { continue };
+            let key = sess(&sid, t as u64, &mut by);
+            let s = by.get_mut(&key).unwrap();
+            if o["role"] == "user" {
+                s.prompts += 1;
+            } else if o["role"] == "assistant" {
+                let k = &o["tokens"];
+                let g = |v: &Value| v.as_u64().unwrap_or(0);
+                let tk = Tokens { input: g(&k["input"]), output: g(&k["output"]) + g(&k["reasoning"]), cache_read: g(&k["cache"]["read"]), cache_write: g(&k["cache"]["write"]) };
+                s.tokens.add(&tk);
+                if let Some(m) = o["modelID"].as_str() {
+                    s.models.entry(m.to_string()).or_default().add(&tk);
+                }
+            }
+        }
+    }
+    if let Ok(mut q) = c.prepare("SELECT session_id, time_created, data FROM part WHERE time_created >= ?1 AND data LIKE '%\"type\":\"tool\"%'") {
+        let rows = q.query_map([since as i64], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, String>(2)?)));
+        for (sid, t, data) in rows.into_iter().flatten().flatten() {
+            let Ok(o) = serde_json::from_str::<Value>(&data) else { continue };
+            if o["type"] != "tool" {
+                continue;
+            }
+            let key = sess(&sid, t as u64, &mut by);
+            let s = by.get_mut(&key).unwrap();
+            let name = o["tool"].as_str().unwrap_or("unknown").to_string();
+            s.tool_calls += 1;
+            *s.calls_by_tool.entry(name.clone()).or_default() += 1;
+            let failed = o["state"]["status"] == "error";
+            match (o["state"]["time"]["start"].as_u64(), o["state"]["time"]["end"].as_u64()) {
+                (Some(a), Some(b)) => record(s, name, a, b.saturating_sub(a), !failed),
+                _ if failed => {
+                    s.errors += 1;
+                    *s.failed_by_tool.entry(name).or_default() += 1;
+                }
+                _ => {}
+            }
+        }
+    }
+    by.into_values().collect()
+}
+
 /// Reads every log under `home` modified inside the window.
 /// `exclude` drops sessions whose id starts with it (a session that is still running).
-pub fn summarize(home: &Path, now_ms: u64, days: u32, exclude: &str) -> Summary {
+pub fn summarize(home: &Path, now_ms: u64, days: u32, exclude: &str, skip: &[String]) -> Summary {
     let since = now_ms.saturating_sub(days as u64 * DAY_MS);
     let fresh = |p: &PathBuf| {
         std::fs::metadata(p).and_then(|m| m.modified()).ok().is_some_and(|m| {
@@ -320,6 +410,8 @@ pub fn summarize(home: &Path, now_ms: u64, days: u32, exclude: &str) -> Summary 
     walk(&home.join(".codex").join("sessions"), &mut files);
     files.sort();
     sessions.extend(files.iter().filter(|p| fresh(p)).filter_map(|p| read_codex(p, since)));
+    sessions.extend(read_opencode(&home.join(".local/share/opencode/opencode.db"), since));
+    sessions.retain(|s| !skip.contains(&s.tool));
     if !exclude.is_empty() {
         sessions.retain(|s| !s.id.starts_with(exclude));
     }
@@ -337,6 +429,44 @@ pub fn summarize(home: &Path, now_ms: u64, days: u32, exclude: &str) -> Summary 
     sum.p95_latency_s = (!lat.is_empty()).then(|| lat[((lat.len() - 1) as f64 * 0.95) as usize]);
     sum.sessions = sessions;
     sum
+}
+
+/// Suggested CLAUDE.md / AGENTS.md lines, from what the window shows. Each line
+/// carries the numbers behind it so the owner can judge it; nothing is written.
+pub fn propose(sum: &Summary) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut failed: BTreeMap<&str, u32> = BTreeMap::new();
+    let mut calls: BTreeMap<&str, u32> = BTreeMap::new();
+    for s in &sum.sessions {
+        for (k, v) in &s.failed_by_tool {
+            *failed.entry(k).or_default() += v;
+        }
+        for (k, v) in &s.calls_by_tool {
+            *calls.entry(k).or_default() += v;
+        }
+    }
+    let mut worst: Vec<_> = failed.iter().filter(|(k, v)| **v >= 3 && calls[*k] > 0).collect();
+    worst.sort_by_key(|(_, v)| std::cmp::Reverse(**v));
+    for (k, v) in worst.into_iter().take(3) {
+        out.push(format!("- `{k}` failed {v} of {} calls. Check its input before calling and prefer a smaller step.", calls[k]));
+    }
+    let long = sum.sessions.iter().filter(|s| !s.subagent && s.tool_calls >= 150).count();
+    let limits: u32 = sum.sessions.iter().flat_map(|s| s.api_errors.values()).sum();
+    if long > 0 || limits > 0 {
+        out.push(format!("- After ~150 tool calls or a usage-limit stop, write a handoff file and continue in a fresh session ({long} long session{}, {limits} limit stop{} this window).", if long == 1 { "" } else { "s" }, if limits == 1 { "" } else { "s" }));
+    }
+    let total = sum.tokens.total().max(1);
+    let sub: u64 = sum.sessions.iter().filter(|s| s.subagent).map(|s| s.tokens.total()).sum();
+    if sub * 5 >= total {
+        out.push(format!("- Subagents used {}% of tokens. Give each a narrow brief and ask for a short summary back.", sub * 100 / total));
+    }
+    if sum.tokens.cache_read * 10 >= total * 9 {
+        out.push(format!("- {}% of tokens are cache re-reads: each turn re-sends the whole context, so shorter sessions cost less.", sum.tokens.cache_read * 100 / total));
+    }
+    if out.is_empty() {
+        out.push("- Nothing in this window stands out. No change proposed.".into());
+    }
+    out
 }
 
 /// A tool whose logs live on this device, and whether Backspace can read them yet.
@@ -357,7 +487,7 @@ pub fn sources(home: &Path) -> Vec<Source> {
     vec![
         Source { id: "claude-code", name: "Claude Code", found: has(".claude/projects"), supported: true, note: "JSONL sessions" },
         Source { id: "codex", name: "Codex", found: has(".codex/sessions"), supported: true, note: "JSONL rollouts" },
-        Source { id: "opencode", name: "OpenCode", found: has(".local/share/opencode/opencode.db"), supported: false, note: "SQLite database; needs a SQLite reader" },
+        Source { id: "opencode", name: "OpenCode", found: has(".local/share/opencode/opencode.db"), supported: true, note: "SQLite database, opened read-only" },
         Source { id: "cursor", name: "Cursor", found: has(".cursor/ai-tracking"), supported: false, note: "SQLite tracking data; needs a SQLite reader" },
         Source { id: "gemini", name: "Gemini CLI", found: has(".gemini/tmp"), supported: false, note: "chat JSON; reader not written yet" },
     ]
@@ -382,7 +512,7 @@ mod tests {
         let v = sources(&d);
         assert!(v.iter().find(|s| s.id == "codex").unwrap().found);
         assert!(!v.iter().find(|s| s.id == "claude-code").unwrap().found);
-        assert!(v.iter().filter(|s| s.supported).count() == 2);
+        assert!(v.iter().filter(|s| s.supported).count() == 3);
     }
 
     #[test]
@@ -413,6 +543,49 @@ mod tests {
     }
 
     #[test]
+    fn opencode_reads_tokens_and_tools() {
+        let dir = std::env::temp_dir().join(format!("bs-oc-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let db = dir.join("opencode.db");
+        let _ = std::fs::remove_file(&db);
+        let c = rusqlite::Connection::open(&db).unwrap();
+        c.execute_batch(
+            "CREATE TABLE session(id TEXT, directory TEXT, parent_id TEXT);
+             CREATE TABLE message(id TEXT, session_id TEXT, time_created INT, data TEXT);
+             CREATE TABLE part(id TEXT, session_id TEXT, time_created INT, data TEXT);
+             INSERT INTO session VALUES('ses_abcdef123','C:/w/app',NULL);
+             INSERT INTO message VALUES('m1','ses_abcdef123',1000,'{\"role\":\"user\"}');
+             INSERT INTO message VALUES('m2','ses_abcdef123',2000,'{\"role\":\"assistant\",\"modelID\":\"m-x\",\"tokens\":{\"input\":10,\"output\":4,\"reasoning\":1,\"cache\":{\"read\":50,\"write\":3}}}');
+             INSERT INTO part VALUES('p1','ses_abcdef123',2500,'{\"type\":\"tool\",\"tool\":\"bash\",\"state\":{\"status\":\"error\",\"time\":{\"start\":2500,\"end\":4500}}}');
+             INSERT INTO part VALUES('p2','ses_abcdef123',2600,'{\"type\":\"text\"}');",
+        )
+        .unwrap();
+        drop(c);
+        let v = read_opencode(&db, 0);
+        assert_eq!(v.len(), 1);
+        let s = &v[0];
+        assert_eq!((s.id.as_str(), s.project.as_str(), s.prompts, s.tool_calls, s.errors), ("abcdef12", "app", 1, 1, 1));
+        assert_eq!(s.tokens, Tokens { input: 10, output: 5, cache_read: 50, cache_write: 3 });
+        assert_eq!(s.latency_s["bash"], vec![2.0]);
+    }
+
+    #[test]
+    fn propose_cites_numbers() {
+        let mut s = Session { tool_calls: 200, ..Default::default() };
+        s.calls_by_tool.insert("Bash".into(), 50);
+        s.failed_by_tool.insert("Bash".into(), 5);
+        s.tokens.cache_read = 95;
+        s.tokens.input = 5;
+        let sum = Summary { sessions: vec![s.clone()], tokens: s.tokens.clone(), ..Default::default() };
+        let p = propose(&sum).join("
+");
+        assert!(p.contains("`Bash` failed 5 of 50"));
+        assert!(p.contains("1 long session"));
+        assert!(p.contains("95% of tokens"));
+        assert!(propose(&Summary::default())[0].contains("Nothing"));
+    }
+
+    #[test]
     fn window_uses_record_time() {
         let old = r#"{"type":"user","timestamp":"2026-10-01T00:00:00Z","message":{"content":"old"}}"#;
         let path = tmp("c3", old);
@@ -440,7 +613,7 @@ mod tests {
     fn real_logs() {
         let home = PathBuf::from(std::env::var("USERPROFILE").or(std::env::var("HOME")).unwrap());
         let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64;
-        let s = summarize(&home, now, 7, &std::env::var("EXCLUDE").unwrap_or_default());
+        let s = summarize(&home, now, 7, &std::env::var("EXCLUDE").unwrap_or_default(), &[]);
         println!("sessions={} calls={} errors={} prompts={} tokens={} p95={:?}", s.sessions.len(), s.tool_calls, s.errors, s.prompts, s.tokens.total(), s.p95_latency_s);
     }
 }

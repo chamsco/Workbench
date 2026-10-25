@@ -2056,6 +2056,7 @@ function renderSettings() {
       <div class="line"><span class="lab">Send prompts and output too<small>Off: timings, models, token counts and tool names only.</small></span><button class="toggle" role="switch" id="trContent" aria-checked="${!!(prefs.tracing || {}).content}" aria-label="Send prompts and output too"></button></div>
       <div class="line"><span class="lab"></span><button class="btn" id="trTest">Send a test trace</button><button class="btn primary" id="trSave">Save</button></div>
       <h3 style="margin:18px 0 6px">Other agents on this device</h3><p class="lead">The home page's Stats tab reads the session logs of these tools, read-only. It keeps counts, timings and tool names; never prompts or tool output.</p>
+      <div class="line"><span class="lab">Stats window<small>How far back the home page's Stats tab reads.</small></span><select class="tx" id="stDays" aria-label="Stats window">${[7, 30, 90].map(n => `<option value="${n}"${(Number(localStorage.getItem("stats_days")) || 7) === n ? " selected" : ""}>${n} days</option>`).join("")}</select></div>
       <div id="usageSrc"><div class="line"><span class="lab">Looking…</span></div></div></section>
     <section id="set-projects"><h2>Projects</h2>
       ${(prefs.projects || []).length ? prefs.projects.map(p => `<div class="mrow"><span class="mi">${icon("folder")}</span><span class="lab">${esc(base(p))}${hasProject && p === snap.workspace ? " · open" : ""}<small class="mono">${esc(p)}</small></span><button class="btn" data-popen="${esc(p)}">Open</button><button class="btn danger" data-pforget="${esc(p)}">Forget</button></div>`).join("") : `<p class="lead">No projects yet.</p>`}
@@ -2116,7 +2117,17 @@ function renderSettings() {
   };
   $("#trContent").onclick = e => e.currentTarget.setAttribute("aria-checked", String(e.currentTarget.getAttribute("aria-checked") !== "true"));
   $("#trSave").onclick = async () => { const cfg = trCfg(); await invoke("set_tracing", { cfg }).catch(e => toast(String(e), "err")); prefs.tracing = cfg; toast(cfg.endpoint ? "Traces will also go to " + cfg.endpoint : "Traces stay on this machine", "ok"); };
-  invoke("usage_sources").then(v => { const el = $("#usageSrc"); if (el) el.innerHTML = v.map(x => `<div class="line"><span class="lab">${esc(x.name)}<small>${esc(x.found ? (x.supported ? x.note : "Found. " + x.note) : "Not found on this device")}</small></span><span class="meta">${x.supported ? (x.found ? "counted" : "—") : x.found ? "not counted yet" : "—"}</span></div>`).join(""); }).catch(() => {});
+  const stSkip = () => { try { return JSON.parse(localStorage.getItem("stats_skip") || "[]"); } catch { return []; } };
+  $("#stDays").onchange = e => { localStorage.setItem("stats_days", e.target.value); toast("Stats will read the last " + e.target.value + " days", "ok"); };
+  invoke("usage_sources").then(v => {
+    const el = $("#usageSrc"); if (!el) return;
+    el.innerHTML = v.map(x => `<div class="line"><span class="lab">${esc(x.name)}<small>${esc(x.found ? (x.supported ? x.note : "Found. " + x.note) : "Not found on this device")}</small></span>${x.supported && x.found ? `<button class="toggle" role="switch" data-src="${x.id}" aria-checked="${!stSkip().includes(x.id)}" aria-label="Count ${esc(x.name)}"></button>` : `<span class="meta">${x.found ? "not counted yet" : "—"}</span>`}</div>`).join("");
+    el.querySelectorAll("[data-src]").forEach(b => (b.onclick = () => {
+      const on = b.getAttribute("aria-checked") !== "true", skip = stSkip().filter(i => i !== b.dataset.src);
+      if (!on) skip.push(b.dataset.src);
+      localStorage.setItem("stats_skip", JSON.stringify(skip)); b.setAttribute("aria-checked", String(on));
+    }));
+  }).catch(() => {});
   $("#trTest").onclick = async () => { try { await invoke("trace_test", { cfg: trCfg() }); toast("The collector accepted a test trace", "ok"); } catch (e) { toast(String(e), "err"); } };
   if (pt) pt.onclick = async () => { companion = await invoke("set_companion", { enabled: !(companion && companion.enabled), newToken: false }).catch(e => (toast(String(e), "err"), companion)); setTimeout(refreshCompanion, 400); renderSettings(); };
   const pl = $("#phoneLan", el);
