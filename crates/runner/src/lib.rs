@@ -320,6 +320,25 @@ impl Drop for KillTree {
     }
 }
 
+/// `{"mcpServers": ...}` as OpenCode's inline config: a local server is its
+/// command and arguments in one list, a remote one its URL.
+fn opencode_config(mcp: &Value) -> Option<Value> {
+    let mut out = serde_json::Map::new();
+    for (name, srv) in mcp["mcpServers"].as_object()? {
+        let entry = if let Some(cmd) = srv["command"].as_str() {
+            let mut argv = vec![Value::from(cmd)];
+            argv.extend(srv["args"].as_array().cloned().unwrap_or_default());
+            json!({"type": "local", "command": argv, "environment": srv.get("env").cloned().unwrap_or(json!({})), "enabled": true})
+        } else if let Some(url) = srv["url"].as_str() {
+            json!({"type": "remote", "url": url, "headers": srv.get("headers").cloned().unwrap_or(json!({})), "enabled": true})
+        } else {
+            continue;
+        };
+        out.insert(name.clone(), entry);
+    }
+    (!out.is_empty()).then(|| json!({"mcp": out}))
+}
+
 /// A JSON value as a TOML inline value (for Codex's `-c key=value`). JSON
 /// strings are valid TOML basic strings.
 fn toml_inline(v: &Value) -> String {
@@ -455,6 +474,11 @@ async fn run_cli(req: &Request, provider: &str, bin: &PathBuf, on: Sink<'_>) -> 
         }
         "opencode" => {
             cmd.arg("run");
+            // OpenCode reads inline config from this variable: the same MCP
+            // servers the other CLIs get, so its bot has its hands and memory too.
+            if let Some(cfg) = req.mcp.as_ref().and_then(opencode_config) {
+                cmd.env("OPENCODE_CONFIG_CONTENT", cfg.to_string());
+            }
             if let Some(m) = &model {
                 cmd.args(["-m", m]);
             }
@@ -841,6 +865,17 @@ mod tests {
         assert!(ev.contains(&Event::Cost { usd: 0.01 }));
         let text: String = ev.iter().filter_map(|e| if let Event::Text { text } = e { Some(text.as_str()) } else { None }).collect();
         assert_eq!(text, "Looking.One file.", "partial deltas only, the full assistant text is not repeated");
+    }
+
+    #[test]
+    fn opencode_gets_the_backspace_server_as_inline_config() {
+        let mcp = json!({"mcpServers": {"backspace": {"command": "/bin/backspace", "args": ["mcp"], "env": {"BACKSPACE_HANDS": "{}"}}, "x": {"url": "https://x.test/mcp"}}});
+        let c = opencode_config(&mcp).unwrap();
+        assert_eq!(c["mcp"]["backspace"]["type"], "local");
+        assert_eq!(c["mcp"]["backspace"]["command"], json!(["/bin/backspace", "mcp"]));
+        assert_eq!(c["mcp"]["backspace"]["environment"]["BACKSPACE_HANDS"], "{}");
+        assert_eq!(c["mcp"]["x"]["type"], "remote");
+        assert!(opencode_config(&json!({"mcpServers": {}})).is_none());
     }
 
     #[test]

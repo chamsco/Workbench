@@ -8,6 +8,7 @@
 // pills, the frosted dialog.
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import {
   IconApps,
   IconChevronRight,
@@ -135,11 +136,7 @@ export function AgentsSide() {
       return next;
     });
   return (
-    <div className="whirl-side flex flex-col">
-      <div className="slim-only">
-        <SlimBots />
-      </div>
-      <div className="wide-only flex flex-col gap-3">
+    <div className="whirl-side flex flex-col gap-3">
       {/* One switch, two faces. The activity face is where the bots' day lands:
           what they did, and what they are waiting on you for — the badge
           counts the questions, so it earns its place even closed. */}
@@ -313,24 +310,28 @@ export function AgentsSide() {
       <ArtifactsSide />
         </>
       )}
-      </div>
     </div>
   );
 }
 
-/** Agents' sidebar at rest: one face per bot, the way Reason's column reads,
- *  with the latest thing it said as a tooltip. Under the pointer the sidebar
- *  opens wide (shell.css .side-slim) and this steps aside for the full list. */
+/** The bots on the pill trail, for when Agents' sidebar is folded: a face per
+ *  bot with its status dot, under the app tiles, then the group chats. Drawn
+ *  into the frame's rail (#railBots), so folded Agents is one pill. */
+export function RailBots() {
+  const slot = document.getElementById("railBots");
+  return slot ? createPortal(<SlimBots />, slot) : null;
+}
+
 function SlimBots() {
   const { agents, threads, id } = useChat();
   const groups = threads.filter((t) => (t.members?.length ?? 0) > 0 && !t.app);
-  const tile = "relative grid size-11 shrink-0 cursor-pointer place-items-center rounded-2xl transition-colors hover:bg-foreground/[0.07]";
+  const tile = "relative grid size-9 shrink-0 cursor-pointer place-items-center rounded-full transition-colors hover:bg-foreground/[0.07]";
   return (
-    <div className="flex flex-col items-center gap-1.5 pt-1">
+    <div className="flex flex-col items-center gap-1">
+      <div className="rb-sep" />
       <button type="button" onClick={() => goHome()} title="New chat" aria-label="New chat" className={tile}>
         <IconEdit size={17} className="text-foreground-soft" />
       </button>
-      <div className="my-0.5 h-px w-6 bg-foreground/15" />
       {agents.map((a) => {
         const t = threads.filter((x) => x.agent === a.id).sort((x, y) => y.updated - x.updated)[0];
         const st = agentStatus(a, t);
@@ -344,13 +345,13 @@ function SlimBots() {
             aria-label={`${a.name}, ${st.label}`}
             className={`${tile} ${on ? "bg-foreground/[0.1] shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_16%,transparent)]" : ""}`}
           >
-            <Avatar agent={a} size={30} state={st.kind === "wake" ? "wake" : st.kind} />
-            <span className={`absolute right-1.5 bottom-1.5 size-2 rounded-full ring-2 ring-(--surface) ${STATUS_DOT[st.kind]}`} aria-hidden />
+            <Avatar agent={a} size={26} state={st.kind === "wake" ? "wake" : st.kind} />
+            <span className={`absolute right-0.5 bottom-0.5 size-2 rounded-full ring-2 ring-(--win-bg) ${STATUS_DOT[st.kind]}`} aria-hidden />
             {t?.unread && !on && <span className="absolute top-1 right-1 size-2 rounded-full bg-sky-500" />}
           </button>
         );
       })}
-      {groups.length > 0 && <div className="my-0.5 h-px w-6 bg-foreground/15" />}
+      {groups.length > 0 && <div className="rb-sep" />}
       {groups.map((g) => (
         <button key={g.id} type="button" onClick={() => void openThread(g.id)} title={g.title} aria-label={g.title} className={`${tile} ${g.id === id ? "bg-foreground/[0.1]" : ""}`}>
           <Stack ids={g.members ?? []} size={18} />

@@ -101,5 +101,7 @@
 
 /* The three dots of "someone is typing": one lights up at a time. */
 .think-dot { display: block; width: 7px; height: 7px; border-radius: 50%; background: currentColor; opacity: 0.3; animation: think-dot 1.2s ease-in-out infinite; }
+.think-dot:nth-child(2) { animation-delay: 0.4s; }
+.think-dot:nth-child(3) { animation-delay: 0.8s; }
 @keyframes think-dot { 0% { transform: translateY(0); opacity: 0.3; } 10% { transform: translateY(-3px); opacity: 0.95; } 30%, 100% { transform: translateY(0); opacity: 0.3; } }
 @media (prefers-reduced-motion: reduce) { .think-dot { animation: none; opacity: 0.6; } }

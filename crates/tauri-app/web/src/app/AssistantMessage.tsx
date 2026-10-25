@@ -50,8 +50,8 @@ function ThinkingDots({ message }: { message: ChatMessage }) {
       >
         <span className="flex items-center gap-1.5 transition-opacity duration-500 group-hover/think:opacity-0">
           <i className="think-dot" />
-          <i className="think-dot [animation-delay:0.4s]" />
-          <i className="think-dot [animation-delay:0.8s]" />
+          <i className="think-dot" />
+          <i className="think-dot" />
         </span>
         <span className="absolute inset-0 grid place-items-center text-[13px] font-medium whitespace-nowrap opacity-0 transition-opacity delay-200 duration-500 group-hover/think:opacity-100">
           Thinking
@@ -74,7 +74,7 @@ function ThoughtPanel({ message, secs }: { message: ChatMessage; secs?: number }
   return (
     <div className="flex w-full max-w-xl flex-col gap-1.5 rounded-2xl bg-well px-3.5 py-2.5 text-[12.5px]/5 text-muted-foreground shadow-[inset_0_0_0_1px_var(--well-outline)]">
       {thought ? (
-        <div ref={ref} className="max-h-72 overflow-y-auto whitespace-pre-wrap text-foreground/80 [scrollbar-width:thin]">
+        <div ref={ref} className="max-h-72 overflow-y-auto whitespace-pre-wrap text-foreground/80">
           {thought}
         </div>
       ) : (

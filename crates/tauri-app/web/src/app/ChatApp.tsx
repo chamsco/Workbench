@@ -16,7 +16,7 @@ import { Composer } from "./Composer";
 import { CodeComposer, CodeSide } from "./CodeComposer";
 import { GhostToggle } from "./GhostToggle";
 import { ReplyChip } from "./Extras";
-import { AgentEditors, AgentsHome, AgentsSide, AgentThreadHeader } from "./Agents";
+import { AgentEditors, AgentsHome, AgentsSide, AgentThreadHeader, RailBots } from "./Agents";
 import { AgentSide } from "./agent-side";
 import { VoiceMode } from "./voice";
 import { AgentPage } from "./agent-page";
@@ -184,6 +184,7 @@ export function ChatApp({ sideEl, user }: { sideEl: HTMLElement; user: string })
   return (
     <>
       {createPortal(agentsMode && !scope ? <AgentsSide /> : <ThreadList onNewChat={newChat} />, sideEl)}
+      {agentsMode && !scope && <RailBots />}
       <AgentEditors />
       <TracePanel />
       <main className="whirl-pane raised relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-surface md:rounded-lg md:border md:border-border">

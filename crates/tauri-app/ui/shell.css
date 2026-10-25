@@ -668,18 +668,17 @@ button.rp-row:hover { background: var(--hover); }
   -webkit-backdrop-filter: blur(22px) saturate(1.3); backdrop-filter: blur(22px) saturate(1.3);
 }
 
-/* Agents: the left sidebar rests as a slim column of faces (Reason-style) and
-   opens wide, over the page rather than pushing it, while the pointer is on it. */
-.wide-only, .slim-only { display: contents; }
-.slim-only { display: none; }
-.win.side-slim:not(.side-closed):not(.ghost-side) { --side-w: 76px; }
-.win.side-slim:not(.side-closed):not(.ghost-side) .side { transition: width 0.18s cubic-bezier(.2, .8, .2, 1), box-shadow 0.18s; overflow: hidden; }
-.win.side-slim:not(.side-closed):not(.ghost-side) .side:not(:hover):not(:focus-within) .slim-only { display: block; }
-.win.side-slim:not(.side-closed):not(.ghost-side) .side:not(:hover):not(:focus-within) .wide-only,
-.win.side-slim:not(.side-closed):not(.ghost-side) .side:not(:hover):not(:focus-within) .side-machine,
-.win.side-slim:not(.side-closed):not(.ghost-side) .side:not(:hover):not(:focus-within) .side-pills,
-.win.side-slim:not(.side-closed):not(.ghost-side) .side:not(:hover):not(:focus-within) .zones { display: none; }
-.win.side-slim:not(.side-closed):not(.ghost-side) .side:not(:hover):not(:focus-within) .side-top { padding: 0; justify-content: center; }
-.win.side-slim:not(.side-closed):not(.ghost-side) .side:not(:hover):not(:focus-within) .lights-gap { display: none; }
-.win.side-slim:not(.side-closed):not(.ghost-side) .side:is(:hover, :focus-within) { position: absolute; z-index: 30; top: 0; bottom: 0; left: 0; width: 300px; background: var(--win-bg) !important; -webkit-backdrop-filter: none; backdrop-filter: none; box-shadow: 14px 0 40px rgba(0, 0, 0, 0.3) !important; border-radius: 0 16px 16px 0 !important; }
-.win.side-slim:not(.side-closed):not(.ghost-side) .gutter-side { display: none; }
+/* Agents with the sidebar folded: the pill trail carries the bots too, one
+   face each under the apps (ChatApp portals them into #railBots). */
+.rail-bots { display: none; flex-direction: column; align-items: center; gap: 4px; max-height: 38vh; overflow-y: auto; scrollbar-width: none; }
+.rail-bots::-webkit-scrollbar { display: none; }
+#win.agents-on:is(.side-closed, .ghost-side):not(.settings-on) .rail-bots { display: flex; }
+.rail-bots .rb-sep { width: 20px; height: 1px; margin: 3px 0; background: color-mix(in srgb, var(--fg) 20%, transparent); }
+
+/* Scrollbars, Arc-style: a thin rounded thumb that floats in the margin, no
+   arrows and no track, brighter under the pointer. */
+*::-webkit-scrollbar { width: 10px; height: 10px; background: transparent; }
+*::-webkit-scrollbar-track, *::-webkit-scrollbar-corner { background: transparent; }
+*::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
+*::-webkit-scrollbar-thumb { background-color: color-mix(in srgb, var(--fg, #888) 26%, transparent); border: 3px solid transparent; background-clip: padding-box; border-radius: 999px; min-height: 36px; }
+*::-webkit-scrollbar-thumb:hover { background-color: color-mix(in srgb, var(--fg, #888) 48%, transparent); }

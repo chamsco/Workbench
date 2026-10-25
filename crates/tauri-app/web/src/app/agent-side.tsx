@@ -159,7 +159,7 @@ export function AgentSide({ agent, thread: open, threadId }: { agent: Agent; thr
           </button>
         ))}
       </div>
-      <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3 pt-3 pb-4 [scrollbar-width:thin]">
+      <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3 pt-3 pb-4">
         {tab === "settings" && <SettingsTab agent={agent} />}
         {tab === "context" && <ContextTab thread={thread} agent={agent} />}
         {tab === "traces" && <TracesTab thread={thread} />}

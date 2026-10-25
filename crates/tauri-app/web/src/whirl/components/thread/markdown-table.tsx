@@ -13,7 +13,7 @@ import { cn } from "@/lib/utils";
 export const TABLE_COMPONENTS: NonNullable<StreamdownProps["components"]> = {
   table: ({ node: _node, className, children, ...props }) => (
     <div className="my-4 w-full overflow-hidden rounded-xl border border-border">
-      <div className="w-full overflow-x-auto [scrollbar-width:thin]">
+      <div className="w-full overflow-x-auto">
         <table
           className={cn("w-full border-collapse text-[14px]/6", className)}
           {...props}

@@ -210,6 +210,7 @@ function setSide(open) {
   if (narrow()) { w.classList.toggle("side-open", open); w.classList.remove("side-closed"); }
   else { w.classList.toggle("side-closed", !open); w.classList.remove("side-open"); }
   $("#sideOpen").hidden = open && !narrow();
+  if (inAgents() && !narrow()) { S.agentsFolded = false; try { localStorage.setItem("bs.agentsSide", open ? "open" : "closed"); } catch {} }
 }
 $("#sideClose").onclick = () => setSide(false);
 $("#sideOpen").onclick = () => setSide(true);
@@ -229,9 +230,10 @@ for (const sel of ["#gear", "#gearBtn"]) {
 // workbench).
 const agentsOn = () => S.mode === "code" && S.codeView === "agents";
 const PAGES = ["home", "memory", "apps"];
-// "Keep it wide" for Agents' sidebar, set from its expanded face's pin.
-const wideAgents = () => { try { return localStorage.getItem("bs.agentsWide") === "1"; } catch { return false; } };
-function pinAgentsSide(wide) { try { localStorage.setItem("bs.agentsWide", wide ? "1" : "0"); } catch {} setMode(S.mode, false); }
+// Agents opens with its sidebar folded to the pill trail; what you do with it
+// there is remembered, and leaving Agents gives Chat its sidebar back.
+const inAgents = () => S.mode === "chat" && S.chatView === "agents";
+const agentsSidePref = () => { try { return localStorage.getItem("bs.agentsSide") === "open"; } catch { return false; } };
 function setMode(m, save = true) {
   const exts = window.Frame ? Frame.ids() : ["chat", "code"];
   const on = window.Frame ? Frame.onIds() : exts;
@@ -242,9 +244,15 @@ function setMode(m, save = true) {
   const w = $("#win");
   for (const z of exts.concat(PAGES)) w.classList.toggle("m-" + z, m === z);
   w.classList.toggle("m-app", m.startsWith("app:"));
-  // Agents' sidebar is a slim column of faces that opens wide under the pointer.
-  w.classList.toggle("side-slim", m === "chat" && S.chatView === "agents" && !wideAgents());
   if (window.Frame) { Frame.setActive(m); Frame.syncClasses(w); }
+  if (inAgents() !== !!S.wasAgents) {
+    S.wasAgents = inAgents();
+    if (S.wasAgents) {
+      const fold = !agentsSidePref() && !w.classList.contains("side-closed");
+      if (fold) setSide(false);
+      S.agentsFolded = fold;
+    } else if (S.agentsFolded) { S.agentsFolded = false; setSide(true); }
+  }
   w.classList.toggle("single-use", on.length === 1);
   if (S.settings) { S.settings = false; $("#settings").hidden = true; }
   if (S.drawer && !agentsOn() && window.Code) Code.setDrawer(false);
