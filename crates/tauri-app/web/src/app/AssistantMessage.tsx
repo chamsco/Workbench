@@ -20,6 +20,7 @@ import {
 
 import { isTerminal, type ChatMessage } from "@/lib/messages";
 import { useTypewriter } from "@/lib/use-typewriter";
+import { AiTypingIndicator } from "../components/ai-typing-indicator";
 import { CheckpointMenu } from "@/components/thread/checkpoint-menu";
 import { splitFences } from "./ask";
 import { RichText } from "./RichText";
@@ -30,7 +31,7 @@ import { getHost, openTrace, type Ad } from "../bridge";
  *  dots. Under the pointer they slowly turn into "Thinking"; a click opens what
  *  is known of the turn. The reasoning text itself is not kept by the app, so
  *  the panel shows the model, the clock and, once there is one, the trace. */
-function ThinkingDots({ message }: { message: ChatMessage }) {
+function ThinkingDots({ message, dots = false }: { message: ChatMessage; dots?: boolean }) {
   const [open, setOpen] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -46,16 +47,16 @@ function ThinkingDots({ message }: { message: ChatMessage }) {
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
         aria-label={open ? "Hide thinking" : "Show thinking"}
-        className="group/think relative flex h-9 w-[60px] cursor-pointer items-center justify-center overflow-hidden rounded-full rounded-bl-md bg-well text-muted-foreground shadow-[inset_0_0_0_1px_var(--well-outline)] transition-[width] duration-[650ms] ease-[cubic-bezier(.3,.7,.2,1)] hover:w-[108px]"
+        className="cursor-pointer rounded-full text-left"
       >
-        <span className="flex items-center gap-1.5 transition-opacity duration-500 group-hover/think:opacity-0">
-          <i className="think-dot" />
-          <i className="think-dot" />
-          <i className="think-dot" />
-        </span>
-        <span className="absolute inset-0 grid place-items-center text-[13px] font-medium whitespace-nowrap opacity-0 transition-opacity delay-200 duration-500 group-hover/think:opacity-100">
-          Thinking
-        </span>
+        {dots ? (
+          <AiTypingIndicator variant="dots" label="Typing" />
+        ) : (
+          <AiTypingIndicator
+            phrases={[{ text: "Thinking", icon: "think" }, { text: "Working it out", icon: "search" }, { text: "Writing", icon: "write" }]}
+            showElapsed
+          />
+        )}
       </button>
       {open && <ThoughtPanel message={message} secs={secs} />}
     </div>
@@ -157,7 +158,7 @@ function QuietDots({ content, message }: { content: string; message: ChatMessage
     const t = setTimeout(() => setQuiet(true), 1100);
     return () => clearTimeout(t);
   }, [content]);
-  return quiet ? <div className="mt-1.5"><ThinkingDots message={message} /></div> : null;
+  return quiet ? <div className="mt-1.5"><ThinkingDots message={message} dots /></div> : null;
 }
 
 const WELL = "shadow-[inset_0_0_0_1px_var(--well-outline),inset_0_1px_0_0_var(--well-highlight)]";
