@@ -41,12 +41,49 @@ const FENCE = /```(openui|ask|routine)[^\n]*\n([\s\S]*?)(```|$)/g;
 export function splitFences(text: string): Block[] {
   const out: Block[] = [];
   let last = 0;
+  const md = (t: string) => {
+    if (t) out.push(...liftRoutine(t));
+  };
   for (const m of text.matchAll(FENCE)) {
-    if (m.index! > last) out.push({ kind: "md", text: text.slice(last, m.index) });
+    md(text.slice(last, m.index));
     out.push({ kind: "fence", tag: m[1] as "openui" | "ask" | "routine", body: m[2], open: m[3] !== "```" });
     last = m.index! + m[0].length;
   }
-  if (last < text.length) out.push({ kind: "md", text: text.slice(last) });
+  md(text.slice(last));
+  return out;
+}
+
+/** A model that skips the ```routine fence still writes the JSON: lift a bare
+ *  (or ```json) object with a name and instructions out of the prose, so it is
+ *  a card to add and not a blob to read. */
+function liftRoutine(text: string): Block[] {
+  const at = text.search(/\{\s*"name"\s*:/);
+  if (at < 0) return [{ kind: "md", text }];
+  let depth = 0, inStr = false, esc = false, end = -1;
+  for (let i = at; i < text.length; i++) {
+    const c = text[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (c === "\\") esc = true;
+      else if (c === '"') inStr = false;
+    } else if (c === '"') inStr = true;
+    else if (c === "{") depth++;
+    else if (c === "}" && --depth === 0) {
+      end = i + 1;
+      break;
+    }
+  }
+  if (end < 0) return [{ kind: "md", text }];
+  const body = text.slice(at, end);
+  const spec = parseRoutine(body);
+  if (!spec || !spec.instructions) return [{ kind: "md", text }];
+  // Take a ```json wrapper along with the object.
+  const before = text.slice(0, at).replace(/```(?:json)?\s*$/, "");
+  const after = text.slice(end).replace(/^\s*```/, "");
+  const out: Block[] = [];
+  if (before.trim()) out.push({ kind: "md", text: before });
+  out.push({ kind: "fence", tag: "routine", body, open: false });
+  if (after.trim()) out.push(...liftRoutine(after));
   return out;
 }
 

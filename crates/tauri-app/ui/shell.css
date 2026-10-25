@@ -460,7 +460,6 @@ button.rp-row:hover { background: var(--hover); }
 .side-pills .side-pill { background: transparent !important; -webkit-backdrop-filter: none; backdrop-filter: none; height: 28px; padding: 0; gap: 2px; }
 .side-pills .side-pill button { width: 28px; height: 28px; border-radius: 8px; color: var(--fg-3); }
 .side-pills .side-pill button:hover { background: var(--hover); color: var(--fg); }
-.win.whirl-on:is(.m-chat, .m-code) #sideClose { display: none; }
 .lights { top: 20px; left: 16px; }
 /* The window buttons on Windows and Linux sit inside the page card, at the
    right end of its header (shell.js moves them there), so the card keeps the
@@ -654,3 +653,33 @@ button.rp-row:hover { background: var(--hover); }
 .stage:has(.pmap) { cursor: default; }
 #win.settings-on .tbar .right .code-only { display: none; }
 #win > .win-ascii { z-index: 1; }
+
+/* ---------- the chat's surfaces follow the window
+   The React face's wells, composer, bubbles and menus are tints of --paper.
+   Under glass, that is the window's own colour, thinned, so they read as part
+   of the card instead of a grey slab on it (style.css keeps solid paper for
+   the Solid window). */
+:root:is([data-window="frosted"], [data-window="clear"]) {
+  --paper: color-mix(in srgb, var(--win-bg) 58%, transparent);
+  --paper-card: color-mix(in srgb, var(--win-bg) 72%, transparent);
+  --paper-line: color-mix(in srgb, var(--fg) 11%, transparent);
+}
+:root:is([data-window="frosted"], [data-window="clear"]) :is(.raised, [data-base-ui-portal] [role="menu"], [role="dialog"]) {
+  -webkit-backdrop-filter: blur(22px) saturate(1.3); backdrop-filter: blur(22px) saturate(1.3);
+}
+
+/* Agents: the left sidebar rests as a slim column of faces (Reason-style) and
+   opens wide, over the page rather than pushing it, while the pointer is on it. */
+.wide-only, .slim-only { display: contents; }
+.slim-only { display: none; }
+.win.side-slim { --side-w: 76px; }
+.win.side-slim .side { transition: width 0.18s cubic-bezier(.2, .8, .2, 1), box-shadow 0.18s; overflow: hidden; }
+.win.side-slim .side:not(:hover):not(:focus-within) .slim-only { display: block; }
+.win.side-slim .side:not(:hover):not(:focus-within) .wide-only,
+.win.side-slim .side:not(:hover):not(:focus-within) .side-machine,
+.win.side-slim .side:not(:hover):not(:focus-within) .side-pills,
+.win.side-slim .side:not(:hover):not(:focus-within) .zones { display: none; }
+.win.side-slim .side:not(:hover):not(:focus-within) .side-top { padding: 0; justify-content: center; }
+.win.side-slim .side:not(:hover):not(:focus-within) .lights-gap { display: none; }
+.win.side-slim .side:is(:hover, :focus-within) { position: absolute; z-index: 30; top: 0; bottom: 0; left: 0; width: 300px; background: color-mix(in srgb, var(--win-bg) 88%, transparent); -webkit-backdrop-filter: blur(24px) saturate(1.3); backdrop-filter: blur(24px) saturate(1.3); box-shadow: 14px 0 40px rgba(0, 0, 0, 0.22); }
+.win.side-slim .gutter-side { display: none; }

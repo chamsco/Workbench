@@ -39,6 +39,8 @@ const TABS = [
   ["context", "Context"],
   ["traces", "Traces"],
   ["routines", "Routines"],
+  ["desktop", "Desktop"],
+  ["browser", "Browser"],
 ] as const;
 type Tab = (typeof TABS)[number][0];
 
@@ -74,9 +76,36 @@ export function AgentSide({ agent, thread: open, threadId }: { agent: Agent; thr
       /* private window */
     }
   };
+  // The panel's width is the user's: drag its left edge, it stays put.
+  const [w, setW] = useState(() => {
+    try {
+      const n = Number(localStorage.getItem("bs.agentSideW"));
+      return n >= 260 && n <= 640 ? n : 340;
+    } catch {
+      return 340;
+    }
+  });
+  const drag = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const x0 = e.clientX, w0 = w;
+    let last = w0;
+    const move = (m: PointerEvent) => setW((last = Math.min(640, Math.max(260, w0 + x0 - m.clientX))));
+    const up = () => {
+      removeEventListener("pointermove", move);
+      removeEventListener("pointerup", up);
+      try {
+        localStorage.setItem("bs.agentSideW", String(Math.round(last)));
+      } catch {
+        /* private window */
+      }
+    };
+    addEventListener("pointermove", move);
+    addEventListener("pointerup", up);
+  };
   const busy = thread?.messages.some((m) => m.role === "assistant" && m.status === "streaming");
   return (
-    <aside className="agent-side flex w-[300px] shrink-0 flex-col border-l border-border" aria-label={`${agent.name}'s panel`}>
+    <aside className="agent-side relative flex shrink-0 flex-col border-l border-border" style={{ width: w }} aria-label={`${agent.name}'s panel`}>
+      <div role="separator" aria-orientation="vertical" aria-label="Resize panel" onPointerDown={drag} className="absolute inset-y-0 -left-1 z-10 w-2 cursor-col-resize hover:bg-foreground/10" />
       <div className="flex shrink-0 flex-col items-center gap-1 px-3 pt-4 pb-2">
         <div className="max-w-full truncate text-[15px] font-semibold text-foreground">{agent.name}</div>
         <Orb agent={agent} size={104} state={busy ? "working" : "idle"} />
@@ -84,7 +113,7 @@ export function AgentSide({ agent, thread: open, threadId }: { agent: Agent; thr
           Sessions, cards and projects
         </button>
       </div>
-      <div className="flex shrink-0 justify-center gap-0.5 px-3 pb-2" role="tablist">
+      <div className="flex shrink-0 gap-2 overflow-x-auto border-b border-border px-2.5" role="tablist">
         {TABS.map(([id, label]) => (
           <button
             key={id}
@@ -93,19 +122,24 @@ export function AgentSide({ agent, thread: open, threadId }: { agent: Agent; thr
             aria-selected={tab === id}
             onClick={() => pick(id)}
             className={cn(
-              "h-7 rounded-md px-2 text-[12.5px] font-medium text-muted-foreground transition-colors hover:text-foreground",
-              tab === id && "bg-well text-foreground",
+              "-mb-px h-8 shrink-0 border-b-2 border-transparent text-[12.5px] font-medium text-muted-foreground transition-colors hover:text-foreground",
+              tab === id && "border-foreground text-foreground",
             )}
           >
             {label}
           </button>
         ))}
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-4">
+      <div className="min-h-0 flex-1 overflow-y-auto px-3 pt-3 pb-4">
         {tab === "settings" && <SettingsTab agent={agent} />}
         {tab === "context" && <ContextTab thread={thread} agent={agent} />}
         {tab === "traces" && <TracesTab thread={thread} />}
         {tab === "routines" && <RoutineCards agent={agent} />}
+        {(tab === "desktop" || tab === "browser") && (
+          <p className="py-2 text-[12.5px]/5 text-muted-foreground">
+            {tab === "desktop" ? "Desktop use" : "Browser use"}: {agent.name} will drive {tab === "desktop" ? "apps on its computer" : "web pages"} from here, and you will watch it work. Not switched on yet.
+          </p>
+        )}
       </div>
     </aside>
   );

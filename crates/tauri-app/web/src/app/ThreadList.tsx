@@ -23,7 +23,6 @@ import {
   IconFolderPlus,
   IconGitBranch,
   IconLayoutCards,
-  IconLayoutSidebar,
   IconLoader2,
   IconMessageReply,
   IconMessages,
@@ -220,9 +219,9 @@ export function ThreadList({ onNewChat }: { onNewChat: () => void }) {
       })
     );
 
-  // Search and the sidebar toggle, in one pill drawn into #sidePills. It sits
-  // over the window rather than inside the card, so it stays put when the card
-  // folds away. New chat is the first row under it, inside the card.
+  // Search, drawn into #sidePills beside the frame's own sidebar toggle. It
+  // sits over the window rather than inside the card, so it stays put when the
+  // card folds away. New chat is the first row under it, inside the card.
   const pills = (
     <div className="flex w-full items-center">
       <div className="side-pill flex h-8 items-center gap-0.5 rounded-full px-0.5">
@@ -240,7 +239,6 @@ export function ThreadList({ onNewChat }: { onNewChat: () => void }) {
             if (searching) setQuery("");
           }}
         />
-        <Act icon={IconLayoutSidebar} label={sideClosed ? "Show sidebar" : "Hide sidebar"} onClick={() => host.setSide(sideClosed)} />
       </div>
     </div>
   );

@@ -229,6 +229,9 @@ for (const sel of ["#gear", "#gearBtn"]) {
 // workbench).
 const agentsOn = () => S.mode === "code" && S.codeView === "agents";
 const PAGES = ["home", "memory", "apps"];
+// "Keep it wide" for Agents' sidebar, set from its expanded face's pin.
+const wideAgents = () => { try { return localStorage.getItem("bs.agentsWide") === "1"; } catch { return false; } };
+function pinAgentsSide(wide) { try { localStorage.setItem("bs.agentsWide", wide ? "1" : "0"); } catch {} setMode(S.mode, false); }
 function setMode(m, save = true) {
   const exts = window.Frame ? Frame.ids() : ["chat", "code"];
   const on = window.Frame ? Frame.onIds() : exts;
@@ -239,6 +242,8 @@ function setMode(m, save = true) {
   const w = $("#win");
   for (const z of exts.concat(PAGES)) w.classList.toggle("m-" + z, m === z);
   w.classList.toggle("m-app", m.startsWith("app:"));
+  // Agents' sidebar is a slim column of faces that opens wide under the pointer.
+  w.classList.toggle("side-slim", m === "chat" && S.chatView === "agents" && !wideAgents());
   if (window.Frame) { Frame.setActive(m); Frame.syncClasses(w); }
   w.classList.toggle("single-use", on.length === 1);
   if (S.settings) { S.settings = false; $("#settings").hidden = true; }
