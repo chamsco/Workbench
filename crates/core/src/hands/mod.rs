@@ -12,7 +12,8 @@
 //! Each agent has a folder, `<data>/hands/agents/<id>/`, that outlives the
 //! MCP process (one CLI turn): its tab id, the last page read (so `e7` from
 //! one call means the same thing in the next), and the live view the
-//! agent's side panel shows (`frame.jpg`, `steps.jsonl`, `live.json`).
+//! agent's side panel shows (`browser.jpg` / `desktop.jpg`, `steps.jsonl`,
+//! `live-browser.json` / `live-desktop.json`): one view per surface.
 //! A `paused` file there is the user's "Take control": every tool refuses
 //! until it is gone.
 
@@ -238,22 +239,23 @@ fn remember(dir: &Path, b: &mut Browser, page: Option<&Value>, step: &Value) -> 
         std::fs::write(dir.join("page.json"), p.to_string())?;
     }
     if let Some(jpg) = b.screenshot().and_then(|d| base64::engine::general_purpose::STANDARD.decode(d).ok()) {
-        std::fs::write(dir.join("frame.jpg"), jpg)?;
+        std::fs::write(dir.join("browser.jpg"), jpg)?;
     }
     let (url, title) = match page {
         Some(p) => (p["url"].clone(), p["title"].clone()),
         None => (step["url"].clone(), Value::Null),
     };
-    std::fs::write(dir.join("live.json"), json!({"kind": "browser", "url": url, "title": title, "at": now()}).to_string())?;
-    log(dir, step)
+    std::fs::write(dir.join("live-browser.json"), json!({"kind": "browser", "url": url, "title": title, "at": now()}).to_string())?;
+    log(dir, "browser", step)
 }
 
-fn log(dir: &Path, step: &Value) -> Result<()> {
+fn log(dir: &Path, surface: &str, step: &Value) -> Result<()> {
     if step.is_null() {
         return Ok(());
     }
     let mut s = step.clone();
     s["at"] = json!(now());
+    s["surface"] = json!(surface);
     let mut f = std::fs::OpenOptions::new().create(true).append(true).open(dir.join("steps.jsonl"))?;
     writeln!(f, "{s}")?;
     Ok(())
@@ -277,27 +279,35 @@ fn desktop_call(dir: &Path, name: &str, a: &Value) -> Result<Vec<Value>> {
         std::thread::sleep(std::time::Duration::from_millis(350));
     }
     let (png, w, h) = desktop::screenshot(dir)?;
-    std::fs::write(dir.join("live.json"), json!({"kind": "desktop", "at": now()}).to_string())?;
+    std::fs::write(dir.join("live-desktop.json"), json!({"kind": "desktop", "at": now()}).to_string())?;
     if let Some(d) = &done {
-        log(dir, &json!({"kind": name.trim_start_matches("desktop_"), "action": d}))?;
+        log(dir, "desktop", &json!({"kind": name.trim_start_matches("desktop_"), "action": d}))?;
     }
-    Ok(vec![text(format!("{}Screen picture {w}×{h}; click in these pixels.", done.map(|d| format!("Done: {d}. ")).unwrap_or_default())), image_png(&png)])
+    // Not every backend shows the model an image a tool returns; the open
+    // windows go along as text so it can still report what is on the screen.
+    let windows = if name == "desktop_screenshot" { desktop::open_windows().map(|w| format!("\nOpen windows:\n{w}")).unwrap_or_default() } else { String::new() };
+    Ok(vec![
+        text(format!("{}Screen picture {w}×{h}; click in these pixels. Tell the user what you can see on it.{windows}", done.map(|d| format!("Done: {d}. ")).unwrap_or_default())),
+        image_png(&png),
+    ])
 }
 
 // ------------------------------------------------------------------ the app
 
 /// What the agent's side panel shows: the latest frame, where it is, the
 /// last steps, and whether the user holds the controls.
-pub fn live(data: &Path, who: &str) -> Value {
+pub fn live(data: &Path, who: &str, surface: &str) -> Value {
+    let surface = if surface == "desktop" { "desktop" } else { "browser" };
     let d = dir(data, who);
-    let meta: Value = std::fs::read_to_string(d.join("live.json")).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or(Value::Null);
-    let frame = std::fs::read(d.join("frame.jpg")).ok().map(|b| format!("data:image/jpeg;base64,{}", base64::engine::general_purpose::STANDARD.encode(b)));
+    let meta: Value = std::fs::read_to_string(d.join(format!("live-{surface}.json"))).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or(Value::Null);
+    let frame = std::fs::read(d.join(format!("{surface}.jpg"))).ok().map(|b| format!("data:image/jpeg;base64,{}", base64::engine::general_purpose::STANDARD.encode(b)));
     let steps: Vec<Value> = std::fs::read_to_string(d.join("steps.jsonl"))
         .unwrap_or_default()
         .lines()
         .rev()
         .take(40)
-        .filter_map(|l| serde_json::from_str(l).ok())
+        .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+        .filter(|s| s["surface"] == surface || (s["surface"].is_null() && surface == "browser"))
         .collect();
     json!({
         "kind": meta["kind"], "url": meta["url"], "title": meta["title"], "at": meta["at"],

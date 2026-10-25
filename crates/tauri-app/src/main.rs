@@ -1380,8 +1380,8 @@ fn chat_context(f: F, id: String) -> Option<backspace_core::chat::ContextMap> {
 
 /// An agent's browser or desktop as it last saw it, for its side panel.
 #[tauri::command]
-async fn agent_hands(f: F<'_>, id: String) -> Res<serde_json::Value> {
-    blocking(f, move |_| Ok(backspace_core::hands::live(&backspace_core::prefs::Prefs::data_dir(), &id))).await
+async fn agent_hands(f: F<'_>, id: String, surface: Option<String>) -> Res<serde_json::Value> {
+    blocking(f, move |_| Ok(backspace_core::hands::live(&backspace_core::prefs::Prefs::data_dir(), &id, surface.as_deref().unwrap_or("browser")))).await
 }
 
 /// "Take control" of an agent's browser and desktop (its tools stop), or hand it back.

@@ -578,16 +578,17 @@ function ScreenTab({ agent, focus }: { agent: Agent; focus: "desktop" | "browser
     let on = true;
     const tick = () =>
       host
-        .invoke<Live>("agent_hands", { id: agent.id })
+        .invoke<Live>("agent_hands", { id: agent.id, surface: focus })
         .then((l) => on && setLive(l))
         .catch(() => {});
+    setLive(null);
     tick();
     const t = setInterval(tick, 1500);
     return () => {
       on = false;
       clearInterval(t);
     };
-  }, [agent.id]);
+  }, [agent.id, focus]);
   useEffect(() => {
     host
       .invoke<HandsCfg>("hands_prefs")

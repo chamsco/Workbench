@@ -57,6 +57,22 @@ fn grab() -> Result<Vec<u8>> {
 }
 
 /// The display's size in input coordinates (points on a Mac).
+/// The titles of the windows that are open, as text, for models whose backend
+/// can't look at the picture: they can still say what is on the screen.
+pub fn open_windows() -> Option<String> {
+    use std::process::Command;
+    let out = if cfg!(target_os = "windows") {
+        Command::new("powershell").args(["-NoProfile", "-Command", "Get-Process | Where-Object { $_.MainWindowTitle } | ForEach-Object { $_.ProcessName + ': ' + $_.MainWindowTitle }"]).output().ok()?
+    } else if cfg!(target_os = "macos") {
+        Command::new("osascript").args(["-e", "tell application \"System Events\" to get name of (processes where background only is false)"]).output().ok()?
+    } else {
+        Command::new("wmctrl").arg("-l").output().ok()?
+    };
+    let text = String::from_utf8_lossy(&out.stdout).replace(", ", "\n");
+    let lines: Vec<&str> = text.lines().map(str::trim).filter(|l| !l.is_empty()).take(40).collect();
+    (!lines.is_empty()).then(|| lines.join("\n"))
+}
+
 fn display() -> Result<(i32, i32)> {
     let e = Enigo::new(&Settings::default()).map_err(|e| anyhow!("can't reach the mouse and keyboard: {e}"))?;
     e.main_display().map_err(|e| anyhow!("{e}"))
@@ -78,7 +94,7 @@ pub fn screenshot(dir: &Path) -> Result<(Vec<u8>, u32, u32)> {
     // The live view takes a smaller JPEG.
     let mut jpg = std::io::Cursor::new(vec![]);
     if img.to_rgb8().write_to(&mut jpg, image::ImageFormat::Jpeg).is_ok() {
-        let _ = std::fs::write(dir.join("frame.jpg"), jpg.into_inner());
+        let _ = std::fs::write(dir.join("desktop.jpg"), jpg.into_inner());
     }
     Ok((png.into_inner(), sw, sh))
 }
