@@ -57,7 +57,7 @@ export function splitFences(text: string): Block[] {
  *  (or ```json) object with a name and instructions out of the prose, so it is
  *  a card to add and not a blob to read. */
 function liftRoutine(text: string): Block[] {
-  const at = text.search(/\{\s*"name"\s*:/);
+  const at = text.search(/\{\s*"(?:name|question)"\s*:/);
   if (at < 0) return [{ kind: "md", text }];
   let depth = 0, inStr = false, esc = false, end = -1;
   for (let i = at; i < text.length; i++) {
@@ -75,14 +75,19 @@ function liftRoutine(text: string): Block[] {
   }
   if (end < 0) return [{ kind: "md", text }];
   const body = text.slice(at, end);
-  const spec = parseRoutine(body);
-  if (!spec || !spec.instructions) return [{ kind: "md", text }];
+  const isAsk = /^\{\s*"question"/.test(body);
+  const ok = isAsk ? !!parseAsk(body) : !!parseRoutine(body)?.instructions;
+  // Not a card after all: keep it as prose, but read on past it.
+  if (!ok) {
+    const rest = liftRoutine(text.slice(end));
+    return rest.length === 1 && rest[0].kind === "md" ? [{ kind: "md", text }] : [{ kind: "md", text: text.slice(0, end) }, ...rest];
+  }
   // Take a ```json wrapper along with the object.
   const before = text.slice(0, at).replace(/```(?:json)?\s*$/, "");
   const after = text.slice(end).replace(/^\s*```/, "");
   const out: Block[] = [];
   if (before.trim()) out.push({ kind: "md", text: before });
-  out.push({ kind: "fence", tag: "routine", body, open: false });
+  out.push({ kind: "fence", tag: isAsk ? "ask" : "routine", body, open: false });
   if (after.trim()) out.push(...liftRoutine(after));
   return out;
 }
@@ -96,7 +101,7 @@ export function parseAsk(body: string): AskSpec | null {
   try {
     const v = JSON.parse(body) as Partial<AskSpec>;
     if (typeof v.question !== "string" || !v.question.trim()) return null;
-    const options = Array.isArray(v.options) ? v.options.filter((o): o is string => typeof o === "string" && !!o.trim()).slice(0, 8) : [];
+    const options = Array.isArray(v.options) ? v.options.filter((o): o is string => typeof o === "string" && !!o.trim()).slice(0, 12) : [];
     if (options.length < 2) return null;
     return { question: v.question.trim(), options, multiple: v.multiple !== false, skip: v.skip !== false };
   } catch {

@@ -6,7 +6,7 @@
 // (its browser or your desktop as it last saw it, with Take control).
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { IconAlertTriangleFilled, IconBrowser, IconChevronRight, IconDeviceDesktop, IconHandStop, IconSettings } from "@tabler/icons-react";
+import { IconAlertTriangleFilled, IconBrowser, IconChevronRight, IconDeviceDesktop, IconHandStop, IconLayoutSidebarRightCollapse, IconLayoutSidebarRightExpand, IconSettings } from "@tabler/icons-react";
 
 import { cn } from "@/lib/utils";
 import { editAgent, getHost, openBot, openTrace, saveAgent, useChat, type Agent, type Thread, type Trace } from "../bridge";
@@ -81,9 +81,9 @@ export function AgentSide({ agent, thread: open, threadId }: { agent: Agent; thr
   const [w, setW] = useState(() => {
     try {
       const n = Number(localStorage.getItem("bs.agentSideW"));
-      return n >= 260 && n <= 640 ? n : 340;
+      return n >= 260 && n <= 640 ? n : 360;
     } catch {
-      return 340;
+      return 360;
     }
   });
   const drag = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -103,10 +103,38 @@ export function AgentSide({ agent, thread: open, threadId }: { agent: Agent; thr
     addEventListener("pointermove", move);
     addEventListener("pointerup", up);
   };
+  // And it folds away: a slim strip with the one button that brings it back.
+  const [shut, setShut] = useState(() => {
+    try {
+      return localStorage.getItem("bs.agentSideShut") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const fold = (v: boolean) => {
+    setShut(v);
+    try {
+      localStorage.setItem("bs.agentSideShut", v ? "1" : "0");
+    } catch {
+      /* private window */
+    }
+  };
   const busy = thread?.messages.some((m) => m.role === "assistant" && m.status === "streaming");
+  if (shut) {
+    return (
+      <aside className="agent-side flex shrink-0 flex-col items-center border-l border-border pt-3" style={{ width: 44 }} aria-label={`${agent.name}'s panel, folded`}>
+        <button type="button" onClick={() => fold(false)} aria-label="Open the panel" title="Open the panel" className="grid size-8 cursor-pointer place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-well hover:text-foreground">
+          <IconLayoutSidebarRightExpand size={17} />
+        </button>
+      </aside>
+    );
+  }
   return (
-    <aside className="agent-side relative flex shrink-0 flex-col border-l border-border" style={{ width: w }} aria-label={`${agent.name}'s panel`}>
+    <aside className="agent-side relative flex min-h-0 shrink-0 flex-col overflow-hidden border-l border-border" style={{ width: w }} aria-label={`${agent.name}'s panel`}>
       <div role="separator" aria-orientation="vertical" aria-label="Resize panel" onPointerDown={drag} className="absolute inset-y-0 -left-1 z-10 w-2 cursor-col-resize hover:bg-foreground/10" />
+      <button type="button" onClick={() => fold(true)} aria-label="Fold the panel away" title="Fold the panel away" className="absolute top-2 right-2 z-10 grid size-7 cursor-pointer place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-well hover:text-foreground">
+        <IconLayoutSidebarRightCollapse size={16} />
+      </button>
       <div className="flex shrink-0 flex-col items-center gap-1 px-3 pt-4 pb-2">
         <div className="max-w-full truncate text-[15px] font-semibold text-foreground">{agent.name}</div>
         <Orb agent={agent} size={104} state={busy ? "working" : "idle"} />
@@ -114,7 +142,7 @@ export function AgentSide({ agent, thread: open, threadId }: { agent: Agent; thr
           Sessions, cards and projects
         </button>
       </div>
-      <div className="flex shrink-0 gap-2 overflow-x-auto border-b border-border px-2.5" role="tablist">
+      <div className="flex shrink-0 flex-wrap justify-center gap-x-2 border-b border-border px-2" role="tablist">
         {TABS.map(([id, label]) => (
           <button
             key={id}
@@ -123,7 +151,7 @@ export function AgentSide({ agent, thread: open, threadId }: { agent: Agent; thr
             aria-selected={tab === id}
             onClick={() => pick(id)}
             className={cn(
-              "-mb-px h-8 shrink-0 border-b-2 border-transparent text-[12.5px] font-medium text-muted-foreground transition-colors hover:text-foreground",
+              "-mb-px h-8 shrink-0 border-b-2 border-transparent text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground",
               tab === id && "border-foreground text-foreground",
             )}
           >
@@ -131,7 +159,7 @@ export function AgentSide({ agent, thread: open, threadId }: { agent: Agent; thr
           </button>
         ))}
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 pt-3 pb-4">
+      <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3 pt-3 pb-4 [scrollbar-width:thin]">
         {tab === "settings" && <SettingsTab agent={agent} />}
         {tab === "context" && <ContextTab thread={thread} agent={agent} />}
         {tab === "traces" && <TracesTab thread={thread} />}
@@ -262,8 +290,20 @@ type Tile = { key: string; group: string; label: string; tokens: number; r: Rect
 /** The map, standing up so it fits the panel: what is used on top, laid out
  *  kind by kind, and the free space as one hatched band under it. */
 function ContextMapView({ groups, window: win, free }: { groups: { g: string; parts: Part[] }[]; window: number; free: number }) {
-  const W = 276;
-  const H = 500;
+  // The map is drawn to the panel as it is now: it follows a dragged width and
+  // a narrow window instead of overflowing a fixed 276px.
+  const wrap = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(276);
+  useEffect(() => {
+    const el = wrap.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setWidth(Math.max(140, Math.floor(el.clientWidth) - 8)));
+    ro.observe(el);
+    setWidth(Math.max(140, Math.floor(el.clientWidth) - 8));
+    return () => ro.disconnect();
+  }, []);
+  const W = width;
+  const H = Math.round(Math.min(520, Math.max(240, W * 1.6)));
   const GAP = 3;
   const used = groups.reduce((s, x) => s + x.parts.reduce((t, p) => t + p.tokens, 0), 0);
   const tiles = useMemo(() => {
@@ -280,10 +320,11 @@ function ContextMapView({ groups, window: win, free }: { groups: { g: string; pa
     });
     if (free) out.push({ key: "free", group: "Free", label: "Free", tokens: free, r: { x: 0, y: top, w: W, h: H - top } });
     return out;
-  }, [groups, free, used]);
+  }, [groups, free, used, W, H]);
   const box = useRef<HTMLDivElement>(null);
   const [tip, setTip] = useState<{ t: Tile; x: number; y: number } | null>(null);
   return (
+    <div ref={wrap} className="w-full min-w-0">
     <div
       ref={box}
       className="context-map relative rounded-xl p-1 shadow-[inset_0_0_0_1px_var(--border)]"
@@ -348,7 +389,7 @@ function ContextMapView({ groups, window: win, free }: { groups: { g: string; pa
       {tip && KIND[tip.t.group] && (
         <div
           className="pointer-events-none absolute z-10 w-max max-w-[220px] rounded-xl bg-popover px-3 py-2 text-[12px]/5 text-popover-foreground shadow-lg ring-1 ring-border"
-          style={{ left: Math.min(tip.x + 12, 276 - 150), top: tip.y + 14 }}
+          style={{ left: Math.max(0, Math.min(tip.x + 12, W - 150)), top: tip.y + 14 }}
         >
           <div className="flex items-center gap-1.5 font-medium">
             <i className="size-2.5 shrink-0 rounded-[3px]" style={{ background: `color-mix(in srgb, ${KIND[tip.t.group].hue} 30%, transparent)`, boxShadow: `inset 0 0 0 1px ${KIND[tip.t.group].hue}` }} />
@@ -359,6 +400,7 @@ function ContextMapView({ groups, window: win, free }: { groups: { g: string; pa
           </div>
         </div>
       )}
+    </div>
     </div>
   );
 }

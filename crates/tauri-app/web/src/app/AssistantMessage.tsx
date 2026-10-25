@@ -21,6 +21,7 @@ import {
 import { isTerminal, type ChatMessage } from "@/lib/messages";
 import { useTypewriter } from "@/lib/use-typewriter";
 import { CheckpointMenu } from "@/components/thread/checkpoint-menu";
+import { splitFences } from "./ask";
 import { RichText } from "./RichText";
 import { MessageActionButton } from "@/components/thread/message-action-button";
 import { getHost, openTrace, type Ad } from "../bridge";
@@ -45,17 +46,16 @@ function ThinkingDots({ message }: { message: ChatMessage }) {
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
         aria-label={open ? "Hide thinking" : "Show thinking"}
-        className="group/think relative flex h-9 cursor-pointer items-center rounded-full bg-well px-3.5 text-[13px]/5 text-muted-foreground shadow-[inset_0_0_0_1px_var(--well-outline)]"
+        className="group/think relative flex h-9 w-[60px] cursor-pointer items-center justify-center overflow-hidden rounded-full rounded-bl-md bg-well text-muted-foreground shadow-[inset_0_0_0_1px_var(--well-outline)] transition-[width] duration-[650ms] ease-[cubic-bezier(.3,.7,.2,1)] hover:w-[108px]"
       >
-        <span className="flex items-center gap-1 transition-opacity duration-700 ease-in-out group-hover/think:opacity-0">
+        <span className="flex items-center gap-1.5 transition-opacity duration-500 group-hover/think:opacity-0">
           <i className="think-dot" />
-          <i className="think-dot [animation-delay:0.2s]" />
           <i className="think-dot [animation-delay:0.4s]" />
+          <i className="think-dot [animation-delay:0.8s]" />
         </span>
-        <span className="absolute inset-0 grid place-items-center text-[13px] font-medium opacity-0 transition-opacity delay-150 duration-700 ease-in-out group-hover/think:opacity-100">
+        <span className="absolute inset-0 grid place-items-center text-[13px] font-medium whitespace-nowrap opacity-0 transition-opacity delay-200 duration-500 group-hover/think:opacity-100">
           Thinking
         </span>
-        <span className="invisible ml-1 w-0 overflow-hidden text-[13px]">Thinking</span>
       </button>
       {open && <ThoughtPanel message={message} secs={secs} />}
     </div>
@@ -115,6 +115,51 @@ function Thought({ message }: { message: ChatMessage }) {
   );
 }
 
+/** A bot's reply, a bubble per turn: what it said before a tool call is one
+ *  bubble and what it said after is the next, the way a person texts. Cards
+ *  (questions, routines) stay out of the bubble. */
+function Bubbles({ message, text, streaming, answered }: { message: ChatMessage; text: string; streaming: boolean; answered?: boolean }) {
+  const cuts = (message.breaks ?? []).filter((n) => n > 0 && n < text.length);
+  const parts: string[] = [];
+  let from = 0;
+  for (const n of cuts) {
+    parts.push(text.slice(from, n));
+    from = n;
+  }
+  parts.push(text.slice(from));
+  const shown = parts.map((p) => p.trim()).filter(Boolean);
+  return (
+    <div className="flex w-full flex-col items-start gap-1.5">
+      {shown.map((p, i) => {
+        const card = splitFences(p).some((b) => b.kind === "fence");
+        const last = i === shown.length - 1;
+        return card ? (
+          <RichText key={i} streaming={streaming && last} text={p} answered={answered} />
+        ) : (
+          <div
+            key={i}
+            className="max-w-[88%] rounded-[22px] rounded-bl-md bg-[color-mix(in_srgb,#3a72e8_17%,var(--well))] px-4 py-2.5 shadow-[inset_0_0_0_1px_color-mix(in_srgb,#3a72e8_28%,transparent)]"
+          >
+            <RichText streaming={streaming && last} text={p} answered={answered} />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** The bot went quiet mid-reply (a tool is running, or the next turn is on
+ *  its way): the typing dots come back after a beat, in a bubble of their own. */
+function QuietDots({ content, message }: { content: string; message: ChatMessage }) {
+  const [quiet, setQuiet] = useState(false);
+  useEffect(() => {
+    setQuiet(false);
+    const t = setTimeout(() => setQuiet(true), 1100);
+    return () => clearTimeout(t);
+  }, [content]);
+  return quiet ? <div className="mt-1.5"><ThinkingDots message={message} /></div> : null;
+}
+
 const WELL = "shadow-[inset_0_0_0_1px_var(--well-outline),inset_0_1px_0_0_var(--well-highlight)]";
 
 export function AssistantMessage({
@@ -169,10 +214,10 @@ export function AssistantMessage({
         </div>
       )}
       {showText && !streamingNow && <Thought message={message} />}
-      {showText && <RichText streaming={streamingNow || !caughtUp} text={text} answered={answered} />}
-      {streamingNow && !showText && (
-        <ThinkingDots message={message} />
-      )}
+      {showText && !avatar && <RichText streaming={streamingNow || !caughtUp} text={text} answered={answered} />}
+      {showText && avatar && <Bubbles message={message} text={text} streaming={streamingNow || !caughtUp} answered={answered} />}
+      {streamingNow && !showText && <ThinkingDots message={message} />}
+      {streamingNow && showText && avatar && caughtUp && <QuietDots content={message.content} message={message} />}
       {failed && <ErrorBanner detail={error ?? undefined} onRetry={onRetry} />}
       {stopped && (
         <div className="mt-2 flex items-center gap-1.5 text-[13px]/4 font-medium text-muted-foreground">

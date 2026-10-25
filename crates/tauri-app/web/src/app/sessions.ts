@@ -50,7 +50,7 @@ export type Session = {
 const KEY = "bs.sessions.v1";
 const MAX = 300;
 /** Silence after which a session is idle, awake or concluding alike. */
-export const IDLE_MINUTES = 15;
+export const IDLE_MINUTES = 4;
 export const IDLE_MS = IDLE_MINUTES * 60_000;
 
 function load(): Session[] {
@@ -123,7 +123,7 @@ export function ensureSession(t: Thread, machine: string | null = null) {
   if (agentIds.length === 0) return;
   const have = sessionsFor(t.id)[0];
   if (have) {
-    if (have.state === "idle") touchSession(have.id);
+    // An ended session stays ended: the next word opens a new one (bridge.ts send).
     if (machine && have.machine !== machine) set(sessions.map((s) => (s.id === have.id ? { ...s, machine } : s)));
     return;
   }
@@ -210,21 +210,12 @@ export function liveState(s: Session, now = Date.now()): SessionState {
   return now - since > IDLE_MS ? "idle" : s.state;
 }
 
-/** "12m in", "wrapping up · ends in 3:58", "ended 20m ago". */
+/** "12m in" while it is going; "wrapping up" while it winds down; nothing once
+ *  it has ended: the user is not shown a clock or an end time. */
 export function sessionLabel(s: Session, now = Date.now()): string {
   const st = liveState(s, now);
-  if (st === "idle") {
-    const at = s.endedAt ?? s.lastAt;
-    const m = Math.max(0, Math.round((now - at) / 60_000));
-    return m < 1 ? "just ended" : `ended ${m}m ago`;
-  }
-  if (st === "concluding") {
-    const left = IDLE_MS - (now - (s.endedAt ?? now));
-    if (left <= 0) return "ending…";
-    const mins = Math.floor(left / 60_000);
-    const secs = Math.floor((left % 60_000) / 1000);
-    return `wrapping up · ends in ${mins}:${String(secs).padStart(2, "0")}`;
-  }
+  if (st === "idle") return "";
+  if (st === "concluding") return "wrapping up";
   const m = Math.max(0, Math.round((now - s.startedAt) / 60_000));
   return m < 1 ? "just started" : `${m}m in`;
 }

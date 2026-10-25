@@ -97,6 +97,11 @@ pub struct Msg {
     /// The reasoning the target showed while it worked, when it shows any.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub thinking: String,
+    /// Where in `text` (UTF-16 units, as the face counts) one assistant turn
+    /// ended and the next began, i.e. after a tool call. The face draws each
+    /// stretch as its own bubble.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub breaks: Vec<usize>,
     /// A sponsored card shown under this reply (Cloud free tier and
     /// overage only). Never part of the reply text.
     #[serde(default)]
@@ -144,6 +149,7 @@ impl Msg {
             ad: None,
             cost_usd: None,
             thinking: String::new(),
+            breaks: Vec::new(),
             edited: false,
             via: None,
             author: None,
@@ -988,6 +994,7 @@ impl Chats {
                 ad: None,
                 cost_usd: None,
                 thinking: String::new(),
+                breaks: Vec::new(),
                 edited: false,
                 via: None,
                 author: None,
@@ -1769,16 +1776,20 @@ Ask the reader for input with the real form parts: `f = FormControl(\"Name\", In
                 m.thinking.push_str(&text);
             }),
             RunEvent::Break => {
-                let need = self
-                    .threads
-                    .lock()
-                    .unwrap()
-                    .get(id)
-                    .and_then(|t| t.messages.iter().find(|m| m.id == mid))
-                    .is_some_and(|m| !m.text.is_empty() && !m.text.ends_with("\n\n"));
-                if need {
-                    self.append(id, mid, "\n\n");
-                }
+                // The next stretch is a new turn: note where this one ended,
+                // and keep the plain text readable as paragraphs.
+                self.with_msg(id, mid, |m| {
+                    if m.text.is_empty() {
+                        return;
+                    }
+                    let end = m.text.trim_end().encode_utf16().count();
+                    if m.breaks.last() != Some(&end) {
+                        m.breaks.push(end);
+                    }
+                    if !m.text.ends_with("\n\n") {
+                        m.text.push_str("\n\n");
+                    }
+                });
             }
             RunEvent::Replace { text } => self.set_text(id, mid, &text),
             // Turned into text by `run` when nothing else came.
@@ -2057,6 +2068,7 @@ mod tests {
             ad: None,
             cost_usd: None,
             thinking: String::new(),
+            breaks: Vec::new(),
             edited: false,
             via: None,
             author: author.map(Into::into),
@@ -2118,6 +2130,7 @@ mod tests {
                     ad: None,
                     cost_usd: None,
                     thinking: String::new(),
+                    breaks: Vec::new(),
                     edited: false,
                     via: None,
                     author: None,

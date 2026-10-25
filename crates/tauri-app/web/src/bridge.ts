@@ -7,7 +7,7 @@
 import { useSyncExternalStore } from "react";
 
 import type { ChatMessage, MessageStatus } from "@/lib/messages";
-import { concludeSession, ensureSession, isGoodbye, renewSession, sessionFor, touchSession } from "./app/sessions";
+import { concludeSession, ensureSession, isGoodbye, liveState, renewSession, sessionFor, touchSession } from "./app/sessions";
 import { detectShift } from "./app/shift";
 
 export type RouteKind = "cli" | "local" | "router" | "cloud" | "a2a";
@@ -27,6 +27,7 @@ export type Msg = {
   attachments: { id: string; name: string; mime: string; size: number }[];
   model?: string | null;
   thinking?: string;
+  breaks?: number[];
   ad?: Ad | null;
   cost_usd?: number | null;
   edited?: boolean;
@@ -710,7 +711,8 @@ export async function send(text: string, files: NewFile[], route: Route | null, 
   // different errand opens a new sitting in the same thread.
   if (state.thread && (state.thread.agent || (state.thread.members?.length ?? 0) > 0)) {
     const sitting = sessionFor(id);
-    if (isGoodbye(text)) sitting && concludeSession(sitting.id);
+    if (sitting && liveState(sitting) === "idle") renewSession(state.thread, sitting.machine, text);
+    else if (isGoodbye(text)) sitting && concludeSession(sitting.id);
     else if (sitting && detectShift(text, sitting.title)) renewSession(state.thread, sitting.machine, text);
     else if (sitting) touchSession(sitting.id);
   }
@@ -798,6 +800,7 @@ export function toChatMessage(t: Thread, m: Msg): ChatMessage {
     streamId: m.role === "assistant" && m.status !== "done" ? `live-${m.id}` : undefined,
     model: m.model ?? undefined,
     thinking: m.thinking || undefined,
+    breaks: m.breaks?.length ? m.breaks : undefined,
     usageCost: m.cost_usd ?? undefined,
     traceId: m.trace ?? undefined,
     attachments: m.attachments.map((a) => ({

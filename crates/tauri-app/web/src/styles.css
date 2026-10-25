@@ -99,7 +99,7 @@
 [data-streamdown="code-block"] { border-radius: 14px; overflow: hidden; margin-block: 0.7em; }
 [data-streamdown="horizontal-rule"] { border: 0; border-top: 1px solid var(--border); margin-block: 1em; }
 
-/* The three dots of "someone is typing". */
-.think-dot { display: block; width: 7px; height: 7px; border-radius: 50%; background: currentColor; opacity: 0.35; animation: think-dot 1.2s ease-in-out infinite; }
-@keyframes think-dot { 0%, 60%, 100% { transform: translateY(0); opacity: 0.35; } 30% { transform: translateY(-3px); opacity: 0.9; } }
+/* The three dots of "someone is typing": one lights up at a time. */
+.think-dot { display: block; width: 7px; height: 7px; border-radius: 50%; background: currentColor; opacity: 0.3; animation: think-dot 1.2s ease-in-out infinite; }
+@keyframes think-dot { 0% { transform: translateY(0); opacity: 0.3; } 10% { transform: translateY(-3px); opacity: 0.95; } 30%, 100% { transform: translateY(0); opacity: 0.3; } }
 @media (prefers-reduced-motion: reduce) { .think-dot { animation: none; opacity: 0.6; } }

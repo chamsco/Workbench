@@ -52,7 +52,7 @@ import { RoutineDialog } from "./routines";
 import { ProjectDialog } from "./projects";
 import { CardGlyph, CardsAgenda, CardSheet } from "./shapeshift";
 import { useCards } from "../shapeshift";
-import { concludeSession, endSession, liveState, scrollToSession, sessionFor, sessionLabel, touchSession, useNow, useSessions } from "./sessions";
+import { concludeSession, endSession, liveState, scrollToSession, sessionFor, sessionLabel, useNow, useSessions } from "./sessions";
 import {
   agentById,
   agentStatus,
@@ -521,7 +521,7 @@ function SessionBar({ thread }: { thread: Thread }) {
     <div className="mt-1 flex items-center gap-2 text-[12.5px]/5 text-muted-foreground">
       <button type="button" onClick={() => scrollToSession(s.id)} className="flex cursor-pointer items-center gap-1.5 hover:text-foreground" title={`${s.title} — scroll back to where this session began`}>
         <IconMessages size={12} />
-        {sessionLabel(s, now)}
+        {sessionLabel(s, now) || s.title}
       </button>
       {st === "awake" && (
         <button type="button" className={chip} onClick={() => concludeSession(s.id)} title="Say your goodbyes — the session ends when the talking stops">
@@ -531,11 +531,6 @@ function SessionBar({ thread }: { thread: Thread }) {
       {st === "concluding" && (
         <button type="button" className={chip} onClick={() => endSession(s.id)} title="End it now">
           End now
-        </button>
-      )}
-      {st === "idle" && (
-        <button type="button" className={chip} onClick={() => touchSession(s.id)} title="Pick this session back up">
-          Reopen
         </button>
       )}
     </div>
