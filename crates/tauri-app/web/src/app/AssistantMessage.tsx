@@ -6,12 +6,11 @@
 // answered (multi-harness threads) and the sponsored card for Cloud's
 // ad-supported plans, styled as one of Whirl's wells.
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   IconAlertTriangleFilled,
   IconCheck,
   IconCopy,
-  IconLoader2,
   IconPlayerStopFilled,
   IconRefresh,
   IconTimeline,
@@ -24,6 +23,55 @@ import { CheckpointMenu } from "@/components/thread/checkpoint-menu";
 import { RichText } from "./RichText";
 import { MessageActionButton } from "@/components/thread/message-action-button";
 import { getHost, openTrace, type Ad } from "../bridge";
+
+/** The wait for a reply, drawn the way a chat app shows someone typing: three
+ *  dots. Under the pointer they slowly turn into "Thinking"; a click opens what
+ *  is known of the turn. The reasoning text itself is not kept by the app, so
+ *  the panel shows the model, the clock and, once there is one, the trace. */
+function ThinkingDots({ message }: { message: ChatMessage }) {
+  const [open, setOpen] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!open) return;
+    const t = setInterval(() => setNow(Date.now()), 500);
+    return () => clearInterval(t);
+  }, [open]);
+  const secs = Math.max(0, Math.round((now - message.createdAt) / 1000));
+  return (
+    <div className="flex flex-col items-start gap-2">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        aria-label={open ? "Hide thinking" : "Show thinking"}
+        className="group/think relative flex h-9 cursor-pointer items-center rounded-full bg-well px-3.5 text-[13px]/5 text-muted-foreground shadow-[inset_0_0_0_1px_var(--well-outline)]"
+      >
+        <span className="flex items-center gap-1 transition-opacity duration-700 ease-in-out group-hover/think:opacity-0">
+          <i className="think-dot" />
+          <i className="think-dot [animation-delay:0.2s]" />
+          <i className="think-dot [animation-delay:0.4s]" />
+        </span>
+        <span className="absolute inset-0 grid place-items-center text-[13px] font-medium opacity-0 transition-opacity delay-150 duration-700 ease-in-out group-hover/think:opacity-100">
+          Thinking
+        </span>
+        <span className="invisible ml-1 w-0 overflow-hidden text-[13px]">Thinking</span>
+      </button>
+      {open && (
+        <div className="flex max-w-sm flex-col gap-1 rounded-2xl bg-well px-3.5 py-2.5 text-[12.5px]/5 text-muted-foreground shadow-[inset_0_0_0_1px_var(--well-outline)]">
+          <div>
+            Working for {secs}s{message.model ? ` on ${message.model}` : ""}.
+          </div>
+          <div>The model's own reasoning isn't kept; each tool call and its timing show in the trace once the reply lands.</div>
+          {message.traceId && (
+            <button type="button" onClick={() => openTrace(message.traceId!)} className="w-fit cursor-pointer underline-offset-2 hover:text-foreground hover:underline">
+              Open the trace
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 const WELL = "shadow-[inset_0_0_0_1px_var(--well-outline),inset_0_1px_0_0_var(--well-highlight)]";
 
@@ -80,10 +128,7 @@ export function AssistantMessage({
       )}
       {showText && <RichText streaming={streamingNow || !caughtUp} text={text} answered={answered} />}
       {streamingNow && !showText && (
-        <div className="flex h-7 items-center gap-2 text-[14px]/5 text-muted-foreground">
-          <IconLoader2 size={15} className="animate-spin" />
-          <span className="text-shimmer">Thinking</span>
-        </div>
+        <ThinkingDots message={message} />
       )}
       {failed && <ErrorBanner detail={error ?? undefined} onRetry={onRetry} />}
       {stopped && (

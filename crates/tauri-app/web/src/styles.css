@@ -69,3 +69,37 @@
   --pele-font: var(--font-ui);
   --pele-radius: 8px;
 }
+
+/* Replies: room between blocks, headings that read as headings, quotes with a
+   bar, inline code as a chip, rules as hairlines (Streamdown's own markup). */
+[data-streamdown="heading-1"], [data-streamdown="heading-2"], [data-streamdown="heading-3"] {
+  margin-top: 1.1em;
+  margin-bottom: 0.35em;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+[data-streamdown="heading-1"] { font-size: 1.3em; }
+[data-streamdown="heading-2"] { font-size: 1.15em; }
+[data-streamdown="heading-3"] { font-size: 1.04em; }
+[data-streamdown="unordered-list"], [data-streamdown="ordered-list"] { margin-block: 0.5em; }
+[data-streamdown="list-item"] { margin-block: 0.2em; }
+[data-streamdown="blockquote"] {
+  margin-block: 0.7em;
+  padding: 0.15em 0 0.15em 0.9em;
+  border-left: 3px solid color-mix(in srgb, var(--bs-accent, #cf5a24) 55%, transparent);
+  color: var(--foreground-soft);
+}
+[data-streamdown="inline-code"] {
+  padding: 0.12em 0.4em;
+  border-radius: 6px;
+  background: var(--well);
+  box-shadow: inset 0 0 0 1px var(--well-outline);
+  font-size: 0.9em;
+}
+[data-streamdown="code-block"] { border-radius: 14px; overflow: hidden; margin-block: 0.7em; }
+[data-streamdown="horizontal-rule"] { border: 0; border-top: 1px solid var(--border); margin-block: 1em; }
+
+/* The three dots of "someone is typing". */
+.think-dot { display: block; width: 7px; height: 7px; border-radius: 50%; background: currentColor; opacity: 0.35; animation: think-dot 1.2s ease-in-out infinite; }
+@keyframes think-dot { 0%, 60%, 100% { transform: translateY(0); opacity: 0.35; } 30% { transform: translateY(-3px); opacity: 0.9; } }
+@media (prefers-reduced-motion: reduce) { .think-dot { animation: none; opacity: 0.6; } }

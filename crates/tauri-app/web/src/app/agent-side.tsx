@@ -2,7 +2,7 @@
 // The bot itself sits on top, its name over its brain, and under it four tabs:
 // Settings (model, instructions, personality and the switches), Context (what
 // its next reply reads, as a map the way a disk space app draws a drive),
-// Traces (how each reply was made), Routines (its jobs on a clock) and Screen
+// Traces (how each reply was made), Routines (its jobs on a clock) and Desktop and Browser
 // (its browser or your desktop as it last saw it, with Take control).
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -40,7 +40,8 @@ const TABS = [
   ["context", "Context"],
   ["traces", "Traces"],
   ["routines", "Routines"],
-  ["screen", "Screen"],
+  ["desktop", "Desktop"],
+  ["browser", "Browser"],
 ] as const;
 type Tab = (typeof TABS)[number][0];
 
@@ -76,9 +77,36 @@ export function AgentSide({ agent, thread: open, threadId }: { agent: Agent; thr
       /* private window */
     }
   };
+  // The panel's width is the user's: drag its left edge, it stays put.
+  const [w, setW] = useState(() => {
+    try {
+      const n = Number(localStorage.getItem("bs.agentSideW"));
+      return n >= 260 && n <= 640 ? n : 340;
+    } catch {
+      return 340;
+    }
+  });
+  const drag = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const x0 = e.clientX, w0 = w;
+    let last = w0;
+    const move = (m: PointerEvent) => setW((last = Math.min(640, Math.max(260, w0 + x0 - m.clientX))));
+    const up = () => {
+      removeEventListener("pointermove", move);
+      removeEventListener("pointerup", up);
+      try {
+        localStorage.setItem("bs.agentSideW", String(Math.round(last)));
+      } catch {
+        /* private window */
+      }
+    };
+    addEventListener("pointermove", move);
+    addEventListener("pointerup", up);
+  };
   const busy = thread?.messages.some((m) => m.role === "assistant" && m.status === "streaming");
   return (
-    <aside className="agent-side flex w-[300px] shrink-0 flex-col border-l border-border" aria-label={`${agent.name}'s panel`}>
+    <aside className="agent-side relative flex shrink-0 flex-col border-l border-border" style={{ width: w }} aria-label={`${agent.name}'s panel`}>
+      <div role="separator" aria-orientation="vertical" aria-label="Resize panel" onPointerDown={drag} className="absolute inset-y-0 -left-1 z-10 w-2 cursor-col-resize hover:bg-foreground/10" />
       <div className="flex shrink-0 flex-col items-center gap-1 px-3 pt-4 pb-2">
         <div className="max-w-full truncate text-[15px] font-semibold text-foreground">{agent.name}</div>
         <Orb agent={agent} size={104} state={busy ? "working" : "idle"} />
@@ -86,7 +114,7 @@ export function AgentSide({ agent, thread: open, threadId }: { agent: Agent; thr
           Sessions, cards and projects
         </button>
       </div>
-      <div className="flex shrink-0 justify-center gap-0.5 px-3 pb-2" role="tablist">
+      <div className="flex shrink-0 gap-2 overflow-x-auto border-b border-border px-2.5" role="tablist">
         {TABS.map(([id, label]) => (
           <button
             key={id}
@@ -95,20 +123,20 @@ export function AgentSide({ agent, thread: open, threadId }: { agent: Agent; thr
             aria-selected={tab === id}
             onClick={() => pick(id)}
             className={cn(
-              "h-7 rounded-md px-1.5 text-[12.5px] font-medium text-muted-foreground transition-colors hover:text-foreground",
-              tab === id && "bg-well text-foreground",
+              "-mb-px h-8 shrink-0 border-b-2 border-transparent text-[12.5px] font-medium text-muted-foreground transition-colors hover:text-foreground",
+              tab === id && "border-foreground text-foreground",
             )}
           >
             {label}
           </button>
         ))}
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-4">
+      <div className="min-h-0 flex-1 overflow-y-auto px-3 pt-3 pb-4">
         {tab === "settings" && <SettingsTab agent={agent} />}
         {tab === "context" && <ContextTab thread={thread} agent={agent} />}
         {tab === "traces" && <TracesTab thread={thread} />}
         {tab === "routines" && <RoutineCards agent={agent} />}
-        {tab === "screen" && <ScreenTab agent={agent} />}
+        {(tab === "desktop" || tab === "browser") && <ScreenTab agent={agent} focus={tab} />}
       </div>
     </aside>
   );
@@ -500,7 +528,7 @@ function ago(s: number | null) {
 
 /** Its browser and desktop use: what it last saw, the steps it took, Take
  *  control, and the switches (after Reason's Desktop tab). */
-function ScreenTab({ agent }: { agent: Agent }) {
+function ScreenTab({ agent, focus }: { agent: Agent; focus: "desktop" | "browser" }) {
   const host = getHost();
   const [live, setLive] = useState<Live | null>(null);
   const [cfg, setCfg] = useState<HandsCfg | null>(null);
@@ -580,13 +608,16 @@ function ScreenTab({ agent }: { agent: Agent }) {
           ))}
         </ol>
       )}
-      <Row title="Browser use" sub={webOff ? "Off while its Web rule is off" : "Its own tab in a Chrome you can watch and sign in to"}>
-        <Toggle on={has("browser") && !webOff} label="Browser use" onChange={(on) => flip("browser", on)} />
-      </Row>
-      <Row title="Desktop use" sub="Sees your screen and uses your mouse and keyboard">
-        <Toggle on={has("desktop")} label="Desktop use" onChange={(on) => flip("desktop", on)} />
-      </Row>
-      {cfg && (
+      {focus === "browser" ? (
+        <Row title="Browser use" sub={webOff ? "Off while its Web rule is off" : "Its own tab in a Chrome you can watch and sign in to"}>
+          <Toggle on={has("browser") && !webOff} label="Browser use" onChange={(on) => flip("browser", on)} />
+        </Row>
+      ) : (
+        <Row title="Desktop use" sub="Sees your screen and uses your mouse and keyboard">
+          <Toggle on={has("desktop")} label="Desktop use" onChange={(on) => flip("desktop", on)} />
+        </Row>
+      )}
+      {focus === "browser" && cfg && (
         <div className="flex flex-col gap-1">
           <span className="font-medium text-foreground">Fast browser model</span>
           <div className="flex gap-1">
