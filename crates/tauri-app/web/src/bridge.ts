@@ -122,6 +122,8 @@ export type Agent = {
   off: string[];
   /** Apps and connections it may not use, by id. */
   apps_off: string[];
+  /** What it may drive: "browser" (its own Chrome tab), "desktop" (your screen). */
+  hands: string[];
   /** Its webhook's secret; "" while the webhook is off. */
   hook: string;
   routines: Routine[];

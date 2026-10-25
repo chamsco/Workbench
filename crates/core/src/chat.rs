@@ -1724,9 +1724,14 @@ Ask the reader for input with the real form parts: `f = FormControl(\"Name\", In
         if !deny.is_empty() {
             env.insert(crate::mcp::ENV_DENY.into(), deny.join(",").into());
         }
+        // Its browser and desktop use.
+        let hands = call.agent.as_ref().and_then(|a| a.hands_env());
+        if let Some(h) = &hands {
+            env.insert(crate::hands::ENV_HANDS.into(), serde_json::to_string(h)?.into());
+        }
         let mut servers = serde_json::Map::new();
-        // Installed apps' tools, the agent's computer and memory, through `backspace mcp`.
-        if !crate::mcp::app_tools(&deny).is_empty() || computer.is_some() || mem_scope.is_some() {
+        // Installed apps' tools, the agent's computer, memory and hands, through `backspace mcp`.
+        if !crate::mcp::app_tools(&deny).is_empty() || computer.is_some() || mem_scope.is_some() || hands.is_some() {
             if let Ok(exe) = std::env::current_exe() {
                 servers.insert("backspace".into(), json!({"command": exe.display().to_string(), "args": ["mcp"], "env": env}));
             }

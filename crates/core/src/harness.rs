@@ -208,15 +208,8 @@ pub fn local_subagent(cfg: &mut Config, prefs: &crate::prefs::Prefs) {
         return;
     };
     if !cfg.models.iter().any(|m| m.id == spec) {
-        let base_url = match runtime {
-            "ollama" => format!("{}/v1", prefs.ollama_url.trim_end_matches('/')),
-            "lmstudio" => "http://127.0.0.1:1234/v1".to_string(),
-            "llamacpp" => "http://127.0.0.1:8080/v1".to_string(),
-            "mlx" => "http://127.0.0.1:8081/v1".to_string(),
-            other => match prefs.routers.iter().find(|r| r.id == other || r.name.eq_ignore_ascii_case(other)) {
-                Some(r) => r.base_url.trim_end_matches('/').to_string(),
-                None => return,
-            },
+        let Some(base_url) = runtime_base(prefs, runtime) else {
+            return;
         };
         cfg.providers.insert(
             runtime.to_string(),
@@ -240,6 +233,18 @@ pub fn local_subagent(cfg: &mut Config, prefs: &crate::prefs::Prefs) {
     if jobs.contains_key("scouts") {
         cfg.advisor.scout_model = Some(spec);
     }
+}
+
+/// Where a local runtime ("ollama", "lmstudio"...) or a named router serves
+/// its OpenAI API, from its default port: no probe.
+pub fn runtime_base(prefs: &crate::prefs::Prefs, runtime: &str) -> Option<String> {
+    Some(match runtime {
+        "ollama" => format!("{}/v1", prefs.ollama_url.trim_end_matches('/')),
+        "lmstudio" => "http://127.0.0.1:1234/v1".to_string(),
+        "llamacpp" => "http://127.0.0.1:8080/v1".to_string(),
+        "mlx" => "http://127.0.0.1:8081/v1".to_string(),
+        other => prefs.routers.iter().find(|r| r.id == other || r.name.eq_ignore_ascii_case(other))?.base_url.trim_end_matches('/').to_string(),
+    })
 }
 
 /// Which small delegated jobs run on the tiny local model, from prefs.
