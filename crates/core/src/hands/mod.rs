@@ -364,9 +364,25 @@ mod tests {
     fn take_control_stops_the_tools() {
         let data = std::env::temp_dir().join(format!("bs-hands-{}", std::process::id()));
         take(&data, "a", true).unwrap();
-        assert_eq!(live(&data, "a")["paused"], true);
+        assert_eq!(live(&data, "a", "browser")["paused"], true);
         take(&data, "a", false).unwrap();
-        assert_eq!(live(&data, "a")["paused"], false);
+        assert_eq!(live(&data, "a", "browser")["paused"], false);
+        let _ = std::fs::remove_dir_all(&data);
+    }
+
+    #[test]
+    fn browser_and_desktop_keep_their_own_view() {
+        let data = std::env::temp_dir().join(format!("bs-hands-views-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&data);
+        let d = dir(&data, "b");
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::write(d.join("browser.jpg"), b"jpg").unwrap();
+        log(&d, "browser", &json!({"kind": "click", "action": "go"})).unwrap();
+        log(&d, "desktop", &json!({"kind": "key", "action": "enter"})).unwrap();
+        let (b, k) = (live(&data, "b", "browser"), live(&data, "b", "desktop"));
+        assert!(b["frame"].is_string() && k["frame"].is_null());
+        assert_eq!(b["steps"].as_array().unwrap().len(), 1);
+        assert_eq!(k["steps"][0]["action"], "enter");
         let _ = std::fs::remove_dir_all(&data);
     }
 }
