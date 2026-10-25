@@ -308,6 +308,7 @@ The README is current. Read its "Layout", "Run" and "Known limits" sections firs
 5. **A2A gaps.** No `message/stream` streaming, no push notifications, no file parts. Only tested against a local Python agent.
 6. **Agents the owner named that can't be connected yet.** OpenAI Dots and xAI Grok Bot are consumer apps with no API. WorkBuddy is **Tencent's**, not Alibaba's, and its open platform is for partners only. Setup says so. Revisit if APIs appear.
 7. **Scope.** The owner likes the "orchestrator plus harness" direction. The previous session pushed back: the app now spans Workbench, Chat, Agents, Memory, Apps, Cloud and Phone. The case for bringing an agent here is memory, groups, traces and Carry on across agents, so lead with those. Consider dropping Cloud and ads, and freezing the GPUI shell.
+8. **Stats / harness observability.** Plan in `docs/ROADMAP-OBSERVABILITY.md` (home Stats tab, Settings -> Tracing config, readers for every installed harness and device). First review in `docs/HARNESS-REVIEW-2026-10-25.md`.
 
 ## Build, test, run
 
