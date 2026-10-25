@@ -1,5 +1,24 @@
 # Handoff: Backspace (ohMyHarness → Workbench), v0
 
+**Session, 25 Oct 2026: agents get browser and desktop use (docs/HANDS.md).**
+
+- `crates/core/src/hands/`: the agents' own Chrome over DevTools (cdp.rs),
+  Jev Ultrafast's DOM snapshot and guarded actions ported to Rust
+  (browser.rs, snapshot.js vendored), the `browser_task` fast loop with Jev
+  (TypeSafe, hosted) or an on-device model held to the page's ids by a JSON
+  schema (decide.rs), and desktop screenshots/mouse/keyboard (desktop.rs).
+  All as `backspace mcp` tools; `Agent::hands` (browser default, desktop
+  opt-in) reaches the server as BACKSPACE_HANDS.
+- Agent side panel: a Screen tab (last frame, steps, Take control, the two
+  switches, Fast browser model). Commands `agent_hands`, `agent_hands_take`,
+  `hands_prefs`, `set_hands_prefs`.
+- **Ran:** `cargo test -p backspace-core --lib`, `cargo check -p
+  backspace-tauri`, `vite build`; real Chromium under Xvfb driven over MCP
+  (open, type, select, check, submit), `browser_task` on both deciders
+  against a stand-in model server, desktop tools under Xvfb. No real small
+  model or TypeSafe key was available. macOS input/screenshot code is
+  compiled only by the Mac workflow.
+
 **Session, 24 Oct 2026 (evening): Charles's Windows walkthrough (PR #31).**
 
 - **Freeze:** opening Settings ran slow synchronous Tauri commands on the UI

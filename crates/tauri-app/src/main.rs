@@ -1378,6 +1378,29 @@ fn chat_context(f: F, id: String) -> Option<backspace_core::chat::ContextMap> {
     f.chats().context_map(&id, &f.chat_ctx())
 }
 
+/// An agent's browser or desktop as it last saw it, for its side panel.
+#[tauri::command]
+async fn agent_hands(f: F<'_>, id: String) -> Res<serde_json::Value> {
+    blocking(f, move |_| Ok(backspace_core::hands::live(&backspace_core::prefs::Prefs::data_dir(), &id))).await
+}
+
+/// "Take control" of an agent's browser and desktop (its tools stop), or hand it back.
+#[tauri::command]
+async fn agent_hands_take(f: F<'_>, id: String, on: bool) -> Res<()> {
+    blocking(f, move |_| backspace_core::hands::take(&backspace_core::prefs::Prefs::data_dir(), &id, on)).await
+}
+
+/// How agents' browser use runs (`prefs.hands`).
+#[tauri::command]
+fn hands_prefs(f: F) -> backspace_core::prefs::Hands {
+    f.prefs().hands
+}
+
+#[tauri::command]
+fn set_hands_prefs(f: F, cfg: backspace_core::prefs::Hands) {
+    f.update_prefs(|p| p.hands = cfg);
+}
+
 #[tauri::command]
 fn set_tracing(f: F, cfg: backspace_core::trace::Export) {
     f.update_prefs(|p| p.tracing = cfg);
@@ -2062,6 +2085,10 @@ fn main() -> anyhow::Result<()> {
             memory_dreams,
             trace_get,
             chat_context,
+            agent_hands,
+            agent_hands_take,
+            hands_prefs,
+            set_hands_prefs,
             set_tracing,
             trace_test,
             memory_dream,

@@ -2,10 +2,11 @@
 // The bot itself sits on top, its name over its brain, and under it four tabs:
 // Settings (model, instructions, personality and the switches), Context (what
 // its next reply reads, as a map the way a disk space app draws a drive),
-// Traces (how each reply was made) and Routines (its jobs on a clock).
+// Traces (how each reply was made), Routines (its jobs on a clock) and Desktop and Browser
+// (its browser or your desktop as it last saw it, with Take control).
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { IconAlertTriangleFilled, IconChevronRight, IconSettings } from "@tabler/icons-react";
+import { IconAlertTriangleFilled, IconBrowser, IconChevronRight, IconDeviceDesktop, IconHandStop, IconSettings } from "@tabler/icons-react";
 
 import { cn } from "@/lib/utils";
 import { editAgent, getHost, openBot, openTrace, saveAgent, useChat, type Agent, type Thread, type Trace } from "../bridge";
@@ -135,11 +136,7 @@ export function AgentSide({ agent, thread: open, threadId }: { agent: Agent; thr
         {tab === "context" && <ContextTab thread={thread} agent={agent} />}
         {tab === "traces" && <TracesTab thread={thread} />}
         {tab === "routines" && <RoutineCards agent={agent} />}
-        {(tab === "desktop" || tab === "browser") && (
-          <p className="py-2 text-[12.5px]/5 text-muted-foreground">
-            {tab === "desktop" ? "Desktop use" : "Browser use"}: {agent.name} will drive {tab === "desktop" ? "apps on its computer" : "web pages"} from here, and you will watch it work. Not switched on yet.
-          </p>
-        )}
+        {(tab === "desktop" || tab === "browser") && <ScreenTab agent={agent} focus={tab} />}
       </div>
     </aside>
   );
@@ -498,6 +495,154 @@ function SettingsTab({ agent }: { agent: Agent }) {
       <button type="button" onClick={() => editAgent(agent)} className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md bg-well text-[12.5px] font-medium hover:text-foreground">
         <IconSettings className="size-3.5" /> Name, colour, computer and apps
       </button>
+    </div>
+  );
+}
+
+// ------------------------------------------------------------------ screen
+
+type Step = { kind?: string; action?: string; text?: string | null; at?: number };
+type Live = {
+  kind: "browser" | "desktop" | null;
+  url: string | null;
+  title: string | null;
+  at: number | null;
+  frame: string | null;
+  steps: Step[];
+  paused: boolean;
+  browser_running: boolean;
+};
+type HandsCfg = { decider: string; model: string; chrome: string; headless: boolean };
+
+const DECIDERS = [
+  ["", "Its own model", "It reads each page and picks the next step itself"],
+  ["local", "On-device", "A small model on this machine runs whole browser tasks"],
+  ["jev", "Jev", "TypeSafe's hosted Jev runs whole browser tasks (TYPESAFE_API_KEY)"],
+] as const;
+
+function ago(s: number | null) {
+  if (!s) return "";
+  const d = Math.max(0, Date.now() / 1000 - s);
+  return d < 60 ? "just now" : d < 3600 ? `${Math.round(d / 60)} min ago` : `${Math.round(d / 3600)} h ago`;
+}
+
+/** Its browser and desktop use: what it last saw, the steps it took, Take
+ *  control, and the switches (after Reason's Desktop tab). */
+function ScreenTab({ agent, focus }: { agent: Agent; focus: "desktop" | "browser" }) {
+  const host = getHost();
+  const [live, setLive] = useState<Live | null>(null);
+  const [cfg, setCfg] = useState<HandsCfg | null>(null);
+  useEffect(() => {
+    let on = true;
+    const tick = () =>
+      host
+        .invoke<Live>("agent_hands", { id: agent.id })
+        .then((l) => on && setLive(l))
+        .catch(() => {});
+    tick();
+    const t = setInterval(tick, 1500);
+    return () => {
+      on = false;
+      clearInterval(t);
+    };
+  }, [agent.id]);
+  useEffect(() => {
+    host
+      .invoke<HandsCfg>("hands_prefs")
+      .then(setCfg)
+      .catch(() => {});
+  }, []);
+  const save = (p: Partial<Agent>) => void saveAgent({ ...agent, ...p }).catch((e) => host.toast(String(e), "err"));
+  const hands = agent.hands ?? ["browser"];
+  const has = (h: string) => hands.includes(h);
+  const flip = (h: string, on: boolean) => save({ hands: on ? [...hands.filter((x) => x !== h), h] : hands.filter((x) => x !== h) });
+  const take = (on: boolean) =>
+    host
+      .invoke("agent_hands_take", { id: agent.id, on })
+      .then(() => setLive((l) => (l ? { ...l, paused: on } : l)))
+      .catch((e) => host.toast(String(e), "err"));
+  const setDecider = (p: Partial<HandsCfg>) => {
+    if (!cfg) return;
+    const next = { ...cfg, ...p };
+    setCfg(next);
+    void host.invoke("set_hands_prefs", { cfg: next }).catch((e) => host.toast(String(e), "err"));
+  };
+  const webOff = agent.off.includes("web");
+  return (
+    <div className="flex flex-col gap-3.5 text-[12.5px]">
+      <div className="screen-view relative overflow-hidden rounded-lg border border-border bg-well">
+        {live?.frame ? (
+          <img src={live.frame} alt={`What ${agent.name} last saw`} className="block aspect-[16/10] w-full object-cover object-top" />
+        ) : (
+          <div className="flex aspect-[16/10] w-full flex-col items-center justify-center gap-1 px-4 text-center text-[11.5px] text-muted-foreground">
+            <IconBrowser className="size-5" />
+            Nothing yet. When {agent.name} opens a page or looks at your screen, it shows here.
+          </div>
+        )}
+        {live?.paused && <div className="absolute inset-x-0 top-0 bg-[#d97706] px-2 py-0.5 text-center text-[11px] font-medium text-white">You have control</div>}
+      </div>
+      {live?.kind && (
+        <div className="-mt-2 flex items-center gap-1.5 text-[11.5px] text-muted-foreground">
+          {live.kind === "desktop" ? <IconDeviceDesktop className="size-3.5 shrink-0" /> : <IconBrowser className="size-3.5 shrink-0" />}
+          <span className="min-w-0 flex-1 truncate">{live.kind === "desktop" ? "Your screen" : live.title || live.url}</span>
+          <span className="shrink-0">{ago(live.at)}</span>
+        </div>
+      )}
+      <button
+        type="button"
+        onClick={() => take(!live?.paused)}
+        className={cn("inline-flex h-8 items-center justify-center gap-1.5 rounded-md text-[12.5px] font-medium", live?.paused ? "bg-foreground text-(--surface)" : "bg-well hover:text-foreground")}
+      >
+        <IconHandStop className="size-3.5" /> {live?.paused ? `Hand back to ${agent.name}` : "Take control"}
+      </button>
+      {!!live?.steps.length && (
+        <ol className="flex max-h-48 flex-col gap-1 overflow-y-auto">
+          {live.steps.map((s, i) => (
+            <li key={i} className="flex gap-1.5 text-[11.5px]">
+              <span className="w-12 shrink-0 text-muted-foreground">{s.kind}</span>
+              <span className="min-w-0 flex-1 truncate text-foreground">
+                {s.action}
+                {s.text ? ` ← “${s.text}”` : ""}
+              </span>
+            </li>
+          ))}
+        </ol>
+      )}
+      {focus === "browser" ? (
+        <Row title="Browser use" sub={webOff ? "Off while its Web rule is off" : "Its own tab in a Chrome you can watch and sign in to"}>
+          <Toggle on={has("browser") && !webOff} label="Browser use" onChange={(on) => flip("browser", on)} />
+        </Row>
+      ) : (
+        <Row title="Desktop use" sub="Sees your screen and uses your mouse and keyboard">
+          <Toggle on={has("desktop")} label="Desktop use" onChange={(on) => flip("desktop", on)} />
+        </Row>
+      )}
+      {focus === "browser" && cfg && (
+        <div className="flex flex-col gap-1">
+          <span className="font-medium text-foreground">Fast browser model</span>
+          <div className="flex gap-1">
+            {DECIDERS.map(([id, name]) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setDecider({ decider: id })}
+                className={cn("h-6 rounded-full px-2 text-[11.5px] font-medium", cfg.decider === id ? "bg-foreground text-(--surface)" : "bg-well text-muted-foreground hover:text-foreground")}
+              >
+                {name}
+              </button>
+            ))}
+          </div>
+          <span className="text-[11.5px] text-muted-foreground">{DECIDERS.find(([id]) => id === cfg.decider)?.[2]}. Shared by every agent.</span>
+          {cfg.decider === "local" && (
+            <input
+              className={field}
+              defaultValue={cfg.model}
+              placeholder="ollama:qwen3:4b (empty: your small local model)"
+              onBlur={(e) => e.target.value !== cfg.model && setDecider({ model: e.target.value.trim() })}
+            />
+          )}
+        </div>
+      )}
     </div>
   );
 }

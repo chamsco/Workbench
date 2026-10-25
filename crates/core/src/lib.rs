@@ -16,6 +16,7 @@ pub mod effort;
 pub mod files;
 pub mod fleet;
 pub mod git;
+pub mod hands;
 pub mod harness;
 pub mod harnesses;
 pub mod layout;
