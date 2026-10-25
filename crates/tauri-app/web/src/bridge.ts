@@ -26,6 +26,7 @@ export type Msg = {
   reactions: string[];
   attachments: { id: string; name: string; mime: string; size: number }[];
   model?: string | null;
+  thinking?: string;
   ad?: Ad | null;
   cost_usd?: number | null;
   edited?: boolean;
@@ -796,6 +797,7 @@ export function toChatMessage(t: Thread, m: Msg): ChatMessage {
     // Retries reuse the id; the status flip is enough to restart the reveal.
     streamId: m.role === "assistant" && m.status !== "done" ? `live-${m.id}` : undefined,
     model: m.model ?? undefined,
+    thinking: m.thinking || undefined,
     usageCost: m.cost_usd ?? undefined,
     traceId: m.trace ?? undefined,
     attachments: m.attachments.map((a) => ({

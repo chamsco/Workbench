@@ -6,10 +6,11 @@
 // answered (multi-harness threads) and the sponsored card for Cloud's
 // ad-supported plans, styled as one of Whirl's wells.
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   IconAlertTriangleFilled,
   IconCheck,
+  IconChevronRight,
   IconCopy,
   IconPlayerStopFilled,
   IconRefresh,
@@ -56,19 +57,60 @@ function ThinkingDots({ message }: { message: ChatMessage }) {
         </span>
         <span className="invisible ml-1 w-0 overflow-hidden text-[13px]">Thinking</span>
       </button>
-      {open && (
-        <div className="flex max-w-sm flex-col gap-1 rounded-2xl bg-well px-3.5 py-2.5 text-[12.5px]/5 text-muted-foreground shadow-[inset_0_0_0_1px_var(--well-outline)]">
-          <div>
-            Working for {secs}s{message.model ? ` on ${message.model}` : ""}.
-          </div>
-          <div>The model's own reasoning isn't kept; each tool call and its timing show in the trace once the reply lands.</div>
-          {message.traceId && (
-            <button type="button" onClick={() => openTrace(message.traceId!)} className="w-fit cursor-pointer underline-offset-2 hover:text-foreground hover:underline">
-              Open the trace
-            </button>
-          )}
+      {open && <ThoughtPanel message={message} secs={secs} />}
+    </div>
+  );
+}
+
+/** What the model thought, as far as its backend showed it; otherwise what is
+ *  known of the turn. Follows the bottom while the thought is still coming. */
+function ThoughtPanel({ message, secs }: { message: ChatMessage; secs?: number }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const thought = message.thinking?.trim();
+  useEffect(() => {
+    const el = ref.current;
+    if (el && !isTerminal(message.status)) el.scrollTop = el.scrollHeight;
+  }, [thought, message.status]);
+  return (
+    <div className="flex w-full max-w-xl flex-col gap-1.5 rounded-2xl bg-well px-3.5 py-2.5 text-[12.5px]/5 text-muted-foreground shadow-[inset_0_0_0_1px_var(--well-outline)]">
+      {thought ? (
+        <div ref={ref} className="max-h-72 overflow-y-auto whitespace-pre-wrap text-foreground/80 [scrollbar-width:thin]">
+          {thought}
         </div>
+      ) : (
+        <>
+          <div>
+            {secs !== undefined ? `Working for ${secs}s` : "No reasoning shown"}
+            {message.model ? ` on ${message.model}` : ""}.
+          </div>
+          <div>This model's backend didn't share its reasoning for this turn. Tool calls and timing are in the trace.</div>
+        </>
       )}
+      {message.traceId && (
+        <button type="button" onClick={() => openTrace(message.traceId!)} className="w-fit cursor-pointer underline-offset-2 hover:text-foreground hover:underline">
+          Open the trace
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** Above a finished reply that came with reasoning: a quiet "Thought" line that opens it. */
+function Thought({ message }: { message: ChatMessage }) {
+  const [open, setOpen] = useState(false);
+  if (!message.thinking?.trim()) return null;
+  return (
+    <div className="mb-2 flex w-full flex-col items-start gap-1.5">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="flex cursor-pointer items-center gap-1 text-[12.5px]/5 text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <IconChevronRight size={13} className={`transition-transform duration-200 ${open ? "rotate-90" : ""}`} />
+        Thought
+      </button>
+      {open && <ThoughtPanel message={message} />}
     </div>
   );
 }
@@ -126,6 +168,7 @@ export function AssistantMessage({
           {answeredBy}
         </div>
       )}
+      {showText && !streamingNow && <Thought message={message} />}
       {showText && <RichText streaming={streamingNow || !caughtUp} text={text} answered={answered} />}
       {streamingNow && !showText && (
         <ThinkingDots message={message} />

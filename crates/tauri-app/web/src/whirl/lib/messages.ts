@@ -22,6 +22,8 @@ export type ChatMessage = {
   status?: MessageStatus;
   streamId?: string;
   model?: string;
+  /** Backspace: the reasoning the model showed while it worked. */
+  thinking?: string;
   attachments?: MessageAttachment[];
   outputTokens?: number;
   durationMs?: number;

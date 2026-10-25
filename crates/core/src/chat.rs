@@ -94,6 +94,9 @@ pub struct Msg {
     /// Which model answered, as the backend reported it.
     #[serde(default)]
     pub model: Option<String>,
+    /// The reasoning the target showed while it worked, when it shows any.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub thinking: String,
     /// A sponsored card shown under this reply (Cloud free tier and
     /// overage only). Never part of the reply text.
     #[serde(default)]
@@ -140,6 +143,7 @@ impl Msg {
             model: None,
             ad: None,
             cost_usd: None,
+            thinking: String::new(),
             edited: false,
             via: None,
             author: None,
@@ -983,6 +987,7 @@ impl Chats {
                 model: None,
                 ad: None,
                 cost_usd: None,
+                thinking: String::new(),
                 edited: false,
                 via: None,
                 author: None,
@@ -1759,6 +1764,10 @@ Ask the reader for input with the real form parts: `f = FormControl(\"Name\", In
         }
         match e {
             RunEvent::Text { text } => self.append(id, mid, &text),
+            RunEvent::Thinking { text } => self.with_msg(id, mid, |m| {
+                m.status = Status::Streaming;
+                m.thinking.push_str(&text);
+            }),
             RunEvent::Break => {
                 let need = self
                     .threads
@@ -2047,6 +2056,7 @@ mod tests {
             model: None,
             ad: None,
             cost_usd: None,
+            thinking: String::new(),
             edited: false,
             via: None,
             author: author.map(Into::into),
@@ -2107,6 +2117,7 @@ mod tests {
                     model: None,
                     ad: None,
                     cost_usd: None,
+                    thinking: String::new(),
                     edited: false,
                     via: None,
                     author: None,

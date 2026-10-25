@@ -135,6 +135,8 @@ impl Request {
 pub enum Event {
     /// More of the answer.
     Text { text: String },
+    /// The model's reasoning, as far as the target shows it.
+    Thinking { text: String },
     /// A new paragraph starts (after a tool call): add a blank line if the
     /// answer so far doesn't end with one.
     Break,
@@ -552,6 +554,8 @@ fn claude_line(line: &str, got_partial: &mut bool, fail: &mut Option<String>, on
             if e["type"] == "content_block_delta" && e["delta"]["type"] == "text_delta" {
                 *got_partial = true;
                 on(Event::Text { text: e["delta"]["text"].as_str().unwrap_or("").into() });
+            } else if e["type"] == "content_block_delta" && e["delta"]["type"] == "thinking_delta" {
+                on(Event::Thinking { text: e["delta"]["thinking"].as_str().unwrap_or("").into() });
             } else if e["type"] == "message_start" {
                 // A new assistant turn after a tool call.
                 on(Event::Break);
@@ -633,7 +637,11 @@ fn codex_line(line: &str, fail: &mut Option<String>, on: Sink<'_>) {
                     on(Event::Text { text: t.into() });
                 }
             }
-            "reasoning" => {}
+            "reasoning" => {
+                if let Some(t) = item["text"].as_str().filter(|t| !t.is_empty()) {
+                    on(Event::Thinking { text: format!("{t}\n\n") });
+                }
+            }
             _ => {
                 let out = item["aggregated_output"].as_str().map(String::from).unwrap_or_else(|| tool_text(&item["result"]));
                 let error = item["status"] == "failed" || item["exit_code"].as_i64().is_some_and(|c| c != 0);
@@ -833,6 +841,22 @@ mod tests {
         assert!(ev.contains(&Event::Cost { usd: 0.01 }));
         let text: String = ev.iter().filter_map(|e| if let Event::Text { text } = e { Some(text.as_str()) } else { None }).collect();
         assert_eq!(text, "Looking.One file.", "partial deltas only, the full assistant text is not repeated");
+    }
+
+    #[test]
+    fn claude_thinking_deltas_are_kept_apart_from_the_answer() {
+        let lines = [
+            r#"{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"thinking_delta","thinking":"The user wants "}}}"#,
+            r#"{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"thinking_delta","thinking":"a digest."}}}"#,
+            r#"{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"Done."}}}"#,
+        ];
+        let (mut got, mut fail, mut ev) = (false, None, vec![]);
+        for l in lines {
+            claude_line(l, &mut got, &mut fail, &mut |e| ev.push(e));
+        }
+        let think: String = ev.iter().filter_map(|e| if let Event::Thinking { text } = e { Some(text.as_str()) } else { None }).collect();
+        assert_eq!(think, "The user wants a digest.");
+        assert!(ev.contains(&Event::Text { text: "Done.".into() }));
     }
 
     #[test]

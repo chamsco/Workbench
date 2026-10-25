@@ -1826,7 +1826,7 @@ async fn run_cli_turn(
                     a.output_tokens = a.output_tokens.max(*output);
                 }),
                 Event::Cost { usd } => inner2.log(id, LogKind::System, format!("{cli} turn done (≈${usd:.3} at API prices; billed to your {cli} plan)")),
-                Event::Model { .. } => {}
+                Event::Model { .. } | Event::Thinking { .. } => {}
             }
         };
         let run = backspace_runner::run(&inner.http, &req, &mut sink);
