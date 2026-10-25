@@ -35,7 +35,7 @@ Yes. Order: (1) this PC: Claude Code, Codex, Backspace chats; (2) other installe
 
 ## Tasks
 
-- [ ] `usage.rs` + Claude Code and Codex readers, with the dedupe rules above and tests on a fixture log
+- [x] `usage.rs` + Claude Code and Codex readers, dedupe rules, 4 unit tests; matches the Python script on real logs (585 calls, 13 errors, 20 prompts, 87,394,745 tokens)
 - [ ] `usage_summary` Tauri command
 - [ ] Home "Stats" tab (strip, tokens by model, traces table, reuse `Trace.tsx`)
 - [ ] Settings -> Tracing: sources, window, privacy

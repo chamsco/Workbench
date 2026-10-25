@@ -37,6 +37,7 @@ pub mod spec;
 pub mod ticket;
 pub mod tools;
 pub mod update;
+pub mod usage;
 
 pub use config::Config;
 pub use effort::Effort;
