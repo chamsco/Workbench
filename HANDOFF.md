@@ -1,5 +1,25 @@
 # Handoff: Backspace (ohMyHarness → Workbench), v0
 
+**Session, 27 Oct 2026 — Work comes out of Chat.**
+
+- **`crates/work` (`brainpowr-work`)** is the start of Work, Brainpowr's
+  rooms for people and agents together. `room` has members that are people
+  or agents (an agent has an owner or is shared); `turns` is `reply_group`'s
+  turn-taking without the single-user assumption (agents stay quiet in a room
+  of several people unless named, an agent naming a person stops the chain);
+  `governance` is the admin's model catalog, grants per role/team/person,
+  credit allowances, invites and the check before a turn; `meter` runs a turn
+  through `backspace-runner` and books its usage. Nothing in `core` changed.
+- **`design/work.html`** is the interface direction: a room, the composer's
+  granted-models picker with the week's allowance, and the admin pages.
+- **`docs/WORK.md`** maps what was reused, how it sits on Anarchy, and the
+  weak spots (quotas only bind the gateway, AGPL vs MIT, "no restraint").
+
+**Ran:** `cargo test -p brainpowr-work` (18 tests, three against a fake
+Ollama), `cargo clippy -p brainpowr-work --all-targets` clean, and
+`design/work.html` in headless Chromium at 1440 (light and dark) and 390 with
+no page errors or sideways scroll.
+
 **Session, 22 Oct 2026 — Our own sea.**
 
 - **The sharks are ours now.** stackedlol/ascii-sharks has no licence, so its

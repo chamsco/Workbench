@@ -1,0 +1,16 @@
+[package]
+name = "brainpowr-work"
+description = "Work: rooms where people and agents talk (h2h, a2h, a2a), who speaks next, and the admin's rules on models and tokens."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+backspace-runner = { path = "../runner" }
+
+[dev-dependencies]
+tokio = { workspace = true }

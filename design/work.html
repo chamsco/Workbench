@@ -1,0 +1,392 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Brainpowr Work</title>
+<style>
+/* Work: one window on a sky. Sidebar: pinned agents as tiles, then people and
+   agents by team, each with its role chip (after the Alfred mock). Main: a room
+   where people and agents talk, the composer with only the models your admin
+   gave you and what is left of your week. Admin: members, grants, catalog,
+   invites. Static: every number is made up. Mirrors crates/work. */
+:root {
+  --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", "Inter", system-ui, sans-serif;
+  --sky-a: #b9a6ff; --sky-b: #ffb6d9; --sky-c: #ffe0ef; --sky-d: #9fd0ff;
+  --glass: rgba(252, 249, 252, 0.62); --glass-side: rgba(255, 255, 255, 0.34); --glass-edge: rgba(255, 255, 255, 0.7);
+  --pane: rgba(255, 255, 255, 0.9); --solid: #ffffff; --line: rgba(24, 18, 30, 0.08);
+  --fg: #1c1a1f; --fg-2: #4e4955; --fg-3: #7d7785; --fg-4: #a8a2ae;
+  --hover: rgba(30, 20, 40, 0.05); --sel: rgba(42, 102, 217, 0.12);
+  --bubble: #f1eff3; --me: #2f7bf6; --me-fg: #fff;
+  --blue: #2a66d9; --green: #187f45; --amber: #9a5c00; --red: #bf3a2f; --violet: #6a4fd6; --pink: #b8326f; --teal: #167a72;
+  --chip-violet: rgba(106, 79, 214, 0.12); --chip-pink: rgba(184, 50, 111, 0.11); --chip-teal: rgba(22, 122, 114, 0.12); --chip-blue: rgba(42, 102, 217, 0.12);
+  --shadow: 0 30px 80px rgba(80, 40, 120, 0.25), 0 8px 24px rgba(80, 40, 120, 0.12);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --sky-a: #2a1f5c; --sky-b: #5a2047; --sky-c: #1a1430; --sky-d: #123a5c;
+    --glass: rgba(30, 26, 36, 0.66); --glass-side: rgba(60, 52, 70, 0.28); --glass-edge: rgba(255, 255, 255, 0.1);
+    --pane: rgba(20, 18, 24, 0.9); --solid: #1c1a21; --line: rgba(255, 255, 255, 0.08);
+    --fg: #eeeaf1; --fg-2: #c3bcc9; --fg-3: #8f8896; --fg-4: #635d69;
+    --hover: rgba(255, 255, 255, 0.05); --sel: rgba(122, 168, 255, 0.16);
+    --bubble: #26232b; --me: #3d86ff;
+    --blue: #7aa8ff; --green: #56d18f; --amber: #f2b24c; --red: #ff7a6e; --violet: #b3a6ff; --pink: #ff8fc0; --teal: #5fd6c9;
+    --chip-violet: rgba(179, 166, 255, 0.16); --chip-pink: rgba(255, 143, 192, 0.14); --chip-teal: rgba(95, 214, 201, 0.14); --chip-blue: rgba(122, 168, 255, 0.16);
+    --shadow: 0 30px 80px rgba(0, 0, 0, 0.55);
+  }
+}
+:root[data-theme="dark"] {
+  --sky-a: #2a1f5c; --sky-b: #5a2047; --sky-c: #1a1430; --sky-d: #123a5c;
+  --glass: rgba(30, 26, 36, 0.66); --glass-side: rgba(60, 52, 70, 0.28); --glass-edge: rgba(255, 255, 255, 0.1);
+  --pane: rgba(20, 18, 24, 0.9); --solid: #1c1a21; --line: rgba(255, 255, 255, 0.08);
+  --fg: #eeeaf1; --fg-2: #c3bcc9; --fg-3: #8f8896; --fg-4: #635d69;
+  --hover: rgba(255, 255, 255, 0.05); --sel: rgba(122, 168, 255, 0.16);
+  --bubble: #26232b; --me: #3d86ff;
+  --blue: #7aa8ff; --green: #56d18f; --amber: #f2b24c; --red: #ff7a6e; --violet: #b3a6ff; --pink: #ff8fc0; --teal: #5fd6c9;
+  --chip-violet: rgba(179, 166, 255, 0.16); --chip-pink: rgba(255, 143, 192, 0.14); --chip-teal: rgba(95, 214, 201, 0.14); --chip-blue: rgba(122, 168, 255, 0.16);
+  --shadow: 0 30px 80px rgba(0, 0, 0, 0.55);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  font: 13.5px/1.45 var(--font-ui); color: var(--fg); background: var(--sky-c);
+  background-image:
+    radial-gradient(60% 50% at 15% 10%, var(--sky-a), transparent 70%),
+    radial-gradient(50% 45% at 85% 20%, var(--sky-d), transparent 70%),
+    radial-gradient(70% 60% at 50% 100%, var(--sky-b), transparent 70%);
+  display: grid; place-items: center; padding: 28px 16px; min-height: 100vh;
+}
+button, input, select { font: inherit; color: inherit; }
+.win {
+  width: min(1240px, 100%); height: min(820px, calc(100vh - 56px)); min-height: 560px;
+  display: grid; grid-template-columns: 290px 1fr; gap: 8px; padding: 8px;
+  background: var(--glass); border: 1px solid var(--glass-edge); border-radius: 22px;
+  backdrop-filter: blur(30px) saturate(1.4); -webkit-backdrop-filter: blur(30px) saturate(1.4); box-shadow: var(--shadow);
+}
+/* ---------------------------------------------------------- sidebar */
+.side { display: flex; flex-direction: column; min-height: 0; padding: 6px 4px 6px 6px; }
+.side-top { display: flex; align-items: center; gap: 6px; padding: 4px 6px 10px; }
+.brand { font-weight: 650; letter-spacing: -0.01em; flex: 1; display: flex; align-items: center; gap: 8px; }
+.brand i { width: 22px; height: 22px; border-radius: 7px; background: conic-gradient(from 200deg, #ff7ab6, #a99bff, #7ad0ff, #ff7ab6); display: inline-block; }
+.ibtn { width: 28px; height: 28px; border-radius: 8px; border: 0; background: transparent; display: grid; place-items: center; cursor: pointer; color: var(--fg-2); }
+.ibtn:hover { background: var(--hover); }
+.search { display: flex; align-items: center; gap: 8px; margin: 0 6px 12px; padding: 8px 12px; border-radius: 12px; background: var(--hover); color: var(--fg-3); }
+.search input { border: 0; background: transparent; outline: 0; flex: 1; min-width: 0; }
+.tabs { display: flex; gap: 2px; margin: 0 6px 12px; padding: 3px; border-radius: 11px; background: var(--hover); }
+.tabs button { flex: 1; border: 0; background: transparent; padding: 6px 0; border-radius: 8px; cursor: pointer; color: var(--fg-2); font-weight: 500; }
+.tabs button[aria-selected="true"] { background: var(--pane); color: var(--fg); box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+.pins { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 0 6px 14px; }
+.pin { border: 0; border-radius: 16px; padding: 12px 6px 10px; background: transparent; cursor: pointer; display: grid; justify-items: center; gap: 5px; }
+.pin:hover { background: var(--hover); }
+.pin[aria-current="true"] { background: var(--sel); }
+.pin .av { width: 54px; height: 54px; font-size: 20px; }
+.pin b { font-weight: 600; }
+.list { overflow: auto; flex: 1; min-height: 0; padding-right: 2px; }
+.group { font-size: 12px; color: var(--fg-3); font-weight: 600; padding: 10px 12px 4px; display: flex; justify-content: space-between; }
+.row { display: flex; gap: 10px; align-items: center; padding: 7px 10px; border-radius: 12px; cursor: pointer; border: 0; background: transparent; width: 100%; text-align: left; }
+.row:hover { background: var(--hover); }
+.row[aria-current="true"] { background: var(--sel); }
+.row .meta { min-width: 0; flex: 1; }
+.row .name { display: flex; align-items: center; gap: 6px; font-weight: 600; }
+.row .sub { color: var(--fg-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 12.5px; }
+.av { width: 34px; height: 34px; border-radius: 50%; flex: none; display: grid; place-items: center; font-weight: 600; color: #fff; position: relative; font-size: 13px; }
+.av.agent { border-radius: 11px; }
+.av .dot { position: absolute; right: -1px; bottom: -1px; width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--pane); background: var(--green); }
+.av .dot.idle { background: var(--fg-4); }
+.chip { font-size: 11.5px; font-weight: 500; padding: 1px 8px; border-radius: 999px; white-space: nowrap; }
+.c-violet { background: var(--chip-violet); color: var(--violet); }
+.c-pink { background: var(--chip-pink); color: var(--pink); }
+.c-teal { background: var(--chip-teal); color: var(--teal); }
+.c-blue { background: var(--chip-blue); color: var(--blue); }
+.me { display: flex; align-items: center; gap: 10px; padding: 10px; margin-top: 6px; border-top: 1px solid var(--line); }
+.me .meta { flex: 1; min-width: 0; }
+.me small { color: var(--fg-3); display: block; }
+/* ---------------------------------------------------------- main */
+.main { background: var(--pane); border-radius: 16px; display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
+.head { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+.head h1 { font-size: 15px; margin: 0; font-weight: 650; }
+.head .sub { color: var(--fg-3); font-size: 12.5px; }
+.stack { display: flex; }
+.stack .av { width: 26px; height: 26px; font-size: 11px; border: 2px solid var(--pane); margin-left: -7px; }
+.stack .av:first-child { margin-left: 0; }
+.spacer { flex: 1; }
+.badge { font-size: 11.5px; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--line); color: var(--fg-2); display: inline-flex; gap: 6px; align-items: center; }
+.badge i { width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
+.msgs { flex: 1; overflow: auto; padding: 20px max(16px, calc(50% - 360px)); display: flex; flex-direction: column; gap: 4px; }
+.day { text-align: center; color: var(--fg-3); font-size: 12px; margin: 6px 0 10px; }
+.m { display: flex; gap: 10px; max-width: 78%; margin-top: 10px; }
+.m .av { width: 28px; height: 28px; font-size: 11px; }
+.m .who { font-size: 12px; color: var(--fg-3); margin: 0 0 3px 2px; display: flex; gap: 6px; align-items: center; }
+.m .who b { color: var(--fg-2); font-weight: 600; }
+.b { background: var(--bubble); padding: 9px 13px; border-radius: 18px; border-top-left-radius: 6px; }
+.m.mine { align-self: flex-end; flex-direction: row-reverse; }
+.m.mine .b { background: var(--me); color: var(--me-fg); border-radius: 18px; border-top-right-radius: 6px; }
+.m.mine .who { justify-content: flex-end; }
+.mention { color: var(--blue); font-weight: 600; }
+.m.mine .mention { color: #fff; text-decoration: underline; }
+.sys { align-self: center; color: var(--fg-3); font-size: 12px; margin: 12px 0 2px; display: flex; gap: 6px; align-items: center; }
+.ask { align-self: stretch; margin: 12px 0 0 38px; max-width: 520px; border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; background: var(--pane); box-shadow: 0 2px 10px rgba(0,0,0,.04); }
+.ask p { margin: 0 0 10px; }
+.ask .opts { display: flex; gap: 8px; flex-wrap: wrap; }
+.pill { border: 1px solid var(--line); background: var(--hover); padding: 6px 12px; border-radius: 999px; cursor: pointer; }
+.pill.dark { background: var(--fg); color: var(--pane); border-color: transparent; }
+.typing { align-self: flex-start; margin: 8px 0 0 38px; color: var(--fg-3); font-size: 12.5px; }
+.compose { margin: 0 max(16px, calc(50% - 360px)) 16px; border: 1px solid var(--line); border-radius: 18px; background: var(--pane); box-shadow: 0 6px 24px rgba(0,0,0,.06); padding: 10px 10px 8px 14px; }
+.compose textarea { width: 100%; border: 0; outline: 0; resize: none; background: transparent; font: inherit; color: inherit; min-height: 22px; }
+.compose .bar { display: flex; align-items: center; gap: 8px; margin-top: 4px; flex-wrap: wrap; }
+.model { position: relative; }
+.model > button { border: 1px solid var(--line); background: transparent; border-radius: 999px; padding: 4px 10px; display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
+.menu { position: absolute; bottom: calc(100% + 8px); left: 0; width: min(300px, calc(100vw - 48px)); background: var(--solid); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); padding: 6px; display: none; z-index: 5; }
+.menu.open { display: block; }
+.menu h4 { margin: 6px 8px 4px; font-size: 11.5px; color: var(--fg-3); font-weight: 600; }
+.opt { display: flex; gap: 10px; align-items: center; padding: 7px 8px; border-radius: 10px; cursor: pointer; }
+.opt:hover { background: var(--hover); }
+.opt .meta { flex: 1; }
+.opt small { color: var(--fg-3); display: block; }
+.opt.off { opacity: .45; cursor: not-allowed; }
+.res { font-size: 11px; padding: 1px 7px; border-radius: 999px; }
+.r-ext { background: var(--chip-blue); color: var(--blue); }
+.r-sov { background: var(--chip-teal); color: var(--teal); }
+.r-dev { background: var(--chip-violet); color: var(--violet); }
+.quota { display: flex; align-items: center; gap: 8px; color: var(--fg-3); font-size: 12px; }
+.meter { width: 90px; height: 6px; border-radius: 999px; background: var(--hover); overflow: hidden; }
+.meter i { display: block; height: 100%; background: linear-gradient(90deg, #7ad0ff, #a99bff); border-radius: inherit; }
+.meter.warn i { background: linear-gradient(90deg, #ffb27d, #ff7a6e); }
+.send { width: 32px; height: 32px; border-radius: 50%; border: 0; background: var(--fg); color: var(--pane); cursor: pointer; display: grid; place-items: center; }
+/* ---------------------------------------------------------- admin */
+.admin { flex: 1; overflow: auto; padding: 18px 22px 24px; display: none; }
+.view-admin .msgs, .view-admin .compose, .view-admin .head .stack, .view-admin .head .badge { display: none; }
+.view-admin .admin { display: block; }
+.atabs { display: flex; gap: 4px; margin-bottom: 16px; flex-wrap: wrap; }
+.atabs button { border: 0; background: transparent; padding: 6px 12px; border-radius: 999px; cursor: pointer; color: var(--fg-2); }
+.atabs button[aria-selected="true"] { background: var(--hover); color: var(--fg); font-weight: 600; }
+.panel { display: none; }
+.panel.on { display: block; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
+.card { border: 1px solid var(--line); border-radius: 16px; padding: 14px; background: var(--pane); }
+.card h3 { margin: 0 0 2px; font-size: 14px; }
+.card .sub { color: var(--fg-3); font-size: 12.5px; margin-bottom: 10px; }
+.card .big { font-size: 22px; font-weight: 650; letter-spacing: -0.02em; }
+.kv { display: flex; justify-content: space-between; padding: 5px 0; border-top: 1px solid var(--line); font-size: 12.5px; gap: 8px; }
+.kv span:first-child { color: var(--fg-3); }
+table { width: 100%; border-collapse: collapse; }
+th { text-align: left; font-weight: 600; color: var(--fg-3); font-size: 12px; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+td { padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+td .person { display: flex; gap: 10px; align-items: center; }
+td .av { width: 28px; height: 28px; font-size: 11px; }
+.tablewrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 14px; }
+.note { margin: 14px 0 0; padding: 10px 12px; border-radius: 12px; background: var(--chip-blue); color: var(--fg-2); font-size: 12.5px; }
+.note.warn { background: var(--chip-pink); }
+.form { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; align-items: end; }
+.form label { display: grid; gap: 4px; font-size: 12px; color: var(--fg-3); }
+.form input, .form select { border: 1px solid var(--line); background: var(--hover); border-radius: 10px; padding: 8px 10px; outline: 0; }
+.invite-link { font-family: ui-monospace, Menlo, monospace; font-size: 12.5px; background: var(--hover); border-radius: 10px; padding: 8px 10px; margin-top: 12px; word-break: break-all; }
+@media (max-width: 820px) {
+  body { padding: 0; place-items: stretch; }
+  .win { grid-template-columns: 1fr; height: auto; min-height: 100vh; border-radius: 0; }
+  .pins { display: none; }
+  .side { min-height: auto; }
+  .list { flex: none; max-height: 260px; }
+  .main { height: 85vh; }
+  .head .stack { display: none; }
+  .m { max-width: 92%; }
+}
+</style>
+</head>
+<body>
+<div class="win" id="win">
+  <aside class="side">
+    <div class="side-top">
+      <div class="brand"><i></i>Brainpowr Work</div>
+      <button class="ibtn" title="New room" aria-label="New room"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 3v10M3 8h10"/></svg></button>
+      <button class="ibtn" id="theme" title="Theme" aria-label="Toggle theme"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="5.5"/><path d="M8 2.5v11" /><path d="M8 2.5a5.5 5.5 0 0 1 0 11z" fill="currentColor"/></svg></button>
+    </div>
+    <label class="search"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3"/></svg><input placeholder="Search people, agents, rooms" aria-label="Search"></label>
+    <div class="tabs" role="tablist">
+      <button role="tab" aria-selected="true" data-view="rooms">Rooms</button>
+      <button role="tab" aria-selected="false" data-view="admin">Admin</button>
+    </div>
+    <div class="pins">
+      <button class="pin" aria-current="true"><span class="av agent" style="background:linear-gradient(135deg,#7aa8ff,#a99bff)">A</span><b>Alfred</b><span class="chip c-blue">Chief of staff</span></button>
+      <button class="pin"><span class="av agent" style="background:linear-gradient(135deg,#ffb27d,#ff7ab6)">H</span><b>Harvey</b><span class="chip c-pink">Business</span></button>
+    </div>
+    <div class="list">
+      <div class="group">Rooms <span>3</span></div>
+      <button class="row" aria-current="true"><span class="av" style="background:var(--hover);color:var(--fg-2)">#</span><span class="meta"><span class="name">October campaign</span><span class="sub">Mike: @Charles which region first?</span></span></button>
+      <button class="row"><span class="av" style="background:var(--hover);color:var(--fg-2)">#</span><span class="meta"><span class="name">Q4 close</span><span class="sub">Dana: invoices are in the drive</span></span></button>
+      <button class="row"><span class="av" style="background:var(--hover);color:var(--fg-2)">#</span><span class="meta"><span class="name">Overnight research <span class="chip c-violet">a2a</span></span><span class="sub">Watson → Jimmy · 6 of 12 turns</span></span></button>
+      <div class="group">Intelligence</div>
+      <button class="row"><span class="av agent" style="background:#a99bff">J<span class="dot idle"></span></span><span class="meta"><span class="name">Jimmy <span class="chip c-violet">Scout</span></span><span class="sub">Idle, standing by</span></span></button>
+      <button class="row"><span class="av agent" style="background:#8c7cf0">W<span class="dot"></span></span><span class="meta"><span class="name">Watson <span class="chip c-violet">Research</span></span><span class="sub">Shared · own pool 140k left</span></span></button>
+      <button class="row"><span class="av agent" style="background:#6a8cff">M<span class="dot"></span></span><span class="meta"><span class="name">Mike <span class="chip c-violet">Analyst</span></span><span class="sub">Works for Charles · waiting on you</span></span></button>
+      <div class="group">Finance</div>
+      <button class="row"><span class="av" style="background:#ff8fa8">D<span class="dot"></span></span><span class="meta"><span class="name">Dana <span class="chip c-teal">Accountant</span></span><span class="sub">In Q4 close</span></span></button>
+      <button class="row"><span class="av agent" style="background:#5fc4b8">L<span class="dot idle"></span></span><span class="meta"><span class="name">Ledger <span class="chip c-teal">Bookkeeper</span></span><span class="sub">Works for Dana · sovereign model only</span></span></button>
+      <div class="group">Content</div>
+      <button class="row"><span class="av agent" style="background:#ff7ab6">B<span class="dot"></span></span><span class="meta"><span class="name">Bruce <span class="chip c-pink">Editor</span></span><span class="sub">Polishing the metrics pass</span></span></button>
+      <button class="row"><span class="av" style="background:#ffb27d">S<span class="dot idle"></span></span><span class="meta"><span class="name">Sam <span class="chip c-pink">Marketing</span></span><span class="sub">Away</span></span></button>
+    </div>
+    <div class="me"><span class="av" style="background:#2a66d9">C</span><span class="meta"><b>Charles</b><small>Admin · Developer · Acme</small></span></div>
+  </aside>
+
+  <main class="main" id="main">
+    <div class="head">
+      <div>
+        <h1 id="title">October campaign</h1>
+        <div class="sub" id="subtitle">Goal: a metrics report the board can read in five minutes</div>
+      </div>
+      <div class="spacer"></div>
+      <div class="stack" aria-label="Members">
+        <span class="av" style="background:#2a66d9" title="Charles">C</span>
+        <span class="av" style="background:#ffb27d" title="Sam">S</span>
+        <span class="av agent" style="background:#6a8cff" title="Mike">M</span>
+        <span class="av agent" style="background:#ff7ab6" title="Bruce">B</span>
+      </div>
+      <span class="badge" title="Several people and agents: agents answer only when named"><i></i>Mixed · Company</span>
+    </div>
+
+    <div class="msgs">
+      <div class="day">Today 9:14</div>
+      <div class="m"><span class="av" style="background:#ffb27d">S</span><div><div class="who"><b>Sam</b></div><div class="b">Board wants October numbers by Thursday. Can we get a first cut today?</div></div></div>
+      <div class="m mine"><span class="av" style="background:#2a66d9">C</span><div><div class="who"><b>You</b></div><div class="b">Yes. <span class="mention">@Mike</span> pull the campaign data and draft it, then hand to <span class="mention">@Bruce</span>.</div></div></div>
+      <div class="m"><span class="av agent" style="background:#6a8cff">M</span><div><div class="who"><b>Mike</b><span class="chip c-violet">Analyst</span><span>for Charles · Claude</span></div><div class="b">Pulled 4 sources. Spend is up 18% on September, conversions up 9%. Over to <span class="mention">@Bruce</span> for the write-up.</div></div></div>
+      <div class="m"><span class="av agent" style="background:#ff7ab6">B</span><div><div class="who"><b>Bruce</b><span class="chip c-pink">Editor</span><span>shared · Mistral on-prem</span></div><div class="b">Draft is in the drive. One gap: EMEA and APAC are mixed in the spend table.</div></div></div>
+      <div class="m"><span class="av agent" style="background:#6a8cff">M</span><div><div class="who"><b>Mike</b><span class="chip c-violet">Analyst</span></div><div class="b"><span class="mention">@Charles</span> which region should lead the report?</div></div></div>
+      <div class="ask">
+        <p><b>Mike is waiting on you.</b> No other agent speaks until you answer.</p>
+        <div class="opts"><button class="pill">EMEA first</button><button class="pill">APAC first</button><button class="pill">Split them</button></div>
+      </div>
+      <div class="sys">Sam and you are talking: agents stay quiet unless named.</div>
+    </div>
+
+    <div class="compose">
+      <textarea rows="1" placeholder="Message the room, @ an agent to bring it in" aria-label="Message"></textarea>
+      <div class="bar">
+        <div class="model">
+          <button id="modelBtn" aria-haspopup="true"><span id="modelName">Claude Opus</span><span class="res r-ext">External</span><svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m2 4 3 3 3-3"/></svg></button>
+          <div class="menu" id="menu" role="menu">
+            <h4>Your admin gave you</h4>
+            <div class="opt" data-name="Claude Opus"><span class="meta">Claude Opus<small>Anthropic API · 2 credits/token</small></span><span class="res r-ext">External</span></div>
+            <div class="opt" data-name="GPT"><span class="meta">GPT<small>OpenAI API · 1.5 credits/token</small></span><span class="res r-ext">External</span></div>
+            <div class="opt" data-name="Mistral on-prem"><span class="meta">Mistral on-prem<small>vLLM on Acme's GPUs · 0.3 credits/token</small></span><span class="res r-sov">Sovereign</span></div>
+            <div class="opt" data-name="Llama on device"><span class="meta">Llama on device<small>Ollama on this laptop · free</small></span><span class="res r-dev">On device</span></div>
+            <h4>Not for you</h4>
+            <div class="opt off" title="Not granted to the Developer role"><span class="meta">Claude Opus, max effort<small>Ask your admin</small></span><span class="res r-ext">External</span></div>
+          </div>
+        </div>
+        <span class="quota" title="Credits used this week"><span class="meter"><i style="width:31%"></i></span>312k of 1M this week</span>
+        <span class="spacer"></span>
+        <button class="send" aria-label="Send"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M7 12V2M3 6l4-4 4 4"/></svg></button>
+      </div>
+    </div>
+
+    <section class="admin" aria-label="Admin">
+      <div class="atabs" role="tablist">
+        <button role="tab" aria-selected="true" data-panel="usage">Usage</button>
+        <button role="tab" aria-selected="false" data-panel="grants">Roles and teams</button>
+        <button role="tab" aria-selected="false" data-panel="catalog">Models</button>
+        <button role="tab" aria-selected="false" data-panel="invites">Invites</button>
+      </div>
+
+      <div class="panel on" data-panel="usage">
+        <div class="cards" style="margin-bottom:16px">
+          <div class="card"><div class="sub">Credits this week</div><div class="big">4.2M</div><div class="sub">of a 12M org ceiling</div></div>
+          <div class="card"><div class="sub">Sent outside the org</div><div class="big">38%</div><div class="sub">of credits went to external APIs</div></div>
+          <div class="card"><div class="sub">Estimated</div><div class="big">6%</div><div class="sub">from agents that report no usage (A2A)</div></div>
+        </div>
+        <div class="tablewrap"><table>
+          <thead><tr><th>Who</th><th>Role · team</th><th>Models</th><th>This week</th></tr></thead>
+          <tbody>
+            <tr><td><div class="person"><span class="av" style="background:#2a66d9">C</span>Charles</div></td><td>Developer · Intelligence</td><td>Claude, GPT, Mistral, Llama</td><td><span class="quota"><span class="meter"><i style="width:31%"></i></span>312k / 1M</span></td></tr>
+            <tr><td><div class="person"><span class="av" style="background:#ff8fa8">D</span>Dana</div></td><td>Accountant · Finance</td><td>Mistral, Llama</td><td><span class="quota"><span class="meter warn"><i style="width:88%"></i></span>44k / 50k</span></td></tr>
+            <tr><td><div class="person"><span class="av" style="background:#ffb27d">S</span>Sam</div></td><td>Marketing · Content</td><td>GPT, Mistral</td><td><span class="quota"><span class="meter"><i style="width:22%"></i></span>66k / 300k</span></td></tr>
+            <tr><td><div class="person"><span class="av agent" style="background:#8c7cf0">W</span>Watson</div></td><td>Shared agent · own pool</td><td>Mistral</td><td><span class="quota"><span class="meter"><i style="width:30%"></i></span>60k / 200k</span></td></tr>
+          </tbody>
+        </table></div>
+        <p class="note">Agents that work for someone spend that person's allowance and can never use a model the person can't. Mike's 180k this week is inside Charles's 312k.</p>
+      </div>
+
+      <div class="panel" data-panel="grants">
+        <div class="cards">
+          <div class="card"><h3>Developer</h3><div class="sub">Role · 14 people</div>
+            <div class="kv"><span>Models</span><span>Claude, GPT, Mistral, Llama</span></div>
+            <div class="kv"><span>Allowance</span><span>1M credits / week</span></div>
+            <div class="kv"><span>External APIs</span><span>Allowed</span></div></div>
+          <div class="card"><h3>Accountant</h3><div class="sub">Role · 4 people</div>
+            <div class="kv"><span>Models</span><span>Mistral, Llama</span></div>
+            <div class="kv"><span>Allowance</span><span>50k credits / week</span></div>
+            <div class="kv"><span>External APIs</span><span>Not allowed</span></div></div>
+          <div class="card"><h3>Finance</h3><div class="sub">Team · overrides the role</div>
+            <div class="kv"><span>Models</span><span>From role</span></div>
+            <div class="kv"><span>Allowance</span><span>80k credits / week</span></div>
+            <div class="kv"><span>External APIs</span><span>From role</span></div></div>
+          <div class="card"><h3>Everyone else</h3><div class="sub">Org default</div>
+            <div class="kv"><span>Models</span><span>Llama on device</span></div>
+            <div class="kv"><span>Allowance</span><span>20k credits / week</span></div>
+            <div class="kv"><span>Ceiling</span><span>2M per person</span></div></div>
+        </div>
+        <p class="note">The most specific grant wins: a person, then their team, then their role, then the org default. Someone in two teams gets the larger of the two. Nobody goes above the ceiling.</p>
+      </div>
+
+      <div class="panel" data-panel="catalog">
+        <div class="tablewrap"><table>
+          <thead><tr><th>Model</th><th>Where it runs</th><th>Weight</th><th>Rooms</th></tr></thead>
+          <tbody>
+            <tr><td>Claude Opus</td><td><span class="res r-ext">External</span> Anthropic API</td><td>2.0</td><td>Company</td></tr>
+            <tr><td>GPT</td><td><span class="res r-ext">External</span> OpenAI API</td><td>1.5</td><td>Company</td></tr>
+            <tr><td>Mistral on-prem</td><td><span class="res r-sov">Sovereign</span> vLLM, Acme Paris GPU</td><td>0.3</td><td>Company</td></tr>
+            <tr><td>Llama on device</td><td><span class="res r-dev">On device</span> Ollama</td><td>0</td><td>Company, Sealed</td></tr>
+          </tbody>
+        </table></div>
+        <p class="note warn">Sovereign means the org runs it, not that it runs without limits. Rules on what agents may do (tools, approvals, audit) apply to every model in the catalog, whoever made it.</p>
+      </div>
+
+      <div class="panel" data-panel="invites">
+        <div class="card">
+          <h3>Invite to Acme</h3><div class="sub">They join with this role and team, and get what those grant.</div>
+          <div class="form">
+            <label>Email or domain<input value="new.hire@acme.com"></label>
+            <label>Role<select><option>Developer</option><option>Accountant</option><option>Marketing</option></select></label>
+            <label>Team<select><option>Intelligence</option><option>Finance</option><option>Content</option></select></label>
+            <label>Expires<select><option>In 7 days</option><option>In 24 hours</option><option>In 30 days</option></select></label>
+            <label>Uses<input value="1" inputmode="numeric"></label>
+            <button class="pill dark" style="height:36px">Create invite</button>
+          </div>
+          <div class="invite-link">https://acme.brainpowr.work/join/7fq2-k9xm</div>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+<script>
+(() => {
+  const win = document.getElementById("win");
+  document.querySelectorAll(".tabs [data-view]").forEach(b => b.addEventListener("click", () => {
+    document.querySelectorAll(".tabs [data-view]").forEach(x => x.setAttribute("aria-selected", String(x === b)));
+    const admin = b.dataset.view === "admin";
+    win.classList.toggle("view-admin", admin);
+    document.getElementById("title").textContent = admin ? "Admin · Acme" : "October campaign";
+    document.getElementById("subtitle").textContent = admin ? "Who may use which model, and how much" : "Goal: a metrics report the board can read in five minutes";
+  }));
+  document.querySelectorAll(".atabs [data-panel]").forEach(b => b.addEventListener("click", () => {
+    document.querySelectorAll(".atabs [data-panel]").forEach(x => x.setAttribute("aria-selected", String(x === b)));
+    document.querySelectorAll(".panel").forEach(p => p.classList.toggle("on", p.dataset.panel === b.dataset.panel));
+  }));
+  const menu = document.getElementById("menu");
+  document.getElementById("modelBtn").addEventListener("click", e => { e.stopPropagation(); menu.classList.toggle("open"); });
+  document.addEventListener("click", () => menu.classList.remove("open"));
+  menu.querySelectorAll(".opt:not(.off)").forEach(o => o.addEventListener("click", () => {
+    document.getElementById("modelName").textContent = o.dataset.name;
+    const tag = o.querySelector(".res");
+    const cur = document.querySelector("#modelBtn .res");
+    cur.className = tag.className; cur.textContent = tag.textContent;
+  }));
+  document.getElementById("theme").addEventListener("click", () => {
+    const r = document.documentElement;
+    const dark = r.dataset.theme ? r.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+    r.dataset.theme = dark ? "light" : "dark";
+  });
+})();
+</script>
+</body>
+</html>

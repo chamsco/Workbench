@@ -1,4 +1,4 @@
-# Runs the Rust test suites (runner, core, cli, colony — the workspace's
+# Runs the Rust test suites (runner, core, cli, colony, work — the workspace's
 # default members) on every pull request and every push to main. The macOS
 # workflow only builds the app; this is the one that says whether it works.
 name: Tests
