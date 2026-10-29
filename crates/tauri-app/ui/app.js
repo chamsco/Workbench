@@ -103,6 +103,7 @@ const P = {
   share: '<circle cx="12.4" cy="3.8" r="1.8"/><circle cx="3.6" cy="8" r="1.8"/><circle cx="12.4" cy="12.2" r="1.8"/><path d="m5.2 7.1 5.6-2.4M5.2 8.9l5.6 2.4"/>',
   archive: '<rect x="2.2" y="3" width="11.6" height="3" rx="1"/><path d="M3.4 6v6.4a1 1 0 0 0 1 1h7.2a1 1 0 0 0 1-1V6M6.4 8.8h3.2"/>',
   cpu: '<rect x="4.4" y="4.4" width="7.2" height="7.2" rx="1.2"/><path d="M6.6 2v2.4M9.4 2v2.4M6.6 11.6V14M9.4 11.6V14M2 6.6h2.4M2 9.4h2.4M11.6 6.6H14M11.6 9.4H14"/>',
+  image: '<rect x="2.4" y="3" width="11.2" height="10" rx="1.4"/><circle cx="6" cy="6.6" r="1.2"/><path d="m3 12 3.6-3.6 2.4 2.4 1.8-1.8 2.6 2.6"/>',
 };
 const icon = (n, cls = "") => `<svg class="ic ${cls}" viewBox="0 0 16 16" aria-hidden="true">${P[n]}</svg>`;
 $$("[data-icon]").forEach(el => (el.innerHTML = icon(el.dataset.icon)));
@@ -1077,6 +1078,7 @@ async function refresh(full) {
   if (window.Code) Code.afterData();
   watchAgents();  if (window.Shell) Shell.refresh();
   if (window.RPanel) RPanel.refresh();
+  if (window.Work) Work.refresh();
   if (!agentsOn() && !(window.Shell && Shell.showing("canvas"))) { lastShape = ""; return; }
   // Rebuild canvases when the machine or its agents appear; otherwise update in place.
   const shape = machine().index + ":" + (snap.agents.length > 0) + ":" + machine().link.state;

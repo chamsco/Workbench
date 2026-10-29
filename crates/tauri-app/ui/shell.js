@@ -106,6 +106,7 @@ var Shell = (() => {
     renderRail(); renderZones(); renderHead(); renderModes(); renderStatus(); renderNav();
     if (window.Code) Code.syncArt();
     if (window.RPanel) RPanel.render();
+    if (window.Work) Work.render();
     // Whatever app owns a visible section gets to draw into it; the frame does
     // not know how. Chat mounts lazily here.
     if (window.Frame) Frame.paint(prim, sec);

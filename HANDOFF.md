@@ -1,5 +1,19 @@
 # Handoff: Backspace (ohMyHarness → Workbench), v0
 
+**Session, 29 Oct 2026 (later): the ADE gets its work area (docs/SHELL-AUDIT.md, round 2).**
+
+- `ui/work.js` (`Work`): a split beside the ADE chat in the card, tabs Files,
+  Diffs (Uncommitted | History), Browser, Terminal, Images, Logs, all on real
+  commands (`list_files`, `read_file`, `git_changes`, `git_diff`, `git_log`,
+  `read_image`, `terminal_*`, `chat_list`/`chat_thread`/`trace_get`). Browser
+  and Terminal borrow Code's panes (`Code.browserPane`, `Code.terminalPane`);
+  `tracePane` was split so Logs reuses `Code.traceList`.
+- In the ADE the panel button opens it and the terminal button opens its
+  Terminal tab; RPanel only shows in the IDE. localStorage `bs.work`,
+  `bs.wtab`, `bs.work-w`.
+- **Ran:** uiharness `tools/uiharness/evals/ade-work.js` with mocked git,
+  files, threads and traces. Not run against a real backend.
+
 **Session, 29 Oct 2026: the shell gets a top rail; Chat leaves the nav (docs/SHELL-AUDIT.md).**
 
 - `#topbar` (index.html, shell.css "the global rail"): leading pill New thread

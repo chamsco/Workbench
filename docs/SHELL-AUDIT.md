@@ -41,24 +41,45 @@ Evidence: `tools/uiharness/evals/shell-rail.js` (run with the harness, see
 | 14 | IDE picker lists only real panel types | FAIL ("Empty canvas") | PASS | eval `pickerKinds` |
 | 15 | IDE add / remove / resize / maximize | PASS | PASS | existing pane actions and gutters |
 | 16 | IDE saved canvases persist | PASS | PASS | tabs filed per project (`set_tabs_for`) |
-| 17 | ADE split work area (files, diffs, browser, terminal, images, logs) | PARTIAL | PARTIAL | terminal drawer + history/files panel only |
+| 17 | ADE split work area (files, diffs, browser, terminal, images, logs) | PARTIAL | PASS (round 2) | see rows 23–31 |
 | 18 | Plugins lifecycle: install, remove | PASS | PASS | `app_install_*`, `app_remove` |
 | 19 | Plugins lifecycle: enable / disable | NOT IMPLEMENTED | NOT IMPLEMENTED | `Installed.enabled` has no setter in the UI |
 | 20 | Skills lifecycle: list, search, add (folder) | PASS | PASS | `skills_catalog` |
 | 21 | Skills lifecycle: enable / disable / remove | NOT IMPLEMENTED | NOT IMPLEMENTED | |
 | 22 | Chat › Agents view renders in the harness | BLOCKED | BLOCKED | crashes on the harness's stub data on the base branch too; needs a real backend or a fuller mock |
 
+## Round 2: the ADE work area
+
+`ui/work.js`: a split beside the ADE chat, inside the card, with six tabs on
+real state. The header's panel button opens it in the ADE (the IDE keeps its
+side panel), the terminal button opens its Terminal tab, the left edge resizes
+it, and open/tab/width are remembered per viewer.
+
+| # | Interaction | Result | Evidence (`tools/uiharness/evals/ade-work.js`) |
+|---|---|---|---|
+| 23 | Panel button opens the work area in the ADE | PASS | `open: true`, pressed |
+| 24 | Files: list (`list_files`), filter, read a file (`read_file`) | PASS | `files` shows main.rs contents; `files.png` |
+| 25 | Diffs: uncommitted files (`git_changes`), a file's diff (`git_diff`), History (`git_log`) | PASS | `diffs: 2` added lines; `diffs-before-after.png` |
+| 26 | Browser: the IDE's browser pane, framing a local dev server | PASS | `browser: true` |
+| 27 | Terminal: a real shell in the project (`terminal_*`) | PASS | `terminal: true` |
+| 28 | Images: project images as thumbnails (`read_image`), one enlarged | PASS | `images: 1`; `logs-and-images.png` |
+| 29 | Logs: the project's ADE threads, each reply's trace (`chat_thread`, `trace_get`) | PASS | `logs: 4` spans; `logs-and-images.png` |
+| 30 | Terminal button in the ADE opens the Terminal tab | PASS | `termBtn: "true"` |
+| 31 | IDE keeps its side panel, no work area | PASS | `ideWorkHidden: true` |
+
+The ADE side panel's Sessions tab is not carried over: the ADE's own sidebar
+lists the project's threads. Also fixed: trace rows drew their bar with the
+card header's styles (they share the `.tbar` class), in the IDE too.
+
 ## Next, in priority order
 
-1. ADE work area: a split beside the thread with real tabs for files, diffs,
-   browser, terminal, images and logs, fed from the session's real state.
-2. Plugins: enable/disable (core setter + command + toggle) on the catalog.
-3. Skills: a page of its own with enable/disable per role and remove for
+1. Plugins: enable/disable (core setter + command + toggle) on the catalog.
+2. Skills: a page of its own with enable/disable per role and remove for
    user skills.
-4. A fuller harness mock for the Agents view, so row 22 can be tested.
+3. A fuller harness mock for the Agents view, so row 22 can be tested.
 
 ## Tests run
 
 - `cargo test -p backspace-core --lib layout`: 13 passed (defaults now cover 1–6 panes).
 - `node --check` on app.js, shell.js, code.js.
-- uiharness eval `shell-rail.js`: every row above marked PASS.
+- uiharness eval `shell-rail.js`: rows 1–16 PASS; `ade-work.js`: rows 23–31 PASS.

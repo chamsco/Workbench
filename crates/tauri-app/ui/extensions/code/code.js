@@ -1490,6 +1490,11 @@ async function tracePane(p, body, ps) {
   const a = agent(p.agent);
   const ids = a ? a.traces || [] : [];
   if (!ids.length) { body.innerHTML = `<div class="nothing">No traces yet. ${a && busy(a) ? "This run's trace is saved when it ends." : "Each run of this agent leaves one."}</div>`; return; }
+  return traceList(body, ids, ps, "Run");
+}
+// One trace of several, with a picker: an agent's runs here, an ADE thread's
+// replies in the work area (work.js).
+async function traceList(body, ids, ps, what) {
   const id = ps.trace && ids.includes(ps.trace) ? ps.trace : ids[ids.length - 1];
   const t = await invoke("trace_get", { id }).catch(() => null);
   if (!t) { body.innerHTML = `<div class="nothing">That trace is gone.</div>`; return; }
@@ -1497,13 +1502,13 @@ async function tracePane(p, body, ps) {
   const ms = n => (n < 1000 ? `${n} ms` : n < 60000 ? `${(n / 1000).toFixed(1)} s` : `${Math.floor(n / 60000)}m ${Math.round((n % 60000) / 1000)}s`);
   const root = t.spans[0], at = root.attrs || {};
   body.innerHTML = `<div class="trace">
-    <div class="tr-h"><select class="tx" aria-label="Run">${ids.map((x, i) => `<option value="${x}" ${x === id ? "selected" : ""}>Run ${i + 1}${x === ids[ids.length - 1] ? " (latest)" : ""}</option>`).join("")}</select>
+    <div class="tr-h"><select class="tx" aria-label="${what}">${ids.map((x, i) => `<option value="${x}" ${x === id ? "selected" : ""}>${what} ${i + 1}${x === ids[ids.length - 1] ? " (latest)" : ""}</option>`).join("")}</select>
       <span>${esc(at["gen_ai.response.model"] || at["gen_ai.request.model"] || "")}</span><span>${ms(span)}</span>
       ${at["gen_ai.usage.input_tokens"] != null ? `<span>${Number(at["gen_ai.usage.input_tokens"]).toLocaleString()}↓ ${Number(at["gen_ai.usage.output_tokens"] || 0).toLocaleString()}↑</span>` : ""}
       ${at["cost.usd"] != null ? `<span>$${Number(at["cost.usd"]).toFixed(3)}</span>` : ""}${root.error ? `<span class="err">${esc(root.error)}</span>` : ""}</div>
     <div class="tr-rows">${t.spans.map((s, i) => `<details class="tr-row${s.error ? " bad" : ""}"><summary><span class="tn">${esc(i ? s.name : root.name)}</span><span class="tbar"><i style="left:${((s.start - t0) / span) * 100}%;width:${Math.max(0.6, (((s.end || s.start) - s.start) / span) * 100)}%"></i></span><span class="td">${ms((s.end || s.start) - s.start)}</span></summary>
       ${s.input ? `<pre>${esc(s.input)}</pre>` : ""}${s.output ? `<pre class="out">${esc(s.output)}</pre>` : ""}</details>`).join("")}</div></div>`;
-  body.querySelector("select").onchange = e => { ps.trace = e.target.value; tracePane(p, body, ps); };
+  body.querySelector("select").onchange = e => { ps.trace = e.target.value; traceList(body, ids, ps, what); };
 }
   // ---------------------------------------------------------------- the app
   // Mounted once, when the manifest is read; everything else is lazy.
@@ -1569,11 +1574,14 @@ async function tracePane(p, body, ps) {
     if (!dock.at) terminalPane(el, dock.ps);
     dock.at = at;
   }
-  document.addEventListener("click", e => { const b = e.target.closest("#termBtn"); if (b) termMenu(b); });
+  // In the ADE the terminal is a tab of the work area (work.js).
+  document.addEventListener("click", e => { const b = e.target.closest("#termBtn"); if (!b) return; if (S.codeView === "pair" && window.Work) Work.show("terminal"); else termMenu(b); });
 
   return {
     // state the frame's sidebar and the other apps read
     loadTabs: useTabsFor, tab, paneTitle, wbView, setDock,
+    // panes the ADE's work area borrows
+    browserPane, terminalPane, traceList,
     // the app's own surface
     mount, init, paint, elFor, classes, layout, afterData, head, windowTitle,
     // public verbs (the frame, the sidebar, Home and Chat call these)

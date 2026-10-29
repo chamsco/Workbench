@@ -87,7 +87,7 @@
         <div class="page-line" id="pageLine"></div>
         <div class="right">
           <button class="ib code-only" id="termBtn" aria-label="Terminal" title="Terminal: under the page or to its right" aria-pressed="false" data-popper data-icon="term"></button>
-          <button class="ib code-only" id="panelBtn" aria-label="Side panel: history, files, sessions" title="History, files and sessions" aria-pressed="false" data-icon="panelr"></button>
+          <button class="ib code-only" id="panelBtn" aria-label="Side panel" title="Side panel: the work area in the ADE; history, files and sessions in the IDE" aria-pressed="false" data-icon="panelr"></button>
           <button class="ib" id="aiBtn" aria-label="Chat panel" title="Chat panel (⌘I)" aria-pressed="true" data-icon="sparkle"></button>
         </div>
       </header>
@@ -101,6 +101,8 @@
         <div class="split-head" id="splitHead" hidden></div>
       </div>
       <aside class="rpanel" id="rpanel" aria-label="History, files and sessions" hidden></aside>
+      <!-- The ADE's work area beside the chat (work.js). -->
+      <aside class="work" id="work" aria-label="Work area" hidden></aside>
       <section class="settings" id="settings" hidden></section>
       <!-- Settings' way out: one large round button at the card's top right,
            back to whatever was open before. -->
@@ -135,6 +137,7 @@
 <script src="picker.js"></script>
 <script src="home.js"></script>
 <script src="rpanel.js"></script>
+<script src="work.js"></script>
 <script src="providers.js"></script>
 <script src="onboard.js"></script>
 <script src="memory.js"></script>
