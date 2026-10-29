@@ -17,6 +17,36 @@
   <div class="win" id="win">
     <div class="glass" id="glass" aria-hidden="true"></div>
     <div class="lights" aria-hidden="true"><span>×</span><span>−</span><span>+</span></div>
+    <!-- The global rail across the top of the window, shared by every app:
+         the leading pill (New thread | sidebar), back and forward, the app
+         switcher centred with Plugins, Skills and Agents beside it, then
+         search, settings and the window buttons. Each app's own toolbar sits
+         under it, in the page card's header. -->
+    <header class="topbar" id="topbar" data-tauri-drag-region>
+      <div class="tb-l" data-tauri-drag-region>
+        <span class="lights-gap" data-tauri-drag-region></span>
+        <div class="lead-pill">
+          <button class="lp-new" id="newThread" title="New thread (⌘N)" aria-label="New thread"><span data-icon="compose"></span><span class="lpl">New thread</span></button>
+          <span class="lp-sep" aria-hidden="true"></span>
+          <button class="ib" id="sideClose" aria-label="Toggle sidebar" title="Toggle sidebar (⌘\)" data-icon="sidebar"></button>
+        </div>
+        <button class="ib" id="navBack" aria-label="Back" title="Back" data-icon="back"></button>
+        <button class="ib" id="navFwd" aria-label="Forward" title="Forward" data-icon="fwd"></button>
+      </div>
+      <div class="tb-c" data-tauri-drag-region>
+        <div class="zones" id="zones" role="tablist" aria-label="Apps"></div>
+        <div class="tb-ext" id="tbExt" role="group" aria-label="Plugins, skills and agents">
+          <button class="tbx" id="plugBtn" data-x="plugins" title="Plugins: install, turn on or off, remove"><span data-icon="box"></span><span class="tbl">Plugins</span></button>
+          <button class="tbx" id="skillBtn" data-x="skills" title="Skills: the playbooks agents load"><span data-icon="book"></span><span class="tbl">Skills</span></button>
+          <button class="tbx" id="agentBtn" data-x="agents" title="Agents: your named agents"><span data-icon="team"></span><span class="tbl">Agents</span></button>
+        </div>
+      </div>
+      <div class="tb-r" data-tauri-drag-region>
+        <div class="side-pills" id="sidePills" hidden></div>
+        <button class="ib" id="searchBtn" aria-label="Search" title="Search projects, agents and chats" data-popper data-icon="search"><kbd hidden></kbd></button>
+        <button class="ib" id="gearBtn" aria-label="Settings" title="Settings" data-icon="gear"></button>
+      </div>
+    </header>
     <nav class="rail" id="rail" aria-label="Zones" data-tauri-drag-region>
       <div class="rail-zones" id="railZones" role="tablist" aria-orientation="vertical"></div>
       <div class="rail-apps" id="railApps"></div>
@@ -26,20 +56,6 @@
       <button class="rz" id="gear" aria-label="Settings" data-tip="Settings"><span class="sq" data-icon="gear"></span></button>
     </nav>
     <aside class="side" id="side" aria-label="Machine, projects and agents">
-      <!-- The window's own row, on the sidebar: the lights (macOS draws them
-           here), back and forward, the sidebar toggle, then search and
-           settings. Under it, every app as a tile. -->
-      <div class="side-top" data-tauri-drag-region>
-        <span class="lights-gap" data-tauri-drag-region></span>
-        <button class="ib" id="navBack" aria-label="Back" title="Back" data-icon="back"></button>
-        <button class="ib" id="navFwd" aria-label="Forward" title="Forward" data-icon="fwd"></button>
-        <button class="ib" id="sideClose" aria-label="Hide sidebar" title="Hide sidebar" data-icon="sidebar"></button>
-        <div class="side-pills" id="sidePills"></div>
-        <span class="sp" data-tauri-drag-region></span>
-        <button class="ib" id="searchBtn" aria-label="Search" title="Search projects, agents and chats" data-popper data-icon="search"><kbd hidden></kbd></button>
-        <button class="ib" id="gearBtn" aria-label="Settings" title="Settings" data-icon="gear"></button>
-      </div>
-      <div class="zones" id="zones" role="tablist" aria-label="Apps"></div>
       <div class="side-head">
         <div class="zone-title" id="zoneTitle"></div>
         <button class="newbtn chat-only" id="newChat" title="New chat (⌘N)"><span data-icon="compose"></span>New chat<kbd>⌘N</kbd></button>
@@ -86,6 +102,9 @@
       </div>
       <aside class="rpanel" id="rpanel" aria-label="History, files and sessions" hidden></aside>
       <section class="settings" id="settings" hidden></section>
+      <!-- Settings' way out: one large round button at the card's top right,
+           back to whatever was open before. -->
+      <button class="set-x" id="setX" aria-label="Close settings" title="Close settings (Esc)" data-icon="close"></button>
       <aside class="drawer" id="drawer" aria-label="Tickets and reviews" hidden></aside>
     </div>
     <!-- The page's chat: a thread beside whatever is open, its composer at

@@ -1,5 +1,21 @@
 # Handoff: Backspace (ohMyHarness → Workbench), v0
 
+**Session, 29 Oct 2026: the shell gets a top rail; Chat leaves the nav (docs/SHELL-AUDIT.md).**
+
+- `#topbar` (index.html, shell.css "the global rail"): leading pill New thread
+  | sidebar toggle, back/forward, the app switcher (`#zones`, no Chat) centred
+  with Plugins (Apps catalog), Skills (Settings › Agent skills) and Agents
+  (Chat's agents view), then search, settings and the Windows/Linux buttons.
+  The sidebar's top row and its app tiles are gone; the folded pill keeps only
+  what is live. `newThread()` in app.js; Ctrl/⌘N and onboarding use it,
+  Ctrl/⌘J flips ADE/IDE.
+- Settings closes with `#setX`, a 44px round button at the card's top right.
+- IDE tabs take six canvases: `MAX_PANES` in code.js and core::layout, 5 and 6
+  presets appended (GPUI indexes PRESETS), picker drops "Empty canvas".
+- **Ran:** `cargo test -p backspace-core --lib layout`, uiharness
+  `tools/uiharness/evals/shell-rail.js`. Not run in a real window: macOS
+  lights over the rail and the Linux resize border.
+
 **Session, 25 Oct 2026: agents get browser and desktop use (docs/HANDS.md).**
 
 - `crates/core/src/hands/`: the agents' own Chrome over DevTools (cdp.rs),

@@ -209,10 +209,14 @@ function setSide(open) {
   const w = $("#win");
   if (narrow()) { w.classList.toggle("side-open", open); w.classList.remove("side-closed"); }
   else { w.classList.toggle("side-closed", !open); w.classList.remove("side-open"); }
-  $("#sideOpen").hidden = open && !narrow();
+  // The rail's toggle stands for both directions now; the old show button in
+  // the card's header stays in the DOM for whatever reads it, never drawn.
+  $("#sideOpen").hidden = true;
+  $("#sideClose").setAttribute("aria-pressed", String(!!open));
   if (inAgents() && !narrow()) { S.agentsFolded = false; try { localStorage.setItem("bs.agentsSide", open ? "open" : "closed"); } catch {} }
 }
-$("#sideClose").onclick = () => setSide(false);
+const sideIsOpen = () => { const w = $("#win"); return narrow() ? w.classList.contains("side-open") : !w.classList.contains("side-closed"); };
+$("#sideClose").onclick = () => setSide(!sideIsOpen());
 $("#sideOpen").onclick = () => setSide(true);
 $("#scrim").onclick = () => setSide(false);
 // Both settings buttons, and they toggle. `#gear` is the rail's; `#gearBtn` is
@@ -266,6 +270,14 @@ function setCodeView(v) {
   prefs.code_view = S.codeView; invoke("set_code_view", { view: S.codeView });
   setMode("code");
 }
+// New thread, from the rail's leading pill or ⌘N: agent chat lives in Code's
+// ADE now, so a thread starts there, in the open project (or none).
+function newThread() {
+  if (S.settings) closeSettings();
+  if (S.mode !== "code" || S.codeView !== "pair") setCodeView("pair");
+  if (window.Chat) Chat.newChat();
+}
+$("#newThread").onclick = newThread;
 function setChatView(v) {
   S.chatView = v === "agents" ? "agents" : "chat";
   prefs.chat_view = S.chatView; invoke("set_view_prefs", { chatView: S.chatView, motion: null });
@@ -487,11 +499,11 @@ addEventListener("keydown", e => {
   if (e.key === "Escape") { if (window.Ask && $("#ask") && !$("#ask").hidden) Ask.close(); else if (!$("#pop").hidden) closePop(); else if (S.settings) closeSettings(); else if (S.drawer) Code.setDrawer(false); }
   if (!(e.metaKey || e.ctrlKey)) return;
   if (!$("#onboard").hidden) return;
-  if (e.key === "n") { e.preventDefault(); setMode("chat"); Chat.newChat(); return; }
+  if (e.key === "n") { e.preventDefault(); newThread(); return; }
   if (e.key === "k") { e.preventDefault(); Shell.search(); return; }
   if (e.key === "i" && S.mode === "home") { e.preventDefault(); Ask.toggle(); return; }
   if (e.key === "o") { e.preventDefault(); pickProject(); return; }
-  if (e.key === "j") { e.preventDefault(); setMode(S.mode === "chat" ? "code" : "chat"); return; }
+  if (e.key === "j") { e.preventDefault(); setCodeView(S.mode === "code" && S.codeView === "pair" ? "agents" : "pair"); return; }
   if (e.key === "/" ) { e.preventDefault(); if (window.Shell) Shell.toggleSplit(); return; }
   if (!agentsOn()) { if (e.key === ",") { e.preventDefault(); openSettings(); } if (e.key === "\\") { e.preventDefault(); setSide($("#win").classList.contains("side-closed")); } return; }
   const i = +e.key;
@@ -649,7 +661,7 @@ function renderSettings() {
   const nav = SET_NAV.map(([g, items]) => `<div class="sg"><span>${g}</span>${items.map(([k, l, ic]) => `<button class="sv${on(k)}" data-setnav="${k}">${icon(ic)}${l}</button>`).join("")}</div>`).join("")
     + `<div class="sg"><span>Archived</span><button class="sv${on("home")}" data-setnav="home">${icon("archive")}Archived threads</button></div>`;
   el.innerHTML = `<div class="setwrap"><nav class="setnav" aria-label="Settings sections">${nav}</nav><div class="setbody"><div class="set">
-    <div class="set-h"><h1>Settings</h1><span class="sp"></span><button class="btn" id="setRerun">Run setup again</button><button class="ib" id="setClose" aria-label="Close settings">${icon("close")}</button></div>
+    <div class="set-h"><h1>Settings</h1><span class="sp"></span><button class="btn" id="setRerun">Run setup again</button></div>
     <section id="set-general"><h2>General</h2><p class="lead">What Backspace is for, where it looks for projects, and the open project.</p>
       <div class="line"><span class="lab">Apps<small>Off apps stay in the sidebar, dimmed, until you turn one back on.</small></span><div class="segc">${(window.Frame ? Frame.zones() : [{ id: "chat", name: "Chat" }, { id: "code", name: "Code" }]).map(e => `<button aria-pressed="${(prefs.uses && prefs.uses.length ? prefs.uses : (window.Frame ? Frame.ids() : ["chat", "code"])).includes(e.id)}" data-use="${e.id}">${esc(e.name)}</button>`).join("")}</div></div>
       ${hasProject ? `<div class="line"><span class="lab">Workspace<small class="mono">${esc(snap.workspace || "—")}</small></span></div>
@@ -738,7 +750,7 @@ function renderSettings() {
   $$("[data-setnav]", el).forEach(b => (b.onclick = () => showSection(b.dataset.setnav)));
   showSection(S.setSection);
   bindAppearance(el);
-  $("#setClose").onclick = closeSettings;
+  $("#setX").onclick = closeSettings;
   const pt = $("#phoneT", el);
   const trCfg = () => {
     const headers = {};

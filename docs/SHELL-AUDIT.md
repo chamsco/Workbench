@@ -1,0 +1,64 @@
+# Shell audit against the ADE/IDE goal (29 Oct 2026)
+
+The goal Charles set (written for "Cauldron", applied to this app): Chat leaves
+the top navigation and agent chat lives in the ADE; one shared shell with a top
+global rail; each app owns its sidebars; an ADE modelled on BB and T3 Code; an
+IDE that is a multiplexer canvas of up to six panels; real Plugins and Skills
+management. Base: PR #31's branch (`main` is a week behind the open stack).
+
+## Executive summary
+
+Round 1 builds the shell: a top rail across the window (New thread | sidebar
+pill, back/forward, the app switcher centred with Plugins, Skills and Agents,
+then search, settings and the window buttons). Chat is out of the switcher;
+New thread, Ctrl/⌘N and the end of onboarding start a thread in Code's ADE;
+named agents are behind the rail's Agents entry (Charles's pick). Settings
+closes with a large round button at the card's top right, back to whatever was
+open. The IDE takes six canvases (UI and `core::layout`), with 5 and 6 presets,
+and the canvas picker no longer offers "Empty canvas". Not done yet: the ADE's
+split work area, and enable/disable/remove for plugins and skills.
+
+## Interaction ledger
+
+Evidence: `tools/uiharness/evals/shell-rail.js` (run with the harness, see
+`tools/uiharness/README.md`), screenshots in `docs/screenshots/shell-rail/`.
+
+| # | Interaction | Before | After | Evidence |
+|---|---|---|---|---|
+| 1 | Chat absent from top navigation | FAIL (tile in sidebar) | PASS | eval `chatInNav: false`; zones = home, code |
+| 2 | Top global rail with centred app switcher | NOT IMPLEMENTED | PASS | `*-before-after.png` |
+| 3 | Plugins entry opens the plugin catalog | NOT IMPLEMENTED (a + tile) | PASS | eval `plugins.mode: "apps"` |
+| 4 | Skills entry opens skills | NOT IMPLEMENTED | PASS | eval `skills.section: "skills"`, button pressed |
+| 5 | Agents entry opens named agents | n/a | PASS | eval `agents: chat/agents` |
+| 6 | Leading pill: New thread starts an ADE thread | NOT IMPLEMENTED (search button there) | PASS | eval `newThread: code/pair` |
+| 7 | Leading pill: sidebar toggle folds and unfolds | PARTIAL (two buttons in two places) | PASS | eval `sideAfter1: true`, `sideAfter2: false`; `ade-sidebar-folded.png` |
+| 8 | Ctrl/⌘N starts a thread | FAIL (opened Chat) | PASS | eval `ctrlN: code/pair` |
+| 9 | Ctrl/⌘J | Chat ↔ Code | ADE ↔ IDE | eval `ctrlJ: code/agents` |
+| 10 | ADE/IDE switch in the app toolbar | PASS | PASS | card header |
+| 11 | Settings has no app sidebar | PASS | PASS | `settings-before-after.png` |
+| 12 | Settings: large round close, back to the previous page | FAIL (small ×) | PASS | eval `afterClose.mode: "apps"` (was Plugins) |
+| 13 | IDE: up to six panels | FAIL (4) | PASS | eval `panes: 6`, picker says the tab is full at 6; `ide-six-panels-before-after.png` |
+| 14 | IDE picker lists only real panel types | FAIL ("Empty canvas") | PASS | eval `pickerKinds` |
+| 15 | IDE add / remove / resize / maximize | PASS | PASS | existing pane actions and gutters |
+| 16 | IDE saved canvases persist | PASS | PASS | tabs filed per project (`set_tabs_for`) |
+| 17 | ADE split work area (files, diffs, browser, terminal, images, logs) | PARTIAL | PARTIAL | terminal drawer + history/files panel only |
+| 18 | Plugins lifecycle: install, remove | PASS | PASS | `app_install_*`, `app_remove` |
+| 19 | Plugins lifecycle: enable / disable | NOT IMPLEMENTED | NOT IMPLEMENTED | `Installed.enabled` has no setter in the UI |
+| 20 | Skills lifecycle: list, search, add (folder) | PASS | PASS | `skills_catalog` |
+| 21 | Skills lifecycle: enable / disable / remove | NOT IMPLEMENTED | NOT IMPLEMENTED | |
+| 22 | Chat › Agents view renders in the harness | BLOCKED | BLOCKED | crashes on the harness's stub data on the base branch too; needs a real backend or a fuller mock |
+
+## Next, in priority order
+
+1. ADE work area: a split beside the thread with real tabs for files, diffs,
+   browser, terminal, images and logs, fed from the session's real state.
+2. Plugins: enable/disable (core setter + command + toggle) on the catalog.
+3. Skills: a page of its own with enable/disable per role and remove for
+   user skills.
+4. A fuller harness mock for the Agents view, so row 22 can be tested.
+
+## Tests run
+
+- `cargo test -p backspace-core --lib layout`: 13 passed (defaults now cover 1–6 panes).
+- `node --check` on app.js, shell.js, code.js.
+- uiharness eval `shell-rail.js`: every row above marked PASS.

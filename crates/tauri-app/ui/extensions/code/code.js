@@ -71,6 +71,8 @@ function saveTabs() {
 // Mirrors core::layout: {leaf: i} | {dir: "row"|"col", ratio, a, b}. Rust
 // owns the format (prefs.json); this copy draws it and applies drags.
 const PH = -1;
+// How many canvases one tab holds (core::layout::MAX_PANES).
+const MAX_PANES = 6;
 const L = {
   leaf: i => ({ leaf: i }),
   split: (dir, ratio, a, b) => ({ dir, ratio, a, b }),
@@ -79,7 +81,11 @@ const L = {
     if (n <= 1) return l(0);
     if (n === 2) return s("row", 0.5, l(0), l(1));
     if (n === 3) return s("row", 1 / 3, l(0), s("row", 0.5, l(1), l(2)));
-    return s("col", 0.56, s("row", 0.5, l(0), l(1)), s("row", 0.5, l(2), l(3)));
+    // Four to six: two rows, the top one taking the odd canvas, each row in
+    // equal widths.
+    const row = (from, k) => (k === 1 ? l(from) : s("row", 1 / k, l(from), row(from + 1, k - 1)));
+    const top = Math.ceil(Math.min(n, MAX_PANES) / 2), bottom = Math.min(n, MAX_PANES) - top;
+    return s("col", 0.56, row(0, top), row(top, bottom));
   },
   preset(id) {
     const l = L.leaf, s = L.split;
@@ -144,7 +150,7 @@ const L = {
     return e[0] < 0.25 ? e[1] : "center";
   },
 };
-const PRESETS = [["1", "1", 1], ["2", "2", 2], ["3", "3", 3], ["4", "2×2", 4], ["top1", "1 over 2", 3], ["bottom1", "2 over 1", 3], ["left1", "1 | 2", 3]];
+const PRESETS = [["1", "1", 1], ["2", "2", 2], ["3", "3", 3], ["4", "2×2", 4], ["top1", "1 over 2", 3], ["bottom1", "2 over 1", 3], ["left1", "1 | 2", 3], ["5", "3 over 2", 5], ["6", "3×2", 6]];
 const tree = t => (L.valid(t.layout, t.panes.length) ? t.layout : L.defaultFor(t.panes.length));
 // A tab's actual arrangement in 16x12, for unnamed tabs and the presets.
 function treeIcon(t, cls = "lay-ic") {
@@ -273,12 +279,12 @@ function newTabPop(anchor) {
 // Team chat is not offered while the four-phase flow is being built: the
 // canvas type and its renderer stay, so a tab that already holds one keeps
 // working and the view comes back by adding it here again.
-const VIEWS = [["conversation", "reply", "Conversation"], ["terminal", "term", "Terminal"], ["files", "folder", "Worktree files"], ["browser", "globe", "Browser"], ["diagram", "diagram", "Diagram review"], ["docs", "doc", "PLAN.md"], ["options", "opts", "Visual options"], ["empty", "window", "Empty canvas"]];
+const VIEWS = [["conversation", "reply", "Conversation"], ["terminal", "term", "Terminal"], ["files", "folder", "Worktree files"], ["browser", "globe", "Browser"], ["diagram", "diagram", "Diagram review"], ["docs", "doc", "PLAN.md"], ["options", "opts", "Visual options"]];
 $("#addCanvas").dataset.popper = "";
 $("#addCanvas").onclick = e => {
-  const full = tab().panes.length >= 4;
+  const full = tab().panes.length >= MAX_PANES;
   const agents = treeOrder().map(id => agent(id));
-  openPop(e.currentTarget, full ? `<h5>Add a canvas</h5><div class="note">This tab already has four canvases. Close one, or open a new tab with ⌘T.</div>` :
+  openPop(e.currentTarget, full ? `<h5>Add a canvas</h5><div class="note">This tab already has ${MAX_PANES} canvases. Close one, or open a new tab with ⌘T.</div>` :
     `<h5>Sessions</h5>${agents.length ? agents.map(a => `<button class="pi" data-agent="${a.id}"><span class="agent">${icon("sparkle")}</span>${esc(a.id === MAIN ? "Main agent" : a.title)}<span class="k">${esc(a.status.replace("_", " "))}</span></button>`).join("") : `<div class="note">No agents on this machine yet.</div>`}
      <hr><h5>Views</h5>${VIEWS.map(([k, ic, l]) => `<button class="pi" data-kind="${k}">${icon(ic)}${l}</button>`).join("")}`, pop => {
     $$("[data-agent]", pop).forEach(b => (b.onclick = () => addCanvas({ kind: "agent", agent: +b.dataset.agent })));
@@ -287,7 +293,7 @@ $("#addCanvas").onclick = e => {
 };
 function addCanvas(spec) {
   closePop();
-  const t = tab(); if (t.panes.length >= 4) return;
+  const t = tab(); if (t.panes.length >= MAX_PANES) return;
   // Split the focused canvas along its longer side.
   const g = $("#grid"), tr = tree(t), n = t.panes.length;
   const { leaves } = L.layout(tr, { x: 0, y: 0, w: g.clientWidth || 1000, h: g.clientHeight || 600 }, 6);
@@ -964,7 +970,7 @@ function paneDrag(e, el, slot) {
 }
 function moveToTab(slot, ti) {
   const from = tab(), to = prefs.tabs[ti];
-  if (to.panes.length >= 4) { renderGrid(); flash($(`#tabs [data-tab="${ti}"]`)); return; }
+  if (to.panes.length >= MAX_PANES) { renderGrid(); flash($(`#tabs [data-tab="${ti}"]`)); return; }
   const spec = from.panes[slot];
   if (from.panes.length > 1) { from.layout = L.renumber(L.remove(tree(from), slot), slot); from.panes.splice(slot, 1); }
   else from.panes[0] = { kind: "empty", agent: 0, url: null };

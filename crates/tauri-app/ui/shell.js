@@ -174,7 +174,7 @@ var Shell = (() => {
   }
   function renderRail() {
     const cur = S.settings ? "" : S.mode;
-    $("#railZones").innerHTML = zones().filter(([z]) => z !== "apps" && z !== "memory").map(([z, ic, l]) =>
+    $("#railZones").innerHTML = zones().filter(([z]) => inNav(z)).map(([z, ic, l]) =>
       `<button class="rz${isOff(z) ? " off" : ""}" role="tab" data-z="${z}" aria-selected="${cur === z}" aria-label="${l}${isOff(z) ? " (off)" : ""}" data-tip="${l}"><span class="sq">${icon(ic)}${badge(z)}</span></button>`).join("");
     const pinned = window.Apps ? Apps.pinned() : [];
     $("#railApps").innerHTML = pinned.length ? `<div class="rsep"></div>` + pinned.map(a =>
@@ -218,17 +218,27 @@ var Shell = (() => {
   // The sidebar's tiles: every app as an icon, then pinned apps, then + for
   // the catalog. An app that is off stays here, dimmed — click it to turn it
   // back on. The name is the tooltip; the page header says where you are.
+  // The rail's switcher: every app but Chat (agent chat lives in Code's ADE,
+  // and named agents behind the Agents entry), then the apps pinned from the
+  // catalog. Plugins, Skills and Agents sit beside it.
+  const inNav = k => k !== "apps" && k !== "memory" && k !== "chat";
   function renderZones() {
     const el = $("#zones"); if (!el) return;
     const z = S.settings ? "" : S.mode;
     const apps = window.Apps ? Apps.pinned() : [];
-    const tile = (k, glyph, l, off) => `<button role="tab" aria-selected="${z === k}" data-zz="${esc(k)}" title="${esc(l)}${off ? " — off" : ""}" aria-label="${esc(l)}${off ? " (off)" : ""}" class="${off ? "off" : ""}">${glyph}${badge(k)}</button>`;
-    // Memory lives on Home (its folders); Apps is the + at the end.
-    el.innerHTML = zones().filter(([k]) => k !== "apps" && k !== "memory").map(([k, ic, l]) => tile(k, icon(ic), l, isOff(k))).join("")
-      + apps.map(a => tile("app:" + a.id, Apps.glyph(a, "xs"), a.name, false)).join("")
-      + `<button class="add" data-zz="apps" aria-selected="${z === "apps"}" title="Add an app" aria-label="Apps: add one">${icon("plus")}</button>`;
+    const tile = (k, glyph, l, off) => `<button role="tab" aria-selected="${z === k}" data-zz="${esc(k)}" title="${esc(l)}${off ? " — off" : ""}" aria-label="${esc(l)}${off ? " (off)" : ""}" class="${off ? "off" : ""}">${glyph}<span class="zl">${esc(l)}</span>${badge(k)}</button>`;
+    el.innerHTML = zones().filter(([k]) => inNav(k)).map(([k, ic, l]) => tile(k, icon(ic), l, isOff(k))).join("")
+      + apps.map(a => tile("app:" + a.id, Apps.glyph(a, "xs"), a.name, false)).join("");
     $$("[data-zz]", el).forEach(x => (x.onclick = () => openZone(x.dataset.zz)));
-    $("#gearBtn").setAttribute("aria-pressed", !!S.settings);
+    const on = { plugins: !S.settings && z === "apps", skills: !!S.settings && S.setSection === "skills", agents: !S.settings && z === "chat" && S.chatView === "agents" };
+    $$("#tbExt [data-x]").forEach(b => b.setAttribute("aria-pressed", String(!!on[b.dataset.x])));
+    $("#gearBtn").setAttribute("aria-pressed", !!S.settings && S.setSection !== "skills");
+  }
+  function openExt(x) {
+    if (x === "plugins") openZone("apps");
+    else if (x === "skills") openSettings("skills");
+    else if (x === "agents") { if (S.settings) closeSettings(); if (isOff("chat")) Frame.setOn("chat", true, true); setChatView("agents"); }
+    renderZones();
   }
 
   // Search: zones, projects, agents and chats, from the title bar or Ctrl K.
@@ -357,7 +367,7 @@ var Shell = (() => {
   function renderCaps() {
     const caps = $("#caps");
     if (platform !== "win" && platform !== "linux") { caps.innerHTML = ""; return; }
-    $(".tbar .right").append(caps);
+    $("#topbar .tb-r").append(caps);
     caps.innerHTML = `<button data-cap="min" aria-label="Minimize" title="Minimize">${icon("wmin")}</button>` +
       `<button data-cap="max" aria-label="Maximize" title="Maximize">${icon("wmax")}</button>` +
       `<button data-cap="close" aria-label="Close" title="Close">${icon("wclose")}</button>`;
@@ -412,6 +422,7 @@ var Shell = (() => {
     $("#aiBtn").onclick = () => Ask.toggle();
     $("#navBack").onclick = () => walk(-1);
     $("#navFwd").onclick = () => walk(1);
+    $$("#tbExt [data-x]").forEach(b => (b.onclick = () => openExt(b.dataset.x)));
     $("#gearBtn").onclick = () => (S.settings ? closeSettings() : openSettings());
     $("#gear").onclick = () => (S.settings ? closeSettings() : openSettings());
     if (window.Memory) await Memory.init();
