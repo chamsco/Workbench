@@ -1,6 +1,8 @@
 // The ADE's work area: a split beside the agent chat, with what the session is
-// working on. Files, Diffs (uncommitted changes and the history), Browser,
-// Terminal, Images and Logs (the traces of the project's ADE replies). Every
+// working on. It opens on a New tab page (after ZCode's) that lists what it
+// can show; each one opened becomes a tab you can close. Files, Review
+// (uncommitted changes and the history), Browser, Terminal, Images and Logs
+// (the traces of the project's ADE replies). Every
 // tab reads real state: the project folder, git, a real shell, the traces the
 // replies left. Nothing is drawn that the machine did not report.
 //
@@ -10,10 +12,16 @@
 var Work = (() => {
   const get = (k, d) => { try { return localStorage.getItem(k) || d; } catch { return d; } };
   const put = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
-  const TABS = [["files", "folder", "Files"], ["diffs", "diff", "Diffs"], ["browser", "globe", "Browser"], ["terminal", "term", "Terminal"], ["images", "image", "Images"], ["logs", "trace", "Logs"]];
+  const TABS = [["files", "folder", "Files"], ["browser", "globe", "Browser"], ["terminal", "term", "Terminal"], ["diffs", "diff", "Review"], ["images", "image", "Images"], ["logs", "trace", "Logs"]];
+  // What each one is, on the New tab page.
+  const ABOUT = { files: "Browse the project folder and read a file.", browser: "Browse websites and preview apps.", terminal: "Run commands and view output.", diffs: "Review code changes and diffs.", images: "See the images in the project.", logs: "Read each reply's trace: model, tools, timings." };
   const IMG = /\.(png|jpe?g|gif|webp|svg|bmp|ico|avif)$/i;
-  let open = get("bs.work", "0") === "1", tab = get("bs.wtab", "files");
-  if (!TABS.some(([k]) => k === tab)) tab = "files";
+  const known = k => TABS.some(([t]) => t === k);
+  // Open by default: the New tab page is where the ADE starts.
+  let open = get("bs.work", "1") === "1", tab = get("bs.wtab", "new");
+  // The tabs opened from the New tab page, in the order they were opened.
+  let opened = get("bs.wopen", "").split(",").filter(known);
+  if (tab !== "new" && !opened.includes(tab)) tab = opened[0] || "new";
   // Per tab: what was read, and when. Kept across tab switches so coming back
   // is instant; refreshed on demand and as the session changes things.
   const st = {
@@ -30,9 +38,18 @@ var Work = (() => {
   function toggle(v = !open) { open = v; put("bs.work", v ? "1" : "0"); render(); }
   function show(t) { if (t) setTab(t); toggle(true); }
   function setTab(t) {
-    if (!TABS.some(([k]) => k === t)) return;
+    if (t !== "new" && !known(t)) return;
+    if (t !== "new" && !opened.includes(t)) { opened.push(t); put("bs.wopen", opened.join(",")); }
     tab = t; put("bs.wtab", t);
     if (open) draw();
+  }
+  function closeTab(t) {
+    opened = opened.filter(k => k !== t); put("bs.wopen", opened.join(","));
+    // A closed terminal ends its shell; a closed browser forgets its frame.
+    if (t === "terminal") { if (st.terminal.ps.cleanup) st.terminal.ps.cleanup(); st.terminal = { ps: {}, mounted: false }; const l = $('#work [data-live="terminal"]'); if (l) l.innerHTML = ""; }
+    if (t === "browser") { const l = $('#work [data-live="browser"]'); if (l) l.innerHTML = ""; }
+    if (tab === t) { tab = opened[opened.length - 1] || "new"; put("bs.wtab", tab); }
+    draw(); load();
   }
 
   // ---------------------------------------------------------------- data
@@ -115,6 +132,10 @@ var Work = (() => {
     return `<div class="wk-grid">${s.rows.slice(0, 120).map(f => `<button class="wk-thumb" data-img="${esc(f.path)}" title="${esc(rel(f.path))}"><img data-src="${esc(f.path)}" alt="" loading="lazy"><span>${esc(f.name)}</span></button>`).join("")}</div>${s.rows.length > 120 ? `<div class="wk-wait">Showing 120 of ${s.rows.length}.</div>` : ""}`;
   }
 
+  function newTabView() {
+    return `<div class="wk-new"><h3>New tab</h3>${TABS.map(([k, ic, l]) => `<div class="wk-card"><span class="wk-ci">${icon(ic)}</span><span class="wk-ct"><b>${l}</b><span>${ABOUT[k]}</span></span><button class="btn sm" data-open="${k}">${opened.includes(k) ? "Show" : "Open"}</button></div>`).join("")}</div>`;
+  }
+
   function logsView() {
     const l = st.logs;
     if (!l.threads) return `<div class="wk-wait">Reading the project's threads…</div>`;
@@ -139,9 +160,14 @@ var Work = (() => {
       body = el.querySelector(".wk-body");
       wireGutter(el.querySelector(".wk-gut"));
     }
-    el.querySelector(".wk-tabs").innerHTML = TABS.map(([k, ic, l]) => `<button role="tab" aria-selected="${tab === k}" data-wt="${k}">${icon(ic)}<span>${l}</span>${k === "diffs" && st.diffs.rows && st.diffs.rows.length ? `<i class="wk-n">${st.diffs.rows.length}</i>` : ""}</button>`).join("")
+    const lab = k => TABS.find(([t]) => t === k);
+    const tabs = opened.map(k => { const [, ic, l] = lab(k); return `<span class="wk-tab" role="tab" aria-selected="${tab === k}" data-wt="${k}">${icon(ic)}<span>${l}</span>${k === "diffs" && st.diffs.rows && st.diffs.rows.length ? `<i class="wk-n">${st.diffs.rows.length}</i>` : ""}<button class="wk-x" data-wx="${k}" aria-label="Close ${l}" title="Close ${l}">${icon("close")}</button></span>`; });
+    if (tab === "new") tabs.push(`<span class="wk-tab" role="tab" aria-selected="true" data-wt="new">${icon("doc")}<span>New tab</span>${opened.length ? `<button class="wk-x" data-wx="new" aria-label="Close New tab" title="Close New tab">${icon("close")}</button>` : ""}</span>`);
+    el.querySelector(".wk-tabs").innerHTML = `<div class="wk-strip">${tabs.join("")}<button class="ib" data-act="new" title="New tab" aria-label="New tab">${icon("plus")}</button></div>`
       + `<span class="sp"></span>${["files", "diffs", "images", "logs"].includes(tab) ? `<button class="ib" data-act="refresh" title="Refresh" aria-label="Refresh">${icon("reload")}</button>` : ""}<button class="ib" data-act="close" title="Close the work area" aria-label="Close the work area">${icon("close")}</button>`;
-    $$("[data-wt]", el).forEach(b => (b.onclick = () => { setTab(b.dataset.wt); load(); }));
+    $$("[data-wt]", el).forEach(b => (b.onclick = e => { if (e.target.closest("[data-wx]")) return; setTab(b.dataset.wt); load(); }));
+    $$("[data-wx]", el).forEach(b => (b.onclick = () => (b.dataset.wx === "new" ? setTab(opened[opened.length - 1]) : closeTab(b.dataset.wx))));
+    el.querySelector("[data-act=new]").onclick = () => setTab("new");
     el.querySelector("[data-act=close]").onclick = () => toggle(false);
     const rf = el.querySelector("[data-act=refresh]"); if (rf) rf.onclick = () => load(true);
 
@@ -158,13 +184,14 @@ var Work = (() => {
       if (!st.terminal.mounted && window.Code && Code.terminalPane) { st.terminal.mounted = true; Code.terminalPane(live, st.terminal.ps); }
       return;
     }
-    body.innerHTML = tab === "files" ? filesView() : tab === "diffs" ? diffsView() : tab === "images" ? imagesView() : logsView();
+    body.innerHTML = tab === "new" ? newTabView() : tab === "files" ? filesView() : tab === "diffs" ? diffsView() : tab === "images" ? imagesView() : logsView();
     const list = body.querySelector(".wk-list"); if (list) list.scrollTop = keep;
     wire(body);
     if (focused) { const q = body.querySelector(".wk-q"); if (q) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); } }
   }
 
   function wire(body) {
+    $$("[data-open]", body).forEach(b => (b.onclick = () => { setTab(b.dataset.open); load(); }));
     const q = body.querySelector(".wk-q");
     if (q) q.oninput = () => { st.files.q = q.value; draw(); };
     $$("[data-file]", body).forEach(b => (b.onclick = async () => {

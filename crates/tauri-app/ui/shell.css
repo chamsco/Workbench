@@ -684,18 +684,12 @@ button.rp-row:hover { background: var(--hover); }
 *::-webkit-scrollbar-thumb:hover { background-color: color-mix(in srgb, var(--fg, #888) 48%, transparent); }
 
 /* ---------- the app rail ---------------------------------------------------
-   A vertical pill on the window's left edge, its own column, always there:
-   the apps, Plugins, Skills and Agents, then what is live. The sidebar keeps
-   the full height beside it, with the window's own row at its top. */
-#win { --rail-w: 58px; grid-template-columns: var(--rail-w) var(--side-w) minmax(0, 1fr) var(--chat-on); }
-#win > .rail { grid-row: 1; grid-column: 1; }
-#win > .side { grid-column: 2; }
-#win > .mainc { grid-column: 3; }
-#win > .chatcol { grid-column: 4; }
-#win.settings-on { --rail-w: 0px; }
-#win > .rail, #win:is(.side-closed, .ghost-side):not(.settings-on) > .rail { display: flex !important; position: relative; left: auto; top: auto; transform: none; align-self: center; justify-self: end; flex-direction: column; align-items: center; width: 46px; max-height: calc(100% - 24px); overflow-y: auto; overflow-x: visible; scrollbar-width: none; padding: 6px 0; gap: 4px; border: 0; border-radius: 999px; background: color-mix(in srgb, var(--win-bg) 40%, transparent); box-shadow: inset 0 0 0 1px var(--glass-line, var(--pane-edge)); -webkit-backdrop-filter: blur(18px) saturate(1.4); backdrop-filter: blur(18px) saturate(1.4); z-index: 6; }
-#win > .rail::-webkit-scrollbar { display: none; }
+   With the sidebar open, the apps (and Plugins, Skills, Agents) are the tile
+   row at its top. With it folded, they become a vertical pill on the
+   window's left edge, with what is live under them. */
 #win.settings-on > .rail { display: none !important; }
+#win:is(.side-closed, .ghost-side):not(.settings-on) > .rail { overflow-y: auto; scrollbar-width: none; }
+#win > .rail::-webkit-scrollbar { display: none; }
 #win > .rail .rz { width: 34px; height: 34px; }
 #win > .rail .rz .sq { width: 34px; height: 34px; border-radius: 999px; }
 #win > .rail .rz .sq .ic { width: 17px; height: 17px; }
@@ -703,11 +697,11 @@ button.rp-row:hover { background: var(--hover); }
 #win > .rail .rz[aria-selected="true"]::before { display: none; }
 #win > .rail .rz:hover .sq { background: var(--hover); color: var(--fg); }
 #win > .rail .rsep { flex: none; width: 20px; height: 1px; margin: 3px 0; background: color-mix(in srgb, var(--fg) 20%, transparent); }
-#win > .rail .rail-apps:empty, #win > .rail .rail-apps .rsep { display: none; }
+#win > .rail .rail-apps:empty { display: none; }
 .rail-ext { display: flex; flex-direction: column; align-items: center; gap: 4px; }
-#win.agents-on:not(.settings-on) .rail-bots { display: flex; }
-#win:is(.side-closed, .ghost-side):not(.settings-on) .mainc { margin-left: 8px; }
-.os-mac #win .side .side-top .lights-gap, :root:not(.native) #win .side .side-top .lights-gap { width: 14px; }
+.side > .zones .zsep { width: 1px; height: 22px; align-self: center; margin: 0 2px; background: color-mix(in srgb, var(--fg) 16%, transparent); }
+.side > .zones button[aria-pressed="true"] { background: var(--tile-on); color: var(--fg); }
+.os-mac #win .side .side-top .lights-gap, :root:not(.native) #win .side .side-top .lights-gap { width: 64px; }
 /* The leading pill: New thread | the sidebar toggle. */
 .lead-pill { flex: none; display: flex; align-items: center; height: 30px; padding: 0 2px; border-radius: 999px; background: var(--chip); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fg) 10%, transparent); }
 .lead-pill .lp-new { display: flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px 0 8px; border-radius: 999px; font-size: 12.5px; font-weight: 500; color: var(--fg-2); white-space: nowrap; }
@@ -795,3 +789,24 @@ button.rp-row:hover { background: var(--hover); }
 :root[data-window="solid"] #win:is(.m-code, .m-chat):is(.side-closed, .ghost-side) :is(.win-art, .win-ascii) { clip-path: inset(8px 8px 8px calc(var(--rail-w) + 8px) round 12px); }
 /* The IDE's Canvases/Wall switch shows only while a session runs. */
 #win.no-session #viewBtn { display: none !important; }
+/* The work area's tab strip: the tabs you opened, each closable, then +. */
+.wk-strip { flex: 0 1 auto; min-width: 0; display: flex; align-items: center; gap: 2px; overflow-x: auto; scrollbar-width: none; }
+.wk-strip::-webkit-scrollbar { display: none; }
+.wk-tab { position: relative; flex: none; height: 28px; padding: 0 4px 0 9px; border-radius: 8px; display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--fg-3); white-space: nowrap; cursor: pointer; }
+.wk-tab:hover { color: var(--fg); background: var(--hover); }
+.wk-tab[aria-selected="true"] { background: var(--sel, var(--tile-on)); color: var(--fg); font-weight: 500; }
+.wk-tab > .ic { width: 13px; height: 13px; }
+.wk-tab .wk-x { width: 18px; height: 18px; border-radius: 5px; display: grid; place-items: center; color: var(--fg-3); opacity: 0.7; }
+.wk-tab .wk-x:hover { background: var(--hover); color: var(--fg); opacity: 1; }
+.wk-tab .wk-x .ic { width: 10px; height: 10px; }
+/* The New tab page, after ZCode's: what the work area can show, one card each. */
+.wk-new { flex: 1; min-height: 0; overflow-y: auto; padding: 22px 26px; display: flex; flex-direction: column; gap: 10px; }
+.wk-new h3 { margin: 0 0 10px; font-size: 18px; font-weight: 600; color: var(--fg); }
+.wk-card { display: flex; align-items: center; gap: 14px; padding: 6px 0; }
+.wk-ci { flex: none; width: 46px; height: 46px; border-radius: 12px; display: grid; place-items: center; background: color-mix(in srgb, var(--fg) 7%, transparent); color: var(--fg-2); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fg) 8%, transparent); }
+.wk-ci .ic { width: 20px; height: 20px; }
+.wk-ct { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.wk-ct b { font-size: 13.5px; font-weight: 600; color: var(--fg); }
+.wk-ct span { font-size: 12px; color: var(--fg-3); }
+.wk-card .btn { flex: none; border-radius: 999px; padding: 0 12px; }
+#work .wk-live > .tterm { background: transparent; color: var(--fg-2); }

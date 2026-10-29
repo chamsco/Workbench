@@ -25,10 +25,19 @@
   __H.fire("state", {}); await __H.frames(4);
   setCodeView("pair"); await wait(400);
   const out = {};
+  // Open by default on the New tab page; the panel button closes and reopens it.
+  out.startsOnNewTab = !document.querySelector("#work").hidden && !!document.querySelector("#work .wk-new");
+  document.querySelector("#panelBtn").click(); await wait(300);
+  out.closes = document.querySelector("#work").hidden;
   document.querySelector("#panelBtn").click(); await wait(400);
   out.open = !document.querySelector("#work").hidden; out.pressed = document.querySelector("#panelBtn").getAttribute("aria-pressed");
-  out.tabs = [...document.querySelectorAll("#work [data-wt]")].map(b => b.textContent.trim());
-  const step = async (t, fn) => { document.querySelector(`#work [data-wt="${t}"]`).click(); await wait(300); if (fn) await fn(); };
+  out.cards = [...document.querySelectorAll("#work .wk-card b")].map(b => b.textContent);
+  // A tab opens from the New tab page the first time, then from the strip.
+  const step = async (t, fn) => {
+    const tb = document.querySelector(`#work [data-wt="${t}"]`);
+    if (tb) tb.click(); else { document.querySelector('#work [data-act="new"]').click(); await wait(100); document.querySelector(`#work [data-open="${t}"]`).click(); }
+    await wait(300); if (fn) await fn();
+  };
   await step("files", async () => { document.querySelector('#work [data-file$="main.rs"]').click(); await wait(300); out.files = document.querySelector("#work .wk-pre").textContent.slice(0, 30); });
   const view = window.__WV || "diffs";
   await step("diffs", async () => { document.querySelector('#work [data-chg="src/main.rs"]').click(); await wait(300); out.diffs = document.querySelectorAll("#work .wk-diff .add").length; });

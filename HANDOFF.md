@@ -1,5 +1,13 @@
 # Handoff: Backspace (ohMyHarness → Workbench), v0
 
+**Session, 29 Oct 2026 (round 4): rail only when folded; New tab page.**
+
+- Pill rail (`#rail`) shows only when the sidebar is folded; open sidebar
+  shows the `#zones` tile row (zones, divider, Plugins/Skills/Agents).
+- `work.js`: open by default (`bs.work`), starts on a New tab page; opened
+  tabs live in `bs.wopen`, each closable; Diffs is labelled Review.
+- Evals: tools/uiharness/evals/ade-work.js (updated), work-newtab.js (new).
+
 **Session, 29 Oct 2026 (round 3): the top rail goes; a vertical app rail on the left.**
 
 - Charles: full-height sidebar back; apps as a vertical pill rail (`#rail`,

@@ -227,12 +227,15 @@ var Shell = (() => {
     const el = $("#zones"); if (!el) return;
     const z = S.settings ? "" : S.mode;
     const apps = window.Apps ? Apps.pinned() : [];
-    const tile = (k, glyph, l, off) => `<button role="tab" aria-selected="${z === k}" data-zz="${esc(k)}" title="${esc(l)}${off ? " — off" : ""}" aria-label="${esc(l)}${off ? " (off)" : ""}" class="${off ? "off" : ""}">${glyph}<span class="zl">${esc(l)}</span>${badge(k)}</button>`;
+    const tile = (k, glyph, l, off) => `<button role="tab" aria-selected="${z === k}" data-zz="${esc(k)}" title="${esc(l)}${off ? " — off" : ""}" aria-label="${esc(l)}${off ? " (off)" : ""}" class="${off ? "off" : ""}">${glyph}${badge(k)}</button>`;
     el.innerHTML = zones().filter(([k]) => inNav(k)).map(([k, ic, l]) => tile(k, icon(ic), l, isOff(k))).join("")
-      + apps.map(a => tile("app:" + a.id, Apps.glyph(a, "xs"), a.name, false)).join("");
+      + apps.map(a => tile("app:" + a.id, Apps.glyph(a, "xs"), a.name, false)).join("")
+      + `<span class="zsep" aria-hidden="true"></span>`
+      + [["plugins", "box", "Plugins"], ["skills", "book", "Skills"], ["agents", "team", "Agents"]].map(([x, ic, l]) => `<button data-x="${x}" title="${l}" aria-label="${l}">${icon(ic)}</button>`).join("");
     $$("[data-zz]", el).forEach(x => (x.onclick = () => openZone(x.dataset.zz)));
+    $$("[data-x]", el).forEach(b => (b.onclick = () => openExt(b.dataset.x)));
     const on = { plugins: !S.settings && z === "apps", skills: !!S.settings && S.setSection === "skills", agents: !S.settings && z === "chat" && S.chatView === "agents" };
-    $$("#tbExt [data-x]").forEach(b => b.setAttribute("aria-pressed", String(!!on[b.dataset.x])));
+    $$("#tbExt [data-x], #zones [data-x]").forEach(b => b.setAttribute("aria-pressed", String(!!on[b.dataset.x])));
     $("#gearBtn").setAttribute("aria-pressed", !!S.settings && S.setSection !== "skills");
   }
   function openExt(x) {

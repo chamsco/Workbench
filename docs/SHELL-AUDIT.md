@@ -89,6 +89,29 @@ chat beside a browser).
 Rows 2, 6 and 7 now read: the switcher is the vertical rail, not a top bar;
 New thread and the toggle are the sidebar row's pill. Evals re-run: both pass.
 
+## Round 4: rail only when folded; the New tab page (Charles, 29 Oct)
+
+Charles: the pill rail is the folded (sidebar hidden) mode only; with the
+sidebar open the apps go back on top of it. The work area starts on a
+ZCode-style New tab page, in our theme.
+
+- Sidebar open: `#zones` tile row under the New thread pill: Home, Code, a
+  divider, Plugins, Skills, Agents. Folded: the same items in the `#rail` pill.
+- Work area (`work.js`) is open by default in the ADE and starts on New tab:
+  one card per view (Files, Browser, Terminal, Review, Images, Logs) with an
+  Open button. Each Open adds a closable tab; `+` returns to New tab; closing
+  the last tab returns to New tab. A closed Terminal ends its shell.
+- Diffs is named Review, after ZCode. The terminal pane takes the theme
+  (it was on the light prompt background).
+
+| # | Interaction | Result | Evidence |
+|---|---|---|---|
+| 32 | ADE starts with the work area on New tab, six cards | PASS | `startsOnNewTab: true`, `cards` (ade-work.js) |
+| 33 | Open adds a tab; `+` goes back to New tab | PASS | `tabs: [files, diffs, terminal]` (work-newtab.js) |
+| 34 | Closing every tab returns to New tab | PASS | `afterClose: [new]`, `backToNew: true` |
+| 35 | Panel button closes and reopens the work area | PASS | `closes: true`, `open: true` |
+| 36 | Pill rail only when the sidebar is folded | PASS | docs/screenshots/new-tab/sidebar-folded.png |
+
 ## Next, in priority order
 
 1. Plugins: enable/disable (core setter + command + toggle) on the catalog.
