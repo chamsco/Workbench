@@ -8,6 +8,7 @@
 // pills, the frosted dialog.
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import {
   IconApps,
   IconChevronRight,
@@ -52,7 +53,7 @@ import { RoutineDialog } from "./routines";
 import { ProjectDialog } from "./projects";
 import { CardGlyph, CardsAgenda, CardSheet } from "./shapeshift";
 import { useCards } from "../shapeshift";
-import { concludeSession, endSession, liveState, scrollToSession, sessionFor, sessionLabel, touchSession, useNow, useSessions } from "./sessions";
+import { concludeSession, endSession, liveState, scrollToSession, sessionFor, sessionLabel, useNow, useSessions } from "./sessions";
 import {
   agentById,
   agentStatus,
@@ -204,8 +205,8 @@ export function AgentsSide() {
           const unfolded = open.has(a.id);
           return (
             <div key={a.id} className="flex flex-col">
-              {/* The bot itself: the folder chevron on the left, the name (its
-                  page) the rest of the row. */}
+              {/* The bot itself: the folder chevron on the left, the name (your
+                  latest chat with it) the rest of the row. */}
               <div className={`relative flex h-11 items-center gap-1 rounded-lg pr-2 ${on ? "bg-accent" : ""}`}>
                 <button
                   type="button"
@@ -216,7 +217,7 @@ export function AgentsSide() {
                 >
                   <IconChevronRight size={14} className={`transition-transform duration-150 ${unfolded ? "rotate-90" : ""}`} />
                 </button>
-                <button type="button" className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 text-left" onClick={() => openBot(a.id)} title={`${oneLine(a.job)} — open ${a.name}'s page`}>
+                <button type="button" className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 text-left" onClick={() => void openAgentThread(a)} title={`${oneLine(a.job)} — your chat with ${a.name}`}>
                   <Avatar agent={a} size={28} state={st.kind === "wake" ? "wake" : st.kind} />
                   <span className="flex min-w-0 flex-1 flex-col">
                     <span className="truncate text-[13.5px]/4 font-medium text-foreground">{a.name}</span>
@@ -313,11 +314,58 @@ export function AgentsSide() {
   );
 }
 
+/** The bots on the pill trail, for when Agents' sidebar is folded: a face per
+ *  bot with its status dot, under the app tiles, then the group chats. Drawn
+ *  into the frame's rail (#railBots), so folded Agents is one pill. */
+export function RailBots() {
+  const slot = document.getElementById("railBots");
+  return slot ? createPortal(<SlimBots />, slot) : null;
+}
+
+function SlimBots() {
+  const { agents, threads, id } = useChat();
+  const groups = threads.filter((t) => (t.members?.length ?? 0) > 0 && !t.app);
+  const tile = "relative grid size-9 shrink-0 cursor-pointer place-items-center rounded-full transition-colors hover:bg-foreground/[0.07]";
+  return (
+    <div className="flex flex-col items-center gap-1">
+      <div className="rb-sep" />
+      <button type="button" onClick={() => goHome()} title="New chat" aria-label="New chat" className={tile}>
+        <IconEdit size={17} className="text-foreground-soft" />
+      </button>
+      {agents.map((a) => {
+        const t = threads.filter((x) => x.agent === a.id).sort((x, y) => y.updated - x.updated)[0];
+        const st = agentStatus(a, t);
+        const on = !!t && t.id === id;
+        return (
+          <button
+            key={a.id}
+            type="button"
+            onClick={() => void openAgentThread(a)}
+            title={`${a.name} · ${st.label}`}
+            aria-label={`${a.name}, ${st.label}`}
+            className={`${tile} ${on ? "bg-foreground/[0.1] shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_16%,transparent)]" : ""}`}
+          >
+            <Avatar agent={a} size={26} state={st.kind === "wake" ? "wake" : st.kind} />
+            <span className={`absolute right-0.5 bottom-0.5 size-2 rounded-full ring-2 ring-(--win-bg) ${STATUS_DOT[st.kind]}`} aria-hidden />
+            {t?.unread && !on && <span className="absolute top-1 right-1 size-2 rounded-full bg-sky-500" />}
+          </button>
+        );
+      })}
+      {groups.length > 0 && <div className="rb-sep" />}
+      {groups.map((g) => (
+        <button key={g.id} type="button" onClick={() => void openThread(g.id)} title={g.title} aria-label={g.title} className={`${tile} ${g.id === id ? "bg-foreground/[0.1]" : ""}`}>
+          <Stack ids={g.members ?? []} size={18} />
+        </button>
+      ))}
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------- home
 
 export function AgentsHome() {
   return (
-    <div className="h-full overflow-y-auto px-6 pt-10 pb-16">
+    <div className="h-full overflow-y-auto px-6 pt-[clamp(36px,15vh,170px)] pb-16">
       <div className="mx-auto flex max-w-3xl flex-col gap-6">
         {/* The prompt first, the way the screenshot starts: one line in, a
             plan under it, Enter routes it. Everything below is what the
@@ -474,7 +522,7 @@ function SessionBar({ thread }: { thread: Thread }) {
     <div className="mt-1 flex items-center gap-2 text-[12.5px]/5 text-muted-foreground">
       <button type="button" onClick={() => scrollToSession(s.id)} className="flex cursor-pointer items-center gap-1.5 hover:text-foreground" title={`${s.title} — scroll back to where this session began`}>
         <IconMessages size={12} />
-        {sessionLabel(s, now)}
+        {sessionLabel(s, now) || s.title}
       </button>
       {st === "awake" && (
         <button type="button" className={chip} onClick={() => concludeSession(s.id)} title="Say your goodbyes — the session ends when the talking stops">
@@ -484,11 +532,6 @@ function SessionBar({ thread }: { thread: Thread }) {
       {st === "concluding" && (
         <button type="button" className={chip} onClick={() => endSession(s.id)} title="End it now">
           End now
-        </button>
-      )}
-      {st === "idle" && (
-        <button type="button" className={chip} onClick={() => touchSession(s.id)} title="Pick this session back up">
-          Reopen
         </button>
       )}
     </div>
@@ -991,7 +1034,7 @@ function GroupEditor() {
                     <span className="text-[13.5px] font-medium">{a.name}</span>
                     <span className="truncate text-[11.5px] text-muted-foreground">{oneLine(a.job)}</span>
                   </span>
-                  {i >= 0 && <span className="grid size-5 place-items-center rounded-full bg-foreground text-[11px] font-semibold text-(--surface)">{i + 1}</span>}
+                  {i >= 0 && <span className="grid size-5 place-items-center rounded-full bg-(--bs-accent) text-[11px] font-semibold text-white">{i + 1}</span>}
                 </button>
               );
             })}

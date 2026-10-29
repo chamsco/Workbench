@@ -7,7 +7,7 @@
 import { useSyncExternalStore } from "react";
 
 import type { ChatMessage, MessageStatus } from "@/lib/messages";
-import { concludeSession, ensureSession, isGoodbye, renewSession, sessionFor, touchSession } from "./app/sessions";
+import { concludeSession, ensureSession, isGoodbye, liveState, renewSession, sessionFor, touchSession } from "./app/sessions";
 import { detectShift } from "./app/shift";
 
 export type RouteKind = "cli" | "local" | "router" | "cloud" | "a2a";
@@ -26,6 +26,8 @@ export type Msg = {
   reactions: string[];
   attachments: { id: string; name: string; mime: string; size: number }[];
   model?: string | null;
+  thinking?: string;
+  breaks?: number[];
   ad?: Ad | null;
   cost_usd?: number | null;
   edited?: boolean;
@@ -122,6 +124,8 @@ export type Agent = {
   off: string[];
   /** Apps and connections it may not use, by id. */
   apps_off: string[];
+  /** What it may drive: "browser" (its own Chrome tab), "desktop" (your screen). */
+  hands: string[];
   /** Its webhook's secret; "" while the webhook is off. */
   hook: string;
   routines: Routine[];
@@ -707,7 +711,8 @@ export async function send(text: string, files: NewFile[], route: Route | null, 
   // different errand opens a new sitting in the same thread.
   if (state.thread && (state.thread.agent || (state.thread.members?.length ?? 0) > 0)) {
     const sitting = sessionFor(id);
-    if (isGoodbye(text)) sitting && concludeSession(sitting.id);
+    if (sitting && liveState(sitting) === "idle") renewSession(state.thread, sitting.machine, text);
+    else if (isGoodbye(text)) sitting && concludeSession(sitting.id);
     else if (sitting && detectShift(text, sitting.title)) renewSession(state.thread, sitting.machine, text);
     else if (sitting) touchSession(sitting.id);
   }
@@ -794,6 +799,8 @@ export function toChatMessage(t: Thread, m: Msg): ChatMessage {
     // Retries reuse the id; the status flip is enough to restart the reveal.
     streamId: m.role === "assistant" && m.status !== "done" ? `live-${m.id}` : undefined,
     model: m.model ?? undefined,
+    thinking: m.thinking || undefined,
+    breaks: m.breaks?.length ? m.breaks : undefined,
     usageCost: m.cost_usd ?? undefined,
     traceId: m.trace ?? undefined,
     attachments: m.attachments.map((a) => ({

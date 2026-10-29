@@ -18,6 +18,8 @@ pub const PH: usize = usize::MAX;
 
 /// How many cards one stack may hold. Past this the edges are too thin to name.
 pub const MAX_STACK: usize = 4;
+/// How many canvases one tab may hold.
+pub const MAX_PANES: usize = 6;
 /// The visible strip of a card behind the front one, in the shell's own units
 /// (CSS pixels for the Tauri shell, logical for GPUI). A stack's shared
 /// rectangle is inset by `strip * (len - 1)` so the front card still fills what
@@ -92,7 +94,7 @@ pub struct Gutter {
 }
 
 /// Layout presets offered when making a tab: (id, label, canvases).
-pub const PRESETS: [(&str, &str, usize); 7] = [
+pub const PRESETS: [(&str, &str, usize); 9] = [
     ("1", "1", 1),
     ("2", "2", 2),
     ("3", "3", 3),
@@ -100,6 +102,8 @@ pub const PRESETS: [(&str, &str, usize); 7] = [
     ("top1", "1 over 2", 3),
     ("bottom1", "2 over 1", 3),
     ("left1", "1 | 2", 3),
+    ("5", "3 over 2", 5),
+    ("6", "3×2", 6),
 ];
 
 impl Node {
@@ -128,12 +132,19 @@ impl Node {
                 l(0),
                 Node::split(Dir::Row, 0.5, l(1), l(2)),
             ),
-            _ => Node::split(
-                Dir::Col,
-                0.56,
-                Node::split(Dir::Row, 0.5, l(0), l(1)),
-                Node::split(Dir::Row, 0.5, l(2), l(3)),
-            ),
+            // Four to six: two rows, the top one taking the odd canvas, each
+            // row in equal widths.
+            _ => {
+                fn row(from: usize, k: usize) -> Node {
+                    if k <= 1 {
+                        return Node::leaf(from);
+                    }
+                    Node::split(Dir::Row, 1. / k as f32, Node::leaf(from), row(from + 1, k - 1))
+                }
+                let n = n.min(MAX_PANES);
+                let top = n.div_ceil(2);
+                Node::split(Dir::Col, 0.56, row(0, top), row(top, n - top))
+            }
         }
     }
 
@@ -609,8 +620,8 @@ mod tests {
 
     #[test]
     fn defaults_and_presets_cover_every_pane() {
-        for n in 1..=4 {
-            assert!(Node::default_for(n).valid_for(n));
+        for n in 1..=MAX_PANES {
+            assert!(Node::default_for(n).valid_for(n), "{n}");
         }
         for (id, _, n) in PRESETS {
             assert!(Node::preset(id).valid_for(n), "{id}");

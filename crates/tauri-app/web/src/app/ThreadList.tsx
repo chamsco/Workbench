@@ -23,7 +23,6 @@ import {
   IconFolderPlus,
   IconGitBranch,
   IconLayoutCards,
-  IconLayoutSidebar,
   IconLoader2,
   IconMessageReply,
   IconMessages,
@@ -220,9 +219,9 @@ export function ThreadList({ onNewChat }: { onNewChat: () => void }) {
       })
     );
 
-  // Search and the sidebar toggle, in one pill drawn into #sidePills. It sits
-  // over the window rather than inside the card, so it stays put when the card
-  // folds away. New chat is the first row under it, inside the card.
+  // Search, drawn into #sidePills beside the frame's own sidebar toggle. It
+  // sits over the window rather than inside the card, so it stays put when the
+  // card folds away. New chat is the first row under it, inside the card.
   const pills = (
     <div className="flex w-full items-center">
       <div className="side-pill flex h-8 items-center gap-0.5 rounded-full px-0.5">
@@ -240,7 +239,6 @@ export function ThreadList({ onNewChat }: { onNewChat: () => void }) {
             if (searching) setQuery("");
           }}
         />
-        <Act icon={IconLayoutSidebar} label={sideClosed ? "Show sidebar" : "Hide sidebar"} onClick={() => host.setSide(sideClosed)} />
       </div>
     </div>
   );
@@ -416,7 +414,7 @@ function EnvironmentRow({ children, forceOpen }: { children: ReactNode; forceOpe
                 <DropdownMenuGroup>
                   <DropdownMenuLabel className="px-2 py-1 text-[10.5px]">Colony workspaces</DropdownMenuLabel>
                   {workspaces.map((w) => (
-                    <DropdownMenuItem key={w.name} className="gap-2 px-2 py-1.5" onClick={() => host.openSettings("colony")}>
+                    <DropdownMenuItem key={w.name} className="gap-2 px-2 py-1.5" onClick={() => later(() => host.openSettings("colony"))}>
                       <IconBox size={15} />
                       <span className="flex min-w-0 flex-col">
                         <span className="truncate">{w.name}</span>
@@ -430,7 +428,7 @@ function EnvironmentRow({ children, forceOpen }: { children: ReactNode; forceOpe
               </>
             )}
             <DropdownMenuSeparator />
-            <DropdownMenuItem className="gap-2 px-2 py-1.5" onClick={() => host.openSettings("machines")}>
+            <DropdownMenuItem className="gap-2 px-2 py-1.5" onClick={() => later(() => host.openSettings("machines"))}>
               <IconPlus size={15} className="text-muted-foreground" />
               Add a machine…
             </DropdownMenuItem>
@@ -440,6 +438,13 @@ function EnvironmentRow({ children, forceOpen }: { children: ReactNode; forceOpe
       {expanded && <div className="flex min-h-0 flex-col gap-0.5 pl-1.5">{children}</div>}
     </div>
   );
+}
+
+// Settings hides the sidebar, and with it this menu's trigger. Opened while the
+// menu is still closing, the menu never finishes and keeps the page inert, so
+// let it close first.
+function later(fn: () => void) {
+  setTimeout(fn, 200);
 }
 
 function ThreadRow({ thread, active, inIde }: { thread: ThreadInfo; active: boolean; inIde?: boolean }) {

@@ -2,13 +2,14 @@
 // The bot itself sits on top, its name over its brain, and under it four tabs:
 // Settings (model, instructions, personality and the switches), Context (what
 // its next reply reads, as a map the way a disk space app draws a drive),
-// Traces (how each reply was made) and Routines (its jobs on a clock).
+// Traces (how each reply was made), Routines (its jobs on a clock) and Desktop and Browser
+// (its browser or your desktop as it last saw it, with Take control).
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { IconAlertTriangleFilled, IconChevronRight, IconSettings } from "@tabler/icons-react";
+import { IconAlertTriangleFilled, IconBrowser, IconChevronRight, IconDeviceDesktop, IconHandStop, IconLayoutSidebarRightCollapse, IconLayoutSidebarRightExpand, IconSettings } from "@tabler/icons-react";
 
 import { cn } from "@/lib/utils";
-import { editAgent, getHost, openTrace, saveAgent, useChat, type Agent, type Thread, type Trace } from "../bridge";
+import { editAgent, getHost, openBot, openTrace, saveAgent, useChat, type Agent, type Thread, type Trace } from "../bridge";
 import { RULES } from "./Agents";
 import { PERSONALITIES } from "./bot-create";
 import { Orb } from "./orb";
@@ -39,6 +40,8 @@ const TABS = [
   ["context", "Context"],
   ["traces", "Traces"],
   ["routines", "Routines"],
+  ["desktop", "Desktop"],
+  ["browser", "Browser"],
 ] as const;
 type Tab = (typeof TABS)[number][0];
 
@@ -74,14 +77,72 @@ export function AgentSide({ agent, thread: open, threadId }: { agent: Agent; thr
       /* private window */
     }
   };
+  // The panel's width is the user's: drag its left edge, it stays put.
+  const [w, setW] = useState(() => {
+    try {
+      const n = Number(localStorage.getItem("bs.agentSideW"));
+      return n >= 260 && n <= 640 ? n : 360;
+    } catch {
+      return 360;
+    }
+  });
+  const drag = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const x0 = e.clientX, w0 = w;
+    let last = w0;
+    const move = (m: PointerEvent) => setW((last = Math.min(640, Math.max(260, w0 + x0 - m.clientX))));
+    const up = () => {
+      removeEventListener("pointermove", move);
+      removeEventListener("pointerup", up);
+      try {
+        localStorage.setItem("bs.agentSideW", String(Math.round(last)));
+      } catch {
+        /* private window */
+      }
+    };
+    addEventListener("pointermove", move);
+    addEventListener("pointerup", up);
+  };
+  // And it folds away: a slim strip with the one button that brings it back.
+  const [shut, setShut] = useState(() => {
+    try {
+      return localStorage.getItem("bs.agentSideShut") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const fold = (v: boolean) => {
+    setShut(v);
+    try {
+      localStorage.setItem("bs.agentSideShut", v ? "1" : "0");
+    } catch {
+      /* private window */
+    }
+  };
   const busy = thread?.messages.some((m) => m.role === "assistant" && m.status === "streaming");
+  if (shut) {
+    return (
+      <aside className="agent-side flex shrink-0 flex-col items-center border-l border-border pt-3" style={{ width: 44 }} aria-label={`${agent.name}'s panel, folded`}>
+        <button type="button" onClick={() => fold(false)} aria-label="Open the panel" title="Open the panel" className="grid size-8 cursor-pointer place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-well hover:text-foreground">
+          <IconLayoutSidebarRightExpand size={17} />
+        </button>
+      </aside>
+    );
+  }
   return (
-    <aside className="agent-side flex w-[300px] shrink-0 flex-col border-l border-border" aria-label={`${agent.name}'s panel`}>
+    <aside className="agent-side relative flex min-h-0 shrink-0 flex-col overflow-hidden border-l border-border" style={{ width: w }} aria-label={`${agent.name}'s panel`}>
+      <div role="separator" aria-orientation="vertical" aria-label="Resize panel" onPointerDown={drag} className="absolute inset-y-0 -left-1 z-10 w-2 cursor-col-resize hover:bg-foreground/10" />
+      <button type="button" onClick={() => fold(true)} aria-label="Fold the panel away" title="Fold the panel away" className="absolute top-2 right-2 z-10 grid size-7 cursor-pointer place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-well hover:text-foreground">
+        <IconLayoutSidebarRightCollapse size={16} />
+      </button>
       <div className="flex shrink-0 flex-col items-center gap-1 px-3 pt-4 pb-2">
         <div className="max-w-full truncate text-[15px] font-semibold text-foreground">{agent.name}</div>
         <Orb agent={agent} size={104} state={busy ? "working" : "idle"} />
+        <button type="button" onClick={() => openBot(agent.id)} className="text-[11.5px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline">
+          Sessions, cards and projects
+        </button>
       </div>
-      <div className="flex shrink-0 justify-center gap-0.5 px-3 pb-2" role="tablist">
+      <div className="flex shrink-0 flex-wrap justify-center gap-x-2 border-b border-border px-2" role="tablist">
         {TABS.map(([id, label]) => (
           <button
             key={id}
@@ -90,19 +151,20 @@ export function AgentSide({ agent, thread: open, threadId }: { agent: Agent; thr
             aria-selected={tab === id}
             onClick={() => pick(id)}
             className={cn(
-              "h-7 rounded-md px-2 text-[12.5px] font-medium text-muted-foreground transition-colors hover:text-foreground",
-              tab === id && "bg-well text-foreground",
+              "-mb-px h-8 shrink-0 border-b-2 border-transparent text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground",
+              tab === id && "border-foreground text-foreground",
             )}
           >
             {label}
           </button>
         ))}
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-4">
+      <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3 pt-3 pb-4">
         {tab === "settings" && <SettingsTab agent={agent} />}
         {tab === "context" && <ContextTab thread={thread} agent={agent} />}
         {tab === "traces" && <TracesTab thread={thread} />}
         {tab === "routines" && <RoutineCards agent={agent} />}
+        {(tab === "desktop" || tab === "browser") && <ScreenTab agent={agent} focus={tab} />}
       </div>
     </aside>
   );
@@ -228,8 +290,20 @@ type Tile = { key: string; group: string; label: string; tokens: number; r: Rect
 /** The map, standing up so it fits the panel: what is used on top, laid out
  *  kind by kind, and the free space as one hatched band under it. */
 function ContextMapView({ groups, window: win, free }: { groups: { g: string; parts: Part[] }[]; window: number; free: number }) {
-  const W = 276;
-  const H = 500;
+  // The map is drawn to the panel as it is now: it follows a dragged width and
+  // a narrow window instead of overflowing a fixed 276px.
+  const wrap = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(276);
+  useEffect(() => {
+    const el = wrap.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setWidth(Math.max(140, Math.floor(el.clientWidth) - 8)));
+    ro.observe(el);
+    setWidth(Math.max(140, Math.floor(el.clientWidth) - 8));
+    return () => ro.disconnect();
+  }, []);
+  const W = width;
+  const H = Math.round(Math.min(520, Math.max(240, W * 1.6)));
   const GAP = 3;
   const used = groups.reduce((s, x) => s + x.parts.reduce((t, p) => t + p.tokens, 0), 0);
   const tiles = useMemo(() => {
@@ -246,10 +320,11 @@ function ContextMapView({ groups, window: win, free }: { groups: { g: string; pa
     });
     if (free) out.push({ key: "free", group: "Free", label: "Free", tokens: free, r: { x: 0, y: top, w: W, h: H - top } });
     return out;
-  }, [groups, free, used]);
+  }, [groups, free, used, W, H]);
   const box = useRef<HTMLDivElement>(null);
   const [tip, setTip] = useState<{ t: Tile; x: number; y: number } | null>(null);
   return (
+    <div ref={wrap} className="w-full min-w-0">
     <div
       ref={box}
       className="context-map relative rounded-xl p-1 shadow-[inset_0_0_0_1px_var(--border)]"
@@ -314,7 +389,7 @@ function ContextMapView({ groups, window: win, free }: { groups: { g: string; pa
       {tip && KIND[tip.t.group] && (
         <div
           className="pointer-events-none absolute z-10 w-max max-w-[220px] rounded-xl bg-popover px-3 py-2 text-[12px]/5 text-popover-foreground shadow-lg ring-1 ring-border"
-          style={{ left: Math.min(tip.x + 12, 276 - 150), top: tip.y + 14 }}
+          style={{ left: Math.max(0, Math.min(tip.x + 12, W - 150)), top: tip.y + 14 }}
         >
           <div className="flex items-center gap-1.5 font-medium">
             <i className="size-2.5 shrink-0 rounded-[3px]" style={{ background: `color-mix(in srgb, ${KIND[tip.t.group].hue} 30%, transparent)`, boxShadow: `inset 0 0 0 1px ${KIND[tip.t.group].hue}` }} />
@@ -325,6 +400,7 @@ function ContextMapView({ groups, window: win, free }: { groups: { g: string; pa
           </div>
         </div>
       )}
+    </div>
     </div>
   );
 }
@@ -461,6 +537,155 @@ function SettingsTab({ agent }: { agent: Agent }) {
       <button type="button" onClick={() => editAgent(agent)} className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md bg-well text-[12.5px] font-medium hover:text-foreground">
         <IconSettings className="size-3.5" /> Name, colour, computer and apps
       </button>
+    </div>
+  );
+}
+
+// ------------------------------------------------------------------ screen
+
+type Step = { kind?: string; action?: string; text?: string | null; at?: number };
+type Live = {
+  kind: "browser" | "desktop" | null;
+  url: string | null;
+  title: string | null;
+  at: number | null;
+  frame: string | null;
+  steps: Step[];
+  paused: boolean;
+  browser_running: boolean;
+};
+type HandsCfg = { decider: string; model: string; chrome: string; headless: boolean };
+
+const DECIDERS = [
+  ["", "Its own model", "It reads each page and picks the next step itself"],
+  ["local", "On-device", "A small model on this machine runs whole browser tasks"],
+  ["jev", "Jev", "TypeSafe's hosted Jev runs whole browser tasks (TYPESAFE_API_KEY)"],
+] as const;
+
+function ago(s: number | null) {
+  if (!s) return "";
+  const d = Math.max(0, Date.now() / 1000 - s);
+  return d < 60 ? "just now" : d < 3600 ? `${Math.round(d / 60)} min ago` : `${Math.round(d / 3600)} h ago`;
+}
+
+/** Its browser and desktop use: what it last saw, the steps it took, Take
+ *  control, and the switches (after Reason's Desktop tab). */
+function ScreenTab({ agent, focus }: { agent: Agent; focus: "desktop" | "browser" }) {
+  const host = getHost();
+  const [live, setLive] = useState<Live | null>(null);
+  const [cfg, setCfg] = useState<HandsCfg | null>(null);
+  useEffect(() => {
+    let on = true;
+    const tick = () =>
+      host
+        .invoke<Live>("agent_hands", { id: agent.id, surface: focus })
+        .then((l) => on && setLive(l))
+        .catch(() => {});
+    setLive(null);
+    tick();
+    const t = setInterval(tick, 1500);
+    return () => {
+      on = false;
+      clearInterval(t);
+    };
+  }, [agent.id, focus]);
+  useEffect(() => {
+    host
+      .invoke<HandsCfg>("hands_prefs")
+      .then(setCfg)
+      .catch(() => {});
+  }, []);
+  const save = (p: Partial<Agent>) => void saveAgent({ ...agent, ...p }).catch((e) => host.toast(String(e), "err"));
+  const hands = agent.hands ?? ["browser"];
+  const has = (h: string) => hands.includes(h);
+  const flip = (h: string, on: boolean) => save({ hands: on ? [...hands.filter((x) => x !== h), h] : hands.filter((x) => x !== h) });
+  const take = (on: boolean) =>
+    host
+      .invoke("agent_hands_take", { id: agent.id, on })
+      .then(() => setLive((l) => (l ? { ...l, paused: on } : l)))
+      .catch((e) => host.toast(String(e), "err"));
+  const setDecider = (p: Partial<HandsCfg>) => {
+    if (!cfg) return;
+    const next = { ...cfg, ...p };
+    setCfg(next);
+    void host.invoke("set_hands_prefs", { cfg: next }).catch((e) => host.toast(String(e), "err"));
+  };
+  const webOff = agent.off.includes("web");
+  return (
+    <div className="flex flex-col gap-3.5 text-[12.5px]">
+      <div className="screen-view relative overflow-hidden rounded-lg border border-border bg-well">
+        {live?.frame ? (
+          <img src={live.frame} alt={`What ${agent.name} last saw`} className="block aspect-[16/10] w-full object-cover object-top" />
+        ) : (
+          <div className="flex aspect-[16/10] w-full flex-col items-center justify-center gap-1 px-4 text-center text-[11.5px] text-muted-foreground">
+            <IconBrowser className="size-5" />
+            Nothing yet. When {agent.name} opens a page or looks at your screen, it shows here.
+          </div>
+        )}
+        {live?.paused && <div className="absolute inset-x-0 top-0 bg-[#d97706] px-2 py-0.5 text-center text-[11px] font-medium text-white">You have control</div>}
+      </div>
+      {live?.kind && (
+        <div className="-mt-2 flex items-center gap-1.5 text-[11.5px] text-muted-foreground">
+          {live.kind === "desktop" ? <IconDeviceDesktop className="size-3.5 shrink-0" /> : <IconBrowser className="size-3.5 shrink-0" />}
+          <span className="min-w-0 flex-1 truncate">{live.kind === "desktop" ? "Your screen" : live.title || live.url}</span>
+          <span className="shrink-0">{ago(live.at)}</span>
+        </div>
+      )}
+      <button
+        type="button"
+        onClick={() => take(!live?.paused)}
+        className={cn("inline-flex h-8 items-center justify-center gap-1.5 rounded-md text-[12.5px] font-medium", live?.paused ? "bg-foreground text-(--surface)" : "bg-well hover:text-foreground")}
+      >
+        <IconHandStop className="size-3.5" /> {live?.paused ? `Hand back to ${agent.name}` : "Take control"}
+      </button>
+      {!!live?.steps.length && (
+        <ol className="flex max-h-48 flex-col gap-1 overflow-y-auto">
+          {live.steps.map((s, i) => (
+            <li key={i} className="flex gap-1.5 text-[11.5px]">
+              <span className="w-12 shrink-0 text-muted-foreground">{s.kind}</span>
+              <span className="min-w-0 flex-1 truncate text-foreground">
+                {s.action}
+                {s.text ? ` ← “${s.text}”` : ""}
+              </span>
+            </li>
+          ))}
+        </ol>
+      )}
+      {focus === "browser" ? (
+        <Row title="Browser use" sub={webOff ? "Off while its Web rule is off" : "Its own tab in a Chrome you can watch and sign in to"}>
+          <Toggle on={has("browser") && !webOff} label="Browser use" onChange={(on) => flip("browser", on)} />
+        </Row>
+      ) : (
+        <Row title="Desktop use" sub="Sees your screen and uses your mouse and keyboard">
+          <Toggle on={has("desktop")} label="Desktop use" onChange={(on) => flip("desktop", on)} />
+        </Row>
+      )}
+      {focus === "browser" && cfg && (
+        <div className="flex flex-col gap-1">
+          <span className="font-medium text-foreground">Fast browser model</span>
+          <div className="flex gap-1">
+            {DECIDERS.map(([id, name]) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setDecider({ decider: id })}
+                className={cn("h-6 rounded-full px-2 text-[11.5px] font-medium", cfg.decider === id ? "bg-foreground text-(--surface)" : "bg-well text-muted-foreground hover:text-foreground")}
+              >
+                {name}
+              </button>
+            ))}
+          </div>
+          <span className="text-[11.5px] text-muted-foreground">{DECIDERS.find(([id]) => id === cfg.decider)?.[2]}. Shared by every agent.</span>
+          {cfg.decider === "local" && (
+            <input
+              className={field}
+              defaultValue={cfg.model}
+              placeholder="ollama:qwen3:4b (empty: your small local model)"
+              onBlur={(e) => e.target.value !== cfg.model && setDecider({ model: e.target.value.trim() })}
+            />
+          )}
+        </div>
+      )}
     </div>
   );
 }

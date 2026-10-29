@@ -135,6 +135,8 @@ impl Request {
 pub enum Event {
     /// More of the answer.
     Text { text: String },
+    /// The model's reasoning, as far as the target shows it.
+    Thinking { text: String },
     /// A new paragraph starts (after a tool call): add a blank line if the
     /// answer so far doesn't end with one.
     Break,
@@ -318,6 +320,25 @@ impl Drop for KillTree {
     }
 }
 
+/// `{"mcpServers": ...}` as OpenCode's inline config: a local server is its
+/// command and arguments in one list, a remote one its URL.
+fn opencode_config(mcp: &Value) -> Option<Value> {
+    let mut out = serde_json::Map::new();
+    for (name, srv) in mcp["mcpServers"].as_object()? {
+        let entry = if let Some(cmd) = srv["command"].as_str() {
+            let mut argv = vec![Value::from(cmd)];
+            argv.extend(srv["args"].as_array().cloned().unwrap_or_default());
+            json!({"type": "local", "command": argv, "environment": srv.get("env").cloned().unwrap_or(json!({})), "enabled": true})
+        } else if let Some(url) = srv["url"].as_str() {
+            json!({"type": "remote", "url": url, "headers": srv.get("headers").cloned().unwrap_or(json!({})), "enabled": true})
+        } else {
+            continue;
+        };
+        out.insert(name.clone(), entry);
+    }
+    (!out.is_empty()).then(|| json!({"mcp": out}))
+}
+
 /// A JSON value as a TOML inline value (for Codex's `-c key=value`). JSON
 /// strings are valid TOML basic strings.
 fn toml_inline(v: &Value) -> String {
@@ -453,6 +474,11 @@ async fn run_cli(req: &Request, provider: &str, bin: &PathBuf, on: Sink<'_>) -> 
         }
         "opencode" => {
             cmd.arg("run");
+            // OpenCode reads inline config from this variable: the same MCP
+            // servers the other CLIs get, so its bot has its hands and memory too.
+            if let Some(cfg) = req.mcp.as_ref().and_then(opencode_config) {
+                cmd.env("OPENCODE_CONFIG_CONTENT", cfg.to_string());
+            }
             if let Some(m) = &model {
                 cmd.args(["-m", m]);
             }
@@ -552,6 +578,8 @@ fn claude_line(line: &str, got_partial: &mut bool, fail: &mut Option<String>, on
             if e["type"] == "content_block_delta" && e["delta"]["type"] == "text_delta" {
                 *got_partial = true;
                 on(Event::Text { text: e["delta"]["text"].as_str().unwrap_or("").into() });
+            } else if e["type"] == "content_block_delta" && e["delta"]["type"] == "thinking_delta" {
+                on(Event::Thinking { text: e["delta"]["thinking"].as_str().unwrap_or("").into() });
             } else if e["type"] == "message_start" {
                 // A new assistant turn after a tool call.
                 on(Event::Break);
@@ -633,7 +661,11 @@ fn codex_line(line: &str, fail: &mut Option<String>, on: Sink<'_>) {
                     on(Event::Text { text: t.into() });
                 }
             }
-            "reasoning" => {}
+            "reasoning" => {
+                if let Some(t) = item["text"].as_str().filter(|t| !t.is_empty()) {
+                    on(Event::Thinking { text: format!("{t}\n\n") });
+                }
+            }
             _ => {
                 let out = item["aggregated_output"].as_str().map(String::from).unwrap_or_else(|| tool_text(&item["result"]));
                 let error = item["status"] == "failed" || item["exit_code"].as_i64().is_some_and(|c| c != 0);
@@ -833,6 +865,33 @@ mod tests {
         assert!(ev.contains(&Event::Cost { usd: 0.01 }));
         let text: String = ev.iter().filter_map(|e| if let Event::Text { text } = e { Some(text.as_str()) } else { None }).collect();
         assert_eq!(text, "Looking.One file.", "partial deltas only, the full assistant text is not repeated");
+    }
+
+    #[test]
+    fn opencode_gets_the_backspace_server_as_inline_config() {
+        let mcp = json!({"mcpServers": {"backspace": {"command": "/bin/backspace", "args": ["mcp"], "env": {"BACKSPACE_HANDS": "{}"}}, "x": {"url": "https://x.test/mcp"}}});
+        let c = opencode_config(&mcp).unwrap();
+        assert_eq!(c["mcp"]["backspace"]["type"], "local");
+        assert_eq!(c["mcp"]["backspace"]["command"], json!(["/bin/backspace", "mcp"]));
+        assert_eq!(c["mcp"]["backspace"]["environment"]["BACKSPACE_HANDS"], "{}");
+        assert_eq!(c["mcp"]["x"]["type"], "remote");
+        assert!(opencode_config(&json!({"mcpServers": {}})).is_none());
+    }
+
+    #[test]
+    fn claude_thinking_deltas_are_kept_apart_from_the_answer() {
+        let lines = [
+            r#"{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"thinking_delta","thinking":"The user wants "}}}"#,
+            r#"{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"thinking_delta","thinking":"a digest."}}}"#,
+            r#"{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"Done."}}}"#,
+        ];
+        let (mut got, mut fail, mut ev) = (false, None, vec![]);
+        for l in lines {
+            claude_line(l, &mut got, &mut fail, &mut |e| ev.push(e));
+        }
+        let think: String = ev.iter().filter_map(|e| if let Event::Thinking { text } = e { Some(text.as_str()) } else { None }).collect();
+        assert_eq!(think, "The user wants a digest.");
+        assert!(ev.contains(&Event::Text { text: "Done.".into() }));
     }
 
     #[test]

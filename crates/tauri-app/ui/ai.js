@@ -153,7 +153,7 @@ var Ask = (() => {
     if (!el) mount();
     $("#win").classList.toggle("chat-off", !on);
     $("#aiBtn").setAttribute("aria-pressed", String(on));
-    store.set(WKEY, on ? null : "off");
+    store.set(WKEY, on ? "on" : null);
     if (on) {
       invoke("chat_list").then(l => { chats = (l || []).filter(t => !t.app && !t.agent); }).catch(() => {});
       requestAnimationFrame(() => $("textarea", el).focus());
@@ -169,9 +169,10 @@ var Ask = (() => {
   async function init() {
     if (!el) mount();
     thread = store.get(KEY);
-    // Left alone, a narrow window starts with it folded: there it floats over the page.
+    // Left alone, it starts folded: the app opens on the sidebar, and the
+    // column is one click away.
     const was = store.get(WKEY);
-    $("#win").classList.toggle("chat-off", was === "off" || (was == null && innerWidth <= 1000));
+    $("#win").classList.toggle("chat-off", was !== "on");
     $("#aiBtn").setAttribute("aria-pressed", String(isOpen()));
     paint();
     if (thread) { const a = await load(); if (a && a.role === "assistant" && (a.status === "streaming" || a.status === "sending")) watch(); }

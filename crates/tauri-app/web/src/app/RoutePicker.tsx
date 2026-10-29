@@ -95,7 +95,7 @@ export function RoutePicker({ value, onValueChange }: { value: Route | null; onV
           <span className="truncate">{name}</span>
         </span>
       </PopoverTrigger>
-      <PopoverContent side="top" align="end" sideOffset={8} className="w-[300px] min-w-0 p-0">
+      <PopoverContent side="bottom" align="end" sideOffset={8} className="w-[300px] min-w-0 p-0">
         <div className="max-h-[min(60vh,420px)] overflow-y-auto p-1">
           {groups.map((g, gi) => (
             <div key={g.name}>

@@ -50,6 +50,7 @@ const P = {
   check: '<path d="m3.4 8.4 3 3 6.2-6.6"/>',
   updown: '<path d="m5.4 6 2.6-2.6L10.6 6M5.4 10l2.6 2.6 2.6-2.6"/>',
   panelr: '<rect x="2.6" y="3" width="10.8" height="10" rx="2"/><path d="M9.6 3v10"/>',
+  panelb: '<rect x="2.6" y="3" width="10.8" height="10" rx="2"/><path d="M2.6 9.4h10.8"/>',
   lock: '<rect x="3.6" y="7" width="8.8" height="6" rx="1.4"/><path d="M5.6 7V5.2a2.4 2.4 0 0 1 4.8 0V7"/>',
   home: '<path d="M2.8 7.4 8 3l5.2 4.4M4.4 6.2V13h7.2V6.2"/>',
   trace: '<path d="M2.6 4h5M4.6 8h6M6.6 12h6.8"/>',
@@ -102,6 +103,7 @@ const P = {
   share: '<circle cx="12.4" cy="3.8" r="1.8"/><circle cx="3.6" cy="8" r="1.8"/><circle cx="12.4" cy="12.2" r="1.8"/><path d="m5.2 7.1 5.6-2.4M5.2 8.9l5.6 2.4"/>',
   archive: '<rect x="2.2" y="3" width="11.6" height="3" rx="1"/><path d="M3.4 6v6.4a1 1 0 0 0 1 1h7.2a1 1 0 0 0 1-1V6M6.4 8.8h3.2"/>',
   cpu: '<rect x="4.4" y="4.4" width="7.2" height="7.2" rx="1.2"/><path d="M6.6 2v2.4M9.4 2v2.4M6.6 11.6V14M9.4 11.6V14M2 6.6h2.4M2 9.4h2.4M11.6 6.6H14M11.6 9.4H14"/>',
+  image: '<rect x="2.4" y="3" width="11.2" height="10" rx="1.4"/><circle cx="6" cy="6.6" r="1.2"/><path d="m3 12 3.6-3.6 2.4 2.4 1.8-1.8 2.6 2.6"/>',
 };
 const icon = (n, cls = "") => `<svg class="ic ${cls}" viewBox="0 0 16 16" aria-hidden="true">${P[n]}</svg>`;
 $$("[data-icon]").forEach(el => (el.innerHTML = icon(el.dataset.icon)));
@@ -208,9 +210,14 @@ function setSide(open) {
   const w = $("#win");
   if (narrow()) { w.classList.toggle("side-open", open); w.classList.remove("side-closed"); }
   else { w.classList.toggle("side-closed", !open); w.classList.remove("side-open"); }
+  // With the sidebar folded its row goes with it; the card's header shows
+  // the way back.
   $("#sideOpen").hidden = open && !narrow();
+  $("#sideClose").setAttribute("aria-pressed", String(!!open));
+  if (inAgents() && !narrow()) { S.agentsFolded = false; try { localStorage.setItem("bs.agentsSide", open ? "open" : "closed"); } catch {} }
 }
-$("#sideClose").onclick = () => setSide(false);
+const sideIsOpen = () => { const w = $("#win"); return narrow() ? w.classList.contains("side-open") : !w.classList.contains("side-closed"); };
+$("#sideClose").onclick = () => setSide(!sideIsOpen());
 $("#sideOpen").onclick = () => setSide(true);
 $("#scrim").onclick = () => setSide(false);
 // Both settings buttons, and they toggle. `#gear` is the rail's; `#gearBtn` is
@@ -228,6 +235,10 @@ for (const sel of ["#gear", "#gearBtn"]) {
 // workbench).
 const agentsOn = () => S.mode === "code" && S.codeView === "agents";
 const PAGES = ["home", "memory", "apps"];
+// Agents opens with its sidebar folded to the pill trail; what you do with it
+// there is remembered, and leaving Agents gives Chat its sidebar back.
+const inAgents = () => S.mode === "chat" && S.chatView === "agents";
+const agentsSidePref = () => { try { return localStorage.getItem("bs.agentsSide") === "open"; } catch { return false; } };
 function setMode(m, save = true) {
   const exts = window.Frame ? Frame.ids() : ["chat", "code"];
   const on = window.Frame ? Frame.onIds() : exts;
@@ -239,6 +250,14 @@ function setMode(m, save = true) {
   for (const z of exts.concat(PAGES)) w.classList.toggle("m-" + z, m === z);
   w.classList.toggle("m-app", m.startsWith("app:"));
   if (window.Frame) { Frame.setActive(m); Frame.syncClasses(w); }
+  if (inAgents() !== !!S.wasAgents) {
+    S.wasAgents = inAgents();
+    if (S.wasAgents) {
+      const fold = !agentsSidePref() && !w.classList.contains("side-closed");
+      if (fold) setSide(false);
+      S.agentsFolded = fold;
+    } else if (S.agentsFolded) { S.agentsFolded = false; setSide(true); }
+  }
   w.classList.toggle("single-use", on.length === 1);
   if (S.settings) { S.settings = false; $("#settings").hidden = true; }
   if (S.drawer && !agentsOn() && window.Code) Code.setDrawer(false);
@@ -252,6 +271,14 @@ function setCodeView(v) {
   prefs.code_view = S.codeView; invoke("set_code_view", { view: S.codeView });
   setMode("code");
 }
+// New thread, from the rail's leading pill or ⌘N: agent chat lives in Code's
+// ADE now, so a thread starts there, in the open project (or none).
+function newThread() {
+  if (S.settings) closeSettings();
+  if (S.mode !== "code" || S.codeView !== "pair") setCodeView("pair");
+  if (window.Chat) Chat.newChat();
+}
+$("#newThread").onclick = newThread;
 function setChatView(v) {
   S.chatView = v === "agents" ? "agents" : "chat";
   prefs.chat_view = S.chatView; invoke("set_view_prefs", { chatView: S.chatView, motion: null });
@@ -363,13 +390,14 @@ async function openProject(path) {
   const running = snap.agents.filter(a => a.status === "running").length;
   if (hasProject && running && !confirm(`${running} agent${running > 1 ? "s are" : " is"} still running in ${snap.name}. Switching projects stops them. Switch?`)) return;
   toast(`Opening ${base(path)}…`);
+  // Code comes up at once; the project fills it in when the harness has it.
+  if (S.mode !== "code") setMode("code");
   try {
     await invoke("open_project", { path });
-    prefs = await invoke("prefs");
     // The new project's own canvas layout, not the one we were just looking at.
+    prefs = await invoke("prefs");
     await Code.loadTabs(path);
     S.review = null; S.ticket = null;
-    if (S.mode !== "code") setMode("code");
     await refresh(true);
     if (window.Shell) Shell.layout();
     toast(`Opened ${base(path)}`, "ok");
@@ -395,12 +423,13 @@ function renderCard() {
     row(run ? "run" : "acc", "Workers running", run) + row(pending().length ? "wait" : "", "Waiting on you", pending().length) +
     row("done", "Worktrees", wts) + row("", "Spent", `$${snap.total_cost_usd.toFixed(3)} · router $${snap.router_cost_usd.toFixed(3)}`);
 }
-// The footer's machines: each by name, with a dot for how it is: green
-// while agents work on it, orange when it is idle, red when unreachable.
+// The footer's machines: each by name, with a dot only when there is
+// something to say: green while agents work on it, orange while it connects,
+// red when unreachable. Idle has no dot.
 function machineState(m) {
   if (m.link.state === "offline") return ["red", "Unreachable: " + (m.link.error || "no answer")];
   if (m.link.state === "connecting") return ["orange", "Connecting…"];
-  return m.running > 0 || m.pending > 0 ? ["green", `${m.running} working${m.pending ? `, ${m.pending} waiting on you` : ""}`] : ["orange", "Idle: no agents working"];
+  return m.running > 0 || m.pending > 0 ? ["green", `${m.running} working${m.pending ? `, ${m.pending} waiting on you` : ""}`] : ["", "Idle: no agents working"];
 }
 function renderMachines() {
   $("#machines").innerHTML = machines.map(m => {
@@ -419,16 +448,19 @@ function renderMachines() {
 function renderUpd() {
   const b = $("#upd");
   b.hidden = false;
-  b.classList.toggle("new", !!(upd && upd.newer) || !!installing);
+  // The pill's colour is its state: orange there is an update to take, red the
+  // last check or install failed, green this is the newest build.
+  const st = installing || (upd && upd.newer) ? "new" : upd === "checking" ? "busy" : upd && upd.error ? "bad" : upd ? "ok" : "";
+  b.className = "upd" + (st ? " " + st : "");
   if (installing) {
     const pct = installing.stage === "Downloading" ? ` ${installing.pct}%` : "";
     b.innerHTML = `${icon("down")}<span class="lbl">${esc(installing.stage)}${pct}</span>`;
     b.title = "Backspace is fetching the new build; it reopens when it's in place.";
-  } else if (upd === "checking") b.innerHTML = `Checking…`;
-  else if (upd && upd.error) { b.innerHTML = `${icon("reload")}Check for updates`; b.title = upd.error; }
+  } else if (upd === "checking") { b.innerHTML = `${icon("reload")}<span class="lbl">Checking</span>`; b.title = "Checking for a newer build"; }
+  else if (upd && upd.error) { b.innerHTML = `${icon("close")}<span class="lbl">Update failed</span>`; b.title = `${upd.error} · click to try again`; }
   else if (upd && upd.newer) { b.innerHTML = `${icon("down")}<span class="lbl">Update to ${esc(upd.latest)}</span>`; b.title = `A newer Backspace is out: build ${upd.latest}. You have ${upd.build || upd.current}.`; }
-  else if (upd) { b.innerHTML = `${icon("check")}<span class="lbl">Up to date</span><span class="n">v${esc(upd.current)}</span>`; b.title = `Backspace ${upd.current} · click to check again`; }
-  else b.innerHTML = `${icon("reload")}<span class="lbl">Check for updates</span>`;
+  else if (upd) { b.innerHTML = `${icon("check")}<span class="lbl">Up to date</span>`; b.title = `Backspace ${upd.current} · click to check again`; }
+  else { b.innerHTML = `${icon("reload")}<span class="lbl">Check for updates</span>`; b.title = "Check for a newer build"; }
 }
 async function checkUpdate() {
   upd = "checking"; renderUpd();
@@ -447,7 +479,7 @@ async function installUpdate() {
   try {
     await invoke("install_update");
   } catch (e) {
-    installing = null;
+    installing = null; upd = { error: `Couldn't install the update: ${e}` };
     renderUpd(); syncUpdButton();
     toast(`Couldn't install the update: ${e}`, "err");
   }
@@ -468,11 +500,11 @@ addEventListener("keydown", e => {
   if (e.key === "Escape") { if (window.Ask && $("#ask") && !$("#ask").hidden) Ask.close(); else if (!$("#pop").hidden) closePop(); else if (S.settings) closeSettings(); else if (S.drawer) Code.setDrawer(false); }
   if (!(e.metaKey || e.ctrlKey)) return;
   if (!$("#onboard").hidden) return;
-  if (e.key === "n") { e.preventDefault(); setMode("chat"); Chat.newChat(); return; }
+  if (e.key === "n") { e.preventDefault(); newThread(); return; }
   if (e.key === "k") { e.preventDefault(); Shell.search(); return; }
   if (e.key === "i" && S.mode === "home") { e.preventDefault(); Ask.toggle(); return; }
   if (e.key === "o") { e.preventDefault(); pickProject(); return; }
-  if (e.key === "j") { e.preventDefault(); setMode(S.mode === "chat" ? "code" : "chat"); return; }
+  if (e.key === "j") { e.preventDefault(); setCodeView(S.mode === "code" && S.codeView === "pair" ? "agents" : "pair"); return; }
   if (e.key === "/" ) { e.preventDefault(); if (window.Shell) Shell.toggleSplit(); return; }
   if (!agentsOn()) { if (e.key === ",") { e.preventDefault(); openSettings(); } if (e.key === "\\") { e.preventDefault(); setSide($("#win").classList.contains("side-closed")); } return; }
   const i = +e.key;
@@ -552,6 +584,7 @@ const richOn = () => { try { return localStorage.getItem("bs.rich") !== "0"; } c
 
 // ------------------------------------------------------------------ settings
 function openSettings(section) {
+  if (section) S.setSection = section;
   S.settings = true; $("#settings").hidden = false;
   // Settings is a page of its own, so the sidebar and the rail step aside and it
   // spans the window instead of sitting in a column beside them.
@@ -629,7 +662,7 @@ function renderSettings() {
   const nav = SET_NAV.map(([g, items]) => `<div class="sg"><span>${g}</span>${items.map(([k, l, ic]) => `<button class="sv${on(k)}" data-setnav="${k}">${icon(ic)}${l}</button>`).join("")}</div>`).join("")
     + `<div class="sg"><span>Archived</span><button class="sv${on("home")}" data-setnav="home">${icon("archive")}Archived threads</button></div>`;
   el.innerHTML = `<div class="setwrap"><nav class="setnav" aria-label="Settings sections">${nav}</nav><div class="setbody"><div class="set">
-    <div class="set-h"><h1>Settings</h1><span class="sp"></span><button class="btn" id="setRerun">Run setup again</button><button class="ib" id="setClose" aria-label="Close settings">${icon("close")}</button></div>
+    <div class="set-h"><h1>Settings</h1><span class="sp"></span><button class="btn" id="setRerun">Run setup again</button></div>
     <section id="set-general"><h2>General</h2><p class="lead">What Backspace is for, where it looks for projects, and the open project.</p>
       <div class="line"><span class="lab">Apps<small>Off apps stay in the sidebar, dimmed, until you turn one back on.</small></span><div class="segc">${(window.Frame ? Frame.zones() : [{ id: "chat", name: "Chat" }, { id: "code", name: "Code" }]).map(e => `<button aria-pressed="${(prefs.uses && prefs.uses.length ? prefs.uses : (window.Frame ? Frame.ids() : ["chat", "code"])).includes(e.id)}" data-use="${e.id}">${esc(e.name)}</button>`).join("")}</div></div>
       ${hasProject ? `<div class="line"><span class="lab">Workspace<small class="mono">${esc(snap.workspace || "—")}</small></span></div>
@@ -718,7 +751,7 @@ function renderSettings() {
   $$("[data-setnav]", el).forEach(b => (b.onclick = () => showSection(b.dataset.setnav)));
   showSection(S.setSection);
   bindAppearance(el);
-  $("#setClose").onclick = closeSettings;
+  $("#setX").onclick = closeSettings;
   const pt = $("#phoneT", el);
   const trCfg = () => {
     const headers = {};
@@ -896,7 +929,7 @@ async function renderSkills(el) {
           <span>${esc(s.description || "No description.")}</span>
           <small>${esc(SKILL_ORIGIN[s.origin] || s.origin)}${s.injected && s.injected.length ? ` · injected into ${s.injected.map(esc).join(", ")}` : ""}${s.files.length > 1 ? ` · ${s.files.map(esc).join(", ")}` : ""}</small></div>`).join("")
       : `<div class="nothing">No skill matches “${esc(q)}”.</div>`}</div>`
-    + `<div class="line"><span class="lab">Add one<small>Write a folder with a <code>SKILL.md</code> in it. <b>${esc(d.user_dir || d.dirs[0] || "")}</b> is yours; a folder of the same name in <code>&lt;project&gt;/.backspace/skills/</code> overrides a built-in for that project only.</small></span>
+    + `<div class="line"><span class="lab">Add one<small>Write a folder with a <code>SKILL.md</code> in it. <b>${esc(d.user_dir || (d.dirs || [])[0] || "")}</b> is yours; a folder of the same name in <code>&lt;project&gt;/.backspace/skills/</code> overrides a built-in for that project only.</small></span>
         <button class="btn" id="skOpen">Open my skills folder</button><button class="btn" id="skTpl">Copy the template</button></div>`
     + `<div class="line"><span class="lab">Read from<small class="mono">${(d.dirs || []).map(esc).join(" · ")}</small></span></div>`;
   const qi = $("#skQ", box);
@@ -1022,11 +1055,13 @@ var Models = (() => {
 // ------------------------------------------------------------------ sidebar resize, live updates, boot
 (() => {
   const g = $("#sideGut"), win = $("#win");
-  const place = () => (g.style.left = getComputedStyle(win).getPropertyValue("--side-w"));
+  // The gutter sits after the app rail and the sidebar.
+  const railW = () => parseFloat(getComputedStyle(win).getPropertyValue("--rail-w")) || 0;
+  const place = () => (g.style.left = `calc(var(--rail-w, 0px) + ${getComputedStyle(win).getPropertyValue("--side-w")})`);
   g.addEventListener("pointerdown", e => {
     e.preventDefault(); g.setPointerCapture(e.pointerId);
     const left = win.getBoundingClientRect().left;
-    const move = ev => { const w = Math.min(380, Math.max(176, ev.clientX - left)); win.style.setProperty("--side-w-user", w + "px"); place(); };
+    const move = ev => { const w = Math.min(380, Math.max(176, ev.clientX - left - railW())); win.style.setProperty("--side-w-user", w + "px"); place(); };
     const upf = () => { g.removeEventListener("pointermove", move); g.removeEventListener("pointerup", upf); };
     g.addEventListener("pointermove", move); g.addEventListener("pointerup", upf);
   });
@@ -1045,6 +1080,7 @@ async function refresh(full) {
   if (window.Code) Code.afterData();
   watchAgents();  if (window.Shell) Shell.refresh();
   if (window.RPanel) RPanel.refresh();
+  if (window.Work) Work.refresh();
   if (!agentsOn() && !(window.Shell && Shell.showing("canvas"))) { lastShape = ""; return; }
   // Rebuild canvases when the machine or its agents appear; otherwise update in place.
   const shape = machine().index + ":" + (snap.agents.length > 0) + ":" + machine().link.state;
@@ -1056,7 +1092,10 @@ async function refresh(full) {
 }
 // Coalesce bursts of harness events into one refresh per frame.
 TAURI.event.listen("state", () => { if (!queued) { queued = true; requestAnimationFrame(() => refresh(false)); } });
-addEventListener("resize", () => { setSide(!narrow()); });
+// Only crossing the narrow width resets the sidebar; any other resize (a drag,
+// maximize) leaves it as you set it.
+let wasNarrow = narrow();
+addEventListener("resize", () => { if (narrow() !== wasNarrow) { wasNarrow = narrow(); setSide(!wasNarrow); } });
 
 // After every script has run. The frame loads the apps' scripts during boot.
 addEventListener("DOMContentLoaded", async () => {
@@ -1076,7 +1115,7 @@ addEventListener("DOMContentLoaded", async () => {
     prefs.tabs.unshift({ name: "Bench", panes: [{ kind: "agent", agent: 0, url: null }, { kind: "files", agent: 0, url: null }, { kind: "agent", agent: 1, url: null }, { kind: "agent", agent: 2, url: null }].slice(0, boot.layout), layout: null });
     prefs.active_tab = 0;
   }
-  applyTheme(); renderSeg(); setSide(false);
+  applyTheme(); renderSeg(); setSide(!narrow());
   // Every launch lands on Home; the zone you were last in is a click away.
   S.mode = "home";
   S.codeView = prefs.code_view === "pair" ? "pair" : "agents";

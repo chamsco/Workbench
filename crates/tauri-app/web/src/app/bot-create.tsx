@@ -77,7 +77,7 @@ export const BOT_TEMPLATES: BotTemplate[] = [
     name: "Blank",
     botName: "",
     emoji: "🙂",
-    color: "#64748b",
+    color: "#9aa8bb",
     blurb: "Start from nothing.",
     job: "",
     instructions: "",
@@ -88,7 +88,7 @@ export const BOT_TEMPLATES: BotTemplate[] = [
     name: "Morning digest",
     botName: "Herald",
     emoji: "🌅",
-    color: "#ca8a04",
+    color: "#ffc24d",
     blurb: "A short daily brief of what changed and what's next.",
     job: "Writes me a short morning brief: what changed in my projects overnight, what's due today, and the one thing to do first.",
     instructions:
@@ -106,7 +106,7 @@ export const BOT_TEMPLATES: BotTemplate[] = [
     name: "Research",
     botName: "Sage",
     emoji: "🔬",
-    color: "#16a34a",
+    color: "#5fd38d",
     blurb: "Reads the sources and comes back with the links.",
     job: "Researches a question properly: reads more than one source, compares them, and comes back with a short answer and the links.",
     instructions:
@@ -118,7 +118,7 @@ export const BOT_TEMPLATES: BotTemplate[] = [
     name: "Build watcher",
     botName: "Keeper",
     emoji: "🛠️",
-    color: "#2563eb",
+    color: "#6c9bff",
     blurb: "Watches builds and tests so you don't have to.",
     job: "Watches my builds and test runs, and tells me when one breaks, what broke it, and the smallest fix.",
     instructions:
@@ -137,7 +137,7 @@ export const BOT_TEMPLATES: BotTemplate[] = [
     name: "Inbox triage",
     botName: "Courier",
     emoji: "✉️",
-    color: "#e11d48",
+    color: "#ff6f6f",
     blurb: "Sorts the inbox into what needs you and what doesn't.",
     job: "Triages my inbox: what needs a reply today, what can wait, and what to archive.",
     instructions:
@@ -156,7 +156,7 @@ export const BOT_TEMPLATES: BotTemplate[] = [
     name: "Explainer",
     botName: "Tutor",
     emoji: "📚",
-    color: "#8b5cf6",
+    color: "#a98bff",
     blurb: "Explains a thing until it actually lands.",
     job: "Explains something I'm learning, from first principles, with one worked example and one thing to try.",
     instructions:
@@ -168,7 +168,7 @@ export const BOT_TEMPLATES: BotTemplate[] = [
     name: "Standup",
     botName: "Tally",
     emoji: "📈",
-    color: "#0891b2",
+    color: "#4cc9e8",
     blurb: "Keeps a running standup: done, next, stuck.",
     job: "Runs my standup: what I finished, what's next, and what is stuck.",
     instructions:
@@ -239,7 +239,7 @@ function NewBotSheet({ openedFor, prefill }: { openedFor: string; prefill?: { na
   const [job, setJob] = useState(prefill?.job ?? "");
   const [instructions, setInstructions] = useState("");
   const [emoji, setEmoji] = useState(FACES[0]);
-  const [color, setColor] = useState(COLORS[0]);
+  const [color, setColor] = useState(() => COLORS[Math.floor(Math.random() * COLORS.length)]);
   const [personality, setPersonality] = useState("");
   const [route, setRoute] = useState<Route | null>(() => host.defaultRoute());
   const [project, setProject] = useState(openedFor);
@@ -268,6 +268,7 @@ function NewBotSheet({ openedFor, prefill }: { openedFor: string; prefill?: { na
     memory: true,
     off: [],
     apps_off: [],
+    hands: ["browser"],
     hook: "",
     routines: [],
     created: 0,
@@ -308,6 +309,7 @@ function NewBotSheet({ openedFor, prefill }: { openedFor: string; prefill?: { na
         memory: true,
         off: [],
         apps_off: [],
+        hands: ["browser"],
         hook: "",
         routines: [],
         created: 0,
