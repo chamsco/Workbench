@@ -51,6 +51,7 @@ fn agent(name: &str, job: &str) -> Agent {
         memory: true,
         off: vec![],
         apps_off: vec![],
+        hands: vec![],
         hook: String::new(),
         routines: vec![],
         created: 0,

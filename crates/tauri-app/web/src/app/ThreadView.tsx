@@ -156,7 +156,7 @@ const Row = memo(function Row({
             this into view — the scroll-back-up of one long thread. */}
         {opens && (
           <div id={`session-${opens.id}`} data-session={opens.id} className="flex scroll-mt-28 items-center gap-2.5 pb-3 pt-2">
-            <span className="text-[11px]/4 font-medium text-muted-foreground/60">{sessionLabel(opens, now)}</span>
+            {sessionLabel(opens, now) && <span className="text-[11px]/4 font-medium text-muted-foreground/60">{sessionLabel(opens, now)}</span>}
             <span className="max-w-[60%] truncate rounded-full bg-foreground/[0.05] px-2.5 py-1 text-[11.5px]/4 font-medium text-muted-foreground" title={opens.title}>
               {opens.title}
             </span>

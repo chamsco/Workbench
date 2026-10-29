@@ -9,22 +9,45 @@
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="home.css">
 <link rel="stylesheet" href="shell.css">
+<link rel="stylesheet" href="dash.css">
 </head>
 <body>
 <div class="desk">
   <div class="blob a"></div><div class="blob b"></div><div class="blob c"></div>
   <div class="win" id="win">
+    <div class="glass" id="glass" aria-hidden="true"></div>
     <div class="lights" aria-hidden="true"><span>×</span><span>−</span><span>+</span></div>
-    <nav class="rail" id="rail" aria-label="Zones" data-tauri-drag-region>
+    <!-- The app rail: a vertical pill on the window's left edge, shared by
+         every app. The apps, then Plugins, Skills and Agents, then what is
+         live right now (and Agents' bots). -->
+    <nav class="rail" id="rail" aria-label="Apps">
       <div class="rail-zones" id="railZones" role="tablist" aria-orientation="vertical"></div>
       <div class="rail-apps" id="railApps"></div>
-      <span class="sp" data-tauri-drag-region></span>
-      <button class="rz" id="gear" aria-label="Settings" data-tip="Settings"><span class="sq" data-icon="gear"></span></button>
+      <div class="rsep" aria-hidden="true"></div>
+      <div class="rail-ext" id="tbExt" role="group" aria-label="Plugins, skills and agents">
+        <button class="rz" id="plugBtn" data-x="plugins" aria-label="Plugins" data-tip="Plugins"><span class="sq" data-icon="box"></span></button>
+        <button class="rz" id="skillBtn" data-x="skills" aria-label="Skills" data-tip="Skills"><span class="sq" data-icon="book"></span></button>
+        <button class="rz" id="agentBtn" data-x="agents" aria-label="Agents" data-tip="Agents"><span class="sq" data-icon="team"></span></button>
+      </div>
+      <div class="rail-run" id="railRun"></div>
+      <div class="rail-bots" id="railBots"></div>
     </nav>
     <aside class="side" id="side" aria-label="Machine, projects and agents">
+      <!-- The window's own row, on the sidebar: the lights (macOS draws them
+           here), the sidebar toggle, back and forward, then search and
+           settings. Under it the app icons, then New thread above the tree. -->
       <div class="side-top" data-tauri-drag-region>
-        <button class="ib" id="sideClose" aria-label="Hide sidebar" data-icon="sidebar"></button>
+        <span class="lights-gap" data-tauri-drag-region></span>
+        <button class="ib" id="sideClose" aria-label="Toggle sidebar" title="Toggle sidebar" data-icon="sidebar"></button>
+        <button class="ib" id="navBack" aria-label="Back" title="Back" data-icon="back"></button>
+        <button class="ib" id="navFwd" aria-label="Forward" title="Forward" data-icon="fwd"></button>
+        <div class="side-pills" id="sidePills" hidden></div>
+        <span class="sp" data-tauri-drag-region></span>
+        <button class="ib" id="searchBtn" aria-label="Search" title="Search projects, agents and chats" data-popper data-icon="search"><kbd hidden></kbd></button>
+        <button class="ib" id="gearBtn" aria-label="Settings" title="Settings" data-icon="gear"></button>
       </div>
+      <div class="zones" id="zones" role="tablist" aria-label="Apps"></div>
+      <button class="side-new" id="newThread" title="New thread (⌘N)" aria-label="New thread"><span data-icon="compose"></span><span>New thread</span><kbd>⌘N</kbd></button>
       <div class="side-head">
         <div class="zone-title" id="zoneTitle"></div>
         <button class="newbtn chat-only" id="newChat" title="New chat (⌘N)"><span data-icon="compose"></span>New chat<kbd>⌘N</kbd></button>
@@ -36,15 +59,16 @@
       <div class="list whirl-list chat-only pair-only" id="chatList" hidden></div>
       <div class="list zone-list" id="zoneList"></div>
       <div class="ports code-only agents-only" id="ports"></div>
+      <!-- The machine you are on, at the foot: the switcher, and updates. -->
+      <div class="side-machine">
+        <div class="machines" id="machines" role="group" aria-label="Machines"></div>
+        <button class="upd" id="upd"></button>
+      </div>
     </aside>
-    <!-- New chat, search and the sidebar toggle: drawn by the chat face, and
-         outside the card so they stay put while it folds away. -->
-    <div class="side-pills" id="sidePills"></div>
     <div class="gutter-side" id="sideGut" role="separator" aria-orientation="vertical" aria-label="Resize sidebar"></div>
     <div class="mainc">
       <header class="tbar" data-tauri-drag-region>
         <button class="ib" id="sideOpen" aria-label="Show sidebar" data-icon="sidebar" hidden></button>
-        <div class="zones" id="zones" role="tablist" aria-label="Apps"></div>
         <div class="modes" id="modes" role="tablist"></div>
         <button class="vbtn code-only agents-only" id="viewBtn" aria-haspopup="menu" data-popper></button>
         <nav class="tabs code-only agents-only" id="tabs" role="tablist" aria-label="Tabs"></nav>
@@ -52,29 +76,40 @@
         <div class="zone-head" id="zoneHead"></div>
         <div class="chat-head chat-only" id="chatHead"></div>
         <span class="sp" data-tauri-drag-region></span>
+        <div class="page-line" id="pageLine"></div>
         <div class="right">
-          <button class="srchbtn" id="searchBtn" aria-label="Search" title="Search projects, agents and chats" data-popper><span data-icon="search"></span><span class="srch-txt">Search</span><kbd>Ctrl K</kbd></button>
-          <button class="ib code-only agents-only" id="chatDock" aria-label="Chat beside the canvases" title="Chat beside the canvases" aria-pressed="false" data-icon="bubble"></button>
-          <button class="ib code-only" id="panelBtn" aria-label="Side panel: history, files, sessions" title="History, files and sessions" aria-pressed="false" data-icon="panelr"></button>
-          <button class="ib" id="gearBtn" aria-label="Settings" title="Settings" data-icon="gear"></button>
+          <button class="ib code-only" id="termBtn" aria-label="Terminal" title="Terminal: under the page or to its right" aria-pressed="false" data-popper data-icon="term"></button>
+          <button class="ib code-only" id="panelBtn" aria-label="Side panel" title="Side panel: the work area in the ADE; history, files and sessions in the IDE" aria-pressed="false" data-icon="panelr"></button>
+          <button class="ib" id="aiBtn" aria-label="Chat panel" title="Chat panel (⌘I)" aria-pressed="true" data-icon="sparkle"></button>
         </div>
-        <div class="caps" id="caps"></div>
       </header>
       <div class="body" id="body">
         <!-- Chat and Workbench are extensions: the frame makes their sections
              from extensions/<id>/extension.json and loads their scripts. -->
+        <section class="dash zone" id="dash" hidden></section>
         <section class="memory zone" id="memory" hidden></section>
         <section class="apps zone" id="apps" hidden></section>
         <div class="split-gut" id="splitGut" role="separator" aria-orientation="vertical" aria-label="Resize split" hidden></div>
         <div class="split-head" id="splitHead" hidden></div>
       </div>
       <aside class="rpanel" id="rpanel" aria-label="History, files and sessions" hidden></aside>
+      <!-- The ADE's work area beside the chat (work.js). -->
+      <aside class="work" id="work" aria-label="Work area" hidden></aside>
       <section class="settings" id="settings" hidden></section>
+      <!-- Settings' way out: one large round button at the card's top right,
+           back to whatever was open before. -->
+      <button class="set-x" id="setX" aria-label="Close settings" title="Close settings (Esc)" data-icon="close"></button>
       <aside class="drawer" id="drawer" aria-label="Tickets and reviews" hidden></aside>
     </div>
-    <footer class="status" aria-label="Status">
-      <button class="upd" id="upd"></button>
-      <div class="machines" id="machines" role="group" aria-label="Machines"></div>
+    <!-- The page's chat: a thread beside whatever is open, its composer at
+         the foot (ai.js). -->
+    <aside class="chatcol" id="chatcol" aria-label="Chat"></aside>
+    <div class="gutter-chat" id="chatGut" role="separator" aria-orientation="vertical" aria-label="Resize chat"></div>
+    <div class="capstrip" data-tauri-drag-region></div>
+    <div class="caps" id="caps"></div>
+    <!-- The old footer's live parts, kept for what reads them: who is working
+         and the tickets button. Not drawn. -->
+    <footer class="status" aria-hidden="true" hidden>
       <button class="cta code-only agents-only" id="cta" aria-expanded="false" aria-controls="drawer"></button>
       <div class="stm" id="status"></div>
     </footer>
@@ -87,16 +122,20 @@
 <div class="memtoast" id="memToast" role="status" aria-live="polite" hidden></div>
 <input type="file" id="filePick" multiple hidden>
 <script src="logos.js"></script>
+<script src="ocean.js"></script>
 <script src="art.js"></script>
 <script src="frame.js"></script>
 <script src="app.js"></script>
 <script src="picker.js"></script>
 <script src="home.js"></script>
 <script src="rpanel.js"></script>
+<script src="work.js"></script>
 <script src="providers.js"></script>
 <script src="onboard.js"></script>
 <script src="memory.js"></script>
 <script src="apps.js"></script>
+<script src="dash.js"></script>
+<script src="ai.js"></script>
 <script src="shell.js"></script>
 <!-- The chat face: Whirl's components on Backspace (web/, MIT). Deferred, so
      it is defined before app.js boots on DOMContentLoaded. -->

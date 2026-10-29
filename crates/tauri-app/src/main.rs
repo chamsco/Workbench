@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use backspace_core::agents::{Agent, ComputerStatus, Routine};
 use backspace_core::apps::Installed;
-use backspace_core::chat::{Attachment, Life, Route, Scope, Thread, ThreadInfo};
+use backspace_core::chat::{Activity, Attachment, Life, Route, Scope, Thread, ThreadInfo};
 use backspace_core::delegate::{self, Delegation, Snapshot};
 use backspace_core::memory::Note;
 use backspace_core::cloud::{Account, Overage, Plan, PlanInfo};
@@ -306,6 +306,9 @@ fn set_appearance(f: F, appearance: backspace_core::prefs::Appearance) {
         a.bg = hex_or_empty(&a.bg);
         a.fg = hex_or_empty(&a.fg);
         a.contrast = a.contrast_or_default();
+        if !matches!(a.window.as_str(), "frosted" | "clear" | "solid") {
+            a.window.clear();
+        }
         p.appearance = a;
     });
 }
@@ -569,8 +572,8 @@ fn remove_agent_connection(f: F, id: String) {
 }
 
 #[tauri::command]
-fn set_harness(f: F, id: String, on: bool) -> Vec<HarnessInfo> {
-    f.set_harness(&id, on)
+async fn set_harness(f: F<'_>, id: String, on: bool) -> Res<Vec<HarnessInfo>> {
+    blocking(f, move |f| Ok(f.set_harness(&id, on))).await
 }
 
 #[tauri::command]
@@ -803,6 +806,17 @@ fn chat_list(f: F) -> Vec<ThreadInfo> {
     f.chats().list()
 }
 
+/// Home's "Last 30 days": every prompt since `since` (epoch ms), the hours
+/// anything was said in, and how many threads were active.
+#[tauri::command]
+async fn chat_activity(f: F<'_>, since: u64) -> Res<Activity> {
+    blocking(f, move |f| Ok(chat_activity_now(f, since))).await
+}
+
+fn chat_activity_now(f: &Fleet, since: u64) -> Activity {
+    f.chats().activity(since)
+}
+
 #[tauri::command]
 fn chat_thread(f: F, id: String) -> Option<Thread> {
     f.chats().thread(&id)
@@ -843,7 +857,11 @@ fn chat_purge_ghosts(f: F) -> Vec<String> {
 /// The small models on this machine, for Settings → Local models. Blocks for
 /// a couple of seconds while each runtime is probed.
 #[tauri::command]
-fn local_models(f: F) -> serde_json::Value {
+async fn local_models(f: F<'_>) -> Res<serde_json::Value> {
+    blocking(f, |f| Ok(local_models_now(f))).await
+}
+
+fn local_models_now(f: &Fleet) -> serde_json::Value {
     let prefs = f.prefs();
     let runtimes = backspace_core::model_server::detect(&prefs, &[]);
     let recommend = backspace_core::model_server::recommend(&runtimes);
@@ -882,7 +900,11 @@ fn set_local_tasks(f: F, tasks: Vec<String>) {
 /// from, whether it is injected into a role, and `template` — the SKILL.md
 /// skeleton to write when adding one by hand.
 #[tauri::command]
-fn skills_catalog(f: F) -> serde_json::Value {
+async fn skills_catalog(f: F<'_>) -> Res<serde_json::Value> {
+    blocking(f, |f| Ok(skills_catalog_now(f))).await
+}
+
+fn skills_catalog_now(f: &Fleet) -> serde_json::Value {
     let root = std::path::PathBuf::from(f.snapshot().workspace);
     let skills = backspace_core::skills::Skills::load(&root);
     // The same config the harness loads: BACKSPACE_CONFIG, then the project's
@@ -947,7 +969,11 @@ fn skills_catalog(f: F) -> serde_json::Value {
 
 /// Settings → Managed worktrees: what each ticket's agent has on disk.
 #[tauri::command]
-fn worktrees(f: F) -> serde_json::Value {
+async fn worktrees(f: F<'_>) -> Res<serde_json::Value> {
+    blocking(f, |f| Ok(worktrees_now(f))).await
+}
+
+fn worktrees_now(f: &Fleet) -> serde_json::Value {
     let s = f.snapshot();
     let items: Vec<serde_json::Value> = s
         .agents
@@ -976,7 +1002,11 @@ fn worktrees(f: F) -> serde_json::Value {
 /// workspaces Colony already knows about. visor-core is optional; without it
 /// this reports what is missing rather than failing (docs/COLONY.md).
 #[tauri::command]
-fn colony_status(_f: F) -> serde_json::Value {
+async fn colony_status() -> Res<serde_json::Value> {
+    tauri::async_runtime::spawn_blocking(colony_status_now).await.map_err(err)
+}
+
+fn colony_status_now() -> serde_json::Value {
     let dir = backspace_core::prefs::Prefs::data_dir().join("colony");
     let mut out = serde_json::json!({
         "visor": Option::<String>::None,
@@ -1340,6 +1370,35 @@ fn memory_reveal(f: F) -> Res<()> {
 #[tauri::command]
 fn trace_get(f: F, id: String) -> Option<backspace_core::trace::Trace> {
     f.chats().trace(&id)
+}
+
+/// What a thread's next reply reads, piece by piece (the agent page's map).
+#[tauri::command]
+fn chat_context(f: F, id: String) -> Option<backspace_core::chat::ContextMap> {
+    f.chats().context_map(&id, &f.chat_ctx())
+}
+
+/// An agent's browser or desktop as it last saw it, for its side panel.
+#[tauri::command]
+async fn agent_hands(f: F<'_>, id: String, surface: Option<String>) -> Res<serde_json::Value> {
+    blocking(f, move |_| Ok(backspace_core::hands::live(&backspace_core::prefs::Prefs::data_dir(), &id, surface.as_deref().unwrap_or("browser")))).await
+}
+
+/// "Take control" of an agent's browser and desktop (its tools stop), or hand it back.
+#[tauri::command]
+async fn agent_hands_take(f: F<'_>, id: String, on: bool) -> Res<()> {
+    blocking(f, move |_| backspace_core::hands::take(&backspace_core::prefs::Prefs::data_dir(), &id, on)).await
+}
+
+/// How agents' browser use runs (`prefs.hands`).
+#[tauri::command]
+fn hands_prefs(f: F) -> backspace_core::prefs::Hands {
+    f.prefs().hands
+}
+
+#[tauri::command]
+fn set_hands_prefs(f: F, cfg: backspace_core::prefs::Hands) {
+    f.update_prefs(|p| p.hands = cfg);
 }
 
 #[tauri::command]
@@ -1995,6 +2054,7 @@ fn main() -> anyhow::Result<()> {
             set_api_key,
             set_default_route,
             chat_list,
+            chat_activity,
             local_models,
             set_subagent_model,
             set_local_tasks,
@@ -2024,6 +2084,11 @@ fn main() -> anyhow::Result<()> {
             memory_forget,
             memory_dreams,
             trace_get,
+            chat_context,
+            agent_hands,
+            agent_hands_take,
+            hands_prefs,
+            set_hands_prefs,
             set_tracing,
             trace_test,
             memory_dream,
@@ -2097,6 +2162,16 @@ fn main() -> anyhow::Result<()> {
             {
                 use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial};
                 let _ = apply_vibrancy(&win, NSVisualEffectMaterial::Sidebar, None, None);
+            }
+            // The window is transparent everywhere; the page paints itself
+            // opaque unless Settings → Appearance → Window is See-through, and
+            // then Windows lays Mica (or, before 11, a blur) under it.
+            #[cfg(target_os = "windows")]
+            {
+                use window_vibrancy::{apply_blur, apply_mica};
+                if apply_mica(&win, None).is_err() {
+                    let _ = apply_blur(&win, Some((18, 18, 20, 120)));
+                }
             }
             // The fleet coalesces changes; the UI coalesces again per frame.
             std::thread::spawn(move || {

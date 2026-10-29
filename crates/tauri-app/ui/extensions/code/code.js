@@ -43,7 +43,13 @@ async function useTabsFor(workspace) {
   return tabsNow;
 }
 
-const tab = () => prefs.tabs[prefs.active_tab];
+// A project with no tabs saved (a new folder, or prefs from before tabs)
+// still has one, so nothing that draws the grid meets an undefined tab.
+const tab = () => {
+  const ts = prefs.tabs;
+  if (!ts.length) ts.push({ name: "Canvas", panes: [{ kind: "agent", agent: 0, url: null }], layout: null });
+  return ts[Math.min(Math.max(0, prefs.active_tab || 0), ts.length - 1)];
+};
 const pstate = i => { const k = prefs.active_tab + ":" + i; if (!S.pane.has(k)) S.pane.set(k, {}); return S.pane.get(k); };
 
 let saveT = null;
@@ -65,6 +71,8 @@ function saveTabs() {
 // Mirrors core::layout: {leaf: i} | {dir: "row"|"col", ratio, a, b}. Rust
 // owns the format (prefs.json); this copy draws it and applies drags.
 const PH = -1;
+// How many canvases one tab holds (core::layout::MAX_PANES).
+const MAX_PANES = 6;
 const L = {
   leaf: i => ({ leaf: i }),
   split: (dir, ratio, a, b) => ({ dir, ratio, a, b }),
@@ -73,7 +81,11 @@ const L = {
     if (n <= 1) return l(0);
     if (n === 2) return s("row", 0.5, l(0), l(1));
     if (n === 3) return s("row", 1 / 3, l(0), s("row", 0.5, l(1), l(2)));
-    return s("col", 0.56, s("row", 0.5, l(0), l(1)), s("row", 0.5, l(2), l(3)));
+    // Four to six: two rows, the top one taking the odd canvas, each row in
+    // equal widths.
+    const row = (from, k) => (k === 1 ? l(from) : s("row", 1 / k, l(from), row(from + 1, k - 1)));
+    const top = Math.ceil(Math.min(n, MAX_PANES) / 2), bottom = Math.min(n, MAX_PANES) - top;
+    return s("col", 0.56, row(0, top), row(top, bottom));
   },
   preset(id) {
     const l = L.leaf, s = L.split;
@@ -138,7 +150,7 @@ const L = {
     return e[0] < 0.25 ? e[1] : "center";
   },
 };
-const PRESETS = [["1", "1", 1], ["2", "2", 2], ["3", "3", 3], ["4", "2×2", 4], ["top1", "1 over 2", 3], ["bottom1", "2 over 1", 3], ["left1", "1 | 2", 3]];
+const PRESETS = [["1", "1", 1], ["2", "2", 2], ["3", "3", 3], ["4", "2×2", 4], ["top1", "1 over 2", 3], ["bottom1", "2 over 1", 3], ["left1", "1 | 2", 3], ["5", "3 over 2", 5], ["6", "3×2", 6]];
 const tree = t => (L.valid(t.layout, t.panes.length) ? t.layout : L.defaultFor(t.panes.length));
 // A tab's actual arrangement in 16x12, for unnamed tabs and the presets.
 function treeIcon(t, cls = "lay-ic") {
@@ -267,12 +279,12 @@ function newTabPop(anchor) {
 // Team chat is not offered while the four-phase flow is being built: the
 // canvas type and its renderer stay, so a tab that already holds one keeps
 // working and the view comes back by adding it here again.
-const VIEWS = [["conversation", "reply", "Conversation"], ["terminal", "term", "Terminal"], ["files", "folder", "Worktree files"], ["browser", "globe", "Browser"], ["diagram", "diagram", "Diagram review"], ["docs", "doc", "PLAN.md"], ["options", "opts", "Visual options"], ["empty", "window", "Empty canvas"]];
+const VIEWS = [["conversation", "reply", "Conversation"], ["terminal", "term", "Terminal"], ["files", "folder", "Worktree files"], ["browser", "globe", "Browser"], ["diagram", "diagram", "Diagram review"], ["docs", "doc", "PLAN.md"], ["options", "opts", "Visual options"]];
 $("#addCanvas").dataset.popper = "";
 $("#addCanvas").onclick = e => {
-  const full = tab().panes.length >= 4;
+  const full = tab().panes.length >= MAX_PANES;
   const agents = treeOrder().map(id => agent(id));
-  openPop(e.currentTarget, full ? `<h5>Add a canvas</h5><div class="note">This tab already has four canvases. Close one, or open a new tab with ⌘T.</div>` :
+  openPop(e.currentTarget, full ? `<h5>Add a canvas</h5><div class="note">This tab already has ${MAX_PANES} canvases. Close one, or open a new tab with ⌘T.</div>` :
     `<h5>Sessions</h5>${agents.length ? agents.map(a => `<button class="pi" data-agent="${a.id}"><span class="agent">${icon("sparkle")}</span>${esc(a.id === MAIN ? "Main agent" : a.title)}<span class="k">${esc(a.status.replace("_", " "))}</span></button>`).join("") : `<div class="note">No agents on this machine yet.</div>`}
      <hr><h5>Views</h5>${VIEWS.map(([k, ic, l]) => `<button class="pi" data-kind="${k}">${icon(ic)}${l}</button>`).join("")}`, pop => {
     $$("[data-agent]", pop).forEach(b => (b.onclick = () => addCanvas({ kind: "agent", agent: +b.dataset.agent })));
@@ -281,7 +293,7 @@ $("#addCanvas").onclick = e => {
 };
 function addCanvas(spec) {
   closePop();
-  const t = tab(); if (t.panes.length >= 4) return;
+  const t = tab(); if (t.panes.length >= MAX_PANES) return;
   // Split the focused canvas along its longer side.
   const g = $("#grid"), tr = tree(t), n = t.panes.length;
   const { leaves } = L.layout(tr, { x: 0, y: 0, w: g.clientWidth || 1000, h: g.clientHeight || 600 }, 6);
@@ -727,6 +739,10 @@ function renderWbv() {
     $$("[data-wb]", pop).forEach(x => (x.onclick = () => { closePop(); setWb(x.dataset.wb); }));
   });
   $("#win").classList.toggle("wb-alt", S.wb !== "canvases" || !hasProject);
+  // The switch only matters while a session runs: a worker, or the main agent
+  // busy or waiting on you. On the Wall it stays, so the way back is there.
+  const live = snap.agents.some(a => a.kind !== "triage" && (a.id !== MAIN || busy(a) || needsYou(a)));
+  $("#win").classList.toggle("no-session", !live && S.wb === "canvases");
 }
 function setWb(v) {
   S.wb = WB.some(([k]) => k === v) ? v : "canvases";
@@ -834,6 +850,7 @@ const gridRO = new ResizeObserver(() => {
   if (!S.els || S.drag) return;
   const g = $("#grid");
   if (!g) return;
+  if (!tab()) return;
   g.classList.add("still"); position(tree(tab()));
   requestAnimationFrame(() => g.classList.remove("still"));
 });
@@ -957,7 +974,7 @@ function paneDrag(e, el, slot) {
 }
 function moveToTab(slot, ti) {
   const from = tab(), to = prefs.tabs[ti];
-  if (to.panes.length >= 4) { renderGrid(); flash($(`#tabs [data-tab="${ti}"]`)); return; }
+  if (to.panes.length >= MAX_PANES) { renderGrid(); flash($(`#tabs [data-tab="${ti}"]`)); return; }
   const spec = from.panes[slot];
   if (from.panes.length > 1) { from.layout = L.renumber(L.remove(tree(from), slot), slot); from.panes.splice(slot, 1); }
   else from.panes[0] = { kind: "empty", agent: 0, url: null };
@@ -1083,12 +1100,44 @@ async function diagramPane(body, ps) {
       <svg class="dgsvg" role="img" aria-label="${esc(d.title)}"></svg>
       <div class="facts"><span class="f title">${esc(d.title)}</span>${d.facts.map(([k, v]) => `<span class="f"><b>${esc(v)}</b> ${esc(k)}</span>`).join("")}</div>
       <div class="zoomc"><button class="ib" data-z="out" aria-label="Zoom out">−</button><button class="ib" data-z="in" aria-label="Zoom in">+</button><button class="ib" data-z="fit" aria-label="Fit">${icon("expand")}</button></div>
-      <div class="rcard"></div>` : `<div class="empty"><div class="mark">${icon("diagram")}</div><div class="nothing">Plans and deliverables appear here, drawn by the harness before you read them.</div></div>`}</div></div>`;
+      <div class="rcard"></div>` : `<div class="pmap"></div>`}</div></div>`;
   $$("[data-rv]", body).forEach(b => (b.onclick = () => { S.review = +b.dataset.rv; ps.view = null; diagramPane(body, ps); }));
-  if (!d) return;
+  if (!d) { projectMap(body.querySelector(".pmap"), ps); return; }
   const key = ap.id + ":" + d.nodes.length;
   if (key !== ps.key) { ps.view = null; ps.key = key; }
   drawDiagram(body.querySelector(".dgsvg"), d); reviewCard(body.querySelector(".rcard"), ap, d, label(ap), fb); wireStage(body.querySelector(".stage"), d, ps);
+}
+// With nothing to review, the canvas shows the project's map: a Mermaid
+// diagram the CLI wrote from its reading of the project, kept in the project
+// at .backspace/diagram.mmd and drawn by Pele. Draw / Redraw asks the CLI.
+const MAP = ".backspace/diagram.mmd";
+const MAP_ASK = `Read this project and write ${MAP}: one Mermaid flowchart (\`flowchart TD\`) of how it is built, with its main parts as nodes, what calls or feeds what as edges, and subgraphs for the big areas. At most 30 nodes, short labels. Write only that file; do not change anything else.`;
+async function projectMap(el, ps) {
+  if (!el) return;
+  const src = hasProject ? await invoke("read_file", { path: MAP }).catch(() => "") : "";
+  const asked = ps.mapAsked && ps.mapAsked === snap.workspace;
+  el.innerHTML = `<div class="pmap-h"><b>${esc(snap.name || "Project")} map</b><span class="sp"></span>${hasProject ? `<button class="btn sm" data-map="draw">${icon("diagram")}${src ? "Redraw" : "Draw it"}</button>` : ""}</div>
+    <div class="pmap-svg">${src ? "" : `<div class="empty"><div class="mark">${icon("diagram")}</div><div class="nothing">${!hasProject ? "Open a project to map it." : asked ? "Asked the CLI to read the project and draw it. It shows here when the file is written." : "No map of this project yet. Draw it asks the CLI to read the project and write one. Plans and deliverables to review show here too."}</div></div>`}</div>`;
+  const b = el.querySelector("[data-map=draw]");
+  if (b) b.onclick = async () => {
+    const cli = window.Picker ? Picker.cliOf(prefs.worker) : "auto";
+    const route = cli !== "auto" ? { kind: "cli", provider: cli, model: null } : window.Chat && Chat.defaultRoute();
+    if (!route) { toast("Pick a CLI first: no model is set up yet.", "err"); return; }
+    try {
+      const t = await invoke("chat_new", { route, scope: { project: snap.workspace } });
+      await invoke("chat_send", { id: t.id, text: MAP_ASK, files: [], replyTo: null });
+      ps.mapAsked = snap.workspace; ps.mapWas = src;
+      projectMap(el, ps);
+    } catch (e) { toast(String(e), "err"); }
+  };
+  if (src && window.WhirlChat && WhirlChat.mermaid) {
+    try { el.querySelector(".pmap-svg").innerHTML = await WhirlChat.mermaid(src); }
+    catch (e) { el.querySelector(".pmap-svg").innerHTML = `<div class="nothing">The map in ${MAP} does not parse: ${esc(String(e))}</div>`; }
+  }
+  // Waiting on the CLI: look again until the file changes.
+  clearTimeout(ps.mapT);
+  if (asked && src === (ps.mapWas || "") && el.isConnected) ps.mapT = setTimeout(() => projectMap(el, ps), 5000);
+  else if (asked) ps.mapAsked = null;
 }
 const pos = n => [40 + n.layer * (NW + GX), 120 + n.row * (NH + GY)];
 function drawDiagram(svg, d) {
@@ -1445,6 +1494,11 @@ async function tracePane(p, body, ps) {
   const a = agent(p.agent);
   const ids = a ? a.traces || [] : [];
   if (!ids.length) { body.innerHTML = `<div class="nothing">No traces yet. ${a && busy(a) ? "This run's trace is saved when it ends." : "Each run of this agent leaves one."}</div>`; return; }
+  return traceList(body, ids, ps, "Run");
+}
+// One trace of several, with a picker: an agent's runs here, an ADE thread's
+// replies in the work area (work.js).
+async function traceList(body, ids, ps, what) {
   const id = ps.trace && ids.includes(ps.trace) ? ps.trace : ids[ids.length - 1];
   const t = await invoke("trace_get", { id }).catch(() => null);
   if (!t) { body.innerHTML = `<div class="nothing">That trace is gone.</div>`; return; }
@@ -1452,13 +1506,13 @@ async function tracePane(p, body, ps) {
   const ms = n => (n < 1000 ? `${n} ms` : n < 60000 ? `${(n / 1000).toFixed(1)} s` : `${Math.floor(n / 60000)}m ${Math.round((n % 60000) / 1000)}s`);
   const root = t.spans[0], at = root.attrs || {};
   body.innerHTML = `<div class="trace">
-    <div class="tr-h"><select class="tx" aria-label="Run">${ids.map((x, i) => `<option value="${x}" ${x === id ? "selected" : ""}>Run ${i + 1}${x === ids[ids.length - 1] ? " (latest)" : ""}</option>`).join("")}</select>
+    <div class="tr-h"><select class="tx" aria-label="${what}">${ids.map((x, i) => `<option value="${x}" ${x === id ? "selected" : ""}>${what} ${i + 1}${x === ids[ids.length - 1] ? " (latest)" : ""}</option>`).join("")}</select>
       <span>${esc(at["gen_ai.response.model"] || at["gen_ai.request.model"] || "")}</span><span>${ms(span)}</span>
       ${at["gen_ai.usage.input_tokens"] != null ? `<span>${Number(at["gen_ai.usage.input_tokens"]).toLocaleString()}↓ ${Number(at["gen_ai.usage.output_tokens"] || 0).toLocaleString()}↑</span>` : ""}
       ${at["cost.usd"] != null ? `<span>$${Number(at["cost.usd"]).toFixed(3)}</span>` : ""}${root.error ? `<span class="err">${esc(root.error)}</span>` : ""}</div>
     <div class="tr-rows">${t.spans.map((s, i) => `<details class="tr-row${s.error ? " bad" : ""}"><summary><span class="tn">${esc(i ? s.name : root.name)}</span><span class="tbar"><i style="left:${((s.start - t0) / span) * 100}%;width:${Math.max(0.6, (((s.end || s.start) - s.start) / span) * 100)}%"></i></span><span class="td">${ms((s.end || s.start) - s.start)}</span></summary>
       ${s.input ? `<pre>${esc(s.input)}</pre>` : ""}${s.output ? `<pre class="out">${esc(s.output)}</pre>` : ""}</details>`).join("")}</div></div>`;
-  body.querySelector("select").onchange = e => { ps.trace = e.target.value; tracePane(p, body, ps); };
+  body.querySelector("select").onchange = e => { ps.trace = e.target.value; traceList(body, ids, ps, what); };
 }
   // ---------------------------------------------------------------- the app
   // Mounted once, when the manifest is read; everything else is lazy.
@@ -1483,6 +1537,9 @@ async function tracePane(p, body, ps) {
   // What the title bar says this app is holding. The frame asks; the shell no
   // longer names Code's project.
   function head() {
+    // The ADE names nothing up here: its composer picks the project, and its
+    // sidebar lists them. The header is ADE | IDE and the panel buttons.
+    if (S.codeView === "pair") return "";
     const p = hasProject && snap.workspace ? snap.workspace : null;
     return p
       ? `<button class="zt proj" id="zhProj" data-popper title="${esc(p)} — switch project">${icon("folder")}<b>${esc(base(p))}</b>${icon("chevd")}</button>`
@@ -1503,9 +1560,35 @@ async function tracePane(p, body, ps) {
     renderTabs(); renderGrid();
   }
 
+  // ---------------------------------------------------------------- terminal dock
+  // The header's terminal button: one shell in the project, docked under the
+  // page or to its right, whichever its menu is told.
+  const dock = { ps: {}, at: null };
+  function termMenu(anchor) {
+    const on = !!dock.at, pick = at => `<button class="pi" data-at="${at}">${icon(at === "under" ? "panelb" : "panelr")}${at === "under" ? "Under the page" : "To the right"}${dock.at === at ? `<span class="meta on">${icon("check")}</span>` : ""}</button>`;
+    openPop(anchor, `<div class="ph-t">Terminal</div>${pick("under")}${pick("right")}${on ? `<div class="psep"></div><button class="pi" data-at="">${icon("close")}Close the terminal</button>` : ""}`, pop => {
+      pop.querySelectorAll("[data-at]").forEach(b => (b.onclick = () => { closePop(); setDock(b.dataset.at || null); }));
+    });
+  }
+  function setDock(at) {
+    const mainc = $("#win > .mainc"); let el = $("#tdock");
+    mainc.classList.remove("term-under", "term-right");
+    $("#termBtn").setAttribute("aria-pressed", String(!!at));
+    if (!at) { if (dock.ps.cleanup) dock.ps.cleanup(); dock.ps = {}; if (el) el.remove(); dock.at = null; return; }
+    if (at !== "under" && at !== "right") return;
+    mainc.classList.add("term-" + at);
+    if (!el) { el = document.createElement("section"); el.id = "tdock"; el.className = "tdock"; el.setAttribute("aria-label", "Terminal"); mainc.append(el); }
+    if (!dock.at) terminalPane(el, dock.ps);
+    dock.at = at;
+  }
+  // In the ADE the terminal is a tab of the work area (work.js).
+  document.addEventListener("click", e => { const b = e.target.closest("#termBtn"); if (!b) return; if (S.codeView === "pair" && window.Work) Work.show("terminal"); else termMenu(b); });
+
   return {
     // state the frame's sidebar and the other apps read
-    loadTabs: useTabsFor, tab, paneTitle, wbView,
+    loadTabs: useTabsFor, tab, paneTitle, wbView, setDock,
+    // panes the ADE's work area borrows
+    browserPane, terminalPane, traceList,
     // the app's own surface
     mount, init, paint, elFor, classes, layout, afterData, head, windowTitle,
     // public verbs (the frame, the sidebar, Home and Chat call these)

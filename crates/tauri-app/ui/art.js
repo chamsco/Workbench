@@ -9,41 +9,23 @@
 // see THIRD_PARTY_NOTICES.md), as are the paintings in art/.
 //
 // Art.apply(id) sets the backdrop from Settings → Appearance: a painting
-// muted behind the whole window, the old aurora, an ASCII sea, or nothing.
+// muted behind the whole window, the old aurora, an ASCII sea (ocean.js),
+// or nothing.
 
 var Art = (() => {
   const BAYER8 = [0, 32, 8, 40, 2, 34, 10, 42, 48, 16, 56, 24, 50, 18, 58, 26, 12, 44, 4, 36, 14, 46, 6, 38, 60, 28, 52, 20, 62, 30, 54, 22, 3, 35, 11, 43, 1, 33, 9, 41, 51, 19, 59, 27, 49, 17, 57, 25, 15, 47, 7, 39, 13, 45, 5, 37, 63, 31, 55, 23, 61, 29, 53, 21].map(v => (v + 0.5) / 64);
 
   // The backdrops Settings offers. The harbour follows the time of day in a
-  // light theme and is always the night in a dark one. The sharks are the
-  // hammerhead from stackedlol/ascii-sharks (see THIRD_PARTY_NOTICES.md): text
-  // rather than a painting, in the two inks the repo draws it in.
+  // light theme and is always the night in a dark one. The sharks and the koi
+  // are text rather than a painting, drawn live by ocean.js; the sharks come
+  // in a white ink for a dark window and a black one for a light window.
   const BACKDROPS = [
     ["harbour", "Harbour"], ["dawn", "Lighthouse at dawn"], ["night", "Moorings at night"],
     ["open-sea", "Open sea"], ["fog", "Fog"], ["aurora", "Aurora"], ["plain", "Plain"],
-    ["sharks-white", "Sharks, white"], ["sharks-black", "Sharks, black"],
+    ["sharks-white", "Sharks, white"], ["sharks-black", "Sharks, black"], ["koi", "Koi"],
   ];
   // The art, line for line, as the repo's README sets it.
-  const SHARK = [
-    "                            ;'",
-    "                             %%'",
-    "                              .t;.               .oooo",
-    "                               S;:S%              %8S8.",
-    "                                ;:tt%t '..        XX%%S",
-    "t'                            ''XSSS8SSX%XX8#.    %XSX%",
-    " :;'               ;.''X8%8XX%%S%%S%SStt%tSX8S#X8't%ttt.",
-    "  ::%'       ''8XXXSSt%Stttttt%8@%%@%8@8%Sttt%%%%SSSSS%tt.",
-    "  'SXXtt%t%%%S%:;StS%ttSS%tSXSt88@@%8%@8%tStS%%X%SS%%S%;;t",
-    " .@##88#@...'@@@@#@8@88X88#XXXSX8SX88SX8%SS%S%%S88St%t%%%.",
-    "  %;%t             :.    '.'##@###@X#888XX##8@@@#.X%XS%.",
-    " .%t                            ;%%%#@@##@@@.     SXS%%",
-    " t.                            .%;%%%.            %%XXS",
-    "                              '%t:t              .SXSS'",
-    "                             '::.                ooooo",
-    "                            .S'",
-    "                            .",
-  ];
-  const school = () => `<div class="sea">${["s1", "s2", "s3"].map(c => `<pre class="${c}">${SHARK.join("\n")}</pre>`).join("")}</div>`;
+  const species = id => (/^sharks-/.test(id) ? "sharks" : id === "koi" ? "koi" : null);
   const dark = () => {
     const t = document.documentElement.dataset.theme;
     return t ? t === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
@@ -137,7 +119,7 @@ var Art = (() => {
     return () => { alive = false; ro.disconnect(); document.removeEventListener("visibilitychange", vis); cv.width = cv.height = 0; };
   }
 
-  let stopDesk = null, current = null, vivid = false;
+  let stopDesk = null, stopSea = null, current = null, vivid = false, glass = false;
   // The window's backdrop: one painting behind the title bar, the sidebar
   // and the page, dissolving before the middle of the window. Full strength
   // on Home; elsewhere muted toward the page so panes stay readable.
@@ -150,13 +132,20 @@ var Art = (() => {
       layer.id = "winArt"; layer.className = "win-art"; layer.setAttribute("aria-hidden", "true");
       win.prepend(layer);
     }
-    // The sharks are text, not a painting: one layer of pre, under the glass,
-    // shown by CSS only while a shark backdrop is the one in force.
-    if (!document.getElementById("winAscii")) {
-      const sea = document.createElement("div");
+    // The sharks and the koi are text, not a painting: one canvas of glyphs
+    // under the glass, shown by CSS and running only while one is in force.
+    let sea = document.getElementById("winAscii");
+    if (!sea) {
+      sea = document.createElement("div");
       sea.id = "winAscii"; sea.className = "win-ascii"; sea.setAttribute("aria-hidden", "true");
-      sea.innerHTML = school();
+      sea.innerHTML = `<div class="sea"></div>`;
       layer.after(sea);
+    }
+    const kind = species(current);
+    if (sea.dataset.kind !== (kind || "")) {
+      if (stopSea) { stopSea(); stopSea = null; }
+      sea.dataset.kind = kind || "";
+      if (kind) stopSea = Ocean.start(sea.firstChild, kind);
     }
     win.dataset.backdrop = current;
     document.querySelector(".desk").dataset.backdrop = current;
@@ -167,7 +156,7 @@ var Art = (() => {
     if (stopDesk) { stopDesk(); stopDesk = null; }
     const s = src(current);
     if (!layer) return;
-    if (s) stopDesk = band(layer, s, { position: 0.4, fade: 0.5, mute: vivid ? muteFor(s) : 0.6 + muteFor(s) / 2, cell: 2, bg: "--win-bg" });
+    if (s) stopDesk = band(layer, s, { position: 0.4, fade: 0.5, mute: vivid || glass ? muteFor(s) : 0.6 + muteFor(s) / 2, cell: 2, bg: "--win-bg" });
     else layer.innerHTML = "";
   }
   // Home shows the painting at full strength.
@@ -177,8 +166,15 @@ var Art = (() => {
     document.getElementById("win").classList.toggle("art-vivid", v);
     if (current) draw();
   }
+  // Frosted panes (Settings → Appearance → Window) keep the text readable on
+  // their own, so under them the painting is at full strength everywhere.
+  function setGlass(g) {
+    if (g === glass) return;
+    glass = g;
+    if (current) draw();
+  }
   // A theme change swaps the harbour's light.
   matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => current && apply(current));
 
-  return { band, apply, setVivid, src, muteFor, BACKDROPS, current: () => current, light };
+  return { band, apply, setVivid, setGlass, src, muteFor, BACKDROPS, current: () => current, light };
 })();

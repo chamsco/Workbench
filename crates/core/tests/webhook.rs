@@ -57,6 +57,7 @@ fn a_webhook_wakes_only_its_bot() {
             memory: false,
             off: vec![],
             apps_off: vec![],
+            hands: vec![],
             hook: secret.into(),
             routines: vec![],
             created: 0,

@@ -86,6 +86,9 @@ const api = {
   // showing, or what the open tab holds — so hand it out again. Cheap: nothing
   // is fetched, the subscribers simply re-read.
   shell: () => nudge(),
+  // Mermaid to SVG through Pele, for the frame's own pages (Code's project
+  // map); loaded on first use, like the replies' diagrams.
+  mermaid: async (source: string) => (await (await import("pele/lazy")).renderAsync(source)).svg,
 };
 
 window.WhirlChat = api;

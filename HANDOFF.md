@@ -1,5 +1,183 @@
 # Handoff: Backspace (ohMyHarness → Workbench), v0
 
+**Session, 29 Oct 2026 (round 5): work area on the theme; New thread under the apps.**
+
+- `.work` uses the card's glass (`--win-bg` 62% + blur) instead of the
+  opaque `--card-strong` slab.
+- `#newThread` is a sidebar row (`.side-new`) under `#zones`, above the
+  tree; the lead pill is gone and `#sideClose` stands alone in the row.
+
+**Session, 29 Oct 2026 (round 4): rail only when folded; New tab page.**
+
+- Pill rail (`#rail`) shows only when the sidebar is folded; open sidebar
+  shows the `#zones` tile row (zones, divider, Plugins/Skills/Agents).
+- `work.js`: open by default (`bs.work`), starts on a New tab page; opened
+  tabs live in `bs.wopen`, each closable; Diffs is labelled Review.
+- Evals: tools/uiharness/evals/ade-work.js (updated), work-newtab.js (new).
+
+**Session, 29 Oct 2026 (round 3): the top rail goes; a vertical app rail on the left.**
+
+- Charles: full-height sidebar back; apps as a vertical pill rail (`#rail`,
+  its own grid column `--rail-w: 58px`, always shown, hidden in Settings) with
+  Plugins/Skills/Agents (`#tbExt`) and the live items; the sidebar row has the
+  New thread | toggle pill, back/forward, search, settings. `#topbar` removed;
+  `#zones` stays hidden for code that reads it.
+- ADE header: no folder button (`Code.head()` returns nothing in pair). IDE:
+  `#win.no-session` hides the Canvases/Wall switch until a session runs.
+- Sidebar gutter offsets by `--rail-w`.
+
+**Session, 29 Oct 2026 (later): the ADE gets its work area (docs/SHELL-AUDIT.md, round 2).**
+
+- `ui/work.js` (`Work`): a split beside the ADE chat in the card, tabs Files,
+  Diffs (Uncommitted | History), Browser, Terminal, Images, Logs, all on real
+  commands (`list_files`, `read_file`, `git_changes`, `git_diff`, `git_log`,
+  `read_image`, `terminal_*`, `chat_list`/`chat_thread`/`trace_get`). Browser
+  and Terminal borrow Code's panes (`Code.browserPane`, `Code.terminalPane`);
+  `tracePane` was split so Logs reuses `Code.traceList`.
+- In the ADE the panel button opens it and the terminal button opens its
+  Terminal tab; RPanel only shows in the IDE. localStorage `bs.work`,
+  `bs.wtab`, `bs.work-w`.
+- **Ran:** uiharness `tools/uiharness/evals/ade-work.js` with mocked git,
+  files, threads and traces. Not run against a real backend.
+
+**Session, 29 Oct 2026: the shell gets a top rail; Chat leaves the nav (docs/SHELL-AUDIT.md).**
+
+- `#topbar` (index.html, shell.css "the global rail"): leading pill New thread
+  | sidebar toggle, back/forward, the app switcher (`#zones`, no Chat) centred
+  with Plugins (Apps catalog), Skills (Settings › Agent skills) and Agents
+  (Chat's agents view), then search, settings and the Windows/Linux buttons.
+  The sidebar's top row and its app tiles are gone; the folded pill keeps only
+  what is live. `newThread()` in app.js; Ctrl/⌘N and onboarding use it,
+  Ctrl/⌘J flips ADE/IDE.
+- Settings closes with `#setX`, a 44px round button at the card's top right.
+- IDE tabs take six canvases: `MAX_PANES` in code.js and core::layout, 5 and 6
+  presets appended (GPUI indexes PRESETS), picker drops "Empty canvas".
+- **Ran:** `cargo test -p backspace-core --lib layout`, uiharness
+  `tools/uiharness/evals/shell-rail.js`. Not run in a real window: macOS
+  lights over the rail and the Linux resize border.
+
+**Session, 25 Oct 2026: agents get browser and desktop use (docs/HANDS.md).**
+
+- `crates/core/src/hands/`: the agents' own Chrome over DevTools (cdp.rs),
+  Jev Ultrafast's DOM snapshot and guarded actions ported to Rust
+  (browser.rs, snapshot.js vendored), the `browser_task` fast loop with Jev
+  (TypeSafe, hosted) or an on-device model held to the page's ids by a JSON
+  schema (decide.rs), and desktop screenshots/mouse/keyboard (desktop.rs).
+  All as `backspace mcp` tools; `Agent::hands` (browser default, desktop
+  opt-in) reaches the server as BACKSPACE_HANDS.
+- Agent side panel: a Screen tab (last frame, steps, Take control, the two
+  switches, Fast browser model). Commands `agent_hands`, `agent_hands_take`,
+  `hands_prefs`, `set_hands_prefs`.
+- **Ran:** `cargo test -p backspace-core --lib`, `cargo check -p
+  backspace-tauri`, `vite build`; real Chromium under Xvfb driven over MCP
+  (open, type, select, check, submit), `browser_task` on both deciders
+  against a stand-in model server, desktop tools under Xvfb. No real small
+  model or TypeSafe key was available. macOS input/screenshot code is
+  compiled only by the Mac workflow.
+
+**Session, 24 Oct 2026 (evening): Charles's Windows walkthrough (PR #31).**
+
+- **Freeze:** opening Settings ran slow synchronous Tauri commands on the UI
+  thread (`worktrees`, `colony_status`, `local_models`, `skills_catalog`);
+  they, `set_harness` and `chat_activity` now use `blocking`. Keep any command
+  that walks disk, spawns or hits the network `async`.
+- **Frame:** sidebar open and Ask folded at launch; one 30% glass (`#glass`,
+  holed over the card by `holeGlass`) under sidebar, chat column and gutter;
+  window buttons inside the card header; a rail when the sidebar folds, with
+  live threads/agents; update pill coloured by state.
+- **Chat/ADE** sit on Code's card; composers start at one height. Agents'
+  Local and Auto chips work. ADE Enter opens a CLI chat in the project; the
+  Diagram canvas shows `.backspace/diagram.mmd` via Pele. Terminal dock in
+  Code's header (`Code.setDock`).
+- **Fixed:** React #300 on agent page → All bots; settings ignoring the asked
+  section; resize reopening a folded sidebar; empty tab list crashing the grid.
+
+**Session, 23 Oct 2026 — the frame, after Charles's target design.**
+
+- **Three columns on a flat window.** The sidebar is the window itself; the
+  page is a bordered card with its header; the page's chat is a column on the
+  right with its composer at the foot. The full-width window bar (#24) and the
+  footer are gone. `#win` grid: `--side-w | 1fr | --chat-on`.
+- **The sidebar's row** holds the lights' gap (macOS), Back/Forward (a page
+  history in `shell.js`, `walk()`), the sidebar toggle, search and settings.
+  Under it the **app tiles** (`#zones`): Home, Chat, Code, Memory, pinned
+  apps, and + for the Apps catalog. The **machine switcher** and updates sit
+  at the foot (`.side-machine`, `#machines`, `#upd`).
+- **The tree** (ThreadList.tsx) folds per folder (square while open, chevron
+  while shut), hangs threads off a guide line and leads each with a check;
+  Home shows it too.
+- **Home is the landing page** (`dash.js`, `dash.css`, zone `home`, section
+  `#dash`): today's date; Last 30 days (prompts you typed, sessions, active
+  hours, busiest weekday, prompts per day by provider, you vs agents) from the
+  new `chat_activity` command (`Chats::activity`, tested); Plan usage from
+  Accounts; Recent threads; Projects. Weather/sports from the target were left
+  out: no data source.
+- **Ask is the right column** (`ai.js`): one thread, kept in localStorage
+  (`bs.ask`), folded with the sparkle in the page header or ⌘I, width by
+  dragging its edge (`bs.chatcol.w`). It steps aside in Chat, and floats over
+  the page under 1000px. The header's middle line is its last prompt.
+- **Code has no right column** (it has its own sessions). Its painting is
+  clipped to the card (`clip-path` on `.win-art`, rounded 12px) and dimmed
+  under 58% of the window colour.
+- **Settings** fills the window's card. **Motion** moved there (Appearance);
+  Phone was already there. The painting now shows only inside Code's card.
+
+**Ran:** `cargo test -p backspace-core --lib` (139 passed), `cargo check -p
+backspace-tauri`, `vite build`; `tools/uiharness` at 1486×921 with mocked
+threads/activity/accounts on Home, Chat, Code, Memory, Apps, Settings, light
+theme and 900px: no page errors beyond the stub's existing Agent skills one.
+Before/after pictures: `docs/screenshots/pr-29/frame/`.
+
+**Session, 23 Oct 2026 — UI cleanup on top of the window bar.**
+
+- **One name for the code app: Code.** It was Code on the Apps page and
+  Workbench in the trail, Settings and onboarding (which also called Chat
+  "Agents"). `extensions/code/extension.json`, `shell.js`, `app.js`,
+  `onboard.js`.
+- **The trail says where you are.** The open app's button shows its name next
+  to its icon (`.zones .zl`); the others stay icon-only.
+- **Apps page copy.** Built-in Chat/Code say Turn off / Turn on (it toggles
+  `prefs.uses`, nothing is removed); the empty states no longer point at a
+  catalog or examples that are not there.
+- **Sidebar toggle on the left** in Apps and Memory, where Chat and Code keep
+  theirs.
+- **The search key reads ⌘K on macOS**, Ctrl K elsewhere.
+- **Code fixes.** Its sidebar with no project says "Open a project…" instead
+  of Chat's "No chats yet"; the home's machine chip no longer inherits the
+  footer's 26px `.mach` box (it read "Loca"); the grid's ResizeObserver no
+  longer throws while there is no tab.
+
+**Ran:** `tools/uiharness` at 1440×900 on Apps, Chat, Code (ADE and IDE),
+Memory and Settings: no page errors. `vite build` clean.
+
+**Session, 22 Oct 2026 — the window bar, the frame, and Ask.**
+
+- **Two layers.** A full-width `.wbar` (`#wbar` in `index.html`) sits on top:
+  the app trail (`#zones`) centred; search, settings and Ask on the right;
+  caption buttons at the end on Windows/Linux, 84px clear on macOS for the
+  lights. The sidebar card and the page sit in a second grid row under it.
+- **Apps stay contained.** Nothing docks beside an app any more: the IDE chat
+  dock from the previous session is gone (the split view you open yourself
+  still works). `.tbar` holds only the app's own controls.
+- **Ask (`ui/ai.js`).** The sparkle at the top right or ⌘I floats a chatbox
+  over the bottom fifth of the window, the frame blurred behind it. Typing
+  lists matching moves (apps, projects, chats) first; a sentence goes to the
+  default model in a thread of its own (scoped to the open project in Code) and
+  the reply streams above the box. "Open in Chat" continues it there.
+- **No second loader.** The whirl face's "Looking for the models…" overlay and
+  its 6s timer are gone (and `.looking`, `.win.booting`). The face shows its
+  normal home until `host.scanned()` (the CLI scan has answered: a finished
+  scan always lists the CLIs it knows), and offers "Connect a model" only when
+  the scan found nothing.
+- **The face mounts at boot** (`Chat.init`), because it also draws the
+  sidebar tree Workbench uses: since launch lands on Apps, the IDE had no tree
+  until Chat had been visited once.
+- **Sidebar rows line up.** Thread rows in the tree lead with a 13px glyph and
+  share the canvas rows' size, so titles start on one line.
+
+**Ran:** `tools/uiharness` at 1366 (os-win/os-mac classes) and 720: Apps, Chat,
+the IDE tree, Ask with a mocked reply. `tsc` and `vite build` clean.
+
 **Session, 22 Oct 2026 — Apps first, a quieter bar, and the IDE's chat.**
 
 - **Launch lands on Apps.** `S.mode` starts at `apps` every time (a folder on
@@ -514,6 +692,17 @@ The README is current. Read its "Layout", "Run" and "Known limits" sections firs
   - Remote agents start with memory **off**, so your notes don't go to third parties.
 - **Mac build (CI).** Pushed but **never seen to pass**.
 
+- **Agents screen, Home memory, voice, Pele (PR #29).**
+  - An agent thread has a right panel (`web/src/app/agent-side.tsx`) with Context, Traces and Settings tabs. Context is a treemap from the `chat_context` command (`Chats::context_map`); its token counts are estimates (4 chars a token).
+  - Memory moved into Home as folder cards plus recent activity (`ui/dash.js`). The Memory tile is gone; a folder opens as Home › Folder.
+  - Voice mode (`web/src/app/voice.tsx`) uses the webview's speech recognition and speechSynthesis. Never tried on a real mic; WebKitGTK has no recognition, so Linux falls back to typing.
+  - Pele 1.9.0 renders Mermaid in chat and the agents organigram (`organigram.tsx`). It adds about 9.5 MB of lazy chunks in `ui/chat-web/`.
+
+- **Brain mascot, agent panel v2, Brainwave docs (PR #29, 2026-10-24).**
+  - Every agent's face is the owner's Brain Mascot (`orb.tsx`): lobes, folds, pill eyes, smile, cursor look, its own blink. Default colour pink `#ff7f95`.
+  - Agent panel: name and brain on top, then Settings (model, instructions, personality, switches), a vertical context map, Traces and Routines. Voice starts from the mic next to Send.
+  - The product plan, design system, research, architecture and to-do list are in `docs/brainwave/`. TODO.md is the working list.
+
 ## Open, in priority order
 
 1. **Mac build.** Check the first `macOS app` Actions run and fix it until it's green. Likely failures:
@@ -560,3 +749,16 @@ cargo run -p backspace-runner --example ask -- claude "hi"
 - Stress-test their ideas and lead with what's wrong.
 - They write fast and informally, so take the intent, not the literal words.
 - They expect work committed and pushed, not just proposed.
+
+### 2026-10-23 — glass frame, Window setting
+- Settings → Appearance → Window: Frosted (default; the painting runs behind the whole window at full strength and the sidebar, page and chat are blurred glass on it), See-through (the window is transparent and the desktop shows through; macOS vibrancy, Windows Mica or blur, Linux no blur so the panes are thicker), Solid (the opaque frame, painting only in Code's card).
+- Stored as `appearance.window` ("" | frosted | clear | solid), read off `:root[data-window]` in shell.css. Replaces `appearance.translucent`, whose serde default of false made every install solid.
+- tauri.windows/linux.conf.json now set `transparent: true` (macOS already did). The page paints itself opaque unless See-through is on. Not run on a real Windows/Linux/macOS window yet.
+
+### 2026-10-23 — chat column on Home only
+- The right chat column (Ask) shows only on Home; every other page's card takes the full width, 8px in, rounded. ⌘I only toggles it on Home.
+- With no column, the Windows/Linux window buttons sit inside the card's header instead of over its top edge.
+
+### 2026-10-23 — room for the window buttons
+- Windows/Linux: wherever the page card would reach the top-right corner (every page but Home with its chat open, and Settings), the card starts 40px down and the min/max/close buttons sit in that strip, which drags the window (`.capstrip`).
+- macOS: the traffic lights keep their 64px gap in the sidebar row; with the sidebar closed or in Settings, the card starts 40px down instead of padding its header.

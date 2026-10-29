@@ -11,7 +11,8 @@ import {
   IconAlertTriangleFilled,
   IconBox,
   IconCheck,
-  IconChevronDown,
+  IconChevronRight,
+  IconCircleCheckFilled,
   IconCircleFilled,
   IconCloud,
   IconDeviceDesktop,
@@ -22,7 +23,6 @@ import {
   IconFolderPlus,
   IconGitBranch,
   IconLayoutCards,
-  IconLayoutSidebar,
   IconLoader2,
   IconMessageReply,
   IconMessages,
@@ -34,6 +34,7 @@ import {
   IconSelector,
   IconSitemap,
   IconSparkles,
+  IconSquareMinus,
   IconTerminal2,
   IconTrash,
   IconWindow,
@@ -111,6 +112,14 @@ export function ThreadList({ onNewChat }: { onNewChat: () => void }) {
   const { threads: all, id, query, scope, epoch } = useChat();
   const host = getHost();
   const [searching, setSearching] = useState(false);
+  // Folders you folded, by path ("" for loose chats). A search unfolds them.
+  const [folded, setFolded] = useState<Set<string>>(() => new Set());
+  const fold = (k: string) =>
+    setFolded((s) => {
+      const n = new Set(s);
+      if (!n.delete(k)) n.add(k);
+      return n;
+    });
   // The shell owns the fold (a class on #win); follow it so the toggle says
   // what it will do.
   const win = document.getElementById("win");
@@ -163,18 +172,37 @@ export function ThreadList({ onNewChat }: { onNewChat: () => void }) {
   const tree =
     folders.length === 0 ? (
       <div className="px-2.5 py-2 text-[13px]/5 text-muted-foreground">
-        {project ? "Nothing in this project yet. Ask a CLI to change something; it works in the folder." : "No chats yet. Start one with any model you've connected."}
+        {project
+          ? "Nothing in this project yet. Ask a CLI to change something; it works in the folder."
+          : inCode
+            ? "Open a project to see its threads and canvases."
+            : "No chats yet. Start one with any model you've connected."}
       </div>
     ) : (
-      folders.map((f) => (
-        <section key={f.path ?? "chats"} className="flex flex-col gap-0.5">
-          <div className="flex h-6 items-center gap-1.5 px-2 text-[11px]/4 font-semibold text-muted-foreground/80">
-            <IconFolder size={13} className="shrink-0" />
-            <span className="min-w-0 truncate" title={f.path ?? undefined}>
-              {f.name}
-            </span>
-            {f.open && canvases.length > 0 && <span className="ml-auto shrink-0 font-normal text-muted-foreground/60">{canvases.length}</span>}
-          </div>
+      folders.map((f) => {
+        const k = f.path ?? "";
+        const shut = folded.has(k) && !query;
+        return (
+        <section key={k || "chats"} className="flex flex-col gap-0.5">
+          {/* A folder folds: the square while it is open, the chevron while it is shut. */}
+          <button
+            type="button"
+            aria-expanded={!shut}
+            onClick={() => fold(k)}
+            title={f.path ?? undefined}
+            className="group/row relative flex h-7 w-full cursor-pointer items-center gap-2 rounded-lg px-2 text-[13.5px]/4 font-medium text-foreground-soft hover:text-foreground"
+          >
+            <RowPill />
+            {shut ? (
+              <IconChevronRight size={14} className="relative shrink-0 text-muted-foreground" aria-hidden />
+            ) : (
+              <IconSquareMinus size={14} className="relative shrink-0 text-muted-foreground" aria-hidden />
+            )}
+            <span className="relative min-w-0 truncate">{f.name}</span>
+            {f.open && canvases.length > 0 && <span className="relative ml-auto shrink-0 text-[11px] font-normal text-muted-foreground/60">{canvases.length}</span>}
+          </button>
+          {!shut && (
+          <div className="ml-[15px] flex flex-col gap-0.5 border-l border-foreground/12 pl-1.5">
           {f.open && canvases.map((c) => <CanvasRow key={`c${c.index}`} canvas={c} />)}
           {f.items.map((t) => (
             <ThreadRow key={t.id} thread={t} active={t.id === id} inIde={inCode} />
@@ -184,13 +212,16 @@ export function ThreadList({ onNewChat }: { onNewChat: () => void }) {
               {query ? "No match" : "No threads yet"}
             </div>
           )}
+          </div>
+          )}
         </section>
-      ))
+        );
+      })
     );
 
-  // Search and the sidebar toggle, in one pill drawn into #sidePills. It sits
-  // over the window rather than inside the card, so it stays put when the card
-  // folds away. New chat is the first row under it, inside the card.
+  // Search, drawn into #sidePills beside the frame's own sidebar toggle. It
+  // sits over the window rather than inside the card, so it stays put when the
+  // card folds away. New chat is the first row under it, inside the card.
   const pills = (
     <div className="flex w-full items-center">
       <div className="side-pill flex h-8 items-center gap-0.5 rounded-full px-0.5">
@@ -208,13 +239,12 @@ export function ThreadList({ onNewChat }: { onNewChat: () => void }) {
             if (searching) setQuery("");
           }}
         />
-        <Act icon={IconLayoutSidebar} label={sideClosed ? "Show sidebar" : "Hide sidebar"} onClick={() => host.setSide(sideClosed)} />
       </div>
     </div>
   );
   // New chat, with its chevron to pick the project it starts in.
   const newChat = (
-    <div className="group/row relative flex h-8 w-full items-center rounded-lg pr-0.5 text-[13.5px]/4 font-medium text-foreground-soft">
+    <div className="whirl-new group/row relative flex h-8 w-full items-center rounded-lg pr-0.5 text-[13.5px]/4 font-medium text-foreground-soft">
       <RowPill />
       <button
         type="button"
@@ -345,12 +375,12 @@ function EnvironmentRow({ children, forceOpen }: { children: ReactNode; forceOpe
           aria-expanded={expanded}
           title={`${name} — the folder it is running right now`}
           onClick={() => setOpen((o) => !o)}
-          className="group/row relative flex h-8 w-full cursor-pointer items-center gap-2.5 rounded-lg pr-8 pl-2.5 text-[13.5px]/4 font-medium text-foreground-soft"
+          className="group/row relative flex h-8 w-full cursor-pointer items-center gap-2.5 rounded-lg pr-8 pl-2 text-[14px]/4 font-medium text-foreground"
         >
           <RowPill />
-          <span className="relative shrink-0">{here && !here.local ? <IconCloud size={16} /> : <IconDeviceDesktop size={16} />}</span>
+          <span className="relative shrink-0 text-foreground-soft">{here && !here.local ? <IconCloud size={16} /> : <IconDeviceDesktop size={16} />}</span>
           <span className="relative min-w-0 flex-1 truncate text-left">{name}</span>
-          <IconChevronDown size={14} className={cn("relative shrink-0 text-muted-foreground transition-transform duration-150", expanded && "rotate-180")} />
+          {!expanded && <IconChevronRight size={14} className="relative shrink-0 text-muted-foreground" />}
         </button>
         <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
           <DropdownMenuTrigger
@@ -384,7 +414,7 @@ function EnvironmentRow({ children, forceOpen }: { children: ReactNode; forceOpe
                 <DropdownMenuGroup>
                   <DropdownMenuLabel className="px-2 py-1 text-[10.5px]">Colony workspaces</DropdownMenuLabel>
                   {workspaces.map((w) => (
-                    <DropdownMenuItem key={w.name} className="gap-2 px-2 py-1.5" onClick={() => host.openSettings("colony")}>
+                    <DropdownMenuItem key={w.name} className="gap-2 px-2 py-1.5" onClick={() => later(() => host.openSettings("colony"))}>
                       <IconBox size={15} />
                       <span className="flex min-w-0 flex-col">
                         <span className="truncate">{w.name}</span>
@@ -398,16 +428,23 @@ function EnvironmentRow({ children, forceOpen }: { children: ReactNode; forceOpe
               </>
             )}
             <DropdownMenuSeparator />
-            <DropdownMenuItem className="gap-2 px-2 py-1.5" onClick={() => host.openSettings("machines")}>
+            <DropdownMenuItem className="gap-2 px-2 py-1.5" onClick={() => later(() => host.openSettings("machines"))}>
               <IconPlus size={15} className="text-muted-foreground" />
               Add a machine…
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
-      {expanded && <div className="flex min-h-0 flex-col gap-0.5 pl-2">{children}</div>}
+      {expanded && <div className="flex min-h-0 flex-col gap-0.5 pl-1.5">{children}</div>}
     </div>
   );
+}
+
+// Settings hides the sidebar, and with it this menu's trigger. Opened while the
+// menu is still closing, the menu never finishes and keeps the page inert, so
+// let it close first.
+function later(fn: () => void) {
+  setTimeout(fn, 200);
 }
 
 function ThreadRow({ thread, active, inIde }: { thread: ThreadInfo; active: boolean; inIde?: boolean }) {
@@ -434,20 +471,21 @@ function ThreadRow({ thread, active, inIde }: { thread: ThreadInfo; active: bool
       <button
         type="button"
         onClick={open}
-        title={thread.preview || thread.title}
-        className="relative flex h-8 w-full cursor-pointer items-center rounded-lg pr-8 pl-6 text-[13.5px]/4 font-medium text-foreground-soft"
+        title={`${thread.title} · ${ago(thread.updated)}${thread.preview ? `\n${thread.preview}` : ""}`}
+        className="relative flex h-7 w-full cursor-pointer items-center rounded-lg pr-8 pl-2 text-[13.5px]/4 text-foreground-soft"
       >
         <RowPill className={`group-has-data-popup-open/thread:bg-accent ${active ? "bg-accent" : ""}`} />
-        <span className="relative flex min-w-0 flex-1 items-center gap-1.5 text-left">
+        {/* Every row in the tree leads with a 13px glyph, so a thread's title
+            starts on the same line as a canvas's label beside it. */}
+        <span className="relative flex min-w-0 flex-1 items-center gap-2 text-left">
           {thread.pinned ? (
-            <IconPinFilled size={12} className="shrink-0" aria-label="Pinned" />
+            <IconPinFilled size={13} className="shrink-0" aria-label="Pinned" />
           ) : thread.title.endsWith("(branch)") ? (
             <IconGitBranch size={13} className="shrink-0" aria-label="Branched thread" />
-          ) : null}
+          ) : (
+            <IconCircleCheckFilled size={15} className="shrink-0 text-muted-foreground/70" aria-hidden />
+          )}
           <span className="block min-w-0 flex-1 truncate">{thread.title}</span>
-          <span className="relative shrink-0 text-[11px] font-normal text-muted-foreground/60 transition-opacity duration-150 group-hover/thread:opacity-0">
-            {ago(thread.updated)}
-          </span>
         </span>
       </button>
       <AnimatePresence mode="wait" initial={false}>

@@ -1,7 +1,8 @@
-// The window around the zones: the rail on the far left (Apps, Agents,
-// Workbench, Memory, apps pinned from the catalog, Settings at the foot), the
-// title bar's window buttons for each OS, and the split view that puts a
-// second zone or app beside the first.
+// The window around the zones: the sidebar's own row (back, forward, the
+// toggle, search, settings) and its grid of app tiles (Home, Chat, Code,
+// Memory, apps pinned from the catalog, + for the catalog itself), the page
+// card's header, the window buttons for each OS, and the split view that puts
+// a second zone or app beside the first.
 //
 // Each zone draws into its own <section class="zone"> inside #body. Showing
 // one never moves or rebuilds the others, so an app's iframe or a running
@@ -9,15 +10,16 @@
 
 var Shell = (() => {
   // Pages the frame owns. The apps come from extensions/index.json; order is
-  // the reading order the window has always had — Apps, Agents, Workbench,
-  // Memory — and each app's manifest carries its own number.
+  // the reading order of the tiles — Home, Chat, Code, Memory — and each app's
+  // manifest carries its own number. Apps is the catalog behind the + tile.
   const PAGES = [
+    ["home", "home", "Home", -10],
     ["apps", "apps", "Apps", 0],
     ["memory", "memory", "Memory", 30],
   ];
   const zones = () => PAGES.concat((window.Frame ? Frame.zones() : [
     { id: "chat", name: "Chat", icon: "bubble", order: 10 },
-    { id: "code", name: "Workbench", icon: "codei", order: 20 },
+    { id: "code", name: "Code", icon: "codei", order: 20 },
   ]).map(e => [e.id, e.icon, e.name, e.order])).sort((a, b) => a[3] - b[3]);
   let platform = "web", saveT = null;
 
@@ -32,27 +34,14 @@ var Shell = (() => {
     // An app says which section is its face right now (Workbench is the canvas
     // grid in the IDE, the chat face in the ADE).
     if (isExt(z)) return Frame.elFor(z);
+    if (z === "home") return "dash";
     if (z === "memory") return "memory";
     if (z === "apps") return "apps";
     if (z === "desktop") return $("#desktop") ? "desktop" : "chat";
     if (z.startsWith("app:") && window.Apps) return Apps.frame(z.slice(4)) || "apps";
     return "chat";
   }
-  // The IDE's chat: the project's threads docked to the right of the canvases,
-  // so the grid of panes is a multiplexer with a conversation beside it. A
-  // split you opened takes that side instead. Per viewer, so localStorage.
-  const DOCK = "bs.ideChat";
-  const dock = (() => { try { return Object.assign({ on: true, w: 0.3 }, JSON.parse(localStorage.getItem(DOCK))); } catch { return { on: true, w: 0.3 }; } })();
-  const saveDock = () => { try { localStorage.setItem(DOCK, JSON.stringify(dock)); } catch {} };
-  const docked = () => !prefs.split && dock.on && S.mode === "code" && S.codeView === "agents" && !!(snap && snap.workspace) && elFor("code") !== "chat";
-  function toggleDock(on = !dock.on) {
-    dock.on = on; saveDock();
-    layout();
-    if (window.Code) Code.layout();
-    if (showing("chat") && window.Chat) Chat.render();
-  }
   const secondary = () => {
-    if (docked()) return "chat";
     const sp = prefs.split;
     if (!sp || !sp.what) return null;
     if (sp.what.startsWith("app:") && !(window.Apps && Apps.get(sp.what.slice(4)))) return null;
@@ -65,11 +54,31 @@ var Shell = (() => {
     return elFor(S.mode) === id || secondary() === id;
   }
 
-  let laid = null, laidDock = false;
+  // Back and forward walk the pages you opened, as a browser's do.
+  // A walk moves `at` before it opens the page, so remember() sees no change.
+  const hist = { back: [], fwd: [], at: null };
+  function remember() {
+    if (S.settings || S.mode === hist.at) return;
+    if (hist.at) { hist.back.push(hist.at); hist.fwd = []; if (hist.back.length > 50) hist.back.shift(); }
+    hist.at = S.mode;
+  }
+  function walk(dir) {
+    const from = dir < 0 ? hist.back : hist.fwd, to = dir < 0 ? hist.fwd : hist.back;
+    const z = from.pop(); if (!z) return;
+    to.push(hist.at); hist.at = z;
+    openZone(z);
+  }
+  function renderNav() {
+    $("#navBack").disabled = !hist.back.length;
+    $("#navFwd").disabled = !hist.fwd.length;
+  }
+
+  let laid = null;
   function layout() {
-    const prim = elFor(S.mode), sec = S.settings ? null : secondary(), dk = sec && docked();
-    laid = prim; laidDock = !!dk;
-    const r = !sec ? 1 : dk ? 1 - Math.min(0.5, Math.max(0.2, dock.w)) : Math.min(0.8, Math.max(0.2, prefs.split.ratio || 0.5));
+    const prim = elFor(S.mode), sec = S.settings ? null : secondary();
+    laid = prim;
+    remember();
+    const r = sec ? Math.min(0.8, Math.max(0.2, prefs.split.ratio || 0.5)) : 1;
     for (const el of $$("#body > .zone")) {
       if (el.id === prim && !S.settings) { el.hidden = false; el.style.left = "0"; el.style.right = (1 - r) * 100 + "%"; el.classList.remove("second"); }
       else if (el.id === sec) { el.hidden = false; el.style.left = r * 100 + "%"; el.style.right = "0"; el.classList.add("second"); }
@@ -78,16 +87,7 @@ var Shell = (() => {
     const gut = $("#splitGut"), head = $("#splitHead");
     gut.hidden = head.hidden = !sec;
     $("#win").classList.toggle("split-on", !!sec);
-    $("#win").classList.toggle("dock-on", !!dk);
-    const db = $("#chatDock");
-    if (db) db.setAttribute("aria-pressed", !!dk);
-    if (dk) {
-      gut.style.left = `calc(${r * 100}% - 3px)`;
-      head.style.left = r * 100 + "%";
-      head.innerHTML = `<span class="sh-t">${icon("bubble")}Chat</span><span class="sp"></span>
-        <button class="ib" id="shClose" title="Hide the chat" aria-label="Hide the chat">${icon("close")}</button>`;
-      $("#shClose").onclick = () => toggleDock(false);
-    } else if (sec) {
+    if (sec) {
       gut.style.left = `calc(${r * 100}% - 3px)`;
       head.style.left = r * 100 + "%";
       const what = prefs.split.what;
@@ -99,18 +99,20 @@ var Shell = (() => {
     }
 
     // Chat's scope follows whoever shows it: a project in Pair, else none.
-    if (window.Chat && Chat.setScope) Chat.setScope(S.mode === "code" && (prim === "chat" || sec === "chat") ? snap.workspace : null, S.mode === "chat" && S.chatView === "agents");
+    if (window.Chat && Chat.setScope) Chat.setScope(S.mode === "code" && prim === "chat" ? snap.workspace : null, S.mode === "chat" && S.chatView === "agents");
     // The face's sidebar is a tree of the project and the zone it is in, and it
     // reads both from here: tell it the shell moved. A nudge, not a fetch.
     if (window.WhirlChat && window.WhirlChat.shell) window.WhirlChat.shell();
-    renderRail(); renderZones(); renderHead(); renderModes(); renderStatus();
+    renderRail(); renderZones(); renderHead(); renderModes(); renderStatus(); renderNav();
     if (window.Code) Code.syncArt();
     if (window.RPanel) RPanel.render();
+    if (window.Work) Work.render();
     // Whatever app owns a visible section gets to draw into it; the frame does
     // not know how. Chat mounts lazily here.
     if (window.Frame) Frame.paint(prim, sec);
     if (prim === "memory" || sec === "memory") window.Memory && Memory.refresh();
     if (prim === "apps" || sec === "apps") window.Apps && Apps.renderZone();
+    if (prim === "dash" || sec === "dash") window.Dash && Dash.render();
   }
 
   function setSplit(what, ratio) {
@@ -149,22 +151,13 @@ var Shell = (() => {
       e.preventDefault(); gut.setPointerCapture(e.pointerId);
       const box = $("#body").getBoundingClientRect();
       $("#win").classList.add("dragging-split");
-      const dk = docked();
-      gut.onpointermove = ev => {
-        const x = (ev.clientX - box.left) / box.width;
-        if (dk) dock.w = Math.min(0.5, Math.max(0.2, 1 - x)); else prefs.split.ratio = Math.min(0.8, Math.max(0.2, x));
-        layout();
-      };
+      gut.onpointermove = ev => { prefs.split.ratio = Math.min(0.8, Math.max(0.2, (ev.clientX - box.left) / box.width)); layout(); };
       gut.onpointerup = () => {
         gut.onpointermove = gut.onpointerup = null; $("#win").classList.remove("dragging-split");
-        if (dk) { saveDock(); if (window.Code) Code.layout(); return; }
         clearTimeout(saveT); saveT = setTimeout(() => invoke("set_split", { split: prefs.split }), 200);
       };
     };
-    gut.ondblclick = () => {
-      if (docked()) { dock.w = 0.3; saveDock(); layout(); return; }
-      prefs.split.ratio = 0.5; layout(); invoke("set_split", { split: prefs.split });
-    };
+    gut.ondblclick = () => { prefs.split.ratio = 0.5; layout(); invoke("set_split", { split: prefs.split }); };
   }
 
   // ---------------------------------------------------------------- rail
@@ -182,25 +175,74 @@ var Shell = (() => {
   }
   function renderRail() {
     const cur = S.settings ? "" : S.mode;
-    $("#railZones").innerHTML = zones().map(([z, ic, l]) =>
+    $("#railZones").innerHTML = zones().filter(([z]) => inNav(z)).map(([z, ic, l]) =>
       `<button class="rz${isOff(z) ? " off" : ""}" role="tab" data-z="${z}" aria-selected="${cur === z}" aria-label="${l}${isOff(z) ? " (off)" : ""}" data-tip="${l}"><span class="sq">${icon(ic)}${badge(z)}</span></button>`).join("");
     const pinned = window.Apps ? Apps.pinned() : [];
     $("#railApps").innerHTML = pinned.length ? `<div class="rsep"></div>` + pinned.map(a =>
       `<button class="rz rzapp" data-z="app:${esc(a.id)}" aria-selected="${cur === "app:" + a.id}" aria-label="${esc(a.name)}" data-tip="${esc(a.name)}"><span class="sq">${Apps.glyph(a)}</span></button>`).join("") : "";
     $$("#rail [data-z]").forEach(b => (b.onclick = () => openZone(b.dataset.z)));
-    $("#gear").setAttribute("aria-selected", !!S.settings);
+    const gear = $("#gear"); if (gear) gear.setAttribute("aria-selected", !!S.settings);
+    renderRun();
   }
-  // The title bar's switcher: every app, side by side as icons. An app that is
-  // off stays here, dimmed — click it to turn it back on. Then pinned apps.
-  // Settings is the gear on the right.
+  // With the sidebar folded, the rail stands in for it: the apps, then what is
+  // live right now. A chat thread or an agent shows while it runs (spinning),
+  // needs you (a blue pulse), has finished unread (green) or has failed (red).
+  let runChats = [];
+  function runItems() {
+    const out = [];
+    for (const t of runChats) {
+      const st = t.failed ? "bad" : t.busy ? "run" : t.unread ? "done" : "";
+      if (st) out.push({ st, ic: "bubble", name: t.title || "Chat", go: () => { setMode("chat"); if (window.Chat) Chat.open(t.id); } });
+    }
+    const asks = new Set((typeof snap !== "undefined" && snap.approvals || []).filter(a => a.state.state === "pending").map(a => a.agent));
+    for (const a of (typeof snap !== "undefined" && snap.agents) || []) {
+      const st = asks.has(a.id) || a.status === "awaiting_approval" ? "need" : a.status === "running" || a.status === "queued" ? "run" : a.status === "failed" ? "bad" : "";
+      if (st) out.push({ st, ic: "grid", name: a.name || a.id, go: () => openZone("code") });
+    }
+    return out.slice(0, 8);
+  }
+  function renderRun() {
+    const el = $("#railRun"); if (!el) return;
+    const items = runItems();
+    const word = { run: "working", need: "needs you", done: "finished", bad: "failed" };
+    el.innerHTML = items.length ? `<div class="rsep"></div>` + items.map((x, i) =>
+      `<button class="rz live ${x.st}" data-run="${i}" aria-label="${esc(x.name)}: ${word[x.st]}" data-tip="${esc(x.name)} · ${word[x.st]}"><span class="sq">${icon(x.ic)}</span><i class="rs"></i></button>`).join("") : "";
+    $$("[data-run]", el).forEach(b => (b.onclick = () => items[+b.dataset.run].go()));
+  }
+  async function pollRun() {
+    if ($("#win").matches(".side-closed, .ghost-side")) {
+      runChats = await invoke("chat_list").catch(() => runChats) || [];
+      renderRun();
+    }
+    setTimeout(pollRun, 3000);
+  }
+  // The sidebar's tiles: every app as an icon, then pinned apps, then + for
+  // the catalog. An app that is off stays here, dimmed — click it to turn it
+  // back on. The name is the tooltip; the page header says where you are.
+  // The rail's switcher: every app but Chat (agent chat lives in Code's ADE,
+  // and named agents behind the Agents entry), then the apps pinned from the
+  // catalog. Plugins, Skills and Agents sit beside it.
+  const inNav = k => k !== "apps" && k !== "memory" && k !== "chat";
   function renderZones() {
     const el = $("#zones"); if (!el) return;
     const z = S.settings ? "" : S.mode;
     const apps = window.Apps ? Apps.pinned() : [];
-    el.innerHTML = zones().map(([k, ic, l]) => `<button role="tab" aria-selected="${z === k}" data-zz="${k}" title="${l}${isOff(k) ? " — off" : ""}" aria-label="${l}${isOff(k) ? " (off)" : ""}" class="${isOff(k) ? "off" : ""}">${icon(ic)}${badge(k)}</button>`).join("")
-      + apps.map(a => `<button role="tab" aria-selected="${z === "app:" + a.id}" data-zz="app:${esc(a.id)}" title="${esc(a.name)}" aria-label="${esc(a.name)}">${Apps.glyph(a, "xs")}</button>`).join("");
+    const tile = (k, glyph, l, off) => `<button role="tab" aria-selected="${z === k}" data-zz="${esc(k)}" title="${esc(l)}${off ? " — off" : ""}" aria-label="${esc(l)}${off ? " (off)" : ""}" class="${off ? "off" : ""}">${glyph}${badge(k)}</button>`;
+    el.innerHTML = zones().filter(([k]) => inNav(k)).map(([k, ic, l]) => tile(k, icon(ic), l, isOff(k))).join("")
+      + apps.map(a => tile("app:" + a.id, Apps.glyph(a, "xs"), a.name, false)).join("")
+      + `<span class="zsep" aria-hidden="true"></span>`
+      + [["plugins", "box", "Plugins"], ["skills", "book", "Skills"], ["agents", "team", "Agents"]].map(([x, ic, l]) => `<button data-x="${x}" title="${l}" aria-label="${l}">${icon(ic)}</button>`).join("");
     $$("[data-zz]", el).forEach(x => (x.onclick = () => openZone(x.dataset.zz)));
-    $("#gearBtn").setAttribute("aria-pressed", !!S.settings);
+    $$("[data-x]", el).forEach(b => (b.onclick = () => openExt(b.dataset.x)));
+    const on = { plugins: !S.settings && z === "apps", skills: !!S.settings && S.setSection === "skills", agents: !S.settings && z === "chat" && S.chatView === "agents" };
+    $$("#tbExt [data-x], #zones [data-x]").forEach(b => b.setAttribute("aria-pressed", String(!!on[b.dataset.x])));
+    $("#gearBtn").setAttribute("aria-pressed", !!S.settings && S.setSection !== "skills");
+  }
+  function openExt(x) {
+    if (x === "plugins") openZone("apps");
+    else if (x === "skills") openSettings("skills");
+    else if (x === "agents") { if (S.settings) closeSettings(); if (isOff("chat")) Frame.setOn("chat", true, true); setChatView("agents"); }
+    renderZones();
   }
 
   // Search: zones, projects, agents and chats, from the title bar or Ctrl K.
@@ -263,8 +305,8 @@ var Shell = (() => {
     const cur = z === "chat" ? S.chatView : S.codeView;
     const m = $("#modes");
     if (!m) return;
-    m.hidden = !v;
-    if (!v) { m.innerHTML = ""; return; }
+    m.hidden = !v || !!S.settings;
+    if (!v || S.settings) { m.innerHTML = ""; return; }
     m.setAttribute("aria-label", v.map(x => x[2]).join(" or "));
     m.innerHTML = v.map(([k, ic, l, t]) => `<button role="tab" data-view="${k}" aria-selected="${cur === k}" title="${t}">${icon(ic)}${l}</button>`).join("");
     $$("[data-view]", m).forEach(b => (b.onclick = () => (z === "chat" ? setChatView(b.dataset.view) : setCodeView(b.dataset.view))));
@@ -272,7 +314,7 @@ var Shell = (() => {
   function renderSide() {
     const z = S.mode, zl = $("#zoneList");
     renderModes();
-    $("#zoneTitle").innerHTML = z === "code" || z === "chat" ? "" : `<h2>${esc(z.startsWith("app:") ? "Apps" : zoneName(z))}</h2>`;
+    $("#zoneTitle").innerHTML = z === "code" || z === "chat" || z === "home" ? "" : `<h2>${esc(z.startsWith("app:") ? "Apps" : zoneName(z))}</h2>`;
     if (z === "memory") { window.Memory && Memory.renderSide(zl); }
     else if (z === "apps" || z.startsWith("app:")) { window.Apps && Apps.renderSide(zl); }
     else zl.innerHTML = "";
@@ -302,20 +344,34 @@ var Shell = (() => {
     if (S.settings) h.innerHTML = `<span class="zt">${icon("gear")}Settings</span>`;
     else if (z.startsWith("app:") && window.Apps) h.innerHTML = Apps.head(z.slice(4));
     else if (window.Frame && Frame.head(z) != null) h.innerHTML = Frame.head(z) || "";
+    else if (z === "memory" && window.Memory) h.innerHTML = `<button class="zt crumb" data-crumb="home">${glyph("home")}Home</button><span class="crumb-sep">${icon("chev")}</span><span class="zt page">${esc(Memory.crumb())}</span>`;
+    else if (!isExt(z)) h.innerHTML = `<span class="zt page">${glyph(z)}${esc(zoneName(z))}</span>`;
     else h.innerHTML = "";
     if (z.startsWith("app:") && window.Apps) Apps.wireHead(h, z.slice(4));
+    const cr = $("[data-crumb]", h); if (cr) cr.onclick = () => setMode("home");
     const zh = $("#zhProj");
     if (zh) zh.onclick = () => projectMenu(zh);
     syncWindowTitle();
+    renderLine();
+  }
+  // The header's middle on a page with nothing else there: the last thing you
+  // asked in the chat beside it, and when.
+  function renderLine() {
+    const el = $("#pageLine"); if (!el) return;
+    const z = S.mode, last = window.Ask && Ask.last();
+    const quiet = !S.settings && (z === "home" || z === "apps" || z === "memory" || z.startsWith("app:"));
+    el.hidden = !(quiet && last);
+    el.textContent = quiet && last ? `${last.text.replace(/\s+/g, " ")} · ${new Date(last.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })}` : "";
+    el.title = el.textContent;
   }
 
   // ---------------------------------------------------------------- window buttons
   // macOS draws its own lights over the rail (titleBarStyle Overlay). Windows
-  // and Linux run undecorated: Windows gets its caption buttons flush in the
-  // top-right corner, Linux the round GNOME/KDE-style ones.
+  // and Linux run undecorated, and their buttons end the page card's header.
   function renderCaps() {
     const caps = $("#caps");
     if (platform !== "win" && platform !== "linux") { caps.innerHTML = ""; return; }
+    $(".tbar .right").append(caps);
     caps.innerHTML = `<button data-cap="min" aria-label="Minimize" title="Minimize">${icon("wmin")}</button>` +
       `<button data-cap="max" aria-label="Maximize" title="Maximize">${icon("wmax")}</button>` +
       `<button data-cap="close" aria-label="Close" title="Close">${icon("wclose")}</button>`;
@@ -346,21 +402,39 @@ var Shell = (() => {
     }
   }
 
+  // The window's glass has a hole where the page card is, so the card shows
+  // the painting its own way. Redrawn whenever the card moves or resizes.
+  function holeGlass() {
+    const g = $("#glass"), m = $("#win > .mainc"), w = $("#win");
+    if (!g || !m) return;
+    const W = w.clientWidth, H = w.clientHeight, a = m.getBoundingClientRect(), o = w.getBoundingClientRect();
+    if (!a.width) { g.style.clipPath = ""; return; }
+    const x = a.left - o.left, y = a.top - o.top, r = 12, X = x + a.width, Y = y + a.height;
+    g.style.clipPath = `path(evenodd, "M0 0H${W}V${H}H0Z M${x + r} ${y}H${X - r}A${r} ${r} 0 0 1 ${X} ${y + r}V${Y - r}A${r} ${r} 0 0 1 ${X - r} ${Y}H${x + r}A${r} ${r} 0 0 1 ${x} ${Y - r}V${y + r}A${r} ${r} 0 0 1 ${x + r} ${y}Z")`;
+  }
+
   async function init(boot) {
     platform = boot.platform || "web";
     document.documentElement.classList.add("os-" + platform);
-    renderCaps(); wireGutter();
+    renderCaps(); wireGutter(); pollRun();
+    const card = $("#win > .mainc");
+    if (card && window.ResizeObserver) new ResizeObserver(() => holeGlass()).observe(card);
+    $("#win").addEventListener("transitionend", holeGlass);
+    $("#searchBtn").title = `Search projects, agents and chats (${platform === "mac" ? "⌘K" : "Ctrl K"})`;
     document.documentElement.classList.toggle("reduce-motion", prefs.motion === "reduced");
     $("#searchBtn").onclick = search;
-    $("#chatDock").onclick = () => toggleDock();
+    $("#aiBtn").onclick = () => Ask.toggle();
+    $("#navBack").onclick = () => walk(-1);
+    $("#navFwd").onclick = () => walk(1);
+    $$("#tbExt [data-x]").forEach(b => (b.onclick = () => openExt(b.dataset.x)));
     $("#gearBtn").onclick = () => (S.settings ? closeSettings() : openSettings());
-    $("#gear").onclick = () => (S.settings ? closeSettings() : openSettings());
     if (window.Memory) await Memory.init();
     if (window.Apps) await Apps.init();
+    if (window.Ask) await Ask.init();
   }
   // The project arriving (at launch, or opened elsewhere) can change which
-  // section Code shows, and whether the IDE docks its chat; lay out again when it does.
-  function refresh() { if (elFor(S.mode) !== laid || docked() !== laidDock) layout(); renderStatus(); renderRail(); renderZones(); if (S.mode === "code") renderHead(); }
+  // section Code shows; lay out again when it does.
+  function refresh() { if (elFor(S.mode) !== laid) layout(); renderStatus(); renderRail(); renderZones(); if (S.mode === "code") renderHead(); }
 
   // ---------------------------------------------------------------- status bar
   // After an agent control plane's footer: where you are (branch, project),
@@ -474,5 +548,5 @@ var Shell = (() => {
     setSplit("desktop", 0.45);
   }
 
-  return { projectMenu, search, init, layout, toggleDock, showing, renderStatus, memToast, openDesktop, setMotion, renderSide, renderRail, refresh, setSplit, toggleSplit, elFor, glyph };
+  return { projectMenu, search, init, layout, showing, renderHead, renderStatus, memToast, openDesktop, setMotion, renderSide, renderRail, refresh, setSplit, toggleSplit, elFor, glyph, renderLine, usage, walk };
 })();

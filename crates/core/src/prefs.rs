@@ -100,6 +100,8 @@ pub struct Prefs {
     /// and "workers". Empty: scouts, the moment a model is chosen (they are
     /// the read-only lookups that are safe to hand to a small model).
     pub local_tasks: Vec<String>,
+    /// Agents' browser and desktop use (hands/mod.rs).
+    pub hands: Hands,
 }
 
 impl Default for Prefs {
@@ -144,12 +146,32 @@ impl Default for Prefs {
             appearance: Appearance::default(),
             subagent_model: None,
             local_tasks: vec![],
+            hands: Hands::default(),
         }
     }
 }
 
+/// Browser and desktop use (Settings → Agents → Browser). Which agents may
+/// use them is each agent's own (`Agent::hands`); this is how.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+#[serde(default)]
+pub struct Hands {
+    /// What drives `browser_task`'s fast loop: "local" (a small model on
+    /// this machine, `model`), "jev" (TypeSafe's hosted Jev, needs
+    /// TYPESAFE_API_KEY) or "" (no fast loop: the agent's own model reads
+    /// the page and acts step by step).
+    pub decider: String,
+    /// The local model, as `runtime:model` ("ollama:qwen3:4b"); empty:
+    /// `subagent_model`. Also writes the text Jev types.
+    pub model: String,
+    /// Chrome, Edge or Brave to use; empty: found on its own.
+    pub chrome: String,
+    /// Run that browser without a window.
+    pub headless: bool,
+}
+
 /// The Appearance panel: an accent, a background and a foreground on top of
-/// the light/dark theme, the two font stacks, translucency and contrast.
+/// the light/dark theme, the two font stacks, the window's material and contrast.
 /// Every field empty means "whatever the theme already says".
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
 #[serde(default)]
@@ -164,8 +186,9 @@ pub struct Appearance {
     pub ui_font: String,
     /// Empty: the platform monospace stack.
     pub code_font: String,
-    /// Off makes the window opaque (a solid `--pane`) instead of frosted.
-    pub translucent: bool,
+    /// What the window is made of: "" or "frosted" (glass over the painting),
+    /// "clear" (the desktop behind the window shows through), "solid".
+    pub window: String,
     /// 0.6 (softest) .. 1.4 (sharpest). 1.0 is the theme as designed.
     pub contrast: f32,
 }
