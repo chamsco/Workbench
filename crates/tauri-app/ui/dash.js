@@ -118,7 +118,7 @@ var Dash = (() => {
 
   function threads() {
     const rows = data.threads.map(t => `<button class="dt" data-t="${esc(t.id)}"><span class="dt-ic">${icon(t.project ? "codei" : "bubble")}</span><span class="dt-b"><b>${esc(t.title || "Chat")}</b><span>${esc(t.project ? base(t.project) : (window.Chat ? Chat.routeName(t.route) : t.route.provider))}</span></span><span class="dt-w">${esc(ago(t.updated))}</span></button>`).join("");
-    return `<section class="dc"><h3>Recent threads</h3>${rows || `<div class="dempty">No threads yet. Ask in the column on the right, or start one with New thread at the top left.</div>`}</section>`;
+    return `<section class="dc"><h3>Recent threads</h3>${rows || `<div class="dempty">No threads yet. Ask in the column on the right, or start one with New thread in the sidebar.</div>`}</section>`;
   }
 
   function projects() {

@@ -1,5 +1,15 @@
 # Handoff: Backspace (ohMyHarness → Workbench), v0
 
+**Session, 29 Oct 2026: README split into For humans / For agents.**
+
+- README rewritten in a calmer tone around the Brainwave vision (a desktop
+  home for agents). The long material (the task loop, decision models,
+  everything in the box, the code map and the full list of limits) moved
+  word for word to `docs/HOW-IT-WORKS.md`.
+- New stills (`app-home`, `app-ade`, `app-review`, `app-wall`) and
+  `tour.gif` from `tools/doc-assets/tour-harness.js` on the UI harness.
+- Home's empty-threads copy now says New thread is in the sidebar.
+
 **Session, 29 Oct 2026 (round 5): work area on the theme; New thread under the apps.**
 
 - `.work` uses the card's glass (`--win-bg` 62% + blur) instead of the
