@@ -9,11 +9,9 @@ this repo. Nothing is a hand-taken screenshot that will silently rot.
 | `the-gate.svg` | hand-authored, animated SVG — what happens to a single ticket |
 | `decision-ladder.svg` | hand-authored, animated SVG — where a ticket starts, and when it escalates |
 | `architecture.svg` | hand-authored, animated SVG — three front doors, one harness |
-| `app-ade.png` | the real UI — the ADE workspace, with the prompt composer and the first agent card |
-| `tour.gif` | the **real app**: three beats captured during one scripted run |
+| `app-ade.png`, `app-home.png`, `app-review.png`, `app-wall.png`, `tour.gif` | the UI on mocked commands, from [`tour-harness.js`](tour-harness.js) run through `tools/uiharness` (one run per step; the GIF is the steps joined with ffmpeg) |
 | `app-review-plan.png` | the real app — a plan awaiting approval, diagram first |
 | `app-canvases.png` | the real app — four agents at once (the tour GIF's first beat, kept as a still) |
-| `app-wall.png` | the real app — the Wall, every agent tiled |
 | `app-picker.png` | the real app — what a canvas can show |
 
 The stills are 1440×900 at 1× because that is the app's own window. The GIF is
