@@ -1,5 +1,12 @@
 # Handoff: Backspace (ohMyHarness → Workbench), v0
 
+**Session, 29 Oct 2026 (round 5): work area on the theme; New thread under the apps.**
+
+- `.work` uses the card's glass (`--win-bg` 62% + blur) instead of the
+  opaque `--card-strong` slab.
+- `#newThread` is a sidebar row (`.side-new`) under `#zones`, above the
+  tree; the lead pill is gone and `#sideClose` stands alone in the row.
+
 **Session, 29 Oct 2026 (round 4): rail only when folded; New tab page.**
 
 - Pill rail (`#rail`) shows only when the sidebar is folded; open sidebar

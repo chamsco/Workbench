@@ -112,6 +112,13 @@ ZCode-style New tab page, in our theme.
 | 35 | Panel button closes and reopens the work area | PASS | `closes: true`, `open: true` |
 | 36 | Pill rail only when the sidebar is folded | PASS | docs/screenshots/new-tab/sidebar-folded.png |
 
+## Round 5 (Charles, 29 Oct)
+
+- The work area follows the window's theme: the card's frosted glass and a
+  hairline edge, not an opaque dark panel.
+- With the sidebar open, New thread is a row under the app icons and above
+  Local and the threads. The sidebar toggle stands alone in the top row.
+
 ## Next, in priority order
 
 1. Plugins: enable/disable (core setter + command + toggle) on the catalog.

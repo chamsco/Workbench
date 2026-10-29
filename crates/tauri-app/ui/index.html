@@ -34,15 +34,11 @@
     </nav>
     <aside class="side" id="side" aria-label="Machine, projects and agents">
       <!-- The window's own row, on the sidebar: the lights (macOS draws them
-           here), the leading pill (New thread | sidebar), back and forward,
-           then search and settings. -->
+           here), the sidebar toggle, back and forward, then search and
+           settings. Under it the app icons, then New thread above the tree. -->
       <div class="side-top" data-tauri-drag-region>
         <span class="lights-gap" data-tauri-drag-region></span>
-        <div class="lead-pill">
-          <button class="lp-new" id="newThread" title="New thread (⌘N)" aria-label="New thread"><span data-icon="compose"></span><span class="lpl">New thread</span></button>
-          <span class="lp-sep" aria-hidden="true"></span>
-          <button class="ib" id="sideClose" aria-label="Toggle sidebar" title="Toggle sidebar" data-icon="sidebar"></button>
-        </div>
+        <button class="ib" id="sideClose" aria-label="Toggle sidebar" title="Toggle sidebar" data-icon="sidebar"></button>
         <button class="ib" id="navBack" aria-label="Back" title="Back" data-icon="back"></button>
         <button class="ib" id="navFwd" aria-label="Forward" title="Forward" data-icon="fwd"></button>
         <div class="side-pills" id="sidePills" hidden></div>
@@ -51,6 +47,7 @@
         <button class="ib" id="gearBtn" aria-label="Settings" title="Settings" data-icon="gear"></button>
       </div>
       <div class="zones" id="zones" role="tablist" aria-label="Apps"></div>
+      <button class="side-new" id="newThread" title="New thread (⌘N)" aria-label="New thread"><span data-icon="compose"></span><span>New thread</span><kbd>⌘N</kbd></button>
       <div class="side-head">
         <div class="zone-title" id="zoneTitle"></div>
         <button class="newbtn chat-only" id="newChat" title="New chat (⌘N)"><span data-icon="compose"></span>New chat<kbd>⌘N</kbd></button>
