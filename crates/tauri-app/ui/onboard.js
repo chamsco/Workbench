@@ -166,7 +166,7 @@ var Onboard = (() => {
     $("#onboard").hidden = true; $("#win").classList.remove("onboarding");
     prefs.onboarded = true; await invoke("set_onboarded", { done: true });
     if (then === "code" || (prefs.uses || []).join() === "code") { setMode("code"); if (then === "code") pickProject(); }
-    else { setMode("chat"); Chat.newChat(); }
+    else newThread();
   }
 
   return {

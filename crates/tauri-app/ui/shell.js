@@ -106,6 +106,7 @@ var Shell = (() => {
     renderRail(); renderZones(); renderHead(); renderModes(); renderStatus(); renderNav();
     if (window.Code) Code.syncArt();
     if (window.RPanel) RPanel.render();
+    if (window.Work) Work.render();
     // Whatever app owns a visible section gets to draw into it; the frame does
     // not know how. Chat mounts lazily here.
     if (window.Frame) Frame.paint(prim, sec);
@@ -174,13 +175,13 @@ var Shell = (() => {
   }
   function renderRail() {
     const cur = S.settings ? "" : S.mode;
-    $("#railZones").innerHTML = zones().filter(([z]) => z !== "apps" && z !== "memory").map(([z, ic, l]) =>
+    $("#railZones").innerHTML = zones().filter(([z]) => inNav(z)).map(([z, ic, l]) =>
       `<button class="rz${isOff(z) ? " off" : ""}" role="tab" data-z="${z}" aria-selected="${cur === z}" aria-label="${l}${isOff(z) ? " (off)" : ""}" data-tip="${l}"><span class="sq">${icon(ic)}${badge(z)}</span></button>`).join("");
     const pinned = window.Apps ? Apps.pinned() : [];
     $("#railApps").innerHTML = pinned.length ? `<div class="rsep"></div>` + pinned.map(a =>
       `<button class="rz rzapp" data-z="app:${esc(a.id)}" aria-selected="${cur === "app:" + a.id}" aria-label="${esc(a.name)}" data-tip="${esc(a.name)}"><span class="sq">${Apps.glyph(a)}</span></button>`).join("") : "";
     $$("#rail [data-z]").forEach(b => (b.onclick = () => openZone(b.dataset.z)));
-    $("#gear").setAttribute("aria-selected", !!S.settings);
+    const gear = $("#gear"); if (gear) gear.setAttribute("aria-selected", !!S.settings);
     renderRun();
   }
   // With the sidebar folded, the rail stands in for it: the apps, then what is
@@ -218,17 +219,30 @@ var Shell = (() => {
   // The sidebar's tiles: every app as an icon, then pinned apps, then + for
   // the catalog. An app that is off stays here, dimmed — click it to turn it
   // back on. The name is the tooltip; the page header says where you are.
+  // The rail's switcher: every app but Chat (agent chat lives in Code's ADE,
+  // and named agents behind the Agents entry), then the apps pinned from the
+  // catalog. Plugins, Skills and Agents sit beside it.
+  const inNav = k => k !== "apps" && k !== "memory" && k !== "chat";
   function renderZones() {
     const el = $("#zones"); if (!el) return;
     const z = S.settings ? "" : S.mode;
     const apps = window.Apps ? Apps.pinned() : [];
     const tile = (k, glyph, l, off) => `<button role="tab" aria-selected="${z === k}" data-zz="${esc(k)}" title="${esc(l)}${off ? " — off" : ""}" aria-label="${esc(l)}${off ? " (off)" : ""}" class="${off ? "off" : ""}">${glyph}${badge(k)}</button>`;
-    // Memory lives on Home (its folders); Apps is the + at the end.
-    el.innerHTML = zones().filter(([k]) => k !== "apps" && k !== "memory").map(([k, ic, l]) => tile(k, icon(ic), l, isOff(k))).join("")
+    el.innerHTML = zones().filter(([k]) => inNav(k)).map(([k, ic, l]) => tile(k, icon(ic), l, isOff(k))).join("")
       + apps.map(a => tile("app:" + a.id, Apps.glyph(a, "xs"), a.name, false)).join("")
-      + `<button class="add" data-zz="apps" aria-selected="${z === "apps"}" title="Add an app" aria-label="Apps: add one">${icon("plus")}</button>`;
+      + `<span class="zsep" aria-hidden="true"></span>`
+      + [["plugins", "box", "Plugins"], ["skills", "book", "Skills"], ["agents", "team", "Agents"]].map(([x, ic, l]) => `<button data-x="${x}" title="${l}" aria-label="${l}">${icon(ic)}</button>`).join("");
     $$("[data-zz]", el).forEach(x => (x.onclick = () => openZone(x.dataset.zz)));
-    $("#gearBtn").setAttribute("aria-pressed", !!S.settings);
+    $$("[data-x]", el).forEach(b => (b.onclick = () => openExt(b.dataset.x)));
+    const on = { plugins: !S.settings && z === "apps", skills: !!S.settings && S.setSection === "skills", agents: !S.settings && z === "chat" && S.chatView === "agents" };
+    $$("#tbExt [data-x], #zones [data-x]").forEach(b => b.setAttribute("aria-pressed", String(!!on[b.dataset.x])));
+    $("#gearBtn").setAttribute("aria-pressed", !!S.settings && S.setSection !== "skills");
+  }
+  function openExt(x) {
+    if (x === "plugins") openZone("apps");
+    else if (x === "skills") openSettings("skills");
+    else if (x === "agents") { if (S.settings) closeSettings(); if (isOff("chat")) Frame.setOn("chat", true, true); setChatView("agents"); }
+    renderZones();
   }
 
   // Search: zones, projects, agents and chats, from the title bar or Ctrl K.
@@ -412,8 +426,8 @@ var Shell = (() => {
     $("#aiBtn").onclick = () => Ask.toggle();
     $("#navBack").onclick = () => walk(-1);
     $("#navFwd").onclick = () => walk(1);
+    $$("#tbExt [data-x]").forEach(b => (b.onclick = () => openExt(b.dataset.x)));
     $("#gearBtn").onclick = () => (S.settings ? closeSettings() : openSettings());
-    $("#gear").onclick = () => (S.settings ? closeSettings() : openSettings());
     if (window.Memory) await Memory.init();
     if (window.Apps) await Apps.init();
     if (window.Ask) await Ask.init();

@@ -1,5 +1,61 @@
 # Handoff: Backspace (ohMyHarness → Workbench), v0
 
+**Session, 29 Oct 2026 (round 5): work area on the theme; New thread under the apps.**
+
+- `.work` uses the card's glass (`--win-bg` 62% + blur) instead of the
+  opaque `--card-strong` slab.
+- `#newThread` is a sidebar row (`.side-new`) under `#zones`, above the
+  tree; the lead pill is gone and `#sideClose` stands alone in the row.
+
+**Session, 29 Oct 2026 (round 4): rail only when folded; New tab page.**
+
+- Pill rail (`#rail`) shows only when the sidebar is folded; open sidebar
+  shows the `#zones` tile row (zones, divider, Plugins/Skills/Agents).
+- `work.js`: open by default (`bs.work`), starts on a New tab page; opened
+  tabs live in `bs.wopen`, each closable; Diffs is labelled Review.
+- Evals: tools/uiharness/evals/ade-work.js (updated), work-newtab.js (new).
+
+**Session, 29 Oct 2026 (round 3): the top rail goes; a vertical app rail on the left.**
+
+- Charles: full-height sidebar back; apps as a vertical pill rail (`#rail`,
+  its own grid column `--rail-w: 58px`, always shown, hidden in Settings) with
+  Plugins/Skills/Agents (`#tbExt`) and the live items; the sidebar row has the
+  New thread | toggle pill, back/forward, search, settings. `#topbar` removed;
+  `#zones` stays hidden for code that reads it.
+- ADE header: no folder button (`Code.head()` returns nothing in pair). IDE:
+  `#win.no-session` hides the Canvases/Wall switch until a session runs.
+- Sidebar gutter offsets by `--rail-w`.
+
+**Session, 29 Oct 2026 (later): the ADE gets its work area (docs/SHELL-AUDIT.md, round 2).**
+
+- `ui/work.js` (`Work`): a split beside the ADE chat in the card, tabs Files,
+  Diffs (Uncommitted | History), Browser, Terminal, Images, Logs, all on real
+  commands (`list_files`, `read_file`, `git_changes`, `git_diff`, `git_log`,
+  `read_image`, `terminal_*`, `chat_list`/`chat_thread`/`trace_get`). Browser
+  and Terminal borrow Code's panes (`Code.browserPane`, `Code.terminalPane`);
+  `tracePane` was split so Logs reuses `Code.traceList`.
+- In the ADE the panel button opens it and the terminal button opens its
+  Terminal tab; RPanel only shows in the IDE. localStorage `bs.work`,
+  `bs.wtab`, `bs.work-w`.
+- **Ran:** uiharness `tools/uiharness/evals/ade-work.js` with mocked git,
+  files, threads and traces. Not run against a real backend.
+
+**Session, 29 Oct 2026: the shell gets a top rail; Chat leaves the nav (docs/SHELL-AUDIT.md).**
+
+- `#topbar` (index.html, shell.css "the global rail"): leading pill New thread
+  | sidebar toggle, back/forward, the app switcher (`#zones`, no Chat) centred
+  with Plugins (Apps catalog), Skills (Settings › Agent skills) and Agents
+  (Chat's agents view), then search, settings and the Windows/Linux buttons.
+  The sidebar's top row and its app tiles are gone; the folded pill keeps only
+  what is live. `newThread()` in app.js; Ctrl/⌘N and onboarding use it,
+  Ctrl/⌘J flips ADE/IDE.
+- Settings closes with `#setX`, a 44px round button at the card's top right.
+- IDE tabs take six canvases: `MAX_PANES` in code.js and core::layout, 5 and 6
+  presets appended (GPUI indexes PRESETS), picker drops "Empty canvas".
+- **Ran:** `cargo test -p backspace-core --lib layout`, uiharness
+  `tools/uiharness/evals/shell-rail.js`. Not run in a real window: macOS
+  lights over the rail and the Linux resize border.
+
 **Session, 25 Oct 2026: agents get browser and desktop use (docs/HANDS.md).**
 
 - `crates/core/src/hands/`: the agents' own Chrome over DevTools (cdp.rs),

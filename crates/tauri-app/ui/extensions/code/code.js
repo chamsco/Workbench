@@ -71,6 +71,8 @@ function saveTabs() {
 // Mirrors core::layout: {leaf: i} | {dir: "row"|"col", ratio, a, b}. Rust
 // owns the format (prefs.json); this copy draws it and applies drags.
 const PH = -1;
+// How many canvases one tab holds (core::layout::MAX_PANES).
+const MAX_PANES = 6;
 const L = {
   leaf: i => ({ leaf: i }),
   split: (dir, ratio, a, b) => ({ dir, ratio, a, b }),
@@ -79,7 +81,11 @@ const L = {
     if (n <= 1) return l(0);
     if (n === 2) return s("row", 0.5, l(0), l(1));
     if (n === 3) return s("row", 1 / 3, l(0), s("row", 0.5, l(1), l(2)));
-    return s("col", 0.56, s("row", 0.5, l(0), l(1)), s("row", 0.5, l(2), l(3)));
+    // Four to six: two rows, the top one taking the odd canvas, each row in
+    // equal widths.
+    const row = (from, k) => (k === 1 ? l(from) : s("row", 1 / k, l(from), row(from + 1, k - 1)));
+    const top = Math.ceil(Math.min(n, MAX_PANES) / 2), bottom = Math.min(n, MAX_PANES) - top;
+    return s("col", 0.56, row(0, top), row(top, bottom));
   },
   preset(id) {
     const l = L.leaf, s = L.split;
@@ -144,7 +150,7 @@ const L = {
     return e[0] < 0.25 ? e[1] : "center";
   },
 };
-const PRESETS = [["1", "1", 1], ["2", "2", 2], ["3", "3", 3], ["4", "2×2", 4], ["top1", "1 over 2", 3], ["bottom1", "2 over 1", 3], ["left1", "1 | 2", 3]];
+const PRESETS = [["1", "1", 1], ["2", "2", 2], ["3", "3", 3], ["4", "2×2", 4], ["top1", "1 over 2", 3], ["bottom1", "2 over 1", 3], ["left1", "1 | 2", 3], ["5", "3 over 2", 5], ["6", "3×2", 6]];
 const tree = t => (L.valid(t.layout, t.panes.length) ? t.layout : L.defaultFor(t.panes.length));
 // A tab's actual arrangement in 16x12, for unnamed tabs and the presets.
 function treeIcon(t, cls = "lay-ic") {
@@ -273,12 +279,12 @@ function newTabPop(anchor) {
 // Team chat is not offered while the four-phase flow is being built: the
 // canvas type and its renderer stay, so a tab that already holds one keeps
 // working and the view comes back by adding it here again.
-const VIEWS = [["conversation", "reply", "Conversation"], ["terminal", "term", "Terminal"], ["files", "folder", "Worktree files"], ["browser", "globe", "Browser"], ["diagram", "diagram", "Diagram review"], ["docs", "doc", "PLAN.md"], ["options", "opts", "Visual options"], ["empty", "window", "Empty canvas"]];
+const VIEWS = [["conversation", "reply", "Conversation"], ["terminal", "term", "Terminal"], ["files", "folder", "Worktree files"], ["browser", "globe", "Browser"], ["diagram", "diagram", "Diagram review"], ["docs", "doc", "PLAN.md"], ["options", "opts", "Visual options"]];
 $("#addCanvas").dataset.popper = "";
 $("#addCanvas").onclick = e => {
-  const full = tab().panes.length >= 4;
+  const full = tab().panes.length >= MAX_PANES;
   const agents = treeOrder().map(id => agent(id));
-  openPop(e.currentTarget, full ? `<h5>Add a canvas</h5><div class="note">This tab already has four canvases. Close one, or open a new tab with ⌘T.</div>` :
+  openPop(e.currentTarget, full ? `<h5>Add a canvas</h5><div class="note">This tab already has ${MAX_PANES} canvases. Close one, or open a new tab with ⌘T.</div>` :
     `<h5>Sessions</h5>${agents.length ? agents.map(a => `<button class="pi" data-agent="${a.id}"><span class="agent">${icon("sparkle")}</span>${esc(a.id === MAIN ? "Main agent" : a.title)}<span class="k">${esc(a.status.replace("_", " "))}</span></button>`).join("") : `<div class="note">No agents on this machine yet.</div>`}
      <hr><h5>Views</h5>${VIEWS.map(([k, ic, l]) => `<button class="pi" data-kind="${k}">${icon(ic)}${l}</button>`).join("")}`, pop => {
     $$("[data-agent]", pop).forEach(b => (b.onclick = () => addCanvas({ kind: "agent", agent: +b.dataset.agent })));
@@ -287,7 +293,7 @@ $("#addCanvas").onclick = e => {
 };
 function addCanvas(spec) {
   closePop();
-  const t = tab(); if (t.panes.length >= 4) return;
+  const t = tab(); if (t.panes.length >= MAX_PANES) return;
   // Split the focused canvas along its longer side.
   const g = $("#grid"), tr = tree(t), n = t.panes.length;
   const { leaves } = L.layout(tr, { x: 0, y: 0, w: g.clientWidth || 1000, h: g.clientHeight || 600 }, 6);
@@ -733,6 +739,10 @@ function renderWbv() {
     $$("[data-wb]", pop).forEach(x => (x.onclick = () => { closePop(); setWb(x.dataset.wb); }));
   });
   $("#win").classList.toggle("wb-alt", S.wb !== "canvases" || !hasProject);
+  // The switch only matters while a session runs: a worker, or the main agent
+  // busy or waiting on you. On the Wall it stays, so the way back is there.
+  const live = snap.agents.some(a => a.kind !== "triage" && (a.id !== MAIN || busy(a) || needsYou(a)));
+  $("#win").classList.toggle("no-session", !live && S.wb === "canvases");
 }
 function setWb(v) {
   S.wb = WB.some(([k]) => k === v) ? v : "canvases";
@@ -964,7 +974,7 @@ function paneDrag(e, el, slot) {
 }
 function moveToTab(slot, ti) {
   const from = tab(), to = prefs.tabs[ti];
-  if (to.panes.length >= 4) { renderGrid(); flash($(`#tabs [data-tab="${ti}"]`)); return; }
+  if (to.panes.length >= MAX_PANES) { renderGrid(); flash($(`#tabs [data-tab="${ti}"]`)); return; }
   const spec = from.panes[slot];
   if (from.panes.length > 1) { from.layout = L.renumber(L.remove(tree(from), slot), slot); from.panes.splice(slot, 1); }
   else from.panes[0] = { kind: "empty", agent: 0, url: null };
@@ -1484,6 +1494,11 @@ async function tracePane(p, body, ps) {
   const a = agent(p.agent);
   const ids = a ? a.traces || [] : [];
   if (!ids.length) { body.innerHTML = `<div class="nothing">No traces yet. ${a && busy(a) ? "This run's trace is saved when it ends." : "Each run of this agent leaves one."}</div>`; return; }
+  return traceList(body, ids, ps, "Run");
+}
+// One trace of several, with a picker: an agent's runs here, an ADE thread's
+// replies in the work area (work.js).
+async function traceList(body, ids, ps, what) {
   const id = ps.trace && ids.includes(ps.trace) ? ps.trace : ids[ids.length - 1];
   const t = await invoke("trace_get", { id }).catch(() => null);
   if (!t) { body.innerHTML = `<div class="nothing">That trace is gone.</div>`; return; }
@@ -1491,13 +1506,13 @@ async function tracePane(p, body, ps) {
   const ms = n => (n < 1000 ? `${n} ms` : n < 60000 ? `${(n / 1000).toFixed(1)} s` : `${Math.floor(n / 60000)}m ${Math.round((n % 60000) / 1000)}s`);
   const root = t.spans[0], at = root.attrs || {};
   body.innerHTML = `<div class="trace">
-    <div class="tr-h"><select class="tx" aria-label="Run">${ids.map((x, i) => `<option value="${x}" ${x === id ? "selected" : ""}>Run ${i + 1}${x === ids[ids.length - 1] ? " (latest)" : ""}</option>`).join("")}</select>
+    <div class="tr-h"><select class="tx" aria-label="${what}">${ids.map((x, i) => `<option value="${x}" ${x === id ? "selected" : ""}>${what} ${i + 1}${x === ids[ids.length - 1] ? " (latest)" : ""}</option>`).join("")}</select>
       <span>${esc(at["gen_ai.response.model"] || at["gen_ai.request.model"] || "")}</span><span>${ms(span)}</span>
       ${at["gen_ai.usage.input_tokens"] != null ? `<span>${Number(at["gen_ai.usage.input_tokens"]).toLocaleString()}↓ ${Number(at["gen_ai.usage.output_tokens"] || 0).toLocaleString()}↑</span>` : ""}
       ${at["cost.usd"] != null ? `<span>$${Number(at["cost.usd"]).toFixed(3)}</span>` : ""}${root.error ? `<span class="err">${esc(root.error)}</span>` : ""}</div>
     <div class="tr-rows">${t.spans.map((s, i) => `<details class="tr-row${s.error ? " bad" : ""}"><summary><span class="tn">${esc(i ? s.name : root.name)}</span><span class="tbar"><i style="left:${((s.start - t0) / span) * 100}%;width:${Math.max(0.6, (((s.end || s.start) - s.start) / span) * 100)}%"></i></span><span class="td">${ms((s.end || s.start) - s.start)}</span></summary>
       ${s.input ? `<pre>${esc(s.input)}</pre>` : ""}${s.output ? `<pre class="out">${esc(s.output)}</pre>` : ""}</details>`).join("")}</div></div>`;
-  body.querySelector("select").onchange = e => { ps.trace = e.target.value; tracePane(p, body, ps); };
+  body.querySelector("select").onchange = e => { ps.trace = e.target.value; traceList(body, ids, ps, what); };
 }
   // ---------------------------------------------------------------- the app
   // Mounted once, when the manifest is read; everything else is lazy.
@@ -1522,6 +1537,9 @@ async function tracePane(p, body, ps) {
   // What the title bar says this app is holding. The frame asks; the shell no
   // longer names Code's project.
   function head() {
+    // The ADE names nothing up here: its composer picks the project, and its
+    // sidebar lists them. The header is ADE | IDE and the panel buttons.
+    if (S.codeView === "pair") return "";
     const p = hasProject && snap.workspace ? snap.workspace : null;
     return p
       ? `<button class="zt proj" id="zhProj" data-popper title="${esc(p)} — switch project">${icon("folder")}<b>${esc(base(p))}</b>${icon("chevd")}</button>`
@@ -1563,11 +1581,14 @@ async function tracePane(p, body, ps) {
     if (!dock.at) terminalPane(el, dock.ps);
     dock.at = at;
   }
-  document.addEventListener("click", e => { const b = e.target.closest("#termBtn"); if (b) termMenu(b); });
+  // In the ADE the terminal is a tab of the work area (work.js).
+  document.addEventListener("click", e => { const b = e.target.closest("#termBtn"); if (!b) return; if (S.codeView === "pair" && window.Work) Work.show("terminal"); else termMenu(b); });
 
   return {
     // state the frame's sidebar and the other apps read
     loadTabs: useTabsFor, tab, paneTitle, wbView, setDock,
+    // panes the ADE's work area borrows
+    browserPane, terminalPane, traceList,
     // the app's own surface
     mount, init, paint, elFor, classes, layout, afterData, head, windowTitle,
     // public verbs (the frame, the sidebar, Home and Chat call these)

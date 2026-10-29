@@ -14,7 +14,8 @@ var RPanel = (() => {
   const dir = () => (agent(MAIN) && agent(MAIN).worktree) || snap.workspace || "";
   // Code chat edits the project folder itself; the agents work in their worktree.
   const workDir = () => (S.codeView === "pair" ? snap.workspace : dir()) || "";
-  const showing = () => open && S.mode === "code" && !S.settings && hasProject;
+  // The IDE's panel; the ADE has its work area (work.js) in this place.
+  const showing = () => open && S.mode === "code" && S.codeView !== "pair" && !S.settings && hasProject;
 
   function toggle(v = !open) {
     open = v; put("bs.rpanel", v ? "1" : "0");
@@ -136,11 +137,11 @@ var RPanel = (() => {
     const el = $("#rpanel"), on = showing();
     el.hidden = !on;
     $("#win").classList.toggle("rpanel-on", on);
-    $("#panelBtn").setAttribute("aria-pressed", on);
+    if (S.codeView !== "pair") $("#panelBtn").setAttribute("aria-pressed", on);
     if (on) { draw(); load(); }
   }
 
-  $("#panelBtn").onclick = () => toggle();
+  $("#panelBtn").onclick = () => (S.mode === "code" && S.codeView === "pair" && window.Work ? Work.toggle() : toggle());
   // Changes follow every state change (an agent or a chat edits files); the rest on demand.
   return { render, toggle, show, refresh: () => { if (showing()) { draw(); if (tab === "sessions" || tab === "changes") load(); } } };
 })();
