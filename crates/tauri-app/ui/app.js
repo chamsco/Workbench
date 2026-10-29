@@ -210,9 +210,9 @@ function setSide(open) {
   const w = $("#win");
   if (narrow()) { w.classList.toggle("side-open", open); w.classList.remove("side-closed"); }
   else { w.classList.toggle("side-closed", !open); w.classList.remove("side-open"); }
-  // The rail's toggle stands for both directions now; the old show button in
-  // the card's header stays in the DOM for whatever reads it, never drawn.
-  $("#sideOpen").hidden = true;
+  // With the sidebar folded its row goes with it; the card's header shows
+  // the way back.
+  $("#sideOpen").hidden = open && !narrow();
   $("#sideClose").setAttribute("aria-pressed", String(!!open));
   if (inAgents() && !narrow()) { S.agentsFolded = false; try { localStorage.setItem("bs.agentsSide", open ? "open" : "closed"); } catch {} }
 }
@@ -1055,11 +1055,13 @@ var Models = (() => {
 // ------------------------------------------------------------------ sidebar resize, live updates, boot
 (() => {
   const g = $("#sideGut"), win = $("#win");
-  const place = () => (g.style.left = getComputedStyle(win).getPropertyValue("--side-w"));
+  // The gutter sits after the app rail and the sidebar.
+  const railW = () => parseFloat(getComputedStyle(win).getPropertyValue("--rail-w")) || 0;
+  const place = () => (g.style.left = `calc(var(--rail-w, 0px) + ${getComputedStyle(win).getPropertyValue("--side-w")})`);
   g.addEventListener("pointerdown", e => {
     e.preventDefault(); g.setPointerCapture(e.pointerId);
     const left = win.getBoundingClientRect().left;
-    const move = ev => { const w = Math.min(380, Math.max(176, ev.clientX - left)); win.style.setProperty("--side-w-user", w + "px"); place(); };
+    const move = ev => { const w = Math.min(380, Math.max(176, ev.clientX - left - railW())); win.style.setProperty("--side-w-user", w + "px"); place(); };
     const upf = () => { g.removeEventListener("pointermove", move); g.removeEventListener("pointerup", upf); };
     g.addEventListener("pointermove", move); g.addEventListener("pointerup", upf);
   });

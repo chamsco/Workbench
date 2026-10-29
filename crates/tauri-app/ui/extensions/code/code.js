@@ -739,6 +739,10 @@ function renderWbv() {
     $$("[data-wb]", pop).forEach(x => (x.onclick = () => { closePop(); setWb(x.dataset.wb); }));
   });
   $("#win").classList.toggle("wb-alt", S.wb !== "canvases" || !hasProject);
+  // The switch only matters while a session runs: a worker, or the main agent
+  // busy or waiting on you. On the Wall it stays, so the way back is there.
+  const live = snap.agents.some(a => a.kind !== "triage" && (a.id !== MAIN || busy(a) || needsYou(a)));
+  $("#win").classList.toggle("no-session", !live && S.wb === "canvases");
 }
 function setWb(v) {
   S.wb = WB.some(([k]) => k === v) ? v : "canvases";
@@ -1533,6 +1537,9 @@ async function traceList(body, ids, ps, what) {
   // What the title bar says this app is holding. The frame asks; the shell no
   // longer names Code's project.
   function head() {
+    // The ADE names nothing up here: its composer picks the project, and its
+    // sidebar lists them. The header is ADE | IDE and the panel buttons.
+    if (S.codeView === "pair") return "";
     const p = hasProject && snap.workspace ? snap.workspace : null;
     return p
       ? `<button class="zt proj" id="zhProj" data-popper title="${esc(p)} — switch project">${icon("folder")}<b>${esc(base(p))}</b>${icon("chevd")}</button>`

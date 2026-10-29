@@ -71,6 +71,24 @@ The ADE side panel's Sessions tab is not carried over: the ADE's own sidebar
 lists the project's threads. Also fixed: trace rows drew their bar with the
 card header's styles (they share the `.tbar` class), in the IDE too.
 
+## Round 3: back to the full-height sidebar (Charles, 29 Oct)
+
+Charles reversed the top rail after seeing it: the sidebar gets its full
+height back (more room on the left), the apps move to a **vertical pill app
+rail** on the window's left edge (Home, Code, pinned apps, then Plugins,
+Skills, Agents, then live sessions and Agents' bots), and the sidebar's own
+row carries the leading pill (New thread | sidebar toggle), back/forward,
+search and settings. In the ADE the card header is only **ADE | IDE**,
+centred, and the panel buttons; the folder button is gone (the composer and
+the sidebar pick the project). In the IDE the Canvases/Wall switch shows only
+while a session runs (a worker exists, or the main agent is busy or waiting on
+you), and stays on the Wall so the way back is there. References: ZCode
+(empty state, terminal drawer, tabbed right panel), Zuse and Nova (sidebar,
+chat beside a browser).
+
+Rows 2, 6 and 7 now read: the switcher is the vertical rail, not a top bar;
+New thread and the toggle are the sidebar row's pill. Evals re-run: both pass.
+
 ## Next, in priority order
 
 1. Plugins: enable/disable (core setter + command + toggle) on the catalog.

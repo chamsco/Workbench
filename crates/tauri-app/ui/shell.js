@@ -181,7 +181,7 @@ var Shell = (() => {
     $("#railApps").innerHTML = pinned.length ? `<div class="rsep"></div>` + pinned.map(a =>
       `<button class="rz rzapp" data-z="app:${esc(a.id)}" aria-selected="${cur === "app:" + a.id}" aria-label="${esc(a.name)}" data-tip="${esc(a.name)}"><span class="sq">${Apps.glyph(a)}</span></button>`).join("") : "";
     $$("#rail [data-z]").forEach(b => (b.onclick = () => openZone(b.dataset.z)));
-    $("#gear").setAttribute("aria-selected", !!S.settings);
+    const gear = $("#gear"); if (gear) gear.setAttribute("aria-selected", !!S.settings);
     renderRun();
   }
   // With the sidebar folded, the rail stands in for it: the apps, then what is
@@ -368,7 +368,7 @@ var Shell = (() => {
   function renderCaps() {
     const caps = $("#caps");
     if (platform !== "win" && platform !== "linux") { caps.innerHTML = ""; return; }
-    $("#topbar .tb-r").append(caps);
+    $(".tbar .right").append(caps);
     caps.innerHTML = `<button data-cap="min" aria-label="Minimize" title="Minimize">${icon("wmin")}</button>` +
       `<button data-cap="max" aria-label="Maximize" title="Maximize">${icon("wmax")}</button>` +
       `<button data-cap="close" aria-label="Close" title="Close">${icon("wclose")}</button>`;
@@ -425,7 +425,6 @@ var Shell = (() => {
     $("#navFwd").onclick = () => walk(1);
     $$("#tbExt [data-x]").forEach(b => (b.onclick = () => openExt(b.dataset.x)));
     $("#gearBtn").onclick = () => (S.settings ? closeSettings() : openSettings());
-    $("#gear").onclick = () => (S.settings ? closeSettings() : openSettings());
     if (window.Memory) await Memory.init();
     if (window.Apps) await Apps.init();
     if (window.Ask) await Ask.init();

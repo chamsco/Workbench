@@ -683,62 +683,42 @@ button.rp-row:hover { background: var(--hover); }
 *::-webkit-scrollbar-thumb { background-color: color-mix(in srgb, var(--fg, #888) 26%, transparent); border: 3px solid transparent; background-clip: padding-box; border-radius: 999px; min-height: 36px; }
 *::-webkit-scrollbar-thumb:hover { background-color: color-mix(in srgb, var(--fg, #888) 48%, transparent); }
 
-/* ---------- the global rail -------------------------------------------------
-   One bar across the top of the window, shared by every app: the leading pill
-   (New thread | sidebar), back and forward; the app switcher centred with
-   Plugins, Skills and Agents; search, settings and the window buttons. The
-   sidebar, the page card and Home's chat column sit in the row under it, and
-   each app's own toolbar is the card's header. */
-#win { --top-h: 48px; grid-template-rows: var(--top-h) minmax(0, 1fr); }
-#win > .side, #win > .mainc, #win > .chatcol { grid-row: 2; }
-#win > .topbar { grid-row: 1; grid-column: 1 / -1; position: relative; z-index: 6; height: var(--top-h); display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 12px; padding: 0 8px 0 10px; }
-.topbar .tb-l, .topbar .tb-c, .topbar .tb-r { display: flex; align-items: center; min-width: 0; }
-.topbar .tb-l { gap: 4px; }
-.topbar .tb-c { gap: 8px; justify-content: center; }
-.topbar .tb-r { gap: 2px; justify-content: flex-end; }
-.topbar .lights-gap { width: 0; flex: none; }
-.os-mac .topbar .lights-gap, :root:not(.native) .topbar .lights-gap { width: 64px; }
-.topbar .ib { width: 28px; height: 28px; border-radius: 8px; background: transparent; color: var(--fg-3); display: grid; place-items: center; }
-.topbar .ib:hover:not(:disabled) { background: var(--hover); color: var(--fg); }
-.topbar .ib:disabled { opacity: 0.35; }
-.topbar .ib .ic { width: 16px; height: 16px; }
-.topbar .ib[aria-pressed="true"] { color: var(--fg); background: var(--tile-on); }
-#topbar .side-pills { display: none !important; }
-#win.whirl-on:is(.m-chat, .m-code) #searchBtn { display: grid; }
+/* ---------- the app rail ---------------------------------------------------
+   A vertical pill on the window's left edge, its own column, always there:
+   the apps, Plugins, Skills and Agents, then what is live. The sidebar keeps
+   the full height beside it, with the window's own row at its top. */
+#win { --rail-w: 58px; grid-template-columns: var(--rail-w) var(--side-w) minmax(0, 1fr) var(--chat-on); }
+#win > .rail { grid-row: 1; grid-column: 1; }
+#win > .side { grid-column: 2; }
+#win > .mainc { grid-column: 3; }
+#win > .chatcol { grid-column: 4; }
+#win.settings-on { --rail-w: 0px; }
+#win > .rail, #win:is(.side-closed, .ghost-side):not(.settings-on) > .rail { display: flex !important; position: relative; left: auto; top: auto; transform: none; align-self: center; justify-self: end; flex-direction: column; align-items: center; width: 46px; max-height: calc(100% - 24px); overflow-y: auto; overflow-x: visible; scrollbar-width: none; padding: 6px 0; gap: 4px; border: 0; border-radius: 999px; background: color-mix(in srgb, var(--win-bg) 40%, transparent); box-shadow: inset 0 0 0 1px var(--glass-line, var(--pane-edge)); -webkit-backdrop-filter: blur(18px) saturate(1.4); backdrop-filter: blur(18px) saturate(1.4); z-index: 6; }
+#win > .rail::-webkit-scrollbar { display: none; }
+#win.settings-on > .rail { display: none !important; }
+#win > .rail .rz { width: 34px; height: 34px; }
+#win > .rail .rz .sq { width: 34px; height: 34px; border-radius: 999px; }
+#win > .rail .rz .sq .ic { width: 17px; height: 17px; }
+#win > .rail .rz[aria-selected="true"] .sq, #win > .rail .rz[aria-pressed="true"] .sq { background: var(--tile-on); color: var(--fg); box-shadow: none; }
+#win > .rail .rz[aria-selected="true"]::before { display: none; }
+#win > .rail .rz:hover .sq { background: var(--hover); color: var(--fg); }
+#win > .rail .rsep { flex: none; width: 20px; height: 1px; margin: 3px 0; background: color-mix(in srgb, var(--fg) 20%, transparent); }
+#win > .rail .rail-apps:empty, #win > .rail .rail-apps .rsep { display: none; }
+.rail-ext { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+#win.agents-on:not(.settings-on) .rail-bots { display: flex; }
+#win:is(.side-closed, .ghost-side):not(.settings-on) .mainc { margin-left: 8px; }
+.os-mac #win .side .side-top .lights-gap, :root:not(.native) #win .side .side-top .lights-gap { width: 14px; }
+/* The leading pill: New thread | the sidebar toggle. */
 .lead-pill { flex: none; display: flex; align-items: center; height: 30px; padding: 0 2px; border-radius: 999px; background: var(--chip); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fg) 10%, transparent); }
 .lead-pill .lp-new { display: flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px 0 8px; border-radius: 999px; font-size: 12.5px; font-weight: 500; color: var(--fg-2); white-space: nowrap; }
 .lead-pill .lp-new .ic { width: 15px; height: 15px; }
 .lead-pill .lp-new:hover { background: var(--hover); color: var(--fg); }
 .lead-pill .lp-sep { width: 1px; height: 16px; margin: 0 2px; background: color-mix(in srgb, var(--fg) 18%, transparent); }
-.lead-pill .ib { width: 26px; height: 26px; border-radius: 999px; }
-.lead-pill .ib[aria-pressed="true"] { background: transparent; }
-.tb-ext { flex: none; display: flex; gap: 2px; padding: 2px; border-radius: 9px; background: var(--chip); }
-.tb-ext .tbx { height: 24px; padding: 0 8px 0 7px; border-radius: 7px; display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 500; color: var(--fg-3); white-space: nowrap; }
-.tb-ext .tbx .ic { width: 15px; height: 15px; }
-.tb-ext .tbx:hover { color: var(--fg); }
-.tb-ext .tbx[aria-pressed="true"] { background: var(--pill-on); color: var(--fg); }
-#topbar .zones button { min-width: 28px; }
-@media (max-width: 1080px) { .tb-ext .tbl { display: none; } .lead-pill .lpl { display: none; } .lead-pill .lp-new { padding: 0 6px; } }
-/* The window buttons on Windows and Linux end the rail. */
-#topbar .caps { display: flex; align-items: center; gap: 2px; margin-left: 6px; }
-.os-win #topbar .caps button, .os-linux #topbar .caps button { width: 34px; height: 30px; border-radius: 8px; display: grid; place-items: center; background: transparent; color: var(--fg-2); }
-.os-win #topbar .caps button:hover, .os-linux #topbar .caps button:hover { background: var(--hover); color: var(--fg); }
-.os-win #topbar .caps button[data-cap="close"]:hover, .os-linux #topbar .caps button[data-cap="close"]:hover { background: #c42b1c; color: #fff; }
-#topbar .caps .ic { width: 14px; height: 14px; }
-/* The card now starts under the rail: no top margin, and macOS no longer steps
-   it down for its lights, which live on the rail. */
-#win .mainc { margin-top: 0; }
-.os-mac #win:is(.side-closed, .ghost-side, .settings-on) > .mainc { margin-top: 0; }
-#win > .capstrip, .os-mac #win:is(.side-closed, .ghost-side, .settings-on) > .capstrip { display: none; }
-.gutter-side, .gutter-chat { top: var(--top-h); }
-:root[data-window="solid"] #win:is(.m-code, .m-chat) :is(.win-art, .win-ascii) { clip-path: inset(var(--top-h) 8px 8px var(--side-w) round 12px); }
-:root[data-window="solid"] #win:is(.m-code, .m-chat):is(.side-closed, .ghost-side) :is(.win-art, .win-ascii) { clip-path: inset(var(--top-h) 8px 8px 8px round 12px); }
-/* The folded sidebar's pill keeps what is live; the apps are on the rail. */
-#win > .rail :is(#railZones, #railApps) { display: none !important; }
-#win:is(.side-closed, .ghost-side):not(.settings-on) > .rail:has(.rail-run:empty):not(:has(.rail-bots > *)) { display: none !important; }
-#win:is(.side-closed, .ghost-side):not(.settings-on):has(.rail-run:empty):not(:has(.rail-bots > *)) .mainc { margin-left: 8px; }
-#win:is(.side-closed, .ghost-side) > .rail { top: calc(50% + var(--top-h) / 2); }
-@media (max-width: 760px) { #win .side { top: var(--top-h); } }
+#win .side .side-top .lead-pill .ib { width: 26px; height: 26px; border-radius: 999px; }
+#win .side .side-top .lead-pill .ib[aria-pressed="true"] { background: transparent; }
+#win .side .side-pills { display: none !important; }
+#win.whirl-on:is(.m-chat, .m-code) #searchBtn { display: grid; }
+.gutter-side { margin-left: -3px; }
 
 /* Settings' way out: a large round close at the card's top right. */
 .set-x { display: none; }
@@ -811,3 +791,7 @@ button.rp-row:hover { background: var(--hover); }
 /* A trace row's bar shares its class with the card header; keep the header's
    rules off it (the IDE's trace pane and the work area's Logs). */
 #win .tr-row .tbar { display: block; height: 8px; min-height: 0; padding: 0; margin: 0; border: 0; border-radius: 4px; background: var(--hover); box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
+:root[data-window="solid"] #win:is(.m-code, .m-chat) :is(.win-art, .win-ascii) { clip-path: inset(8px 8px 8px calc(var(--rail-w) + var(--side-w)) round 12px); }
+:root[data-window="solid"] #win:is(.m-code, .m-chat):is(.side-closed, .ghost-side) :is(.win-art, .win-ascii) { clip-path: inset(8px 8px 8px calc(var(--rail-w) + 8px) round 12px); }
+/* The IDE's Canvases/Wall switch shows only while a session runs. */
+#win.no-session #viewBtn { display: none !important; }

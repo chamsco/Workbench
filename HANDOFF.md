@@ -1,5 +1,16 @@
 # Handoff: Backspace (ohMyHarness → Workbench), v0
 
+**Session, 29 Oct 2026 (round 3): the top rail goes; a vertical app rail on the left.**
+
+- Charles: full-height sidebar back; apps as a vertical pill rail (`#rail`,
+  its own grid column `--rail-w: 58px`, always shown, hidden in Settings) with
+  Plugins/Skills/Agents (`#tbExt`) and the live items; the sidebar row has the
+  New thread | toggle pill, back/forward, search, settings. `#topbar` removed;
+  `#zones` stays hidden for code that reads it.
+- ADE header: no folder button (`Code.head()` returns nothing in pair). IDE:
+  `#win.no-session` hides the Canvases/Wall switch until a session runs.
+- Sidebar gutter offsets by `--rail-w`.
+
 **Session, 29 Oct 2026 (later): the ADE gets its work area (docs/SHELL-AUDIT.md, round 2).**
 
 - `ui/work.js` (`Work`): a split beside the ADE chat in the card, tabs Files,
