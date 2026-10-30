@@ -1,6 +1,6 @@
 # M0 audit (final for review): Cauldron against PLAN.md
 
-Date: 2026-10-30 (revision 3: evidence levels, tier vs frontier, milestone ownership, cost-to-green objective). Status: **M0 not approved. M1 not started.**
+Date: 2026-10-30 (revision 4; change summary at the end). Status: **M0 not approved. M1 not started.**
 
 Inputs: `PLAN.md` (repo root, committed in `e236259`), the requested
 corrections in `Cauldron_M0_Revised_Audit.md`, and the repository as it is now.
@@ -39,11 +39,25 @@ Every row also states its **evidence level**:
 
 A qualifier in brackets says what the evidence does *not* cover, for example "B (cap untested)" or "B (asserts the opposite)".
 
-**Result: no row reaches A, so no PLAN.md requirement is "works".** Every passing test proves a primitive, not the Cauldron requirement.
+**Result: no row reaches A, so no PLAN.md requirement is "works".** Existing tests demonstrate meaningful unit, integration and end-to-end behaviour, but none currently demonstrates an entire PLAN.md requirement at its required acceptance scope.
 
 ## 1a. Optimization objective
 
-PLAN.md §3.4 says total cost-to-green is the real target. This audit uses that as the objective everywhere: **the cheapest execution path that succeeds, measured as total cost-to-green** (every model call, retry, escalation and gate run until Gate A passes, plus human tokens). Frontier calls per PR and per-call price are diagnostics under that objective, not targets in themselves. A cheap rung that needs many retries can cost more than one stronger call, and the escalation policy must account for that (§3.4, §7.4).
+PLAN.md §3.4 says total cost-to-green is the real target. This audit uses that as the objective everywhere: **minimize the total expected cost of reaching a verified successful result** (Gate A passed). It is not the cost of any one call, and not the number of frontier calls.
+
+Total cost-to-green counts every metered cost on the way to green, not only inference:
+
+- model inference at every rung, including the router and decision-model calls;
+- retries, escalations and send-back loops;
+- execution: container or VM time, sandbox and worktree setup, remote runners;
+- tool and third-party API usage, including paid MCP tools;
+- test runs, lint and type checks, mutation testing and flake re-runs;
+- CI minutes and preview deployments, and gate execution (Gates A, B and C);
+- human time, measured as human tokens typed or read (§3.4).
+
+Routing and escalation decisions must therefore weigh the **probability that each rung succeeds**, not only the price of its next call. A cheap rung with a low success rate can cost more in expectation (retries, extra test and CI runs, then an escalation anyway) than a stronger rung that usually succeeds first time. Frontier calls per PR and per-call price stay as diagnostics under this objective. They are not targets.
+
+Current state against this objective: the code records per-agent inference cost (`harness.rs:2061-2073`) and per-ticket cost in `outcomes.jsonl` (`harness.rs:2824-2846`). It does not meter execution, tool, test, CI or gate costs, and it has no per-rung success-probability estimate. Evidence: I, B for inference cost only; — for the rest.
 
 ## 1b. Milestone ownership used in this audit
 
@@ -78,11 +92,11 @@ PLAN.md §3.4 says total cost-to-green is the real target. This audit uses that 
 | Local model for selected jobs | partial | `Router::local_pick` / `route_for` (`router.rs:131-215`). Jobs: scouts, triage, workers. I `features::a_worker_routes_to_the_local_model_only_while_it_is_listening`, `a_delegated_lookup_reaches_the_chosen_local_model`, `triage_can_run_on_the_local_model_with_no_api_key`, `local_jobs_defaults_to_scouts_and_refuses_unknown_words`. It is **opt-in**: with no local model picked, "the big model does everything, which is the default" (`router.rs:93-94`). | I, B |
 | Bounded local executor jobs (tests, lint, failure triage, diff summary, file search) | partial | Scouts (lookups) and ticket triage can run locally (tests above). The "workers" job sends whole code-writing tickets to a local model, which PLAN §10 says to avoid. Not proven: lint, test runs, failure triage or diff summaries as local jobs. | I, B |
 | Main orchestrator on a frontier model only when needed | **missing (code works against it)** | The planner is held to a high starting point on two axes. **Effort:** `main_min_effort = "high"` (`default-config.toml:14`) is applied to every Main decision on every router backend (`router.rs:301-303`). Under the heuristic backend, Main is raised to at least level 3 = Xhigh (`router.rs:440-442`). **Tier:** Xhigh needs tier ≥ 3 (`router.rs:445-450`), and the heuristic picks the cheapest model at or above it. In the default config the API models at tier ≥ 3 are `claude-opus-5-5` (3) and `claude-fable-5-1` (4) (`default-config.toml:119-132`). **Frontier:** the code has no frontier classification. `tier` is a 1–4 integer (`config.rs:208`), set per model by config, so whether tier ≥ 3 is a frontier model depends on the user's model list. It is not established by the code. Also: `local_pick` returns `None` for Main (`router.rs:137`); `escalate` refuses non-workers (`harness.rs:1517-1519`), so the planner never moves down. U `heuristic_scales_with_task` asserts only `main.effort >= Effort::Xhigh` (`router.rs:529-530`), not the model. | I, B (asserts high effort; frontier not established) |
-| Failure-triggered escalation | partial | `escalate` (`harness.rs:1516`). Triggers: failed check, user rejection (E2E flat: 2 escalations, `check failed` then `rejected by the user`, ends on `mock-big`); turn budget exhausted (`harness.rs:1985-1988`, untested); repeated identical tool call (`harness.rs:2191-2209`, untested). | I, B |
-| §7.4 trigger: N sealed-test failures | missing | No sealed tests. The check-failure trigger escalates on every failure, not after N failures. | — |
-| §7.4 trigger: same failure signature twice | missing | The loop detector compares *tool calls* (`name+input`), not failure signatures (`harness.rs:2189-2192`). | I (different trigger, untested) |
-| §7.4 trigger: cheap-rung budget exhausted | unknown | The turn-budget trigger exists (`harness.rs:1985`). No per-rung cost budget, and no test. | I |
-| Cost-aware escalation | missing | `escalate` compares tier and then price to pick the next model (`harness.rs:1538-1546`). Nothing compares the expected cost of a retry with the cost of escalating. | I (price tiebreak only) |
+| Adjacent mechanism: generic worker escalation (not a §7.4 trigger) | partial | `escalate` (`harness.rs:1516`) moves a worker one rung up on: a failed ticket check or a user rejection (E2E flat: 2 escalations, `check failed` then `rejected by the user`, ends on `mock-big`); an exhausted turn budget (`harness.rs:1985-1988`, untested); a repeated identical tool call (`harness.rs:2191-2209`, untested). It is listed for completeness. **None of these satisfies a §7.4 trigger** (rows below). | I, B |
+| §7.4 trigger: Builder fails the sealed tests N times (default 3) | missing | There are no sealed tests, and no failure counter is compared with N. Adjacent: a failed ticket check escalates on *every* failure (`harness.rs:2438-2456` → `escalate`), which is not this trigger. | — |
+| §7.4 trigger: same failure signature twice in a row | missing | No failure signature is computed or compared. Adjacent: the loop detector flags N identical *tool calls* (`name+input`, `harness.rs:2189-2203`, untested). Repeated tool calls are not repeated failure signatures. | — |
+| §7.4 trigger: per-task budget on cheap rungs exhausted | missing | No per-rung cost budget exists. Adjacent: a generic turn budget per effort level (`harness.rs:1984-1996`, untested) and a per-agent/project dollar budget checked after spend (`harness.rs:1960-1976`). Neither is a per-rung cost budget. | — |
+| §7.4 trigger: expected cost of another cheap retry exceeds a frontier call | missing | No expected-cost estimate and no success-probability estimate exist. Adjacent: `escalate` uses price only as a tiebreak when choosing the next model (`harness.rs:1538-1546`). | — |
 | Exactly one frontier escalation | missing | Up to `max_steps: 3` climbs (`config.rs:122`), counting both effort raises and model raises. "Frontier" is not a concept in the code. | I, B (3 climbs, not one) |
 | Escalation carries a compact failure digest | missing | The escalated agent keeps its full conversation (`c.messages`). No digest is built. | — |
 | Human handoff after failed escalation | unknown | At the limit, `escalate` logs and returns `false` (`harness.rs:1521-1527`). The agent then hits the turn budget and bails (`harness.rs:1994-1996`). `settle` marks it `Failed` (`harness.rs:2807-2822`). No test covers this, and no digest goes to the human. | I |
@@ -109,11 +123,11 @@ PLAN.md §3.4 says total cost-to-green is the real target. This audit uses that 
 | Entries are data, never instructions | **missing (code does the opposite)** | `memory_learn.rs:164` labels "remember / from now on / always" notes as kind `instruction`, and U `third_person_rewrites` asserts it (`:339`). `context()` injects notes into chat and agent system prompts (`chat.rs:1326`, `fleet.rs:628`), framed as "context, not commands" (`memory.rs:1030`). Framing in a prompt is exactly the "enforced in prompts" approach §8.3 and §10 rule out, and the kind is never rejected. | I, B (asserts the opposite) |
 | Entries cannot alter permissions, gates or budgets | unknown | No code path from memory to config was found, but no test proves there isn't one. | — |
 | Per-entry provenance | partial | Notes store `source` and thread (`add_from`, `memory.rs:651`). No task id, no evidence link. | I |
-| Global promotion needs human approval | missing | `add(.., None, ..)` writes global notes directly (U `scopes_and_persistence`). | — |
+| Global promotion needs human approval | missing (approval flow); qualified | **No promotion-with-approval flow exists.** Paths that write a global note (`project: None`), traced from every caller in the audited crates and `crates/tauri-app`: (1) **Agents: no path found.** The agent tool `memory_save` (`mcp.rs:54-69`) always proposes with a non-empty scope from `BACKSPACE_MEMORY` (`mcp.rs:30-31`), which `chat.rs:1575-1579` sets to the project path or `agent:<id>`, never empty. `drain()` files it under that scope (`memory.rs:846`). So an agent cannot write global memory, with or without approval. (2) **Explicit human writes:** the Memory page (`ui/memory.js:125` → `memory_add`, `tauri-app/src/main.rs:1278`) and the paired phone (`POST /v1/memory`, `companion.rs:202`, token-guarded) call `Memory::add` with the scope the person chose. These are human actions, not bypasses. (3) **Automatic capture, reachable without prior approval:** `chat_send` (`tauri-app/src/main.rs:1507`) calls `Memory::capture` on the user's own message when `memory_on && memory_auto` (`main.rs:1525`; `memory_auto` defaults to `true`, `prefs.rs:121`). A thread with no project and no agent gives scope `None` (`main.rs:1532`), so the logistic model writes a **global** note with `on: true` (`memory.rs:704-744`). The person is told after the write and can undo it (comment at `main.rs:1522-1523`). The text is the user's own words, not an agent's, so this is not the §8 agent-promotion path; but it is a model-decided global write with no approval before it. Evidence: U `memory::tests` call `capture(.., None, ..)` and get a global note (`memory.rs:1063`); the `chat_send` path is untested (`crates/tauri-app` is not in the suite). | I, B (capture writes global; chat_send path untested) |
 | Rejections logged with reasons | partial | Receipts keep drop reasons (librarian test). No eval set built from them. | I, B |
 | Selective reads under a token cap | partial | `context()` is capped at `BUDGET = 6000` **characters** (`memory.rs:86`, `:1016`) and ranked by importance, use and age. It is not ranked by relevance to the task. The cap has no test. | I, B (cap untested) |
 | Memory accept/reject eval | missing | No code. | — |
-| herdr adapter, version pin | missing | No herdr code. | — |
+| herdr adapter, version pin | missing | No herdr code. Latest upstream release noted in §7 item 4 (v0.9.5, checked 2026-10-30). | — |
 | Plugin API + audit hook | missing | "plugin" appears only as Tauri plugins and a runner flag (`runner/src/lib.rs:97`). `ui/extensions` are UI apps. | — |
 | On-demand skills | partial | `skills.rs`; U `defaults_load_with_descriptions`, `search_ranks_a_name_hit_above_a_body_hit`, `a_workspace_folder_overrides_a_default_and_shows_as_ours`. No allowlist, no per-project enable list. | I, B |
 | Test-on-edit, affected-test selection | missing | No code. | — |
@@ -133,7 +147,8 @@ PLAN.md §3.4 says total cost-to-green is the real target. This audit uses that 
 | 3.2 | Plugins via a stable API, audited | missing | | — |
 | 3.2 | Skills and plugins per-project and allowlisted | missing | | — |
 | 3.3 | File handoffs, never chat history | partial | SPEC.md and ticket files exist. Workers still receive the brief in chat; retries keep full history. | I, B |
-| 3.3 | Diffs and symbol-level context | unknown | `diff_stat`/`numstat` are attached to deliverables (`harness.rs:2429-2435`, E2E flat asserts them). Symbol-level context not found. | I, B (diff stat only) |
+| 3.3 | Diff information in deliverables | partial | `diff_stat` and `numstat` are attached to each deliverable (`harness.rs:2429-2435`). E2E `flat_project_with_gates_escalation_and_merges` asserts `changes` = `b.txt +1 -0` and that `diff_stat` names `b.txt`. Not proven: that diffs replace whole files in what agents are sent, or a diff-based handoff between stages. | I, B |
+| 3.3 | Symbol-level context | missing | Nothing found in the audited crates (searched for tree-sitter, LSP, ctags, symbol and outline code). `lsp-types` appears in `Cargo.lock` only as a transitive dependency of the GPUI UI kit used by the excluded `crates/app`; no Cauldron code uses it. | — |
 | 3.3 | Prompt caching for stable prefixes | unknown | Anthropic requests set `cache_control: ephemeral` on the tools+system prefix (`provider.rs:228-229`). No test asserts it; spec, skills and memory are not separately cached. | I |
 | 3.3 | Summaries at stage boundaries | missing | | — |
 | 3.3 | Escalate with a failure digest | missing | | — |
@@ -159,12 +174,14 @@ PLAN.md §3.4 says total cost-to-green is the real target. This audit uses that 
 | 6 | CI/CD, Gate C preview before/after | missing | | — |
 | 6 | Human approval before merge | partial | Deliverables at depth ≤ `human_review_depth` wait for the human (`harness.rs:2459-2486`; E2E flat rejects then approves ticket `a`). Deeper work is merged before the manager reviews it (`harness.rs:2505-2506`). `auto_approve` (`config.rs:79`) skips the human entirely. | I, B |
 | 7.1–7.3 | Builder/Rampart separation, sealing, hash, fail-on-baseline, flake, mutation, traceability, spot-check, arbitration | missing | No code for any of these. The revision marked spot-check and arbitration unknown; no code exists, so they are missing. | — |
-| 7.4 | Four triggers, one frontier call, then human | missing / partial | See §2: one trigger is partly matched (turn budget), the rest are missing. The handoff is unknown. | I, B (2 of 4 triggers partly) |
+| 7.4 | Four escalation triggers | missing | **None of the four triggers is implemented as specified** (§2: N sealed-test failures, same failure signature twice, cheap-rung budget, expected-cost comparison). Generic worker escalation exists as an adjacent mechanism only. | — |
+| 7.4 | One frontier call with a digest | missing | Up to 3 climbs with the full transcript (`config.rs:122`; E2E flat asserts 2 climbs). | I, B (3 climbs, not one) |
+| 7.4 | Human handoff after the failed escalation | unknown | `settle` marks a worker `Failed` after the turn-budget bail (`harness.rs:1994-1996`, `:2807-2822`). No test, no digest to the human. Stays unknown until a test verifies it. | I |
 | 8.1 | Proposal schema | missing | `NoteCandidate` (`memory.rs:132`) lacks evidence, ttl and a typed scope check. | — |
 | 8.2 | Decision agent checks | partial | Duplicates and secrets tested; the durability check is a heuristic capture model. Evidence, contradiction, scope and instruction-phrasing checks missing. | I, B |
 | 8.3 | Data, never instructions | missing | Code labels and injects `instruction` notes (see §2). | I, B (asserts the opposite) |
 | 8.3 | Provenance, versioning, revert | partial | Git versioning tested; `revert` untested; provenance incomplete. | I, B (revert untested) |
-| 8.3 | Global needs human approval | missing | | — |
+| 8.3 | Global needs human approval | missing (qualified) | No approval flow. No agent path to global memory was found. One reachable path writes global without prior approval: auto-capture of the user's own chat messages (see §2). | I, B (capture only) |
 | 8.3 | Token-capped selective reads | partial | 6000-char cap, untested, not relevance-ranked. | I, B (cap untested) |
 | 8.4 | Eval: precision, recall, dup rate, secret-catch rate, bloat | missing | | — |
 | 9 | herdr behind adapter, pinned, state never a gate | missing | | — |
@@ -245,7 +262,7 @@ Ordered by impact on the objective (cheapest successful path, total cost-to-gree
 **Blocks later milestones only**
 
 3. M2: decision model. Per §10, I will build the swappable interface and the eval harness first, run the eval on Cauldron traces, then bring you the comparison. No candidate is picked before that. Prerequisite: there are no labeled traces yet (`outcomes.jsonl` is unlabeled), so M2 needs a trace set. I will ask for it then.
-4. M6: herdr release ("v2" not found; latest stable found was 0.8.x).
+4. M6: herdr release. "v2" is still not identified. Correction: the "0.8.x" in earlier revisions came from PLAN.md §9.2 itself, not from my own check, and it is out of date. Checked 2026-10-30 against the GitHub releases page of `herdrdev/herdr` (https://github.com/herdrdev/herdr/releases): the newest stable is **v0.9.5**, marked "Latest", released 14 Oct (2026 per the adjacent preview-build tag names), a hotfix for v0.9.4. Preview builds are published alongside. No v2 or 2.x appeared on the first page of releases (10 pages total, only the first was read). The upstream repo was identified through a secondary article (developersdigest.tech, "Herdr Deep Dive"). The page was read through a web-fetch tool that summarizes, not by cloning or calling the GitHub API. Treat v0.9.5 as **verified as of 2026-10-30 at that URL, subject to re-check at M6**, since releases ship weekly. The version pin is still an M6 decision.
 5. M2: what counts as "frontier" and "mid-tier" in the model config (today `tier` is a config-set integer 1–4). I will propose a definition as part of the M2 routing policy. M8 then uses it for the single-escalation rule.
 6. Q5 (when human approval is removed): not needed until after the evals; PLAN keeps approval for now.
 
@@ -567,3 +584,15 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 
 EXIT 0
 ```
+
+## Change summary (revision 4)
+
+Audit document only. No product code, tests, configuration or PLAN.md changed. The test suite was **not** rerun for this revision, because no code changed since the rerun recorded in §0 and Appendix A.
+
+1. **§7.4 triggers.** All four triggers are now marked missing, and §3 says explicitly that none is implemented as specified. Generic worker escalation, the tool-call loop detector, the turn budget and the after-spend dollar budget are listed separately as adjacent mechanisms. Human handoff stays unknown. The cheap-rung budget row moved from unknown to missing.
+2. **Diffs.** The §3.3 row is split. Diff information in deliverables is partial (I, B), backed by the E2E assertions. Symbol-level context is missing; no implementation was found.
+3. **Cost-to-green (§1a).** It now covers execution, tool/API, test, CI, gate, retry, escalation and human costs. Routing must weigh the probability that each rung succeeds. The objective is stated as minimizing the total expected cost of a verified result.
+4. **Global memory.** Every caller was traced. Agents have no path to global memory. Explicit human writes come from the Memory page and the paired phone. Auto-capture of the user's own chat messages writes global notes before any approval, and that path is reachable (`chat_send` → `capture`, `memory_auto` default on). The finding stays missing for the approval flow, qualified with this evidence.
+5. **Acceptance wording.** The §1 result sentence is replaced with the requested wording.
+6. **herdr version.** The 0.8.x figure came from PLAN.md, not from a check, and is out of date. The GitHub releases page checked on 2026-10-30 shows v0.9.5 as latest, with the source and its limits stated.
+
