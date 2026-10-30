@@ -27,7 +27,7 @@ use crate::git;
 use crate::project::*;
 use crate::provider::{self, Block, Message, Role, Stop, ToolDef};
 use crate::router::{truncate, AgentRole, Decision, Router};
-use crate::gateway::{estimate_tokens, BudgetLine, Gateway, Role as GateRole};
+use crate::gateway::{BudgetLine, Gateway, Role as GateRole};
 use crate::skills::{Skills, ADAPTER};
 use crate::ticket::{Ticket, TicketState};
 use crate::tools::{file_tools, Workspace};
@@ -46,6 +46,12 @@ struct Inner {
     /// The project's policy, fixed when it opened (gateway.rs). Every model
     /// call, skill load and CLI hand-off asks it first.
     gateway: Gateway,
+    /// What every in-flight model call may still cost at most, per budget scope.
+    reservations: Arc<crate::gateway::Reservations>,
+    /// Undoes a change to the policy files made while an agent was acting.
+    guard: Arc<crate::policy_guard::PolicyGuard>,
+    /// What the user should know about the policy, as found when the project opened.
+    notices: Vec<crate::gateway::PolicyNotice>,
     /// Every model call and task outcome so far, for the §3.4 metrics.
     ledger: Mutex<crate::metrics::Ledger>,
     root: PathBuf,
@@ -347,6 +353,11 @@ impl Harness {
         std::fs::create_dir_all(&workspace)?;
         let root = dunce::canonicalize(&workspace)?;
         let (mut cfg, config_source) = Config::load(&root)?;
+        // The policy this project runs under is the one it adopted (gateway.rs);
+        // a file that loosens it is ignored, with a warning.
+        let (policy, mut notices) = crate::gateway::resolve_policy(&root, &cfg.policy)?;
+        cfg.policy = policy;
+        notices.extend(cfg.policy.notices());
         if let Some(w) = over.worker.clone().filter(|w| !w.is_empty()) {
             if cfg.model(&w).is_some() {
                 cfg.router.pin_sub = Some(w);
@@ -361,7 +372,33 @@ impl Harness {
         // model scouts and other small delegated jobs run on (model_server.rs).
         // No probing here — the string says which runtime and which model, and
         // the runtime's default port is enough to point a provider at it.
+        let models_before: Vec<String> = cfg.models.iter().map(|m| m.id.clone()).collect();
         local_subagent(&mut cfg, &crate::prefs::Prefs::load());
+        // A model the user turned on in Settings is theirs to run workers on,
+        // so it joins a non-empty execution list. An empty list is their word
+        // that nothing runs, and a toggle does not overrule it.
+        for m in cfg.models.iter().filter(|m| !models_before.contains(&m.id)) {
+            match &mut cfg.policy.execution_models {
+                Some(list) if !list.is_empty() => {
+                    list.push(m.id.clone());
+                    notices.push(crate::gateway::PolicyNotice {
+                        level: crate::gateway::NoticeLevel::Note,
+                        text: format!("the local model `{}` you turned on in Settings was added to execution_models for this session", m.id),
+                    });
+                }
+                Some(_) => notices.push(crate::gateway::PolicyNotice {
+                    level: crate::gateway::NoticeLevel::Warning,
+                    text: format!("the local model `{}` is turned on in Settings, but execution_models is empty, so it will not run", m.id),
+                }),
+                None => {}
+            }
+        }
+        let skills = Skills::load(&root);
+        // Only skills the project or the user added are worth a warning: the
+        // shipped ones are known, and a short list that leaves them out is
+        // the usual way to say "only these".
+        let added: Vec<String> = skills.found(&root).into_iter().filter(|f| f.origin != "built-in").map(|f| f.name).collect();
+        notices.extend(cfg.policy.skill_notices(&added));
         // Auto (the router picks per ticket): the effort slider caps where workers start.
         if over.worker.as_deref().is_none_or(|w| w.is_empty()) {
             if let Some(e) = over.effort.as_ref().and_then(|e| serde_json::from_value::<Effort>(json!(e)).ok()) {
@@ -400,6 +437,13 @@ impl Harness {
         for n in git_notes {
             main.log.push(LogEntry { kind: LogKind::System, text: n });
         }
+        for n in &notices {
+            let text = match n.level {
+                crate::gateway::NoticeLevel::Warning => format!("policy warning: {}", n.text),
+                crate::gateway::NoticeLevel::Note => format!("policy: {}", n.text),
+            };
+            main.log.push(LogEntry { kind: LogKind::System, text });
+        }
         let fresh = ProjectState {
             name,
             workspace: root.clone(),
@@ -430,10 +474,16 @@ impl Harness {
         let inner = Arc::new(Inner {
             router: Router::new(http.clone(), cfg.clone()).with_local(local_jobs(&prefs_at_open)),
             gateway: Gateway::new(cfg.policy.clone()),
+            reservations: Arc::default(),
+            guard: crate::policy_guard::PolicyGuard::new(vec![
+                (root.join("backspace.toml"), "backspace.toml"),
+                (crate::gateway::lock_path(&root), "the policy lock"),
+            ]),
+            notices,
             ledger: Mutex::new(Default::default()),
             agents_md: std::fs::read_to_string(root.join("AGENTS.md")).ok(),
             memory: over.memory.clone(),
-            skills: Skills::load(&root),
+            skills,
             limiter: Semaphore::new(cfg.orchestrator.max_parallel_calls),
             state: Mutex::new(state),
             verdicts: Mutex::new(HashMap::new()),
@@ -548,7 +598,7 @@ impl Harness {
 
     /// What the user should know about the policy, as found when the project opened.
     pub fn policy_notices(&self) -> Vec<crate::gateway::PolicyNotice> {
-        Vec::new()
+        self.inner.notices.clone()
     }
 
     /// The PLAN §3.4 metrics for this run so far.
@@ -1492,7 +1542,9 @@ async fn plan_on_cli(inner: &Arc<Inner>, cli: &str, text: String) -> Result<()> 
     loop {
         let session = inner.state.lock().unwrap().planner_session.clone();
         let system = session.is_none().then(|| planner_system(inner));
-        let (_, sid) = run_cli_turn(inner, MAIN, cli, &bin, &inner.run_dir.clone(), &prompt, session.as_deref(), system.as_deref()).await?;
+        let admitted = admit_cli(inner, MAIN, model)?;
+        let (_, sid) = run_cli_turn(inner, MAIN, cli, &bin, &inner.run_dir.clone(), &prompt, session.as_deref(), system.as_deref(), &crate::gateway::Authorization::Reserved(&admitted)).await?;
+        drop(admitted);
         if sid.is_some() {
             inner.update(|s| s.planner_session = sid);
             inner.save();
@@ -1707,8 +1759,10 @@ async fn finish_cli(
         );
     }
     for round in 0..4 {
+        let admitted = admit_cli(inner, c.id, &c.decision.model)?;
         let (summary, sid) =
-            run_cli_turn(inner, c.id, cli, &bin, dir, &prompt, session.as_deref(), None).await?;
+            run_cli_turn(inner, c.id, cli, &bin, dir, &prompt, session.as_deref(), None, &crate::gateway::Authorization::Reserved(&admitted)).await?;
+        drop(admitted);
         session = sid.or(session);
         // Keep it in the agent's record as well: this is what survives a
         // restart, so a re-dispatched worker resumes instead of starting over.
@@ -1739,6 +1793,13 @@ async fn finish_cli(
         }
     }
     bail!("{cli} did not get the ticket accepted in 4 rounds")
+}
+
+/// Let a turn in a coding CLI start, if no budget it counts against is
+/// already spent (see `Reservations::admit_cli`).
+fn admit_cli(inner: &Arc<Inner>, id: AgentId, model: &str) -> Result<crate::gateway::Reservation> {
+    let spec = inner.cfg.model(model).ok_or_else(|| anyhow!("routed to unknown model {model}"))?;
+    Ok(inner.reservations.admit_cli(spec, || scoped_lines(inner, id))?)
 }
 
 /// A CLI that prints nothing for this long is stuck: it is stopped.
@@ -1778,8 +1839,17 @@ async fn run_cli_turn(
     prompt: &str,
     session: Option<&str>,
     system: Option<&str>,
+    authorization: &crate::gateway::Authorization<'_>,
 ) -> Result<(String, Option<String>)> {
     use backspace_runner::{Event, Request, Target, Turn};
+    // What this turn may report before it is stopped. A CLI states its usage
+    // as it goes (Codex) or once at the end (Claude Code), so this is a stop
+    // on the turn, not a bound on what it spends before saying so.
+    let ceiling = match authorization {
+        crate::gateway::Authorization::Reserved(r) => r.token_ceiling(),
+        crate::gateway::Authorization::Unmetered(_) => None,
+    };
+    let over = Arc::new(tokio::sync::Notify::new());
     let me = inner.state.lock().unwrap().agents[id].key.clone();
     let tokens_before = {
         let s = inner.state.lock().unwrap();
@@ -1850,7 +1920,7 @@ async fn run_cli_turn(
     }
     let mut st = Said::default();
     let res = {
-        let (inner2, last2) = (inner.clone(), last.clone());
+        let (inner2, last2, over2) = (inner.clone(), last.clone(), over.clone());
         let st = &mut st;
         let mut sink = |e: Event| {
             *last2.lock().unwrap() = std::time::Instant::now();
@@ -1876,26 +1946,47 @@ async fn run_cli_turn(
                         inner2.log(id, if *error { LogKind::Error } else { LogKind::ToolResult }, truncate(output, 800));
                     }
                 }
-                Event::Usage { input, output } => inner2.agent(id, |a| {
-                    a.input_tokens = a.input_tokens.max(*input);
-                    a.output_tokens = a.output_tokens.max(*output);
-                }),
+                Event::Usage { input, output } => {
+                    // Tokens of earlier turns stay counted: this turn's own
+                    // figure (the largest it has reported) comes on top.
+                    inner2.agent(id, |a| {
+                        a.input_tokens = a.input_tokens.max(tokens_before.0 + *input);
+                        a.output_tokens = a.output_tokens.max(tokens_before.1 + *output);
+                    });
+                    if ceiling.is_some_and(|left| input + output > left) {
+                        over2.notify_one();
+                    }
+                }
                 Event::Cost { usd } => inner2.log(id, LogKind::System, format!("{cli} turn done (≈${usd:.3} at API prices; billed to your {cli} plan)")),
                 Event::Model { .. } => {}
             }
         };
-        let run = backspace_runner::run(&inner.http, &req, &mut sink);
+        // The policy files are the host's, not the CLI's: put back what it
+        // changed while it ran (see policy_guard).
+        let acting = inner.guard.begin();
+        let run = crate::provider::run_target(&inner.http, &req, &mut sink, authorization);
         tokio::pin!(run);
-        loop {
+        let out = loop {
             tokio::select! {
                 r = &mut run => break r,
+                _ = over.notified() => {
+                    let left = ceiling.unwrap_or(0);
+                    break Err(anyhow::Error::new(crate::gateway::Refusal::Budget {
+                        label: "task".into(),
+                        detail: format!("{cli} reported more than the {left} tokens this task had left, so the turn was stopped"),
+                    }));
+                }
                 _ = tokio::time::sleep(Duration::from_secs(20)) => {
                     if last.lock().unwrap().elapsed() > CLI_STALL {
                         break Err(anyhow!("{cli} printed nothing for {} minutes; stopped it", CLI_STALL.as_secs() / 60));
                     }
                 }
             }
+        };
+        for note in acting.end() {
+            inner.log(id, LogKind::System, note);
         }
+        out
     };
     st.flush(inner, id);
     // A CLI turn is one call of its model's class. It is billed to a plan, so
@@ -2034,33 +2125,40 @@ async fn run_triage_again(inner: Arc<Inner>, id: AgentId) -> Result<Deliverable>
     finish(&inner, &mut c).await
 }
 
-/// Characters in what the next call will send: system prompt, conversation, tools.
-fn prompt_chars(c: &Conversation) -> usize {
-    let messages = serde_json::to_string(&c.messages).map_or(0, |s| s.len());
-    let tools: usize = c.tools.iter().map(|t| t.name.len() + t.description.len() + t.schema.to_string().len()).sum();
-    c.system.len() + messages + tools
-}
-
-/// Every budget this agent's next call must fit under: the policy's per-task
-/// limit, any ticket budget on it or an agent above it (spent by its whole
-/// subtree), and the project's.
-fn budget_lines(inner: &Inner, id: AgentId) -> Vec<BudgetLine> {
+/// Every budget this agent's next call must fit under, each with the key that
+/// says which in-flight calls count against it: the policy's per-task limit
+/// (this agent's own spend), any ticket budget on it or an agent above it
+/// (spent by its whole subtree), and the project's. Tokens are the provider's
+/// own count, cache reads and writes at face value.
+fn scoped_lines(inner: &Inner, id: AgentId) -> Vec<crate::gateway::ScopedLine> {
+    use crate::gateway::ScopedLine;
     let s = inner.state.lock().unwrap();
     let a = &s.agents[id];
-    let mut lines: Vec<BudgetLine> = inner.gateway.task_budget(a.cost_usd, a.input_tokens + a.output_tokens).into_iter().collect();
+    let mut lines: Vec<ScopedLine> = inner
+        .gateway
+        .task_budget(a.cost_usd, a.input_tokens + a.output_tokens)
+        .into_iter()
+        .map(|line| ScopedLine { key: format!("task:{id}"), line })
+        .collect();
     for up in s.ancestry(id) {
         if let Some(limit) = s.agents[up].budget_usd {
-            lines.push(BudgetLine {
-                label: format!("agent `{}`", s.agents[up].key),
-                limit_usd: Some(limit),
-                limit_tokens: None,
-                spent_usd: s.subtree_cost(up),
-                spent_tokens: 0,
+            lines.push(ScopedLine {
+                key: format!("agent:{up}"),
+                line: BudgetLine {
+                    label: format!("agent `{}`", s.agents[up].key),
+                    limit_usd: Some(limit),
+                    limit_tokens: None,
+                    spent_usd: s.subtree_cost(up),
+                    spent_tokens: 0,
+                },
             });
         }
     }
     if let Some(limit) = inner.cfg.orchestrator.max_project_usd {
-        lines.push(BudgetLine { label: "project".into(), limit_usd: Some(limit), limit_tokens: None, spent_usd: s.total_cost_usd, spent_tokens: 0 });
+        lines.push(ScopedLine {
+            key: "project".into(),
+            line: BudgetLine { label: "project".into(), limit_usd: Some(limit), limit_tokens: None, spent_usd: s.total_cost_usd, spent_tokens: 0 },
+        });
     }
     lines
 }
@@ -2142,19 +2240,10 @@ async fn drive(inner: &Arc<Inner>, c: &mut Conversation) -> Result<TurnEnd> {
             .model(&c.decision.model)
             .ok_or_else(|| anyhow!("routed to unknown model {}", c.decision.model))?
             .clone();
-        // Pre-call budget: refuse before anything is sent, and never let the
-        // provider produce more than what is left can pay for.
-        let grant = inner.gateway.authorize_call(
-            role,
-            &spec,
-            estimate_tokens(prompt_chars(c)),
-            &budget_lines(inner, c.id),
-        )?;
-        spec.max_output_tokens = grant.max_output_tokens;
         let provider_cfg = inner.cfg.providers[&spec.provider].clone();
         // The advisor: Anthropic only, and only for an executor it can rank
         // above (an Opus advisor can't advise Fable). Scouts work without one.
-        let advisor = inner.cfg.advisor.model.clone().filter(|a| {
+        let mut advisor = inner.cfg.advisor.model.clone().filter(|a| {
             let id = inner.cfg.models.iter().find(|m| m.wire_model() == a).map_or(a.as_str(), |m| m.id.as_str());
             inner.gateway.check_model(role, id).is_ok()
                 && provider_cfg.kind == crate::config::ProviderKind::Anthropic
@@ -2162,29 +2251,90 @@ async fn drive(inner: &Arc<Inner>, c: &mut Conversation) -> Result<TurnEnd> {
                 && !spec.wire_model().contains("fable")
                 && a != spec.wire_model()
         });
-        let completion = {
-            let _permit = inner.limiter.acquire().await?;
-            provider::complete(
-                &inner.http,
-                provider::Request {
-                    provider: &provider_cfg,
-                    model: &spec,
-                    effort: c.decision.effort,
-                    system: &c.system,
-                    messages: &c.messages,
-                    tools: &c.tools,
-                    advisor: advisor.as_deref(),
-                },
-            )
-            .await?
+        let _permit = inner.limiter.acquire().await?;
+        // Pre-call budget, taken only now that the call can go out: its worst
+        // case (the request as it will be sent, bounded in bytes, and the
+        // whole output it may ask for) is held against every budget it
+        // belongs to until it finishes, so concurrent agents cannot all spend
+        // the same dollar. Refused before anything is sent.
+        let bound = {
+            let p = provider::prepare(&provider::Request {
+                provider: &provider_cfg,
+                model: &spec,
+                effort: c.decision.effort,
+                system: &c.system,
+                messages: &c.messages,
+                tools: &c.tools,
+                advisor: advisor.as_deref(),
+            })?;
+            crate::gateway::input_bound(p.bytes.len(), p.messages, p.tools)
         };
+        let reservation = inner.reservations.reserve(
+            &inner.gateway,
+            role,
+            &spec,
+            bound,
+            provider::input_price_factor(provider_cfg.kind),
+            || scoped_lines(inner, c.id),
+        )?;
+        spec.max_output_tokens = reservation.grant.max_output_tokens;
+        // The advisor reads the transcript and answers up to its own cap; the
+        // provider does not enforce that cap, so this is an assumed bound.
+        // It is offered only if its worst case fits beside the call's.
+        let advisor_hold = match advisor.clone() {
+            Some(a) => {
+                let adv = inner.cfg.models.iter().find(|m| m.wire_model() == a);
+                let cap = inner.cfg.advisor.max_output_tokens;
+                let (pin, pout) = adv.map_or((None, None), |m| (Some(m.input_usd_per_mtok), Some(m.output_usd_per_mtok)));
+                let usd = match (pin, pout) {
+                    (Some(i), Some(o)) => Some((bound as f64 * i * provider::input_price_factor(provider_cfg.kind) + cap as f64 * o) / 1e6),
+                    // A model not in the config has no price to reserve.
+                    _ => None,
+                };
+                let lines = scoped_lines(inner, c.id);
+                let priced_limit = lines.iter().any(|l| l.line.limit_usd.is_some());
+                match usd {
+                    None if priced_limit => Err(format!("the advisor `{a}` has no price in the config, so its cost cannot be held against a dollar limit")),
+                    usd => inner
+                        .reservations
+                        .reserve_fixed("the advisor", usd.unwrap_or(0.0), bound + cap, || scoped_lines(inner, c.id))
+                        .map_err(|r| r.to_string()),
+                }
+                .map(Some)
+            }
+            None => Ok(None),
+        };
+        let advisor_hold = match advisor_hold {
+            Ok(h) => h,
+            Err(why) => {
+                inner.log(c.id, LogKind::System, format!("left the advisor off this call: {why}"));
+                advisor = None;
+                None
+            }
+        };
+        let completion = provider::complete(
+            &inner.http,
+            provider::Request {
+                provider: &provider_cfg,
+                model: &spec,
+                effort: c.decision.effort,
+                system: &c.system,
+                messages: &c.messages,
+                tools: &c.tools,
+                advisor: advisor.as_deref(),
+            },
+            &crate::gateway::Authorization::Reserved(&reservation),
+        )
+        .await?;
 
         let mut cost = spec.cost(completion.input_tokens, completion.output_tokens);
+        // Tokens as the provider counted them: what a token budget is made of.
+        let (raw_in, raw_out) = (completion.raw_input_tokens, completion.output_tokens);
         let mut records = vec![crate::metrics::CallRecord {
             model: spec.id.clone(),
             class: crate::ladder::class_of(&spec),
-            input_tokens: completion.input_tokens,
-            output_tokens: completion.output_tokens,
+            input_tokens: raw_in,
+            output_tokens: raw_out,
             usd: cost,
         }];
         let (ai, ao) = completion.advisor_tokens;
@@ -2205,13 +2355,31 @@ async fn drive(inner: &Arc<Inner>, c: &mut Conversation) -> Result<TurnEnd> {
             inner.log(c.id, LogKind::System, format!("consulted the advisor ({}): {}k tokens read", advisor.as_deref().unwrap_or("advisor"), ai / 1000));
             inner.agent(c.id, |a| a.advisor_calls += 1);
         }
+        // What this call cost against what was held for it. The hold covers the
+        // executor's call and, if one was made, the advisor's.
+        let tokens_used = raw_in + raw_out + ai + ao;
+        let held_usd = reservation.reserved_usd() + advisor_hold.as_ref().map_or(0.0, |h| h.reserved_usd());
+        let held_tokens = reservation.reserved_tokens() + advisor_hold.as_ref().map_or(0, |h| h.reserved_tokens());
+        if cost > held_usd + 1e-9 || tokens_used > held_tokens {
+            inner.log(
+                c.id,
+                LogKind::System,
+                format!(
+                    "overshoot: the call to `{}` cost ${cost:.4} and used {tokens_used} tokens against a reservation of ${held_usd:.4} and {held_tokens} tokens; the provider billed past the limits that were sent. It is counted in full, and the next call is checked against it.",
+                    spec.id
+                ),
+            );
+        }
         inner.update(|s| {
             let a = &mut s.agents[c.id];
             a.cost_usd += cost;
-            a.input_tokens += completion.input_tokens;
-            a.output_tokens += completion.output_tokens;
+            a.input_tokens += raw_in + ai;
+            a.output_tokens += raw_out + ao;
             s.total_cost_usd += cost;
         });
+        // Only now is the hold let go: its place is taken by the spend above.
+        drop(advisor_hold);
+        drop(reservation);
         {
             let mut ledger = inner.ledger.lock().unwrap();
             for r in records {
@@ -2228,6 +2396,7 @@ async fn drive(inner: &Arc<Inner>, c: &mut Conversation) -> Result<TurnEnd> {
             inner.trace_event(c.id, &backspace_runner::Event::Usage { input: i, output: o });
             inner.trace_event(c.id, &backspace_runner::Event::Cost { usd });
         }
+        drop(_permit);
 
         let text = completion.text();
         if !text.trim().is_empty() {
@@ -2270,6 +2439,9 @@ async fn drive(inner: &Arc<Inner>, c: &mut Conversation) -> Result<TurnEnd> {
             })
             .collect();
 
+        // The shell is not sandboxed, so whatever the tools did to the policy
+        // files is undone once the batch ends (see policy_guard).
+        let acting = inner.guard.begin();
         let results = {
             let cref = &*c;
             join_all(calls.iter().map(|(call_id, name, input)| {
@@ -2287,6 +2459,9 @@ async fn drive(inner: &Arc<Inner>, c: &mut Conversation) -> Result<TurnEnd> {
             }))
             .await
         };
+        for note in acting.end() {
+            inner.log(c.id, LogKind::System, note);
+        }
 
         let mut blocks = Vec::new();
         let mut delivered = None;
@@ -2610,12 +2785,21 @@ async fn submit(inner: &Arc<Inner>, c: &Conversation, input: &Value) -> Result<T
         }
         deliverable.check_passed = Some(check);
     }
+    // The project's policy is a person's to change. A delivery that edits the
+    // file is held for one, whoever would otherwise have approved it: merged
+    // into the run branch and then into the workspace, it would be the next
+    // session's policy.
+    let edits_policy = deliverable.changes.iter().any(|f| f.path == "backspace.toml");
+    if edits_policy {
+        deliverable.summary = format!("Changes project policy (backspace.toml): {}", deliverable.summary);
+        inner.log(c.id, LogKind::System, "this delivery edits backspace.toml, so it waits for a person even where deliveries are approved automatically");
+    }
     inner.agent(c.id, |a| a.deliverable = Some(deliverable.clone()));
 
     // 3. Review: the agent's manager for deep work, otherwise the human.
     let manager_reviews =
-        c.kind == AgentKind::Worker && depth > inner.cfg.orchestrator.human_review_depth;
-    if !manager_reviews && !inner.cfg.orchestrator.auto_approve {
+        c.kind == AgentKind::Worker && depth > inner.cfg.orchestrator.human_review_depth && !edits_policy;
+    if !manager_reviews && (!inner.cfg.orchestrator.auto_approve || edits_policy) {
         if let Some(k) = &c.ticket {
             inner.ticket(k, |t| t.state = TicketState::InReview);
         }
@@ -2659,7 +2843,7 @@ async fn submit(inner: &Arc<Inner>, c: &Conversation, input: &Value) -> Result<T
 
     let note = if manager_reviews {
         "Merged and sent to your manager for review. If they request changes, you will be reopened."
-    } else if inner.cfg.orchestrator.auto_approve {
+    } else if inner.cfg.orchestrator.auto_approve && !edits_policy {
         "Auto-approved."
     } else {
         "Approved by the user."

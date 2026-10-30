@@ -1396,7 +1396,7 @@ impl Chats {
         // The final answer counts only if nothing streamed in this run
         // (a resumed reply already has text of its own).
         let mut streamed = false;
-        let res = backspace_runner::run(&self.http, &req, &mut |e| {
+        let res = crate::provider::run_target(&self.http, &req, &mut |e| {
             rec.on(&e);
             let e = match e {
                 RunEvent::Final { text } if !streamed && !text.is_empty() => RunEvent::Text { text },
@@ -1407,7 +1407,7 @@ impl Chats {
                 streamed = true;
             }
             self.on_event(id, mid, keep_session, e)
-        })
+        }, &crate::gateway::Authorization::Unmetered(crate::gateway::Unmetered::AgentChat))
         .await;
         let t = rec.finish(res.as_ref().err().map(|e| e.to_string()));
         if crate::trace::save(&self.dir, &t).is_ok() {

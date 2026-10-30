@@ -99,7 +99,9 @@ fn what_is_held_never_passes_the_limit_while_calls_are_in_flight() {
 fn a_stopped_call_releases_its_reservation() {
     let m = model(10.0, 20.0, 10_000);
     let t = table();
-    let lines = || vec![scope("project", Some(0.25), None)];
+    // $0.005 is left beside the first call's $0.21: less than the prompt alone ($0.01), so not
+    // even a call with its output clamped fits. (With $0.04 left one would, as the stampede above shows.)
+    let lines = || vec![scope("project", Some(0.215), None)];
     let first = t.reserve(&gw(), Role::Execution, &m, 1_000, 1.0, lines).unwrap();
     assert!(first.reserved_usd() > 0.2 && t.held("project").0 > 0.2);
     assert!(t.reserve(&gw(), Role::Execution, &m, 1_000, 1.0, lines).is_err(), "no room while the first is in flight");

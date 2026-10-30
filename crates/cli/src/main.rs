@@ -1,6 +1,11 @@
 //! Headless shell: stream logs, answer approvals on stdin.
 //!
-//!   backspace-cli init-config            write the default config to ./backspace.toml
+//!   backspace-cli init-config            write the default config, with an explicit
+//!                                        [policy], to ./backspace.toml
+//!   backspace-cli policy init            print a [policy] block that allows what
+//!                                        this project allows today
+//!   backspace-cli policy adopt           accept ./backspace.toml's policy as the one
+//!                                        to run under (a person's step)
 //!   backspace-cli <workspace> "<goal>"   run a project
 //!   backspace-cli serve <workspace> [addr]
 //!                                        share a harness so other machines
@@ -33,8 +38,12 @@ fn main() -> Result<()> {
             if std::path::Path::new("backspace.toml").exists() {
                 bail!("backspace.toml already exists");
             }
-            std::fs::write("backspace.toml", DEFAULT_CONFIG)?;
-            println!("wrote backspace.toml");
+            // A new project starts with the policy written out: every model
+            // the default config has, the skills found here, no plugins.
+            let skills = skill_names(&std::env::current_dir()?);
+            let block = backspace_core::Config::parse(DEFAULT_CONFIG)?.policy_init_block(&skills);
+            std::fs::write("backspace.toml", format!("{DEFAULT_CONFIG}\n{block}"))?;
+            println!("wrote backspace.toml, with a [policy] that allows the models and skills listed in it; narrow it to what this project needs");
             Ok(())
         }
         [cmd, ws, rest @ ..] if cmd == "serve" && rest.len() <= 1 => serve(
@@ -75,10 +84,36 @@ fn eval(args: &[String]) -> Result<()> {
     Ok(())
 }
 
+fn skill_names(workspace: &std::path::Path) -> Vec<String> {
+    backspace_core::skills::Skills::load(workspace).by_name.keys().cloned().collect()
+}
+
 /// `policy init` prints a `[policy]` block that allows what this project
 /// allows now; `policy adopt` records the policy in `backspace.toml` as the
 /// one to run under (a person's step; an agent has no business here).
-fn policy(_sub: &str) -> Result<()> {
+fn policy(sub: &str) -> Result<()> {
+    let cwd = std::env::current_dir()?;
+    let (cfg, path) = backspace_core::Config::load(&cwd)?;
+    match sub {
+        "init" => {
+            print!("{}", cfg.policy_init_block(&skill_names(&cwd)));
+            eprintln!("Put this in backspace.toml in place of any [policy] section. It is printed, not written: the policy is yours to edit.");
+        }
+        _ => {
+            // Without a file the policy is the built-in default one (see
+            // `Config::new_project`), which is adopted the same way.
+            let from = path.map_or_else(|| "the built-in default config".to_string(), |p| p.display().to_string());
+            let root = dunce::canonicalize(&cwd)?;
+            let loosened = backspace_core::gateway::adopt_policy(&root, &cfg.policy)?;
+            println!("adopted the policy in {from} for {}", root.display());
+            if !loosened.is_empty() {
+                println!("it is looser than the one adopted before:");
+                for l in loosened {
+                    println!("  {l}");
+                }
+            }
+        }
+    }
     Ok(())
 }
 
@@ -187,6 +222,10 @@ fn serve(ws: PathBuf, addr: &str) -> Result<()> {
 
 fn run(ws: PathBuf, goal: String) -> Result<()> {
     let h = Harness::open(ws)?;
+    for n in h.policy_notices() {
+        let tag = if n.level == backspace_core::gateway::NoticeLevel::Warning { "policy warning" } else { "policy" };
+        eprintln!("{tag}: {}", n.text);
+    }
     let changes = h.changes();
     h.send(goal);
 

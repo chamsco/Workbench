@@ -676,6 +676,7 @@ async fn answer(srv: &Server, model: &str, messages: &Value) -> Result<(String, 
             advisor: None,
             effort: crate::Effort::Low,
         },
+        &crate::gateway::Authorization::Unmetered(crate::gateway::Unmetered::CloudChatServer),
     )
     .await?;
     let usd = (c.input_tokens as f64 * spec.input_usd_per_mtok

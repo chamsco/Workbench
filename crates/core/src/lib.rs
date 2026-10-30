@@ -31,6 +31,7 @@ pub mod metrics;
 pub mod model_server;
 pub mod options;
 pub mod phase;
+pub mod policy_guard;
 pub mod trace;
 pub mod prefs;
 pub mod project;

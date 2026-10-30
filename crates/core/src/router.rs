@@ -392,6 +392,8 @@ impl Router {
             },
         });
 
+        // Counted as router cost afterwards, not reserved: docs/cauldron/M1-BUDGET-BOUNDARIES.md.
+        crate::provider::note_unmetered(crate::gateway::Unmetered::JevRouter);
         let resp = self
             .http
             .post(&rc.jev_endpoint)

@@ -62,9 +62,11 @@ fn the_bound_is_never_below_the_bytes_of_the_body_that_is_sent() {
         let p = prepared(ProviderKind::Openai, "You are a coding agent.", &text, &[]);
         let bound = input_bound(p.bytes.len(), p.messages, p.tools);
         assert!(bound >= p.bytes.len() as u64, "{name}: bound {bound} for {} bytes", p.bytes.len());
-        // Two tokens a character is worse than any tokenizer does on these.
+        // Two tokens a character is worse than any tokenizer does on these, but a token is
+        // never less than a byte (the bound's assumption), so for text that takes fewer than
+        // two bytes a character the bytes are the limit.
         let chars = text.chars().count() as u64;
-        assert!(bound >= 2 * chars, "{name}: bound {bound} for {chars} characters");
+        assert!(bound >= (2 * chars).min(p.bytes.len() as u64), "{name}: bound {bound} for {chars} characters");
     }
 }
 

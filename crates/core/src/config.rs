@@ -63,6 +63,10 @@ pub struct AdvisorConfig {
     pub cli_scouts: Option<String>,
     /// Scouts one call may send out at once.
     pub scouts: usize,
+    /// What a budget reservation assumes one advisor consultation may write.
+    /// The advisor tool takes no output cap, so this is an assumption about
+    /// the provider, not a limit it enforces.
+    pub max_output_tokens: u64,
 }
 
 impl Default for AdvisorConfig {
@@ -73,6 +77,7 @@ impl Default for AdvisorConfig {
             scout_model: None,
             cli_scouts: Some("haiku".into()),
             scouts: 3,
+            max_output_tokens: crate::gateway::ADVISOR_OUTPUT_TOKENS,
         }
     }
 }
@@ -261,21 +266,63 @@ impl Config {
                 return Ok((cfg, Some(path)));
             }
         }
-        Ok((Self::parse(DEFAULT_CONFIG)?, None))
+        Ok((Self::new_project(workspace), None))
     }
 
     /// The configuration a folder with none of its own starts with: the
     /// built-in models and an explicit, enforced policy that allows what the
-    /// built-in config allows today.
-    pub fn new_project(_workspace: &Path) -> Config {
-        Self::parse(DEFAULT_CONFIG).expect("the built-in config parses")
+    /// built-in config allows today (every model, for both roles, and every
+    /// skill found; no plugins, as there is no loader). The shipped
+    /// `default-config.toml` carries no `[policy]`, so a config file built on
+    /// it, with a policy of its own, stays valid.
+    pub fn new_project(workspace: &Path) -> Config {
+        let mut cfg = Self::parse(DEFAULT_CONFIG).expect("the built-in config parses");
+        let skills: Vec<String> = crate::skills::Skills::load(workspace).by_name.keys().cloned().collect();
+        cfg.policy = cfg.effective_policy(&skills);
+        cfg
+    }
+
+    /// This config's policy with every open dimension written out as the list
+    /// that allows what is allowed now, and `mode = "enforced"`. Lists that
+    /// are already there are kept as written, so the result never allows
+    /// more than the config does.
+    pub fn effective_policy(&self, skills: &[String]) -> crate::gateway::PolicyConfig {
+        let ids: Vec<String> = self.models.iter().map(|m| m.id.clone()).collect();
+        let p = &self.policy;
+        crate::gateway::PolicyConfig {
+            mode: Some(crate::gateway::PolicyMode::Enforced),
+            orchestration_models: p.orchestration_models.clone().or_else(|| Some(ids.clone())),
+            execution_models: p.execution_models.clone().or(Some(ids)),
+            skills: p.skills.clone().or_else(|| Some(skills.to_vec())),
+            plugins: p.plugins.clone().or(Some(vec![])),
+            budget: p.budget.clone(),
+        }
     }
 
     /// A `[policy]` block that allows exactly what this config allows now
     /// (open dimensions become explicit lists), for `policy init` and for
-    /// moving a project off legacy-open.
-    pub fn policy_init_block(&self, _skills: &[String]) -> String {
-        String::new()
+    /// moving a project off legacy-open. It replaces a `[policy]` section the
+    /// file already has; a budget in it is carried over.
+    pub fn policy_init_block(&self, skills: &[String]) -> String {
+        let p = self.effective_policy(skills);
+        let list = |l: &Option<Vec<String>>| {
+            toml::Value::Array(l.iter().flatten().map(|s| toml::Value::String(s.clone())).collect()).to_string()
+        };
+        let mut out = String::from("[policy]\nmode = \"enforced\"\n");
+        out.push_str(&format!("orchestration_models = {}\n", list(&p.orchestration_models)));
+        out.push_str(&format!("execution_models = {}\n", list(&p.execution_models)));
+        out.push_str(&format!("skills = {}\n", list(&p.skills)));
+        out.push_str(&format!("plugins = {}\n", list(&p.plugins)));
+        if p.budget.max_usd.is_some() || p.budget.max_tokens.is_some() {
+            out.push_str("\n[policy.budget]\n");
+            if let Some(x) = p.budget.max_usd {
+                out.push_str(&format!("max_usd = {x:?}\n"));
+            }
+            if let Some(x) = p.budget.max_tokens {
+                out.push_str(&format!("max_tokens = {x}\n"));
+            }
+        }
+        out
     }
 
     pub fn search_paths(workspace: &Path) -> Vec<PathBuf> {
@@ -346,6 +393,9 @@ impl Config {
         }
         if !(self.router.triage_threshold > 0.0 && self.router.triage_threshold <= 1.0) {
             bail!("router.triage_threshold must be above 0 and at most 1");
+        }
+        if let Err(e) = self.policy.check_complete() {
+            bail!(e);
         }
         Ok(())
     }
