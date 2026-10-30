@@ -27,6 +27,7 @@ use crate::git;
 use crate::project::*;
 use crate::provider::{self, Block, Message, Role, Stop, ToolDef};
 use crate::router::{truncate, AgentRole, Decision, Router};
+use crate::gateway::{estimate_tokens, BudgetLine, Gateway, Role as GateRole};
 use crate::skills::{Skills, ADAPTER};
 use crate::ticket::{Ticket, TicketState};
 use crate::tools::{file_tools, Workspace};
@@ -42,6 +43,9 @@ struct Inner {
     cfg: Config,
     http: reqwest::Client,
     router: Router,
+    /// The project's policy, fixed when it opened (gateway.rs). Every model
+    /// call, skill load and CLI hand-off asks it first.
+    gateway: Gateway,
     root: PathBuf,
     /// Branch checked out in the root workspace; the main agent's branch.
     base_branch: String,
@@ -422,6 +426,7 @@ impl Harness {
         let prefs_at_open = crate::prefs::Prefs::load();
         let inner = Arc::new(Inner {
             router: Router::new(http.clone(), cfg.clone()).with_local(local_jobs(&prefs_at_open)),
+            gateway: Gateway::new(cfg.policy.clone()),
             agents_md: std::fs::read_to_string(root.join("AGENTS.md")).ok(),
             memory: over.memory.clone(),
             skills: Skills::load(&root),
@@ -989,7 +994,7 @@ impl Inner {
             "\n\nYou are running on {} at {} effort.\n\n# Skills\n\nLoad any of these with the `skill` tool when it fits the task.\n{}\n\n{ADAPTER}",
             decision.model,
             decision.effort,
-            self.skills.index()
+            self.skills.index_where(|n| self.gateway.skill_allowed(n))
         ));
         let injected = match kind {
             AgentKind::Main => &wf.main_skills,
@@ -999,6 +1004,9 @@ impl Inner {
         };
         for name in injected {
             if name == "grilling" && !wf.grill {
+                continue;
+            }
+            if !self.gateway.skill_allowed(name) {
                 continue;
             }
             if let Some(body) = self.skills.read(name, None) {
@@ -1438,6 +1446,9 @@ fn load_main(inner: &Inner) -> Option<Conversation> {
 /// next prompt (on the same session) until it answers without asking for
 /// anything.
 async fn plan_on_cli(inner: &Arc<Inner>, cli: &str, text: String) -> Result<()> {
+    // The planner CLI is a model choice like any other: its id is the config entry that runs it.
+    let model = inner.cfg.models.iter().find(|m| inner.cfg.cli_of(&m.id).and_then(|p| p.cli.as_deref()) == Some(cli)).map_or(cli, |m| m.id.as_str());
+    inner.gateway.check_model(GateRole::Orchestration, model)?;
     let bin = crate::harnesses::which(crate::harnesses::bin_for(cli))
         .ok_or_else(|| anyhow!("`{cli}` is not installed on this machine"))?;
     let mut prompt = text;
@@ -1535,11 +1546,13 @@ fn escalate(inner: &Inner, c: &mut Conversation, reason: &str) -> bool {
             && next_effort.clamp_to(&spec.efforts).is_some()
             && next_effort.clamp_to(&spec.efforts) != c.decision.effort.clamp_to(&spec.efforts)
     };
+    let role = GateRole::of(c.kind, c.can_spawn);
     let stronger = inner
         .cfg
         .usable_models()
         .into_iter()
         .filter(|m| m.tier > spec.tier)
+        .filter(|m| inner.gateway.check_model(role, &m.id).is_ok())
         .min_by(|a, b| {
             a.tier
                 .cmp(&b.tier)
@@ -1614,6 +1627,7 @@ async fn finish_cli(
     brief: &str,
     session: Option<String>,
 ) -> Result<Deliverable> {
+    inner.gateway.check_model(GateRole::of(c.kind, c.can_spawn), &c.decision.model)?;
     let bin = crate::harnesses::which(crate::harnesses::bin_for(cli))
         .ok_or_else(|| anyhow!("`{cli}` is not installed on this machine"))?;
     inner.log(
@@ -1957,6 +1971,37 @@ async fn run_triage_again(inner: Arc<Inner>, id: AgentId) -> Result<Deliverable>
     finish(&inner, &mut c).await
 }
 
+/// Characters in what the next call will send: system prompt, conversation, tools.
+fn prompt_chars(c: &Conversation) -> usize {
+    let messages = serde_json::to_string(&c.messages).map_or(0, |s| s.len());
+    let tools: usize = c.tools.iter().map(|t| t.name.len() + t.description.len() + t.schema.to_string().len()).sum();
+    c.system.len() + messages + tools
+}
+
+/// Every budget this agent's next call must fit under: the policy's per-task
+/// limit, any ticket budget on it or an agent above it (spent by its whole
+/// subtree), and the project's.
+fn budget_lines(inner: &Inner, id: AgentId) -> Vec<BudgetLine> {
+    let s = inner.state.lock().unwrap();
+    let a = &s.agents[id];
+    let mut lines: Vec<BudgetLine> = inner.gateway.task_budget(a.cost_usd, a.input_tokens + a.output_tokens).into_iter().collect();
+    for up in s.ancestry(id) {
+        if let Some(limit) = s.agents[up].budget_usd {
+            lines.push(BudgetLine {
+                label: format!("agent `{}`", s.agents[up].key),
+                limit_usd: Some(limit),
+                limit_tokens: None,
+                spent_usd: s.subtree_cost(up),
+                spent_tokens: 0,
+            });
+        }
+    }
+    if let Some(limit) = inner.cfg.orchestrator.max_project_usd {
+        lines.push(BudgetLine { label: "project".into(), limit_usd: Some(limit), limit_tokens: None, spent_usd: s.total_cost_usd, spent_tokens: 0 });
+    }
+    lines
+}
+
 fn over_budget(inner: &Inner, id: AgentId) -> Option<String> {
     let s = inner.state.lock().unwrap();
     if let Some(max) = inner.cfg.orchestrator.max_project_usd {
@@ -2027,16 +2072,29 @@ async fn drive(inner: &Arc<Inner>, c: &mut Conversation) -> Result<TurnEnd> {
             }
         }
 
-        let spec = inner
+        let role = GateRole::of(c.kind, c.can_spawn);
+        inner.gateway.check_model(role, &c.decision.model)?;
+        let mut spec = inner
             .cfg
             .model(&c.decision.model)
             .ok_or_else(|| anyhow!("routed to unknown model {}", c.decision.model))?
             .clone();
+        // Pre-call budget: refuse before anything is sent, and never let the
+        // provider produce more than what is left can pay for.
+        let grant = inner.gateway.authorize_call(
+            role,
+            &spec,
+            estimate_tokens(prompt_chars(c)),
+            &budget_lines(inner, c.id),
+        )?;
+        spec.max_output_tokens = grant.max_output_tokens;
         let provider_cfg = inner.cfg.providers[&spec.provider].clone();
         // The advisor: Anthropic only, and only for an executor it can rank
         // above (an Opus advisor can't advise Fable). Scouts work without one.
         let advisor = inner.cfg.advisor.model.clone().filter(|a| {
-            provider_cfg.kind == crate::config::ProviderKind::Anthropic
+            let id = inner.cfg.models.iter().find(|m| m.wire_model() == a).map_or(a.as_str(), |m| m.id.as_str());
+            inner.gateway.check_model(role, id).is_ok()
+                && provider_cfg.kind == crate::config::ProviderKind::Anthropic
                 && c.kind != AgentKind::Scout
                 && !spec.wire_model().contains("fable")
                 && a != spec.wire_model()
@@ -2232,6 +2290,7 @@ async fn run_tool(
     match name {
         "skill" => {
             let n = input["name"].as_str().context("missing `name`")?;
+            inner.gateway.check_skill(GateRole::of(c.kind, c.can_spawn), n)?;
             inner
                 .skills
                 .read(n, input["file"].as_str())

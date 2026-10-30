@@ -253,7 +253,7 @@ fn a_skill_outside_the_list_is_refused_and_not_offered_to_an_orchestration_agent
     assert!(!sys.contains("# Skill: grilling") && !sys.contains("# Skill: to-tickets"), "nor injected into the prompt");
     let result = last_tool_result(&g[1]);
     assert!(result.contains("refused by project policy") && result.contains("skill `grilling`"), "{result}");
-    assert!(!result.contains("grill"), "none of the skill's text comes back: {result}");
+    assert!(!result.contains("design tree"), "none of the skill's own text comes back: {result}");
 }
 
 #[test]
@@ -358,7 +358,7 @@ fn the_project_budget_is_enforced_before_the_call_not_after_it() {
     let (h, _ws) = open("budget-project", port, "pin_main = \"mock-big\"", "max_project_usd = 0.0001", "");
     h.send("say hi");
     let s = wait(&h, "the refusal", |s| refused(s, 0));
-    assert!(errors(&s, 0).join("\n").contains("project"), "{:?}", errors(&s, 0));
+    assert!(errors(&s, 0).join("\n").contains("project budget"), "{:?}", errors(&s, 0));
     assert_eq!(count(&seen), 0);
 }
 
@@ -391,8 +391,11 @@ fn an_agent_cannot_rewrite_the_policy_file_with_the_file_tools() {
         assert!(result.contains("protected") && result.contains("backspace.toml"), "{what}: {result}");
     }
     assert_eq!(std::fs::read_to_string(ws.join("backspace.toml")).unwrap(), before);
-    // No copy of it appeared in the agents' checkout either.
-    assert!(!ws.join(".backspace/worktrees/_run/backspace.toml").exists());
+    // The agents' checkout holds a committed copy; it is untouched too.
+    let copy = ws.join(".backspace/worktrees/_run/backspace.toml");
+    if copy.exists() {
+        assert_eq!(std::fs::read_to_string(copy).unwrap(), before);
+    }
 }
 
 #[test]

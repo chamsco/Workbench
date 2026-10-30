@@ -114,6 +114,19 @@ impl Workspace {
         Ok(out)
     }
 
+    /// The project's policy lives in `backspace.toml` at the workspace root.
+    /// An agent must not be able to widen its own allowlists or budgets by
+    /// writing it, in this checkout or in a worker's worktree. (`bash` is not
+    /// sandboxed until M6; the running gateway keeps the policy it opened
+    /// with either way.)
+    fn refuse_policy_file(&self, path: &Path) -> Result<()> {
+        let rel = path.strip_prefix(&self.root).unwrap_or(path);
+        if rel.as_os_str().eq_ignore_ascii_case("backspace.toml") {
+            bail!("backspace.toml is protected: the project policy lives there and only you can change it");
+        }
+        Ok(())
+    }
+
     pub async fn run(&self, name: &str, input: &Value) -> Result<String> {
         let s = |k: &str| {
             input[k]
@@ -135,6 +148,7 @@ impl Workspace {
             }
             "write" => {
                 let path = self.resolve(&s("path")?)?;
+                self.refuse_policy_file(&path)?;
                 if let Some(parent) = path.parent() {
                     tokio::fs::create_dir_all(parent).await?;
                 }
@@ -148,6 +162,7 @@ impl Workspace {
             }
             "edit" => {
                 let path = self.resolve(&s("path")?)?;
+                self.refuse_policy_file(&path)?;
                 let (old, new) = (s("old_text")?, s("new_text")?);
                 let text = tokio::fs::read_to_string(&path).await?;
                 match text.matches(&old).count() {

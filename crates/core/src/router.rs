@@ -233,6 +233,13 @@ impl Router {
                     .map(|p| !is_loopback(&p.base_url) || local_runtime_is_up(&p.base_url))
                     .unwrap_or(true)
         });
+        // The policy's lists steer the pick; the gateway still checks the call.
+        let gate = crate::gateway::Gateway::new(self.cfg.policy.clone());
+        let gate_role = match role {
+            AgentRole::Main => crate::gateway::Role::Orchestration,
+            AgentRole::Sub => crate::gateway::Role::Execution,
+        };
+        candidates.retain(|m| gate.check_model(gate_role, &m.id).is_ok());
         let candidates = candidates;
         if role == AgentRole::Sub {
             if let Some(pin) = self
