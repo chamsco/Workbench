@@ -36,6 +36,14 @@ pub struct RouterConfig {
     pub main_min_effort: Effort,
     pub pin_main: Option<String>,
     pub pin_sub: Option<String>,
+    /// Below this top probability the task type is not acted on: the user is
+    /// asked. Provisional until the router eval has run.
+    #[serde(default = "default_triage_threshold")]
+    pub triage_threshold: f64,
+}
+
+fn default_triage_threshold() -> f64 {
+    crate::decision::DEFAULT_TRIAGE_THRESHOLD
 }
 
 /// Orchestrator, advisor, scouts: the lead builds, a stronger model stays on
@@ -217,6 +225,10 @@ pub struct ModelSpec {
     /// Effort levels the provider accepts for this model. Empty = no knob.
     #[serde(default)]
     pub efforts: Vec<Effort>,
+    /// Where this model sits on the cost ladder (`local`, `mid`, `frontier`).
+    /// Unset: by tier, 0 local, 1–2 mid, 3–4 frontier.
+    #[serde(default)]
+    pub class: Option<crate::ladder::ModelClass>,
 }
 
 impl ModelSpec {

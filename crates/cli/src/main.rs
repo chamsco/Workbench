@@ -41,6 +41,7 @@ fn main() -> Result<()> {
             PathBuf::from(ws),
             rest.first().map_or("127.0.0.1:7420", |s| s.as_str()),
         ),
+        [cmd, rest @ ..] if cmd == "eval" && !rest.is_empty() => eval(rest),
         [cmd] if cmd == "scan" => scan(),
         // The tiny local models, and which one small delegated jobs would use.
         [cmd] if cmd == "models" => models(),
@@ -49,9 +50,13 @@ fn main() -> Result<()> {
         ),
         [ws, goal @ ..] if !goal.is_empty() => run(PathBuf::from(ws), goal.join(" ")),
         _ => bail!(
-            "usage: backspace-cli init-config | <workspace> <goal> | serve <workspace> [addr] | scan | models | cloud [addr]"
+            "usage: backspace-cli init-config | <workspace> <goal> | serve <workspace> [addr] | scan | models | cloud [addr] | eval <traces.jsonl> [--threshold N]"
         ),
     }
+}
+
+fn eval(_args: &[String]) -> Result<()> {
+    bail!("eval: not implemented (M2)")
 }
 
 fn scan() -> Result<()> {

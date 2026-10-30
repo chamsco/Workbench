@@ -236,6 +236,7 @@ pub fn local_subagent(cfg: &mut Config, prefs: &crate::prefs::Prefs) {
             output_usd_per_mtok: 0.0,
             max_output_tokens: 4096,
             efforts: vec![],
+            class: None,
         });
     }
     // `advisor.scout_model` is the one place scouts take a model from, so it
@@ -534,6 +535,11 @@ impl Harness {
         let inner = self.inner.clone();
         self.rt
             .block_on(async move { file_ticket(&inner, MAIN, MAIN, &input) })
+    }
+
+    /// The PLAN §3.4 metrics for this run so far.
+    pub fn metrics(&self) -> crate::metrics::RunMetrics {
+        unimplemented!("M2")
     }
 
     pub fn snapshot(&self) -> ProjectState {
@@ -1497,6 +1503,7 @@ fn planner_system(inner: &Inner) -> String {
         confidence: 1.0,
         router_cost_usd: 0.0,
         note: None,
+        triage: None,
     };
     format!(
         "{}{}\n\n# Your tools here\n\nYou run inside a coding CLI. Backspace's planning tools are MCP tools named `create_tickets` and `work_tickets` (server `backspace`). Both return at once: after calling either, end your turn with a one-line note. The user's verdict on a plan, or each ticket's result, comes back as your next message. Do not build the tickets yourself; agents do that on their own branches, and their accepted work is merged into this checkout (branch `{}`), where you can read and verify it.",
@@ -3120,7 +3127,7 @@ async fn scouts(inner: &Arc<Inner>, c: &Conversation, input: &Value) -> Result<S
         .unwrap_or_default();
     if !local.is_empty() {
         inner.log(c.id, LogKind::System, format!("scouts run on{local}"));
-    }    let d = Decision { model, effort: Effort::Low, source: "scout".into(), confidence: 1.0, router_cost_usd: 0.0, note: None };
+    }    let d = Decision { model, effort: Effort::Low, source: "scout".into(), confidence: 1.0, router_cost_usd: 0.0, note: None, triage: None };
     let (depth, dir) = {
         let s = inner.state.lock().unwrap();
         (s.agents[c.id].depth + 1, c.ws.root.clone())

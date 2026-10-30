@@ -83,6 +83,10 @@ pub struct Decision {
     pub confidence: f32,
     pub router_cost_usd: f64,
     pub note: Option<String>,
+    /// For the planner: what the task was classified as, and whether the
+    /// classifier was sure enough to act on. None for everything else.
+    #[serde(default)]
+    pub triage: Option<crate::decision::Triage>,
 }
 
 pub struct Router {
@@ -93,6 +97,8 @@ pub struct Router {
     /// (Settings → Local models; model_server.rs). Empty: the big model does
     /// everything, which is the default.
     local: std::collections::BTreeMap<String, String>,
+    /// Answers the typed question that says where the planner starts.
+    decider: std::sync::Arc<dyn crate::decision::DecisionModel>,
 }
 
 /// A local pick: the decision, plus which job it was for and which runtime
@@ -105,7 +111,13 @@ struct LocalPick {
 
 impl Router {
     pub fn new(http: reqwest::Client, cfg: Config) -> Self {
-        Self { http, cfg, local: Default::default() }
+        Self { http, cfg, local: Default::default(), decider: std::sync::Arc::new(crate::decision::KeywordDecider) }
+    }
+
+    /// Swap the decision model without touching the router.
+    pub fn with_decider(mut self, decider: std::sync::Arc<dyn crate::decision::DecisionModel>) -> Self {
+        self.decider = decider;
+        self
     }
 
     /// Which small jobs run locally, and on what. Builder style so the
@@ -173,6 +185,7 @@ impl Router {
                 confidence: 1.0,
                 router_cost_usd: 0.0,
                 note: None,
+                triage: None,
             },
         })
     }
@@ -258,6 +271,7 @@ impl Router {
                         confidence: 1.0,
                         router_cost_usd: 0.0,
                         note: None,
+                        triage: None,
                     });
                 }
             }
@@ -393,6 +407,7 @@ impl Router {
             confidence,
             router_cost_usd: tokens as f64 * rc.jev_usd_per_mtok / 1_000_000.0,
             note: None,
+            triage: None,
         })
     }
 }
@@ -470,6 +485,7 @@ pub fn heuristic(role: AgentRole, task: &str, candidates: &[&ModelSpec]) -> Deci
         confidence: 0.0,
         router_cost_usd: 0.0,
         note: None,
+        triage: None,
     }
 }
 
@@ -533,8 +549,18 @@ mod tests {
         );
         assert_eq!(hard.effort, Effort::Max);
         assert_eq!(hard.model, "claude-fable-5-1");
-        let main = heuristic(AgentRole::Main, "make a todo app", &all);
-        assert!(main.effort >= Effort::Xhigh);
+        // M2: the planner no longer starts at Xhigh on every task. A small task
+        // keeps its own effort (the user's `main_min_effort` floor is applied by
+        // the router, not here); a long one is still planned at Xhigh or above.
+        // Routing end to end is in tests/router_policy.rs.
+        let main_small = heuristic(AgentRole::Main, "fix a typo in the readme", &all);
+        assert!(main_small.effort < Effort::Xhigh, "{:?}", main_small.effort);
+        let main_long = heuristic(
+            AgentRole::Main,
+            "design and build a multi-tenant billing system across several services with database migrations, auth and an admin dashboard",
+            &all,
+        );
+        assert!(main_long.effort >= Effort::Xhigh, "{:?}", main_long.effort);
     }
 }
 

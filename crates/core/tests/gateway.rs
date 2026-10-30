@@ -31,6 +31,7 @@ fn model(id: &str, input: f64, output: f64, max_out: u32) -> ModelSpec {
         output_usd_per_mtok: output,
         max_output_tokens: max_out,
         efforts: vec![],
+        class: None,
     }
 }
 

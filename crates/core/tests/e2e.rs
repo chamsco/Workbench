@@ -795,3 +795,59 @@ fn visual_options_wait_for_the_users_pick() {
     );
     std::fs::remove_dir_all(&ws).unwrap();
 }
+
+/// M2: the §3.4 metrics from a whole project. The numbers are checked against
+/// the project's own tallies (`total_cost_usd`, per-agent tokens), which are
+/// kept separately from the metrics ledger.
+#[test]
+fn a_whole_project_reports_the_section_3_4_metrics() {
+    let (h, ws) = open_project("metrics");
+    h.send("flat build");
+    let mut rejected_plan = false;
+    let mut rejected_a = false;
+    run_until(
+        &h,
+        |s, id| {
+            let ap = &s.approvals[id];
+            if ap.kind == ApprovalKind::Plan && !rejected_plan {
+                rejected_plan = true;
+                return Err("also add b".into());
+            }
+            if ap.tickets == ["a"] && !rejected_a {
+                rejected_a = true;
+                return Err("looks thin".into());
+            }
+            Ok(())
+        },
+        |s| s.agents[0].status == AgentStatus::Approved,
+    );
+    let s = h.snapshot();
+    let m = h.metrics();
+
+    // Totals agree with the independent tallies.
+    assert!((m.total_usd - s.total_cost_usd).abs() < 1e-9, "{} vs {}", m.total_usd, s.total_cost_usd);
+    let tokens: u64 = s.agents.iter().map(|a| a.input_tokens + a.output_tokens).sum();
+    assert_eq!(m.total_tokens, tokens);
+    assert!(m.calls >= 4, "{m:?}");
+
+    // Ticket a started on mock-small (tier 1, mid) and climbed to mock-big
+    // (tier 4, frontier) after its check failed and the user rejected it.
+    assert!(m.frontier_calls >= 1 && m.frontier_calls < m.calls, "{m:?}");
+    assert_eq!((m.tasks, m.merged), (2, 2));
+    assert_eq!((m.escalated_tasks, m.escalated_green), (1, 1));
+    assert_eq!(m.escalation_rate, Some(0.5));
+    assert_eq!(m.escalation_success_rate, Some(1.0));
+    let ctg = m.cost_to_green_usd.expect("tickets went green");
+    assert!(ctg > 0.0 && ctg <= m.total_usd + 1e-12, "{m:?}");
+    assert!((m.usd_per_merged.unwrap() - m.total_usd / 2.0).abs() < 1e-12);
+    assert!(m.human_tokens_typed >= 4, "\"flat build\" alone is 4: {m:?}");
+    assert!(m.human_tokens_read > 0, "{m:?}");
+
+    // And the file carries the same figures.
+    let file = std::fs::read_to_string(ws.join(".backspace/metrics.jsonl")).unwrap();
+    let last: backspace_core::metrics::RunMetrics =
+        serde_json::from_str(file.lines().last().unwrap()).unwrap();
+    assert_eq!(last.merged, 2);
+    assert_eq!(last.escalated_tasks, 1);
+    std::fs::remove_dir_all(&ws).unwrap();
+}
