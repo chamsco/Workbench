@@ -1,6 +1,6 @@
 # M0 audit (final for review): Cauldron against PLAN.md
 
-Date: 2026-10-30 (revision 7; change summaries at the end). Status: **M0 not approved. M1 not started.**
+Date: 2026-10-30 (revision 8; change summaries at the end). Status: **M0 not approved. M1 not started.**
 
 Inputs: `PLAN.md` (repo root; first committed in `e236259`, §5 replaced in `7086086`), the requested
 corrections in `Cauldron_M0_Revised_Audit.md`, and the repository as it is now.
@@ -12,14 +12,14 @@ audit without being checked again.
 
 | Item | Value |
 |---|---|
-| Product code audited | `1d508e6` (`origin/main`, PR #25). Every commit on branch `claude/project-thread-dpmr8e` after it touches only `PLAN.md` and this doc (`git diff --stat 1d508e6 <commit>` lists no other file), so the product code at every audit revision is byte-identical to `1d508e6`. |
-| Suite snapshot | The 204-test run in Appendix A ran on a checkout of `e236259`, whose product code is identical to `1d508e6` (that commit adds only `PLAN.md` and the first audit). The result applies to `1d508e6` product code. It was not rerun for revisions 3–7, because no product code changed. |
-| Document commits | `e236259` PLAN.md + audit rev 1; `5f2af4f` rev 2; `205bf69` rev 3; `30a149e` rev 4; `59312d1` rev 5; `7086086` rev 6 (PLAN.md §5 inventory + audit). The previous PLAN.md and audit revision (rev 6) is **committed** in `7086086` and pushed. |
-| This revision (rev 7) | Committed and pushed as the commit directly after `7086086`; its hash is given in the reply that delivers it, since a commit cannot name its own hash. It changes only this doc. PLAN.md is identical to `7086086`. |
+| Product code audited | `1d508e6` (`origin/main`, PR #25). The net tree diff from `1d508e6` to the audited branch tip contains only `PLAN.md` and `docs/cauldron/M0-AUDIT.md`. The product-code tree at the audited branch tip is therefore identical to `1d508e6`. Commands: `git diff --name-status 1d508e6 <tip>` lists exactly those two files as added; `git rev-parse 1d508e6:<dir>` equals `git rev-parse <tip>:<dir>` for `crates`, `capsule`, `apps`, `bench`, `tools`, `design`, `.github`, `Cargo.toml` and `Cargo.lock`. Checked at tip `fb1f8dc` (revision 7) before revision 8 was committed; revision 8 changes only this doc. |
+| Suite snapshot | The 204-test run in Appendix A ran on a checkout of `e236259`. The net tree diff from `1d508e6` to `e236259` contains only `PLAN.md` and `docs/cauldron/M0-AUDIT.md` (`git diff --name-only 1d508e6 e236259`), so its product-code tree is identical to `1d508e6`. The result is attributed to that checkout and applies to the `1d508e6` product code. The suite was not rerun for revisions 3–8, and no test result is claimed for any documentation-only change. |
+| Document commits | `e236259` PLAN.md + audit rev 1; `5f2af4f` rev 2; `205bf69` rev 3; `30a149e` rev 4; `59312d1` rev 5; `7086086` rev 6 (PLAN.md §5 inventory + audit); `fb1f8dc` rev 7. Verified 2026-10-30: `git status --short` was empty, `HEAD` = `fb1f8dca6dab527f0029e75e5866014021812584`, and `git ls-remote origin refs/heads/claude/project-thread-dpmr8e` returned the same hash, so revisions 1–7 are committed and pushed. |
+| This revision (rev 8) | The commit directly after `fb1f8dc`. Its hash is given in the reply that delivers it, since a commit cannot name its own hash. It changes only this doc. PLAN.md is identical to `7086086`. |
 | Not audited | Unmerged PRs #27–#37 (model server, harness relay, agent hands, shell rail). |
 | Toolchain | rustc 1.97.0, cargo 1.97.0 |
 | Command | `cargo test --no-fail-fast` from the repo root. This runs the workspace default members (runner, core, cli, colony), which is the same set `.github/workflows/test.yml` runs. |
-| Result (rerun 2026-10-30 on this commit) | **204 passed, 0 failed, 0 ignored**, exit 0. Breakdown: colony 25 unit; core 140 unit; core integration: agents 1, bya 1, e2e 7, features 17, interrupted 2, resume 1, spec_gate 1, webhook 2; runner 3 unit + 3 integration (`tests/http.rs`); colony 1 doc-test; cli 0. Full output is in Appendix A. |
+| Result (run 2026-10-30 on the `e236259` checkout; see Suite snapshot) | **204 passed, 0 failed, 0 ignored**, exit 0. Breakdown: colony 25 unit; core 140 unit; core integration: agents 1, bya 1, e2e 7, features 17, interrupted 2, resume 1, spec_gate 1, webhook 2; runner 3 unit + 3 integration (`tests/http.rs`); colony 1 doc-test; cli 0. Full output is in Appendix A. |
 | Passing but not exercised | `agents::tests::docker_computer` reports `ok` but returns early when Docker is absent (`crates/core/src/agents.rs:991-996`). Docker is absent here (`docker info` fails), so its body did not run. |
 | Excluded: not run | `crates/tauri-app` (4 `#[test]` in `src/main.rs`; not a default member; not attempted). `capsule/` (Go `agentd` + Rust `capsule/core`: 0 tests found in either). `tools/uiharness/evals` (UI evals, not part of any suite). |
 | Excluded: does not build here | `crates/app` (GPUI): `cargo test --workspace` fails to link, `rust-lld: unable to find library -lxkbcommon` (seen in the first-pass run). |
@@ -689,4 +689,11 @@ Documentation only: this audit. PLAN.md, product code, tests and configuration a
 
 1. In the §3 matrix, "Diff information in deliverables" (was 5.7) and "Symbol-level context" (was 5.8) now map primarily to 5.3, because they are §3.3 token-saving requirements. Secondary references to 5.5/5.7 and 5.8 are kept in brackets. The §2a counts are recalculated: 5.3 gains one partial and one missing, 5.7 loses one partial, and 5.8 loses one missing.
 2. §0 now separates the product-code commit audited (`1d508e6`), the checkout the 204-test suite ran on (`e236259`, identical product code), every document commit (rev 1–6, with rev 6 committed in `7086086`), and the state of this revision (committed after `7086086`).
+
+## Change summary (revision 8)
+
+Documentation only: this audit. PLAN.md, product code, tests and configuration are unchanged, and no test was rerun or claimed for these edits.
+
+1. §0 Git evidence wording replaced with the net-tree-diff statement, with the commands that support it. The earlier "every commit touches only PLAN.md and this doc" claim, based on `git diff --stat`, is withdrawn.
+2. §0 now records revision 7 as `fb1f8dc`, with the clean-status and local-equals-remote check. This revision is rev 8. The "Result" row, which said "rerun on this commit", now says the run was on the `e236259` checkout.
 
