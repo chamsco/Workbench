@@ -1,6 +1,6 @@
 # M0 audit (final for review): Cauldron against PLAN.md
 
-Date: 2026-10-30 (revision 4; change summary at the end). Status: **M0 not approved. M1 not started.**
+Date: 2026-10-30 (revision 5; change summaries at the end). Status: **M0 not approved. M1 not started.**
 
 Inputs: `PLAN.md` (repo root, committed in `e236259`), the requested
 corrections in `Cauldron_M0_Revised_Audit.md`, and the repository as it is now.
@@ -133,67 +133,128 @@ Current state against this objective: the code records per-agent inference cost 
 | Test-on-edit, affected-test selection | missing | No code. | — |
 | Isolated test run (worktree + container) | partial | Worktree per ticket: E2E flat asserts `.backspace/worktrees/a/.git` and the branches. No container. Docker is used only for agents' computer use, and that test did not run here. | I, B (worktree only) |
 | Regression blocks change; ADE/IDE parity | missing | No code. | — |
-| Continuous chat threads | partial | `chat.rs`, 12 U tests (e.g. `threads_persist_react_branch_delete`). PLAN marks this feature "confirm scope". | I, B |
+| Continuous chat threads | partial | `chat.rs`, 12 U tests (e.g. `threads_persist_react_branch_delete`). Scope confirmed in by Charles on 2026-10-30 (§2a). | I, B |
 | Shared personal context | partial | Memory `context()` is injected into chat and agent prompts (`chat.rs:1326`, `fleet.rs:628`). The project/global split is tested in U `scopes_and_persistence`. The injection itself is not tested. | I, B (scoping only) |
 | Cloud execution | partial | U `cloud::dev_server_end_to_end`, E2E `a_remote_machine_is_followed_and_driven`. Not tied to the Cauldron lifecycle. | I, B |
 | Local execution | partial | E2E `a_ticket_runs_on_a_cli_worker`, I `interrupted::a_restart_carries_a_cli_worker_on_in_its_own_session`. | I, B |
 
+## 2a. §5 feature inventory and requirement mapping
+
+On 2026-10-30 Charles set the §5 inventory as the eleven entries below and confirmed that continuous chat is in scope. As instructed, PLAN.md has not been edited: its §5 still holds the old list and the TODO. Every requirement row of the §3 matrix now carries a **§5 entry** column. A row that spans entries names its primary entry first and the others in brackets.
+
+Rows counted by primary entry (from the §3 matrix; no row reaches A):
+
+| §5 entry | Matrix rows |
+|---|---|
+| 5.1 Conversational intake and classification | 2 missing |
+| 5.2 Specification and planning | 5 partial, 4 missing |
+| 5.3 Intelligent routing and cost-aware orchestration | 2 partial, 2 unknown, 6 missing |
+| 5.4 Policy, permissions and budgets | 3 missing |
+| 5.5 Build and execution infrastructure | 1 partial, 2 missing |
+| 5.6 Independent testing and verification | 1 partial, 1 unknown, 5 missing |
+| 5.7 Review, gates and delivery | 3 partial, 4 missing |
+| 5.8 Persistent memory and context | 4 partial, 5 missing |
+| 5.9 Skills and plugins | 1 partial, 1 missing |
+| 5.10 Developer experience and observability | 4 partial, 5 missing |
+| 5.11 Existing capabilities retained / outside current implementation scope | 0 rows |
+
+5.11 has no PLAN.md requirements by design. It holds what the repo already does outside the inventory, left untouched: routines, the delegate board, apps, voice, the iOS companion, colony, A2A agents, and the "Backspace" naming.
+
+**The old §5 items, mapped to the new entries**
+
+| Old §5 item | New entry |
+|---|---|
+| Chat box intake that starts a project or task | 5.1 |
+| Local decision model that triages tasks | 5.1 (classification), 5.3 (decision model) |
+| Planning mode (grill-me) | 5.2 |
+| Markdown handoff files (spec.md, tests.md) | 5.2 |
+| Builder and Rampart | 5.6 |
+| Frontier orchestrator only when needed, small/local executors | 5.3 (executors run on 5.5) |
+| Automatic PR creation | 5.7 |
+| Readiness check, send-back loop, CI/CD, before/after judging | 5.7 |
+| Per-project allowlists for models, skills, plugins | 5.4 |
+| Master memory with a memory decision agent | 5.8 |
+| herdr adapter | 5.5 |
+| Plugin and skill system | 5.9 |
+| In-app auto-testing and regression, ADE and IDE | 5.6 (surfaces in 5.10) |
+| Continuous chat with threads, shared personal context, cloud and local execution | **In scope (confirmed 2026-10-30).** Threads: 5.1. Shared personal context: 5.8. Cloud and local execution: 5.5. |
+
+**Flagged for your decision: could not be mapped without a choice**
+
+1. **Memory auto-capture of your own chat messages** (existing; writes global notes with no prior approval, see §2). It is either 5.8, and so bound by the §8 rules (schema, evidence, global approval), or 5.11, kept as-is outside Cauldron's memory rules. Which one?
+2. **Pi as an embeddable agent base (§9.1)**, including the "spike pi-durable first" note. PLAN describes it as usable, not required. Is adopting Pi a requirement (5.5), or reference only like jessfraz/agent? This interacts with the open language decision.
+3. **jessfraz/agent "useful ideas" (§9.1)**: one named session per task and guarded cleanup of merged work. PLAN marks the project as reference only. Are these ideas requirements (5.5), or context only?
+4. **Removing human approval (Q5)** for merge and global memory. PLAN keeps approval until evals prove reliable but sets no threshold, so it is not yet a requirement under 5.7/5.8. Leave it as an open question?
+5. **Security and supply-chain items stated only in §14 Risks** (containerized execution, test isolation, plugin signing on the roadmap). Sections 3–12 already cover containerization (§11 → 5.5) and plugin audit (§3.2 → 5.9). Plugin signing is roadmap only (§13). No action unless you want signing in 5.9 now.
+
+Not mapped because they are not requirements: §1 Goal and §4 Pain points (motivation, covered by the rows they motivate), §2 Non-goals (constraints on scope), §13 Roadmap and §15 Open questions.
+
 ## 3. Acceptance coverage matrix, PLAN.md sections 3–12
 
-| § | Requirement | Status | Evidence / gap | Evidence level |
-|---|---|---|---|---|
-| 3.1 | Cost ladder, escalation only on measured failure | partial | Workers only (see §2). The planner starts high by design. | I, B |
-| 3.2 | Skills on demand | partial | `skills.rs` tests. | I, B |
-| 3.2 | Plugins via a stable API, audited | missing | | — |
-| 3.2 | Skills and plugins per-project and allowlisted | missing | | — |
-| 3.3 | File handoffs, never chat history | partial | SPEC.md and ticket files exist. Workers still receive the brief in chat; retries keep full history. | I, B |
-| 3.3 | Diff information in deliverables | partial | `diff_stat` and `numstat` are attached to each deliverable (`harness.rs:2429-2435`). E2E `flat_project_with_gates_escalation_and_merges` asserts `changes` = `b.txt +1 -0` and that `diff_stat` names `b.txt`. Not proven: that diffs replace whole files in what agents are sent, or a diff-based handoff between stages. | I, B |
-| 3.3 | Symbol-level context | missing | Nothing found in the audited crates (searched for tree-sitter, LSP, ctags, symbol and outline code). `lsp-types` appears in `Cargo.lock` only as a transitive dependency of the GPUI UI kit used by the excluded `crates/app`; no Cauldron code uses it. | — |
-| 3.3 | Prompt caching for stable prefixes | unknown | Anthropic requests set `cache_control: ephemeral` on the tools+system prefix (`provider.rs:228-229`). No test asserts it; spec, skills and memory are not separately cached. | I |
-| 3.3 | Summaries at stage boundaries | missing | | — |
-| 3.3 | Escalate with a failure digest | missing | | — |
-| 3.3 | Hard per-task budgets at the gateway | missing | Enforcement is after spend and is not a gateway. | I (after-spend only) |
-| 3.4 | Frontier calls per merged PR | missing | | — |
-| 3.4 | Tokens and cost per merged PR | partial | Per-agent `cost_usd`/tokens (`harness.rs:2061-2073`); `outcomes.jsonl` has cost and escalations per ticket (`harness.rs:2824-2846`; E2E flat asserts 2 lines). OTel spans: U `trace::records_tools_and_exports_otlp`. No per-PR aggregate. | I, B |
-| 3.4 | Cost-to-green | missing | | — |
-| 3.4 | Escalation rate / success rate | partial | Raw data only (`outcomes.jsonl` escalations + outcome). No metric. | I, B (raw data only) |
-| 3.4 | Human tokens per merged PR | missing | | — |
-| 6 | Intake → triage → research / one-shot / long | missing | No typed triage, no research path, no one-shot spec path. | — |
-| 6 | Low confidence asks the user | missing | | — |
-| 6 | Checklist: goal | partial | `Problem` + `Solution` required (`spec.rs:57`). | I, B |
-| 6 | Checklist: acceptance criteria | partial | `Acceptance` lines must each name a command or click (`spec.rs` rules; U `each_rule_names_what_is_missing`). | I, B |
-| 6 | Checklist: one test per criterion | missing | `coverage()` maps criteria to tickets (E2E `a_plan_must_cover_the_spec`), not to tests. | — |
-| 6 | Checklist: non-goals | partial | `Out of scope` must be non-empty (`spec.rs:57`); "None" is accepted. **Correction to the revision**, which said non-goals were missing. | I, B |
-| 6 | Checklist: constraints, dependencies | missing | Not in `SECTIONS`. | — |
-| 6 | Checklist: "before" baseline captured | missing | | — |
-| 6 | Human "yes" on the plan | partial | The plan (ticket list) needs human approval: E2E flat asserts 2 plan approvals, the first rejected. The *spec* gate opens on rules alone (`phase.rs` `record_spec` → `GateBy::Rules`). | I, B |
-| 6 | Baselines per task type (bug/feature/UI/refactor/research) | missing | No code for any of the five. The revision marked these unknown; no code exists, so they are missing. | — |
-| 6 | Gate A deterministic, no model override | partial | Primitive: `PhaseState::record` drops a model's pass (`phase.rs`, U `a_model_can_block_but_never_open`). Gate A itself does not exist. | I, B (primitive only) |
-| 6 | Gate A content (sealed tests, lint, types, before/after) | missing | The ticket `check` is one command chosen by the planner. | — |
-| 6 | Gate B different model, readiness score, 3 loops | missing | | — |
-| 6 | CI/CD, Gate C preview before/after | missing | | — |
-| 6 | Human approval before merge | partial | Deliverables at depth ≤ `human_review_depth` wait for the human (`harness.rs:2459-2486`; E2E flat rejects then approves ticket `a`). Deeper work is merged before the manager reviews it (`harness.rs:2505-2506`). `auto_approve` (`config.rs:79`) skips the human entirely. | I, B |
-| 7.1–7.3 | Builder/Rampart separation, sealing, hash, fail-on-baseline, flake, mutation, traceability, spot-check, arbitration | missing | No code for any of these. The revision marked spot-check and arbitration unknown; no code exists, so they are missing. | — |
-| 7.4 | Four escalation triggers | missing | **None of the four triggers is implemented as specified** (§2: N sealed-test failures, same failure signature twice, cheap-rung budget, expected-cost comparison). Generic worker escalation exists as an adjacent mechanism only. | — |
-| 7.4 | One frontier call with a digest | missing | Up to 3 climbs with the full transcript (`config.rs:122`; E2E flat asserts 2 climbs). | I, B (3 climbs, not one) |
-| 7.4 | Human handoff after the failed escalation | unknown | `settle` marks a worker `Failed` after the turn-budget bail (`harness.rs:1994-1996`, `:2807-2822`). No test, no digest to the human. Stays unknown until a test verifies it. | I |
-| 8.1 | Proposal schema | missing | `NoteCandidate` (`memory.rs:132`) lacks evidence, ttl and a typed scope check. | — |
-| 8.2 | Decision agent checks | partial | Duplicates and secrets tested; the durability check is a heuristic capture model. Evidence, contradiction, scope and instruction-phrasing checks missing. | I, B |
-| 8.3 | Data, never instructions | missing | Code labels and injects `instruction` notes (see §2). | I, B (asserts the opposite) |
-| 8.3 | Provenance, versioning, revert | partial | Git versioning tested; `revert` untested; provenance incomplete. | I, B (revert untested) |
-| 8.3 | Global needs human approval | missing (qualified) | No approval flow. No agent path to global memory was found. One reachable path writes global without prior approval: auto-capture of the user's own chat messages (see §2). | I, B (capture only) |
-| 8.3 | Token-capped selective reads | partial | 6000-char cap, untested, not relevance-ranked. | I, B (cap untested) |
-| 8.4 | Eval: precision, recall, dup rate, secret-catch rate, bloat | missing | | — |
-| 9 | herdr behind adapter, pinned, state never a gate | missing | | — |
-| 10 | Decision tier for triage, checklist, readiness, memory | missing | | — |
-| 10 | Router eval from real traces | missing | `outcomes.jsonl` is raw material only. | — |
-| 10 | Allowlists in code at one gateway | missing | | — |
-| 10 | Bounded executor jobs | partial | See §2. | I, B |
-| 11 | Affected tests, sandbox, streamed results, block on regression, same in ADE/IDE | missing | Worktrees only. | — |
-| 11 | Unit + E2E layers | partial | 204 tests exist (Appendix A). | I, B |
-| 11 | Sealed rampart suites as permanent regression | missing | | — |
-| 11 | Recorded-trace replay, stub models, frozen router | missing | E2E uses a hand-scripted fake server (`tests/e2e.rs:59` `respond`), not recorded traces. The revision marked this partial; it has no recorded traces, so it is missing. | I, B (scripted fake, not recorded) |
-| 12 | M0: feature list complete | **blocked** | §5 TODO still in PLAN.md. | n/a |
+| § | Requirement | Status | Evidence / gap | Evidence level | §5 entry |
+|---|---|---|---|---|---|
+| 3.1 | Cost ladder, escalation only on measured failure | partial | Workers only (see §2). The planner starts high by design. | I, B | 5.3 |
+| 3.2 | Skills on demand | partial | `skills.rs` tests. | I, B | 5.9 |
+| 3.2 | Plugins via a stable API, audited | missing | | — | 5.9 |
+| 3.2 | Skills and plugins per-project and allowlisted | missing | | — | 5.4 (lists for 5.9) |
+| 3.3 | File handoffs, never chat history | partial | SPEC.md and ticket files exist. Workers still receive the brief in chat; retries keep full history. | I, B | 5.2 (consumed by 5.3/5.5) |
+| 3.3 | Diff information in deliverables | partial | `diff_stat` and `numstat` are attached to each deliverable (`harness.rs:2429-2435`). E2E `flat_project_with_gates_escalation_and_merges` asserts `changes` = `b.txt +1 -0` and that `diff_stat` names `b.txt`. Not proven: that diffs replace whole files in what agents are sent, or a diff-based handoff between stages. | I, B | 5.7 |
+| 3.3 | Symbol-level context | missing | Nothing found in the audited crates (searched for tree-sitter, LSP, ctags, symbol and outline code). `lsp-types` appears in `Cargo.lock` only as a transitive dependency of the GPUI UI kit used by the excluded `crates/app`; no Cauldron code uses it. | — | 5.8 |
+| 3.3 | Prompt caching for stable prefixes | unknown | Anthropic requests set `cache_control: ephemeral` on the tools+system prefix (`provider.rs:228-229`). No test asserts it; spec, skills and memory are not separately cached. | I | 5.3 |
+| 3.3 | Summaries at stage boundaries | missing | | — | 5.3 |
+| 3.3 | Escalate with a failure digest | missing | | — | 5.3 |
+| 3.3 | Hard per-task budgets at the gateway | missing | Enforcement is after spend and is not a gateway. | I (after-spend only) | 5.4 |
+| 3.4 | Frontier calls per merged PR | missing | | — | 5.10 |
+| 3.4 | Tokens and cost per merged PR | partial | Per-agent `cost_usd`/tokens (`harness.rs:2061-2073`); `outcomes.jsonl` has cost and escalations per ticket (`harness.rs:2824-2846`; E2E flat asserts 2 lines). OTel spans: U `trace::records_tools_and_exports_otlp`. No per-PR aggregate. | I, B | 5.10 |
+| 3.4 | Cost-to-green | missing | | — | 5.10 (objective owned by 5.3) |
+| 3.4 | Escalation rate / success rate | partial | Raw data only (`outcomes.jsonl` escalations + outcome). No metric. | I, B (raw data only) | 5.10 |
+| 3.4 | Human tokens per merged PR | missing | | — | 5.10 |
+| 6 | Intake → triage → research / one-shot / long | missing | No typed triage, no research path, no one-shot spec path. | — | 5.1 (research report delivered via 5.7) |
+| 6 | Low confidence asks the user | missing | | — | 5.1 |
+| 6 | Checklist: goal | partial | `Problem` + `Solution` required (`spec.rs:57`). | I, B | 5.2 |
+| 6 | Checklist: acceptance criteria | partial | `Acceptance` lines must each name a command or click (`spec.rs` rules; U `each_rule_names_what_is_missing`). | I, B | 5.2 |
+| 6 | Checklist: one test per criterion | missing | `coverage()` maps criteria to tickets (E2E `a_plan_must_cover_the_spec`), not to tests. | — | 5.2 |
+| 6 | Checklist: non-goals | partial | `Out of scope` must be non-empty (`spec.rs:57`); "None" is accepted. **Correction to the revision**, which said non-goals were missing. | I, B | 5.2 |
+| 6 | Checklist: constraints, dependencies | missing | Not in `SECTIONS`. | — | 5.2 |
+| 6 | Checklist: "before" baseline captured | missing | | — | 5.2 |
+| 6 | Human "yes" on the plan | partial | The plan (ticket list) needs human approval: E2E flat asserts 2 plan approvals, the first rejected. The *spec* gate opens on rules alone (`phase.rs` `record_spec` → `GateBy::Rules`). | I, B | 5.2 |
+| 6 | Baselines per task type (bug/feature/UI/refactor/research) | missing | No code for any of the five. The revision marked these unknown; no code exists, so they are missing. | — | 5.2 (compared in 5.7) |
+| 6 | Gate A deterministic, no model override | partial | Primitive: `PhaseState::record` drops a model's pass (`phase.rs`, U `a_model_can_block_but_never_open`). Gate A itself does not exist. | I, B (primitive only) | 5.7 |
+| 6 | Gate A content (sealed tests, lint, types, before/after) | missing | The ticket `check` is one command chosen by the planner. | — | 5.7 |
+| 6 | Gate B different model, readiness score, 3 loops | missing | | — | 5.7 (readiness scoring via 5.3) |
+| 6 | CI/CD, Gate C preview before/after | missing | | — | 5.7 |
+| 6 | Human approval before merge | partial | Deliverables at depth ≤ `human_review_depth` wait for the human (`harness.rs:2459-2486`; E2E flat rejects then approves ticket `a`). Deeper work is merged before the manager reviews it (`harness.rs:2505-2506`). `auto_approve` (`config.rs:79`) skips the human entirely. | I, B | 5.7 |
+| 7.1–7.3 | Builder/Rampart separation, sealing, hash, fail-on-baseline, flake, mutation, traceability, spot-check, arbitration | missing | No code for any of these. The revision marked spot-check and arbitration unknown; no code exists, so they are missing. | — | 5.6 |
+| 7.4 | Four escalation triggers | missing | **None of the four triggers is implemented as specified** (§2: N sealed-test failures, same failure signature twice, cheap-rung budget, expected-cost comparison). Generic worker escalation exists as an adjacent mechanism only. | — | 5.3 |
+| 7.4 | One frontier call with a digest | missing | Up to 3 climbs with the full transcript (`config.rs:122`; E2E flat asserts 2 climbs). | I, B (3 climbs, not one) | 5.3 |
+| 7.4 | Human handoff after the failed escalation | unknown | `settle` marks a worker `Failed` after the turn-budget bail (`harness.rs:1994-1996`, `:2807-2822`). No test, no digest to the human. Stays unknown until a test verifies it. | I | 5.3 |
+| 8.1 | Proposal schema | missing | `NoteCandidate` (`memory.rs:132`) lacks evidence, ttl and a typed scope check. | — | 5.8 |
+| 8.2 | Decision agent checks | partial | Duplicates and secrets tested; the durability check is a heuristic capture model. Evidence, contradiction, scope and instruction-phrasing checks missing. | I, B | 5.8 (decision model via 5.3) |
+| 8.3 | Data, never instructions | missing | Code labels and injects `instruction` notes (see §2). | I, B (asserts the opposite) | 5.8 (enforced at 5.4 gateway) |
+| 8.3 | Provenance, versioning, revert | partial | Git versioning tested; `revert` untested; provenance incomplete. | I, B (revert untested) | 5.8 |
+| 8.3 | Global needs human approval | missing (qualified) | No approval flow. No agent path to global memory was found. One reachable path writes global without prior approval: auto-capture of the user's own chat messages (see §2). | I, B (capture only) | 5.8 |
+| 8.3 | Token-capped selective reads | partial | 6000-char cap, untested, not relevance-ranked. | I, B (cap untested) | 5.8 |
+| 8.4 | Eval: precision, recall, dup rate, secret-catch rate, bloat | missing | | — | 5.8 |
+| 9 | herdr behind adapter, pinned, state never a gate | missing | | — | 5.5 |
+| 10 | Decision tier for triage, checklist, readiness, memory | missing | | — | 5.3 |
+| 10 | Router eval from real traces | missing | `outcomes.jsonl` is raw material only. | — | 5.3 |
+| 10 | Allowlists in code at one gateway | missing | | — | 5.4 |
+| 10 | Bounded executor jobs | partial | See §2. | I, B | 5.5 (routing in 5.3) |
+| 11 | Affected tests, sandbox, streamed results, block on regression, same in ADE/IDE | missing | Worktrees only. | — | 5.6 (sandbox 5.5; streaming and ADE/IDE surface 5.10) |
+| 11 | Unit + E2E layers | partial | 204 tests exist (Appendix A). | I, B | 5.6 |
+| 11 | Sealed rampart suites as permanent regression | missing | | — | 5.6 |
+| 11 | Recorded-trace replay, stub models, frozen router | missing | E2E uses a hand-scripted fake server (`tests/e2e.rs:59` `respond`), not recorded traces. The revision marked this partial; it has no recorded traces, so it is missing. | I, B (scripted fake, not recorded) | 5.6 |
+| 3.3/6 | Automatic PR creation | missing | No PR API call in the crates. Adjacent: local merge into the parent branch (`harness.rs:2489-2500`; U `git::branch_merge_and_conflict`). (Added: it was in §2 but had no matrix row.) | — | 5.7 |
+| 7.3 | Property and edge-case tests derived from acceptance criteria | missing | No code. | — | 5.6 |
+| 8.3 | Rejections logged with reasons, used as eval data | partial | Librarian receipts keep drop reasons (U `the_librarian_files_a_batch_as_one_commit`). Not used as eval data. | I, B | 5.8 |
+| 9.2 | Builder and Rampart in role panes | missing | No herdr or pane code. | — | 5.5 |
+| 9.2 | IDE mode: the human watches and attaches to the same panes agents use | missing | No shared-pane mechanism found. The IDE terminal canvases are UI code in `crates/tauri-app`, which is not in the suite. | — | 5.10 |
+| 10 | Swappable decision-model interface; candidates chosen on license, size, locality, then own eval | partial | `RouterBackend` Jev / heuristic switch (`router.rs:276-280`); U `heuristic_scales_with_task`. No license/locality record, no eval. | I, B (Jev path untested) | 5.3 |
+| 12 (M13) | Audit log | partial | Gate decisions are recorded with who answered (`phase.rs` `Gate`; U `a_refusal_is_kept_and_a_pass_moves_on`); per-ticket outcomes in `outcomes.jsonl` (E2E flat). No unified audit log of agent actions, policy refusals or approvals. | I, B | 5.10 |
+| 12 (M13) | Observability | partial | OTel traces with token counts, exportable (U `trace::records_tools_and_exports_otlp`, `exports_to_a_collector`). Not linked to tasks/PRs or §3.4 metrics. | I, B | 5.10 |
+| 12 (M13) | Failure-mode tests | unknown | PLAN does not define the failure modes. Some error-path tests exist (e.g. U `backend::tests::a_missing_cli_is_an_error_not_a_panic`, I `features::one_limited_login_does_not_stop_the_project`), but there is no failure-mode suite to judge against. | I, B (scope undefined) | 5.6 |
+| 12 (M13) | Metrics dashboard (§3.4 metrics) | missing | No §3.4 metrics are computed, so none are shown. The Home dashboard in `crates/tauri-app/ui` shows other data. | — | 5.10 |
+| 12 | M0: feature list complete | **pending your confirmation** | Charles gave the §5 inventory as 11 entries on 2026-10-30 (§2a). Every row of this matrix is mapped to one. PLAN.md itself still holds the TODO (not edited, per instruction). Open flags in §2a. | n/a | n/a (this inventory) |
 
 ## 4. Frontier-efficient orchestration
 
@@ -250,7 +311,7 @@ Ordered by impact on the objective (cheapest successful path, total cost-to-gree
 
 **Blocks M0 approval**
 
-1. **§5 feature list.** PLAN.md still says `TODO: paste the remaining features here before M0`, and M0 acceptance requires a complete list. Paste the rest, or state that the list is final. The last §5 item ("continuous chat… confirm scope") also needs a yes or no.
+1. **§5 feature list.** You set the inventory (11 entries) and confirmed continuous chat on 2026-10-30. Every matrix row is mapped (§2a). M0 now needs only: your answers to the five flags in §2a, and whether to write the inventory into PLAN.md §5 (I have not edited PLAN.md).
 
 **Blocks M1 (decide before I write code)**
 
@@ -595,4 +656,14 @@ Audit document only. No product code, tests, configuration or PLAN.md changed. T
 4. **Global memory.** Every caller was traced. Agents have no path to global memory. Explicit human writes come from the Memory page and the paired phone. Auto-capture of the user's own chat messages writes global notes before any approval, and that path is reachable (`chat_send` → `capture`, `memory_auto` default on). The finding stays missing for the approval flow, qualified with this evidence.
 5. **Acceptance wording.** The §1 result sentence is replaced with the requested wording.
 6. **herdr version.** The 0.8.x figure came from PLAN.md, not from a check, and is out of date. The GitHub releases page checked on 2026-10-30 shows v0.9.5 as latest, with the source and its limits stated.
+
+## Change summary (revision 5)
+
+Audit document only. Product code, tests, configuration and PLAN.md are unchanged. The suite was not rerun, because no code changed.
+
+1. New §2a records your §5 inventory (11 entries) and the continuous-chat decision, and counts the matrix rows per entry.
+2. The §3 matrix gains a "§5 entry" column. All 52 existing rows are mapped.
+3. Ten rows were added for requirements in sections 3–12 that had no matrix row: automatic PR creation; property and edge-case tests; rejection logging; role panes; IDE pane attach; the swappable decision-model interface; and the four M13 items (audit log, observability, failure-mode tests, metrics dashboard). Each new row was checked against the code with the same status rules. None is "works".
+4. Five items are flagged for your decision instead of being mapped silently (§2a).
+5. The §2 continuous-chat row and the M0 blocker text are updated. M0 is still not approved and M1 has not started.
 
