@@ -1,6 +1,6 @@
 # M0 audit (final for review): Cauldron against PLAN.md
 
-Date: 2026-10-30 (revision 5; change summaries at the end). Status: **M0 not approved. M1 not started.**
+Date: 2026-10-30 (revision 6; change summaries at the end). Status: **M0 not approved. M1 not started.**
 
 Inputs: `PLAN.md` (repo root, committed in `e236259`), the requested
 corrections in `Cauldron_M0_Revised_Audit.md`, and the repository as it is now.
@@ -140,7 +140,7 @@ Current state against this objective: the code records per-agent inference cost 
 
 ## 2a. §5 feature inventory and requirement mapping
 
-On 2026-10-30 Charles set the §5 inventory as the eleven entries below and confirmed that continuous chat is in scope. As instructed, PLAN.md has not been edited: its §5 still holds the old list and the TODO. Every requirement row of the §3 matrix now carries a **§5 entry** column. A row that spans entries names its primary entry first and the others in brackets.
+On 2026-10-30 Charles set the §5 inventory as the eleven entries below and confirmed that continuous chat is in scope. With his authorization, PLAN.md §5 now holds this inventory in place of the old list and the TODO (§5 only; sections 3 and 6–12 unchanged). Every requirement row of the §3 matrix now carries a **§5 entry** column. A row that spans entries names its primary entry first and the others in brackets.
 
 Rows counted by primary entry (from the §3 matrix; no row reaches A):
 
@@ -179,13 +179,15 @@ Rows counted by primary entry (from the §3 matrix; no row reaches A):
 | In-app auto-testing and regression, ADE and IDE | 5.6 (surfaces in 5.10) |
 | Continuous chat with threads, shared personal context, cloud and local execution | **In scope (confirmed 2026-10-30).** Threads: 5.1. Shared personal context: 5.8. Cloud and local execution: 5.5. |
 
-**Flagged for your decision: could not be mapped without a choice**
+**Decisions on the former flags (Charles, 2026-10-30)**
 
-1. **Memory auto-capture of your own chat messages** (existing; writes global notes with no prior approval, see §2). It is either 5.8, and so bound by the §8 rules (schema, evidence, global approval), or 5.11, kept as-is outside Cauldron's memory rules. Which one?
-2. **Pi as an embeddable agent base (§9.1)**, including the "spike pi-durable first" note. PLAN describes it as usable, not required. Is adopting Pi a requirement (5.5), or reference only like jessfraz/agent? This interacts with the open language decision.
-3. **jessfraz/agent "useful ideas" (§9.1)**: one named session per task and guarded cleanup of merged work. PLAN marks the project as reference only. Are these ideas requirements (5.5), or context only?
-4. **Removing human approval (Q5)** for merge and global memory. PLAN keeps approval until evals prove reliable but sets no threshold, so it is not yet a requirement under 5.7/5.8. Leave it as an open question?
-5. **Security and supply-chain items stated only in §14 Risks** (containerized execution, test isolation, plugin signing on the roadmap). Sections 3–12 already cover containerization (§11 → 5.5) and plugin audit (§3.2 → 5.9). Plugin signing is roadmap only (§13). No action unless you want signing in 5.9 now.
+| # | Item | Decision | Effect on this audit |
+|---|---|---|---|
+| 1 | Memory auto-capture of the user's chat messages | **5.8, in scope.** It must comply with §8. Capture may create a proposal, but must never silently write global memory. Global promotion needs explicit human approval. | The current behaviour (`chat_send` → `Memory::capture` writing global notes with `on: true`, see §2) is recorded as a **gap to correct in M10**, not grandfathered. Status of "Global promotion needs human approval" is unchanged (missing). |
+| 2 | Pi (§9.1) | **Reference only.** Not a Cauldron requirement. The pi-durable spike is optional exploration and must not decide the implementation language or create an architectural dependency. | No requirement row. Pi is removed as a factor in the Q1 trade-offs (§7). |
+| 3 | jessfraz/agent ideas (one session per task, guarded cleanup of merged work) | **Context only.** May inform implementation; not binding. | No requirement row. |
+| 4 | Q5: removing human approval | **Left open.** Human approval stays mandatory for merge and global memory. No threshold now; revisit only after evals, then decide explicitly. | No requirement row. Recorded as an open question, not a blocker. |
+| 5 | Plugin signing | **Roadmap only**, kept out of 5.9. Allowlisting, auditing and permission controls stay mandatory. No arbitrary untrusted third-party plugin installation until signing or an equivalent integrity check exists. | The no-untrusted-install rule is now in PLAN.md 5.9. It is a constraint on M11, with no code today (no plugin system exists). |
 
 Not mapped because they are not requirements: §1 Goal and §4 Pain points (motivation, covered by the rows they motivate), §2 Non-goals (constraints on scope), §13 Roadmap and §15 Open questions.
 
@@ -254,7 +256,7 @@ Not mapped because they are not requirements: §1 Goal and §4 Pain points (moti
 | 12 (M13) | Observability | partial | OTel traces with token counts, exportable (U `trace::records_tools_and_exports_otlp`, `exports_to_a_collector`). Not linked to tasks/PRs or §3.4 metrics. | I, B | 5.10 |
 | 12 (M13) | Failure-mode tests | unknown | PLAN does not define the failure modes. Some error-path tests exist (e.g. U `backend::tests::a_missing_cli_is_an_error_not_a_panic`, I `features::one_limited_login_does_not_stop_the_project`), but there is no failure-mode suite to judge against. | I, B (scope undefined) | 5.6 |
 | 12 (M13) | Metrics dashboard (§3.4 metrics) | missing | No §3.4 metrics are computed, so none are shown. The Home dashboard in `crates/tauri-app/ui` shows other data. | — | 5.10 |
-| 12 | M0: feature list complete | **pending your confirmation** | Charles gave the §5 inventory as 11 entries on 2026-10-30 (§2a). Every row of this matrix is mapped to one. PLAN.md itself still holds the TODO (not edited, per instruction). Open flags in §2a. | n/a | n/a (this inventory) |
+| 12 | M0: feature list complete | **complete, pending your review** | PLAN.md §5 holds the 11-entry inventory (written 2026-10-30 with your authorization). Every row of this matrix is mapped to an entry. The five former flags are decided (§2a). | n/a | n/a (this inventory) |
 
 ## 4. Frontier-efficient orchestration
 
@@ -311,21 +313,23 @@ Ordered by impact on the objective (cheapest successful path, total cost-to-gree
 
 **Blocks M0 approval**
 
-1. **§5 feature list.** You set the inventory (11 entries) and confirmed continuous chat on 2026-10-30. Every matrix row is mapped (§2a). M0 now needs only: your answers to the five flags in §2a, and whether to write the inventory into PLAN.md §5 (I have not edited PLAN.md).
+1. **Your review of the final diff** (PLAN.md §5 plus this audit). Nothing else is outstanding for M0: the §5 inventory is in PLAN.md, continuous chat is in scope, and the five mapping flags are decided (§2a). M0 stays not approved until you approve it.
 
 **Blocks M1 (decide before I write code)**
 
-2. **Implementation language (Q1).** PLAN.md offers TypeScript or Go. The repo is Rust. I recommend Rust; it is your decision.
-   - Rust: extends the existing harness, router, spec gate, memory and git worktree code, plus 204 passing tests. One binary with the Tauri app. Cost: slower iteration, and Pi (§9.1) is TypeScript, so using it means an RPC boundary.
-   - TypeScript: native to Pi and its SDK, faster iteration, a large agent-tooling ecosystem. Cost: a rewrite of the orchestration core, and today's tests do not carry over.
-   - Go: easy concurrency and single binaries; `capsule/agentd` is already Go. Cost: a rewrite of the core too, a thinner LLM-tooling ecosystem, and no fit with Pi.
+2. **Implementation language (Q1).** PLAN.md offers TypeScript or Go. The repo is Rust. I recommend Rust; it is your decision and is unchanged here. Per decision 2 (§2a), Pi is reference only and not a factor in this choice, so the Pi-related points are removed from the trade-offs below.
+   - Rust: extends the existing harness, router, spec gate, memory and git worktree code, plus 204 passing tests. One binary with the Tauri app. Cost: slower iteration.
+   - TypeScript: faster iteration and a large agent-tooling ecosystem. Cost: a rewrite of the orchestration core, and today's tests do not carry over.
+   - Go: easy concurrency and single binaries; `capsule/agentd` is already Go. Cost: a rewrite of the core too, and a thinner LLM-tooling ecosystem.
 
 **Blocks later milestones only**
 
 3. M2: decision model. Per §10, I will build the swappable interface and the eval harness first, run the eval on Cauldron traces, then bring you the comparison. No candidate is picked before that. Prerequisite: there are no labeled traces yet (`outcomes.jsonl` is unlabeled), so M2 needs a trace set. I will ask for it then.
 4. M6: herdr release. "v2" is still not identified. Correction: the "0.8.x" in earlier revisions came from PLAN.md §9.2 itself, not from my own check, and it is out of date. Checked 2026-10-30 against the GitHub releases page of `herdrdev/herdr` (https://github.com/herdrdev/herdr/releases): the newest stable is **v0.9.5**, marked "Latest", released 14 Oct (2026 per the adjacent preview-build tag names), a hotfix for v0.9.4. Preview builds are published alongside. No v2 or 2.x appeared on the first page of releases (10 pages total, only the first was read). The upstream repo was identified through a secondary article (developersdigest.tech, "Herdr Deep Dive"). The page was read through a web-fetch tool that summarizes, not by cloning or calling the GitHub API. Treat v0.9.5 as **verified as of 2026-10-30 at that URL, subject to re-check at M6**, since releases ship weekly. The version pin is still an M6 decision.
 5. M2: what counts as "frontier" and "mid-tier" in the model config (today `tier` is a config-set integer 1–4). I will propose a definition as part of the M2 routing policy. M8 then uses it for the single-escalation rule.
-6. Q5 (when human approval is removed): not needed until after the evals; PLAN keeps approval for now.
+6. Q5 (when human approval is removed): left open by decision 4 (§2a). Human approval stays mandatory for merge and global memory. Revisit only with eval evidence and an explicit decision.
+7. M10: correct memory auto-capture so it creates proposals only and never writes global memory without explicit human approval (decision 1, §2a).
+8. M11: no arbitrary untrusted third-party plugin installation until signing or an equivalent integrity check exists (decision 5, §2a).
 
 **Already decided by PLAN.md, applied without asking**
 
@@ -666,4 +670,13 @@ Audit document only. Product code, tests, configuration and PLAN.md are unchange
 3. Ten rows were added for requirements in sections 3–12 that had no matrix row: automatic PR creation; property and edge-case tests; rejection logging; role panes; IDE pane attach; the swappable decision-model interface; and the four M13 items (audit log, observability, failure-mode tests, metrics dashboard). Each new row was checked against the code with the same status rules. None is "works".
 4. Five items are flagged for your decision instead of being mapped silently (§2a).
 5. The §2 continuous-chat row and the M0 blocker text are updated. M0 is still not approved and M1 has not started.
+
+## Change summary (revision 6)
+
+Audit plus PLAN.md §5. No product code, tests or configuration changed, Q1 is unchanged, and M1 has not started. The suite was not rerun, because no code changed.
+
+1. PLAN.md §5: the old list and the TODO are replaced by the 11-entry inventory, with a short description and key capabilities per entry and section references in place of restated criteria. 5.11 is labelled as retained capabilities, not a delivery commitment. No other PLAN.md section changed.
+2. §2a: the five flags are replaced by a table of your decisions and their effect on this audit.
+3. §3 M0 row and §7 M0 blocker: the only remaining M0 item is your review of this diff.
+4. §7: Pi is removed from the Q1 trade-offs (decision 2), but the recommendation and the open decision are unchanged. Q5 is recorded as left open. New M10 and M11 items record decisions 1 and 5.
 

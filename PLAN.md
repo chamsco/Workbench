@@ -72,24 +72,95 @@ Escalation policy must be cost-aware: if the expected cost of another cheap retr
 
 ## 5. Feature list
 
-Known features (the list is incomplete, extend it before starting M0):
+The complete feature inventory, set 2026-10-30. Each entry gives a short description and its key capabilities. Sections 3 and 6–12 are the authoritative specifications and acceptance criteria. This section indexes them and does not restate them.
+
+### 5.1 Conversational intake and classification
+
+A chat box starts a project or task. Each task is classified before any work begins.
 
 - Chat box intake that starts a project or task.
-- Local decision model that triages tasks.
-- Planning mode (grill-me style interview) for long tasks.
-- Markdown handoff files (spec.md, tests.md) into execution mode.
-- Two orchestrators at planning time: Builder and Rampart (section 7).
-- Orchestrator on a frontier model only when needed, spawning small or local executors.
-- Automatic PR creation.
-- Readiness check, send-back loop, CI/CD, before/after judging.
-- Per-project allowlists for models, skills and plugins, separate lists for orchestration and execution models.
-- Master memory with a memory decision agent (section 8).
-- herdr adapter for pane and worktree supervision (section 9).
-- Plugin and skill system (section 3.2).
-- In-app auto-testing and regression in ADE and IDE modes.
-- Continuous chat with threads, shared personal context, cloud and local execution (carried over from the original concept, confirm scope).
+- Triage by a local decision model into one-shot, long or research, with a confidence score. Below the threshold, Cauldron asks the user (section 6).
+- Continuous chat with threads (scope confirmed).
 
-`TODO: paste the remaining features here before M0.`
+### 5.2 Specification and planning
+
+Long tasks are planned until a typed checklist passes. Then they are handed off as files.
+
+- Planning mode: a grill-me style interview that ends on the typed checklist and a human "yes" (section 6).
+- A "before" baseline captured per task type (section 6).
+- Markdown handoff files (spec.md, tests.md) into execution mode (section 3.3).
+
+### 5.3 Intelligent routing and cost-aware orchestration
+
+Every step runs on the cheapest rung that is expected to succeed. The objective is the lowest total cost-to-green.
+
+- The cost ladder (section 3.1) and a swappable decision-model interface used for triage, checklist scoring, readiness and memory decisions (section 10).
+- The orchestrator uses a frontier model only when needed and spawns small or local executors (sections 3.1, 10).
+- Escalation triggers, cost-aware escalation, and one frontier escalation with a failure digest, then the human (section 7.4).
+- Token-saving mechanics (section 3.3) and the router eval from real traces (section 10).
+
+### 5.4 Policy, permissions and budgets
+
+One gateway in code decides what may run and how much it may spend.
+
+- Per-project allowlists for models, skills and plugins, with separate model lists for orchestration and execution (section 10).
+- Hard per-task token and cost budgets enforced at the gateway (section 3.3).
+- No prompt or memory entry can bypass the gateway (sections 8.3, 10).
+
+### 5.5 Build and execution infrastructure
+
+Where executors run, and how that is isolated.
+
+- Sandboxed worktrees plus containers for execution and test runs (section 11).
+- Local executors limited to bounded jobs (section 10).
+- herdr adapter for pane and worktree supervision: version pinned, swappable, never a gate (section 9).
+- Cloud and local execution (scope confirmed).
+
+### 5.6 Independent testing and verification
+
+Verification that does not trust the agent's own output.
+
+- Two orchestrators at planning time: Builder and Rampart, with sealed, hash-locked and validated tests (section 7).
+- In-app auto-testing and regression in ADE and IDE modes (section 11).
+- Recorded-trace replay with stubbed models and a frozen router (section 11).
+
+### 5.7 Review, gates and delivery
+
+From a passing build to a merged, verified change.
+
+- Automatic PR creation.
+- Gate A (deterministic), Gate B (independent reviewer and readiness check) with the send-back loop, CI/CD, and Gate C (before/after on preview) (section 6).
+- Human approval before merge until the evals prove reliable (section 2).
+
+### 5.8 Persistent memory and context
+
+What agents and the user carry between tasks and projects.
+
+- Master and per-project memory with a memory decision agent and the hard rules (section 8).
+- Shared personal context (scope confirmed), subject to section 8.
+- Automatic capture from chat may only create proposals. It never writes global memory without explicit human approval.
+
+### 5.9 Skills and plugins
+
+Capabilities added on demand rather than baked into prompts.
+
+- Skills loaded on demand; plugins through a stable plugin API (section 3.2).
+- Plugins are allowlisted, audited and permission-controlled. Arbitrary untrusted third-party plugins are not installed until signing or an equivalent integrity check exists (signing is on the roadmap, section 13).
+
+### 5.10 Developer experience and observability
+
+How people supervise, drive and measure the system.
+
+- ADE mode (agents drive) and IDE mode (the human drives) on the same pipeline, with test results streamed into the thread (sections 1, 11).
+- The section 3.4 metrics, reported on every run.
+- Hardening: audit log, observability, failure-mode tests and a metrics dashboard (section 12, M13).
+
+### 5.11 Existing capabilities retained / outside current implementation scope
+
+These exist in the repository today and stay as they are. They are **not** a delivery commitment of this plan, and they are not changed unless they are explicitly added to an entry above.
+
+- Routines, delegate board, apps, voice, iOS companion, colony, A2A agents.
+- Internal "Backspace" naming in code and configuration.
 
 ## 6. Lifecycle
 
