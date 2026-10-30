@@ -264,6 +264,20 @@ impl Config {
         Ok((Self::parse(DEFAULT_CONFIG)?, None))
     }
 
+    /// The configuration a folder with none of its own starts with: the
+    /// built-in models and an explicit, enforced policy that allows what the
+    /// built-in config allows today.
+    pub fn new_project(_workspace: &Path) -> Config {
+        Self::parse(DEFAULT_CONFIG).expect("the built-in config parses")
+    }
+
+    /// A `[policy]` block that allows exactly what this config allows now
+    /// (open dimensions become explicit lists), for `policy init` and for
+    /// moving a project off legacy-open.
+    pub fn policy_init_block(&self, _skills: &[String]) -> String {
+        String::new()
+    }
+
     pub fn search_paths(workspace: &Path) -> Vec<PathBuf> {
         let mut paths = Vec::new();
         if let Ok(p) = std::env::var("BACKSPACE_CONFIG") {

@@ -42,6 +42,7 @@ fn main() -> Result<()> {
             rest.first().map_or("127.0.0.1:7420", |s| s.as_str()),
         ),
         [cmd, rest @ ..] if cmd == "eval" && !rest.is_empty() => eval(rest),
+        [cmd, sub] if cmd == "policy" && (sub == "init" || sub == "adopt") => policy(sub),
         [cmd] if cmd == "scan" => scan(),
         // The tiny local models, and which one small delegated jobs would use.
         [cmd] if cmd == "models" => models(),
@@ -50,7 +51,7 @@ fn main() -> Result<()> {
         ),
         [ws, goal @ ..] if !goal.is_empty() => run(PathBuf::from(ws), goal.join(" ")),
         _ => bail!(
-            "usage: backspace-cli init-config | <workspace> <goal> | serve <workspace> [addr] | scan | models | cloud [addr] | eval <traces.jsonl> [--threshold N]"
+            "usage: backspace-cli init-config | <workspace> <goal> | serve <workspace> [addr] | scan | models | cloud [addr] | eval <traces.jsonl> [--threshold N] | policy init | policy adopt"
         ),
     }
 }
@@ -71,6 +72,13 @@ fn eval(args: &[String]) -> Result<()> {
     let (cfg, _) = backspace_core::Config::load(&std::env::current_dir()?)?;
     let report = backspace_core::eval::evaluate(&KeywordDecider, &traces, threshold, &cfg)?;
     print!("{}", report.to_markdown());
+    Ok(())
+}
+
+/// `policy init` prints a `[policy]` block that allows what this project
+/// allows now; `policy adopt` records the policy in `backspace.toml` as the
+/// one to run under (a person's step; an agent has no business here).
+fn policy(_sub: &str) -> Result<()> {
     Ok(())
 }
 

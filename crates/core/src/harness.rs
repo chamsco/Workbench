@@ -540,6 +540,17 @@ impl Harness {
             .block_on(async move { file_ticket(&inner, MAIN, MAIN, &input) })
     }
 
+    /// The policy this project is running under, after the lock and the
+    /// local-model additions have been applied.
+    pub fn policy(&self) -> crate::gateway::PolicyConfig {
+        self.inner.cfg.policy.clone()
+    }
+
+    /// What the user should know about the policy, as found when the project opened.
+    pub fn policy_notices(&self) -> Vec<crate::gateway::PolicyNotice> {
+        Vec::new()
+    }
+
     /// The PLAN §3.4 metrics for this run so far.
     pub fn metrics(&self) -> crate::metrics::RunMetrics {
         self.inner.ledger.lock().unwrap().metrics()

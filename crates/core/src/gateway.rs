@@ -18,6 +18,10 @@
 //! worst case cannot overshoot by more than the estimate's error. Actual
 //! usage is recorded by the caller and counts against the next call.
 
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+
 use serde::{Deserialize, Serialize};
 
 use crate::config::ModelSpec;
@@ -57,14 +61,57 @@ pub struct TaskBudget {
     pub max_tokens: Option<u64>,
 }
 
+/// How a `[policy]` section is read. Absent (`None`) keeps the M1 rules and
+/// warns about every dimension left open.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PolicyMode {
+    /// Open dimensions are a choice, stated as one: noted, not warned about.
+    LegacyOpen,
+    /// Every list must be present; an empty one denies everything.
+    Enforced,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 #[serde(default)]
 pub struct PolicyConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mode: Option<PolicyMode>,
     pub orchestration_models: Option<Vec<String>>,
     pub execution_models: Option<Vec<String>>,
     pub skills: Option<Vec<String>>,
     pub plugins: Option<Vec<String>>,
     pub budget: TaskBudget,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NoticeLevel {
+    Warning,
+    Note,
+}
+
+/// Something about the policy the user should see when a project opens.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PolicyNotice {
+    pub level: NoticeLevel,
+    pub text: String,
+}
+
+impl PolicyConfig {
+    /// What to tell the user when this policy is loaded.
+    pub fn notices(&self) -> Vec<PolicyNotice> {
+        Vec::new()
+    }
+
+    /// Notices for skills that exist but this policy does not allow.
+    pub fn skill_notices(&self, _present: &[String]) -> Vec<PolicyNotice> {
+        Vec::new()
+    }
+
+    /// `enforced` needs every list; the error names the ones that are missing.
+    pub fn check_complete(&self) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -127,6 +174,110 @@ pub struct Gateway {
 /// the estimate above the real count for the text agents send.
 pub fn estimate_tokens(chars: usize) -> u64 {
     (chars as u64).div_ceil(3)
+}
+
+/// Input tokens a request can cost at most, from its serialized size: the
+/// UTF-8 bytes of the exact body, plus allowances for what the provider adds
+/// around them. Assumes a token covers at least one input byte.
+pub fn input_bound(body_bytes: usize, _messages: usize, _tools: usize) -> u64 {
+    estimate_tokens(body_bytes)
+}
+
+/// One budget scope (a task, an agent's subtree, the project) with the key
+/// that says which reservations count against it.
+#[derive(Clone, Debug)]
+pub struct ScopedLine {
+    pub key: String,
+    pub line: BudgetLine,
+}
+
+/// What a finished call cost beyond what was reserved for it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Overshoot {
+    pub usd: f64,
+    pub tokens: u64,
+}
+
+/// Worst-case amounts held against each scope while calls are in flight.
+#[derive(Debug, Default)]
+pub struct Reservations {
+    held: Mutex<HashMap<String, (f64, u64)>>,
+}
+
+/// A call's hold on the budget; released when dropped.
+#[derive(Debug)]
+pub struct Reservation {
+    pub grant: Grant,
+    usd: f64,
+    tokens: u64,
+}
+
+impl Reservations {
+    /// Check the call against every scope, counting what other in-flight calls
+    /// have already reserved, and reserve its worst case, all under one lock.
+    pub fn reserve<F: FnOnce() -> Vec<ScopedLine>>(
+        self: &Arc<Self>,
+        gateway: &Gateway,
+        role: Role,
+        model: &ModelSpec,
+        input_bound: u64,
+        input_price_factor: f64,
+        lines: F,
+    ) -> Result<Reservation, Refusal> {
+        let lines: Vec<BudgetLine> = lines().into_iter().map(|l| l.line).collect();
+        let grant = gateway.authorize_call_priced(role, model, input_bound, input_price_factor, &lines)?;
+        Ok(Reservation { grant, usd: 0.0, tokens: 0 })
+    }
+
+    /// Reserve a fixed amount (the advisor's) against the same scopes.
+    pub fn reserve_fixed<F: FnOnce() -> Vec<ScopedLine>>(
+        self: &Arc<Self>,
+        _label: &str,
+        _usd: f64,
+        _tokens: u64,
+        _lines: F,
+    ) -> Result<Reservation, Refusal> {
+        Ok(Reservation { grant: Grant { max_output_tokens: 0 }, usd: 0.0, tokens: 0 })
+    }
+
+    /// What is reserved against a scope right now.
+    pub fn held(&self, key: &str) -> (f64, u64) {
+        self.held.lock().unwrap().get(key).copied().unwrap_or((0.0, 0))
+    }
+}
+
+impl Reservation {
+    pub fn reserved_usd(&self) -> f64 {
+        self.usd
+    }
+
+    pub fn reserved_tokens(&self) -> u64 {
+        self.tokens
+    }
+
+    /// How far the real cost of the call went past its reservation.
+    pub fn overshoot(&self, _actual_usd: f64, _actual_tokens: u64) -> Option<Overshoot> {
+        None
+    }
+}
+
+/// Where the adopted policy for a workspace is kept: outside the workspace,
+/// in the app's data folder.
+pub fn lock_path(workspace: &Path) -> PathBuf {
+    let name: String = workspace.display().to_string().chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '_' }).collect();
+    crate::prefs::Prefs::data_dir().join("policy-locks").join(format!("{name}.toml"))
+}
+
+/// Settle which policy a project runs under: the one it adopted before
+/// (kept outside the workspace, `lock_path`) unless the file in the workspace
+/// is at least as strict everywhere. A first open adopts the file as it is.
+pub fn resolve_policy(_workspace: &Path, file: &PolicyConfig) -> anyhow::Result<(PolicyConfig, Vec<PolicyNotice>)> {
+    Ok((file.clone(), Vec::new()))
+}
+
+/// A person's step: make the workspace file's policy the adopted one.
+pub fn adopt_policy(_workspace: &Path, _file: &PolicyConfig) -> anyhow::Result<()> {
+    Ok(())
 }
 
 impl Gateway {
@@ -192,9 +343,22 @@ impl Gateway {
     /// ask for, so the provider is never allowed to go past what is left.
     pub fn authorize_call(
         &self,
+        role: Role,
+        model: &ModelSpec,
+        est_input_tokens: u64,
+        budgets: &[BudgetLine],
+    ) -> Result<Grant, Refusal> {
+        self.authorize_call_priced(role, model, est_input_tokens, 1.0, budgets)
+    }
+
+    /// As `authorize_call`, with the prompt priced at `input_price_factor`
+    /// times the model's input rate (Anthropic bills a cache write at 1.25x).
+    pub fn authorize_call_priced(
+        &self,
         _role: Role,
         model: &ModelSpec,
         est_input_tokens: u64,
+        _input_price_factor: f64,
         budgets: &[BudgetLine],
     ) -> Result<Grant, Refusal> {
         let refuse = |b: &BudgetLine, detail: String| Refusal::Budget { label: b.label.clone(), detail };

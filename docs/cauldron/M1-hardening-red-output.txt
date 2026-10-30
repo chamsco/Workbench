@@ -1,0 +1,2236 @@
+   Compiling backspace-core v0.1.0 (/home/user/workbench/crates/core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.43s
+     Running unittests src/main.rs (target/debug/deps/backspace_cli-e14ffda91c75b4ab)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/eval_cli.rs (target/debug/deps/eval_cli-09ac4138be3fc2f8)
+
+running 4 tests
+test the_threshold_can_be_given ... ok
+test it_prints_the_report_for_labeled_traces ... ok
+test unlabeled_traces_are_an_error ... ok
+test a_missing_file_is_an_error ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.15s
+
+     Running tests/policy_cli.rs (target/debug/deps/policy_cli-3e5126d36d985fca)
+
+running 3 tests
+test policy_init_prints_a_block_that_keeps_what_the_project_allows_today ... FAILED
+test init_config_writes_a_config_with_an_explicit_enforced_policy ... FAILED
+test policy_adopt_records_a_loosening_a_person_has_reviewed ... FAILED
+
+failures:
+
+---- policy_init_prints_a_block_that_keeps_what_the_project_allows_today stdout ----
+
+thread 'policy_init_prints_a_block_that_keeps_what_the_project_allows_today' (9351) panicked at crates/cli/tests/policy_cli.rs:57:5:
+
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: policy_cli::policy_init_prints_a_block_that_keeps_what_the_project_allows_today
+             at ./tests/policy_cli.rs:57:5
+   3: policy_cli::policy_init_prints_a_block_that_keeps_what_the_project_allows_today::{closure#0}
+             at ./tests/policy_cli.rs:50:73
+   4: <policy_cli::policy_init_prints_a_block_that_keeps_what_the_project_allows_today::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   5: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- init_config_writes_a_config_with_an_explicit_enforced_policy stdout ----
+
+thread 'init_config_writes_a_config_with_an_explicit_enforced_policy' (9349) panicked at crates/cli/tests/policy_cli.rs:41:5:
+assertion `left == right` failed: # Backspace config. Copy to ./backspace.toml or ~/.config/backspace/config.toml
+# (`backspace-cli init-config` does it) and edit. A config file replaces this
+# default wholesale: no hidden merging, what you see is what runs.
+
+[router]
+# "jev" asks TypeSafe Jev to pick model + effort per agent; falls back to
+# "heuristic" automatically when the key is missing or the call fails.
+backend = "jev"
+jev_endpoint = "https://api.typesafe.ai/v1/systemone"
+jev_model = "jev-latest"
+jev_api_key_env = "TYPESAFE_API_KEY"
+jev_usd_per_mtok = 0.042
+# Floor for the main agent: planning a whole project on "low" is false economy.
+main_min_effort = "high"
+# The lead: Sonnet plans and decides on high effort; Opus advises (below).
+pin_main = "claude-sonnet-5-5"
+# Optional hard pin for workers, bypassing the router:
+# pin_sub = "claude-sonnet-5-5"
+
+[orchestrator]
+max_parallel_calls = 4      # concurrent in-flight inference requests
+max_subagents = 16          # hard cap per project, the cost guardrail
+auto_approve = false        # true = no human gate (you asked for a gate; keep it)
+bash_timeout_secs = 120
+max_depth = 2               # main=0 -> its reports=1 -> their reports=2
+human_review_depth = 1      # deeper deliverables are reviewed by their manager
+# max_project_usd = 20.0    # hard stop for the whole project
+isolation = "worktree"      # "worktree": a git branch + worktree per ticket; "shared": no git
+
+# Start cheap, climb on evidence (failed check, rejection, loop, turn budget).
+# Caps apply to where a worker *starts*; escalation can go past them.
+[escalation]
+start_max_effort = "medium"
+start_max_tier = 2
+max_steps = 3
+loop_repeats = 3
+
+# Orchestrator, advisor, scouts. The advisor (a stronger model, on call)
+# is consulted before a plan locks, when the same check fails twice and
+# before work is called done; it stays silent on routine steps. Scouts (a
+# small fast model) look things up in parallel: files, code, docs.
+[advisor]
+model = "claude-opus-5-5"     # for agents on the Anthropic API; remove to turn off
+cli = "opus"                  # for agents in Claude Code (claude --advisor opus)
+cli_scouts = "haiku"          # Claude Code's scout subagent
+scouts = 3                    # scouts per call, in parallel
+# scout_model = "claude-haiku-4-5"   # default: the cheapest usable model
+
+[workflow]
+grill = true                # main agent interviews you in rounds before planning
+plan_approval = true        # you approve each ticket batch before work starts
+main_skills = ["grilling", "to-tickets"]   # injected; every skill stays loadable via `skill`
+worker_skills = ["ponytail"]   # smallest complete change, for implementation workers
+triage_skills = ["triage"]
+
+[providers.anthropic]
+kind = "anthropic"
+base_url = "https://api.anthropic.com"
+api_key_env = "ANTHROPIC_API_KEY"
+
+# Any OpenAI-compatible endpoint works: OpenRouter, Ollama, vLLM, Groq...
+[providers.openrouter]
+kind = "openai"
+base_url = "https://openrouter.ai/api/v1"
+api_key_env = "OPENROUTER_API_KEY"
+
+# [providers.ollama]
+# kind = "openai"
+# base_url = "http://localhost:11434/v1"
+# api_key_env = "OLLAMA_API_KEY"   # unset is fine for local
+
+# Coding CLIs as workers. A worker on one of these runs the CLI headless in
+# its ticket's own worktree, on your own subscription, then goes through the
+# same check / review / merge as any worker. They are never picked
+# automatically: pin one with `pin_sub` (or pick "Workers run on" in the
+# desktop app). The planner always uses an API model above.
+[providers.claude-code]
+kind = "cli"
+cli = "claude"
+
+[providers.codex]
+kind = "cli"
+cli = "codex"
+
+[providers.cursor]
+kind = "cli"
+cli = "cursor"
+
+[providers.grok]
+kind = "cli"
+cli = "grok"
+
+[providers.opencode]
+kind = "cli"
+cli = "opencode"
+
+# `description` is what Jev reads when choosing. Write it like a hiring note:
+# what the model is good at and when it is the wrong call.
+[[models]]
+id = "claude-haiku-4-5"
+provider = "anthropic"
+tier = 1
+description = "fast and cheap; mechanical edits, boilerplate, file scaffolding, summaries, simple scripts; wrong call for design or debugging"
+input_usd_per_mtok = 1.0
+output_usd_per_mtok = 5.0
+max_output_tokens = 16000
+efforts = []
+
+[[models]]
+id = "claude-sonnet-5-5"
+provider = "anthropic"
+tier = 2
+description = "the usual choice for everyday coding and tool use; features, components, tests, refactors of moderate size; good value"
+input_usd_per_mtok = 2.0
+output_usd_per_mtok = 10.0
+max_output_tokens = 16000
+efforts = ["low", "medium", "high", "xhigh", "max"]
+
+[[models]]
+id = "claude-opus-5-5"
+provider = "anthropic"
+tier = 3
+description = "strong reasoning for architecture, planning, cross-cutting changes, hard debugging and integration of many parts"
+input_usd_per_mtok = 4.0
+output_usd_per_mtok = 20.0
+max_output_tokens = 16000
+efforts = ["low", "medium", "high", "xhigh", "max"]
+
+[[models]]
+id = "claude-fable-5-1"
+provider = "anthropic"
+tier = 4
+description = "most capable and most expensive; only for the hardest long-horizon reasoning where cheaper models would fail"
+input_usd_per_mtok = 10.0
+output_usd_per_mtok = 50.0
+max_output_tokens = 16000
+efforts = ["low", "medium", "high", "xhigh", "max"]
+
+# Example non-Anthropic entry. Verify the model id on openrouter.ai/models
+# before enabling; ids there change often.
+# [[models]]
+# id = "or-flash"
+# provider = "openrouter"
+# model = "deepseek/deepseek-chat"
+# tier = 1
+# description = "very cheap general model for bulk boilerplate and docs"
+# input_usd_per_mtok = 0.3
+# output_usd_per_mtok = 1.0
+# max_output_tokens = 8000
+# efforts = []
+
+# The CLI workers (see the providers above). Costs are 0: they bill your
+# own CLI plan, not Backspace.
+[[models]]
+id = "claude-code"
+provider = "claude-code"
+tier = 3
+description = "Claude Code CLI as a full worker with its own tools, on your Claude plan"
+input_usd_per_mtok = 0.0
+output_usd_per_mtok = 0.0
+max_output_tokens = 0
+
+[[models]]
+id = "codex"
+provider = "codex"
+tier = 3
+description = "OpenAI Codex CLI as a full worker (workspace-write sandbox), on your ChatGPT plan"
+input_usd_per_mtok = 0.0
+output_usd_per_mtok = 0.0
+max_output_tokens = 0
+
+[[models]]
+id = "cursor"
+provider = "cursor"
+tier = 3
+description = "Cursor's agent CLI as a full worker, on your Cursor plan"
+input_usd_per_mtok = 0.0
+output_usd_per_mtok = 0.0
+max_output_tokens = 0
+
+[[models]]
+id = "grok"
+provider = "grok"
+tier = 3
+description = "Grok CLI as a full worker, with your xAI key"
+input_usd_per_mtok = 0.0
+output_usd_per_mtok = 0.0
+max_output_tokens = 0
+
+[[models]]
+id = "opencode"
+provider = "opencode"
+tier = 3
+description = "OpenCode CLI as a full worker, through the providers you connected to it"
+input_usd_per_mtok = 0.0
+output_usd_per_mtok = 0.0
+max_output_tokens = 0
+
+  left: None
+ right: Some(Enforced)
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: core::panicking::assert_failed_inner
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:434:23
+   3: core::panicking::assert_failed::<core::option::Option<backspace_core::gateway::PolicyMode>, core::option::Option<backspace_core::gateway::PolicyMode>>
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:394:5
+   4: policy_cli::init_config_writes_a_config_with_an_explicit_enforced_policy
+             at ./tests/policy_cli.rs:41:5
+   5: policy_cli::init_config_writes_a_config_with_an_explicit_enforced_policy::{closure#0}
+             at ./tests/policy_cli.rs:35:66
+   6: <policy_cli::init_config_writes_a_config_with_an_explicit_enforced_policy::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   7: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- policy_adopt_records_a_loosening_a_person_has_reviewed stdout ----
+
+thread 'policy_adopt_records_a_loosening_a_person_has_reviewed' (9350) panicked at crates/cli/tests/policy_cli.rs:80:5:
+the lock is written outside the workspace
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: policy_cli::policy_adopt_records_a_loosening_a_person_has_reviewed
+             at ./tests/policy_cli.rs:80:5
+   3: policy_cli::policy_adopt_records_a_loosening_a_person_has_reviewed::{closure#0}
+             at ./tests/policy_cli.rs:69:60
+   4: <policy_cli::policy_adopt_records_a_loosening_a_person_has_reviewed::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   5: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+
+failures:
+    init_config_writes_a_config_with_an_explicit_enforced_policy
+    policy_adopt_records_a_loosening_a_person_has_reviewed
+    policy_init_prints_a_block_that_keeps_what_the_project_allows_today
+
+test result: FAILED. 0 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s
+
+error: test failed, to rerun pass `-p backspace-cli --test policy_cli`
+     Running unittests src/lib.rs (target/debug/deps/backspace_colony-0abb1bf7f3d72512)
+
+running 25 tests
+test backend::tests::cli_states_fold_into_five ... ok
+test backend::tests::create_args_are_the_cli_flags ... ok
+test backend::tests::error_message_comes_out_verbatim ... ok
+test backend::tests::cli_workspace_json_maps_to_ours ... ok
+test backend::tests::capabilities_print_providers ... ok
+test backend::tests::a_missing_cli_is_an_error_not_a_panic ... ok
+test backend::tests::exec_output_reads_the_cli_exit_code ... ok
+test backend::tests::parse_error_ignores_noise_and_junk ... ok
+test colony::tests::a_missing_state_file_is_an_empty_colony ... ok
+test colony::tests::a_corrupt_state_file_is_an_error ... ok
+test colony::tests::duplicate_name_is_refused_before_the_backend ... ok
+test colony::tests::exec_records_argv_and_returns_the_output ... ok
+test colony::tests::colony_json_round_trips ... ok
+test colony::tests::list_adopts_what_the_backend_reports ... ok
+test colony::tests::unknown_workspace_is_an_error_not_a_panic ... ok
+test fake::tests::the_fake_refuses_a_duplicate_like_the_cli ... ok
+test colony::tests::stop_force_reaches_the_backend ... ok
+test fake::tests::the_fake_reports_running_then_stopped ... ok
+test prompt::tests::chat_prompt_copes_without_a_task ... ok
+test prompt::tests::chat_prompt_names_the_workspace ... ok
+test tools::tests::every_tool_carries_a_description_and_an_object_schema ... ok
+test tools::tests::five_tools_with_the_right_names ... ok
+test tools::tests::required_arguments_are_the_ones_the_registry_needs ... ok
+test colony::tests::task_and_created_survive_a_backend_round_trip ... ok
+test colony::tests::lifecycle_create_list_status_stop_start_delete ... ok
+
+test result: ok. 25 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running unittests src/lib.rs (target/debug/deps/backspace_core-506ff0b8f481c1a9)
+
+running 140 tests
+test accounts::tests::default_profile_dir_sits_under_the_data_accounts_folder ... ok
+test accounts::tests::best_prefers_healthy_over_warning_at_equal_failures ... ok
+test accounts::tests::env_for_uses_the_providers_own_variable ... ok
+test accounts::tests::fails_decay_after_a_day_and_the_ring_stays_small ... ok
+test accounts::tests::note_limit_cools_down_and_note_fail_does_not ... ok
+test accounts::tests::order_ranks_state_then_failures_then_priority_then_last_ok ... ok
+test accounts::tests::policies_decide_who_switches ... ok
+test accounts::tests::order_drops_disabled_and_cooled_down_accounts ... ok
+test agents::tests::next_run_maths ... ok
+test agents::tests::next_run_round_trips_a_negative_offset ... ok
+test accounts::tests::round_trips_through_json_and_decays_on_load ... ok
+test agents::tests::quoting ... ok
+test agents::tests::routine_summaries ... ok
+test agents::tests::rules_become_denied_tools ... ok
+test agents::tests::brief_in_names_the_project_personality_and_routines ... ok
+test agents::tests::routine_save_validates_and_persists ... ok
+test agents::tests::save_cleans_routines_and_refreshes_a_passed_wake ... ok
+test apps::tests::manifest_rules ... ok
+test artifact::tests::a_body_cannot_be_unbounded_and_a_summary_says_what_it_is ... ok
+test artifact::tests::a_table_row_must_match_the_header ... ok
+test artifact::tests::an_old_state_file_without_artifacts_still_loads ... ok
+test artifact::tests::each_kind_is_validated_on_its_own_field ... ok
+test artifact::tests::ids_are_unique_and_addressable ... ok
+test artifact::tests::kinds_this_build_does_not_know_are_kept_not_dropped ... ok
+test artifact::tests::options_must_refer_to_a_set_that_exists ... ok
+test artifact::tests::the_list_is_bounded_and_drops_the_oldest ... ok
+test board::tests::a_thread_is_the_pair_whichever_way_it_went ... ok
+test agents::tests::save_list_brief_delete ... ok
+test board::tests::conversations_group_replies_and_broadcasts_separately ... ok
+test board::tests::post_and_read ... ok
+test apps::tests::install_serve_store_remove ... ok
+test chat::tests::a_thread_file_without_a_life_loads_as_a_normal_chat ... ok
+test chat::tests::ansi_is_stripped ... ok
+test chat::tests::base64_roundtrip ... ok
+test chat::tests::link_meta ... ok
+test chat::tests::a_temporal_thread_forgets_itself_after_its_deadline ... ok
+test chat::tests::mentions_pick_a_cli ... ok
+test chat::tests::a_ghost_thread_is_never_written_and_never_listed ... ok
+test chat::tests::making_a_thread_a_ghost_deletes_the_file_it_had ... ok
+test chat::tests::purging_ghosts_removes_only_ghosts ... ok
+test chat::tests::titles_are_short ... ok
+test chat::tests::talking_to_a_temporal_thread_moves_its_deadline ... ok
+test cloud::tests::plan_table ... ok
+test companion::tests::pair_link_escapes ... ok
+test config::tests::default_config_parses ... ok
+test delegate::tests::a_task_whose_bot_is_gone_comes_back_unassigned ... ok
+test delegate::tests::adds_assigns_and_survives_a_reopen ... ok
+test delegate::tests::an_empty_title_is_refused ... ok
+test delegate::tests::auto_off_leaves_work_unassigned ... ok
+test delegate::tests::auto_picks_the_shortest_queue_then_the_cheaper_minute ... ok
+test delegate::tests::importing_tickets_twice_keeps_one_task_each ... ok
+test delegate::tests::the_snapshot_prices_a_queue_and_a_cli_is_free ... ok
+test diagram::tests::plan_layers_by_blockers_and_flags_missing_checks ... ok
+test effort::tests::clamps_up_then_down ... ok
+test chat::tests::threads_persist_react_branch_delete ... ok
+test git::tests::a_new_repo_lists_folders_and_says_so ... ok
+test git::tests::day_numbers ... ok
+test git::tests::parse_changes_reads_status_and_counts ... ok
+test harnesses::tests::codex_plan_from_id_token ... ok
+test harnesses::tests::toggles_override_scan ... ok
+test harnesses::tests::versions ... ok
+test layout::tests::a_card_can_come_out_and_a_split_still_works ... ok
+test layout::tests::a_full_stack_never_loses_a_canvas ... ok
+test layout::tests::a_stack_survives_json_and_older_shapes_still_load ... ok
+test layout::tests::centre_swaps_and_self_is_a_no_op ... ok
+test layout::tests::closing_a_card_keeps_the_stack_valid_and_renumbers_it ... ok
+test layout::tests::defaults_and_presets_cover_every_pane ... ok
+test layout::tests::drag_to_an_edge_splits_there_and_the_old_spot_closes ... ok
+test layout::tests::dropping_on_a_cards_middle_stacks_instead_of_swapping ... ok
+test layout::tests::json_shape ... ok
+test layout::tests::one_over_two_is_a_long_top_and_two_squares ... ok
+test layout::tests::remove_and_renumber_keep_it_valid ... ok
+test layout::tests::stacking_two_keeps_both_and_raising_swaps_which_is_in_front ... ok
+test layout::tests::zones ... ok
+test mcp::tests::rules_keep_tools_away ... ok
+test memory::tests::dates_and_meta ... ok
+test cloud::tests::dev_server_end_to_end ... ok
+test memory::tests::moves_old_json_in ... ok
+test memory::tests::repo_format_hand_edits_and_history ... ok
+test memory::tests::scopes_and_persistence ... ok
+test memory_dream::tests::plan_applies_conservatively ... ok
+test memory_dream::tests::prompt_lists_notes_and_messages ... ok
+test memory_learn::tests::learns_from_rejections ... ok
+test memory_learn::tests::proposes_and_skips ... ok
+test memory_learn::tests::third_person_rewrites ... ok
+test model_server::tests::human_size_reads_in_decimal_units ... ok
+test model_server::tests::is_loopback_only_for_this_machine ... ok
+test model_server::tests::openai_base_adds_v1_for_ollama ... ok
+test model_server::tests::order_breaks_ties_by_size_then_id ... ok
+test model_server::tests::order_puts_the_smallest_tiny_first ... ok
+test model_server::tests::parse_ollama_tags_fixture ... ok
+test model_server::tests::parse_openai_models_fixture ... ok
+test model_server::tests::pick_falls_back_and_handles_empty ... ok
+test model_server::tests::pick_maps_the_task_kind ... ok
+test model_server::tests::pick_prefers_the_named_family ... ok
+test model_server::tests::recommend_needs_a_running_runtime ... ok
+test model_server::tests::recommend_prefers_the_tiny_model_and_stays_stable ... ok
+test model_server::tests::tiny_by_parameter_count ... ok
+test model_server::tests::tiny_from_the_file_size_only_when_nothing_else_says ... ok
+test model_server::tests::tiny_from_the_name_when_the_count_is_missing ... ok
+test options::tests::add_names_variants_and_pick_records_the_choice ... ok
+test options::tests::bad_sets_are_refused ... ok
+test phase::tests::a_model_can_block_but_never_open ... ok
+test phase::tests::a_refusal_is_kept_and_a_pass_moves_on ... ok
+test phase::tests::a_refused_respec_reopens_specify_and_a_pass_does_not_skip_ahead ... ok
+test phase::tests::loads_and_saves_beside_the_project ... ok
+test phase::tests::round_trips_and_old_state_loads_without_it ... ok
+test projects::tests::save_list_rename_assign_delete ... ok
+test provider::tests::anthropic_body_sets_effort_only_when_supported ... ok
+test provider::tests::openai_roundtrips_tool_calls ... ok
+test router::liveness_tests::a_listening_port_is_up_and_a_closed_one_is_not ... ok
+test memory::tests::the_librarian_files_a_batch_as_one_commit ... ok
+test router::tests::heuristic_scales_with_task ... ok
+test router::tests::cli_pin_routes_workers_not_the_planner ... ok
+test skills::tests::a_workspace_folder_overrides_a_default_and_shows_as_ours ... ok
+test skills::tests::description_reads_plain_folded_and_literal ... ok
+test skills::tests::defaults_load_with_descriptions ... ok
+test skills::tests::found_says_where_a_skill_came_from ... ok
+test spec::tests::a_complete_spec_passes ... ok
+test spec::tests::coverage_names_every_hole ... ok
+test spec::tests::each_rule_names_what_is_missing ... ok
+test spec::tests::extract_takes_the_last_spec_block_only ... ok
+test spec::tests::the_prompt_carries_the_grilling_skill_the_rules_and_the_last_refusal ... ok
+test spec::tests::the_skeleton_alone_is_refused_for_every_empty_part ... ok
+test ticket::tests::parses_and_renders ... ok
+test tools::tests::resolve_blocks_escape ... ok
+test skills::tests::search_ranks_a_name_hit_above_a_body_hit ... ok
+test tools::tests::write_edit_read_bash ... ok
+test trace::tests::records_tools_and_exports_otlp ... ok
+test update::tests::a_merged_pull_request_reads_as_its_title ... ok
+test update::tests::another_commit_is_newer_but_the_same_one_is_not ... ok
+test update::tests::falls_back_to_the_notes ... ok
+test update::tests::notes_without_a_stamp_say_nothing ... ok
+test update::tests::only_a_hash_counts_as_a_commit ... ok
+test update::tests::reads_the_commit_the_workflow_passed ... ok
+test update::tests::the_changelog_is_pull_requests_newest_first ... ok
+test update::tests::the_stamp_is_the_commit_the_build_was_given ... ok
+test agents::tests::docker_computer ... ok
+test trace::tests::exports_to_a_collector ... ok
+test git::tests::branch_merge_and_conflict ... ok
+
+test result: ok. 140 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.61s
+
+     Running tests/agents.rs (target/debug/deps/agents-3e3bf92970288c0d)
+
+running 1 test
+test groups_take_turns_and_agents_work_in_their_folder ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.26s
+
+     Running tests/budget_bound.rs (target/debug/deps/budget_bound-803aa2fadb0d135f)
+
+running 9 tests
+test a_call_that_fits_at_the_listed_price_can_be_refused_at_the_cache_write_price ... FAILED
+test only_anthropic_input_is_priced_above_its_listed_rate ... FAILED
+test counting_characters_was_not_enough_for_text_that_is_not_english ... FAILED
+test the_allowances_grow_with_messages_and_tools_and_are_not_zero ... FAILED
+test the_bound_is_never_below_the_bytes_of_the_body_that_is_sent ... FAILED
+test long_tool_schemas_are_counted_from_the_wire_body ... FAILED
+test the_prepared_bytes_are_the_body ... ok
+test the_default_config_still_parses_and_prices_anthropic_models ... ok
+test the_system_prompt_counts_as_a_message_for_both_wire_formats ... FAILED
+
+failures:
+
+---- a_call_that_fits_at_the_listed_price_can_be_refused_at_the_cache_write_price stdout ----
+
+thread 'a_call_that_fits_at_the_listed_price_can_be_refused_at_the_cache_write_price' (9788) panicked at crates/core/tests/budget_bound.rs:142:88:
+called `Result::unwrap_err()` on an `Ok` value: Grant { max_output_tokens: 1000 }
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: core::result::unwrap_failed
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/result.rs:1867:5
+   3: <core::result::Result<backspace_core::gateway::Grant, backspace_core::gateway::Refusal>>::unwrap_err
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/result.rs:1329:22
+   4: budget_bound::a_call_that_fits_at_the_listed_price_can_be_refused_at_the_cache_write_price
+             at ./tests/budget_bound.rs:142:88
+   5: budget_bound::a_call_that_fits_at_the_listed_price_can_be_refused_at_the_cache_write_price::{closure#0}
+             at ./tests/budget_bound.rs:136:82
+   6: <budget_bound::a_call_that_fits_at_the_listed_price_can_be_refused_at_the_cache_write_price::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   7: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- only_anthropic_input_is_priced_above_its_listed_rate stdout ----
+
+thread 'only_anthropic_input_is_priced_above_its_listed_rate' (9791) panicked at crates/core/tests/budget_bound.rs:130:5:
+assertion `left == right` failed
+  left: 1.0
+ right: 1.25
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: core::panicking::assert_failed_inner
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:439:17
+   3: core::panicking::assert_failed::<f64, f64>
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:394:5
+   4: budget_bound::only_anthropic_input_is_priced_above_its_listed_rate
+             at ./tests/budget_bound.rs:130:5
+   5: budget_bound::only_anthropic_input_is_priced_above_its_listed_rate::{closure#0}
+             at ./tests/budget_bound.rs:129:58
+   6: <budget_bound::only_anthropic_input_is_priced_above_its_listed_rate::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   7: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- counting_characters_was_not_enough_for_text_that_is_not_english stdout ----
+
+thread 'counting_characters_was_not_enough_for_text_that_is_not_english' (9789) panicked at crates/core/tests/budget_bound.rs:79:9:
+combining
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: budget_bound::counting_characters_was_not_enough_for_text_that_is_not_english
+             at ./tests/budget_bound.rs:79:9
+   3: budget_bound::counting_characters_was_not_enough_for_text_that_is_not_english::{closure#0}
+             at ./tests/budget_bound.rs:72:69
+   4: <budget_bound::counting_characters_was_not_enough_for_text_that_is_not_english::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   5: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- the_allowances_grow_with_messages_and_tools_and_are_not_zero stdout ----
+
+thread 'the_allowances_grow_with_messages_and_tools_and_are_not_zero' (9792) panicked at crates/core/tests/budget_bound.rs:105:5:
+something is allowed for what the provider adds around the body: 334
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: budget_bound::the_allowances_grow_with_messages_and_tools_and_are_not_zero
+             at ./tests/budget_bound.rs:105:5
+   3: budget_bound::the_allowances_grow_with_messages_and_tools_and_are_not_zero::{closure#0}
+             at ./tests/budget_bound.rs:103:66
+   4: <budget_bound::the_allowances_grow_with_messages_and_tools_and_are_not_zero::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   5: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- the_bound_is_never_below_the_bytes_of_the_body_that_is_sent stdout ----
+
+thread 'the_bound_is_never_below_the_bytes_of_the_body_that_is_sent' (9793) panicked at crates/core/tests/budget_bound.rs:64:9:
+cjk: bound 6443 for 19327 bytes
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: budget_bound::the_bound_is_never_below_the_bytes_of_the_body_that_is_sent
+             at ./tests/budget_bound.rs:64:9
+   3: budget_bound::the_bound_is_never_below_the_bytes_of_the_body_that_is_sent::{closure#0}
+             at ./tests/budget_bound.rs:60:65
+   4: <budget_bound::the_bound_is_never_below_the_bytes_of_the_body_that_is_sent::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   5: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- long_tool_schemas_are_counted_from_the_wire_body stdout ----
+
+thread 'long_tool_schemas_are_counted_from_the_wire_body' (9790) panicked at crates/core/tests/budget_bound.rs:98:9:
+Openai: 36 -> 79896, the schemas alone are 234720 bytes
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: budget_bound::long_tool_schemas_are_counted_from_the_wire_body
+             at ./tests/budget_bound.rs:98:9
+   3: budget_bound::long_tool_schemas_are_counted_from_the_wire_body::{closure#0}
+             at ./tests/budget_bound.rs:84:54
+   4: <budget_bound::long_tool_schemas_are_counted_from_the_wire_body::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   5: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- the_system_prompt_counts_as_a_message_for_both_wire_formats stdout ----
+
+thread 'the_system_prompt_counts_as_a_message_for_both_wire_formats' (9796) panicked at crates/core/tests/budget_bound.rs:115:9:
+assertion `left == right` failed: Anthropic: the system prompt and one user message
+  left: 1
+ right: 2
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: core::panicking::assert_failed_inner
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:434:23
+   3: core::panicking::assert_failed::<usize, usize>
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:394:5
+   4: budget_bound::the_system_prompt_counts_as_a_message_for_both_wire_formats
+             at ./tests/budget_bound.rs:115:9
+   5: budget_bound::the_system_prompt_counts_as_a_message_for_both_wire_formats::{closure#0}
+             at ./tests/budget_bound.rs:112:65
+   6: <budget_bound::the_system_prompt_counts_as_a_message_for_both_wire_formats::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   7: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+
+failures:
+    a_call_that_fits_at_the_listed_price_can_be_refused_at_the_cache_write_price
+    counting_characters_was_not_enough_for_text_that_is_not_english
+    long_tool_schemas_are_counted_from_the_wire_body
+    only_anthropic_input_is_priced_above_its_listed_rate
+    the_allowances_grow_with_messages_and_tools_and_are_not_zero
+    the_bound_is_never_below_the_bytes_of_the_body_that_is_sent
+    the_system_prompt_counts_as_a_message_for_both_wire_formats
+
+test result: FAILED. 2 passed; 7 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s
+
+error: test failed, to rerun pass `-p backspace-core --test budget_bound`
+     Running tests/budget_e2e.rs (target/debug/deps/budget_e2e-24cacb2f32982cc8)
+
+running 8 tests
+test a_call_that_costs_more_than_it_reserved_is_logged_and_stops_the_next_one ... FAILED
+test the_advisor_is_left_off_when_its_reserve_does_not_fit ... FAILED
+test the_anthropic_prompt_is_reserved_at_the_cache_write_price ... FAILED
+test concurrent_agents_cannot_jointly_pass_the_project_budget ... FAILED
+test a_unicode_prompt_is_bounded_by_its_bytes ... FAILED
+test source_code_in_the_prompt_is_bounded_by_its_bytes ... FAILED
+test the_input_bound_is_read_from_the_request_that_was_sent ... FAILED
+test token_budgets_count_the_providers_tokens_not_the_billing_weighted_ones ... FAILED
+
+failures:
+
+---- a_call_that_costs_more_than_it_reserved_is_logged_and_stops_the_next_one stdout ----
+
+thread 'a_call_that_costs_more_than_it_reserved_is_logged_and_stops_the_next_one' (9798) panicked at crates/core/tests/budget_e2e.rs:298:5:
+the overspend is on the record: initialised a git repository in the workspace
+agents work on `backspace/run`; your branch is left alone. Merge it when you're happy: git merge backspace/run
+routed by heuristic+pinned → mock-small @ high
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: budget_e2e::a_call_that_costs_more_than_it_reserved_is_logged_and_stops_the_next_one
+             at ./tests/budget_e2e.rs:298:5
+   3: budget_e2e::a_call_that_costs_more_than_it_reserved_is_logged_and_stops_the_next_one::{closure#0}
+             at ./tests/budget_e2e.rs:287:78
+   4: <budget_e2e::a_call_that_costs_more_than_it_reserved_is_logged_and_stops_the_next_one::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   5: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- the_advisor_is_left_off_when_its_reserve_does_not_fit stdout ----
+
+thread 'the_advisor_is_left_off_when_its_reserve_does_not_fit' (9909) panicked at crates/core/tests/budget_e2e.rs:353:5:
+the advisor's spend cannot be bounded under $0.35, so it is not offered: [{"description":"Read a text file in the workspace. Optional 1-based line offset and line limit.","input_schema":{"properties":{"limit":{"type":"integer"},"offset":{"type":"integer"},"path":{"type":"string"}},"required":["path"],"type":"object"},"name":"read"},{"description":"Create or overwrite a file in the workspace with the given content. Creates parent directories.","input_schema":{"properties":{"content":{"type":"string"},"path":{"type":"string"}},"required":["path","content"],"type":"object"},"name":"write"},{"description":"Replace one exact, unique occurrence of old_text with new_text in a workspace file.","input_schema":{"properties":{"new_text":{"type":"string"},"old_text":{"type":"string"},"path":{"type":"string"}},"required":["path","old_text","new_text"],"type":"object"},"name":"edit"},{"description":"Run a bash command with the workspace as the working directory. Returns combined stdout/stderr and exit code.","input_schema":{"properties":{"command":{"type":"string"}},"required":["command"],"type":"object"},"name":"bash"},{"description":"Load a skill (a markdown playbook) by name, or one of its extra files.","input_schema":{"properties":{"file":{"description":"optional extra file, e.g. AGENT-BRIEF.md","type":"string"},"name":{"type":"string"}},"required":["name"],"type":"object"},"name":"skill"},{"description":"Turn a plan into tickets: tracer-bullet vertical slices (see the to-tickets skill). Each becomes one agent's work in its own git worktree. Does not start work; use work_tickets.","input_schema":{"properties":{"tickets":{"items":{"properties":{"acceptance":{"description":"specific, independently testable criteria","items":{"type":"string"},"type":"array"},"blocked_by":{"description":"keys of your earlier tickets that must be done first","items":{"type":"string"},"type":"array"},"budget_usd":{"type":"number"},"category":{"enum":["task","enhancement","bug"],"type":"string"},"check":{"description":"shell command that must exit 0 before review, e.g. `cargo test todo_api`. Strongly recommended.","type":"string"},"covers":{"description":"when the project has a SPEC.md: the acceptance lines this ticket delivers, numbered from the top of its Acceptance section (A1, A2, …). Every line needs a ticket and every ticket needs a line, or the plan is refused.","items":{"type":"string"},"type":"array"},"key":{"description":"short unique id, letters/digits/-, e.g. `todo-api`; names the git branch","type":"string"},"out_of_scope":{"items":{"type":"string"},"type":"array"},"title":{"type":"string"},"what_to_build":{"description":"end-to-end behaviour this ticket makes work, from the user's perspective","type":"string"}},"required":["key","title","what_to_build","acceptance"],"type":"object"},"type":"array"}},"required":["tickets"],"type":"object"},"name":"create_tickets"},{"description":"Dispatch agents for your ready-for-agent tickets (all of them if `keys` is omitted). They run in parallel, respecting blocked_by, each routed to its own model and starting cheap. Blocks until every one is done or failed; accepted work is merged into your branch.","input_schema":{"properties":{"keys":{"items":{"type":"string"},"type":"array"}},"type":"object"},"name":"work_tickets"},{"description":"Send one of your finished tickets back with feedback. Reopens that agent's conversation one rung up the model/effort ladder and blocks until it resubmits.","input_schema":{"properties":{"feedback":{"description":"what is wrong and what done looks like","type":"string"},"key":{"type":"string"}},"required":["key","feedback"],"type":"object"},"name":"revise_ticket"},{"description":"Send fast read-only scouts (a small model) to look things up in parallel: which files matter, how something works, what the docs or specs say. Each task gets its own scout and comes back as a short summary.","input_schema":{"properties":{"tasks":{"description":"one question per scout, specific enough to answer alone","items":{"type":"string"},"type":"array"}},"required":["tasks"],"type":"object"},"name":"scout"},{"description":"Open a canvas in the user's window so they can watch something: your dev server in a browser, your files, a session. Use it when seeing it helps the user; not for routine steps.","input_schema":{"properties":{"agent":{"description":"for files and agent: whose (an agent key); default yourself","type":"string"},"kind":{"description":"browser: a web page (give url); files: a worktree; agent: an agent's session; diagram: the review; docs: PLAN.md; board: team chat","enum":["browser","files","agent","diagram","docs","board"],"type":"string"},"url":{"description":"for browser, e.g. http://localhost:3000","type":"string"}},"required":["kind"],"type":"object"},"name":"open_canvas"},{"description":"Close a canvas you opened (same kind and url or agent) when it is no longer useful.","input_schema":{"properties":{"agent":{"description":"for files and agent: whose (an agent key); default yourself","type":"string"},"kind":{"description":"browser: a web page (give url); files: a worktree; agent: an agent's session; diagram: the review; docs: PLAN.md; board: team chat","enum":["browser","files","agent","diagram","docs","board"],"type":"string"},"url":{"description":"for browser, e.g. http://localhost:3000","type":"string"}},"required":["kind"],"type":"object"},"name":"close_canvas"},{"description":"Show the user a few visual variants to choose between — designs, layouts, or a before/after — as a row of thumbnails with a compare view. Give each variant a label, a one-line note, and either `image` (a screenshot you wrote in the project) or `url` (a live page). Opens a canvas and waits for the user: their pick comes back as this tool's result. Use it when the user asked for options or the choice is visual; not for routine steps.","input_schema":{"properties":{"note":{"description":"One or two lines on the set as a whole","type":"string"},"title":{"description":"What the set is, e.g. \"Context usage: 3 options\"","type":"string"},"variants":{"items":{"properties":{"id":{"description":"short id, e.g. \"now\", \"a\", \"b\"","type":"string"},"image":{"description":"a screenshot file in the project","type":"string"},"label":{"description":"what the user reads under the thumbnail","type":"string"},"note":{"description":"one line on what this variant does","type":"string"},"url":{"description":"or a live page to show","type":"string"}},"required":["label"],"type":"object"},"maxItems":6,"minItems":2,"type":"array"}},"required":["title","variants"],"type":"object"},"name":"show_options"},{"description":"Record something you produced so the user sees it as a thing, not as text in your reply. Use it for a diff you wrote (`kind: \"diff\"`, `body` or `path`, plus `stat`), a screenshot (`image`, a `path` in the project or a `data` URL), a document (`document`, `body` or `path`), a table (`table`, `columns` and `rows`), or — after show_options — the set you are waiting on (`options`, the set's id). One call per artifact. It is shown under your session and referred to by its id; it does not replace telling the user what you did.","input_schema":{"properties":{"body":{"description":"inline text: a diff, a document, a trace excerpt","type":"string"},"columns":{"description":"for table: the header","items":{"type":"string"},"type":"array"},"data":{"description":"a data: URL, for image","type":"string"},"kind":{"description":"what this is","enum":["diff","image","options","trace","document","table"],"type":"string"},"options":{"description":"for options: the id show_options gave you","type":"string"},"path":{"description":"a file in the project, for image and document","type":"string"},"rows":{"description":"for table: the cells, one array per row","items":{"items":{"type":"string"},"type":"array"},"type":"array"},"stat":{"description":"for diff: git diff --stat, one line per file","type":"string"},"ticket":{"description":"the ticket key this belongs to, if any","type":"string"},"title":{"description":"what the user reads, e.g. \"t-3: rate limit the login route\"","type":"string"}},"required":["kind"],"type":"object"},"name":"produce"},{"description":"Report a bug or follow-up you found that is outside your ticket's scope, instead of fixing it. A triage agent classifies it; your manager decides whether to schedule it. Returns immediately.","input_schema":{"properties":{"category":{"enum":["bug","enhancement","task"],"type":"string"},"title":{"type":"string"},"what_to_build":{"description":"what is wrong or missing, how you noticed, how to reproduce","type":"string"}},"required":["title","what_to_build"],"type":"object"},"name":"file_ticket"},{"description":"The agents on this project: key, title, status, and the model or CLI running them.","input_schema":{"properties":{},"type":"object"},"name":"list_agents"},{"description":"Message another agent by key, `main` (the lead) or `all`, whichever model or CLI runs it. Coordinate interfaces, shared files, or ask whoever owns something. Give `reply_to` the id of the message you are answering (`read_messages` shows it) to keep a back-and-forth in one conversation. Replies arrive in your next turn.","input_schema":{"properties":{"reply_to":{"description":"id of the message this answers (the `#n` in read_messages)","type":"integer"},"text":{"type":"string"},"to":{"type":"string"}},"required":["to","text"],"type":"object"},"name":"send_message"},{"description":"A direct, one-to-one message to one agent — the same as send_message with a `to`, but never a broadcast. Use it when the exchange is between the two of you.","input_schema":{"properties":{"reply_to":{"type":"integer"},"text":{"type":"string"},"to":{"type":"string"}},"required":["to","text"],"type":"object"},"name":"dm"},{"description":"Everything you and one other agent have said to each other, oldest first. Use it before answering instead of guessing what was already agreed.","input_schema":{"properties":{"with":{"description":"the other agent's key","type":"string"}},"required":["with"],"type":"object"},"name":"read_conversation"},{"description":"New messages to you or to everyone, each with its id. They also arrive on their own at the start of a turn.","input_schema":{"properties":{},"type":"object"},"name":"read_messages"},{"description":"Submit your finished work. Your ticket's check runs first; then it goes to review (the user, or your manager deep in the tree). Blocks until accepted or returned with feedback.","input_schema":{"properties":{"files":{"items":{"type":"string"},"type":"array"},"summary":{"description":"what was built, how it connects to the rest, how you verified it, what is left","type":"string"}},"required":["summary"],"type":"object"},"name":"submit_deliverable"},{"model":"mock-adv","name":"advisor","type":"advisor_20260301"}]
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: budget_e2e::the_advisor_is_left_off_when_its_reserve_does_not_fit
+             at ./tests/budget_e2e.rs:353:5
+   3: budget_e2e::the_advisor_is_left_off_when_its_reserve_does_not_fit::{closure#0}
+             at ./tests/budget_e2e.rs:334:59
+   4: <budget_e2e::the_advisor_is_left_off_when_its_reserve_does_not_fit::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   5: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- the_anthropic_prompt_is_reserved_at_the_cache_write_price stdout ----
+
+thread 'the_anthropic_prompt_is_reserved_at_the_cache_write_price' (9987) panicked at crates/core/tests/budget_e2e.rs:246:5:
+the prompt was priced at 7.794, listed price would be 8.23: refused by project policy: task budget: the prompt alone (about $7.7940) is more than the $0.0001 left
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: budget_e2e::the_anthropic_prompt_is_reserved_at_the_cache_write_price
+             at ./tests/budget_e2e.rs:246:5
+   3: budget_e2e::the_anthropic_prompt_is_reserved_at_the_cache_write_price::{closure#0}
+             at ./tests/budget_e2e.rs:227:63
+   4: <budget_e2e::the_anthropic_prompt_is_reserved_at_the_cache_write_price::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   5: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- concurrent_agents_cannot_jointly_pass_the_project_budget stdout ----
+
+thread 'concurrent_agents_cannot_jointly_pass_the_project_budget' (9800) panicked at crates/core/tests/budget_e2e.rs:275:5:
+4 calls were made against a budget that covers two at their worst case (0.006208 each)
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: budget_e2e::concurrent_agents_cannot_jointly_pass_the_project_budget
+             at ./tests/budget_e2e.rs:275:5
+   3: budget_e2e::concurrent_agents_cannot_jointly_pass_the_project_budget::{closure#0}
+             at ./tests/budget_e2e.rs:252:62
+   4: <budget_e2e::concurrent_agents_cannot_jointly_pass_the_project_budget::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   5: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- a_unicode_prompt_is_bounded_by_its_bytes stdout ----
+
+thread 'a_unicode_prompt_is_bounded_by_its_bytes' (9799) panicked at crates/core/tests/budget_e2e.rs:149:9:
+timed out waiting for the refusal: [
+    (
+        "main",
+        Idle,
+        [
+            LogEntry {
+                kind: System,
+                text: "initialised a git repository in the workspace",
+            },
+            LogEntry {
+                kind: System,
+                text: "agents work on `backspace/run`; your branch is left alone. Merge it when you're happy: git merge backspace/run",
+            },
+            LogEntry {
+                kind: User,
+                text: "漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文🦀漢字仮名交じり文…",
+            },
+            LogEntry {
+                kind: System,
+                text: "routed by heuristic+pinned → mock-small @ xhigh",
+            },
+            LogEntry {
+                kind: Assistant,
+                text: "the provider should not have been called",
+            },
+        ],
+    ),
+]
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: budget_e2e::wait::<budget_e2e::refused_when_the_budget_is_the_body_size::{closure#4}>
+             at ./tests/budget_e2e.rs:149:9
+   3: budget_e2e::refused_when_the_budget_is_the_body_size
+             at ./tests/budget_e2e.rs:198:13
+   4: budget_e2e::a_unicode_prompt_is_bounded_by_its_bytes
+             at ./tests/budget_e2e.rs:218:5
+   5: budget_e2e::a_unicode_prompt_is_bounded_by_its_bytes::{closure#0}
+             at ./tests/budget_e2e.rs:217:46
+   6: <budget_e2e::a_unicode_prompt_is_bounded_by_its_bytes::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   7: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- source_code_in_the_prompt_is_bounded_by_its_bytes stdout ----
+
+thread 'source_code_in_the_prompt_is_bounded_by_its_bytes' (9801) panicked at crates/core/tests/budget_e2e.rs:149:9:
+timed out waiting for the refusal: [
+    (
+        "main",
+        Idle,
+        [
+            LogEntry {
+                kind: System,
+                text: "initialised a git repository in the workspace",
+            },
+            LogEntry {
+                kind: System,
+                text: "agents work on `backspace/run`; your branch is left alone. Merge it when you're happy: git merge backspace/run",
+            },
+            LogEntry {
+                kind: User,
+                text: "fn f(x: &[u8]) -> u32 { x.iter().map(|b| (*b as u32) ^ 0x5a).sum() }\nfn f(x: &[u8]) -> u32 { x.iter().map(|b| (*b as u32) ^ 0x5a).sum() }\nfn f(x: &[u8]) -> u32 { x.iter().map(|b| (*b as u32) ^ 0x5a).sum() }\nfn f(x: &[u8]) -> u32 { x.iter().map(|b| (*b as u32) ^ 0x5a).sum() }\nfn f(x: &[u8]) -> u32 { x.iter().map(|b| (*b as u32) ^ 0x5a).sum() }\nfn f(x: &[u8]) -> u32 { x.iter().map(|b| (*b as u32) ^ 0x5a).sum() }\nfn f(x: &[u8]) -> u32 { x.iter().map(|b| (*b as u32) ^ 0x5a).sum() }\nfn f(x: &[u8]) -> u32 { x.iter().map(|b| (*b as u32) ^ 0x5a).sum() }\nfn f(x: &[u8]) -> u32 { x.iter().map(|b| (*b as u32) ^ 0x5a).sum() }\nfn f(x: &[u8]) -> u32 { x.iter().map(|b| (*b as u32) ^ 0x5a).sum() }\nfn f(x: &[u8]) -> u32 { x.iter().map(|b| (*b as u32) ^ 0x5a).sum() }\nfn f(x: &[u8]) -> u32 { x.iter().map(|b| (*b as u32) ^ 0x5a).sum() }\nfn f(x: &[u8]) -> u32 { x.iter().map(|b| (*b as u32) ^ 0x5a).sum() }\nfn f(x: &[u8]) -> u32 { x.iter().map(|b| (*b as u32) ^ 0x5a).sum() }\nfn f(x: &[u8]) -> u32 { x.iter().map(|b| (*b as u32) ^ 0x5a).sum() }\nfn f(x: &[u8]) -> u32 { x.iter().map(|b| (*b as u32) ^ 0x5a).sum() }\nfn f(x: &[u8]) -> u32 { x.iter().map(|b| (*b as u32) ^ 0x5a).sum() }\nfn f(x: &[u8]) -> u32 { x.iter().map(|b| (*b as u32) ^ 0x5a).sum() }\nfn f(x: &[u8]) -> u32 { x.iter().map(|b| (*b as u32) ^ 0x5a).sum() }\nfn f(x: &[u8]) -> u32 { x.iter().map(|b| (*b as u32) ^ 0x5a).sum() }\nfn f(x: &[u8]) -> u32 { x.iter().map(|b| (*b as u32) ^ 0x5a).sum() }\nfn f(x: &[u8]) -> u32 { x.iter().map(|b| (*b as u32) ^ 0x5a).sum() }\nfn f(x: &[u8]) -> u32 { x.iter().map(|b| (*b as u32) ^ 0x5a).sum() }\nfn f(x: &[u8]) -> u32 { x.iter().map(|b| (*b as u32) ^ 0x5a).sum() }\nfn f(x: &[u8]) -> u32 { x.iter().map(|b| (*b as u32) ^ 0x5a).sum() }\nfn f(x: &[u8]) -> u32 { x.iter().map(|b| (*b as u32) ^ 0x5a).sum() }\nfn f(x: &[u8]) -> u32 { x.iter().map(|b| (*b as u32) ^ 0x5a).sum() }\nfn f(x: &[u8]) -> u32 { x.iter().map(|b| (*b as u32) ^ 0x5a).sum() }\nfn f(x: &[u8]) -> u32 { x.iter().map(|b| (*b as u32) ^ 0x5a).sum() }\nfn f(x: &[u8]) -> u32 { x.iter().map(|b| (*b as u32) ^ 0x5a).sum() }\nfn f(x: &[u8]) -> u32 { x.iter().map(|b| (*b as u32) ^ 0x5a).sum() }\nfn f(x: &[u8]) -> u32 { x.iter().map(|b| (*b as u32) ^ 0x5a).sum() }\nfn f(x: &[u8]) -> u32 { x.iter().map(|b| (*b as u32) ^ 0x5a).sum() }\nfn f(x: &[u8]) -> u32 { x.iter().map(|b| (*b as u32) ^ 0x5a).sum() }\nfn f(x: &[u8]) -> u32 { x.iter().map(|b| (*b as u32) ^ 0x5a).sum() }\nfn f(x: &[u8]) -> u32 { x.iter().map(|b| (*b as u32) ^ 0x5a).sum() }\nfn f(x: &[u8]) -> u32 { x.iter().map(|b| (*b as u32) ^ 0x5a).sum() }\nfn f(x: &[u8]) -> u32 { x.iter().map(|b| (*b as u32) ^ 0x5a).sum() }\nfn f(x: &[u8]) -> u32 { x.iter().map(|b| (*b as u32) ^ 0x5a).sum() }\nfn f(x: &[u8]) -> u32 { x.iter().map(|b| (*b as u32) ^ 0x5a).sum() }\nfn f(x: &[u8]) -> u32 { x.iter().map(|b| (*b as u32) ^ 0x5a).sum() }\nfn f(x: &[u8]) -> u32 { x.iter().map(|b| (*b as u32) ^ 0x5a).sum() }\nfn f(x: &[u8]) -> u32 { x.iter().map(|b| (*b as u32) ^ 0x5a).sum() }\nfn f(x: &[u8]) -> u32 { x.iter().map(|b| (*b as u32) ^ 0x5a).sum() }\nfn f(x: &[u8]) -> u32 { x.iter().map(|b| (*b as u32) ^ 0x5a).sum() }\nfn f(x: &[u8]) -> u32 { x.iter().map(|b| (*b as u32) ^ 0x5a).sum() }\nfn f(x: &[u8]) -> u32 { x.iter().map(|b| (*b as u32) ^ 0x5a).sum() }\nfn f(x: &[u8]) -> u32 { x.iter().map(|b| (*b as u32) ^ 0x5a).sum() }\nfn f(x: &[u8]) -> u32 { x.iter().map(|b| (*b as u32) ^ 0x5a).sum() }\nfn f(x: &[u8]) -> u32 { x.iter().map(|b| (*b as u32) ^ 0x5a).sum() }\nfn f(x: &[u8]) -> u32 { x.iter().map(|b| (*b as u32) ^ 0x5a).sum() }\nfn f(x: &[u8]) -> u32 { x.iter().map(|b| (*b as u32) ^ 0x5a).sum() }\nfn f(x: &[u8]) -> u32 { x.iter().map(|b| (*b as u32) ^ 0x5a).sum() }\nfn f(x: &[u8]) -> u32 { x.iter().map(|b| (*b as u32) ^ 0x5a).sum() }\nfn f(x: &[u8]) -> u32 { x.iter().map(|b| (*b as u32) ^ 0x5a).sum() }\nfn f(x: &[u8]) -> u32 { x.iter().map(|b| (*b as u32) ^ 0x5a).sum() }\nfn f(x: &[u8]) -> u32 { x.iter().map(|b| (*b as u32) ^ 0x5a).sum() }\nfn f(x: &[u8]) -> u32 { x.iter().map(|b| (*b as u32) ^ 0x5a).sum() …",
+            },
+            LogEntry {
+                kind: System,
+                text: "routed by heuristic+pinned → mock-small @ xhigh",
+            },
+            LogEntry {
+                kind: Assistant,
+                text: "the provider should not have been called",
+            },
+        ],
+    ),
+]
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: budget_e2e::wait::<budget_e2e::refused_when_the_budget_is_the_body_size::{closure#4}>
+             at ./tests/budget_e2e.rs:149:9
+   3: budget_e2e::refused_when_the_budget_is_the_body_size
+             at ./tests/budget_e2e.rs:198:13
+   4: budget_e2e::source_code_in_the_prompt_is_bounded_by_its_bytes
+             at ./tests/budget_e2e.rs:223:5
+   5: budget_e2e::source_code_in_the_prompt_is_bounded_by_its_bytes::{closure#0}
+             at ./tests/budget_e2e.rs:222:55
+   6: <budget_e2e::source_code_in_the_prompt_is_bounded_by_its_bytes::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   7: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- the_input_bound_is_read_from_the_request_that_was_sent stdout ----
+
+thread 'the_input_bound_is_read_from_the_request_that_was_sent' (10027) panicked at crates/core/tests/budget_e2e.rs:149:9:
+timed out waiting for the refusal: [
+    (
+        "main",
+        Idle,
+        [
+            LogEntry {
+                kind: System,
+                text: "initialised a git repository in the workspace",
+            },
+            LogEntry {
+                kind: System,
+                text: "agents work on `backspace/run`; your branch is left alone. Merge it when you're happy: git merge backspace/run",
+            },
+            LogEntry {
+                kind: User,
+                text: "say hi",
+            },
+            LogEntry {
+                kind: System,
+                text: "routed by heuristic+pinned → mock-small @ high",
+            },
+            LogEntry {
+                kind: Assistant,
+                text: "the provider should not have been called",
+            },
+        ],
+    ),
+]
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: budget_e2e::wait::<budget_e2e::refused_when_the_budget_is_the_body_size::{closure#4}>
+             at ./tests/budget_e2e.rs:149:9
+   3: budget_e2e::refused_when_the_budget_is_the_body_size
+             at ./tests/budget_e2e.rs:198:13
+   4: budget_e2e::the_input_bound_is_read_from_the_request_that_was_sent
+             at ./tests/budget_e2e.rs:213:5
+   5: budget_e2e::the_input_bound_is_read_from_the_request_that_was_sent::{closure#0}
+             at ./tests/budget_e2e.rs:212:60
+   6: <budget_e2e::the_input_bound_is_read_from_the_request_that_was_sent::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   7: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- token_budgets_count_the_providers_tokens_not_the_billing_weighted_ones stdout ----
+
+thread 'token_budgets_count_the_providers_tokens_not_the_billing_weighted_ones' (10068) panicked at crates/core/tests/budget_e2e.rs:149:9:
+timed out waiting for the refusal: [
+    (
+        "main",
+        Idle,
+        [
+            LogEntry {
+                kind: System,
+                text: "initialised a git repository in the workspace",
+            },
+            LogEntry {
+                kind: System,
+                text: "agents work on `backspace/run`; your branch is left alone. Merge it when you're happy: git merge backspace/run",
+            },
+            LogEntry {
+                kind: User,
+                text: "say hi",
+            },
+            LogEntry {
+                kind: System,
+                text: "routed by heuristic+pinned → mock-small @ high",
+            },
+            LogEntry {
+                kind: ToolCall,
+                text: "skill {\"name\":\"tdd\"}",
+            },
+            LogEntry {
+                kind: ToolResult,
+                text: "---\nname: tdd\ndescription: Test-driven development. Use when the user wants to build features or fix bugs test-first, mentions \"red-green-refactor\", or wants integration tests.\n---\n\n# Test-Driven Development\n\nTDD is the red → green loop. This skill is the reference that makes that loop produce tests worth keeping: what a good test is, where tests go, the anti-patterns, and the rules of the loop. Every section applies on every cycle: consult them before and during the loop, not after.\n\nWhen exploring the codebase, read `CONTEXT.md` (if it exists) so test names and interface vocabulary match the project's domain language, and respect ADRs in the area you're touching.\n\n## What a good test is\n\nTests verify behavior through public interfaces, not implementation details. Code can change entirely; tests shouldn't. A good test reads like a specification: \"user can checkout with valid cart\" tells you exactly what capability exists, and it survives refactors because it doesn't care about internal structure.\n\nSee [tests.md](tests.md) for examples and [mocking.md](mocking.md) for mocking guidelines.\n\n## Seams: where tests go\n\nA **seam** is the public boundary you test at: the interface where you observe behavior without reaching inside. Tests live at seams, never against internals.\n\n**Test only at pre-agreed seams.** Before writing any test, write down the seams under test and confirm them with the user. No test is written at an unconfirmed seam. You can't test everything, so agreeing the seams up front is how testing effort lands on the critical paths and complex logic instead of every edge case.\n\nAsk: \"What's the public interface, and which seams should we test?\"\n\nWhen the shape of that interface is itself in question (how deep the module is, where the seam belongs, what the interface should expose), call the Skill tool with \"codebase-design\" for the vocabulary. It is the shared source of the module, interface, depth, seam, adapter, leverage and locality terms, and it is a reference to consult, not a session to run.\n\n## Anti-patterns\n\n- **Implementation-coupled**: mocks internal collaborators, tests private methods, or verifies through a side channel (querying the database instead of using the interface). The tell: the test breaks when you refactor but behavior hasn't changed.\n- **Tautological**: the assertion recomputes the expected value the way the code does (`expect(add(a, b)).toBe(a + b)`, a snapshot derived by hand the same way, a constant asserted equal to itself), so it passes by construction and can never disagree with the code. Expected values must come from an independent source of truth: a known-good literal, a worked example, the spec.\n- **Horizontal slicing**: writing all tests first, then all implementation. Bulk tests verify _imagined_ behavior: you test the _shape_ of things rather than user-facing behavior, the tests go insensitive to real changes, and you commit to test structure before understanding the implementation. Work in **vertical slices** instead: one test → one implementation → repeat, each test a **tracer bullet** that responds to what the last cycle taught you.\n\n## Rules of the loop\n\n- **Red before green.** Write the failing test first, then only enough code to pass it. Don't anticipate future tests or add speculative features.\n- **One slice at a time.** One seam, one test, one minimal implementation per cycle.\n- **Refactoring is not part of the loop.** It belongs to the review stage (see the `code-review` skill), not the red → green implementation cycle.\n\n\n(Other files in this skill, readable with `file`: mocking.md, tests.md)",
+            },
+            LogEntry {
+                kind: Assistant,
+                text: "the provider should not have been called twice",
+            },
+        ],
+    ),
+]
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: budget_e2e::wait::<budget_e2e::token_budgets_count_the_providers_tokens_not_the_billing_weighted_ones::{closure#1}>
+             at ./tests/budget_e2e.rs:149:9
+   3: budget_e2e::token_budgets_count_the_providers_tokens_not_the_billing_weighted_ones
+             at ./tests/budget_e2e.rs:321:13
+   4: budget_e2e::token_budgets_count_the_providers_tokens_not_the_billing_weighted_ones::{closure#0}
+             at ./tests/budget_e2e.rs:305:76
+   5: <budget_e2e::token_budgets_count_the_providers_tokens_not_the_billing_weighted_ones::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   6: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+
+failures:
+    a_call_that_costs_more_than_it_reserved_is_logged_and_stops_the_next_one
+    a_unicode_prompt_is_bounded_by_its_bytes
+    concurrent_agents_cannot_jointly_pass_the_project_budget
+    source_code_in_the_prompt_is_bounded_by_its_bytes
+    the_advisor_is_left_off_when_its_reserve_does_not_fit
+    the_anthropic_prompt_is_reserved_at_the_cache_write_price
+    the_input_bound_is_read_from_the_request_that_was_sent
+    token_budgets_count_the_providers_tokens_not_the_billing_weighted_ones
+
+test result: FAILED. 0 passed; 8 failed; 0 ignored; 0 measured; 0 filtered out; finished in 34.15s
+
+error: test failed, to rerun pass `-p backspace-core --test budget_e2e`
+     Running tests/budget_reservation.rs (target/debug/deps/budget_reservation-080f4e2c5bb7ea62)
+
+running 8 tests
+test a_stopped_call_releases_its_reservation ... FAILED
+test a_call_that_cost_more_than_its_reservation_is_reported_with_by_how_much ... FAILED
+test a_fixed_reservation_for_the_advisor_fits_or_is_refused_and_is_released ... FAILED
+test a_reservation_is_the_worst_case_with_input_priced_at_the_factor ... FAILED
+test every_scope_a_call_belongs_to_is_held_and_others_are_not ... FAILED
+test what_is_held_never_passes_the_limit_while_calls_are_in_flight ... FAILED
+test parallel_calls_cannot_jointly_exceed_a_token_budget ... FAILED
+test parallel_calls_cannot_jointly_exceed_a_dollar_budget ... FAILED
+
+failures:
+
+---- a_stopped_call_releases_its_reservation stdout ----
+
+thread 'a_stopped_call_releases_its_reservation' (10098) panicked at crates/core/tests/budget_reservation.rs:104:5:
+assertion failed: first.reserved_usd() > 0.2 && t.held("project").0 > 0.2
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: core::panicking::panic
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:150:5
+   3: budget_reservation::a_stopped_call_releases_its_reservation
+             at ./tests/budget_reservation.rs:104:5
+   4: budget_reservation::a_stopped_call_releases_its_reservation::{closure#0}
+             at ./tests/budget_reservation.rs:99:45
+   5: <budget_reservation::a_stopped_call_releases_its_reservation::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   6: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- a_call_that_cost_more_than_its_reservation_is_reported_with_by_how_much stdout ----
+
+thread 'a_call_that_cost_more_than_its_reservation_is_reported_with_by_how_much' (10095) panicked at crates/core/tests/budget_reservation.rs:149:39:
+over
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: core::panicking::panic_display::<&str>
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:259:5
+   3: core::option::expect_failed
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/option.rs:2257:5
+   4: <core::option::Option<backspace_core::gateway::Overshoot>>::expect
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/option.rs:968:21
+   5: budget_reservation::a_call_that_cost_more_than_its_reservation_is_reported_with_by_how_much
+             at ./tests/budget_reservation.rs:149:39
+   6: budget_reservation::a_call_that_cost_more_than_its_reservation_is_reported_with_by_how_much::{closure#0}
+             at ./tests/budget_reservation.rs:143:77
+   7: <budget_reservation::a_call_that_cost_more_than_its_reservation_is_reported_with_by_how_much::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   8: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- a_fixed_reservation_for_the_advisor_fits_or_is_refused_and_is_released stdout ----
+
+thread 'a_fixed_reservation_for_the_advisor_fits_or_is_refused_and_is_released' (10096) panicked at crates/core/tests/budget_reservation.rs:161:5:
+$0.56 of $0.50
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: budget_reservation::a_fixed_reservation_for_the_advisor_fits_or_is_refused_and_is_released
+             at ./tests/budget_reservation.rs:161:5
+   3: budget_reservation::a_fixed_reservation_for_the_advisor_fits_or_is_refused_and_is_released::{closure#0}
+             at ./tests/budget_reservation.rs:155:76
+   4: <budget_reservation::a_fixed_reservation_for_the_advisor_fits_or_is_refused_and_is_released::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   5: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- a_reservation_is_the_worst_case_with_input_priced_at_the_factor stdout ----
+
+thread 'a_reservation_is_the_worst_case_with_input_priced_at_the_factor' (10097) panicked at crates/core/tests/budget_reservation.rs:138:5:
+0
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: core::panicking::panic_display::<f64>
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:259:5
+   3: budget_reservation::a_reservation_is_the_worst_case_with_input_priced_at_the_factor
+             at ./tests/budget_reservation.rs:138:5
+   4: budget_reservation::a_reservation_is_the_worst_case_with_input_priced_at_the_factor::{closure#0}
+             at ./tests/budget_reservation.rs:133:69
+   5: <budget_reservation::a_reservation_is_the_worst_case_with_input_priced_at_the_factor::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   6: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- every_scope_a_call_belongs_to_is_held_and_others_are_not stdout ----
+
+thread 'every_scope_a_call_belongs_to_is_held_and_others_are_not' (10099) panicked at crates/core/tests/budget_reservation.rs:120:5:
+10000
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: core::panicking::panic_display::<u32>
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:259:5
+   3: budget_reservation::every_scope_a_call_belongs_to_is_held_and_others_are_not
+             at ./tests/budget_reservation.rs:120:5
+   4: budget_reservation::every_scope_a_call_belongs_to_is_held_and_others_are_not::{closure#0}
+             at ./tests/budget_reservation.rs:112:62
+   5: <budget_reservation::every_scope_a_call_belongs_to_is_held_and_others_are_not::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   6: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- what_is_held_never_passes_the_limit_while_calls_are_in_flight stdout ----
+
+thread 'what_is_held_never_passes_the_limit_while_calls_are_in_flight' (10107) panicked at crates/core/tests/budget_reservation.rs:93:5:
+assertion `left == right` failed
+  left: 8
+ right: 5
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: core::panicking::assert_failed_inner
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:439:17
+   3: core::panicking::assert_failed::<usize, usize>
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:394:5
+   4: budget_reservation::what_is_held_never_passes_the_limit_while_calls_are_in_flight
+             at ./tests/budget_reservation.rs:93:5
+   5: budget_reservation::what_is_held_never_passes_the_limit_while_calls_are_in_flight::{closure#0}
+             at ./tests/budget_reservation.rs:83:67
+   6: <budget_reservation::what_is_held_never_passes_the_limit_while_calls_are_in_flight::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   7: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- parallel_calls_cannot_jointly_exceed_a_token_budget stdout ----
+
+thread 'parallel_calls_cannot_jointly_exceed_a_token_budget' (10103) panicked at crates/core/tests/budget_reservation.rs:79:5:
+assertion `left == right` failed: [true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true]
+  left: 16
+ right: 3
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: core::panicking::assert_failed_inner
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:434:23
+   3: core::panicking::assert_failed::<usize, usize>
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:394:5
+   4: budget_reservation::parallel_calls_cannot_jointly_exceed_a_token_budget
+             at ./tests/budget_reservation.rs:79:5
+   5: budget_reservation::parallel_calls_cannot_jointly_exceed_a_token_budget::{closure#0}
+             at ./tests/budget_reservation.rs:74:57
+   6: <budget_reservation::parallel_calls_cannot_jointly_exceed_a_token_budget::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   7: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- parallel_calls_cannot_jointly_exceed_a_dollar_budget stdout ----
+
+thread 'parallel_calls_cannot_jointly_exceed_a_dollar_budget' (10100) panicked at crates/core/tests/budget_reservation.rs:68:5:
+assertion `left == right` failed: [true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true]
+  left: 16
+ right: 5
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: core::panicking::assert_failed_inner
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:434:23
+   3: core::panicking::assert_failed::<usize, usize>
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:394:5
+   4: budget_reservation::parallel_calls_cannot_jointly_exceed_a_dollar_budget
+             at ./tests/budget_reservation.rs:68:5
+   5: budget_reservation::parallel_calls_cannot_jointly_exceed_a_dollar_budget::{closure#0}
+             at ./tests/budget_reservation.rs:62:58
+   6: <budget_reservation::parallel_calls_cannot_jointly_exceed_a_dollar_budget::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   7: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+
+failures:
+    a_call_that_cost_more_than_its_reservation_is_reported_with_by_how_much
+    a_fixed_reservation_for_the_advisor_fits_or_is_refused_and_is_released
+    a_reservation_is_the_worst_case_with_input_priced_at_the_factor
+    a_stopped_call_releases_its_reservation
+    every_scope_a_call_belongs_to_is_held_and_others_are_not
+    parallel_calls_cannot_jointly_exceed_a_dollar_budget
+    parallel_calls_cannot_jointly_exceed_a_token_budget
+    what_is_held_never_passes_the_limit_while_calls_are_in_flight
+
+test result: FAILED. 0 passed; 8 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.45s
+
+error: test failed, to rerun pass `-p backspace-core --test budget_reservation`
+     Running tests/bya.rs (target/debug/deps/bya-e3043d92b9939e25)
+
+running 1 test
+test chat_with_a_remote_a2a_agent ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s
+
+     Running tests/cli_budget.rs (target/debug/deps/cli_budget-0add117f62419560)
+
+running 4 tests
+test a_cli_worker_without_any_budget_runs_as_before ... ok
+test a_dollar_budget_with_an_unpriced_cli_model_fails_closed ... FAILED
+test a_cli_turn_is_refused_when_the_task_budget_is_spent ... FAILED
+test a_running_cli_turn_is_stopped_when_it_crosses_the_limit ... FAILED
+
+failures:
+
+---- a_dollar_budget_with_an_unpriced_cli_model_fails_closed stdout ----
+
+thread 'a_dollar_budget_with_an_unpriced_cli_model_fails_closed' (10143) panicked at crates/core/tests/cli_budget.rs:224:5:
+claude did not get the ticket accepted in 4 rounds
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: cli_budget::a_dollar_budget_with_an_unpriced_cli_model_fails_closed
+             at ./tests/cli_budget.rs:224:5
+   3: cli_budget::a_dollar_budget_with_an_unpriced_cli_model_fails_closed::{closure#0}
+             at ./tests/cli_budget.rs:219:61
+   4: <cli_budget::a_dollar_budget_with_an_unpriced_cli_model_fails_closed::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   5: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- a_cli_turn_is_refused_when_the_task_budget_is_spent stdout ----
+
+thread 'a_cli_turn_is_refused_when_the_task_budget_is_spent' (10141) panicked at crates/core/tests/cli_budget.rs:202:5:
+claude did not get the ticket accepted in 4 rounds
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: cli_budget::a_cli_turn_is_refused_when_the_task_budget_is_spent
+             at ./tests/cli_budget.rs:202:5
+   3: cli_budget::a_cli_turn_is_refused_when_the_task_budget_is_spent::{closure#0}
+             at ./tests/cli_budget.rs:197:57
+   4: <cli_budget::a_cli_turn_is_refused_when_the_task_budget_is_spent::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   5: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- a_running_cli_turn_is_stopped_when_it_crosses_the_limit stdout ----
+
+thread 'a_running_cli_turn_is_stopped_when_it_crosses_the_limit' (10144) panicked at crates/core/tests/cli_budget.rs:183:9:
+no worker failed within 25s: [
+    (
+        "main",
+        Running,
+        [
+            "initialised a git repository in the workspace",
+            "agents work on `backspace/run`; your branch is left alone. Merge it when you're happy: git merge backspace/run",
+            "cli-project: say hello",
+            "routed by heuristic+pinned → mock-mid @ high",
+            "create_tickets {\"tickets\":[{\"acceptance\":[\"hello.txt says hello\"],\"check\":\"grep -q hello hello.txt\",\"key\":\"hello\",\"title\":\"Say hello\",\"what_to_build\":\"create hello.txt containing hello\"}]}",
+            "Plan APPROVED by the user: hello. Dispatch with work_tickets.",
+            "work_tickets {}",
+        ],
+    ),
+    (
+        "hello#1",
+        Running,
+        [
+            "routed by heuristic+pinned → cli-model @ medium",
+            "working on branch `backspace/hello` from `backspace/run`",
+            "# hello: Say hello\n\n**Category:** Task\n\n**What to build:**\ncreate hello.txt containing hello\n\n**Acceptance criteria:**\n- [ ] hello.txt says hello\n\n**Check:** `grep -q hello hello.txt` must exit 0 in your worktree before your work reaches review. It runs automatically when you submit.\n\n# Why this ticket exists (project goal first)\n\n- Main agent: cli-project: say hello",
+            "handing this ticket to codex (/tmp/bs-clibud-bin-10140/codex) in /tmp/bs-clibud-running-10140/.backspace/worktrees/hello",
+        ],
+    ),
+]
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: cli_budget::worker_failure
+             at ./tests/cli_budget.rs:183:9
+   3: cli_budget::a_running_cli_turn_is_stopped_when_it_crosses_the_limit
+             at ./tests/cli_budget.rs:212:18
+   4: cli_budget::a_running_cli_turn_is_stopped_when_it_crosses_the_limit::{closure#0}
+             at ./tests/cli_budget.rs:207:61
+   5: <cli_budget::a_running_cli_turn_is_stopped_when_it_crosses_the_limit::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   6: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+
+failures:
+    a_cli_turn_is_refused_when_the_task_budget_is_spent
+    a_dollar_budget_with_an_unpriced_cli_model_fails_closed
+    a_running_cli_turn_is_stopped_when_it_crosses_the_limit
+
+test result: FAILED. 1 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 25.10s
+
+error: test failed, to rerun pass `-p backspace-core --test cli_budget`
+     Running tests/decision.rs (target/debug/deps/decision-a0cb766126eff04c)
+
+running 9 tests
+test a_decider_that_fails_is_an_error_not_a_guess ... ok
+test below_the_threshold_the_user_is_asked_and_at_it_the_answer_stands ... ok
+test a_different_decider_can_be_swapped_in_and_decides_instead ... ok
+test nothing_to_go_on_is_never_a_confident_answer ... ok
+test task_types_round_trip_through_their_names ... ok
+test a_malformed_answer_is_rejected ... ok
+test ties_resolve_the_same_way_every_time ... ok
+test the_baseline_answers_each_question_with_a_distribution_that_sums_to_one ... ok
+test the_baseline_separates_clear_cases ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/e2e.rs (target/debug/deps/e2e-36d83ee279d41137)
+
+running 8 tests
+test a_plan_must_cover_the_spec ... ok
+test filed_tickets_get_triaged ... ok
+test a_remote_machine_is_followed_and_driven ... ok
+test a_ticket_runs_on_a_cli_worker ... ok
+test visual_options_wait_for_the_users_pick ... ok
+test a_whole_project_reports_the_section_3_4_metrics ... ok
+test flat_project_with_gates_escalation_and_merges ... ok
+test nested_leads_review_and_revise_their_reports ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.30s
+
+     Running tests/eval.rs (target/debug/deps/eval-0706abaad829299b)
+
+running 10 tests
+test an_unlabeled_or_mislabeled_trace_is_an_error_naming_its_line ... ok
+test a_decider_that_fails_on_a_trace_fails_the_eval ... ok
+test accuracy_is_reported_per_task_type ... ok
+test an_empty_trace_set_cannot_be_evaluated ... ok
+test below_the_threshold_is_counted_as_asking_and_confident_mistakes_are_counted_apart ... ok
+test traces_load_from_json_lines_and_blank_lines_are_skipped ... ok
+test calibration_bins_ece_and_brier_match_the_hand_calculation ... ok
+test cost_is_compared_with_always_frontier_when_traces_carry_token_counts ... ok
+test without_token_counts_cost_is_not_computed_rather_than_guessed ... ok
+test the_report_renders_every_section_the_plan_asks_for ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/features.rs (target/debug/deps/features-f89239a6df61383c)
+
+running 17 tests
+test a_limit_is_recognised_from_the_clis_own_words_only ... ok
+test a_direct_message_between_two_agents_is_its_own_conversation ... ok
+test a_local_model_on_a_custom_router_is_found_by_id ... ok
+test a_chosen_local_model_becomes_the_scout_model ... ok
+test a_reply_to_a_message_that_is_not_there_is_refused ... ok
+test accounts_round_trip_and_keep_their_env ... ok
+test each_project_remembers_its_own_canvases ... ok
+test local_jobs_defaults_to_scouts_and_refuses_unknown_words ... ok
+test no_choice_or_an_unknown_runtime_leaves_the_config_alone ... ok
+test one_limited_login_does_not_stop_the_project ... ok
+test read_messages_hands_back_the_id_a_reply_can_name ... ok
+test the_board_message_shape_survives_a_round_trip ... ok
+test the_tick_gates_the_local_model_and_scouts_only_follow_their_own ... ok
+test a_worker_routes_to_the_local_model_only_while_it_is_listening ... ok
+test a_produced_artifact_reaches_the_snapshot_and_is_addressable ... ok
+test a_delegated_lookup_reaches_the_chosen_local_model ... ok
+test triage_can_run_on_the_local_model_with_no_api_key ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.66s
+
+     Running tests/gateway.rs (target/debug/deps/gateway-9f27bfde7bb591b6)
+
+running 20 tests
+test a_call_that_fits_gets_the_models_full_output ... ok
+test a_call_whose_input_alone_does_not_fit_is_refused_before_it_is_made ... ok
+test a_model_outside_the_execution_list_is_refused_for_execution_only ... ok
+test a_model_outside_the_orchestration_list_is_refused_for_orchestration_only ... ok
+test a_model_that_costs_nothing_is_not_stopped_by_a_dollar_budget_but_is_by_a_token_one ... ok
+test a_role_follows_what_the_agent_does ... ok
+test a_plugin_outside_the_list_is_refused_in_both_roles ... ok
+test a_refusal_names_the_policy_the_thing_and_the_role ... ok
+test a_skill_outside_the_list_is_refused_in_both_roles ... ok
+test a_spent_budget_refuses_every_further_call ... ok
+test a_token_budget_clamps_and_refuses_the_same_way ... ok
+test input_is_estimated_high_never_low ... ok
+test an_empty_list_refuses_everything_in_that_role ... ok
+test output_is_clamped_so_the_worst_case_cost_stays_inside_the_budget ... ok
+test text_dressed_as_an_instruction_cannot_widen_a_list ... ok
+test the_tightest_budget_wins_and_is_named ... ok
+test the_per_task_line_comes_from_the_policy_and_carries_the_tasks_own_spend ... ok
+test with_no_policy_every_model_skill_and_plugin_is_open ... ok
+test the_two_lists_are_separate ... ok
+test the_policy_is_read_from_the_project_config ... ok
+
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/gateway_e2e.rs (target/debug/deps/gateway_e2e-b4be863768da432a)
+
+running 13 tests
+test a_task_budget_smaller_than_the_first_call_stops_it_before_any_request ... ok
+test a_task_budget_spent_by_one_call_stops_the_next_before_it_is_made ... ok
+test a_skill_outside_the_list_is_refused_and_not_offered_to_an_orchestration_agent ... ok
+test a_skill_outside_the_list_is_refused_for_an_execution_agent_too ... ok
+test an_agent_cannot_rewrite_the_policy_file_with_the_file_tools ... ok
+test an_allowed_skill_still_loads ... ok
+test an_execution_model_outside_the_list_never_reaches_the_provider ... ok
+test an_orchestration_model_outside_the_list_never_reaches_the_provider ... ok
+test the_output_limit_sent_to_the_provider_is_clamped_to_what_the_budget_can_pay ... ok
+test the_policy_is_fixed_when_the_project_opens ... ok
+test the_project_budget_is_enforced_before_the_call_not_after_it ... ok
+test without_a_budget_the_output_limit_is_the_models_own ... ok
+test an_allowed_orchestration_model_is_called_normally ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.49s
+
+     Running tests/interrupted.rs (target/debug/deps/interrupted-f51eb1a30baed879)
+
+running 2 tests
+test a_restart_carries_a_cli_worker_on_in_its_own_session ... ok
+test only_an_interrupted_agent_can_carry_on ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.83s
+
+     Running tests/ladder.rs (target/debug/deps/ladder-46073cb4025b8ce5)
+
+running 16 tests
+test a_cheap_rung_that_mostly_works_is_kept ... ok
+test an_explicit_class_beats_the_tier ... ok
+test an_unmeasured_rung_is_a_coin_flip_and_no_rung_is_certain ... ok
+test a_cheap_rung_that_keeps_failing_is_skipped_for_the_frontier ... ok
+test an_unsure_or_missing_classification_does_not_start_on_the_frontier ... ok
+test an_unknown_class_is_a_config_error ... ok
+test classes_are_ordered_from_local_to_frontier ... ok
+test moving_up_needs_a_measured_failure ... ok
+test nothing_is_above_the_frontier ... ok
+test the_planner_starts_on_the_frontier_only_for_a_long_task ... ok
+test tier_zero_is_local ... ok
+test a_free_model_can_still_be_a_frontier_call ... ok
+test without_measurements_price_decides_and_the_cheap_rung_goes_first ... ok
+test by_default_the_class_follows_the_tier ... ok
+test cheapest_on_prefers_the_class_then_the_nearest_below_then_above ... ok
+test within_caps_the_candidates_and_never_empties_them ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/metrics.rs (target/debug/deps/metrics-ed4ae7eb713b813d)
+
+running 11 tests
+test a_task_that_never_goes_green_does_not_make_cost_to_green ... ok
+test decision_model_spend_counts_toward_cost_but_is_not_a_model_call ... ok
+test an_empty_ledger_reports_zeros_and_no_ratios ... ok
+test cost_to_green_includes_every_retry_up_to_the_green_result ... ok
+test finishing_a_task_that_was_never_started_still_counts_it ... ok
+test escalation_rate_and_success_rate_count_tasks_not_events ... ok
+test frontier_calls_are_counted_by_class_not_by_price ... ok
+test human_tokens_are_estimated_from_characters_and_split_into_typed_and_read ... ok
+test no_escalations_means_no_success_rate_rather_than_zero ... ok
+test per_merged_figures_divide_by_merged_tickets ... ok
+test the_json_form_carries_every_metric_and_round_trips ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/metrics_cli.rs (target/debug/deps/metrics_cli-7595efbb12da8c86)
+
+running 1 test
+test a_cli_workers_turn_is_a_frontier_call_even_though_it_costs_nothing ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.41s
+
+     Running tests/metrics_e2e.rs (target/debug/deps/metrics_e2e-679b03ac147030f4)
+
+running 4 tests
+test the_harness_reports_the_same_numbers_it_wrote ... ok
+test a_frontier_planner_turn_is_one_frontier_call_with_its_tokens_and_cost ... ok
+test a_mid_model_turn_is_not_a_frontier_call ... ok
+test the_file_only_ever_grows_by_whole_json_lines ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+
+     Running tests/policy_integrity.rs (target/debug/deps/policy_integrity-4d46355d2e0d286a)
+
+running 13 tests
+test a_lock_that_cannot_be_read_stops_the_project_opening_rather_than_loosening_it ... FAILED
+test a_file_that_tightens_one_thing_and_loosens_another_is_not_adopted_in_part ... FAILED
+test a_person_adopting_a_loosening_makes_it_take_effect_and_stay ... FAILED
+test a_person_editing_the_file_between_agent_actions_is_not_undone ... ok
+test each_workspace_has_its_own_lock ... ok
+test every_way_of_loosening_is_ignored ... FAILED
+test ignoring_a_loosening_does_not_wear_off ... FAILED
+test bash_cannot_weaken_the_policy_for_the_next_session ... FAILED
+test the_first_open_adopts_the_file_and_keeps_the_lock_outside_the_workspace ... FAILED
+test tightening_is_adopted_and_loosening_is_ignored_with_a_warning ... FAILED
+test a_command_that_leaves_the_policy_alone_is_not_reported ... ok
+test a_loosened_file_found_when_the_project_opens_is_not_in_force ... FAILED
+test the_lock_is_restored_after_a_command_that_rewrites_it ... FAILED
+
+failures:
+
+---- a_lock_that_cannot_be_read_stops_the_project_opening_rather_than_loosening_it stdout ----
+
+thread 'a_lock_that_cannot_be_read_stops_the_project_opening_rather_than_loosening_it' (11766) panicked at crates/core/tests/policy_integrity.rs:142:65:
+called `Result::unwrap()` on an `Err` value: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: core::result::unwrap_failed
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/result.rs:1867:5
+   3: <core::result::Result<(), std::io::error::Error>>::unwrap
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/result.rs:1233:23
+   4: policy_integrity::a_lock_that_cannot_be_read_stops_the_project_opening_rather_than_loosening_it
+             at ./tests/policy_integrity.rs:142:65
+   5: policy_integrity::a_lock_that_cannot_be_read_stops_the_project_opening_rather_than_loosening_it::{closure#0}
+             at ./tests/policy_integrity.rs:139:83
+   6: <policy_integrity::a_lock_that_cannot_be_read_stops_the_project_opening_rather_than_loosening_it::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   7: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- a_file_that_tightens_one_thing_and_loosens_another_is_not_adopted_in_part stdout ----
+
+thread 'a_file_that_tightens_one_thing_and_loosens_another_is_not_adopted_in_part' (11765) panicked at crates/core/tests/policy_integrity.rs:134:5:
+assertion `left == right` failed: nothing from a file that loosens anything
+  left: PolicyConfig { mode: Some(Enforced), orchestration_models: Some([]), execution_models: Some(["a", "b"]), skills: Some(["tdd"]), plugins: Some(["x"]), budget: TaskBudget { max_usd: Some(2.0), max_tokens: Some(100000) } }
+ right: PolicyConfig { mode: Some(Enforced), orchestration_models: Some(["a"]), execution_models: Some(["a", "b"]), skills: Some(["tdd"]), plugins: Some([]), budget: TaskBudget { max_usd: Some(2.0), max_tokens: Some(100000) } }
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: core::panicking::assert_failed_inner
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:434:23
+   3: core::panicking::assert_failed::<backspace_core::gateway::PolicyConfig, backspace_core::gateway::PolicyConfig>
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:394:5
+   4: policy_integrity::a_file_that_tightens_one_thing_and_loosens_another_is_not_adopted_in_part
+             at ./tests/policy_integrity.rs:134:5
+   5: policy_integrity::a_file_that_tightens_one_thing_and_loosens_another_is_not_adopted_in_part::{closure#0}
+             at ./tests/policy_integrity.rs:128:79
+   6: <policy_integrity::a_file_that_tightens_one_thing_and_loosens_another_is_not_adopted_in_part::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   7: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- a_person_adopting_a_loosening_makes_it_take_effect_and_stay stdout ----
+
+thread 'a_person_adopting_a_loosening_makes_it_take_effect_and_stay' (11782) panicked at crates/core/tests/policy_integrity.rs:155:5:
+assertion `left == right` failed: ignored until adopted
+  left: PolicyConfig { mode: Some(Enforced), orchestration_models: Some(["a"]), execution_models: Some(["a", "b", "c"]), skills: Some(["tdd"]), plugins: Some([]), budget: TaskBudget { max_usd: Some(2.0), max_tokens: Some(100000) } }
+ right: PolicyConfig { mode: Some(Enforced), orchestration_models: Some(["a"]), execution_models: Some(["a", "b"]), skills: Some(["tdd"]), plugins: Some([]), budget: TaskBudget { max_usd: Some(2.0), max_tokens: Some(100000) } }
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: core::panicking::assert_failed_inner
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:434:23
+   3: core::panicking::assert_failed::<backspace_core::gateway::PolicyConfig, backspace_core::gateway::PolicyConfig>
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:394:5
+   4: policy_integrity::a_person_adopting_a_loosening_makes_it_take_effect_and_stay
+             at ./tests/policy_integrity.rs:155:5
+   5: policy_integrity::a_person_adopting_a_loosening_makes_it_take_effect_and_stay::{closure#0}
+             at ./tests/policy_integrity.rs:151:65
+   6: <policy_integrity::a_person_adopting_a_loosening_makes_it_take_effect_and_stay::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   7: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- every_way_of_loosening_is_ignored stdout ----
+
+thread 'every_way_of_loosening_is_ignored' (11874) panicked at crates/core/tests/policy_integrity.rs:122:9:
+assertion `left == right` failed: a model added: the adopted policy stays
+  left: PolicyConfig { mode: Some(Enforced), orchestration_models: Some(["a", "z"]), execution_models: Some(["a", "b"]), skills: Some(["tdd"]), plugins: Some([]), budget: TaskBudget { max_usd: Some(2.0), max_tokens: Some(100000) } }
+ right: PolicyConfig { mode: Some(Enforced), orchestration_models: Some(["a"]), execution_models: Some(["a", "b"]), skills: Some(["tdd"]), plugins: Some([]), budget: TaskBudget { max_usd: Some(2.0), max_tokens: Some(100000) } }
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: core::panicking::assert_failed_inner
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:434:23
+   3: core::panicking::assert_failed::<backspace_core::gateway::PolicyConfig, backspace_core::gateway::PolicyConfig>
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:394:5
+   4: policy_integrity::every_way_of_loosening_is_ignored
+             at ./tests/policy_integrity.rs:122:9
+   5: policy_integrity::every_way_of_loosening_is_ignored::{closure#0}
+             at ./tests/policy_integrity.rs:104:39
+   6: <policy_integrity::every_way_of_loosening_is_ignored::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   7: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- ignoring_a_loosening_does_not_wear_off stdout ----
+
+thread 'ignoring_a_loosening_does_not_wear_off' (11876) panicked at crates/core/tests/policy_integrity.rs:170:9:
+assertion `left == right` failed
+  left: Some(["x"])
+ right: Some([])
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: core::panicking::assert_failed_inner
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:439:17
+   3: core::panicking::assert_failed::<core::option::Option<alloc::vec::Vec<alloc::string::String>>, core::option::Option<alloc::vec::Vec<alloc::string::String>>>
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:394:5
+   4: policy_integrity::ignoring_a_loosening_does_not_wear_off
+             at ./tests/policy_integrity.rs:170:9
+   5: policy_integrity::ignoring_a_loosening_does_not_wear_off::{closure#0}
+             at ./tests/policy_integrity.rs:164:44
+   6: <policy_integrity::ignoring_a_loosening_does_not_wear_off::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   7: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- bash_cannot_weaken_the_policy_for_the_next_session stdout ----
+
+thread 'bash_cannot_weaken_the_policy_for_the_next_session' (11787) panicked at crates/core/tests/policy_integrity.rs:310:9:
+assertion `left == right` failed: sed -i widens a list: the file is as it was
+  left: "[router]\nbackend = \"heuristic\"\njev_endpoint = \"\"\njev_model = \"\"\njev_api_key_env = \"NONE\"\njev_usd_per_mtok = 0.0\nmain_min_effort = \"high\"\npin_main = \"mock-big\"\npin_sub = \"mock-small\"\n\n[orchestrator]\nmax_parallel_calls = 2\nmax_subagents = 4\nauto_approve = false\nbash_timeout_secs = 10\n\n[providers.mock]\nkind = \"openai\"\nbase_url = \"http://127.0.0.1:33225/v1\"\napi_key_env = \"NONE\"\n\n[[models]]\nid = \"mock-small\"\nprovider = \"mock\"\ntier = 1\ndescription = \"cheap\"\ninput_usd_per_mtok = 1.0\noutput_usd_per_mtok = 2.0\nmax_output_tokens = 1000\n\n[[models]]\nid = \"mock-big\"\nprovider = \"mock\"\ntier = 4\ndescription = \"strong\"\ninput_usd_per_mtok = 10.0\noutput_usd_per_mtok = 20.0\nmax_output_tokens = 1000\n\n[policy]\nmode = \"enforced\"\norchestration_models = [\"mock-big\"]\nexecution_models = [\"mock-big\", \"mock-small\"]\nskills = []\nplugins = []\n"
+ right: "[router]\nbackend = \"heuristic\"\njev_endpoint = \"\"\njev_model = \"\"\njev_api_key_env = \"NONE\"\njev_usd_per_mtok = 0.0\nmain_min_effort = \"high\"\npin_main = \"mock-big\"\npin_sub = \"mock-small\"\n\n[orchestrator]\nmax_parallel_calls = 2\nmax_subagents = 4\nauto_approve = false\nbash_timeout_secs = 10\n\n[providers.mock]\nkind = \"openai\"\nbase_url = \"http://127.0.0.1:33225/v1\"\napi_key_env = \"NONE\"\n\n[[models]]\nid = \"mock-small\"\nprovider = \"mock\"\ntier = 1\ndescription = \"cheap\"\ninput_usd_per_mtok = 1.0\noutput_usd_per_mtok = 2.0\nmax_output_tokens = 1000\n\n[[models]]\nid = \"mock-big\"\nprovider = \"mock\"\ntier = 4\ndescription = \"strong\"\ninput_usd_per_mtok = 10.0\noutput_usd_per_mtok = 20.0\nmax_output_tokens = 1000\n\n[policy]\nmode = \"enforced\"\norchestration_models = [\"mock-big\"]\nexecution_models = [\"mock-big\"]\nskills = []\nplugins = []\n"
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: core::panicking::assert_failed_inner
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:434:23
+   3: core::panicking::assert_failed::<alloc::string::String, alloc::string::String>
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:394:5
+   4: policy_integrity::bash_cannot_weaken_the_policy_for_the_next_session
+             at ./tests/policy_integrity.rs:310:9
+   5: policy_integrity::bash_cannot_weaken_the_policy_for_the_next_session::{closure#0}
+             at ./tests/policy_integrity.rs:295:56
+   6: <policy_integrity::bash_cannot_weaken_the_policy_for_the_next_session::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   7: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- the_first_open_adopts_the_file_and_keeps_the_lock_outside_the_workspace stdout ----
+
+thread 'the_first_open_adopts_the_file_and_keeps_the_lock_outside_the_workspace' (11877) panicked at crates/core/tests/policy_integrity.rs:67:5:
+/tmp/bs-integrity-home-11763/data/policy-locks/_tmp_bs_integrity_first_11763.toml was not written
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: policy_integrity::the_first_open_adopts_the_file_and_keeps_the_lock_outside_the_workspace
+             at ./tests/policy_integrity.rs:67:5
+   3: policy_integrity::the_first_open_adopts_the_file_and_keeps_the_lock_outside_the_workspace::{closure#0}
+             at ./tests/policy_integrity.rs:60:77
+   4: <policy_integrity::the_first_open_adopts_the_file_and_keeps_the_lock_outside_the_workspace::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   5: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- tightening_is_adopted_and_loosening_is_ignored_with_a_warning stdout ----
+
+thread 'tightening_is_adopted_and_loosening_is_ignored_with_a_warning' (11880) panicked at crates/core/tests/policy_integrity.rs:92:53:
+called `Result::unwrap()` on an `Err` value: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: core::result::unwrap_failed
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/result.rs:1867:5
+   3: <core::result::Result<alloc::string::String, std::io::error::Error>>::unwrap
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/result.rs:1233:23
+   4: policy_integrity::tightening_is_adopted_and_loosening_is_ignored_with_a_warning
+             at ./tests/policy_integrity.rs:92:53
+   5: policy_integrity::tightening_is_adopted_and_loosening_is_ignored_with_a_warning::{closure#0}
+             at ./tests/policy_integrity.rs:83:67
+   6: <policy_integrity::tightening_is_adopted_and_loosening_is_ignored_with_a_warning::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   7: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- a_loosened_file_found_when_the_project_opens_is_not_in_force stdout ----
+
+thread 'a_loosened_file_found_when_the_project_opens_is_not_in_force' (11767) panicked at crates/core/tests/policy_integrity.rs:336:5:
+assertion `left == right` failed
+  left: Some(["mock-big", "mock-small"])
+ right: Some(["mock-big"])
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: core::panicking::assert_failed_inner
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:439:17
+   3: core::panicking::assert_failed::<core::option::Option<alloc::vec::Vec<alloc::string::String>>, core::option::Option<alloc::vec::Vec<alloc::string::String>>>
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:394:5
+   4: policy_integrity::a_loosened_file_found_when_the_project_opens_is_not_in_force
+             at ./tests/policy_integrity.rs:336:5
+   5: policy_integrity::a_loosened_file_found_when_the_project_opens_is_not_in_force::{closure#0}
+             at ./tests/policy_integrity.rs:327:66
+   6: <policy_integrity::a_loosened_file_found_when_the_project_opens_is_not_in_force::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   7: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- the_lock_is_restored_after_a_command_that_rewrites_it stdout ----
+
+thread 'the_lock_is_restored_after_a_command_that_rewrites_it' (11878) panicked at crates/core/tests/policy_integrity.rs:357:43:
+the lock exists once the project is open: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: core::result::unwrap_failed
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/result.rs:1867:5
+   3: <core::result::Result<alloc::vec::Vec<u8>, std::io::error::Error>>::expect
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/result.rs:1185:23
+   4: policy_integrity::the_lock_is_restored_after_a_command_that_rewrites_it
+             at ./tests/policy_integrity.rs:357:43
+   5: policy_integrity::the_lock_is_restored_after_a_command_that_rewrites_it::{closure#0}
+             at ./tests/policy_integrity.rs:345:59
+   6: <policy_integrity::the_lock_is_restored_after_a_command_that_rewrites_it::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   7: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+
+failures:
+    a_file_that_tightens_one_thing_and_loosens_another_is_not_adopted_in_part
+    a_lock_that_cannot_be_read_stops_the_project_opening_rather_than_loosening_it
+    a_loosened_file_found_when_the_project_opens_is_not_in_force
+    a_person_adopting_a_loosening_makes_it_take_effect_and_stay
+    bash_cannot_weaken_the_policy_for_the_next_session
+    every_way_of_loosening_is_ignored
+    ignoring_a_loosening_does_not_wear_off
+    the_first_open_adopts_the_file_and_keeps_the_lock_outside_the_workspace
+    the_lock_is_restored_after_a_command_that_rewrites_it
+    tightening_is_adopted_and_loosening_is_ignored_with_a_warning
+
+test result: FAILED. 3 passed; 10 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.29s
+
+error: test failed, to rerun pass `-p backspace-core --test policy_integrity`
+     Running tests/policy_integrity_cli.rs (target/debug/deps/policy_integrity_cli-bfb429c8dddb4450)
+
+running 3 tests
+test a_delivery_that_leaves_the_policy_alone_is_still_auto_approved ... ok
+test a_cli_worker_cannot_weaken_the_policy ... FAILED
+test a_merged_branch_that_edits_the_policy_is_held_even_under_auto_approve ... FAILED
+
+failures:
+
+---- a_cli_worker_cannot_weaken_the_policy stdout ----
+
+thread 'a_cli_worker_cannot_weaken_the_policy' (11899) panicked at crates/core/tests/policy_integrity_cli.rs:201:5:
+assertion `left == right` failed: the CLI's edit of the workspace file was undone
+  left: "[router]\nbackend = \"heuristic\"\njev_endpoint = \"\"\njev_model = \"\"\njev_api_key_env = \"NONE\"\njev_usd_per_mtok = 0.0\nmain_min_effort = \"high\"\npin_main = \"mock-mid\"\npin_sub = \"cli-model\"\n\n[orchestrator]\nmax_parallel_calls = 2\nmax_subagents = 4\nauto_approve = false\nbash_timeout_secs = 10\n\n[providers.mock]\nkind = \"openai\"\nbase_url = \"http://127.0.0.1:39045/v1\"\napi_key_env = \"NONE\"\n\n[providers.the-cli]\nkind = \"cli\"\ncli = \"claude\"\n\n[[models]]\nid = \"mock-mid\"\nprovider = \"mock\"\ntier = 2\ndescription = \"mid\"\ninput_usd_per_mtok = 1.0\noutput_usd_per_mtok = 2.0\nmax_output_tokens = 1000\n\n[[models]]\nid = \"cli-model\"\nprovider = \"the-cli\"\ntier = 3\ndescription = \"a coding CLI\"\ninput_usd_per_mtok = 0.0\noutput_usd_per_mtok = 0.0\nmax_output_tokens = 0\n\n[policy]\nmode = \"enforced\"\norchestration_models = [\"mock-mid\", \"cli-model\"]\nexecution_models = [\"cli-model\", \"mock-mid\"]\nskills = []\nplugins = []\n"
+ right: "[router]\nbackend = \"heuristic\"\njev_endpoint = \"\"\njev_model = \"\"\njev_api_key_env = \"NONE\"\njev_usd_per_mtok = 0.0\nmain_min_effort = \"high\"\npin_main = \"mock-mid\"\npin_sub = \"cli-model\"\n\n[orchestrator]\nmax_parallel_calls = 2\nmax_subagents = 4\nauto_approve = false\nbash_timeout_secs = 10\n\n[providers.mock]\nkind = \"openai\"\nbase_url = \"http://127.0.0.1:39045/v1\"\napi_key_env = \"NONE\"\n\n[providers.the-cli]\nkind = \"cli\"\ncli = \"claude\"\n\n[[models]]\nid = \"mock-mid\"\nprovider = \"mock\"\ntier = 2\ndescription = \"mid\"\ninput_usd_per_mtok = 1.0\noutput_usd_per_mtok = 2.0\nmax_output_tokens = 1000\n\n[[models]]\nid = \"cli-model\"\nprovider = \"the-cli\"\ntier = 3\ndescription = \"a coding CLI\"\ninput_usd_per_mtok = 0.0\noutput_usd_per_mtok = 0.0\nmax_output_tokens = 0\n\n[policy]\nmode = \"enforced\"\norchestration_models = [\"mock-mid\", \"cli-model\"]\nexecution_models = [\"cli-model\"]\nskills = []\nplugins = []\n"
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: core::panicking::assert_failed_inner
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:434:23
+   3: core::panicking::assert_failed::<alloc::string::String, alloc::string::String>
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:394:5
+   4: policy_integrity_cli::a_cli_worker_cannot_weaken_the_policy
+             at ./tests/policy_integrity_cli.rs:201:5
+   5: policy_integrity_cli::a_cli_worker_cannot_weaken_the_policy::{closure#0}
+             at ./tests/policy_integrity_cli.rs:197:43
+   6: <policy_integrity_cli::a_cli_worker_cannot_weaken_the_policy::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   7: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- a_merged_branch_that_edits_the_policy_is_held_even_under_auto_approve stdout ----
+
+thread 'a_merged_branch_that_edits_the_policy_is_held_even_under_auto_approve' (11901) panicked at crates/core/tests/policy_integrity_cli.rs:179:9:
+timed out waiting for the held delivery: [
+    (
+        "main",
+        Idle,
+        [
+            "initialised a git repository in the workspace",
+            "agents work on `backspace/run`; your branch is left alone. Merge it when you're happy: git merge backspace/run",
+            "cli-project: say hello",
+            "routed by heuristic+pinned → mock-mid @ high",
+            "create_tickets {\"tickets\":[{\"acceptance\":[\"hello.txt says hello\"],\"check\":\"grep -q hello hello.txt\",\"key\":\"hello\",\"title\":\"Say hello\",\"what_to_build\":\"create hello.txt containing hello\"}]}",
+            "Created hello. Dispatch them with work_tickets.",
+            "work_tickets {}",
+            "## `hello` Say hello: APPROVED by the user and merged ($0.000)\nCreated hello.txt\nFiles: \nbackspace.toml | 1 +\n hello.txt      | 1 +\n 2 files changed, 2 insertions(+)",
+            "done",
+        ],
+    ),
+    (
+        "hello#1",
+        Approved,
+        [
+            "routed by pinned → cli-model @ medium (100% confident)",
+            "working on branch `backspace/hello` from `backspace/run`",
+            "# hello: Say hello\n\n**Category:** Task\n\n**What to build:**\ncreate hello.txt containing hello\n\n**Acceptance criteria:**\n- [ ] hello.txt says hello\n\n**Check:** `grep -q hello hello.txt` must exit 0 in your worktree before your work reaches review. It runs automatically when you submit.\n\n# Why this ticket exists (project goal first)\n\n- Main agent: cli-project: say hello",
+            "handing this ticket to claude (/tmp/bs-pcli-bin-11898/claude) in /tmp/bs-pcli-gate-11898/.backspace/worktrees/hello",
+            "claude turn done (≈$0.010 at API prices; billed to your claude plan)",
+            "Auto-approved.",
+        ],
+    ),
+]
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: policy_integrity_cli::drive::<policy_integrity_cli::a_merged_branch_that_edits_the_policy_is_held_even_under_auto_approve::{closure#0}>
+             at ./tests/policy_integrity_cli.rs:179:9
+   3: policy_integrity_cli::a_merged_branch_that_edits_the_policy_is_held_even_under_auto_approve
+             at ./tests/policy_integrity_cli.rs:219:5
+   4: policy_integrity_cli::a_merged_branch_that_edits_the_policy_is_held_even_under_auto_approve::{closure#0}
+             at ./tests/policy_integrity_cli.rs:216:75
+   5: <policy_integrity_cli::a_merged_branch_that_edits_the_policy_is_held_even_under_auto_approve::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   6: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+
+failures:
+    a_cli_worker_cannot_weaken_the_policy
+    a_merged_branch_that_edits_the_policy_is_held_even_under_auto_approve
+
+test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 40.07s
+
+error: test failed, to rerun pass `-p backspace-core --test policy_integrity_cli`
+     Running tests/policy_modes.rs (target/debug/deps/policy_modes-4ff9fb53e9ba2336)
+
+running 11 tests
+test an_empty_list_still_denies_everything ... ok
+test enforced_mode_needs_every_list ... FAILED
+test new_project_default_is_enforced_with_explicit_lists ... FAILED
+test legacy_open_mode_is_a_note_not_a_warning ... FAILED
+test policy_init_reproduces_the_effective_permissions ... FAILED
+test a_policy_with_every_list_has_nothing_to_warn_about ... ok
+test the_shipped_default_file_is_not_a_policy ... ok
+test partial_policy_warns_for_each_open_list ... FAILED
+test no_policy_opens_with_a_visible_warning ... FAILED
+test skills_present_but_not_allowed_are_named ... FAILED
+test user_enabled_local_models_stay_usable_under_an_execution_list ... FAILED
+
+failures:
+
+---- enforced_mode_needs_every_list stdout ----
+
+thread 'enforced_mode_needs_every_list' (12111) panicked at crates/core/tests/policy_modes.rs:140:98:
+called `Result::unwrap_err()` on an `Ok` value: Config { router: RouterConfig { backend: Heuristic, jev_endpoint: "", jev_model: "", jev_api_key_env: "NONE", jev_usd_per_mtok: 0.0, main_min_effort: High, pin_main: None, pin_sub: None, triage_threshold: 0.7 }, orchestrator: OrchestratorConfig { max_parallel_calls: 2, max_subagents: 4, auto_approve: false, bash_timeout_secs: 10, max_depth: 2, human_review_depth: 1, max_project_usd: None, isolation: Worktree }, escalation: EscalationConfig { start_max_effort: Medium, start_max_tier: 2, max_steps: 3, loop_repeats: 3 }, workflow: WorkflowConfig { grill: true, plan_approval: true, main_skills: ["grilling", "to-tickets"], worker_skills: ["ponytail"], triage_skills: ["triage"] }, advisor: AdvisorConfig { model: Some("claude-opus-5-5"), cli: Some("opus"), scout_model: None, cli_scouts: Some("haiku"), scouts: 3 }, policy: PolicyConfig { mode: Some(Enforced), orchestration_models: None, execution_models: None, skills: Some(["tdd"]), plugins: None, budget: TaskBudget { max_usd: None, max_tokens: None } }, providers: {"mock": ProviderConfig { kind: Openai, base_url: "http://127.0.0.1:1/v1", api_key_env: "NONE", cli: None }}, models: [ModelSpec { id: "mock-small", provider: "mock", model: None, tier: 1, description: "cheap", input_usd_per_mtok: 1.0, output_usd_per_mtok: 2.0, max_output_tokens: 1000, efforts: [], class: None }, ModelSpec { id: "mock-big", provider: "mock", model: None, tier: 4, description: "strong", input_usd_per_mtok: 10.0, output_usd_per_mtok: 20.0, max_output_tokens: 1000, efforts: [], class: None }] }
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: core::result::unwrap_failed
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/result.rs:1867:5
+   3: <core::result::Result<backspace_core::config::Config, anyhow::Error>>::unwrap_err
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/result.rs:1329:22
+   4: policy_modes::enforced_mode_needs_every_list
+             at ./tests/policy_modes.rs:140:98
+   5: policy_modes::enforced_mode_needs_every_list::{closure#0}
+             at ./tests/policy_modes.rs:139:36
+   6: <policy_modes::enforced_mode_needs_every_list::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   7: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- new_project_default_is_enforced_with_explicit_lists stdout ----
+
+thread 'new_project_default_is_enforced_with_explicit_lists' (12123) panicked at crates/core/tests/policy_modes.rs:180:5:
+assertion `left == right` failed
+  left: None
+ right: Some(Enforced)
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: core::panicking::assert_failed_inner
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:439:17
+   3: core::panicking::assert_failed::<core::option::Option<backspace_core::gateway::PolicyMode>, core::option::Option<backspace_core::gateway::PolicyMode>>
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:394:5
+   4: policy_modes::new_project_default_is_enforced_with_explicit_lists
+             at ./tests/policy_modes.rs:180:5
+   5: policy_modes::new_project_default_is_enforced_with_explicit_lists::{closure#0}
+             at ./tests/policy_modes.rs:176:57
+   6: <policy_modes::new_project_default_is_enforced_with_explicit_lists::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   7: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- legacy_open_mode_is_a_note_not_a_warning stdout ----
+
+thread 'legacy_open_mode_is_a_note_not_a_warning' (12112) panicked at crates/core/tests/policy_modes.rs:123:5:
+choosing legacy-open is still recorded
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: policy_modes::legacy_open_mode_is_a_note_not_a_warning
+             at ./tests/policy_modes.rs:123:5
+   3: policy_modes::legacy_open_mode_is_a_note_not_a_warning::{closure#0}
+             at ./tests/policy_modes.rs:118:46
+   4: <policy_modes::legacy_open_mode_is_a_note_not_a_warning::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   5: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- policy_init_reproduces_the_effective_permissions stdout ----
+
+thread 'policy_init_reproduces_the_effective_permissions' (12184) panicked at crates/core/tests/policy_modes.rs:211:5:
+
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: policy_modes::policy_init_reproduces_the_effective_permissions
+             at ./tests/policy_modes.rs:211:5
+   3: policy_modes::policy_init_reproduces_the_effective_permissions::{closure#0}
+             at ./tests/policy_modes.rs:207:54
+   4: <policy_modes::policy_init_reproduces_the_effective_permissions::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   5: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- partial_policy_warns_for_each_open_list stdout ----
+
+thread 'partial_policy_warns_for_each_open_list' (12129) panicked at crates/core/tests/policy_modes.rs:112:9:
+orchestration_models is open and must be named: 
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: policy_modes::partial_policy_warns_for_each_open_list
+             at ./tests/policy_modes.rs:112:9
+   3: policy_modes::partial_policy_warns_for_each_open_list::{closure#0}
+             at ./tests/policy_modes.rs:107:45
+   4: <policy_modes::partial_policy_warns_for_each_open_list::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   5: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- no_policy_opens_with_a_visible_warning stdout ----
+
+thread 'no_policy_opens_with_a_visible_warning' (12128) panicked at crates/core/tests/policy_modes.rs:96:5:
+
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: policy_modes::no_policy_opens_with_a_visible_warning
+             at ./tests/policy_modes.rs:96:5
+   3: policy_modes::no_policy_opens_with_a_visible_warning::{closure#0}
+             at ./tests/policy_modes.rs:92:44
+   4: <policy_modes::no_policy_opens_with_a_visible_warning::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   5: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- skills_present_but_not_allowed_are_named stdout ----
+
+thread 'skills_present_but_not_allowed_are_named' (12185) panicked at crates/core/tests/policy_modes.rs:269:5:
+
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: policy_modes::skills_present_but_not_allowed_are_named
+             at ./tests/policy_modes.rs:269:5
+   3: policy_modes::skills_present_but_not_allowed_are_named::{closure#0}
+             at ./tests/policy_modes.rs:263:46
+   4: <policy_modes::skills_present_but_not_allowed_are_named::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   5: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- user_enabled_local_models_stay_usable_under_an_execution_list stdout ----
+
+thread 'user_enabled_local_models_stay_usable_under_an_execution_list' (12194) panicked at crates/core/tests/policy_modes.rs:246:5:
+PolicyConfig { mode: Some(Enforced), orchestration_models: Some(["mock-big"]), execution_models: Some(["mock-small"]), skills: Some([]), plugins: Some([]), budget: TaskBudget { max_usd: None, max_tokens: None } }
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: policy_modes::user_enabled_local_models_stay_usable_under_an_execution_list
+             at ./tests/policy_modes.rs:246:5
+   3: policy_modes::user_enabled_local_models_stay_usable_under_an_execution_list::{closure#0}
+             at ./tests/policy_modes.rs:232:67
+   4: <policy_modes::user_enabled_local_models_stay_usable_under_an_execution_list::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   5: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+
+failures:
+    enforced_mode_needs_every_list
+    legacy_open_mode_is_a_note_not_a_warning
+    new_project_default_is_enforced_with_explicit_lists
+    no_policy_opens_with_a_visible_warning
+    partial_policy_warns_for_each_open_list
+    policy_init_reproduces_the_effective_permissions
+    skills_present_but_not_allowed_are_named
+    user_enabled_local_models_stay_usable_under_an_execution_list
+
+test result: FAILED. 3 passed; 8 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.28s
+
+error: test failed, to rerun pass `-p backspace-core --test policy_modes`
+     Running tests/resume.rs (target/debug/deps/resume-c3b5cae2affceb3b)
+
+running 1 test
+test interrupted_replies_resume ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
+     Running tests/router_policy.rs (target/debug/deps/router_policy-8c3f5b85b8a3cd2e)
+
+running 9 tests
+test a_long_task_is_planned_on_a_frontier_model_at_high_effort ... ok
+test a_one_shot_task_is_planned_on_a_mid_model_not_a_frontier_one ... ok
+test a_pinned_planner_model_still_wins ... ok
+test a_project_with_only_frontier_models_still_routes ... ok
+test an_unclear_task_starts_mid_and_is_marked_for_asking ... ok
+test a_research_task_is_planned_on_a_mid_model ... ok
+test the_threshold_in_the_config_decides_what_counts_as_unsure ... ok
+test workers_are_not_classified_by_the_planner_policy ... ok
+test swapping_the_decider_changes_where_the_planner_starts ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+
+     Running tests/spec_gate.rs (target/debug/deps/spec_gate-94498de447b56d3b)
+
+running 1 test
+test the_gate_refuses_twice_then_opens ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s
+
+     Running tests/unmetered.rs (target/debug/deps/unmetered-97c5acd2e1e79ab4)
+
+running 4 tests
+test every_declared_boundary_is_written_down ... FAILED
+test the_list_of_reasons_is_closed ... FAILED
+test every_place_that_sends_a_model_call_carries_an_authorization ... FAILED
+test unmetered_is_only_used_where_declared ... FAILED
+
+failures:
+
+---- every_declared_boundary_is_written_down stdout ----
+
+thread 'every_declared_boundary_is_written_down' (12335) panicked at crates/core/tests/unmetered.rs:109:102:
+the boundaries document exists: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: core::result::unwrap_failed
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/result.rs:1867:5
+   3: <core::result::Result<alloc::string::String, std::io::error::Error>>::expect
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/result.rs:1185:23
+   4: unmetered::every_declared_boundary_is_written_down
+             at ./tests/unmetered.rs:109:102
+   5: unmetered::every_declared_boundary_is_written_down::{closure#0}
+             at ./tests/unmetered.rs:108:45
+   6: <unmetered::every_declared_boundary_is_written_down::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   7: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- the_list_of_reasons_is_closed stdout ----
+
+thread 'the_list_of_reasons_is_closed' (12337) panicked at crates/core/tests/unmetered.rs:68:52:
+gateway.rs defines the reasons
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: core::panicking::panic_display::<&str>
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:259:5
+   3: core::option::expect_failed
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/option.rs:2257:5
+   4: <core::option::Option<usize>>::expect
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/option.rs:968:21
+   5: unmetered::the_list_of_reasons_is_closed
+             at ./tests/unmetered.rs:68:52
+   6: unmetered::the_list_of_reasons_is_closed::{closure#0}
+             at ./tests/unmetered.rs:66:35
+   7: <unmetered::the_list_of_reasons_is_closed::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   8: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- every_place_that_sends_a_model_call_carries_an_authorization stdout ----
+
+thread 'every_place_that_sends_a_model_call_carries_an_authorization' (12336) panicked at crates/core/tests/unmetered.rs:96:17:
+/home/user/workbench/crates/core/src/chat.rs: `backspace_runner::run(` at byte 51746 does not pass an Authorization:
+backspace_runner::run(&self.http, &req, &mut |e| {
+            rec.on(&e);
+            let e = match e {
+                RunEvent::Final { text } if !streamed && !text.is_empty() => RunEvent::Text { text },
+                RunEvent::Final { .. } => return,
+                e => e,
+            };
+            if matches!(e, RunEvent::Text { .. } | RunEvent::Replace { .. }) {
+                streamed = true;
+            }
+            self.on_event(id, mid, keep_session, e)
+        })
+        .await;
+        let t = rec.finish(res.as_ref().err().map(|e| e.to_string()));
+        if crate::trace::save(&self.dir, &t).is_ok() {
+            let tid = t.trace_id.clone();
+            self.with_msg(id, m
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: unmetered::every_place_that_sends_a_model_call_carries_an_authorization
+             at ./tests/unmetered.rs:96:17
+   3: unmetered::every_place_that_sends_a_model_call_carries_an_authorization::{closure#0}
+             at ./tests/unmetered.rs:84:66
+   4: <unmetered::every_place_that_sends_a_model_call_carries_an_authorization::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   5: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- unmetered_is_only_used_where_declared stdout ----
+
+thread 'unmetered_is_only_used_where_declared' (12338) panicked at crates/core/tests/unmetered.rs:62:5:
+assertion `left == right` failed: an unmetered call was added or removed without updating the declared list
+  left: []
+ right: [("chat.rs", "AgentChat"), ("cloud.rs", "CloudChatServer"), ("router.rs", "JevRouter")]
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: core::panicking::assert_failed_inner
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:434:23
+   3: core::panicking::assert_failed::<alloc::vec::Vec<(alloc::string::String, alloc::string::String)>, alloc::vec::Vec<(alloc::string::String, alloc::string::String)>>
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:394:5
+   4: unmetered::unmetered_is_only_used_where_declared
+             at ./tests/unmetered.rs:62:5
+   5: unmetered::unmetered_is_only_used_where_declared::{closure#0}
+             at ./tests/unmetered.rs:45:43
+   6: <unmetered::unmetered_is_only_used_where_declared::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   7: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+
+failures:
+    every_declared_boundary_is_written_down
+    every_place_that_sends_a_model_call_carries_an_authorization
+    the_list_of_reasons_is_closed
+    unmetered_is_only_used_where_declared
+
+test result: FAILED. 0 passed; 4 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+error: test failed, to rerun pass `-p backspace-core --test unmetered`
+     Running tests/webhook.rs (target/debug/deps/webhook-7da8c2b7530ee62e)
+
+running 2 tests
+test the_phone_cannot_read_agent_or_group_threads ... ok
+test a_webhook_wakes_only_its_bot ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+
+     Running unittests src/lib.rs (target/debug/deps/backspace_runner-7f3ebfbbcbbefa7b)
+
+running 3 tests
+test tests::transcripts_and_base64 ... ok
+test tests::codex_stream ... ok
+test tests::claude_stream_with_a_tool_call ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/http.rs (target/debug/deps/http-425a39f3299f7e6e)
+
+running 3 tests
+test openai_compatible_stream ... ok
+test bad_agent_addresses_say_so ... ok
+test a2a_card_and_task ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.57s
+
+   Doc-tests backspace_colony
+
+running 1 test
+test crates/colony/src/lib.rs - (line 15) - compile ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+   Doc-tests backspace_core
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests backspace_runner
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: 9 targets failed:
+    `-p backspace-cli --test policy_cli`
+    `-p backspace-core --test budget_bound`
+    `-p backspace-core --test budget_e2e`
+    `-p backspace-core --test budget_reservation`
+    `-p backspace-core --test cli_budget`
+    `-p backspace-core --test policy_integrity`
+    `-p backspace-core --test policy_integrity_cli`
+    `-p backspace-core --test policy_modes`
+    `-p backspace-core --test unmetered`
+EXIT: 101
