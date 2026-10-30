@@ -1,6 +1,6 @@
 # M0 audit (final for review): Cauldron against PLAN.md
 
-Date: 2026-10-30 (revision 8; change summaries at the end). Status: **M0 not approved. M1 not started.**
+Date: 2026-10-30 (revision 8; change summaries at the end). Status: **M0 closed by Charles on 2026-10-30, after the git verification below. M1 started; see `docs/cauldron/M1-REPORT.md` once written.**
 
 Inputs: `PLAN.md` (repo root; first committed in `e236259`, §5 replaced in `7086086`), the requested
 corrections in `Cauldron_M0_Revised_Audit.md`, and the repository as it is now.
@@ -316,11 +316,11 @@ Ordered by impact on the objective (cheapest successful path, total cost-to-gree
 
 **Blocks M0 approval**
 
-1. **Your review of the final diff** (PLAN.md §5 plus this audit). Nothing else is outstanding for M0: the §5 inventory is in PLAN.md, continuous chat is in scope, and the five mapping flags are decided (§2a). M0 stays not approved until you approve it.
+1. **Closed.** Charles closed M0 on 2026-10-30 after reviewing the final diff and running `git rev-parse HEAD`, `git status --short`, `git ls-remote origin refs/heads/claude/project-thread-dpmr8e` and `git diff --name-only 7086086 HEAD`. Verified before closing: HEAD and the remote tip were both `b339773d5c369de0a12a6306d9c36258a797efed`, the tree was clean, and only `docs/cauldron/M0-AUDIT.md` changed since `7086086`. Former wording: **Your review of the final diff** (PLAN.md §5 plus this audit). Nothing else is outstanding for M0: the §5 inventory is in PLAN.md, continuous chat is in scope, and the five mapping flags are decided (§2a). M0 stays not approved until you approve it.
 
 **Blocks M1 (decide before I write code)**
 
-2. **Implementation language (Q1).** PLAN.md offers TypeScript or Go. The repo is Rust. I recommend Rust; it is your decision and is unchanged here. Per decision 2 (§2a), Pi is reference only and not a factor in this choice, so the Pi-related points are removed from the trade-offs below.
+2. **Implementation language (Q1).** PLAN.md offers TypeScript or Go. The repo is Rust. I recommended Rust. **Decided by Charles on 2026-10-30: Rust, extending `crates/core`.** Per decision 2 (§2a), Pi is reference only and not a factor in this choice, so the Pi-related points are removed from the trade-offs below.
    - Rust: extends the existing harness, router, spec gate, memory and git worktree code, plus 204 passing tests. One binary with the Tauri app. Cost: slower iteration.
    - TypeScript: faster iteration and a large agent-tooling ecosystem. Cost: a rewrite of the orchestration core, and today's tests do not carry over.
    - Go: easy concurrency and single binaries; `capsule/agentd` is already Go. Cost: a rewrite of the core too, and a thinner LLM-tooling ecosystem.
@@ -696,4 +696,8 @@ Documentation only: this audit. PLAN.md, product code, tests and configuration a
 
 1. §0 Git evidence wording replaced with the net-tree-diff statement, with the commands that support it. The earlier "every commit touches only PLAN.md and this doc" claim, based on `git diff --stat`, is withdrawn.
 2. §0 now records revision 7 as `fb1f8dc`, with the clean-status and local-equals-remote check. This revision is rev 8. The "Result" row, which said "rerun on this commit", now says the run was on the `e236259` checkout.
+
+## M0 close (recorded after revision 8)
+
+Charles closed M0 on 2026-10-30 and authorized M1 (policy gateway, allowlists, pre-call budgets), with failing acceptance tests first. He also chose Rust (Q1) on a decision card. Recorded in a docs-only commit; no product code changed.
 
