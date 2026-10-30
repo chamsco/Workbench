@@ -18,6 +18,10 @@ pub struct Config {
     pub workflow: WorkflowConfig,
     #[serde(default)]
     pub advisor: AdvisorConfig,
+    /// Who may use which model, skill and plugin, and what a task may spend
+    /// (gateway.rs). Absent: unrestricted.
+    #[serde(default)]
+    pub policy: crate::gateway::PolicyConfig,
     pub providers: BTreeMap<String, ProviderConfig>,
     pub models: Vec<ModelSpec>,
 }

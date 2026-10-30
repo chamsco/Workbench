@@ -15,6 +15,7 @@ pub mod diagram;
 pub mod effort;
 pub mod files;
 pub mod fleet;
+pub mod gateway;
 pub mod git;
 pub mod harness;
 pub mod harnesses;
