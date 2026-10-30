@@ -1,8 +1,8 @@
 # M0 audit (final for review): Cauldron against PLAN.md
 
-Date: 2026-10-30 (revision 6; change summaries at the end). Status: **M0 not approved. M1 not started.**
+Date: 2026-10-30 (revision 7; change summaries at the end). Status: **M0 not approved. M1 not started.**
 
-Inputs: `PLAN.md` (repo root, committed in `e236259`), the requested
+Inputs: `PLAN.md` (repo root; first committed in `e236259`, §5 replaced in `7086086`), the requested
 corrections in `Cauldron_M0_Revised_Audit.md`, and the repository as it is now.
 Where those two documents disagree, PLAN.md wins. Every row below was checked
 against source and tests in this pass. Nothing is carried over from the first
@@ -12,7 +12,10 @@ audit without being checked again.
 
 | Item | Value |
 |---|---|
-| Audited code | `origin/main` = `1d508e6` (PR #25). Branch `claude/project-thread-dpmr8e` = `e236259`, which adds only `PLAN.md` and this doc, so the product code is identical. |
+| Product code audited | `1d508e6` (`origin/main`, PR #25). Every commit on branch `claude/project-thread-dpmr8e` after it touches only `PLAN.md` and this doc (`git diff --stat 1d508e6 <commit>` lists no other file), so the product code at every audit revision is byte-identical to `1d508e6`. |
+| Suite snapshot | The 204-test run in Appendix A ran on a checkout of `e236259`, whose product code is identical to `1d508e6` (that commit adds only `PLAN.md` and the first audit). The result applies to `1d508e6` product code. It was not rerun for revisions 3–7, because no product code changed. |
+| Document commits | `e236259` PLAN.md + audit rev 1; `5f2af4f` rev 2; `205bf69` rev 3; `30a149e` rev 4; `59312d1` rev 5; `7086086` rev 6 (PLAN.md §5 inventory + audit). The previous PLAN.md and audit revision (rev 6) is **committed** in `7086086` and pushed. |
+| This revision (rev 7) | Committed and pushed as the commit directly after `7086086`; its hash is given in the reply that delivers it, since a commit cannot name its own hash. It changes only this doc. PLAN.md is identical to `7086086`. |
 | Not audited | Unmerged PRs #27–#37 (model server, harness relay, agent hands, shell rail). |
 | Toolchain | rustc 1.97.0, cargo 1.97.0 |
 | Command | `cargo test --no-fail-fast` from the repo root. This runs the workspace default members (runner, core, cli, colony), which is the same set `.github/workflows/test.yml` runs. |
@@ -148,12 +151,12 @@ Rows counted by primary entry (from the §3 matrix; no row reaches A):
 |---|---|
 | 5.1 Conversational intake and classification | 2 missing |
 | 5.2 Specification and planning | 5 partial, 4 missing |
-| 5.3 Intelligent routing and cost-aware orchestration | 2 partial, 2 unknown, 6 missing |
+| 5.3 Intelligent routing and cost-aware orchestration | 3 partial, 2 unknown, 7 missing |
 | 5.4 Policy, permissions and budgets | 3 missing |
 | 5.5 Build and execution infrastructure | 1 partial, 2 missing |
 | 5.6 Independent testing and verification | 1 partial, 1 unknown, 5 missing |
-| 5.7 Review, gates and delivery | 3 partial, 4 missing |
-| 5.8 Persistent memory and context | 4 partial, 5 missing |
+| 5.7 Review, gates and delivery | 2 partial, 4 missing |
+| 5.8 Persistent memory and context | 4 partial, 4 missing |
 | 5.9 Skills and plugins | 1 partial, 1 missing |
 | 5.10 Developer experience and observability | 4 partial, 5 missing |
 | 5.11 Existing capabilities retained / outside current implementation scope | 0 rows |
@@ -200,8 +203,8 @@ Not mapped because they are not requirements: §1 Goal and §4 Pain points (moti
 | 3.2 | Plugins via a stable API, audited | missing | | — | 5.9 |
 | 3.2 | Skills and plugins per-project and allowlisted | missing | | — | 5.4 (lists for 5.9) |
 | 3.3 | File handoffs, never chat history | partial | SPEC.md and ticket files exist. Workers still receive the brief in chat; retries keep full history. | I, B | 5.2 (consumed by 5.3/5.5) |
-| 3.3 | Diff information in deliverables | partial | `diff_stat` and `numstat` are attached to each deliverable (`harness.rs:2429-2435`). E2E `flat_project_with_gates_escalation_and_merges` asserts `changes` = `b.txt +1 -0` and that `diff_stat` names `b.txt`. Not proven: that diffs replace whole files in what agents are sent, or a diff-based handoff between stages. | I, B | 5.7 |
-| 3.3 | Symbol-level context | missing | Nothing found in the audited crates (searched for tree-sitter, LSP, ctags, symbol and outline code). `lsp-types` appears in `Cargo.lock` only as a transitive dependency of the GPUI UI kit used by the excluded `crates/app`; no Cauldron code uses it. | — | 5.8 |
+| 3.3 | Diff information in deliverables | partial | `diff_stat` and `numstat` are attached to each deliverable (`harness.rs:2429-2435`). E2E `flat_project_with_gates_escalation_and_merges` asserts `changes` = `b.txt +1 -0` and that `diff_stat` names `b.txt`. Not proven: that diffs replace whole files in what agents are sent, or a diff-based handoff between stages. | I, B | 5.3 (data produced by 5.5/5.7 deliverables) |
+| 3.3 | Symbol-level context | missing | Nothing found in the audited crates (searched for tree-sitter, LSP, ctags, symbol and outline code). `lsp-types` appears in `Cargo.lock` only as a transitive dependency of the GPUI UI kit used by the excluded `crates/app`; no Cauldron code uses it. | — | 5.3 (context retrieval may draw on 5.8) |
 | 3.3 | Prompt caching for stable prefixes | unknown | Anthropic requests set `cache_control: ephemeral` on the tools+system prefix (`provider.rs:228-229`). No test asserts it; spec, skills and memory are not separately cached. | I | 5.3 |
 | 3.3 | Summaries at stage boundaries | missing | | — | 5.3 |
 | 3.3 | Escalate with a failure digest | missing | | — | 5.3 |
@@ -344,7 +347,7 @@ Ordered by impact on the objective (cheapest successful path, total cost-to-gree
 - This audit session runs on a frontier model. I cannot see its token count or call count, so both are **not measured**. I am not substituting an estimate.
 - Raw logs were kept out of the doc except the suite output.
 
-## Appendix A: full suite output (rerun 2026-10-30, `e236259`, `cargo test --no-fail-fast`, compile lines removed)
+## Appendix A: full suite output (run 2026-10-30 on a checkout of `e236259` = product code `1d508e6`, `cargo test --no-fail-fast`, compile lines removed)
 
 ```
 Running unittests src/main.rs (target/debug/deps/backspace_cli-e14ffda91c75b4ab)
@@ -679,4 +682,11 @@ Audit plus PLAN.md §5. No product code, tests or configuration changed, Q1 is u
 2. §2a: the five flags are replaced by a table of your decisions and their effect on this audit.
 3. §3 M0 row and §7 M0 blocker: the only remaining M0 item is your review of this diff.
 4. §7: Pi is removed from the Q1 trade-offs (decision 2), but the recommendation and the open decision are unchanged. Q5 is recorded as left open. New M10 and M11 items record decisions 1 and 5.
+
+## Change summary (revision 7)
+
+Documentation only: this audit. PLAN.md, product code, tests and configuration are unchanged, and the suite was not rerun.
+
+1. In the §3 matrix, "Diff information in deliverables" (was 5.7) and "Symbol-level context" (was 5.8) now map primarily to 5.3, because they are §3.3 token-saving requirements. Secondary references to 5.5/5.7 and 5.8 are kept in brackets. The §2a counts are recalculated: 5.3 gains one partial and one missing, 5.7 loses one partial, and 5.8 loses one missing.
+2. §0 now separates the product-code commit audited (`1d508e6`), the checkout the 204-test suite ran on (`e236259`, identical product code), every document commit (rev 1–6, with rev 6 committed in `7086086`), and the state of this revision (committed after `7086086`).
 
