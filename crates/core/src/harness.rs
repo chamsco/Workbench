@@ -46,6 +46,8 @@ struct Inner {
     /// The project's policy, fixed when it opened (gateway.rs). Every model
     /// call, skill load and CLI hand-off asks it first.
     gateway: Gateway,
+    /// Every model call and task outcome so far, for the §3.4 metrics.
+    ledger: Mutex<crate::metrics::Ledger>,
     root: PathBuf,
     /// Branch checked out in the root workspace; the main agent's branch.
     base_branch: String,
@@ -428,6 +430,7 @@ impl Harness {
         let inner = Arc::new(Inner {
             router: Router::new(http.clone(), cfg.clone()).with_local(local_jobs(&prefs_at_open)),
             gateway: Gateway::new(cfg.policy.clone()),
+            ledger: Mutex::new(Default::default()),
             agents_md: std::fs::read_to_string(root.join("AGENTS.md")).ok(),
             memory: over.memory.clone(),
             skills: Skills::load(&root),
@@ -539,7 +542,7 @@ impl Harness {
 
     /// The PLAN §3.4 metrics for this run so far.
     pub fn metrics(&self) -> crate::metrics::RunMetrics {
-        unimplemented!("M2")
+        self.inner.ledger.lock().unwrap().metrics()
     }
 
     pub fn snapshot(&self) -> ProjectState {
@@ -1334,6 +1337,7 @@ fn board_tools() -> Vec<ToolDef> {
 async fn main_loop(inner: Arc<Inner>, mut inbox: mpsc::UnboundedReceiver<String>) {
     let mut convo: Option<Conversation> = load_main(&inner);
     while let Some(text) = inbox.recv().await {
+        inner.ledger.lock().unwrap().human_typed(text.chars().count());
         inner.log(MAIN, LogKind::User, text.clone());
         inner.set_status(MAIN, AgentStatus::Running);
         inner.trace_start(MAIN, "turn · main", &text);
@@ -1389,6 +1393,22 @@ async fn main_loop(inner: Arc<Inner>, mut inbox: mpsc::UnboundedReceiver<String>
         if let Some(c) = &convo {
             save_main(&inner, c);
         }
+        emit_metrics(&inner);
+    }
+}
+
+/// Append the §3.4 metrics so far to `.backspace/metrics.jsonl`, one line per
+/// call, written when a main-agent turn ends and when a ticket settles.
+fn emit_metrics(inner: &Inner) {
+    let line = match serde_json::to_string(&inner.ledger.lock().unwrap().metrics()) {
+        Ok(l) => l,
+        Err(_) => return,
+    };
+    let dir = inner.root.join(".backspace");
+    let _ = std::fs::create_dir_all(&dir);
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(dir.join("metrics.jsonl")) {
+        use std::io::Write;
+        let _ = writeln!(f, "{line}");
     }
 }
 
@@ -1527,6 +1547,7 @@ fn announce_route(inner: &Inner, id: AgentId, d: &Decision) {
         s.total_cost_usd += d.router_cost_usd;
         s.agents[id].decision = Some(d.clone());
     });
+    inner.ledger.lock().unwrap().record_decision(d.router_cost_usd);
 }
 
 /// One rung up: more effort while the model has headroom below `high`, then
@@ -1593,6 +1614,9 @@ fn escalate(inner: &Inner, c: &mut Conversation, reason: &str) -> bool {
         a.escalations.push(line);
         a.decision = Some(d);
     });
+    if let Some(k) = &c.ticket {
+        inner.ledger.lock().unwrap().task_escalated(k);
+    }
     true
 }
 
@@ -1746,6 +1770,10 @@ async fn run_cli_turn(
 ) -> Result<(String, Option<String>)> {
     use backspace_runner::{Event, Request, Target, Turn};
     let me = inner.state.lock().unwrap().agents[id].key.clone();
+    let tokens_before = {
+        let s = inner.state.lock().unwrap();
+        (s.agents[id].input_tokens, s.agents[id].output_tokens)
+    };
     let exe = std::env::var("BACKSPACE_EXE")
         .ok()
         .map(PathBuf::from)
@@ -1859,6 +1887,23 @@ async fn run_cli_turn(
         }
     };
     st.flush(inner, id);
+    // A CLI turn is one call of its model's class. It is billed to a plan, so
+    // it adds no dollars here; its own model calls are not visible to us.
+    {
+        let (model, after) = {
+            let s = inner.state.lock().unwrap();
+            let a = &s.agents[id];
+            (a.decision.as_ref().map(|d| d.model.clone()), (a.input_tokens, a.output_tokens))
+        };
+        let class = model.as_deref().and_then(|m| inner.cfg.model(m)).map_or(crate::ladder::ModelClass::Frontier, crate::ladder::class_of);
+        inner.ledger.lock().unwrap().record_call(crate::metrics::CallRecord {
+            model: model.unwrap_or_else(|| cli.to_string()),
+            class,
+            input_tokens: after.0.saturating_sub(tokens_before.0),
+            output_tokens: after.1.saturating_sub(tokens_before.1),
+            usd: 0.0,
+        });
+    }
     // Health follows the CLI's own word. A confirmed usage limit cools the
     // account down so the next turn picks another one; a plain rate limit or a
     // crash only marks it warning (see accounts.rs), so one 429 does not
@@ -2124,11 +2169,28 @@ async fn drive(inner: &Arc<Inner>, c: &mut Conversation) -> Result<TurnEnd> {
         };
 
         let mut cost = spec.cost(completion.input_tokens, completion.output_tokens);
+        let mut records = vec![crate::metrics::CallRecord {
+            model: spec.id.clone(),
+            class: crate::ladder::class_of(&spec),
+            input_tokens: completion.input_tokens,
+            output_tokens: completion.output_tokens,
+            usd: cost,
+        }];
         let (ai, ao) = completion.advisor_tokens;
         if ai + ao > 0 {
-            if let Some(m) = advisor.as_deref().and_then(|a| inner.cfg.models.iter().find(|m| m.wire_model() == a)) {
+            let adv = advisor.as_deref().and_then(|a| inner.cfg.models.iter().find(|m| m.wire_model() == a));
+            if let Some(m) = adv {
                 cost += m.cost(ai, ao);
             }
+            // The advisor is a stronger model reading the whole transcript: its
+            // own call, on its own class (frontier if the config does not say).
+            records.push(crate::metrics::CallRecord {
+                model: adv.map_or_else(|| advisor.clone().unwrap_or_default(), |m| m.id.clone()),
+                class: adv.map_or(crate::ladder::ModelClass::Frontier, crate::ladder::class_of),
+                input_tokens: ai,
+                output_tokens: ao,
+                usd: adv.map_or(0.0, |m| m.cost(ai, ao)),
+            });
             inner.log(c.id, LogKind::System, format!("consulted the advisor ({}): {}k tokens read", advisor.as_deref().unwrap_or("advisor"), ai / 1000));
             inner.agent(c.id, |a| a.advisor_calls += 1);
         }
@@ -2139,6 +2201,12 @@ async fn drive(inner: &Arc<Inner>, c: &mut Conversation) -> Result<TurnEnd> {
             a.output_tokens += completion.output_tokens;
             s.total_cost_usd += cost;
         });
+        {
+            let mut ledger = inner.ledger.lock().unwrap();
+            for r in records {
+                ledger.record_call(r);
+            }
+        }
         {
             let (i, o, usd) = {
                 let s = inner.state.lock().unwrap();
@@ -2153,6 +2221,9 @@ async fn drive(inner: &Arc<Inner>, c: &mut Conversation) -> Result<TurnEnd> {
         let text = completion.text();
         if !text.trim().is_empty() {
             inner.log(c.id, LogKind::Assistant, text.clone());
+            if c.id == MAIN {
+                inner.ledger.lock().unwrap().human_read(text.chars().count());
+            }
         }
         c.messages.push(Message {
             role: Role::Assistant,
@@ -2430,6 +2501,10 @@ async fn show_options(inner: &Arc<Inner>, me: &str, input: &Value) -> Result<Str
 async fn await_verdict(inner: &Arc<Inner>, approval: Approval) -> Verdict {
     let (tx, rx) = oneshot::channel();
     let agent = approval.agent;
+    // What the user is shown to decide on counts as read.
+    let shown = approval.deliverable.summary.chars().count()
+        + approval.deliverable.diff_stat.as_deref().map_or(0, |d| d.chars().count());
+    inner.ledger.lock().unwrap().human_read(shown);
     let id = inner.update(|s| {
         let id = s.approvals.len();
         s.approvals.push(Approval { id, ..approval });
@@ -2440,6 +2515,9 @@ async fn await_verdict(inner: &Arc<Inner>, approval: Approval) -> Verdict {
     let verdict = rx
         .await
         .unwrap_or(Verdict::Rejected("approval channel closed".into()));
+    if let Verdict::Rejected(feedback) = &verdict {
+        inner.ledger.lock().unwrap().human_typed(feedback.chars().count());
+    }
     inner.update(|s| {
         s.approvals[id].state = match &verdict {
             Verdict::Approved => ApprovalState::Approved,
@@ -2910,6 +2988,8 @@ fn settle(inner: &Inner, id: AgentId, key: &str, res: &Result<Deliverable>) {
         use std::io::Write;
         let _ = writeln!(f, "{line}");
     }
+    inner.ledger.lock().unwrap().task_finished(key, res.is_ok());
+    emit_metrics(inner);
 }
 
 /// Explicit BoxFuture return type breaks the drive → work_tickets →
@@ -3054,6 +3134,7 @@ fn run_worker_with(
         };
 
         let first = format!("{brief}\n{context}");
+        inner.ledger.lock().unwrap().task_started(&key);
         inner.log(id, LogKind::User, first.clone());
         let cli = inner
             .cfg

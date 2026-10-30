@@ -55,8 +55,23 @@ fn main() -> Result<()> {
     }
 }
 
-fn eval(_args: &[String]) -> Result<()> {
-    bail!("eval: not implemented (M2)")
+/// The router eval (PLAN §10) over a file of labeled traces, one JSON object
+/// per line: `{"id", "text", "label"}` and optionally `input_tokens` and
+/// `output_tokens`. Prints the report as Markdown.
+fn eval(args: &[String]) -> Result<()> {
+    use backspace_core::decision::{KeywordDecider, DEFAULT_TRIAGE_THRESHOLD};
+    let (file, rest) = args.split_first().expect("checked by the caller");
+    let threshold = match rest {
+        [] => DEFAULT_TRIAGE_THRESHOLD,
+        [flag, v] if flag == "--threshold" => v.parse().map_err(|_| anyhow::anyhow!("--threshold takes a number, got `{v}`"))?,
+        _ => bail!("usage: backspace-cli eval <traces.jsonl> [--threshold N]"),
+    };
+    let src = std::fs::read_to_string(file).map_err(|e| anyhow::anyhow!("cannot read {file}: {e}"))?;
+    let traces = backspace_core::eval::parse_traces(&src)?;
+    let (cfg, _) = backspace_core::Config::load(&std::env::current_dir()?)?;
+    let report = backspace_core::eval::evaluate(&KeywordDecider, &traces, threshold, &cfg)?;
+    print!("{}", report.to_markdown());
+    Ok(())
 }
 
 fn scan() -> Result<()> {

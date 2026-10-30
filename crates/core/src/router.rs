@@ -293,17 +293,39 @@ impl Router {
             AgentRole::Sub => self.cfg.router.pin_sub.as_ref(),
         };
 
+        // The planner starts on the cheapest class the task allows (PLAN §3.1):
+        // the frontier only for a long task the classifier is sure about. A
+        // decider that fails leaves the task unclassified, which starts mid
+        // rather than failing the turn or reaching for the dearest model.
+        let (triage, triage_note) = if role == AgentRole::Main {
+            match crate::decision::classify(self.decider.as_ref(), task, self.cfg.router.triage_threshold) {
+                Ok(t) => (Some(t), None),
+                Err(e) => (None, Some(format!("task not classified, starting mid: {e:#}"))),
+            }
+        } else {
+            (None, None)
+        };
+        let candidates: Vec<&ModelSpec> = if role == AgentRole::Main {
+            crate::ladder::within(&candidates, crate::ladder::planner_start(triage.as_ref()))
+        } else {
+            candidates
+        };
+
         let mut decision = match self.cfg.router.backend {
             RouterBackend::Jev => match self.jev(role, task, context, &candidates).await {
                 Ok(d) => d,
                 Err(e) => {
-                    let mut d = heuristic(role, task, &candidates);
+                    let mut d = heuristic_with(role, task, &candidates, triage.as_ref());
                     d.note = Some(format!("jev unavailable, heuristic used: {e:#}"));
                     d
                 }
             },
-            RouterBackend::Heuristic => heuristic(role, task, &candidates),
+            RouterBackend::Heuristic => heuristic_with(role, task, &candidates, triage.as_ref()),
         };
+        decision.triage = triage;
+        if decision.note.is_none() {
+            decision.note = triage_note;
+        }
 
         if let Some(pin) = pin {
             // The planner needs Backspace's own tools, so it never runs on a
@@ -413,8 +435,25 @@ impl Router {
 }
 
 /// No-network fallback. Deliberately crude: it exists so the harness runs
-/// without Jev, not to compete with it.
+/// without Jev, not to compete with it. The planner is classified with the
+/// keyword baseline at the default threshold; the router passes its own.
 pub fn heuristic(role: AgentRole, task: &str, candidates: &[&ModelSpec]) -> Decision {
+    let triage = (role == AgentRole::Main)
+        .then(|| {
+            crate::decision::classify(&crate::decision::KeywordDecider, task, crate::decision::DEFAULT_TRIAGE_THRESHOLD).ok()
+        })
+        .flatten();
+    heuristic_with(role, task, candidates, triage.as_ref())
+}
+
+/// The heuristic with the planner's classification given. Only a confident
+/// "long" raises the planner to Xhigh; the old rule raised it on every task.
+pub fn heuristic_with(
+    role: AgentRole,
+    task: &str,
+    candidates: &[&ModelSpec],
+    triage: Option<&crate::decision::Triage>,
+) -> Decision {
     let t = task.to_lowercase();
     let has = |words: &[&str]| words.iter().any(|w| t.contains(w));
 
@@ -459,7 +498,7 @@ pub fn heuristic(role: AgentRole, task: &str, candidates: &[&ModelSpec]) -> Deci
     if task.len() > 4000 {
         level = level.max(2);
     }
-    if role == AgentRole::Main {
+    if role == AgentRole::Main && crate::ladder::planner_start(triage) == crate::ladder::ModelClass::Frontier {
         level = level.max(3);
     }
     let effort = Effort::from_index(level);

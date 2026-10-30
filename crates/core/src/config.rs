@@ -330,6 +330,9 @@ impl Config {
         if self.orchestrator.max_parallel_calls == 0 {
             bail!("orchestrator.max_parallel_calls must be >= 1");
         }
+        if !(self.router.triage_threshold > 0.0 && self.router.triage_threshold <= 1.0) {
+            bail!("router.triage_threshold must be above 0 and at most 1");
+        }
         Ok(())
     }
 }

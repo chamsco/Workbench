@@ -165,3 +165,13 @@ fn the_json_form_carries_every_metric_and_round_trips() {
     let back: RunMetrics = serde_json::from_value(v).unwrap();
     assert_eq!(back, m);
 }
+
+#[test]
+fn decision_model_spend_counts_toward_cost_but_is_not_a_model_call() {
+    let mut l = Ledger::default();
+    l.record_decision(0.002);
+    l.record_call(call(ModelClass::Mid, 10, 5, 0.01));
+    let m = l.metrics();
+    assert_eq!((m.calls, m.frontier_calls, m.total_tokens), (1, 0, 15));
+    assert!(close(m.total_usd, 0.012));
+}
