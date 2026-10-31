@@ -111,6 +111,11 @@ pub struct Router {
     /// call's hold is given back, so no other reservation sees the hold gone
     /// and the cost not yet recorded.
     recorder: Option<std::sync::Arc<dyn Fn(f64) + Send + Sync>>,
+    /// Records the cost of a call that was sent but whose cost was never
+    /// reported, at the amount held for it (stub).
+    unknown_recorder: Option<std::sync::Arc<dyn Fn(f64) + Send + Sync>>,
+    /// How long a Jev request may take. A test seam; production keeps the default.
+    jev_timeout: std::time::Duration,
 }
 
 /// Reserves `(usd, tokens)` for a routing call, or says why it may not go out.
@@ -126,7 +131,7 @@ struct LocalPick {
 
 impl Router {
     pub fn new(http: reqwest::Client, cfg: Config) -> Self {
-        Self { http, cfg, local: Default::default(), decider: std::sync::Arc::new(crate::decision::KeywordDecider), meter: None, recorder: None }
+        Self { http, cfg, local: Default::default(), decider: std::sync::Arc::new(crate::decision::KeywordDecider), meter: None, recorder: None, unknown_recorder: None, jev_timeout: std::time::Duration::from_secs(20) }
     }
 
     /// Swap the decision model without touching the router.
@@ -147,6 +152,18 @@ impl Router {
     /// caller adds `router_cost_usd` after the decision returns, as before.
     pub fn with_recorder(mut self, recorder: impl Fn(f64) + Send + Sync + 'static) -> Self {
         self.recorder = Some(std::sync::Arc::new(recorder));
+        self
+    }
+
+    /// Record the cost of a call that was sent and never reported one (stub).
+    pub fn with_unknown_cost_recorder(mut self, recorder: impl Fn(f64) + Send + Sync + 'static) -> Self {
+        self.unknown_recorder = Some(std::sync::Arc::new(recorder));
+        self
+    }
+
+    /// Change how long a Jev request may take (tests; the default is 20 seconds).
+    pub fn with_jev_timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.jev_timeout = timeout;
         self
     }
 
@@ -445,7 +462,7 @@ impl Router {
             .post(&rc.jev_endpoint)
             .bearer_auth(key)
             .json(&body)
-            .timeout(std::time::Duration::from_secs(20))
+            .timeout(self.jev_timeout)
             .send()
             .await
             .context("jev request failed")?;

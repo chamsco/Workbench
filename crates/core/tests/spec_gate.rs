@@ -74,8 +74,17 @@ fn the_gate_refuses_twice_then_opens() {
             assert!(start.elapsed() < Duration::from_secs(30), "never finished");
             std::thread::sleep(Duration::from_millis(50));
         }
-        let last = chats.thread(&t.id).unwrap().messages.last().unwrap().clone();
-        verdicts.push(last.spec.expect("a Plan reply with a spec gets a verdict"));
+        // `is_busy` goes false when the reply task drops its entry, a few lines before it
+        // files the spec and attaches the verdict, so the verdict is waited for on its own.
+        let verdict = loop {
+            let last = chats.thread(&t.id).unwrap().messages.last().unwrap().clone();
+            if let Some(v) = last.spec {
+                break v;
+            }
+            assert!(start.elapsed() < Duration::from_secs(30), "a Plan reply with a spec gets a verdict: {:?}", last.status);
+            std::thread::sleep(Duration::from_millis(20));
+        };
+        verdicts.push(verdict);
     }
 
     assert!(!verdicts[0].passed && verdicts[0].gaps[0].starts_with("Open questions: 1 still open"), "{:?}", verdicts[0]);

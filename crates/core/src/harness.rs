@@ -452,6 +452,7 @@ impl Harness {
             tickets: vec![],
             total_cost_usd: 0.0,
             router_cost_usd: 0.0,
+            router_unknown_cost_usd: 0.0,
             config_source: config_source.clone(),
             board: vec![],
             planner_session: None,

@@ -95,6 +95,13 @@ pub struct PolicyConfig {
     pub execution_models: Option<Vec<String>>,
     pub skills: Option<Vec<String>>,
     pub plugins: Option<Vec<String>>,
+    /// The models the router itself may be classified by (`[router] jev_model`).
+    /// Not an orchestration or execution role: a model named here is not thereby
+    /// a candidate for either (stub).
+    pub routing_models: Option<Vec<String>>,
+    /// Coding-CLI entries accepted as running whatever model their own
+    /// configuration selects (stub).
+    pub unpinned_cli_models: Option<Vec<String>>,
     pub budget: TaskBudget,
 }
 
@@ -240,11 +247,23 @@ pub enum Refusal {
     Skill { role: Role, skill: String },
     Plugin { role: Role, plugin: String },
     Budget { label: String, detail: String },
+    /// The router's own classification model is not named under `routing_models`.
+    RoutingModel { model: String },
+    /// A coding-CLI entry that pins no model, and is not named under `unpinned_cli_models`.
+    CliModel { entry: String },
 }
 
 impl std::fmt::Display for Refusal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Refusal::RoutingModel { model } => write!(
+                f,
+                "refused by project policy: routing model `{model}` is not named in [policy] routing_models, so the router does not call it"
+            ),
+            Refusal::CliModel { entry } => write!(
+                f,
+                "refused by project policy: CLI entry `{entry}` pins no model, so it runs whatever model its own configuration selects, and [policy] unpinned_cli_models does not name it. Pin one with `model = \"…\"` on the entry, or name the entry in unpinned_cli_models"
+            ),
             Refusal::Model { role, model } => write!(
                 f,
                 "refused by project policy: model `{model}` is not allowed for {} agents",
@@ -726,6 +745,16 @@ impl Gateway {
 
     pub fn policy(&self) -> &PolicyConfig {
         &self.policy
+    }
+
+    /// Whether the router's own classification model may be called (stub).
+    pub fn check_routing_model(&self, _model: &str) -> Result<(), Refusal> {
+        Ok(())
+    }
+
+    /// Whether a coding-CLI entry may run, given whether its model is pinned (stub).
+    pub fn check_cli_model(&self, _entry: &str, _pinned: bool) -> Result<(), Refusal> {
+        Ok(())
     }
 
     pub fn check_model(&self, role: Role, model: &str) -> Result<(), Refusal> {

@@ -166,6 +166,11 @@ pub struct ProjectState {
     pub tickets: Vec<Ticket>,
     pub total_cost_usd: f64,
     pub router_cost_usd: f64,
+    /// Part of `router_cost_usd` and `total_cost_usd`: routing calls that were
+    /// sent but whose cost was never reported, counted at the amount held for
+    /// them (stub).
+    #[serde(default)]
+    pub router_unknown_cost_usd: f64,
     pub config_source: Option<PathBuf>,
     /// Messages agents sent each other (see `board`).
     #[serde(default)]
@@ -222,6 +227,7 @@ impl ProjectState {
             tickets: vec![],
             total_cost_usd: 0.0,
             router_cost_usd: 0.0,
+            router_unknown_cost_usd: 0.0,
             config_source: None,
             board: vec![],
             planner_session: None,

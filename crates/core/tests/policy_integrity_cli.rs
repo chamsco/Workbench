@@ -99,10 +99,16 @@ fn planner(listener: TcpListener) {
     }
 }
 
-const POLICY: &str = "[policy]\nmode = \"enforced\"\norchestration_models = [\"mock-mid\", \"cli-model\"]\nexecution_models = [\"cli-model\"]\nskills = []\nplugins = []\n";
+// `cli-model` pins no model, so an enforced policy has to say it may run that way (final hardening, section 3).
+const POLICY: &str = "[policy]\nmode = \"enforced\"\norchestration_models = [\"mock-mid\", \"cli-model\"]\nexecution_models = [\"cli-model\"]\nskills = []\nplugins = []\nunpinned_cli_models = [\"cli-model\"]\n";
 
 /// Returns the file as written, so a test can compare.
 fn project(tag: &str, mode: &str, auto_approve: bool) -> (Harness, PathBuf, String) {
+    project_with(tag, mode, auto_approve, "mock-mid")
+}
+
+/// The same, with the planner on `pin_main` (`cli-model` puts it in the coding CLI).
+fn project_with(tag: &str, mode: &str, auto_approve: bool, pin_main: &str) -> (Harness, PathBuf, String) {
     fake_cli();
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
@@ -118,7 +124,7 @@ jev_model = ""
 jev_api_key_env = "NONE"
 jev_usd_per_mtok = 0.0
 main_min_effort = "high"
-pin_main = "mock-mid"
+pin_main = "{pin_main}"
 pin_sub = "cli-model"
 
 [orchestrator]
@@ -231,4 +237,20 @@ fn a_delivery_that_leaves_the_policy_alone_is_still_auto_approved() {
     h.send("cli-project: say hello");
     drive(&h, "the merge", |h| h.metrics().merged == 1);
     assert!(held_delivery(&h).is_none());
+}
+
+#[test]
+fn a_cli_planner_cannot_weaken_the_policy_either() {
+    // The planner runs in the coding CLI in the run checkout (`plan_on_cli`), a different caller of
+    // `run_cli_turn` from a worker. Same edit, same undo.
+    let (h, ws, original) = project_with("tamper-planner", "tamper", false, "cli-model");
+    h.send("hello");
+    drive(&h, "the planner's turn to be undone", |h| {
+        h.snapshot().agents[0].log.iter().any(|e| e.kind == LogKind::System && e.text.contains("restored"))
+    });
+    assert_eq!(std::fs::read_to_string(ws.join("backspace.toml")).unwrap(), original, "the planner's edit of the workspace file was undone");
+    assert_eq!(h.policy().execution_models, Some(vec!["cli-model".to_string()]));
+    drop(h);
+    let h2 = Harness::open(ws).unwrap();
+    assert_eq!(h2.policy().execution_models, Some(vec!["cli-model".to_string()]), "and the next session still runs the adopted policy");
 }

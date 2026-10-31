@@ -315,6 +315,8 @@ impl Config {
             execution_models: p.execution_models.clone().or_else(|| Some(with(&ids, &[&a.cli, &a.cli_scouts]))),
             skills: p.skills.clone().or_else(|| Some(skills.to_vec())),
             plugins: p.plugins.clone().or(Some(vec![])),
+            routing_models: p.routing_models.clone(),
+            unpinned_cli_models: p.unpinned_cli_models.clone(),
             budget: p.budget.clone(),
         }
     }
