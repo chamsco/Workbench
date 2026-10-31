@@ -859,6 +859,66 @@ mod tests {
         assert_eq!(ev[5], Event::Usage { input: 100, output: 20 });
     }
 
+    // What a CLI would be started with. Nothing is run: these show what is passed, not how the real
+    // CLI reads it.
+    fn args_of(req: &Request, provider: &str) -> Vec<String> {
+        let (cmd, _) = build_cli(req, provider, &PathBuf::from("/bin/true")).unwrap();
+        cmd.as_std().get_args().map(|a| a.to_string_lossy().into_owned()).collect()
+    }
+
+    fn cli_request(provider: &str, model: Option<&str>, session: Option<&str>) -> Request {
+        let mut r = Request::new(Target::Cli { provider: provider.into(), bin: "/bin/true".into() }, vec![Turn::user("hi")]);
+        r.edit = true;
+        r.model = model.map(String::from);
+        r.session = session.map(String::from);
+        r
+    }
+
+    fn pairs(args: &[String], flag: &str) -> Vec<String> {
+        args.windows(2).filter(|w| w[0] == flag).map(|w| w[1].clone()).collect()
+    }
+
+    #[test]
+    fn codex_is_given_its_model_by_the_long_flag() {
+        // `--model` is the documented spelling; `-m` is the same clap argument (codex-rs shared_options.rs)
+        // but is not what the documentation names, so the approved model is passed the documented way.
+        let args = args_of(&cli_request("codex", Some("codex-pin-1"), None), "codex");
+        assert_eq!(pairs(&args, "--model"), ["codex-pin-1"], "{args:?}");
+        assert!(!args.iter().any(|a| a == "-m"), "{args:?}");
+    }
+
+    #[test]
+    fn a_resumed_codex_turn_names_the_model_ahead_of_the_subcommand() {
+        let args = args_of(&cli_request("codex", Some("codex-pin-1"), Some("sess-1")), "codex");
+        let model = args.iter().position(|a| a == "--model").unwrap_or(usize::MAX);
+        let resume = args.iter().position(|a| a == "resume").expect("a resume");
+        assert!(model < resume, "the model is an exec option, set before `resume`: {args:?}");
+        assert_eq!(&args[resume..], ["resume", "sess-1", "-"], "{args:?}");
+    }
+
+    #[test]
+    fn codex_names_its_model_once_and_config_overrides_never_name_one() {
+        let mut r = cli_request("codex", Some("codex-pin-1"), None);
+        r.effort = Some("high".into());
+        r.mcp = Some(json!({"mcpServers": {"backspace": {"command": "x", "args": ["mcp"], "env": {"A": "b"}}}}));
+        let args = args_of(&r, "codex");
+        assert_eq!(pairs(&args, "--model").len() + pairs(&args, "-m").len(), 1, "{args:?}");
+        let keys: Vec<String> = pairs(&args, "-c").iter().map(|kv| kv.split('=').next().unwrap_or("").to_string()).collect();
+        assert!(!keys.iter().any(|k| k == "model" || k == "model_provider" || k == "profile"), "{keys:?}");
+        assert!(keys.iter().all(|k| k == "model_reasoning_effort" || k.starts_with("mcp_servers.")), "{keys:?}");
+        assert!(!args.iter().any(|a| a == "-p" || a == "--profile" || a == "--oss"), "{args:?}");
+    }
+
+    #[test]
+    fn claude_code_is_given_its_model_by_the_long_flag_and_no_model_means_no_flag() {
+        let args = args_of(&cli_request("claude", Some("claude-pin-1"), None), "claude");
+        assert_eq!(pairs(&args, "--model"), ["claude-pin-1"], "{args:?}");
+        for p in ["claude", "codex"] {
+            let args = args_of(&cli_request(p, None, None), p);
+            assert!(!args.iter().any(|a| a == "--model" || a == "-m"), "{p}: {args:?}");
+        }
+    }
+
     #[test]
     fn transcripts_and_base64() {
         let h = vec![Turn::user("hi"), Turn { user: false, text: "hello".into(), who: Some("codex".into()), files: vec![] }, Turn::user("again")];

@@ -7,8 +7,8 @@
 //!
 //! * the entry pins a model (`model = "…"`) on a CLI whose command line is
 //!   documented to win over its environment and settings (Claude Code
-//!   `--model`, Codex `-m`): the pinned model is checked against the role's list
-//!   and passed on the command line;
+//!   `--model`, Codex `--model`, which is also `-m`): the pinned model is checked
+//!   against the role's list and passed on the command line;
 //! * it does not (no `model`, or a CLI whose precedence is not verified): the
 //!   turn is refused unless `[policy] unpinned_cli_models` names the entry, which
 //!   is the written exception.
@@ -39,7 +39,7 @@ d="$PWD"
 # a ticket worktree has a .git file; the workspace has the .git directory
 while [ ! -d "$d/.git" ] && [ "$d" != "/" ]; do d=$(dirname "$d"); done
 printf '%s\n' "$@" > "$d/cli-args.txt"
-env | grep -E '^(ANTHROPIC_MODEL|CODEX_MODEL)=' > "$d/cli-env.txt"
+env | grep -E '^(ANTHROPIC_MODEL|CODEX_MODEL|CLAUDE_CODE_SUBAGENT_MODEL)=' > "$d/cli-env.txt"
 echo made > out.txt
 "#;
 
@@ -53,6 +53,9 @@ fn fakes() {
         // A person's shell (or a profile) naming a model of its own. The pin is on the command line.
         std::env::set_var("ANTHROPIC_MODEL", "hostile-env-model");
         std::env::set_var("CODEX_MODEL", "hostile-env-model");
+        // Claude Code runs a subagent on this model unless the definition or the call names one (before
+        // v2.1.251 it beat both), so it can stand in for the scout's model.
+        std::env::set_var("CLAUDE_CODE_SUBAGENT_MODEL", "hostile-env-model");
         let bin = std::env::temp_dir().join(format!("bs-climodel-bin-{}", std::process::id()));
         std::fs::create_dir_all(&bin).unwrap();
         let claude = format!(
@@ -341,8 +344,9 @@ fn a_pinned_claude_code_entry_is_started_on_its_model() {
 #[test]
 fn a_pinned_codex_entry_is_started_on_its_model() {
     let r = worker("pin-codex", &enforced(&["mock-mid"], &["cx", "codex-pin-1"], None), &[CODEX_PINNED], "cx");
-    assert!(has_pair(&r.args, "-m", "codex-pin-1"), "{:?}", r.args);
+    assert!(has_pair(&r.args, "--model", "codex-pin-1"), "{:?}", r.args);
     assert_eq!(model_flags(&r.args).len(), 1, "{:?}", r.args);
+    assert!(!r.args.iter().any(|a| a == "-m"), "the documented spelling, not the short one: {:?}", r.args);
 }
 
 #[test]
@@ -391,6 +395,117 @@ fn a_planner_is_checked_as_the_entry_it_was_pinned_to_not_the_first_one_on_that_
     let (errs, started) = refused("planner-entry", &policy, &[ok, bad], "bad", "ok", "hello");
     assert!(errs.contains("refused by project policy") && errs.contains("claude-bad-1"), "the pinned entry is the one checked: {errs}");
     assert!(!started);
+}
+
+// ------------------------------------------------------------------ the same for Codex
+
+#[test]
+fn codex_is_given_no_other_way_to_pick_a_model() {
+    let r = worker("codex-one-selector", &enforced(&["mock-mid"], &["cx", "codex-pin-1"], None), &[CODEX_PINNED], "cx");
+    let keys: Vec<&str> = r.args.windows(2).filter(|w| w[0] == "-c").map(|w| w[1].split('=').next().unwrap_or("")).collect();
+    assert!(!keys.iter().any(|k| matches!(*k, "model" | "model_provider" | "profile")), "{keys:?}");
+    assert!(!r.args.iter().any(|a| a == "-p" || a == "--profile" || a == "--oss"), "{:?}", r.args);
+}
+
+#[test]
+fn the_environment_cannot_change_a_pinned_codex_model() {
+    let r = worker("pin-env-codex", &enforced(&["mock-mid"], &["cx", "codex-pin-1"], None), &[CODEX_PINNED], "cx");
+    assert!(r.env.contains("CODEX_MODEL=hostile-env-model"), "the test is only meaningful if the CLI could see it: {:?}", r.env);
+    assert!(has_pair(&r.args, "--model", "codex-pin-1"), "{:?}", r.args);
+    assert!(!r.args.iter().any(|a| a.contains("hostile")), "{:?}", r.args);
+}
+
+#[test]
+fn a_codex_model_the_execution_list_does_not_name_is_refused_before_the_cli_starts() {
+    let (errs, started) = refused("codex-worker-refused", &enforced(&["mock-mid"], &["cx"], None), &[CODEX_PINNED], "mock-mid", "cx", "cli-project: make a file");
+    assert!(errs.contains("refused by project policy") && errs.contains("codex-pin-1") && errs.contains("execution"), "{errs}");
+    assert!(!started, "Codex was never started");
+}
+
+#[test]
+fn a_codex_model_the_orchestration_list_does_not_name_is_refused_for_the_planner() {
+    let (errs, started) = refused("codex-planner-refused", &enforced(&["mock-mid", "cx"], &["cx", "codex-pin-1"], None), &[CODEX_PINNED], "cx", "cx", "hello");
+    assert!(errs.contains("refused by project policy") && errs.contains("codex-pin-1") && errs.contains("orchestration"), "{errs}");
+    assert!(!started, "the planner never started");
+}
+
+#[test]
+fn a_codex_planner_and_worker_are_checked_against_their_own_lists() {
+    // `codex-pin-1` is an orchestration model and not an execution one.
+    let policy = enforced(&["mock-mid", "cx", "codex-pin-1"], &["cx"], None);
+    let r = planning("codex-split-planner", &policy, &[CODEX_PINNED], "cx");
+    assert!(has_pair(&r.args, "--model", "codex-pin-1"), "the planner runs: {:?}", r.args);
+    let (errs, started) = refused("codex-split-worker", &policy, &[CODEX_PINNED], "mock-mid", "cx", "cli-project: make a file");
+    assert!(errs.contains("codex-pin-1") && errs.contains("execution"), "the worker does not: {errs}");
+    assert!(!started);
+}
+
+#[test]
+fn editing_backspace_toml_after_the_project_opened_does_not_change_the_codex_model() {
+    let (h, ws) = project("edit-after-open-codex", &enforced(&["mock-mid"], &["cx", "codex-pin-1"], None), &[CODEX_PINNED], "mock-mid", "cx");
+    let edited = config_text(1, &enforced(&["mock-mid"], &["cx", "codex-evil-1"], None), &[Entry { model: Some("codex-evil-1"), ..CODEX_PINNED }], "mock-mid", "cx");
+    std::fs::write(ws.join("backspace.toml"), edited).unwrap();
+    let r = drive(&h, &ws, "cli-project: make a file");
+    assert!(has_pair(&r.args, "--model", "codex-pin-1"), "{:?}", r.args);
+    assert!(!r.args.iter().any(|a| a.contains("evil")), "{:?}", r.args);
+}
+
+#[test]
+fn a_codex_pin_with_no_policy_is_not_passed() {
+    let r = worker("legacy-codex-pin", "", &[CODEX_PINNED], "cx");
+    assert!(model_flags(&r.args).is_empty(), "{:?}", r.args);
+}
+
+// ------------------------------------- the model a Claude Code subagent runs on, from the environment
+
+fn with_scouts(policy: String) -> String {
+    format!("{policy}\n[advisor]\ncli_scouts = \"haiku\"\n")
+}
+
+#[test]
+fn the_subagent_model_variable_is_taken_from_a_pinned_claude_code_under_an_enforced_policy() {
+    // The scout's model is one the lists name and is in the definition Backspace passes. The variable
+    // would replace it on a Claude Code that gives the variable precedence (before v2.1.251) and, with no
+    // model in a definition, would set a subagent's model whatever the main model was approved as.
+    let policy = with_scouts(enforced(&["mock-mid"], &["cc", "claude-pin-1", "haiku"], None));
+    let r = worker("subagent-env", &policy, &[CLAUDE_PINNED], "cc");
+    assert!(has_pair(&r.args, "--model", "claude-pin-1"), "{:?}", r.args);
+    assert!(r.args.iter().any(|a| a.contains("\"model\":\"haiku\"")), "the scout is passed with its gated model: {:?}", r.args);
+    assert!(!r.env.contains("CLAUDE_CODE_SUBAGENT_MODEL"), "Claude Code never saw it: {:?}", r.env);
+    assert!(r.log.contains("CLAUDE_CODE_SUBAGENT_MODEL"), "and the log says it was left out: {}", r.log);
+    assert!(r.env.contains("ANTHROPIC_MODEL=hostile-env-model"), "the main model's variable is left to the documented precedence: {:?}", r.env);
+}
+
+#[test]
+fn an_excepted_unpinned_claude_code_keeps_its_own_environment() {
+    // The exception says the CLI picks its own model; Backspace does not edit its environment either.
+    let policy = enforced(&["mock-mid", "cc"], &["cc", "opus", "haiku"], Some(&["cc"]));
+    let r = worker("subagent-env-excepted", &policy, &[CLAUDE_UNPINNED], "cc");
+    assert!(r.env.contains("CLAUDE_CODE_SUBAGENT_MODEL=hostile-env-model"), "{:?}", r.env);
+}
+
+#[test]
+fn without_an_enforced_policy_the_environment_is_left_alone() {
+    let r = worker("subagent-env-legacy", "", &[CLAUDE_PINNED], "cc");
+    assert!(r.env.contains("CLAUDE_CODE_SUBAGENT_MODEL=hostile-env-model") && r.env.contains("ANTHROPIC_MODEL=hostile-env-model"), "{:?}", r.env);
+}
+
+// ------------------------------------------------------- an alias is not a model identity
+
+#[test]
+fn a_claude_code_entry_that_pins_an_alias_is_flagged_when_the_project_opens() {
+    // `sonnet` is resolved by Claude Code to the newest version its provider has, and ANTHROPIC_DEFAULT_SONNET_MODEL remaps it.
+    let alias = Entry { id: "cc", cli: "claude", model: Some("sonnet") };
+    let (h, _) = project("alias-notice", &enforced(&["mock-mid", "cc", "sonnet"], &["cc", "sonnet"], None), &[alias], "mock-mid", "cc");
+    let notes = h.policy_notices().into_iter().map(|n| n.text).collect::<Vec<_>>().join("\n");
+    assert!(notes.contains("alias") && notes.contains("sonnet") && notes.contains("`cc`"), "{notes}");
+}
+
+#[test]
+fn a_full_model_id_is_not_flagged_as_an_alias() {
+    let (h, _) = project("no-alias-notice", &enforced(&["mock-mid", "cc", "claude-pin-1"], &["cc", "claude-pin-1"], None), &[CLAUDE_PINNED], "mock-mid", "cc");
+    let notes = h.policy_notices().into_iter().map(|n| n.text).collect::<Vec<_>>().join("\n");
+    assert!(!notes.contains("alias"), "{notes}");
 }
 
 // ------------------------------------------------------- an unpinned entry needs the exception
