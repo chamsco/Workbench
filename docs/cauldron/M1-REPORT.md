@@ -1,5 +1,7 @@
 # M1 report: policy gateway, allowlists and pre-call budgets
 
+> **Superseded in part by the hardening pass.** The gaps listed below for CLI workers, the advisor, cloud chat, the router and `backspace.toml` edited from bash were reworked afterwards; what is enforced now, and what is not, is in `M1-BUDGET-BOUNDARIES.md` and `M1-HARDENING-NOTES.md`. This page is kept as the M1 record.
+
 Branch `claude/project-thread-dpmr8e`. Red tests `f653d98`; green commit follows it. Full suite output: `docs/cauldron/M1-suite-output.txt`.
 
 1. Suite (`cargo test --no-fail-fast`, default members): **237 passed, 0 failed**, 0 compiler warnings. Baseline was 204; +33 new (20 in `tests/gateway.rs`, 13 in `tests/gateway_e2e.rs`). No existing test was edited.

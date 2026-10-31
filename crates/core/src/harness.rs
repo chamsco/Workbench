@@ -471,8 +471,18 @@ impl Harness {
 
         let (changed_tx, changed_rx) = async_channel::bounded(1);
         let prefs_at_open = crate::prefs::Prefs::load();
-        let inner = Arc::new(Inner {
-            router: Router::new(http.clone(), cfg.clone()).with_local(local_jobs(&prefs_at_open)),
+        let inner = Arc::new_cyclic(|me: &std::sync::Weak<Inner>| Inner {
+            // A routing call is held against the project's budget while it is in flight.
+            router: Router::new(http.clone(), cfg.clone()).with_local(local_jobs(&prefs_at_open)).with_meter({
+                let me = me.clone();
+                move |usd, tokens| {
+                    let inner = me.upgrade().ok_or_else(|| crate::gateway::Refusal::Budget { label: "project".into(), detail: "the project is closed".into() })?;
+                    inner.reservations.reserve_fixed("the router", usd, tokens, || {
+                        let s = inner.state.lock().unwrap();
+                        project_line(&inner, &s).into_iter().collect()
+                    })
+                }
+            }),
             gateway: Gateway::new(cfg.policy.clone()),
             reservations: Arc::default(),
             guard: crate::policy_guard::PolicyGuard::new(vec![
@@ -1542,7 +1552,7 @@ async fn plan_on_cli(inner: &Arc<Inner>, cli: &str, text: String) -> Result<()> 
     loop {
         let session = inner.state.lock().unwrap().planner_session.clone();
         let system = session.is_none().then(|| planner_system(inner));
-        let admitted = admit_cli(inner, MAIN, model)?;
+        let admitted = admit_cli(inner, MAIN, model).await?;
         let (_, sid) = run_cli_turn(inner, MAIN, cli, &bin, &inner.run_dir.clone(), &prompt, session.as_deref(), system.as_deref(), &crate::gateway::Authorization::Reserved(&admitted)).await?;
         drop(admitted);
         if sid.is_some() {
@@ -1759,7 +1769,7 @@ async fn finish_cli(
         );
     }
     for round in 0..4 {
-        let admitted = admit_cli(inner, c.id, &c.decision.model)?;
+        let admitted = admit_cli(inner, c.id, &c.decision.model).await?;
         let (summary, sid) =
             run_cli_turn(inner, c.id, cli, &bin, dir, &prompt, session.as_deref(), None, &crate::gateway::Authorization::Reserved(&admitted)).await?;
         drop(admitted);
@@ -1795,11 +1805,32 @@ async fn finish_cli(
     bail!("{cli} did not get the ticket accepted in 4 rounds")
 }
 
-/// Let a turn in a coding CLI start, if no budget it counts against is
-/// already spent (see `Reservations::admit_cli`).
-fn admit_cli(inner: &Arc<Inner>, id: AgentId, model: &str) -> Result<crate::gateway::Reservation> {
+/// Let a turn in a coding CLI start (see `Reservations::admit_cli`). A turn
+/// that is refused only because another is still running on the same token
+/// budget waits for it to end and asks again; any other refusal ends the worker.
+async fn admit_cli(inner: &Arc<Inner>, id: AgentId, model: &str) -> Result<crate::gateway::Reservation> {
     let spec = inner.cfg.model(model).ok_or_else(|| anyhow!("routed to unknown model {model}"))?;
-    Ok(inner.reservations.admit_cli(spec, || scoped_lines(inner, id))?)
+    let mut told = false;
+    loop {
+        // Subscribed before asking, so a release between the two is not missed.
+        let released = inner.reservations.released().notified();
+        tokio::pin!(released);
+        released.as_mut().enable();
+        match inner.reservations.admit_cli(spec, || scoped_lines(inner, id)) {
+            Ok(r) => return Ok(r),
+            Err(e) if e.is_held() => {
+                if !told {
+                    inner.log(id, LogKind::System, format!("waiting for a running turn on the same budget to end: {e}"));
+                    told = true;
+                }
+                tokio::select! {
+                    _ = &mut released => {}
+                    _ = tokio::time::sleep(Duration::from_secs(5)) => {}
+                }
+            }
+            Err(e) => return Err(e.into()),
+        }
+    }
 }
 
 /// A CLI that prints nothing for this long is stuck: it is stopped.
@@ -2154,17 +2185,34 @@ fn scoped_lines(inner: &Inner, id: AgentId) -> Vec<crate::gateway::ScopedLine> {
             });
         }
     }
-    if let Some(limit) = inner.cfg.orchestrator.max_project_usd {
-        lines.push(ScopedLine {
-            key: "project".into(),
-            line: BudgetLine { label: "project".into(), limit_usd: Some(limit), limit_tokens: None, spent_usd: s.total_cost_usd, spent_tokens: 0 },
-        });
-    }
+    lines.extend(project_line(inner, &s));
     lines
+}
+
+/// The project's own budget, if it has one: dollars (router calls included)
+/// and tokens (the agents' own spend, as the providers count it).
+fn project_line(inner: &Inner, s: &ProjectState) -> Option<crate::gateway::ScopedLine> {
+    let o = &inner.cfg.orchestrator;
+    (o.max_project_usd.is_some() || o.max_project_tokens.is_some()).then(|| crate::gateway::ScopedLine {
+        key: "project".into(),
+        line: BudgetLine {
+            label: "project".into(),
+            limit_usd: o.max_project_usd,
+            limit_tokens: o.max_project_tokens,
+            spent_usd: s.total_cost_usd,
+            spent_tokens: s.agents.iter().map(|a| a.input_tokens + a.output_tokens).sum(),
+        },
+    })
 }
 
 fn over_budget(inner: &Inner, id: AgentId) -> Option<String> {
     let s = inner.state.lock().unwrap();
+    if let Some(max) = inner.cfg.orchestrator.max_project_tokens {
+        let used: u64 = s.agents.iter().map(|a| a.input_tokens + a.output_tokens).sum();
+        if used >= max {
+            return Some(format!("project token budget of {max} spent"));
+        }
+    }
     if let Some(max) = inner.cfg.orchestrator.max_project_usd {
         if s.total_cost_usd >= max {
             return Some(format!("project budget ${max:.2} spent"));

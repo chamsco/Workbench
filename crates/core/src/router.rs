@@ -99,8 +99,8 @@ pub struct Router {
     local: std::collections::BTreeMap<String, String>,
     /// Answers the typed question that says where the planner starts.
     decider: std::sync::Arc<dyn crate::decision::DecisionModel>,
-    /// Holds a routing call's worst case against the project's budget (stub).
-    #[allow(dead_code)]
+    /// Holds a routing call's worst case against the project's budget. None:
+    /// no budget is around this router, and its calls are declared unmetered.
     meter: Option<Meter>,
 }
 
@@ -126,7 +126,7 @@ impl Router {
         self
     }
 
-    /// Check every Jev call against a budget before it is sent (stub).
+    /// Hold every Jev call's worst case against a budget before it is sent.
     pub fn with_meter(mut self, meter: impl Fn(f64, u64) -> std::result::Result<crate::gateway::Reservation, crate::gateway::Refusal> + Send + Sync + 'static) -> Self {
         self.meter = Some(std::sync::Arc::new(meter));
         self
@@ -404,8 +404,22 @@ impl Router {
             },
         });
 
-        // Counted as router cost afterwards, not reserved: docs/cauldron/M1-BUDGET-BOUNDARIES.md.
-        crate::provider::note_unmetered(crate::gateway::Unmetered::JevRouter);
+        // Where a budget is around the router, the call's worst case (the body
+        // as it goes, in bytes, and an assumed answer, at Jev's own rate) is
+        // held until the response is in; if it does not fit, Jev is not called
+        // and the heuristic decides. Without one the call is declared unmetered.
+        // Docs: docs/cauldron/M1-BUDGET-BOUNDARIES.md.
+        let _hold = match &self.meter {
+            Some(meter) => {
+                let bytes = serde_json::to_string(&body)?.len();
+                let tokens = crate::gateway::input_bound(bytes, 1, 0) + crate::gateway::ROUTER_OUTPUT_TOKENS;
+                Some(meter(tokens as f64 * rc.jev_usd_per_mtok / 1_000_000.0, tokens)?)
+            }
+            None => {
+                crate::provider::note_unmetered(crate::gateway::Unmetered::JevRouter);
+                None
+            }
+        };
         let resp = self
             .http
             .post(&rc.jev_endpoint)

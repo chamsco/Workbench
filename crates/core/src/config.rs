@@ -105,6 +105,12 @@ pub struct OrchestratorConfig {
     /// Hard stop for the whole project, router calls included.
     #[serde(default)]
     pub max_project_usd: Option<f64>,
+    /// Hard stop for the whole project in tokens, as the providers count them
+    /// (the agents' own spend; a routing call's tokens are not in it). A turn
+    /// in a coding CLI holds everything that is left while it runs, so CLI
+    /// turns on this budget run one at a time. See docs/cauldron/M1-BUDGET-BOUNDARIES.md.
+    #[serde(default)]
+    pub max_project_tokens: Option<u64>,
     #[serde(default)]
     pub isolation: Isolation,
 }

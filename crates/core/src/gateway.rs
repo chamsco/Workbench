@@ -267,6 +267,17 @@ impl std::fmt::Display for Refusal {
     }
 }
 
+/// The words that mark a refusal as one that goes away when a running call ends.
+const HELD: &str = "held by a running turn";
+
+impl Refusal {
+    /// Refused only because a call still in flight holds the room: asking
+    /// again once it has finished may be a different answer.
+    pub fn is_held(&self) -> bool {
+        matches!(self, Refusal::Budget { detail, .. } if detail.contains(HELD))
+    }
+}
+
 impl std::error::Error for Refusal {}
 
 /// One limit a call must fit under, with what has been spent against it.
@@ -304,8 +315,9 @@ pub fn estimate_tokens(chars: usize) -> u64 {
 /// a request enforces.
 pub const ADVISOR_OUTPUT_TOKENS: u64 = 4_096;
 
-/// What a reservation for a Jev routing call assumes the answer may take.
-/// (stub: set by the implementation)
+/// What a reservation for a Jev routing call assumes its answer may take (two
+/// short answers and a usage block). Jev takes no output cap either, so like
+/// the advisor's this is an assumption about the provider, not a limit.
 pub const ROUTER_OUTPUT_TOKENS: u64 = 512;
 
 /// What the provider adds around a request's own text that the body does not
@@ -353,6 +365,8 @@ type Holds = HashMap<String, Vec<(u64, f64, u64)>>;
 pub struct Reservations {
     held: Mutex<Holds>,
     next: Mutex<u64>,
+    /// Woken whenever a reservation is dropped, for a turn waiting on a hold.
+    released: tokio::sync::Notify,
 }
 
 fn held_in(h: &Holds, key: &str) -> (f64, u64) {
@@ -386,6 +400,8 @@ impl Drop for Reservation {
                 }
             }
         }
+        drop(held);
+        t.released.notify_waiters();
     }
 }
 
@@ -460,38 +476,58 @@ impl Reservations {
         Ok(self.hold(&mut held, &lines, usd, tokens, Grant { max_output_tokens: 0 }, 0, None))
     }
 
-    /// Admit a turn in a coding CLI. A CLI has no price here (it is billed to
-    /// a plan) and reports its usage only as it goes, so nothing is held:
-    /// it is refused when any scope is already at its limit, or when a
-    /// dollar limit has nothing to count it against, and otherwise given the
-    /// number of tokens it may report before it is stopped.
+    /// Admit a turn in a coding CLI. A CLI is billed to a plan, so a turn adds
+    /// no dollars to any scope whatever price is configured for its model, and
+    /// it reports its usage only as it goes (Codex) or once at the end (Claude
+    /// Code), so what it will use is not known when it starts. It is therefore:
+    ///
+    /// - refused when a scope it counts toward is already at its limit, or
+    ///   when its tokens are held by a turn that is still running (`is_held`:
+    ///   wait for `released` and ask again);
+    /// - refused outright when a dollar limit has no token limit beside it,
+    ///   because nothing would bind it;
+    /// - otherwise given everything the tightest token limit has left, **and
+    ///   that is held against every scope it counts toward until it ends**,
+    ///   so two turns are never given the same tokens. Turns on one shared
+    ///   token budget therefore run one at a time. The only overshoot is the
+    ///   one turn's own, between its reports.
     pub fn admit_cli<F: FnOnce() -> Vec<ScopedLine>>(self: &Arc<Self>, model: &ModelSpec, lines: F) -> Result<Reservation, Refusal> {
         let mut held = self.held.lock().unwrap();
         let lines = lines();
-        let unpriced = model.input_usd_per_mtok <= 0.0 && model.output_usd_per_mtok <= 0.0;
         let mut ceiling: Option<u64> = None;
-        for l in lines.iter().map(|l| with_holds(&held, l)) {
-            let refuse = |detail: String| Refusal::Budget { label: l.label.clone(), detail };
-            if l.limit_usd.is_some() && unpriced && l.limit_tokens.is_none() {
+        for l in &lines {
+            let with = with_holds(&held, l);
+            let refuse = |detail: String| Refusal::Budget { label: l.line.label.clone(), detail };
+            if l.line.limit_usd.is_some() && l.line.limit_tokens.is_none() {
                 return Err(refuse(format!(
-                    "a dollar limit cannot bind `{}`: a coding CLI is billed to its plan and has no price here. Set a token limit beside it, or remove the dollar limit for this project",
+                    "a dollar limit cannot bind `{}`: a coding CLI is billed to its plan and adds no dollars to this budget, whatever price is configured for it. Set a token limit beside it, or remove the dollar limit for this project",
                     model.id
                 )));
             }
-            if let Some(limit) = l.limit_usd.filter(|_| !unpriced) {
-                if l.spent_usd >= limit {
-                    return Err(refuse(format!("${:.4} of ${limit:.4} already spent", l.spent_usd)));
+            if let Some(limit) = l.line.limit_usd {
+                if with.spent_usd >= limit {
+                    return Err(refuse(format!("${:.4} of ${limit:.4} already spent", with.spent_usd)));
                 }
             }
-            if let Some(limit) = l.limit_tokens {
-                let left = limit.saturating_sub(l.spent_tokens);
+            if let Some(limit) = l.line.limit_tokens {
+                let left = limit.saturating_sub(with.spent_tokens);
                 if left == 0 {
-                    return Err(refuse(format!("{} of {limit} tokens already used", l.spent_tokens)));
+                    let by_others = held_in(&held, &l.key).1;
+                    return Err(refuse(if l.line.spent_tokens < limit && by_others > 0 {
+                        format!("{by_others} of {limit} tokens are {HELD}: {} used, the rest reserved for it", l.line.spent_tokens)
+                    } else {
+                        format!("{} of {limit} tokens already used", l.line.spent_tokens)
+                    }));
                 }
                 ceiling = Some(ceiling.map_or(left, |c| c.min(left)));
             }
         }
-        Ok(self.hold(&mut held, &lines, 0.0, 0, Grant { max_output_tokens: 0 }, 0, ceiling))
+        Ok(self.hold(&mut held, &lines, 0.0, ceiling.unwrap_or(0), Grant { max_output_tokens: 0 }, 0, ceiling))
+    }
+
+    /// Woken each time a reservation is released.
+    pub fn released(&self) -> &tokio::sync::Notify {
+        &self.released
     }
 
     /// What is reserved against a scope right now.

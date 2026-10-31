@@ -1,5 +1,7 @@
 # M1 notes
 
+> **Superseded in part by the hardening pass.** The gaps listed below for CLI workers, the advisor, cloud chat, the router and `backspace.toml` edited from bash were reworked afterwards; what is enforced now, and what is not, is in `M1-BUDGET-BOUNDARIES.md` and `M1-HARDENING-NOTES.md`. This page is kept as the M1 record.
+
 ## Design choices to review
 
 - **No `[policy]` section, or no list inside it, means open.** Once a list is present (even empty) it is the whole allowlist. Exact string match only: no trim, case folding, prefix or glob. Chosen so existing projects keep working. If Charles wants default-deny, it is a one-line change in `Gateway::check_model` / `skill_allowed` / `check_plugin`, plus the default config.
