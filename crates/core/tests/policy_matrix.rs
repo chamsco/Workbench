@@ -348,6 +348,70 @@ fn the_strict_budget_section_and_the_jev_rows_say_the_same_things() {
     assert!(has(strict, "routing_models"), "and the model Jev itself runs is governed by the routing-model policy");
 }
 
+// ------------------------------------------- the model a coding CLI runs, kind of evidence by kind
+
+/// The section on coding-CLI models, from its heading to the next `## ` heading.
+fn cli_models_section(doc: &str) -> &str {
+    let start = doc.find("\n## Coding-CLI models").expect("a section headed `Coding-CLI models`") + 1;
+    let section = &doc[start..];
+    &section[..section[3..].find("\n## ").map_or(section.len(), |n| n + 3)]
+}
+
+#[test]
+fn the_cli_model_section_keeps_five_kinds_of_statement_apart_in_order() {
+    let doc = read("M1-BUDGET-BOUNDARIES.md");
+    let section = cli_models_section(&doc);
+    let heads: Vec<String> = section.lines().filter(|l| l.starts_with("### ")).map(|l| l.to_ascii_lowercase()).collect();
+    let kinds = ["verified model-level enforcement", "cli-entry-only enforcement", "explicitly permitted unpinned cli execution", "unverified external cli behaviour", "known policy exceptions"];
+    let at: Vec<usize> = kinds.iter().map(|k| heads.iter().position(|h| h.contains(k)).unwrap_or_else(|| panic!("no `### …{k}…` heading in the CLI model section; headings: {heads:?}"))).collect();
+    assert!(at.windows(2).all(|w| w[0] < w[1]), "the five kinds are in order: {heads:?}");
+}
+
+#[test]
+fn the_cli_model_section_matches_what_the_code_pins_and_what_it_calls_an_alias() {
+    use backspace_core::config::{CLAUDE_ALIASES, PINNABLE_CLIS};
+    let doc = read("M1-BUDGET-BOUNDARIES.md");
+    let section = cli_models_section(&doc);
+    let verified = section.split("### ").find(|p| p.to_ascii_lowercase().starts_with("verified")).expect("the verified part");
+    for cli in PINNABLE_CLIS {
+        let name = match cli {
+            "claude" => "Claude Code",
+            "codex" => "Codex",
+            other => panic!("`{other}` is pinned by the code and the page does not know its name"),
+        };
+        assert!(has(verified, name), "the code pins {name} and the verified part does not say so");
+    }
+    for alias in CLAUDE_ALIASES {
+        assert!(has(section, &format!("`{alias}`")), "the code treats `{alias}` as an alias and the section does not list it");
+    }
+    // The command line the code builds, and not the one it used to.
+    assert!(has(verified, "`--model <model>`") || has(verified, "--model"), "{verified}");
+    for stale in ["`--model` / `-m`", "Codex `-m`", "(`--model`, `-m`)"] {
+        assert!(!doc.contains(stale), "the page still describes the old Codex invocation: `{stale}`");
+    }
+}
+
+#[test]
+fn what_is_not_verified_about_the_clis_is_named_one_by_one() {
+    let doc = read("M1-BUDGET-BOUNDARIES.md");
+    let section = cli_models_section(&doc);
+    let part = section.split("### ").find(|p| p.to_ascii_lowercase().starts_with("unverified")).expect("the unverified part");
+    for (what, needle) in [
+        ("the Codex binary was not run", "not run"),
+        ("Codex `-m` and `--model` are one argument, by source", "same argument"),
+        ("Codex managed layers", "managed"),
+        ("a resumed Codex session", "resume"),
+        ("the endpoint a model name is served from", "endpoint"),
+        ("Claude Code managed availableModels", "availableModels"),
+        ("a Claude Code alias", "alias"),
+        ("a Claude Code subagent's per-invocation model", "per-invocation"),
+        ("the subagent model variable", "CLAUDE_CODE_SUBAGENT_MODEL"),
+        ("fake CLIs show what is passed", "fake"),
+    ] {
+        assert!(has(part, needle), "the unverified part does not name {what} (`{needle}`)");
+    }
+}
+
 // ------------------------------------------- what is claimed, what is assumed, what is not done
 
 fn notes() -> String {

@@ -198,10 +198,18 @@ impl PolicyConfig {
     /// Notices for the two dimensions an enforced policy closes unless they are written down: the
     /// router's own model (`router_model`, when the router is in use) and coding-CLI entries that pin
     /// no model (`unpinned_cli`). Said when the project opens, because otherwise the first sign is a
-    /// router that quietly stopped, or a CLI turn that is refused.
-    pub fn model_notices(&self, router_model: Option<&str>, unpinned_cli: &[String]) -> Vec<PolicyNotice> {
+    /// router that quietly stopped, or a CLI turn that is refused. A pin that is only an alias
+    /// (`alias_pins`: entry, alias) is allowed and said, since the policy then names a family.
+    pub fn model_notices(&self, router_model: Option<&str>, unpinned_cli: &[String], alias_pins: &[(String, String)]) -> Vec<PolicyNotice> {
         let gate = Gateway::new(self.clone());
         let mut out = vec![];
+        if gate.enforced() {
+            for (entry, alias) in alias_pins {
+                out.push(note(format!(
+                    "coding-CLI entry `{entry}` pins the alias `{alias}`. Claude Code resolves an alias itself, to the newest version its provider has, and its own settings can remap it (ANTHROPIC_DEFAULT_*_MODEL), so the policy approves the name `{alias}`, not one model. Pin a full model id (`model = \"claude-…\"`) to approve a specific model."
+                )));
+            }
+        }
         if let Some(m) = router_model.filter(|m| gate.check_routing_model(m).is_err()) {
             out.push(warn(format!(
                 "[policy] routing_models does not name the router's model `{m}` (`[router] jev_model`), so the router is not called and the heuristic decides every route. Add it to routing_models to use the router (`backspace-cli policy init` prints the list)."

@@ -13,9 +13,12 @@ The five sections that matter are kept apart on purpose: *Implemented and tested
 | Second hardening round (red `5a57296`, green `2a47e37`) | 17 |
 | Third hardening round (red `5cdd77d`, green `b2a73af`) | 47 |
 | Final hardening pass (red `52922d0`) | 62 |
-| **Branch suite** | **491** |
+| Codex closure pass (red `577f819`) | 21 |
+| **Branch suite** | **512** |
 
 The final pass's 62: `jev_unknown_cost` 15, `routing_policy` 18, `cli_model_policy` 23, `policy_matrix` 5 more (9 to 14), `policy_integrity_cli` 1 more (4 to 5). 60 of them existed at the red commit; 2 (the harness-level unknown-cost tests) were added after it. Full-suite outputs: `M1-final-red-output.txt` (436 passed, 53 failed: 20 `cli_model_policy`, 11 `jev_unknown_cost`, 11 `policy_matrix`, 11 `routing_policy`), `M1-final-suite-output.txt` (the green runs), `M1-final-flaky-evidence.txt`. Earlier rounds' outputs: `M1-hardening-3-*.txt`.
+
+The closure pass's 21: runner argument tests 5 (4 at red, 1 with the `env_remove` field), `cli_model_policy` 13 more (23 to 36; 12 at red, 1 from splitting one of my own tests), `policy_matrix` 3 more (14 to 17). 8 failed at red and none fails now. Outputs: `M1-codex-closure-red-output.txt`, `M1-codex-closure-suite-output.txt`.
 
 ## Implemented and tested controls
 
@@ -41,7 +44,8 @@ Each row has a test that fails when the control is removed unless the row says o
 | A mixture of successful, failed and unknown Jev calls run concurrently with API reservations adds up exactly and never passes the limit | `jev_unknown_cost.rs` (eight Jev calls in different outcomes against eight API calls) |
 | Jev's own model must be named in `routing_models`; otherwise it is not called, nothing is reserved, and the heuristic decides with a note; naming it in the role lists is not a permission; the list does not widen Jev's candidates | `routing_policy.rs` |
 | `backend = "heuristic"` keeps Jev off a project; a pin does not | `jev_settlement.rs` (both) |
-| A coding-CLI entry under an enforced policy either pins a model (Claude Code `--model`, Codex `-m`), which is checked against the role's list and put on the command line, or is accepted unpinned by name in `unpinned_cli_models`, or is refused before the CLI starts; planners and workers are checked against their own lists; a CLI whose command-line precedence is not verified counts as unpinned | `cli_model_policy.rs` |
+| A coding-CLI entry under an enforced policy either pins a model (Claude Code `--model`, Codex `--model`), which is checked against the role's list and put on the command line, or is accepted unpinned by name in `unpinned_cli_models`, or is refused before the CLI starts; planners and workers are checked against their own lists; a CLI whose command-line precedence is not verified counts as unpinned | `cli_model_policy.rs` |
+| Under an enforced policy a pinned Claude Code, or one given a scout, is not handed `CLAUDE_CODE_SUBAGENT_MODEL`; Codex is given exactly one model argument (`--model`), no `--profile`, no `--oss` and no model in `-c`; a Claude Code entry that pins an alias is noted when the project opens | `cli_model_policy.rs`, `crates/runner` argument tests |
 | The planner's policy check is made against the entry it runs as, not the first entry on the same CLI | `cli_model_policy.rs` (this was a defect, fixed) |
 | The environment and a later edit of `backspace.toml` do not change the model after it was checked | `cli_model_policy.rs` (fake CLI sees `ANTHROPIC_MODEL`, and the argument is still the pinned model) |
 | Claude Code's `--advisor` and `--agents` are left off when the project's lists do not name their models, each decided on its own, at the right role | `cli_policy.rs` |
@@ -79,7 +83,7 @@ These are what the controls above rest on. None is measured here.
 6. **Jev's answer is 512 tokens or less.** An assumed reservation, not a cap; a larger real cost is recorded in full and named.
 7. **Claude Code reports usage once, at the end of a turn,** and Codex per `turn.completed`.
 8. **Whether Codex's usage figures are cumulative within a process or per turn is not known;** Backspace takes the largest figure reported.
-9. **`--model` / `-m` win over the CLI's environment and settings,** as the vendors document them (Claude Code: `--model` over `ANTHROPIC_MODEL` and the `model` setting; Codex: command-line arguments over a profile and `config.toml`). Taken from documentation, not tested against the real tools.
+9. **`--model` wins over the CLI's environment and settings,** as the vendors document them (Claude Code: `--model` over `ANTHROPIC_MODEL` and the `model` setting; Codex: CLI flags and `--config` overrides are the top layer, above project, profile and user `config.toml`). Taken from documentation and, for Codex, its source, not tested against the real tools. That `-m` and `--model` are one Codex argument rests on the same (source and documentation; the 0.166.0 binary was not run).
 10. **A conservative count is not a measurement.** An unknown-cost Jev call is counted at its reservation, which may be more or less than it cost.
 
 ## Known limitations
@@ -88,7 +92,7 @@ These are what the controls above rest on. None is measured here.
 2. **Claude Code may overshoot within one reported turn,** bounded by that turn, not zero; the next is refused.
 3. **The unmetered paths** remain outside task-budget enforcement and outside the project's policy: `CloudChatServer`, `AgentChat` (including its direct Backspace Cloud request), and `JevRouter` where no budget is around the router.
 4. **A remote machine's harness** runs under its own policy and budgets; neither follows a task there.
-5. **CLI policy versus the CLI's own model selection.** A pinned model is put on the command line and checked, but the real CLI's resolution of an alias, an organization setting that replaces a model, or a CLI that ignores the argument are outside what Backspace can see. A pin on Cursor, Grok or OpenCode counts as unpinned because their precedence is not verified. The fake-CLI tests show what Backspace passes, not what a real CLI does with it. Claude Code's advisor and scout are checked as written; anything the CLI's own settings add is not.
+5. **CLI policy versus the CLI's own model selection.** A pinned model is put on the command line and checked, but the real CLI's resolution of an alias, an organization setting that replaces a model, or a CLI that ignores the argument are outside what Backspace can see. A pin on Cursor, Grok or OpenCode counts as unpinned because their precedence is not verified. Not covered either: a managed layer that overrides `--model` (Claude Code `availableModels` replaces it with a warning; Codex managed layers are undocumented for it), the model of a resumed Codex session, the endpoint a CLI sends to, and a subagent that Claude Code's running model starts with a model of its own (see *Coding-CLI models* in `M1-BUDGET-BOUNDARIES.md`). The fake-CLI tests show what Backspace passes, not what a real CLI does with it. Claude Code's advisor and scout are checked as written; anything the CLI's own settings add is not.
 6. **`max_project_tokens` costs:** CLI turns on a shared token budget run one at a time; an API call is refused, not queued, while a CLI turn holds the tokens; a project that does not set it is not affected; Jev's tokens are not counted toward `max_project_tokens`; a dollar limit alone still refuses every CLI turn. `cli_turn_tokens` was not introduced.
 7. **Jev:** its output size is not provider-capped; its cost, when nobody reports it, is counted at the reservation; a router with no budget around it is unmetered; what the Jev service does with a request is outside Backspace.
 8. **The restore guard is not an OS-level security boundary.** The policy in force comes from a lock outside the workspace; a `backspace.toml` that loosens it is ignored with a warning until a person runs `backspace-cli policy adopt`; and around every tool batch and CLI turn the harness puts the file and the lock back if they changed. A background process an agent leaves running can write between monitored actions, and that write is taken as a person's edit; a person's own edit made during an agent's action is undone with the agent's. Deleting or emptying the lock re-adopts the file as a first open; that needs write access outside the workspace and nothing prevents it. **Policy integrity is open until the M6 sandbox,** or a separate OS user, closes that.
@@ -100,10 +104,11 @@ These are what the controls above rest on. None is measured here.
 Not done in M1, on purpose and in writing:
 
 - The M6 sandbox (or a separate OS user) for policy integrity; plugin loader and integrity check (M11).
-- Validation against the real tools: Claude Code and Codex usage semantics, `--model` precedence, token-per-byte measurement, a tokenizer or `count_tokens` check.
+- Validation against the real tools: Claude Code and Codex usage semantics, `--model` precedence, token-per-byte measurement, a tokenizer or `count_tokens` check. For Codex, `codex --version` and `codex exec --help | grep -i model` on a machine that has it would close the flag question.
+- Owner's call, each a design change: (a) have Backspace read the model a CLI reports it started on (Claude Code's `system` init event carries one) and stop the turn when it differs from the approved one; (b) count an alias pin as unpinned so it needs `unpinned_cli_models`; (c) switch Claude Code's Agent tool off under an enforced policy, which closes the invocation-time subagent model and removes the scouts.
 - A smaller per-turn CLI allowance so that CLI turns could overlap (`cli_turn_tokens`), if the one-at-a-time cost is not acceptable.
 - A per-task strict mode, and a way to switch the advisor, chat or the cloud server off for it. Not planned in M1.
-- Owner's call, outside M1: `chat.rs` `spawn_reply` clears the busy flag before the reply's verdict is attached and sets it after spawning (see `M1-final-flaky-evidence.txt`).
+- Owner's call, outside M1: `chat.rs` `spawn_reply` can leave a thread permanently busy, and clears the flag before the reply's verdict is attached. Reproduced, with a proposed fix: `M1-CHAT-BUSY-FLAG-ISSUE.md`.
 - Nothing from M2 or M3.
 
 ## Final hardening pass
@@ -129,7 +134,7 @@ Verified against the code before anything was changed.
 ### Behaviour changes for existing projects
 
 - **Enforced policies written before this pass stop calling Jev and refuse unpinned CLI entries** until they name `routing_models` and `unpinned_cli_models` (`backspace-cli policy init` prints both). The project says so when it opens. This is deliberate: the new dimensions are closed under `enforced`, like the others. Legacy and open policies are unchanged.
-- **Coding-CLI turns under an enforced policy pass `--model` / `-m`** when the entry pins a model. Without an enforced policy nothing is passed, as before.
+- **Coding-CLI turns under an enforced policy pass `--model`** (Claude Code and Codex) when the entry pins a model. Without an enforced policy nothing is passed, as before.
 - A Jev call that fails after dispatch now counts against the project dollar budget at its reservation. A project near its limit can refuse a call sooner, never later.
 - A Jev call's cost now reaches the metrics ledger with the books (a billed but unusable answer too), not only through the decision.
 
@@ -180,6 +185,33 @@ Each protection was removed and the named tests failed, then the source was rest
 ### Corrections to my own tests
 
 `cli_model_policy.rs`: the fake Cursor binary was named `cursor`, but Backspace looks for `cursor-agent`, so `a_pin_on_a_cli_whose_command_line_precedence_is_not_verified_counts_as_unpinned` failed at red for the wrong reason ("no usable models"); fixed, and the mutation above shows it now fails for the right one. No earlier test was touched except as listed under *Changes to existing tests*.
+
+## Codex closure pass
+
+Run to resolve one uncertainty from the final pass: the runner passed `-m` to Codex while the documentation names `--model`. Nothing in M2 or M3 was started. Red `577f819`, green recorded in `M1-CODEX-CLOSURE-REPORT.md`; the prep commit `40bcbc4` only moved command building into `build_cli` so tests can read the arguments.
+
+### Findings
+
+1. **`-m` is `--model`.** One argument in Codex's source and in its command reference. The runner now passes the documented spelling for clarity; no behaviour of the CLI is claimed to change. Evidence and its limits (the binary was not run) are in *Coding-CLI models*.
+2. **Nothing Backspace builds can name a Codex model other than `--model`.** The other `-c` overrides are the reasoning effort and MCP servers; there is no `--profile` or `--oss`. Guarded by tests.
+3. **A real gap: `CLAUDE_CODE_SUBAGENT_MODEL`.** For a Claude Code before v2.1.251 it beats a subagent definition's model, so it could replace the scout's approved model; on later versions it still sets the model of a subagent that has none. It is now not handed to Claude Code when Backspace pinned the model or passed a scout under an enforced policy, and the log says so. `ANTHROPIC_MODEL` is left: `--model` outranks it in the documentation.
+4. **A boundary the earlier rounds did not state.** Backspace checks the scout it passes, but the per-invocation `model` parameter of Claude Code's Agent tool (`sonnet`, `opus`, `haiku`, `fable`) is chosen by the running model and never seen by Backspace, and built-in subagents have their own models. Documented as an exception, not closed.
+5. **Aliases.** A Claude Code alias names a family that Claude Code resolves and settings can remap. A pin that is an alias is still allowed (a design call for the owner, above) and is noted when the project opens; it was silently equal to a full model id before.
+6. **Managed settings can replace the model.** Claude Code's `availableModels` replaces a disallowed `--model` with a warning. Documented, not detected.
+7. **Chat busy flag.** Reproduced; recorded separately, unchanged in the code.
+
+### Behaviour changes
+
+- Codex is started with `--model <model>` instead of `-m <model>`, ahead of `resume` when resuming.
+- An enforced policy no longer hands `CLAUDE_CODE_SUBAGENT_MODEL` to Claude Code when Backspace pinned its model or passed it a scout. Anyone relying on that variable under an enforced policy loses it for those turns.
+- The project opens with a note for each Claude Code entry that pins an alias. Informational; nothing is refused.
+
+### Changes to existing tests
+
+1. `cli_model_policy.rs`: `a_pinned_codex_entry_is_started_on_its_model` asserted `-m`; it asserts `--model` and that `-m` is absent. That is the requested change of the invocation, not a weaker assertion. The fake CLI also records and the process sets `CLAUDE_CODE_SUBAGENT_MODEL`.
+2. A premise of my own test was wrong: `an_excepted_unpinned_claude_code_keeps_its_own_environment` (added in the red commit) passed at red but its policy named the scout's alias, so a scout was passed and the variable was correctly removed. It became two tests: no scout in the lists, environment kept; a scout in the lists, variable removed. Nothing existing was weakened.
+3. `policy_matrix.rs`: three tests added for the *Coding-CLI models* section (five kinds in order, the section matches `PINNABLE_CLIS` and `CLAUDE_ALIASES`, and each unverified item is named).
+4. The runner test `a_variable_listed_for_removal_is_not_given_to_the_cli` was added with the field it tests, after red, since it cannot compile without it.
 
 ## History: earlier rounds
 

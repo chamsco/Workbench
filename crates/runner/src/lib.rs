@@ -78,6 +78,8 @@ pub struct Request {
     pub edit: bool,
     /// Extra environment for a CLI (PATH included, if you need it).
     pub env: Vec<(String, String)>,
+    /// Variables the CLI is not given, whether they come from `env` or from this process.
+    pub env_remove: Vec<String>,
     /// An MCP config for CLIs that take one (`{"mcpServers": {...}}`).
     pub mcp: Option<Value>,
     /// Tool name prefixes the CLI may call without asking ("mcp__backspace").
@@ -116,6 +118,7 @@ impl Request {
             cwd: std::env::temp_dir(),
             edit: false,
             env: vec![],
+            env_remove: vec![],
             mcp: None,
             mcp_allow: vec![],
             add_dirs: vec![],
@@ -350,6 +353,9 @@ fn build_cli(req: &Request, provider: &str, bin: &PathBuf) -> Result<(tokio::pro
     for (k, v) in &req.env {
         cmd.env(k, v);
     }
+    for k in &req.env_remove {
+        cmd.env_remove(k);
+    }
     let model = req.model.clone().filter(|m| !m.is_empty());
     let stdin_text: Option<String>;
     match provider {
@@ -417,7 +423,9 @@ fn build_cli(req: &Request, provider: &str, bin: &PathBuf) -> Result<(tokio::pro
                 (false, _) => cmd.args(["-s", "read-only"]),
             };
             if let Some(m) = &model {
-                cmd.args(["-m", m]);
+                // `--model` is the spelling the documentation gives; `-m` is the same argument. It is an
+                // option of `codex exec`, so it is set ahead of `resume` below.
+                cmd.args(["--model", m]);
             }
             if let Some(e) = &req.effort {
                 // Codex tops out at xhigh.
@@ -917,6 +925,18 @@ mod tests {
             let args = args_of(&cli_request(p, None, None), p);
             assert!(!args.iter().any(|a| a == "--model" || a == "-m"), "{p}: {args:?}");
         }
+    }
+
+    #[test]
+    fn a_variable_listed_for_removal_is_not_given_to_the_cli() {
+        let mut r = cli_request("claude", None, None);
+        r.env = vec![("KEEP".into(), "1".into()), ("DROP".into(), "2".into())];
+        r.env_remove = vec!["DROP".into(), "FROM_THE_PROCESS".into()];
+        let (cmd, _) = build_cli(&r, "claude", &PathBuf::from("/bin/true")).unwrap();
+        let envs: std::collections::HashMap<_, _> = cmd.as_std().get_envs().map(|(k, v)| (k.to_string_lossy().into_owned(), v.map(|v| v.to_string_lossy().into_owned()))).collect();
+        assert_eq!(envs.get("KEEP"), Some(&Some("1".to_string())));
+        assert_eq!(envs.get("DROP"), Some(&None), "removed even though `env` set it");
+        assert_eq!(envs.get("FROM_THE_PROCESS"), Some(&None), "and one the process has is cleared for the child");
     }
 
     #[test]

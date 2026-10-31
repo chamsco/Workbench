@@ -477,11 +477,23 @@ fn the_subagent_model_variable_is_taken_from_a_pinned_claude_code_under_an_enfor
 }
 
 #[test]
-fn an_excepted_unpinned_claude_code_keeps_its_own_environment() {
-    // The exception says the CLI picks its own model; Backspace does not edit its environment either.
-    let policy = enforced(&["mock-mid", "cc"], &["cc", "opus", "haiku"], Some(&["cc"]));
+fn an_excepted_unpinned_claude_code_with_no_scout_keeps_its_own_environment() {
+    // The exception says the CLI picks its own model, and the lists do not name the scout's model, so no
+    // scout is passed and Backspace names no model at all: it does not edit the environment either.
+    let policy = enforced(&["mock-mid", "cc"], &["cc"], Some(&["cc"]));
     let r = worker("subagent-env-excepted", &policy, &[CLAUDE_UNPINNED], "cc");
+    assert!(!r.args.iter().any(|a| a == "--agents"), "{:?}", r.args);
     assert!(r.env.contains("CLAUDE_CODE_SUBAGENT_MODEL=hostile-env-model"), "{:?}", r.env);
+}
+
+#[test]
+fn an_excepted_unpinned_claude_code_given_a_scout_does_not_get_the_variable_either() {
+    // The scout's model is one the lists name and Backspace puts in its definition; the variable must not replace it.
+    let policy = enforced(&["mock-mid", "cc"], &["cc", "haiku"], Some(&["cc"]));
+    let r = worker("subagent-env-excepted-scout", &policy, &[CLAUDE_UNPINNED], "cc");
+    assert!(r.args.iter().any(|a| a.contains("\"model\":\"haiku\"")), "{:?}", r.args);
+    assert!(model_flags(&r.args).is_empty(), "the main model is still the CLI's own: {:?}", r.args);
+    assert!(!r.env.contains("CLAUDE_CODE_SUBAGENT_MODEL"), "{:?}", r.env);
 }
 
 #[test]

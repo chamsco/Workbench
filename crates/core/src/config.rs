@@ -242,11 +242,26 @@ pub struct ModelSpec {
     pub class: Option<crate::ladder::ModelClass>,
 }
 
-/// The coding CLIs whose command-line `--model` / `-m` is documented to take precedence over their
+/// The coding CLIs whose command-line `--model` is documented to take precedence over their
 /// environment variables and settings files (Claude Code: `--model` beats `ANTHROPIC_MODEL` and the
-/// `model` setting; Codex: command-line arguments beat a profile and `config.toml`). Backspace relies
-/// on that documentation, not on a test against the real tools.
+/// `model` setting; Codex: CLI flags and `--config` overrides are the highest layer, above project,
+/// profile and user `config.toml`, and `--model`/`-m` is one argument in its source). Backspace relies
+/// on that documentation and source, not on a run of the real tools. What the documentation does not
+/// settle (a managed layer that replaces a model, the provider a model name is served by, a resumed
+/// Codex session, a Claude Code alias) is listed in `docs/cauldron/M1-BUDGET-BOUNDARIES.md`.
 pub const PINNABLE_CLIS: [&str; 2] = ["claude", "codex"];
+
+/// The names Claude Code documents as aliases (`--model`, `ANTHROPIC_MODEL` and a subagent's `model`
+/// take them). Claude Code resolves each to the newest version its provider has, and
+/// `ANTHROPIC_DEFAULT_*_MODEL` remaps them, so one is a family, not a model: only a full model id names one.
+/// Codex documents no aliases.
+pub const CLAUDE_ALIASES: [&str; 7] = ["default", "best", "fable", "sonnet", "opus", "haiku", "opusplan"];
+
+/// Whether `model` is one of Claude Code's aliases, with or without the `[1m]` context suffix.
+pub fn is_claude_alias(model: &str) -> bool {
+    let m = model.trim();
+    CLAUDE_ALIASES.contains(&m.strip_suffix("[1m]").unwrap_or(m))
+}
 
 impl ModelSpec {
     pub fn wire_model(&self) -> &str {
@@ -407,7 +422,7 @@ impl Config {
 
     /// The model a CLI entry pins, for Backspace to put on the command line: its wire `model`, when it
     /// has one and the CLI is one whose command-line model is documented to win over the CLI's
-    /// environment and settings (Claude Code `--model`, Codex `-m`). Anything else, an empty `model`,
+    /// environment and settings (Claude Code `--model`, Codex `--model`, which is also `-m`). Anything else, an empty `model`,
     /// or a CLI where that precedence is not verified (Cursor, Grok, OpenCode), pins nothing: the CLI
     /// runs whatever its own configuration selects.
     pub fn cli_pin(&self, entry: &str) -> Option<String> {
@@ -419,6 +434,15 @@ impl Config {
     /// Every CLI entry in the config (a model whose provider is a coding CLI).
     pub fn cli_entries(&self) -> Vec<&ModelSpec> {
         self.models.iter().filter(|m| self.cli_of(&m.id).is_some()).collect()
+    }
+
+    /// The Claude Code entries whose pinned model is one of Claude Code's aliases, as (entry, alias).
+    pub fn alias_cli_pins(&self) -> Vec<(String, String)> {
+        self.cli_entries()
+            .into_iter()
+            .filter(|m| self.cli_of(&m.id).and_then(|p| p.cli.as_deref()) == Some("claude"))
+            .filter_map(|m| self.cli_pin(&m.id).filter(|p| is_claude_alias(p)).map(|p| (m.id.clone(), p)))
+            .collect()
     }
 
     /// The CLI entries that pin no model.

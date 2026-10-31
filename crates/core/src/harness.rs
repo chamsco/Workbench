@@ -359,7 +359,7 @@ impl Harness {
         cfg.policy = policy;
         notices.extend(cfg.policy.notices());
         let router_model = (cfg.router.backend == crate::config::RouterBackend::Jev && !cfg.router.jev_model.trim().is_empty()).then(|| cfg.router.jev_model.clone());
-        notices.extend(cfg.policy.model_notices(router_model.as_deref(), &cfg.unpinned_cli_entries()));
+        notices.extend(cfg.policy.model_notices(router_model.as_deref(), &cfg.unpinned_cli_entries(), &cfg.alias_cli_pins()));
         if let Some(w) = over.worker.clone().filter(|w| !w.is_empty()) {
             if cfg.model(&w).is_some() {
                 cfg.router.pin_sub = Some(w);
@@ -1858,7 +1858,7 @@ fn planner_entry<'a>(inner: &'a Inner, cli: &str) -> Option<&'a str> {
 
 /// What model a coding-CLI turn runs, decided before it starts. Under an enforced policy the entry
 /// either pins a model, which is checked against the role's list and put on the command line
-/// (`--model` / `-m`, which the CLIs document as winning over their environment and settings), or pins
+/// (`--model` for both, which the CLIs document as winning over their environment and settings), or pins
 /// none, in which case the CLI runs whatever its own configuration selects and the turn is refused
 /// unless `unpinned_cli_models` names the entry. Without an enforced policy nothing is pinned and the
 /// CLI picks, as it always did, unless a list the person wrote says otherwise.
@@ -2008,6 +2008,17 @@ async fn run_cli_turn(
     }
     req.env.push(("PATH".into(), crate::harnesses::path_env().to_string_lossy().into_owned()));
     req.env.extend(acc.iter().cloned());
+    if cli == "claude" && inner.gateway.enforced() && (pin.is_some() || req.agents.is_some()) {
+        // Backspace has named the models: `--model` for the agent, the definition for the scout. A subagent
+        // with no model of its own takes this variable's before the main model, and before Claude Code
+        // v2.1.251 it beat a definition's model too. So that nothing but the approved model decides, it is
+        // not handed on. `ANTHROPIC_MODEL` is left: `--model` is documented to take precedence over it.
+        const SUBAGENT_MODEL: &str = "CLAUDE_CODE_SUBAGENT_MODEL";
+        if std::env::var_os(SUBAGENT_MODEL).is_some() || req.env.iter().any(|(k, _)| k == SUBAGENT_MODEL) {
+            inner.log(id, LogKind::System, format!("policy: {SUBAGENT_MODEL} is not passed to Claude Code, so a subagent runs on the model it was given or the approved one"));
+        }
+        req.env_remove.push(SUBAGENT_MODEL.into());
+    }
     if let Some((url, token)) = &bridge {
         // The board, for `backspace msg` and the MCP server.
         let vars = [(crate::board::ENV_URL, url.as_str()), (crate::board::ENV_TOKEN, token.as_str()), (crate::board::ENV_AGENT, me.as_str())];
