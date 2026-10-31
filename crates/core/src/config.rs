@@ -242,6 +242,12 @@ pub struct ModelSpec {
     pub class: Option<crate::ladder::ModelClass>,
 }
 
+/// The coding CLIs whose command-line `--model` / `-m` is documented to take precedence over their
+/// environment variables and settings files (Claude Code: `--model` beats `ANTHROPIC_MODEL` and the
+/// `model` setting; Codex: command-line arguments beat a profile and `config.toml`). Backspace relies
+/// on that documentation, not on a test against the real tools.
+pub const PINNABLE_CLIS: [&str; 2] = ["claude", "codex"];
+
 impl ModelSpec {
     pub fn wire_model(&self) -> &str {
         self.model.as_deref().unwrap_or(&self.id)
@@ -308,15 +314,26 @@ impl Config {
             }
             l
         };
+        // The model a pinned CLI entry runs is a model the config uses, so it is named too.
+        let pinned: Vec<Option<String>> = self.cli_entries().into_iter().map(|m| self.cli_pin(&m.id)).collect();
+        let pinned: Vec<&Option<String>> = pinned.iter().collect();
         let p = &self.policy;
+        // A dimension that is open today is written out as what it lets through today; one that is
+        // already closed (an enforced file without the list) stays closed, so generating a policy never
+        // widens one the person wrote.
+        let closed = p.mode == Some(crate::gateway::PolicyMode::Enforced);
         crate::gateway::PolicyConfig {
             mode: Some(crate::gateway::PolicyMode::Enforced),
-            orchestration_models: p.orchestration_models.clone().or_else(|| Some(with(&ids, &[&a.cli]))),
-            execution_models: p.execution_models.clone().or_else(|| Some(with(&ids, &[&a.cli, &a.cli_scouts]))),
+            orchestration_models: p.orchestration_models.clone().or_else(|| Some(with(&with(&ids, &[&a.cli]), &pinned))),
+            execution_models: p.execution_models.clone().or_else(|| Some(with(&with(&ids, &[&a.cli, &a.cli_scouts]), &pinned))),
             skills: p.skills.clone().or_else(|| Some(skills.to_vec())),
             plugins: p.plugins.clone().or(Some(vec![])),
-            routing_models: p.routing_models.clone(),
-            unpinned_cli_models: p.unpinned_cli_models.clone(),
+            // The router's own model, which is the configured one, named explicitly.
+            routing_models: p.routing_models.clone().or_else(|| {
+                let m = self.router.jev_model.trim();
+                Some(if closed || m.is_empty() { vec![] } else { vec![m.to_string()] })
+            }),
+            unpinned_cli_models: p.unpinned_cli_models.clone().or_else(|| Some(if closed { vec![] } else { self.unpinned_cli_entries() })),
             budget: p.budget.clone(),
         }
     }
@@ -335,6 +352,8 @@ impl Config {
         out.push_str(&format!("execution_models = {}\n", list(&p.execution_models)));
         out.push_str(&format!("skills = {}\n", list(&p.skills)));
         out.push_str(&format!("plugins = {}\n", list(&p.plugins)));
+        out.push_str(&format!("routing_models = {}\n", list(&p.routing_models)));
+        out.push_str(&format!("unpinned_cli_models = {}\n", list(&p.unpinned_cli_models)));
         if p.budget.max_usd.is_some() || p.budget.max_tokens.is_some() {
             out.push_str("\n[policy.budget]\n");
             if let Some(x) = p.budget.max_usd {
@@ -384,6 +403,27 @@ impl Config {
     pub fn cli_of(&self, model: &str) -> Option<&ProviderConfig> {
         let m = self.model(model)?;
         self.providers.get(&m.provider).filter(|p| p.is_cli())
+    }
+
+    /// The model a CLI entry pins, for Backspace to put on the command line: its wire `model`, when it
+    /// has one and the CLI is one whose command-line model is documented to win over the CLI's
+    /// environment and settings (Claude Code `--model`, Codex `-m`). Anything else, an empty `model`,
+    /// or a CLI where that precedence is not verified (Cursor, Grok, OpenCode), pins nothing: the CLI
+    /// runs whatever its own configuration selects.
+    pub fn cli_pin(&self, entry: &str) -> Option<String> {
+        let cli = self.cli_of(entry)?.cli.as_deref()?;
+        let model = self.model(entry)?.model.as_deref()?.trim();
+        (!model.is_empty() && PINNABLE_CLIS.contains(&cli)).then(|| model.to_string())
+    }
+
+    /// Every CLI entry in the config (a model whose provider is a coding CLI).
+    pub fn cli_entries(&self) -> Vec<&ModelSpec> {
+        self.models.iter().filter(|m| self.cli_of(&m.id).is_some()).collect()
+    }
+
+    /// The CLI entries that pin no model.
+    pub fn unpinned_cli_entries(&self) -> Vec<String> {
+        self.cli_entries().into_iter().filter(|m| self.cli_pin(&m.id).is_none()).map(|m| m.id.clone()).collect()
     }
 
     /// A CLI model whose binary is installed.

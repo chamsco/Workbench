@@ -95,12 +95,19 @@ pub struct PolicyConfig {
     pub execution_models: Option<Vec<String>>,
     pub skills: Option<Vec<String>>,
     pub plugins: Option<Vec<String>>,
-    /// The models the router itself may be classified by (`[router] jev_model`).
-    /// Not an orchestration or execution role: a model named here is not thereby
-    /// a candidate for either (stub).
+    /// The models the router itself may be classified by (`[router] jev_model`),
+    /// a role of its own. A model named here is not thereby a candidate for the
+    /// orchestration or execution roles, and the other lists do not permit it.
+    /// Under `mode = "enforced"` a missing list allows nothing (the router is
+    /// not called and the heuristic decides); otherwise a missing list is open.
+    #[serde(default)]
     pub routing_models: Option<Vec<String>>,
     /// Coding-CLI entries accepted as running whatever model their own
-    /// configuration selects (stub).
+    /// configuration, environment or defaults select, because the entry pins no
+    /// model Backspace can put on the command line. The written exception to
+    /// "check the model before the CLI runs". Under `mode = "enforced"` a missing
+    /// list accepts none; otherwise a missing list is open.
+    #[serde(default)]
     pub unpinned_cli_models: Option<Vec<String>>,
     pub budget: TaskBudget,
 }
@@ -145,6 +152,20 @@ impl PolicyConfig {
         ]
     }
 
+    fn enforced(&self) -> bool {
+        self.mode == Some(PolicyMode::Enforced)
+    }
+
+    /// What a routing or unpinned-CLI list lets through: `None` is everything (open), `Some(names)` only
+    /// those. An enforced policy has no open dimensions, so a missing list there allows nothing.
+    fn allowed(&self, list: &Option<Vec<String>>) -> Option<Vec<String>> {
+        match list {
+            Some(l) => Some(l.clone()),
+            None if self.enforced() => Some(vec![]),
+            None => None,
+        }
+    }
+
     /// The dimensions this policy leaves open (no list).
     pub fn open_lists(&self) -> Vec<&'static str> {
         self.lists().into_iter().filter(|(_, l)| l.is_none()).map(|(n, _)| n).collect()
@@ -172,6 +193,28 @@ impl PolicyConfig {
             ))],
             None => vec![],
         }
+    }
+
+    /// Notices for the two dimensions an enforced policy closes unless they are written down: the
+    /// router's own model (`router_model`, when the router is in use) and coding-CLI entries that pin
+    /// no model (`unpinned_cli`). Said when the project opens, because otherwise the first sign is a
+    /// router that quietly stopped, or a CLI turn that is refused.
+    pub fn model_notices(&self, router_model: Option<&str>, unpinned_cli: &[String]) -> Vec<PolicyNotice> {
+        let gate = Gateway::new(self.clone());
+        let mut out = vec![];
+        if let Some(m) = router_model.filter(|m| gate.check_routing_model(m).is_err()) {
+            out.push(warn(format!(
+                "[policy] routing_models does not name the router's model `{m}` (`[router] jev_model`), so the router is not called and the heuristic decides every route. Add it to routing_models to use the router (`backspace-cli policy init` prints the list)."
+            )));
+        }
+        let refused: Vec<&str> = unpinned_cli.iter().filter(|e| gate.check_cli_model(e, false).is_err()).map(String::as_str).collect();
+        if !refused.is_empty() {
+            out.push(warn(format!(
+                "coding-CLI entries {} pin no model, so each runs whatever model its CLI's own configuration selects, and [policy] unpinned_cli_models does not accept that: they will be refused. Name them in unpinned_cli_models, or pin a model on the entry (`model = \"…\"`, Claude Code and Codex only).",
+                quoted(&refused)
+            )));
+        }
+        out
     }
 
     /// Notices for skills that exist but this policy does not allow.
@@ -213,6 +256,23 @@ impl PolicyConfig {
                 (Some(_), None) => out.push(format!("{name} is no longer a list: everything would be allowed")),
                 (Some(old), Some(new)) => {
                     let more = gained(old, new);
+                    if !more.is_empty() {
+                        out.push(format!("{name} gains {}", more.join(", ")));
+                    }
+                }
+                _ => {}
+            }
+        }
+        // The routing and unpinned-CLI lists are closed when the policy is enforced and the list is
+        // absent, so they are compared by what each policy lets through, not by whether a list is there.
+        for (name, old, new) in [
+            ("routing_models", self.allowed(&self.routing_models), new.allowed(&new.routing_models)),
+            ("unpinned_cli_models", self.allowed(&self.unpinned_cli_models), new.allowed(&new.unpinned_cli_models)),
+        ] {
+            match (old, new) {
+                (Some(_), None) => out.push(format!("{name} is no longer a list: everything would be allowed")),
+                (Some(old), Some(new)) => {
+                    let more = gained(&old, &new);
                     if !more.is_empty() {
                         out.push(format!("{name} gains {}", more.join(", ")));
                     }
@@ -747,14 +807,32 @@ impl Gateway {
         &self.policy
     }
 
-    /// Whether the router's own classification model may be called (stub).
-    pub fn check_routing_model(&self, _model: &str) -> Result<(), Refusal> {
-        Ok(())
+    /// Whether this policy is `mode = "enforced"`.
+    pub fn enforced(&self) -> bool {
+        self.policy.enforced()
     }
 
-    /// Whether a coding-CLI entry may run, given whether its model is pinned (stub).
-    pub fn check_cli_model(&self, _entry: &str, _pinned: bool) -> Result<(), Refusal> {
-        Ok(())
+    /// Whether the router's own classification model (`[router] jev_model`) may be called. A role of its
+    /// own: only `routing_models` is consulted, and the orchestration and execution lists neither permit
+    /// it nor are widened by it. Refused, the router is not asked and the heuristic decides.
+    pub fn check_routing_model(&self, model: &str) -> Result<(), Refusal> {
+        match self.policy.allowed(&self.policy.routing_models) {
+            Some(l) if !l.iter().any(|m| m == model) => Err(Refusal::RoutingModel { model: model.to_string() }),
+            _ => Ok(()),
+        }
+    }
+
+    /// Whether a coding-CLI entry may run, given whether Backspace pins its model on the command line.
+    /// A pinned entry's model is checked against the role's list by the caller; one that is not pinned
+    /// runs whatever its own configuration selects, which only `unpinned_cli_models` accepts.
+    pub fn check_cli_model(&self, entry: &str, pinned: bool) -> Result<(), Refusal> {
+        if pinned {
+            return Ok(());
+        }
+        match self.policy.allowed(&self.policy.unpinned_cli_models) {
+            Some(l) if !l.iter().any(|m| m == entry) => Err(Refusal::CliModel { entry: entry.to_string() }),
+            _ => Ok(()),
+        }
     }
 
     pub fn check_model(&self, role: Role, model: &str) -> Result<(), Refusal> {

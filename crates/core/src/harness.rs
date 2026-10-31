@@ -358,6 +358,8 @@ impl Harness {
         let (policy, mut notices) = crate::gateway::resolve_policy(&root, &cfg.policy)?;
         cfg.policy = policy;
         notices.extend(cfg.policy.notices());
+        let router_model = (cfg.router.backend == crate::config::RouterBackend::Jev && !cfg.router.jev_model.trim().is_empty()).then(|| cfg.router.jev_model.clone());
+        notices.extend(cfg.policy.model_notices(router_model.as_deref(), &cfg.unpinned_cli_entries()));
         if let Some(w) = over.worker.clone().filter(|w| !w.is_empty()) {
             if cfg.model(&w).is_some() {
                 cfg.router.pin_sub = Some(w);
@@ -493,6 +495,22 @@ impl Harness {
                             s.router_cost_usd += usd;
                             s.total_cost_usd += usd;
                         });
+                        inner.ledger.lock().unwrap().record_decision(usd);
+                    }
+                }
+            })
+            // A request that was sent and failed with no report of its cost is counted at the amount
+            // held for it, as spend, marked as unknown; the same step gives the hold back.
+            .with_unknown_cost_recorder({
+                let me = me.clone();
+                move |usd| {
+                    if let Some(inner) = me.upgrade() {
+                        inner.update(|s| {
+                            s.router_cost_usd += usd;
+                            s.total_cost_usd += usd;
+                            s.router_unknown_cost_usd += usd;
+                        });
+                        inner.ledger.lock().unwrap().record_decision(usd);
                     }
                 }
             }),
@@ -1557,8 +1575,9 @@ fn load_main(inner: &Inner) -> Option<Conversation> {
 /// anything.
 async fn plan_on_cli(inner: &Arc<Inner>, cli: &str, text: String) -> Result<()> {
     // The planner CLI is a model choice like any other: its id is the config entry that runs it.
-    let model = inner.cfg.models.iter().find(|m| inner.cfg.cli_of(&m.id).and_then(|p| p.cli.as_deref()) == Some(cli)).map_or(cli, |m| m.id.as_str());
+    let model = planner_entry(inner, cli).unwrap_or(cli);
     inner.gateway.check_model(GateRole::Orchestration, model)?;
+    let pin = cli_model(inner, MAIN, GateRole::Orchestration, model)?;
     let bin = crate::harnesses::which(crate::harnesses::bin_for(cli))
         .ok_or_else(|| anyhow!("`{cli}` is not installed on this machine"))?;
     let mut prompt = text;
@@ -1566,7 +1585,7 @@ async fn plan_on_cli(inner: &Arc<Inner>, cli: &str, text: String) -> Result<()> 
         let session = inner.state.lock().unwrap().planner_session.clone();
         let system = session.is_none().then(|| planner_system(inner));
         let admitted = admit_cli(inner, MAIN, model).await?;
-        let (_, sid) = run_cli_turn(inner, MAIN, GateRole::Orchestration, cli, &bin, &inner.run_dir.clone(), &prompt, session.as_deref(), system.as_deref(), &crate::gateway::Authorization::Reserved(&admitted)).await?;
+        let (_, sid) = run_cli_turn(inner, MAIN, GateRole::Orchestration, pin.as_deref(), cli, &bin, &inner.run_dir.clone(), &prompt, session.as_deref(), system.as_deref(), &crate::gateway::Authorization::Reserved(&admitted)).await?;
         drop(admitted);
         if sid.is_some() {
             inner.update(|s| s.planner_session = sid);
@@ -1637,7 +1656,10 @@ fn announce_route(inner: &Inner, id: AgentId, d: &Decision) {
         }
         s.agents[id].decision = Some(d.clone());
     });
-    inner.ledger.lock().unwrap().record_decision(d.router_cost_usd);
+    // A settled call's cost reached the ledger with the books, in the same step.
+    if !d.cost_settled {
+        inner.ledger.lock().unwrap().record_decision(d.router_cost_usd);
+    }
 }
 
 /// One rung up: more effort while the model has headroom below `high`, then
@@ -1748,7 +1770,9 @@ async fn finish_cli(
     brief: &str,
     session: Option<String>,
 ) -> Result<Deliverable> {
-    inner.gateway.check_model(GateRole::of(c.kind, c.can_spawn), &c.decision.model)?;
+    let role = GateRole::of(c.kind, c.can_spawn);
+    inner.gateway.check_model(role, &c.decision.model)?;
+    let pin = cli_model(inner, c.id, role, &c.decision.model)?;
     let bin = crate::harnesses::which(crate::harnesses::bin_for(cli))
         .ok_or_else(|| anyhow!("`{cli}` is not installed on this machine"))?;
     inner.log(
@@ -1788,7 +1812,7 @@ async fn finish_cli(
     for round in 0..4 {
         let admitted = admit_cli(inner, c.id, &c.decision.model).await?;
         let (summary, sid) =
-            run_cli_turn(inner, c.id, GateRole::of(c.kind, c.can_spawn), cli, &bin, dir, &prompt, session.as_deref(), None, &crate::gateway::Authorization::Reserved(&admitted)).await?;
+            run_cli_turn(inner, c.id, role, pin.as_deref(), cli, &bin, dir, &prompt, session.as_deref(), None, &crate::gateway::Authorization::Reserved(&admitted)).await?;
         drop(admitted);
         session = sid.or(session);
         // Keep it in the agent's record as well: this is what survives a
@@ -1820,6 +1844,37 @@ async fn finish_cli(
         }
     }
     bail!("{cli} did not get the ticket accepted in 4 rounds")
+}
+
+/// The config entry the planner runs as when it lives in the coding CLI `cli`: the one the person
+/// picked (the settings override, then `pin_main`), then the worker pin and the stock entries
+/// `pick_planner` falls back to, then the first entry on that CLI. The policy checks this entry, so
+/// it has to be the one that runs and not merely the first that shares the CLI.
+fn planner_entry<'a>(inner: &'a Inner, cli: &str) -> Option<&'a str> {
+    let on_cli = |id: &str| inner.cfg.model(id).filter(|m| inner.cfg.cli_of(&m.id).and_then(|p| p.cli.as_deref()) == Some(cli)).map(|m| m.id.as_str());
+    let picked = [inner.over.planner.as_deref(), inner.cfg.router.pin_main.as_deref(), inner.cfg.router.pin_sub.as_deref(), Some("claude-code"), Some("codex")];
+    picked.into_iter().flatten().filter(|p| !p.is_empty()).find_map(on_cli).or_else(|| inner.cfg.models.iter().find_map(|m| on_cli(&m.id)))
+}
+
+/// What model a coding-CLI turn runs, decided before it starts. Under an enforced policy the entry
+/// either pins a model, which is checked against the role's list and put on the command line
+/// (`--model` / `-m`, which the CLIs document as winning over their environment and settings), or pins
+/// none, in which case the CLI runs whatever its own configuration selects and the turn is refused
+/// unless `unpinned_cli_models` names the entry. Without an enforced policy nothing is pinned and the
+/// CLI picks, as it always did, unless a list the person wrote says otherwise.
+fn cli_model(inner: &Inner, id: AgentId, role: GateRole, entry: &str) -> Result<Option<String>> {
+    let pin = if inner.gateway.enforced() { inner.cfg.cli_pin(entry) } else { None };
+    inner.gateway.check_cli_model(entry, pin.is_some())?;
+    match &pin {
+        Some(m) => inner.gateway.check_model(role, m)?,
+        None if inner.gateway.enforced() => inner.log(
+            id,
+            LogKind::System,
+            format!("policy: `{entry}` pins no model, so its CLI runs the model its own configuration selects (accepted by [policy] unpinned_cli_models)"),
+        ),
+        None => {}
+    }
+    Ok(pin)
 }
 
 /// Whether the project's model lists allow a model that Backspace hands to a
@@ -1894,6 +1949,7 @@ async fn run_cli_turn(
     inner: &Arc<Inner>,
     id: AgentId,
     role: GateRole,
+    pin: Option<&str>,
     cli: &str,
     bin: &Path,
     dir: &Path,
@@ -1927,6 +1983,8 @@ async fn run_cli_turn(
     );
     req.cwd = dir.to_path_buf();
     req.edit = true;
+    // The model checked against the policy is the one on the command line.
+    req.model = pin.map(String::from);
     req.session = session.map(String::from);
     req.system = system.map(String::from);
     req.permission = inner.over.permission.clone();

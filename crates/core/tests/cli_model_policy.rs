@@ -61,7 +61,8 @@ fn fakes() {
         let codex = format!(
             "{SCRIPT_HEAD}echo '{{\"type\":\"thread.started\",\"thread_id\":\"fake-cx\"}}'\necho '{{\"type\":\"item.completed\",\"item\":{{\"type\":\"agent_message\",\"text\":\"made a file\"}}}}'\necho '{{\"type\":\"turn.completed\",\"usage\":{{\"input_tokens\":10,\"output_tokens\":5}}}}'\n"
         );
-        for (name, body) in [("claude", claude.clone()), ("codex", codex), ("cursor", claude)] {
+        // Cursor's binary is `cursor-agent`.
+        for (name, body) in [("claude", claude.clone()), ("codex", codex), ("cursor-agent", claude)] {
             let p = bin.join(name);
             std::fs::write(&p, body).unwrap();
             use std::os::unix::fs::PermissionsExt;

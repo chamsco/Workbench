@@ -1,7 +1,7 @@
 //! Picks a (model, effort) pair per agent. Jev does the deciding when a key is
 //! present; a keyword heuristic keeps the harness usable without one.
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{anyhow, bail, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 
@@ -112,7 +112,8 @@ pub struct Router {
     /// and the cost not yet recorded.
     recorder: Option<std::sync::Arc<dyn Fn(f64) + Send + Sync>>,
     /// Records the cost of a call that was sent but whose cost was never
-    /// reported, at the amount held for it (stub).
+    /// reported, at the amount held for it, and marks it as unknown. Run like
+    /// `recorder`, in the step that gives the hold back.
     unknown_recorder: Option<std::sync::Arc<dyn Fn(f64) + Send + Sync>>,
     /// How long a Jev request may take. A test seam; production keeps the default.
     jev_timeout: std::time::Duration,
@@ -155,7 +156,10 @@ impl Router {
         self
     }
 
-    /// Record the cost of a call that was sent and never reported one (stub).
+    /// Record the cost of a call that was sent and never reported one, at the
+    /// amount held for it, in the same step that releases the hold. Without it
+    /// the ordinary recorder is used; without either the hold is released and
+    /// the call's cost is lost to the books.
     pub fn with_unknown_cost_recorder(mut self, recorder: impl Fn(f64) + Send + Sync + 'static) -> Self {
         self.unknown_recorder = Some(std::sync::Arc::new(recorder));
         self
@@ -404,6 +408,10 @@ impl Router {
         candidates: &[&ModelSpec],
     ) -> Result<Decision> {
         let rc = &self.cfg.router;
+        // The router's own model is a model call like any other, with a role of its own: the project's
+        // `routing_models` names it, or Jev is not asked and the heuristic decides. This comes before
+        // the key and the reservation, so a refused call costs and holds nothing.
+        crate::gateway::Gateway::new(self.cfg.policy.clone()).check_routing_model(&rc.jev_model)?;
         let key = std::env::var(&rc.jev_api_key_env)
             .ok()
             .filter(|k| !k.is_empty())
@@ -457,27 +465,57 @@ impl Router {
                 None
             }
         };
-        let resp = self
-            .http
-            .post(&rc.jev_endpoint)
-            .bearer_auth(key)
-            .json(&body)
-            .timeout(self.jev_timeout)
-            .send()
-            .await
-            .context("jev request failed")?;
+        // From here on the request may have left. Until it is known not to have, it may have been
+        // billed: only a failure to connect, or to build the request at all, gives the hold back
+        // as nothing spent. Every other failure keeps the amount held on the books as spent,
+        // marked as an unknown cost, in the step that gives the hold back.
+        let resp = match self.http.post(&rc.jev_endpoint).bearer_auth(key).json(&body).timeout(self.jev_timeout).send().await {
+            Ok(r) => r,
+            Err(e) if e.is_connect() || e.is_builder() => return Err(anyhow::Error::new(e).context("jev request failed")),
+            Err(e) => return Err(self.unknown_cost(hold, anyhow::Error::new(e).context("jev request failed"))),
+        };
         let status = resp.status();
-        let text = resp.text().await?;
-        if !status.is_success() {
-            bail!("jev returned {status}: {}", truncate(&text, 300));
+        let text = match resp.text().await {
+            Ok(t) => t,
+            Err(e) => return Err(self.unknown_cost(hold, anyhow::Error::new(e).context("jev response could not be read"))),
+        };
+        let parsed: Option<Value> = serde_json::from_str(&text).ok();
+        // What Jev says it used, from any body: a failure can still be billed.
+        let reported = parsed.as_ref().and_then(|v| {
+            let (i, o) = (v["usage"]["input_tokens"].as_u64(), v["usage"]["output_tokens"].as_u64());
+            (i.is_some() || o.is_some()).then(|| i.unwrap_or(0) + o.unwrap_or(0))
+        });
+        let failure = if !status.is_success() {
+            Some(anyhow!("jev returned {status}: {}", truncate(&text, 300)))
+        } else if parsed.is_none() {
+            Some(anyhow!("jev returned non-JSON"))
+        } else {
+            None
+        };
+        if let Some(why) = failure {
+            return Err(match reported {
+                Some(tokens) => {
+                    self.settle(hold, tokens as f64 * rc.jev_usd_per_mtok / 1_000_000.0, tokens);
+                    why
+                }
+                None => self.unknown_cost(hold, why),
+            });
         }
-        let v: Value = serde_json::from_str(&text).context("jev returned non-JSON")?;
-        let tokens = v["usage"]["input_tokens"].as_u64().unwrap_or(0)
-            + v["usage"]["output_tokens"].as_u64().unwrap_or(0);
-        let cost = tokens as f64 * rc.jev_usd_per_mtok / 1_000_000.0;
-        // The call is billed whether or not its answer is usable, so its cost
-        // goes on the books now, in the step that gives the hold back.
-        let (cost_settled, over) = self.settle(hold, cost, tokens);
+        let v = parsed.expect("a 2xx body that parsed");
+        // The call is billed whether or not its answer is usable, so its cost goes on the books now, in
+        // the step that gives the hold back. An answer with no usage in it is used, and counted at the
+        // amount held for it.
+        let (cost, cost_settled, over) = match reported {
+            Some(tokens) => {
+                let cost = tokens as f64 * rc.jev_usd_per_mtok / 1_000_000.0;
+                let (settled, over) = self.settle(hold, cost, tokens);
+                (cost, settled, over)
+            }
+            None => {
+                let (cost, settled) = self.settle_unknown(hold);
+                (cost, settled, Some(unknown_note(cost, settled)))
+            }
+        };
 
         let choice = v["answers"]["model"]["choice"]
             .as_str()
@@ -503,6 +541,31 @@ impl Router {
         })
     }
 
+    /// A request that was sent and then failed with no report of what it cost. Its hold is not given
+    /// back as if nothing had been spent: the amount held is counted as spent, as an unknown cost, and the
+    /// error says so.
+    fn unknown_cost(&self, hold: Option<crate::gateway::Reservation>, why: anyhow::Error) -> anyhow::Error {
+        let (usd, counted) = self.settle_unknown(hold);
+        why.context(unknown_note(usd, counted))
+    }
+
+    /// Count what a call was held for as its cost, recorded under the table's lock in the step that
+    /// gives the hold back (see `Reservation::settle`). Through the unknown-cost recorder when there is
+    /// one, so the books can mark it; otherwise through the ordinary one. With neither, or with no
+    /// budget around the router, there is nothing to count it on and the hold is simply released.
+    /// Returns the amount counted and whether it was.
+    fn settle_unknown(&self, hold: Option<crate::gateway::Reservation>) -> (f64, bool) {
+        let Some(h) = hold else { return (0.0, false) };
+        let usd = h.reserved_usd();
+        match self.unknown_recorder.as_ref().or(self.recorder.as_ref()) {
+            Some(record) => {
+                h.settle(|| record(usd));
+                (usd, true)
+            }
+            None => (0.0, false),
+        }
+    }
+
     /// End a Jev call's hold. With a recorder the cost is recorded under the
     /// table's lock in the same step (see `Reservation::settle`); a cost above
     /// what was held is recorded in full and named in the returned note.
@@ -518,6 +581,15 @@ impl Router {
             (None, _) => return (false, over),
         }
         (true, over)
+    }
+}
+
+/// What a decision or error says about a call whose cost was never reported.
+fn unknown_note(usd: f64, counted: bool) -> String {
+    if counted {
+        format!("jev cost is unknown: the ${usd:.6} held for the call is counted as spent")
+    } else {
+        "jev cost is unknown, and no budget is around the router to count it on".to_string()
     }
 }
 

@@ -96,12 +96,14 @@ fn planner(listener: TcpListener) {
     }
 }
 
+// `cli-model` pins no model, so these enforced policies name it under `unpinned_cli_models` (final hardening,
+// section 3); the advisor and scout checks they exercise are unchanged.
 /// Lists that name the CLI (and the mid model that plans) and nothing else.
-const NARROW: &str = "[policy]\nmode = \"enforced\"\norchestration_models = [\"mock-mid\", \"cli-model\"]\nexecution_models = [\"cli-model\"]\nskills = []\nplugins = []\n";
-const WITH_BOTH: &str = "[policy]\nmode = \"enforced\"\norchestration_models = [\"mock-mid\", \"cli-model\", \"opus\", \"haiku\"]\nexecution_models = [\"cli-model\", \"opus\", \"haiku\"]\nskills = []\nplugins = []\n";
+const NARROW: &str = "[policy]\nmode = \"enforced\"\norchestration_models = [\"mock-mid\", \"cli-model\"]\nexecution_models = [\"cli-model\"]\nskills = []\nplugins = []\nunpinned_cli_models = [\"cli-model\"]\n";
+const WITH_BOTH: &str = "[policy]\nmode = \"enforced\"\norchestration_models = [\"mock-mid\", \"cli-model\", \"opus\", \"haiku\"]\nexecution_models = [\"cli-model\", \"opus\", \"haiku\"]\nskills = []\nplugins = []\nunpinned_cli_models = [\"cli-model\"]\n";
 /// `opus` is named for orchestration only, `haiku` for execution only.
-const SPLIT: &str = "[policy]\nmode = \"enforced\"\norchestration_models = [\"mock-mid\", \"cli-model\", \"opus\"]\nexecution_models = [\"cli-model\", \"haiku\"]\nskills = []\nplugins = []\n";
-const WITH_OPUS: &str = "[policy]\nmode = \"enforced\"\norchestration_models = [\"mock-mid\", \"cli-model\", \"opus\"]\nexecution_models = [\"cli-model\", \"opus\"]\nskills = []\nplugins = []\n";
+const SPLIT: &str = "[policy]\nmode = \"enforced\"\norchestration_models = [\"mock-mid\", \"cli-model\", \"opus\"]\nexecution_models = [\"cli-model\", \"haiku\"]\nskills = []\nplugins = []\nunpinned_cli_models = [\"cli-model\"]\n";
+const WITH_OPUS: &str = "[policy]\nmode = \"enforced\"\norchestration_models = [\"mock-mid\", \"cli-model\", \"opus\"]\nexecution_models = [\"cli-model\", \"opus\"]\nskills = []\nplugins = []\nunpinned_cli_models = [\"cli-model\"]\n";
 
 fn project(tag: &str, policy: &str, pin_main: &str, max_depth: usize) -> (Harness, PathBuf) {
     fake_claude();

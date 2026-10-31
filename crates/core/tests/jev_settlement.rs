@@ -484,7 +484,8 @@ fn a_pinned_model_does_not_stop_the_jev_call() {
 
 // ------------------------------------------- project policy and what Jev is offered
 
-const ONLY_SMALL: &str = "[policy]\nmode = \"enforced\"\norchestration_models = [\"mock-small\"]\nexecution_models = [\"mock-small\"]\nskills = []\nplugins = []\n";
+// Names Jev's own model under `routing_models` (final hardening, decision C); it is not in the role lists.
+const ONLY_SMALL: &str = "[policy]\nmode = \"enforced\"\norchestration_models = [\"mock-small\"]\nexecution_models = [\"mock-small\"]\nskills = []\nplugins = []\nrouting_models = [\"jev-test\"]\n";
 
 #[test]
 fn jev_is_only_offered_models_the_project_policy_allows_for_the_role() {

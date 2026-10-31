@@ -168,7 +168,8 @@ pub struct ProjectState {
     pub router_cost_usd: f64,
     /// Part of `router_cost_usd` and `total_cost_usd`: routing calls that were
     /// sent but whose cost was never reported, counted at the amount held for
-    /// them (stub).
+    /// them. Kept apart so the person can see how much of the spend is a
+    /// conservative count and not a reported cost.
     #[serde(default)]
     pub router_unknown_cost_usd: f64,
     pub config_source: Option<PathBuf>,

@@ -19,11 +19,12 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpListener;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc, Mutex, Once};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use backspace_core::config::Config;
 use backspace_core::gateway::{BudgetLine, Reservations, ScopedLine};
 use backspace_core::router::{AgentRole, Decision, Router};
+use backspace_core::{Harness, LogKind};
 use serde_json::{json, Value};
 
 static ENV: Once = Once::new();
@@ -73,10 +74,6 @@ struct Jev {
 impl Jev {
     fn next(&self, modes: &[Mode]) {
         self.queue.lock().unwrap().extend(modes.iter().copied());
-    }
-
-    fn count(&self, m: Mode) -> usize {
-        self.served.lock().unwrap().iter().filter(|x| **x == m).count()
     }
 }
 
@@ -568,4 +565,99 @@ fn the_heuristic_still_decides_whatever_happens_to_the_jev_call() {
     assert!(d.source.starts_with("heuristic") && d.note.clone().unwrap_or_default().contains("refused by project policy"), "{:?}", d.note);
     assert_eq!(j.calls.load(Ordering::SeqCst), 0, "not one request was sent");
     assert_eq!(*books.spent.lock().unwrap(), 0.0);
+}
+
+// ------------------------------------------------ 9. in a real project's books
+
+fn project_text(port: u16) -> String {
+    format!(
+        r#"
+[router]
+backend = "jev"
+jev_endpoint = "http://127.0.0.1:{port}/route"
+jev_model = "jev-test"
+jev_api_key_env = "BS_JEV_TEST_KEY"
+jev_usd_per_mtok = {PRICE}
+main_min_effort = "high"
+
+[orchestrator]
+max_parallel_calls = 2
+max_subagents = 4
+auto_approve = false
+bash_timeout_secs = 10
+max_project_usd = 500.0
+
+[providers.mock]
+kind = "openai"
+base_url = "http://127.0.0.1:{port}/v1"
+api_key_env = "NONE"
+
+[[models]]
+id = "mock-small"
+provider = "mock"
+tier = 1
+description = "cheap"
+input_usd_per_mtok = 1.0
+output_usd_per_mtok = 2.0
+max_output_tokens = 1000
+"#
+    )
+}
+
+fn routed_text(h: &Harness) -> String {
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        let s = h.snapshot();
+        let text = s.agents[0].log.iter().filter(|e| e.kind == LogKind::System && e.text.starts_with("routed by")).map(|e| e.text.clone()).collect::<Vec<_>>().join("\n");
+        if !text.is_empty() {
+            return text;
+        }
+        assert!(Instant::now() < deadline, "never routed: {:?}", s.agents[0].log.iter().map(|e| e.text.clone()).collect::<Vec<_>>());
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+fn open_project(tag: &str, j: &Jev) -> Harness {
+    let ws = std::env::temp_dir().join(format!("bs-jevunk-{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&ws);
+    std::fs::create_dir_all(&ws).unwrap();
+    std::fs::write(ws.join("backspace.toml"), project_text(j.port)).unwrap();
+    Harness::open(ws).unwrap()
+}
+
+#[test]
+fn a_project_counts_an_unknown_cost_in_its_spend_once_and_marks_it() {
+    let j = jev();
+    let r_one = one_reservation(&j);
+    j.next(&[Mode::Cut]);
+    let h = open_project("unknown", &j);
+    h.send("fix a typo in the readme");
+    let text = routed_text(&h);
+    assert!(text.contains("routed by heuristic") && text.contains("cost is unknown"), "the person is told: {text}");
+    let s = h.snapshot();
+    assert!(approx(s.router_unknown_cost_usd, r_one), "unknown routing cost {} vs the {r_one} held", s.router_unknown_cost_usd);
+    assert!(approx(s.router_cost_usd, r_one), "it is part of the router's spend: {}", s.router_cost_usd);
+    assert!(approx(s.total_cost_usd, r_one), "and of the project's, once: {}", s.total_cost_usd);
+    std::thread::sleep(Duration::from_millis(300));
+    let again = h.snapshot();
+    assert_eq!((again.router_cost_usd, again.total_cost_usd, again.router_unknown_cost_usd), (s.router_cost_usd, s.total_cost_usd, s.router_unknown_cost_usd), "and nothing adds it a second time");
+}
+
+#[test]
+fn a_project_that_got_a_failure_before_dispatch_has_nothing_to_count() {
+    let j = jev();
+    let closed = {
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        l.local_addr().unwrap().port()
+    };
+    let ws = std::env::temp_dir().join(format!("bs-jevunk-never-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&ws);
+    std::fs::create_dir_all(&ws).unwrap();
+    std::fs::write(ws.join("backspace.toml"), project_text(j.port).replace(&format!("127.0.0.1:{}/route", j.port), &format!("127.0.0.1:{closed}/route"))).unwrap();
+    let h = Harness::open(ws).unwrap();
+    h.send("fix a typo in the readme");
+    let text = routed_text(&h);
+    assert!(text.contains("routed by heuristic") && !text.contains("cost is unknown"), "{text}");
+    let s = h.snapshot();
+    assert_eq!((s.router_cost_usd, s.router_unknown_cost_usd, s.total_cost_usd), (0.0, 0.0, 0.0));
 }
