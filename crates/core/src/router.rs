@@ -82,6 +82,10 @@ pub struct Decision {
     pub source: String,
     pub confidence: f32,
     pub router_cost_usd: f64,
+    /// The routing call's cost was already added to the project's spend when
+    /// it was settled (see `Router::with_recorder`), so the caller must not add it again.
+    #[serde(default)]
+    pub cost_settled: bool,
     pub note: Option<String>,
     /// For the planner: what the task was classified as, and whether the
     /// classifier was sure enough to act on. None for everything else.
@@ -102,6 +106,9 @@ pub struct Router {
     /// Holds a routing call's worst case against the project's budget. None:
     /// no budget is around this router, and its calls are declared unmetered.
     meter: Option<Meter>,
+    /// Records a metered call's actual cost while its hold is still held (stub).
+    #[allow(dead_code)]
+    recorder: Option<std::sync::Arc<dyn Fn(f64) + Send + Sync>>,
 }
 
 /// Reserves `(usd, tokens)` for a routing call, or says why it may not go out.
@@ -117,7 +124,7 @@ struct LocalPick {
 
 impl Router {
     pub fn new(http: reqwest::Client, cfg: Config) -> Self {
-        Self { http, cfg, local: Default::default(), decider: std::sync::Arc::new(crate::decision::KeywordDecider), meter: None }
+        Self { http, cfg, local: Default::default(), decider: std::sync::Arc::new(crate::decision::KeywordDecider), meter: None, recorder: None }
     }
 
     /// Swap the decision model without touching the router.
@@ -129,6 +136,12 @@ impl Router {
     /// Hold every Jev call's worst case against a budget before it is sent.
     pub fn with_meter(mut self, meter: impl Fn(f64, u64) -> std::result::Result<crate::gateway::Reservation, crate::gateway::Refusal> + Send + Sync + 'static) -> Self {
         self.meter = Some(std::sync::Arc::new(meter));
+        self
+    }
+
+    /// Record a metered call's actual cost in the same step that releases its hold (stub).
+    pub fn with_recorder(mut self, recorder: impl Fn(f64) + Send + Sync + 'static) -> Self {
+        self.recorder = Some(std::sync::Arc::new(recorder));
         self
     }
 
@@ -196,6 +209,7 @@ impl Router {
                 source: format!("local-{job}"),
                 confidence: 1.0,
                 router_cost_usd: 0.0,
+                cost_settled: false,
                 note: None,
                 triage: None,
             },
@@ -282,6 +296,7 @@ impl Router {
                         source: "pinned".into(),
                         confidence: 1.0,
                         router_cost_usd: 0.0,
+                        cost_settled: false,
                         note: None,
                         triage: None,
                     });
@@ -456,6 +471,7 @@ impl Router {
             source: "jev".into(),
             confidence,
             router_cost_usd: tokens as f64 * rc.jev_usd_per_mtok / 1_000_000.0,
+            cost_settled: false,
             note: None,
             triage: None,
         })
@@ -551,6 +567,7 @@ pub fn heuristic_with(
         source: "heuristic".into(),
         confidence: 0.0,
         router_cost_usd: 0.0,
+        cost_settled: false,
         note: None,
         triage: None,
     }

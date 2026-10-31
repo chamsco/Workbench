@@ -1595,6 +1595,7 @@ fn planner_system(inner: &Inner) -> String {
         source: "pinned".into(),
         confidence: 1.0,
         router_cost_usd: 0.0,
+        cost_settled: false,
         note: None,
         triage: None,
     };
@@ -3451,7 +3452,7 @@ async fn scouts(inner: &Arc<Inner>, c: &Conversation, input: &Value) -> Result<S
         .unwrap_or_default();
     if !local.is_empty() {
         inner.log(c.id, LogKind::System, format!("scouts run on{local}"));
-    }    let d = Decision { model, effort: Effort::Low, source: "scout".into(), confidence: 1.0, router_cost_usd: 0.0, note: None, triage: None };
+    }    let d = Decision { model, effort: Effort::Low, source: "scout".into(), confidence: 1.0, router_cost_usd: 0.0, cost_settled: false, note: None, triage: None };
     let (depth, dir) = {
         let s = inner.state.lock().unwrap();
         (s.agents[c.id].depth + 1, c.ws.root.clone())

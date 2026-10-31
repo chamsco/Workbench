@@ -537,6 +537,13 @@ impl Reservations {
 }
 
 impl Reservation {
+    /// Record what the call really cost and give its hold back (stub).
+    pub fn settle<R>(self, record: impl FnOnce() -> R) -> R {
+        let out = record();
+        drop(self);
+        out
+    }
+
     pub fn reserved_usd(&self) -> f64 {
         self.usd
     }
