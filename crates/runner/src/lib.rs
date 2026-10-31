@@ -331,7 +331,9 @@ fn toml_inline(v: &Value) -> String {
     }
 }
 
-async fn run_cli(req: &Request, provider: &str, bin: &PathBuf, on: Sink<'_>) -> Result<()> {
+/// The command line, environment and stdin text of one CLI turn. Nothing is started here, so a test
+/// can read exactly what a CLI would be given.
+fn build_cli(req: &Request, provider: &str, bin: &PathBuf) -> Result<(tokio::process::Command, Option<String>)> {
     let mut cmd = tokio::process::Command::new(bin);
     cmd.current_dir(&req.cwd)
         .env("NO_COLOR", "1")
@@ -468,6 +470,11 @@ async fn run_cli(req: &Request, provider: &str, bin: &PathBuf, on: Sink<'_>) -> 
         }
         other => bail!("{other} has no one-shot mode to chat with; use it from a project"),
     }
+    Ok((cmd, stdin_text))
+}
+
+async fn run_cli(req: &Request, provider: &str, bin: &PathBuf, on: Sink<'_>) -> Result<()> {
+    let (mut cmd, stdin_text) = build_cli(req, provider, bin)?;
     let mut child = cmd.spawn().with_context(|| format!("starting {}", bin.display()))?;
     // Dropping the turn kills the CLI; on Windows its `.cmd` shim's node
     // child would survive that, so the whole tree goes.
