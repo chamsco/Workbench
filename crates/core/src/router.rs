@@ -99,7 +99,13 @@ pub struct Router {
     local: std::collections::BTreeMap<String, String>,
     /// Answers the typed question that says where the planner starts.
     decider: std::sync::Arc<dyn crate::decision::DecisionModel>,
+    /// Holds a routing call's worst case against the project's budget (stub).
+    #[allow(dead_code)]
+    meter: Option<Meter>,
 }
+
+/// Reserves `(usd, tokens)` for a routing call, or says why it may not go out.
+pub type Meter = std::sync::Arc<dyn Fn(f64, u64) -> std::result::Result<crate::gateway::Reservation, crate::gateway::Refusal> + Send + Sync>;
 
 /// A local pick: the decision, plus which job it was for and which runtime
 /// holds it, so `route_for` can check the runtime is actually listening.
@@ -111,12 +117,18 @@ struct LocalPick {
 
 impl Router {
     pub fn new(http: reqwest::Client, cfg: Config) -> Self {
-        Self { http, cfg, local: Default::default(), decider: std::sync::Arc::new(crate::decision::KeywordDecider) }
+        Self { http, cfg, local: Default::default(), decider: std::sync::Arc::new(crate::decision::KeywordDecider), meter: None }
     }
 
     /// Swap the decision model without touching the router.
     pub fn with_decider(mut self, decider: std::sync::Arc<dyn crate::decision::DecisionModel>) -> Self {
         self.decider = decider;
+        self
+    }
+
+    /// Check every Jev call against a budget before it is sent (stub).
+    pub fn with_meter(mut self, meter: impl Fn(f64, u64) -> std::result::Result<crate::gateway::Reservation, crate::gateway::Refusal> + Send + Sync + 'static) -> Self {
+        self.meter = Some(std::sync::Arc::new(meter));
         self
     }
 

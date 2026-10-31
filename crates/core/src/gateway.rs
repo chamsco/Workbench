@@ -304,6 +304,10 @@ pub fn estimate_tokens(chars: usize) -> u64 {
 /// a request enforces.
 pub const ADVISOR_OUTPUT_TOKENS: u64 = 4_096;
 
+/// What a reservation for a Jev routing call assumes the answer may take.
+/// (stub: set by the implementation)
+pub const ROUTER_OUTPUT_TOKENS: u64 = 512;
+
 /// What the provider adds around a request's own text that the body does not
 /// show: the tool-use system prompt Anthropic documents at up to 804 tokens
 /// (Opus 4.7, `any`/`tool`), plus request framing. Rounded up to 1024.
