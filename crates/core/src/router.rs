@@ -106,8 +106,10 @@ pub struct Router {
     /// Holds a routing call's worst case against the project's budget. None:
     /// no budget is around this router, and its calls are declared unmetered.
     meter: Option<Meter>,
-    /// Records a metered call's actual cost while its hold is still held (stub).
-    #[allow(dead_code)]
+    /// Records a Jev call's actual cost on the project's books. Run by
+    /// `Reservation::settle`, under the reservation table's lock and before the
+    /// call's hold is given back, so no other reservation sees the hold gone
+    /// and the cost not yet recorded.
     recorder: Option<std::sync::Arc<dyn Fn(f64) + Send + Sync>>,
 }
 
@@ -139,7 +141,10 @@ impl Router {
         self
     }
 
-    /// Record a metered call's actual cost in the same step that releases its hold (stub).
+    /// Record a Jev call's actual cost in the same step that releases its hold.
+    /// A decision whose cost was recorded this way says so (`Decision::cost_settled`)
+    /// and its `router_cost_usd` is not to be added again. Without a recorder the
+    /// caller adds `router_cost_usd` after the decision returns, as before.
     pub fn with_recorder(mut self, recorder: impl Fn(f64) + Send + Sync + 'static) -> Self {
         self.recorder = Some(std::sync::Arc::new(recorder));
         self
@@ -424,7 +429,7 @@ impl Router {
         // held until the response is in; if it does not fit, Jev is not called
         // and the heuristic decides. Without one the call is declared unmetered.
         // Docs: docs/cauldron/M1-BUDGET-BOUNDARIES.md.
-        let _hold = match &self.meter {
+        let hold = match &self.meter {
             Some(meter) => {
                 let bytes = serde_json::to_string(&body)?.len();
                 let tokens = crate::gateway::input_bound(bytes, 1, 0) + crate::gateway::ROUTER_OUTPUT_TOKENS;
@@ -450,6 +455,12 @@ impl Router {
             bail!("jev returned {status}: {}", truncate(&text, 300));
         }
         let v: Value = serde_json::from_str(&text).context("jev returned non-JSON")?;
+        let tokens = v["usage"]["input_tokens"].as_u64().unwrap_or(0)
+            + v["usage"]["output_tokens"].as_u64().unwrap_or(0);
+        let cost = tokens as f64 * rc.jev_usd_per_mtok / 1_000_000.0;
+        // The call is billed whether or not its answer is usable, so its cost
+        // goes on the books now, in the step that gives the hold back.
+        let (cost_settled, over) = self.settle(hold, cost, tokens);
 
         let choice = v["answers"]["model"]["choice"]
             .as_str()
@@ -461,8 +472,6 @@ impl Router {
             .as_f64()
             .ok_or_else(|| anyhow!("jev response missing answers.effort.score"))?;
         let confidence = v["answers"]["model"]["confidence"].as_f64().unwrap_or(0.0) as f32;
-        let tokens = v["usage"]["input_tokens"].as_u64().unwrap_or(0)
-            + v["usage"]["output_tokens"].as_u64().unwrap_or(0);
 
         Ok(Decision {
             model: choice.to_string(),
@@ -470,11 +479,28 @@ impl Router {
             effort: Effort::from_index((score + 0.5).floor().max(0.0) as usize),
             source: "jev".into(),
             confidence,
-            router_cost_usd: tokens as f64 * rc.jev_usd_per_mtok / 1_000_000.0,
-            cost_settled: false,
-            note: None,
+            router_cost_usd: cost,
+            cost_settled,
+            note: over,
             triage: None,
         })
+    }
+
+    /// End a Jev call's hold. With a recorder the cost is recorded under the
+    /// table's lock in the same step (see `Reservation::settle`); a cost above
+    /// what was held is recorded in full and named in the returned note.
+    /// Without one the hold is simply given back and the caller records the
+    /// cost afterwards, which leaves a gap of one call's cost.
+    fn settle(&self, hold: Option<crate::gateway::Reservation>, cost: f64, tokens: u64) -> (bool, Option<String>) {
+        let over = hold.as_ref().and_then(|h| h.overshoot(cost, tokens)).map(|o| {
+            format!("jev overshoot: the call cost ${cost:.6}, ${:.6} more than the ${:.6} held for it; counted in full", o.usd, cost - o.usd)
+        });
+        match (&self.recorder, hold) {
+            (Some(record), Some(h)) => h.settle(|| record(cost)),
+            (Some(record), None) => record(cost),
+            (None, _) => return (false, over),
+        }
+        (true, over)
     }
 }
 

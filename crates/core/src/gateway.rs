@@ -388,10 +388,10 @@ pub struct Reservation {
     token_ceiling: Option<u64>,
 }
 
-impl Drop for Reservation {
-    fn drop(&mut self) {
-        let Some(t) = &self.table else { return };
-        let mut held = t.held.lock().unwrap();
+impl Reservation {
+    /// Take this call's hold out of the table. `held` is the table's own lock,
+    /// so a caller that is also recording the call's cost does both under it.
+    fn release_in(&mut self, held: &mut Holds) {
         for k in &self.keys {
             if let Some(v) = held.get_mut(k) {
                 v.retain(|(id, _, _)| *id != self.id);
@@ -400,6 +400,14 @@ impl Drop for Reservation {
                 }
             }
         }
+    }
+}
+
+impl Drop for Reservation {
+    fn drop(&mut self) {
+        let Some(t) = self.table.take() else { return };
+        let mut held = t.held.lock().unwrap();
+        self.release_in(&mut held);
         drop(held);
         t.released.notify_waiters();
     }
@@ -537,10 +545,23 @@ impl Reservations {
 }
 
 impl Reservation {
-    /// Record what the call really cost and give its hold back (stub).
-    pub fn settle<R>(self, record: impl FnOnce() -> R) -> R {
+    /// Record what the call really cost and give its hold back in one step.
+    ///
+    /// `record` runs while the table's lock is held and the hold is still
+    /// there; the hold is removed under the same lock hold. Every other
+    /// reservation takes that lock to read what is held and (through its
+    /// `lines`) what is spent, so none of them can see the hold gone and the
+    /// spend not yet recorded, or a cost above the estimate not yet on the
+    /// books. `record` must not ask this table for anything (it would wait for
+    /// the lock it is under); it may take the locks `lines` takes, which are
+    /// taken in that order everywhere.
+    pub fn settle<R>(mut self, record: impl FnOnce() -> R) -> R {
+        let Some(t) = self.table.take() else { return record() };
+        let mut held = t.held.lock().unwrap();
         let out = record();
-        drop(self);
+        self.release_in(&mut held);
+        drop(held);
+        t.released.notify_waiters();
         out
     }
 

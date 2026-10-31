@@ -482,6 +482,18 @@ impl Harness {
                         project_line(&inner, &s).into_iter().collect()
                     })
                 }
+            })
+            // What the call really cost goes on the books in the step that gives its hold back.
+            .with_recorder({
+                let me = me.clone();
+                move |usd| {
+                    if let Some(inner) = me.upgrade() {
+                        inner.update(|s| {
+                            s.router_cost_usd += usd;
+                            s.total_cost_usd += usd;
+                        });
+                    }
+                }
             }),
             gateway: Gateway::new(cfg.policy.clone()),
             reservations: Arc::default(),
@@ -1553,7 +1565,7 @@ async fn plan_on_cli(inner: &Arc<Inner>, cli: &str, text: String) -> Result<()> 
         let session = inner.state.lock().unwrap().planner_session.clone();
         let system = session.is_none().then(|| planner_system(inner));
         let admitted = admit_cli(inner, MAIN, model).await?;
-        let (_, sid) = run_cli_turn(inner, MAIN, cli, &bin, &inner.run_dir.clone(), &prompt, session.as_deref(), system.as_deref(), &crate::gateway::Authorization::Reserved(&admitted)).await?;
+        let (_, sid) = run_cli_turn(inner, MAIN, GateRole::Orchestration, cli, &bin, &inner.run_dir.clone(), &prompt, session.as_deref(), system.as_deref(), &crate::gateway::Authorization::Reserved(&admitted)).await?;
         drop(admitted);
         if sid.is_some() {
             inner.update(|s| s.planner_session = sid);
@@ -1617,8 +1629,11 @@ fn announce_route(inner: &Inner, id: AgentId, d: &Decision) {
     }
     inner.log(id, LogKind::System, msg);
     inner.update(|s| {
-        s.router_cost_usd += d.router_cost_usd;
-        s.total_cost_usd += d.router_cost_usd;
+        // A Jev call's cost was already added when its hold was given back.
+        if !d.cost_settled {
+            s.router_cost_usd += d.router_cost_usd;
+            s.total_cost_usd += d.router_cost_usd;
+        }
         s.agents[id].decision = Some(d.clone());
     });
     inner.ledger.lock().unwrap().record_decision(d.router_cost_usd);
@@ -1772,7 +1787,7 @@ async fn finish_cli(
     for round in 0..4 {
         let admitted = admit_cli(inner, c.id, &c.decision.model).await?;
         let (summary, sid) =
-            run_cli_turn(inner, c.id, cli, &bin, dir, &prompt, session.as_deref(), None, &crate::gateway::Authorization::Reserved(&admitted)).await?;
+            run_cli_turn(inner, c.id, GateRole::of(c.kind, c.can_spawn), cli, &bin, dir, &prompt, session.as_deref(), None, &crate::gateway::Authorization::Reserved(&admitted)).await?;
         drop(admitted);
         session = sid.or(session);
         // Keep it in the agent's record as well: this is what survives a
@@ -1804,6 +1819,18 @@ async fn finish_cli(
         }
     }
     bail!("{cli} did not get the ticket accepted in 4 rounds")
+}
+
+/// Whether the project's model lists allow a model that Backspace hands to a
+/// coding CLI as its advisor or scout; if not, say so in the agent's log.
+fn cli_helper_allowed(inner: &Inner, id: AgentId, what: &str, model: &str, role: GateRole) -> bool {
+    match inner.gateway.check_model(role, model) {
+        Ok(()) => true,
+        Err(e) => {
+            inner.log(id, LogKind::System, format!("Claude Code's {what} on `{model}` is left off: {e}"));
+            false
+        }
+    }
 }
 
 /// Let a turn in a coding CLI start (see `Reservations::admit_cli`). A turn
@@ -1865,6 +1892,7 @@ fn account_env(cli: &str) -> Vec<(String, String)> {
 async fn run_cli_turn(
     inner: &Arc<Inner>,
     id: AgentId,
+    role: GateRole,
     cli: &str,
     bin: &Path,
     dir: &Path,
@@ -1905,9 +1933,12 @@ async fn run_cli_turn(
     // Several logins for this CLI: run as the healthiest one (accounts.rs).
     let acc = account_env(cli);
     if cli == "claude" {
-        // Orchestrator, advisor, scouts, in Claude Code's own terms.
-        req.advisor = inner.cfg.advisor.cli.clone();
-        if let Some(m) = &inner.cfg.advisor.cli_scouts {
+        // Orchestrator, advisor, scouts, in Claude Code's own terms. Backspace
+        // names the models of the advisor and the scouts, so the project's model
+        // lists apply to them: the advisor at the role of the agent that consults
+        // it, scouts as execution work. One the lists do not name is left off.
+        req.advisor = inner.cfg.advisor.cli.clone().filter(|m| cli_helper_allowed(inner, id, "advisor", m, role));
+        if let Some(m) = inner.cfg.advisor.cli_scouts.as_ref().filter(|m| cli_helper_allowed(inner, id, "scout", m, GateRole::Execution)) {
             req.agents = Some(json!({"scout": {
                 "description": "Fast read-only scout: finds the files that matter, reads code, docs and specs, and returns a short summary. Use it for discovery instead of reading a lot yourself; send several in parallel.",
                 "prompt": SCOUT_PROMPT,

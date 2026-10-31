@@ -316,7 +316,8 @@ fn nobody_sees_the_hold_gone_and_the_spend_not_yet_recorded() {
     );
     // With the spend on the books ($0.9 of the $1.5 it may use), a $0.2 call (of one reservation) is told what is left.
     assert!(got.is_ok(), "{:?}", got.as_ref().err());
-    assert_eq!(table.held("project").0.round() as i64, 0, "the router's hold is gone once the spend is recorded");
+    drop(got); // the racer's own reservation is held until here
+    assert_eq!(table.held("project"), (0.0, 0), "the router's hold is gone once the spend is recorded");
 }
 
 #[test]
@@ -361,6 +362,7 @@ fn jev_calls_completing_among_api_reservations_never_leave_more_spent_than_the_l
     *j.usage.lock().unwrap() = (tokens_for_cost(r_one * 0.95), 0);
     j.delay_ms.store(120, Ordering::SeqCst);
     let limit = r_one * 3.2;
+    let learned = j.calls.load(Ordering::SeqCst); // the sizing call above is not on these books
 
     let (table, books) = (Arc::new(Reservations::default()), Arc::new(Books::default()));
     let router = Arc::new(router_with(parse(j.port), &table, &books, limit, Duration::from_millis(15), None));
@@ -395,9 +397,25 @@ fn jev_calls_completing_among_api_reservations_never_leave_more_spent_than_the_l
     assert!(spent <= limit + 1e-9, "spent {spent} of a {limit} limit: a call was let in while another's spend was not yet on the books");
     // Every call that ran is on the books at what it really cost: nothing lost, nothing counted twice.
     let jev_each = tokens_for_cost(r_one * 0.95) as f64 * PRICE / 1e6;
-    let expected = j.calls.load(Ordering::SeqCst) as f64 * jev_each + admitted_api.load(Ordering::SeqCst) as f64 * r_one;
-    assert!((spent - expected).abs() < 1e-6, "recorded {spent}, but {} Jev calls and {} API calls cost {expected}", j.calls.load(Ordering::SeqCst), admitted_api.load(Ordering::SeqCst));
-    assert!(j.calls.load(Ordering::SeqCst) >= 1 && admitted_api.load(Ordering::SeqCst) >= 1, "both kinds of call took part");
+    let jev_calls = j.calls.load(Ordering::SeqCst) - learned;
+    let expected = jev_calls as f64 * jev_each + admitted_api.load(Ordering::SeqCst) as f64 * r_one;
+    assert!((spent - expected).abs() < 1e-6, "recorded {spent}, but {jev_calls} Jev calls and {} API calls cost {expected}", admitted_api.load(Ordering::SeqCst));
+    assert!(jev_calls >= 1 && admitted_api.load(Ordering::SeqCst) >= 1, "both kinds of call took part");
+    assert_eq!(table.held("project"), (0.0, 0));
+}
+
+#[test]
+fn a_billed_answer_the_router_cannot_use_is_recorded_once_and_the_fallback_is_not_charged_again() {
+    let j = jev();
+    *j.choice.lock().unwrap() = "no-such-model".into();
+    let (table, books) = (Arc::new(Reservations::default()), Arc::new(Books::default()));
+    let r = router(j.port, &table, &books, 1e9, Duration::ZERO);
+    let d = route(&rt(), &r);
+    assert!(d.source.starts_with("heuristic"), "the answer named a model that was not offered: {}", d.source);
+    assert_eq!(d.router_cost_usd, 0.0, "the heuristic decision carries no router cost");
+    assert!(!d.cost_settled, "so there is nothing for the harness to add or to skip");
+    let real = 120.0 * PRICE / 1e6;
+    assert!((*books.spent.lock().unwrap() - real).abs() < 1e-9, "Jev billed for the call whether or not the answer was usable: {}", books.spent.lock().unwrap());
     assert_eq!(table.held("project"), (0.0, 0));
 }
 

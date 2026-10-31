@@ -294,11 +294,25 @@ impl Config {
     /// more than the config does.
     pub fn effective_policy(&self, skills: &[String]) -> crate::gateway::PolicyConfig {
         let ids: Vec<String> = self.models.iter().map(|m| m.id.clone()).collect();
+        // The advisor and the scouts Claude Code is handed are named by alias
+        // (`opus`, `haiku`), not by a `[[models]]` id, and the lists apply to them:
+        // the advisor at the role of the agent that consults it, scouts as execution.
+        // A list written out for an open dimension names what the config uses.
+        let a = &self.advisor;
+        let with = |base: &[String], extra: &[&Option<String>]| {
+            let mut l = base.to_vec();
+            for e in extra.iter().filter_map(|e| e.as_ref()) {
+                if !l.contains(e) {
+                    l.push(e.clone());
+                }
+            }
+            l
+        };
         let p = &self.policy;
         crate::gateway::PolicyConfig {
             mode: Some(crate::gateway::PolicyMode::Enforced),
-            orchestration_models: p.orchestration_models.clone().or_else(|| Some(ids.clone())),
-            execution_models: p.execution_models.clone().or(Some(ids)),
+            orchestration_models: p.orchestration_models.clone().or_else(|| Some(with(&ids, &[&a.cli]))),
+            execution_models: p.execution_models.clone().or_else(|| Some(with(&ids, &[&a.cli, &a.cli_scouts]))),
             skills: p.skills.clone().or_else(|| Some(skills.to_vec())),
             plugins: p.plugins.clone().or(Some(vec![])),
             budget: p.budget.clone(),

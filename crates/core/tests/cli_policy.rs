@@ -103,7 +103,7 @@ const WITH_BOTH: &str = "[policy]\nmode = \"enforced\"\norchestration_models = [
 const SPLIT: &str = "[policy]\nmode = \"enforced\"\norchestration_models = [\"mock-mid\", \"cli-model\", \"opus\"]\nexecution_models = [\"cli-model\", \"haiku\"]\nskills = []\nplugins = []\n";
 const WITH_OPUS: &str = "[policy]\nmode = \"enforced\"\norchestration_models = [\"mock-mid\", \"cli-model\", \"opus\"]\nexecution_models = [\"cli-model\", \"opus\"]\nskills = []\nplugins = []\n";
 
-fn project(tag: &str, policy: &str, pin_main: &str) -> (Harness, PathBuf) {
+fn project(tag: &str, policy: &str, pin_main: &str, max_depth: usize) -> (Harness, PathBuf) {
     fake_claude();
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
@@ -128,6 +128,7 @@ pin_sub = "cli-model"
 [orchestrator]
 max_parallel_calls = 2
 max_subagents = 4
+max_depth = {max_depth}
 auto_approve = true
 bash_timeout_secs = 10
 
@@ -169,16 +170,21 @@ max_output_tokens = 0
 /// Start a worker (the planner is an API model) and give back the arguments Claude Code was
 /// started with, and the system log.
 fn run(tag: &str, policy: &str) -> (Vec<String>, String) {
-    started(tag, policy, "mock-mid", "cli-project: make a file")
+    started(tag, policy, "mock-mid", "cli-project: make a file", 1)
+}
+
+/// The same, but a ticket worker is deep enough in the tree to be allowed to create tickets itself.
+fn run_spawning_worker(tag: &str, policy: &str) -> (Vec<String>, String) {
+    started(tag, policy, "mock-mid", "cli-project: make a file", 3)
 }
 
 /// The planner itself runs in Claude Code (`pin_main` names the CLI's entry).
 fn run_planner(tag: &str, policy: &str) -> (Vec<String>, String) {
-    started(tag, policy, "cli-model", "hello")
+    started(tag, policy, "cli-model", "hello", 1)
 }
 
-fn started(tag: &str, policy: &str, pin_main: &str, message: &str) -> (Vec<String>, String) {
-    let (h, ws) = project(tag, policy, pin_main);
+fn started(tag: &str, policy: &str, pin_main: &str, message: &str, max_depth: usize) -> (Vec<String>, String) {
+    let (h, ws) = project(tag, policy, pin_main, max_depth);
     h.send(message);
     let file = ws.join("cli-args.txt");
     let deadline = Instant::now() + Duration::from_secs(40);
@@ -248,6 +254,14 @@ fn a_workers_advisor_is_checked_at_the_workers_role_not_the_planners() {
 }
 
 #[test]
+fn a_worker_that_may_create_tickets_is_an_orchestrator_and_is_checked_as_one() {
+    // The same lists as above, but this worker can plan work for others, so `opus` (orchestration) applies.
+    let (args, _) = run_spawning_worker("split-spawning", SPLIT);
+    assert!(has_pair(&args, "--advisor", "opus"), "{args:?}");
+    assert!(has_pair(&args, "--agents", "haiku"), "scouts stay execution work: {args:?}");
+}
+
+#[test]
 fn a_planner_in_claude_code_gets_its_advisor_when_the_orchestration_list_names_it() {
     let (args, _) = run_planner("split-planner", SPLIT);
     assert!(has_pair(&args, "--advisor", "opus"), "the planner decides, so `opus` is checked against the orchestration list: {args:?}");
@@ -259,4 +273,71 @@ fn a_planner_in_claude_code_loses_what_the_policy_does_not_name() {
     let (args, log) = run_planner("narrow-planner", NARROW);
     assert!(!args.iter().any(|a| a == "--advisor") && !args.iter().any(|a| a == "--agents"), "{args:?}");
     assert!(log.contains("refused by project policy"), "{log}");
+}
+
+// ------------------------------------------- a generated policy and Claude Code's helpers
+
+#[test]
+fn a_generated_policy_names_the_advisor_and_scouts_the_config_already_uses() {
+    // A new project, and `policy init`, write out "what this config allows now". Claude Code's advisor
+    // and scouts are part of that, and are named by alias, so the lists must carry the aliases or
+    // the new check would switch them off for every project that did nothing wrong.
+    let cfg = backspace_core::Config::parse(backspace_core::config::DEFAULT_CONFIG).unwrap();
+    assert_eq!(cfg.advisor.cli.as_deref(), Some("opus"));
+    assert_eq!(cfg.advisor.cli_scouts.as_deref(), Some("haiku"));
+    let p = cfg.effective_policy(&[]);
+    let (orch, exec) = (p.orchestration_models.unwrap(), p.execution_models.unwrap());
+    assert!(orch.contains(&"opus".to_string()) && !orch.contains(&"haiku".to_string()), "advisor at the planner's role: {orch:?}");
+    assert!(exec.contains(&"opus".to_string()) && exec.contains(&"haiku".to_string()), "advisor and scouts at the worker's: {exec:?}");
+    let block = cfg.policy_init_block(&[]);
+    assert!(block.contains("\"opus\"") && block.contains("\"haiku\""), "and `policy init` writes them down:\n{block}");
+}
+
+#[test]
+fn a_list_the_person_wrote_is_not_widened_by_the_aliases() {
+    let src = format!(
+        "{}\n[policy]\nmode = \"enforced\"\norchestration_models = [\"claude-code\"]\nexecution_models = [\"claude-code\"]\nskills = []\nplugins = []\n",
+        backspace_core::config::DEFAULT_CONFIG
+    );
+    let p = backspace_core::Config::parse(&src).unwrap().effective_policy(&[]);
+    assert_eq!(p.orchestration_models, Some(vec!["claude-code".to_string()]));
+    assert_eq!(p.execution_models, Some(vec!["claude-code".to_string()]));
+}
+
+// ------------------------------------------- the CLI's own config entry is checked too
+
+const NOT_THE_CLI: &str = "[policy]\nmode = \"enforced\"\norchestration_models = [\"mock-mid\"]\nexecution_models = [\"mock-mid\"]\nskills = []\nplugins = []\n";
+
+/// What the agents said that went wrong, once `message` has had time to be acted on.
+fn errors_after(tag: &str, policy: &str, pin_main: &str, message: &str) -> (String, bool) {
+    let (h, ws) = project(tag, policy, pin_main, 1);
+    h.send(message);
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let mut errs = String::new();
+    while Instant::now() < deadline {
+        for a in h.snapshot().pending_approvals() {
+            h.approve(a.id);
+        }
+        errs = h.snapshot().agents.iter().flat_map(|a| a.log.iter().filter(|e| e.kind == LogKind::Error).map(|e| e.text.clone())).collect::<Vec<_>>().join("\n");
+        if errs.contains("refused by project policy") {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(30));
+    }
+    std::thread::sleep(Duration::from_millis(300));
+    (errs, ws.join("cli-args.txt").is_file())
+}
+
+#[test]
+fn a_planner_cli_entry_the_orchestration_list_does_not_name_is_refused_before_its_turn() {
+    let (errs, started) = errors_after("planner-entry", NOT_THE_CLI, "cli-model", "hello");
+    assert!(errs.contains("refused by project policy") && errs.contains("cli-model") && errs.contains("orchestration"), "{errs}");
+    assert!(!started, "Claude Code was never started");
+}
+
+#[test]
+fn a_worker_cli_entry_the_execution_list_does_not_name_is_refused_before_its_turn() {
+    let (errs, started) = errors_after("worker-entry", NOT_THE_CLI, "mock-mid", "cli-project: make a file");
+    assert!(errs.contains("refused by project policy") && errs.contains("cli-model"), "{errs}");
+    assert!(!started, "Claude Code was never started");
 }
