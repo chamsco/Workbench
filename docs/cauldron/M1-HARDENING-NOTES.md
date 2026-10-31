@@ -16,7 +16,7 @@ The five sections that matter are kept apart on purpose: *Implemented and tested
 | Codex closure pass (red `577f819`) | 21 |
 | **Branch suite** | **512** |
 
-The final pass's 62: `jev_unknown_cost` 15, `routing_policy` 18, `cli_model_policy` 23, `policy_matrix` 5 more (9 to 14), `policy_integrity_cli` 1 more (4 to 5). 60 of them existed at the red commit; 2 (the harness-level unknown-cost tests) were added after it. Full-suite outputs: `M1-final-red-output.txt` (436 passed, 53 failed: 20 `cli_model_policy`, 11 `jev_unknown_cost`, 11 `policy_matrix`, 11 `routing_policy`), `M1-final-suite-output.txt` (the green runs), `M1-final-flaky-evidence.txt`. Earlier rounds' outputs: `M1-hardening-3-*.txt`.
+The final pass's 62: `jev_unknown_cost` 15, `routing_policy` 18, `cli_model_policy` 23, `policy_matrix` 5 more (9 to 14), `policy_integrity_cli` 1 more (3 to 4; an earlier version of this page said 4 to 5, the total of 62 was right). 60 of them existed at the red commit; 2 (the harness-level unknown-cost tests) were added after it. Full-suite outputs: `M1-final-red-output.txt` (436 passed, 53 failed: 20 `cli_model_policy`, 11 `jev_unknown_cost`, 11 `policy_matrix`, 11 `routing_policy`), `M1-final-suite-output.txt` (the green runs), `M1-final-flaky-evidence.txt`. Earlier rounds' outputs: `M1-hardening-3-*.txt`.
 
 The closure pass's 21: runner argument tests 5 (4 at red, 1 with the `env_remove` field), `cli_model_policy` 13 more (23 to 36; 12 at red, 1 from splitting one of my own tests), `policy_matrix` 3 more (14 to 17). 8 failed at red and none fails now. Outputs: `M1-codex-closure-red-output.txt`, `M1-codex-closure-suite-output.txt`.
 
@@ -212,6 +212,7 @@ Run to resolve one uncertainty from the final pass: the runner passed `-m` to Co
 2. A premise of my own test was wrong: `an_excepted_unpinned_claude_code_keeps_its_own_environment` (added in the red commit) passed at red but its policy named the scout's alias, so a scout was passed and the variable was correctly removed. It became two tests: no scout in the lists, environment kept; a scout in the lists, variable removed. Nothing existing was weakened.
 3. `policy_matrix.rs`: three tests added for the *Coding-CLI models* section (five kinds in order, the section matches `PINNABLE_CLIS` and `CLAUDE_ALIASES`, and each unverified item is named).
 4. The runner test `a_variable_listed_for_removal_is_not_given_to_the_cli` was added with the field it tests, after red, since it cannot compile without it.
+5. A count on this page was wrong: `policy_integrity_cli.rs` went from 3 tests to 4 in the final pass, not 4 to 5 (`git show 331e9a1:` and `b36ad3e:` the file). The totals were right.
 
 ## History: earlier rounds
 
