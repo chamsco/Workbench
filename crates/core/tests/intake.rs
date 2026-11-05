@@ -186,11 +186,15 @@ fn intake_is_off_by_default_and_must_be_allowed_to_ask() {
     let cfg = Config::parse(&base).unwrap();
     assert!(!cfg.intake.enabled, "intake acts on an uncalibrated classifier, so it is opt-in");
     assert_eq!(cfg.intake.max_asks, 2);
-    let zero = format!("{base}\n[intake]\nenabled = true\nmax_asks = 0\n");
-    let e = Config::parse(&zero).expect_err("max_asks = 0 would mean never asking").to_string();
-    assert!(e.contains("max_asks"), "{e}");
-    let ok = Config::parse(&format!("{base}\n[intake]\nenabled = true\n")).unwrap();
+    // A project's own file replaces the default wholesale, and without an
+    // [intake] section it is off.
+    let bare = config_text(1, "");
+    assert!(!Config::parse(&bare).unwrap().intake.enabled);
+    let ok = Config::parse(&config_text(1, "[intake]\nenabled = true\n")).unwrap();
     assert!(ok.intake.enabled && ok.intake.max_asks == 2);
+    let zero = config_text(1, "[intake]\nenabled = true\nmax_asks = 0\n");
+    let e = format!("{:#}", Config::parse(&zero).expect_err("max_asks = 0 would mean never asking"));
+    assert!(e.contains("max_asks"), "{e}");
 }
 
 // --------------------------------------------------------------- harness
@@ -295,10 +299,12 @@ fn open(tag: &str, port: u16, intake: &str, seed: &[(&str, &str)]) -> (Harness, 
 }
 
 fn write_config(ws: &Path, port: u16, intake: &str) {
-    std::fs::write(
-        ws.join("backspace.toml"),
-        format!(
-            r#"
+    std::fs::write(ws.join("backspace.toml"), config_text(port, intake)).unwrap();
+}
+
+fn config_text(port: u16, intake: &str) -> String {
+    format!(
+        r#"
 [router]
 backend = "heuristic"
 jev_endpoint = ""
@@ -348,9 +354,7 @@ max_output_tokens = 1000
 
 {intake}
 "#
-        ),
     )
-    .unwrap();
 }
 
 const ON: &str = "[intake]\nenabled = true\n";
@@ -635,4 +639,28 @@ fn one_shot_reaches_a_worker_with_a_lightweight_spec_and_no_plan_gate() {
         assert!(!offered.iter().any(|x| x == t), "{t} was offered on one-shot: {offered:?}");
     }
     assert_eq!(s.intake.path, None);
+}
+
+#[test]
+fn stopping_a_restricted_task_releases_its_path() {
+    // A research agent that is slow to answer, so Stop lands mid-turn.
+    let m = mock(|req| {
+        if system(req).starts_with("You are the research agent") {
+            std::thread::sleep(Duration::from_millis(1500));
+            return say("still looking");
+        }
+        say("lead")
+    });
+    let (h, _ws) = open("stop", m.port, ON, &[]);
+    h.send("research the pros and cons of sqlite and write up a report, no code");
+    wait(&h, "the research turn", |s| s.intake.path == Some(TaskType::Research) && m.calls.load(Ordering::SeqCst) >= 1);
+    h.stop(None);
+    let s = wait(&h, "the stop", |s| s.intake.path.is_none() && s.agents[0].status == AgentStatus::Idle);
+    assert_eq!(s.intake.spec_key, None);
+    // The next message is a new task, classified afresh, not trapped on the research path.
+    let calls = m.calls.load(Ordering::SeqCst);
+    h.send("build a dashboard system platform across several services");
+    wait(&h, "the next task's model call", |_| m.calls.load(Ordering::SeqCst) > calls);
+    let seen = m.seen.lock().unwrap();
+    assert!(system(&seen[calls]).starts_with("You are the lead agent"), "{}", system(&seen[calls]));
 }

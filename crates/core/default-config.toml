@@ -36,6 +36,15 @@ start_max_tier = 2
 max_steps = 3
 loop_repeats = 3
 
+# Intake: classify each task before any work (one-shot, long or research) and
+# ask you when it is unsure. Off by default: the classifier is uncalibrated
+# until the router eval (PLAN section 10) has run, and a wrong guess would skip
+# planning. When on: research returns a report and nothing else; a one-shot gets
+# one ticket from a lightweight spec, with no plan to approve.
+[intake]
+enabled = false
+max_asks = 2                # questions before an unclear task goes the long way
+
 # Orchestrator, advisor, scouts. The advisor (a stronger model, on call)
 # is consulted before a plan locks, when the same check fails twice and
 # before work is called done; it stays silent on routine steps. Scouts (a

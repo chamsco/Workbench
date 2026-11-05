@@ -21,6 +21,8 @@ use serde_json::{json, Value};
 use tokio::sync::{mpsc, oneshot, watch, Semaphore};
 
 use crate::config::{Config, Isolation};
+use crate::decision::TaskType;
+use crate::intake;
 use crate::effort::Effort;
 use crate::phase::GateBy;
 use crate::git;
@@ -1193,6 +1195,9 @@ struct Conversation {
     kind: AgentKind,
     ticket: Option<String>,
     can_spawn: bool,
+    /// The intake path this agent is on (research, one-shot), which limits its
+    /// tools in code (`intake::allows`). None: not restricted.
+    path: Option<TaskType>,
     ws: Workspace,
     initial: Decision,
     decision: Decision,
@@ -1202,6 +1207,26 @@ struct Conversation {
     budget_warned_at: Option<usize>,
     turns_total: usize,
     recent_calls: Vec<String>,
+}
+
+/// The tools the main agent is offered on a restricted path: the full list
+/// (plus the two the paths add) cut down to what `intake::allows` names. The
+/// same function gates the calls, so what is offered and what runs agree.
+fn tools_for_path(path: TaskType) -> Vec<ToolDef> {
+    let mut tools = tools_for(AgentKind::Main, true);
+    tools.extend([intake::list_tool(), intake::submit_report_tool()]);
+    tools.retain(|t| intake::allows(path, t.name));
+    tools
+}
+
+/// The brief on a restricted path: its own, not the planner's.
+fn path_system(path: TaskType, d: &Decision) -> String {
+    let body = match path {
+        TaskType::Research => intake::RESEARCH_PROMPT,
+        TaskType::OneShot => intake::ONE_SHOT_PROMPT,
+        TaskType::Long => unreachable!("the long path uses the planner's brief"),
+    };
+    format!("{body}\nYou are running on {} at {} effort.", d.model, d.effort)
 }
 
 fn tools_for(kind: AgentKind, can_spawn: bool) -> Vec<ToolDef> {
@@ -1445,14 +1470,34 @@ async fn main_loop(inner: Arc<Inner>, mut inbox: mpsc::UnboundedReceiver<String>
         inner.set_status(MAIN, AgentStatus::Running);
         inner.trace_start(MAIN, "turn · main", &text);
         let turn = async {
+            // Intake (intake.rs): before any planning, classify the task and
+            // ask when unsure. Off unless `[intake] enabled`.
+            let mut text = text;
+            let mut known = None;
+            if inner.cfg.intake.enabled && inner.state.lock().unwrap().intake.path.is_none() {
+                match intake_step(&inner, &text) {
+                    Intake::Asked => return Ok(TurnEnd::Replied),
+                    Intake::Go { text: t, path, triage } => {
+                        text = t;
+                        known = triage;
+                        if path != TaskType::Long {
+                            // Research and one-shot start clean: the planner's
+                            // conversation, tools and CLI session are not theirs.
+                            convo = None;
+                            inner.update(|s| s.planner_session = None);
+                        }
+                    }
+                }
+            }
+            let path = inner.state.lock().unwrap().intake.path;
             if let Some(cli) = inner.planner.clone() {
-                return plan_on_cli(&inner, &cli, text).await.map(|_| TurnEnd::Replied);
+                return plan_on_cli(&inner, &cli, text, path).await.map(|d| d.map_or(TurnEnd::Replied, TurnEnd::Delivered));
             }
             if convo.is_none() {
-                let d = inner.router.route(AgentRole::Main, &text, "").await?;
+                let d = inner.router.route_with(AgentRole::Main, &text, "", known).await?;
                 announce_route(&inner, MAIN, &d);
                 inner.agent(MAIN, |a| a.brief = text.clone());
-                convo = Some(main_convo(&inner, d, vec![]));
+                convo = Some(main_convo(&inner, d, vec![], path));
             }
             let c = convo.as_mut().unwrap();
             match c.messages.last_mut() {
@@ -1473,6 +1518,10 @@ async fn main_loop(inner: Arc<Inner>, mut inbox: mpsc::UnboundedReceiver<String>
                 inner.agent(MAIN, |a| a.deliverable = Some(d));
                 inner.set_status(MAIN, AgentStatus::Approved);
                 inner.trace_finish(MAIN, None);
+                // A research or one-shot task is over: its next message is a new task.
+                if end_restricted_path(&inner) {
+                    convo = None;
+                }
             }
             Some(Ok(TurnEnd::Replied)) => {
                 inner.set_status(MAIN, AgentStatus::Idle);
@@ -1491,6 +1540,11 @@ async fn main_loop(inner: Arc<Inner>, mut inbox: mpsc::UnboundedReceiver<String>
                 inner.log(MAIN, LogKind::System, "stopped by you");
                 inner.set_status(MAIN, AgentStatus::Idle);
                 inner.trace_finish(MAIN, Some("stopped".into()));
+                // Stop is how a research or one-shot task is given up: the next
+                // message is asked about afresh. (A long task keeps its conversation.)
+                if end_restricted_path(&inner) {
+                    convo = None;
+                }
             }
         }
         if let Some(c) = &convo {
@@ -1498,6 +1552,56 @@ async fn main_loop(inner: Arc<Inner>, mut inbox: mpsc::UnboundedReceiver<String>
         }
         emit_metrics(&inner);
     }
+}
+
+enum Intake {
+    /// The user was asked which kind of task this is; nothing else runs.
+    Asked,
+    Go { text: String, path: TaskType, triage: Option<crate::decision::Triage> },
+}
+
+/// One message through intake (intake.rs): the first message of a task is
+/// classified, and an unsure one (or the reply to the question) is handled
+/// here, with no model call. What comes back is either "I asked" or the path
+/// the task goes down, saved with the project.
+fn intake_step(inner: &Arc<Inner>, text: &str) -> Intake {
+    let pending = inner.state.lock().unwrap().intake.pending.clone();
+    let next = match &pending {
+        Some(p) => intake::answer(p, text, inner.cfg.intake.max_asks),
+        None => intake::first(text, inner.router.classify(text)),
+    };
+    match next {
+        intake::Next::Ask(p, question) => {
+            inner.update(|s| s.intake.pending = Some(p));
+            inner.log(MAIN, LogKind::Assistant, question);
+            inner.save();
+            Intake::Asked
+        }
+        intake::Next::Go { text, path, triage, note } => {
+            inner.update(|s| s.intake = intake::IntakeState { path: Some(path), pending: None, spec_key: None });
+            let why = match (&note, triage) {
+                (Some(n), _) => format!(" ({n})"),
+                (None, Some(crate::decision::Triage::Confident { p, .. })) => format!(" ({:.0}% sure)", p * 100.0),
+                _ => String::new(),
+            };
+            inner.log(MAIN, LogKind::System, format!("intake: {} path{why}", intake::label(path)));
+            inner.save();
+            Intake::Go { text, path, triage }
+        }
+    }
+}
+
+/// A research or one-shot task ends (delivered, or stopped): clear its path
+/// and its saved conversation so the next message is a new task. True when it
+/// was one. The long path is left alone.
+fn end_restricted_path(inner: &Inner) -> bool {
+    let ended = matches!(inner.state.lock().unwrap().intake.path, Some(TaskType::Research | TaskType::OneShot));
+    if ended {
+        inner.update(|s| s.intake = Default::default());
+        let _ = std::fs::remove_file(inner.root.join(".backspace/main.json"));
+        inner.save();
+    }
+    ended
 }
 
 /// Append the §3.4 metrics so far to `.backspace/metrics.jsonl`, one line per
@@ -1516,18 +1620,30 @@ fn emit_metrics(inner: &Inner) {
 }
 
 /// The main agent's conversation, on an API model.
-fn main_convo(inner: &Inner, d: Decision, messages: Vec<Message>) -> Conversation {
+///
+/// `path` is the intake path the task is on. Research and one-shot get their
+/// own brief and a tool list cut down by `intake::allows`; the long path (and
+/// no path, with intake off) is the planner as it always was.
+fn main_convo(inner: &Inner, d: Decision, messages: Vec<Message>, path: Option<TaskType>) -> Conversation {
+    let restricted = path.filter(|p| *p != TaskType::Long);
     Conversation {
         id: MAIN,
         kind: AgentKind::Main,
         ticket: None,
         can_spawn: true,
+        path: restricted,
         ws: inner.workspace(&inner.run_dir),
         initial: d.clone(),
-        system: inner.system_prompt(AgentKind::Main, 0, &d),
+        system: match restricted {
+            Some(p) => path_system(p, &d),
+            None => inner.system_prompt(AgentKind::Main, 0, &d),
+        },
         decision: d,
         messages,
-        tools: tools_for(AgentKind::Main, true),
+        tools: match restricted {
+            Some(p) => tools_for_path(p),
+            None => tools_for(AgentKind::Main, true),
+        },
         budget_warned_at: None,
         turns_total: 0,
         recent_calls: vec![],
@@ -1564,7 +1680,8 @@ fn load_main(inner: &Inner) -> Option<Conversation> {
     let v: Value = serde_json::from_str(&std::fs::read_to_string(inner.root.join(".backspace/main.json")).ok()?).ok()?;
     let d: Decision = serde_json::from_value(v["decision"].clone()).ok()?;
     let messages: Vec<Message> = serde_json::from_value(v["messages"].clone()).ok()?;
-    let mut c = main_convo(inner, d, messages);
+    let path = inner.state.lock().unwrap().intake.path;
+    let mut c = main_convo(inner, d, messages, path);
     close_open_calls(&mut c);
     Some(c)
 }
@@ -1574,19 +1691,20 @@ fn load_main(inner: &Inner) -> Option<Conversation> {
 /// so they are queued and run after its turn, and what came of them is its
 /// next prompt (on the same session) until it answers without asking for
 /// anything.
-async fn plan_on_cli(inner: &Arc<Inner>, cli: &str, text: String) -> Result<()> {
+async fn plan_on_cli(inner: &Arc<Inner>, cli: &str, text: String, path: Option<TaskType>) -> Result<Option<Deliverable>> {
     // The planner CLI is a model choice like any other: its id is the config entry that runs it.
     let model = planner_entry(inner, cli).unwrap_or(cli);
     inner.gateway.check_model(GateRole::Orchestration, model)?;
     let pin = cli_model(inner, MAIN, GateRole::Orchestration, model)?;
     let bin = crate::harnesses::which(crate::harnesses::bin_for(cli))
         .ok_or_else(|| anyhow!("`{cli}` is not installed on this machine"))?;
+    let task = text.clone();
     let mut prompt = text;
     loop {
         let session = inner.state.lock().unwrap().planner_session.clone();
-        let system = session.is_none().then(|| planner_system(inner));
+        let system = session.is_none().then(|| planner_system(inner, path));
         let admitted = admit_cli(inner, MAIN, model).await?;
-        let (_, sid) = run_cli_turn(inner, MAIN, GateRole::Orchestration, pin.as_deref(), cli, &bin, &inner.run_dir.clone(), &prompt, session.as_deref(), system.as_deref(), &crate::gateway::Authorization::Reserved(&admitted)).await?;
+        let (reply, sid) = run_cli_turn(inner, MAIN, GateRole::Orchestration, pin.as_deref(), cli, &bin, &inner.run_dir.clone(), &prompt, session.as_deref(), system.as_deref(), &crate::gateway::Authorization::Reserved(&admitted)).await?;
         drop(admitted);
         if sid.is_some() {
             inner.update(|s| s.planner_session = sid);
@@ -1594,7 +1712,18 @@ async fn plan_on_cli(inner: &Arc<Inner>, cli: &str, text: String) -> Result<()> 
         }
         let actions = std::mem::take(&mut *inner.planner_queue.lock().unwrap());
         if actions.is_empty() {
-            return Ok(());
+            // Research in a CLI: its final answer is the report (it has no
+            // submit_report tool), filed here, in code.
+            if path == Some(TaskType::Research) {
+                if reply.trim().is_empty() {
+                    bail!("the research turn ended without a report");
+                }
+                let title = format!("Research: {}", truncate(task.lines().next().unwrap_or("").trim(), 70));
+                let report = intake::Report { title, body: reply };
+                let rel = file_report(inner, &report)?;
+                return Ok(Some(Deliverable { summary: report.title, files: vec![rel], ..Default::default() }));
+            }
+            return Ok(None);
         }
         let mut out = Vec::new();
         for a in actions {
@@ -1621,7 +1750,7 @@ fn cli_team_notes(inner: &Inner) -> String {
 }
 
 /// The planner's brief in a CLI: the API planner's, plus how its tools work there.
-fn planner_system(inner: &Inner) -> String {
+fn planner_system(inner: &Inner, path: Option<TaskType>) -> String {
     let d = Decision {
         model: "cli".into(),
         effort: inner.cfg.router.main_min_effort,
@@ -1632,9 +1761,20 @@ fn planner_system(inner: &Inner) -> String {
         note: None,
         triage: None,
     };
+    let restricted = path.filter(|p| *p != TaskType::Long);
+    if restricted == Some(TaskType::Research) {
+        return format!(
+            "{}\n\n# Your tools here\n\nYou run inside a coding CLI and have no `submit_report` tool: your final message is the report, in Markdown, and Backspace files it. Backspace's planning tools are refused on this path. Do not change files, run git or open a pull request.",
+            path_system(TaskType::Research, &d)
+        );
+    }
+    let base = match restricted {
+        Some(p) => path_system(p, &d),
+        None => inner.system_prompt(AgentKind::Main, 0, &d),
+    };
     format!(
         "{}{}\n\n# Your tools here\n\nYou run inside a coding CLI. Backspace's planning tools are MCP tools named `create_tickets` and `work_tickets` (server `backspace`). Both return at once: after calling either, end your turn with a one-line note. The user's verdict on a plan, or each ticket's result, comes back as your next message. Do not build the tickets yourself; agents do that on their own branches, and their accepted work is merged into this checkout (branch `{}`), where you can read and verify it.",
-        inner.system_prompt(AgentKind::Main, 0, &d),
+        base,
         cli_team_notes(inner),
         inner.base_branch
     )
@@ -2244,6 +2384,7 @@ async fn run_triage_again(inner: Arc<Inner>, id: AgentId) -> Result<Deliverable>
     let mut c = Conversation {
         id,
         kind: AgentKind::Triage,
+        path: None,
         ticket: Some(key),
         can_spawn: false,
         ws: inner.workspace(&dir),
@@ -2702,6 +2843,12 @@ async fn run_tool(
     input: &Value,
 ) -> Result<ToolOutcome> {
     let text = ToolOutcome::Text;
+    // A task's path limits what it may do, in code, whatever the model was told.
+    if let Some(p) = c.path {
+        if !intake::allows(p, name) {
+            bail!("{}", intake::refusal(p, name));
+        }
+    }
     match name {
         "skill" => {
             let n = input["name"].as_str().context("missing `name`")?;
@@ -2770,6 +2917,8 @@ async fn run_tool(
         "colony_create" | "colony_exec" | "colony_list" | "colony_status" | "colony_destroy" => {
             colony_tool(name, input).map(text)
         }
+        "list" if c.path.is_some() => c.ws.run(name, input).await.map(text),
+        "submit_report" if c.path == Some(TaskType::Research) => submit_report(inner, input),
         "read" | "bash" => c.ws.run(name, input).await.map(text),
         "write" | "edit" if c.kind != AgentKind::Triage => c.ws.run(name, input).await.map(text),
         other => bail!("tool `{other}` is not available to you"),
@@ -2865,6 +3014,31 @@ async fn await_verdict(inner: &Arc<Inner>, approval: Approval) -> Verdict {
     });
     inner.set_status(agent, AgentStatus::Running);
     verdict
+}
+
+/// Research is done: file the report and end the task. Nothing was planned,
+/// branched or merged, and nothing waits for approval: a report changes nothing.
+fn submit_report(inner: &Arc<Inner>, input: &Value) -> Result<ToolOutcome> {
+    let report = intake::Report::from_json(input)?;
+    let rel = file_report(inner, &report)?;
+    Ok(ToolOutcome::Delivered(
+        Deliverable { summary: report.title.clone(), files: vec![rel.clone()], ..Default::default() },
+        format!("Report filed at {rel}. No ticket, branch or PR was made."),
+    ))
+}
+
+/// Write the report under `.backspace/reports/` and record it as a document,
+/// so the user's shell shows it under the session.
+fn file_report(inner: &Arc<Inner>, report: &intake::Report) -> Result<String> {
+    let rel = report.write(&inner.root)?;
+    inner.update(|s| {
+        crate::artifact::add(
+            s,
+            crate::artifact::Artifact { by: "main".into(), kind: "document".into(), title: report.title.clone(), path: Some(rel.clone()), ..Default::default() },
+        )
+    })?;
+    inner.log(MAIN, LogKind::System, format!("report filed at {rel}"));
+    Ok(rel)
 }
 
 async fn submit(inner: &Arc<Inner>, c: &Conversation, input: &Value) -> Result<ToolOutcome> {
@@ -3016,14 +3190,30 @@ async fn create_tickets(inner: &Arc<Inner>, caller: AgentId, input: &Value) -> R
 /// Returns their keys and whether it does. `planned`: the planner made it,
 /// so it answers to gate 2; a task you started yourself does not.
 fn create_batch(inner: &Inner, caller: AgentId, input: &Value, planned: bool) -> Result<(Vec<String>, bool)> {
+    // The task's path decides what may be planned (intake.rs), here in the one
+    // place both the API planner and a CLI planner's bridge go through:
+    // research plans nothing; a one-shot files exactly one validated ticket.
+    let path = if caller == MAIN { inner.state.lock().unwrap().intake.path } else { None };
+    let spec = match path {
+        Some(TaskType::Research) => bail!("{}", intake::refusal(TaskType::Research, "create_tickets")),
+        Some(TaskType::OneShot) => {
+            if let Some(k) = inner.state.lock().unwrap().intake.spec_key.clone() {
+                bail!("this one-shot already has its ticket (`{k}`): call work_tickets");
+            }
+            Some(intake::OneShotSpec::from_tickets(input)?)
+        }
+        _ => None,
+    };
+    let one_shot = spec.is_some();
     let specs = input["tickets"]
         .as_array()
         .context("`tickets` must be an array")?;
     if specs.is_empty() {
         bail!("no tickets given");
     }
+    // A one-shot's lightweight spec stands in for the plan, so there is no plan gate.
     let needs_approval =
-        caller == MAIN && inner.cfg.workflow.plan_approval && !inner.cfg.orchestrator.auto_approve;
+        caller == MAIN && inner.cfg.workflow.plan_approval && !inner.cfg.orchestrator.auto_approve && !one_shot;
     let state = if needs_approval {
         TicketState::Proposed
     } else {
@@ -3053,7 +3243,7 @@ fn create_batch(inner: &Inner, caller: AgentId, input: &Value, planned: bool) ->
             }
             batch.push(t);
         }
-        if caller == MAIN && planned {
+        if caller == MAIN && planned && !one_shot {
             // Earlier tickets count toward coverage only where they said what they cover.
             let earlier = s.tickets.iter().filter(|t| t.owner == MAIN && !t.covers.is_empty() && t.state != TicketState::Wontfix);
             plan_gate(&inner.root, earlier.chain(batch.iter()))?;
@@ -3061,11 +3251,17 @@ fn create_batch(inner: &Inner, caller: AgentId, input: &Value, planned: bool) ->
         s.tickets.extend(batch.iter().cloned());
         Ok(batch)
     })?;
-    if caller == MAIN && planned && !needs_approval {
+    if caller == MAIN && planned && !needs_approval && !one_shot {
         plan_passed(&inner.root, GateBy::Rules);
     }
     for t in &batch {
         t.write(&inner.root);
+    }
+    if let Some(spec) = spec {
+        let rel = spec.write(&inner.root).with_context(|| format!("filed ticket `{}` but could not write its handoff file", spec.key))?;
+        inner.update(|s| s.intake.spec_key = Some(spec.key.clone()));
+        inner.save();
+        inner.log(MAIN, LogKind::System, format!("one-shot spec handed off at {rel}"));
     }
     Ok((batch.iter().map(|t| t.key.clone()).collect(), needs_approval))
 }
@@ -3490,6 +3686,7 @@ fn run_worker_with(
         let mut c = Conversation {
             id,
             kind: AgentKind::Worker,
+            path: None,
             ticket: Some(key),
             can_spawn,
             ws: inner.workspace(&dir),
@@ -3576,6 +3773,7 @@ async fn scouts(inner: &Arc<Inner>, c: &Conversation, input: &Value) -> Result<S
             let mut sc = Conversation {
                 id,
                 kind: AgentKind::Scout,
+                path: None,
                 ticket: None,
                 can_spawn: false,
                 ws: inner.workspace(&dir),
@@ -3820,6 +4018,7 @@ fn run_triage(inner: Arc<Inner>, key: String) -> BoxFuture<'static, ()> {
             let mut c = Conversation {
                 id,
                 kind: AgentKind::Triage,
+                path: None,
                 ticket: Some(key.clone()),
                 can_spawn: false,
                 ws: inner.workspace(&dir),
@@ -4061,6 +4260,9 @@ async fn bridge_handle(
                 json!({"text": format!("Created {keys_s}. Call work_tickets to dispatch them.")})
             }
         }),
+        "/v1/plan/dispatch" if inner.state.lock().unwrap().intake.path == Some(TaskType::Research) => {
+            Err(anyhow!("{}", intake::refusal(TaskType::Research, "work_tickets")))
+        }
         "/v1/plan/dispatch" => {
             let keys = body["keys"].as_array().map(|a| a.iter().filter_map(|k| k.as_str().map(String::from)).collect());
             inner.planner_queue.lock().unwrap().push(PlanAction::Dispatch(keys));

@@ -280,6 +280,19 @@ impl Router {
     }
 
     pub async fn route(&self, role: AgentRole, task: &str, context: &str) -> Result<Decision> {
+        self.route_with(role, task, context, None).await
+    }
+
+    /// Classify a task with this router's decision model and threshold, with no
+    /// model call and no routing. Intake uses it to decide whether to ask.
+    pub fn classify(&self, task: &str) -> Result<crate::decision::Triage> {
+        crate::decision::classify(self.decider.as_ref(), task, self.cfg.router.triage_threshold)
+    }
+
+    /// `route`, for a task whose classification is already known (the user
+    /// answered intake's question, or intake classified it): the planner
+    /// starts on the rung that classification allows rather than reclassifying.
+    pub async fn route_with(&self, role: AgentRole, task: &str, context: &str, known: Option<crate::decision::Triage>) -> Result<Decision> {
         let mut candidates = self.cfg.usable_models();
         // A local provider that is not listening is not a candidate. The injected
         // tiny model sits at tier 0, so without this the "fall back" in
@@ -351,7 +364,7 @@ impl Router {
         // decider that fails leaves the task unclassified, which starts mid
         // rather than failing the turn or reaching for the dearest model.
         let (triage, triage_note) = if role == AgentRole::Main {
-            match crate::decision::classify(self.decider.as_ref(), task, self.cfg.router.triage_threshold) {
+            match known.map(Ok).unwrap_or_else(|| self.classify(task)) {
                 Ok(t) => (Some(t), None),
                 Err(e) => (None, Some(format!("task not classified, starting mid: {e:#}"))),
             }

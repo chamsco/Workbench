@@ -500,6 +500,9 @@ impl Config {
         if !(self.router.triage_threshold > 0.0 && self.router.triage_threshold <= 1.0) {
             bail!("router.triage_threshold must be above 0 and at most 1");
         }
+        if self.intake.max_asks == 0 {
+            bail!("intake.max_asks must be at least 1: 0 would never ask, and the task could not be told apart");
+        }
         if let Err(e) = self.policy.check_complete() {
             bail!(e);
         }

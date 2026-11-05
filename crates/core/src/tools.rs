@@ -176,6 +176,22 @@ impl Workspace {
                 tokio::fs::write(&path, text.replacen(&old, &new, 1)).await?;
                 Ok(format!("edited {}", self.rel(&path)))
             }
+            "list" => {
+                let path = self.resolve(input["path"].as_str().unwrap_or("."))?;
+                let mut dir = tokio::fs::read_dir(&path).await?;
+                let mut names = Vec::new();
+                while let Some(e) = dir.next_entry().await? {
+                    let name = e.file_name().to_string_lossy().into_owned();
+                    // Our own folder and git's are not the project.
+                    if name == ".git" || name == ".backspace" {
+                        continue;
+                    }
+                    let is_dir = e.file_type().await.map(|t| t.is_dir()).unwrap_or(false);
+                    names.push(if is_dir { format!("{name}/") } else { name });
+                }
+                names.sort();
+                Ok(cap(names.join("\n")))
+            }
             "bash" => {
                 let (code, text) = self.sh(&s("command")?).await?;
                 Ok(format!("{text}\n[exit {code}]"))
