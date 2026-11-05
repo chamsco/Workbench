@@ -262,6 +262,8 @@ pub struct Scope {
 pub struct ThreadInfo {
     pub id: String,
     pub title: String,
+    /// When the thread was added (ms), for sorting and grouping the sidebar.
+    pub created: u64,
     pub updated: u64,
     pub pinned: bool,
     pub route: Route,
@@ -602,6 +604,7 @@ impl Chats {
             .map(|t| ThreadInfo {
                 id: t.id.clone(),
                 title: t.title.clone(),
+                created: t.created,
                 updated: t.updated,
                 pinned: t.pinned,
                 route: t.route.clone(),
@@ -1096,7 +1099,32 @@ impl Chats {
         let me = self.clone();
         let tid = id.to_string();
         let task = self.rt.spawn(async move {
-            let res = me.run(&tid, &mid, &route, &ctx, &call).await;
+            let mut res = me.run(&tid, &mid, &route, &ctx, &call).await;
+            // Auto fallback: the agent's sheet may carry a chain. Clear the
+            // half-written reply, then try the next route once each.
+            if res.is_err() {
+                let chain = call.agent.as_ref().map(|a| a.fallbacks.clone()).unwrap_or_default();
+                for fb in chain {
+                    if fb == route {
+                        continue;
+                    }
+                    me.with_msg(&tid, &mid, |m| {
+                        m.text.clear();
+                        m.error = None;
+                        m.status = Status::Sending;
+                    });
+                    res = me.run(&tid, &mid, &fb, &ctx, &call).await;
+                    if res.is_ok() {
+                        me.with_msg(&tid, &mid, |m| {
+                            m.via = Some(fb.clone());
+                            if fb.model.is_some() {
+                                m.model = fb.model.clone();
+                            }
+                        });
+                        break;
+                    }
+                }
+            }
             if mentioned {
                 let _ = me.edit_thread(&tid, |t| t.cli_session = None);
             }

@@ -46,6 +46,7 @@ fn agent(name: &str, job: &str) -> Agent {
         avatar: Avatar::default(),
         personality: String::new(),
         route: Route { kind: RouteKind::Cli, provider: "claude".into(), model: None },
+        fallbacks: vec![],
         shared: vec![],
         computer: Computer::default(),
         memory: true,

@@ -43,6 +43,10 @@ pub struct Agent {
     #[serde(default)]
     pub personality: String,
     pub route: Route,
+    /// Routes to try, in order, when the one above fails (a usage limit, a
+    /// missing CLI). Empty means no fallback.
+    #[serde(default)]
+    pub fallbacks: Vec<Route>,
     /// Folders it may use besides its own.
     #[serde(default)]
     pub shared: Vec<String>,
@@ -940,6 +944,7 @@ mod tests {
             avatar: Avatar::default(),
             personality: String::new(),
             route: Route { kind: crate::chat::RouteKind::Cli, provider: "claude".into(), model: None },
+            fallbacks: vec![],
             shared: vec![],
             computer: Computer::default(),
             memory: true,

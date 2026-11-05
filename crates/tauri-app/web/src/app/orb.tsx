@@ -26,6 +26,7 @@
 import { useEffect, useMemo, useRef } from "react";
 
 import { agentById, type Agent } from "../bridge";
+import { PackageFace, hasPackageFace } from "./bot-face";
 
 // ---------------------------------------------------------------- the brain
 
@@ -451,7 +452,7 @@ export function Stack({ ids, size = 22 }: { ids: string[]; size?: number }) {
           className="absolute overflow-hidden rounded-full ring-2 ring-(--surface)"
           style={{ width: size, height: size, left: i * step, zIndex: shown.length - i }}
         >
-          <Orb agent={agentById(id)} size={size} />
+          {hasPackageFace() ? <PackageFace color={agentById(id)?.avatar.color} size={size} /> : <Orb agent={agentById(id)} size={size} />}
         </span>
       ))}
       {ids.length > shown.length && (

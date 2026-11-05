@@ -134,13 +134,18 @@ async function useTabsFor(workspace) {
   let t = null;
   try { t = await invoke("tabs_for", { workspace: workspace || "" }); } catch { t = null; }
   const tabs = (t && Array.isArray(t.tabs) && t.tabs.length) ? t.tabs : (prefs.__tabs || []);
+  // A layout can come back empty (fresh store, or a project that never had a
+  // canvas). Code's workbench assumes an active tab, so seed the single empty
+  // canvas the IDE opens with instead of letting renderGrid read panes of
+  // undefined.
+  if (!tabs.length) tabs.push({ name: "Canvas", panes: [{ kind: "empty", agent: 0, url: null }], layout: null });
   tabsNow = { tabs, active: Math.min((t && t.active) || 0, Math.max(0, tabs.length - 1)) };
   S.pane.clear();
   return tabsNow;
 }
 let machines = [], share = null, upd = null, hasProject = true;
 const S = {
-  mode: "chat", codeView: "agents", chatView: "chat", wb: "canvases",
+  mode: "code", codeView: "agents", chatView: "chat", wb: "canvases",
   focus: 0, max: null, side: "projects", review: null,
   drawer: false, pinned: false, ticket: null, settings: false,
   pane: new Map(),         // per-canvas transient state, by tab:index
@@ -294,9 +299,14 @@ function applyAppearance() {
   const dark = r.dataset.theme === "dark" || (!r.dataset.theme && matchMedia("(prefers-color-scheme: dark)").matches);
   const set = (k, v) => { if (v) r.style.setProperty(k, v); else r.style.removeProperty(k); };
   set("--bs-accent", (dark && a.accent_dark) || a.accent);
+  set("--bs-ascii", a.ascii);
+  set("--bs-chat-bg", a.bg);
   set("--page-bg", a.bg);
   set("--fg", a.fg);
   set("--page-fg", a.fg);
+  // The chat face reads Whirl's `--foreground`; a chosen text colour has to
+  // reach it too, or the popover's Text row would only recolour the chrome.
+  set("--foreground", a.fg);
   set("--font-ui", a.ui_font);
   set("--font-mono", a.code_font);
   // Contrast only moves the secondary levels; an explicit foreground wins.
@@ -343,16 +353,19 @@ for (const sel of ["#gear", "#gearBtn"]) {
 // (you and one CLI in the project) and Agents (the workbench).
 const agentsOn = () => S.mode === "code" && S.codeView === "agents";
 function setMode(m, save = true) {
-  const uses = (prefs.uses && prefs.uses.length ? prefs.uses : ["chat", "code"]);
-  if ((m === "chat" || m === "code") && !uses.includes(m)) m = uses[0];
+  const uses = (prefs.uses && prefs.uses.length ? prefs.uses : ["code"]).filter(z => z !== "chat");
+  if (m === "chat") m = "code";
+  if (m === "code" && !uses.includes("code")) uses.unshift("code");
   if (!m || (m.startsWith("app:") && !(window.Apps && Apps.get(m.slice(4))))) m = uses[0];
-  if (!["chat", "code", "memory", "apps"].includes(m) && !m.startsWith("app:")) m = uses[0];
+  if (!["code", "memory", "apps", "plugins", "skills", "crew"].includes(m) && !m.startsWith("app:")) m = uses[0];
   S.mode = m;
   const w = $("#win");
-  for (const z of ["chat", "code", "memory", "apps"]) w.classList.toggle("m-" + z, m === z);
+  for (const z of ["chat", "code", "memory", "apps", "plugins", "skills", "crew"]) w.classList.toggle("m-" + z, m === z);
   w.classList.toggle("m-app", m.startsWith("app:"));
+  if (window.Quiet && Quiet.fromMode) Quiet.fromMode(m);
   w.classList.toggle("pair-on", m === "code" && S.codeView === "pair");
-  w.classList.toggle("agents-on", m === "chat" && S.chatView === "agents");
+  w.classList.toggle("agents-on", m === "crew");
+  w.classList.remove("agents-on");
   w.classList.toggle("single-use", uses.length === 1);
   if (S.settings) { S.settings = false; $("#settings").hidden = true; }
   if (S.drawer && !agentsOn()) setDrawer(false);
@@ -370,6 +383,7 @@ function setCodeView(v) {
 function setChatView(v) {
   S.chatView = v === "agents" ? "agents" : "chat";
   prefs.chat_view = S.chatView; invoke("set_view_prefs", { chatView: S.chatView, motion: null });
+  if (window.Quiet) { Quiet.go(S.chatView === "agents" ? "crew" : "code"); return; }
   setMode("chat");
 }
 
@@ -780,10 +794,10 @@ addEventListener("keydown", e => {
   if (e.key === "Escape") { if (!$("#pop").hidden) closePop(); else if (S.settings) closeSettings(); else if (S.drawer) setDrawer(false); }
   if (!(e.metaKey || e.ctrlKey)) return;
   if (!$("#onboard").hidden) return;
-  if (e.key === "n") { e.preventDefault(); setMode("chat"); Chat.newChat(); return; }
+  if (e.key === "n") { e.preventDefault(); setMode("code"); S.codeView = "pair"; setCodeView("pair"); Chat.newChat(); return; }
   if (e.key === "k") { e.preventDefault(); Shell.search(); return; }
   if (e.key === "o") { e.preventDefault(); pickProject(); return; }
-  if (e.key === "j") { e.preventDefault(); setMode(S.mode === "chat" ? "code" : "chat"); return; }
+  if (e.key === "j") { e.preventDefault(); setMode("code"); setCodeView(S.codeView === "pair" ? "agents" : "pair"); return; }
   if (e.key === "/" ) { e.preventDefault(); if (window.Shell) Shell.toggleSplit(); return; }
   if (!agentsOn()) { if (e.key === ",") { e.preventDefault(); openSettings(); } if (e.key === "\\") { e.preventDefault(); setSide($("#win").classList.contains("side-closed")); } return; }
   const i = +e.key;
@@ -1207,8 +1221,7 @@ function richOn() { try { return localStorage.getItem("bs.rich") !== "0"; } catc
 // muted toward the page, so panes full of text stay readable.
 function syncArt() {
   const chatSurface =
-    S.mode === "chat" ||
-    (S.mode === "code" && (S.codeView === "pair" || !hasProject));
+    S.mode === "code" && (S.codeView === "pair" || !hasProject);
   // Settings is a frosted card: it needs the painting behind it, or the frost has
   // nothing to show and it reads as the flat slab it used to be.
   if (window.Art) Art.setVivid(chatSurface || S.settings);
@@ -1216,7 +1229,7 @@ function syncArt() {
 function renderGrid() {
   syncArt();
   const g = $("#grid"), t = tab();
-  if (!hasProject) { renderWbv(); S.els = new Map(); S.ph = null; Home.render(g); return; }
+  if (!hasProject || !t) { renderWbv(); S.els = new Map(); S.ph = null; Home.render(g); return; }
   renderWbv();
   if (S.wb !== "canvases") { renderAlt(); return; }
   if (S.focus >= t.panes.length) S.focus = 0;
@@ -2019,7 +2032,6 @@ function renderSettings() {
   el.innerHTML = `<div class="setwrap"><nav class="setnav" aria-label="Settings sections">${nav}</nav><div class="setbody"><div class="set">
     <div class="set-h"><h1>Settings</h1><span class="sp"></span><button class="btn" id="setRerun">Run setup again</button><button class="ib" id="setClose" aria-label="Close settings">${icon("close")}</button></div>
     <section id="set-general"><h2>General</h2><p class="lead">What Backspace is for, where it looks for projects, and the open project.</p>
-      <div class="line"><span class="lab">What shows in the app<small>With both on, switch from the top of the sidebar.</small></span><div class="segc">${[["chat", "Agents"], ["code", "Workbench"]].map(([k, l]) => `<button aria-pressed="${(prefs.uses || ["chat", "code"]).includes(k)}" data-use="${k}">${l}</button>`).join("")}</div></div>
       ${hasProject ? `<div class="line"><span class="lab">Workspace<small class="mono">${esc(snap.workspace || "—")}</small></span></div>
       <div class="line"><span class="lab">Config<small class="mono">${esc(snap.config_source || "built-in defaults")}</small></span></div>` : ""}</section>
     <section id="set-appearance"><h2>Appearance</h2><p class="lead">A theme, then the colours and fonts on top of it.</p>
@@ -2140,13 +2152,6 @@ function renderSettings() {
   if (pq && companion.pair) invoke("qr_svg", { text: companion.pair }).then(svg => { if (pq.isConnected) pq.innerHTML = svg; }).catch(() => {});
   const pc = $("#phoneCopy", el); if (pc) pc.onclick = () => { navigator.clipboard.writeText(companion.pair); toast("Pairing link copied", "ok"); };
   const pn = $("#phoneNew", el); if (pn) pn.onclick = async () => { companion = await invoke("set_companion", { enabled: true, newToken: true }); toast("Every paired phone was signed out", "ok"); renderSettings(); };
-  $$("[data-use]", el).forEach(b => (b.onclick = async () => {
-    const cur = prefs.uses && prefs.uses.length ? prefs.uses : ["chat", "code"], k = b.dataset.use;
-    const next = ["chat", "code"].filter(u => (u === k ? !cur.includes(u) : cur.includes(u)));
-    if (!next.length) { toast("Keep at least one on", "err"); return; }
-    prefs.uses = next; await invoke("set_uses", { uses: next });
-    setMode(S.mode, false); openSettings("general");
-  }));
   $("#setRerun").onclick = () => { closeSettings(); Onboard.open(); };
   if (window.Providers) { Providers.mount($("#setProviders")); if (nightly()) Providers.mountPlan($("#setPlan")); }
   renderConnections(el); renderSkills(el); renderColony(el); renderArchived(el); renderAccounts(el);
@@ -2294,10 +2299,10 @@ async function renderSkills(el) {
     + `<div class="skilllist">${shown.length ? shown.map(s => `<div class="skill"><b>${esc(s.name)}</b>
           <span>${esc(s.description || "No description.")}</span>
           <small>${esc(SKILL_ORIGIN[s.origin] || s.origin)}${s.injected && s.injected.length ? ` · injected into ${s.injected.map(esc).join(", ")}` : ""}${s.files.length > 1 ? ` · ${s.files.map(esc).join(", ")}` : ""}</small></div>`).join("")
-      : `<div class="nothing">No skill matches “${esc(q)}”.</div>`}</div>`
-    + `<div class="line"><span class="lab">Add one<small>Write a folder with a <code>SKILL.md</code> in it. <b>${esc(d.user_dir || d.dirs[0] || "")}</b> is yours; a folder of the same name in <code>&lt;project&gt;/.backspace/skills/</code> overrides a built-in for that project only.</small></span>
+      : `<div class="nothing">${q ? `No skill matches “${esc(q)}”.` : "No skills yet. Add a folder with a SKILL.md, or copy the template below."}</div>`}</div>`
+    + `<div class="line"><span class="lab">Add one<small>Write a folder with a <code>SKILL.md</code> in it. <b>${esc(d.user_dir || (d.dirs || [])[0] || "")}</b> is yours; a folder of the same name in <code>&lt;project&gt;/.backspace/skills/</code> overrides a built-in for that project only.</small></span>
         <button class="btn" id="skOpen">Open my skills folder</button><button class="btn" id="skTpl">Copy the template</button></div>`
-    + `<div class="line"><span class="lab">Read from<small class="mono">${(d.dirs || []).map(esc).join(" · ")}</small></span></div>`;
+    + `<div class="line"><span class="lab">Read from<small class="mono">${(d.dirs || []).map(esc).join(" · ") || "No skill folders on this machine yet."}</small></span></div>`;
   const qi = $("#skQ", box);
   if (qi) {
     qi.oninput = () => { box.dataset.q = qi.value; clearTimeout(skQ); skQ = setTimeout(() => renderSkills(el), 200); };
@@ -2442,6 +2447,7 @@ async function refresh(full) {
   if (window.Providers) Providers.refreshQuiet();
   renderBrand(); renderMachines(); renderList(); renderCard(); renderTabs(); renderDrawer();
   applyCanvasOps(); watchAgents();  if (window.Shell) Shell.refresh();
+  if (window.Quiet) Quiet.render();
   if (window.RPanel) RPanel.refresh();
   if (!agentsOn() && !(window.Shell && Shell.showing("canvas"))) { lastShape = ""; return; }
   // Rebuild canvases when the machine or its agents appear; otherwise update in place.
@@ -2454,7 +2460,16 @@ async function refresh(full) {
 }
 // Coalesce bursts of harness events into one refresh per frame.
 TAURI.event.listen("state", () => { if (!queued) { queued = true; requestAnimationFrame(() => refresh(false)); } });
-addEventListener("resize", () => { setSide(!narrow()); });
+// Only react when the window actually crosses the narrow breakpoint. This used
+// to run on every resize and call setSide(true) on a wide window, so dragging
+// the window open re-opened a sidebar the user had closed.
+let wasNarrow = narrow();
+addEventListener("resize", () => {
+  const now = narrow();
+  if (now === wasNarrow) return;
+  wasNarrow = now;
+  setSide(!now);
+});
 
 // After every script has run (chat.js and friends load after this one).
 addEventListener("DOMContentLoaded", async () => {
@@ -2472,7 +2487,7 @@ addEventListener("DOMContentLoaded", async () => {
     prefs.active_tab = 0;
   }
   applyTheme(); renderSeg(); setSide(false);
-  S.mode = prefs.mode || "chat";
+  S.mode = prefs.mode === "chat" ? "code" : (prefs.mode || "code");
   S.codeView = prefs.code_view === "pair" ? "pair" : "agents";
   S.chatView = prefs.chat_view === "agents" ? "agents" : "chat";
   // The IDE opens on its canvases — one empty canvas, which asks what to put
@@ -2485,8 +2500,13 @@ addEventListener("DOMContentLoaded", async () => {
   if (first.workspace && (boot.bench || !prefs.onboarded)) { S.mode = "code"; S.codeView = "agents"; }
   if (window.Shell) await Shell.init(boot);
   if (window.Chat) await Chat.init();
+  // Mount the chat face once, up front. Its sidebar is the project tree shared
+  // by the ADE and the IDE; waiting until the ADE is first shown left the IDE's
+  // sidebar empty until you visited the other surface.
+  if (window.Chat && Chat.render) Chat.render();
   setMode(S.mode, false);
   await refresh(true);
+  if (window.Quiet) Quiet.init();
   // Starting in Code: reopen the last project, as editors do.
   if (S.mode === "code" && !snap.workspace && machine().local && (prefs.projects || [])[0] && !boot.bench) openProject(prefs.projects[0]);
   if (!prefs.onboarded && !boot.bench) Onboard.open();
