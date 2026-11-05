@@ -44,9 +44,6 @@ reply() { printf '{"type":"result","result":"%s","session_id":"s1","total_cost_u
 case "$here" in
   _run)
     case "$*" in
-      *"research agent"*)
-        post /v1/plan/create "$one" > ./.research-plan
-        reply "FINDING: alpha is the answer" ;;
       *"one-shot agent"*)
         post /v1/plan/create "$two" > ./.two
         post /v1/plan/create "$one" > ./.one
@@ -167,27 +164,6 @@ fn an_unsure_task_is_asked_about_before_the_cli_is_launched() {
     wait(&h, "the CLI to run", |_| launches(&run) == 1);
     let said = std::fs::read_to_string(run.join(".in-1")).unwrap();
     assert!(said.contains("hmm"), "the CLI is given the task: {said}");
-}
-
-#[test]
-fn a_cli_research_task_cannot_plan_and_its_answer_is_filed_as_the_report() {
-    let (h, ws, run) = open("research");
-    h.send("research the pros and cons of sqlite and write up a report, no code");
-    let s = wait(&h, "the report", |s| s.agents[0].status == AgentStatus::Approved);
-    let args = std::fs::read_to_string(run.join(".args-1")).unwrap();
-    assert!(args.contains("research agent"), "the CLI is told it is on the research path: {args}");
-
-    // Backspace's planning tool refused, in code.
-    let refused = std::fs::read_to_string(run.join(".research-plan")).unwrap();
-    assert!(refused.to_lowercase().contains("research"), "{refused}");
-    assert!(s.tickets.is_empty() && s.approvals.is_empty());
-
-    // The CLI's final answer is the report.
-    let d = s.agents[0].deliverable.as_ref().expect("the report is the deliverable");
-    assert!(d.files[0].starts_with(".backspace/reports/"), "{:?}", d.files);
-    let text = std::fs::read_to_string(ws.join(&d.files[0])).unwrap();
-    assert!(text.contains("FINDING: alpha is the answer"), "{text}");
-    assert_eq!(s.intake.path, None);
 }
 
 #[test]

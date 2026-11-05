@@ -1490,6 +1490,14 @@ async fn main_loop(inner: Arc<Inner>, mut inbox: mpsc::UnboundedReceiver<String>
                 }
             }
             let path = inner.state.lock().unwrap().intake.path;
+            if path == Some(TaskType::Research) && inner.planner.is_some() {
+                // A report-only task cannot be kept report-only in a coding CLI:
+                // it has its own file and shell tools, and nothing in code gates
+                // them (that is M6's sandbox). So it does not run, and costs nothing.
+                inner.update(|s| s.intake = Default::default());
+                inner.save();
+                bail!("research can't run in a coding CLI. The CLI has its own file and shell tools, and nothing here stops it changing files, running git or opening a PR, so a report-only task can't be kept report-only. Nothing was run and nothing was spent. Switch the planner to an API model, or ask for it as a long task.");
+            }
             if let Some(cli) = inner.planner.clone() {
                 return plan_on_cli(&inner, &cli, text, path).await.map(|d| d.map_or(TurnEnd::Replied, TurnEnd::Delivered));
             }
@@ -1516,12 +1524,14 @@ async fn main_loop(inner: Arc<Inner>, mut inbox: mpsc::UnboundedReceiver<String>
         match res {
             Some(Ok(TurnEnd::Delivered(d))) => {
                 inner.agent(MAIN, |a| a.deliverable = Some(d));
-                inner.set_status(MAIN, AgentStatus::Approved);
-                inner.trace_finish(MAIN, None);
-                // A research or one-shot task is over: its next message is a new task.
+                // A research or one-shot task is over: its next message is a new
+                // task. Released before the status changes, so whoever sees the
+                // task delivered also sees its path gone.
                 if end_restricted_path(&inner) {
                     convo = None;
                 }
+                inner.set_status(MAIN, AgentStatus::Approved);
+                inner.trace_finish(MAIN, None);
             }
             Some(Ok(TurnEnd::Replied)) => {
                 inner.set_status(MAIN, AgentStatus::Idle);
@@ -1538,13 +1548,13 @@ async fn main_loop(inner: Arc<Inner>, mut inbox: mpsc::UnboundedReceiver<String>
                 }
                 inner.planner_queue.lock().unwrap().clear();
                 inner.log(MAIN, LogKind::System, "stopped by you");
-                inner.set_status(MAIN, AgentStatus::Idle);
-                inner.trace_finish(MAIN, Some("stopped".into()));
                 // Stop is how a research or one-shot task is given up: the next
                 // message is asked about afresh. (A long task keeps its conversation.)
                 if end_restricted_path(&inner) {
                     convo = None;
                 }
+                inner.set_status(MAIN, AgentStatus::Idle);
+                inner.trace_finish(MAIN, Some("stopped".into()));
             }
         }
         if let Some(c) = &convo {
@@ -1698,7 +1708,6 @@ async fn plan_on_cli(inner: &Arc<Inner>, cli: &str, text: String, path: Option<T
     let pin = cli_model(inner, MAIN, GateRole::Orchestration, model)?;
     let bin = crate::harnesses::which(crate::harnesses::bin_for(cli))
         .ok_or_else(|| anyhow!("`{cli}` is not installed on this machine"))?;
-    let task = text.clone();
     let mut prompt = text;
     loop {
         let session = inner.state.lock().unwrap().planner_session.clone();
@@ -1712,16 +1721,27 @@ async fn plan_on_cli(inner: &Arc<Inner>, cli: &str, text: String, path: Option<T
         }
         let actions = std::mem::take(&mut *inner.planner_queue.lock().unwrap());
         if actions.is_empty() {
-            // Research in a CLI: its final answer is the report (it has no
-            // submit_report tool), filed here, in code.
-            if path == Some(TaskType::Research) {
-                if reply.trim().is_empty() {
-                    bail!("the research turn ended without a report");
+            // A one-shot in a CLI has no submit_deliverable to say it is over, so
+            // it is over when its ticket settles: done is a delivery (the
+            // worker's deliverable is the task's), failed or dropped releases the
+            // path without claiming one.
+            if path == Some(TaskType::OneShot) {
+                let settled = {
+                    let s = inner.state.lock().unwrap();
+                    let ticket = s.intake.spec_key.as_deref().and_then(|k| s.ticket(k)).cloned();
+                    ticket.filter(|t| t.state.is_settled()).map(|t| {
+                        let by_worker = s.agents.iter().find(|a| a.ticket.as_deref() == Some(t.key.as_str())).and_then(|a| a.deliverable.clone());
+                        (t, by_worker)
+                    })
+                };
+                if let Some((t, by_worker)) = settled {
+                    if t.state != TicketState::Done {
+                        end_restricted_path(inner);
+                        return Ok(None);
+                    }
+                    let summary = if reply.trim().is_empty() { t.title.clone() } else { truncate(reply.trim(), 400).to_string() };
+                    return Ok(Some(Deliverable { summary, ..by_worker.unwrap_or_default() }));
                 }
-                let title = format!("Research: {}", truncate(task.lines().next().unwrap_or("").trim(), 70));
-                let report = intake::Report { title, body: reply };
-                let rel = file_report(inner, &report)?;
-                return Ok(Some(Deliverable { summary: report.title, files: vec![rel], ..Default::default() }));
             }
             return Ok(None);
         }
@@ -1761,16 +1781,10 @@ fn planner_system(inner: &Inner, path: Option<TaskType>) -> String {
         note: None,
         triage: None,
     };
-    let restricted = path.filter(|p| *p != TaskType::Long);
-    if restricted == Some(TaskType::Research) {
-        return format!(
-            "{}\n\n# Your tools here\n\nYou run inside a coding CLI and have no `submit_report` tool: your final message is the report, in Markdown, and Backspace files it. Backspace's planning tools are refused on this path. Do not change files, run git or open a pull request.",
-            path_system(TaskType::Research, &d)
-        );
-    }
-    let base = match restricted {
-        Some(p) => path_system(p, &d),
-        None => inner.system_prompt(AgentKind::Main, 0, &d),
+    // Research never reaches a CLI planner (main_loop refuses it); a one-shot does.
+    let base = match path {
+        Some(TaskType::OneShot) => path_system(TaskType::OneShot, &d),
+        _ => inner.system_prompt(AgentKind::Main, 0, &d),
     };
     format!(
         "{}{}\n\n# Your tools here\n\nYou run inside a coding CLI. Backspace's planning tools are MCP tools named `create_tickets` and `work_tickets` (server `backspace`). Both return at once: after calling either, end your turn with a one-line note. The user's verdict on a plan, or each ticket's result, comes back as your next message. Do not build the tickets yourself; agents do that on their own branches, and their accepted work is merged into this checkout (branch `{}`), where you can read and verify it.",

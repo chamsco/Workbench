@@ -84,9 +84,47 @@ fn bash() -> &'static std::path::Path {
 }
 
 impl Workspace {
-    /// Lexically resolve `p` under the root and refuse anything that escapes.
-    /// Bash can still leave the workspace; this guards the file tools only.
+    /// Resolve `p` under the root and refuse anything that escapes, by name
+    /// (`..`, an absolute path elsewhere) or through a symlink that leaves the
+    /// workspace. Bash can still leave the workspace; this guards the file
+    /// tools only, and it checks at the moment of the call (a link made
+    /// between the check and the open is not caught, and would take a second
+    /// process; bash reaches further than that anyway).
     pub fn resolve(&self, p: &str) -> Result<PathBuf> {
+        let out = self.resolve_lexical(p)?;
+        self.refuse_symlink_escape(&out, p)?;
+        Ok(out)
+    }
+
+    /// Every component of `path` that already exists and is a symlink must
+    /// resolve to somewhere inside the root. A dangling link is refused too:
+    /// writing through it would create a file at its target, wherever that is.
+    /// Parts that do not exist yet cannot be followed, so they are not checked.
+    fn refuse_symlink_escape(&self, path: &Path, asked: &str) -> Result<()> {
+        let root = self.root.canonicalize().unwrap_or_else(|_| self.root.clone());
+        let rel = path.strip_prefix(&self.root).unwrap_or(path);
+        let mut cur = self.root.clone();
+        for c in rel.components() {
+            cur.push(c);
+            let meta = match std::fs::symlink_metadata(&cur) {
+                Ok(m) => m,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+                Err(e) => bail!("cannot check {asked}: {e}"),
+            };
+            if meta.file_type().is_symlink() {
+                let real = cur
+                    .canonicalize()
+                    .map_err(|_| anyhow!("{asked} goes through a symlink that does not resolve, so it is refused"))?;
+                if !real.starts_with(&root) {
+                    bail!("{asked} goes through a symlink that leaves the workspace, so it is refused");
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// The path `p` names under the root, worked out by name alone.
+    fn resolve_lexical(&self, p: &str) -> Result<PathBuf> {
         let rel = Path::new(p);
         let rel = rel.strip_prefix(&self.root).unwrap_or(rel);
         if rel.is_absolute() {
