@@ -1780,19 +1780,6 @@
 .win.q-on .qwork-ic:first-child[data-q-tip]:hover::before,
 .win.q-on .qwork-ic:first-child[data-q-tip]:focus-visible::before { left: 0; transform: none; }
 
-/* sidebar foot: settings, night, glass */
-.qsidefoot {
-  flex: none; display: flex; align-items: center; gap: 2px; padding: 8px 10px;
-  border-top: 1px solid var(--q-line-2);
-}
-.qsidefoot .qicon { width: 28px; height: 28px; border-radius: 8px; }
-.qsidefoot .qicon .qi { width: 15px; height: 15px; }
-.qsidefoot .qicon.on, .qsidefoot .qicon:hover { background: var(--q-soft); color: var(--q-ink); }
-.qsidefoot .qicon:focus-visible { outline: 2px solid var(--q-blue); outline-offset: 2px; }
-.qsidefoot [data-q-tip]:hover::before, .qsidefoot [data-q-tip]:focus-visible::before { left: 0; transform: none; top: auto; bottom: calc(100% + 6px); }
-.win.q-on.side-closed .qsidefoot { display: none; }
-.win.q-glass .qsidefoot { border-top-color: rgba(255, 255, 255, .12); }
-
 /* bottom strip: help, rule, Today / Machines / Team */
 .qdock { grid-template-columns: 1fr; }
 .qd-right { justify-content: flex-end; }
@@ -1800,3 +1787,98 @@
 .qd-dot { position: absolute; right: 3px; bottom: 3px; width: 6px; height: 6px; border-radius: 50%; background: var(--q-faint); box-shadow: 0 0 0 1.5px var(--q-side); }
 .qd-dot.on { background: var(--q-green); }
 .win.q-on .status { height: 28px; }
+
+
+/* ============================================================
+   ONE SHEET, ROUND THREE (Charles, 2026-11-05).
+   The bottom strip is the sheet's last row: settings / night / glass
+   centred under the sidebar, help and the three places at the right,
+   all on one line with a hairline above. No hairline under the top
+   bar, so the sheet reads as one piece in every skin.
+   ============================================================ */
+.win.q-on { grid-template-rows: minmax(0, 1fr) 40px; }
+.win.q-on .rail { grid-row: 1 / 3; }
+.win.q-on .status {
+  grid-column: 2 / -1; grid-row: 2; height: 40px; margin: 0 8px 8px 0; padding: 0;
+  background: var(--q-app); border: 1px solid var(--q-line) !important;
+  border-top: 1px solid var(--q-line-2) !important; border-radius: 0 0 12px 12px;
+  display: flex !important; align-items: stretch;
+}
+.win.q-on .qtop { border-bottom-color: transparent; }
+.win.q-on .side { margin-bottom: 0 !important; border-bottom: 0; border-radius: 0 !important; }
+.win.q-on .qview { margin-bottom: 0; border-bottom: 0; border-radius: 0; }
+.win.q-on .qsession { margin-bottom: 0; }
+.win.q-on .qfooter { margin-bottom: 0; border-bottom: 0; border-radius: 0; }
+.win.q-on.side-closed .qview, .win.q-on.side-closed .qsession, .win.q-on.side-closed .qfooter { border-radius: 0; }
+.win.q-on .gutter-side { bottom: 40px; }
+.qdock { display: flex; width: 100%; height: 100%; align-items: center; }
+.qd-foot { width: var(--side-w); flex: none; display: flex; align-items: center; justify-content: center; gap: 4px; }
+.win.q-on.side-closed .qd-foot { display: none; }
+.qd-foot .qicon { width: 28px; height: 28px; border-radius: 8px; }
+.qd-foot .qicon .qi { width: 15px; height: 15px; }
+.qd-foot .qicon.on, .qd-foot .qicon:hover { background: var(--q-soft); color: var(--q-ink); }
+.qd-foot .qicon:focus-visible { outline: 2px solid var(--q-blue); outline-offset: 2px; }
+.qd-right { flex: 1; padding-right: 10px; }
+.qdock [data-q-tip]:hover::before, .qdock [data-q-tip]:focus-visible::before { top: auto; bottom: calc(100% + 6px); }
+.qd-foot [data-q-tip]:hover::before { left: 0; transform: none; }
+.win.q-glass .status { background: rgba(16, 20, 27, .46); border-color: rgba(255, 255, 255, .13) !important; }
+.qd-dot { box-shadow: 0 0 0 1.5px var(--q-app); }
+
+/* ---- sidebar: group sessions by ---- */
+.qs-groupby { display: flex; gap: 2px; padding: 2px; margin: 2px 2px 4px; flex: none; border: 1px solid var(--q-line); border-radius: 9px; background: var(--q-soft); }
+.qs-groupby button { flex: 1; height: 24px; border-radius: 7px; font: 500 11px/1 var(--font-ui); color: var(--q-muted); }
+.qs-groupby button:hover { color: var(--q-ink); }
+.qs-groupby button.on { background: var(--q-card); color: var(--q-ink); box-shadow: 0 0 0 1px var(--q-line); }
+.qs-groupby button:focus-visible { outline: 2px solid var(--q-blue); outline-offset: 1px; }
+
+/* ---- project page: a command center ---- */
+.qh { max-width: 1180px; }
+.qh-hero {
+  height: 150px; border-radius: 14px; padding: 18px 20px; display: flex; align-items: flex-end;
+  background:
+    radial-gradient(80% 120% at 10% 0%, hsl(var(--qh-h) 38% 82%), transparent 60%),
+    radial-gradient(70% 110% at 95% 20%, hsl(calc(var(--qh-h) + 50) 34% 78%), transparent 62%),
+    hsl(var(--qh-h) 14% 88%);
+  border: 1px solid var(--q-line);
+}
+:root[data-theme="dark"] .qh-hero {
+  background:
+    radial-gradient(80% 120% at 10% 0%, hsl(var(--qh-h) 30% 24%), transparent 60%),
+    radial-gradient(70% 110% at 95% 20%, hsl(calc(var(--qh-h) + 50) 26% 20%), transparent 62%),
+    hsl(var(--qh-h) 10% 12%);
+}
+.qh-top { display: flex; align-items: flex-end; gap: 14px; min-width: 0; }
+.qh-mark { width: 52px; height: 52px; flex: none; border-radius: 14px; display: grid; place-items: center; background: var(--q-ink); color: var(--q-app); font: 600 16px/1 var(--font-ui); }
+.qh-top h1 { margin: 0 0 8px; font-size: 26px; font-weight: 600; letter-spacing: -.015em; color: var(--q-ink); }
+.qh-pills { display: flex; flex-wrap: wrap; gap: 6px; }
+.qh-pill { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border-radius: 999px; background: color-mix(in srgb, var(--q-app) 78%, transparent); border: 1px solid var(--q-line); font: 500 11.5px/1 var(--font-ui); color: var(--q-ink-2); }
+.qh-pill .qi { width: 13px; height: 13px; }
+button.qh-pill:hover { background: var(--q-app); color: var(--q-ink); }
+.qh-actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 16px 0 6px; }
+.qh-actions .q-btn { display: inline-flex; align-items: center; gap: 6px; }
+.qh-grid { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 24px; align-items: start; }
+.qh-label { font: 500 12px/1 var(--font-ui); color: var(--q-muted); margin: 18px 0 10px; }
+.qh-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px; }
+.qh-card { display: flex; align-items: center; gap: 12px; padding: 14px; border: 1px solid var(--q-line); border-radius: 12px; background: var(--q-card); text-align: left; }
+.qh-card:hover { border-color: var(--q-ink-2); }
+.qh-card-ic { width: 36px; height: 36px; flex: none; border-radius: 10px; display: grid; place-items: center; background: var(--q-soft); color: var(--q-ink-2); }
+.qh-card-t { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.qh-card-t b { font: 500 13px/1.2 var(--font-ui); color: var(--q-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qh-card-t small { font: 11px/1.2 var(--font-ui); color: var(--q-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qh-summary { margin: 20px 0 6px; font: 14px/1.6 var(--font-ui); color: var(--q-ink); max-width: 62ch; }
+.qh-meta { display: flex; align-items: center; gap: 6px; font: 11.5px/1 var(--font-ui); color: var(--q-muted); }
+.qh-meta .qi { width: 13px; height: 13px; }
+.qh-side { display: flex; flex-direction: column; gap: 12px; margin-top: 18px; }
+.qh-panel { border: 1px solid var(--q-line); border-radius: 12px; background: var(--q-card); padding: 12px 14px 8px; }
+.qh-panel-h { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.qh-panel-h b { font: 600 13px/1 var(--font-ui); color: var(--q-ink); }
+.qh-more { margin-left: auto; width: 22px; height: 22px; display: grid; place-items: center; border-radius: 6px; color: var(--q-muted); }
+.qh-more:hover { background: var(--q-soft); color: var(--q-ink); }
+.qh-more:focus-visible { outline: 2px solid var(--q-blue); outline-offset: 1px; }
+.qh-todo { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 0; border-top: 1px solid var(--q-line-2); text-align: left; font: 13px/1.3 var(--font-ui); color: var(--q-ink); }
+.qh-todo span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qh-todo small { flex: none; font: 11px/1 var(--font-ui); color: var(--q-muted); }
+.qh-box { width: 14px; height: 14px; flex: none; border-radius: 50%; border: 1.5px dashed var(--q-faint); }
+.qh-box.need { border: 1.5px solid var(--q-peach); }
+.qh-team { display: flex; gap: 6px; padding: 4px 0 8px; flex-wrap: wrap; }
+@media (max-width: 1000px) { .qh-grid { grid-template-columns: 1fr; } }

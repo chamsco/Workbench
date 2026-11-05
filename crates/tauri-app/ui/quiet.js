@@ -484,17 +484,6 @@ var Quiet = (() => {
     el.innerHTML = links.map(([k, l, icon, n]) => `<button data-q-go="${k}" class="qwork-ic${page === k ? " on" : ""}" aria-label="${n ? `${l}, ${n} waiting` : l}" aria-current="${page === k ? "page" : "false"}" data-q-tip="${n ? `${l} (${n})` : l}">${ic(icon)}${n ? `<i class="qwork-dot"></i>` : ""}</button>`).join("");
   }
 
-  // Settings, night mode and glass live at the bottom of the sidebar.
-  function renderSideFoot() {
-    const el = $("#qSideFoot"); if (!el) return;
-    const skin = skinName();
-    const dark = skin === "dark" || skin === "glass";
-    el.innerHTML = `
-      <button class="qicon${page === "settings" ? " on" : ""}" data-q-go="settings" aria-label="Settings" data-q-tip="Settings">${ic("gear")}</button>
-      <button class="qicon${dark ? " on" : ""}" data-q-theme="${dark ? "light" : "dark"}" aria-label="${dark ? "Light mode" : "Night mode"}" data-q-tip="${dark ? "Light mode" : "Night mode"}">${dark ? ic("sun") : ic("moon")}</button>
-      <button class="qicon${skin === "glass" ? " on" : ""}" data-q-skin="glass" aria-label="Glass" data-q-tip="Glass">${ic("drop")}</button>`;
-  }
-
   // ------------------------------------------------------------------ bottom rail
   function renderDock() {
     const el = $("#qDock"); if (!el) return;
@@ -503,6 +492,11 @@ var Quiet = (() => {
     const m = typeof machine === "function" ? machine() : { name: "This Mac", link: { state: "online" } };
     const online = m && m.link && m.link.state === "online";
     el.innerHTML = `
+      <span class="qd-foot" role="group" aria-label="Settings and appearance">
+        <button class="qicon${page === "settings" ? " on" : ""}" data-q-go="settings" aria-label="Settings" data-q-tip="Settings">${ic("gear")}</button>
+        <button class="qicon${dark ? " on" : ""}" data-q-theme="${dark ? "light" : "dark"}" aria-label="${dark ? "Light mode" : "Night mode"}" data-q-tip="${dark ? "Light mode" : "Night mode"}">${dark ? ic("sun") : ic("moon")}</button>
+        <button class="qicon${skin === "glass" ? " on" : ""}" data-q-skin="glass" aria-label="Glass" data-q-tip="Glass">${ic("drop")}</button>
+      </span>
       <span class="qd-right">
         <button class="qicon" data-q-help aria-label="Help" data-q-tip="Help">${ic("help")}</button>
         <span class="qd-rule" aria-hidden="true"></span>
@@ -538,6 +532,49 @@ var Quiet = (() => {
     return `<button class="qn-row${active ? " on" : ""}" data-q-go="${target}">${ic(icon)}<span>${label}</span>${count ? `<em>${count}</em>` : ""}</button>`;
   }
 
+  // Sessions can be grouped by activity, by where they ran, by when they were
+  // added, or by folder. The choice is remembered.
+  const SESS_GROUPS = [["activity", "Activity"], ["where", "Where"], ["added", "Added"], ["folder", "Folder"]];
+  let sessGroup = (() => { try { const v = localStorage.getItem("qs-group"); return SESS_GROUPS.some((g) => g[0] === v) ? v : "where"; } catch { return "where"; } })();
+  function setSessGroup(k) {
+    sessGroup = k;
+    try { localStorage.setItem("qs-group", k); } catch {}
+    sideKey = ""; render();
+  }
+  function groupSessions(items, lead) {
+    // items: [{ t, cur }]; returns [{ label, icon, items }] in display order
+    const at = (x) => (x.cur ? Date.now() : x.t.updated || 0);
+    const when = (x) => (x.cur ? Date.now() : x.t.created || x.t.updated || 0);
+    const byRecent = (a, b) => at(b) - at(a);
+    const groups = [];
+    const put = (label, icon, x) => {
+      let g = groups.find((y) => y.label === label);
+      if (!g) { g = { label, icon, items: [] }; groups.push(g); }
+      g.items.push(x);
+    };
+    if (sessGroup === "activity") {
+      const state = (x) => x.cur ? (lead && lead.status === "running" ? "Working" : "Idle") : x.t.busy ? "Working" : (x.t.unread || x.t.failed) ? "Needs you" : "Idle";
+      for (const x of items.slice().sort(byRecent)) put(state(x), state(x) === "Working" ? "zap" : state(x) === "Needs you" ? "hand" : "clock", x);
+      const order = ["Working", "Needs you", "Idle"];
+      groups.sort((a, b) => order.indexOf(a.label) - order.indexOf(b.label));
+    } else if (sessGroup === "added") {
+      const d0 = new Date(); d0.setHours(0, 0, 0, 0);
+      const day = 864e5;
+      const label = (ms) => ms >= d0.getTime() ? "Today" : ms >= d0.getTime() - day ? "Yesterday" : ms >= d0.getTime() - 6 * day ? "This week" : "Older";
+      for (const x of items.slice().sort((a, b) => when(b) - when(a))) put(label(when(x)), "calendar", x);
+    } else if (sessGroup === "folder") {
+      const folderOf = (x) => (x.cur ? projectPath() : x.t.project) || projectPath() || "";
+      for (const x of items.slice().sort(byRecent)) { const f = folderOf(x); put(f ? base(f) : "No folder", "folder", x); }
+      groups.sort((a, b) => (a.items.some((x) => x.cur) ? -1 : b.items.some((x) => x.cur) ? 1 : 0));
+    } else {
+      const cloud = (x) => !x.cur && x.t.route && x.t.route.kind === "cloud";
+      const mine = items.filter((x) => !cloud(x)).sort(byRecent), far = items.filter(cloud).sort(byRecent);
+      if (mine.length) groups.push({ label: "This Mac", icon: "laptop", items: mine });
+      if (far.length) groups.push({ label: "Cloud", icon: "cloud", items: far });
+    }
+    return groups;
+  }
+
   function renderSide() {
     const el = $("#qSide"); if (!el) return;
     if (page === "crew") { el.innerHTML = ""; return; }
@@ -547,25 +584,23 @@ var Quiet = (() => {
       const ags = workAgents();
       const lead = ags[0];
       const chats = data.chats.filter((t) => !(t.members && t.members.length)).sort((a, b) => b.updated - a.updated);
-      const cloud = chats.filter((t) => t.route && t.route.kind === "cloud");
-      const local = chats.filter((t) => !(t.route && t.route.kind === "cloud"));
-      const row = (t, isCurrent = false) => `<button class="qs-session${isCurrent ? " on" : ""}" ${isCurrent ? 'data-q-focus-session' : `data-q-thread="${esc(t.id)}"`}>
+      const row = (x) => { const t = x.t, isCurrent = x.cur; return `<button class="qs-session${isCurrent ? " on" : ""}" ${isCurrent ? 'data-q-focus-session' : `data-q-thread="${esc(t.id)}"`}>
         <span class="qs-session-t">${esc(isCurrent ? sessionTitle() : t.title || "New chat")}</span>
-        <span class="qs-session-m">${ic(t.route && t.route.kind === "cloud" ? "cloud" : "laptop")}<i class="qdot ${isCurrent ? (lead && lead.status === "running" ? "work" : "idle") : t.busy ? "work" : t.unread ? "need" : "idle"}"></i>${esc(isCurrent ? (lead ? agentName(lead) + " · " + (lead.status || "idle") : "No session") : t.busy ? "Working" : t.unread ? "Needs you" : "Idle")}<span class="qs-time">${esc(isCurrent ? "now" : ago(t.updated))}</span></span>
-      </button>`;
+        <span class="qs-session-m">${ic(t.route && t.route.kind === "cloud" ? "cloud" : "laptop")}<i class="qdot ${isCurrent ? (lead && lead.status === "running" ? "work" : "idle") : t.busy ? "work" : (t.unread || t.failed) ? "need" : "idle"}"></i>${esc(isCurrent ? (lead ? agentName(lead) + " · " + (lead.status || "idle") : "No session") : t.busy ? "Working" : (t.unread || t.failed) ? "Needs you" : "Idle")}<span class="qs-time">${esc(isCurrent ? "now" : ago(t.updated))}</span></span>
+      </button>`; };
+      const items = [{ t: { id: "", title: sessionTitle(), updated: Date.now(), route: null }, cur: true }, ...chats.map((t) => ({ t, cur: false }))];
+      const groups = groupSessions(items, lead);
       el.innerHTML = `
         <button class="qs-new" data-q-new-chat>${ic("plus")}New session<kbd>⌘N</kbd></button>
-        <div class="qs-head"><b>Sessions</b><span class="grow"></span><button class="qs-icon" data-q-toast="Sessions are ordered by recent activity" aria-label="Sort sessions">${ic("sort")}</button><button class="qs-icon" data-q-search aria-label="Search sessions">${ic("search")}</button></div>
-        <div class="qs-loc">${ic("laptop")}This Mac<span>${local.length + 1}</span></div>
-        <div class="qs-list">
-          ${row({ id: "", title: sessionTitle(), updated: Date.now(), route: null }, true)}
-          ${local.map((t) => row(t)).join("")}
+        <div class="qs-head"><b>Sessions</b><span class="grow"></span><button class="qs-icon" data-q-search aria-label="Search sessions">${ic("search")}</button></div>
+        <div class="qs-groupby" role="group" aria-label="Group sessions by">
+          ${SESS_GROUPS.map(([k, l]) => `<button data-q-sgroup="${k}" class="${sessGroup === k ? "on" : ""}" aria-pressed="${sessGroup === k}">${l}</button>`).join("")}
         </div>
-        ${cloud.length ? `<div class="qs-loc">${ic("cloud")}Cloud<span>${cloud.length}</span></div><div class="qs-list">${cloud.map((t) => row(t)).join("")}</div>` : ""}
-        ${(() => {
+        ${groups.map((g) => `<div class="qs-loc">${ic(g.icon)}${esc(g.label)}<span>${g.items.length}</span></div><div class="qs-list">${g.items.map(row).join("")}</div>`).join("")}
+        ${sessGroup === "where" ? (() => {
           const remotes = (typeof machines !== "undefined" ? machines : []).filter((m) => !m.local);
           return remotes.map((m) => `<div class="qs-loc">${ic(m.kind === "ssh" ? "server" : "monitor")}${esc(m.name)}<span>${(m.running || 0) + (m.pending || 0)}</span></div>${m.project ? `<div class="qs-list"><button class="qs-session" data-q-settings-section="machines"><span class="qs-session-t">${esc(base(m.project))}</span><span class="qs-session-m">${ic("monitor")}${m.running || 0} running<span class="qs-time">remote</span></span></button></div>` : ""}`).join("");
-        })()}
+        })() : ""}
         <button class="qs-add" data-q-settings-section="machines">${ic("plus")}Connect machine<span class="qs-kbd">CLOUD / SSH</span></button>
         <div class="qs-sidefoot">
           <div class="qs-sidetools">
@@ -728,57 +763,79 @@ var Quiet = (() => {
     </header>`;
   }
 
+  // The project page: one command center for everything in the project.
   function homePage() {
     const runs = running(), need = pending(), botsBusy = chats().filter(t => t.busy);
-    const runningText = runs.length
-      ? `${runs.slice(0, 3).map(a => a.id === 0 ? "Claude Code" : a.title).join(", ")} ${runs.length === 1 ? "is" : "are"} working on ${esc(projectName())}.`
-      : botsBusy.length ? `${botsBusy.slice(0, 2).map(t => t.title).join(" and ")} ${botsBusy.length === 1 ? "is" : "are"} working.` : "No sessions are running right now.";
-    const needText = need.length ? `${need.length} plan${need.length === 1 ? "" : "s"} or deliverable${need.length === 1 ? "" : "s"} waiting for your review.`
-      : unreadChats() ? `${unreadChats()} agent repl${unreadChats() === 1 ? "y" : "ies"} waiting for you.` : "Nothing is waiting on you.";
+    const all = chats().slice().sort((a, b) => b.updated - a.updated);
+    const working = new Set([...runs.map(a => a.id), ...botsBusy.map(t => t.id)]).size;
+    const waiting = needsCount();
+    const tabs = prefs.tabs || [];
+    const tix = tickets();
+    const todo = tix.filter(t => !["done", "closed", "merged"].includes(t.state));
+    const review = byState("ready_for_human");
+    const rs = routines();
     const tokens = workAgents().reduce((s, a) => s + (a.input_tokens || 0) + (a.output_tokens || 0), 0);
-    const rows = chats().slice().sort((a, b) => b.updated - a.updated).slice(0, 4);
-    const routinesNow = routines();
-    const next = routinesNow[0];
-    return `<div class="q-page q-home">
-      ${head(projectName() === "Workbench" ? "Workbench" : projectName(),
-        `${runningText} ${needText}`,
-        `<button class="q-btn dark" data-q-new>New session ${ic("plus")}</button>
-         <button class="q-btn" data-q-go="code">Open Code</button>
-         <button class="q-btn" data-q-go="crew">Ask the crew</button>`,
-        esc(today()))}
-      <div class="q-cards">
-        <button class="q-card" data-q-go="code">
-          <span class="q-card-h"><i class="qdot work"></i>Running now</span>
-          <b class="q-stat">${runs.length + botsBusy.length} session${runs.length + botsBusy.length === 1 ? "" : "s"}</b>
-          <span class="q-card-b">${runningText}</span>
-          <span class="q-card-f">${bots().length || runs.length} agent${(bots().length || runs.length) === 1 ? "" : "s"} · ${esc(projectName())} ${ic("chev")}</span>
-        </button>
-        <button class="q-card" data-q-go="needs">
-          <span class="q-card-h"><i class="qdot need"></i>Needs you</span>
-          <b class="q-stat">${needsCount()}</b>
-          <span class="q-card-b">${needText}</span>
-          <span class="q-card-f">Open Needs you ${ic("chev")}</span>
-        </button>
-        <button class="q-card" data-q-go="limits">
-          <span class="q-card-h">${ic("chart")}This session</span>
-          <b class="q-stat">${money(snap.total_cost_usd)}</b>
-          <span class="q-card-b">${compact(tokens)} tokens across ${workAgents().length || 0} agent${workAgents().length === 1 ? "" : "s"}. Router ${money(snap.router_cost_usd)}.</span>
-          <span class="q-card-f">Open Limits ${ic("chev")}</span>
-        </button>
+    const hue = Array.from(projectName()).reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 17);
+    const git = data.git || {};
+    const summary = [
+      working ? `${working} session${working === 1 ? " is" : "s are"} working in ${esc(projectName())}.` : `Nothing is running in ${esc(projectName())} right now.`,
+      waiting ? `${waiting} thing${waiting === 1 ? " is" : "s are"} waiting on you.` : "Nothing is waiting on you.",
+      todo.length ? `${todo.length} to-do${todo.length === 1 ? "" : "s"} open, ${review.length} ready for review.` : "",
+      rs.length ? `Next automation ${esc(wake(rs[0].next_run))}.` : "",
+    ].filter(Boolean).join(" ");
+    const pill = (icon, text, go) => `<button class="qh-pill" ${go ? `data-q-go="${go}"` : ""}>${ic(icon)}${text}</button>`;
+    const panel = (title, count, go, body) => `<section class="qh-panel">
+      <div class="qh-panel-h"><b>${title}</b>${count !== "" ? `<span class="q-count">${count}</span>` : ""}${go ? `<button class="qh-more" data-q-go="${go}" aria-label="Open ${esc(title)}">${ic("chev")}</button>` : ""}</div>
+      ${body}
+    </section>`;
+    return `<div class="q-page q-home qh">
+      <div class="qh-hero" style="--qh-h:${hue}">
+        <div class="qh-top"><span class="qh-mark">${esc(initialsPath(projectPath() || projectName()))}</span>
+          <div><h1>${esc(projectName())}</h1>
+            <div class="qh-pills">
+              ${pill("zap", `${working} working`, "code")}
+              ${pill("hand", `${waiting} need${waiting === 1 ? "s" : ""} you`, "needs")}
+              ${pill("grid", `${todo.length} to-do${todo.length === 1 ? "" : "s"}`, "board")}
+              ${pill("canvas", `${tabs.length} canvas${tabs.length === 1 ? "" : "es"}`, "canvas")}
+              ${pill("folder", esc(base(projectPath() || "") || "No folder"))}
+              ${git.branch ? pill("code", esc(git.branch)) : ""}
+            </div>
+          </div>
+        </div>
       </div>
-      <div class="q-sec-head"><b>Recent sessions</b><button data-q-go="work">View all ${ic("chev")}</button></div>
-      <div class="q-list">
-        ${rows.length ? rows.map((t, i) => `<button class="q-row" data-q-thread="${esc(t.id)}">
-          ${botFace(["#8b5cf6", "#14b8a6", "#ef4444", "#f59e0b"][i % 4], 28, t.title || "Chat", WALL_SHAPES[i % WALL_SHAPES.length])}
-          <span class="q-row-main"><b>${esc(t.title || "New chat")}</b><small><i class="qdot ${t.busy ? "work" : (t.unread || t.failed) ? "need" : "idle"}"></i>${esc(t.agent ? "Agent thread" : t.members && t.members.length ? "Group chat" : "Session")} · ${esc(t.busy ? "working" : (t.unread || t.failed) ? "needs you" : "idle")}</small></span>
-          <span class="q-row-end">${esc(ago(t.updated))}</span>
-        </button>`).join("") : `<div class="q-empty">No sessions yet. Start one with “New session”.</div>`}
+      <div class="qh-actions">
+        <button class="q-btn dark" data-q-new>New session ${ic("plus")}</button>
+        <button class="q-btn" data-q-go="code">${ic("code")}Code</button>
+        <button class="q-btn" data-q-add-canvas>${ic("canvas")}Canvas</button>
+        <button class="q-btn" data-q-go="crew">${ic("crew")}Crew</button>
       </div>
-      <button class="q-brief" data-q-go="work">
-        <span class="q-brief-ic">${ic("zap")}</span>
-        <span class="q-brief-copy"><b>Morning brief</b><small>${next ? `${routinesNow.length} routine${routinesNow.length === 1 ? "" : "s"} scheduled · next ${esc(wake(next.next_run))}` : "No routines scheduled yet."}</small></span>
-        <span class="q-btn sm">Open Work</span>
-      </button>
+      <div class="qh-grid">
+        <div class="qh-main">
+          <div class="qh-label">Canvases</div>
+          <div class="qh-cards">
+            ${tabs.slice(0, 6).map((t, i) => `<button class="qh-card" data-q-tab="${i}">
+              <span class="qh-card-ic">${ic("canvas")}</span>
+              <span class="qh-card-t"><b>${esc(t.name || "Canvas " + (i + 1))}</b><small>${t.panes.length} pane${t.panes.length === 1 ? "" : "s"} · ${esc([...new Set(t.panes.map(p => p.kind))].join(", "))}</small></span>
+            </button>`).join("") || `<div class="q-empty">No canvases yet. Start one with “Canvas”.</div>`}
+          </div>
+          <p class="qh-summary">${summary}</p>
+          <div class="qh-meta">${ic("chart")}${money(snap && snap.total_cost_usd)} · ${compact(tokens)} tokens · ${workAgents().length || bots().length} agent${(workAgents().length || bots().length) === 1 ? "" : "s"}</div>
+          <div class="qh-label">Sessions</div>
+          <div class="q-list">
+            ${all.slice(0, 6).map((t, i) => `<button class="q-row" data-q-thread="${esc(t.id)}">
+              ${botFace(["#8b5cf6", "#14b8a6", "#ef4444", "#f59e0b"][i % 4], 28, t.title || "Chat", WALL_SHAPES[i % WALL_SHAPES.length])}
+              <span class="q-row-main"><b>${esc(t.title || "New chat")}</b><small><i class="qdot ${t.busy ? "work" : (t.unread || t.failed) ? "need" : "idle"}"></i>${esc(t.busy ? "Working" : (t.unread || t.failed) ? "Needs you" : "Idle")} · ${esc(t.route && t.route.kind === "cloud" ? "Cloud" : "This Mac")}</small></span>
+              <span class="q-row-end">${esc(ago(t.updated))}</span>
+            </button>`).join("") || `<div class="q-empty">No sessions yet. Start one with “New session”.</div>`}
+          </div>
+        </div>
+        <aside class="qh-side">
+          ${panel("To-dos", todo.length, "board", todo.length ? todo.slice(0, 5).map(t => `<button class="qh-todo" data-q-ticket="${esc(t.key)}"><i class="qh-box"></i><span>${esc(t.title)}</span><small>${esc(t.state.replace(/_/g, " "))}</small></button>`).join("") : `<div class="q-empty">Nothing open.</div>`)}
+          ${panel("Needs you", waiting, "needs", need.length || awaiting().length ? [...need.slice(0, 3).map(a => `<button class="qh-todo" data-q-ap="${a.id}"><i class="qh-box need"></i><span>${a.kind === "plan" ? "Approve the plan" : "Review the deliverable"}</span><small>${a.tickets.length} ticket${a.tickets.length === 1 ? "" : "s"}</small></button>`), ...awaiting().slice(0, 2).map(a => `<button class="qh-todo" data-q-agent="${a.id}"><i class="qh-box need"></i><span>${esc(a.id === 0 ? "Main agent" : a.title)}</span><small>review</small></button>`)].join("") : `<div class="q-empty">Nothing waiting.</div>`)}
+          ${panel("Automations", rs.length, "automate", rs.length ? rs.slice(0, 3).map(r => `<div class="qh-todo static"><i class="qh-box"></i><span>${esc(r.name)}</span><small>${esc(wake(r.next_run))}</small></div>`).join("") : `<div class="q-empty">None scheduled.</div>`)}
+          ${panel("Team", bots().length, "crew", `<div class="qh-team">${bots().slice(0, 6).map((a, i) => `<span title="${esc(a.name)}">${botFace(["#8b5cf6", "#14b8a6", "#ef4444", "#f59e0b"][i % 4], 30, a.name, WALL_SHAPES[i % WALL_SHAPES.length])}</span>`).join("") || `<div class="q-empty">No agents yet.</div>`}</div>`)}
+        </aside>
+      </div>
     </div>`;
   }
 
@@ -1626,7 +1683,6 @@ var Quiet = (() => {
     applyVisibility();
     applySkin();
     renderDock();
-    renderSideFoot();
     renderTabs();
     maybeDoctor();
     if (!data.at || Date.now() - data.at > 5000) load();
@@ -1856,7 +1912,7 @@ var Quiet = (() => {
       }).catch((err) => { if (window.toast) toast(String(err), "err"); });
     };
     document.addEventListener("click", (e) => {
-      const t = e.target.closest("[data-q-go],[data-q-project],[data-q-thread],[data-q-agent],[data-q-agent-edit],[data-q-agent-close],[data-q-agent-save],[data-q-fb-add],[data-q-fb-del],[data-q-doctor],[data-q-doctor-auto],[data-q-harness-update],[data-q-day],[data-q-tab],[data-q-ticket],[data-q-ap],[data-q-run],[data-q-theme],[data-q-skin],[data-q-settings-section],[data-q-settings],[data-q-search],[data-q-add-project],[data-q-add-canvas],[data-q-onboard],[data-q-new],[data-q-more],[data-q-update],[data-q-panel],[data-q-keep],[data-q-help],[data-q-help-close],[data-q-help-q],[data-q-help-send],[data-q-sview],[data-q-filter],[data-q-session-send],[data-q-focus-session],[data-q-new-chat],[data-q-toast]");
+      const t = e.target.closest("[data-q-go],[data-q-project],[data-q-thread],[data-q-agent],[data-q-agent-edit],[data-q-agent-close],[data-q-agent-save],[data-q-fb-add],[data-q-fb-del],[data-q-doctor],[data-q-doctor-auto],[data-q-harness-update],[data-q-day],[data-q-tab],[data-q-ticket],[data-q-ap],[data-q-run],[data-q-sgroup],[data-q-theme],[data-q-skin],[data-q-settings-section],[data-q-settings],[data-q-search],[data-q-add-project],[data-q-add-canvas],[data-q-onboard],[data-q-new],[data-q-more],[data-q-update],[data-q-panel],[data-q-keep],[data-q-help],[data-q-help-close],[data-q-help-q],[data-q-help-send],[data-q-sview],[data-q-filter],[data-q-session-send],[data-q-focus-session],[data-q-new-chat],[data-q-toast]");
       if (!t) return;
       const d = t.dataset;
       if (d.qGo) { e.preventDefault(); go(d.qGo); return; }
@@ -1876,6 +1932,7 @@ var Quiet = (() => {
       if (d.qTicket) { e.preventDefault(); openTicket(d.qTicket); return; }
       if (d.qAp) { e.preventDefault(); openApproval(+d.qAp); return; }
       if (d.qRun) { e.preventDefault(); runRoutine(d.qRun); return; }
+      if (d.qSgroup) { e.preventDefault(); setSessGroup(d.qSgroup); return; }
       if (d.qTheme) { e.preventDefault(); setSkin(d.qTheme); return; }
       if (d.qSkin) { e.preventDefault(); setSkin("glass"); return; }
       if (d.qSettingsSection) { e.preventDefault(); S.setSection = d.qSettingsSection; openSettings(d.qSettingsSection); return; }

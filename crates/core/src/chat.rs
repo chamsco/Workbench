@@ -262,6 +262,8 @@ pub struct Scope {
 pub struct ThreadInfo {
     pub id: String,
     pub title: String,
+    /// When the thread was added (ms), for sorting and grouping the sidebar.
+    pub created: u64,
     pub updated: u64,
     pub pinned: bool,
     pub route: Route,
@@ -602,6 +604,7 @@ impl Chats {
             .map(|t| ThreadInfo {
                 id: t.id.clone(),
                 title: t.title.clone(),
+                created: t.created,
                 updated: t.updated,
                 pinned: t.pinned,
                 route: t.route.clone(),
