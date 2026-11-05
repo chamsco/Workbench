@@ -1638,3 +1638,72 @@
   .qnav { display: none; }
 }
 
+
+/* ============================================================
+   ONE SHEET HOLDS THE SIDEBAR (Charles, 2026-11-05).
+   The frame keeps only the project rail (left) and the mode
+   switch (top). The sidebar moves inside the white sheet with
+   the page; Needs you … Limits sit at the top of the sidebar;
+   Today, Machines and Team sit at the bottom right.
+   ============================================================ */
+.win.q-on { --top-h: 48px; }
+
+/* the top band runs over the sidebar column too, so the modes centre on the window */
+.win.q-on .mainc { overflow: visible; }
+.win.q-on .qtop {
+  position: relative; z-index: 2;
+  margin-left: calc(-1 * var(--side-w));
+  width: calc(100% + var(--side-w));
+}
+.win.q-on .qnav {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+}
+
+/* the sidebar is the left part of the sheet */
+.win.q-on .side {
+  margin: var(--top-h) 0 8px 0 !important;
+  background: var(--q-app) !important;
+  border: 1px solid var(--q-line); border-right: 1px solid var(--q-line-2);
+  border-radius: 12px 0 0 12px !important;
+  min-height: 0;
+}
+.win.q-on .qview,
+.win.q-on .qsession,
+.win.q-on .qfooter { border-left: 0; }
+.win.q-on .qview { border-radius: 0 12px 12px 0; }
+.win.q-on .qsession { border-radius: 0 12px 0 0; }
+.win.q-on .qfooter { border-radius: 0 0 12px 0; }
+.win.q-on .gutter-side { top: var(--top-h); bottom: 8px; }
+
+/* folded sidebar: the page is the whole sheet again */
+.win.q-on.side-closed .side { border: 0; }
+.win.q-on.side-closed .qtop { margin-left: 0; width: 100%; }
+.win.q-on.side-closed .qview { border-left: 1px solid var(--q-line); border-radius: 12px; }
+.win.q-on.side-closed .qsession { border-left: 1px solid var(--q-line); border-radius: 12px 12px 0 0; }
+.win.q-on.side-closed .qfooter { border-left: 1px solid var(--q-line); border-radius: 0 0 12px 12px; }
+
+/* attention links: the first row inside the sheet */
+.win.q-on .qwork { padding: 8px 8px; border-bottom: 1px solid var(--q-line-2); }
+
+/* bottom strip: machine on the left, utilities then the three places on the right */
+.qdock { grid-template-columns: 1fr auto; }
+.qd-right { gap: 2px; }
+.qd-rule { width: 1px; height: 14px; background: var(--q-line); margin: 0 6px; flex: none; }
+.qd-places { order: 2; }
+
+/* every icon-only control: a label on hover/focus and one visible focus ring */
+.qnav-ic:focus-visible, .qwork-ic:focus-visible, .qicon:focus-visible,
+.qr-proj:focus-visible, .qr-logo:focus-visible, .qr-add:focus-visible, .qd-user:focus-visible {
+  outline: 2px solid var(--q-blue); outline-offset: 2px;
+}
+[data-q-tip] { position: relative; }
+[data-q-tip]:hover::before, [data-q-tip]:focus-visible::before {
+  content: attr(data-q-tip); position: absolute; z-index: 30; pointer-events: none;
+  left: 50%; top: calc(100% + 6px); transform: translateX(-50%);
+  font: 500 11px/1 var(--font-ui); color: var(--q-app); background: var(--q-ink);
+  padding: 5px 7px; border-radius: 5px; white-space: nowrap;
+}
+.qdock [data-q-tip]:hover::before, .qdock [data-q-tip]:focus-visible::before { top: auto; bottom: calc(100% + 6px); }
+/* the first work icon sits on the sheet edge: anchor tips left so they are not clipped */
+.qwork [data-q-tip]:hover::before, .qwork [data-q-tip]:focus-visible::before { left: 0; transform: none; }
+.qrail [data-q-tip]:hover::before, .qrail [data-q-tip]:focus-visible::before { left: calc(100% + 8px); top: 50%; transform: translateY(-50%); }

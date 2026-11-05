@@ -432,7 +432,7 @@ var Quiet = (() => {
     el.innerHTML = `
       <button class="qr-logo${page === "home" ? " on" : ""}" data-q-go="home" aria-label="Workbench home" title="Workbench home">${ic("logo")}</button>
       <div class="qr-sep"></div>
-      ${projects.map(p => `<button class="qr-proj${p === projectPath() ? " on" : ""}" data-q-project="${esc(p)}" title="${esc(base(p))}" aria-label="${esc(base(p))}">${esc(initialsPath(p))}</button>`).join("")}
+      ${projects.map(p => `<button class="qr-proj${p === projectPath() ? " on" : ""}" data-q-project="${esc(p)}" title="${esc(base(p))}" aria-label="${esc(base(p))}" data-q-tip="${esc(base(p))}">${esc(initialsPath(p))}</button>`).join("")}
       <button class="qr-add" data-q-add-project aria-label="Add project" title="Add project">${ic("plus")}</button>`;
   }
 
@@ -466,7 +466,7 @@ var Quiet = (() => {
     const modes = [["code", "Code", "code"], ["work", "Work", "work"], ["canvas", "Canvas", "canvas"], ["crew", "Crew", "crew"]];
     el.innerHTML = `
       <div class="qnav-modes" role="group" aria-label="Modes">
-        ${modes.map(([k, l, icon]) => `<button data-q-go="${k}" class="qnav-ic${page === k ? " on" : ""}" aria-label="${l}" aria-current="${page === k ? "page" : "false"}" title="${l}">${ic(icon)}</button>`).join("")}
+        ${modes.map(([k, l, icon]) => `<button data-q-go="${k}" class="qnav-ic${page === k ? " on" : ""}" aria-label="${l}" aria-current="${page === k ? "page" : "false"}" data-q-tip="${l}">${ic(icon)}</button>`).join("")}
       </div>`;
   }
 
@@ -479,7 +479,7 @@ var Quiet = (() => {
       ["automate", "Automations", "zap", routines().length],
       ["limits", "Limits", "limits", ""],
     ];
-    el.innerHTML = links.map(([k, l, icon, n]) => `<button data-q-go="${k}" class="qwork-ic${page === k ? " on" : ""}" aria-label="${n ? `${l}, ${n} waiting` : l}" aria-current="${page === k ? "page" : "false"}" title="${n ? `${l} (${n})` : l}">${ic(icon)}${n ? `<i class="qwork-dot"></i>` : ""}</button>`).join("");
+    el.innerHTML = links.map(([k, l, icon, n]) => `<button data-q-go="${k}" class="qwork-ic${page === k ? " on" : ""}" aria-label="${n ? `${l}, ${n} waiting` : l}" aria-current="${page === k ? "page" : "false"}" data-q-tip="${n ? `${l} (${n})` : l}">${ic(icon)}${n ? `<i class="qwork-dot"></i>` : ""}</button>`).join("");
   }
 
   // ------------------------------------------------------------------ bottom rail
@@ -491,17 +491,18 @@ var Quiet = (() => {
     const online = m && m.link && m.link.state === "online";
     el.innerHTML = `
       <span class="qd-left"><span class="qd-mach" title="${esc((m && m.name) || "This Mac")}"><i class="${online ? "on" : ""}"></i>${esc((m && m.name) || "This Mac")}</span></span>
-      <span class="qd-places">
-        <button class="qicon${page === "today" ? " on" : ""}" data-q-go="today" aria-label="Today" title="Today">${ic("calendar")}</button>
-        <button class="qicon${page === "machines" ? " on" : ""}" data-q-go="machines" aria-label="Machines" title="Machines">${ic("server")}</button>
-        <button class="qicon${page === "team" ? " on" : ""}" data-q-go="team" aria-label="Team" title="Team">${ic("crew")}</button>
-      </span>
       <span class="qd-right">
-        <button class="qicon" data-q-go="settings" aria-label="Settings" title="Settings">${ic("gear")}</button>
-        <button class="qicon${dark ? " on" : ""}" data-q-theme="${dark ? "light" : "dark"}" aria-label="${dark ? "Light mode" : "Night mode"}" title="${dark ? "Light mode" : "Night mode"}">${dark ? ic("sun") : ic("moon")}</button>
-        <button class="qicon${skin === "glass" ? " on" : ""}" data-q-skin="glass" aria-label="Glass" title="Glass">${ic("drop")}</button>
-        <button class="qicon" data-q-help aria-label="Help" title="Help">${ic("help")}</button>
+        <button class="qicon" data-q-go="settings" aria-label="Settings" data-q-tip="Settings">${ic("gear")}</button>
+        <button class="qicon${dark ? " on" : ""}" data-q-theme="${dark ? "light" : "dark"}" aria-label="${dark ? "Light mode" : "Night mode"}" data-q-tip="${dark ? "Light mode" : "Night mode"}">${dark ? ic("sun") : ic("moon")}</button>
+        <button class="qicon${skin === "glass" ? " on" : ""}" data-q-skin="glass" aria-label="Glass" data-q-tip="Glass">${ic("drop")}</button>
+        <button class="qicon" data-q-help aria-label="Help" data-q-tip="Help">${ic("help")}</button>
         <button class="qd-user" data-q-settings aria-label="Account" title="${esc(user())}">${esc(initials(user()))}</button>
+        <span class="qd-rule" aria-hidden="true"></span>
+        <span class="qd-places" role="group" aria-label="Places">
+          <button class="qicon${page === "today" ? " on" : ""}" data-q-go="today" aria-label="Today" data-q-tip="Today">${ic("calendar")}</button>
+          <button class="qicon${page === "machines" ? " on" : ""}" data-q-go="machines" aria-label="Machines" data-q-tip="Machines">${ic("server")}</button>
+          <button class="qicon${page === "team" ? " on" : ""}" data-q-go="team" aria-label="Team" data-q-tip="Team">${ic("crew")}</button>
+        </span>
       </span>`;
   }
 
@@ -509,7 +510,9 @@ var Quiet = (() => {
   function renderTabs() {
     const el = $("#qTabs"); if (!el) return;
     const list = chats().slice().sort((a, b) => b.updated - a.updated).slice(0, 7);
-    const show = list.length > 0 && page !== "settings";
+    // Retired 2026-11-05: the strip was never styled and repeats the sidebar's
+    // Sessions list; inside the one sheet it pushed the page below the sidebar.
+    const show = false && list.length > 0 && page !== "settings";
     el.hidden = !show;
     const w = $("#win");
     if (w) w.classList.toggle("q-tabs-on", show);
@@ -596,10 +599,6 @@ var Quiet = (() => {
             </button>`;
           }).join("")}
         </div>
-        <div class="qs-group">
-          ${navRow("Machines", "machines", "server", machineList().length || "", page === "machines")}
-          ${navRow("Team", "team", "crew", bots().length || "", page === "team")}
-        </div>
         <button class="qs-add" data-q-go="home">${ic("home")}Back to HQ</button>`;
       return;
     }
@@ -615,7 +614,6 @@ var Quiet = (() => {
         </div>
         <div class="qs-group"><div class="qs-label">Pinned</div>
           ${navRow("Harnesses", "machines", "terminal", harnesses().length || "", true)}
-          ${navRow("Team", "team", "crew", bots().length || "", false)}
         </div>
         <button class="qs-add" data-q-go="home">${ic("home")}Back to HQ</button>`;
       return;
@@ -631,10 +629,6 @@ var Quiet = (() => {
               <span class="qs-session-m"><i class="qdot ${st.tone === "work" ? "work" : st.tone === "need" ? "need" : "idle"}"></i>${esc(kindOf(a, x) === "doctor" ? "Doctor" : st.label)} · ${esc(modelLabel(a.route, providerOf(a)))}</span>
             </button>`;
           }).join("") || `<p class="qs-empty">No bots yet.</p>`}
-        </div>
-        <div class="qs-group">
-          ${navRow("Today", "today", "calendar", "", false)}
-          ${navRow("Machines", "machines", "server", machineList().length || "", false)}
         </div>
         <button class="qs-add" data-q-go="home">${ic("home")}Back to HQ</button>`;
       return;
@@ -655,7 +649,7 @@ var Quiet = (() => {
       el.innerHTML = `
         <div class="qs-head"><b>Work</b><button class="qs-icon" data-q-go="home" title="Home">${ic("home")}</button></div>
         <div class="qs-group">
-          ${navRow("Needs you", "needs", "hand", pending().length + awaiting().length || "", page === "needs")}
+          ${navRow("Needs you", "needs", "hand", needsCount() || "", page === "needs")}
           ${navRow("Board", "board", "grid", tickets().length || "", page === "board")}
           ${navRow("Review", "review", "check", byState("ready_for_human").length || "", page === "review")}
           ${navRow("Automate", "automate", "zap", routines().length || "", page === "automate")}
@@ -664,11 +658,6 @@ var Quiet = (() => {
           ${navRow("Inbox", "inbox", "inbox", unreadChats() || "", page === "inbox")}
           ${navRow("Calendar", "calendar", "calendar", routines().length || "", page === "calendar")}
           ${navRow("Tasks", "tasks", "tasks", tickets().length || "", page === "tasks")}
-        </div>
-        <div class="qs-group">
-          ${navRow("Today", "today", "calendar", "", page === "today")}
-          ${navRow("Team", "team", "crew", bots().length || "", page === "team")}
-          ${navRow("Machines", "machines", "server", machineList().length || "", page === "machines")}
         </div>
         <div class="qs-group">
           ${navRow("Plugins", "plugins", "plugins", "", page === "plugins")}
