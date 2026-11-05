@@ -664,3 +664,47 @@ fn stopping_a_restricted_task_releases_its_path() {
     let seen = m.seen.lock().unwrap();
     assert!(system(&seen[calls]).starts_with("You are the lead agent"), "{}", system(&seen[calls]));
 }
+
+#[test]
+#[cfg(unix)]
+fn research_cannot_read_through_a_symlink_that_leaves_the_project() {
+    // The research path has `read` and `list` and nothing else, so the file
+    // boundary is its boundary. A link inside the project to a secret outside
+    // it must not reach the model, the report or the log.
+    let outside = scratch("symlink-outside");
+    std::fs::write(outside.join("secret.txt"), "TOP-SECRET-VALUE").unwrap();
+    let m = mock(|req| {
+        if !system(req).starts_with("You are the research agent") {
+            return say("lead");
+        }
+        let last = results(req).last().copied().unwrap_or("");
+        match results(req).len() {
+            0 => call("read", json!({"path": "leak.txt"})),
+            1 => call("list", json!({"path": "leakdir"})),
+            2 => call("read", json!({"path": "leakdir/secret.txt"})),
+            3 => call("submit_report", json!({"title": "Links", "body": format!("Last result: {last}")})),
+            _ => say("filed"),
+        }
+    });
+    let ws = std::env::temp_dir().join(format!("bs-intake-h-symlink-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&ws);
+    std::fs::create_dir_all(&ws).unwrap();
+    std::os::unix::fs::symlink(outside.join("secret.txt"), ws.join("leak.txt")).unwrap();
+    std::os::unix::fs::symlink(&outside, ws.join("leakdir")).unwrap();
+    write_config(&ws, m.port, ON);
+    let h = Harness::open(ws.clone()).unwrap();
+    h.send("research the pros and cons of sqlite and write up a report, no code");
+    let s = wait(&h, "the report", |s| s.agents[0].status == AgentStatus::Approved);
+
+    let seen = m.seen.lock().unwrap();
+    assert!(!seen.iter().any(|r| r.to_string().contains("TOP-SECRET-VALUE")), "the secret reached the model");
+    let last = seen.iter().filter(|r| system(r).starts_with("You are the research agent")).last().unwrap();
+    for (i, r) in results(last).iter().take(3).enumerate() {
+        assert!(r.to_lowercase().contains("symlink"), "attempt {i} was not refused for the symlink: {r}");
+    }
+    let d = s.agents[0].deliverable.as_ref().unwrap();
+    let report = std::fs::read_to_string(ws.join(&d.files[0])).unwrap();
+    assert!(!report.contains("TOP-SECRET-VALUE"), "{report}");
+    let log: String = s.agents[0].log.iter().map(|l| l.text.as_str()).collect::<Vec<_>>().join("\n");
+    assert!(!log.contains("TOP-SECRET-VALUE"));
+}
