@@ -194,6 +194,10 @@ pub struct ProjectState {
     /// Specify → plan → execute → test → ship, and every gate answer so far.
     #[serde(default)]
     pub phase: crate::phase::PhaseState,
+    /// Intake (intake.rs): the path the current task was given, and a task
+    /// waiting on the user's answer to "which kind is this?".
+    #[serde(default)]
+    pub intake: crate::intake::IntakeState,
 }
 
 /// An agent opening or closing a canvas: a browser on its dev server, its
@@ -236,6 +240,7 @@ impl ProjectState {
             options: vec![],
             artifacts: vec![],
             phase: Default::default(),
+            intake: Default::default(),
         }
     }
 

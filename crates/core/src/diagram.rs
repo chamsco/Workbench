@@ -425,6 +425,7 @@ mod tests {
             options: vec![],
             artifacts: vec![],
             phase: Default::default(),
+            intake: Default::default(),
         }
     }
 

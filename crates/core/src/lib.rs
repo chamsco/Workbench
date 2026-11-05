@@ -21,6 +21,7 @@ pub mod gateway;
 pub mod git;
 pub mod harness;
 pub mod harnesses;
+pub mod intake;
 pub mod ladder;
 pub mod layout;
 pub mod memory;

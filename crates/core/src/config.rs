@@ -22,6 +22,9 @@ pub struct Config {
     /// (gateway.rs). Absent: unrestricted.
     #[serde(default)]
     pub policy: crate::gateway::PolicyConfig,
+    /// What happens to a first message before any planning (intake.rs).
+    #[serde(default)]
+    pub intake: IntakeConfig,
     pub providers: BTreeMap<String, ProviderConfig>,
     pub models: Vec<ModelSpec>,
 }
@@ -40,6 +43,23 @@ pub struct RouterConfig {
     /// asked. Provisional until the router eval has run.
     #[serde(default = "default_triage_threshold")]
     pub triage_threshold: f64,
+}
+
+/// Intake: classify a task before work starts, and ask the user when unsure.
+/// Off by default: the classifier is uncalibrated until the section 10 eval.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(default)]
+pub struct IntakeConfig {
+    pub enabled: bool,
+    /// At most this many questions to the user before the task goes down the
+    /// long path (the one that plans with the user).
+    pub max_asks: u8,
+}
+
+impl Default for IntakeConfig {
+    fn default() -> Self {
+        IntakeConfig { enabled: false, max_asks: crate::intake::DEFAULT_MAX_ASKS }
+    }
 }
 
 fn default_triage_threshold() -> f64 {
