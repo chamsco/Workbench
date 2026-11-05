@@ -433,7 +433,9 @@ var Quiet = (() => {
       <button class="qr-logo${page === "home" ? " on" : ""}" data-q-go="home" aria-label="Workbench home" title="Workbench home">${ic("logo")}</button>
       <div class="qr-sep"></div>
       ${projects.map(p => `<button class="qr-proj${p === projectPath() ? " on" : ""}" data-q-project="${esc(p)}" title="${esc(base(p))}" aria-label="${esc(base(p))}" data-q-tip="${esc(base(p))}">${esc(initialsPath(p))}</button>`).join("")}
-      <button class="qr-add" data-q-add-project aria-label="Add project" title="Add project">${ic("plus")}</button>`;
+      <button class="qr-add" data-q-add-project aria-label="Add project" title="Add project">${ic("plus")}</button>
+      <span class="qr-sp"></span>
+      <button class="qr-user" data-q-settings aria-label="Account, ${esc(user())}" data-q-tip="${esc(user())}">${esc(initials(user()))}</button>`;
   }
 
   // ------------------------------------------------------------------ top bar
@@ -482,6 +484,17 @@ var Quiet = (() => {
     el.innerHTML = links.map(([k, l, icon, n]) => `<button data-q-go="${k}" class="qwork-ic${page === k ? " on" : ""}" aria-label="${n ? `${l}, ${n} waiting` : l}" aria-current="${page === k ? "page" : "false"}" data-q-tip="${n ? `${l} (${n})` : l}">${ic(icon)}${n ? `<i class="qwork-dot"></i>` : ""}</button>`).join("");
   }
 
+  // Settings, night mode and glass live at the bottom of the sidebar.
+  function renderSideFoot() {
+    const el = $("#qSideFoot"); if (!el) return;
+    const skin = skinName();
+    const dark = skin === "dark" || skin === "glass";
+    el.innerHTML = `
+      <button class="qicon${page === "settings" ? " on" : ""}" data-q-go="settings" aria-label="Settings" data-q-tip="Settings">${ic("gear")}</button>
+      <button class="qicon${dark ? " on" : ""}" data-q-theme="${dark ? "light" : "dark"}" aria-label="${dark ? "Light mode" : "Night mode"}" data-q-tip="${dark ? "Light mode" : "Night mode"}">${dark ? ic("sun") : ic("moon")}</button>
+      <button class="qicon${skin === "glass" ? " on" : ""}" data-q-skin="glass" aria-label="Glass" data-q-tip="Glass">${ic("drop")}</button>`;
+  }
+
   // ------------------------------------------------------------------ bottom rail
   function renderDock() {
     const el = $("#qDock"); if (!el) return;
@@ -490,17 +503,12 @@ var Quiet = (() => {
     const m = typeof machine === "function" ? machine() : { name: "This Mac", link: { state: "online" } };
     const online = m && m.link && m.link.state === "online";
     el.innerHTML = `
-      <span class="qd-left"><span class="qd-mach" title="${esc((m && m.name) || "This Mac")}"><i class="${online ? "on" : ""}"></i>${esc((m && m.name) || "This Mac")}</span></span>
       <span class="qd-right">
-        <button class="qicon" data-q-go="settings" aria-label="Settings" data-q-tip="Settings">${ic("gear")}</button>
-        <button class="qicon${dark ? " on" : ""}" data-q-theme="${dark ? "light" : "dark"}" aria-label="${dark ? "Light mode" : "Night mode"}" data-q-tip="${dark ? "Light mode" : "Night mode"}">${dark ? ic("sun") : ic("moon")}</button>
-        <button class="qicon${skin === "glass" ? " on" : ""}" data-q-skin="glass" aria-label="Glass" data-q-tip="Glass">${ic("drop")}</button>
         <button class="qicon" data-q-help aria-label="Help" data-q-tip="Help">${ic("help")}</button>
-        <button class="qd-user" data-q-settings aria-label="Account" title="${esc(user())}">${esc(initials(user()))}</button>
         <span class="qd-rule" aria-hidden="true"></span>
         <span class="qd-places" role="group" aria-label="Places">
           <button class="qicon${page === "today" ? " on" : ""}" data-q-go="today" aria-label="Today" data-q-tip="Today">${ic("calendar")}</button>
-          <button class="qicon${page === "machines" ? " on" : ""}" data-q-go="machines" aria-label="Machines" data-q-tip="Machines">${ic("server")}</button>
+          <button class="qicon qd-dev${page === "machines" ? " on" : ""}" data-q-go="machines" aria-label="Machines, ${esc((m && m.name) || "This Mac")} ${online ? "online" : "offline"}" data-q-tip="Machines · ${esc((m && m.name) || "This Mac")}">${ic("server")}<i class="qd-dot${online ? " on" : ""}"></i></button>
           <button class="qicon${page === "team" ? " on" : ""}" data-q-go="team" aria-label="Team" data-q-tip="Team">${ic("crew")}</button>
         </span>
       </span>`;
@@ -1618,6 +1626,7 @@ var Quiet = (() => {
     applyVisibility();
     applySkin();
     renderDock();
+    renderSideFoot();
     renderTabs();
     maybeDoctor();
     if (!data.at || Date.now() - data.at > 5000) load();

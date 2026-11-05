@@ -1707,3 +1707,96 @@
 /* the first work icon sits on the sheet edge: anchor tips left so they are not clipped */
 .qwork [data-q-tip]:hover::before, .qwork [data-q-tip]:focus-visible::before { left: 0; transform: none; }
 .qrail [data-q-tip]:hover::before, .qrail [data-q-tip]:focus-visible::before { left: calc(100% + 8px); top: 50%; transform: translateY(-50%); }
+
+
+/* ============================================================
+   ONE SHEET, ROUND TWO (Charles, 2026-11-05).
+   The top bar, sidebar and page are one sheet. The frame holds
+   only a dark rounded project rail (account at its foot) and the
+   bottom strip (help, then Today / Machines / Team). Settings,
+   night and glass sit at the foot of the sidebar. The machine name
+   lives on the Machines icon.
+   ============================================================ */
+:root { --q-rail-bg: #24221e; --q-rail-fg: #c9c3b8; --q-rail-on: #f3efe6; --q-rail-on-fg: #1c1b18; }
+:root[data-theme="dark"] { --q-rail-bg: #0c0b0a; --q-rail-fg: #b4aea3; --q-rail-on: #eeeae2; --q-rail-on-fg: #151412; }
+
+.win.q-on { --rail-w: 56px; --top-h: 44px; }
+
+/* project rail: a darker rounded pill inside the frame */
+.win.q-on .rail {
+  margin: 8px; padding: 10px 0 8px; border: 0; border-radius: 16px;
+  background: var(--q-rail-bg); color: var(--q-rail-fg);
+}
+.win.q-on .qrail { gap: 6px; }
+.win.q-on .qr-logo { width: 30px; height: 30px; border-radius: 10px; background: var(--q-rail-on); color: var(--q-rail-on-fg); }
+.win.q-on .qr-sep { background: rgba(255, 255, 255, .14); }
+.win.q-on .qr-proj { width: 32px; height: 32px; border-radius: 10px; color: var(--q-rail-fg); }
+.win.q-on .qr-proj:hover { background: rgba(255, 255, 255, .1); color: var(--q-rail-on); }
+.win.q-on .qr-proj.on { background: var(--q-rail-on); color: var(--q-rail-on-fg); box-shadow: none; }
+.win.q-on .qr-add { width: 32px; height: 32px; border-radius: 10px; color: var(--q-rail-fg); border-color: rgba(255, 255, 255, .22); }
+.win.q-on .qr-add:hover { color: var(--q-rail-on); border-color: rgba(255, 255, 255, .5); }
+.win.q-on .qr-sp { flex: 1; min-height: 6px; }
+.win.q-on .qr-user {
+  width: 32px; height: 32px; margin: 0; flex: none; border-radius: 50%;
+  background: #f3cfae; color: #4a2f1c; box-shadow: none; font: 600 10px/1 var(--font-ui);
+}
+.win.q-on .qr-user:focus-visible { outline: 2px solid var(--q-blue); outline-offset: 2px; }
+:root[data-theme="dark"] .win.q-on .qr-user { background: #6b4a33; color: #f7e4d2; }
+
+/* one sheet: the top bar is its first band */
+.win.q-on .qtop {
+  height: 36px; padding: 0 8px 0 10px;
+  margin: 8px 8px 0 calc(-1 * var(--side-w));
+  width: calc(100% + var(--side-w) - 8px);
+  background: var(--q-app);
+  border: 1px solid var(--q-line); border-bottom-color: var(--q-line-2);
+  border-radius: 12px 12px 0 0;
+}
+.win.q-on .qtop .qicon { width: 26px; height: 26px; }
+.win.q-on .qnav-ic { height: 26px; }
+.win.q-on .side {
+  margin: var(--top-h) 0 8px 0 !important;
+  border-top: 0; border-radius: 0 0 0 12px !important;
+}
+.win.q-on .qview { border-top: 0; border-radius: 0 0 12px 0; }
+.win.q-on .qsession { border-top: 0; border-radius: 0; }
+.win.q-on .gutter-side { top: var(--top-h); }
+.win.q-on.side-closed .qtop { margin-left: 0; width: calc(100% - 8px); }
+.win.q-on.side-closed .qview { border-radius: 0 0 12px 12px; }
+.win.q-on.side-closed .qsession { border-radius: 0; }
+.win.q-on.side-closed .qfooter { border-radius: 0 0 12px 12px; }
+.win.q-on.side-closed .side { border: 0; }
+
+/* sidebar top: the work rail, centred, each icon in its own rounded square */
+.win.q-on .qwork { justify-content: center; gap: 6px; padding: 10px 8px; }
+.win.q-on .qwork-ic {
+  width: 32px; height: 32px; border-radius: 9px; flex: none;
+  border: 1px solid var(--q-line); background: var(--q-soft);
+}
+.win.q-on .qwork-ic:hover { border-color: var(--q-ink-2); }
+.win.q-on .qwork-ic.on { background: var(--q-ink); border-color: var(--q-ink); color: var(--q-app); }
+.win.q-on .qwork [data-q-tip]:hover::before,
+.win.q-on .qwork [data-q-tip]:focus-visible::before { left: 50%; transform: translateX(-50%); }
+.win.q-on .qwork-ic:first-child[data-q-tip]:hover::before,
+.win.q-on .qwork-ic:first-child[data-q-tip]:focus-visible::before { left: 0; transform: none; }
+
+/* sidebar foot: settings, night, glass */
+.qsidefoot {
+  flex: none; display: flex; align-items: center; gap: 2px; padding: 8px 10px;
+  border-top: 1px solid var(--q-line-2);
+}
+.qsidefoot .qicon { width: 28px; height: 28px; border-radius: 8px; }
+.qsidefoot .qicon .qi { width: 15px; height: 15px; }
+.qsidefoot .qicon.on, .qsidefoot .qicon:hover { background: var(--q-soft); color: var(--q-ink); }
+.qsidefoot .qicon:focus-visible { outline: 2px solid var(--q-blue); outline-offset: 2px; }
+.qsidefoot [data-q-tip]:hover::before, .qsidefoot [data-q-tip]:focus-visible::before { left: 0; transform: none; top: auto; bottom: calc(100% + 6px); }
+.win.q-on.side-closed .qsidefoot { display: none; }
+.win.q-glass .qsidefoot { border-top-color: rgba(255, 255, 255, .12); }
+
+/* bottom strip: help, rule, Today / Machines / Team */
+.qdock { grid-template-columns: 1fr; }
+.qd-right { justify-content: flex-end; }
+.qd-dev { position: relative; }
+.qd-dot { position: absolute; right: 3px; bottom: 3px; width: 6px; height: 6px; border-radius: 50%; background: var(--q-faint); box-shadow: 0 0 0 1.5px var(--q-side); }
+.qd-dot.on { background: var(--q-green); }
+.win.q-on .status { height: 28px; }

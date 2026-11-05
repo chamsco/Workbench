@@ -9,8 +9,8 @@
 
   const rail = q(".rail");
   const rw = rail ? rail.getBoundingClientRect().width : 999;
-  step("project rail is slim", rw > 0 && rw < 50, `${Math.round(rw)}px`);
-  step("project rail is flush with the frame", parseFloat(getComputedStyle(rail).borderTopLeftRadius) < 2 && parseFloat(getComputedStyle(rail).marginBottom) < 2);
+  step("project rail is slim", rw > 0 && rw < 60, `${Math.round(rw)}px`);
+  step("project rail is a dark rounded pill", parseFloat(getComputedStyle(rail).borderTopLeftRadius) >= 10 && (getComputedStyle(rail).backgroundColor.match(/\d+/g) || []).slice(0, 3).every((c) => +c < 80));
 
   Quiet.go("today");
   await wait(350);
