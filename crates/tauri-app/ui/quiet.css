@@ -1882,3 +1882,81 @@ button.qh-pill:hover { background: var(--q-app); color: var(--q-ink); }
 .qh-box.need { border: 1.5px solid var(--q-peach); }
 .qh-team { display: flex; gap: 6px; padding: 4px 0 8px; flex-wrap: wrap; }
 @media (max-width: 1000px) { .qh-grid { grid-template-columns: 1fr; } }
+
+
+/* ============================================================
+   ONE SHEET, ROUND FOUR (Charles, 2026-11-05).
+   One frame colour all round (darker cream, darker brown, frosted
+   for glass); no dark pill. The sheet inside it has one vertical
+   divider: the sidebar on the left, the page on the right. Both
+   columns have a top row on the same line (work icons | sidebar
+   toggle, crumb, modes, search) and a bottom bar on the same line
+   (settings, night, glass | help, places), each centred. The gap to
+   the frame is the same at the top, right and bottom.
+   ============================================================ */
+:root { --q-frame: #e8e3d8; --sheet-gap: 10px; --row-h: 50px; }
+:root[data-theme="dark"] { --q-frame: #0f0e0d; }
+.win.q-on:not(.q-glass) { background: var(--q-frame); }
+.win.q-on .mainc { background: transparent; }
+
+/* the project rail sits straight on the frame */
+.win.q-on .rail { margin: var(--sheet-gap) 0 var(--sheet-gap) var(--sheet-gap); background: transparent; border-radius: 0; }
+.win.q-on .qr-logo { background: var(--q-ink); color: var(--q-app); }
+.win.q-on .qr-sep { background: var(--q-line); }
+.win.q-on .qr-proj, .win.q-on .qr-add { color: var(--q-ink-2); }
+.win.q-on .qr-add { border-color: color-mix(in srgb, var(--q-ink) 22%, transparent); }
+.win.q-on .qr-proj:hover { background: color-mix(in srgb, var(--q-ink) 8%, transparent); color: var(--q-ink); }
+.win.q-on .qr-proj.on { background: var(--q-app); color: var(--q-ink); box-shadow: 0 0 0 1px var(--q-line); }
+.win.q-on .qr-add:hover { color: var(--q-ink); border-color: var(--q-ink-2); }
+:root[data-theme="dark"] .win.q-on .qr-logo { background: #ece7de; color: #1b1917; }
+.win.q-glass.q-on .qr-proj, .win.q-glass.q-on .qr-add { color: #d8d3ca; }
+.win.q-glass.q-on .qr-proj.on { background: rgba(255, 255, 255, .14); color: #fff; }
+
+/* sidebar: the left column of the sheet, from the top edge down to the bottom bar */
+.win.q-on .side {
+  margin: var(--sheet-gap) 0 0 0 !important;
+  border: 1px solid var(--q-line) !important; border-bottom: 0 !important; border-right: 1px solid var(--q-line) !important;
+  border-radius: 12px 0 0 0 !important;
+}
+.win.q-on .qwork { height: var(--row-h); box-sizing: border-box; padding: 8px; border-bottom: 1px solid var(--q-line-2); }
+
+/* top row of the page: same height and line as the work icons */
+.win.q-on .qtop {
+  margin: var(--sheet-gap) var(--sheet-gap) 0 0; width: auto;
+  height: var(--row-h); box-sizing: border-box; padding: 0 10px 0 10px;
+  border: 1px solid var(--q-line); border-left: 0; border-bottom: 1px solid var(--q-line-2);
+  border-radius: 0 12px 0 0;
+}
+.win.q-on .qnav { left: 50%; }
+.win.q-on .qtop .qicon { width: 28px; height: 28px; }
+.win.q-on .qnav-ic { height: 28px; }
+.win.q-on .gutter-side { top: calc(var(--sheet-gap) + var(--row-h)); bottom: 40px; }
+
+/* page body */
+.win.q-on .qview { margin: 0 var(--sheet-gap) 0 0; border: 1px solid var(--q-line); border-left: 0; border-top: 0; border-bottom: 0; border-radius: 0; }
+.win.q-on .qsession { margin: 0 var(--sheet-gap) 0 0; border-top: 0; border-left: 0; border-radius: 0; }
+.win.q-on .qfooter { margin: 0 var(--sheet-gap) 0 0; border-left: 0; border-bottom: 0; border-radius: 0; }
+
+/* two bottom bars on one line, each centred */
+.win.q-on .status {
+  margin: 0 var(--sheet-gap) var(--sheet-gap) 0; border-radius: 0 0 12px 12px;
+}
+.qd-foot { width: calc(var(--side-w) - 1px); border-right: 1px solid var(--q-line-2); }
+.qd-right { justify-content: center; padding-right: 0; }
+
+/* folded sidebar: the page is the whole sheet, divider and left bar go */
+.win.q-on.side-closed .side { border: 0 !important; }
+.win.q-on.side-closed .qtop { border-left: 1px solid var(--q-line); border-radius: 12px 12px 0 0; }
+.win.q-on.side-closed .qview, .win.q-on.side-closed .qsession, .win.q-on.side-closed .qfooter { border-left: 1px solid var(--q-line); }
+.win.q-on.side-closed .qd-foot { display: none; }
+
+/* glass: the frame is the frosted scene itself */
+.win.q-glass.q-on .qtop, .win.q-glass.q-on .qview, .win.q-glass.q-on .qsession, .win.q-glass.q-on .qfooter, .win.q-glass.q-on .side, .win.q-glass.q-on .status {
+  background: rgba(16, 20, 27, .46); border-color: rgba(255, 255, 255, .13);
+}
+.win.q-glass.q-on .qd-foot { border-right-color: rgba(255, 255, 255, .13); }
+
+/* the bottom gap lives in the grid row, so the status bar is not clipped */
+.win.q-on { grid-template-rows: minmax(0, 1fr) calc(40px + var(--sheet-gap)); }
+.win.q-on .status { align-self: start; }
+.win.q-on .gutter-side { bottom: calc(40px + var(--sheet-gap)); }

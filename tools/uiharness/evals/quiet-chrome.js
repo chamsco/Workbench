@@ -35,8 +35,15 @@
   const rail = q("#qRail");
   step("the project rail ends with the account", rail?.lastElementChild?.classList.contains("qr-user"));
   const tb = q(".qtop").getBoundingClientRect(), sd = q(".side").getBoundingClientRect();
-  step("the top bar is slim", tb.height <= 36, `${Math.round(tb.height)}px`);
-  step("the top bar and sidebar share one sheet", Math.abs(tb.bottom - sd.top) < 2 && Math.abs(tb.left - sd.left) < 2, `${Math.round(tb.bottom)} / ${Math.round(sd.top)}`);
+  const wkr = q("#qWork").getBoundingClientRect();
+  step("the page's top row sits on the work icons' line", Math.abs(tb.top - wkr.top) < 2 && Math.abs(tb.bottom - wkr.bottom) < 2, `${Math.round(tb.top)}-${Math.round(tb.bottom)} / ${Math.round(wkr.top)}-${Math.round(wkr.bottom)}`);
+  step("the top row sits right of the sidebar", tb.left >= sd.right - 1, `${Math.round(tb.left)} / ${Math.round(sd.right)}`);
+  step("the sidebar toggle is inside the page's top row", q("#qCollapse").getBoundingClientRect().left >= tb.left);
+  const win = q("#win").getBoundingClientRect(), gTop = tb.top - win.top, gRight = win.right - tb.right, gBottom = win.bottom - stt.bottom;
+  step("same gap at the top, right and bottom", Math.abs(gTop - gRight) < 3 && Math.abs(gTop - gBottom) < 3, `${Math.round(gTop)} / ${Math.round(gRight)} / ${Math.round(gBottom)}`);
+  step("the frame is one colour", getComputedStyle(q("#win")).backgroundColor === getComputedStyle(q(".rail")).backgroundColor || getComputedStyle(q(".rail")).backgroundColor === "rgba(0, 0, 0, 0)");
+  step("a divider runs between sidebar and page", parseFloat(getComputedStyle(q(".side")).borderRightWidth) >= 1);
+  step("two bottom bars: sidebar's is centred, the page's is centred", (() => { const r = dock.querySelector(".qd-right > :first-child").getBoundingClientRect(), e = dock.querySelector(".qd-places").getBoundingClientRect(), mid = (r.left + e.right) / 2, want = (sdr.right + stt.right) / 2; return Math.abs(mid - want) < 6; })());
   const wk = [...document.querySelectorAll("#qWork .qwork-ic")].map((b) => b.getBoundingClientRect());
   const wl = wk[0].left - sd.left, wr = sd.right - wk[wk.length - 1].right;
   step("the work rail is centred in the sidebar", Math.abs(wl - wr) < 3, `${Math.round(wl)} / ${Math.round(wr)}`);

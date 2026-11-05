@@ -10,7 +10,7 @@
   const rail = q(".rail");
   const rw = rail ? rail.getBoundingClientRect().width : 999;
   step("project rail is slim", rw > 0 && rw < 60, `${Math.round(rw)}px`);
-  step("project rail is a dark rounded pill", parseFloat(getComputedStyle(rail).borderTopLeftRadius) >= 10 && (getComputedStyle(rail).backgroundColor.match(/\d+/g) || []).slice(0, 3).every((c) => +c < 80));
+  step("project rail sits on the frame colour", getComputedStyle(rail).backgroundColor === "rgba(0, 0, 0, 0)");
 
   Quiet.go("today");
   await wait(350);
