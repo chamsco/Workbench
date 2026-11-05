@@ -1,0 +1,31 @@
+{
+  "name": "open-bot-avatar",
+  "version": "0.1.2",
+  "description": "Small object characters with eyes: validate a silhouette + eyes definition and render it with implied 3D volume, idle motion, moods and gaze. No dependencies.",
+  "keywords": ["avatar", "bot", "svg", "character", "animation", "css-3d", "mascot"],
+  "license": "MIT",
+  "author": "Dominik Scholz",
+  "homepage": "https://dominikscholz.github.io/open-bot-avatar/",
+  "repository": { "type": "git", "url": "git+https://github.com/DominikScholz/open-bot-avatar.git", "directory": "packages/core" },
+  "bugs": "https://github.com/DominikScholz/open-bot-avatar/issues",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "open-bot-avatar/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./dom": {
+      "open-bot-avatar/source": "./src/dom/index.ts",
+      "types": "./dist/dom/index.d.ts",
+      "default": "./dist/dom/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": ["dist", "src"],
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  }
+}

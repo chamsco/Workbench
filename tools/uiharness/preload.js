@@ -55,10 +55,14 @@
   // Shape borrowed from a real target/app-demo/prefs.json, trimmed. `tabs` and
   // `active_tab` are not optional: app.js does prefs.tabs.forEach and
   // prefs.tabs[prefs.active_tab] unguarded.
+  function seedTabs() {
+    return [{ name: "Harness", panes: [{ kind: "agent", agent: 0, url: null, option: null }], layout: null }];
+  }
+
   function prefs() {
     return {
       theme: "dark",
-      tabs: [{ name: "Harness", panes: [{ kind: "agent", agent: 0, url: null, option: null }], layout: null }],
+      tabs: seedTabs(),
       active_tab: 0,
       onboarded: true,
       mode: "chat",
@@ -111,13 +115,20 @@
     local_models: [],
     memory_list: [],
     memory_dreams: [],
-    git_activity: [],
+    // Home reads `activity.data.days`; null is the "no repo" shape, while an
+    // array here would pass the `act ?` guard and crash on `.days`.
+    git_activity: null,
     git_changes: { files: [], branch: "", fresh: false },
     git_log: [],
     worktrees: [],
-    tabs_for: null,
+    // The real store always returns the project's layout; with none it comes
+    // back as the global one, seeded with a single canvas. Mirror that shape,
+    // or app.js adopts an empty layout and Code renders with no active tab.
+    tabs_for: () => ({ tabs: seedTabs(), active: 0 }),
     accounts: { policy: "automatic", accounts: [] },
-    skills_catalog: { skills: [], workflow: { main_skills: [], worker_skills: [], triage_skills: [] } },
+    // `dirs` and `user_dir` are read unconditionally by the Skills view
+    // (`d.dirs[0]`), so an empty catalog still needs them.
+    skills_catalog: { skills: [], workflow: { main_skills: [], worker_skills: [], triage_skills: [] }, dirs: [], user_dir: "", template: "" },
     colony_status: { running: [], done: [] },
     companion_status: { enabled: false },
     share_status: { enabled: false },

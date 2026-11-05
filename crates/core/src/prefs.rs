@@ -160,6 +160,8 @@ pub struct Appearance {
     pub accent_dark: String,
     pub bg: String,
     pub fg: String,
+    /// The home field's glyph colour. Empty: the theme's green.
+    pub ascii: String,
     /// Empty: the bundled Inter. A name is used verbatim, then a system one.
     pub ui_font: String,
     /// Empty: the platform monospace stack.
@@ -190,10 +192,18 @@ impl Appearance {
             out.extend(var("--bs-accent", &self.accent));
         }
         if !self.bg.is_empty() {
-            out.extend(var("--page-bg", &self.bg));
+            out.extend(var("--page-bg", &self.bg).into_iter().chain(var("--bs-chat-bg", &self.bg)));
         }
         if !self.fg.is_empty() {
-            out.extend(var("--fg", &self.fg).into_iter().chain(var("--page-fg", &self.fg)));
+            out.extend(
+                var("--fg", &self.fg)
+                    .into_iter()
+                    .chain(var("--page-fg", &self.fg))
+                    .chain(var("--foreground", &self.fg)),
+            );
+        }
+        if !self.ascii.is_empty() {
+            out.extend(var("--bs-ascii", &self.ascii));
         }
         if !self.ui_font.is_empty() {
             out.extend(var("--font-ui", &self.ui_font));

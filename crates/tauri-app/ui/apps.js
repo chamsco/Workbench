@@ -171,47 +171,43 @@ var Apps = (() => {
   const PERM = { agent: "Asks models you've switched on", routes: "Sees which models are on", storage: "Keeps its own data", notify: "Shows notifications", open_url: "Opens links in your browser" };
 
   function renderZone() {
-    const el = $("#apps");
+    const tab = S.mode === "plugins" ? "plugins" : "apps";
+    const el = $(tab === "plugins" ? "#plugins" : "#apps");
+    if (!el) return;
     const inst = installed();
     const ex = examples.filter(m => !list.some(a => a.id === m.id));
-    el.innerHTML = `<div class="apz">
-      <div class="apz-h"><h1>Apps</h1><p>Views with their own agent, made by anyone: install one from a link to its <code>backspace-app.json</code>, or from a folder while you build it.</p></div>
-      <div class="apz-inst">
+    const installUI = `<div class="apz-inst">
         <input class="tx" id="apUrl" placeholder="https://…/backspace-app.json" aria-label="App manifest URL" autocomplete="off">
         <button class="btn primary" id="apGo" ${busy ? "disabled" : ""}>${busy === "url" ? "Installing…" : "Install"}</button>
         <button class="btn" id="apDir" ${busy ? "disabled" : ""}>${icon("folder")}From folder…</button>
       </div>
-      <div class="err" role="alert">${esc(err)}</div>
-      <h2>Built in</h2>
-      <div class="agrid">${[["chat", "bubble", "Chat", "Talk to any model, or to your named agents and groups."], ["code", "codei", "Code", "Chat with a CLI in a project, or let agents build it ticket by ticket."]].map(([k, ic, n, d]) => {
-        const uses = prefs.uses && prefs.uses.length ? prefs.uses : ["chat", "code"], on = uses.includes(k), last = on && uses.length === 1;
-        return `<div class="acard"><div class="ac-top"><span class="ag" style="--ag:var(--fg);color:var(--desk-base)">${icon(ic)}</span><div class="ac-n"><b>${n}</b><small>Built in</small></div></div><p>${d}</p>
-          <div class="ac-act">${on ? `<button class="btn primary sm" data-zone="${k}">Open</button>` : ""}<span class="sp"></span><button class="btn sm" data-use="${k}" ${last ? `disabled title="Keep at least one"` : ""}>${on ? (last ? "Required" : "Remove") : `${icon("plus")}Add`}</button></div></div>`;
-      }).join("")}</div>
-      <h2>Installed</h2>
-      ${inst.length ? `<div class="agrid">${inst.map(a => card(a, true)).join("")}</div>` : `<div class="apz-empty">Nothing installed yet. Try an example below, or install your own.</div>`}
-      ${ex.length ? `<h2>Examples</h2><div class="agrid">${ex.map(a => card(a, false)).join("")}</div>` : ""}
-      <h2>Make one</h2>
-      <p class="apz-make">An app is a folder with <code>backspace-app.json</code> and a page. The page includes <code>__backspace/sdk.js</code> and calls <code>backspace.agent.ask(prompt)</code>, <code>backspace.storage</code>, <code>backspace.notify</code>. The full format is in <code>docs/apps.md</code>.</p>
-    </div>`;
+      <div class="err" role="alert">${esc(err)}</div>`;
+    const body = tab === "plugins"
+      ? `<div class="apz-h"><h1>Plugins</h1><p>Views that ship their own agent, made by anyone. Install one from a link to its <code>backspace-app.json</code>, or from a folder while you build it.</p></div>
+        ${installUI}
+        ${ex.length ? `<h2>Examples</h2><div class="agrid">${ex.map(a => card(a, false)).join("")}</div>` : ""}
+        <h2>Make one</h2>
+        <p class="apz-make">A plugin is a folder with <code>backspace-app.json</code> and a page. The page includes <code>__backspace/sdk.js</code> and calls <code>backspace.agent.ask(prompt)</code>, <code>backspace.storage</code>, <code>backspace.notify</code>. The full format is in <code>docs/apps.md</code>.</p>`
+      : `<div class="apz-h"><h1>Apps</h1><p>Views installed on this machine. <button class="btn sm" id="apBrowse">${icon("grid")}Browse plugins</button></p></div>
+        ${inst.length ? `<div class="agrid">${inst.map(a => card(a, true)).join("")}</div>` : `<div class="apz-empty">Nothing installed yet. Browse plugins to add one.</div>`}
+        <h2>Built in</h2>
+        <div class="agrid"><div class="acard"><div class="ac-top"><span class="ag" style="--ag:var(--fg);color:var(--desk-base)">${icon("codei")}</span><div class="ac-n"><b>Workbench</b><small>Built in</small></div></div><p>Chat with a CLI in a project, or let agents build it ticket by ticket.</p><div class="ac-act"><button class="btn primary sm" data-zone="code">Open</button></div></div></div>`;
+    el.innerHTML = `<div class="apz">${body}</div>`;
     const install = async (key, fn) => {
       busy = key; err = ""; renderZone();
       try { const a = await fn(); toast(`Installed ${a.name}`, "ok"); busy = ""; await reload(); setMode("app:" + a.id); }
       catch (e) { err = String(e); busy = ""; renderZone(); }
     };
-    $("#apGo", el).onclick = () => { const u = $("#apUrl", el).value.trim(); if (!u) { err = "Paste the link to an app's backspace-app.json."; renderZone(); return; } install("url", () => invoke("app_install_url", { url: u })); };
-    $("#apUrl", el).onkeydown = e => { if (e.key === "Enter") $("#apGo", el).click(); };
-    $("#apDir", el).onclick = async () => { const p = await invoke("pick_app").catch(() => null); if (p) install("dir", () => invoke("app_install_dir", { path: p })); };
-    $$("[data-ex]", el).forEach(b => (b.onclick = () => install(b.dataset.ex, () => invoke("app_install_example", { id: b.dataset.ex }))));
+    if (tab === "plugins") {
+      $("#apGo", el).onclick = () => { const u = $("#apUrl", el).value.trim(); if (!u) { err = "Paste the link to a plugin's backspace-app.json."; renderZone(); return; } install("url", () => invoke("app_install_url", { url: u })); };
+      $("#apUrl", el).onkeydown = e => { if (e.key === "Enter") $("#apGo", el).click(); };
+      $("#apDir", el).onclick = async () => { const p = await invoke("pick_app").catch(() => null); if (p) install("dir", () => invoke("app_install_dir", { path: p })); };
+      $$("[data-ex]", el).forEach(b => (b.onclick = () => install(b.dataset.ex, () => invoke("app_install_example", { id: b.dataset.ex }))));
+    }
+    const browse = $("#apBrowse", el);
+    if (browse) browse.onclick = () => setMode("plugins");
     $$("[data-open]", el).forEach(b => (b.onclick = () => setMode("app:" + b.dataset.open)));
     $$("[data-zone]", el).forEach(b => (b.onclick = () => setMode(b.dataset.zone)));
-    $$("[data-use]", el).forEach(b => (b.onclick = async () => {
-      const cur = prefs.uses && prefs.uses.length ? prefs.uses : ["chat", "code"], k = b.dataset.use;
-      const next = ["chat", "code"].filter(u => (u === k ? !cur.includes(u) : cur.includes(u)));
-      if (!next.length) return;
-      prefs.uses = next; await invoke("set_uses", { uses: next });
-      Shell.renderRail(); renderZone();
-    }));
     $$("[data-pin]", el).forEach(b => (b.onclick = () => { togglePin(b.dataset.pin); renderZone(); }));
     // Two clicks to remove: the first asks.
     $$("[data-rm]", el).forEach(b => (b.onclick = async () => {

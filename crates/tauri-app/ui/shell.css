@@ -52,16 +52,48 @@
 .os-mac .win.side-closed .tbar { padding-left: 80px; }
 @media (prefers-reduced-motion: reduce) { .win, .side, .win.side-closed .side { transition: none; } }
 
-/* ---------- title bar: zones, Pair | Workbench (or Chat | Agents), the view menu; search, panel, settings */
-.zones, .tbar .modes { display: flex; gap: 2px; padding: 2px; border-radius: 9px; background: var(--chip); flex: none; margin: 0; box-shadow: none; flex-basis: auto; }
+/* ---------- title bar: the app rail, centred; search, panel, settings on the right */
+/* The rail is absolute so it can be centred in the bar without the side
+   controls moving it; that anchor has to be the bar, not .mainc. */
+.tbar { position: relative; }
+.zones, .apphead .modes { display: flex; gap: 2px; padding: 2px; border-radius: 9px; background: var(--chip); flex: none; margin: 0; box-shadow: none; flex-basis: auto; }
 .zones button { position: relative; width: 28px; height: 24px; border-radius: 7px; display: grid; place-items: center; color: var(--fg-3); }
 .zones button .ic, .zones button svg { width: 15px; height: 15px; }
 .zones button:hover { color: var(--fg); }
 .zones button[aria-selected="true"] { background: var(--pill-on); color: var(--fg); }
 .zones .rb, .vbtn .rb { position: absolute; top: -3px; right: -3px; font-style: normal; min-width: 14px; height: 14px; padding: 0 3px; border-radius: 7px; background: var(--amber); color: #000; font-size: 9.5px; line-height: 14px; text-align: center; }
-.tbar .modes button { height: 24px; padding: 0 9px; border-radius: 7px; font-size: 12px; font-weight: 500; color: var(--fg-3); }
-.tbar .modes button[aria-selected="true"] { background: var(--pill-on); color: var(--fg); box-shadow: none; font-weight: 600; }
-.tbar .modes button .ic { width: 13px; height: 13px; }
+
+/* ---------- the app rail: centred at the top, the same in every app ---------- */
+.apprail { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 4; display: flex; align-items: center; gap: 6px; height: 32px; padding: 2px 4px; border-radius: 999px; background: var(--chip); box-shadow: inset 0 0 0 0.5px var(--pane-edge); -webkit-backdrop-filter: blur(18px) saturate(1.4); backdrop-filter: blur(18px) saturate(1.4); }
+.ar-grp { display: flex; align-items: center; gap: 1px; }
+.ar-btn { position: relative; display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 28px; min-width: 28px; padding: 0 7px; border-radius: 999px; font-size: 12.5px; font-weight: 500; color: var(--fg-3); white-space: nowrap; flex: none; }
+.ar-btn:hover { color: var(--fg); background: var(--hover); }
+.ar-btn[aria-selected="true"] { background: var(--pill-on); color: var(--fg); }
+.ar-btn .ic { width: 15px; height: 15px; }
+.ar-new { padding: 0 11px 0 9px; color: var(--fg-2); }
+.ar-new .ic { width: 14px; height: 14px; }
+.ar-sep { width: 1px; height: 18px; margin: 0 3px; background: var(--pane-edge); flex: none; }
+.ar-vsep { width: 1px; height: 14px; margin: 0 2px; background: var(--pane-edge); flex: none; }
+.ar-btn .rb { position: absolute; top: -2px; right: -2px; font-style: normal; min-width: 14px; height: 14px; padding: 0 3px; border-radius: 7px; background: var(--amber); color: #000; font-size: 9.5px; line-height: 14px; text-align: center; }
+
+/* ---------- the per-app header under the rail: title left, ADE | IDE centre ---- */
+.apphead { position: relative; flex: none; height: 40px; display: flex; align-items: center; gap: 8px; padding: 0 10px; }
+.apphead .ah-left { display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1; }
+.apphead .ah-right { display: flex; align-items: center; gap: 4px; flex: 1; justify-content: flex-end; min-width: 0; }
+.apphead .modes { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); display: flex; gap: 2px; padding: 2px; border-radius: 9px; background: var(--chip); box-shadow: none; }
+.apphead .modes[hidden] { display: none; }
+.apphead .modes button { height: 26px; padding: 0 10px; border-radius: 7px; font-size: 12px; font-weight: 500; color: var(--fg-3); display: inline-flex; align-items: center; gap: 5px; }
+.apphead .modes button[aria-selected="true"] { background: var(--pill-on); color: var(--fg); font-weight: 600; }
+.apphead .modes button .ic { width: 13px; height: 13px; }
+.apphead #tabs { position: static; transform: none; max-width: none; }
+.apphead .zone-head { min-width: 0; }
+/* The old fused pill row and the sidebar copy of the switch are gone. The
+   #sidePills slot itself still has to stay out of the window's grid: as a
+   static child it took the main column's cell, leaving .mainc a zero-width
+   sliver at the bottom. It only ever held the chat face's pills. */
+.side-pills { display: none !important; }
+.side-modes { display: none !important; }
+.win.settings-on .apphead { display: none; }
 
 /* ---------- Code's title is the folder it is working in ---------------------
    A project, not an app name: the folder, switchable from the title itself. */
@@ -71,54 +103,7 @@
 .zone-head .zt.proj.quiet b { color: var(--fg-2); font-weight: 500; }
 .zone-head .zt.proj .ic:last-child { width: 12px; height: 12px; color: var(--fg-3); }
 
-/* ---------- Chat | Agents shares the sidebar's top line ---------------------
-   One row with the collapse control, right-aligned, in the same frosted chip as
-   the zone buttons. The title-bar copy only shows once the sidebar is gone, so
-   the switch is never more than one click away. */
-.side-modes { flex: none; padding: 0 8px 6px; }
-.side-modes .modes { display: flex; gap: 2px; padding: 2px; border-radius: 9px; background: var(--chip); box-shadow: none; }
-.side-modes .modes[hidden] { display: none; }
-.side-modes .modes button { flex: 1; justify-content: center; height: 26px; padding: 0 9px; border-radius: 7px; display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 500; color: var(--fg-3); }
-.side-modes .modes button[aria-selected="true"] { background: var(--pill-on); color: var(--fg); font-weight: 600; box-shadow: none; }
-.side-modes .modes button .ic { width: 12px; height: 12px; }
-.win:not(.side-closed) .tbar .modes { display: none; }
-.win.side-closed .side-modes .modes { display: none; }
-/* Chat keeps the switch in the middle of the title bar, open or folded: the
-   card holds the threads, the switch belongs to the window. Code keeps it in
-   the card, where it sits with the project tree it switches. */
-.win.m-chat .side-modes { display: none; }
-.win.m-chat .tbar .modes { display: flex; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); }
-.win.m-chat .tbar .modes[hidden] { display: none; }
-
-/* ---------- New chat | search + sidebar, over the top of the card ----------
-   Laid over the window rather than inside the card, so when the card folds
-   away they stay where they were: the right pill slides in next to New chat
-   and the title bar makes room for them. Only Chat and Code have a sidebar of
-   threads; elsewhere the old toggle does the job. */
-.side-pills { display: none; }
-.win.whirl-on:is(.m-chat, .m-code) .side-pills {
-  --pl: 14px;
-  position: absolute; z-index: 9; top: 3px; left: var(--pl); width: calc(var(--side-w-user, 212px) - var(--pl) - 2px);
-  display: flex;
-  transition: width 0.28s cubic-bezier(.2, .8, .2, 1);
-}
-.win.whirl-on:is(.m-chat, .m-code).side-closed .side-pills { width: 176px; }
-.win.whirl-on.ghost-side .side-pills, .win.booting .side-pills { display: none; }
-.side-pill { background: var(--chip); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); }
-.win.whirl-on:is(.m-chat, .m-code) #sideClose, .win.whirl-on:is(.m-chat, .m-code) #sideOpen { display: none !important; }
-.win.whirl-on:is(.m-chat, .m-code) .tbar { transition: padding-left 0.28s cubic-bezier(.2, .8, .2, 1); }
-.win.whirl-on:is(.m-chat, .m-code).side-closed .tbar { padding-left: 206px; }
-/* macOS: the lights own the top-left, so the pills sit beside them when the
-   card is folded and on a row of their own under them when it is open. */
-.os-mac .win.whirl-on:is(.m-chat, .m-code) .side-top { height: 72px; }
-.os-mac .win.whirl-on:is(.m-chat, .m-code) .side-pills { top: 38px; transition: width 0.28s cubic-bezier(.2, .8, .2, 1), top 0.28s cubic-bezier(.2, .8, .2, 1), left 0.28s cubic-bezier(.2, .8, .2, 1); }
-.os-mac .win.whirl-on:is(.m-chat, .m-code).side-closed .side-pills { top: 3px; --pl: 82px; }
-.os-mac .win.whirl-on:is(.m-chat, .m-code).side-closed .tbar { padding-left: 274px; }
-@media (max-width: 760px) {
-  .win.whirl-on:is(.m-chat, .m-code):not(.side-open) .side-pills { width: 176px; }
-  .win.whirl-on:is(.m-chat, .m-code):not(.side-open) .tbar { padding-left: 206px; }
-}
-@media (prefers-reduced-motion: reduce) { .side-pills, .win .tbar { transition: none !important; } }
+/* ---------- the view menu (canvas layout) ---------- */
 .vbtn { position: relative; height: 28px; padding: 0 8px 0 10px; border-radius: 9px; display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; background: var(--chip); color: var(--fg); flex: none; }
 .vbtn .ic { width: 14px; height: 14px; }
 .vbtn .ud { width: 12px; height: 12px; color: var(--fg-3); }
@@ -459,3 +444,11 @@ button.rp-row:hover { background: var(--hover); }
 .win.ghost-side .side {
   transition: width 0.28s cubic-bezier(0.32, 0.72, 0, 1), transform 0.28s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.2s ease, visibility 0s linear 0.28s;
 }
+
+/* ---------- Plugins and Skills: places of their own beside Apps ---------- */
+.plugins.zone > .apz, .skills.zone > .apz { max-width: none; background: var(--pane); border-radius: 9px; box-shadow: 0 0 0 0.5px var(--pane-edge); }
+.skills.zone { overflow-y: auto; }
+/* Settings' section styles, without the settings page's own frame. The width
+   and centring come from .apz > *, so the rows line up with the heading. */
+.set.in-zone { padding: 0; }
+.skills.zone > .set { max-width: 900px; }

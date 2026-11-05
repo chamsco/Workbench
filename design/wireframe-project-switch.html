@@ -1,0 +1,1735 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Workbench - Wireframe 02 - Session and new session</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* ============================================================
+   WIREFRAME 02 - Agent workspace
+   01 Session view  : project rail + Droid-style sidebar + thread
+   02 New session   : same frame, empty state, prompt dock
+
+   Structure only. Grayscale. Placeholder copy is grey bars.
+   ============================================================ */
+:root{
+  --font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
+
+  --bg: #0d0e11;
+  --rail: #0a0b0d;
+  --side: #0f1014;
+  --panel: #0f1013;
+  --raise: #13151a;
+  --raise-2: #191c22;
+
+  --line: #22252b;
+  --line-soft: #1a1d22;
+  --line-strong: #2e323a;
+
+  --ink: #e9ebef;
+  --ink-2: #a9aeb8;
+  --ink-3: #7c828c;
+  --ink-4: #5a5f68;
+  --ink-5: #43474f;
+
+  --fill: #1b1e24;
+  --fill-2: #23262d;
+  --fill-3: #2b2f37;
+
+  --r-sm: 6px;
+  --r-md: 9px;
+  --r-lg: 12px;
+}
+*,*::before,*::after{box-sizing:border-box}
+html,body{margin:0}
+html{scroll-behavior:smooth}
+body{
+  min-height:100vh;
+  background:#07080a;
+  background-image:radial-gradient(rgba(255,255,255,.055) 1px, transparent 1.1px);
+  background-size:26px 26px;
+  background-position:-1px -1px;
+  color:var(--ink);
+  font-family:var(--font);
+  font-size:13px;
+  -webkit-font-smoothing:antialiased;
+  text-rendering:optimizeLegibility;
+  padding:24px 28px 26px;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:16px;
+}
+button{font:inherit;color:inherit;background:none;border:none;padding:0;cursor:pointer}
+a{color:inherit;text-decoration:none}
+svg.i{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+svg.i.sm{width:14px;height:14px}
+svg.i.xs{width:12px;height:12px}
+svg.i.lg{width:18px;height:18px}
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-thumb{background:#2a2e36;border-radius:9px;border:3px solid transparent;background-clip:content-box}
+::-webkit-scrollbar-track{background:transparent}
+
+/* ---------- page chrome (not part of the design) ---------- */
+.page-head{
+  width:100%;max-width:1440px;
+  display:flex;align-items:flex-end;justify-content:space-between;gap:24px;flex-wrap:wrap;
+}
+.kicker{
+  display:flex;align-items:center;gap:10px;
+  font:500 10px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:#6d737d;
+}
+.kicker .swatch{width:10px;height:10px;border-radius:2px;background:linear-gradient(135deg,#e9ebef 50%,#3a3e46 50%)}
+.page-head h1{margin:8px 0 0;font-size:15px;font-weight:600;letter-spacing:-.005em;color:#dfe3ea}
+.page-head h1 span{color:#6d737d;font-weight:400}
+.meta{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;align-items:center}
+.meta span,.meta a{
+  font:500 10px/1 var(--mono);letter-spacing:.06em;color:#767c86;
+  border:1px solid #202329;background:#0b0c0f;border-radius:4px;padding:6px 8px;
+}
+.meta a:hover{color:#dfe3ea;border-color:#343941}
+.board-slot{position:relative;flex:none}
+.board-slot + .board-slot{margin-top:12px}
+.board{
+  width:1440px;position:absolute;top:0;left:0;
+  transform-origin:top left;
+  display:flex;flex-direction:column;gap:9px;
+  scroll-margin-top:24px;
+}
+.board-head{
+  width:100%;display:flex;align-items:center;gap:10px;
+  padding:0 2px;
+  font-size:11px;color:#6d737d;
+}
+.board-head .bnum{
+  font:600 9px/1 var(--mono);letter-spacing:.1em;color:#9ba1ab;
+  border:1px solid #262a31;border-radius:4px;padding:5px 6px;background:#0b0c0f;
+}
+.board-head b{font-size:12px;font-weight:600;color:#c9ced7;letter-spacing:-.005em}
+.board-head .bdesc{color:#6d737d}
+.board-head .bmeta{margin-left:auto;font:500 9.5px/1 var(--mono);letter-spacing:.04em;color:#565b64}
+.screen{
+  width:1440px;height:900px;flex:none;
+  display:grid;grid-template-columns:72px 268px minmax(0,1fr);
+  background:var(--bg);
+  border:1px solid #2b2f37;
+  border-radius:13px;
+  overflow:hidden;
+  box-shadow:0 40px 110px rgba(0,0,0,.72), 0 2px 0 rgba(255,255,255,.03) inset;
+}
+.notes{
+  width:100%;max-width:1440px;
+  display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;
+  margin-top:4px;
+}
+.note{border-top:1px solid #202329;padding-top:10px;display:grid;gap:5px;align-content:start}
+.note .n{font:500 9.5px/1.3 var(--mono);letter-spacing:.12em;color:#565b64;text-transform:uppercase}
+.note b{font-size:11.5px;font-weight:600;color:#b3b8c1}
+.note p{margin:0;font-size:11px;line-height:1.55;color:#6d737d}
+
+/* ---------- shared atoms ---------- */
+.avatar{
+  width:20px;height:20px;border-radius:6px;flex:none;
+  display:grid;place-items:center;
+  background:var(--fill);border:1px solid var(--line-strong);color:#c2c7d0;
+}
+.avatar.round{border-radius:50%}
+.avatar.lg{width:26px;height:26px;border-radius:7px}
+.ph{height:7px;border-radius:4px;background:var(--fill-2)}
+.ph.dim{background:var(--fill)}
+.kbd{
+  font:500 9.5px/1 var(--mono);color:#6f757f;border:1px solid #282c34;
+  border-radius:4px;padding:3px 5px;background:#14161b;
+}
+.icon-btn{
+  width:28px;height:28px;flex:none;display:grid;place-items:center;border-radius:6px;
+  color:#868c96;border:1px solid transparent;
+  transition:background .12s,color .12s;
+}
+.icon-btn:hover{background:#181b21;color:#dfe3ea;border-color:#22252c}
+.divider-v{width:1px;height:16px;background:var(--line);flex:none}
+
+/* ============================================================
+   1. PROJECT RAIL (Discord pattern - the only project switcher)
+   ============================================================ */
+.rail{
+  background:var(--rail);
+  border-right:1px solid var(--line-soft);
+  display:flex;flex-direction:column;align-items:center;
+  padding:12px 0;
+  gap:7px;
+  position:relative;z-index:5;
+}
+.rail-logo{
+  width:42px;height:42px;border-radius:12px;flex:none;
+  display:grid;place-items:center;
+  background:#15181d;border:1px solid #2b2f37;
+  color:#dfe3ea;position:relative;
+}
+.rail-logo .mark{width:19px;height:19px}
+.rail-sep{width:22px;height:1px;background:#23262d;margin:3px 0;flex:none}
+.rail-label{
+  font:500 8.5px/1 var(--mono);letter-spacing:.14em;color:#4f545d;
+  text-transform:uppercase;margin-bottom:1px;
+}
+.proj{
+  width:42px;height:42px;flex:none;border-radius:12px;
+  display:grid;place-items:center;position:relative;
+  background:var(--fill);border:1px solid #272b33;
+  color:#c6cbd4;
+  font:600 11px/1 var(--mono);letter-spacing:.04em;
+  transition:background .13s,border-color .13s,border-radius .13s,color .13s;
+}
+.proj:hover{background:var(--fill-2);border-color:#343941;border-radius:11px}
+.proj.on{background:#2a2e37;border-color:#3b404a;color:#fff;border-radius:11px}
+.proj.on::before{
+  content:"";position:absolute;left:-15px;top:50%;transform:translateY(-50%);
+  width:3px;height:22px;border-radius:0 3px 3px 0;background:#e9ebef;
+}
+.proj:hover::before{content:"";position:absolute;left:-15px;top:50%;transform:translateY(-50%);
+  width:3px;height:9px;border-radius:0 3px 3px 0;background:#6b717b}
+.proj.on:hover::before{height:22px;background:#e9ebef}
+.proj.add{border-style:dashed;border-color:#2f343c;background:transparent;color:#6f757f}
+.proj.add:hover{background:#171a20;color:#c6cbd4}
+.proj .unread{
+  position:absolute;right:-2px;bottom:-2px;width:9px;height:9px;border-radius:50%;
+  background:#d8dce3;border:2px solid var(--rail);
+}
+.proj .tip{
+  position:absolute;left:54px;top:50%;transform:translateY(-50%) translateX(-3px);
+  background:#191c22;border:1px solid #343941;border-radius:7px;
+  padding:6px 9px;font:500 11px/1 var(--font);color:#e2e5ea;letter-spacing:0;
+  white-space:nowrap;opacity:0;pointer-events:none;z-index:80;
+  box-shadow:0 10px 24px rgba(0,0,0,.55);
+  transition:opacity .12s,transform .12s;
+}
+.proj .tip small{display:block;margin-top:3px;font:500 9px/1 var(--mono);color:#6f757f;letter-spacing:.04em}
+.proj:hover .tip{opacity:1;transform:translateY(-50%) translateX(0)}
+.rail-spacer{flex:1}
+.rail-bottom{display:flex;flex-direction:column;align-items:center;gap:4px}
+.rail-userbar{display:flex;align-items:center;gap:3px;position:relative}
+.rail-user{
+  width:32px;height:32px;border-radius:50%;flex:none;
+  display:grid;place-items:center;
+  background:#2a2e37;border:1px solid #3a3f49;color:#e4e7ec;
+  font:600 9px/1 var(--mono);letter-spacing:.02em;position:relative;
+  transition:border-color .12s,background .12s;
+}
+.rail-user:hover{border-color:#4d535e;background:#30353e}
+.rail-tip{
+  position:absolute;left:40px;top:50%;transform:translateY(-50%) translateX(-3px);
+  background:#191c22;border:1px solid #343941;border-radius:7px;
+  padding:6px 9px;font:500 11px/1 var(--font);color:#e2e5ea;letter-spacing:0;
+  white-space:nowrap;opacity:0;pointer-events:none;z-index:80;
+  box-shadow:0 10px 24px rgba(0,0,0,.55);
+  transition:opacity .12s,transform .12s;
+}
+.rail-tip small{display:block;margin-top:3px;font:500 9px/1 var(--mono);color:#6f757f;letter-spacing:.04em}
+.rail-user:hover .rail-tip{opacity:1;transform:translateY(-50%) translateX(0)}
+.rail-user-tools{display:flex;flex-direction:column;gap:0}
+.rail-tool{
+  width:24px;height:21px;display:grid;place-items:center;border-radius:4px;
+  color:#7c828c;position:relative;
+  transition:background .12s,color .12s;
+}
+.rail-tool:hover{background:#181b21;color:#dfe3ea}
+.rail-tool .i{width:14px;height:14px}
+.rail-tool .update-dot{
+  position:absolute;top:1px;right:2px;width:5px;height:5px;border-radius:50%;
+  background:#6fbf8f;border:1.5px solid var(--rail);
+}
+.rail-avatar{
+  width:30px;height:30px;border-radius:50%;margin-top:5px;
+  background:var(--fill-2);border:1px solid #3a3f48;
+  display:grid;place-items:center;color:#c9ced6;
+}
+
+/* ============================================================
+   2. SIDEBAR (Droid pattern - no switcher at the top)
+   ============================================================ */
+.side{
+  background:var(--side);
+  border-right:1px solid var(--line-soft);
+  display:flex;flex-direction:column;
+  min-height:0;position:relative;z-index:4;
+}
+/* top action strip: needs you / agentboard / code review / automations / limits / light / settings */
+.side-actions{
+  flex:none;display:flex;align-items:center;justify-content:space-between;
+  height:42px;padding:0 7px;
+  border-bottom:1px solid var(--line-soft);
+  position:relative;
+}
+.sact{
+  width:30px;height:30px;flex:none;display:grid;place-items:center;border-radius:6px;
+  color:#7c828c;position:relative;border:1px solid transparent;
+  transition:background .12s,color .12s,border-color .12s;
+}
+.sact .i{width:17px;height:17px}
+.sact:hover{background:#181b21;color:#dfe3ea;border-color:#22252c}
+.sact.on{background:#242830;color:#eef0f4;border-color:#343941}
+.sact .dotbadge{
+  position:absolute;top:4px;right:4px;width:5px;height:5px;border-radius:50%;
+  background:#d8dce3;border:1.5px solid var(--side);
+}
+.sact::after{
+  content:attr(data-tip);position:absolute;top:35px;left:50%;
+  transform:translateX(-50%) translateY(-2px);
+  background:#191c22;border:1px solid #343941;border-radius:6px;
+  padding:5px 7px;font:500 10px/1 var(--font);color:#e2e5ea;letter-spacing:0;
+  white-space:nowrap;opacity:0;pointer-events:none;z-index:95;
+  box-shadow:0 8px 20px rgba(0,0,0,.5);
+  transition:opacity .12s,transform .12s;
+}
+.sact:hover::after{opacity:1;transform:translateX(-50%) translateY(0)}
+.side-scroll{flex:1;min-height:0;overflow-y:auto;padding:8px 8px 8px}
+.newrow{
+  display:flex;align-items:center;gap:9px;width:100%;height:32px;padding:0 8px;
+  border-radius:6px;color:#c9ced7;font-size:12.5px;font-weight:500;letter-spacing:-.003em;
+  transition:background .12s,color .12s;
+}
+.newrow:hover{background:#171a20;color:#f2f4f7}
+.newrow .plus{
+  width:16px;height:16px;flex:none;display:grid;place-items:center;
+  color:#a3a8b2;
+}
+.newrow.on{background:#1b1e25;color:#f2f4f7}
+.newrow.on .plus{color:#dfe3ea}
+.newrow .kbd{margin-left:auto}
+
+.navrow{
+  display:flex;align-items:center;gap:9px;height:32px;padding:0 8px;border-radius:6px;
+  color:#9ca1ab;font-size:12.5px;letter-spacing:-.002em;
+  transition:background .1s,color .1s;
+}
+.navrow:hover{background:#16191f;color:#e2e5ea}
+.navrow .i{color:#7c828c}
+.navrow:hover .i{color:#a9aeb8}
+.navrow .badge{
+  margin-left:auto;font:500 9.5px/1 var(--mono);color:#b9bec7;
+  background:#242830;border-radius:99px;padding:3px 5px;min-width:17px;text-align:center;
+}
+
+.sect{
+  display:flex;align-items:center;gap:6px;
+  margin-top:15px;padding:6px 8px 6px;
+  font:500 9.5px/1 var(--mono);letter-spacing:.13em;text-transform:uppercase;color:#5f656f;
+}
+.sect .grow{flex:1}
+.sect .mini{color:#5f656f;display:grid;place-items:center;width:18px;height:18px;border-radius:4px}
+.sect .mini:hover{background:#191c22;color:#c2c7d0}
+
+.group{display:flex;align-items:center;gap:6px;padding:9px 8px 5px;color:#a3a8b2;font-size:11.5px;font-weight:600;letter-spacing:-.003em}
+.group .chev{color:#6f757f;flex:none}
+.group .count{margin-left:auto;font:500 9.5px/1 var(--mono);color:#5f656f;letter-spacing:.04em}
+.sess{
+  display:grid;gap:4px;padding:7px 9px 8px;border-radius:7px;position:relative;cursor:pointer;
+  transition:background .1s;
+}
+.sess + .sess{margin-top:1px}
+.sess:hover{background:#16191f}
+.sess.on{background:#1b1e25}
+.sess.on::before{content:"";position:absolute;left:0;top:9px;bottom:9px;width:2px;border-radius:2px;background:#d3d7de}
+.sess .t{
+  font-size:12.5px;line-height:1.25;color:#dcdfe5;letter-spacing:-.003em;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-left:2px;
+}
+.sess.on .t{color:#f2f4f7}
+.sess .m{display:flex;align-items:center;gap:5px;font-size:10.5px;line-height:1.2;color:#6f757f;padding-left:2px}
+.sess .m .dot{width:4px;height:4px;border-radius:50%;background:#7d838d;flex:none}
+.sess .m .dot.live{background:#cfd3da;box-shadow:0 0 0 2px rgba(207,211,218,.14)}
+.sess .m .time{margin-left:auto;font:500 9px/1 var(--mono);color:#5f656f;letter-spacing:.02em}
+.sess .m .tag{
+  font:500 8.5px/1 var(--mono);letter-spacing:.04em;color:#8b9099;
+  border:1px solid #2b2f37;border-radius:3px;padding:2px 4px;margin-left:4px;
+}
+.locked{margin:2px 8px 0;display:flex;align-items:center;gap:6px;padding:6px 0;color:#4f545d;font-size:10.5px}
+.locked svg{color:#4f545d}
+
+.side-foot{
+  border-top:1px solid var(--line-soft);
+  padding:10px 12px;display:flex;align-items:center;gap:8px;flex:none;
+}
+.acct-av{
+  width:22px;height:22px;border-radius:50%;flex:none;
+  display:grid;place-items:center;
+  background:#2a2e37;border:1px solid #3a3f49;color:#e4e7ec;
+  font:600 8.5px/1 var(--mono);
+}
+.acct-name{font-size:12px;color:#c9ced7;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.side-foot .icon-btn{width:24px;height:24px}
+
+/* limits popover (opened from the bars icon in the action strip) */
+.limits-pop{
+  position:absolute;left:8px;top:95px;width:318px;z-index:100;
+  background:#13151a;border:1px solid #343941;border-radius:10px;
+  padding:12px 13px 10px;
+  box-shadow:0 26px 60px rgba(0,0,0,.68), 0 0 0 1px rgba(255,255,255,.02) inset;
+}
+.limits-pop[hidden]{display:none}
+.lp-head{
+  display:flex;align-items:baseline;gap:4px;
+  padding-bottom:9px;border-bottom:1px solid #1f2228;
+  font-size:9.5px;color:#6f757f;letter-spacing:.01em;
+}
+.lp-head b{font-weight:500;color:#c9ced7;font-size:10px}
+.lp-tool{padding:10px 0 8px;border-bottom:1px solid #1f2228}
+.lp-tool:last-child{border-bottom:none;padding-bottom:2px}
+.lp-toolhead{display:flex;align-items:center;gap:6px;margin-bottom:7px}
+.lp-name{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:600;color:#e2e5ea;letter-spacing:-.003em}
+.lp-name .i{color:#9ba1ab}
+.lp-plan{margin-left:auto;font-size:9.5px;color:#6f757f}
+.lp-row{display:flex;align-items:center;justify-content:space-between;font-size:9.5px;color:#7c828c;margin-bottom:4px}
+.lp-row b{font-weight:500;color:#c9ced7;font-size:9.5px;letter-spacing:.01em}
+.lp-row b.warn{color:#e3948c}
+.lp-bar{height:4px;border-radius:3px;background:#262a31;overflow:hidden;margin-bottom:6px}
+.lp-bar i{display:block;height:100%;background:#9aa0a9;border-radius:3px}
+.lp-bar i.warn{background:#e3948c}
+.lp-note{font-size:9px;line-height:1.5;color:#5f656f}
+.lp-note.dim{color:#4f545d}
+
+/* ============================================================
+   3. MAIN / TOP BAR
+   ============================================================ */
+.main{display:grid;grid-template-rows:56px minmax(0,1fr) 32px;min-width:0;background:var(--bg)}
+.topbar{
+  display:flex;align-items:center;gap:12px;padding:0 12px 0 14px;
+  border-bottom:1px solid var(--line-soft);
+  background:#0e0f13;
+  min-width:0;
+}
+.modes{
+  display:flex;align-items:center;gap:2px;flex:none;
+  padding:3px;border:1px solid #24272e;border-radius:8px;background:#111318;
+}
+.mode{
+  display:flex;align-items:center;gap:6px;height:25px;padding:0 8px;border-radius:5px;
+  font-size:11px;color:#8b919b;letter-spacing:-.002em;white-space:nowrap;
+  transition:background .12s,color .12s;
+}
+.mode .i{color:inherit}
+.mode:hover{color:#dfe3ea;background:#191c22}
+.mode.on{background:#2b2f37;color:#fff;box-shadow:0 1px 0 rgba(255,255,255,.05) inset}
+.topbar .tb-sep{width:1px;height:18px;background:#23262c;flex:none}
+.crumb{display:flex;align-items:center;gap:8px;min-width:0;flex:1}
+.crumb h1{
+  margin:0;font-size:13px;font-weight:600;letter-spacing:-.005em;color:#e9ebef;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;
+}
+.crumb h1.muted{color:#a9aeb8;font-weight:500}
+.pills{display:flex;align-items:center;gap:4px;flex:none}
+.pill{
+  height:26px;display:inline-flex;align-items:center;gap:5px;padding:0 8px;
+  border-radius:99px;border:1px solid #24272e;background:#12141a;
+  font-size:10.5px;color:#a3a8b2;letter-spacing:-.002em;white-space:nowrap;
+  transition:background .12s,border-color .12s,color .12s;
+}
+.pill:hover{background:#191c22;border-color:#333841;color:#dfe3ea}
+.pill.on{background:#20242b;border-color:#3d434d;color:#eef0f4}
+.pill .i{color:#8b919b}
+.pill.on .i{color:#dfe3ea}
+.pill.add{width:26px;justify-content:center;padding:0;border-style:dashed;border-color:#2f343c;color:#7c828c;background:transparent}
+.topbar .right{display:flex;align-items:center;gap:4px;flex:none}
+.btn-primary{
+  height:30px;display:inline-flex;align-items:center;gap:6px;padding:0 10px 0 9px;
+  border-radius:7px;background:#e9ebef;color:#101216;
+  font-size:11.5px;font-weight:600;letter-spacing:-.003em;white-space:nowrap;
+  transition:background .12s,transform .12s;
+}
+.btn-primary:hover{background:#fff}
+.btn-primary:active{transform:translateY(.5px)}
+.btn-primary svg{stroke-width:2}
+
+.body{display:grid;grid-template-columns:minmax(0,1fr) 296px;min-height:0}
+
+/* ---- thread ---- */
+.thread{display:grid;grid-template-rows:minmax(0,1fr) auto;min-width:0;min-height:0;position:relative}
+.thread-scroll{overflow-y:auto;padding:16px 30px 6px}
+.thread-inner{max-width:700px;margin:0 auto;padding-bottom:8px}
+.notebar{display:flex;align-items:center;gap:7px;color:#7c828c;font-size:11.5px;padding:2px 0 14px}
+.notebar:hover{color:#b9bec7}
+.notebar .chev{color:#5f656f}
+
+.ev{display:grid;grid-template-columns:22px minmax(0,1fr) auto;gap:10px;align-items:start;padding:9px 0}
+.ev .avatar{margin-top:1px}
+.ev .who{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:#d3d7de;line-height:1.35}
+.ev .who .role{font:500 8.5px/1 var(--mono);letter-spacing:.06em;color:#6f757f;border:1px solid #2b2f37;border-radius:3px;padding:2px 4px;text-transform:uppercase}
+.ev .line{font-size:12px;color:#878d97;line-height:1.5;margin-top:2px}
+.ev .line .mono{font:400 10.5px/1.4 var(--mono);color:#8f959f;background:#15181d;border:1px solid #23262c;border-radius:4px;padding:1px 4px}
+.ev .time{font:500 9.5px/1 var(--mono);color:#565b64;letter-spacing:.02em;padding-top:5px}
+
+.plan{
+  margin:16px 0 2px;border:1px solid #23262d;border-radius:12px;background:#111318;
+  padding:18px 20px 12px;box-shadow:0 1px 0 rgba(255,255,255,.02) inset;
+}
+.plan .lines{display:grid;gap:9px}
+.plan .lines .ph{background:#24272e}
+.plan .code{
+  margin-top:14px;border:1px solid #202329;border-radius:8px;background:#0d0f13;
+  padding:12px 12px 11px;display:grid;gap:8px;
+}
+.plan .code .ph{background:#1e2128;height:6px}
+.plan .more{
+  display:block;margin:12px auto 2px;font-size:11px;color:#a9aeb8;
+  text-decoration:underline;text-underline-offset:3px;text-decoration-color:#3f444c;
+}
+.plan .more:hover{color:#eef0f4}
+
+.work{display:grid;grid-template-columns:24px minmax(0,1fr);gap:11px;margin:26px 0 4px}
+.work .name{display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:600;color:#eef0f4}
+.work .name .tag{font:500 8px/1 var(--mono);letter-spacing:.07em;color:#8b919b;border:1px solid #2f343c;border-radius:3px;padding:3px 4px;text-transform:uppercase}
+.work .state{display:flex;align-items:center;gap:7px;margin-top:6px;color:#7c828c;font-size:10.5px}
+.work .state .spin{
+  width:9px;height:9px;border-radius:50%;flex:none;
+  border:1.4px solid #5f656f;border-top-color:#e9ebef;animation:spin 1.1s linear infinite;
+}
+.work .state .sep{width:2px;height:2px;border-radius:50%;background:#4f545d}
+.work .after{margin-top:12px;display:grid;gap:8px}
+.toolrow{display:flex;align-items:center;gap:6px;margin-top:12px;flex-wrap:wrap}
+.toolchip{
+  display:inline-flex;align-items:center;gap:5px;height:24px;padding:0 8px;
+  border:1px solid #262a31;border-radius:5px;background:#121419;
+  font-size:10.5px;color:#9ba1ab;
+}
+.toolchip svg{color:#7c828c}
+.toolchip .ok{width:4px;height:4px;border-radius:50%;background:#c3c8d1}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ---- composer ---- */
+.composer-wrap{padding:8px 30px 14px;background:linear-gradient(to bottom,rgba(13,14,17,0),var(--bg) 22%)}
+.composer{
+  max-width:700px;margin:0 auto;
+  border:1px solid #2f343d;border-radius:13px;background:#13151a;
+  box-shadow:0 10px 26px rgba(0,0,0,.35), 0 1px 0 rgba(255,255,255,.03) inset;
+}
+.composer-top{display:flex;align-items:center;gap:8px;padding:9px 10px 0}
+.to{
+  display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 8px;
+  border:1px solid #2b2f37;border-radius:5px;background:#1a1d23;
+  font-size:10.5px;color:#8b919b;
+}
+.to b{font-weight:600;color:#e2e5ea}
+.to:hover{border-color:#3d434d}
+.composer-top .hint{margin-left:auto;font:500 9px/1 var(--mono);letter-spacing:.04em;color:#4f545d}
+.composer-input{padding:11px 14px 10px;font-size:13px;line-height:1.5;color:#6f757f;min-height:44px}
+.composer-input .caret{display:inline-block;width:1px;height:13px;background:#c9ced6;vertical-align:-2px;margin-left:1px;animation:blink 1.2s steps(2,start) infinite}
+@keyframes blink{50%{opacity:0}}
+.composer-bottom{display:flex;align-items:center;gap:6px;padding:0 9px 9px}
+.composer-bottom .icon-btn{width:24px;height:24px;border-radius:5px;border:1px solid #262a31;background:#16191f}
+.chip{
+  display:inline-flex;align-items:center;gap:5px;height:24px;padding:0 8px;
+  border:1px solid #262a31;border-radius:5px;background:#16191f;
+  font-size:10.5px;color:#a3a8b2;
+}
+.chip:hover{border-color:#353a43;color:#e2e5ea}
+.chip .i{color:#9aa0aa}
+.composer-bottom .grow{flex:1}
+.send{
+  width:28px;height:28px;border-radius:50%;flex:none;
+  display:grid;place-items:center;background:#e9ebef;color:#101216;
+  transition:background .12s,transform .12s;
+}
+.send:hover{background:#fff}
+.send:active{transform:translateY(.5px)}
+
+/* ---- team panel ---- */
+.team{background:var(--panel);border-left:1px solid var(--line-soft);display:flex;flex-direction:column;min-height:0;overflow-y:auto}
+.team-head{display:flex;align-items:center;gap:8px;padding:15px 16px 9px;flex:none}
+.team-head h2{margin:0;font-size:12px;font-weight:600;color:#e2e5ea;letter-spacing:-.005em}
+.team-head .icon-btn{margin-left:auto;width:24px;height:24px}
+.team-desc{padding:0 16px 13px;font-size:11.5px;line-height:1.6;color:#767c86}
+.team-desc b{font-weight:500;color:#b9bec7}
+.team-prog{display:flex;align-items:center;gap:8px;padding:0 16px 12px}
+.team-prog .bar{flex:1;height:3px;border-radius:2px;background:#23262d;overflow:hidden}
+.team-prog .bar i{display:block;height:100%;width:40%;background:#9aa0a9;border-radius:2px}
+.team-prog span{font:500 9px/1 var(--mono);letter-spacing:.05em;color:#6f757f}
+
+.checks{padding:2px 0 8px;border-top:1px solid var(--line-soft)}
+.check{display:grid;grid-template-columns:16px minmax(0,1fr);gap:10px;padding:9px 16px;align-items:start}
+.check .circle{width:15px;height:15px;margin-top:1px;border-radius:50%;border:1.4px solid #363b43;display:grid;place-items:center;color:transparent}
+.check.done .circle{background:#b9bec7;border-color:#b9bec7;color:#101216}
+.check.now .circle{border-color:#9aa0aa;border-top-color:transparent;animation:spin 1.2s linear infinite}
+.check .txt{font-size:11.5px;line-height:1.5;color:#a3a8b2;letter-spacing:-.002em}
+.check.done .txt{color:#6f757f}
+.check.now .txt{color:#e2e5ea}
+.check .txt small{display:block;margin-top:2px;font:500 8px/1 var(--mono);letter-spacing:.08em;color:#565b64;text-transform:uppercase}
+.check.done .txt small{color:#4f545d}
+
+.team-div{height:1px;background:var(--line-soft);margin:6px 16px 10px}
+.team-sub{display:flex;align-items:center;justify-content:space-between;padding:0 16px 4px;font:500 9px/1 var(--mono);letter-spacing:.13em;text-transform:uppercase;color:#5f656f}
+.agent-row{display:grid;grid-template-columns:22px minmax(0,1fr) auto;gap:9px;align-items:center;padding:7px 16px}
+.agent-row .an{display:flex;align-items:center;gap:6px;font-size:11.5px;font-weight:600;color:#d3d7de;line-height:1.3}
+.agent-row .ar{font-size:10px;color:#6f757f;margin-top:2px}
+.agent-row .as{display:flex;align-items:center;gap:5px;font:500 9px/1 var(--mono);letter-spacing:.05em;color:#7c828c;text-transform:uppercase}
+.agent-row .as i{width:5px;height:5px;border-radius:50%;background:#4f545d;flex:none}
+.agent-row .as.live i{background:#cfd3da;box-shadow:0 0 0 2px rgba(207,211,218,.16)}
+.agent-row .as.hold i{background:#3a3f48}
+.embed{margin:12px 16px 16px;border:1px dashed #2c3138;border-radius:8px;padding:10px 11px;display:grid;gap:7px;background:rgba(255,255,255,.012)}
+.embed .et{display:flex;align-items:center;justify-content:space-between;font:500 8.5px/1 var(--mono);letter-spacing:.1em;color:#5f656f;text-transform:uppercase}
+.embed .et b{font-weight:500;color:#9ba1ab;letter-spacing:.03em}
+.embed .ph{background:#1e2128;height:6px}
+
+/* ---- status bar ---- */
+.statusbar{
+  display:flex;align-items:center;gap:12px;padding:0 12px;
+  border-top:1px solid var(--line-soft);background:#0b0c0f;
+  font:500 10px/1 var(--mono);letter-spacing:.02em;color:#6f757f;
+  white-space:nowrap;min-width:0;
+}
+.statusbar .grp{display:flex;align-items:center;gap:7px;min-width:0}
+.statusbar .grp.right{margin-left:auto}
+.statusbar .live{display:flex;align-items:center;gap:6px;color:#b9bec7}
+.statusbar .live .spin{width:8px;height:8px;border-radius:50%;border:1.3px solid #5f656f;border-top-color:#e9ebef;animation:spin 1.1s linear infinite}
+.statusbar .live .dot{width:6px;height:6px;border-radius:50%;background:#9aa0a9;flex:none}
+.statusbar .soft{color:#565b64}
+.statusbar .sb-chip{display:flex;align-items:center;gap:5px;padding:3px 6px;border-radius:4px}
+.statusbar .sb-chip:hover{background:#171a20;color:#c3c8d1}
+.statusbar .env{display:flex;align-items:center;gap:5px;color:#8b919b}
+.statusbar .env i{width:5px;height:5px;border-radius:50%;background:#9aa0a9}
+
+/* ============================================================
+   4. NEW SESSION BOARD
+   ============================================================ */
+.ns{
+  position:relative;min-height:0;overflow:hidden;
+  display:flex;flex-direction:column;
+  background:radial-gradient(70% 55% at 50% 34%,#14161b 0%,#0e0f12 62%,#0d0e11 100%);
+}
+.ns-glow{
+  position:absolute;left:50%;top:40%;width:620px;height:230px;
+  transform:translate(-50%,-50%);
+  background:radial-gradient(closest-side,rgba(255,255,255,.075),rgba(255,255,255,.02) 55%,transparent);
+  filter:blur(22px);pointer-events:none;
+}
+.ns-stage{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative;padding-bottom:34px;min-height:0}
+.ns-word{
+  position:relative;z-index:1;
+  font:600 74px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;
+  background:linear-gradient(180deg,#eef0f4 0%,#c3c8d1 46%,#8b919b 100%);
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+  text-shadow:0 0 90px rgba(255,255,255,.10);
+  user-select:none;
+}
+.ns-state{
+  position:relative;z-index:1;
+  display:flex;align-items:center;gap:16px;margin-top:20px;
+  font-size:11px;color:#8b919b;
+}
+.ns-state .item{display:inline-flex;align-items:center;gap:6px}
+.ns-state .item .i{color:#6f757f}
+.ns-state .dot{width:4px;height:4px;border-radius:50%;background:#7c828c}
+
+.ns-dock{position:relative;z-index:1;display:flex;justify-content:center;padding:0 0 24px;flex:none}
+.ns-box{
+  width:760px;border:1px solid #313640;border-radius:13px;background:#13151a;
+  box-shadow:0 18px 50px rgba(0,0,0,.45), 0 1px 0 rgba(255,255,255,.035) inset;
+}
+.ns-input{
+  padding:15px 16px 11px;font-size:13.5px;line-height:1.4;color:#7c828c;
+  display:flex;align-items:center;gap:2px;min-height:48px;
+}
+.ns-input .caret{display:inline-block;width:1px;height:14px;background:#c9ced6;animation:blink 1.2s steps(2,start) infinite}
+.ns-opts{display:flex;align-items:center;gap:5px;padding:0 9px 9px;flex-wrap:nowrap}
+.ns-add{
+  width:24px;height:24px;flex:none;display:grid;place-items:center;border-radius:5px;
+  border:1px solid #262a31;background:#16191f;color:#a3a8b2;
+}
+.ns-add:hover{border-color:#353a43;color:#e2e5ea}
+.ns-chip{
+  display:inline-flex;align-items:center;gap:5px;height:24px;padding:0 7px;
+  border-radius:5px;color:#a3a8b2;font-size:10.5px;white-space:nowrap;
+  transition:background .12s,color .12s;
+}
+.ns-chip:hover{background:#1a1d23;color:#e2e5ea}
+.ns-chip .i{color:#8b919b}
+.ns-bars{display:flex;align-items:flex-end;gap:2px;height:10px;margin-left:1px}
+.ns-bars i{width:2px;border-radius:1px;background:#5f656f}
+.ns-bars i:nth-child(1){height:3px}
+.ns-bars i:nth-child(2){height:5px}
+.ns-bars i:nth-child(3){height:7px}
+.ns-bars i:nth-child(4){height:9px;background:#2c3037}
+.ns-chip .kbd{background:transparent;border:none;padding:0;color:#5f656f;font-size:9px}
+.ns-opts .grow{flex:1}
+.ns-mic{
+  width:26px;height:26px;flex:none;display:grid;place-items:center;border-radius:5px;
+  color:#9ba1ab;
+}
+.ns-mic:hover{background:#1a1d23;color:#e2e5ea}
+
+/* ============================================================
+   5. PROJECT MODES AT THE TOP OF THE SIDEBAR
+   ============================================================ */
+.side-modes{
+  flex:none;display:flex;align-items:center;gap:2px;
+  padding:8px;border-bottom:1px solid var(--line-soft);
+}
+.side-mode{
+  flex:1;height:30px;display:flex;align-items:center;justify-content:center;gap:5px;
+  border-radius:6px;border:1px solid transparent;
+  font-size:10px;color:#8b919b;letter-spacing:-.002em;white-space:nowrap;
+  transition:background .12s,color .12s,border-color .12s;
+}
+.side-mode .i{width:12px;height:12px}
+.side-mode:hover{background:#16191f;color:#dfe3ea}
+.side-mode.on{background:#2b2f37;color:#fff;border-color:#3a3f49}
+
+/* ---------- session locations ---------- */
+.sgroup{
+  display:flex;align-items:center;gap:7px;
+  padding:11px 8px 5px;
+  font-size:10.5px;font-weight:600;color:#9ba1ab;letter-spacing:-.002em;
+}
+.sgroup .i{color:#6f757f}
+.sgroup .count{margin-left:auto;font:500 9.5px/1 var(--mono);color:#5f656f}
+.sgroup .gdot{width:4px;height:4px;border-radius:50%;background:#6f757f;margin-left:1px}
+.connect{
+  display:flex;align-items:center;gap:8px;width:calc(100% - 16px);
+  margin:9px 8px 2px;padding:7px 8px;
+  border:1px dashed #2f343c;border-radius:7px;
+  font-size:11px;color:#8b919b;text-align:left;
+  transition:background .12s,border-color .12s,color .12s;
+}
+.connect:hover{background:#16191f;border-color:#414750;color:#dfe3ea}
+.connect .i{color:#6f757f}
+.connect .plus{margin-left:auto;color:#5f656f}
+
+/* ---------- filters under the chatbox ---------- */
+.composer-filters{
+  max-width:700px;margin:8px auto 0;
+  display:flex;align-items:center;gap:4px;flex-wrap:wrap;
+}
+.cf-label{
+  display:inline-flex;align-items:center;gap:5px;
+  font:500 9px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:#4f545d;
+  margin-right:1px;
+}
+.cf-label .i{width:11px;height:11px}
+.composer-filters .pill{height:24px;font-size:10px;padding:0 8px;background:#101216;border-color:#22262c}
+.composer-filters .pill.on{background:#20242b;border-color:#3d434d;color:#eef0f4}
+.composer-filters .pill.add{width:24px;padding:0}
+.composer-filters .pill:hover{background:#171a20}
+
+/* ---------- collapse sidebar ---------- */
+.screen > .main{grid-column:3}
+.screen.is-collapsed{grid-template-columns:72px 0 minmax(0,1fr)}
+.screen.is-collapsed .side{display:none}
+.screen.is-collapsed [data-collapse] svg{transform:rotate(180deg)}
+[data-collapse] svg{transition:transform .16s}
+.topbar .collapse{margin-right:2px}
+
+/* ---------- limits: hover to reveal, click to pin ---------- */
+.sact[data-limits]::after{display:none}
+.lp-foot{
+  display:flex;align-items:center;gap:6px;
+  margin-top:7px;padding-top:8px;border-top:1px solid #1f2228;
+  font-size:9.5px;color:#8b919b;text-align:left;
+}
+.lp-foot:hover{color:#e2e5ea}
+.lp-foot .i{margin-left:auto;color:#5f656f}
+.limits-pop{max-height:calc(100% - 60px);overflow-y:auto}
+
+/* ============================================================
+   6. SWARM - TEAM SETUP
+   ============================================================ */
+.swarm{display:grid;grid-template-columns:minmax(0,1fr) 300px;min-width:0;min-height:0;background:var(--bg)}
+.swarm-main{min-width:0;min-height:0;overflow-y:auto;padding:22px 28px 18px}
+.swarm-head{display:flex;align-items:flex-start;gap:16px}
+.sw-kicker{font:500 9px/1 var(--mono);letter-spacing:.13em;text-transform:uppercase;color:#5f656f}
+.swarm-head h1{margin:8px 0 0;font-size:20px;font-weight:600;letter-spacing:-.02em;color:#eef0f4}
+.swarm-head p{margin:7px 0 0;max-width:560px;font-size:11.5px;line-height:1.55;color:#7c828c}
+.swarm-head .right{margin-left:auto;display:flex;align-items:center;gap:6px;flex:none;padding-top:2px}
+.sw-template{
+  display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 9px;
+  border:1px solid #2b2f37;border-radius:6px;background:#13151a;
+  font-size:10.5px;color:#a3a8b2;
+}
+.sw-template b{font-weight:500;color:#e2e5ea}
+.sw-count{font:500 9.5px/1 var(--mono);letter-spacing:.05em;color:#5f656f}
+
+.swarm-stage{max-width:760px;margin:22px auto 0}
+.sw-card{background:#121419;border:1px solid #2b2f37;border-radius:11px;padding:13px 14px;min-width:0}
+.sw-lead{width:430px;margin:0 auto;border-color:#363b44;box-shadow:0 16px 38px rgba(0,0,0,.3)}
+.sw-top{display:flex;align-items:center;gap:8px}
+.sw-top .name{font-size:12px;font-weight:600;color:#eef0f4;letter-spacing:-.005em}
+.sw-badge{
+  font:500 8px/1 var(--mono);letter-spacing:.07em;color:#8b919b;
+  border:1px solid #2f343c;border-radius:3px;padding:3px 4px;text-transform:uppercase;
+}
+.sw-badge.lead{background:#e9ebef;border-color:#e9ebef;color:#111317}
+.sw-top .icon-btn{margin-left:auto;width:22px;height:22px}
+.sw-role{margin:9px 0 0;font-size:10.5px;line-height:1.5;color:#7c828c}
+.sw-fields{display:grid;grid-template-columns:1fr 1fr;gap:8px 12px;margin-top:12px}
+.sw-field small{display:block;font:500 8px/1 var(--mono);letter-spacing:.09em;text-transform:uppercase;color:#565b64;margin-bottom:4px}
+.sw-field span{font-size:10.5px;color:#c9ced7}
+.sw-tags{display:flex;gap:4px;flex-wrap:wrap;margin-top:11px}
+.sw-tags span{
+  font:500 8.5px/1 var(--mono);letter-spacing:.03em;color:#8b919b;
+  border:1px solid #262a31;border-radius:3px;padding:3px 5px;background:#15181d;
+}
+.sw-wire{height:30px;position:relative;margin:0 auto;max-width:760px}
+.sw-wire::before{content:"";position:absolute;left:50%;top:0;height:100%;border-left:1px dashed #343941}
+.sw-wire::after{content:"";position:absolute;left:16%;right:16%;bottom:0;border-top:1px dashed #343941}
+.sw-workers{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.sw-add{
+  border:1px dashed #2f343c;border-radius:11px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;
+  color:#7c828c;font-size:10.5px;min-height:172px;
+  transition:background .12s,border-color .12s,color .12s;
+}
+.sw-add:hover{background:#14171c;border-color:#414750;color:#dfe3ea}
+.sw-add .plus{width:26px;height:26px;border-radius:50%;border:1px dashed #3a3f48;display:grid;place-items:center}
+.sw-add small{font-size:9px;color:#565b64}
+.sw-rules{
+  display:flex;align-items:center;gap:8px;
+  margin:20px auto 0;max-width:760px;
+  border:1px dashed #2b3038;border-radius:8px;padding:10px 12px;
+  background:rgba(255,255,255,.012);
+}
+.swr{display:flex;align-items:center;gap:7px;font-size:10px;color:#8b919b;min-width:0}
+.swr b{
+  width:16px;height:16px;border-radius:50%;flex:none;
+  display:grid;place-items:center;background:#22262d;color:#c9ced7;
+  font:500 8px/1 var(--mono);
+}
+.sw-rules .i{color:#3f444c;width:12px;height:12px;flex:none}
+
+.sw-settings{
+  min-height:0;overflow-y:auto;
+  border-left:1px solid var(--line-soft);background:#0f1013;
+  padding:16px 15px 14px;
+  display:flex;flex-direction:column;
+}
+.sws-head{
+  display:flex;align-items:center;justify-content:space-between;
+  padding-bottom:12px;border-bottom:1px solid var(--line-soft);
+  font-size:11.5px;font-weight:600;color:#e2e5ea;
+}
+.sws-field{padding:11px 0 0}
+.sws-field > label{display:block;font:500 8.5px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:#565b64;margin-bottom:6px}
+.sws-input{
+  height:28px;display:flex;align-items:center;padding:0 9px;
+  border:1px solid #262a31;border-radius:6px;background:#14161b;
+  font-size:11px;color:#d3d7de;
+}
+.sws-select{
+  display:flex;align-items:center;gap:6px;width:100%;height:28px;padding:0 8px;
+  border:1px solid #262a31;border-radius:6px;background:#14161b;
+  font-size:10.5px;color:#c9ced7;text-align:left;
+}
+.sws-select .m{margin-left:auto;color:#6f757f}
+.sws-select .i{color:#8b919b}
+.sws-field small{display:block;margin-top:5px;font-size:9px;line-height:1.5;color:#565b64}
+.sws-stepper{
+  display:flex;align-items:center;gap:8px;height:28px;width:100px;padding:0 6px;
+  border:1px solid #262a31;border-radius:6px;background:#14161b;
+}
+.sws-stepper button{width:16px;height:16px;display:grid;place-items:center;color:#7c828c}
+.sws-stepper span{flex:1;text-align:center;font:500 10px/1 var(--mono);color:#d3d7de}
+.sws-toggle{display:flex;align-items:center;gap:8px;font-size:10.5px;color:#c9ced7}
+.sws-toggle .sw{width:26px;height:15px;border-radius:99px;background:#2e323a;position:relative;flex:none;margin-left:auto}
+.sws-toggle .sw::after{content:"";position:absolute;top:2px;left:2px;width:11px;height:11px;border-radius:50%;background:#8b919b}
+.sws-toggle .sw.on{background:#c9ced7}
+.sws-toggle .sw.on::after{left:13px;background:#101216}
+.sws-budget{display:grid;gap:5px;font-size:9.5px;color:#7c828c}
+.sws-budget .bar{height:4px;background:#262a31;border-radius:3px;overflow:hidden}
+.sws-budget .bar i{display:block;height:100%;background:#e3948c;border-radius:3px}
+.sws-foot{margin-top:auto;padding-top:14px;display:flex;gap:6px}
+.sws-ghost{
+  flex:1;height:29px;display:inline-flex;align-items:center;justify-content:center;gap:5px;
+  border:1px solid #2b2f37;border-radius:6px;background:#14161b;
+  font-size:10px;color:#a3a8b2;
+}
+.sws-ghost:hover{border-color:#3d434d;color:#e2e5ea}
+
+/* five notes */
+.notes{grid-template-columns:repeat(5,minmax(0,1fr))}
+
+/* ---------- responsive page chrome ---------- */
+@media (max-width: 1100px){
+  .notes{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .page-head{align-items:flex-start}
+}
+@media (prefers-reduced-motion: reduce){
+  html{scroll-behavior:auto}
+  *{animation-duration:.001ms !important;animation-iteration-count:1 !important;transition-duration:.001ms !important}
+}
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-logo" viewBox="0 0 24 24"><path d="M3.5 6.5 7.2 18l4.8-8.6 4.8 8.6 3.7-11.5"/></symbol>
+    <symbol id="i-mark" viewBox="0 0 24 24"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6"/><path d="m15 15 4.5 4.5"/></symbol>
+    <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="7.5"/><circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3"/></symbol>
+    <symbol id="i-zap" viewBox="0 0 24 24"><path d="M13 2.5 5.5 13.5H11l-1 8 7.5-11H12z"/></symbol>
+    <symbol id="i-doc" viewBox="0 0 24 24"><path d="M6 3.5h7.5L19 9v11.5H6z"/><path d="M13 3.5V9h6M9 13h7M9 16.5h5"/></symbol>
+    <symbol id="i-flow" viewBox="0 0 24 24"><rect x="3.5" y="4" width="6" height="6" rx="1.5"/><rect x="14.5" y="14" width="6" height="6" rx="1.5"/><path d="M9.5 7h5.5a2.5 2.5 0 0 1 2.5 2.5V14M6.5 10v3.5A2.5 2.5 0 0 0 9 16h5.5"/></symbol>
+    <symbol id="i-chev-down" viewBox="0 0 24 24"><path d="m6 9.5 6 6 6-6"/></symbol>
+    <symbol id="i-chev-right" viewBox="0 0 24 24"><path d="m9.5 6 6 6-6 6"/></symbol>
+    <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/></symbol>
+    <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M9.7 9.4a2.4 2.4 0 1 1 3.2 2.2c-.6.3-.9.8-.9 1.5v.4M12 16.8v.2"/></symbol>
+    <symbol id="i-panel" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="M14.5 4.5v15"/></symbol>
+    <symbol id="i-terminal" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="m7.5 9 3 3-3 3M12.5 15h4"/></symbol>
+    <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5.5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="18.5" cy="12" r="1"/></symbol>
+    <symbol id="i-send" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></symbol>
+    <symbol id="i-branch" viewBox="0 0 24 24"><circle cx="7" cy="6" r="2.2"/><circle cx="7" cy="18" r="2.2"/><circle cx="17" cy="8" r="2.2"/><path d="M7 8.2v7.6M17 10.2c0 3.3-3 4-6 4.4"/></symbol>
+    <symbol id="i-code" viewBox="0 0 24 24"><path d="m9 7.5-5 4.5 5 4.5M15 7.5l5 4.5-5 4.5"/></symbol>
+    <symbol id="i-work" viewBox="0 0 24 24"><rect x="3.5" y="7" width="17" height="12" rx="2.5"/><path d="M8.5 7V5.5A1.5 1.5 0 0 1 10 4h4a1.5 1.5 0 0 1 1.5 1.5V7M3.5 12.5h17"/></symbol>
+    <symbol id="i-pen" viewBox="0 0 24 24"><path d="m5 19 1.2-4.3L16 4.9a1.8 1.8 0 0 1 2.5 0l.6.6a1.8 1.8 0 0 1 0 2.5L9.3 17.8zM14.8 6.1l3.1 3.1"/></symbol>
+    <symbol id="i-cursor" viewBox="0 0 24 24"><path d="M5.5 3.8 19 12l-5.9 1.5L10.4 20z"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+    <symbol id="i-sort" viewBox="0 0 24 24"><path d="M8 5v14M5 8l3-3 3 3M16 19V5M13 16l3 3 3-3"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3.5 7.5A1.5 1.5 0 0 1 5 6h4l2 2.5h8A1.5 1.5 0 0 1 20.5 10v7A1.5 1.5 0 0 1 19 18.5H5A1.5 1.5 0 0 1 3.5 17z"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="9" rx="2"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/></symbol>
+    <symbol id="i-jump" viewBox="0 0 24 24"><path d="M12 3v12M8 7l4-4 4 4M5 14v4.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V14"/></symbol>
+    <symbol id="i-monitor" viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="12" rx="2"/><path d="M9 20h6M12 16.5V20"/></symbol>
+    <symbol id="i-arrow-down" viewBox="0 0 24 24"><path d="M12 4v15M6.5 13.5 12 19l5.5-5.5"/></symbol>
+    <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3"/></symbol>
+    <symbol id="i-hand" viewBox="0 0 24 24"><path d="M7.5 12V6.5a1.4 1.4 0 0 1 2.8 0V11M10.3 10.5V4.8a1.4 1.4 0 0 1 2.8 0v6M13.1 10.8V6.3a1.4 1.4 0 0 1 2.8 0v6.2c0 3.1-2.2 5.6-5.3 5.6-1.5 0-2.6-.8-3.4-2l-2-3.2a1.4 1.4 0 0 1 2.3-1.6l1.4 1.5"/></symbol>
+    <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3.8" y="3.8" width="6.4" height="6.4" rx="1.4"/><rect x="13.8" y="3.8" width="6.4" height="6.4" rx="1.4"/><rect x="3.8" y="13.8" width="6.4" height="6.4" rx="1.4"/><rect x="13.8" y="13.8" width="6.4" height="6.4" rx="1.4"/></symbol>
+    <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4.5 19.5V14M9.5 19.5V9M14.5 19.5V4.5M19.5 19.5V11.5"/></symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.5"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.2 5.2l1.6 1.6M17.2 17.2l1.6 1.6M18.8 5.2l-1.6 1.6M6.8 17.2l-1.6 1.6"/></symbol>
+    <symbol id="i-laptop" viewBox="0 0 24 24"><rect x="4.5" y="4.5" width="15" height="10.5" rx="2"/><path d="M2.5 19h19M8 19l.6 1.6h6.8L16 19"/></symbol>
+    <symbol id="i-cloud" viewBox="0 0 24 24"><path d="M7.2 18.5a4.1 4.1 0 0 1-.5-8.2 5.6 5.6 0 0 1 10.8-1.2 4.2 4.2 0 0 1 .6 8.4z"/></symbol>
+    <symbol id="i-swarm" viewBox="0 0 24 24"><circle cx="12" cy="5" r="2.2"/><circle cx="5" cy="18" r="2.2"/><circle cx="19" cy="18" r="2.2"/><path d="M12 7.2v3.3M10.5 11.7 7 16M13.5 11.7 17 16"/><circle cx="12" cy="12.6" r="1.4"/></symbol>
+    <symbol id="i-filter" viewBox="0 0 24 24"><path d="M4 5.5h16l-6.2 7.2v5.2l-3.6 1.6v-6.8z"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3.5v11M7.5 10l4.5 4.5 4.5-4.5M4.5 19.5h15"/></symbol>
+    <symbol id="i-members" viewBox="0 0 24 24"><circle cx="9" cy="8.5" r="3"/><path d="M3.5 19a5.5 5.5 0 0 1 11 0M16 5.8a3 3 0 0 1 0 5.4M17.5 19a5.6 5.6 0 0 0-1.6-3.9"/></symbol>
+  </defs>
+</svg>
+
+<header class="page-head">
+  <div>
+    <div class="kicker"><span class="swatch"></span> Wireframe 03 &nbsp;/&nbsp; Workbench</div>
+    <h1>Agent workspace <span>&mdash; modes, sessions &amp; swarm</span></h1>
+  </div>
+  <div class="meta">
+    <a href="#board-session">01 SESSION</a>
+    <a href="#board-new">02 NEW SESSION</a>
+    <a href="#board-swarm">03 SWARM</a>
+    <span>1440 &times; 900</span><span>GRAYSCALE</span><span>v3 &middot; STRUCTURE</span>
+  </div>
+</header>
+
+<!-- ============================================================
+     BOARD 01 - SESSION VIEW
+     ============================================================ -->
+<div class="board-slot" id="board-session">
+<section class="board">
+  <div class="board-head">
+    <span class="bnum">01</span>
+    <b>Session view</b>
+    <span class="bdesc">Rail + minimal sidebar + agent session</span>
+    <span class="bmeta">1440 &times; 900</span>
+  </div>
+
+  <div class="screen" role="group" aria-label="Session view artboard">
+    <aside class="rail" aria-label="Projects">
+      <button class="rail-logo" title="Workbench home" aria-label="Workbench home"><svg class="i mark"><use href="#i-logo"/></svg></button>
+      <div class="rail-sep"></div>
+      <div class="rail-label">Projects</div>
+      <button class="proj on" data-id="friday" aria-label="Friday demo">FR
+        <span class="tip">Friday demo<small>PERSONAL &middot; 3 SESSIONS</small></span>
+      </button>
+      <button class="proj" data-id="atlas" aria-label="Atlas">AT<span class="unread"></span>
+        <span class="tip">Atlas<small>TEAM &middot; 6 SESSIONS</small></span>
+      </button>
+      <button class="proj" data-id="pixel" aria-label="Pixel kit">PX
+        <span class="tip">Pixel kit<small>DESIGN SYSTEM &middot; 2 SESSIONS</small></span>
+      </button>
+      <button class="proj add" aria-label="Add project"><svg class="i"><use href="#i-plus"/></svg>
+        <span class="tip">Add project<small>&#8984; SHIFT P</small></span>
+      </button>
+      <div class="rail-spacer"></div>
+      <div class="rail-sep"></div>
+      <div class="rail-bottom">
+        <div class="rail-userbar">
+          <button class="rail-user" aria-label="Account: Avery Chen">AC
+            <span class="rail-tip">Avery Chen<small>PRO &middot; THIS MAC</small></span>
+          </button>
+          <div class="rail-user-tools">
+            <button class="rail-tool" aria-label="Settings" title="Settings"><svg class="i"><use href="#i-gear"/></svg></button>
+            <button class="rail-tool" aria-label="Update available" title="Update available"><svg class="i"><use href="#i-download"/></svg><span class="update-dot"></span></button>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- sidebar -->
+    <aside class="side" aria-label="Workspace">
+      <div class="side-modes" role="group" aria-label="Project mode">
+        <button class="side-mode on" data-mode="code"><svg class="i"><use href="#i-code"/></svg>Code</button>
+        <button class="side-mode" data-mode="work"><svg class="i"><use href="#i-work"/></svg>Work</button>
+        <button class="side-mode" data-mode="design"><svg class="i"><use href="#i-pen"/></svg>Design</button>
+        <button class="side-mode" data-mode="swarm"><svg class="i"><use href="#i-swarm"/></svg>Swarm</button>
+      </div>
+      <div class="side-actions" aria-label="Workspace actions">
+        <button class="sact" data-tip="Needs you" aria-label="Needs you"><span class="dotbadge"></span><svg class="i"><use href="#i-hand"/></svg></button>
+        <button class="sact" data-tip="Agentboard" aria-label="Agentboard"><svg class="i"><use href="#i-grid"/></svg></button>
+        <button class="sact" data-tip="Code Review" aria-label="Code Review"><svg class="i"><use href="#i-branch"/></svg></button>
+        <button class="sact" data-tip="Automation" aria-label="Automation"><svg class="i"><use href="#i-zap"/></svg></button>
+        <button class="sact" data-limits aria-expanded="false" data-tip="Limits" aria-label="Limits"><svg class="i"><use href="#i-chart"/></svg></button>
+        <button class="sact" data-tip="Switch to light" aria-label="Switch to light"><svg class="i"><use href="#i-sun"/></svg></button>
+      </div>
+      <div class="side-scroll">
+        <button class="newrow" data-new-session><span class="plus"><svg class="i sm"><use href="#i-plus"/></svg></span>New session<span class="kbd">&#8984;K</span></button>
+        <a href="#" class="navrow"><svg class="i"><use href="#i-target"/></svg>Mission Control</a>
+        <a href="#" class="navrow"><svg class="i"><use href="#i-search"/></svg>Search</a>
+
+        <div class="sect">Sessions <span class="grow"></span>
+          <button class="mini" aria-label="Sort sessions"><svg class="i xs"><use href="#i-sort"/></svg></button>
+          <button class="mini" aria-label="Search sessions"><svg class="i xs"><use href="#i-search"/></svg></button>
+        </div>
+        <div class="session-list" data-view="session"></div>
+        <button class="connect"><svg class="i xs"><use href="#i-plus"/></svg>Connect machine<span class="kbd">CLOUD / SSH</span></button>
+      </div>
+      <div class="limits-pop" hidden>
+        <div class="lp-head"><b>Usage</b><span>&middot; your coding tools' limits</span></div>
+        <div class="lp-tool">
+          <div class="lp-toolhead"><span class="lp-name"><svg class="i xs"><use href="#i-mark"/></svg>Claude Code</span><span class="lp-plan">Pro</span></div>
+          <div class="lp-row"><span>5h</span><span>0% used</span></div>
+          <div class="lp-bar"><i style="width:2%"></i></div>
+          <div class="lp-row"><b>Weekly</b><b class="warn">91% used</b></div>
+          <div class="lp-bar"><i class="warn" style="width:91%"></i></div>
+          <div class="lp-note">Resets in 1d 15h</div>
+          <div class="lp-note dim">From Claude Code, 2 min ago</div>
+        </div>
+        <div class="lp-tool">
+          <div class="lp-toolhead"><span class="lp-name"><svg class="i xs"><use href="#i-code"/></svg>Codex</span><span class="lp-plan">Go</span></div>
+          <div class="lp-row"><b>Monthly</b><span>21% used</span></div>
+          <div class="lp-bar"><i style="width:21%"></i></div>
+          <div class="lp-note">Resets in 24d 2h</div>
+        </div>
+        <div class="lp-tool">
+          <div class="lp-toolhead"><span class="lp-name"><svg class="i xs"><use href="#i-cursor"/></svg>Cursor</span><span class="lp-plan">Free</span></div>
+          <div class="lp-row"><b>Cursor models</b><span>0% used</span></div>
+          <div class="lp-bar"><i style="width:2%"></i></div>
+          <div class="lp-note">Resets in 23d 3h</div>
+        </div>
+        <button class="lp-foot">View usage and limits<svg class="i xs"><use href="#i-chev-right"/></svg></button>
+      </div>
+    </aside>
+
+    <!-- main -->
+    <main class="main">
+      <div class="topbar">
+        <button class="icon-btn collapse" data-collapse aria-label="Collapse sidebar" title="Collapse sidebar"><svg class="i"><use href="#i-panel"/></svg></button>
+        <div class="crumb"><h1>See your agents work as a team</h1></div>
+
+        <div class="right">
+          <button class="icon-btn" aria-label="Toggle team panel"><svg class="i"><use href="#i-panel"/></svg></button>
+          <button class="icon-btn" aria-label="Open terminal"><svg class="i"><use href="#i-terminal"/></svg></button>
+          <button class="icon-btn" aria-label="More"><svg class="i"><use href="#i-more"/></svg></button>
+          <button class="btn-primary" data-new-session><svg class="i sm"><use href="#i-plus"/></svg>New session</button>
+        </div>
+      </div>
+
+      <div class="body">
+        <section class="thread">
+          <div class="thread-scroll">
+            <div class="thread-inner">
+              <button class="notebar"><svg class="i sm"><use href="#i-doc"/></svg>2 session notes<svg class="i xs chev"><use href="#i-chev-down"/></svg></button>
+
+              <div class="ev">
+                <span class="avatar"><svg class="i xs"><use href="#i-code"/></svg></span>
+                <div>
+                  <div class="who">Codex <span class="role">Worker</span></div>
+                  <div class="line">connected to <span class="mono">friday-demo</span> on main &middot; auto mode</div>
+                </div>
+                <span class="time">11:59 PM</span>
+              </div>
+
+              <div class="ev">
+                <span class="avatar"><svg class="i xs"><use href="#i-cursor"/></svg></span>
+                <div>
+                  <div class="who">Cursor <span class="role">Worker</span></div>
+                  <div class="line">connected to <span class="mono">friday-demo</span> on main &middot; auto mode</div>
+                </div>
+                <span class="time">11:59 PM</span>
+              </div>
+
+              <div class="ev">
+                <span class="avatar"><svg class="i xs"><use href="#i-mark"/></svg></span>
+                <div>
+                  <div class="who">Claude Code <span class="role">Lead</span></div>
+                  <div class="line">was made the lead &mdash; it hands the other agents their part of the work and puts it together.</div>
+                </div>
+                <span class="time">11:59 PM</span>
+              </div>
+
+              <div class="plan">
+                <div class="lines">
+                  <div class="ph" style="width:97%"></div>
+                  <div class="ph" style="width:88%"></div>
+                  <div class="ph" style="width:93%"></div>
+                  <div class="ph" style="width:41%"></div>
+                </div>
+                <div class="code">
+                  <div class="ph" style="width:62%"></div>
+                  <div class="ph" style="width:38%"></div>
+                  <div class="ph" style="width:52%"></div>
+                </div>
+                <button class="more">Show more</button>
+              </div>
+
+              <div class="work">
+                <span class="avatar lg"><svg class="i sm"><use href="#i-mark"/></svg></span>
+                <div>
+                  <div class="name">Claude Code <span class="tag">Lead</span></div>
+                  <div class="state"><span class="spin"></span>Working<span class="sep"></span>0:06<span class="sep"></span>~40 min left</div>
+                  <div class="toolrow">
+                    <span class="toolchip"><svg class="i xs"><use href="#i-search"/></svg>Searching files<span class="ok"></span></span>
+                    <span class="toolchip"><svg class="i xs"><use href="#i-flow"/></svg>post_tasks</span>
+                  </div>
+                  <div class="after">
+                    <div class="ph" style="width:86%"></div>
+                    <div class="ph" style="width:64%"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="composer-wrap">
+            <div class="composer">
+              <div class="composer-top">
+                <button class="to">To <b>Claude Code</b><svg class="i xs"><use href="#i-chev-down"/></svg></button>
+                <span class="hint">&#8984; &#8629; SEND</span>
+              </div>
+              <div class="composer-input">Redirect Claude Code. It picks this up at its next step&hellip;<span class="caret"></span></div>
+              <div class="composer-bottom">
+                <button class="icon-btn" aria-label="Attach"><svg class="i sm"><use href="#i-plus"/></svg></button>
+                <button class="chip"><svg class="i xs"><use href="#i-mark"/></svg>Claude Code<svg class="i xs"><use href="#i-chev-down"/></svg></button>
+                <button class="chip">Auto<svg class="i xs"><use href="#i-chev-down"/></svg></button>
+                <span class="grow"></span>
+                <button class="send" aria-label="Send"><svg class="i sm"><use href="#i-send"/></svg></button>
+              </div>
+            </div>
+            <div class="composer-filters">
+              <span class="cf-label"><svg class="i"><use href="#i-filter"/></svg>Filter</span>
+              <button class="pill on">All agents</button>
+              <button class="pill"><svg class="i xs"><use href="#i-mark"/></svg>Claude Code</button>
+              <button class="pill"><svg class="i xs"><use href="#i-code"/></svg>Codex</button>
+              <button class="pill"><svg class="i xs"><use href="#i-cursor"/></svg>Cursor</button>
+              <button class="pill add" aria-label="Add agent"><svg class="i xs"><use href="#i-plus"/></svg></button>
+            </div>
+          </div>
+        </section>
+
+        <aside class="team" aria-label="Agents">
+          <div class="team-head">
+            <h2>Your agents, as a team</h2>
+            <button class="icon-btn" aria-label="Close panel"><svg class="i sm"><use href="#i-x"/></svg></button>
+          </div>
+          <p class="team-desc"><b>Claude Code</b> leads, with Codex and Cursor. Each moment is pointed out as it happens.</p>
+          <div class="team-prog"><span class="bar"><i></i></span><span>2 / 5</span></div>
+
+          <div class="checks">
+            <div class="check done"><span class="circle"><svg class="i xs" style="stroke-width:2.4"><use href="#i-check"/></svg></span><span class="txt">The lead splits the job on a shared board</span></div>
+            <div class="check done"><span class="circle"><svg class="i xs" style="stroke-width:2.4"><use href="#i-check"/></svg></span><span class="txt">Each agent takes a task</span></div>
+            <div class="check now"><span class="circle"></span><span class="txt">One agent tells another what changed<small>In progress</small></span></div>
+            <div class="check"><span class="circle"></span><span class="txt">Friday runs the checks, then another agent reviews</span></div>
+            <div class="check"><span class="circle"></span><span class="txt">Every task done and checked</span></div>
+          </div>
+
+          <div class="team-div"></div>
+          <div class="team-sub">In this session <span>3</span></div>
+
+          <div class="agent-row">
+            <span class="avatar"><svg class="i xs"><use href="#i-mark"/></svg></span>
+            <div><div class="an">Claude Code</div><div class="ar">Lead &middot; planning</div></div>
+            <span class="as live"><i></i>Working</span>
+          </div>
+          <div class="agent-row">
+            <span class="avatar"><svg class="i xs"><use href="#i-code"/></svg></span>
+            <div><div class="an">Codex</div><div class="ar">Worker &middot; task 2</div></div>
+            <span class="as hold"><i></i>Queued</span>
+          </div>
+          <div class="agent-row">
+            <span class="avatar"><svg class="i xs"><use href="#i-cursor"/></svg></span>
+            <div><div class="an">Cursor</div><div class="ar">Worker &middot; task 3</div></div>
+            <span class="as"><i></i>Idle</span>
+          </div>
+
+          <div class="embed">
+            <div class="et">Shared plan <b>2 / 5 done</b></div>
+            <div class="ph" style="width:82%"></div>
+            <div class="ph" style="width:57%"></div>
+            <div class="ph" style="width:71%"></div>
+          </div>
+        </aside>
+      </div>
+
+      <footer class="statusbar">
+        <div class="grp"><span class="live"><span class="spin"></span>Working</span><span class="soft">0:06 &middot; 1 step</span></div>
+        <span class="divider-v"></span>
+        <div class="grp">
+          <button class="sb-chip"><svg class="i xs"><use href="#i-folder"/></svg>friday-demo</button>
+          <button class="sb-chip"><svg class="i xs"><use href="#i-branch"/></svg>main<svg class="i xs"><use href="#i-chev-down"/></svg></button>
+        </div>
+        <div class="grp right">
+          <span class="soft">No changes yet</span>
+          <button class="sb-chip"><svg class="i xs"><use href="#i-jump"/></svg>Jump<span class="soft">&#8984;J</span></button>
+          <span class="divider-v"></span>
+          <span class="soft">0% 5h &middot; 91% wk</span>
+          <span class="divider-v"></span>
+          <span class="env"><i></i>Environment</span>
+        </div>
+      </footer>
+    </main>
+  </div>
+</section>
+</div>
+
+<!-- ============================================================
+     BOARD 02 - NEW SESSION
+     ============================================================ -->
+<div class="board-slot" id="board-new">
+<section class="board">
+  <div class="board-head">
+    <span class="bnum">02</span>
+    <b>New session</b>
+    <span class="bdesc">Empty state + prompt dock, same frame</span>
+    <span class="bmeta">1440 &times; 900</span>
+  </div>
+
+  <div class="screen" role="group" aria-label="New session artboard">
+    <aside class="rail" aria-label="Projects">
+      <button class="rail-logo" title="Workbench home" aria-label="Workbench home"><svg class="i mark"><use href="#i-logo"/></svg></button>
+      <div class="rail-sep"></div>
+      <div class="rail-label">Projects</div>
+      <button class="proj on" data-id="friday" aria-label="Friday demo">FR
+        <span class="tip">Friday demo<small>PERSONAL &middot; 3 SESSIONS</small></span>
+      </button>
+      <button class="proj" data-id="atlas" aria-label="Atlas">AT<span class="unread"></span>
+        <span class="tip">Atlas<small>TEAM &middot; 6 SESSIONS</small></span>
+      </button>
+      <button class="proj" data-id="pixel" aria-label="Pixel kit">PX
+        <span class="tip">Pixel kit<small>DESIGN SYSTEM &middot; 2 SESSIONS</small></span>
+      </button>
+      <button class="proj add" aria-label="Add project"><svg class="i"><use href="#i-plus"/></svg>
+        <span class="tip">Add project<small>&#8984; SHIFT P</small></span>
+      </button>
+      <div class="rail-spacer"></div>
+      <div class="rail-sep"></div>
+      <div class="rail-bottom">
+        <div class="rail-userbar">
+          <button class="rail-user" aria-label="Account: Avery Chen">AC
+            <span class="rail-tip">Avery Chen<small>PRO &middot; THIS MAC</small></span>
+          </button>
+          <div class="rail-user-tools">
+            <button class="rail-tool" aria-label="Settings" title="Settings"><svg class="i"><use href="#i-gear"/></svg></button>
+            <button class="rail-tool" aria-label="Update available" title="Update available"><svg class="i"><use href="#i-download"/></svg><span class="update-dot"></span></button>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <aside class="side" aria-label="Workspace">
+      <div class="side-modes" role="group" aria-label="Project mode">
+        <button class="side-mode on" data-mode="code"><svg class="i"><use href="#i-code"/></svg>Code</button>
+        <button class="side-mode" data-mode="work"><svg class="i"><use href="#i-work"/></svg>Work</button>
+        <button class="side-mode" data-mode="design"><svg class="i"><use href="#i-pen"/></svg>Design</button>
+        <button class="side-mode" data-mode="swarm"><svg class="i"><use href="#i-swarm"/></svg>Swarm</button>
+      </div>
+      <div class="side-actions" aria-label="Workspace actions">
+        <button class="sact" data-tip="Needs you" aria-label="Needs you"><span class="dotbadge"></span><svg class="i"><use href="#i-hand"/></svg></button>
+        <button class="sact" data-tip="Agentboard" aria-label="Agentboard"><svg class="i"><use href="#i-grid"/></svg></button>
+        <button class="sact" data-tip="Code Review" aria-label="Code Review"><svg class="i"><use href="#i-branch"/></svg></button>
+        <button class="sact" data-tip="Automation" aria-label="Automation"><svg class="i"><use href="#i-zap"/></svg></button>
+        <button class="sact" data-limits aria-expanded="false" data-tip="Limits" aria-label="Limits"><svg class="i"><use href="#i-chart"/></svg></button>
+        <button class="sact" data-tip="Switch to light" aria-label="Switch to light"><svg class="i"><use href="#i-sun"/></svg></button>
+      </div>
+      <div class="side-scroll">
+        <button class="newrow on"><span class="plus"><svg class="i sm"><use href="#i-plus"/></svg></span>New session<span class="kbd">&#8984;K</span></button>
+        <a href="#" class="navrow"><svg class="i"><use href="#i-target"/></svg>Mission Control</a>
+        <a href="#" class="navrow"><svg class="i"><use href="#i-search"/></svg>Search</a>
+
+        <div class="sect">Sessions <span class="grow"></span>
+          <button class="mini" aria-label="Sort sessions"><svg class="i xs"><use href="#i-sort"/></svg></button>
+          <button class="mini" aria-label="Search sessions"><svg class="i xs"><use href="#i-search"/></svg></button>
+        </div>
+        <div class="session-list" data-view="new"></div>
+        <button class="connect"><svg class="i xs"><use href="#i-plus"/></svg>Connect machine<span class="kbd">CLOUD / SSH</span></button>
+      </div>
+      <div class="limits-pop" hidden>
+        <div class="lp-head"><b>Usage</b><span>&middot; your coding tools' limits</span></div>
+        <div class="lp-tool">
+          <div class="lp-toolhead"><span class="lp-name"><svg class="i xs"><use href="#i-mark"/></svg>Claude Code</span><span class="lp-plan">Pro</span></div>
+          <div class="lp-row"><span>5h</span><span>0% used</span></div>
+          <div class="lp-bar"><i style="width:2%"></i></div>
+          <div class="lp-row"><b>Weekly</b><b class="warn">91% used</b></div>
+          <div class="lp-bar"><i class="warn" style="width:91%"></i></div>
+          <div class="lp-note">Resets in 1d 15h</div>
+          <div class="lp-note dim">From Claude Code, 2 min ago</div>
+        </div>
+        <div class="lp-tool">
+          <div class="lp-toolhead"><span class="lp-name"><svg class="i xs"><use href="#i-code"/></svg>Codex</span><span class="lp-plan">Go</span></div>
+          <div class="lp-row"><b>Monthly</b><span>21% used</span></div>
+          <div class="lp-bar"><i style="width:21%"></i></div>
+          <div class="lp-note">Resets in 24d 2h</div>
+        </div>
+        <div class="lp-tool">
+          <div class="lp-toolhead"><span class="lp-name"><svg class="i xs"><use href="#i-cursor"/></svg>Cursor</span><span class="lp-plan">Free</span></div>
+          <div class="lp-row"><b>Cursor models</b><span>0% used</span></div>
+          <div class="lp-bar"><i style="width:2%"></i></div>
+          <div class="lp-note">Resets in 23d 3h</div>
+        </div>
+        <button class="lp-foot">View usage and limits<svg class="i xs"><use href="#i-chev-right"/></svg></button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <div class="topbar">
+        <button class="icon-btn collapse" data-collapse aria-label="Collapse sidebar" title="Collapse sidebar"><svg class="i"><use href="#i-panel"/></svg></button>
+        <div class="crumb"><h1 class="muted">New session</h1></div>
+        <div class="right">
+          <button class="icon-btn" aria-label="Toggle panel"><svg class="i"><use href="#i-panel"/></svg></button>
+          <button class="icon-btn" aria-label="Open terminal"><svg class="i"><use href="#i-terminal"/></svg></button>
+          <button class="icon-btn" aria-label="More"><svg class="i"><use href="#i-more"/></svg></button>
+        </div>
+      </div>
+
+      <div class="ns">
+        <div class="ns-glow"></div>
+        <div class="ns-stage">
+          <div class="ns-word">Workbench</div>
+          <div class="ns-state">
+            <span class="item"><svg class="i xs"><use href="#i-arrow-down"/></svg>Local</span>
+            <span class="dot"></span>
+            <span class="item">main</span>
+            <span class="dot"></span>
+            <span class="item"><svg class="i xs"><use href="#i-folder"/></svg>Environment</span>
+          </div>
+        </div>
+
+        <div class="ns-dock">
+          <div class="ns-box">
+            <div class="ns-input">What should your agents work on?<span class="caret"></span></div>
+            <div class="ns-opts">
+              <button class="ns-add" aria-label="Attach"><svg class="i sm"><use href="#i-plus"/></svg></button>
+              <button class="ns-chip"><svg class="i xs"><use href="#i-laptop"/></svg>This Mac<svg class="i xs"><use href="#i-chev-down"/></svg></button>
+              <button class="ns-chip"><svg class="i xs"><use href="#i-mark"/></svg>Claude Code<span class="ns-bars"><i></i><i></i><i></i><i></i></span></button>
+              <button class="ns-chip">Autonomy<span class="ns-bars"><i></i><i></i><i></i><i></i></span></button>
+              <button class="ns-chip">Normal mode</button>
+              <button class="ns-chip">Connectors</button>
+              <button class="ns-chip">Skills <span style="color:#6f757f">(12)</span></button>
+              <span class="grow"></span>
+              <button class="ns-chip" aria-label="Help"><svg class="i xs"><use href="#i-help"/></svg></button>
+              <button class="ns-mic" aria-label="Dictate"><svg class="i sm"><use href="#i-mic"/></svg></button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <footer class="statusbar">
+        <div class="grp"><span class="live"><span class="dot"></span>Ready</span><span class="soft">0 steps</span></div>
+        <span class="divider-v"></span>
+        <div class="grp">
+          <button class="sb-chip"><svg class="i xs"><use href="#i-folder"/></svg>friday-demo</button>
+          <button class="sb-chip"><svg class="i xs"><use href="#i-branch"/></svg>main<svg class="i xs"><use href="#i-chev-down"/></svg></button>
+        </div>
+        <div class="grp right">
+          <span class="soft">No changes yet</span>
+          <button class="sb-chip"><svg class="i xs"><use href="#i-jump"/></svg>Jump<span class="soft">&#8984;J</span></button>
+          <span class="divider-v"></span>
+          <span class="soft">0% 5h &middot; 91% wk</span>
+          <span class="divider-v"></span>
+          <span class="env"><i></i>Environment</span>
+        </div>
+      </footer>
+    </main>
+  </div>
+</section>
+</div>
+
+<!-- ============================================================
+     BOARD 03 - SWARM / TEAM SETUP
+     (chrome is cloned from board 02 at runtime)
+     ============================================================ -->
+<div class="board-slot" id="board-swarm">
+<section class="board">
+  <div class="board-head">
+    <span class="bnum">03</span>
+    <b>Swarm</b>
+    <span class="bdesc">Team setup &middot; lead, workers, shared board</span>
+    <span class="bmeta">1440 &times; 900</span>
+  </div>
+
+  <div class="screen" role="group" aria-label="Swarm artboard">
+    <main class="main">
+      <div class="topbar">
+        <button class="icon-btn collapse" data-collapse aria-label="Collapse sidebar" title="Collapse sidebar"><svg class="i"><use href="#i-panel"/></svg></button>
+        <div class="crumb"><h1>Friday swarm</h1></div>
+        <div class="right">
+          <span class="sw-count" style="margin-right:6px">DRAFT</span>
+          <button class="icon-btn" aria-label="More"><svg class="i"><use href="#i-more"/></svg></button>
+          <button class="btn-primary"><svg class="i sm"><use href="#i-check"/></svg>Save team</button>
+        </div>
+      </div>
+
+      <div class="swarm">
+        <section class="swarm-main">
+          <div class="swarm-head">
+            <div>
+              <div class="sw-kicker">Team &middot; Friday demo</div>
+              <h1>Team setup</h1>
+              <p>Claude Code leads. Codex and Cursor work in parallel, then the lead reconciles and checks. The same team runs local, in the cloud, or on a connected machine.</p>
+            </div>
+            <div class="right">
+              <button class="sw-template">Template <b>Ship a feature</b><svg class="i xs"><use href="#i-chev-down"/></svg></button>
+              <span class="sw-count">3 AGENTS</span>
+            </div>
+          </div>
+
+          <div class="swarm-stage">
+            <div class="sw-card sw-lead">
+              <div class="sw-top">
+                <span class="avatar lg"><svg class="i sm"><use href="#i-mark"/></svg></span>
+                <span class="name">Claude Code</span>
+                <span class="sw-badge lead">Lead</span>
+                <button class="icon-btn" aria-label="Agent settings"><svg class="i xs"><use href="#i-more"/></svg></button>
+              </div>
+              <p class="sw-role">Plans the work, splits tasks, reconciles the result. Owns the shared board.</p>
+              <div class="sw-fields">
+                <div class="sw-field"><small>Model</small><span>Opus 4.5</span></div>
+                <div class="sw-field"><small>Autonomy</small><span>Auto</span></div>
+                <div class="sw-field"><small>Tools</small><span>Repo &middot; Shell &middot; Review</span></div>
+                <div class="sw-field"><small>Runs on</small><span>This Mac</span></div>
+              </div>
+              <div class="sw-tags"><span>plan</span><span>delegate</span><span>review</span></div>
+            </div>
+
+            <div class="sw-wire" aria-hidden="true"></div>
+
+            <div class="sw-workers">
+              <div class="sw-card">
+                <div class="sw-top">
+                  <span class="avatar"><svg class="i xs"><use href="#i-code"/></svg></span>
+                  <span class="name">Codex</span>
+                  <span class="sw-badge">Worker</span>
+                  <button class="icon-btn" aria-label="Agent settings"><svg class="i xs"><use href="#i-more"/></svg></button>
+                </div>
+                <p class="sw-role">Builds features, runs tests, reports diffs back to the lead.</p>
+                <div class="sw-fields">
+                  <div class="sw-field"><small>Model</small><span>GPT-5 Codex</span></div>
+                  <div class="sw-field"><small>Autonomy</small><span>Auto</span></div>
+                </div>
+                <div class="sw-tags"><span>repo</span><span>tests</span></div>
+              </div>
+
+              <div class="sw-card">
+                <div class="sw-top">
+                  <span class="avatar"><svg class="i xs"><use href="#i-cursor"/></svg></span>
+                  <span class="name">Cursor</span>
+                  <span class="sw-badge">Worker</span>
+                  <button class="icon-btn" aria-label="Agent settings"><svg class="i xs"><use href="#i-more"/></svg></button>
+                </div>
+                <p class="sw-role">Implements the interface and checks the preview at each step.</p>
+                <div class="sw-fields">
+                  <div class="sw-field"><small>Model</small><span>Cursor</span></div>
+                  <div class="sw-field"><small>Autonomy</small><span>Auto</span></div>
+                </div>
+                <div class="sw-tags"><span>editor</span><span>preview</span></div>
+              </div>
+
+              <button class="sw-add">
+                <span class="plus"><svg class="i sm"><use href="#i-plus"/></svg></span>
+                Add agent
+                <small>From library or blank</small>
+              </button>
+            </div>
+
+            <div class="sw-rules">
+              <div class="swr"><b>1</b>Lead splits the job</div>
+              <svg class="i"><use href="#i-chev-right"/></svg>
+              <div class="swr"><b>2</b>Workers run in parallel</div>
+              <svg class="i"><use href="#i-chev-right"/></svg>
+              <div class="swr"><b>3</b>Lead reconciles + checks</div>
+            </div>
+          </div>
+        </section>
+
+        <aside class="sw-settings" aria-label="Team settings">
+          <div class="sws-head">Team settings<button class="icon-btn" aria-label="More"><svg class="i xs"><use href="#i-more"/></svg></button></div>
+
+          <div class="sws-field"><label>Team name</label><div class="sws-input">Friday swarm</div></div>
+
+          <div class="sws-field"><label>Runs on</label>
+            <button class="sws-select"><svg class="i xs"><use href="#i-laptop"/></svg>This Mac<span class="m"><svg class="i xs"><use href="#i-chev-down"/></svg></span></button>
+            <small>Cloud and connected machines can join.</small>
+          </div>
+
+          <div class="sws-field"><label>Max parallel</label>
+            <div class="sws-stepper"><button aria-label="Fewer">&#8722;</button><span>3</span><button aria-label="More">+</button></div>
+          </div>
+
+          <div class="sws-field"><label>Autonomy</label>
+            <button class="sws-select">Auto<span class="m"><svg class="i xs"><use href="#i-chev-down"/></svg></span></button>
+          </div>
+
+          <div class="sws-field"><label>Shared context</label>
+            <div class="sws-toggle">Plan, diff and notes<i class="sw on"></i></div>
+          </div>
+
+          <div class="sws-field"><label>Weekly budget</label>
+            <div class="sws-budget"><span>91% used</span><div class="bar"><i style="width:91%"></i></div></div>
+          </div>
+
+          <div class="sws-foot">
+            <button class="sws-ghost">Duplicate</button>
+            <button class="sws-ghost">Set default</button>
+          </div>
+        </aside>
+      </div>
+
+      <footer class="statusbar">
+        <div class="grp"><span class="live"><span class="dot"></span>Draft</span><span class="soft">3 agents &middot; unsaved</span></div>
+        <span class="divider-v"></span>
+        <div class="grp">
+          <button class="sb-chip"><svg class="i xs"><use href="#i-folder"/></svg>friday-demo</button>
+          <button class="sb-chip"><svg class="i xs"><use href="#i-branch"/></svg>main<svg class="i xs"><use href="#i-chev-down"/></svg></button>
+        </div>
+        <div class="grp right">
+          <span class="soft">No runs yet</span>
+          <span class="divider-v"></span>
+          <span class="soft">0% 5h &middot; 91% wk</span>
+          <span class="divider-v"></span>
+          <span class="env"><i></i>Environment</span>
+        </div>
+      </footer>
+    </main>
+  </div>
+</section>
+</div>
+
+<footer class="notes">
+  <div class="note">
+    <span class="n">01 &nbsp;Project rail &mdash; full height</span>
+    <b>One switcher for the whole app</b>
+    <p>The project rail runs the full height and is the only project switcher. The account sits at the bottom with settings and update beside it. Switching a project rewrites the session groups.</p>
+  </div>
+  <div class="note">
+    <span class="n">02 &nbsp;Sidebar &mdash; modes &amp; actions</span>
+    <b>Code, Work, Design, Swarm on top</b>
+    <p>Modes sit at the top of the sidebar, above the action strip. The old top-bar switcher spot now holds the collapse-sidebar button. Limits reveals on hover and pins on click.</p>
+  </div>
+  <div class="note">
+    <span class="n">03 &nbsp;Sessions &mdash; where they run</span>
+    <b>This Mac, cloud, or a machine</b>
+    <p>Sessions are grouped by execution location: local, cloud, and a connected machine, each with a count. Connect machine adds a cloud or SSH target.</p>
+  </div>
+  <div class="note">
+    <span class="n">04 &nbsp;Composer &mdash; agent filters</span>
+    <b>Filters live under the chatbox</b>
+    <p>All agents, Claude Code, Codex and Cursor sit below the composer instead of in the top bar. The top bar is left with the title, panel controls and the primary action.</p>
+  </div>
+  <div class="note">
+    <span class="n">05 &nbsp;Swarm &mdash; team setup</span>
+    <b>Teams are configured, then run</b>
+    <p>A lead, two workers and an add-agent tile, connected as a swarm. Team settings cover runs-on, parallelism, autonomy, shared context and budget.</p>
+  </div>
+</footer>
+
+<script>
+(function(){
+  const projects = {
+    friday: {name:"Friday demo", sessions:[
+      {t:"See your agents work as a team", meta:"Claude Code working", time:"now", live:true, on:true, tag:"main", where:"local"},
+      {t:"Session store refactor", meta:"Codex idle", time:"2h", where:"local"},
+      {t:"Onboarding copy pass", meta:"Cursor idle", time:"1d", where:"cloud"},
+      {t:"Q4 launch checklist", meta:"Claude Code idle", time:"3d", where:"remote"}
+    ]},
+    atlas: {name:"Atlas", sessions:[
+      {t:"Pricing page rebuild", meta:"Cursor working", time:"now", live:true, on:true, tag:"main", where:"local"},
+      {t:"Billing edge cases", meta:"Codex idle", time:"4h", where:"local"},
+      {t:"Q4 launch checklist", meta:"Claude Code idle", time:"2d", where:"cloud"},
+      {t:"Docs migration", meta:"Codex idle", time:"5d", where:"cloud"},
+      {t:"Design review notes", meta:"Cursor idle", time:"3d", where:"remote"},
+      {t:"Retry webhook queue", meta:"Claude Code idle", time:"1w", where:"remote"}
+    ]},
+    pixel: {name:"Pixel kit", sessions:[
+      {t:"Token naming pass", meta:"Claude Code working", time:"now", live:true, on:true, tag:"main", where:"local"},
+      {t:"Icon set audit", meta:"Cursor idle", time:"3h", where:"cloud"}
+    ]}
+  };
+
+  const LOCATIONS = [
+    {id:"local", label:"This Mac", icon:"i-laptop"},
+    {id:"cloud", label:"Cloud", icon:"i-cloud"},
+    {id:"remote", label:"Studio Mac", icon:"i-monitor"}
+  ];
+
+  const $$ = (s, el) => Array.from((el || document).querySelectorAll(s));
+
+  /* board 03 reuses the rail + sidebar from board 02 */
+  (function cloneChrome(){
+    const src = document.querySelector("#board-new .screen");
+    const dst = document.querySelector("#board-swarm .screen");
+    if(!src || !dst || dst.querySelector(".side")) return;
+    const rail = src.querySelector(".rail");
+    const side = src.querySelector(".side");
+    if(!rail || !side) return;
+    dst.insertBefore(side.cloneNode(true), dst.firstElementChild);
+    dst.insertBefore(rail.cloneNode(true), dst.firstElementChild);
+    const clonedSide = dst.querySelector(".side");
+    clonedSide.querySelectorAll(".side-mode").forEach(m => m.classList.toggle("on", m.dataset.mode === "swarm"));
+    const nr = clonedSide.querySelector(".newrow");
+    if(nr){ nr.classList.remove("on"); nr.setAttribute("data-new-session", ""); }
+    const list = clonedSide.querySelector(".session-list");
+    if(list) list.dataset.view = "swarm";
+  })();
+
+  function sessionRow(s, active){
+    return `
+      <div class="sess${active ? " on" : ""}" role="button" tabindex="0">
+        <div class="t">${s.t}</div>
+        <div class="m">
+          <span class="dot${s.live ? " live" : ""}"></span>
+          <span>${s.meta}</span>
+          ${s.tag ? `<span class="tag">${s.tag}</span>` : ""}
+          <span class="time">${s.time}</span>
+        </div>
+      </div>`;
+  }
+
+  function renderSessions(p){
+    $$(".session-list").forEach(list => {
+      const activeView = list.dataset.view === "session";
+      let html = "";
+      LOCATIONS.forEach(loc => {
+        const items = p.sessions.filter(s => (s.where || "local") === loc.id);
+        if(!items.length) return;
+        html += `<div class="sgroup">
+          <svg class="i xs"><use href="#${loc.icon}"/></svg>
+          <span>${loc.label}</span>
+          ${loc.id === "remote" ? '<span class="gdot"></span>' : ""}
+          <span class="count">${items.length}</span>
+        </div>`;
+        html += items.map(s => sessionRow(s, activeView && s.on)).join("");
+      });
+      list.innerHTML = html;
+    });
+  }
+
+  function setProject(id){
+    const p = projects[id];
+    if(!p) return;
+    $$(".proj[data-id]").forEach(b => b.classList.toggle("on", b.dataset.id === id));
+    renderSessions(p);
+  }
+
+  $$(".proj[data-id]").forEach(b => b.addEventListener("click", () => setProject(b.dataset.id)));
+
+  /* limits: reveal on hover, click to pin */
+  let hideTimer = null;
+  function closeLimits(){
+    clearTimeout(hideTimer);
+    $$(".limits-pop").forEach(p => p.hidden = true);
+    $$("[data-limits]").forEach(b => {
+      b.classList.remove("on", "pinned");
+      b.setAttribute("aria-expanded", "false");
+    });
+  }
+  function openLimits(btn){
+    clearTimeout(hideTimer);
+    $$("[data-limits]").forEach(b => {
+      if(b !== btn){ b.classList.remove("on", "pinned"); b.setAttribute("aria-expanded", "false"); }
+    });
+    $$(".limits-pop").forEach(p => { if(p !== btn.closest(".side").querySelector(".limits-pop")) p.hidden = true; });
+    const pop = btn.closest(".side").querySelector(".limits-pop");
+    pop.hidden = false;
+    btn.classList.add("on");
+    btn.setAttribute("aria-expanded", "true");
+  }
+  $$("[data-limits]").forEach(btn => {
+    const pop = btn.closest(".side").querySelector(".limits-pop");
+    btn.addEventListener("mouseenter", () => openLimits(btn));
+    btn.addEventListener("mouseleave", () => {
+      if(btn.classList.contains("pinned")) return;
+      clearTimeout(hideTimer);
+      hideTimer = setTimeout(() => { if(!btn.classList.contains("pinned")) closeLimits(); }, 220);
+    });
+    pop.addEventListener("mouseenter", () => clearTimeout(hideTimer));
+    pop.addEventListener("mouseleave", () => {
+      if(btn.classList.contains("pinned")) return;
+      hideTimer = setTimeout(closeLimits, 180);
+    });
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if(btn.classList.contains("pinned")) closeLimits();
+      else { btn.classList.add("pinned"); openLimits(btn); }
+    });
+  });
+
+  document.addEventListener("click", (e) => {
+    if(e.target.closest(".limits-pop")) return;
+    closeLimits();
+
+    const collapse = e.target.closest("[data-collapse]");
+    if(collapse){
+      collapse.closest(".screen").classList.toggle("is-collapsed");
+      return;
+    }
+
+    const niu = e.target.closest("[data-new-session]");
+    if(niu){ document.getElementById("board-new").scrollIntoView({behavior:"smooth", block:"start"}); return; }
+
+    const sess = e.target.closest(".sess");
+    if(sess){ document.getElementById("board-session").scrollIntoView({behavior:"smooth", block:"start"}); }
+
+    const mode = e.target.closest(".side-mode");
+    if(mode){
+      const grp = mode.parentElement;
+      Array.from(grp.children).forEach(m => m.classList.toggle("on", m === mode));
+      if(mode.dataset.mode === "swarm"){
+        document.getElementById("board-swarm").scrollIntoView({behavior:"smooth", block:"start"});
+      } else if(mode.dataset.mode === "code"){
+        document.getElementById("board-session").scrollIntoView({behavior:"smooth", block:"start"});
+      }
+    }
+
+    const filter = e.target.closest(".composer-filters .pill:not(.add)");
+    if(filter){
+      const grp = filter.parentElement;
+      Array.from(grp.querySelectorAll(".pill:not(.add)")).forEach(p => p.classList.toggle("on", p === filter));
+    }
+  });
+
+  document.addEventListener("keydown", (e) => {
+    if(e.key === "Escape") closeLimits();
+    if((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k"){
+      e.preventDefault();
+      document.getElementById("board-new").scrollIntoView({behavior:"smooth", block:"start"});
+    }
+  });
+
+  renderSessions(projects.friday);
+
+  /* fit each fixed artboard to the preview width */
+  const boards = $$(".board");
+  function fit(){
+    const scale = Math.max(.3, Math.min(1, (document.documentElement.clientWidth - 56) / 1440));
+    boards.forEach(board => {
+      const slot = board.parentElement;
+      const h = board.offsetHeight;
+      board.style.transform = "scale(" + scale + ")";
+      slot.style.width = Math.round(1440 * scale) + "px";
+      slot.style.height = Math.round(h * scale) + "px";
+    });
+  }
+  window.addEventListener("resize", fit);
+  fit();
+  if(document.fonts && document.fonts.ready){ document.fonts.ready.then(fit); }
+})();
+</script>
+</body>
+</html>

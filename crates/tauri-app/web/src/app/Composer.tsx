@@ -198,7 +198,7 @@ export function Composer({
 
   return (
     <div
-      className={`relative rounded-[26px] border border-[var(--well-outline)] ${
+      className={`bs-composer relative rounded-[26px] border border-[var(--well-outline)] ${
         floating ? "bg-(--well-translucent) backdrop-blur-xl" : "bg-well"
       }`}
       onDragOver={(e) => {

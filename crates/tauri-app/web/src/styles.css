@@ -1,4 +1,4 @@
-/* Whirl's design system (MIT, ./whirl/LICENSE), then Backspace's glass:
+﻿/* Whirl's design system (MIT, ./whirl/LICENSE), then Backspace's glass:
    the pane and the composer wells go translucent over the window's frost,
    and the hover tones become see-through so they read on the frosted
    sidebar too. */
@@ -43,3 +43,313 @@
 #chat, #list .whirl-side, [data-base-ui-portal], [role="dialog"] {
   font-family: var(--font-ui);
 }
+
+/* ============================================================ home field
+   The chat face's landing: a near-black pane with a drifting glyph field,
+   a floating composer, and the appearance controls in the corner. Threads
+   keep the translucent glass; only the home is allowed to be this still. */
+.dark .whirl-pane.bs-home {
+  background: var(--bs-chat-bg, #0a0a0b);
+  border-color: rgb(255 255 255 / 0.07);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+html:not(.dark) .whirl-pane.bs-home {
+  background: var(--bs-chat-bg, #fbfbfb);
+}
+
+/* The shell's column behind the pane: the pixel-art field is a thread mood;
+   home reads as one dark sheet from the title bar down. */
+.dark .win.whirl-on.m-chat { background: #0a0a0b; }
+.dark .win.whirl-on.m-chat .mainc { background: #0a0a0b; }
+.dark .win.whirl-on.m-chat .side { background: #0a0a0b; border-right-color: #1b1b1f; }
+.dark .win.whirl-on.m-chat .status { background: #0a0a0b; }
+html:not(.dark) .win.whirl-on.m-chat { background: #f4f4f5; }
+html:not(.dark) .win.whirl-on.m-chat .mainc { background: #fafafa; }
+html:not(.dark) .win.whirl-on.m-chat .side { background: #fafafa; border-right-color: #e4e4e7; }
+html:not(.dark) .win.whirl-on.m-chat .status { background: #f4f4f5; }
+html:not(.dark) .win.whirl-on.m-chat .whirl-pane { background: #fafafa; }
+
+.bs-ascii-field {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.18;
+  color: var(--bs-ascii, #00ff99);
+  -webkit-mask-image: radial-gradient(130% 105% at 50% 42%, #000 22%, transparent 80%);
+  mask-image: radial-gradient(130% 105% at 50% 42%, #000 22%, transparent 80%);
+}
+html:not(.dark) .bs-ascii-field { color: var(--bs-ascii, #0f9f68); opacity: 0.2; }
+.dark .bs-ascii-field { opacity: 0.26; }
+@media (prefers-reduced-motion: reduce) {
+  .bs-ascii-field { opacity: 0.14; }
+}
+
+/* ============================================================ appearance */
+.bs-ap { position: relative; }
+.bs-ap-btn {
+  display: flex;
+  height: 32px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px 0 11px;
+  border: 1px solid rgb(255 255 255 / 0.1);
+  border-radius: 999px;
+  background: rgb(16 16 18 / 0.72);
+  color: var(--foreground-soft);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.bs-ap-btn:hover { background: rgb(26 26 29 / 0.9); color: var(--foreground); }
+.bs-ap-btn svg:last-child { transition: transform 0.15s ease; color: var(--muted-foreground); }
+html:not(.dark) .bs-ap-btn {
+  border-color: rgb(0 0 0 / 0.1);
+  background: rgb(255 255 255 / 0.72);
+  color: #4b4b52;
+}
+html:not(.dark) .bs-ap-btn:hover { background: #fff; color: #18181b; }
+
+.bs-ap-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 50;
+  width: 282px;
+  padding: 13px 14px 7px;
+  border: 1px solid #27272c;
+  border-radius: 16px;
+  background: #111113;
+  color: #ededf0;
+  box-shadow: 0 26px 70px rgb(0 0 0 / 0.55), inset 0 1px 0 rgb(255 255 255 / 0.04);
+}
+html:not(.dark) .bs-ap-panel {
+  border-color: rgb(0 0 0 / 0.1);
+  background: #fff;
+  color: #18181b;
+  box-shadow: 0 24px 60px rgb(0 0 0 / 0.18);
+}
+.bs-ap-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 11px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.bs-ap-reset {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: #9ca3af;
+  cursor: pointer;
+}
+.bs-ap-reset:hover { color: #fff; }
+html:not(.dark) .bs-ap-reset { color: #6b7280; }
+html:not(.dark) .bs-ap-reset:hover { color: #111; }
+
+.bs-ap-row {
+  display: flex;
+  min-height: 40px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-top: 1px solid rgb(255 255 255 / 0.06);
+}
+html:not(.dark) .bs-ap-row { border-top-color: rgb(0 0 0 / 0.07); }
+.bs-ap-row.bs-ap-last { padding-right: 1px; }
+.bs-ap-label { font-size: 12px; color: #a1a1aa; }
+html:not(.dark) .bs-ap-label { color: #52525b; }
+
+.bs-ap-themes {
+  display: flex;
+  gap: 3px;
+  padding: 3px;
+  border-radius: 9px;
+  background: rgb(255 255 255 / 0.06);
+}
+html:not(.dark) .bs-ap-themes { background: rgb(0 0 0 / 0.05); }
+.bs-ap-theme {
+  display: grid;
+  width: 31px;
+  height: 23px;
+  place-items: center;
+  border-radius: 6px;
+  color: #9ca3af;
+  cursor: pointer;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+.bs-ap-theme:hover { color: #fff; }
+.bs-ap-theme.is-on { background: rgb(255 255 255 / 0.14); color: #fff; }
+html:not(.dark) .bs-ap-theme { color: #71717a; }
+html:not(.dark) .bs-ap-theme:hover { color: #111; }
+html:not(.dark) .bs-ap-theme.is-on { background: #fff; color: #111; box-shadow: 0 1px 3px rgb(0 0 0 / 0.16); }
+
+.bs-ap-swatches { display: flex; align-items: center; gap: 7px; }
+.bs-ap-swatch {
+  position: relative;
+  width: 21px;
+  height: 21px;
+  border: 1px solid rgb(255 255 255 / 0.18);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: transform 0.12s ease, outline-color 0.12s ease;
+}
+html:not(.dark) .bs-ap-swatch { border-color: rgb(0 0 0 / 0.16); }
+.bs-ap-swatch:hover { transform: scale(1.08); }
+.bs-ap-swatch[aria-pressed="true"] { outline: 2px solid #fafafa; outline-offset: 2px; }
+html:not(.dark) .bs-ap-swatch[aria-pressed="true"] { outline-color: #18181b; }
+.bs-ap-swatch.is-default {
+  background: #52525b;
+  overflow: hidden;
+}
+.bs-ap-swatch.is-default i {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 130%;
+  height: 1.5px;
+  transform: translate(-50%, -50%) rotate(45deg);
+  background: rgb(255 255 255 / 0.72);
+}
+html:not(.dark) .bs-ap-swatch.is-default { background: #d4d4d8; border-color: rgb(0 0 0 / 0.22); }
+html:not(.dark) .bs-ap-swatch.is-default i { background: rgb(0 0 0 / 0.45); }
+
+.bs-ap-switch {
+  position: relative;
+  width: 34px;
+  height: 20px;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.16);
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+.bs-ap-switch i {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.15s ease;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.4);
+}
+.bs-ap-switch.is-on { background: #12a06a; }
+.bs-ap-switch.is-on i { transform: translateX(14px); }
+html:not(.dark) .bs-ap-switch { background: rgb(0 0 0 / 0.16); }
+
+/* The composer on the landing: a larger, matte slab instead of the glass
+   capsule threads float. Controls go one shade up so they still read. */
+.dark .bs-home .bs-composer {
+  background: #141416;
+  border-color: #2a2a2f;
+  box-shadow: 0 30px 80px rgb(0 0 0 / 0.5), 0 2px 0 rgb(255 255 255 / 0.03) inset;
+}
+.dark .bs-home .bs-composer .raised { background: #202024; border-color: #33333a; }
+.dark .bs-home .bs-composer textarea { color: #ededf0; }
+.dark .bs-home .bs-composer textarea::placeholder { color: #6f6f78; }
+
+/* ============================================================ sidebar */
+.bs-brand {
+  display: flex;
+  height: 30px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 2px 0 5px;
+}
+.bs-brand-mark {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  flex: none;
+  place-items: center;
+  border: 1px solid #26382e;
+  border-radius: 7px;
+  background: linear-gradient(150deg, #22382d, #0e1712);
+  color: #35e39a;
+}
+html:not(.dark) .bs-brand-mark { border-color: #cfe7db; background: linear-gradient(150deg, #e6f7ef, #d2efe2); color: #0a7a4d; }
+.bs-brand-name { font-size: 13px; font-weight: 600; letter-spacing: -0.01em; color: var(--foreground); }
+.bs-brand-more {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  margin-left: auto;
+  place-items: center;
+  border-radius: 6px;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+.bs-brand-more:hover { background: var(--accent); color: var(--foreground); }
+
+.bs-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 1px 0 2px;
+  padding: 0 0 7px;
+  border-bottom: 1px solid var(--border);
+}
+.bs-nav button {
+  display: flex;
+  height: 29px;
+  align-items: center;
+  gap: 9px;
+  padding: 0 8px;
+  border-radius: 8px;
+  color: var(--foreground-soft);
+  font-size: 12.5px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+}
+.bs-nav button svg { color: var(--muted-foreground); }
+.bs-nav button:hover { background: var(--accent); color: var(--foreground); }
+.bs-nav button:hover svg { color: var(--foreground); }
+.bs-nav button.is-on { background: var(--accent); color: var(--foreground); }
+.bs-nav button.is-on svg { color: var(--foreground); }
+
+.bs-sidefoot:empty { display: none; }
+.bs-sidefoot { flex: none; padding: 5px 6px 8px; }
+.bs-user {
+  display: flex;
+  height: 38px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 5px 0 4px;
+  border-radius: 10px;
+}
+.bs-user:hover { background: var(--accent); }
+.bs-user-avatar {
+  display: grid;
+  width: 25px;
+  height: 25px;
+  flex: none;
+  place-items: center;
+  border-radius: 50%;
+  background: linear-gradient(150deg, #3a7a5f, #173429);
+  color: #dcffee;
+  font-size: 10.5px;
+  font-weight: 700;
+}
+.bs-user-name { display: flex; min-width: 0; flex: 1; flex-direction: column; line-height: 1.15; }
+.bs-user-name b { overflow: hidden; color: var(--foreground); font-size: 12px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.bs-user-name small { overflow: hidden; color: var(--muted-foreground); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.bs-user-gear {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  place-items: center;
+  border-radius: 6px;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+.bs-user-gear:hover { background: var(--accent); color: var(--foreground); }

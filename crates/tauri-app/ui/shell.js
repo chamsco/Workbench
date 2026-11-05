@@ -16,14 +16,15 @@ var Shell = (() => {
   // user's tabs are filed under `prefs.mode`, and renaming them would need a
   // migration to buy nothing a label does not. Only what you read changed.
   const ZONES = [
-    ["apps", "apps", "Apps"],
-    ["chat", "bubble", "Agents"],
     ["code", "codei", "Workbench"],
+    ["apps", "apps", "Apps"],
+    ["plugins", "grid", "Plugins"],
+    ["skills", "book", "Skills"],
     ["memory", "memory", "Memory"],
   ];
   let platform = "web", saveT = null;
 
-  const uses = () => (prefs.uses && prefs.uses.length ? prefs.uses : ["chat", "code"]);
+  const uses = () => (prefs.uses && prefs.uses.length ? prefs.uses.filter(z => z !== "chat") : ["code"]);
   const zoneName = z => z === "desktop" ? "Agent computer" : z.startsWith("app:") ? ((window.Apps && Apps.get(z.slice(4))) || { name: "App" }).name : (ZONES.find(x => x[0] === z) || [0, 0, z])[2];
 
   // ---------------------------------------------------------------- panes
@@ -31,12 +32,14 @@ var Shell = (() => {
   // scoped to the project in Pair (until a project is open).
   function elFor(z) {
     if (z === "code") return S.codeView === "pair" && hasProject && snap.workspace ? "chat" : "canvas";
-    if (z === "chat") return "chat";
+    if (z === "crew") return "chat";
     if (z === "memory") return "memory";
     if (z === "apps") return "apps";
-    if (z === "desktop") return $("#desktop") ? "desktop" : "chat";
+    if (z === "plugins") return "plugins";
+    if (z === "skills") return "skills";
+    if (z === "desktop") return $("#desktop") ? "desktop" : "canvas";
     if (z.startsWith("app:") && window.Apps) return Apps.frame(z.slice(4)) || "apps";
-    return "chat";
+    return "canvas";
   }
   const secondary = () => {
     const sp = prefs.split;
@@ -75,8 +78,10 @@ var Shell = (() => {
       $("#shClose").onclick = () => setSplit(null);
     }
 
-    // Chat's scope follows whoever shows it: a project in Pair, else none.
-    if (window.Chat && Chat.setScope) Chat.setScope(S.mode === "code" && prim === "chat" ? snap.workspace : null, S.mode === "chat" && S.chatView === "agents");
+    // Chat's scope follows whoever shows it: the project the ADE is open on.
+    // Crew is the agents face, unscoped, so the bots and their group rooms are
+    // the sidebar and the home.
+    if (window.Chat && Chat.setScope) Chat.setScope(S.mode === "crew" ? null : (prim === "chat" ? snap.workspace : null), S.mode === "crew");
     // The face's sidebar is a tree of the project and the zone it is in, and it
     // reads both from here: tell it the shell moved. A nudge, not a fetch.
     if (window.WhirlChat && window.WhirlChat.shell) window.WhirlChat.shell();
@@ -85,7 +90,22 @@ var Shell = (() => {
     if (window.RPanel) RPanel.render();
     if ((prim === "chat" || sec === "chat") && window.Chat && !$("#chat").childElementCount) Chat.render();
     if (prim === "memory" || sec === "memory") window.Memory && Memory.refresh();
-    if (prim === "apps" || sec === "apps") window.Apps && Apps.renderZone();
+    if (prim === "apps" || sec === "apps" || prim === "plugins" || sec === "plugins") window.Apps && Apps.renderZone();
+    if (prim === "skills" || sec === "skills") renderSkillZone();
+    if (window.Quiet) Quiet.render();
+  }
+
+  // Skills: the catalog Settings shows, as a place of its own in the top rail.
+  function renderSkillZone() {
+    for (const el of $$("#skills")) {
+      if (!el.dataset.built) {
+        el.innerHTML = `<div class="apz"><div class="apz-h"><h1>Skills</h1>
+          <p>Markdown playbooks an agent loads on demand. Drop a folder with a <code>SKILL.md</code> into your skills folder or <code>&lt;workspace&gt;/.backspace/skills/</code> to add one.</p></div>
+          <div id="setSkills" class="set in-zone"></div></div>`;
+        el.dataset.built = "1";
+      }
+      if (typeof renderSkills === "function") renderSkills(el);
+    }
   }
 
   function setSplit(what, ratio) {
@@ -141,20 +161,49 @@ var Shell = (() => {
   }
   function renderRail() {
     const cur = S.settings ? "" : S.mode;
-    $("#railZones").innerHTML = ZONES.filter(([z]) => (z !== "chat" && z !== "code") || uses().includes(z)).map(([z, ic, l]) =>
+    $("#railZones").innerHTML = ZONES.map(([z, ic, l]) =>
       `<button class="rz" role="tab" data-z="${z}" aria-selected="${cur === z}" aria-label="${l}" data-tip="${l}"><span class="sq">${icon(ic)}${badge(z)}</span></button>`).join("");
     const pinned = window.Apps ? Apps.pinned() : [];
     $("#railApps").innerHTML = pinned.length ? `<div class="rsep"></div>` + pinned.map(a =>
       `<button class="rz rzapp" data-z="app:${esc(a.id)}" aria-selected="${cur === "app:" + a.id}" aria-label="${esc(a.name)}" data-tip="${esc(a.name)}"><span class="sq">${Apps.glyph(a)}</span></button>`).join("") : "";
     $$("#rail [data-z]").forEach(b => (b.onclick = () => { if (S.settings) closeSettings(); setMode(b.dataset.z); }));
     $("#gear").setAttribute("aria-selected", !!S.settings);
+    renderAppRail();
+  }
+  // The top rail: New thread and the sidebar toggle, a divider, then the apps
+  // you can switch between (Workbench, Apps, Plugins, Skills, Memory, plus any
+  // app pinned from the catalog). One rail, the same in every app.
+  function renderAppRail() {
+    const el = $("#appRail"); if (!el) return;
+    const cur = S.settings ? "" : S.mode;
+    const closed = narrow() ? !$("#win").classList.contains("side-open") : $("#win").classList.contains("side-closed");
+    const pinned = window.Apps ? Apps.pinned() : [];
+    el.innerHTML = `<div class="ar-grp">
+        <button class="ar-btn ar-new" id="arNew" title="New thread (⌘N)">${icon("compose")}<span>New thread</span></button>
+        <button class="ar-btn ar-ic" id="arProj" title="Projects" aria-label="Projects">${icon("chevd")}</button>
+        <span class="ar-vsep"></span>
+        <button class="ar-btn ar-ic" id="arSide" title="${closed ? "Show" : "Hide"} sidebar" aria-label="Toggle sidebar" aria-pressed="${!closed}">${icon("sidebar")}</button>
+      </div>
+      <span class="ar-sep"></span>
+      <div class="ar-grp ar-zones" role="tablist" aria-label="Apps">
+        ${ZONES.map(([z, ic, l]) => `<button class="ar-btn ar-ic" role="tab" data-z="${z}" aria-selected="${cur === z}" title="${l}" aria-label="${l}">${icon(ic)}${badge(z)}</button>`).join("")}
+        ${pinned.length ? `<span class="ar-vsep"></span>` + pinned.map(a => `<button class="ar-btn ar-ic" role="tab" data-z="app:${esc(a.id)}" aria-selected="${cur === "app:" + a.id}" title="${esc(a.name)}" aria-label="${esc(a.name)}">${Apps.glyph(a, "xs")}</button>`).join("") : ""}
+      </div>`;
+    $("#arNew").onclick = () => {
+      if (S.settings) closeSettings();
+      setMode("code"); S.codeView = "pair"; setCodeView("pair");
+      if (window.Chat && Chat.newChat) Chat.newChat();
+    };
+    $("#arProj").onclick = e => projectMenu(e.currentTarget);
+    $("#arSide").onclick = () => { setSide(closed); renderAppRail(); };
+    $$("[data-z]", el).forEach(b => (b.onclick = () => { if (S.settings) closeSettings(); setMode(b.dataset.z); }));
   }
   // The title bar's zones, side by side as icons: Chat, Code, Memory, Apps,
   // then pinned apps. Settings is the gear on the right.
   function renderZones() {
     const el = $("#zones"); if (!el) return;
     const z = S.settings ? "" : S.mode;
-    const zs = ZONES.filter(([k]) => (k !== "chat" && k !== "code") || uses().includes(k));
+    const zs = ZONES;
     const apps = window.Apps ? Apps.pinned() : [];
     el.innerHTML = zs.map(([k, ic, l]) => `<button role="tab" aria-selected="${z === k}" data-zz="${k}" title="${l}" aria-label="${l}">${icon(ic)}${badge(k)}</button>`).join("")
       + apps.map(a => `<button role="tab" aria-selected="${z === "app:" + a.id}" data-zz="app:${esc(a.id)}" title="${esc(a.name)}" aria-label="${esc(a.name)}">${Apps.glyph(a, "xs")}</button>`).join("");
@@ -170,10 +219,10 @@ var Shell = (() => {
     const anchor = $("#searchBtn");
     const chats = ((await invoke("chat_list").catch(() => null)) || []).filter(t => !t.app && !t.project && !t.agent && !t.members.length);
     const all = [
-      ...ZONES.filter(([k]) => (k !== "chat" && k !== "code") || uses().includes(k)).map(([k, ic, l]) => ({ ic, t: l, s: "Go to", go: () => setMode(k) })),
+      ...ZONES.map(([k, ic, l]) => ({ ic, t: l, s: "Go to", go: () => setMode(k) })),
       ...(prefs.projects || []).map(p => ({ ic: "folder", t: base(p), s: p, go: () => openProject(p) })),
       ...((snap && snap.agents) || []).filter(a => a.kind !== "triage").map(a => ({ ic: "sparkle", t: a.id === 0 ? "Main agent" : a.title, s: `${snap.name} · ${a.status.replace(/_/g, " ")}`, go: () => { S.codeView = "agents"; setMode("code"); openIn({ kind: "agent", agent: a.id }); } })),
-      ...chats.map(t => ({ ic: "bubble", t: t.title || "Chat", s: "Chat", go: () => { setMode("chat"); if (window.Chat && Chat.open) Chat.open(t.id); } })),
+      ...chats.map(t => ({ ic: "bubble", t: t.title || "Chat", s: "Workbench", go: () => { setMode("code"); S.codeView = "pair"; setCodeView("pair"); if (window.Chat && Chat.open) Chat.open(t.id); } })),
     ];
     openPop(anchor, `<div class="srch"><label>${icon("search")}<input placeholder="Search projects, agents and chats" aria-label="Search"></label><div class="srch-r"></div></div>`, pop => {
       const inp = $("input", pop), out = $(".srch-r", pop);
@@ -214,12 +263,11 @@ var Shell = (() => {
   // canvases, worktrees and tickets. "Chat | Agents" was Chat's axis, borrowed.
   // The stored values stay `pair` and `agents`, so no prefs file needs migrating.
   const VIEWS = {
-    chat: [["chat", "bubble", "Chat", "One model, one conversation"], ["agents", "team", "Agents", "Your named agents, one to one or in groups"]],
     code: [["pair", "bubble", "ADE", "Agent development environment: you and one CLI, one session, in the project"], ["agents", "grid", "IDE", "The project: canvases, worktrees, tickets"]],
   };
   function renderModes() {
     const z = S.mode, v = VIEWS[z];
-    const cur = z === "chat" ? S.chatView : S.codeView;
+    const cur = S.codeView;
     // Two homes for one switch: the sidebar usually, the title bar when the
     // sidebar is collapsed. CSS picks which is showing, so both stay in sync.
     for (const m of [$("#modesSide"), $("#modes")]) {
@@ -228,17 +276,18 @@ var Shell = (() => {
       if (!v) { m.innerHTML = ""; continue; }
       m.setAttribute("aria-label", v.map(x => x[2]).join(" or "));
       m.innerHTML = v.map(([k, ic, l, t]) => `<button role="tab" data-view="${k}" aria-selected="${cur === k}" title="${t}">${icon(ic)}${l}</button>`).join("");
-      $$("[data-view]", m).forEach(b => (b.onclick = () => (z === "chat" ? setChatView(b.dataset.view) : setCodeView(b.dataset.view))));
+      $$("[data-view]", m).forEach(b => (b.onclick = () => setCodeView(b.dataset.view)));
     }
   }
   function renderSide() {
     const z = S.mode, zl = $("#zoneList");
     renderModes();
-    $("#zoneTitle").innerHTML = z === "code" || z === "chat" ? "" : `<h2>${esc(z.startsWith("app:") ? "Apps" : zoneName(z))}</h2>`;
+    $("#zoneTitle").innerHTML = z === "code" ? "" : `<h2>${esc(z.startsWith("app:") ? "Apps" : zoneName(z))}</h2>`;
     if (z === "memory") { window.Memory && Memory.renderSide(zl); }
-    else if (z === "apps" || z.startsWith("app:")) { window.Apps && Apps.renderSide(zl); }
+    else if (z === "apps" || z === "plugins" || z.startsWith("app:")) { window.Apps && Apps.renderSide(zl); }
+    else if (z === "skills") zl.innerHTML = `<div class="nothing">Skills are files on this machine. The page lists every one the agent can load.</div>`;
     else zl.innerHTML = "";
-    if (z === "chat" || (z === "code" && S.codeView === "pair")) { if (window.Chat) Chat.renderThreads(); }
+    if (z === "code" && S.codeView === "pair") { if (window.Chat) Chat.renderThreads(); }
   }
   // Switch project: the recents, or another folder. One menu, and one way in —
   // the folder icon at the top of the sidebar. There used to be a project row
@@ -269,6 +318,8 @@ var Shell = (() => {
     if (S.settings) h.innerHTML = `<span class="zt">${icon("gear")}Settings</span>`;
     else if (z === "memory") h.innerHTML = `<span class="zt">${icon("memory")}Memory</span>`;
     else if (z === "apps") h.innerHTML = `<span class="zt">${icon("apps")}Apps</span>`;
+    else if (z === "plugins") h.innerHTML = `<span class="zt">${icon("grid")}Plugins</span>`;
+    else if (z === "skills") h.innerHTML = `<span class="zt">${icon("book")}Skills</span>`;
     else if (z === "code") h.innerHTML = codeTitle();
     else if (z.startsWith("app:") && window.Apps) h.innerHTML = Apps.head(z.slice(4));
     else h.innerHTML = "";
@@ -328,7 +379,7 @@ var Shell = (() => {
   }
   // The project arriving (at launch, or opened elsewhere) can change which
   // section Code shows; lay out again when it does.
-  function refresh() { if (elFor(S.mode) !== laid) layout(); renderStatus(); renderRail(); renderZones(); if (S.mode === "code") renderHead(); }
+  function refresh() { if (elFor(S.mode) !== laid) layout(); renderStatus(); renderRail(); renderZones(); if (S.mode === "code") renderHead(); if (window.Quiet) Quiet.render(); }
 
   // ---------------------------------------------------------------- status bar
   // After an agent control plane's footer: where you are (branch, project),
