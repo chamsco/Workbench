@@ -32,6 +32,9 @@ pub struct RouterConfig {
     pub main_min_effort: Effort,
     pub pin_main: Option<String>,
     pub pin_sub: Option<String>,
+    /// Models a worker is never routed to (the app's executor settings).
+    #[serde(default)]
+    pub exclude_sub: Vec<String>,
 }
 
 /// Orchestrator, advisor, scouts: the lead builds, a stronger model stays on

@@ -622,24 +622,26 @@ function paneTitle(p) {
     case "board": return `Team chat · ${(snap.board || []).length}`;
     case "options": { const o = (snap.options || []).find(x => x.id === p.option) || (snap.options || []).slice(-1)[0]; return o ? `Options · ${o.title}` : "Visual options"; }
     case "trace": return `Trace · ${a ? (a.id === MAIN ? "main" : a.key) : ""}`;
+    case "harness": return "@" + (p.label || "harness");
     case "terminal": return p === firstTerminal() && !(S.pane.get(prefs.active_tab + ":" + tab().panes.indexOf(p)) || {}).shell ? "Brainpowr Code" : "Terminal";
     default: return "New canvas";
   }
 }
-const paneIcon = p => ({ board: '<span class="agent">' + icon("bubble") + "</span>", agent: '<span class="agent">' + icon("sparkle") + "</span>", files: '<span class="term">' + icon("folder") + "</span>", browser: '<span class="term">' + icon("globe") + "</span>", diagram: '<span class="term">' + icon("diagram") + "</span>", docs: '<span class="term">' + icon("doc") + "</span>", options: '<span class="term">' + icon("opts") + "</span>" })[p.kind] || '<span class="term">' + icon("window") + "</span>";
+const paneIcon = p => p.kind === "harness" ? '<span class="agent">' + ((window.Logos && hzRoute.has(p.thread) && Logos.mark(hzMark(hzRoute.get(p.thread)))) || icon("sparkle")) + "</span>" : ({ board: '<span class="agent">' + icon("bubble") + "</span>", agent: '<span class="agent">' + icon("sparkle") + "</span>", files: '<span class="term">' + icon("folder") + "</span>", browser: '<span class="term">' + icon("globe") + "</span>", diagram: '<span class="term">' + icon("diagram") + "</span>", docs: '<span class="term">' + icon("doc") + "</span>", options: '<span class="term">' + icon("opts") + "</span>" })[p.kind] || '<span class="term">' + icon("window") + "</span>";
 
 function buildPane(p, slot) {
   const el = document.createElement("section");
   el.className = "pane" + (slot === S.focus ? " on" : "");
   el.dataset.slot = slot;
   const ps = pstate(slot);
-  el.innerHTML = `<header class="ph">${paneIcon(p)}<span class="t">${esc(paneTitle(p))}</span><span class="sp"></span>
+  el.innerHTML = `<header class="ph"${p.kind === "harness" ? ` title="Right-click for this harness's options"` : ""}>${paneIcon(p)}<span class="t">${esc(paneTitle(p))}</span>${p.kind === "harness" ? `${p.coordinator ? `<span class="hz-badge" title="Coordinates this tab: hands work to the other harnesses">coordinator</span>` : ""}<span class="hz-runs">${esc(hzRoute.has(p.thread) && window.Chat ? Chat.routeName(hzRoute.get(p.thread)) : "")}</span>` : ""}<span class="sp"></span>
     ${p.kind === "agent" && busy(agent(p.agent)) ? `<button class="ib stopb" data-act="stop" aria-label="Stop this agent" title="Stop">${icon("stop")}</button>` : ""}
     ${p.kind === "agent" ? `<button class="ib" data-act="trace" aria-label="Trace" title="Trace: every tool call, timed">${icon("trace")}</button><button class="ib" data-act="files" aria-label="Open worktree files">${icon("folder")}</button>` : ""}
     ${p.kind !== "empty" ? `<button class="ib" data-act="swap" aria-label="Show something else here" title="Show something else here">${icon("window")}</button>` : ""}
     ${tab().panes.length > 1 ? `<button class="ib" data-act="max" aria-label="Maximize canvas">${icon("expand")}</button>` : ""}
     <button class="ib" data-act="close" aria-label="Close canvas">${icon("close")}</button></header>`;
-  el.querySelector(".ph").addEventListener("pointerdown", e => { if (!e.target.closest("button")) paneDrag(e, el, slot); });
+  el.querySelector(".ph").addEventListener("pointerdown", e => { if (e.button === 0 && !e.target.closest("button")) paneDrag(e, el, slot); });
+  if (p.kind === "harness") el.querySelector(".ph").addEventListener("contextmenu", e => { e.preventDefault(); tileMenu(el.querySelector(".ph"), slot); });
   el.addEventListener("pointerdown", () => { if (S.focus !== slot) { S.focus = slot; $$(".pane").forEach(x => x.classList.toggle("on", +x.dataset.slot === slot)); renderList(); } });
   const act = (k, f) => { const b = el.querySelector(`[data-act=${k}]`); if (b) b.onclick = f; };
   act("max", () => { S.max = S.max == null ? slot : null; renderGrid(); });
@@ -689,6 +691,7 @@ function fillPane(p, slot, body, ps) {
   else if (p.kind === "conversation") conversationPane(p, body, ps);
   else if (p.kind === "terminal") (isBrainpowr(p, ps) ? brainpowrPane(p, body, ps) : terminalPane(body, ps, p));
   else if (p.kind === "options") optionsPane(p, body, ps);
+  else if (p.kind === "harness") harnessPane(p, slot, body, ps);
   else if (p.kind === "trace") tracePane(p, body, ps);
   else chooser(slot, body);
 }
@@ -696,6 +699,7 @@ function chooser(slot, body) {
   const agents = treeOrder().map(id => agent(id));
   body.innerHTML = `<div class="chooser"><h5>Show in this canvas</h5><div class="cards">
     <button class="card" data-k="agent">${icon("sparkle")}<span class="ct">Main agent</span><span class="cs">Talk to the agent that runs the project</span></button>
+    <button class="card" data-k="harness" data-popper>${icon("codei")}<span class="ct">Harness</span><span class="cs">Claude Code, Codex or any model, in its own session; tiles can @ each other</span></button>
     <button class="card" data-k="browser">${icon("globe")}<span class="ct">Browser</span><span class="cs">A dev server preview</span></button>
     <button class="card" data-k="diagram">${icon("diagram")}<span class="ct">Diagram review</span><span class="cs">Plans and deliverables to approve</span></button>
     <button class="card" data-k="files">${icon("folder")}<span class="ct">Worktree</span><span class="cs">Browse the project's files</span></button>
@@ -704,7 +708,7 @@ function chooser(slot, body) {
     <button class="card" data-k="terminal">${icon("term")}<span class="ct">Terminal</span><span class="cs">A real shell in this project's folder</span></button>
     <button class="card" data-k="options">${icon("opts")}<span class="ct">Visual options</span><span class="cs">Variants an agent wants you to choose between</span></button></div>
     ${agents.length > 1 ? `<h5>Agent sessions</h5><div class="alist">${agents.filter(a => a.id !== MAIN).map(a => `<button class="chip-btn" data-a="${a.id}">${icon("sparkle")}${esc(a.title)}<span class="dot ${dotFor(a.status)}"></span></button>`).join("")}</div>` : ""}</div>`;
-  $$("[data-k]", body).forEach(b => (b.onclick = () => setPane(slot, { kind: b.dataset.k, agent: 0, url: null })));
+  $$("[data-k]", body).forEach(b => (b.onclick = () => b.dataset.k === "harness" ? pickHarness(b, slot) : setPane(slot, { kind: b.dataset.k, agent: 0, url: null })));
   $$("[data-a]", body).forEach(b => (b.onclick = () => setPane(slot, { kind: "agent", agent: +b.dataset.a, url: null })));
 }
 
@@ -814,6 +818,7 @@ function renderGrid() {
   g.appendChild(ph); S.ph = ph;
   position(tree(t));
   requestAnimationFrame(() => g.classList.remove("still"));
+  syncTiles();
 }
 function position(tr) {
   if (!hasProject || !S.ph) return;
@@ -1549,6 +1554,153 @@ function brainpowrPane(p, body, ps) {
   draw();
   // The pane is attached after it is filled, so the first look waits a frame.
   requestAnimationFrame(() => { tick(); ta.focus(); });
+}
+
+// ------------------------------------------------------------------ harness tiles
+// A canvas can hold any harness (a coding CLI, a router, a local model) in its
+// own chat thread. The tab's harness tiles know each other (relay.rs): typing
+// `@codex …` in one hands the message to the `codex` tile and posts its answer
+// back; a harness can do the same itself with its `message_tile` tool. One
+// tile can coordinate the tab (right-click its header). Nothing reaches a CLI
+// mid-turn — each turn is its own process — so a message for a busy tile waits
+// for its turn to end.
+const hzRoute = new Map(); // thread id → route, as last read
+const hzMark = r => (!r ? "" : r.kind === "cli" ? r.provider : r.kind === "local" ? "ollama" : r.kind === "cloud" ? "cloud" : "");
+const hzLabelFor = r => !r ? "harness" : r.kind === "cli" ? (r.provider === "claude" ? "claude" : r.provider) : (r.model || r.provider || "model").split(/[/:]/).pop();
+const hzTiles = () => tab().panes.filter(p => p.kind === "harness" && p.thread);
+let hzSynced = "";
+// Tell the relay which tiles are in the open tab; it hands back the names as
+// stored (unique, typeable), which become the tiles' names here too.
+async function syncTiles(force) {
+  if (!hasProject) return;
+  const list = hzTiles().map(p => ({ thread: p.thread, label: p.label || "harness", runs: hzRoute.has(p.thread) && window.Chat ? Chat.routeName(hzRoute.get(p.thread)) : "", coordinator: !!p.coordinator }));
+  const key = JSON.stringify(list);
+  if (key === hzSynced && !force) return;
+  hzSynced = key;
+  const out = await invoke("relay_tiles", { tiles: list }).catch(() => null);
+  if (!out) return;
+  let changed = false;
+  for (const t of out) {
+    const p = hzTiles().find(x => x.thread === t.thread);
+    if (p && (p.label !== t.label || !!p.coordinator !== t.coordinator)) { p.label = t.label; p.coordinator = t.coordinator; changed = true; }
+  }
+  if (changed) { saveTabs(); renderPaneTitles(); hzSynced = JSON.stringify(out); }
+}
+function pickHarness(anchor, slot) {
+  if (!window.Chat) return;
+  Chat.routePicker(anchor, Chat.defaultRoute(), r => newHarness(slot, r));
+}
+async function newHarness(slot, route, label) {
+  const dir = snap.workspace;
+  if (!dir) { toast("Open a project folder first", "err"); return; }
+  try {
+    const t = await invoke("chat_new", { route, scope: { project: dir } });
+    hzRoute.set(t.id, route);
+    setPane(slot, { kind: "harness", agent: 0, url: null, thread: t.id, label: label || hzLabelFor(route), coordinator: !!(tab().panes[slot] || {}).coordinator });
+  } catch (e) { toast(String(e), "err"); }
+}
+function setCoordinator(slot, on) {
+  tab().panes.forEach((p, i) => { if (p.kind === "harness") p.coordinator = on && i === slot; });
+  saveTabs(); renderGrid(); syncTiles(true);
+  toast(on ? `@${tab().panes[slot].label} coordinates this tab` : "No coordinator in this tab", "ok");
+}
+function renameTile(slot) {
+  const el = S.els.get(slot), p = tab().panes[slot]; if (!el || !p) return;
+  const t = el.querySelector(".ph .t");
+  t.innerHTML = `<input class="hz-name" value="${esc(p.label || "")}" aria-label="Harness name" maxlength="24" spellcheck="false">`;
+  const inp = t.querySelector("input"); inp.focus(); inp.select();
+  let done = false;
+  const commit = keep => { if (done) return; done = true; if (keep && inp.value.trim()) { p.label = inp.value.trim(); saveTabs(); } renderGrid(); };
+  inp.onkeydown = e => { e.stopPropagation(); if (e.key === "Enter") commit(true); if (e.key === "Escape") commit(false); };
+  inp.onblur = () => commit(true);
+  inp.onpointerdown = e => e.stopPropagation();
+}
+function tileMenu(anchor, slot) {
+  const p = tab().panes[slot]; if (!p) return;
+  openPop(anchor, `<button class="pi" data-a="coord">${icon("sparkle")}${p.coordinator ? "Stop coordinating" : "Set as coordinator"}</button>
+    <button class="pi" data-a="rename">${icon("doc")}Rename</button>
+    <button class="pi" data-a="model">${icon("route")}Change model…</button>
+    <button class="pi" data-a="fresh">${icon("plus")}New session</button><hr>
+    <button class="pi" data-a="close">${icon("close")}Close</button>`, pop => {
+    const on = (k, f) => (pop.querySelector(`[data-a=${k}]`).onclick = () => { closePop(); f(); });
+    on("coord", () => setCoordinator(slot, !p.coordinator));
+    on("rename", () => renameTile(slot));
+    on("model", () => Chat.routePicker(anchor, hzRoute.get(p.thread), async r => { await invoke("chat_set_route", { id: p.thread, route: r }).catch(e => toast(String(e), "err")); hzRoute.set(p.thread, r); renderGrid(); syncTiles(true); }));
+    on("fresh", () => newHarness(slot, hzRoute.get(p.thread) || Chat.defaultRoute(), p.label));
+    on("close", () => { const b = S.els.get(slot) && S.els.get(slot).querySelector("[data-act=close]"); if (b) b.click(); });
+  });
+}
+function harnessPane(p, slot, body, ps) {
+  const hz = (ps.hz = ps.hz || { t: null, wait: 0 });
+  body.innerHTML = `<div class="hz"><div class="hz-log"></div>
+    <div class="hz-box"><div class="hz-at"></div><label class="hz-in"><span class="hz-caret">❯</span><textarea rows="1" spellcheck="false" aria-label="Message @${esc(p.label || "")}" placeholder="Message @${esc(p.label || "")} · @name hands it to another tile"></textarea></label></div>
+    <div class="hz-foot"><span class="hz-state"></span><span class="sp"></span><button class="hz-stop" hidden>stop</button></div></div>`;
+  const log = body.querySelector(".hz-log"), ta = body.querySelector("textarea"), at = body.querySelector(".hz-at");
+  const busyNow = () => !!hz.t && hz.t.messages.some(m => m.status === "sending" || m.status === "streaming");
+  const others = () => hzTiles().filter(x => x.thread !== p.thread);
+  const from = m => (m.author || "").startsWith("tile:") ? m.author_name || "another tile" : null;
+  const drawLog = () => {
+    const ms = hz.t ? hz.t.messages : [];
+    const stick = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
+    log.innerHTML = !hz.t ? `<div class="hz-empty">This harness's session is gone. <button class="lnk" data-hz="fresh">Start a new one</button></div>`
+      : !ms.length ? `<div class="hz-empty"><b>@${esc(p.label || "")}</b> works in ${esc(base(snap.workspace || ""))}.${others().length ? ` Type <code>@${esc(others()[0].label)} …</code> to hand something to another tile.` : " Add another harness in a canvas and they can message each other."}${p.coordinator ? " It coordinates this tab: ask it for the whole job and it hands pieces out." : ""}</div>`
+      : ms.map(m => m.role === "user"
+        ? `<div class="hz-u">${from(m) ? `<span class="hz-from">from @${esc(from(m))}</span>` : ""}<span class="hz-caret">❯</span>${esc(m.text)}</div>`
+        : `<div class="hz-a">${from(m) ? `<span class="hz-from">@${esc(from(m))} answered</span>` : ""}${m.text ? (window.Chat ? Chat.md(m.text) : esc(m.text)) : ""}${m.status === "sending" || m.status === "streaming" ? `<div class="hz-spin"><span class="spin-g">${SPIN[spinI]}</span> ${m.text ? "Writing…" : "Thinking…"}</div>` : ""}${m.status === "error" ? `<div class="hz-err">${esc(m.error || "failed")}</div>` : ""}${m.status === "stopped" ? `<div class="hz-dim">[stopped]</div>` : ""}</div>`).join("");
+    $$("[data-href]", log).forEach(a => (a.onclick = () => invoke("open_url", { url: a.dataset.href }).catch(() => {})));
+    const f = log.querySelector("[data-hz=fresh]"); if (f) f.onclick = () => newHarness(slot, Chat.defaultRoute(), p.label);
+    if (stick) log.scrollTop = log.scrollHeight;
+  };
+  const drawAt = () => {
+    at.innerHTML = others().map(x => `<button class="hz-chip" data-at="${esc(x.label)}" title="Hand a message to @${esc(x.label)}">@${esc(x.label)}${x.coordinator ? " ★" : ""}</button>`).join("");
+    $$("[data-at]", at).forEach(b => (b.onclick = () => { ta.value = "@" + b.dataset.at + " " + ta.value.replace(/^@[\w-]+\s*/, ""); ta.focus(); }));
+  };
+  const drawState = () => {
+    const st = body.querySelector(".hz-state"), r = hz.t && hz.t.route;
+    st.textContent = [r && window.Chat ? Chat.routeName(r) : "", busyNow() ? "working" : "", hz.wait ? `${hz.wait} message${hz.wait === 1 ? "" : "s"} waiting` : ""].filter(Boolean).join(" · ");
+    body.querySelector(".hz-stop").hidden = !busyNow();
+  };
+  const draw = () => { drawLog(); drawAt(); drawState(); };
+  const refresh = async () => {
+    try { hz.t = (await invoke("chat_thread", { id: p.thread })) || null; } catch { }
+    try { hz.wait = ((await invoke("relay_waiting", { threads: [p.thread] })) || [0])[0]; } catch { }
+    if (hz.t && hz.t.route) {
+      const was = hzRoute.get(p.thread);
+      hzRoute.set(p.thread, hz.t.route);
+      if (!was || JSON.stringify(was) !== JSON.stringify(hz.t.route)) {
+        syncTiles();
+        const ph = body.closest(".pane") && body.closest(".pane").querySelector(".ph");
+        if (ph && window.Chat) { ph.querySelector(".hz-runs").textContent = Chat.routeName(hz.t.route); ph.querySelector(".agent").outerHTML = paneIcon(p); }
+      }
+    }
+    if (body.isConnected) draw();
+  };
+  async function send() {
+    const text = ta.value.trim(); if (!text || !hz.t) return;
+    ta.value = ""; grow();
+    try { await invoke("chat_send", { id: p.thread, text, files: [], replyTo: null }); }
+    catch (e) { ta.value = text; toast(String(e), "err"); }
+    refresh();
+  }
+  const grow = () => { ta.style.height = "auto"; ta.style.height = Math.min(ta.scrollHeight, 140) + "px"; };
+  ta.oninput = grow;
+  ta.onkeydown = e => {
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); return; }
+    if (e.key === "c" && e.ctrlKey && ta.selectionStart === ta.selectionEnd && busyNow()) { e.preventDefault(); invoke("chat_stop", { id: p.thread }); }
+  };
+  body.querySelector(".hz-stop").onclick = () => invoke("chat_stop", { id: p.thread });
+  if (ps.hzStop) ps.hzStop();
+  let timer = null, alive = true;
+  const tick = async () => {
+    if (!alive) return;
+    if (!body.isConnected) { alive = false; return; }
+    await refresh();
+    timer = setTimeout(tick, busyNow() || hz.wait ? 600 : 2500);
+  };
+  ps.hzStop = () => { alive = false; clearTimeout(timer); };
+  ps.cleanup = () => ps.hzStop();
+  draw();
+  requestAnimationFrame(() => tick());
 }
 
 // ------------------------------------------------------------------ visual options

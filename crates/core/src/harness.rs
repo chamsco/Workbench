@@ -112,6 +112,8 @@ pub struct Overrides {
     pub effort: Option<String>,
     /// Where traces go besides this machine.
     pub tracing: Option<crate::trace::Export>,
+    /// Models the router may not give a worker.
+    pub exclude: Vec<String>,
 }
 
 pub struct Harness {
@@ -158,6 +160,7 @@ fn new_record(
         traces: vec![],
         advisor_calls: 0,
         ses: None,
+        notes: vec![],
     }
 }
 
@@ -345,6 +348,7 @@ impl Harness {
                 cfg.router.pin_sub = Some(w);
             }
         }
+        cfg.router.exclude_sub.extend(over.exclude.iter().cloned());
         let rt = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .build()?;
@@ -561,6 +565,23 @@ impl Harness {
 
     pub fn block_on<F: std::future::Future>(&self, f: F) -> F::Output {
         self.rt.block_on(f)
+    }
+
+    /// The main agent's compiled notes, taken for the Librarian: the list is
+    /// empty afterwards. `keep` puts back the ones it could not file.
+    pub fn take_notes(&self) -> Vec<FieldNote> {
+        let n = self.inner.update(|s| std::mem::take(&mut s.agents[MAIN].notes));
+        self.inner.save();
+        n
+    }
+
+    pub fn return_notes(&self, notes: Vec<FieldNote>) {
+        self.inner.update(|s| {
+            for n in notes {
+                add_note(&mut s.agents[MAIN].notes, n);
+            }
+        });
+        self.inner.save();
     }
 
     /// The project's root (the primary worktree).
@@ -811,6 +832,39 @@ impl Inner {
             text
         };
         self.agent(id, |a| a.log.push(LogEntry { kind, text }));
+    }
+
+    /// `leave_note`: something an agent learned that may be worth keeping.
+    /// It stays with the agent and goes up to its parent when its work is
+    /// accepted; nothing reaches memory before the Librarian (stages.rs).
+    fn leave_note(&self, me: &str, text: &str) -> Result<String> {
+        let text = text.trim().replace(['\n', '\r'], " ");
+        if text.is_empty() {
+            bail!("a note needs some text");
+        }
+        if text.chars().count() > 400 {
+            bail!("keep a note to one line (under 400 characters)");
+        }
+        if crate::memory::looks_secret(&text) {
+            bail!("that looks like a secret; notes never keep credentials");
+        }
+        let id = self.state.lock().unwrap().agents.iter().find(|a| a.key == me).map(|a| a.id).ok_or_else(|| anyhow!("no agent `{me}`"))?;
+        let added = self.agent(id, |a| add_note(&mut a.notes, FieldNote { text, from: me.to_string() }));
+        self.save();
+        Ok(if added { "Noted. It goes up with your work when it is accepted.".into() } else { "You already noted that.".into() })
+    }
+
+    /// An agent's work was accepted: its notes join its parent's, minus the
+    /// ones the parent already has. That is the compiling step: by the time
+    /// they reach the main agent, each claim is there once.
+    fn notes_up(&self, id: AgentId) {
+        self.update(|s| {
+            let Some(parent) = s.agents[id].parent else { return };
+            let notes = std::mem::take(&mut s.agents[id].notes);
+            for n in notes {
+                add_note(&mut s.agents[parent].notes, n);
+            }
+        });
     }
 
     fn set_status(&self, id: AgentId, status: AgentStatus) {
@@ -1314,7 +1368,25 @@ fn board_tools() -> Vec<ToolDef> {
             description: "New messages to you or to everyone, each with its id. They also arrive on their own at the start of a turn.",
             schema: json!({"type": "object", "properties": {}}),
         },
+        note_tool(),
     ]
+}
+
+pub(crate) fn note_tool() -> ToolDef {
+    ToolDef {
+        name: "leave_note",
+        description: "Note one thing you learned that later sessions should know: a decision, a constraint, a fact about this codebase that cost you time to find. One line, no secrets, not things that are obvious from the code. It goes up to whoever assigned your work when it is accepted; the Librarian decides what is kept.",
+        schema: json!({"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}),
+    }
+}
+
+/// Add a note unless the list already says the same thing.
+fn add_note(list: &mut Vec<FieldNote>, n: FieldNote) -> bool {
+    if list.iter().any(|x| crate::memory::similar(&x.text, &n.text)) {
+        return false;
+    }
+    list.push(n);
+    true
 }
 
 async fn main_loop(inner: Arc<Inner>, mut inbox: mpsc::UnboundedReceiver<String>) {
@@ -1539,7 +1611,7 @@ fn escalate(inner: &Inner, c: &mut Conversation, reason: &str) -> bool {
         .cfg
         .usable_models()
         .into_iter()
-        .filter(|m| m.tier > spec.tier)
+        .filter(|m| m.tier > spec.tier && !inner.cfg.router.exclude_sub.contains(&m.id))
         .min_by(|a, b| {
             a.tier
                 .cmp(&b.tier)
@@ -2278,6 +2350,10 @@ async fn run_tool(
             let me = s.agents[c.id].key.clone();
             Ok(text(inner.cursors.lock().unwrap().take(&s, &me)))
         }
+        "leave_note" => {
+            let me = inner.state.lock().unwrap().agents[c.id].key.clone();
+            inner.leave_note(&me, input["text"].as_str().unwrap_or("")).map(text)
+        }
         "scout" if c.kind != AgentKind::Scout => scouts(inner, c, input).await.map(text),
         "open_canvas" | "close_canvas" => {
             let me = inner.state.lock().unwrap().agents[c.id].key.clone();
@@ -2807,7 +2883,10 @@ async fn work_tickets(inner: &Arc<Inner>, caller: AgentId, input: &Value) -> Res
 fn settle(inner: &Inner, id: AgentId, key: &str, res: &Result<Deliverable>) {
     inner.trace_finish(id, res.as_ref().err().map(|e| format!("{e:#}")));
     match res {
-        Ok(_) => inner.set_status(id, AgentStatus::Approved),
+        Ok(_) => {
+            inner.notes_up(id);
+            inner.set_status(id, AgentStatus::Approved)
+        }
         Err(e) => {
             inner.log(id, LogKind::Error, format!("{e:#}"));
             inner.set_status(id, AgentStatus::Failed);
@@ -3546,6 +3625,9 @@ async fn bridge_handle(
             let me = body["me"].as_str().unwrap_or("");
             Ok(json!({"text": inner.cursors.lock().unwrap().take(&s, me)}))
         }
+        "/v1/note" => inner
+            .leave_note(body["me"].as_str().unwrap_or("?"), body["text"].as_str().unwrap_or(""))
+            .map(|t| json!({"text": t})),
         "/v1/board/agents" => {
             Ok(json!({"text": crate::board::agents_line(&inner.state.lock().unwrap())}))
         }

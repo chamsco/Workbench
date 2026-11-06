@@ -68,6 +68,12 @@ pub struct Prefs {
     /// Model id every coding worker runs on ("claude-code", "codex"...).
     /// None: the router decides per ticket.
     pub worker: Option<String>,
+    /// When the router decides: models it may not give a worker.
+    pub worker_exclude: Vec<String>,
+    /// The decision model per stage ("plan", "execute", "ship", "commit"; the
+    /// Commit one is the Librarian). It may refuse a gate the rules passed,
+    /// never open one. A stage with none runs on rules alone, which cost nothing.
+    pub stage_models: BTreeMap<String, crate::chat::Route>,
     /// Model id the Workbench planner runs on; a CLI one ("claude-code",
     /// "codex") runs it on your subscription. None: an API model if a key
     /// is set, else the workers' CLI.
@@ -140,6 +146,8 @@ impl Default for Prefs {
             remote_agents: vec![],
             connections: vec![],
             worker: None,
+            worker_exclude: vec![],
+            stage_models: BTreeMap::new(),
             api_keys: BTreeMap::new(),
             appearance: Appearance::default(),
             subagent_model: None,
@@ -414,7 +422,8 @@ impl TabSpec {
 }
 
 /// What a canvas shows. `kind`: "empty" (the picker), "agent", "files",
-/// "browser", "diagram", "docs" or "options".
+/// "browser", "diagram", "docs", "options" or "harness" (a coding harness in
+/// its own chat thread, relay.rs).
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(default)]
 pub struct PaneSpec {
@@ -423,6 +432,14 @@ pub struct PaneSpec {
     pub url: Option<String>,
     /// For "options": which set to show (an `options::OptionSet` id).
     pub option: Option<String>,
+    /// For "harness": its chat thread, the name the other tiles call it by,
+    /// and whether it coordinates the tab.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thread: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub coordinator: bool,
 }
 
 impl Default for PaneSpec {
@@ -438,6 +455,9 @@ impl PaneSpec {
             agent: 0,
             url: None,
             option: None,
+            thread: None,
+            label: None,
+            coordinator: false,
         }
     }
     pub fn agent(id: usize) -> Self {

@@ -128,6 +128,20 @@ pub struct AgentRecord {
     /// the second half of the audit's P0-2.
     #[serde(default)]
     pub ses: Option<String>,
+    /// What this agent learned that may be worth remembering, and what its
+    /// own agents handed up when they finished (`leave_note`). The main
+    /// agent's list is the project's compiled notes, which the Librarian
+    /// files at Commit (stages.rs).
+    #[serde(default)]
+    pub notes: Vec<FieldNote>,
+}
+
+/// One note on its way up to the Librarian.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct FieldNote {
+    pub text: String,
+    /// The agent that first wrote it (its key).
+    pub from: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
