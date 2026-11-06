@@ -303,7 +303,7 @@ pub fn submit_report_tool() -> ToolDef {
     }
 }
 
-fn safe_key(key: &str) -> bool {
+pub(crate) fn safe_key(key: &str) -> bool {
     !key.is_empty() && key.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
 

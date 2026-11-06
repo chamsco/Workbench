@@ -602,7 +602,9 @@ impl Harness {
 
     /// Talk to the main agent. The first message is the project goal.
     pub fn send(&self, text: impl Into<String>) {
-        let _ = self.to_main.send(text.into());
+        let text = text.into();
+        self.inner.record_request(crate::request::EntryKind::Message, &text, None);
+        let _ = self.to_main.send(text);
     }
 
     pub fn approve(&self, approval: usize) {
@@ -617,6 +619,7 @@ impl Harness {
     /// means they dismissed it. Any waiting `show_options` call is released.
     pub fn pick_option(&self, id: &str, variant: Option<&str>) {
         let variant = variant.filter(|v| !v.is_empty());
+        self.inner.record_pick(id, variant);
         if let Err(e) = self.inner.update(|s| crate::options::pick(s, id, variant)) {
             eprintln!("pick_option: {e}");
         }
@@ -755,6 +758,15 @@ impl Harness {
 }
 
 fn resolve(inner: &Arc<Inner>, to_main: &mpsc::UnboundedSender<String>, approval: usize, verdict: Verdict) {
+    // A rejection's feedback is the person correcting the work: it joins
+    // their request, word for word.
+    if let Verdict::Rejected(f) = &verdict {
+        let about = inner.state.lock().unwrap().approvals.get(approval).map(|a| {
+            let what = if a.kind == ApprovalKind::Plan { "the plan" } else { "the delivery" };
+            if a.tickets.is_empty() { what.to_string() } else { format!("{what} for {}", a.tickets.join(", ")) }
+        });
+        inner.record_request(crate::request::EntryKind::Rejection, f, about.as_deref());
+    }
     if let Some(tx) = inner.verdicts.lock().unwrap().remove(&approval) {
         let _ = tx.send(verdict);
         return;
@@ -846,6 +858,7 @@ impl crate::remote::Api for Served {
         self.inner.state.lock().unwrap().clone()
     }
     fn send(&self, text: String) {
+        self.inner.record_request(crate::request::EntryKind::Message, &text, None);
         let _ = self.to_main.send(text);
     }
     fn resolve(&self, id: usize, feedback: Option<String>) {
@@ -891,6 +904,7 @@ impl crate::remote::Api for Served {
     }
     fn pick_option(&self, id: &str, variant: Option<String>) {
         let variant = variant.filter(|v| !v.is_empty());
+        self.inner.record_pick(id, variant.as_deref());
         if let Err(e) = self.inner.update(|s| crate::options::pick(s, id, variant.as_deref())) {
             eprintln!("pick_option: {e}");
         }
@@ -904,6 +918,30 @@ impl crate::remote::Api for Served {
 }
 
 impl Inner {
+    /// Add the person's own words to the project's request log (request.rs).
+    /// A log that cannot be written is reported, never fatal.
+    fn record_request(&self, kind: crate::request::EntryKind, text: &str, about: Option<&str>) {
+        if let Err(e) = crate::request::append(&self.root, kind, text, about) {
+            eprintln!("request log: {e:#}");
+        }
+    }
+
+    /// A pick on a set of options is a decision the person made.
+    fn record_pick(&self, id: &str, variant: Option<&str>) {
+        let Some(v) = variant else { return };
+        let (title, label) = {
+            let s = self.state.lock().unwrap();
+            let set = s.options.iter().find(|o| o.id == id);
+            let label = set.and_then(|o| o.variants.iter().find(|x| x.id == v)).map(|x| x.label.clone());
+            (set.map(|o| o.title.clone()), label)
+        };
+        let text = match label {
+            Some(l) => format!("{v} ({l})"),
+            None => v.to_string(),
+        };
+        self.record_request(crate::request::EntryKind::Pick, &text, title.as_deref());
+    }
+
     fn update<R>(&self, f: impl FnOnce(&mut ProjectState) -> R) -> R {
         let r = f(&mut self.state.lock().unwrap());
         self.touch();
@@ -1942,7 +1980,7 @@ async fn finish_cli(
         })
         .unwrap_or_else(|| "backspace".into());
     let mut prompt = format!(
-        "{brief}{}\n\n# How to work\n\nYou are one worker in a team; this directory is your own git worktree for this ticket. Make the change, run the project's tests or checks if it has any, and fix what fails. Do not commit or push: Backspace commits your work and sends it for review. When you are done, reply with a short summary of what you changed; its first line is the one-line summary.\n\n# Talking to the team\n\nOther agents work on other tickets at the same time, some on other models or CLIs. Your key is `{me}`. From your shell:\n- `{exe} msg agents` lists them\n- `{exe} msg send <key|main|all> \"text\"` messages one (or everyone)\n- `{exe} msg read` shows messages for you\nCheck messages before you finish, and tell others about interfaces or shared files you change.",
+        "{brief}{}\n\n# How to work\n\nYou are one worker in a team; this directory is your own git worktree for this ticket. Make the change, run the project's tests or checks if it has any, and fix what fails. Do not commit or push: Backspace commits your work and sends it for review. When you are done, reply with a short summary of what you changed (its first line is the one-line summary), then end your reply with this record block, filled in, so the tickets that depend on yours know exactly what you did:\n\n```delivery\n{{\"checks_run\": [{{\"command\": \"cargo test\", \"result\": \"12 passed\", \"exit_status\": 0}}], \"assumptions\": [\"what you decided where the request or spec did not say\"], \"open_questions\": [\"what someone else should decide\"]}}\n```\n\nUse [] for a list with nothing in it.\n\n# Talking to the team\n\nOther agents work on other tickets at the same time, some on other models or CLIs. Your key is `{me}`. From your shell:\n- `{exe} msg agents` lists them\n- `{exe} msg send <key|main|all> \"text\"` messages one (or everyone)\n- `{exe} msg read` shows messages for you\nCheck messages before you finish, and tell others about interfaces or shared files you change.",
         cli_team_notes(inner)
     );
     // A reopened project: this worker already had a CLI session, so answer in
@@ -1968,12 +2006,15 @@ async fn finish_cli(
         if let Some(sid) = session.clone() {
             inner.agent(c.id, |a| a.ses = Some(sid));
         }
+        let (summary, record) = split_cli_delivery(&summary);
         let summary = if summary.trim().is_empty() {
             format!("{cli} finished without a summary")
         } else {
             summary
         };
-        match submit(inner, c, &json!({ "summary": summary })).await? {
+        let mut input = record.filter(|r| r.is_object()).unwrap_or_else(|| json!({}));
+        input["summary"] = json!(summary);
+        match submit_as(inner, c, &input, Source::Cli).await? {
             ToolOutcome::Delivered(d, note) => {
                 inner.log(c.id, LogKind::System, note);
                 return Ok(d);
@@ -3048,7 +3089,83 @@ fn file_report(inner: &Arc<Inner>, report: &intake::Report) -> Result<String> {
     Ok(rel)
 }
 
+/// Where a delivery came from: the `submit_deliverable` tool, or a coding
+/// CLI's final message (which may or may not end with a record block).
+#[derive(Clone, Copy, PartialEq)]
+enum Source {
+    Tool,
+    Cli,
+}
+
 async fn submit(inner: &Arc<Inner>, c: &Conversation, input: &Value) -> Result<ToolOutcome> {
+    submit_as(inner, c, input, Source::Tool).await
+}
+
+/// The structured part of a delivery: checks_run, assumptions and
+/// open_questions. None when the input has none of the three; an error when
+/// it has some but not all, or one is malformed. Each may be an empty list.
+pub(crate) fn delivery_record(input: &Value) -> Result<Option<(Vec<crate::project::CheckRun>, Vec<String>, Vec<String>)>> {
+    const KEYS: [&str; 3] = ["checks_run", "assumptions", "open_questions"];
+    if KEYS.iter().all(|k| input.get(*k).is_none_or(|v| v.is_null())) {
+        return Ok(None);
+    }
+    let missing: Vec<&str> = KEYS.iter().copied().filter(|k| !input[*k].is_array()).collect();
+    if !missing.is_empty() {
+        bail!("{} must be a list (use [] when there is nothing to say)", missing.join(", "));
+    }
+    let strings = |k: &str| -> Result<Vec<String>> {
+        input[k]
+            .as_array()
+            .expect("checked above")
+            .iter()
+            .map(|v| v.as_str().map(String::from).with_context(|| format!("every item of {k} must be a string")))
+            .collect()
+    };
+    let mut checks = Vec::new();
+    for v in input["checks_run"].as_array().expect("checked above") {
+        let command = v["command"].as_str().filter(|c| !c.trim().is_empty()).context("every item of checks_run needs a `command`")?;
+        let result = v["result"].as_str().context("every item of checks_run needs a `result`")?;
+        let exit_status = match &v["exit_status"] {
+            Value::Null => None,
+            x => Some(x.as_i64().context("`exit_status` must be a whole number")? as i32),
+        };
+        checks.push(crate::project::CheckRun { command: command.to_string(), result: result.to_string(), exit_status });
+    }
+    Ok(Some((checks, strings("assumptions")?, strings("open_questions")?)))
+}
+
+/// A coding CLI's final message, split into its prose and the record block it
+/// was asked to end with (a ```delivery fenced JSON object). The last such
+/// block wins; without one, the whole message is the summary.
+pub(crate) fn split_cli_delivery(message: &str) -> (String, Option<Value>) {
+    let Some(start) = message.rfind("```delivery") else { return (message.to_string(), None) };
+    let body_at = start + "```delivery".len();
+    let Some(len) = message[body_at..].find("```") else { return (message.to_string(), None) };
+    let Ok(v) = serde_json::from_str::<Value>(message[body_at..body_at + len].trim()) else {
+        return (message.to_string(), None);
+    };
+    let mut prose = message[..start].to_string();
+    prose.push_str(&message[body_at + len + 3..]);
+    (prose.trim().to_string(), Some(v))
+}
+
+async fn submit_as(inner: &Arc<Inner>, c: &Conversation, input: &Value, source: Source) -> Result<ToolOutcome> {
+    // A worker hands back a record, not only prose: what it ran, what it
+    // assumed and what it could not settle. Through the tool it is required;
+    // a CLI that did not give one is recorded as "not reported".
+    let record = match delivery_record(input) {
+        Ok(r) => r,
+        Err(e) if source == Source::Tool => {
+            return Ok(ToolOutcome::Failure(format!("Nothing was submitted: {e:#}."), "malformed delivery record".into()));
+        }
+        Err(_) => None,
+    };
+    if record.is_none() && source == Source::Tool && c.kind == AgentKind::Worker {
+        return Ok(ToolOutcome::Failure(
+            "Nothing was submitted: a delivery needs its record as well as the summary. Add `checks_run` (each {command, result, exit_status}), `assumptions` and `open_questions`, using [] where there is nothing to say, then call submit_deliverable again.".into(),
+            "delivery without a record".into(),
+        ));
+    }
     let mut deliverable = Deliverable {
         summary: input["summary"]
             .as_str()
@@ -3056,6 +3173,7 @@ async fn submit(inner: &Arc<Inner>, c: &Conversation, input: &Value) -> Result<T
             .to_string(),
         files: input["files"]
             .as_array()
+            .or_else(|| input["files_changed"].as_array())
             .map(|a| {
                 a.iter()
                     .filter_map(|f| f.as_str().map(String::from))
@@ -3065,7 +3183,14 @@ async fn submit(inner: &Arc<Inner>, c: &Conversation, input: &Value) -> Result<T
         diff_stat: None,
         changes: vec![],
         check_passed: None,
+        ..Default::default()
     };
+    if let Some((checks, assumptions, questions)) = record {
+        deliverable.checks_run = checks;
+        deliverable.assumptions = assumptions;
+        deliverable.open_questions = questions;
+        deliverable.reported = true;
+    }
     let (depth, parent) = {
         let s = inner.state.lock().unwrap();
         (s.agents[c.id].depth, s.agents[c.id].parent)
@@ -3358,6 +3483,7 @@ async fn approve_plan(inner: &Arc<Inner>, caller: AgentId, keys: Vec<String>) ->
             diff_stat: None,
             changes: vec![],
             check_passed: None,
+            ..Default::default()
         },
         tickets: keys.clone(),
         state: ApprovalState::Pending,
@@ -3612,58 +3738,102 @@ fn run_worker_with(
             }
         }
 
-        let (brief, context, depth, parent) = {
+        // The worker starts from files, not from summaries of summaries: the
+        // person's own words (request.rs), the agreed spec, the tickets above
+        // it and its blockers' delivery records, written into its directory.
+        let (brief, context, depth, parent, mut handoff) = {
             let s = inner.state.lock().unwrap();
             let me = &s.agents[id];
             let t = s.ticket(&key).context("ticket vanished")?;
-            let deps: Vec<String> = t
+            let deps: Vec<(String, String)> = t
                 .blocked_by
                 .iter()
                 .filter_map(|b| s.ticket(b))
                 .map(|bt| {
                     let del = bt.assignee.and_then(|a| s.agents[a].deliverable.clone());
-                    match (bt.state, del) {
-                        (TicketState::Done, Some(d)) => {
-                            format!(
-                                "## `{}` ({}), done and merged into your base\n{}",
-                                bt.key, bt.title, d.summary
-                            )
-                        }
+                    let md = match (bt.state, del) {
+                        (TicketState::Done, Some(d)) => format!(
+                            "# `{}`: {}\n\nStatus: done and merged into your base, from branch `{}`; its changes are already in your directory, and `git log -p` shows them.\n\n{}",
+                            bt.key,
+                            bt.title,
+                            git::branch_name(&bt.key),
+                            d.record()
+                        ),
                         _ => format!(
-                            "## `{}` ({}) FAILED; work around it or report the gap.",
+                            "# `{}`: {}\n\nFAILED: none of it is in your base. Work around it or report the gap.\n",
                             bt.key, bt.title
                         ),
-                    }
+                    };
+                    (bt.key.clone(), md)
                 })
                 .collect();
-            // Goal ancestry: every agent knows why its ticket exists.
-            let chain: Vec<String> = s
+            // This ticket first, then the tickets of the agents above it.
+            let tickets: Vec<(String, String)> = s
+                .ancestry(id)
+                .into_iter()
+                .filter_map(|a| s.agents[a].ticket.clone())
+                .filter_map(|k| s.ticket(&k).map(|t| (k, t.markdown())))
+                .collect();
+            let spec = std::fs::read_to_string(inner.root.join(crate::spec::FILE)).ok().or_else(|| {
+                (s.intake.spec_key.as_deref() == Some(key.as_str()))
+                    .then(|| std::fs::read_to_string(inner.root.join(crate::request::handoff_dir(&key)).join("spec.md")).ok())
+                    .flatten()
+            });
+            let handoff = crate::request::Handoff {
+                key: key.clone(),
+                request: crate::request::load(&inner.root),
+                spec,
+                tickets,
+                deps,
+            };
+            let rel = crate::request::handoff_dir(&key);
+            let later = handoff.request.len().saturating_sub(1);
+            let mut ctx = format!(
+                "\n# Your handoff: read these before you start\n\nIn your directory, under `{rel}/`:\n- `request.md`: the person's own words, verbatim: the original request and {later} later message(s) or decision(s). It says what they want.\n"
+            );
+            if handoff.spec.is_some() {
+                ctx.push_str("- `spec.md`: the agreed contract for this work. It says what was agreed to build.\n");
+            }
+            ctx.push_str(&format!("- `ticket-{key}.md`: your ticket"));
+            if handoff.tickets.len() > 1 {
+                ctx.push_str(", and `ticket-<key>.md` for each ticket above yours");
+            }
+            ctx.push('\n');
+            if !handoff.deps.is_empty() {
+                ctx.push_str("- `deps/<key>.md`: the delivery record of each ticket that blocked yours (below as well)\n");
+            }
+            ctx.push_str("\nThe request and the spec are not the same thing: one is what the person wants, the other what was agreed. Where they disagree, ask `main` instead of choosing.\n");
+            match crate::request::original(&handoff.request) {
+                Some(o) => {
+                    let fence = "`".repeat(crate::request::longest_backtick_run(&o.text).max(2) + 1);
+                    ctx.push_str(&format!("\n# The original request, verbatim\n\n{fence}text\n{}\n{fence}\n", o.text));
+                }
+                None => ctx.push_str("\n# The original request\n\nNone recorded: work from your ticket.\n"),
+            }
+            // The tickets above this one, whole: why it exists, without
+            // anyone's summary of it.
+            let above: Vec<String> = s
                 .ancestry(id)
                 .into_iter()
                 .skip(1)
                 .rev()
-                .map(|a| {
-                    format!(
-                        "- {}: {}",
-                        s.agents[a].title,
-                        truncate(&s.agents[a].brief, 600)
-                    )
-                })
+                .filter_map(|a| s.agents[a].ticket.clone())
+                .filter_map(|k| s.ticket(&k))
+                .map(|t| format!("- `{}` ({}): {}", t.key, t.title, t.what_to_build))
                 .collect();
-            let mut ctx = format!(
-                "# Why this ticket exists (project goal first)\n\n{}",
-                chain.join("\n")
-            );
-            if !deps.is_empty() {
-                ctx.push_str("\n\n# Tickets that blocked this one\n\n");
-                ctx.push_str(&deps.join("\n\n"));
+            if !above.is_empty() {
+                ctx.push_str(&format!("\n# The tickets above yours, top first\n\n{}\n", above.join("\n")));
+            }
+            if !handoff.deps.is_empty() {
+                ctx.push_str("\n# Tickets that blocked this one\n\n");
+                ctx.push_str(&handoff.deps.iter().map(|(_, md)| md.replacen("# ", "## ", 1)).collect::<Vec<_>>().join("\n"));
             }
             if let Some(b) = me.budget_usd {
                 ctx.push_str(&format!(
                     "\n\nYour budget, including anything you delegate: ${b:.2}."
                 ));
             }
-            (t.brief(), ctx, me.depth, me.parent.unwrap_or(MAIN))
+            (t.brief(), ctx, me.depth, me.parent.unwrap_or(MAIN), handoff)
         };
 
         inner.set_status(id, AgentStatus::Running);
@@ -3704,6 +3874,10 @@ fn run_worker_with(
             inner.root.clone()
         };
 
+        // Fresh at every start, so a resumed worker sees what the person
+        // said since.
+        handoff.request = crate::request::load(&inner.root);
+        handoff.write(&dir).with_context(|| format!("could not write `{key}`'s handoff files"))?;
         let first = format!("{brief}\n{context}");
         inner.ledger.lock().unwrap().task_started(&key);
         inner.log(id, LogKind::User, first.clone());
@@ -4133,6 +4307,7 @@ fn triage(inner: &Arc<Inner>, c: &Conversation, input: &Value) -> Result<ToolOut
         diff_stat: None,
         changes: vec![],
         check_passed: None,
+        ..Default::default()
     };
     Ok(ToolOutcome::Delivered(d, "Triage recorded.".into()))
 }
@@ -4223,10 +4398,17 @@ fn triage_tool() -> ToolDef {
 fn deliver_tool() -> ToolDef {
     ToolDef {
         name: "submit_deliverable",
-        description: "Submit your finished work. Your ticket's check runs first; then it goes to review (the user, or your manager deep in the tree). Blocks until accepted or returned with feedback.",
+        description: "Submit your finished work. Your ticket's check runs first; then it goes to review (the user, or your manager deep in the tree). Blocks until accepted or returned with feedback. A ticket worker must give checks_run, assumptions and open_questions (each may be []): tickets that depend on yours get this record and your diff, not your prose alone.",
         schema: json!({"type": "object", "properties": {
             "summary": {"type": "string", "description": "what was built, how it connects to the rest, how you verified it, what is left"},
-            "files": {"type": "array", "items": {"type": "string"}}
+            "files": {"type": "array", "items": {"type": "string"}},
+            "checks_run": {"type": "array", "description": "every command you ran to verify the work, as it happened", "items": {"type": "object", "properties": {
+                "command": {"type": "string"},
+                "result": {"type": "string", "description": "what it showed, e.g. \"12 passed\" or \"2 failed: test_x, test_y\""},
+                "exit_status": {"type": ["integer", "null"]}
+            }, "required": ["command", "result", "exit_status"]}},
+            "assumptions": {"type": "array", "items": {"type": "string"}, "description": "what you decided where the request, spec or ticket did not say"},
+            "open_questions": {"type": "array", "items": {"type": "string"}, "description": "what you could not settle and someone should decide"}
         }, "required": ["summary"]}),
     }
 }
@@ -4314,5 +4496,41 @@ async fn bridge_handle(
     match res {
         Ok(v) => respond(&mut stream, 200, &v).await,
         Err(e) => respond(&mut stream, 400, &json!({"error": e.to_string()})).await,
+    }
+}
+
+#[cfg(test)]
+mod delivery_record_tests {
+    use super::*;
+
+    #[test]
+    fn a_cli_reply_splits_into_prose_and_its_record() {
+        let msg = "Added the parser.\nTests pass.\n\n```delivery\n{\"checks_run\": [{\"command\": \"cargo test\", \"result\": \"3 passed\", \"exit_status\": 0}], \"assumptions\": [\"UTF-8 only\"], \"open_questions\": []}\n```\n";
+        let (prose, rec) = split_cli_delivery(msg);
+        assert_eq!(prose, "Added the parser.\nTests pass.");
+        let (checks, assumptions, questions) = delivery_record(&rec.unwrap()).unwrap().unwrap();
+        assert_eq!(checks[0].command, "cargo test");
+        assert_eq!(checks[0].exit_status, Some(0));
+        assert_eq!(assumptions, vec!["UTF-8 only".to_string()]);
+        assert!(questions.is_empty());
+    }
+
+    #[test]
+    fn a_cli_reply_without_a_record_is_all_prose() {
+        let (prose, rec) = split_cli_delivery("Done.\n```delivery\nnot json\n```");
+        assert_eq!(prose, "Done.\n```delivery\nnot json\n```");
+        assert!(rec.is_none());
+        assert_eq!(split_cli_delivery("Done.").1, None);
+    }
+
+    #[test]
+    fn a_partial_or_malformed_record_is_refused() {
+        assert!(delivery_record(&json!({"summary": "x"})).unwrap().is_none());
+        let e = delivery_record(&json!({"assumptions": []})).unwrap_err().to_string();
+        assert!(e.contains("checks_run") && e.contains("open_questions"), "{e}");
+        assert!(delivery_record(&json!({"checks_run": [{"result": "ok"}], "assumptions": [], "open_questions": []})).is_err());
+        assert!(delivery_record(&json!({"checks_run": [], "assumptions": [3], "open_questions": []})).is_err());
+        let ok = delivery_record(&json!({"checks_run": [{"command": "make", "result": "ok", "exit_status": null}], "assumptions": [], "open_questions": []})).unwrap().unwrap();
+        assert_eq!(ok.0[0].exit_status, None);
     }
 }
