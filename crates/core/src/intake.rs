@@ -185,6 +185,18 @@ pub fn refusal(path: TaskType, tool: &str) -> String {
     }
 }
 
+/// Why a restricted path does not run when the planner lives in a coding CLI.
+/// The CLI has its own file and shell tools, which code cannot gate until M6's
+/// sandbox, so neither path can be held to its rules there. This is said to the
+/// user as an error; the task is not turned into anything else.
+pub fn cli_refusal(path: TaskType) -> String {
+    match path {
+        TaskType::Research => "research can't run in a coding CLI until M6's sandbox. The CLI has its own file and shell tools, and nothing here stops it changing files, running git or opening a PR, so a report-only task can't be kept report-only. Nothing was run and nothing was spent. Switch the planner to an API model to use the native research route, or ask for it as a long task.".to_string(),
+        TaskType::OneShot => "a one-shot can't run in a coding CLI until M6's sandbox. The CLI has its own file and shell tools, which Backspace can't restrict, so it could edit files, run git or push instead of handing the ticket to a worker; the one-ticket rule covers only Backspace's own planning tools. Nothing was run and nothing was spent, and the task was not turned into a long one. Switch the planner to an API model to use the native one-shot route, or ask for it as a long task.".to_string(),
+        TaskType::Long => "the long path runs in a coding CLI".to_string(),
+    }
+}
+
 /// Directory listing for the research and one-shot paths: `read` alone cannot
 /// find a file, and the shell (`bash`) is not read-only until M6's sandbox.
 pub fn list_tool() -> ToolDef {

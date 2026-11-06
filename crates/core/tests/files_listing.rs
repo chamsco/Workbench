@@ -8,8 +8,9 @@
 //!   followed: its target's names are not enumerated;
 //! * a dangling link is listed and not followed;
 //! * an internal link keeps working as before (a link to a folder inside the
-//!   workspace is listed as a folder and its contents shown), but a loop or a
-//!   second route to a folder already shown is not walked again;
+//!   workspace is listed as a folder and its contents shown, a second route to
+//!   a folder included), except that a link back into the folder it sits in or
+//!   above is not walked, so a loop cannot fill the listing;
 //! * ordinary folders list as they did.
 //!
 //! Unix only: links are made with `std::os::unix`. Windows junctions are NOT
@@ -123,14 +124,27 @@ fn a_symlink_below_the_top_cannot_reveal_an_external_folder() {
 }
 
 #[test]
-fn a_loop_or_a_second_route_to_a_shown_folder_is_not_walked_again() {
+fn a_loop_back_into_an_ancestor_is_not_walked() {
     let f = fixture("loop");
     symlink(&f.root, f.root.join("src/up")).unwrap(); // a loop to the root
-    symlink(f.root.join("src"), f.root.join("again")).unwrap(); // a second route to src
+    symlink(f.root.join("src/deep"), f.root.join("src/deep/self")).unwrap(); // a loop to its own folder
     let es = scan(&f.root);
-    assert!(es.len() < 100, "the walk is bounded: {} entries", es.len());
-    assert_eq!(es.iter().filter(|e| e.name == "leaf.txt").count(), 1, "src's contents are listed once: {:?}", names(&es));
-    assert!(entry(&es, "up").link && entry(&es, "again").link);
+    assert!(es.len() < 20, "the walk is bounded: {} entries: {:?}", es.len(), names(&es));
+    for n in ["up", "self"] {
+        let e = entry(&es, n);
+        assert!(e.link, "{n} is shown as a link");
+        assert!(!es.iter().any(|x| x.path.starts_with(&format!("{}/", e.path))), "nothing is listed under {n}");
+    }
+    assert_eq!(es.iter().filter(|e| e.name == "leaf.txt").count(), 1, "{:?}", names(&es));
+}
+
+#[test]
+fn a_second_route_to_a_folder_inside_the_workspace_is_still_listed_as_before() {
+    let f = fixture("twice");
+    symlink(f.root.join("src"), f.root.join("again")).unwrap();
+    let es = scan(&f.root);
+    assert_eq!(es.iter().filter(|e| e.name == "leaf.txt").count(), 2, "src's contents under src and under the link: {:?}", names(&es));
+    assert_nothing_outside(&es, &f);
 }
 
 #[test]
