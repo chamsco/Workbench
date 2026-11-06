@@ -708,3 +708,54 @@ fn research_cannot_read_through_a_symlink_that_leaves_the_project() {
     let log: String = s.agents[0].log.iter().map(|l| l.text.as_str()).collect::<Vec<_>>().join("\n");
     assert!(!log.contains("TOP-SECRET-VALUE"));
 }
+
+#[test]
+fn a_one_shot_files_one_ticket_and_a_second_is_refused_while_the_first_still_runs() {
+    // The same task a coding-CLI planner now refuses, on the native/API route.
+    let m = mock(|req| {
+        let (sys, n) = (system(req), results(req).len());
+        if sys.starts_with("You are the one-shot agent") {
+            return match n {
+                0 => call("create_tickets", json!({"tickets": [ticket(json!({}))]})),
+                1 => call("create_tickets", json!({"tickets": [ticket(json!({"key": "second"}))]})),
+                2 => call("work_tickets", json!({})),
+                3 => call("submit_deliverable", json!({"summary": "typo fixed", "files": ["README.md"]})),
+                _ => say("done"),
+            };
+        }
+        if sys.starts_with("You are a Backspace ticket agent") {
+            return match results(req).last() {
+                None => call("write", json!({"path": "README.md", "content": "Say the word.\n"})),
+                Some(t) if t.starts_with("wrote") => call("submit_deliverable", json!({"summary": "fixed the typo", "files": ["README.md"]})),
+                Some(_) => say("worker done"),
+            };
+        }
+        say("lead")
+    });
+    let (h, ws) = open("second", m.port, ON, &[("README.md", "Say teh word.\n")]);
+    h.send("fix a typo in the readme, quick small change");
+    let deadline = Instant::now() + Duration::from_secs(40);
+    let mut answered = vec![];
+    let s = loop {
+        let s = h.snapshot();
+        assert!(Instant::now() < deadline, "timed out: {:#?}", s.agents.iter().map(|a| (&a.key, a.status, &a.log)).collect::<Vec<_>>());
+        if s.agents[0].status == AgentStatus::Approved {
+            break s;
+        }
+        for a in s.pending_approvals() {
+            assert_ne!(a.kind, ApprovalKind::Plan, "a one-shot has no plan gate");
+            if !answered.contains(&a.id) {
+                answered.push(a.id);
+                h.approve(a.id);
+            }
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    assert_eq!(s.tickets.len(), 1, "{:?}", s.tickets);
+    assert_eq!(s.tickets[0].state, TicketState::Done);
+    let seen = m.seen.lock().unwrap();
+    let last = seen.iter().filter(|r| system(r).starts_with("You are the one-shot agent")).last().unwrap();
+    assert!(results(last)[1].contains("already has its ticket"), "{}", results(last)[1]);
+    assert_eq!(std::fs::read_to_string(ws.join(".backspace/worktrees/_run/README.md")).unwrap(), "Say the word.\n");
+    assert_eq!((s.intake.path, s.intake.spec_key.clone()), (None, None), "released once delivered");
+}

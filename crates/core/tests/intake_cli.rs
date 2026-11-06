@@ -297,3 +297,103 @@ fn a_cli_one_shot_whose_ticket_fails_also_releases_its_path() {
     assert!(s.agents[0].deliverable.is_none());
     assert_eq!(s.intake.spec_key, None);
 }
+
+// ---- a one-shot is refused in a coding CLI too (until M6's sandbox)
+//
+// The bridge can hold a CLI to one ticket, but not the CLI's own file and shell
+// tools: it could edit the project, run git or push instead of handing the
+// ticket to a worker. So, like research, a one-shot does not run in a CLI.
+
+const ONE_SHOT_TASK: &str = "fix a typo in the readme, quick small change";
+
+/// The refusal, everything it must leave clean, and that the project is not stuck.
+fn assert_refused(h: &Harness, ws: &Path, run: &Path, what: &str, mentions: &[&str]) {
+    let s = wait(h, "the refusal", |s| {
+        s.agents[0].log.iter().any(|l| l.kind == LogKind::Error && l.text.to_lowercase().contains(what))
+    });
+    std::thread::sleep(Duration::from_millis(300));
+    let refusal = s.agents[0].log.iter().rev().find(|l| l.kind == LogKind::Error).unwrap().text.to_lowercase();
+    for m in mentions {
+        assert!(refusal.contains(m), "the refusal should mention `{m}`: {refusal}");
+    }
+    assert_eq!(launches(run), 0, "the CLI never ran");
+    assert!(s.tickets.is_empty() && s.approvals.is_empty() && s.agents.len() == 1, "no task was created");
+    assert!(!ws.join(".backspace/handoff").exists() && !ws.join(".backspace/reports").exists(), "no spec or report was written");
+    assert_eq!((s.intake.path, s.intake.pending.clone(), s.intake.spec_key.clone()), (None, None, None), "nothing half-started, and not turned into a long task");
+    assert_eq!(s.agents[0].status, AgentStatus::Idle);
+    assert_eq!(h.metrics().calls, 0, "no model call, no spend");
+    // The next message is a fresh task, not stuck behind the refusal.
+    h.send("hmm");
+    wait(h, "the next task to be asked about", |s| asked(s) >= 1 && s.intake.pending.is_some());
+    assert_eq!(launches(run), 0);
+}
+
+const ONE_SHOT_REFUSAL: &[&str] = &["one-shot", "coding cli", "m6", "api"];
+
+#[test]
+fn a_cli_one_shot_the_classifier_chooses_is_refused_before_the_cli_runs() {
+    let (h, ws, run) = open("oneshot-classified");
+    h.send(ONE_SHOT_TASK);
+    assert_refused(&h, &ws, &run, "one-shot", ONE_SHOT_REFUSAL);
+}
+
+#[test]
+fn a_cli_task_the_user_answers_as_one_shot_is_refused_too() {
+    let (h, ws, run) = open("oneshot-answered");
+    h.send("hmm");
+    wait(&h, "the question", |s| asked(s) == 1 && s.agents[0].status == AgentStatus::Idle);
+    h.send("one-shot");
+    assert_refused(&h, &ws, &run, "one-shot", ONE_SHOT_REFUSAL);
+}
+
+/// A task path saved by an earlier session (an API planner, say) and opened
+/// again with a coding-CLI planner: refused on the next message, before the CLI.
+fn saved_path_is_refused(tag: &str, saved: serde_json::Value, what: &str, mentions: &[&str]) {
+    let (h, ws, run) = open(tag);
+    h.send("hmm");
+    wait(&h, "the question", |s| asked(s) == 1 && s.agents[0].status == AgentStatus::Idle);
+    drop(h);
+    let file = ws.join(".backspace/state.json");
+    let mut state: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+    state["intake"] = saved;
+    std::fs::write(&file, state.to_string()).unwrap();
+
+    let h = Harness::open_with(ws.clone(), Overrides { planner: Some("claude-code".into()), ..Default::default() }).unwrap();
+    assert!(h.snapshot().intake.path.is_some(), "the saved path was restored");
+    assert_eq!(launches(&run), 0, "opening launches nothing");
+    h.send("carry on with it");
+    assert_refused(&h, &ws, &run, what, mentions);
+}
+
+#[test]
+fn a_saved_one_shot_is_refused_after_a_restart_with_a_cli_planner() {
+    saved_path_is_refused(
+        "saved-oneshot",
+        serde_json::json!({"path": "one_shot", "pending": null, "spec_key": "fix-readme"}),
+        "one-shot",
+        ONE_SHOT_REFUSAL,
+    );
+}
+
+#[test]
+fn a_saved_research_task_is_refused_after_a_restart_with_a_cli_planner() {
+    saved_path_is_refused(
+        "saved-research",
+        serde_json::json!({"path": "research", "pending": null, "spec_key": null}),
+        "research",
+        &["research", "coding cli", "api model"],
+    );
+}
+
+#[test]
+fn a_cli_long_task_still_launches_the_planner_as_before() {
+    let (h, _ws, run) = open("long-cli");
+    h.send("build a dashboard system platform across several services");
+    let s = wait(&h, "the CLI to run", |_| launches(&run) == 1);
+    wait(&h, "the turn to end", |s| s.agents[0].status == AgentStatus::Idle);
+    let args = std::fs::read_to_string(run.join(".args-1")).unwrap();
+    assert!(!args.contains("one-shot agent") && !args.contains("research agent"), "the long path's brief, not a restricted one: {args}");
+    assert_eq!(h.snapshot().intake.path, Some(backspace_core::decision::TaskType::Long));
+    assert_eq!(asked(&h.snapshot()), 0);
+    assert!(!s.agents[0].log.iter().any(|l| l.kind == LogKind::Error), "{:?}", s.agents[0].log);
+}

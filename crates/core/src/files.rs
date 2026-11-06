@@ -12,6 +12,9 @@ pub struct FileEntry {
     pub name: String,
     pub path: String,
     pub dir: bool,
+    /// The entry is a symlink (shown as one; see `scan` for when it is followed).
+    #[serde(default)]
+    pub link: bool,
 }
 
 /// Depth-first walk, skipping build output and VCS internals.
@@ -45,6 +48,7 @@ fn walk(dir: &Path, depth: usize, out: &mut Vec<FileEntry>) {
             name,
             path: path.to_string_lossy().into_owned(),
             dir,
+            link: false,
         });
         if dir {
             walk(&path, depth + 1, out);
