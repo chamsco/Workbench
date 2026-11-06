@@ -1,5 +1,7 @@
 # M3 final closure report: CLI one-shot, symlink UI, intake boundaries
 
+> **Item 6 (open, not fixed) is superseded by `M3-FOLLOWUP3-REPORT.md`:** the question now reflects the CLI planner, and the API one-shot failure path is tested (it exposed and fixed a Stop trap). The rest stands.
+
 Branch `claude/project-thread-dpmr8e`. Red `40ecfec0e2a264254437a3a76c51c705e994b9fa`, green `ad9124b6169229b4384cb9348bb1e375975db6a6`. Outputs: `M3-closure-red-output.txt`, `M3-closure-suite-output.txt` (run 3 of 3). Details: `M3-NOTES.md`. **M3 is not approved; that is your call.**
 
 1. Suite: **565 passed, 0 failed, 0 warnings, three consecutive runs** (553 before: +9 listing, +1 API one-shot, +2 net in `intake_cli` after removing 3 and adding 5). Red first: 7 listing and 3 CLI tests failed on missing behaviour.

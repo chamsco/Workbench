@@ -5,8 +5,9 @@
 - **Intake is off by default** (`[intake] enabled = false`). The classifier is the M2 keyword baseline: uncalibrated, and the §10 eval has not run. Turning it on means a wrong guess skips the interview (one-shot) or returns a report instead of building (research). It also keeps every existing e2e test as it was: their task texts ("flat build", "cli-project: say hello") score below the 0.7 threshold, so with intake on they would be asked about, not run. Recommendation: flip the default after the eval, not before.
 - **One-shot cap of 5 acceptance lines** (`ONE_SHOT_MAX_ACCEPTANCE`) is what "lightweight" means in code. It is provisional, like the 0.7 threshold.
 - **Research has no shell and no web.** `bash` can run `git push`, so it is not available on the research path, and the harness has no web tool at all. Research can `read` and `list` files in the project and answer from the model's own knowledge. A useful research path needs a read-only shell, which is M6's sandbox. I added `list` (read-only directory listing) because `read` alone cannot find a file.
-- **Research and one-shot are both disabled when the planner runs in a coding CLI** (research on your 2026-11-05 follow-up, one-shot on the final-closure pass). Only the long path runs in a CLI until M6. See "Planner in a coding CLI". **A consequence for you to weigh:** with intake on and a CLI planner, the two small-task paths are refused, so such a project should use an API planner for intake, or leave intake off. The intake question still lists all three kinds; it is not tailored to the planner.
+- **Research and one-shot are both disabled when the planner runs in a coding CLI** (research on your 2026-11-05 follow-up, one-shot on the final-closure pass). Only the long path runs in a CLI until M6. See "Planner in a coding CLI". **A consequence for you to weigh:** with intake on and a CLI planner, the two small-task paths are refused, so such a project should use an API planner for intake, or leave intake off. The question now says so: under a CLI planner it offers only `long` and names the other two as unavailable, with why (follow-up 3).
 - **File tools no longer follow a symlink out of the workspace** (same follow-up). See "File boundary".
+- **Follow-up 3 changed three behaviours you should know about** (details below): Stop now closes an open research or one-shot task even when the main agent is idle (before, it did nothing, so a one-shot whose worker failed kept its path for good); `start_task` is refused while a research or one-shot task is open (research refused it with a model-facing message, a one-shot silently took the ticket as its own); and a one-shot's dropped ticket (gone or wontfix) no longer holds its one-ticket slot.
 
 ## How it works
 
@@ -16,7 +17,25 @@
 - `intake::allows` gates every tool call (`run_tool`) and the list a model is offered (`tools_for_path`), so they cannot disagree. Research: `read`, `list`, `submit_report`. One-shot: `read`, `list`, `create_tickets` (one ticket), `work_tickets`, `submit_deliverable`. Anything not named is refused, including tools added later.
 - Research ends in `submit_report`: a file under `.backspace/reports/` (self-ignored by git, never overwritten), recorded as a `document` artifact. No approval is asked, since a report changes nothing. Test: no ticket, approval, worker or new branch, and a model that tries `create_tickets`, `write` and `bash` is refused each time.
 - One-shot: `create_tickets` is validated as a lightweight spec (exactly one ticket, 1 to 5 acceptance lines, no `blocked_by`, no `covers`). The ticket is created ready, with no plan gate and no SPEC.md coverage gate, because the spec stands in for the plan. The spec is also written to `.backspace/handoff/<key>/spec.md`. The worker still gets its brief from the ticket; the file is the record, not what the worker reads. Merge stays your call: deliverables are approved as before.
-- A research or one-shot task ends when it is delivered, when you press Stop, or (a one-shot in a coding CLI) when its ticket settles. Its path and saved conversation are cleared first, and only then does the main agent read Approved or Idle, so anything that sees a task finished also sees its path released. The next message is classified afresh. A long task keeps its conversation, as before.
+- A research or one-shot task ends when it is delivered or when you press Stop. Its path and saved conversation are cleared first, and only then does the main agent read Approved or Idle, so anything that sees a task finished also sees its path released. The next message is classified afresh. A long task keeps its conversation, as before. A failure does not end a one-shot (next section).
+
+## One-shot failure lifecycle (API planner; follow-up 3)
+
+A one-shot's one ticket is the task's. When its worker fails (gives up, or you stop it), the ticket is `failed`, the agent is told, and the task stays open: the agent can dispatch the same ticket again in the same turn, or you can say "retry" and it does so next turn (no new question, same agent). `work_tickets` with no keys now includes the one-shot's failed ticket, which is what the refusal text ("already has its ticket: call work_tickets") tells the agent to do; before, it answered "no tickets ready" and sent the agent back to the refusal. A corrected spec is not accepted while the failed ticket exists (retry or Stop). A rejected deliverable goes back to the same worker, as on any ticket.
+
+Ending it: delivery, or **Stop**. Stop used to act only on a running agent, so with the main agent idle after a failure it did nothing and the task kept its path (and its saved state) across restarts, answering every message with the one-shot agent. It now closes an open research or one-shot task whether or not a turn is running (a system line says so), and the next message is classified afresh. A conversation from another path is dropped at the next turn, so a stale one-shot conversation cannot carry into a new long task.
+
+A ticket that was **dropped** (no longer in the project, or `wontfix`) frees the slot: the agent can file its spec again, still one live ticket. (Neither can happen in a normal one-shot, which has no plan gate and no triage; it is reachable from a hand-edited or damaged state file, and the old behaviour was a dead end: `create_tickets` refused, `work_tickets` found nothing.)
+
+## start_task (follow-up 3)
+
+`start_task` (the shell's "start another task", `POST /v1/task`) is a person's request. Pinned by tests:
+
+- **Needs the token.** Without the bearer token, or with a wrong one, a wrong scheme or an empty one, the endpoint answers 401 and nothing is created and no model is called.
+- **Skips the plan gate and the intake question, not the review.** You asked for it, so there is no plan approval and the task is not classified or asked about (a question already waiting stays as it is). Its delivery still waits for your approval, and nothing reaches the run branch before it.
+- **Refused while a research or one-shot task is open**, in plain words to you ("a research task is open ... press Stop to end it"). Research makes no tickets or branches; a one-shot has exactly one ticket, its own. Nothing is created and the open task is undisturbed. Allowed with no task open, a long task, or a question waiting.
+- **No agent can call it.** It is not in any agent's tool list (checked on the lead agent and a worker; `intake::allows` has no entry for it).
+- Empty text is refused.
 
 ## Planner in a coding CLI
 
@@ -26,6 +45,7 @@ Intake (classify, ask) runs before the CLI is launched, as on the API path. Only
 - It applies whether the classifier chose the path, you answered it to the question, or an earlier session saved it (an API session's one-shot, reopened with a CLI planner, is refused on the next message). Each refusal clears the path, the waiting question and the one-shot ticket key, launches nothing, makes no model call and creates no ticket, spec or report. The next message is a fresh task.
 - The earlier CLI one-shot code (the path ending when its ticket settled, the CLI-specific brief) and its three tests are removed. The long path in a CLI is unchanged: `plan_on_cli` and `planner_system` are back to their pre-M3 shape.
 - The native/API one-shot is unchanged and tested on the same task text, including that a second ticket is refused.
+- **The question matches** (follow-up 3): with a CLI planner it offers only `long`, says one-shot and research are not available and why (the CLI's own tools, M6's sandbox), and says to switch the planner to an API model to use them; an unclear reply is asked again the same way. An answer that names one anyway is still refused, as above. With an API planner the numbered three-way menu is unchanged.
 
 ## File boundary
 
@@ -33,7 +53,9 @@ Intake (classify, ask) runs before the CLI is launched, as on the API path. Only
 
 Bounds: the check is made when the tool is called (a link planted between the check and the open is not caught); `bash` is not sandboxed until M6 and can still leave the workspace; the tests are Unix-only. **Windows junctions are not tested** (no Windows runner here); whether `std` reports a junction as a symlink there is unverified, so their behaviour is unknown.
 
-**UI directory listing (`files::scan`)** used the same lexical idea: it followed any folder symlink, so the file panel showed names under an external target. It now uses the same boundary as the tools, by real paths: a symlink is listed as one (`FileEntry.link`), an external or dangling one is listed and never entered (so none of the names or contents under it appear), and a link to a folder inside the workspace behaves as before (listed as a folder, contents shown, a second route to the same folder included). A link back into the folder it sits in, or above it, is not walked, so a loop cannot fill the listing. Links reached below an internal link are judged the same way. `read_within` and `read_image_within` already canonicalized and are unchanged. `FileEntry` gained a `link` field (additive, defaults to false); the Tauri and GPUI shells only consume the list, are not built or tested here, and do not draw links differently yet.
+**UI directory listing (`files::scan`)** used the same lexical idea: it followed any folder symlink, so the file panel showed names under an external target. It now uses the same boundary as the tools, by real paths: a symlink is listed as one (`FileEntry.link`), an external or dangling one is listed and never entered (so none of the names or contents under it appear), and a link to a folder inside the workspace behaves as before (listed as a folder, contents shown, a second route to the same folder included). A link back into the folder it sits in, or above it, is not walked, so a loop cannot fill the listing. Links reached below an internal link are judged the same way. `read_within` and `read_image_within` already canonicalized and are unchanged. `FileEntry` gained a `link` field (additive, defaults to false); the GPUI shell (`crates/app`) only consumes the list, is not built here, and still draws links like any row.
+
+**UI** (follow-up 3): the Tauri shell draws a link distinctly in both places it lists files, the right panel's Files tab and the Worktree files canvas: an italic name, a small arrow marker at the end of the row, a "Symbolic link" tooltip and an accessible name that says so. Ordinary rows are unchanged. The UI cannot tell an external file link from an internal one (both are `link` and not `dir`); an external one is not readable, and opening it shows the core's "outside the project" error in the preview. Tested with `tools/uiharness/evals/file-links.js` (fails without the change, passes with it); before/after screenshots are in `docs/cauldron/screenshots/m3-links/`.
 
 ## Test changes you should know about
 
@@ -45,14 +67,16 @@ Bounds: the check is made when the tool is called (a link planted between the ch
 - **Follow-up, fixture:** the shared fake `claude` now tells planner from worker by directory and keeps its notes out of worker worktrees; written in the first version, they were committed by the worker and collided on merge.
 - In `tests/intake.rs`, after the red commit: `intake_is_off_by_default_and_must_be_allowed_to_ask` appended a second `[intake]` table to `default-config.toml`, which now has one, so it failed on a duplicate table instead of on the check. I rebuilt its fixture from the test config and kept every assertion, plus one (a project file with no `[intake]` is off). Error text is read with `{:#}`.
 - `stopping_a_restricted_task_releases_its_path` was written after the implementation. I showed it fails (40s timeout) with the stop-branch cleanup removed, and passes with it restored.
+- **Follow-up 3:** no test was weakened, changed or deleted. 21 Rust tests were added (intake.rs 18, intake_cli.rs 3) and one UI eval. 12 of them failed first on missing behaviour; 9 pass in the red state on purpose, as guards for behaviour that must not move (I broke two of them on purpose to see them fail: the token check and "a failure does not end the task"). Two mistakes in my own tests, fixed before the red run was recorded: a worker-detection rule in the mock that counted messages instead of looking for the first model-free request, and a retry that sent `work_tickets` with no keys (the real gap above).
 - Three tests pass in the red state on purpose (long is unrestricted, intake off changes nothing, the API second-ticket test): they guard behaviour that must not move.
 
 ## Known gaps
 
 - Everything ran against mock models and a fake `claude`. The research and one-shot prompts (`prompts/research.md`, `prompts/oneshot.md`) have not met a real model.
 - No claim about classification quality: the §10 eval is still owed (needs your task texts and your OK on the frontier definition).
-- `start_task` (a task you start in parallel from the shell) bypasses intake; it already names a ticket.
+- `start_task` bypasses intake by design and is now tested (see "start_task"); its worker goes through the same dispatch, review and merge as any ticket.
 - The symlink check is per call and Unix-tested only; Windows junctions are untested (see "File boundary").
-- Untested: an API one-shot whose ticket fails. Stop releases the path; whether a failed ticket can be re-dispatched from the one-shot path without Stop is not checked.
-- The intake question lists one-shot and research even when the planner is a CLI and they will be refused.
+- A failed one-shot can be retried or stopped, not re-specified: a corrected spec needs Stop and a new task. Changing that means deciding how a replacement ticket relates to the failed one (two tickets, one live); I did not.
+- After a failed one-shot, an unrelated new task typed before Stop goes to the one-shot agent (the task is still open by design). Nothing in the UI says so beyond the agent's own reply.
+- The GPUI shell does not draw links distinctly; the UI cannot tell internal file links from external ones.
 - A decider that fails is treated as "unsure" and asked about; it does not guess.
