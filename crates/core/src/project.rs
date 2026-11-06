@@ -81,6 +81,85 @@ pub struct Deliverable {
     /// The ticket check that passed before this reached review.
     #[serde(default)]
     pub check_passed: Option<String>,
+    /// What the worker reports it ran to verify the work. Its own claim: the
+    /// ticket check above is the one Backspace ran itself.
+    #[serde(default)]
+    pub checks_run: Vec<CheckRun>,
+    /// What the worker assumed where the request or spec did not say.
+    #[serde(default)]
+    pub assumptions: Vec<String>,
+    /// What the worker could not settle and someone should decide.
+    #[serde(default)]
+    pub open_questions: Vec<String>,
+    /// False when the worker gave no structured record (a coding CLI that
+    /// did not end with one): the lists above are then unknown, not empty.
+    #[serde(default)]
+    pub reported: bool,
+}
+
+/// One check a worker ran, as it reported it.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct CheckRun {
+    pub command: String,
+    /// What it showed, in the worker's words ("12 passed", "lint clean").
+    pub result: String,
+    pub exit_status: Option<i32>,
+}
+
+impl Deliverable {
+    /// The files this delivery changed: git's count when there is one, else
+    /// what the agent listed.
+    pub fn files_changed(&self) -> Vec<String> {
+        if self.changes.is_empty() {
+            self.files.clone()
+        } else {
+            self.changes.iter().map(|c| c.path.clone()).collect()
+        }
+    }
+
+    /// The delivery record a dependent ticket (and a reviewer) reads in place
+    /// of the worker's prose alone.
+    pub fn record(&self) -> String {
+        let list = |items: &[String]| -> String {
+            if items.is_empty() {
+                "- none\n".into()
+            } else {
+                items.iter().map(|i| format!("- {i}\n")).collect()
+            }
+        };
+        let mut s = format!("**Summary:** {}\n", self.summary.trim());
+        s.push_str("\n**files_changed:**\n");
+        if self.changes.is_empty() {
+            s.push_str(&list(&self.files));
+        } else {
+            for c in &self.changes {
+                s.push_str(&format!("- {} (+{} -{})\n", c.path, c.added, c.removed));
+            }
+        }
+        if let Some(d) = &self.diff_stat {
+            s.push_str(&format!("\n**diff_stat:**\n```\n{}\n```\n", d.trim_end()));
+        }
+        if let Some(c) = &self.check_passed {
+            s.push_str(&format!("\n**Ticket check (run by Backspace):** `{c}` exited 0\n"));
+        }
+        if !self.reported {
+            s.push_str("\n**checks_run, assumptions, open_questions:** not reported by the worker; treat them as unknown, not as none.\n");
+            return s;
+        }
+        s.push_str("\n**checks_run (as the worker reported them):**\n");
+        if self.checks_run.is_empty() {
+            s.push_str("- none\n");
+        }
+        for c in &self.checks_run {
+            let code = c.exit_status.map(|x| x.to_string()).unwrap_or_else(|| "not given".into());
+            s.push_str(&format!("- `{}` exit {code}: {}\n", c.command, c.result));
+        }
+        s.push_str("\n**assumptions:**\n");
+        s.push_str(&list(&self.assumptions));
+        s.push_str("\n**open_questions:**\n");
+        s.push_str(&list(&self.open_questions));
+        s
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]

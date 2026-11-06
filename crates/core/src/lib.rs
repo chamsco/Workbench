@@ -39,6 +39,7 @@ pub mod project;
 pub mod projects;
 pub mod provider;
 pub mod remote;
+pub mod request;
 pub mod router;
 pub mod skills;
 pub mod spec;
