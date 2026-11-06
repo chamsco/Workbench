@@ -1476,8 +1476,10 @@ fn a_started_task_runs_under_the_project_policy_and_budget() {
         let m = side_task_mock();
         let (h, _ws) = open_tweaked(tag, m.port, extra, |c| c);
         let key = h.start_task(SIDE_TASK).unwrap();
+        // The worker's status and its ticket's state are set one after the other: wait for both.
         let s = wait(&h, "the worker to be refused", |s| {
             s.agents.iter().any(|a| a.kind == backspace_core::AgentKind::Worker && a.status == AgentStatus::Failed)
+                && s.tickets.iter().any(|t| t.key == key && t.state == TicketState::Failed)
         });
         let w = workers(&s);
         let errs: String = w[0].log.iter().filter(|l| l.kind == LogKind::Error).map(|l| l.text.as_str()).collect::<Vec<_>>().join("\n");

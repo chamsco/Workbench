@@ -3841,6 +3841,12 @@ fn start_task(inner: &Arc<Inner>, rt: &tokio::runtime::Handle, text: &str) -> Re
     if text.is_empty() {
         bail!("say what the task is");
     }
+    // The project's own folder must still be there and reachable: ticket files
+    // and a worktree are written under it, and a folder that has gone is not
+    // recreated by a task started against it.
+    if !inner.root.is_dir() {
+        bail!("the project folder is not accessible ({}), so no task was started", inner.root.display());
+    }
     // A research task makes no tickets or branches, and a one-shot has exactly
     // one ticket, its own: a task started alongside would break either.
     let open = inner.state.lock().unwrap().intake.path;
