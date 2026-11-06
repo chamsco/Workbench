@@ -1,5 +1,7 @@
 # M3 follow-up 3: CLI question, one-shot lifecycle, link UI, start_task
 
+> Item 5 is extended by `M3-STARTAUTH-REPORT.md` (project access and execution permission, requested before sign-off).
+
 Branch `claude/project-thread-dpmr8e`. Red `063debee6710f418401a4b7083a6624e1c48c55b`, green `6c95634239678bf22198b1c7caaaa94bd6fb597f`. Outputs: `M3-followup3-red-output.txt`, `M3-followup3-suite-output.txt` (run 3 of 3), `M3-followup3-ui-red/green-output.txt`. Details: `M3-NOTES.md`. **M3 is still not approved; that is your call.**
 
 1. Suite: **586 passed, 0 failed, 0 warnings, three consecutive runs** (565 before, +21). Red first: 12 of the 21 new tests failed and the UI eval failed on every link row; 9 pass in red as guards (two broken on purpose to see them fail).
