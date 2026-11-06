@@ -67,7 +67,10 @@ pub enum Next {
     Go { text: String, path: TaskType, triage: Option<Triage>, note: Option<String> },
 }
 
-/// Which paths can run for this project's planner. Long always can.
+/// Which paths can run for this project's planner. Long always can. In a
+/// coding CLI only long can (research and one-shot are refused before the CLI
+/// starts, see [`cli_refusal`]), and the question must not offer what would be
+/// refused.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Paths {
     pub one_shot: bool,
@@ -77,21 +80,15 @@ pub struct Paths {
 impl Paths {
     pub const ALL: Paths = Paths { one_shot: true, research: true };
     pub const LONG_ONLY: Paths = Paths { one_shot: false, research: false };
-}
 
-/// RED STUB: ignores `paths`, so the question still offers everything.
-pub fn first_in(text: &str, triage: Result<Triage>, _paths: Paths) -> Next {
-    first(text, triage)
-}
-
-/// RED STUB.
-pub fn answer_in(pending: &PendingAsk, reply: &str, max_asks: u8, _paths: Paths) -> Next {
-    answer(pending, reply, max_asks)
-}
-
-/// RED STUB.
-pub fn question_in(best: Option<(TaskType, f64)>, _paths: Paths) -> String {
-    question(best)
+    /// What a planner that lives in a coding CLI (or not) can run.
+    pub fn for_planner(in_cli: bool) -> Paths {
+        if in_cli {
+            Paths::LONG_ONLY
+        } else {
+            Paths::ALL
+        }
+    }
 }
 
 pub fn label(t: TaskType) -> &'static str {
@@ -106,10 +103,17 @@ pub fn label(t: TaskType) -> &'static str {
 /// could not decide, which is a reason to ask, not to guess). The first
 /// question is always asked; `max_asks` only limits the re-asks in `answer`.
 pub fn first(text: &str, triage: Result<Triage>) -> Next {
+    first_in(text, triage, Paths::ALL)
+}
+
+/// [`first`], asking only about the paths that can run. A confident
+/// classification is passed through whatever it names: an unavailable path is
+/// refused by the harness with its own explanation, not guessed away here.
+pub fn first_in(text: &str, triage: Result<Triage>, paths: Paths) -> Next {
     match triage {
         Ok(t @ Triage::Confident { task, .. }) => Next::Go { text: text.into(), path: task, triage: Some(t), note: None },
-        Ok(Triage::Ask { best, p }) => ask(text.into(), 1, question(Some((best, p)))),
-        Err(_) => ask(text.into(), 1, question(None)),
+        Ok(Triage::Ask { best, p }) => ask(text.into(), 1, question_in(Some((best, p)), paths)),
+        Err(_) => ask(text.into(), 1, question_in(None, paths)),
     }
 }
 
@@ -118,6 +122,13 @@ pub fn first(text: &str, triage: Result<Triage>) -> Next {
 /// `max_asks` questions, after which the task goes the long way (the path that
 /// plans with the user) and says so.
 pub fn answer(pending: &PendingAsk, reply: &str, max_asks: u8) -> Next {
+    answer_in(pending, reply, max_asks, Paths::ALL)
+}
+
+/// [`answer`], asking again only about the paths that can run. A reply that
+/// names a path that cannot run still starts it (the harness refuses it with
+/// the reason), so an answer is never silently turned into another path.
+pub fn answer_in(pending: &PendingAsk, reply: &str, max_asks: u8, paths: Paths) -> Next {
     if let Some(path) = parse_answer(reply) {
         let triage = Some(Triage::Confident { task: path, p: 1.0 });
         return Next::Go { text: pending.text.clone(), path, triage, note: Some(format!("you said {}", label(path))) };
@@ -131,7 +142,7 @@ pub fn answer(pending: &PendingAsk, reply: &str, max_asks: u8) -> Next {
             note: Some(format!("no clear answer after {} question{}, so this goes the long way: planned with you first", pending.asks, if pending.asks == 1 { "" } else { "s" })),
         };
     }
-    ask(text, pending.asks + 1, format!("I didn't get a clear answer.\n\n{}", question(None)))
+    ask(text, pending.asks + 1, format!("I didn't get a clear answer.\n\n{}", question_in(None, paths)))
 }
 
 fn ask(text: String, asks: u8, q: String) -> Next {
@@ -140,16 +151,50 @@ fn ask(text: String, asks: u8, q: String) -> Next {
 
 /// The question, with the classifier's guess when it has one.
 pub fn question(best: Option<(TaskType, f64)>) -> String {
+    question_in(best, Paths::ALL)
+}
+
+/// The question for the paths that can run. With all of them it is the
+/// numbered menu; otherwise it lists only what can run and says, once, what
+/// cannot and why, so nobody picks a path that would then be refused.
+pub fn question_in(best: Option<(TaskType, f64)>, paths: Paths) -> String {
     let guess = match best {
         Some((t, p)) => format!(" My best guess is {} ({:.0}% sure), which is not enough to act on.", label(t), p * 100.0),
         None => String::new(),
     };
+    if paths == Paths::ALL {
+        return format!(
+            "I can't tell what kind of task this is.{guess} Which is it?\n\n\
+             1. one-shot: a small, contained change (one ticket, no interview)\n\
+             2. long: needs planning with you first (an interview, then a plan you approve)\n\
+             3. research: a written report only (no code changes, no PR)\n\n\
+             Reply with the word or the number."
+        );
+    }
+    let mut open = vec!["- long: needs planning with you first (an interview, then a plan you approve)"];
+    let mut closed = Vec::new();
+    for (can, name, line) in [
+        (paths.one_shot, "one-shot", "- one-shot: a small, contained change (one ticket, no interview)"),
+        (paths.research, "research", "- research: a written report only (no code changes, no PR)"),
+    ] {
+        if can {
+            open.push(line);
+        } else {
+            closed.push(name);
+        }
+    }
+    let (kinds, verb, them) = match closed.len() {
+        1 => (closed[0].to_string(), "is", "it"),
+        _ => (closed.join(" and "), "are", "them"),
+    };
     format!(
-        "I can't tell what kind of task this is.{guess} Which is it?\n\n\
-         1. one-shot: a small, contained change (one ticket, no interview)\n\
-         2. long: needs planning with you first (an interview, then a plan you approve)\n\
-         3. research: a written report only (no code changes, no PR)\n\n\
-         Reply with the word or the number."
+        "I can't tell what kind of task this is.{guess}\n\n\
+         This project's planner is a coding CLI, so only part of the menu can run until M6's sandbox:\n\n\
+         {}\n\n\
+         {kinds} {verb} not available: the CLI has its own file and shell tools, which Backspace can't restrict. Switch the planner to an API model to use {them}.\n\n\
+         Reply with the word{}.",
+        open.join("\n"),
+        if open.len() == 1 { " `long` to go ahead" } else { "" },
     )
 }
 
@@ -221,6 +266,19 @@ pub fn cli_refusal(path: TaskType) -> String {
         TaskType::Research => "research can't run in a coding CLI until M6's sandbox. The CLI has its own file and shell tools, and nothing here stops it changing files, running git or opening a PR, so a report-only task can't be kept report-only. Nothing was run and nothing was spent. Switch the planner to an API model to use the native research route, or ask for it as a long task.".to_string(),
         TaskType::OneShot => "a one-shot can't run in a coding CLI until M6's sandbox. The CLI has its own file and shell tools, which Backspace can't restrict, so it could edit files, run git or push instead of handing the ticket to a worker; the one-ticket rule covers only Backspace's own planning tools. Nothing was run and nothing was spent, and the task was not turned into a long one. Switch the planner to an API model to use the native one-shot route, or ask for it as a long task.".to_string(),
         TaskType::Long => "the long path runs in a coding CLI".to_string(),
+    }
+}
+
+/// Why a side task (the shell's "start another task", POST /v1/task) is not
+/// started while a research or one-shot task is open. It is the person's own
+/// request, so it is refused to them in plain words, not as a tool error. A
+/// research task makes no tickets or branches, and a one-shot has exactly one
+/// ticket, its own; a side task would break either.
+pub fn start_refusal(open: TaskType) -> String {
+    match open {
+        TaskType::Research => "a research task is open, and research makes no tickets or branches, so another task can't be started alongside it. Wait for its report, or press Stop to end it, then start the task.".to_string(),
+        TaskType::OneShot => "a one-shot task is open, and a one-shot has exactly one ticket, its own, so another task can't be started alongside it (it would take that ticket's place). Wait for it to finish, or press Stop to end it, then start the task.".to_string(),
+        TaskType::Long => "a long task is open".to_string(),
     }
 }
 

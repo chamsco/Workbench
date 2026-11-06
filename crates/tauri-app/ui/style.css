@@ -274,6 +274,10 @@ body { margin: 0; background: var(--desk-base); color: var(--fg); font: 13px/1.4
 .ft { display: flex; align-items: center; gap: 6px; height: 24px; padding: 0 6px; border-radius: 5px; white-space: nowrap; color: var(--fg); width: 100%; text-align: left; }
 .ft:hover { background: var(--hover); }
 .ft .n { color: var(--fg-3); font-size: 11px; }
+/* A symlink: italic name and a marker at the end of the row. */
+.ft-link { font-style: italic; }
+.ft .lnk { margin-left: auto; display: inline-flex; flex: none; color: var(--fg-3); }
+.ft .lnk .ic { width: 11px; height: 11px; }
 .ft .html { color: var(--red); } .ft .py { color: var(--blue); } .ft .sql { color: var(--amber); } .ft .dir { color: var(--fg-3); } .ft .md { color: var(--violet); }
 
 /* empty / new environment */

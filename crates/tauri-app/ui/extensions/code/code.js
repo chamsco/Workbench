@@ -602,7 +602,7 @@ async function filesBody(id, el, ps) {
   const a = agent(id);
   const tree = el.querySelector(".ftree"); if (!tree) return;
   tree.innerHTML = `<div class="ft" style="color:var(--fg-3)">${icon("chevd")}<b style="color:var(--fg)">${esc(a && a.ticket ? a.ticket + " worktree" : "Primary worktree")}</b></div>` +
-    rows.map(f => `<button class="ft" data-name="${esc(f.name)}" data-path="${esc(f.path)}" data-dir="${f.dir}" style="padding-left:${18 + f.depth * 14}px"><span class="${f.dir ? "dir" : /\.html?$/.test(f.name) ? "html" : /\.py$/.test(f.name) ? "py" : /\.sql$/.test(f.name) ? "sql" : /\.md$/.test(f.name) ? "md" : ""}">${icon(f.dir ? "chev" : "doc")}</span>${esc(f.name)}</button>`).join("");
+    rows.map(f => `<button class="ft${f.link ? " ft-link" : ""}" data-name="${esc(f.name)}" data-path="${esc(f.path)}" data-dir="${f.dir}"${f.link ? ` title="Symbolic link" aria-label="${esc(f.name)}, symbolic link"` : ""} style="padding-left:${18 + f.depth * 14}px"><span class="${f.dir ? "dir" : /\.html?$/.test(f.name) ? "html" : /\.py$/.test(f.name) ? "py" : /\.sql$/.test(f.name) ? "sql" : /\.md$/.test(f.name) ? "md" : ""}">${icon(f.dir ? "chev" : "doc")}</span>${esc(f.name)}${f.link ? `<i class="lnk" aria-hidden="true">${icon("symlink")}</i>` : ""}</button>`).join("");
   const show = text => { let pv = el.querySelector(".preview"); if (!pv) { pv = document.createElement("div"); pv.className = "preview"; el.appendChild(pv); } pv.textContent = text; };
   if (ps.preview) show(ps.preview);
   $$(".ft[data-path]", el).forEach(b => (b.onclick = async () => {

@@ -247,6 +247,10 @@ button.rp-row:hover { background: var(--hover); }
 .rp-file:hover { background: var(--hover); color: var(--fg); }
 .rp-file .ic { width: 12px; height: 12px; color: var(--fg-3); flex: none; }
 .rp-file span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A symlink: italic name and a marker at the end of the row. */
+.rp-link > span { font-style: italic; }
+.rp-file .lnk { margin-left: auto; padding-right: 4px; display: inline-flex; flex: none; color: var(--fg-3); }
+.rp-file .lnk .ic { width: 11px; height: 11px; }
 .rp-prev { margin-top: 8px; border-radius: 8px; background: var(--hover); }
 .rp-prev-h { display: flex; align-items: center; justify-content: space-between; padding: 4px 4px 0 8px; font-size: 11.5px; color: var(--fg-2); }
 .rp-prev pre { margin: 0; padding: 6px 8px 8px; max-height: 260px; overflow: auto; font: 10.5px/1.45 var(--font-mono); white-space: pre-wrap; word-break: break-word; }

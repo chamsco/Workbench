@@ -65,6 +65,9 @@ var RPanel = (() => {
   const ago = ms => { const m = Math.round((Date.now() - ms) / 60000); return m < 1 ? "now" : m < 60 ? `${m}m ago` : m < 1440 ? `${Math.round(m / 60)}h ago` : `${Math.round(m / 1440)}d ago`; };
   // git's two letters, as one: Modified, Added, Deleted, Renamed, Untracked.
   const mark = s => (s === "??" ? "U" : s.replace(/[^MADRCU]/g, "")[0] || "M");
+  // A symlink (FileEntry.link) reads as one: a marker after the name, an italic name, and "symbolic link" for hover and screen readers.
+  const linkAttrs = f => (f.link ? ` title="Symbolic link" aria-label="${esc(f.name)}, symbolic link"` : "");
+  const linkMark = f => (f.link ? `<i class="lnk" aria-hidden="true">${icon("symlink")}</i>` : "");
   const diffHtml = t => t.split("\n").map(l => `<span class="${/^\+(?!\+\+)/.test(l) ? "add" : /^-(?!--)/.test(l) ? "del" : /^@@/.test(l) ? "hunk" : ""}">${esc(l)}</span>`).join("\n");
   const prevHtml = () => preview ? `<div class="rp-prev"><div class="rp-prev-h">${esc(base(preview.path))}<button class="ib" data-act="unprev" aria-label="Close preview">${icon("close")}</button></div><pre>${preview.diff ? diffHtml(preview.text) : esc(preview.text)}</pre></div>` : "";
 
@@ -91,7 +94,7 @@ var RPanel = (() => {
     if (tab === "files") {
       if (!files.rows) return { n: 0, m: 0, h: `<div class="hw-empty">Reading files…</div>` };
       const rows = files.rows.filter(f => match(f.name));
-      return { n: rows.length, m: files.rows.length, h: rows.map(f => `<button class="rp-file" data-path="${esc(f.path)}" data-dir="${f.dir}" style="padding-left:${8 + (q ? 0 : f.depth * 12)}px">${icon(f.dir ? "folder" : "doc")}<span>${esc(f.name)}</span></button>`).join("") + prevHtml() };
+      return { n: rows.length, m: files.rows.length, h: rows.map(f => `<button class="rp-file${f.link ? " rp-link" : ""}" data-path="${esc(f.path)}" data-dir="${f.dir}"${linkAttrs(f)} style="padding-left:${8 + (q ? 0 : f.depth * 12)}px">${icon(f.dir ? "folder" : "doc")}<span>${esc(f.name)}</span>${linkMark(f)}</button>`).join("") + prevHtml() };
     }
     const rows = sessions().filter(x => match(x.t + " " + x.s));
     return { n: rows.length, m: rows.length, h: rows.map((x, i) => `<button class="rp-row" data-sess="${i}">${icon(x.ic)}<span class="tt"><b>${esc(x.t)}${x.warn ? ` <span class="warnmark" title="${esc(x.warn)}">⚠</span>` : ""}</b><span>${esc(x.s)}</span></span>${x.dot ? `<span class="dot ${x.dot}"></span>` : ""}</button>`).join("") || `<div class="hw-empty">No sessions here yet.</div>`, rows };

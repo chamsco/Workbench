@@ -798,8 +798,15 @@ fn stop(inner: &Arc<Inner>, agent: Option<AgentId>) {
             .collect()
     };
     // Only a turn in progress: a stored wake-up would cut the next one short.
-    if agent.is_none_or(|id| id == MAIN) && ids.contains(&MAIN) {
-        inner.stop_main.notify_one();
+    if agent.is_none_or(|id| id == MAIN) {
+        if ids.contains(&MAIN) {
+            inner.stop_main.notify_one();
+        } else if end_restricted_path(inner) {
+            // Nothing is running, but a research or one-shot task can still be
+            // open (a one-shot whose worker failed leaves the main agent idle
+            // with its path held). Stop is how it is given up.
+            inner.log(MAIN, LogKind::System, "stopped by you");
+        }
     }
     for id in ids.into_iter().filter(|&id| id != MAIN) {
         if let Some(h) = inner.tasks.lock().unwrap().remove(&id) {
@@ -1504,6 +1511,13 @@ async fn main_loop(inner: Arc<Inner>, mut inbox: mpsc::UnboundedReceiver<String>
             if let Some(cli) = inner.planner.clone() {
                 return plan_on_cli(&inner, &cli, text).await.map(|_| TurnEnd::Replied);
             }
+            // A conversation kept from a task on another path is not this task's
+            // (Stop can end a research or one-shot task while the main agent is
+            // idle, leaving its conversation behind in memory).
+            let want = path.filter(|p| *p != TaskType::Long);
+            if convo.as_ref().is_some_and(|c| c.path != want) {
+                convo = None;
+            }
             if convo.is_none() {
                 let d = inner.router.route_with(AgentRole::Main, &text, "", known).await?;
                 announce_route(&inner, MAIN, &d);
@@ -1579,9 +1593,12 @@ enum Intake {
 /// the task goes down, saved with the project.
 fn intake_step(inner: &Arc<Inner>, text: &str) -> Intake {
     let pending = inner.state.lock().unwrap().intake.pending.clone();
+    // A planner in a coding CLI can only run the long path, so that is all the
+    // question offers (the others are refused before the CLI starts).
+    let paths = intake::Paths::for_planner(inner.planner.is_some());
     let next = match &pending {
-        Some(p) => intake::answer(p, text, inner.cfg.intake.max_asks),
-        None => intake::first(text, inner.router.classify(text)),
+        Some(p) => intake::answer_in(p, text, inner.cfg.intake.max_asks, paths),
+        None => intake::first_in(text, inner.router.classify(text), paths),
     };
     match next {
         intake::Next::Ask(p, question) => {
@@ -3188,8 +3205,17 @@ fn create_batch(inner: &Inner, caller: AgentId, input: &Value, planned: bool) ->
     let spec = match path {
         Some(TaskType::Research) => bail!("{}", intake::refusal(TaskType::Research, "create_tickets")),
         Some(TaskType::OneShot) => {
-            if let Some(k) = inner.state.lock().unwrap().intake.spec_key.clone() {
-                bail!("this one-shot already has its ticket (`{k}`): call work_tickets");
+            // The slot is held by the one-shot's ticket for as long as there is
+            // one. A ticket that was dropped (gone, or wontfix) no longer holds
+            // it; a failed one still does, and is retried rather than replaced.
+            let held = {
+                let s = inner.state.lock().unwrap();
+                s.intake.spec_key.clone().and_then(|k| s.ticket(&k).map(|t| (k, t.state)))
+            };
+            match held {
+                Some((k, TicketState::Failed)) => bail!("this one-shot already has its ticket (`{k}`), which failed: call work_tickets to try it again"),
+                Some((k, st)) if st != TicketState::Wontfix => bail!("this one-shot already has its ticket (`{k}`): call work_tickets"),
+                _ => {}
             }
             Some(intake::OneShotSpec::from_tickets(input)?)
         }
@@ -3375,12 +3401,24 @@ async fn work_tickets(inner: &Arc<Inner>, caller: AgentId, input: &Value) -> Res
     let ids: Vec<(AgentId, String)> = inner.update(|s| -> Result<Vec<(AgentId, String)>> {
         let keys: Vec<String> = match &requested {
             Some(k) => k.clone(),
-            None => s
-                .tickets
-                .iter()
-                .filter(|t| t.owner == caller && t.state == TicketState::ReadyForAgent)
-                .map(|t| t.key.clone())
-                .collect(),
+            None => {
+                let mut keys: Vec<String> = s
+                    .tickets
+                    .iter()
+                    .filter(|t| t.owner == caller && t.state == TicketState::ReadyForAgent)
+                    .map(|t| t.key.clone())
+                    .collect();
+                // A one-shot's failed ticket is the task's own: "dispatch what
+                // is ready" tries it again, as create_tickets' refusal says.
+                if caller == MAIN && s.intake.path == Some(TaskType::OneShot) {
+                    if let Some(k) = s.intake.spec_key.clone() {
+                        if s.ticket(&k).is_some_and(|t| t.owner == caller && t.state == TicketState::Failed) && !keys.contains(&k) {
+                            keys.push(k);
+                        }
+                    }
+                }
+                keys
+            }
         };
         if keys.is_empty() {
             bail!("no tickets ready for agents; create_tickets first");
@@ -3802,6 +3840,12 @@ fn start_task(inner: &Arc<Inner>, rt: &tokio::runtime::Handle, text: &str) -> Re
     let text = text.trim();
     if text.is_empty() {
         bail!("say what the task is");
+    }
+    // A research task makes no tickets or branches, and a one-shot has exactly
+    // one ticket, its own: a task started alongside would break either.
+    let open = inner.state.lock().unwrap().intake.path;
+    if let Some(p @ (TaskType::Research | TaskType::OneShot)) = open {
+        bail!("{}", intake::start_refusal(p));
     }
     let slug: String = text
         .to_lowercase()
