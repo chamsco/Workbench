@@ -1336,3 +1336,180 @@ fn no_agent_is_offered_a_way_to_start_a_task() {
         assert!(!intake::allows(path, "start_task"), "{path:?}");
     }
 }
+
+// ------------------------------- start_task: project access and execution
+//
+// Authentication is not authorization. The token is issued for one project's
+// server and `start_task` has no way to name another project, a path, a key or
+// a state; a task it starts is an ordinary ticket of this project, so the
+// project's own limits (policy, budget, agent cap) hold, and it can neither
+// start nor approve a ticket that already exists.
+
+fn serve_on(h: &Harness, token: &str) -> (u16, tokio_abort::Handle) {
+    let port = free_port();
+    let handle = h.serve(&format!("127.0.0.1:{port}"), token).unwrap();
+    (port, tokio_abort::Handle(handle))
+}
+
+/// Keeps a server up for the length of a test.
+mod tokio_abort {
+    pub struct Handle(#[allow(dead_code)] pub tokio::task::AbortHandle);
+}
+
+fn worktrees(ws: &Path) -> Vec<String> {
+    let mut v: Vec<String> = std::fs::read_dir(ws.join(".backspace/worktrees"))
+        .map(|d| d.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect())
+        .unwrap_or_default();
+    v.sort();
+    v
+}
+
+#[test]
+fn a_valid_token_for_one_project_starts_nothing_in_another() {
+    let m = side_task_mock();
+    let (a, wa) = open("auth-a", m.port, ON, &[("README.md", "Say teh word.\n")]);
+    let (b, wb) = open("auth-b", m.port, ON, &[("README.md", "Say teh word.\n")]);
+    let (pa, _sa) = serve_on(&a, "token-a");
+    let (pb, _sb) = serve_on(&b, "token-b");
+    let body = json!({"text": SIDE_TASK}).to_string();
+    // Each token is good on its own project's server and nowhere else.
+    for (port, token) in [(pb, "Bearer token-a"), (pa, "Bearer token-b")] {
+        let (code, text) = http_post(port, "/v1/task", Some(token), &body);
+        assert_eq!(code, 401, "{token} on port {port}: {text}");
+    }
+    std::thread::sleep(Duration::from_millis(300));
+    nothing_was_started(&a.snapshot(), &wa);
+    nothing_was_started(&b.snapshot(), &wb);
+    let b_trees = worktrees(&wb);
+
+    // Project A's token, asking for more than it may name: another project's
+    // folder, a key, a state, an agent. The request cannot say any of it.
+    let greedy = json!({
+        "text": SIDE_TASK, "workspace": wb, "project": wb, "path": wb, "cwd": wb,
+        "key": "hijack", "ticket": "hijack", "state": "done", "agent": 0, "depth": 0
+    })
+    .to_string();
+    let (code, text) = http_post(pa, "/v1/task", Some("Bearer token-a"), &greedy);
+    assert_eq!(code, 200, "{text}");
+    let key = serde_json::from_str::<Value>(&text).unwrap()["key"].as_str().unwrap().to_string();
+    assert_ne!(key, "hijack", "the key is the harness's to choose");
+    let s = wait(&a, "the delivery in project A", |s| s.pending_approvals().next().is_some());
+    let t = s.tickets.iter().find(|t| t.key == key).unwrap();
+    assert_eq!(t.state, TicketState::InReview, "it ran as an ordinary ticket, waiting for review; the requested state `done` is not honoured");
+    assert_eq!(workers(&s).len(), 1);
+
+    // Nothing at all happened in project B.
+    std::thread::sleep(Duration::from_millis(500));
+    nothing_was_started(&b.snapshot(), &wb);
+    assert_eq!(worktrees(&wb), b_trees, "no worktree appeared in project B");
+    assert_eq!(std::fs::read_to_string(wb.join("README.md")).unwrap(), "Say teh word.\n");
+    assert!(!wb.join(".backspace/handoff").exists());
+}
+
+#[test]
+fn a_started_task_never_starts_or_approves_a_ticket_that_already_exists() {
+    // Tickets in states that do not permit execution: a proposed plan nobody
+    // approved, one that needs information, one dropped, one done, one in review.
+    let m = side_task_mock();
+    let (h, ws) = open("st-states", m.port, ON, &[("README.md", "Say teh word.\n")]);
+    h.send("hmm");
+    wait(&h, "the question", |s| asked(s) == 1 && s.agents[0].status == AgentStatus::Idle);
+    drop(h);
+    let existing = [
+        ("add-a-short-contributing", TicketState::Proposed),
+        ("add-a-short-contributing-2", TicketState::Wontfix),
+        ("add-a-short-contributing-3", TicketState::NeedsInfo),
+        ("other-done", TicketState::Done),
+        ("other-review", TicketState::InReview),
+    ];
+    let file = ws.join(".backspace/state.json");
+    let mut state: Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+    let seeded: Vec<backspace_core::Ticket> = existing
+        .iter()
+        .enumerate()
+        .map(|(i, (key, st))| backspace_core::Ticket::from_json(&ticket(json!({"key": key})), i + 1, 0, *st).unwrap())
+        .collect();
+    state["tickets"] = json!(seeded);
+    std::fs::write(&file, state.to_string()).unwrap();
+
+    let h = Harness::open(ws.clone()).unwrap();
+    // What reopening the project left them as is not start_task's doing.
+    let before: Vec<(String, TicketState)> = h.snapshot().tickets.iter().map(|t| (t.key.clone(), t.state)).collect();
+    assert_eq!(before.len(), existing.len(), "the seeded tickets were restored");
+    // The new task's slug collides with three of them; it is a new ticket, not one of those.
+    let key = h.start_task(SIDE_TASK).unwrap();
+    assert_eq!(key, "add-a-short-contributing-4");
+    let s = wait(&h, "the new task's worker", |s| s.agents.len() > 1 && s.pending_approvals().next().is_some());
+    for (k, st) in &before {
+        assert_eq!(s.tickets.iter().find(|t| &t.key == k).unwrap().state, *st, "`{k}` was touched by start_task");
+    }
+    for (k, st) in existing.iter().take(4) {
+        assert_eq!(before.iter().find(|(b, _)| b == k).unwrap().1, *st, "`{k}` changed on reopening, before start_task");
+    }
+    let w = workers(&s);
+    assert_eq!(w.len(), 1, "one worker, for the new ticket only: {:?}", w.iter().map(|a| &a.key).collect::<Vec<_>>());
+    assert_eq!(w[0].ticket.as_deref(), Some(key.as_str()));
+    assert!(!s.approvals.iter().any(|a| a.kind == ApprovalKind::Plan), "no plan was approved");
+}
+
+/// A project with extra config after the model list, and its tweaks.
+fn open_tweaked(tag: &str, port: u16, extra: &str, tweak: impl Fn(String) -> String) -> (Harness, PathBuf) {
+    let ws = std::env::temp_dir().join(format!("bs-intake-h-{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&ws);
+    std::fs::create_dir_all(&ws).unwrap();
+    std::fs::write(ws.join("README.md"), "Say teh word.\n").unwrap();
+    std::fs::write(ws.join("backspace.toml"), tweak(config_text(port, extra))).unwrap();
+    (Harness::open(ws.clone()).unwrap(), ws)
+}
+
+fn worker_calls(m: &Mock) -> usize {
+    m.seen.lock().unwrap().iter().filter(|r| system(r).starts_with("You are a Backspace ticket agent")).count()
+}
+
+#[test]
+fn a_started_task_runs_under_the_project_policy_and_budget() {
+    for (tag, extra, why) in [
+        // A started task's worker may plan sub-tickets, so the policy sees it as an orchestration agent.
+        ("st-policy", "[policy]\norchestration_models = [\"mock-front\"]\n", "refused by project policy"),
+        ("st-budget", "[policy.budget]\nmax_usd = 0.0001\n", "budget"),
+    ] {
+        let m = side_task_mock();
+        let (h, _ws) = open_tweaked(tag, m.port, extra, |c| c);
+        let key = h.start_task(SIDE_TASK).unwrap();
+        let s = wait(&h, "the worker to be refused", |s| {
+            s.agents.iter().any(|a| a.kind == backspace_core::AgentKind::Worker && a.status == AgentStatus::Failed)
+        });
+        let w = workers(&s);
+        let errs: String = w[0].log.iter().filter(|l| l.kind == LogKind::Error).map(|l| l.text.as_str()).collect::<Vec<_>>().join("\n");
+        assert!(errs.contains(why), "{tag}: {errs}");
+        assert_eq!(s.tickets.iter().find(|t| t.key == key).unwrap().state, TicketState::Failed, "{tag}");
+        assert_eq!(worker_calls(&m), 0, "{tag}: the refused worker's request must not be made");
+        assert!(s.pending_approvals().next().is_none(), "{tag}");
+    }
+}
+
+#[test]
+fn a_started_task_is_held_to_the_agent_cap() {
+    let (m, started) = lifecycle_mock(vec![W::Hang], |_| say("lead"));
+    let (h, _ws) = open_tweaked("st-cap", m.port, "", |c| c.replace("max_subagents = 4", "max_subagents = 1"));
+    let first = h.start_task(SIDE_TASK).unwrap();
+    wait(&h, "the first worker", |_| started.load(Ordering::SeqCst) == 1);
+    let second = h.start_task("write a short SECURITY.md that says where to report bugs").unwrap();
+    let s = wait(&h, "the cap to be reported", |s| {
+        s.agents[0].log.iter().any(|l| l.text.contains(&second) && l.text.contains("could not start") && l.text.contains("agent cap"))
+    });
+    assert_eq!(workers(&s).len(), 1, "no second worker past the cap");
+    assert_eq!(s.tickets.iter().find(|t| t.key == second).unwrap().state, TicketState::ReadyForAgent, "it waits; it is not run");
+    assert_ne!(first, second);
+}
+
+#[test]
+fn a_task_is_not_started_in_a_project_folder_that_has_gone() {
+    let m = side_task_mock();
+    let (h, ws) = open("st-gone", m.port, ON, &[("README.md", "Say teh word.\n")]);
+    std::fs::remove_dir_all(&ws).unwrap();
+    let e = h.start_task(SIDE_TASK).expect_err("the project folder is gone").to_string().to_lowercase();
+    assert!(e.contains("project folder"), "{e}");
+    assert!(!ws.exists(), "start_task must not recreate a folder the project no longer has");
+    assert!(h.snapshot().tickets.is_empty());
+}
