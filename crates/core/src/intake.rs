@@ -67,6 +67,33 @@ pub enum Next {
     Go { text: String, path: TaskType, triage: Option<Triage>, note: Option<String> },
 }
 
+/// Which paths can run for this project's planner. Long always can.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Paths {
+    pub one_shot: bool,
+    pub research: bool,
+}
+
+impl Paths {
+    pub const ALL: Paths = Paths { one_shot: true, research: true };
+    pub const LONG_ONLY: Paths = Paths { one_shot: false, research: false };
+}
+
+/// RED STUB: ignores `paths`, so the question still offers everything.
+pub fn first_in(text: &str, triage: Result<Triage>, _paths: Paths) -> Next {
+    first(text, triage)
+}
+
+/// RED STUB.
+pub fn answer_in(pending: &PendingAsk, reply: &str, max_asks: u8, _paths: Paths) -> Next {
+    answer(pending, reply, max_asks)
+}
+
+/// RED STUB.
+pub fn question_in(best: Option<(TaskType, f64)>, _paths: Paths) -> String {
+    question(best)
+}
+
 pub fn label(t: TaskType) -> &'static str {
     match t {
         TaskType::OneShot => "one-shot",

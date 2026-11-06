@@ -31,6 +31,7 @@ const HELP = `uiharness — headless Chromium for the Backspace desktop UI
 
   --shot <path.png>     full-page screenshot written to <path.png>
   --size <W>x<H>        viewport size (default 1440x900)
+  --scale <n>           device pixel ratio for screenshots (default 1; 2 for a sharp one)
   --eval <js>           evaluate an expression after ready, print RESULT: <json>
                         (repeatable; results print in the order given)
   --eval-file <path>    same, with the expression read from a file (repeatable)
@@ -54,6 +55,7 @@ function parseArgs(argv) {
     url: DEFAULT_PATH,
     width: 1440,
     height: 900,
+    scale: 1,
     shotMode: "full",
     chrome: process.env.UIHARNESS_CHROME || DEFAULT_CHROME,
     uiRoot: UI_ROOT,
@@ -100,6 +102,9 @@ function parseArgs(argv) {
         opts.height = +m[2];
         break;
       }
+      case "--scale":
+        opts.scale = Math.min(4, Math.max(1, +val() || 1));
+        break;
       case "--wait":
         opts.wait = Math.max(0, +val());
         break;
@@ -308,7 +313,7 @@ export async function main(argv) {
 
     await cdp.send(
       "Emulation.setDeviceMetricsOverride",
-      { width: opts.width, height: opts.height, deviceScaleFactor: 1, mobile: false },
+      { width: opts.width, height: opts.height, deviceScaleFactor: opts.scale, mobile: false },
       sessionId,
     );
     log(`[cdp] viewport ${opts.width}x${opts.height}`);
@@ -443,7 +448,7 @@ export async function main(argv) {
         if (grown) {
           await cdp.send(
             "Emulation.setDeviceMetricsOverride",
-            { width: contentW, height: contentH, deviceScaleFactor: 1, mobile: false },
+            { width: contentW, height: contentH, deviceScaleFactor: opts.scale, mobile: false },
             sessionId,
           );
           await sleep(200);
@@ -481,7 +486,7 @@ export async function main(argv) {
         if (grown) {
           await cdp.send(
             "Emulation.setDeviceMetricsOverride",
-            { width: opts.width, height: opts.height, deviceScaleFactor: 1, mobile: false },
+            { width: opts.width, height: opts.height, deviceScaleFactor: opts.scale, mobile: false },
             sessionId,
           );
           await sleep(150);

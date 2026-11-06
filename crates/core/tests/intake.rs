@@ -759,3 +759,580 @@ fn a_one_shot_files_one_ticket_and_a_second_is_refused_while_the_first_still_run
     assert_eq!(std::fs::read_to_string(ws.join(".backspace/worktrees/_run/README.md")).unwrap(), "Say the word.\n");
     assert_eq!((s.intake.path, s.intake.spec_key.clone()), (None, None), "released once delivered");
 }
+
+// ------------------------------------------- the question names what can run
+//
+// With a coding-CLI planner only the long path runs (research and one-shot are
+// refused before the CLI starts), so the question must not offer the others as
+// if they were open. The refusal on an answer stays as defence in depth.
+
+#[test]
+fn the_question_offers_only_the_paths_that_can_run() {
+    use intake::Paths;
+    // Everything available: the question it always was.
+    for best in [None, Some((TaskType::Research, 0.52))] {
+        assert_eq!(intake::question_in(best, Paths::ALL), intake::question(best));
+    }
+    // A coding-CLI planner: long is the one path offered; the others are named as unavailable, with why.
+    let q = intake::question_in(Some((TaskType::OneShot, 0.55)), Paths::LONG_ONLY);
+    let lower = q.to_lowercase();
+    assert!(q.contains("55%") && lower.contains("one-shot"), "the guess is still said: {q}");
+    for needed in ["not available", "coding cli", "m6", "api model"] {
+        assert!(lower.contains(needed), "`{needed}` missing from:\n{q}");
+    }
+    assert!(q.lines().any(|l| l.trim_start().starts_with("- long")), "long is offered as the choice:\n{q}");
+    assert!(
+        !q.lines().any(|l| l.trim_start().starts_with(|c: char| c.is_ascii_digit())),
+        "no numbered menu of kinds that cannot run:\n{q}"
+    );
+    for gone in ["a small, contained change", "a written report only"] {
+        assert!(!q.contains(gone), "`{gone}` is described as if it were open:\n{q}");
+    }
+}
+
+#[test]
+fn intake_asks_and_asks_again_with_the_paths_that_can_run() {
+    use intake::{Next, Paths};
+    let unsure = || Ok(Triage::Ask { best: TaskType::Research, p: 0.5 });
+    let Next::Ask(pending, q) = intake::first_in("hmm", unsure(), Paths::LONG_ONLY) else { panic!("an unsure task is asked about") };
+    assert_eq!(q, intake::question_in(Some((TaskType::Research, 0.5)), Paths::LONG_ONLY));
+    assert!(q.to_lowercase().contains("not available") && !q.contains("3. research"), "{q}");
+    // A classifier that cannot decide is asked about the same way.
+    let Next::Ask(_, q) = intake::first_in("hmm", Err(anyhow::anyhow!("boom")), Paths::LONG_ONLY) else { panic!() };
+    assert_eq!(q, intake::question_in(None, Paths::LONG_ONLY));
+    // An unclear reply gets the same options again, and the task text is kept.
+    let Next::Ask(again, q) = intake::answer_in(&pending, "dunno", 2, Paths::LONG_ONLY) else { panic!() };
+    assert_eq!(q, format!("I didn't get a clear answer.\n\n{}", intake::question_in(None, Paths::LONG_ONLY)));
+    assert!(q.to_lowercase().contains("not available") && !q.contains("1. one-shot"), "{q}");
+    assert!(again.text.contains("hmm") && again.text.contains("dunno") && again.asks == 2);
+    // "long" goes.
+    match intake::answer_in(&pending, "long", 2, Paths::LONG_ONLY) {
+        Next::Go { path: TaskType::Long, text, .. } => assert_eq!(text, "hmm"),
+        other => panic!("{other:?}"),
+    }
+    // Everything-available is what first/answer/question always did.
+    assert_eq!(intake::first("hmm", unsure()), intake::first_in("hmm", unsure(), Paths::ALL));
+    assert_eq!(intake::answer(&pending, "dunno", 2), intake::answer_in(&pending, "dunno", 2, Paths::ALL));
+}
+
+#[test]
+fn with_an_api_planner_the_question_still_offers_all_three_paths() {
+    let m = mock(model);
+    let (h, _ws) = open("api-question", m.port, ON, &[]);
+    h.send("hmm");
+    let s = wait(&h, "the question", |s| asked(s) == 1 && s.agents[0].status == AgentStatus::Idle);
+    let q = s.agents[0].log.iter().rev().find(|l| l.kind == LogKind::Assistant).unwrap().text.clone();
+    for (n, kind) in [("1.", "one-shot"), ("2.", "long"), ("3.", "research")] {
+        assert!(q.lines().any(|l| l.trim_start().starts_with(n) && l.contains(kind)), "{n} {kind} missing from:\n{q}");
+    }
+    assert!(!q.to_lowercase().contains("not available"), "{q}");
+}
+
+// -------------------------------------- the API one-shot's failure lifecycle
+//
+// A one-shot ends when it is delivered or when the user presses Stop. A worker
+// that fails, or is stopped, does not end it: the one ticket is still the
+// task's, and can be dispatched again (by the same agent in the same turn, or
+// on the user's say-so next turn). Stop must release it even though the main
+// agent is idle by then, and a ticket that no longer exists, or was dropped
+// (wontfix), must not keep holding the task's one ticket slot.
+
+const TYPO: &str = "fix a typo in the readme, quick small change";
+
+/// What each worker the mock starts does, in the order they start; any later
+/// worker delivers.
+#[derive(Clone, Copy)]
+enum W {
+    Deliver,
+    GiveUp,
+    Hang,
+}
+
+/// `lead` plays the one-shot agent. Returns the mock and how many workers have started.
+fn lifecycle_mock(workers: Vec<W>, lead: impl Fn(&Value) -> Value + Send + Sync + 'static) -> (Mock, Arc<AtomicUsize>) {
+    let started = Arc::new(AtomicUsize::new(0));
+    let s2 = started.clone();
+    let m = mock(move |req| {
+        let sys = system(req);
+        if sys.starts_with("You are the one-shot agent") {
+            return lead(req);
+        }
+        if sys.starts_with("You are a Backspace ticket agent") {
+            // A worker's first request has nothing from the model in it yet.
+            if req["messages"].as_array().is_some_and(|m| m.iter().all(|m| m["role"] != "assistant")) {
+                s2.fetch_add(1, Ordering::SeqCst);
+            }
+            let attempt = s2.load(Ordering::SeqCst).max(1);
+            return match workers.get(attempt - 1).copied().unwrap_or(W::Deliver) {
+                W::GiveUp => say("I can't do this."),
+                W::Hang => {
+                    std::thread::sleep(Duration::from_secs(20));
+                    say("too late")
+                }
+                W::Deliver => match results(req).last() {
+                    None => call("write", json!({"path": "README.md", "content": "Say the word.\n"})),
+                    Some(t) if t.contains("REJECTED") => call("write", json!({"path": "README.md", "content": "Say the word, please.\n"})),
+                    Some(t) if t.starts_with("wrote") => call("submit_deliverable", json!({"summary": "fixed the typo", "files": ["README.md"]})),
+                    Some(_) => say("worker done"),
+                },
+            };
+        }
+        say("lead")
+    });
+    (m, started)
+}
+
+fn last_role(req: &Value) -> &str {
+    req["messages"].as_array().and_then(|m| m.last()).and_then(|m| m["role"].as_str()).unwrap_or("")
+}
+
+/// Poll until `done`, answering each deliverable that waits: approve it, or
+/// reject the first with feedback. A plan is never asked for on a one-shot.
+fn approving(h: &Harness, what: &str, reject_first: bool, done: impl Fn(&ProjectState) -> bool) -> ProjectState {
+    let deadline = Instant::now() + Duration::from_secs(60);
+    let mut answered: Vec<usize> = vec![];
+    loop {
+        let s = h.snapshot();
+        if done(&s) {
+            return s;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "timed out waiting for {what}: {:#?} {:?}",
+            s.agents.iter().map(|a| (&a.key, a.status, &a.log)).collect::<Vec<_>>(),
+            s.tickets.iter().map(|t| (&t.key, t.state)).collect::<Vec<_>>()
+        );
+        for a in s.pending_approvals() {
+            assert_ne!(a.kind, ApprovalKind::Plan, "a one-shot has no plan gate");
+            if !answered.contains(&a.id) {
+                if reject_first && answered.is_empty() {
+                    h.reject(a.id, "write it as: Say the word, please.");
+                } else {
+                    h.approve(a.id);
+                }
+                answered.push(a.id);
+            }
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+fn workers(s: &ProjectState) -> Vec<&backspace_core::AgentRecord> {
+    s.agents.iter().filter(|a| a.kind == backspace_core::AgentKind::Worker).collect()
+}
+
+fn lead_results(m: &Mock) -> Vec<String> {
+    let seen = m.seen.lock().unwrap();
+    let last = seen.iter().filter(|r| system(r).starts_with("You are the one-shot agent")).last().expect("the one-shot agent ran");
+    results(last).iter().map(|s| s.to_string()).collect()
+}
+
+#[test]
+fn a_failed_one_shot_is_retried_in_the_same_turn_on_its_one_ticket() {
+    let (m, started) = lifecycle_mock(vec![W::GiveUp], |req| match results(req).len() {
+        0 => call("create_tickets", json!({"tickets": [ticket(json!({}))]})),
+        1 | 2 => call("work_tickets", json!({})),
+        3 => call("submit_deliverable", json!({"summary": "typo fixed", "files": ["README.md"]})),
+        _ => say("done"),
+    });
+    let (h, ws) = open("life-retry", m.port, ON, &[("README.md", "Say teh word.\n")]);
+    h.send(TYPO);
+    let s = approving(&h, "the delivery", false, |s| s.agents[0].status == AgentStatus::Approved);
+    assert_eq!(started.load(Ordering::SeqCst), 2, "the failed worker, then its retry: {:#?}", lead_results(&m));
+    assert_eq!(s.tickets.len(), 1, "still one ticket: {:?}", s.tickets);
+    assert_eq!(s.tickets[0].state, TicketState::Done);
+    let w = workers(&s);
+    assert_eq!(w.len(), 2);
+    assert_eq!((w[0].status, w[1].status), (AgentStatus::Failed, AgentStatus::Approved));
+    let r = lead_results(&m);
+    assert!(r[1].contains("FAILED"), "the agent was told the worker failed: {}", r[1]);
+    assert_eq!(std::fs::read_to_string(ws.join(".backspace/worktrees/_run/README.md")).unwrap(), "Say the word.\n");
+    assert_eq!((s.intake.path, s.intake.spec_key.clone()), (None, None), "released once delivered");
+}
+
+/// The first turn of a one-shot whose worker fails and whose agent just says so.
+fn failing_lead(req: &Value) -> Value {
+    match (results(req).len(), last_role(req)) {
+        (0, _) => call("create_tickets", json!({"tickets": [ticket(json!({}))]})),
+        (1, _) => call("work_tickets", json!({})),
+        (2, "tool") => say("The worker failed. Say retry to try again, or press Stop."),
+        // The user's next message: first try a second ticket, then the one it has.
+        (2, _) => call("create_tickets", json!({"tickets": [ticket(json!({"key": "second"}))]})),
+        // Naming the key works too (a failed ticket is dispatched by name).
+        (3, _) => call("work_tickets", json!({"keys": ["fix-readme"]})),
+        (4, _) => call("submit_deliverable", json!({"summary": "typo fixed", "files": ["README.md"]})),
+        _ => say("done"),
+    }
+}
+
+fn failed_and_idle(s: &ProjectState) -> bool {
+    s.tickets.first().is_some_and(|t| t.state == TicketState::Failed) && s.agents[0].status == AgentStatus::Idle
+}
+
+#[test]
+fn a_failed_one_shot_stays_open_for_a_retry_and_keeps_to_its_one_ticket() {
+    let (m, started) = lifecycle_mock(vec![W::GiveUp], failing_lead);
+    let (h, _ws) = open("life-open", m.port, ON, &[("README.md", "Say teh word.\n")]);
+    h.send(TYPO);
+    let s = wait(&h, "the failure", failed_and_idle);
+    assert_eq!(s.intake.path, Some(TaskType::OneShot), "a failure does not end the task");
+    assert_eq!(s.intake.spec_key.as_deref(), Some("fix-readme"));
+    assert_eq!(asked(&s), 0);
+
+    // "retry" goes to the same agent (it is not a new task to classify or ask about).
+    h.send("retry");
+    let s = approving(&h, "the retry's delivery", false, |s| s.agents[0].status == AgentStatus::Approved);
+    assert_eq!(started.load(Ordering::SeqCst), 2);
+    assert_eq!(s.tickets.len(), 1, "a second spec was not accepted: {:?}", s.tickets);
+    assert_eq!(s.tickets[0].state, TicketState::Done);
+    let r = lead_results(&m);
+    assert!(r[2].contains("already has its ticket"), "{}", r[2]);
+    assert_eq!(asked(&s), 0, "the retry was not asked about");
+    assert_eq!((s.intake.path, s.intake.spec_key.clone()), (None, None));
+}
+
+#[test]
+fn stop_releases_a_failed_one_shot_even_though_the_main_agent_is_idle() {
+    let (m, _started) = lifecycle_mock(vec![W::GiveUp], failing_lead);
+    let (h, ws) = open("life-stop", m.port, ON, &[("README.md", "Say teh word.\n")]);
+    h.send(TYPO);
+    wait(&h, "the failure", failed_and_idle);
+    h.stop(None);
+    let s = wait(&h, "the stop to release the task", |s| s.intake.path.is_none());
+    assert_eq!((s.intake.spec_key.clone(), s.agents[0].status), (None, AgentStatus::Idle));
+    assert!(s.agents[0].log.iter().any(|l| l.text.contains("stopped by you")), "{:?}", s.agents[0].log);
+    assert!(!ws.join(".backspace/main.json").exists(), "its saved conversation went with it");
+
+    // The next message is a new task: classified afresh and given to the right agent.
+    let calls = m.calls.load(Ordering::SeqCst);
+    h.send("build a dashboard system platform across several services");
+    wait(&h, "the next task's model call", |_| m.calls.load(Ordering::SeqCst) > calls);
+    let seen = m.seen.lock().unwrap();
+    assert!(system(&seen[calls]).starts_with("You are the lead agent"), "{}", system(&seen[calls]));
+    assert!(tool_names(&seen[calls]).iter().any(|t| t == "revise_ticket"), "the full planner's tools, not the one-shot's: {:?}", tool_names(&seen[calls]));
+    assert_eq!(first_user(&seen[calls]), "build a dashboard system platform across several services");
+}
+
+#[test]
+fn a_one_shot_worker_the_user_stops_fails_its_ticket_and_can_be_dispatched_again() {
+    let (m, started) = lifecycle_mock(vec![W::Hang], |req| match results(req).len() {
+        0 => call("create_tickets", json!({"tickets": [ticket(json!({}))]})),
+        1 | 2 => call("work_tickets", json!({})),
+        3 => call("submit_deliverable", json!({"summary": "typo fixed", "files": ["README.md"]})),
+        _ => say("done"),
+    });
+    let (h, _ws) = open("life-drop", m.port, ON, &[("README.md", "Say teh word.\n")]);
+    h.send(TYPO);
+    let s = wait(&h, "the first worker to be at work", |s| started.load(Ordering::SeqCst) == 1 && workers(s).len() == 1);
+    h.stop(Some(workers(&s)[0].id));
+    let s = approving(&h, "the retry's delivery", false, |s| s.agents[0].status == AgentStatus::Approved);
+    let w = workers(&s);
+    assert_eq!((w.len(), w[0].status, w[1].status), (2, AgentStatus::Failed, AgentStatus::Approved));
+    assert_eq!(s.tickets.len(), 1);
+    assert_eq!(s.tickets[0].state, TicketState::Done);
+    assert!(s.tickets[0].notes.iter().any(|n| n.contains("stopped by the user")), "{:?}", s.tickets[0].notes);
+    assert!(lead_results(&m)[1].contains("stopped by the user"), "{}", lead_results(&m)[1]);
+}
+
+#[test]
+fn a_rejected_one_shot_deliverable_goes_back_to_its_worker_and_the_path_ends_with_the_delivery() {
+    let (m, started) = lifecycle_mock(vec![], |req| match results(req).len() {
+        0 => call("create_tickets", json!({"tickets": [ticket(json!({}))]})),
+        1 => call("work_tickets", json!({})),
+        2 => call("submit_deliverable", json!({"summary": "typo fixed", "files": ["README.md"]})),
+        _ => say("done"),
+    });
+    let (h, ws) = open("life-reject", m.port, ON, &[("README.md", "Say teh word.\n")]);
+    h.send(TYPO);
+    let s = approving(&h, "the delivery", true, |s| s.agents[0].status == AgentStatus::Approved);
+    assert_eq!(started.load(Ordering::SeqCst), 1, "the same worker took the feedback; no second worker");
+    assert_eq!(s.tickets.len(), 1);
+    assert_eq!(s.tickets[0].state, TicketState::Done);
+    assert!(s.tickets[0].notes.iter().any(|n| n.contains("rejected by the user")), "{:?}", s.tickets[0].notes);
+    assert!(s.approvals.iter().any(|a| matches!(a.state, backspace_core::ApprovalState::Rejected { .. })));
+    assert_eq!(std::fs::read_to_string(ws.join(".backspace/worktrees/_run/README.md")).unwrap(), "Say the word, please.\n");
+    assert_eq!((s.intake.path, s.intake.spec_key.clone()), (None, None));
+}
+
+/// A task whose one ticket was dropped (no longer there, or wontfix) before the
+/// session was reopened: the slot is free, so the agent can file its spec.
+fn dropped_ticket_task(tag: &str, drop_as: &str) {
+    let (m, _started) = lifecycle_mock(vec![], |req| match results(req).len() {
+        0 => call("create_tickets", json!({"tickets": [ticket(json!({}))]})),
+        1 => call("work_tickets", json!({})),
+        2 => call("submit_deliverable", json!({"summary": "typo fixed", "files": ["README.md"]})),
+        _ => say("done"),
+    });
+    let (h, ws) = open(tag, m.port, ON, &[("README.md", "Say teh word.\n")]);
+    h.send("hmm");
+    wait(&h, "the question", |s| asked(s) == 1 && s.agents[0].status == AgentStatus::Idle);
+    drop(h);
+
+    let file = ws.join(".backspace/state.json");
+    let mut state: Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+    state["intake"] = json!({"path": "one_shot", "pending": null, "spec_key": "dropped-one"});
+    state["tickets"] = match drop_as {
+        "removed" => json!([]),
+        _ => {
+            let old = backspace_core::Ticket::from_json(&ticket(json!({"key": "dropped-one"})), 1, 0, TicketState::Wontfix).unwrap();
+            json!([old])
+        }
+    };
+    std::fs::write(&file, state.to_string()).unwrap();
+
+    let h = Harness::open(ws.clone()).unwrap();
+    assert_eq!(h.snapshot().intake.spec_key.as_deref(), Some("dropped-one"), "the saved task was restored");
+    h.send("do it");
+    let s = approving(&h, "the delivery", false, |s| s.agents[0].status == AgentStatus::Approved);
+    let r = lead_results(&m);
+    assert!(!r[0].contains("already has its ticket"), "a dropped ticket must not hold the slot: {}", r[0]);
+    let fresh = s.tickets.iter().find(|t| t.key == "fix-readme").unwrap_or_else(|| panic!("the new spec was not filed: {:?}", s.tickets));
+    assert_eq!(fresh.state, TicketState::Done);
+    assert_eq!(s.tickets.iter().filter(|t| t.key == "dropped-one").count(), usize::from(drop_as != "removed"));
+    assert_eq!((s.intake.path, s.intake.spec_key.clone()), (None, None));
+}
+
+#[test]
+fn a_one_shot_whose_ticket_is_gone_can_file_its_spec_again() {
+    dropped_ticket_task("life-gone", "removed");
+}
+
+#[test]
+fn a_one_shot_whose_ticket_was_dropped_as_wontfix_can_file_its_spec_again() {
+    dropped_ticket_task("life-wontfix", "wontfix");
+}
+
+// --------------------------------------------- the start_task authorization
+//
+// `start_task` (the shell's "start another task", and POST /v1/task) is a
+// person's request. What it authorizes: a ticket of its own, built in parallel
+// with no plan approval and no intake question, because they asked for it. What
+// it does not: merging without their review, anything without the API token,
+// or a way round the research and one-shot paths while one is open (research
+// makes no tickets or branches; a one-shot has exactly one ticket, its own).
+// No agent can call it.
+
+const SIDE_TASK: &str = "add a short CONTRIBUTING.md that says to run the tests first";
+
+fn side_task_mock() -> Mock {
+    mock(|req| {
+        let sys = system(req);
+        if sys.starts_with("You are the research agent") {
+            return say("still looking"); // reply, so the research task stays open
+        }
+        if sys.starts_with("You are the one-shot agent") {
+            let users = req["messages"].as_array().unwrap().iter().filter(|m| m["role"] == "user").count();
+            return match (last_role(req), results(req).len()) {
+                ("user", _) if users == 1 => say("What should the spec say?"),
+                ("user", _) => call("create_tickets", json!({"tickets": [ticket(json!({}))]})),
+                (_, 1) => call("work_tickets", json!({})),
+                (_, 2) => call("submit_deliverable", json!({"summary": "typo fixed", "files": ["README.md"]})),
+                _ => say("done"),
+            };
+        }
+        if sys.starts_with("You are a Backspace ticket agent") {
+            return match results(req).last() {
+                None => call("write", json!({"path": "README.md", "content": "Say the word.\n"})),
+                Some(t) if t.starts_with("wrote") => call("submit_deliverable", json!({"summary": "did the side task", "files": ["README.md"]})),
+                Some(_) => say("worker done"),
+            };
+        }
+        say("lead")
+    })
+}
+
+fn nothing_was_started(s: &ProjectState, ws: &Path) {
+    assert!(s.tickets.is_empty() && s.approvals.is_empty() && s.agents.len() == 1, "{:?}", (&s.tickets, &s.approvals, s.agents.len()));
+    assert!(!ws.join(".backspace/tickets").exists() || std::fs::read_dir(ws.join(".backspace/tickets")).unwrap().next().is_none(), "no ticket file");
+    assert!(!ws.join(".backspace/handoff").exists(), "no spec");
+}
+
+fn http_post(port: u16, path: &str, auth: Option<&str>, body: &str) -> (u16, String) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let mut s = loop {
+        match std::net::TcpStream::connect(("127.0.0.1", port)) {
+            Ok(s) => break s,
+            Err(e) => {
+                assert!(Instant::now() < deadline, "no server: {e}");
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        }
+    };
+    let auth = auth.map(|a| format!("Authorization: {a}\r\n")).unwrap_or_default();
+    write!(s, "POST {path} HTTP/1.1\r\nHost: x\r\n{auth}Content-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+    let mut out = String::new();
+    s.read_to_string(&mut out).unwrap();
+    let code = out.split(' ').nth(1).and_then(|c| c.parse().ok()).unwrap_or(0);
+    (code, out.split("\r\n\r\n").nth(1).unwrap_or("").to_string())
+}
+
+fn free_port() -> u16 {
+    TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port()
+}
+
+#[test]
+fn the_task_endpoint_wants_the_token_and_starts_nothing_without_it() {
+    let m = side_task_mock();
+    let (h, ws) = open("st-token", m.port, ON, &[("README.md", "Say teh word.\n")]);
+    let port = free_port();
+    let _serving = h.serve(&format!("127.0.0.1:{port}"), "s3cret").unwrap();
+    let body = json!({"text": SIDE_TASK}).to_string();
+    for (what, auth) in [
+        ("no header", None),
+        ("a wrong token", Some("Bearer wrong")),
+        ("the right token with no scheme", Some("s3cret")),
+        ("another scheme", Some("Basic czNjcmV0")),
+        ("an empty token", Some("Bearer ")),
+    ] {
+        let (code, text) = http_post(port, "/v1/task", auth, &body);
+        assert_eq!(code, 401, "{what}: {text}");
+    }
+    std::thread::sleep(Duration::from_millis(300));
+    nothing_was_started(&h.snapshot(), &ws);
+    assert_eq!(m.calls.load(Ordering::SeqCst), 0, "no model was called for an unauthorized request");
+
+    let (code, text) = http_post(port, "/v1/task", Some("Bearer s3cret"), &body);
+    assert_eq!(code, 200, "{text}");
+    let key = serde_json::from_str::<Value>(&text).unwrap()["key"].as_str().unwrap().to_string();
+    let s = wait(&h, "the ticket", |s| s.tickets.iter().any(|t| t.key == key));
+    assert_eq!(s.tickets.len(), 1);
+}
+
+#[test]
+fn a_started_task_skips_the_plan_gate_but_its_delivery_still_waits_for_the_user() {
+    let m = side_task_mock();
+    let (h, ws) = open("st-review", m.port, ON, &[("README.md", "Say teh word.\n")]);
+    let key = h.start_task(SIDE_TASK).unwrap();
+    let s = wait(&h, "the delivery to wait for review", |s| s.pending_approvals().any(|a| a.kind == ApprovalKind::Deliverable));
+    assert!(!s.approvals.iter().any(|a| a.kind == ApprovalKind::Plan), "the person asked for it: no plan approval");
+    let t = s.tickets.iter().find(|t| t.key == key).unwrap();
+    assert_eq!(t.state, TicketState::InReview, "{:?}", t.state);
+    // Nothing is merged until they say so.
+    std::thread::sleep(Duration::from_millis(500));
+    assert_eq!(std::fs::read_to_string(ws.join(".backspace/worktrees/_run/README.md")).unwrap(), "Say teh word.\n", "merged without approval");
+    let id = s.pending_approvals().next().unwrap().id;
+    h.approve(id);
+    wait(&h, "the merge", |s| s.tickets.iter().any(|t| t.key == key && t.state == TicketState::Done));
+    assert_eq!(std::fs::read_to_string(ws.join(".backspace/worktrees/_run/README.md")).unwrap(), "Say the word.\n");
+}
+
+#[test]
+fn a_started_task_is_not_a_task_for_the_planner_or_the_question() {
+    // A question is waiting on the user. Starting a side task neither answers it,
+    // classifies the side task, nor asks about it.
+    let m = side_task_mock();
+    let (h, _ws) = open("st-intake", m.port, ON, &[("README.md", "Say teh word.\n")]);
+    h.send("hmm");
+    let before = wait(&h, "the question", |s| asked(s) == 1 && s.agents[0].status == AgentStatus::Idle);
+    let key = h.start_task("hmm").unwrap(); // text the classifier would ask about
+    let s = wait(&h, "the worker", |s| s.tickets.iter().any(|t| t.key == key) && s.agents.len() > 1);
+    assert_eq!(asked(&s), 1, "the side task was not asked about");
+    assert_eq!(s.intake.pending, before.intake.pending, "the waiting question is untouched");
+    assert_eq!(s.intake.path, None);
+    let seen = m.seen.lock().unwrap();
+    assert!(
+        seen.iter().all(|r| system(r).starts_with("You are a Backspace ticket agent")),
+        "only the worker was called: {:?}",
+        seen.iter().map(|r| system(r).chars().take(40).collect::<String>()).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn nothing_can_be_started_from_nothing() {
+    let m = side_task_mock();
+    let (h, ws) = open("st-empty", m.port, ON, &[]);
+    for text in ["", "   ", "\n\t "] {
+        let e = h.start_task(text).expect_err("an empty task").to_string();
+        assert!(e.contains("say what the task is"), "{e}");
+    }
+    nothing_was_started(&h.snapshot(), &ws);
+}
+
+#[test]
+fn a_task_cannot_be_started_while_a_research_task_is_open() {
+    let m = side_task_mock();
+    let (h, ws) = open("st-research", m.port, ON, &[("README.md", "Say teh word.\n")]);
+    h.send("research the pros and cons of sqlite and write up a report, no code");
+    wait(&h, "the research task", |s| s.intake.path == Some(TaskType::Research) && s.agents[0].status == AgentStatus::Idle);
+    let e = h.start_task(SIDE_TASK).expect_err("research makes no tickets or branches").to_string().to_lowercase();
+    for needed in ["research task is open", "stop"] {
+        assert!(e.contains(needed), "`{needed}` missing from the refusal: {e}");
+    }
+    assert!(!e.contains("create_tickets"), "the refusal speaks to the person, not to a model: {e}");
+    std::thread::sleep(Duration::from_millis(300));
+    let s = h.snapshot();
+    nothing_was_started(&s, &ws);
+    assert_eq!(s.intake.path, Some(TaskType::Research), "the research task is undisturbed");
+    // Over the API it is a refusal too, and the same one.
+    let port = free_port();
+    let _serving = h.serve(&format!("127.0.0.1:{port}"), "s3cret").unwrap();
+    let (code, text) = http_post(port, "/v1/task", Some("Bearer s3cret"), &json!({"text": SIDE_TASK}).to_string());
+    assert_eq!(code, 400, "{text}");
+    assert!(text.to_lowercase().contains("research task is open"), "{text}");
+    // Ending the research task (Stop) opens the way again.
+    h.stop(None);
+    wait(&h, "the stop", |s| s.intake.path.is_none());
+    h.start_task(SIDE_TASK).expect("with no restricted task open");
+}
+
+#[test]
+fn a_task_cannot_be_started_while_a_one_shot_is_open_and_does_not_take_its_ticket() {
+    let m = side_task_mock();
+    let (h, _ws) = open("st-oneshot", m.port, ON, &[("README.md", "Say teh word.\n")]);
+    h.send(TYPO);
+    wait(&h, "the one-shot's question", |s| s.intake.path == Some(TaskType::OneShot) && s.agents[0].status == AgentStatus::Idle);
+    let e = h.start_task(SIDE_TASK).expect_err("a one-shot has exactly one ticket, its own").to_string().to_lowercase();
+    for needed in ["one-shot task is open", "stop"] {
+        assert!(e.contains(needed), "`{needed}` missing from the refusal: {e}");
+    }
+    std::thread::sleep(Duration::from_millis(300));
+    let s = h.snapshot();
+    assert!(s.tickets.is_empty() && s.agents.len() == 1, "{:?}", s.tickets);
+    assert_eq!(s.intake.spec_key, None, "the one-shot's ticket slot was not used up");
+    // The one-shot can still file and run its own ticket.
+    h.send("the spec: fix the typo in the readme");
+    let s = approving(&h, "its delivery", false, |s| s.agents[0].status == AgentStatus::Approved);
+    assert_eq!(s.tickets.len(), 1);
+    assert_eq!((s.tickets[0].key.as_str(), s.tickets[0].state), ("fix-readme", TicketState::Done));
+}
+
+#[test]
+fn a_long_task_does_not_stop_a_side_task_from_starting() {
+    let m = side_task_mock();
+    let (h, _ws) = open("st-long", m.port, ON, &[("README.md", "Say teh word.\n")]);
+    h.send("build a dashboard system platform across several services");
+    wait(&h, "the long path", |s| s.intake.path == Some(TaskType::Long) && s.agents[0].status == AgentStatus::Idle);
+    let key = h.start_task(SIDE_TASK).expect("only the research and one-shot paths hold a task back");
+    wait(&h, "the side task's ticket", |s| s.tickets.iter().any(|t| t.key == key));
+}
+
+#[test]
+fn no_agent_is_offered_a_way_to_start_a_task() {
+    let seen_tools = Arc::new(Mutex::new(Vec::<(String, Vec<String>)>::new()));
+    let log = seen_tools.clone();
+    let m = mock(move |req| {
+        log.lock().unwrap().push((system(req).chars().take(30).collect(), tool_names(req)));
+        let sys = system(req);
+        if sys.starts_with("You are a Backspace ticket agent") {
+            return match results(req).last() {
+                None => call("write", json!({"path": "README.md", "content": "Say the word.\n"})),
+                Some(t) if t.starts_with("wrote") => call("submit_deliverable", json!({"summary": "done", "files": ["README.md"]})),
+                Some(_) => say("worker done"),
+            };
+        }
+        say("lead")
+    });
+    let (h, _ws) = open("st-tools", m.port, ON, &[("README.md", "Say teh word.\n")]);
+    h.send("build a dashboard system platform across several services");
+    wait(&h, "the lead agent", |_| m.calls.load(Ordering::SeqCst) >= 1);
+    h.start_task(SIDE_TASK).unwrap();
+    wait(&h, "a worker", |_| seen_tools.lock().unwrap().iter().any(|(s, _)| s.starts_with("You are a Backspace ticket")));
+    let seen = seen_tools.lock().unwrap();
+    assert!(seen.iter().any(|(s, _)| s.starts_with("You are the lead agent")));
+    for (who, tools) in seen.iter() {
+        assert!(!tools.iter().any(|t| t.contains("start_task")), "{who} was offered a way to start a task: {tools:?}");
+    }
+    for path in [TaskType::Research, TaskType::OneShot] {
+        assert!(!intake::allows(path, "start_task"), "{path:?}");
+    }
+}

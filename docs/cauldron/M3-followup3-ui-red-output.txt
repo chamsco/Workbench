@@ -1,0 +1,4 @@
+# UI red state: tools/uiharness/evals/file-links.js against the UI before the change.
+# node tools/uiharness/run.mjs --chrome <wrapper> --quiet --scale 2 --eval-file tools/uiharness/evals/file-links.js
+[console.error] FAIL: right panel: shared lacks .rp-link | right panel: shared has no visible link marker | right panel: shared title does not say symbolic link () | right panel: shared has no accessible "symbolic link" (null) | right panel: shared is not set apart in italics (normal) | right panel: CHANGELOG.md lacks .rp-link | right panel: CHANGELOG.md has no visible link marker | right panel: CHANGELOG.md title does not say symbolic link () | right panel: CHANGELOG.md has no accessible "symbolic link" (null) | right panel: CHANGELOG.md is not set apart in italics (normal) | right panel: out
+  "pass": false,

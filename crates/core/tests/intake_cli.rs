@@ -258,3 +258,61 @@ fn a_cli_long_task_still_launches_the_planner_as_before() {
     assert_eq!(asked(&h.snapshot()), 0);
     assert!(!s.agents[0].log.iter().any(|l| l.kind == LogKind::Error), "{:?}", s.agents[0].log);
 }
+
+// ---- the question says what can run
+
+/// The text of the last question the main agent asked.
+fn last_question(s: &ProjectState) -> String {
+    s.agents[0].log.iter().rev().find(|l| l.kind == LogKind::Assistant).expect("a question was asked").text.clone()
+}
+
+/// With a coding-CLI planner only the long path runs, so the question offers
+/// only that one and says why the others are not on the list.
+fn assert_long_only(q: &str) {
+    let lower = q.to_lowercase();
+    for needed in ["not available", "coding cli", "m6", "api model", "one-shot", "research"] {
+        assert!(lower.contains(needed), "`{needed}` missing from:\n{q}");
+    }
+    assert!(q.lines().any(|l| l.trim_start().starts_with("- long")), "long is the choice offered:\n{q}");
+    assert!(!q.lines().any(|l| l.trim_start().starts_with(|c: char| c.is_ascii_digit())), "no menu of paths that cannot run:\n{q}");
+}
+
+#[test]
+fn the_question_under_a_cli_planner_offers_only_the_path_that_can_run() {
+    let (h, _ws, run) = open("question-long-only");
+    h.send("hmm");
+    let s = wait(&h, "the question", |s| asked(s) == 1 && s.agents[0].status == AgentStatus::Idle);
+    assert_long_only(&last_question(&s));
+    assert_eq!(launches(&run), 0, "asking launches nothing");
+    h.send("long");
+    wait(&h, "the CLI to run", |_| launches(&run) == 1);
+    assert_eq!(h.snapshot().intake.path, Some(backspace_core::decision::TaskType::Long));
+}
+
+#[test]
+fn an_unclear_answer_under_a_cli_planner_is_asked_again_with_the_same_options() {
+    let (h, _ws, run) = open("question-again");
+    h.send("hmm");
+    wait(&h, "the first question", |s| asked(s) == 1 && s.agents[0].status == AgentStatus::Idle);
+    h.send("dunno");
+    let s = wait(&h, "the second question", |s| asked(s) == 2 && s.agents[0].status == AgentStatus::Idle);
+    let q = last_question(&s);
+    assert!(q.starts_with("I didn't get a clear answer"), "{q}");
+    assert_long_only(&q);
+    assert_eq!(launches(&run), 0);
+    // The number still works, though it is no longer advertised.
+    h.send("2");
+    wait(&h, "the CLI to run", |_| launches(&run) == 1);
+}
+
+#[test]
+fn an_answer_for_a_path_that_cannot_run_is_still_refused_after_the_question_that_left_it_out() {
+    // Defence in depth: the question no longer offers research, but a reply that
+    // asks for it anyway is refused as before, not run.
+    let (h, ws, run) = open("question-then-research");
+    h.send("hmm");
+    let s = wait(&h, "the question", |s| asked(s) == 1 && s.agents[0].status == AgentStatus::Idle);
+    assert_long_only(&last_question(&s));
+    h.send("research");
+    assert_refused(&h, &ws, &run, "research", &["research", "coding cli", "api model", "m6"]);
+}
