@@ -8,7 +8,7 @@ Branch `claude/project-thread-dpmr8e`. Red `4698546`, green `0bceea6953d088a8374
 4. **Research returns a report with no PR:** `read`, `list`, `submit_report` only, enforced on every call. The report is a file under `.backspace/reports/`. Tested: no ticket, approval, worker or branch, and `create_tickets`, `write` and `bash` are refused.
 5. **One-shot reaches execution:** exactly one ticket, 1–5 acceptance lines (5 is provisional), no plan gate, handed off as `.backspace/handoff/<key>/spec.md`, then a worker builds and merges it as usual. Main cannot write or run commands itself.
 6. **Research cannot grep, run code or browse.** `bash` could push, so it is off until M6's sandbox, and the harness has no web tool. I added a read-only `list`.
-7. **Superseded by `M3-FOLLOWUP-REPORT.md`:** CLI research is now refused, a CLI one-shot's dispatch is tested and its path ends with its ticket, and file tools no longer follow symlinks out. The CLI's own tools are still not gated.
+7. **Superseded by `M3-FOLLOWUP-REPORT.md` and `M3-CLOSURE-REPORT.md`:** CLI research and CLI one-shot are both refused before the CLI runs, file tools no longer follow symlinks out, and the UI listing no longer enters them. The CLI's own tools are still not gated, which is why only the long path runs in a CLI until M6.
 8. Mock models and a fake `claude` only; the two new prompts have not met a real model.
 9. Tokens: not measured. Frontier calls: 0 real. Intake's own calls: 0.
 10. Still owed from M2: the §10 eval needs your task texts and your OK on the frontier definition. Not started: M4, M5.

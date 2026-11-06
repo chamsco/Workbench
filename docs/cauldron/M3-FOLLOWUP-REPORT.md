@@ -1,5 +1,7 @@
 # M3 follow-up report: symlink boundary, CLI research, CLI one-shot
 
+> **Partly superseded by `M3-CLOSURE-REPORT.md`:** item 4 (CLI one-shot dispatch tested, path ends with its ticket) no longer holds. A CLI one-shot is now refused before the CLI runs, and its code and tests are removed. The last sentence of item 6 (UI listing still shows names under a symlinked folder) is fixed. The rest stands.
+
 Branch `claude/project-thread-dpmr8e`. Red `824c65be1fbded4d717fd33db60a07c4e73277b1`, green `5b1d50103f4bf31f0d1ed52d18c33fd06ec6357b`. Outputs: `M3-followup-red-output.txt`, `M3-followup-suite-output.txt` (run 3 of 3). Details: `M3-NOTES.md`.
 
 1. Suite: **553 passed, 0 failed, 0 warnings, three consecutive runs** (540 before, +13 new, 1 replaced). Red first: 6 of 9 boundary tests, the research symlink test and 4 CLI tests failed on missing behaviour.
