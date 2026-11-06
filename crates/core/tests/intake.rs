@@ -414,14 +414,14 @@ fn model(req: &Value) -> Value {
             2 => call("write", json!({"path": "README.md", "content": "I did it myself"})),
             3 => call("create_tickets", json!({"tickets": [ticket(json!({}))]})),
             4 => call("work_tickets", json!({})),
-            5 => call("submit_deliverable", json!({"summary": "typo fixed", "files": ["README.md"]})),
+            5 => call("submit_deliverable", json!({"checks_run": [], "assumptions": [], "open_questions": [], "summary": "typo fixed", "files": ["README.md"]})),
             _ => say("done"),
         };
     }
     if sys.starts_with("You are a Backspace ticket agent") {
         return match results(req).last() {
             None => call("write", json!({"path": "README.md", "content": "Say the word.\n"})),
-            Some(t) if t.starts_with("wrote") => call("submit_deliverable", json!({"summary": "fixed the typo", "files": ["README.md"]})),
+            Some(t) if t.starts_with("wrote") => call("submit_deliverable", json!({"checks_run": [], "assumptions": [], "open_questions": [], "summary": "fixed the typo", "files": ["README.md"]})),
             Some(_) => say("worker done"),
         };
     }
@@ -719,14 +719,14 @@ fn a_one_shot_files_one_ticket_and_a_second_is_refused_while_the_first_still_run
                 0 => call("create_tickets", json!({"tickets": [ticket(json!({}))]})),
                 1 => call("create_tickets", json!({"tickets": [ticket(json!({"key": "second"}))]})),
                 2 => call("work_tickets", json!({})),
-                3 => call("submit_deliverable", json!({"summary": "typo fixed", "files": ["README.md"]})),
+                3 => call("submit_deliverable", json!({"checks_run": [], "assumptions": [], "open_questions": [], "summary": "typo fixed", "files": ["README.md"]})),
                 _ => say("done"),
             };
         }
         if sys.starts_with("You are a Backspace ticket agent") {
             return match results(req).last() {
                 None => call("write", json!({"path": "README.md", "content": "Say the word.\n"})),
-                Some(t) if t.starts_with("wrote") => call("submit_deliverable", json!({"summary": "fixed the typo", "files": ["README.md"]})),
+                Some(t) if t.starts_with("wrote") => call("submit_deliverable", json!({"checks_run": [], "assumptions": [], "open_questions": [], "summary": "fixed the typo", "files": ["README.md"]})),
                 Some(_) => say("worker done"),
             };
         }
@@ -872,7 +872,7 @@ fn lifecycle_mock(workers: Vec<W>, lead: impl Fn(&Value) -> Value + Send + Sync 
                 W::Deliver => match results(req).last() {
                     None => call("write", json!({"path": "README.md", "content": "Say the word.\n"})),
                     Some(t) if t.contains("REJECTED") => call("write", json!({"path": "README.md", "content": "Say the word, please.\n"})),
-                    Some(t) if t.starts_with("wrote") => call("submit_deliverable", json!({"summary": "fixed the typo", "files": ["README.md"]})),
+                    Some(t) if t.starts_with("wrote") => call("submit_deliverable", json!({"checks_run": [], "assumptions": [], "open_questions": [], "summary": "fixed the typo", "files": ["README.md"]})),
                     Some(_) => say("worker done"),
                 },
             };
@@ -932,7 +932,7 @@ fn a_failed_one_shot_is_retried_in_the_same_turn_on_its_one_ticket() {
     let (m, started) = lifecycle_mock(vec![W::GiveUp], |req| match results(req).len() {
         0 => call("create_tickets", json!({"tickets": [ticket(json!({}))]})),
         1 | 2 => call("work_tickets", json!({})),
-        3 => call("submit_deliverable", json!({"summary": "typo fixed", "files": ["README.md"]})),
+        3 => call("submit_deliverable", json!({"checks_run": [], "assumptions": [], "open_questions": [], "summary": "typo fixed", "files": ["README.md"]})),
         _ => say("done"),
     });
     let (h, ws) = open("life-retry", m.port, ON, &[("README.md", "Say teh word.\n")]);
@@ -960,7 +960,7 @@ fn failing_lead(req: &Value) -> Value {
         (2, _) => call("create_tickets", json!({"tickets": [ticket(json!({"key": "second"}))]})),
         // Naming the key works too (a failed ticket is dispatched by name).
         (3, _) => call("work_tickets", json!({"keys": ["fix-readme"]})),
-        (4, _) => call("submit_deliverable", json!({"summary": "typo fixed", "files": ["README.md"]})),
+        (4, _) => call("submit_deliverable", json!({"checks_run": [], "assumptions": [], "open_questions": [], "summary": "typo fixed", "files": ["README.md"]})),
         _ => say("done"),
     }
 }
@@ -1018,7 +1018,7 @@ fn a_one_shot_worker_the_user_stops_fails_its_ticket_and_can_be_dispatched_again
     let (m, started) = lifecycle_mock(vec![W::Hang], |req| match results(req).len() {
         0 => call("create_tickets", json!({"tickets": [ticket(json!({}))]})),
         1 | 2 => call("work_tickets", json!({})),
-        3 => call("submit_deliverable", json!({"summary": "typo fixed", "files": ["README.md"]})),
+        3 => call("submit_deliverable", json!({"checks_run": [], "assumptions": [], "open_questions": [], "summary": "typo fixed", "files": ["README.md"]})),
         _ => say("done"),
     });
     let (h, _ws) = open("life-drop", m.port, ON, &[("README.md", "Say teh word.\n")]);
@@ -1039,7 +1039,7 @@ fn a_rejected_one_shot_deliverable_goes_back_to_its_worker_and_the_path_ends_wit
     let (m, started) = lifecycle_mock(vec![], |req| match results(req).len() {
         0 => call("create_tickets", json!({"tickets": [ticket(json!({}))]})),
         1 => call("work_tickets", json!({})),
-        2 => call("submit_deliverable", json!({"summary": "typo fixed", "files": ["README.md"]})),
+        2 => call("submit_deliverable", json!({"checks_run": [], "assumptions": [], "open_questions": [], "summary": "typo fixed", "files": ["README.md"]})),
         _ => say("done"),
     });
     let (h, ws) = open("life-reject", m.port, ON, &[("README.md", "Say teh word.\n")]);
@@ -1060,7 +1060,7 @@ fn dropped_ticket_task(tag: &str, drop_as: &str) {
     let (m, _started) = lifecycle_mock(vec![], |req| match results(req).len() {
         0 => call("create_tickets", json!({"tickets": [ticket(json!({}))]})),
         1 => call("work_tickets", json!({})),
-        2 => call("submit_deliverable", json!({"summary": "typo fixed", "files": ["README.md"]})),
+        2 => call("submit_deliverable", json!({"checks_run": [], "assumptions": [], "open_questions": [], "summary": "typo fixed", "files": ["README.md"]})),
         _ => say("done"),
     });
     let (h, ws) = open(tag, m.port, ON, &[("README.md", "Say teh word.\n")]);
@@ -1126,14 +1126,14 @@ fn side_task_mock() -> Mock {
                 ("user", _) if users == 1 => say("What should the spec say?"),
                 ("user", _) => call("create_tickets", json!({"tickets": [ticket(json!({}))]})),
                 (_, 1) => call("work_tickets", json!({})),
-                (_, 2) => call("submit_deliverable", json!({"summary": "typo fixed", "files": ["README.md"]})),
+                (_, 2) => call("submit_deliverable", json!({"checks_run": [], "assumptions": [], "open_questions": [], "summary": "typo fixed", "files": ["README.md"]})),
                 _ => say("done"),
             };
         }
         if sys.starts_with("You are a Backspace ticket agent") {
             return match results(req).last() {
                 None => call("write", json!({"path": "README.md", "content": "Say the word.\n"})),
-                Some(t) if t.starts_with("wrote") => call("submit_deliverable", json!({"summary": "did the side task", "files": ["README.md"]})),
+                Some(t) if t.starts_with("wrote") => call("submit_deliverable", json!({"checks_run": [], "assumptions": [], "open_questions": [], "summary": "did the side task", "files": ["README.md"]})),
                 Some(_) => say("worker done"),
             };
         }
@@ -1316,7 +1316,7 @@ fn no_agent_is_offered_a_way_to_start_a_task() {
         if sys.starts_with("You are a Backspace ticket agent") {
             return match results(req).last() {
                 None => call("write", json!({"path": "README.md", "content": "Say the word.\n"})),
-                Some(t) if t.starts_with("wrote") => call("submit_deliverable", json!({"summary": "done", "files": ["README.md"]})),
+                Some(t) if t.starts_with("wrote") => call("submit_deliverable", json!({"checks_run": [], "assumptions": [], "open_questions": [], "summary": "done", "files": ["README.md"]})),
                 Some(_) => say("worker done"),
             };
         }

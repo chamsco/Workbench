@@ -77,7 +77,7 @@ fn respond(req: &Value) -> Value {
             Some(t) if t.contains("Plan APPROVED") => tool_call("work_tickets", json!({})),
             Some(t) if t.contains("APPROVED by the user and merged") => tool_call(
                 "submit_deliverable",
-                json!({"summary": "hello.txt", "files": ["hello.txt"]}),
+                json!({"checks_run": [], "assumptions": [], "open_questions": [], "summary": "hello.txt", "files": ["hello.txt"]}),
             ),
             Some(t) => unexpected(t),
         };
@@ -113,7 +113,7 @@ fn respond(req: &Value) -> Value {
                 ]}),
             ),
             Some(t) if t.contains("The user chose") => {
-                tool_call("submit_deliverable", json!({"summary": "picked", "files": []}))
+                tool_call("submit_deliverable", json!({"checks_run": [], "assumptions": [], "open_questions": [], "summary": "picked", "files": []}))
             }
             Some(t) => unexpected(t),
         };
@@ -141,7 +141,7 @@ fn respond(req: &Value) -> Value {
             Some(t) if t.contains("Plan APPROVED") => tool_call("work_tickets", json!({})),
             Some(t) if t.contains("APPROVED by the user and merged") => tool_call(
                 "submit_deliverable",
-                json!({"summary": "a.txt and b.txt", "files": ["a.txt", "b.txt"]}),
+                json!({"checks_run": [], "assumptions": [], "open_questions": [], "summary": "a.txt and b.txt", "files": ["a.txt", "b.txt"]}),
             ),
             Some(t) => unexpected(t),
         };
@@ -149,13 +149,13 @@ fn respond(req: &Value) -> Value {
     if worker && c.first.starts_with("# a:") {
         return match c.last_tool {
             // Submit before doing the work: the check must bounce it.
-            None => tool_call("submit_deliverable", json!({"summary": "done?"})),
+            None => tool_call("submit_deliverable", json!({"checks_run": [], "assumptions": [], "open_questions": [], "summary": "done?"})),
             Some(t) if t.starts_with("CHECK FAILED") => {
                 tool_call("write", json!({"path": "a.txt", "content": "A"}))
             }
             Some(t) if t.starts_with("wrote") || t.contains("REJECTED") => tool_call(
                 "submit_deliverable",
-                json!({"summary": "wrote a.txt", "files": ["a.txt"]}),
+                json!({"checks_run": [], "assumptions": [], "open_questions": [], "summary": "wrote a.txt", "files": ["a.txt"]}),
             ),
             Some(t) => unexpected(t),
         };
@@ -169,7 +169,7 @@ fn respond(req: &Value) -> Value {
             None => tool_call("write", json!({"path": "b.txt", "content": "B"})),
             Some(t) if t.starts_with("wrote") => tool_call(
                 "submit_deliverable",
-                json!({"summary": "wrote b.txt", "files": ["b.txt"]}),
+                json!({"checks_run": [], "assumptions": [], "open_questions": [], "summary": "wrote b.txt", "files": ["b.txt"]}),
             ),
             Some(t) => unexpected(t),
         };
@@ -189,7 +189,7 @@ fn respond(req: &Value) -> Value {
                 tool_call("work_tickets", json!({"keys": ["lead"]}))
             }
             Some(t) if t.contains("APPROVED by the user and merged") => {
-                tool_call("submit_deliverable", json!({"summary": "nested done"}))
+                tool_call("submit_deliverable", json!({"checks_run": [], "assumptions": [], "open_questions": [], "summary": "nested done"}))
             }
             Some(t) => unexpected(t),
         };
@@ -208,7 +208,7 @@ fn respond(req: &Value) -> Value {
             None => tool_call("write", json!({"path": "leaf.txt", "content": "v1"})),
             Some(t) if t.starts_with("wrote") => tool_call(
                 "submit_deliverable",
-                json!({"summary": "wrote leaf", "files": ["leaf.txt"]}),
+                json!({"checks_run": [], "assumptions": [], "open_questions": [], "summary": "wrote leaf", "files": ["leaf.txt"]}),
             ),
             Some(t) => unexpected(t),
         };
@@ -241,7 +241,7 @@ fn respond(req: &Value) -> Value {
             ),
             Some(_) if reviews == 2 => tool_call(
                 "submit_deliverable",
-                json!({"summary": "leaf reviewed", "files": ["leaf.txt"]}),
+                json!({"checks_run": [], "assumptions": [], "open_questions": [], "summary": "leaf reviewed", "files": ["leaf.txt"]}),
             ),
             Some(t) => unexpected(t),
         };
