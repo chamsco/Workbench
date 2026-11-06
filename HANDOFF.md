@@ -633,3 +633,6 @@ cargo run -p backspace-runner --example ask -- claude "hi"
 - Stress-test their ideas and lead with what's wrong.
 - They write fast and informally, so take the intent, not the literal words.
 - They expect work committed and pushed, not just proposed.
+
+## 2026-11-06 — relay chains capped at two hops
+`relay::MAX_HOPS` is 2 (was 6). A tile passing work on appends the original request, verbatim, with who first asked (`Inbound.origin`), so the receiver never works from a summary of a summary. Tests: `the_second_hop_is_the_last`, `a_forwarded_letter_carries_the_first_senders_words`.

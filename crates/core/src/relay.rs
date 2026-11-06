@@ -27,7 +27,7 @@ use serde::{Deserialize, Serialize};
 pub const ENV_TILE: &str = "BACKSPACE_TILE";
 
 /// How many hand-offs one thing the user asked may cause.
-pub const MAX_HOPS: u8 = 6;
+pub const MAX_HOPS: u8 = 2;
 
 /// One harness tile in the open tab.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]

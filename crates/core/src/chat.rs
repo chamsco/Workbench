@@ -436,6 +436,8 @@ struct Inbound {
     /// @mention the user typed there).
     as_note: bool,
     hops: u8,
+    /// Who first asked and their exact words, when this letter is a hand-on.
+    origin: Option<(String, String)>,
 }
 
 /// OpenUI's prompt for rich answers (charts, tables, steps, forms), set by
@@ -947,7 +949,7 @@ impl Chats {
         let tiles = crate::relay::tiles(&self.dir);
         if let Some((to, rest)) = crate::relay::mention(&tiles, id, text).filter(|(_, r)| !r.is_empty()) {
             let text = self.with_context(id, &tiles, &rest);
-            let inb = Inbound { from: id.to_string(), text, reply: true, as_note: true, hops: 1 };
+            let inb = Inbound { from: id.to_string(), text, reply: true, as_note: true, hops: 1, origin: Some(("the user".into(), rest.clone())) };
             return self.take_letter(&to.thread.clone(), inb, ctx);
         }
         self.reply(id, ctx, mention(text))
@@ -967,7 +969,15 @@ impl Chats {
             self.note(&l.from, &l.to, &why);
             bail!("too many hand-offs");
         }
-        let inb = Inbound { from: l.from.clone(), text: l.text.clone(), reply: l.reply, as_note: false, hops };
+        // A tile passing work on rewrites it in its own words. Say what the
+        // chain started from, verbatim, so the receiver is not left with a
+        // summary of a summary.
+        let origin = self.answering.lock().unwrap().get(&l.from).map(|i| i.origin.clone().unwrap_or_else(|| (self.tile_label(&i.from), i.text.clone())));
+        let text = match &origin {
+            Some((who, said)) => format!("{}\n\n---\nThe original request, verbatim, from {who}:\n\n{said}", l.text),
+            None => l.text.clone(),
+        };
+        let inb = Inbound { from: l.from.clone(), text, reply: l.reply, as_note: false, hops, origin };
         self.take_letter(&l.to, inb, ctx)
     }
 
@@ -1088,7 +1098,7 @@ impl Chats {
             if inb.as_note {
                 self.note(&inb.from, tid, &body);
             } else {
-                let back = Inbound { from: tid.to_string(), text: body, reply: false, as_note: false, hops: inb.hops };
+                let back = Inbound { from: tid.to_string(), text: body, reply: false, as_note: false, hops: inb.hops, origin: None };
                 let _ = self.take_letter(&inb.from, back, ctx.clone());
             }
         }
@@ -2425,6 +2435,32 @@ mod tests {
         settle(&c, &[&b]);
         assert_eq!(c.thread(&b).unwrap().messages[0].text, "later");
         assert!(c.thread(&a).unwrap().messages.is_empty(), "no answer was asked for");
+    }
+
+    #[test]
+    fn the_second_hop_is_the_last() {
+        let (c, _rt, a, b) = two_tiles("twohops");
+        assert_eq!(crate::relay::MAX_HOPS, 2);
+        let l = crate::relay::Letter { from: a.clone(), to: b.clone(), text: "x".into(), reply: false };
+        c.hops.lock().unwrap().insert(a.clone(), 1);
+        assert!(c.deliver(&l, dead_ctx()).is_ok(), "the second hop goes through");
+        c.hops.lock().unwrap().insert(a.clone(), 2);
+        assert!(c.deliver(&l, dead_ctx()).is_err(), "a third is refused");
+    }
+
+    #[test]
+    fn a_forwarded_letter_carries_the_first_senders_words() {
+        let (c, _rt, a, b) = two_tiles("origin");
+        // `claude` is answering a request the user typed; it forwards a summary.
+        let user = Inbound { from: "user".into(), text: "make the build 2x faster, no new deps".into(), reply: true, as_note: true, hops: 1, origin: Some(("the user".into(), "make the build 2x faster, no new deps".into())) };
+        c.answering.lock().unwrap().insert(a.clone(), user);
+        c.hops.lock().unwrap().insert(a.clone(), 1);
+        let l = crate::relay::Letter { from: a.clone(), to: b.clone(), text: "speed up the build".into(), reply: false };
+        c.deliver(&l, dead_ctx()).unwrap();
+        settle(&c, &[&b]);
+        let m = &c.thread(&b).unwrap().messages[0];
+        assert!(m.text.starts_with("speed up the build"), "{}", m.text);
+        assert!(m.text.contains("the user") && m.text.contains("make the build 2x faster, no new deps"), "{}", m.text);
     }
 
     #[test]
