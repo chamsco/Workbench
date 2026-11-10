@@ -1,0 +1,11 @@
+[package]
+name = "cauldron-chrome"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Cauldron window chrome contract: design tokens and the shell layout solver, shared by the GPUI builds on macOS and Windows"
+
+[dependencies]
+
+[dev-dependencies]
+serde_json.workspace = true

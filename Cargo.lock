@@ -1055,6 +1055,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cauldron-chrome"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "cbc"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

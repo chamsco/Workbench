@@ -15,6 +15,10 @@ A working product where every feature is verified by automated tests, and where 
 
 The same test pipeline serves both modes.
 
+### 1.1 Delivery target (amendment, 10 Nov 2026, Charles)
+
+The working product is a native GPUI desktop app on macOS and Windows that looks like the reviewed wireframe and runs this core. It adds no features beyond section 5. Its milestones (UI0 to UI9) are in `docs/cauldron/UI-PLAN.md` and follow the same rules as section 12: failing acceptance tests first, full suite output pasted, stop for Charles's review where the plan says so. The Tauri shell keeps building until UI9 and gets no new screens.
+
 ## 2. Non-goals
 
 - Anything Meadow related.
@@ -395,6 +399,17 @@ Each milestone ends with: full suite run, pass/fail counts reported, commit. If 
 | M11 | Plugins and skills | On-demand skill loading, plugin API, allowlists, audit hook. |
 | M12 | ADE and IDE parity | Same test loop works in both modes. Regression suite green. |
 | M13 | Hardening | Audit log, observability, failure-mode tests, metrics dashboard. |
+
+UI track (amendment 1.1; details and exit tests in `docs/cauldron/UI-PLAN.md`):
+
+| # | Milestone | Acceptance |
+|---|---|---|
+| UI0 | Tokens and layout contract (`crates/chrome`) | Done: 11 tests against numbers measured from the wireframe. |
+| UI1 | GPUI shell skeleton, both platforms | Live rects equal the solver in every shell state; CI builds on macOS and Windows. |
+| UI2 | Old glass palette and radii replaced by tokens | Lints for radius, 4px scale, dashes, icons, colours pass. |
+| UI3 to UI7 | Sidebar, thread, New thread, drawer, remaining screens | Each screen with its normal, empty, loading, error and offline states. |
+| UI8 | Settings, onboarding, update flow, installers | Installers and update flow tested on both OSes. |
+| UI9 | Parity; Tauri shell retired | Same behaviours covered on GPUI; release workflows build GPUI. |
 
 ## 13. Roadmap (future tasks)
 

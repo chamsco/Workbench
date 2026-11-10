@@ -1,0 +1,17 @@
+     Running unittests src/lib.rs (/tmp/claude-0/chrometarget/debug/deps/cauldron_chrome-43fa68bc63e6bbb5)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/tokens.rs (/tmp/claude-0/chrometarget/debug/deps/tokens-531c0f92b20f8e3e)
+test contrast_follows_wcag ... FAILED
+test one_accent_and_status_colours_stay_distinct ... FAILED
+test every_text_pair_passes_aa_in_both_themes ... FAILED
+test palettes_match_the_wireframe_tokens_exactly ... FAILED
+test radii_match_the_wireframe_and_nest_by_subtraction ... FAILED
+test result: FAILED. 0 passed; 5 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/wireframe.rs (/tmp/claude-0/chrometarget/debug/deps/wireframe-f96bdf487c01d181)
+test panes_never_overlap_and_stay_inside_the_window ... ok
+test main_keeps_a_minimum_width_by_closing_split_then_drawer ... FAILED
+test platforms_differ_only_in_window_controls ... FAILED
+test golden_has_two_window_sizes ... FAILED
+test solver_matches_every_golden_state_and_size ... FAILED
+test result: FAILED. 1 passed; 4 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s

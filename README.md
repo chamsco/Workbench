@@ -103,7 +103,9 @@ The product is **Workbench**, and that is the only name users should see. In the
 | `crates/core` | The harness: planner, tickets, worktrees, router, tools, memory, traces, and hands (browser and desktop use) |
 | `crates/runner` | One turn on any CLI, model API or A2A agent. MIT, and reusable on its own |
 | `crates/cli` | The headless shell: `backspace-cli`, plus `backspace mcp` for agents |
-| `crates/app` | The older native GPUI shell (only the coding workbench) |
+| `crates/app` | The native GPUI shell, the target app on macOS and Windows ([`docs/cauldron/UI-PLAN.md`](docs/cauldron/UI-PLAN.md)). Today it has only the coding workbench |
+| `crates/chrome` | Window chrome contract for the GPUI shell: design tokens and the shell layout solver, tested against the wireframe |
+| `tools/wireframe-golden` | Regenerates the chrome golden file from `design/cauldron-master-layout.html` |
 | `tools/uiharness` | Headless Chromium harness for the UI, with mocked commands |
 | `docs/` | Design and architecture notes; [`docs/brainwave/`](docs/brainwave/PLAN.md) is the current plan |
 
