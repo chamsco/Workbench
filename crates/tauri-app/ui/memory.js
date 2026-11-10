@@ -34,7 +34,7 @@ var Memory = (() => {
       `<div class="mem-on"><span>Give notes to chats and agents</span><button class="toggle" role="switch" id="memOn" aria-checked="${prefs.memory_on !== false}" aria-label="Give notes to chats and agents"></button></div>
       <div class="mem-on second"><span>Notice things to remember<small>Decided on this machine; learns from "Don't remember that"</small></span><button class="toggle" role="switch" id="memAuto" aria-checked="${prefs.memory_auto !== false}" aria-label="Notice things to remember"></button></div>
       <div class="mem-on second"><span>Tidy once a day<small>Off by default: sends recent messages from all chats to your chat model, which merges, updates and adds notes. Each tidy can be undone</small></span><button class="toggle" role="switch" id="memDream" aria-checked="${prefs.memory_dream === true}" aria-label="Tidy once a day"></button></div>`;
-    $$("[data-mf]", el).forEach(b => (b.onclick = () => { filter = b.dataset.mf; renderSide(el); render(); }));
+    $$("[data-mf]", el).forEach(b => (b.onclick = () => { filter = b.dataset.mf; renderSide(el); render(); Shell.renderHead(); }));
     $("#memAuto", el).onclick = async () => {
       prefs.memory_auto = prefs.memory_auto === false; await invoke("set_memory_auto", { on: prefs.memory_auto });
       toast(prefs.memory_auto ? "Backspace will notice things worth remembering" : "Only notes you add or Remember are kept", "ok"); renderSide(el);
@@ -146,7 +146,13 @@ var Memory = (() => {
       $("#memCancel", el).onclick = () => { editing = null; render(); };
     }
   }
+  // Home's folders open here, on the folder they show.
+  function open(f) { filter = f || "all"; draftScope = ""; setMode("memory"); render(); if (S.mode === "memory") Shell.renderSide(); }
+  function crumb() {
+    if (filter === "all") return "All notes"; if (filter === "global") return "Everywhere"; if (filter === "dreams") return "Tidy history";
+    return filter.startsWith("agent:") ? agentName(filter.slice(6)) : base(filter);
+  }
   async function refresh() { await load(); if (Shell.showing("memory")) render(); if (S.mode === "memory") Shell.renderSide(); }
 
-  return { init, render, renderSide, refresh, curProject };
+  return { init, render, renderSide, refresh, curProject, open, crumb };
 })();

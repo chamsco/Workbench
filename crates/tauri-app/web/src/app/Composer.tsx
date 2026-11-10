@@ -8,7 +8,7 @@
 // features; the attach menu offers "Ask another CLI" instead.
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
-import { IconCheck, IconCloudUpload, IconPaperclip, IconPlus, IconTerminal2, IconWand } from "@tabler/icons-react";
+import { IconCheck, IconCloudUpload, IconMicrophone, IconPaperclip, IconPlus, IconTerminal2, IconWand } from "@tabler/icons-react";
 import { AnimatePresence, motion } from "motion/react";
 
 import { cn } from "@/lib/utils";
@@ -53,6 +53,7 @@ export function Composer({
   onEverydayChange,
   onEverydaySubmit,
   roster,
+  onVoice,
 }: {
   value: string;
   onValueChange: (v: string) => void;
@@ -77,6 +78,8 @@ export function Composer({
    *  the name — named_in queues only the members named — so this is the
    *  typing aid, not the routing. */
   roster?: Agent[];
+  /** A bot's thread: a mic next to Send starts voice mode. */
+  onVoice?: () => void;
 }) {
   const attachments = useAttachments();
   const [sending, setSending] = useState(false);
@@ -395,6 +398,17 @@ export function Composer({
         </div>
         <div ref={rightRef} className="absolute right-2 bottom-2 flex items-center gap-1.5">
           {!hideRoute && <RoutePicker value={route} onValueChange={onRouteChange} />}
+          {onVoice && !everyday && (
+            <button
+              type="button"
+              onClick={onVoice}
+              aria-label="Talk"
+              title="Talk: voice mode"
+              className="flex size-9 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors duration-150 hover:bg-black/[0.05] hover:text-foreground dark:hover:bg-white/[0.06]"
+            >
+              <IconMicrophone size={18} stroke={1.8} />
+            </button>
+          )}
           {everyday ? (
             <button
               type="button"

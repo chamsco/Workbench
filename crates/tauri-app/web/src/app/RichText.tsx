@@ -221,7 +221,7 @@ export function fenceBareOpenUI(text: string): string {
 export function RichText({ text, streaming, answered = false }: { text: string; streaming: boolean; answered?: boolean }) {
   const dark = useDark();
   const clean = fenceBareOpenUI(text);
-  const fenced = clean.includes("```openui") || clean.includes("```ask") || clean.includes("```routine");
+  const fenced = clean.includes("```openui") || clean.includes("```ask") || clean.includes("```routine") || /\{\s*"(?:name|question)"\s*:/.test(clean);
   if (!fenced) return <Markdown streaming={streaming}>{clean}</Markdown>;
   const parts = splitFences(clean);
   return (

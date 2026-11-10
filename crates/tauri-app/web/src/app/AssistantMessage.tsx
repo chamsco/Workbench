@@ -6,12 +6,12 @@
 // answered (multi-harness threads) and the sponsored card for Cloud's
 // ad-supported plans, styled as one of Whirl's wells.
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   IconAlertTriangleFilled,
   IconCheck,
+  IconChevronRight,
   IconCopy,
-  IconLoader2,
   IconPlayerStopFilled,
   IconRefresh,
   IconTimeline,
@@ -20,10 +20,146 @@ import {
 
 import { isTerminal, type ChatMessage } from "@/lib/messages";
 import { useTypewriter } from "@/lib/use-typewriter";
+import { AiTypingIndicator } from "../components/ai-typing-indicator";
 import { CheckpointMenu } from "@/components/thread/checkpoint-menu";
+import { splitFences } from "./ask";
 import { RichText } from "./RichText";
 import { MessageActionButton } from "@/components/thread/message-action-button";
 import { getHost, openTrace, type Ad } from "../bridge";
+
+/** The wait for a reply, drawn the way a chat app shows someone typing: three
+ *  dots. Under the pointer they slowly turn into "Thinking"; a click opens what
+ *  is known of the turn. The reasoning text itself is not kept by the app, so
+ *  the panel shows the model, the clock and, once there is one, the trace. */
+function ThinkingDots({ message, dots = false }: { message: ChatMessage; dots?: boolean }) {
+  const [open, setOpen] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!open) return;
+    const t = setInterval(() => setNow(Date.now()), 500);
+    return () => clearInterval(t);
+  }, [open]);
+  const secs = Math.max(0, Math.round((now - message.createdAt) / 1000));
+  return (
+    <div className="flex flex-col items-start gap-2">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        aria-label={open ? "Hide thinking" : "Show thinking"}
+        className="cursor-pointer rounded-full text-left"
+      >
+        {dots ? (
+          <AiTypingIndicator variant="dots" label="Typing" />
+        ) : (
+          <AiTypingIndicator
+            phrases={[{ text: "Thinking", icon: "think" }, { text: "Working it out", icon: "search" }, { text: "Writing", icon: "write" }]}
+            showElapsed
+          />
+        )}
+      </button>
+      {open && <ThoughtPanel message={message} secs={secs} />}
+    </div>
+  );
+}
+
+/** What the model thought, as far as its backend showed it; otherwise what is
+ *  known of the turn. Follows the bottom while the thought is still coming. */
+function ThoughtPanel({ message, secs }: { message: ChatMessage; secs?: number }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const thought = message.thinking?.trim();
+  useEffect(() => {
+    const el = ref.current;
+    if (el && !isTerminal(message.status)) el.scrollTop = el.scrollHeight;
+  }, [thought, message.status]);
+  return (
+    <div className="flex w-full max-w-xl flex-col gap-1.5 rounded-2xl bg-well px-3.5 py-2.5 text-[12.5px]/5 text-muted-foreground shadow-[inset_0_0_0_1px_var(--well-outline)]">
+      {thought ? (
+        <div ref={ref} className="max-h-72 overflow-y-auto whitespace-pre-wrap text-foreground/80">
+          {thought}
+        </div>
+      ) : (
+        <>
+          <div>
+            {secs !== undefined ? `Working for ${secs}s` : "No reasoning shown"}
+            {message.model ? ` on ${message.model}` : ""}.
+          </div>
+          <div>This model's backend didn't share its reasoning for this turn. Tool calls and timing are in the trace.</div>
+        </>
+      )}
+      {message.traceId && (
+        <button type="button" onClick={() => openTrace(message.traceId!)} className="w-fit cursor-pointer underline-offset-2 hover:text-foreground hover:underline">
+          Open the trace
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** Above a finished reply that came with reasoning: a quiet "Thought" line that opens it. */
+function Thought({ message }: { message: ChatMessage }) {
+  const [open, setOpen] = useState(false);
+  if (!message.thinking?.trim()) return null;
+  return (
+    <div className="mb-2 flex w-full flex-col items-start gap-1.5">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="flex cursor-pointer items-center gap-1 text-[12.5px]/5 text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <IconChevronRight size={13} className={`transition-transform duration-200 ${open ? "rotate-90" : ""}`} />
+        Thought
+      </button>
+      {open && <ThoughtPanel message={message} />}
+    </div>
+  );
+}
+
+/** A bot's reply, a bubble per turn: what it said before a tool call is one
+ *  bubble and what it said after is the next, the way a person texts. Cards
+ *  (questions, routines) stay out of the bubble. */
+function Bubbles({ message, text, streaming, answered }: { message: ChatMessage; text: string; streaming: boolean; answered?: boolean }) {
+  const cuts = (message.breaks ?? []).filter((n) => n > 0 && n < text.length);
+  const parts: string[] = [];
+  let from = 0;
+  for (const n of cuts) {
+    parts.push(text.slice(from, n));
+    from = n;
+  }
+  parts.push(text.slice(from));
+  const shown = parts.map((p) => p.trim()).filter(Boolean);
+  return (
+    <div className="flex w-full flex-col items-start gap-1.5">
+      {shown.map((p, i) => {
+        const card = splitFences(p).some((b) => b.kind === "fence");
+        const last = i === shown.length - 1;
+        return card ? (
+          <RichText key={i} streaming={streaming && last} text={p} answered={answered} />
+        ) : (
+          <div
+            key={i}
+            className="max-w-[88%] rounded-[22px] rounded-bl-md bg-[color-mix(in_srgb,#3a72e8_17%,var(--well))] px-4 py-2.5 shadow-[inset_0_0_0_1px_color-mix(in_srgb,#3a72e8_28%,transparent)]"
+          >
+            <RichText streaming={streaming && last} text={p} answered={answered} />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** The bot went quiet mid-reply (a tool is running, or the next turn is on
+ *  its way): the typing dots come back after a beat, in a bubble of their own. */
+function QuietDots({ content, message }: { content: string; message: ChatMessage }) {
+  const [quiet, setQuiet] = useState(false);
+  useEffect(() => {
+    setQuiet(false);
+    const t = setTimeout(() => setQuiet(true), 1100);
+    return () => clearTimeout(t);
+  }, [content]);
+  return quiet ? <div className="mt-1.5"><ThinkingDots message={message} dots /></div> : null;
+}
 
 const WELL = "shadow-[inset_0_0_0_1px_var(--well-outline),inset_0_1px_0_0_var(--well-highlight)]";
 
@@ -78,13 +214,11 @@ export function AssistantMessage({
           {answeredBy}
         </div>
       )}
-      {showText && <RichText streaming={streamingNow || !caughtUp} text={text} answered={answered} />}
-      {streamingNow && !showText && (
-        <div className="flex h-7 items-center gap-2 text-[14px]/5 text-muted-foreground">
-          <IconLoader2 size={15} className="animate-spin" />
-          <span className="text-shimmer">Thinking</span>
-        </div>
-      )}
+      {showText && !streamingNow && <Thought message={message} />}
+      {showText && !avatar && <RichText streaming={streamingNow || !caughtUp} text={text} answered={answered} />}
+      {showText && avatar && <Bubbles message={message} text={text} streaming={streamingNow || !caughtUp} answered={answered} />}
+      {streamingNow && !showText && <ThinkingDots message={message} />}
+      {streamingNow && showText && avatar && caughtUp && <QuietDots content={message.content} message={message} />}
       {failed && <ErrorBanner detail={error ?? undefined} onRetry={onRetry} />}
       {stopped && (
         <div className="mt-2 flex items-center gap-1.5 text-[13px]/4 font-medium text-muted-foreground">

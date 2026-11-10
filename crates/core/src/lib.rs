@@ -19,6 +19,7 @@ pub mod files;
 pub mod fleet;
 pub mod gateway;
 pub mod git;
+pub mod hands;
 pub mod harness;
 pub mod harnesses;
 pub mod intake;

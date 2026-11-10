@@ -65,7 +65,7 @@ export function UserMessage({
             <div className="relative flex min-w-0 max-w-[85%] justify-end">
               <div
                 data-quotable="user"
-                className="min-w-0 rounded-[20px] rounded-br-md bg-well px-3.5 py-2 text-[15px]/6 break-words whitespace-pre-wrap [overflow-wrap:anywhere] shadow-[inset_0_0_0_1px_var(--well-outline),inset_0_1px_0_0_var(--well-highlight)]"
+                className="min-w-0 rounded-[22px] rounded-br-md bg-[color-mix(in_srgb,var(--bs-accent,#cf5a24)_15%,var(--well))] px-4 py-2.5 text-[15px]/6 break-words whitespace-pre-wrap [overflow-wrap:anywhere] shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--bs-accent,#cf5a24)_26%,transparent),0_6px_18px_-10px_color-mix(in_srgb,var(--bs-accent,#cf5a24)_55%,transparent)]"
               >
                 {message.content}
               </div>

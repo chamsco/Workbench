@@ -132,7 +132,7 @@ var Apps = (() => {
     const cur = S.mode.startsWith("app:") ? S.mode.slice(4) : "";
     const apps = installed();
     el.innerHTML = `<button class="row${S.mode === "apps" ? " on" : ""}" id="apBrowse">${icon("apps")}<span class="lab">All apps</span></button>
-      ${apps.length ? `<div class="sec-t">Installed</div>` + apps.map(a => `<button class="row approw${cur === a.id ? " on" : ""}" data-app="${esc(a.id)}">${glyph(a, "xs")}<span class="lab">${esc(a.name)}</span>${isPinned(a.id) ? icon("pin", "pinned") : ""}</button>`).join("") : `<div class="nothing">No apps yet. Install one from the catalog.</div>`}`;
+      ${apps.length ? `<div class="sec-t">Installed</div>` + apps.map(a => `<button class="row approw${cur === a.id ? " on" : ""}" data-app="${esc(a.id)}">${glyph(a, "xs")}<span class="lab">${esc(a.name)}</span>${isPinned(a.id) ? icon("pin", "pinned") : ""}</button>`).join("") : `<div class="nothing">No apps installed. Add one from a link or a folder.</div>`}`;
     $("#apBrowse", el).onclick = () => setMode("apps");
     $$("[data-app]", el).forEach(b => (b.onclick = () => setMode("app:" + b.dataset.app)));
   }
@@ -186,10 +186,10 @@ var Apps = (() => {
       <div class="agrid">${[["chat", "bubble", "Chat", "Talk to any model, or to your named agents and groups."], ["code", "codei", "Code", "Chat with a CLI in a project, or let agents build it ticket by ticket."]].map(([k, ic, n, d]) => {
         const uses = prefs.uses && prefs.uses.length ? prefs.uses : ["chat", "code"], on = uses.includes(k), last = on && uses.length === 1;
         return `<div class="acard"><div class="ac-top"><span class="ag" style="--ag:var(--fg);color:var(--desk-base)">${icon(ic)}</span><div class="ac-n"><b>${n}</b><small>Built in</small></div></div><p>${d}</p>
-          <div class="ac-act">${on ? `<button class="btn primary sm" data-zone="${k}">Open</button>` : ""}<span class="sp"></span><button class="btn sm" data-use="${k}" ${last ? `disabled title="Keep at least one"` : ""}>${on ? (last ? "Required" : "Remove") : `${icon("plus")}Add`}</button></div></div>`;
+          <div class="ac-act">${on ? `<button class="btn primary sm" data-zone="${k}">Open</button>` : ""}<span class="sp"></span><button class="btn sm" data-use="${k}" ${last ? `disabled title="Keep at least one"` : ""}>${on ? (last ? "Required" : "Turn off") : "Turn on"}</button></div></div>`;
       }).join("")}</div>
       <h2>Installed</h2>
-      ${inst.length ? `<div class="agrid">${inst.map(a => card(a, true)).join("")}</div>` : `<div class="apz-empty">Nothing installed yet. Try an example below, or install your own.</div>`}
+      ${inst.length ? `<div class="agrid">${inst.map(a => card(a, true)).join("")}</div>` : `<div class="apz-empty">Nothing installed yet. ${ex.length ? "Try an example below, or install" : "Install"} your own from a link or a folder.</div>`}
       ${ex.length ? `<h2>Examples</h2><div class="agrid">${ex.map(a => card(a, false)).join("")}</div>` : ""}
       <h2>Make one</h2>
       <p class="apz-make">An app is a folder with <code>backspace-app.json</code> and a page. The page includes <code>__backspace/sdk.js</code> and calls <code>backspace.agent.ask(prompt)</code>, <code>backspace.storage</code>, <code>backspace.notify</code>. The full format is in <code>docs/apps.md</code>.</p>

@@ -11,6 +11,8 @@
 //!   scope (memory.rs);
 //! - the other harness tiles (`list_tiles`, `message_tile`), when started in
 //!   one (relay.rs);
+//! - browser and desktop use (`browser_*`, `desktop_*`), when started for an
+//!   agent given them (hands/);
 //! - every enabled app's tools (apps.rs).
 //!
 //! Which tools it lists depends only on the environment the CLI was given.
@@ -91,6 +93,7 @@ fn denied(deny: &[String], tool: &str, app: Option<&str>) -> bool {
     match (tool, app) {
         ("computer_run", _) => has("run"),
         ("computer_write", _) => has("edit"),
+        (t, _) if t.starts_with("browser_") => has("web"),
         (_, Some(a)) => has("apps") || has(&format!("app:{a}")),
         _ => false,
     }
@@ -117,6 +120,7 @@ pub fn serve() -> Result<()> {
     // The board needs a project's bridge; app tools work without one.
     let b = crate::board::bridge();
     let deny = deny();
+    let hands = crate::hands::Env::from_env();
     let stdin = std::io::stdin();
     let mut out = std::io::stdout();
     for line in stdin.lock().lines() {
@@ -192,11 +196,26 @@ pub fn serve() -> Result<()> {
                     tools.push(json!({"name": "memory_save", "description": "Propose one line worth knowing in later sessions: a preference, a decision, a fact the user would otherwise repeat. Not for things cheap to rediscover or only true for this task. Never secrets. It is filed into your own notes on the next pass, merged with any note it repeats; the user can see and undo it.",
                         "inputSchema": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}}));
                 }
+                if let Some(h) = &hands {
+                    tools.extend(crate::hands::tools(h, &crate::prefs::Prefs::load()));
+                }
                 tools.retain(|t| !denied(&deny, t["name"].as_str().unwrap_or(""), None));
                 for (name, app, t) in app_tools(&deny) {
                     tools.push(json!({"name": name, "description": format!("[{app} app] {}", t.description), "inputSchema": t.input_schema}));
                 }
                 Ok(json!({ "tools": tools }))
+            }
+            "tools/call" if crate::hands::is_tool(req["params"]["name"].as_str().unwrap_or("")) => {
+                let name = req["params"]["name"].as_str().unwrap_or("");
+                let r = match &hands {
+                    _ if denied(&deny, name, None) => Err(anyhow!("your rules don't allow {name}; the user turned it off")),
+                    None => Err(anyhow!("you weren't given browser or desktop use")),
+                    Some(h) => crate::hands::call(h, name, &req["params"]["arguments"]),
+                };
+                Ok(match r {
+                    Ok(content) => json!({ "content": content }),
+                    Err(e) => json!({"content": [{"type": "text", "text": format!("{e:#}")}], "isError": true}),
+                })
             }
             "tools/call" => {
                 let a = &req["params"]["arguments"];

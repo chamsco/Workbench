@@ -22,6 +22,10 @@ export type ChatMessage = {
   status?: MessageStatus;
   streamId?: string;
   model?: string;
+  /** Backspace: the reasoning the model showed while it worked. */
+  thinking?: string;
+  /** Backspace: where in `content` one turn ended and the next began. */
+  breaks?: number[];
   attachments?: MessageAttachment[];
   outputTokens?: number;
   durationMs?: number;

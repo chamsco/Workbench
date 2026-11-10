@@ -19,9 +19,9 @@
   <a href="#what-it-doesnt-do">Limits</a>
 </sub></p>
 
-<p align="center"><a href="docs/assets/app-ade.png"><img src="docs/assets/app-ade.png" alt="The ADE workspace: one composer asking 'What should your agents work on?', project tabs for Agents, Tickets, and Commits, and a Main agent card carrying on the backspace/run task." width="100%"></a></p>
+<p align="center"><a href="docs/assets/app-ade.png"><img src="docs/assets/app-ade.png" alt="The ADE: the sidebar with app icons, New thread and the project tree; the agent composer in the centre; the work area's New tab page on the right." width="100%"></a></p>
 
-<p align="center"><em>The ADE workspace — one prompt, one row of tabs, and the agents already working. Chat, memory, tickets, and diffs share the same window.</em></p>
+<p align="center"><em>The ADE: the agent chat on the left and the work area's New tab page on the right. Files, browser, terminal, review, images and logs are one click away.</em></p>
 
 > **About the name.** This was called *backspace* (and briefly *ohMyHarness*).
 > That name is still in the code — the crates are `backspace-*`, the config lives
@@ -383,19 +383,28 @@ caps that agent *and its subtree*.
 
 ### The window
 
-A rail of squares on the far left switches zones: **Chat**, **Code**, **Memory**,
-**Apps**, then anything you pinned, with **Settings** at the foot. Each zone keeps
-its state while another is shown.
+**The sidebar** runs the full height of the window. Its top row has the sidebar
+toggle, back and forward, search and settings. Under it sit the app icons:
+**Home**, **Code** and anything you pinned, then **Plugins**, **Skills** and
+**Agents**. Next comes **New thread** (⌘N), then this machine's projects and their
+threads. Fold the sidebar and the same app icons become a slim pill on the left edge.
 
-**Tabs** sit on the left of the title bar. Each holds one to four **canvases**, and
-a canvas shows one thing: an agent session, a worktree, a browser, the diagram
-review, `PLAN.md`, visual options, a conversation, or a **terminal** — a real shell
-started in the open project's folder. Drag a canvas by its header to rearrange; a
-dotted slot shows where it will land, and dropping on an edge splits. Press
-**Ctrl ↵** on Home to start another task in parallel, on its own branch.
+**Code** has two modes, switched at the top centre (⌘J):
 
-The status bar shows the branch, the project and its ticket count, who is working,
-the split, the phone link, a motion toggle, and the tokens and cost so far.
+- **ADE**: the agent chat on the left and a **work area** on the right. The work
+  area opens on a **New tab** page that lists what it can show: **Files**,
+  **Browser**, **Terminal**, **Review** (uncommitted changes and history),
+  **Images** and **Logs** (each reply's trace). Each one you open becomes a tab you
+  can close, and **+** brings back New tab.
+- **IDE**: up to six **canvases** on a grid, saved per project. A canvas shows one
+  thing: an agent session, a worktree, a browser, the diagram review, `PLAN.md`,
+  visual options, a conversation, or a **terminal**, which is a real shell started
+  in the project's folder. Drag a canvas by its header to rearrange it: a dotted
+  slot shows where it will land, and dropping it on an edge splits the grid. While a
+  session runs, **Canvases | Wall** switches to a wall of every agent.
+
+**Settings** opens over the page and closes with the round button at its top
+right.
 
 ### Apps, skills, machines, phone
 
