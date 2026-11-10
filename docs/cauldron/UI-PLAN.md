@@ -14,7 +14,9 @@ A working Cauldron desktop app, built in GPUI, on macOS and Windows, that looks 
 - `windows.yml` and `macos.yml` now build the GPUI app (`Cauldron.exe`, `Cauldron.app` and a dmg). The NSIS installer and the update stamp check return with UI8. These workflows have not run yet.
 - Logic stays in `crates/core`. The GPUI shell calls it directly. The 177 Tauri commands are not ported one for one; a screen gets the calls it needs.
 
-What this costs until each screen is rebuilt (nothing below is reachable in the new app, and the older coding workbench behind `CAULDRON_LEGACY=1` has none of it either): Home, Memory, Agents, Apps, Schedule, settings, onboarding, the update flow, voice, the frosted or clear window material, and the iOS companion server, which the Tauri shell started and the GPUI shell does not. The last Tauri builds stay downloadable on the `windows-preview` and `mac-latest` releases.
+What this costs until each screen is rebuilt (nothing below is reachable in the new app, and the older coding workbench behind `CAULDRON_LEGACY=1` has none of it either): Home, Memory, Agents, Apps, Schedule, settings, onboarding, the update flow, voice, the frosted or clear window material, and the iOS companion server, which the Tauri shell started and the GPUI shell does not.
+
+Which release holds which build: `windows.yml` runs on every push to `claude/**` and replaces the `windows-preview` release each time, so once the first GPUI run succeeds `windows-preview` holds the GPUI build and the last Tauri Windows build is gone from it (rebuild it from commit e3d472a if needed). `macos.yml` publishes `mac-latest` only from `main`, so that release keeps the Tauri build until `main` moves.
 
 ## How exactness is enforced
 
