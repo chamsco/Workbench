@@ -31,9 +31,9 @@ ported, from [Jev Ultrafast](https://github.com/browser-use/jev-ultrafast)
 
 ## Berth
 
-The halftone painting renderer (`crates/tauri-app/ui/art.js`, ported from
-Berth's `DitherBand`), the paintings in `crates/tauri-app/ui/art/`, and the
-layout of Home (`crates/tauri-app/ui/home.js`) come from
+The halftone painting renderer (`legacy/tauri-app/ui/art.js`, ported from
+Berth's `DitherBand`), the paintings in `legacy/tauri-app/ui/art/`, and the
+layout of Home (`legacy/tauri-app/ui/home.js`) come from
 [Berth](https://github.com/sean-brydon/berthd).
 
 > MIT License
@@ -60,7 +60,7 @@ layout of Home (`crates/tauri-app/ui/home.js`) come from
 
 ## Lobe Icons
 
-The CLI and model marks in `crates/tauri-app/ui/logos.js` are the SVGs from
+The CLI and model marks in `legacy/tauri-app/ui/logos.js` are the SVGs from
 [Lobe Icons](https://github.com/lobehub/lobe-icons) (`@lobehub/icons-static-svg`).
 The marks themselves remain their owners' trademarks.
 

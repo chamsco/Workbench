@@ -1,5 +1,7 @@
-//! Backspace workbench, GPUI edition: the same design the Tauri shell
-//! renders, drawn natively.
+//! Cauldron, GPUI edition. `run_shell` opens the new shell (shell.rs); the coding workbench
+//! below is the older window, reachable with CAULDRON_LEGACY=1 until UI2 moves it in.
+//!
+//! The workbench: the design the retired Tauri shell rendered, drawn natively.
 //!
 //! Tabs on the left of the title bar each hold up to four canvases (2x2 at
 //! four): an agent session, a worktree, a browser, the diagram review or
@@ -12,6 +14,9 @@
 //!
 //! GPUI has no web engine, so a browser canvas shows a text snapshot of the
 //! page and opens the real thing in the system browser.
+
+// A release build on Windows is a window app: no console behind it.
+#![cfg_attr(all(target_os = "windows", not(debug_assertions)), windows_subsystem = "windows")]
 
 mod arrange;
 mod canvas;

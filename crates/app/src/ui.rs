@@ -15,8 +15,7 @@ use crate::pal::Pal;
 
 /// gpui takes one family name, not a CSS stack: the system faces on macOS
 /// (SF Pro, Menlo) and Windows (Segoe UI); elsewhere the bundled Inter (the
-/// closest open match to SF Pro) and JetBrains Mono, which the Tauri shell
-/// bundles too.
+/// closest open match to SF Pro) and JetBrains Mono.
 pub(crate) const MONO: &str = if cfg!(target_os = "macos") {
     "Menlo"
 } else {
@@ -30,12 +29,12 @@ pub(crate) const UI: &str = if cfg!(target_os = "macos") {
     "Inter"
 };
 
-/// The faces registered at startup (shared with crates/tauri-app/ui/fonts).
+/// The faces registered at startup (crates/app/assets/fonts).
 pub(crate) fn bundled_fonts() -> Vec<std::borrow::Cow<'static, [u8]>> {
     macro_rules! font {
         ($f:literal) => {
             std::borrow::Cow::Borrowed(
-                &include_bytes!(concat!("../../tauri-app/ui/fonts/", $f, ".ttf"))[..],
+                &include_bytes!(concat!("../assets/fonts/", $f, ".ttf"))[..],
             )
         };
     }

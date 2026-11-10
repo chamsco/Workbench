@@ -97,9 +97,9 @@ The product is **Workbench**, and that is the only name users should see. In the
 
 | Path | What lives there |
 |---|---|
-| `crates/tauri-app/ui/` | The desktop shell, in vanilla JS: `app.js` (runtime), `shell.js` (frame), `work.js` (the ADE work area), `dash.js` (Home), `shell.css`, `index.html`, plus `extensions/code` and `extensions/chat` |
-| `crates/tauri-app/web/` | The chat face, in React. It builds to `ui/chat-web/whirl.js` |
-| `crates/tauri-app/src/` | The Tauri commands the UI calls |
+| `legacy/tauri-app/ui/` | Retired. The old desktop shell, in vanilla JS, kept as the reference for screens not yet rebuilt in GPUI: `app.js` (runtime), `shell.js` (frame), `work.js` (the ADE work area), `dash.js` (Home), `shell.css`, `index.html`, plus `extensions/code` and `extensions/chat` |
+| `legacy/tauri-app/web/` | The chat face, in React. It builds to `ui/chat-web/whirl.js` |
+| `legacy/tauri-app/src/` | The Tauri commands the UI calls |
 | `crates/core` | The harness: planner, tickets, worktrees, router, tools, memory, traces, and hands (browser and desktop use) |
 | `crates/runner` | One turn on any CLI, model API or A2A agent. MIT, and reusable on its own |
 | `crates/cli` | The headless shell: `backspace-cli`, plus `backspace mcp` for agents |
@@ -114,11 +114,10 @@ The product is **Workbench**, and that is the only name users should see. In the
 ```sh
 cargo test                                   # core + end-to-end against a mock model; no network, no keys
 cargo test -p backspace-runner
-cargo run --release -p backspace-tauri -- ~/projects/my-app
-(cd crates/tauri-app/web && npm ci && npm run build)   # after editing the chat face
+cargo run --release -p backspace   # the Cauldron shell; CAULDRON_LEGACY=1 opens the older coding workbench
 ```
 
-You need Rust 1.98 or newer. On Linux, `cargo check -p backspace-tauri` also needs `libgtk-3-dev libwebkit2gtk-4.1-dev libsoup-3.0-dev`.
+You need Rust 1.98 or newer. On Linux, `cargo check -p backspace` builds the GPUI app without a display.
 
 To check UI changes without a desktop, use the harness. It serves `ui/`, stubs every Tauri command and takes screenshots:
 
@@ -149,7 +148,7 @@ Inside an eval, mock commands with `__H.mock(cmd, fn)`, then call `__H.fire("sta
 | Change how routing picks a model | `crates/core/src/router.rs` |
 | Add or override a skill | `crates/core/skills/`, or `~/.config/backspace/skills/` |
 | Change the canvas layout model | `crates/core/src/layout.rs` |
-| Change the window, sidebar or work area | `crates/tauri-app/ui/` (`shell.js`, `work.js`, `shell.css`) |
+| Change the window, sidebar or panes | `crates/app/src/shell.rs`; sizes and colours come from `crates/chrome` |
 
 ### Inside a running Workbench
 

@@ -6,13 +6,15 @@ Requested by Charles on 10 Nov 2026. The spec is the published wireframe (`threa
 
 A working Cauldron desktop app, built in GPUI, on macOS and Windows, that looks like the wireframe and runs the existing core. Every milestone ends with automated tests, red first, in line with PLAN.md section 12.
 
-## The conflict to settle first
+## Decision made: GPUI is the app, Tauri is retired
 
-`README.md` and `HANDOFF.md` call `crates/app` the older GPUI shell and suggest freezing it. The shipped builds (`macos.yml`, `windows.yml`) are the Tauri app. This plan follows Charles's instruction that GPUI is the app. So:
+`README.md` and `HANDOFF.md` had called `crates/app` the older GPUI shell and suggested freezing it. On 10 Nov 2026 Charles answered the other way: retire the Tauri shell and rebuild the GPUI app. Done that day, in its own commit (revert it to bring Tauri back):
 
-- GPUI becomes the primary shell. Tauri keeps building until UI9 and gets no new screens.
-- Logic stays in `crates/core`. The GPUI shell calls it directly, with no command layer in between. The 177 Tauri commands are not ported one for one; a screen gets the calls it needs.
-- If Charles wants both shells maintained, say so; the cost of that is not in this plan.
+- `crates/tauri-app` moved to `legacy/tauri-app`, out of the workspace. It stays only as the reference for screens not yet rebuilt; UI9 deletes it. Fonts moved to `crates/app/assets/fonts`.
+- `windows.yml` and `macos.yml` now build the GPUI app (`Cauldron.exe`, `Cauldron.app` and a dmg). The NSIS installer and the update stamp check return with UI8. These workflows have not run yet.
+- Logic stays in `crates/core`. The GPUI shell calls it directly. The 177 Tauri commands are not ported one for one; a screen gets the calls it needs.
+
+What this costs until each screen is rebuilt (nothing below is reachable in the new app, and the older coding workbench behind `CAULDRON_LEGACY=1` has none of it either): Home, Memory, Agents, Apps, Schedule, settings, onboarding, the update flow, voice, the frosted or clear window material, and the iOS companion server, which the Tauri shell started and the GPUI shell does not. The last Tauri builds stay downloadable on the `windows-preview` and `mac-latest` releases.
 
 ## How exactness is enforced
 
@@ -41,7 +43,7 @@ Same pane geometry on both. Only these differ (tested in `platforms_differ_only_
 | # | Milestone | Exit tests |
 |---|---|---|
 | UI0 | Tokens and layout contract: `crates/chrome` | Done. 11 tests green: two window sizes, five shell states, both themes, contrast, radii, platform differences. |
-| UI1 | Shell skeleton in GPUI: window, notch, sidebar card, main card with tabs, right rail, drawer, split, both platforms | `cargo check -p backspace` on all three OSes in CI. Live-element rects equal `solve()` in all states. First screenshot diff recorded as the baseline. |
+| UI1 | Shell skeleton in GPUI: window, notch, sidebar card, main card with tabs, right rail, drawer, split, both platforms. Written (`crates/app/src/shell.rs`), compiles with `cargo check`, not yet run on a display. Not done: tooltips, curved tab feet, real tabs | `cargo check -p backspace` on all three OSes in CI. Live-element rects equal `solve()` in all states. First screenshot diff recorded as the baseline. |
 | UI2 | Swap the old glass palette and radii for the tokens in the existing coding workbench; delete blobs, translucent panes, violet accent | The lints in "How exactness is enforced" pass on `crates/app`. No regression in the existing 6.2k lines of behaviour. |
 | UI3 | Sidebar: function icon row, search, glowing New thread button, thread list by state, usage row, user row | Thread rows come from core. State order and counts match `THREAD-STATE.md`. Keyboard and icon labels covered. |
 | UI4 | Thread view: transcript, ask cards, composer (Coordinator, Auto and Medium, Send), stage bar with usage on the left | Text input and IME work on both OSes. Stage click shows detail. Empty, loading and error states drawn. |
@@ -57,7 +59,7 @@ Every screen draws: normal, empty, loading (skeleton shaped like the final layou
 
 ## Decisions for Charles
 
-1. GPUI replaces Tauri, which retires at UI9. Assumed above.
+1. GPUI replaces Tauri. Decided by Charles, 10 Nov 2026.
 2. Windows notch of 62px with only the sidebar button. Assumed.
 3. Minimum thread column of 360px: Split closes first, then the drawer. Assumed. The wireframe does not draw it.
 4. The left usage meter. Core reads token counts from session logs; a "% left" figure needs quota data that may not be in those logs. Until checked, the meter shows tokens and cost.

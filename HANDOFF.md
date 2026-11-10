@@ -774,6 +774,10 @@ What was verified this round, and what was not:
 
 State as of 7 Oct 2026, commit `56ff91a` on `main`.
 
+## 10 Nov 2026: Tauri retired, GPUI is the app
+
+`crates/tauri-app` moved to `legacy/tauri-app` (not built). `crates/app` opens the new Cauldron shell (`shell.rs`, laid out by `crates/chrome`); `CAULDRON_LEGACY=1` opens the older coding workbench. Windows and macOS workflows build the GPUI app and have not run yet. Plan: `docs/cauldron/UI-PLAN.md`. Revert the "Retire the Tauri shell" commit to bring Tauri back.
+
 ## Where things are
 
 - **Repo:** `github.com/chamsco/Workbench`. It was renamed from `chamsco/ohMyHarness`, which was earlier `chamsco/backspace`. The old local clone's remote still says `ohMyHarness`. Pushes work through GitHub's redirect, but the `gh api` proxy rejects the redirect. Run this first:

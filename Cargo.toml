@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/runner", "crates/core", "crates/cli", "crates/app", "crates/tauri-app", "crates/colony", "crates/chrome"]
+members = ["crates/runner", "crates/core", "crates/cli", "crates/app", "crates/colony", "crates/chrome"]
 default-members = ["crates/runner", "crates/core", "crates/cli", "crates/colony", "crates/chrome"]
 
 [workspace.package]
