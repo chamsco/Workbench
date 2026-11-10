@@ -19,6 +19,7 @@ fn one_at_a_time() -> std::sync::MutexGuard<'static, ()> {
 }
 
 /// `extra` is added to the request line's headers (a credential, say).
+
 fn http_with(port: u16, method: &str, path: &str, body: &str, extra: &str) -> u16 {
     let deadline = Instant::now() + Duration::from_secs(10);
     let mut s = loop {
