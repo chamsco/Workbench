@@ -25,6 +25,9 @@ base64 = "0.22"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 enigo = { version = "0.6", default-features = false, features = ["x11rb"] }
 
+# Read-only reader for OpenCode's session database (usage.rs); bundled so no system SQLite is needed.
+rusqlite = { version = "0.32", features = ["bundled"] }
+
 # The Mac takes its screenshots with `screencapture`; Linux with grim/import.
 [target.'cfg(windows)'.dependencies]
 xcap = "0.9"

@@ -12,6 +12,8 @@ import { EASE_OUT, SHED_BLUR, pinRasterPath } from "@/lib/motion";
 import { pickFallbacks, type SuggestionSlot } from "@/lib/suggestions";
 import { cn } from "@/lib/utils";
 import { SuggestionCards } from "@/components/suggestion-cards";
+import { AppearanceMenu } from "./AppearanceMenu";
+import { AsciiField } from "./AsciiField";
 import { Composer } from "./Composer";
 import { CodeComposer, CodeSide } from "./CodeComposer";
 import { GhostToggle } from "./GhostToggle";
@@ -80,6 +82,7 @@ export function ChatApp({ sideEl, user }: { sideEl: HTMLElement; user: string })
     void syncRoutines();
   }, []);
   const inThread = !!thread;
+  const home = !inThread && !scope && !artifact;
   const busy = !!thread && threads.some((t) => t.id === thread.id && t.busy);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   // Pair works in the project, so it starts on a coding CLI when there is one.
@@ -187,12 +190,21 @@ export function ChatApp({ sideEl, user }: { sideEl: HTMLElement; user: string })
       {agentsMode && !scope && <RailBots />}
       <AgentEditors />
       <TracePanel />
-      <main className="whirl-pane raised relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-surface md:rounded-lg md:border md:border-border">
+      <main
+        className={cn(
+          "whirl-pane raised relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-surface md:rounded-lg md:border md:border-border",
+          home && "bs-home",
+        )}
+      >
+        {home && <AsciiField />}
         {/* Whirl's perch. The toggle holds the corner on the face a chat starts
-            from AND all through a ghost chat — a ghost never routes, so nothing
+            from AND all through a ghost chat �?" a ghost never routes, so nothing
             else claims the corner, and it is how you leave one. */}
         {(!inThread || thread?.life === "ghost") && (
-          <div className="pointer-events-none absolute right-3 top-3 z-10">
+          <div className="pointer-events-none absolute right-3 top-3 z-10 flex items-center gap-2">
+            <div className="pointer-events-auto">
+              <AppearanceMenu />
+            </div>
             <div className="pointer-events-auto">
               <GhostToggle thread={thread ?? undefined} />
             </div>

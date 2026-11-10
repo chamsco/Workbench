@@ -242,6 +242,20 @@ export type RouteGroup = { name: string; sub?: string; items: RouteItem[] };
 
 export type Account = { plan: string; used: number; allowance: number; period: string };
 
+/** Settings -> Appearance, as the shell keeps it. Empty strings mean "the
+ *  theme's own value"; `ascii` is the home field's glyph colour. */
+export type Appearance = {
+  accent: string;
+  accent_dark: string;
+  bg: string;
+  fg: string;
+  ascii: string;
+  ui_font: string;
+  code_font: string;
+  translucent: boolean;
+  contrast: number;
+};
+
 /** One machine the harness can run on: this one, or a paired remote. */
 export type Machine = {
   index: number;
@@ -275,6 +289,11 @@ export type Host = {
   defaultRoute: () => Route | null;
   usable: (r: Route | null) => boolean;
   account: () => Account | null;
+  /** The appearance settings the window is using right now. */
+  appearance: () => Appearance;
+  setAppearance: (a: Appearance) => Promise<void>;
+  theme: () => "light" | "dark" | "system";
+  setTheme: (t: "light" | "dark" | "system") => Promise<void>;
   openSettings: (section?: string) => void;
   runSetup: () => void;
   toast: (text: string, kind?: string) => void;
@@ -416,9 +435,9 @@ export const nudge = () => set({ epoch: state.epoch + 1 });
 /** Pull the list and the open thread again (on every core change). */
 export async function refresh() {
   const [threads, agents, projects] = await Promise.all([
-    host.invoke<ThreadInfo[]>("chat_list").catch(() => state.threads),
-    host.invoke<Agent[]>("agents_list").catch(() => state.agents),
-    host.invoke<Project[]>("agent_projects").catch(() => state.projects),
+    host.invoke<ThreadInfo[]>("chat_list").then((x) => x || []).catch(() => state.threads),
+    host.invoke<Agent[]>("agents_list").then((x) => x || []).catch(() => state.agents),
+    host.invoke<Project[]>("agent_projects").then((x) => x || []).catch(() => state.projects),
   ]);
   let thread = state.thread;
   if (state.id) {

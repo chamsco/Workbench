@@ -37,9 +37,11 @@ var Shell = (() => {
     if (z === "home") return "dash";
     if (z === "memory") return "memory";
     if (z === "apps") return "apps";
-    if (z === "desktop") return $("#desktop") ? "desktop" : "chat";
+    if (z === "plugins") return "plugins";
+    if (z === "skills") return "skills";
+    if (z === "desktop") return $("#desktop") ? "desktop" : "canvas";
     if (z.startsWith("app:") && window.Apps) return Apps.frame(z.slice(4)) || "apps";
-    return "chat";
+    return "canvas";
   }
   const secondary = () => {
     const sp = prefs.split;
@@ -98,8 +100,10 @@ var Shell = (() => {
       $("#shClose").onclick = () => setSplit(null);
     }
 
-    // Chat's scope follows whoever shows it: a project in Pair, else none.
-    if (window.Chat && Chat.setScope) Chat.setScope(S.mode === "code" && prim === "chat" ? snap.workspace : null, S.mode === "chat" && S.chatView === "agents");
+    // Chat's scope follows whoever shows it: the project the ADE is open on.
+    // Crew is the agents face, unscoped, so the bots and their group rooms are
+    // the sidebar and the home.
+    if (window.Chat && Chat.setScope) Chat.setScope(S.mode === "crew" ? null : (prim === "chat" ? snap.workspace : null), S.mode === "crew");
     // The face's sidebar is a tree of the project and the zone it is in, and it
     // reads both from here: tell it the shell moved. A nudge, not a fetch.
     if (window.WhirlChat && window.WhirlChat.shell) window.WhirlChat.shell();
@@ -297,7 +301,6 @@ var Shell = (() => {
   // canvases, worktrees and tickets. "Chat | Agents" was Chat's axis, borrowed.
   // The stored values stay `pair` and `agents`, so no prefs file needs migrating.
   const VIEWS = {
-    chat: [["chat", "bubble", "Chat", "One model, one conversation"], ["agents", "team", "Agents", "Your named agents, one to one or in groups"]],
     code: [["pair", "bubble", "ADE", "Agent development environment: you and one CLI, one session, in the project"], ["agents", "grid", "IDE", "The project: canvases, worktrees, tickets"]],
   };
   function renderModes() {
@@ -316,9 +319,10 @@ var Shell = (() => {
     renderModes();
     $("#zoneTitle").innerHTML = z === "code" || z === "chat" || z === "home" ? "" : `<h2>${esc(z.startsWith("app:") ? "Apps" : zoneName(z))}</h2>`;
     if (z === "memory") { window.Memory && Memory.renderSide(zl); }
-    else if (z === "apps" || z.startsWith("app:")) { window.Apps && Apps.renderSide(zl); }
+    else if (z === "apps" || z === "plugins" || z.startsWith("app:")) { window.Apps && Apps.renderSide(zl); }
+    else if (z === "skills") zl.innerHTML = `<div class="nothing">Skills are files on this machine. The page lists every one the agent can load.</div>`;
     else zl.innerHTML = "";
-    if (z === "chat" || (z === "code" && S.codeView === "pair")) { if (window.Chat) Chat.renderThreads(); }
+    if (z === "code" && S.codeView === "pair") { if (window.Chat) Chat.renderThreads(); }
   }
   // Switch project: the recents, or another folder. One menu, and one way in —
   // the folder icon at the top of the sidebar. There used to be a project row
@@ -434,7 +438,7 @@ var Shell = (() => {
   }
   // The project arriving (at launch, or opened elsewhere) can change which
   // section Code shows; lay out again when it does.
-  function refresh() { if (elFor(S.mode) !== laid) layout(); renderStatus(); renderRail(); renderZones(); if (S.mode === "code") renderHead(); }
+  function refresh() { if (elFor(S.mode) !== laid) layout(); renderStatus(); renderRail(); renderZones(); if (S.mode === "code") renderHead(); if (window.Quiet) Quiet.render(); }
 
   // ---------------------------------------------------------------- status bar
   // After an agent control plane's footer: where you are (branch, project),

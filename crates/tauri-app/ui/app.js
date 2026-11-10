@@ -117,7 +117,7 @@ let machines = [], share = null, upd = null, hasProject = true;
 // The update being downloaded: { stage, pct } while it runs.
 let installing = null;
 const S = {
-  mode: "chat", codeView: "agents", chatView: "chat", wb: "canvases",
+  mode: "code", codeView: "agents", chatView: "chat", wb: "canvases",
   focus: 0, max: null, side: "projects", review: null,
   drawer: false, pinned: false, ticket: null, settings: false,
   pane: new Map(),         // per-canvas transient state, by tab:index
@@ -180,9 +180,14 @@ function applyAppearance() {
   const dark = r.dataset.theme === "dark" || (!r.dataset.theme && matchMedia("(prefers-color-scheme: dark)").matches);
   const set = (k, v) => { if (v) r.style.setProperty(k, v); else r.style.removeProperty(k); };
   set("--bs-accent", (dark && a.accent_dark) || a.accent);
+  set("--bs-ascii", a.ascii);
+  set("--bs-chat-bg", a.bg);
   set("--page-bg", a.bg);
   set("--fg", a.fg);
   set("--page-fg", a.fg);
+  // The chat face reads Whirl's `--foreground`; a chosen text colour has to
+  // reach it too, or the popover's Text row would only recolour the chrome.
+  set("--foreground", a.fg);
   set("--font-ui", a.ui_font);
   set("--font-mono", a.code_font);
   // Contrast only moves the secondary levels; an explicit foreground wins.
@@ -283,6 +288,7 @@ $("#newThread").onclick = newThread;
 function setChatView(v) {
   S.chatView = v === "agents" ? "agents" : "chat";
   prefs.chat_view = S.chatView; invoke("set_view_prefs", { chatView: S.chatView, motion: null });
+  if (window.Quiet) { Quiet.go(S.chatView === "agents" ? "crew" : "code"); return; }
   setMode("chat");
 }
 
@@ -815,7 +821,10 @@ function renderSettings() {
       <div class="line"><span class="lab">Collector<small>OTLP over HTTP; <code>/v1/traces</code> is added for you. Empty keeps traces here only.</small></span><input class="tx mono" id="trEp" value="${esc((prefs.tracing || {}).endpoint || "")}" placeholder="https://collector.example.com" style="width:260px" aria-label="Collector address"></div>
       <div class="line"><span class="lab">Header<small>For sign-in, e.g. <code>authorization: Bearer …</code></small></span><input class="tx mono" id="trHdr" value="${esc(Object.entries((prefs.tracing || {}).headers || {}).map(([k, v]) => k + ": " + v).join("; "))}" placeholder="authorization: Bearer …" style="width:260px" aria-label="Header"></div>
       <div class="line"><span class="lab">Send prompts and output too<small>Off: timings, models, token counts and tool names only.</small></span><button class="toggle" role="switch" id="trContent" aria-checked="${!!(prefs.tracing || {}).content}" aria-label="Send prompts and output too"></button></div>
-      <div class="line"><span class="lab"></span><button class="btn" id="trTest">Send a test trace</button><button class="btn primary" id="trSave">Save</button></div></section>
+      <div class="line"><span class="lab"></span><button class="btn" id="trTest">Send a test trace</button><button class="btn primary" id="trSave">Save</button></div>
+      <h3 style="margin:18px 0 6px">Other agents on this device</h3><p class="lead">The home page's Stats tab reads the session logs of these tools, read-only. It keeps counts, timings and tool names; never prompts or tool output.</p>
+      <div class="line"><span class="lab">Stats window<small>How far back the home page's Stats tab reads.</small></span><select class="tx" id="stDays" aria-label="Stats window">${[7, 30, 90].map(n => `<option value="${n}"${(Number(localStorage.getItem("stats_days")) || 7) === n ? " selected" : ""}>${n} days</option>`).join("")}</select></div>
+      <div id="usageSrc"><div class="line"><span class="lab">Looking…</span></div></div></section>
     <section id="set-projects"><h2>Projects</h2>
       ${(prefs.projects || []).length ? prefs.projects.map(p => `<div class="mrow"><span class="mi">${icon("folder")}</span><span class="lab">${esc(base(p))}${hasProject && p === snap.workspace ? " · open" : ""}<small class="mono">${esc(p)}</small></span><button class="btn" data-popen="${esc(p)}">Open</button><button class="btn danger" data-pforget="${esc(p)}">Forget</button></div>`).join("") : `<p class="lead">No projects yet.</p>`}
       <div class="line"><span class="lab"></span><button class="btn primary" id="setOpenFolder">Open folder…</button></div></section>
@@ -875,6 +884,17 @@ function renderSettings() {
   };
   $("#trContent").onclick = e => e.currentTarget.setAttribute("aria-checked", String(e.currentTarget.getAttribute("aria-checked") !== "true"));
   $("#trSave").onclick = async () => { const cfg = trCfg(); await invoke("set_tracing", { cfg }).catch(e => toast(String(e), "err")); prefs.tracing = cfg; toast(cfg.endpoint ? "Traces will also go to " + cfg.endpoint : "Traces stay on this machine", "ok"); };
+  const stSkip = () => { try { return JSON.parse(localStorage.getItem("stats_skip") || "[]"); } catch { return []; } };
+  $("#stDays").onchange = e => { localStorage.setItem("stats_days", e.target.value); toast("Stats will read the last " + e.target.value + " days", "ok"); };
+  invoke("usage_sources").then(v => {
+    const el = $("#usageSrc"); if (!el) return;
+    el.innerHTML = v.map(x => `<div class="line"><span class="lab">${esc(x.name)}<small>${esc(x.found ? (x.supported ? x.note : "Found. " + x.note) : "Not found on this device")}</small></span>${x.supported && x.found ? `<button class="toggle" role="switch" data-src="${x.id}" aria-checked="${!stSkip().includes(x.id)}" aria-label="Count ${esc(x.name)}"></button>` : `<span class="meta">${x.found ? "not counted yet" : "—"}</span>`}</div>`).join("");
+    el.querySelectorAll("[data-src]").forEach(b => (b.onclick = () => {
+      const on = b.getAttribute("aria-checked") !== "true", skip = stSkip().filter(i => i !== b.dataset.src);
+      if (!on) skip.push(b.dataset.src);
+      localStorage.setItem("stats_skip", JSON.stringify(skip)); b.setAttribute("aria-checked", String(on));
+    }));
+  }).catch(() => {});
   $("#trTest").onclick = async () => { try { await invoke("trace_test", { cfg: trCfg() }); toast("The collector accepted a test trace", "ok"); } catch (e) { toast(String(e), "err"); } };
   if (pt) pt.onclick = async () => { companion = await invoke("set_companion", { enabled: !(companion && companion.enabled), newToken: false }).catch(e => (toast(String(e), "err"), companion)); setTimeout(refreshCompanion, 400); renderSettings(); };
   const pl = $("#phoneLan", el);
@@ -1045,7 +1065,7 @@ async function renderSkills(el) {
       : `<div class="nothing">No skill matches “${esc(q)}”.</div>`}</div>`
     + `<div class="line"><span class="lab">Add one<small>Write a folder with a <code>SKILL.md</code> in it. <b>${esc(d.user_dir || (d.dirs || [])[0] || "")}</b> is yours; a folder of the same name in <code>&lt;project&gt;/.backspace/skills/</code> overrides a built-in for that project only.</small></span>
         <button class="btn" id="skOpen">Open my skills folder</button><button class="btn" id="skTpl">Copy the template</button></div>`
-    + `<div class="line"><span class="lab">Read from<small class="mono">${(d.dirs || []).map(esc).join(" · ")}</small></span></div>`;
+    + `<div class="line"><span class="lab">Read from<small class="mono">${(d.dirs || []).map(esc).join(" · ") || "No skill folders on this machine yet."}</small></span></div>`;
   const qi = $("#skQ", box);
   if (qi) {
     qi.oninput = () => { box.dataset.q = qi.value; clearTimeout(skQ); skQ = setTimeout(() => renderSkills(el), 200); };
@@ -1246,6 +1266,7 @@ addEventListener("DOMContentLoaded", async () => {
   await Frame.init();
   setMode(S.mode, false);
   await refresh(true);
+  if (window.Quiet) Quiet.init();
   // Starting in Code: reopen the last project, as editors do.
   if (S.mode === "code" && !snap.workspace && machine().local && (prefs.projects || [])[0] && !boot.bench) openProject(prefs.projects[0]);
   if (!prefs.onboarded && !boot.bench) Onboard.open();

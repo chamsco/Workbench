@@ -62,6 +62,7 @@ fn a_webhook_wakes_only_its_bot() {
             personality: String::new(),
             // No such CLI: the reply fails at once, which is fine here.
             route: Route { kind: RouteKind::Cli, provider: "nope".into(), model: None },
+            fallbacks: vec![],
             shared: vec![],
             computer: Computer::default(),
             memory: false,

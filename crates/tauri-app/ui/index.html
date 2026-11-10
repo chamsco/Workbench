@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -50,13 +50,14 @@
       <button class="side-new" id="newThread" title="New thread (⌘N)" aria-label="New thread"><span data-icon="compose"></span><span>New thread</span><kbd>⌘N</kbd></button>
       <div class="side-head">
         <div class="zone-title" id="zoneTitle"></div>
-        <button class="newbtn chat-only" id="newChat" title="New chat (⌘N)"><span data-icon="compose"></span>New chat<kbd>⌘N</kbd></button>
-        <label class="search chat-only"><span data-icon="search"></span><input id="search" placeholder="Search chats" aria-label="Search chats" autocomplete="off"><kbd>⌘K</kbd></label>
+        <button class="newbtn chat-only" id="newChat" title="New chat (âŒ˜N)"><span data-icon="compose"></span>New chat<kbd>âŒ˜N</kbd></button>
+        <label class="search chat-only"><span data-icon="search"></span><input id="search" placeholder="Search chats" aria-label="Search chats" autocomplete="off"><kbd>âŒ˜K</kbd></label>
         <div class="brand code-only" id="brand"></div>
         <div class="seg code-only agents-only" role="group" aria-label="Sidebar view" id="seg"></div>
       </div>
       <div class="list code-only agents-only" id="list"></div>
       <div class="list whirl-list chat-only pair-only" id="chatList" hidden></div>
+      <div class="bs-sidefoot" id="sideFoot"></div>
       <div class="list zone-list" id="zoneList"></div>
       <div class="ports code-only agents-only" id="ports"></div>
       <!-- The machine you are on, at the foot: the switcher, and updates. -->
@@ -67,6 +68,10 @@
     </aside>
     <div class="gutter-side" id="sideGut" role="separator" aria-orientation="vertical" aria-label="Resize sidebar"></div>
     <div class="mainc">
+      <div class="qtop" id="qTop" data-tauri-drag-region></div>
+      <div class="qtabs" id="qTabs" aria-label="Current sessions"></div>
+      <div class="qview" id="qView"></div>
+      <section class="qsession" id="qSession" hidden></section>
       <header class="tbar" data-tauri-drag-region>
         <button class="ib" id="sideOpen" aria-label="Show sidebar" data-icon="sidebar" hidden></button>
         <div class="modes" id="modes" role="tablist"></div>
@@ -83,15 +88,31 @@
           <button class="ib" id="aiBtn" aria-label="Chat panel" title="Chat panel (⌘I)" aria-pressed="true" data-icon="sparkle"></button>
         </div>
       </header>
+      <div class="apphead" id="appHead">
+        <div class="ah-left">
+          <div class="zone-head" id="zoneHead"></div>
+          <div class="chat-head chat-only" id="chatHead"></div>
+        </div>
+        <div class="modes" id="modes" role="tablist"></div>
+        <div class="ah-right">
+          <nav class="tabs code-only agents-only" id="tabs" role="tablist" aria-label="Tabs"></nav>
+          <button class="ib code-only agents-only canvas-only" id="addCanvas" aria-label="Add a canvas" title="Add a canvas" data-icon="plus"></button>
+          <button class="vbtn code-only agents-only" id="viewBtn" aria-haspopup="menu" data-popper></button>
+        </div>
+      </div>
       <div class="body" id="body">
         <!-- Chat and Workbench are extensions: the frame makes their sections
              from extensions/<id>/extension.json and loads their scripts. -->
         <section class="dash zone" id="dash" hidden></section>
         <section class="memory zone" id="memory" hidden></section>
         <section class="apps zone" id="apps" hidden></section>
+        <section class="plugins zone" id="plugins" hidden></section>
+        <section class="skills zone" id="skills" hidden></section>
         <div class="split-gut" id="splitGut" role="separator" aria-orientation="vertical" aria-label="Resize split" hidden></div>
         <div class="split-head" id="splitHead" hidden></div>
       </div>
+      <footer class="qfooter" id="qFooter" hidden></footer>
+      <aside class="qwall" id="qWall" aria-label="Your agents, as a team" hidden></aside>
       <aside class="rpanel" id="rpanel" aria-label="History, files and sessions" hidden></aside>
       <!-- The ADE's work area beside the chat (work.js). -->
       <aside class="work" id="work" aria-label="Work area" hidden></aside>
@@ -112,6 +133,7 @@
     <footer class="status" aria-hidden="true" hidden>
       <button class="cta code-only agents-only" id="cta" aria-expanded="false" aria-controls="drawer"></button>
       <div class="stm" id="status"></div>
+      <div class="qdock" id="qDock"></div>
     </footer>
     <div class="scrim" id="scrim"></div>
     <div class="onboard" id="onboard" hidden></div>
@@ -138,6 +160,8 @@
 <script src="dash.js"></script>
 <script src="ai.js"></script>
 <script src="shell.js"></script>
+<script src="vendor/open-bot-avatar.js"></script>
+<script src="quiet.js"></script>
 <!-- The chat face: Whirl's components on Backspace (web/, MIT). Deferred, so
      it is defined before app.js boots on DOMContentLoaded. -->
 <script type="module" src="chat-web/whirl.js"></script>

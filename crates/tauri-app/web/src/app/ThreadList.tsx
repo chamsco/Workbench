@@ -7,6 +7,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import {
+  IconChevronDown,
   IconActivity,
   IconAlertTriangleFilled,
   IconBox,
@@ -29,9 +30,11 @@ import {
   IconPencil,
   IconPin,
   IconPinFilled,
+  IconPlugConnected,
   IconPlus,
   IconSearch,
   IconSelector,
+  IconSettings,
   IconSitemap,
   IconSparkles,
   IconSquareMinus,
@@ -108,7 +111,7 @@ function Act({ icon: ActIcon, label, onClick, on, popper }: { icon: Icon; label:
  *
  *  Canvas rows come from `Host.canvases()`, which reads the open tab, so the
  *  sidebar and the tab bar can never disagree about what is open. */
-export function ThreadList({ onNewChat }: { onNewChat: () => void }) {
+export function ThreadList({ onNewChat, user }: { onNewChat: () => void; user?: string }) {
   const { threads: all, id, query, scope, epoch } = useChat();
   const host = getHost();
   const [searching, setSearching] = useState(false);
@@ -267,6 +270,77 @@ export function ThreadList({ onNewChat }: { onNewChat: () => void }) {
     </div>
   );
   const pillSlot = document.getElementById("sidePills");
+  const chatSide = !inCode;
+  const footSlot = document.getElementById("sideFoot");
+
+  const brand = (
+    <div className="bs-brand">
+      <span className="bs-brand-mark" aria-hidden>
+        <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M5.2 3.2h7.6a1 1 0 0 1 1 1v7.6a1 1 0 0 1-1 1H5.2L1.8 8z" />
+          <path d="m7.6 6 4 4M11.6 6l-4 4" />
+        </svg>
+      </span>
+      <span className="bs-brand-name">Backspace</span>
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          aria-label="Backspace menu"
+          className="bs-brand-more"
+        >
+          <IconChevronDown size={13} />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="min-w-48 p-1">
+          <DropdownMenuItem className="gap-2 px-2 py-1.5" onClick={() => host.newProject()}>
+            <IconFolderPlus size={15} className="text-muted-foreground" />
+            Open a project
+          </DropdownMenuItem>
+          <DropdownMenuItem className="gap-2 px-2 py-1.5" onClick={() => host.openSettings("appearance")}>
+            <IconSparkles size={15} className="text-muted-foreground" />
+            Appearance
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem className="gap-2 px-2 py-1.5" onClick={() => host.openSettings()}>
+            <IconSettings size={15} className="text-muted-foreground" />
+            Settings
+          </DropdownMenuItem>
+          <DropdownMenuItem className="gap-2 px-2 py-1.5" onClick={() => host.runSetup()}>
+            <IconSparkles size={15} className="text-muted-foreground" />
+            Run setup
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  );
+
+  const nav = (
+    <nav className="bs-nav" aria-label="Sections">
+      <button type="button" className="is-on" onClick={() => goHome()}>
+        <IconMessages size={15} />
+        Threads
+      </button>
+      <button type="button" onClick={() => host.openSettings("providers")}>
+        <IconPlugConnected size={15} />
+        Connections
+      </button>
+      <button type="button" onClick={() => host.openSettings()}>
+        <IconSettings size={15} />
+        Settings
+      </button>
+    </nav>
+  );
+
+  const footer = (
+    <div className="bs-user">
+      <span className="bs-user-avatar">{(user || "you").slice(0, 1).toUpperCase()}</span>
+      <span className="bs-user-name">
+        <b>{user || "You"}</b>
+        <small>{host.machineName()}</small>
+      </span>
+      <button type="button" aria-label="Settings" title="Settings" className="bs-user-gear" onClick={() => host.openSettings()}>
+        <IconSettings size={15} />
+      </button>
+    </div>
+  );
 
   return (
     <div className="whirl-side flex flex-col gap-2.5">

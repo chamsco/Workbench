@@ -248,6 +248,18 @@ var Chat = (() => {
     projectMenu: anchor => Shell.projectMenu(anchor),
     setSide: open => setSide(open),
     openPanel: tab => window.RPanel && RPanel.show(tab),
+    // The Appearance popover writes the same prefs and reapplies the same
+    // variables as Settings, so the two can never disagree.
+    appearance: () => ({ ...(prefs.appearance || {}) }),
+    setAppearance: async a => {
+      prefs.appearance = a; applyTheme();
+      await invoke("set_appearance", { appearance: a });
+    },
+    theme: () => prefs.theme || "system",
+    setTheme: async t => {
+      prefs.theme = t; applyTheme();
+      await invoke("set_theme", { theme: t });
+    },
   });
   function mountWhirl() {
     if (whirl || !window.WhirlChat) return false;
