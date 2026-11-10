@@ -17,6 +17,7 @@ mod arrange;
 mod canvas;
 mod icons;
 mod pal;
+mod shell;
 mod stage;
 mod ui;
 
@@ -2878,6 +2879,11 @@ fn main() -> anyhow::Result<()> {
     {
         std::process::exit(code);
     }
+    // The Cauldron shell (docs/cauldron/UI-PLAN.md, UI1) is the app. The older coding workbench
+    // stays reachable with CAULDRON_LEGACY=1 until UI2 moves it into the new shell.
+    if std::env::var_os("CAULDRON_LEGACY").is_none() {
+        return run_shell();
+    }
     Prefs::load().apply_keys();
     let ws = std::env::args()
         .nth(1)
@@ -2916,6 +2922,41 @@ fn main() -> anyhow::Result<()> {
                 },
                 |window, cx| {
                     let view = cx.new(|cx| Workbench::new(fleet, window, cx));
+                    cx.new(|cx| Root::new(view, window, cx))
+                },
+            )
+            .expect("failed to open window");
+            cx.activate(true);
+        });
+    Ok(())
+}
+
+/// Opens the Cauldron shell: transparent title bar so the frame reaches the window edge,
+/// native lights on macOS at the wireframe's position, drawn caption buttons elsewhere.
+fn run_shell() -> anyhow::Result<()> {
+    gpui_kit::application()
+        .with_assets(icons::Assets)
+        .run(move |cx: &mut App| {
+            gpui_kit::init(cx);
+            if let Err(e) = cx.text_system().add_fonts(bundled_fonts()) {
+                eprintln!("bundled fonts: {e}");
+            }
+            let bounds = Bounds::centered(None, size(px(1440.), px(900.)), cx);
+            let (lx, ly) = shell::lights_origin();
+            cx.open_window(
+                WindowOptions {
+                    window_bounds: Some(WindowBounds::Windowed(bounds)),
+                    window_min_size: Some(size(px(900.), px(600.))),
+                    titlebar: Some(TitlebarOptions {
+                        title: Some("Cauldron".into()),
+                        appears_transparent: true,
+                        traffic_light_position: cfg!(target_os = "macos").then(|| point(px(lx), px(ly))),
+                    }),
+                    window_background: WindowBackgroundAppearance::Opaque,
+                    ..Default::default()
+                },
+                |window, cx| {
+                    let view = cx.new(|_| shell::Cauldron::new());
                     cx.new(|cx| Root::new(view, window, cx))
                 },
             )

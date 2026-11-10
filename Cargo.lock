@@ -590,6 +590,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "backspace-core",
+ "cauldron-chrome",
  "gpui-kit",
 ]
 
