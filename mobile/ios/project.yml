@@ -1,0 +1,51 @@
+# XcodeGen spec for the Backspace phone app. The .xcodeproj is generated, not
+# committed: `brew install xcodegen && xcodegen generate` (see README.md).
+name: Backspace
+options:
+  bundleIdPrefix: computer.backspace
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+targets:
+  Backspace:
+    type: application
+    platform: iOS
+    sources: [Backspace]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: computer.backspace.phone
+        TARGETED_DEVICE_FAMILY: "1"
+        ENABLE_PREVIEWS: YES
+    info:
+      path: Backspace/Info.plist
+      properties:
+        CFBundleDisplayName: Backspace
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        NSCameraUsageDescription: Scan the pairing code your Mac shows in Settings → Phone.
+        NSLocalNetworkUsageDescription: Backspace talks to the Mac you paired, on your network.
+        # The companion API is plain HTTP on the LAN (or a Tailscale address).
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+        CFBundleURLTypes:
+          - CFBundleURLName: computer.backspace.pair
+            CFBundleURLSchemes: [backspace]
+  BackspaceTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [BackspaceTests]
+    dependencies:
+      - target: Backspace
+schemes:
+  Backspace:
+    build:
+      targets:
+        Backspace: all
+        BackspaceTests: [test]
+    test:
+      targets: [BackspaceTests]
