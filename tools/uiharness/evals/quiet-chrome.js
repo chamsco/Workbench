@@ -62,6 +62,15 @@
   step("glass keeps the bottom row", !!q("#qDock .qd-foot [data-q-theme]"));
   Quiet.go("home"); await wait(500);
   step("the project page is a command center", !!q(".qh-hero") && !!q(".qh-side") && $$(".qh-panel").length >= 3);
+  step("Needs you leads the page when something waits", !!q(".qh-strip") && /need/.test(q(".qh-strip").textContent));
+  step("only counts are buttons in the banner", $$(".qh-pill").every((p) => p.tagName !== "BUTTON" || !!p.dataset.qGo));
+  const qwin = q("#win");
+  qwin.classList.add("side-closed"); await wait(300);
+  const fd = q("#qDock .qd-foot");
+  step("folded sidebar keeps settings, night and glass in the page bar", fd.offsetWidth > 0 && !!fd.querySelector('[data-q-go="settings"]') && !!fd.querySelector("[data-q-theme]") && !!fd.querySelector("[data-q-skin]"));
+  qwin.classList.remove("side-closed"); await wait(200);
+  Quiet.go("needs"); await wait(500);
+  step("the Work sidebar does not repeat the work icons or settings", $$("#qSide [data-q-go]").every((b) => !["needs", "board", "review", "automate", "limits", "settings"].includes(b.dataset.qGo)));
   Quiet.go("code"); await wait(500);
   const modes = $$("[data-q-sgroup]").map((b) => b.dataset.qSgroup);
   step("sessions can be grouped four ways", modes.join() === "activity,where,added,folder", modes.join());

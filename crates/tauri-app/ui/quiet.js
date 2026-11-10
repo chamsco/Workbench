@@ -692,12 +692,6 @@ var Quiet = (() => {
       el.innerHTML = `
         <div class="qs-head"><b>Work</b><button class="qs-icon" data-q-go="home" title="Home">${ic("home")}</button></div>
         <div class="qs-group">
-          ${navRow("Needs you", "needs", "hand", needsCount() || "", page === "needs")}
-          ${navRow("Board", "board", "grid", tickets().length || "", page === "board")}
-          ${navRow("Review", "review", "check", byState("ready_for_human").length || "", page === "review")}
-          ${navRow("Automate", "automate", "zap", routines().length || "", page === "automate")}
-        </div>
-        <div class="qs-group">
           ${navRow("Inbox", "inbox", "inbox", unreadChats() || "", page === "inbox")}
           ${navRow("Calendar", "calendar", "calendar", routines().length || "", page === "calendar")}
           ${navRow("Tasks", "tasks", "tasks", tickets().length || "", page === "tasks")}
@@ -705,7 +699,6 @@ var Quiet = (() => {
         <div class="qs-group">
           ${navRow("Plugins", "plugins", "plugins", "", page === "plugins")}
           ${navRow("Skills", "skills", "skills", "", page === "skills")}
-          ${navRow("Settings", "settings", "gear", "", page === "settings")}
         </div>
         <button class="qs-add" data-q-go="home">${ic("home")}Back to HQ</button>`;
       return;
@@ -783,7 +776,8 @@ var Quiet = (() => {
       todo.length ? `${todo.length} to-do${todo.length === 1 ? "" : "s"} open, ${review.length} ready for review.` : "",
       rs.length ? `Next automation ${esc(wake(rs[0].next_run))}.` : "",
     ].filter(Boolean).join(" ");
-    const pill = (icon, text, go) => `<button class="qh-pill" ${go ? `data-q-go="${go}"` : ""}>${ic(icon)}${text}</button>`;
+    const pill = (icon, text, go) => go ? `<button class="qh-pill" data-q-go="${go}">${ic(icon)}${text}</button>` : `<span class="qh-pill">${ic(icon)}${text}</span>`;
+    const waitingNames = [...need.map(a => a.kind === "plan" ? "Approve the plan" : "Review the deliverable"), ...awaiting().map(a => a.id === 0 ? "Main agent" : a.title), ...chats().filter(t => t.unread || t.failed).map(t => t.title || "New chat")].slice(0, 3);
     const panel = (title, count, go, body) => `<section class="qh-panel">
       <div class="qh-panel-h"><b>${title}</b>${count !== "" ? `<span class="q-count">${count}</span>` : ""}${go ? `<button class="qh-more" data-q-go="${go}" aria-label="Open ${esc(title)}">${ic("chev")}</button>` : ""}</div>
       ${body}
@@ -803,6 +797,7 @@ var Quiet = (() => {
           </div>
         </div>
       </div>
+      ${waiting ? `<div class="qh-strip" role="status"><b>${waiting} need${waiting === 1 ? "s" : ""} you</b><span>${esc(waitingNames.join(" · "))}</span><button class="q-btn dark sm" data-q-go="needs">Review</button></div>` : ""}
       <div class="qh-actions">
         <button class="q-btn dark" data-q-new>New session ${ic("plus")}</button>
         <button class="q-btn" data-q-go="code">${ic("code")}Code</button>
@@ -816,7 +811,7 @@ var Quiet = (() => {
             ${tabs.slice(0, 6).map((t, i) => `<button class="qh-card" data-q-tab="${i}">
               <span class="qh-card-ic">${ic("canvas")}</span>
               <span class="qh-card-t"><b>${esc(t.name || "Canvas " + (i + 1))}</b><small>${t.panes.length} pane${t.panes.length === 1 ? "" : "s"} · ${esc([...new Set(t.panes.map(p => p.kind))].join(", "))}</small></span>
-            </button>`).join("") || `<div class="q-empty">No canvases yet. Start one with “Canvas”.</div>`}
+            </button>`).join("") || `<div class="qh-empty">No canvases yet.<button data-q-add-canvas>New canvas</button></div>`}
           </div>
           <p class="qh-summary">${summary}</p>
           <div class="qh-meta">${ic("chart")}${money(snap && snap.total_cost_usd)} · ${compact(tokens)} tokens · ${workAgents().length || bots().length} agent${(workAgents().length || bots().length) === 1 ? "" : "s"}</div>
@@ -826,14 +821,14 @@ var Quiet = (() => {
               ${botFace(["#8b5cf6", "#14b8a6", "#ef4444", "#f59e0b"][i % 4], 28, t.title || "Chat", WALL_SHAPES[i % WALL_SHAPES.length])}
               <span class="q-row-main"><b>${esc(t.title || "New chat")}</b><small><i class="qdot ${t.busy ? "work" : (t.unread || t.failed) ? "need" : "idle"}"></i>${esc(t.busy ? "Working" : (t.unread || t.failed) ? "Needs you" : "Idle")} · ${esc(t.route && t.route.kind === "cloud" ? "Cloud" : "This Mac")}</small></span>
               <span class="q-row-end">${esc(ago(t.updated))}</span>
-            </button>`).join("") || `<div class="q-empty">No sessions yet. Start one with “New session”.</div>`}
+            </button>`).join("") || `<div class="qh-empty">No sessions yet.<button data-q-new>New session</button></div>`}
           </div>
         </div>
         <aside class="qh-side">
-          ${panel("To-dos", todo.length, "board", todo.length ? todo.slice(0, 5).map(t => `<button class="qh-todo" data-q-ticket="${esc(t.key)}"><i class="qh-box"></i><span>${esc(t.title)}</span><small>${esc(t.state.replace(/_/g, " "))}</small></button>`).join("") : `<div class="q-empty">Nothing open.</div>`)}
-          ${panel("Needs you", waiting, "needs", need.length || awaiting().length ? [...need.slice(0, 3).map(a => `<button class="qh-todo" data-q-ap="${a.id}"><i class="qh-box need"></i><span>${a.kind === "plan" ? "Approve the plan" : "Review the deliverable"}</span><small>${a.tickets.length} ticket${a.tickets.length === 1 ? "" : "s"}</small></button>`), ...awaiting().slice(0, 2).map(a => `<button class="qh-todo" data-q-agent="${a.id}"><i class="qh-box need"></i><span>${esc(a.id === 0 ? "Main agent" : a.title)}</span><small>review</small></button>`)].join("") : `<div class="q-empty">Nothing waiting.</div>`)}
-          ${panel("Automations", rs.length, "automate", rs.length ? rs.slice(0, 3).map(r => `<div class="qh-todo static"><i class="qh-box"></i><span>${esc(r.name)}</span><small>${esc(wake(r.next_run))}</small></div>`).join("") : `<div class="q-empty">None scheduled.</div>`)}
-          ${panel("Team", bots().length, "crew", `<div class="qh-team">${bots().slice(0, 6).map((a, i) => `<span title="${esc(a.name)}">${botFace(["#8b5cf6", "#14b8a6", "#ef4444", "#f59e0b"][i % 4], 30, a.name, WALL_SHAPES[i % WALL_SHAPES.length])}</span>`).join("") || `<div class="q-empty">No agents yet.</div>`}</div>`)}
+          ${panel("To-dos", todo.length, "board", todo.length ? todo.slice(0, 5).map(t => `<button class="qh-todo" data-q-ticket="${esc(t.key)}"><i class="qh-box"></i><span>${esc(t.title)}</span><small>${esc(t.state.replace(/_/g, " "))}</small></button>`).join("") : `<div class="qh-empty">Nothing open.</div>`)}
+          ${panel("Needs you", waiting, "needs", need.length || awaiting().length ? [...need.slice(0, 3).map(a => `<button class="qh-todo" data-q-ap="${a.id}"><i class="qh-box need"></i><span>${a.kind === "plan" ? "Approve the plan" : "Review the deliverable"}</span><small>${a.tickets.length} ticket${a.tickets.length === 1 ? "" : "s"}</small></button>`), ...awaiting().slice(0, 2).map(a => `<button class="qh-todo" data-q-agent="${a.id}"><i class="qh-box need"></i><span>${esc(a.id === 0 ? "Main agent" : a.title)}</span><small>review</small></button>`)].join("") : `<div class="qh-empty">Nothing waiting on you.</div>`)}
+          ${panel("Automations", rs.length, "automate", rs.length ? rs.slice(0, 3).map(r => `<div class="qh-todo static"><i class="qh-box"></i><span>${esc(r.name)}</span><small>${esc(wake(r.next_run))}</small></div>`).join("") : `<div class="qh-empty">None scheduled. <button data-q-go="automate">Add one</button></div>`)}
+          ${panel("Team", bots().length, "crew", `<div class="qh-team">${bots().slice(0, 6).map((a, i) => `<span title="${esc(a.name)}">${botFace(["#8b5cf6", "#14b8a6", "#ef4444", "#f59e0b"][i % 4], 30, a.name, WALL_SHAPES[i % WALL_SHAPES.length])}</span>`).join("") || `<div class="qh-empty">No agents yet. <button data-q-go="crew">Open Crew</button></div>`}</div>`)}
         </aside>
       </div>
     </div>`;

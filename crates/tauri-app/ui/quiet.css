@@ -1960,3 +1960,43 @@ button.qh-pill:hover { background: var(--q-app); color: var(--q-ink); }
 .win.q-on { grid-template-rows: minmax(0, 1fr) calc(40px + var(--sheet-gap)); }
 .win.q-on .status { align-self: start; }
 .win.q-on .gutter-side { bottom: calc(40px + var(--sheet-gap)); }
+
+
+/* ============================================================
+   DESIGN PASS v2 (canvas: "Shell frame and project page design").
+   Folded sidebar keeps settings/night/glass in the page's bar; the
+   top row gives up its crumb before it collides with the modes; the
+   current place is the filled one; the project page leads with a
+   Needs you strip, has real empty states, and stacks when narrow.
+   ============================================================ */
+.win.q-on.side-closed .qd-foot { display: flex; width: auto; border-right: 0; padding-right: 6px; }
+.win.q-on.side-closed .qd-foot::after { content: ""; width: 1px; height: 14px; background: var(--q-line); margin-left: 8px; }
+.win.q-on.side-closed .qdock { justify-content: center; }
+.win.q-on.side-closed .qd-right { flex: none; padding-left: 6px; }
+.qd-places .qicon.on { background: var(--q-ink); color: var(--q-app); }
+.win.q-glass .qd-places .qicon.on { background: rgba(255, 255, 255, .88); color: #171a1f; }
+@media (max-width: 1000px) { .win.q-on .qtop .q-crumb { display: none; } }
+.win.q-on.side-closed .qtop .q-crumb { display: flex; }
+@media (max-width: 1000px) { .win.q-on.side-closed .qtop .q-crumb { display: none; } }
+
+.qh { container-type: inline-size; }
+.qh-hero {
+  background:
+    radial-gradient(80% 120% at 10% 0%, hsl(var(--qh-h) 26% 86%), transparent 60%),
+    radial-gradient(70% 110% at 95% 20%, hsl(calc(var(--qh-h) + 50) 22% 84%), transparent 62%),
+    hsl(var(--qh-h) 12% 90%);
+}
+.qh-strip {
+  display: flex; align-items: center; gap: 12px; margin: 12px 0 0; padding: 9px 12px;
+  border: 1px solid var(--q-line); border-left: 3px solid var(--q-peach); border-radius: 10px; background: var(--q-card);
+  font: 13px/1.3 var(--font-ui); color: var(--q-ink);
+}
+.qh-strip b { font-weight: 600; flex: none; }
+.qh-strip span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--q-muted); }
+.qh-strip .q-btn { flex: none; }
+.qh-empty { display: flex; align-items: center; gap: 8px; padding: 10px 2px 8px; font: 12.5px/1.4 var(--font-ui); color: var(--q-muted); }
+.qh-cards .qh-empty { grid-column: 1 / -1; border: 1px dashed var(--q-line); border-radius: 12px; padding: 14px; }
+.qh-empty button { margin-left: auto; height: 24px; padding: 0 9px; border-radius: 7px; border: 1px solid var(--q-line); background: var(--q-card); color: var(--q-ink); font: 500 11.5px/1 var(--font-ui); }
+.qh-empty button:hover { border-color: var(--q-ink-2); }
+.qh-empty button:focus-visible { outline: 2px solid var(--q-blue); outline-offset: 2px; }
+@container (max-width: 860px) { .qh-grid { grid-template-columns: minmax(0, 1fr); } }
