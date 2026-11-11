@@ -1,0 +1,36 @@
+# UI1 step 0, green
+
+$ cargo test -p cauldron-chrome
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test accent_on_the_frame_is_for_glyphs_only ... ok
+test contrast_follows_wcag ... ok
+test every_text_pair_passes_aa_in_both_themes ... ok
+test one_accent_and_status_colours_stay_distinct ... ok
+test radii_match_the_wireframe_and_nest_by_subtraction ... ok
+test palettes_match_the_wireframe_tokens_exactly ... ok
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test main_keeps_a_minimum_width_by_closing_split_then_drawer ... ok
+test platforms_differ_only_in_window_controls ... ok
+test panes_never_overlap_and_stay_inside_the_window ... ok
+test solver_matches_every_golden_state_and_size ... ok
+test golden_has_two_window_sizes ... ok
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+$ cargo test -p backspace --bin backspace
+test icons::tests::every_shell_icon_loads ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+$ pwsh tools/winshell/hit-test.ps1
+ok   minimise             want min          got min
+ok   maximise             want max          got max
+ok   close                want close        got close
+ok   sidebar button       want client       got client
+ok   terminal             want client       got client
+ok   split                want client       got client
+ok   empty top strip      want drag         got drag
+ok   main body            want client       got client
+ok   right edge           want right        got right
+ok   bottom edge          want bottom       got bottom
+ok   bottom-right corner  want bottomright  got bottomright
+11 passed, 0 failed
