@@ -27,3 +27,22 @@ right-rail tip sits 8px left of its button: Rect { x: 1150.0, y: 94.0, w: 54.0, 
 thread 'shell::tests::tabs_open_switch_close_and_join_the_card' (60764) panicked at crates\app\src\shell.rs:789:17:
 tab 4 of 12 stays in the row: Rect { x: 841.0, y: 9.0, w: 144.0, h: 34.0 } Rect { x: 257.0, y: 9.0, w: 718.0, h: 34.0 }
 test result: FAILED. 2 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+
+## agent tabs (wireframe round 23), red: the tests reference the new tab model before it exists
+error[E0432]: unresolved import `super::AgentTab`
+error[E0560]: struct `Cauldron` has no field named `coordinator`
+error[E0560]: struct `Cauldron` has no field named `agents`
+error[E0560]: struct `Cauldron` has no field named `idle`
+error: could not compile `backspace` (bin "backspace" test) due to 4 previous errors
+
+## kind colours and agent dots, red
+error[E0432]: unresolved import `cauldron_chrome::tokens::AGENT_DOTS`
+error[E0609]: no field `info` on type `&Palette`
+error[E0609]: no field `design` on type `&Palette`
+error[E0609]: no field `mem` on type `&Palette`
+error[E0609]: no field `mem` on type `&Palette`
+error: could not compile `cauldron-chrome` (test "tokens") due to 5 previous errors
+
+## shadows, red
+error[E0432]: unresolved import `cauldron_chrome::tokens::shadow`
+error: could not compile `cauldron-chrome` (test "tokens") due to 1 previous error

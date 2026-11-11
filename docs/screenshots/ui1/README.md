@@ -11,7 +11,8 @@ Captured on Charles's Windows 11 PC, 11 Nov 2026, at 100% scaling, client area 1
 | `06-drawer-closed.png` | Patches clicked again |
 | `07-split.png`, `08-split-and-drawer.png` | Split, then Split with Highlights |
 | `09-sidebar-hidden.png` | Sidebar hidden, function icons on the left rail |
-| `10-tabs.png` | UI1 remainder: five tabs on the frame, the open one joining the card with curved feet |
+| `13`, `14`, `15-agent-tabs-{3,8,14}-fixture.png` | Agent tabs (wireframe round 23) with 3, 8 and 14 agents. **Fixture**: a debug build with `CAULDRON_FIXTURE_AGENTS=n`; real agents come from core in UI4 |
+| `16-plus-menu-fixture.png` | The + menu over the 3-agent fixture: Spawn a subagent (wired in UI4), Open 1:1 with |
 | `11-tip-right-rail.png`, `12-tip-function-row.png` | UI1 remainder: hover tips, left of the right rail and right of the function row |
 
 Dark only: the app follows the Windows theme and has no switch of its own. The light screenshots need the OS theme changed, which was not done.
@@ -23,7 +24,7 @@ Dark only: the app follows the Windows theme and has no switch of its own. The l
 
 ## Fixed in the UI1 remainder
 
-Folder tabs (open, switch, close, + ; closing the last tab leaves one New thread) with concave feet joining the card; with 12 tabs they shrink to fit and + stays in the row (past about 14 they get too thin to read; scrolling is not built). Every icon button has its name as a tip beside it, as the wireframe's `.fn[data-tip]`: 8px away, centred, after 450ms, at once for a neighbour within 300ms. Tips on the top band and + open below, which the wireframe does not draw. Live tests compare every pane's rendered bounds with `layout::solve` in 8 shell states. Tests in `shell::tests`, red and green runs in `docs/cauldron/UI1-red-output.txt` and `UI1-green-output.txt`.
+Tabs show one thread's agents (wireframe round 23). The coordinator is pinned at the left, at most 190px, never scrolls and cannot be closed; on the New thread screen it is a single "New thread" tab with no +. Agent tabs share the room equally between 72 and 210px. When 72px tabs no longer fit, two 24x28 arrows appear left of + and the row scrolls by one tab per click or wheel line. The open tab is scrolled into view when it changes (click, Left, Right, Home, End, Delete, a 1:1 opened from +, a resize). Delete closes the open agent tab; the agent goes back to the + menu. Close buttons show on the open tab and on hover; narrow tabs show the full name as a tip. Spacing inside tabs and the + menu is the wireframe's `.tab`, `.tscroll` and `.tmenu` values (gap 7, padding 10/6, item 6/8), off the 4px scale by design. Every icon button has its name as a tip beside it, as the wireframe's `.fn[data-tip]`: 8px away, centred, after 450ms, at once for a neighbour within 300ms. Tips on the top band and + open below, which the wireframe does not draw. Live tests compare every pane's rendered bounds with `layout::solve` in 8 shell states. Tests in `shell::tests`, red and green runs in `docs/cauldron/UI1-red-output.txt` and `UI1-green-output.txt`.
 
 ## Mismatches still open, most visible first
 
