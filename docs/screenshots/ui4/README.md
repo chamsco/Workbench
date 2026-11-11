@@ -38,3 +38,4 @@ Captured on Charles's Windows 11 PC, 11 Nov 2026, 100% scaling, client area 1240
 
 - Light theme and 125% or 150% scaling (both need Windows settings changed).
 - A reply streaming in from a real model, Stop, and the send error under the box (screenshot sessions do not contact models). Sending, the error and Retry were run end to end in `the_composer_sends_through_core` with a provider that does not exist.
+- Re-render when core or a connected machine changes: tests do not listen on core's channel (a wake from core's thread breaks the test scheduler) and refresh by hand.
