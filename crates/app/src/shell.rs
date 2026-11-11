@@ -11,11 +11,13 @@ use gpui_kit::*;
 
 use crate::threads::{self, Group};
 use crate::ui::UI;
-use backspace_core::chat::{Chats, ThreadInfo};
+use backspace_core::chat::{Chats, Thread, ThreadInfo};
 use backspace_core::prefs::Prefs;
-use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::component::input::{Input, InputEvent, InputState, TextareaState};
 use gpui_kit::component::Theme;
 use std::sync::Arc;
+
+mod thread;
 
 /// Where the shell draws window controls: lights on macOS, caption buttons elsewhere.
 pub(crate) fn platform() -> Platform {
@@ -193,6 +195,12 @@ pub(crate) struct Cauldron {
     /// routines, dreams and relay of `Fleet` are not started by this window.
     core: Option<(tokio::runtime::Runtime, Arc<Chats>)>,
     watch: Option<Task<()>>,
+    /// The thread open in the main card (UI4), as core last had it, the composer, and why the
+    /// last send was refused.
+    open: Option<String>,
+    thread: Option<Thread>,
+    composer: Option<(Entity<TextareaState>, Subscription)>,
+    send_error: Option<String>,
 }
 
 impl Cauldron {
@@ -234,7 +242,7 @@ impl Cauldron {
     }
 
     pub(crate) fn new() -> Self {
-        Cauldron { sidebar_open: true, drawer: Some(Panel::Highlights), split: false, coordinator: None, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None }
+        Cauldron { sidebar_open: true, drawer: Some(Panel::Highlights), split: false, coordinator: None, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, composer: None, send_error: None }
     }
 
     /// Opens core off the main thread (the sidebar shows Loading meanwhile), then keeps the thread
@@ -261,21 +269,12 @@ impl Cauldron {
                     return;
                 }
             };
-            let mut core = Some((rt, chats));
-            loop {
-                let alive = this.update(cx, |c, cx| {
-                    if let Some(o) = core.take() {
-                        c.core = Some(o);
-                    }
-                    if let Some((_, chats)) = &c.core {
-                        c.threads = Threads::Ready(chats.list());
-                    }
-                    cx.notify();
-                });
-                if alive.is_err() || changes.recv().await.is_err() {
-                    break;
-                }
-            }
+            let _ = this.update(cx, |c, cx| {
+                c.core = Some((rt, chats));
+                c.refresh();
+                c.watch(changes, cx);
+                cx.notify();
+            });
         }));
     }
 
@@ -318,6 +317,14 @@ impl Cauldron {
                 let d = match ev.keystroke.key.as_str() {
                     "up" => -1,
                     "down" => 1,
+                    "enter" => {
+                        if let Some(id) = this.selected.clone() {
+                            this.open_thread(id);
+                        }
+                        cx.stop_propagation();
+                        cx.notify();
+                        return;
+                    }
                     _ => return,
                 };
                 this.step_selection(d);
@@ -453,6 +460,7 @@ impl Cauldron {
                                 )
                                 .on_click(cx.listener(move |this, _, window, cx| {
                                     this.selected = Some(id.clone());
+                                    this.open_thread(id.clone());
                                     if let Some(f) = &this.list_focus {
                                         window.focus(f, cx);
                                     }
@@ -732,6 +740,7 @@ impl Render for Cauldron {
         let fg3 = c(pal.fg3);
         let accent = c(pal.accent);
 
+        self.ensure_composer(window, cx);
         let mut root = div()
             .id("cauldron")
             .size_full()
@@ -1098,14 +1107,14 @@ impl Render for Cauldron {
             .w(px(s.main.w))
             .h(px(s.main.h - s.tabs.h))
             .flex()
-            .items_center()
-            .justify_center()
+            .flex_col()
+            .overflow_hidden()
             .rounded(px(radius::R))
             .bg(card)
             .border_1()
             .border_color(ring)
             .text_color(fg3)
-            .child("The thread view arrives in UI4.");
+            .child(self.card_body(pal, cx));
         if self.active == 0 {
             // The first tab sits on the card's corner, so the corner is square.
             card_el = card_el.rounded_tl(px(0.));
@@ -1634,8 +1643,9 @@ mod tests {
         }
     }
 
-    /// Search narrows the list; clicking a row selects it and Up/Down move the selection through
-    /// the rows in view, without opening (and so without marking read) anything.
+    /// Search narrows the list; Up/Down move the selection through the rows in view without
+    /// opening (and so without marking read) anything. A click also opens the row (UI4,
+    /// `a_row_opens_its_thread`); here there is no core, so it only selects.
     #[gpui_kit::test]
     fn search_filters_and_arrows_move_the_selection(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);

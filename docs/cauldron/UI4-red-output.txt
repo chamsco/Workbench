@@ -1,0 +1,14 @@
+# UI4 red
+
+The thread view tests (a_row_opens_its_thread, the_composer_sends_through_core, lines_carry_who_answered_and_the_cost) were written before shell/thread.rs existed; the build failed on the missing fields and functions:
+
+      1 error: could not compile `backspace` (bin "backspace" test) due to 23 previous errors
+      3 error[E0277]: the size for values of type `str` cannot be known at compilation time
+      3 error[E0609]: no field `composer` on type `&mut shell::Cauldron`
+      1 error[E0609]: no field `composer` on type `&shell::Cauldron`
+      5 error[E0609]: no field `open` on type `&mut shell::Cauldron`
+      2 error[E0609]: no field `open` on type `&shell::Cauldron`
+      4 error[E0609]: no field `send_error` on type `&mut shell::Cauldron`
+      1 error[E0609]: no field `send_error` on type `&shell::Cauldron`
+      3 error[E0609]: no field `thread` on type `&mut shell::Cauldron`
+      1 error[E0609]: no field `thread` on type `&shell::Cauldron`
