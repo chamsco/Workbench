@@ -121,6 +121,22 @@ pub const AGENT_DOTS: [Rgb; 9] = [
     Rgb::hex(0xe0703a),
 ];
 
+/// Black drop shadows from the wireframe, the same in both themes.
+pub mod shadow {
+    /// Offset y, blur and spread in px, and the black's alpha.
+    #[derive(Clone, Copy, Debug)]
+    pub struct Shadow {
+        pub y: f32,
+        pub blur: f32,
+        pub spread: f32,
+        pub alpha: f32,
+    }
+    /// Menus and popovers (the + menu).
+    pub const MENU: Shadow = Shadow { y: 12.0, blur: 32.0, spread: -12.0, alpha: 0.6 };
+    /// Hover tips.
+    pub const TIP: Shadow = Shadow { y: 6.0, blur: 16.0, spread: 0.0, alpha: 0.3 };
+}
+
 /// One radius family, anchored on the folder tab. Circles are drawn as circles, not as a radius.
 pub mod radius {
     /// Cards, tabs, the composer, the New thread box.

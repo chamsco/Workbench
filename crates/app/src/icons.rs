@@ -154,7 +154,7 @@ mod tests {
     fn every_shell_icon_loads() {
         let used = [
             "inbox", "folder", "calendar", "bot", "gauge", "brain", "layout-grid", "pin", "palette", "diff",
-            "search", "plus", "settings", "panel-left", "terminal", "columns-2", "minus", "square", "x", "square-pen", "chevron-left", "chevron-right",
+            "search", "plus", "settings", "panel-left", "terminal", "columns-2", "minus", "square", "x", "square-pen", "chevron-left", "chevron-right", "code",
         ];
         let missing: Vec<_> = used
             .iter()

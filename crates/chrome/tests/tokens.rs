@@ -132,3 +132,16 @@ fn agent_dots_come_from_the_wireframe() {
     }
     assert_eq!(AGENT_DOTS.len(), 9);
 }
+
+/// Drop shadows are the wireframe's: the + menu's `0 12px 32px -12px rgb(0 0 0 / .6)` and the
+/// tip's `0 6px 16px rgb(0 0 0 / .3)`.
+#[test]
+fn shadows_come_from_the_wireframe() {
+    use cauldron_chrome::tokens::shadow;
+    let html = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../design/cauldron-master-layout.html")).unwrap();
+    for s in [shadow::MENU, shadow::TIP] {
+        let spread = if s.spread == 0.0 { String::new() } else { format!(" {}px", s.spread) };
+        let css = format!("0 {}px {}px{spread} rgb(0 0 0 / {})", s.y, s.blur, format!("{}", s.alpha).trim_start_matches('0'));
+        assert!(html.contains(&css), "{css} not in the wireframe");
+    }
+}
