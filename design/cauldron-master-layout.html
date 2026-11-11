@@ -591,6 +591,92 @@ section{display:grid;gap:14px;min-width:0}
 .ktabs .kt[aria-selected=true]{background:var(--strip)}
 .ktabs .kt[aria-selected=true]::before{background:radial-gradient(circle at 0 0,transparent calc(var(--r) - 1px),var(--line) calc(var(--r) - 1px) var(--r),var(--strip) var(--r))}
 .ktabs .kt[aria-selected=true]::after{background:radial-gradient(circle at 100% 0,transparent calc(var(--r) - 1px),var(--line) calc(var(--r) - 1px) var(--r),var(--strip) var(--r))}
+
+.thumb{width:100%;aspect-ratio:1240/702;position:relative;overflow:hidden;border-radius:var(--r);border:1px solid var(--line)}
+.thumb .window{position:absolute;left:0;top:0;width:1240px;min-width:0;transform-origin:0 0;pointer-events:none}
+/* round 22: rounder composer, first run, empty app */
+.nt-box{border-radius:calc(var(--r) + 4px)}
+.nt-body{border-radius:var(--r)}
+.nt-wrap:has(.kt:first-child[aria-selected=true]) .nt-body{border-top-left-radius:var(--r2)}
+.send[aria-disabled=true]{opacity:.4;cursor:not-allowed}
+.window[data-fresh] .fnrow .badge{display:none}
+.window[data-fresh] .urow{margin-top:auto}
+.window[data-fresh] .card.one:has(.nt-wrap) .big{grid-template-columns:min(680px,100%)}
+.zs{display:grid;justify-items:center;gap:6px;text-align:center;padding:26px 12px 0;color:var(--fg-3);font-size:12.5px;line-height:18px}
+.zs .zi{width:32px;height:32px;border-radius:var(--r1);background:var(--well);display:grid;place-items:center;color:var(--fg-2);margin-bottom:4px}
+.zs b{font:500 13px/18px var(--ui);color:var(--fg-2)}
+.gs{width:min(680px,100%);margin-top:20px;background:var(--strip);border:1px solid var(--line);border-radius:calc(var(--r) + 4px);padding:4px;box-shadow:0 0 0 1px var(--ring);text-align:left;display:grid;gap:2px}
+.gsh{display:flex;align-items:center;justify-content:space-between;padding:8px 12px 6px}
+.gsh h4{margin:0;font:600 12.5px/18px var(--ui);color:var(--fg-2)}
+.gsr{display:grid;grid-template-columns:16px minmax(0,1fr) auto;gap:12px;align-items:center;padding:10px 12px;background:var(--raised);border-radius:var(--r1)}
+.gsh+.gsr{border-top-left-radius:var(--r);border-top-right-radius:var(--r)}
+.gsr:last-child{border-bottom-left-radius:var(--r);border-bottom-right-radius:var(--r)}
+.gsr+.gsr{box-shadow:inset 0 1px 0 var(--line)}
+.gsr .gsd{width:16px;height:16px;border-radius:50%;border:1.5px solid var(--fg-3);display:grid;place-items:center}
+.gsr.now .gsd{border-color:var(--accent)}
+.gsr.done .gsd{background:var(--ok);border-color:var(--ok);color:var(--bg)}
+.gsr .gsd .ic{width:11px;height:11px;stroke-width:2.6}
+.gsr b{display:block;font:500 13px/18px var(--ui);color:var(--fg)}
+.gsr .m{display:block;font-size:12px;line-height:17px;color:var(--fg-3)}
+.gsr.done b{color:var(--fg-2)}
+.fr-boards{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:14px}
+@media (max-width:980px){.fr-boards{grid-template-columns:1fr}}
+.steps4{display:grid;grid-template-columns:repeat(2,296px);gap:8px;justify-content:start;overflow-x:auto;max-width:100%}
+.obframe{width:296px;height:185px;border:1px solid var(--line);border-radius:var(--r);background:var(--frame-w);overflow:hidden;position:relative}
+.obframe .ob{position:absolute;left:0;top:0;width:640px;height:400px;transform:scale(.4625);transform-origin:0 0}
+.ob{display:grid;place-content:center;justify-items:center;gap:10px;text-align:center;color:var(--fg)}
+.ob h4{margin:0;font:650 22px/28px var(--ui);letter-spacing:-.01em}
+.ob .sub{font-size:13px;line-height:19px;color:var(--fg-3);max-width:380px}
+.ob .list{display:grid;gap:8px;width:380px;margin-top:8px;text-align:left}
+.ob .it{display:grid;grid-template-columns:22px minmax(0,1fr) auto;gap:12px;align-items:center;padding:10px 12px;background:var(--raised);border:1px solid var(--line);border-radius:var(--r)}
+.ob .it b{display:block;font:500 13px/18px var(--ui)}
+.ob .it .m{display:block;font-size:12px;line-height:16px;color:var(--fg-3)}
+.ob .it .ok{font:500 12px/16px var(--ui);color:var(--ok)}
+.pbtn{height:34px;width:380px;border-radius:var(--r);background:var(--fg);color:var(--bg);font:500 13px/16px var(--ui);border:0;margin-top:8px}
+.lbtn{background:none;border:0;color:var(--fg-2);font:500 13px/16px var(--ui);height:28px}
+.drop{width:380px;height:92px;margin-top:8px;border:1px dashed var(--line);border-radius:var(--r);display:grid;place-content:center;justify-items:center;gap:4px;color:var(--fg-3);font-size:12.5px;line-height:18px}
+.pickrow td{background:color-mix(in srgb,var(--accent) 7%,transparent)}
+
+/* round 23: agent tabs that shrink and scroll; first-install wizard */
+.tstrip{width:718px;max-width:100%}
+.tstrip .main{display:grid;grid-template-rows:auto auto}
+.tstrip .stub{height:14px;background:var(--card);box-shadow:0 0 0 1px var(--ring);border-radius:0 var(--r) 0 0}
+.tstrip .tabs{padding-left:0;position:relative;overflow:visible}
+.tstrip .tabs.shrunk .tab:not(.anchor){flex:1 1 0;width:0;min-width:72px;max-width:210px;padding:0 6px 0 10px;gap:6px}
+.tstrip .tab.anchor{flex:none;max-width:190px}
+.tstrip .tab .x{width:18px;height:18px;margin-right:-2px;border-radius:var(--r2);flex:none;margin-left:auto;display:grid;place-items:center}
+.tstrip .tab:not(.on) .x{opacity:0}
+.tstrip .tab:not(.on):hover .x{opacity:1}
+.tstrip .tab.anchor .x{display:none}
+.tscroll{display:flex;align-items:flex-end;gap:2px;min-width:0;flex:1;overflow:hidden;padding-right:2px}
+.tscroll .tab:not(.anchor){flex:0 0 72px;width:72px;min-width:72px;padding:0 6px 0 10px;gap:6px}
+.tarr{width:24px;height:28px;margin-bottom:3px;border-radius:var(--r1);display:grid;place-items:center;background:none;border:0;color:var(--fg-2);flex:none}
+.tarr .ic{width:15px;height:15px}
+.tarr[aria-disabled=true]{color:var(--fg-3);opacity:.45}
+.tmenu{position:absolute;right:0;top:36px;z-index:6;width:236px;background:var(--raised);border:1px solid var(--line);border-radius:var(--r);box-shadow:0 12px 32px -12px rgb(0 0 0 / .6);padding:4px;display:grid;gap:1px;font:500 12.5px/18px var(--ui)}
+.tmenu .mi{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:var(--r1);color:var(--fg-2)}
+.tmenu .mi.on{background:var(--sel);color:var(--fg)}
+.tmenu .mh{padding:6px 8px 2px;font:600 11px/16px var(--ui);color:var(--fg-3)}
+.tmenu .mi .bd{width:8px;height:8px;border-radius:50%}
+.tcap{font:500 11.5px/16px var(--ui);color:var(--fg-3);margin:6px 0 4px}
+.tstrip.withmenu{margin-bottom:190px}
+.wizstage{position:relative;width:1240px;height:702px}
+.wizstage .window{position:absolute;left:0;top:0;min-width:0;width:1240px}
+.wizstage .window>.col,.wizstage .window>.app,.wizstage .window>.rail{filter:blur(9px) saturate(.85)}
+.wizstage .scrim{position:absolute;inset:0;z-index:7;border-radius:calc(var(--r) + 4px);background:color-mix(in srgb,var(--frame-w) 62%,transparent)}
+.wizcard{position:absolute;left:50%;top:50%;z-index:8;transform:translate(-50%,-50%);width:456px;background:var(--card);border:1px solid var(--line);border-radius:calc(var(--r) + 4px);box-shadow:0 0 0 1px var(--ring),0 28px 64px -24px rgb(0 0 0 / .75);padding:14px 22px 22px;display:grid;gap:10px;text-align:center;justify-items:center}
+.wzh{display:flex;align-items:center;justify-content:space-between;width:calc(100% + 0px);margin:0 0 8px}
+.wzdots{display:flex;gap:6px}.wzdots i{width:6px;height:6px;border-radius:50%;background:var(--line)}.wzdots i.on{background:var(--accent)}
+.wizcard h4{margin:0;font:650 22px/28px var(--ui);letter-spacing:-.01em}
+.wizcard .sub{font-size:13px;line-height:19px;color:var(--fg-3);max-width:360px}
+.wizcard .list{display:grid;gap:8px;width:100%;margin-top:6px;text-align:left}
+.wizcard .it{display:grid;grid-template-columns:22px minmax(0,1fr) auto;gap:12px;align-items:center;padding:10px 12px;background:var(--raised);border:1px solid var(--line);border-radius:var(--r)}
+.wizcard .it b{display:block;font:500 13px/18px var(--ui)}.wizcard .it .m{display:block;font-size:12px;line-height:16px;color:var(--fg-3)}.wizcard .it .ok{font:500 12px/16px var(--ui);color:var(--ok)}
+.wizcard .pbtn{width:100%}
+.wzrow{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+@media (max-width:1100px){.wzrow{grid-template-columns:1fr}}
+.wzmini{position:relative;height:330px;border:1px solid var(--line);border-radius:var(--r);background:color-mix(in srgb,var(--frame-w) 80%,var(--raised));overflow:hidden}
+.wzmini .wizcard{transform:translate(-50%,-50%) scale(.72);transform-origin:center}
 </style>
 
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -663,8 +749,8 @@ section{display:grid;gap:14px;min-width:0}
       <div class="main">
         <div class="tabs" role="tablist" aria-label="Open in this frame">
           <div class="tab c on" role="tab" aria-selected="true"><svg class="ic"><use href="#i-code"/></svg><span class="n">Cauldron · coordinator</span><span class="x">×</span></div>
-          <div class="tab" role="tab"><span class="bd" style="background:#8b5cf6"></span><span class="n">1:1 · Rampart</span><span class="x">×</span></div>
-          <div class="tab d" role="tab"><svg class="ic"><use href="#i-design"/></svg><span class="n">Koi palette</span><span class="x">×</span></div>
+          <div class="tab" role="tab"><span class="bd" style="background:#8b5cf6"></span><span class="n">Rampart</span><span class="x">×</span></div>
+          
           <button class="tbtn plus" type="button" aria-label="New tab"><svg class="ic" style="width:15px;height:15px"><use href="#i-plus"/></svg></button>
           <span class="sp"></span>
           <button class="tbtn plus" type="button" aria-label="Terminal"><svg class="ic" style="width:15px;height:15px"><use href="#i-term"/></svg></button><button class="tbtn plus" type="button" aria-label="Split"><svg class="ic" style="width:15px;height:15px"><use href="#i-split"/></svg></button><span class="vsep" style="margin:0 3px 3px"></span><button class="tbtn" type="button" aria-label="Hide side pane" aria-pressed="true"><svg class="ic" style="width:15px;height:15px"><use href="#i-panel"/></svg></button>
@@ -774,7 +860,7 @@ section{display:grid;gap:14px;min-width:0}
     <div class="app noside"><div class="main">
       <div class="tabs">
         <div class="tab on"><svg class="ic"><use href="#i-edit"/></svg><span class="n">New thread</span><span class="x">×</span></div>
-        <div class="tab c"><svg class="ic"><use href="#i-code"/></svg><span class="n">Approve M3 start_task…</span><span class="x">×</span></div>
+        
         <button class="tbtn plus" type="button" aria-label="New tab"><svg class="ic" style="width:15px;height:15px"><use href="#i-plus"/></svg></button>
         <span class="sp"></span>
         <button class="tbtn" type="button" aria-label="Show side pane" aria-pressed="false"><svg class="ic" style="width:15px;height:15px"><use href="#i-panel"/></svg></button>
@@ -808,6 +894,135 @@ section{display:grid;gap:14px;min-width:0}
 </section>
 
 
+
+
+<!-- ========== TABS ========== -->
+<section>
+  <h2>Tabs: the agents inside one thread</h2>
+  <p>Tabs are no longer a way to move between threads; the sidebar does that. They show one thread's own agents: the coordinator, pinned at the left, and a tab for each agent you open a 1:1 with. The plus spawns a subagent or opens a 1:1. Every tab shrinks to fit, then the row scrolls, as in your File Explorer screenshot.</p>
+  <div class="scroll">
+    <div class="tcap">1. Few agents: tabs keep their full width (up to 210px)</div><div class="tstrip"><div class="main"><div class="tabs" role="tablist" aria-label="Agents in this thread"><div class="tab c anchor on" role="tab" aria-selected="true" aria-label="Cauldron · coordinator"><svg class="ic"><use href="#i-code"/></svg><span class="n">Cauldron · coordinator</span><span class="x" aria-hidden="true">×</span></div><div class="tab" role="tab" aria-selected="false" aria-label="1:1 with Rampart"><span class="bd" style="background:#8b5cf6"></span><span class="n">Rampart</span><span class="x" aria-hidden="true">×</span></div><div class="tab" role="tab" aria-selected="false" aria-label="1:1 with Builder"><span class="bd" style="background:#38c0e8"></span><span class="n">Builder</span><span class="x" aria-hidden="true">×</span></div><span class="sp"></span><button class="tbtn plus" type="button" aria-label="Spawn a subagent"><svg class="ic" style="width:15px;height:15px"><use href="#i-plus"/></svg></button></div><div class="stub"></div></div></div>
+    <div class="tcap">2. More agents: every tab except the coordinator shares the room equally, down to 72px</div><div class="tstrip"><div class="main"><div class="tabs shrunk" role="tablist" aria-label="Agents in this thread"><div class="tab c anchor" role="tab" aria-selected="false" aria-label="Cauldron · coordinator"><svg class="ic"><use href="#i-code"/></svg><span class="n">Cauldron · coordinator</span><span class="x" aria-hidden="true">×</span></div><div class="tab" role="tab" aria-selected="false" aria-label="1:1 with Rampart"><span class="bd" style="background:#8b5cf6"></span><span class="n">Rampart</span><span class="x" aria-hidden="true">×</span></div><div class="tab" role="tab" aria-selected="false" aria-label="1:1 with Builder"><span class="bd" style="background:#38c0e8"></span><span class="n">Builder</span><span class="x" aria-hidden="true">×</span></div><div class="tab on" role="tab" aria-selected="true" aria-label="1:1 with Reviewer"><span class="bd" style="background:#3fb27f"></span><span class="n">Reviewer</span><span class="x" aria-hidden="true">×</span></div><div class="tab" role="tab" aria-selected="false" aria-label="1:1 with Tester"><span class="bd" style="background:#e0a32a"></span><span class="n">Tester</span><span class="x" aria-hidden="true">×</span></div><div class="tab" role="tab" aria-selected="false" aria-label="1:1 with Docs"><span class="bd" style="background:#d9669a"></span><span class="n">Docs</span><span class="x" aria-hidden="true">×</span></div><div class="tab" role="tab" aria-selected="false" aria-label="1:1 with Planner"><span class="bd" style="background:#5b8cf0"></span><span class="n">Planner</span><span class="x" aria-hidden="true">×</span></div><button class="tbtn plus" type="button" aria-label="Spawn a subagent"><svg class="ic" style="width:15px;height:15px"><use href="#i-plus"/></svg></button></div><div class="stub"></div></div></div>
+    <div class="tcap">3. Past 72px each: the row scrolls. Two arrows appear beside the plus, and the open tab is always kept in view</div><div class="tstrip"><div class="main"><div class="tabs" role="tablist" aria-label="Agents in this thread"><div class="tab c anchor" role="tab" aria-selected="false" aria-label="Cauldron · coordinator"><svg class="ic"><use href="#i-code"/></svg><span class="n">Cauldron · coordinator</span><span class="x" aria-hidden="true">×</span></div><div class="tscroll" role="presentation"><div class="tab" role="tab" aria-selected="false" aria-label="1:1 with Rampart"><span class="bd" style="background:#8b5cf6"></span><span class="n">Rampart</span><span class="x" aria-hidden="true">×</span></div><div class="tab" role="tab" aria-selected="false" aria-label="1:1 with Builder"><span class="bd" style="background:#38c0e8"></span><span class="n">Builder</span><span class="x" aria-hidden="true">×</span></div><div class="tab" role="tab" aria-selected="false" aria-label="1:1 with Reviewer"><span class="bd" style="background:#3fb27f"></span><span class="n">Reviewer</span><span class="x" aria-hidden="true">×</span></div><div class="tab" role="tab" aria-selected="false" aria-label="1:1 with Tester"><span class="bd" style="background:#e0a32a"></span><span class="n">Tester</span><span class="x" aria-hidden="true">×</span></div><div class="tab on" role="tab" aria-selected="true" aria-label="1:1 with Docs"><span class="bd" style="background:#d9669a"></span><span class="n">Docs</span><span class="x" aria-hidden="true">×</span></div><div class="tab" role="tab" aria-selected="false" aria-label="1:1 with Planner"><span class="bd" style="background:#5b8cf0"></span><span class="n">Planner</span><span class="x" aria-hidden="true">×</span></div><div class="tab" role="tab" aria-selected="false" aria-label="1:1 with Linter"><span class="bd" style="background:#e05656"></span><span class="n">Linter</span><span class="x" aria-hidden="true">×</span></div><div class="tab" role="tab" aria-selected="false" aria-label="1:1 with Router"><span class="bd" style="background:#9a82f5"></span><span class="n">Router</span><span class="x" aria-hidden="true">×</span></div><div class="tab" role="tab" aria-selected="false" aria-label="1:1 with Fixer"><span class="bd" style="background:#e0703a"></span><span class="n">Fixer</span><span class="x" aria-hidden="true">×</span></div><div class="tab" role="tab" aria-selected="false" aria-label="1:1 with Scout"><span class="bd" style="background:#3fb27f"></span><span class="n">Scout</span><span class="x" aria-hidden="true">×</span></div><div class="tab" role="tab" aria-selected="false" aria-label="1:1 with Judge"><span class="bd" style="background:#38c0e8"></span><span class="n">Judge</span><span class="x" aria-hidden="true">×</span></div></div><button class="tarr" type="button" aria-label="Scroll tabs left"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button><button class="tarr" type="button" aria-label="Scroll tabs right"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></button><button class="tbtn plus" type="button" aria-label="Spawn a subagent"><svg class="ic" style="width:15px;height:15px"><use href="#i-plus"/></svg></button></div><div class="stub"></div></div></div>
+    <div class="tcap">4. The plus: spawn a new subagent, or open a 1:1 with an agent that is not open yet</div><div class="tstrip withmenu"><div class="main"><div class="tabs" role="tablist" aria-label="Agents in this thread"><div class="tab c anchor on" role="tab" aria-selected="true" aria-label="Cauldron · coordinator"><svg class="ic"><use href="#i-code"/></svg><span class="n">Cauldron · coordinator</span><span class="x" aria-hidden="true">×</span></div><div class="tab" role="tab" aria-selected="false" aria-label="1:1 with Rampart"><span class="bd" style="background:#8b5cf6"></span><span class="n">Rampart</span><span class="x" aria-hidden="true">×</span></div><div class="tab" role="tab" aria-selected="false" aria-label="1:1 with Builder"><span class="bd" style="background:#38c0e8"></span><span class="n">Builder</span><span class="x" aria-hidden="true">×</span></div><span class="sp"></span><button class="tbtn plus" type="button" aria-label="Spawn a subagent"><svg class="ic" style="width:15px;height:15px"><use href="#i-plus"/></svg></button><div class="tmenu" role="menu"><div class="mi on" role="menuitem"><svg class="ic" style="width:14px;height:14px"><use href="#i-plus"/></svg>Spawn a subagent…</div><div class="mh">Open 1:1 with</div><div class="mi" role="menuitem"><span class="bd" style="background:#38c0e8"></span>Builder</div><div class="mi" role="menuitem"><span class="bd" style="background:#3fb27f"></span>Reviewer</div><div class="mi" role="menuitem"><span class="bd" style="background:#e0a32a"></span>Tester</div></div></div><div class="stub"></div></div></div>
+  </div>
+  <ol class="notes">
+    <li><b>Why the coordinator is pinned.</b> It stays at the left and never scrolls away, so one click always returns to the thread itself. It has no close button.</li>
+    <li><b>Small tabs lose the label first.</b> A tab carries only the agent’s name, so its first letters still tell it apart at 72px; a prefix like "1:1" would have filled the space and said nothing. At 72px a tab shows its colour dot, a few letters and the close button. The full name is the tab's accessible name and its tooltip. Close buttons on inactive tabs appear on hover.</li>
+    <li><b>The arrows are the threshold.</b> Below it there are no arrows at all. Wheel and trackpad scrolling also work. The Highlights panel on the right already lists every agent and opens its tab, which is a second way to reach one that has scrolled out of sight.</li>
+    <li><b>Keyboard.</b> Left and Right move between tabs, Home and End jump to the ends, Delete closes the focused tab, and the focused tab scrolls into view.</li>
+  </ol>
+</section>
+<!-- ========== FIRST RUN ========== -->
+<section>
+  <h2>First run: onboarding and the empty app</h2>
+  <p>Two ways to get a new person from install to a first thread. Your screenshots show A: one centred step at a time. B puts the same steps inside the app they will live in. Both drop three steps that belong to a hosted account: Name your workspace, Choose your organization and Choose your plan. Cauldron runs on this PC with your own subscriptions, so there is no account, organization or billing to set up.</p>
+  <div class="fr-boards">
+    <div class="board"><span class="tag">A · Steps first</span><h3>A wizard, then the app</h3>
+      <div class="steps4"><div class="obframe" role="img" aria-label="Step 1 of 4"><div class="ob"><h4>Bring your AI subscriptions</h4><div class="sub">Agents run on your own plan. Cauldron looked for these on this PC.</div><div class="list"><div class="it"><svg class="ic"><use href="#i-code"/></svg><span><b>Claude Code</b><span class="m">Uses your Claude plan</span></span><span class="ok">Found</span></div><div class="it"><svg class="ic"><use href="#i-term"/></svg><span><b>Codex</b><span class="m">Uses your ChatGPT plan</span></span><button class="btn" type="button" tabindex="-1">Connect</button></div><div class="it"><svg class="ic"><use href="#i-bot"/></svg><span><b>Grok</b><span class="m">Uses your SuperGrok or X plan</span></span><button class="btn" type="button" tabindex="-1">Connect</button></div></div><button class="pbtn" type="button" tabindex="-1">Continue</button><button class="lbtn" type="button" tabindex="-1">Skip for now</button></div></div><div class="obframe" role="img" aria-label="Step 2 of 4"><div class="ob"><h4>Open a project</h4><div class="sub">Threads work inside a folder. Pick the repo you are working on.</div><div class="drop"><svg class="ic"><use href="#i-folder"/></svg><span>Drop a folder here, or</span></div><button class="pbtn" type="button" tabindex="-1">Open a folder</button><button class="lbtn" type="button" tabindex="-1">Skip for now</button></div></div><div class="obframe" role="img" aria-label="Step 3 of 4"><div class="ob"><h4>Connect GitHub</h4><div class="sub">Optional. Agents open pull requests in repos you pick.</div><div class="list"><div class="it"><svg class="ic"><use href="#i-branch"/></svg><span><b>GitHub</b><span class="m">Read and open pull requests</span></span><span></span></div></div><button class="pbtn" type="button" tabindex="-1">Connect GitHub</button><button class="lbtn" type="button" tabindex="-1">Skip for now</button></div></div><div class="obframe" role="img" aria-label="Step 4 of 4"><div class="ob"><h4>You are set</h4><div class="sub">Claude Code is connected and Cauldron is ready. Your first thread starts from the box.</div><div class="list"><div class="it"><svg class="ic"><use href="#i-edit"/></svg><span><b>Start your first thread</b><span class="m">Describe a task, a bug or an idea</span></span><span></span></div></div><button class="pbtn" type="button" tabindex="-1">Open Cauldron</button></div></div></div>
+      <div class="pc"><div><b>Good</b><ul><li>Every step is seen once</li><li>Each screen asks one thing</li><li>Matches your reference</li></ul></div><div><b>Costs</b><ul><li>Three or four screens before the first thread</li><li>Teaches nothing about the app</li><li>Detection of installed CLIs waits behind a Continue</li></ul></div></div></div>
+    <div class="board pick"><span class="tag pick">B · Open on the app</span><h3>The empty app is the onboarding</h3>
+      <div class="thumb" id="thumbB" aria-hidden="true"></div>
+      <div class="pc"><div><b>Good</b><ul><li>The box is on screen from the first second</li><li>The steps sit where the result will appear</li><li>Real status, not a form</li></ul></div><div><b>Costs</b><ul><li>A step can be ignored</li><li>Needs the gate below</li></ul></div></div></div>
+  </div>
+  <div class="decision">
+    <h3>Decision: B, with a gate</h3>
+    <table class="crit"><thead><tr><th></th><th>A · Steps first</th><th>B · Open on the app</th></tr></thead><tbody>
+      <tr><td>Comprehension</td><td>One question per screen</td><td>Three rows with a state each, readable at a glance</td></tr>
+      <tr><td>Interaction cost</td><td>3 to 4 clicks before the box</td><td>0 clicks to the box, 1 per step you want</td></tr>
+      <tr><td>Load</td><td>Low per screen, high in total</td><td>One screen, three small rows</td></tr>
+      <tr><td>Discoverability</td><td>Every step guaranteed</td><td>Rows stay until done or hidden; the New thread screen keeps them</td></tr>
+      <tr><td>Timing</td><td>Blocks on detection</td><td>Detection runs while the screen is already usable</td></tr>
+      <tr><td>Consistency</td><td>A different look from the app</td><td>The app's own card, rows and buttons</td></tr>
+      <tr><td>Accessibility</td><td>Simple focus order</td><td>Equal: one list, buttons in order, status in text not colour alone</td></tr>
+    </tbody></table>
+    <p><b>The gate:</b> the box is disabled, with the reason in it, until one subscription is found. Without that, B lets someone send a message that cannot be answered. Everything else is optional. Hide for now removes the card; it comes back from Settings.</p>
+  </div>
+  <h3>B, first run: nothing found yet</h3>
+  <div class="scroll"><div class="window nt wincaps" data-fresh>
+    <nav class="rail" data-on="threads"></nav>
+    <div class="col">
+      <div class="colh"><button class="ib tg" type="button" aria-label="Hide sidebar" aria-expanded="true"><svg class="ic"><use href="#i-sidebar"/></svg></button><span class="vsep"></span><h3>Threads</h3></div>
+      <div class="colh" style="padding-top:0"><span class="search"><svg class="ic" style="width:14px;height:14px"><use href="#i-search"/></svg>Search threads</span></div>
+      <div class="colh" style="padding:0 4px 6px"><button class="newbtn" type="button"><svg class="ic" style="width:14px;height:14px"><use href="#i-plus"/></svg>New thread</button></div>
+      <div class="zs"><span class="zi"><svg class="ic"><use href="#i-inbox"/></svg></span><b>No threads yet</b><span>Start one with New thread. It appears here while it runs.</span></div>
+    </div>
+    <div class="app noside"><div class="main">
+      <div class="tabs">
+        <div class="tab on"><svg class="ic"><use href="#i-edit"/></svg><span class="n">New thread</span><span class="x">×</span></div>
+        <button class="tbtn plus" type="button" aria-label="New tab"><svg class="ic" style="width:15px;height:15px"><use href="#i-plus"/></svg></button>
+        <span class="sp"></span>
+        <button class="tbtn" type="button" aria-label="Show side pane" aria-pressed="false"><svg class="ic" style="width:15px;height:15px"><use href="#i-panel"/></svg></button>
+      </div>
+      <div class="card one">
+        <div class="big">
+          <div class="nt-wrap">
+            <div class="nt-brand"><span class="logo" aria-hidden="true"><svg class="ic"><use href="#i-cauldron"/></svg></span><span>Cauldron</span></div>
+            <div class="ktabs" role="tablist" aria-label="Kind of work">
+              <button class="kt" type="button" role="tab" aria-selected="true" data-ph="Describe a task, a bug or an idea…"><svg class="ic" style="width:14px;height:14px"><use href="#i-code"/></svg>Code</button>
+              <button class="kt" type="button" role="tab" aria-selected="false" data-ph="Describe a screen or a flow to design…"><svg class="ic" style="width:14px;height:14px"><use href="#i-design"/></svg>Design</button>
+            </div>
+            <div class="nt-box" role="tabpanel"><div class="nt-body"><span class="ph">Connect a subscription to start a thread.</span><div class="nt-foot"><button class="ib" type="button" aria-label="Add a file"><svg class="ic" style="width:15px;height:15px"><use href="#i-plus"/></svg></button><span class="chip0">Auto · Medium</span><span class="sp"></span><span class="mswitch" role="group" aria-label="Machine"><button class="mbtn" type="button"><svg class="ic" style="width:13px;height:13px"><use href="#i-term"/></svg>This machine<span class="chv" aria-hidden="true"></span></button><button class="mplus" type="button" aria-label="Add another machine"><svg class="ic" style="width:13px;height:13px"><use href="#i-plus"/></svg></button></span><button class="send" type="button" aria-label="Start" aria-disabled="true"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 12.5V3.8M4.2 7.4 8 3.6l3.8 3.8"/></svg></button></div></div></div>
+          </div>
+          <div class="gs" role="group" aria-label="Get started"><div class="gsh"><h4>Get started</h4><span class="meta">0 of 3</span></div><div class="gsr now"><span class="gsd"></span><span><b>Bring your AI subscription</b><span class="m">Cauldron looked for Claude Code, Codex and Grok on this PC and found none.</span></span><button class="btn" type="button">Connect</button></div><div class="gsr "><span class="gsd"></span><span><b>Open a project folder</b><span class="m">Threads work inside a folder you choose.</span></span><button class="btn" type="button">Open folder</button></div><div class="gsr "><span class="gsd"></span><span><b>Connect GitHub</b><span class="m">Optional. Lets agents open pull requests in repos you pick.</span></span><button class="btn" type="button">Connect</button></div></div>
+        </div>
+      </div>
+    </div></div>
+  </div></div>
+  <h3>B, set up, no threads yet</h3>
+  <div class="scroll"><div class="window nt wincaps" data-fresh>
+    <nav class="rail" data-on="threads"></nav>
+    <div class="col">
+      <div class="colh"><button class="ib tg" type="button" aria-label="Hide sidebar" aria-expanded="true"><svg class="ic"><use href="#i-sidebar"/></svg></button><span class="vsep"></span><h3>Threads</h3></div>
+      <div class="colh" style="padding-top:0"><span class="search"><svg class="ic" style="width:14px;height:14px"><use href="#i-search"/></svg>Search threads</span></div>
+      <div class="colh" style="padding:0 4px 6px"><button class="newbtn" type="button"><svg class="ic" style="width:14px;height:14px"><use href="#i-plus"/></svg>New thread</button></div>
+      <div class="zs"><span class="zi"><svg class="ic"><use href="#i-inbox"/></svg></span><b>No threads yet</b><span>Start one with New thread. It appears here while it runs.</span></div>
+    </div>
+    <div class="app noside"><div class="main">
+      <div class="tabs">
+        <div class="tab on"><svg class="ic"><use href="#i-edit"/></svg><span class="n">New thread</span><span class="x">×</span></div>
+        <button class="tbtn plus" type="button" aria-label="New tab"><svg class="ic" style="width:15px;height:15px"><use href="#i-plus"/></svg></button>
+        <span class="sp"></span>
+        <button class="tbtn" type="button" aria-label="Show side pane" aria-pressed="false"><svg class="ic" style="width:15px;height:15px"><use href="#i-panel"/></svg></button>
+      </div>
+      <div class="card one">
+        <div class="big">
+          <div class="nt-wrap">
+            <div class="nt-brand"><span class="logo" aria-hidden="true"><svg class="ic"><use href="#i-cauldron"/></svg></span><span>Cauldron</span></div>
+            <div class="ktabs" role="tablist" aria-label="Kind of work">
+              <button class="kt" type="button" role="tab" aria-selected="true" data-ph="Describe a task, a bug or an idea…"><svg class="ic" style="width:14px;height:14px"><use href="#i-code"/></svg>Code</button>
+              <button class="kt" type="button" role="tab" aria-selected="false" data-ph="Describe a screen or a flow to design…"><svg class="ic" style="width:14px;height:14px"><use href="#i-design"/></svg>Design</button>
+            </div>
+            <div class="nt-box" role="tabpanel"><div class="nt-body"><span class="ph">Describe a task, a bug or an idea…</span><div class="nt-foot"><button class="ib" type="button" aria-label="Add a file"><svg class="ic" style="width:15px;height:15px"><use href="#i-plus"/></svg></button><span class="chip0">Auto · Medium</span><span class="sp"></span><span class="mswitch" role="group" aria-label="Machine"><button class="mbtn" type="button"><svg class="ic" style="width:13px;height:13px"><use href="#i-term"/></svg>This machine<span class="chv" aria-hidden="true"></span></button><button class="mplus" type="button" aria-label="Add another machine"><svg class="ic" style="width:13px;height:13px"><use href="#i-plus"/></svg></button></span><button class="send" type="button" aria-label="Start"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 12.5V3.8M4.2 7.4 8 3.6l3.8 3.8"/></svg></button></div></div></div>
+          </div>
+          <div class="gs" role="group" aria-label="Get started"><div class="gsh"><h4>Get started</h4><span class="meta">1 of 3 · <button class="lbtn" type="button" style="height:auto;font-size:12px;color:var(--fg-3)">Hide for now</button></span></div><div class="gsr done"><span class="gsd"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></span><span><b>Bring your AI subscription</b><span class="m">Claude Code found. Uses your Claude plan.</span></span><span class="meta">Done</span></div><div class="gsr now"><span class="gsd"></span><span><b>Open a project folder</b><span class="m">Threads work inside a folder you choose.</span></span><button class="btn" type="button">Open folder</button></div><div class="gsr "><span class="gsd"></span><span><b>Connect GitHub</b><span class="m">Optional. Lets agents open pull requests in repos you pick.</span></span><button class="btn" type="button">Connect</button></div></div>
+        </div>
+      </div>
+    </div></div>
+  </div></div>
+  <ol class="notes">
+    <li><b>The box is rounder.</b> Outer corners are 10px, the window's value, and the inner field is 6px, the box's padding taken off. The corner where the Code tab joins stays square, because the tab is part of the shape.</li>
+    <li><b>The empty sidebar says one thing.</b> No counts, no badges, no usage, no filing line: nothing has happened yet. Icons stay so the app is learnable.</li>
+    <li><b>Status is real.</b> Found, Connect and Done come from what Cauldron detects on this PC. Where detection cannot tell, the row says so instead of guessing.</li>
+    <li><b>Texture stays as the frame's.</b> The dotted fade behind the box is the frame's own. Our harbour art, dithered the same way, is the next step once you pick a direction.</li>
+  </ol>
+</section>
+
+
+<!-- ========== FIRST INSTALL ========== -->
+<section>
+  <h2>First install: the wizard over the blurred empty app</h2>
+  <p>The mix you asked for. On the very first launch the empty app from option B sits behind, blurred and dimmed, with option A's wizard in front. Skip setup, or finish it, and you land on the same empty app with its Get started card showing whatever is still left. After that the wizard never returns by itself.</p>
+  <div class="scroll"><div class="wizstage" id="wizstage"><div class="scrim"></div><div class="wizcard" role="dialog" aria-modal="true" aria-label="Set up Cauldron"><div class="wzh"><span class="wzdots" role="img" aria-label="Step 1 of 4"><i class="on"></i><i class=""></i><i class=""></i><i class=""></i></span><button class="lbtn" type="button">Skip setup</button></div><h4>Bring your AI subscriptions</h4><div class="sub">Agents run on your own plan. Cauldron looked for these on this PC.</div><div class="list"><div class="it"><svg class="ic"><use href="#i-code"/></svg><span><b>Claude Code</b><span class="m">Uses your Claude plan</span></span><span class="ok">Found</span></div><div class="it"><svg class="ic"><use href="#i-term"/></svg><span><b>Codex</b><span class="m">Uses your ChatGPT plan</span></span><button class="btn" type="button">Connect</button></div><div class="it"><svg class="ic"><use href="#i-bot"/></svg><span><b>Grok</b><span class="m">Uses your SuperGrok or X plan</span></span><button class="btn" type="button">Connect</button></div></div><button class="pbtn" type="button">Continue</button><button class="lbtn" type="button">Skip for now</button></div></div></div>
+  <div class="tcap">Steps 2, 3 and 4. The backdrop and the card position are the same on every step.</div>
+  <div class="wzrow"><div class="wzmini"><div class="wizcard" role="dialog" aria-modal="true" aria-label="Set up Cauldron"><div class="wzh"><span class="wzdots" role="img" aria-label="Step 2 of 4"><i class=""></i><i class="on"></i><i class=""></i><i class=""></i></span><button class="lbtn" type="button">Skip setup</button></div><h4>Open a project</h4><div class="sub">Threads work inside a folder. Pick the repo you are working on.</div><div class="list"><div class="it"><svg class="ic"><use href="#i-folder"/></svg><span><b>Cauldron</b><span class="m">C:\\Users\\you\\code\\cauldron</span></span><span class="ok">Recent</span></div><div class="it"><svg class="ic"><use href="#i-folder"/></svg><span><b>notes</b><span class="m">C:\\Users\\you\\code\\notes</span></span><span></span></div></div><button class="pbtn" type="button">Open a folder</button><button class="lbtn" type="button">Skip for now</button></div></div><div class="wzmini"><div class="wizcard" role="dialog" aria-modal="true" aria-label="Set up Cauldron"><div class="wzh"><span class="wzdots" role="img" aria-label="Step 3 of 4"><i class=""></i><i class=""></i><i class="on"></i><i class=""></i></span><button class="lbtn" type="button">Skip setup</button></div><h4>Connect GitHub</h4><div class="sub">Optional. Agents open pull requests in repos you pick.</div><div class="list"><div class="it"><svg class="ic"><use href="#i-branch"/></svg><span><b>GitHub</b><span class="m">Read and open pull requests</span></span><span></span></div></div><button class="pbtn" type="button">Connect GitHub</button><button class="lbtn" type="button">Skip for now</button></div></div><div class="wzmini"><div class="wizcard" role="dialog" aria-modal="true" aria-label="Set up Cauldron"><div class="wzh"><span class="wzdots" role="img" aria-label="Step 4 of 4"><i class=""></i><i class=""></i><i class=""></i><i class="on"></i></span><button class="lbtn" type="button">Skip setup</button></div><h4>You are set</h4><div class="sub">Claude Code is connected and Cauldron is ready. Your first thread starts from the box.</div><div class="list"><div class="it"><svg class="ic"><use href="#i-edit"/></svg><span><b>Start your first thread</b><span class="m">Describe a task, a bug or an idea</span></span><span></span></div></div><button class="pbtn" type="button">Open Cauldron</button><button class="lbtn" type="button"></button></div></div></div>
+  <ol class="notes">
+    <li><b>Why a baked blur.</b> GPUI can blur what is behind the window, not what is behind a card inside it. So the build uses a pre-blurred picture of the empty app, one for dark and one for light, covering the window behind a dimming layer. The picture is blurred enough that it still fits at any window size.</li>
+    <li><b>Same theme.</b> The card, rows, buttons and radii are the app's own: 10px card, 6px rows, the same raised surface and hairlines. Accent is only the step dot.</li>
+    <li><b>Skipping is safe.</b> Skip setup closes the card. The box stays disabled until a subscription is found, and Get started explains why.</li>
+    <li><b>Step 1 detects first.</b> Found means Cauldron saw the command on this PC. Connect opens that provider's own sign-in.</li>
+  </ol>
+</section>
 <!-- ========== SCREEN B ========== -->
 <section>
   <h2>Projects: code and design separate themselves</h2>
@@ -1084,3 +1299,24 @@ section{display:grid;gap:14px;min-width:0}
   });
 })();
 </script>
+<script>
+(function(){
+  var secs=[].slice.call(document.querySelectorAll('section')).filter(function(x){var h=x.querySelector('h2');return h&&/^First run/.test(h.textContent)});
+  if(!secs.length) return; var sec=secs[0], wins=sec.querySelectorAll('.window[data-fresh]'), th=sec.querySelector('#thumbB');
+  if(wins.length<2||!th) return;
+  var c=wins[1].cloneNode(true); c.removeAttribute('data-fresh'); c.setAttribute('data-fresh',''); c.setAttribute('inert','');
+  th.appendChild(c);
+  function fit(){var k=th.clientWidth/1240; c.style.transform='scale('+k+')';}
+  fit(); window.addEventListener('resize',fit);
+})();
+</script>
+<script>
+(function(){
+  var st=document.getElementById('wizstage'); if(!st) return;
+  var sec=[].slice.call(document.querySelectorAll('section')).filter(function(x){var h=x.querySelector('h2');return h&&/^First run/.test(h.textContent)})[0];
+  var src=sec&&sec.querySelector('.scroll > .window[data-fresh]'); if(!src) return;
+  var c=src.cloneNode(true); c.setAttribute('inert',''); c.setAttribute('aria-hidden','true'); st.insertBefore(c,st.firstChild);
+})();
+</script>
+
+

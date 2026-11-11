@@ -47,7 +47,7 @@ Same pane geometry on both. Only these differ (tested in `platforms_differ_only_
 | UI0 | Tokens and layout contract: `crates/chrome` | Done. 11 tests green: two window sizes, five shell states, both themes, contrast, radii, platform differences. |
 | UI1 | Shell skeleton in GPUI: window, notch, sidebar card, main card with tabs, right rail, drawer, split, both platforms. Written (`crates/app/src/shell.rs`), compiles with `cargo check`, not yet run on a display. Not done: tooltips, curved tab feet, real tabs | `cargo check -p backspace` on all three OSes in CI. Live-element rects equal `solve()` in all states. First screenshot diff recorded as the baseline. |
 | UI2 | Swap the old glass palette and radii for the tokens in the existing coding workbench; delete blobs, translucent panes, violet accent | The lints in "How exactness is enforced" pass on `crates/app`. No regression in the existing 6.2k lines of behaviour. |
-| UI3 | Sidebar: function icon row, search, glowing New thread button, thread list by state, usage row, user row | Thread rows come from core. State order and counts match `THREAD-STATE.md`. Keyboard and icon labels covered. |
+| UI3 | Sidebar: function icon row, search, glowing New thread button, thread list by state, usage row, user row | Thread rows come from core; `UI3-CORE-MAP.md` lists what core can and cannot supply today. State order and counts match `THREAD-STATE.md` where core supports them. Keyboard and icon labels covered. |
 | UI4 | Thread view: transcript, ask cards, composer (Coordinator, Auto and Medium, Send), stage bar with usage on the left | Text input and IME work on both OSes. Stage click shows detail. Empty, loading and error states drawn. |
 | UI5 | New thread screen: Code and Design tabs, Hoplite shell box, machine switcher | Start a thread on this machine and on a connected one. Focus ring and tab join match the wireframe. |
 | UI6 | Right rail and drawer: Highlights, Usage, patches (Koi preview, Code review), Patches list with trust | A patch asks for trust before it runs. Drawer width 200. Split chooser opens Files, Changes, Terminal, Browser. |
@@ -65,6 +65,7 @@ Every screen draws: normal, empty, loading (skeleton shaped like the final layou
 2. Windows notch of 62px with only the sidebar button. Assumed.
 3. Minimum thread column of 360px: Split closes first, then the drawer. Assumed. The wireframe does not draw it.
 4. The left usage meter. Core reads token counts from session logs; a "% left" figure needs quota data that may not be in those logs. Until checked, the meter shows tokens and cost.
+5. Core support for the sidebar states the wireframe shows but core lacks (Needs you per thread, Hibernating, Archived, agent graph; see `UI3-CORE-MAP.md`) is built after UI5, not before. Decided by Charles, 11 Nov 2026. UI3 to UI5 ship with Running, Failed, Done and Unread rows only, and leave the missing rows out rather than faking them.
 
 ## Risks
 
