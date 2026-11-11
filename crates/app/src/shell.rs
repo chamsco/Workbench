@@ -156,16 +156,19 @@ pub(crate) struct Cauldron {
     tip_shown: bool,
     tip_warm_until: Option<std::time::Instant>,
     tip_wait: Option<Task<()>>,
+    /// First tab in view once the row scrolls; past the end means "show the last ones".
+    tab_first: usize,
 }
 
 impl Cauldron {
     pub(crate) fn new() -> Self {
-        Cauldron { sidebar_open: true, drawer: Some(Panel::Highlights), split: false, tabs: vec![NEW_TAB.into()], active: 0, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None }
+        Cauldron { sidebar_open: true, drawer: Some(Panel::Highlights), split: false, tabs: vec![NEW_TAB.into()], active: 0, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0 }
     }
 
     fn open_tab(&mut self) {
         self.tabs.push(NEW_TAB.into());
         self.active = self.tabs.len() - 1;
+        self.tab_first = usize::MAX;
     }
 
     fn close_tab(&mut self, i: usize) {
@@ -245,6 +248,17 @@ fn icon_button(id: impl Into<ElementId>, name: &str, label: &'static str, pal: &
         .child(glyph(name, 16., if on { c(pal.fg) } else { c(pal.fg2) }))
         .aria_label(label)
 }
+
+/// Narrowest a tab gets before the row scrolls instead.
+const TAB_MIN: f32 = 96.0;
+
+/// `.when` for builders: gpui-kit does not re-export GPUI's FluentBuilder.
+trait WhenLive: Sized {
+    fn when_live(self, cond: bool, f: impl FnOnce(Self) -> Self) -> Self {
+        if cond { f(self) } else { self }
+    }
+}
+impl<T> WhenLive for T {}
 
 const TIP_DELAY: std::time::Duration = std::time::Duration::from_millis(450);
 const TIP_WARM: std::time::Duration = std::time::Duration::from_millis(300);
@@ -433,12 +447,42 @@ impl Render for Cauldron {
 
         // ---- main column: folder tabs on the frame, the card under them
         let mut row = div().id("tabs").absolute().left_0().top_0().w(px(s.tabs.w)).h(px(s.tabs.h)).flex().items_start().gap(px(2.));
-        // Tabs share the row with + (24px) and 2px gaps, up to the wireframe's 208px each.
-        // ponytail: shrinking only; past ~14 tabs they get too thin to read, add scrolling then.
-        let n = self.tabs.len() as f32;
-        let tab_w = ((s.tabs.w - 24.0 - 2.0 * n) / n).min(208.0).floor();
+        // Tabs share the row with + (24px) and 2px gaps, up to the wireframe's 208px each. Below
+        // TAB_MIN they stop shrinking: arrows (24px each) appear and the row shows a window of tabs.
+        let n = self.tabs.len();
+        let fit = ((s.tabs.w - 24.0 - 2.0 * n as f32) / n as f32).floor();
+        let (first, shown, tab_w) = if fit >= TAB_MIN {
+            (0, n, fit.min(208.0))
+        } else {
+            let k = (((s.tabs.w - 76.0) / (TAB_MIN + 2.0)).floor() as usize).max(1);
+            let first = self.tab_first.min(n - k);
+            (first, k, ((s.tabs.w - 76.0 - 2.0 * k as f32) / k as f32).floor())
+        };
+        let scrolls = shown < n;
         let narrow = tab_w < 88.0;
-        for (i, title) in self.tabs.iter().enumerate() {
+        let small_btn = |id: &'static str, icon: &'static str, label: &'static str, live: bool| {
+            div()
+                .id(id)
+                .mt(px(5.))
+                .size(px(24.))
+                .flex_none()
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(px(radius::R1))
+                .occlude()
+                .when_live(live, |d| d.cursor_pointer().hover(|d| d.bg(ca(pal.fg, 0.08))))
+                .aria_label(label)
+                .child(glyph(icon, 14., if live { fg3 } else { ca(pal.fg3, 0.4) }))
+        };
+        if scrolls {
+            let prev = small_btn("tab-prev", "chevron-left", "Earlier tabs", first > 0).on_click(cx.listener(move |this, _, _, cx| {
+                this.tab_first = first.saturating_sub(1);
+                cx.notify();
+            }));
+            row = row.child(prev.test_support());
+        }
+        for (i, title) in self.tabs.iter().enumerate().skip(first).take(shown) {
             let on = i == self.active;
             let close = div()
                 .id(("tab-close", i))
@@ -467,6 +511,7 @@ impl Render for Cauldron {
                 .pl(px(12.))
                 .pr(px(6.))
                 .max_w(px(tab_w))
+                .when_live(scrolls, |d| d.w(px(tab_w)))
                 .rounded_t(px(radius::R))
                 .occlude()
                 .cursor_pointer()
@@ -483,26 +528,20 @@ impl Render for Cauldron {
                 }));
             if on {
                 tab = tab.bg(card).child(foot(Foot::Right, card));
-                if i > 0 {
+                if !(i == 0 && !scrolls) {
                     tab = tab.child(foot(Foot::Left, card));
                 }
             }
             row = row.child(tab.test_support());
         }
-        let add = div()
-                .id("tab-add")
-                .mt(px(5.))
-                .size(px(24.))
-                .flex_none()
-                .flex()
-                .items_center()
-                .justify_center()
-                .rounded(px(radius::R1))
-                .occlude()
-                .cursor_pointer()
-                .hover(|d| d.bg(ca(pal.fg, 0.08)))
-                .aria_label("New tab")
-                .child(glyph("plus", 14., fg3))
+        if scrolls {
+            let next = small_btn("tab-next", "chevron-right", "Later tabs", first + shown < n).on_click(cx.listener(move |this, _, _, cx| {
+                this.tab_first = (first + 1).min(n - shown);
+                cx.notify();
+            }));
+            row = row.child(next.test_support());
+        }
+        let add = small_btn("tab-add", "plus", "New tab", true)
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.open_tab();
                     cx.notify();
@@ -524,7 +563,7 @@ impl Render for Cauldron {
             .border_color(ring)
             .text_color(fg3)
             .child("The thread view arrives in UI4.");
-        if self.active == 0 {
+        if self.active == 0 && !scrolls {
             // The first tab sits on the card's corner, so the corner is square.
             card_el = card_el.rounded_tl(px(0.));
         }
@@ -852,24 +891,48 @@ mod tests {
             window.click(("tab", 0usize), cx);
             assert_eq!(rect(window, ("tab", 0usize)).bottom(), card.y + 1.0, "click switches");
 
-            for _ in 0..10 {
-                window.click("tab-add", cx);
-            }
-            assert!(window.try_find(("tab", 12usize)).is_none(), "12 tabs open");
-            for i in 0..12usize {
-                let t = rect(window, ("tab", i));
-                assert!(t.right() <= row.right() + 0.5 && t.w >= 40.0, "tab {i} of 12 stays in the row: {t:?} {row:?}");
-            }
-            let add = rect(window, "tab-add");
-            assert!(add.right() <= row.right() + 0.5, "+ stays reachable with 12 tabs: {add:?} {row:?} last tab {:?}", rect(window, ("tab", 11usize)));
-            for i in (2..12usize).rev() {
-                window.click(("tab-close", i), cx);
-            }
-
             window.click(("tab-close", 1usize), cx);
             assert!(window.try_find(("tab", 1usize)).is_none(), "x closes");
             window.click(("tab-close", 0usize), cx);
             assert_eq!(window.find(("tab", 0usize)).label(), Some("New thread"), "closing the last leaves a New thread");
+        })
+        .unwrap();
+    }
+
+    /// Tabs shrink as more open; below 96px they stop shrinking and arrows scroll the row,
+    /// as in Explorer. The open tab and + always stay in view.
+    #[gpui_kit::test]
+    fn many_tabs_scroll_with_arrows(cx: &mut TestAppContext) {
+        let handle = cx.add_window(|_, _| Cauldron::new());
+        cx.simulate_window_resize(handle.into(), size(px(W), px(H)));
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            for _ in 0..3 {
+                window.click("tab-add", cx);
+            }
+            assert!(window.try_find("tab-prev").is_none(), "4 tabs fit, no arrows");
+            let w4 = rect(window, ("tab", 0usize)).w;
+            for _ in 0..16 {
+                window.click("tab-add", cx);
+            }
+            let row = rect(window, "tabs");
+            let visible: Vec<usize> = (0..20).filter(|&i| window.try_find(("tab", i)).is_some()).collect();
+            assert!(visible.len() < 20, "20 tabs do not all fit: {visible:?}");
+            assert!(visible.contains(&19), "the open tab (the newest) is in view: {visible:?}");
+            for &i in &visible {
+                let t = rect(window, ("tab", i));
+                assert!(t.w >= 96.0 && t.w <= w4, "tab {i} is {t:?}");
+                assert!(t.x >= row.x - 0.5 && t.right() <= row.right() + 0.5, "tab {i} stays in the row: {t:?}");
+            }
+            for id in ["tab-prev", "tab-next", "tab-add"] {
+                let r = rect(window, id);
+                assert!(r.x >= row.x - 0.5 && r.right() <= row.right() + 0.5, "{id} in the row: {r:?}");
+            }
+            let first = visible[0];
+            window.click("tab-prev", cx);
+            assert!(window.try_find(("tab", first - 1)).is_some(), "< shows the tab before");
+            window.click("tab-next", cx);
+            assert!(window.try_find(("tab", first - 1)).is_none(), "> scrolls back");
         })
         .unwrap();
     }
