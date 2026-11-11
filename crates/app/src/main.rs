@@ -2961,7 +2961,7 @@ fn run_shell() -> anyhow::Result<()> {
                     ..Default::default()
                 },
                 |window, cx| {
-                    let view = cx.new(|_| shell::Cauldron::new());
+                    let view = cx.new(|_| shell::Cauldron::launch());
                     cx.new(|cx| Root::new(view, window, cx))
                 },
             )

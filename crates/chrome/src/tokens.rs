@@ -56,6 +56,12 @@ pub struct Palette {
     pub ok: Rgb,
     pub warn: Rgb,
     pub bad: Rgb,
+    /// Code threads and tabs.
+    pub info: Rgb,
+    /// Design threads and tabs.
+    pub design: Rgb,
+    /// The librarian ("filed by librarian") and memory.
+    pub mem: Rgb,
 }
 
 pub const DARK: Palette = Palette {
@@ -75,6 +81,9 @@ pub const DARK: Palette = Palette {
     ok: Rgb::hex(0x3fb27f),
     warn: Rgb::hex(0xe0a32a),
     bad: Rgb::hex(0xe05656),
+    info: Rgb::hex(0x5b8cf0),
+    design: Rgb::hex(0xd9669a),
+    mem: Rgb::hex(0x9a82f5),
 };
 
 pub const LIGHT: Palette = Palette {
@@ -94,7 +103,39 @@ pub const LIGHT: Palette = Palette {
     ok: Rgb::hex(0x2f9e6e),
     warn: Rgb::hex(0xc98a12),
     bad: Rgb::hex(0xd64545),
+    info: Rgb::hex(0x3a72e8),
+    design: Rgb::hex(0xc23f7e),
+    mem: Rgb::hex(0x7a5cf0),
 };
+
+/// Agent identity dots (tabs, the + menu), the same in both themes as in the wireframe.
+pub const AGENT_DOTS: [Rgb; 9] = [
+    Rgb::hex(0x8b5cf6),
+    Rgb::hex(0x38c0e8),
+    Rgb::hex(0x3fb27f),
+    Rgb::hex(0xe0a32a),
+    Rgb::hex(0xd9669a),
+    Rgb::hex(0x5b8cf0),
+    Rgb::hex(0xe05656),
+    Rgb::hex(0x9a82f5),
+    Rgb::hex(0xe0703a),
+];
+
+/// Black drop shadows from the wireframe, the same in both themes.
+pub mod shadow {
+    /// Offset y, blur and spread in px, and the black's alpha.
+    #[derive(Clone, Copy, Debug)]
+    pub struct Shadow {
+        pub y: f32,
+        pub blur: f32,
+        pub spread: f32,
+        pub alpha: f32,
+    }
+    /// Menus and popovers (the + menu).
+    pub const MENU: Shadow = Shadow { y: 12.0, blur: 32.0, spread: -12.0, alpha: 0.6 };
+    /// Hover tips.
+    pub const TIP: Shadow = Shadow { y: 6.0, blur: 16.0, spread: 0.0, alpha: 0.3 };
+}
 
 /// One radius family, anchored on the folder tab. Circles are drawn as circles, not as a radius.
 pub mod radius {

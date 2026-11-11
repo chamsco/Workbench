@@ -91,3 +91,57 @@ fn one_accent_and_status_colours_stay_distinct() {
         }
     }
 }
+
+const WIREFRAME: &str = include_str!("../../../design/cauldron-master-layout.html");
+
+/// The value of `--name` in the wireframe's dark `:root` (first match) or light override (second).
+fn css_var(name: &str, theme: &str) -> String {
+    let key = format!("--{name}:");
+    let mut hits = WIREFRAME.match_indices(&key).map(|(i, _)| &WIREFRAME[i + key.len()..i + key.len() + 7]);
+    let first = hits.next().expect("var in wireframe");
+    if theme == "dark" { first.to_string() } else { hits.next().expect("light override").to_string() }
+}
+
+/// Kind and librarian colours (UI3): code threads `info`, design threads `design`, librarian `mem`.
+/// Not in the measured golden file, so read straight from the wireframe's stylesheet.
+#[test]
+fn kind_colours_match_the_wireframe_and_read_on_cards() {
+    for theme in ["dark", "light"] {
+        let p = pal(theme);
+        for (name, got) in [("info", p.info), ("design", p.design), ("mem", p.mem)] {
+            assert_eq!(got.to_hex(), css_var(name, theme), "{theme} --{name}");
+            for (bg_name, bg) in [("card", p.card), ("raised", p.raised), ("well", p.well)] {
+                let c = got.contrast(bg);
+                assert!(c >= 3.0, "{theme}: {name} glyph on {bg_name} is {c:.2}:1");
+            }
+        }
+    }
+    // Found by this test: light `mem` on card is 4.24:1, under AA for the wireframe's 11.5px
+    // "filed by librarian" text. Rule for the GPUI build, as for the accent on the frame: `mem`
+    // is a glyph colour; the words go in fg-3.
+    assert!(LIGHT.mem.contrast(LIGHT.card) < 4.5, "if this ever passes AA, the rule above can go");
+}
+
+/// Agent identity dots on tabs and in the + menu, the wireframe's `.bd` colours, all distinct.
+#[test]
+fn agent_dots_come_from_the_wireframe() {
+    use cauldron_chrome::tokens::AGENT_DOTS;
+    for (i, d) in AGENT_DOTS.iter().enumerate() {
+        assert!(WIREFRAME.contains(&format!("class=\"bd\" style=\"background:{}\"", d.to_hex())), "{} not a wireframe dot", d.to_hex());
+        assert!(!AGENT_DOTS[i + 1..].contains(d), "{} twice", d.to_hex());
+    }
+    assert_eq!(AGENT_DOTS.len(), 9);
+}
+
+/// Drop shadows are the wireframe's: the + menu's `0 12px 32px -12px rgb(0 0 0 / .6)` and the
+/// tip's `0 6px 16px rgb(0 0 0 / .3)`.
+#[test]
+fn shadows_come_from_the_wireframe() {
+    use cauldron_chrome::tokens::shadow;
+    let html = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../design/cauldron-master-layout.html")).unwrap();
+    for s in [shadow::MENU, shadow::TIP] {
+        let spread = if s.spread == 0.0 { String::new() } else { format!(" {}px", s.spread) };
+        let css = format!("0 {}px {}px{spread} rgb(0 0 0 / {})", s.y, s.blur, format!("{}", s.alpha).trim_start_matches('0'));
+        assert!(html.contains(&css), "{css} not in the wireframe");
+    }
+}
