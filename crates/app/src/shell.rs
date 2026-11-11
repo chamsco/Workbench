@@ -9,7 +9,13 @@ use cauldron_chrome::layout::{self, metric, Platform, Rect, ShellState};
 use cauldron_chrome::tokens::{self, radius, Palette, Rgb};
 use gpui_kit::*;
 
+use crate::threads::{self, Group};
 use crate::ui::UI;
+use backspace_core::chat::{Chats, ThreadInfo};
+use backspace_core::prefs::Prefs;
+use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::component::Theme;
+use std::sync::Arc;
 
 /// Where the shell draws window controls: lights on macOS, caption buttons elsewhere.
 pub(crate) fn platform() -> Platform {
@@ -143,6 +149,13 @@ const NEW_TAB: &str = "New thread";
 
 const TOP_PANELS: [Panel; 4] = [Panel::Highlights, Panel::Usage, Panel::Koi, Panel::Review];
 
+/// The sidebar's threads from core: still opening, opened, or core failed to open.
+pub(crate) enum Threads {
+    Loading,
+    Ready(Vec<ThreadInfo>),
+    Error(SharedString),
+}
+
 pub(crate) struct Cauldron {
     sidebar_open: bool,
     drawer: Option<Panel>,
@@ -169,13 +182,45 @@ pub(crate) struct Cauldron {
     tip_wait: Option<Task<()>>,
     /// First agent tab in view once the row scrolls.
     tab_first: usize,
+    /// The sidebar: core's threads, the selected row (selecting does not open or mark read), the
+    /// search text and box, and the list's keyboard focus.
+    threads: Threads,
+    selected: Option<String>,
+    query: String,
+    search: Option<(Entity<InputState>, Subscription)>,
+    list_focus: Option<FocusHandle>,
+    /// Core's thread store and the runtime its replies run on. Only the store: the scheduled
+    /// routines, dreams and relay of `Fleet` are not started by this window.
+    core: Option<(tokio::runtime::Runtime, Arc<Chats>)>,
+    watch: Option<Task<()>>,
 }
 
 impl Cauldron {
     /// The window's first state. Debug builds only: `CAULDRON_FIXTURE_AGENTS=n` opens a thread with
     /// n agent tabs, for screenshots until UI4 brings real agents from core.
-    pub(crate) fn launch() -> Self {
+    pub(crate) fn launch(cx: &mut Context<Self>) -> Self {
         let mut c = Self::new();
+        // Debug builds only: `CAULDRON_FIXTURE_THREADS=list|loading|empty|error` draws the sidebar
+        // from made-up threads instead of core, for screenshots that hold no real thread titles.
+        #[cfg(debug_assertions)]
+        let fixture = std::env::var("CAULDRON_FIXTURE_THREADS").ok();
+        #[cfg(not(debug_assertions))]
+        let fixture: Option<String> = None;
+        match fixture.as_deref() {
+            #[cfg(debug_assertions)]
+            Some(f) => {
+                c.threads = match f {
+                    "loading" => Threads::Loading,
+                    "empty" => Threads::Ready(Vec::new()),
+                    "error" => Threads::Error("the data folder is not readable".into()),
+                    _ => Threads::Ready(threads::fixture(now_ms())),
+                };
+                if f == "list" {
+                    c.selected = Some("f2".into());
+                }
+            }
+            _ => c.connect(cx),
+        }
         #[cfg(debug_assertions)]
         if let Some(n) = std::env::var("CAULDRON_FIXTURE_AGENTS").ok().and_then(|v| v.parse::<usize>().ok()) {
             let names = ["Rampart", "Builder", "Reviewer", "Tester", "Docs", "Planner", "Linter", "Router", "Fixer", "Scout", "Indexer", "Mapper", "Pusher", "Watcher", "Herald", "Keeper"];
@@ -189,7 +234,238 @@ impl Cauldron {
     }
 
     pub(crate) fn new() -> Self {
-        Cauldron { sidebar_open: true, drawer: Some(Panel::Highlights), split: false, coordinator: None, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0 }
+        Cauldron { sidebar_open: true, drawer: Some(Panel::Highlights), split: false, coordinator: None, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None }
+    }
+
+    /// Opens core off the main thread (the sidebar shows Loading meanwhile), then keeps the thread
+    /// list current: core pokes a channel whenever a thread changes.
+    fn connect(&mut self, cx: &mut Context<Self>) {
+        self.threads = Threads::Loading;
+        self.watch = Some(cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            let opened = cx
+                .background_executor()
+                .spawn(async {
+                    let rt = tokio::runtime::Builder::new_multi_thread().worker_threads(1).thread_name("chats").enable_all().build()?;
+                    let (tx, rx) = async_channel::bounded(1);
+                    let chats = Chats::open(Prefs::data_dir(), rt.handle().clone(), tx);
+                    anyhow::Ok((rt, chats, rx))
+                })
+                .await;
+            let (rt, chats, changes) = match opened {
+                Ok(o) => o,
+                Err(e) => {
+                    let _ = this.update(cx, |c, cx| {
+                        c.threads = Threads::Error(e.to_string().into());
+                        cx.notify();
+                    });
+                    return;
+                }
+            };
+            let mut core = Some((rt, chats));
+            loop {
+                let alive = this.update(cx, |c, cx| {
+                    if let Some(o) = core.take() {
+                        c.core = Some(o);
+                    }
+                    if let Some((_, chats)) = &c.core {
+                        c.threads = Threads::Ready(chats.list());
+                    }
+                    cx.notify();
+                });
+                if alive.is_err() || changes.recv().await.is_err() {
+                    break;
+                }
+            }
+        }));
+    }
+
+    /// Thread ids in the order the sidebar draws them.
+    fn visible_ids(&self) -> Vec<String> {
+        match &self.threads {
+            Threads::Ready(v) => threads::grouped(v, &self.query).into_iter().flat_map(|(_, ts)| ts.into_iter().map(|t| t.id.clone())).collect(),
+            _ => Vec::new(),
+        }
+    }
+
+    /// Moves the selection `d` rows, stopping at the ends; with none selected, starts at an end.
+    fn step_selection(&mut self, d: isize) {
+        let ids = self.visible_ids();
+        let Some(last) = ids.len().checked_sub(1) else { return };
+        let at = self.selected.as_ref().and_then(|s| ids.iter().position(|x| x == s));
+        let j = match at {
+            Some(i) => (i as isize + d).clamp(0, last as isize) as usize,
+            None if d > 0 => 0,
+            None => last,
+        };
+        self.selected = Some(ids[j].clone());
+    }
+
+    /// The sidebar's list: rows by group, or the loading, empty, no-match or error state.
+    fn thread_list(&self, pal: &'static Palette, cx: &mut Context<Self>) -> Stateful<Div> {
+        let (fg, fg2, fg3) = (c(pal.fg), c(pal.fg2), c(pal.fg3));
+        let focus = self.list_focus.clone().expect("created in render");
+        let mut list = div()
+            .id("thread-list")
+            .flex_1()
+            .min_h_0()
+            .overflow_y_scroll()
+            .flex()
+            .flex_col()
+            .px(px(4.))
+            .pb(px(8.))
+            .track_focus(&focus)
+            .on_key_down(cx.listener(|this, ev: &KeyDownEvent, _, cx| {
+                let d = match ev.keystroke.key.as_str() {
+                    "up" => -1,
+                    "down" => 1,
+                    _ => return,
+                };
+                this.step_selection(d);
+                cx.stop_propagation();
+                cx.notify();
+            }));
+        // A state in place of rows: a title, a line under it, and the whole as one accessible name.
+        let note = |id: &'static str, label: String, icon: Option<(&'static str, Hsla)>, title: String, body: Option<String>| {
+            let mut head = div().flex().items_center().gap(px(6.)).text_size(px(12.5)).font_weight(FontWeight::SEMIBOLD).text_color(fg2);
+            if let Some((name, col)) = icon {
+                head = head.child(glyph(name, 14., col));
+            }
+            let mut d = div().id(id).flex().flex_col().gap(px(4.)).px(px(8.)).pt(px(8.)).aria_label(label).child(head.child(title));
+            if let Some(b) = body {
+                d = d.child(div().text_size(px(11.5)).line_height(px(16.)).text_color(fg3).child(b));
+            }
+            d.test_support()
+        };
+        match &self.threads {
+            Threads::Loading => {
+                // Skeleton rows shaped like the real ones, static (no shimmer to turn off for reduced motion).
+                let bar = |w: f32| div().h(px(8.)).w(relative(w)).rounded(px(radius::R2)).bg(c(pal.well));
+                let mut sk = div().id("threads-loading").flex().flex_col().pt(px(8.)).aria_label("Loading threads");
+                for w in [0.72, 0.56, 0.8, 0.48, 0.64] {
+                    sk = sk.child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(7.))
+                            .px(px(6.))
+                            .py(px(6.))
+                            .child(div().w(px(8.)).flex_none())
+                            .child(div().size(px(22.)).flex_none().rounded(px(radius::R2)).bg(c(pal.well)))
+                            .child(div().flex_1().flex().flex_col().gap(px(6.)).child(bar(w)).child(bar(w * 0.6))),
+                    );
+                }
+                list.child(sk.test_support())
+            }
+            Threads::Error(e) => list.child(note(
+                "threads-error",
+                format!("Threads could not load: {e}"),
+                Some(("circle-alert", c(pal.bad))),
+                "Threads could not load".into(),
+                Some(e.to_string()),
+            )),
+            Threads::Ready(v) if v.is_empty() => {
+                list.child(note("threads-empty", "No threads yet".into(), None, "No threads yet".into(), Some("Start one with New thread.".into())))
+            }
+            Threads::Ready(v) => {
+                let groups = threads::grouped(v, &self.query);
+                if groups.is_empty() {
+                    let q = self.query.trim().to_string();
+                    return list.child(note("threads-no-match", format!("No threads match {q}"), None, format!("No threads match \u{201c}{q}\u{201d}"), None));
+                }
+                let now = now_ms();
+                let mut i = 0usize;
+                for (gi, (g, ts)) in groups.into_iter().enumerate() {
+                    let n = ts.len();
+                    list = list.child(
+                        div()
+                            .id(("group", gi))
+                            .flex()
+                            .items_center()
+                            .gap(px(6.))
+                            .px(px(8.))
+                            .pt(px(if gi == 0 { 2. } else { 8. }))
+                            .pb(px(2.))
+                            .text_size(px(11.5))
+                            .line_height(px(16.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(if g == Group::Failed { c(pal.bad) } else { fg3 })
+                            .aria_label(format!("{}, {n}", g.label()))
+                            .child(g.label())
+                            .child(div().ml_auto().font_features(tnum()).child(n.to_string()))
+                            .test_support(),
+                    );
+                    for t in ts {
+                        let on = self.selected.as_deref() == Some(t.id.as_str());
+                        let id = t.id.clone();
+                        let mut title_line = div()
+                            .flex()
+                            .items_center()
+                            .gap(px(6.))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .truncate()
+                                    .text_size(px(12.5))
+                                    .line_height(px(17.))
+                                    .font_weight(if t.unread { FontWeight::SEMIBOLD } else { FontWeight(450.) })
+                                    .text_color(if t.unread { fg } else { fg2 })
+                                    .child(t.title.clone()),
+                            );
+                        if t.pinned {
+                            title_line = title_line.child(glyph("pin", 11., fg3));
+                        }
+                        // ponytail: no spinner on Running rows; the group says it, and nothing moves for reduced motion.
+                        title_line = title_line.child(div().flex_none().text_size(px(11.)).text_color(fg3).font_features(tnum()).child(threads::age(now, t.updated)));
+                        list = list.child(
+                            div()
+                                .id(("thread", i))
+                                .flex()
+                                .items_center()
+                                .gap(px(7.))
+                                .px(px(6.))
+                                .py(px(4.))
+                                .rounded(px(radius::R1))
+                                .border_1()
+                                .border_color(if on { c(pal.line) } else { gpui_kit::transparent_black() })
+                                .when_live(on, |d| d.bg(c(pal.raised)))
+                                .when_live(!on, |d| d.hover(|d| d.bg(ca(pal.fg, 0.05))))
+                                .cursor_pointer()
+                                .aria_label(t.title.clone())
+                                .child(
+                                    div()
+                                        .w(px(8.))
+                                        .flex_none()
+                                        .flex()
+                                        .justify_center()
+                                        .when_live(t.unread, |d| d.child(div().size(px(7.)).rounded_full().bg(c(pal.accent)))),
+                                )
+                                // ponytail: every row is Code; core does not mark a thread as design work yet.
+                                .child(div().size(px(22.)).flex_none().flex().items_center().justify_center().rounded(px(radius::R2)).bg(c(pal.well)).child(glyph("code", 13., c(pal.info))))
+                                .child(
+                                    div()
+                                        .flex_1()
+                                        .min_w_0()
+                                        .flex()
+                                        .flex_col()
+                                        .child(title_line)
+                                        .child(div().truncate().text_size(px(11.5)).line_height(px(15.)).text_color(fg3).child(threads::subtitle(t))),
+                                )
+                                .on_click(cx.listener(move |this, _, window, cx| {
+                                    this.selected = Some(id.clone());
+                                    if let Some(f) = &this.list_focus {
+                                        window.focus(f, cx);
+                                    }
+                                    cx.notify();
+                                }))
+                                .test_support(),
+                        );
+                        i += 1;
+                    }
+                }
+                list
+            }
+        }
     }
 
     /// Closes agent `j`'s 1:1. The agent stays in the thread, back in the + menu.
@@ -394,6 +670,15 @@ enum Side {
 
 /// An icon button's name on the raised surface, 8px beside it and centred, the wireframe's
 /// `.fn[data-tip]::after`. Deferred so it paints over the neighbouring panes.
+fn now_ms() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
+}
+
+/// Tabular figures, so counts and ages line up.
+fn tnum() -> FontFeatures {
+    FontFeatures(Arc::new(vec![("tnum".into(), 1)]))
+}
+
 fn drop(s: tokens::shadow::Shadow) -> BoxShadow {
     BoxShadow { color: hsla(0., 0., 0., s.alpha), offset: point(px(0.), px(s.y)), blur_radius: px(s.blur), spread_radius: px(s.spread), inset: false }
 }
@@ -477,6 +762,26 @@ impl Render for Cauldron {
             for (i, (name, label)) in FUNCTIONS.iter().enumerate() {
                 fnrow = fnrow.child(self.tipped(("fn", i), icon_button(("fn", i), name, label, pal, i == 0), *label, Side::Right, pal, cx).test_support());
             }
+            if self.search.is_none() {
+                // The input's caret, selection and text come from the tokens, not the component theme.
+                let t = Theme::global_mut(cx);
+                t.foreground = fg;
+                t.muted_foreground = fg3;
+                t.caret = accent;
+                t.selection = ca(pal.accent, 0.25);
+                t.font_family = UI.into();
+                let st = cx.new(|cx| InputState::new(window, cx).placeholder("Search threads"));
+                let sub = cx.subscribe(&st, |this, st, ev: &InputEvent, cx| {
+                    if let InputEvent::Change = ev {
+                        this.query = st.read(cx).value().to_string();
+                        cx.notify();
+                    }
+                });
+                self.search = Some((st, sub));
+            }
+            let search = self.search.as_ref().expect("just created").0.clone();
+            self.list_focus.get_or_insert_with(|| cx.focus_handle());
+            let list = self.thread_list(pal, cx);
             let user = std::env::var("USER").or_else(|_| std::env::var("USERNAME")).unwrap_or_else(|_| "You".into());
             let initial = user.chars().next().map(|ch| ch.to_uppercase().to_string()).unwrap_or_else(|| "Y".into());
             let new_thread = div()
@@ -493,7 +798,8 @@ impl Render for Cauldron {
                 .border_color(ca(pal.accent, 0.65))
                 .shadow(vec![BoxShadow { color: ca(pal.accent, 0.30), offset: point(px(0.), px(0.)), blur_radius: px(16.), spread_radius: px(-2.), inset: false }])
                 .child(glyph("plus", 14., accent))
-                .child(div().text_size(px(13.)).text_color(fg).child("New thread"));
+                .child(div().text_size(px(13.)).text_color(fg).child("New thread"))
+                .test_support();
             let card_el = pane("sidebar", r)
                 .flex()
                 .flex_col()
@@ -517,6 +823,7 @@ impl Render for Cauldron {
                 .child(
                     div().px(px(5.)).pb(px(6.)).child(
                         div()
+                            .id("search")
                             .h(px(30.))
                             .flex()
                             .items_center()
@@ -526,20 +833,14 @@ impl Render for Cauldron {
                             .border_1()
                             .border_color(line)
                             .text_color(fg3)
+                            .aria_label("Search threads")
                             .child(glyph("search", 14., fg3))
-                            .child("Search threads"),
+                            .child(div().flex_1().min_w_0().child(Input::new(&search).appearance(false).text_size(px(12.5)).p_0()))
+                            .test_support(),
                     ),
                 )
                 .child(div().px(px(5.)).pb(px(8.)).child(new_thread))
-                .child(
-                    div()
-                        .flex_1()
-                        .px(px(14.))
-                        .pt(px(6.))
-                        .text_size(px(12.))
-                        .text_color(fg3)
-                        .child("No threads yet. Start one with New thread."),
-                )
+                .child(list)
                 .child(
                     div()
                         .h(px(44.))
@@ -1000,7 +1301,8 @@ impl Render for Cauldron {
 #[cfg(test)]
 mod tests {
     // Explicit imports: a glob of gpui_kit brings GPUI's `test` macro, which shadows Rust's.
-    use super::{platform, AgentTab, Cauldron, Panel};
+    use super::{platform, AgentTab, Cauldron, Panel, Threads};
+    use crate::threads::sample;
     use cauldron_chrome::layout::{self, Rect, ShellState};
     use gpui_kit::test::TestWindowExt;
     use gpui_kit::{px, size, AppContext, ElementId, TestAppContext, Window};
@@ -1022,6 +1324,7 @@ mod tests {
     /// in all eight combinations of sidebar, drawer and split.
     #[gpui_kit::test]
     fn panes_match_the_layout_solver_in_every_state(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
         for bits in 0..8u8 {
             let state = ShellState { sidebar_open: bits & 1 != 0, drawer_open: bits & 2 != 0, split_open: bits & 4 != 0 };
             let handle = cx.add_window(move |_, _| Cauldron {
@@ -1054,6 +1357,7 @@ mod tests {
     /// the pointer moves between neighbours.
     #[gpui_kit::test]
     fn icon_buttons_have_names_and_tooltips(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
         let handle = cx.add_window(|_, _| Cauldron { drawer: None, ..Cauldron::new() });
         cx.simulate_window_resize(handle.into(), size(px(W), px(H)));
         let ms = std::time::Duration::from_millis;
@@ -1132,6 +1436,7 @@ mod tests {
     /// The New thread screen: one tab that cannot be closed and no +, sitting on the card's corner.
     #[gpui_kit::test]
     fn new_thread_screen_has_one_fixed_tab_joined_to_the_card(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
         let handle = open(cx, Cauldron::new());
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
@@ -1152,6 +1457,7 @@ mod tests {
     /// tabs no longer fit; the coordinator is pinned at the left, never scrolls and has no close.
     #[gpui_kit::test]
     fn agent_tabs_clamp_then_scroll_with_the_coordinator_pinned(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
         for n in [1usize, 3, 5, 6, 8, 14] {
             let handle = open(cx, with_agents(n, &[]));
             cx.update_window(handle.into(), |_, window, cx| {
@@ -1204,6 +1510,7 @@ mod tests {
     /// The open tab is scrolled into view whenever it changes: keyboard, wheel and close.
     #[gpui_kit::test]
     fn the_open_tab_is_kept_in_view(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
         let n = 14;
         let handle = open(cx, with_agents(n, &[]));
         cx.update_window(handle.into(), |_, window, cx| {
@@ -1250,6 +1557,7 @@ mod tests {
     /// The + menu opens a 1:1 with an agent of the thread that is not open yet.
     #[gpui_kit::test]
     fn plus_opens_a_one_to_one(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
         let handle = open(cx, with_agents(2, &["Tester"]));
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
@@ -1262,5 +1570,111 @@ mod tests {
             assert_eq!(rect(window, ("tab", 3usize)).bottom(), rect(window, "card").y + 1.0, "the new tab is open");
         })
         .unwrap();
+    }
+
+    /// Five threads, one per state plus a pinned done one: r is unread, q running, f failed.
+    fn with_threads() -> Cauldron {
+        let mut v: Vec<_> = [("p", "Pinned notes"), ("q", "Rampart mutation score"), ("r", "Koi palette"), ("f", "M2 eval task texts"), ("s", "Agent delegation")]
+            .iter()
+            .map(|(id, t)| sample(id, t))
+            .collect();
+        v[0].pinned = true;
+        v[1].busy = true;
+        v[2].unread = true;
+        v[3].failed = Some("usage limit".into());
+        Cauldron { threads: Threads::Ready(v), ..Cauldron::new() }
+    }
+
+    fn row_labels(window: &Window) -> Vec<String> {
+        (0usize..).map_while(|i| window.try_find(("thread", i)).map(|e| e.label().unwrap_or_default().to_string())).collect()
+    }
+
+    /// The sidebar lists core's threads as Unread, Running, Failed, Done, each with its count,
+    /// top to bottom, inside the sidebar card.
+    #[gpui_kit::test]
+    fn sidebar_lists_threads_in_groups_with_counts(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = open(cx, with_threads());
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            let heads: Vec<String> = (0..4usize).map(|g| window.find(("group", g)).label().unwrap().to_string()).collect();
+            assert_eq!(heads, ["Unread, 1", "Running, 1", "Failed, 1", "Done, 2"]);
+            for g in 1..4usize {
+                assert!(rect(window, ("group", g - 1)).y < rect(window, ("group", g)).y, "group {g} below the one before");
+            }
+            assert_eq!(row_labels(window), ["Koi palette", "Rampart mutation score", "M2 eval task texts", "Pinned notes", "Agent delegation"]);
+            let side = rect(window, "sidebar");
+            for i in 0..5usize {
+                let r = rect(window, ("thread", i));
+                assert!(r.x >= side.x && r.right() <= side.right(), "row {i} inside the sidebar");
+            }
+            assert!(rect(window, ("thread", 0usize)).y > rect(window, "new-thread").bottom(), "rows under New thread");
+        })
+        .unwrap();
+    }
+
+    /// Loading, empty, no search match and error each draw their own state, never a blank list.
+    #[gpui_kit::test]
+    fn sidebar_draws_loading_empty_no_match_and_error(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let states = [
+            (Cauldron { threads: Threads::Loading, ..Cauldron::new() }, "threads-loading", "Loading threads"),
+            (Cauldron { threads: Threads::Ready(Vec::new()), ..Cauldron::new() }, "threads-empty", "No threads yet"),
+            (Cauldron { query: "zzz".into(), ..with_threads() }, "threads-no-match", "No threads match zzz"),
+            (Cauldron { threads: Threads::Error("disk full".into()), ..Cauldron::new() }, "threads-error", "Threads could not load: disk full"),
+        ];
+        for (c, id, label) in states {
+            let handle = open(cx, c);
+            cx.update_window(handle.into(), |_, window, cx| {
+                window.render_frame(cx);
+                assert_eq!(window.find(id).label(), Some(label), "{id}");
+                assert!(window.try_find(("thread", 0usize)).is_none(), "{id}: no rows");
+            })
+            .unwrap();
+        }
+    }
+
+    /// Search narrows the list; clicking a row selects it and Up/Down move the selection through
+    /// the rows in view, without opening (and so without marking read) anything.
+    #[gpui_kit::test]
+    fn search_filters_and_arrows_move_the_selection(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = open(cx, with_threads());
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            assert_eq!(window.find("search").label(), Some("Search threads"));
+            window.click(("thread", 1usize), cx);
+            window.press("down", cx);
+            window.press("down", cx);
+        })
+        .unwrap();
+        let sel = |cx: &mut TestAppContext| handle.update(cx, |c, _, _| c.selected.clone()).unwrap();
+        assert_eq!(sel(cx).as_deref(), Some("p"), "click Running row, then two down: Failed, then Done's first");
+        cx.update_window(handle.into(), |_, window, cx| {
+            for _ in 0..9 {
+                window.press("up", cx);
+            }
+        })
+        .unwrap();
+        assert_eq!(sel(cx).as_deref(), Some("r"), "Up stops at the first row");
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.click("search", cx);
+            window.input("  KOI", cx);
+        })
+        .unwrap();
+        cx.run_until_parked();
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            assert_eq!(row_labels(window), ["Koi palette"]);
+            assert_eq!(window.find(("group", 0usize)).label(), Some("Unread, 1"));
+            assert!(window.try_find(("group", 1usize)).is_none(), "groups with no match are left out");
+        })
+        .unwrap();
+        handle
+            .update(cx, |c, _, _| {
+                let Threads::Ready(v) = &c.threads else { panic!() };
+                assert!(v.iter().any(|t| t.unread), "selecting does not mark read");
+            })
+            .unwrap();
     }
 }

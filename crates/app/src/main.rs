@@ -23,6 +23,7 @@ mod canvas;
 mod icons;
 mod pal;
 mod shell;
+mod threads;
 mod stage;
 mod ui;
 
@@ -2961,7 +2962,7 @@ fn run_shell() -> anyhow::Result<()> {
                     ..Default::default()
                 },
                 |window, cx| {
-                    let view = cx.new(|_| shell::Cauldron::launch());
+                    let view = cx.new(shell::Cauldron::launch);
                     cx.new(|cx| Root::new(view, window, cx))
                 },
             )

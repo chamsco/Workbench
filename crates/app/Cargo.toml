@@ -11,10 +11,12 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow.workspace = true
+async-channel.workspace = true
 backspace-core = { path = "../core" }
 cauldron-chrome = { path = "../chrome" }
 # Pins the matching gpui-pre release, platform layer, components and icons.
 gpui-kit = "0.6.6"
+tokio.workspace = true
 
 [dev-dependencies]
 # Headless windows, element bounds and accessible names for the shell's layout tests.

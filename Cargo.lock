@@ -551,9 +551,11 @@ name = "backspace"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-channel",
  "backspace-core",
  "cauldron-chrome",
  "gpui-kit",
+ "tokio",
 ]
 
 [[package]]
