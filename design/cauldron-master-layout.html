@@ -636,6 +636,47 @@ section{display:grid;gap:14px;min-width:0}
 .lbtn{background:none;border:0;color:var(--fg-2);font:500 13px/16px var(--ui);height:28px}
 .drop{width:380px;height:92px;margin-top:8px;border:1px dashed var(--line);border-radius:var(--r);display:grid;place-content:center;justify-items:center;gap:4px;color:var(--fg-3);font-size:12.5px;line-height:18px}
 .pickrow td{background:color-mix(in srgb,var(--accent) 7%,transparent)}
+
+/* round 23: agent tabs that shrink and scroll; first-install wizard */
+.tstrip{width:718px;max-width:100%}
+.tstrip .main{display:grid;grid-template-rows:auto auto}
+.tstrip .stub{height:14px;background:var(--card);box-shadow:0 0 0 1px var(--ring);border-radius:0 var(--r) 0 0}
+.tstrip .tabs{padding-left:0;position:relative;overflow:visible}
+.tstrip .tabs.shrunk .tab:not(.anchor){flex:1 1 0;width:0;min-width:72px;max-width:210px;padding:0 6px 0 10px;gap:6px}
+.tstrip .tab.anchor{flex:none;max-width:190px}
+.tstrip .tab .x{width:18px;height:18px;margin-right:-2px;border-radius:var(--r2);flex:none;margin-left:auto;display:grid;place-items:center}
+.tstrip .tab:not(.on) .x{opacity:0}
+.tstrip .tab:not(.on):hover .x{opacity:1}
+.tstrip .tab.anchor .x{display:none}
+.tscroll{display:flex;align-items:flex-end;gap:2px;min-width:0;flex:1;overflow:hidden;padding-right:2px}
+.tscroll .tab:not(.anchor){flex:0 0 72px;width:72px;min-width:72px;padding:0 6px 0 10px;gap:6px}
+.tarr{width:24px;height:28px;margin-bottom:3px;border-radius:var(--r1);display:grid;place-items:center;background:none;border:0;color:var(--fg-2);flex:none}
+.tarr .ic{width:15px;height:15px}
+.tarr[aria-disabled=true]{color:var(--fg-3);opacity:.45}
+.tmenu{position:absolute;right:0;top:36px;z-index:6;width:236px;background:var(--raised);border:1px solid var(--line);border-radius:var(--r);box-shadow:0 12px 32px -12px rgb(0 0 0 / .6);padding:4px;display:grid;gap:1px;font:500 12.5px/18px var(--ui)}
+.tmenu .mi{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:var(--r1);color:var(--fg-2)}
+.tmenu .mi.on{background:var(--sel);color:var(--fg)}
+.tmenu .mh{padding:6px 8px 2px;font:600 11px/16px var(--ui);color:var(--fg-3)}
+.tmenu .mi .bd{width:8px;height:8px;border-radius:50%}
+.tcap{font:500 11.5px/16px var(--ui);color:var(--fg-3);margin:6px 0 4px}
+.tstrip.withmenu{margin-bottom:190px}
+.wizstage{position:relative;width:1240px;height:702px}
+.wizstage .window{position:absolute;left:0;top:0;min-width:0;width:1240px}
+.wizstage .window>.col,.wizstage .window>.app,.wizstage .window>.rail{filter:blur(9px) saturate(.85)}
+.wizstage .scrim{position:absolute;inset:0;z-index:7;border-radius:calc(var(--r) + 4px);background:color-mix(in srgb,var(--frame-w) 62%,transparent)}
+.wizcard{position:absolute;left:50%;top:50%;z-index:8;transform:translate(-50%,-50%);width:456px;background:var(--card);border:1px solid var(--line);border-radius:calc(var(--r) + 4px);box-shadow:0 0 0 1px var(--ring),0 28px 64px -24px rgb(0 0 0 / .75);padding:14px 22px 22px;display:grid;gap:10px;text-align:center;justify-items:center}
+.wzh{display:flex;align-items:center;justify-content:space-between;width:calc(100% + 0px);margin:0 0 8px}
+.wzdots{display:flex;gap:6px}.wzdots i{width:6px;height:6px;border-radius:50%;background:var(--line)}.wzdots i.on{background:var(--accent)}
+.wizcard h4{margin:0;font:650 22px/28px var(--ui);letter-spacing:-.01em}
+.wizcard .sub{font-size:13px;line-height:19px;color:var(--fg-3);max-width:360px}
+.wizcard .list{display:grid;gap:8px;width:100%;margin-top:6px;text-align:left}
+.wizcard .it{display:grid;grid-template-columns:22px minmax(0,1fr) auto;gap:12px;align-items:center;padding:10px 12px;background:var(--raised);border:1px solid var(--line);border-radius:var(--r)}
+.wizcard .it b{display:block;font:500 13px/18px var(--ui)}.wizcard .it .m{display:block;font-size:12px;line-height:16px;color:var(--fg-3)}.wizcard .it .ok{font:500 12px/16px var(--ui);color:var(--ok)}
+.wizcard .pbtn{width:100%}
+.wzrow{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+@media (max-width:1100px){.wzrow{grid-template-columns:1fr}}
+.wzmini{position:relative;height:330px;border:1px solid var(--line);border-radius:var(--r);background:color-mix(in srgb,var(--frame-w) 80%,var(--raised));overflow:hidden}
+.wzmini .wizcard{transform:translate(-50%,-50%) scale(.72);transform-origin:center}
 </style>
 
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -708,8 +749,8 @@ section{display:grid;gap:14px;min-width:0}
       <div class="main">
         <div class="tabs" role="tablist" aria-label="Open in this frame">
           <div class="tab c on" role="tab" aria-selected="true"><svg class="ic"><use href="#i-code"/></svg><span class="n">Cauldron · coordinator</span><span class="x">×</span></div>
-          <div class="tab" role="tab"><span class="bd" style="background:#8b5cf6"></span><span class="n">1:1 · Rampart</span><span class="x">×</span></div>
-          <div class="tab d" role="tab"><svg class="ic"><use href="#i-design"/></svg><span class="n">Koi palette</span><span class="x">×</span></div>
+          <div class="tab" role="tab"><span class="bd" style="background:#8b5cf6"></span><span class="n">Rampart</span><span class="x">×</span></div>
+          
           <button class="tbtn plus" type="button" aria-label="New tab"><svg class="ic" style="width:15px;height:15px"><use href="#i-plus"/></svg></button>
           <span class="sp"></span>
           <button class="tbtn plus" type="button" aria-label="Terminal"><svg class="ic" style="width:15px;height:15px"><use href="#i-term"/></svg></button><button class="tbtn plus" type="button" aria-label="Split"><svg class="ic" style="width:15px;height:15px"><use href="#i-split"/></svg></button><span class="vsep" style="margin:0 3px 3px"></span><button class="tbtn" type="button" aria-label="Hide side pane" aria-pressed="true"><svg class="ic" style="width:15px;height:15px"><use href="#i-panel"/></svg></button>
@@ -819,7 +860,7 @@ section{display:grid;gap:14px;min-width:0}
     <div class="app noside"><div class="main">
       <div class="tabs">
         <div class="tab on"><svg class="ic"><use href="#i-edit"/></svg><span class="n">New thread</span><span class="x">×</span></div>
-        <div class="tab c"><svg class="ic"><use href="#i-code"/></svg><span class="n">Approve M3 start_task…</span><span class="x">×</span></div>
+        
         <button class="tbtn plus" type="button" aria-label="New tab"><svg class="ic" style="width:15px;height:15px"><use href="#i-plus"/></svg></button>
         <span class="sp"></span>
         <button class="tbtn" type="button" aria-label="Show side pane" aria-pressed="false"><svg class="ic" style="width:15px;height:15px"><use href="#i-panel"/></svg></button>
@@ -854,6 +895,24 @@ section{display:grid;gap:14px;min-width:0}
 
 
 
+
+<!-- ========== TABS ========== -->
+<section>
+  <h2>Tabs: the agents inside one thread</h2>
+  <p>Tabs are no longer a way to move between threads; the sidebar does that. They show one thread's own agents: the coordinator, pinned at the left, and a tab for each agent you open a 1:1 with. The plus spawns a subagent or opens a 1:1. Every tab shrinks to fit, then the row scrolls, as in your File Explorer screenshot.</p>
+  <div class="scroll">
+    <div class="tcap">1. Few agents: tabs keep their full width (up to 210px)</div><div class="tstrip"><div class="main"><div class="tabs" role="tablist" aria-label="Agents in this thread"><div class="tab c anchor on" role="tab" aria-selected="true" aria-label="Cauldron · coordinator"><svg class="ic"><use href="#i-code"/></svg><span class="n">Cauldron · coordinator</span><span class="x" aria-hidden="true">×</span></div><div class="tab" role="tab" aria-selected="false" aria-label="1:1 with Rampart"><span class="bd" style="background:#8b5cf6"></span><span class="n">Rampart</span><span class="x" aria-hidden="true">×</span></div><div class="tab" role="tab" aria-selected="false" aria-label="1:1 with Builder"><span class="bd" style="background:#38c0e8"></span><span class="n">Builder</span><span class="x" aria-hidden="true">×</span></div><span class="sp"></span><button class="tbtn plus" type="button" aria-label="Spawn a subagent"><svg class="ic" style="width:15px;height:15px"><use href="#i-plus"/></svg></button></div><div class="stub"></div></div></div>
+    <div class="tcap">2. More agents: every tab except the coordinator shares the room equally, down to 72px</div><div class="tstrip"><div class="main"><div class="tabs shrunk" role="tablist" aria-label="Agents in this thread"><div class="tab c anchor" role="tab" aria-selected="false" aria-label="Cauldron · coordinator"><svg class="ic"><use href="#i-code"/></svg><span class="n">Cauldron · coordinator</span><span class="x" aria-hidden="true">×</span></div><div class="tab" role="tab" aria-selected="false" aria-label="1:1 with Rampart"><span class="bd" style="background:#8b5cf6"></span><span class="n">Rampart</span><span class="x" aria-hidden="true">×</span></div><div class="tab" role="tab" aria-selected="false" aria-label="1:1 with Builder"><span class="bd" style="background:#38c0e8"></span><span class="n">Builder</span><span class="x" aria-hidden="true">×</span></div><div class="tab on" role="tab" aria-selected="true" aria-label="1:1 with Reviewer"><span class="bd" style="background:#3fb27f"></span><span class="n">Reviewer</span><span class="x" aria-hidden="true">×</span></div><div class="tab" role="tab" aria-selected="false" aria-label="1:1 with Tester"><span class="bd" style="background:#e0a32a"></span><span class="n">Tester</span><span class="x" aria-hidden="true">×</span></div><div class="tab" role="tab" aria-selected="false" aria-label="1:1 with Docs"><span class="bd" style="background:#d9669a"></span><span class="n">Docs</span><span class="x" aria-hidden="true">×</span></div><div class="tab" role="tab" aria-selected="false" aria-label="1:1 with Planner"><span class="bd" style="background:#5b8cf0"></span><span class="n">Planner</span><span class="x" aria-hidden="true">×</span></div><button class="tbtn plus" type="button" aria-label="Spawn a subagent"><svg class="ic" style="width:15px;height:15px"><use href="#i-plus"/></svg></button></div><div class="stub"></div></div></div>
+    <div class="tcap">3. Past 72px each: the row scrolls. Two arrows appear beside the plus, and the open tab is always kept in view</div><div class="tstrip"><div class="main"><div class="tabs" role="tablist" aria-label="Agents in this thread"><div class="tab c anchor" role="tab" aria-selected="false" aria-label="Cauldron · coordinator"><svg class="ic"><use href="#i-code"/></svg><span class="n">Cauldron · coordinator</span><span class="x" aria-hidden="true">×</span></div><div class="tscroll" role="presentation"><div class="tab" role="tab" aria-selected="false" aria-label="1:1 with Rampart"><span class="bd" style="background:#8b5cf6"></span><span class="n">Rampart</span><span class="x" aria-hidden="true">×</span></div><div class="tab" role="tab" aria-selected="false" aria-label="1:1 with Builder"><span class="bd" style="background:#38c0e8"></span><span class="n">Builder</span><span class="x" aria-hidden="true">×</span></div><div class="tab" role="tab" aria-selected="false" aria-label="1:1 with Reviewer"><span class="bd" style="background:#3fb27f"></span><span class="n">Reviewer</span><span class="x" aria-hidden="true">×</span></div><div class="tab" role="tab" aria-selected="false" aria-label="1:1 with Tester"><span class="bd" style="background:#e0a32a"></span><span class="n">Tester</span><span class="x" aria-hidden="true">×</span></div><div class="tab on" role="tab" aria-selected="true" aria-label="1:1 with Docs"><span class="bd" style="background:#d9669a"></span><span class="n">Docs</span><span class="x" aria-hidden="true">×</span></div><div class="tab" role="tab" aria-selected="false" aria-label="1:1 with Planner"><span class="bd" style="background:#5b8cf0"></span><span class="n">Planner</span><span class="x" aria-hidden="true">×</span></div><div class="tab" role="tab" aria-selected="false" aria-label="1:1 with Linter"><span class="bd" style="background:#e05656"></span><span class="n">Linter</span><span class="x" aria-hidden="true">×</span></div><div class="tab" role="tab" aria-selected="false" aria-label="1:1 with Router"><span class="bd" style="background:#9a82f5"></span><span class="n">Router</span><span class="x" aria-hidden="true">×</span></div><div class="tab" role="tab" aria-selected="false" aria-label="1:1 with Fixer"><span class="bd" style="background:#e0703a"></span><span class="n">Fixer</span><span class="x" aria-hidden="true">×</span></div><div class="tab" role="tab" aria-selected="false" aria-label="1:1 with Scout"><span class="bd" style="background:#3fb27f"></span><span class="n">Scout</span><span class="x" aria-hidden="true">×</span></div><div class="tab" role="tab" aria-selected="false" aria-label="1:1 with Judge"><span class="bd" style="background:#38c0e8"></span><span class="n">Judge</span><span class="x" aria-hidden="true">×</span></div></div><button class="tarr" type="button" aria-label="Scroll tabs left"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button><button class="tarr" type="button" aria-label="Scroll tabs right"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></button><button class="tbtn plus" type="button" aria-label="Spawn a subagent"><svg class="ic" style="width:15px;height:15px"><use href="#i-plus"/></svg></button></div><div class="stub"></div></div></div>
+    <div class="tcap">4. The plus: spawn a new subagent, or open a 1:1 with an agent that is not open yet</div><div class="tstrip withmenu"><div class="main"><div class="tabs" role="tablist" aria-label="Agents in this thread"><div class="tab c anchor on" role="tab" aria-selected="true" aria-label="Cauldron · coordinator"><svg class="ic"><use href="#i-code"/></svg><span class="n">Cauldron · coordinator</span><span class="x" aria-hidden="true">×</span></div><div class="tab" role="tab" aria-selected="false" aria-label="1:1 with Rampart"><span class="bd" style="background:#8b5cf6"></span><span class="n">Rampart</span><span class="x" aria-hidden="true">×</span></div><div class="tab" role="tab" aria-selected="false" aria-label="1:1 with Builder"><span class="bd" style="background:#38c0e8"></span><span class="n">Builder</span><span class="x" aria-hidden="true">×</span></div><span class="sp"></span><button class="tbtn plus" type="button" aria-label="Spawn a subagent"><svg class="ic" style="width:15px;height:15px"><use href="#i-plus"/></svg></button><div class="tmenu" role="menu"><div class="mi on" role="menuitem"><svg class="ic" style="width:14px;height:14px"><use href="#i-plus"/></svg>Spawn a subagent…</div><div class="mh">Open 1:1 with</div><div class="mi" role="menuitem"><span class="bd" style="background:#38c0e8"></span>Builder</div><div class="mi" role="menuitem"><span class="bd" style="background:#3fb27f"></span>Reviewer</div><div class="mi" role="menuitem"><span class="bd" style="background:#e0a32a"></span>Tester</div></div></div><div class="stub"></div></div></div>
+  </div>
+  <ol class="notes">
+    <li><b>Why the coordinator is pinned.</b> It stays at the left and never scrolls away, so one click always returns to the thread itself. It has no close button.</li>
+    <li><b>Small tabs lose the label first.</b> A tab carries only the agent’s name, so its first letters still tell it apart at 72px; a prefix like "1:1" would have filled the space and said nothing. At 72px a tab shows its colour dot, a few letters and the close button. The full name is the tab's accessible name and its tooltip. Close buttons on inactive tabs appear on hover.</li>
+    <li><b>The arrows are the threshold.</b> Below it there are no arrows at all. Wheel and trackpad scrolling also work. The Highlights panel on the right already lists every agent and opens its tab, which is a second way to reach one that has scrolled out of sight.</li>
+    <li><b>Keyboard.</b> Left and Right move between tabs, Home and End jump to the ends, Delete closes the focused tab, and the focused tab scrolls into view.</li>
+  </ol>
+</section>
 <!-- ========== FIRST RUN ========== -->
 <section>
   <h2>First run: onboarding and the empty app</h2>
@@ -949,6 +1008,21 @@ section{display:grid;gap:14px;min-width:0}
   </ol>
 </section>
 
+
+<!-- ========== FIRST INSTALL ========== -->
+<section>
+  <h2>First install: the wizard over the blurred empty app</h2>
+  <p>The mix you asked for. On the very first launch the empty app from option B sits behind, blurred and dimmed, with option A's wizard in front. Skip setup, or finish it, and you land on the same empty app with its Get started card showing whatever is still left. After that the wizard never returns by itself.</p>
+  <div class="scroll"><div class="wizstage" id="wizstage"><div class="scrim"></div><div class="wizcard" role="dialog" aria-modal="true" aria-label="Set up Cauldron"><div class="wzh"><span class="wzdots" role="img" aria-label="Step 1 of 4"><i class="on"></i><i class=""></i><i class=""></i><i class=""></i></span><button class="lbtn" type="button">Skip setup</button></div><h4>Bring your AI subscriptions</h4><div class="sub">Agents run on your own plan. Cauldron looked for these on this PC.</div><div class="list"><div class="it"><svg class="ic"><use href="#i-code"/></svg><span><b>Claude Code</b><span class="m">Uses your Claude plan</span></span><span class="ok">Found</span></div><div class="it"><svg class="ic"><use href="#i-term"/></svg><span><b>Codex</b><span class="m">Uses your ChatGPT plan</span></span><button class="btn" type="button">Connect</button></div><div class="it"><svg class="ic"><use href="#i-bot"/></svg><span><b>Grok</b><span class="m">Uses your SuperGrok or X plan</span></span><button class="btn" type="button">Connect</button></div></div><button class="pbtn" type="button">Continue</button><button class="lbtn" type="button">Skip for now</button></div></div></div>
+  <div class="tcap">Steps 2, 3 and 4. The backdrop and the card position are the same on every step.</div>
+  <div class="wzrow"><div class="wzmini"><div class="wizcard" role="dialog" aria-modal="true" aria-label="Set up Cauldron"><div class="wzh"><span class="wzdots" role="img" aria-label="Step 2 of 4"><i class=""></i><i class="on"></i><i class=""></i><i class=""></i></span><button class="lbtn" type="button">Skip setup</button></div><h4>Open a project</h4><div class="sub">Threads work inside a folder. Pick the repo you are working on.</div><div class="list"><div class="it"><svg class="ic"><use href="#i-folder"/></svg><span><b>Cauldron</b><span class="m">C:\\Users\\you\\code\\cauldron</span></span><span class="ok">Recent</span></div><div class="it"><svg class="ic"><use href="#i-folder"/></svg><span><b>notes</b><span class="m">C:\\Users\\you\\code\\notes</span></span><span></span></div></div><button class="pbtn" type="button">Open a folder</button><button class="lbtn" type="button">Skip for now</button></div></div><div class="wzmini"><div class="wizcard" role="dialog" aria-modal="true" aria-label="Set up Cauldron"><div class="wzh"><span class="wzdots" role="img" aria-label="Step 3 of 4"><i class=""></i><i class=""></i><i class="on"></i><i class=""></i></span><button class="lbtn" type="button">Skip setup</button></div><h4>Connect GitHub</h4><div class="sub">Optional. Agents open pull requests in repos you pick.</div><div class="list"><div class="it"><svg class="ic"><use href="#i-branch"/></svg><span><b>GitHub</b><span class="m">Read and open pull requests</span></span><span></span></div></div><button class="pbtn" type="button">Connect GitHub</button><button class="lbtn" type="button">Skip for now</button></div></div><div class="wzmini"><div class="wizcard" role="dialog" aria-modal="true" aria-label="Set up Cauldron"><div class="wzh"><span class="wzdots" role="img" aria-label="Step 4 of 4"><i class=""></i><i class=""></i><i class=""></i><i class="on"></i></span><button class="lbtn" type="button">Skip setup</button></div><h4>You are set</h4><div class="sub">Claude Code is connected and Cauldron is ready. Your first thread starts from the box.</div><div class="list"><div class="it"><svg class="ic"><use href="#i-edit"/></svg><span><b>Start your first thread</b><span class="m">Describe a task, a bug or an idea</span></span><span></span></div></div><button class="pbtn" type="button">Open Cauldron</button><button class="lbtn" type="button"></button></div></div></div>
+  <ol class="notes">
+    <li><b>Why a baked blur.</b> GPUI can blur what is behind the window, not what is behind a card inside it. So the build uses a pre-blurred picture of the empty app, one for dark and one for light, covering the window behind a dimming layer. The picture is blurred enough that it still fits at any window size.</li>
+    <li><b>Same theme.</b> The card, rows, buttons and radii are the app's own: 10px card, 6px rows, the same raised surface and hairlines. Accent is only the step dot.</li>
+    <li><b>Skipping is safe.</b> Skip setup closes the card. The box stays disabled until a subscription is found, and Get started explains why.</li>
+    <li><b>Step 1 detects first.</b> Found means Cauldron saw the command on this PC. Connect opens that provider's own sign-in.</li>
+  </ol>
+</section>
 <!-- ========== SCREEN B ========== -->
 <section>
   <h2>Projects: code and design separate themselves</h2>
@@ -1236,4 +1310,13 @@ section{display:grid;gap:14px;min-width:0}
   fit(); window.addEventListener('resize',fit);
 })();
 </script>
+<script>
+(function(){
+  var st=document.getElementById('wizstage'); if(!st) return;
+  var sec=[].slice.call(document.querySelectorAll('section')).filter(function(x){var h=x.querySelector('h2');return h&&/^First run/.test(h.textContent)})[0];
+  var src=sec&&sec.querySelector('.scroll > .window[data-fresh]'); if(!src) return;
+  var c=src.cloneNode(true); c.setAttribute('inert',''); c.setAttribute('aria-hidden','true'); st.insertBefore(c,st.firstChild);
+})();
+</script>
+
 
