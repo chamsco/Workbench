@@ -135,10 +135,31 @@ impl AssetSource for Assets {
             );
             return Ok(Some(Cow::Owned(svg.into_bytes())));
         }
-        gpui_kit::assets::Assets.load(path)
+        // The default bundle holds only the icons gpui-kit's own components use; the shell's
+        // Lucide names (gauge, pin, terminal, ...) live in the full catalog.
+        gpui_kit::assets::Assets.load(path).or_else(|_| gpui_kit::assets::AllAssets.load(path))
     }
 
     fn list(&self, path: &str) -> Result<Vec<SharedString>> {
         gpui_kit::assets::Assets.list(path)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every Lucide icon the Cauldron shell draws must resolve, or it renders as an empty box.
+    #[test]
+    fn every_shell_icon_loads() {
+        let used = [
+            "inbox", "folder", "calendar", "bot", "gauge", "brain", "layout-grid", "pin", "palette", "diff",
+            "search", "plus", "settings", "panel-left", "terminal", "columns-2", "minus", "square", "x",
+        ];
+        let missing: Vec<_> = used
+            .iter()
+            .filter(|n| !matches!(Assets.load(&format!("icons/{n}.svg")), Ok(Some(_))))
+            .collect();
+        assert!(missing.is_empty(), "icons that do not load: {missing:?}");
     }
 }

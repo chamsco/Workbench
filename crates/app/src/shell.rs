@@ -424,7 +424,8 @@ impl Render for Cauldron {
         // ---- sidebar button (inside the notch when the sidebar is open)
         root = root.child(
             abs(s.sidebar_button).child(
-                icon_button("sbtn", "panel-left", "Hide sidebar", pal, false).on_click(cx.listener(|this, _, _, cx| {
+                // occlude: buttons over the drag strip stop the hit test, or Windows drags instead of clicking.
+                icon_button("sbtn", "panel-left", "Hide sidebar", pal, false).occlude().on_click(cx.listener(|this, _, _, cx| {
                     this.sidebar_open = !this.sidebar_open;
                     cx.notify();
                 })),
@@ -437,9 +438,9 @@ impl Render for Cauldron {
                 .flex()
                 .items_center()
                 .gap(px(2.))
-                .child(icon_button("top-term", "terminal", "Terminal", pal, false))
+                .child(icon_button("top-term", "terminal", "Terminal", pal, false).occlude())
                 .child(
-                    icon_button("top-split", "columns-2", "Split", pal, self.split).on_click(cx.listener(|this, _, _, cx| {
+                    icon_button("top-split", "columns-2", "Split", pal, self.split).occlude().on_click(cx.listener(|this, _, _, cx| {
                         this.split = !this.split;
                         cx.notify();
                     })),
@@ -458,6 +459,7 @@ impl Render for Cauldron {
                     .items_center()
                     .justify_center()
                     .window_control_area(area)
+                    .occlude()
                     .hover(move |d| d.bg(if danger { bad } else { ca(pal.fg, 0.08) }))
                     .child(glyph(name, 14., fg2))
             };
