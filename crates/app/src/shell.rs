@@ -17,6 +17,7 @@ use gpui_kit::component::input::{Input, InputEvent, InputState, TextareaState};
 use gpui_kit::component::Theme;
 use std::sync::Arc;
 
+mod newthread;
 mod thread;
 
 /// Where the shell draws window controls: lights on macOS, caption buttons elsewhere.
@@ -201,6 +202,8 @@ pub(crate) struct Cauldron {
     thread: Option<Thread>,
     composer: Option<(Entity<TextareaState>, Subscription)>,
     send_error: Option<String>,
+    /// The New thread screen (UI5).
+    start: newthread::Start,
 }
 
 impl Cauldron {
@@ -242,7 +245,7 @@ impl Cauldron {
     }
 
     pub(crate) fn new() -> Self {
-        Cauldron { sidebar_open: true, drawer: Some(Panel::Highlights), split: false, coordinator: None, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, composer: None, send_error: None }
+        Cauldron { sidebar_open: true, drawer: Some(Panel::Highlights), split: false, coordinator: None, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, composer: None, send_error: None, start: Default::default() }
     }
 
     /// Opens core off the main thread (the sidebar shows Loading meanwhile), then keeps the thread
@@ -256,10 +259,11 @@ impl Cauldron {
                     let rt = tokio::runtime::Builder::new_multi_thread().worker_threads(1).thread_name("chats").enable_all().build()?;
                     let (tx, rx) = async_channel::bounded(1);
                     let chats = Chats::open(Prefs::data_dir(), rt.handle().clone(), tx);
-                    anyhow::Ok((rt, chats, rx))
+                    let p = Prefs::load();
+                    anyhow::Ok((rt, chats, rx, newthread::default_route(&p), p.machines))
                 })
                 .await;
-            let (rt, chats, changes) = match opened {
+            let (rt, chats, changes, route, machines) = match opened {
                 Ok(o) => o,
                 Err(e) => {
                     let _ = this.update(cx, |c, cx| {
@@ -271,6 +275,8 @@ impl Cauldron {
             };
             let _ = this.update(cx, |c, cx| {
                 c.core = Some((rt, chats));
+                c.start.route = route;
+                c.start.machines = machines;
                 c.refresh();
                 c.watch(changes, cx);
                 cx.notify();
@@ -741,6 +747,7 @@ impl Render for Cauldron {
         let accent = c(pal.accent);
 
         self.ensure_composer(window, cx);
+        self.ensure_start(window, cx);
         let mut root = div()
             .id("cauldron")
             .size_full()
@@ -808,6 +815,7 @@ impl Render for Cauldron {
                 .shadow(vec![BoxShadow { color: ca(pal.accent, 0.30), offset: point(px(0.), px(0.)), blur_radius: px(16.), spread_radius: px(-2.), inset: false }])
                 .child(glyph("plus", 14., accent))
                 .child(div().text_size(px(13.)).text_color(fg).child("New thread"))
+                .on_click(cx.listener(|this, _, window, cx| this.new_thread(window, cx)))
                 .test_support();
             let card_el = pane("sidebar", r)
                 .flex()
@@ -1114,7 +1122,7 @@ impl Render for Cauldron {
             .border_1()
             .border_color(ring)
             .text_color(fg3)
-            .child(self.card_body(pal, cx));
+            .child(self.card_body(pal, window, cx));
         if self.active == 0 {
             // The first tab sits on the card's corner, so the corner is square.
             card_el = card_el.rounded_tl(px(0.));

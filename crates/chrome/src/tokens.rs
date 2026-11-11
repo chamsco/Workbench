@@ -135,6 +135,8 @@ pub mod shadow {
     pub const MENU: Shadow = Shadow { y: 12.0, blur: 32.0, spread: -12.0, alpha: 0.6 };
     /// Hover tips.
     pub const TIP: Shadow = Shadow { y: 6.0, blur: 16.0, spread: 0.0, alpha: 0.3 };
+    /// The New thread box (`.nt-box`).
+    pub const BOX: Shadow = Shadow { y: 16.0, blur: 32.0, spread: -18.0, alpha: 0.65 };
 }
 
 /// One radius family, anchored on the folder tab. Circles are drawn as circles, not as a radius.
@@ -147,6 +149,8 @@ pub mod radius {
     pub const R2: f32 = 3.0;
     /// The window itself.
     pub const WINDOW: f32 = R + 4.0;
+    /// The New thread box: R around its 4px padding, so the body inside keeps R (wireframe `.nt-box`).
+    pub const BOX: f32 = R + 4.0;
 
     /// Inner radius of a box with `padding` inside an `outer` radius, never negative.
     pub fn nested(outer: f32, padding: f32) -> f32 {

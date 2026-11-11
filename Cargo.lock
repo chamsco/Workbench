@@ -553,6 +553,7 @@ dependencies = [
  "anyhow",
  "async-channel",
  "backspace-core",
+ "base64 0.22.1",
  "cauldron-chrome",
  "gpui-kit",
  "serde_json",
