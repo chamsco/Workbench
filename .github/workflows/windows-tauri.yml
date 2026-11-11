@@ -1,0 +1,82 @@
+# The last Tauri build of the app (commit e3d472a), kept downloadable on its own release
+# while the GPUI app is rebuilt screen by screen. Manual only. It never touches
+# windows-preview, which holds the GPUI build. Delete this file when UI9 lands.
+name: Windows app (Tauri, frozen)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: windows-tauri-frozen
+  cancel-in-progress: true
+
+env:
+  TAURI_COMMIT: e3d472a2cadf50724007600e1dd13db17b241174
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAURI_COMMIT }}
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: windows-tauri
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: crates/tauri-app/web/package-lock.json
+
+      - name: Build the chat UI
+        working-directory: crates/tauri-app/web
+        run: npm ci && npm run build
+
+      - name: Icons
+        working-directory: crates/tauri-app
+        run: npx --yes @tauri-apps/cli@2 icon icons/icon.png -o icons
+
+      - name: Say which commit this build is
+        shell: bash
+        run: |
+          printf 'pub const BUILD: &str = "%s";\n' "$TAURI_COMMIT" > crates/core/src/build_stamp.rs
+
+      - name: Build Backspace.exe and its installer
+        working-directory: crates/tauri-app
+        shell: bash
+        run: |
+          npx --yes @tauri-apps/cli@2 build --bundles nsis \
+            -c '{"bundle":{"active":true,"icon":["icons/icon.ico","icons/icon.png"]}}'
+
+      - name: Collect
+        shell: bash
+        run: |
+          mkdir -p out
+          cp target/release/backspace-tauri.exe out/Backspace.exe
+          cp target/release/bundle/nsis/*-setup.exe out/Backspace-setup.exe
+          ls -la out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Backspace-windows-tauri
+          path: out/*
+
+      - name: Publish the pre-release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=windows-tauri
+          gh release delete "$tag" --yes --cleanup-tag 2>/dev/null || true
+          gh release create "$tag" out/* --prerelease --target "$GITHUB_SHA" \
+            --title "Backspace for Windows (Tauri, frozen at e3d472a)" \
+            --notes "The last Tauri build, from e3d472a, kept while the GPUI app is rebuilt. Unsigned: Windows SmartScreen will warn the first time; choose More info, then Run anyway. Backspace-setup.exe installs it; Backspace.exe runs without installing."
