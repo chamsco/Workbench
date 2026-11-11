@@ -81,6 +81,7 @@ impl Cauldron {
         self.active = 0;
         self.selected = Some(id.clone());
         self.open = Some(id);
+        self.open_since = Some(std::time::Instant::now());
         self.send_error = None;
         self.threads = Threads::Ready(chats.list());
     }
@@ -112,7 +113,7 @@ impl Cauldron {
         }));
     }
 
-    fn busy(&self) -> bool {
+    pub(super) fn busy(&self) -> bool {
         match (&self.core, &self.open) {
             (Some((_, chats)), Some(id)) => chats.is_busy(id),
             _ => false,
@@ -211,8 +212,15 @@ impl Cauldron {
             head = head.child(chip(name, pal.mem));
         }
 
-        let mut msgs = div().id("transcript").flex_1().min_h_0().overflow_y_scroll().flex().flex_col().gap(px(12.));
+        // The transcript fades in over the second half of the carry after a thread opens.
+        let now = std::time::Instant::now();
+        let open_k = self.open_since.map_or(1.0, |t0| cauldron_chrome::motion::fade_in(crate::motion::run(now, t0, cauldron_chrome::motion::time::CARRY)));
+        let bubble_k = self.bubble_since.map_or(1.0, |t0| crate::motion::run(now, t0, cauldron_chrome::motion::time::CARRY));
+        let mut msgs = div().id("transcript").flex_1().min_h_0().overflow_y_scroll().flex().flex_col().gap(px(12.)).opacity(open_k);
         let ls = lines(t);
+        // The newest of the user's bubbles rises into place (a rise and fade, not a carry from
+        // the composer box).
+        let fresh_mine = ls.iter().rposition(|l| l.mine);
         if ls.is_empty() {
             msgs = msgs.child(
                 div()
@@ -231,10 +239,14 @@ impl Cauldron {
         for (i, l) in ls.into_iter().enumerate() {
             let shown = if l.text.is_empty() { pending(l.status).unwrap_or("").to_string() } else { l.text.clone() };
             if l.mine {
+                let k = if fresh_mine == Some(i) { bubble_k } else { 1.0 };
                 msgs = msgs.child(
                     div()
                         .id(("msg", i))
                         .self_end()
+                        .relative()
+                        .top(px(8. * (1. - k)))
+                        .opacity(k)
                         .max_w(relative(0.72))
                         .px(px(12.))
                         .py(px(9.))
@@ -316,20 +328,31 @@ impl Cauldron {
                 c.next().map_or_else(|| "Auto".into(), |f| format!("Auto · {}{}", f.to_uppercase(), c.as_str()))
             },
         );
+        // The Send and Stop glyphs cross-fade when a reply starts or stops. Only the current one
+        // takes a click, so the one fading out cannot send or stop anything.
+        let k = self.action_since.map_or(1.0, |t0| crate::motion::run(std::time::Instant::now(), t0, cauldron_chrome::motion::time::SWAP));
+        let layer = |name: &'static str, size: f32, a: f32| {
+            div().absolute().inset_0().flex().items_center().justify_center().opacity(a).child(glyph(name, size, fg))
+        };
+        let ((now_name, now_size), (was_name, was_size)) = if busy { (("square", 13.), ("arrow-up", 16.)) } else { (("arrow-up", 16.), ("square", 13.)) };
+        let mut action = div()
+            .id(if busy { "stop" } else { "send" })
+            .relative()
+            .aria_label(if busy { "Stop" } else { "Send" })
+            .child(layer(now_name, now_size, k));
+        if k < 1.0 {
+            action = action.child(layer(was_name, was_size, 1.0 - k));
+        }
         let action = if busy {
-            div()
-                .id("stop")
-                .aria_label("Stop")
-                .child(glyph("square", 13., fg))
-                .on_click(cx.listener(|this, _, _, cx| {
-                    if let (Some(id), Some((_, chats))) = (this.open.clone(), this.core.as_ref()) {
-                        chats.stop(&id);
-                    }
-                    this.refresh();
-                    cx.notify();
-                }))
+            action.on_click(cx.listener(|this, _, _, cx| {
+                if let (Some(id), Some((_, chats))) = (this.open.clone(), this.core.as_ref()) {
+                    chats.stop(&id);
+                }
+                this.refresh();
+                cx.notify();
+            }))
         } else {
-            div().id("send").aria_label("Send").child(glyph("arrow-up", 16., fg)).on_click(cx.listener(|this, _, window, cx| this.send_composer(window, cx)))
+            action.on_click(cx.listener(|this, _, window, cx| this.send_composer(window, cx)))
         };
         let action = action
             .ml_auto()

@@ -6,4 +6,5 @@
 //! two builds cannot drift apart. No GPUI dependency: it tests on any machine.
 
 pub mod layout;
+pub mod motion;
 pub mod tokens;
