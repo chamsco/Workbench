@@ -65,6 +65,7 @@ Every screen draws: normal, empty, loading (skeleton shaped like the final layou
 2. Windows notch of 62px with only the sidebar button. Assumed.
 3. Minimum thread column of 360px: Split closes first, then the drawer. Assumed. The wireframe does not draw it.
 4. The left usage meter. Core reads token counts from session logs; a "% left" figure needs quota data that may not be in those logs. Until checked, the meter shows tokens and cost.
+5. Core support for the sidebar states the wireframe shows but core lacks (Needs you per thread, Hibernating, Archived, agent graph; see `UI3-CORE-MAP.md`) is built after UI5, not before. Decided by Charles, 11 Nov 2026. UI3 to UI5 ship with Running, Failed, Done and Unread rows only, and leave the missing rows out rather than faking them.
 
 ## Risks
 
