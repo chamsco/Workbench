@@ -555,6 +555,7 @@ dependencies = [
  "backspace-core",
  "cauldron-chrome",
  "gpui-kit",
+ "serde_json",
  "tokio",
 ]
 
