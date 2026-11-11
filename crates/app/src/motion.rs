@@ -17,6 +17,15 @@ pub(crate) fn run(now: Instant, t0: Instant, dur: u64) -> f32 {
     motion::progress(elapsed_ms(now, t0), 0, dur)
 }
 
+/// A position that eases from `from` to `to` on the settle curve over `dur` ms from `t0`. With no
+/// run in progress it is `to`.
+pub(crate) fn ease_between(from: f32, to: f32, t0: Option<Instant>, now: Instant, dur: u64) -> f32 {
+    match t0 {
+        Some(t0) => from + (to - from) * motion::SETTLE.at(run(now, t0, dur)),
+        None => to,
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct ShellMotion {
     /// The state the last render was asked for, to tell a change of state from a resize.
@@ -119,6 +128,17 @@ mod tests {
         let bigger = solve(W + 100.0, H, closed(), Platform::Windows);
         let (_, more) = m.frame(closed(), Frame::at_rest(&bigger), t + Duration::from_millis(10), false);
         assert!(more, "the run goes on toward the new size");
+    }
+
+    #[test]
+    fn a_slide_starts_at_from_ends_at_to_and_eases_between() {
+        let t = Instant::now();
+        let dur = motion::time::INDICATOR;
+        assert_eq!(ease_between(2.0, 5.0, Some(t), t, dur), 2.0);
+        assert_eq!(ease_between(2.0, 5.0, Some(t), t + Duration::from_millis(dur + 1), dur), 5.0);
+        let mid = ease_between(2.0, 5.0, Some(t), t + Duration::from_millis(dur / 2), dur);
+        assert!(mid > 2.0 && mid < 5.0, "{mid}");
+        assert_eq!(ease_between(2.0, 5.0, None, t, dur), 5.0, "no run: at the target");
     }
 
     #[test]
