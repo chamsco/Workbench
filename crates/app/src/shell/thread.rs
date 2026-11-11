@@ -62,10 +62,10 @@ fn ctx() -> Ctx {
 }
 
 /// Efforts the chip cycles through; None is Auto, the CLI's own default.
-const EFFORTS: [Option<&str>; 5] = [None, Some("low"), Some("medium"), Some("high"), Some("max")];
+pub(super) const EFFORTS: [Option<&str>; 5] = [None, Some("low"), Some("medium"), Some("high"), Some("max")];
 
 /// `a` mixed toward `b` by `t`, as CSS `color-mix(in srgb, b t, a)`.
-fn mix(a: Rgb, b: Rgb, t: f32) -> Hsla {
+pub(super) fn mix(a: Rgb, b: Rgb, t: f32) -> Hsla {
     let m = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t).round() as u8;
     c(Rgb(m(a.0, b.0), m(a.1, b.1), m(a.2, b.2)))
 }
@@ -153,7 +153,7 @@ impl Cauldron {
     }
 
     /// The main card's content: the open thread, a 1:1, or what stands in for them.
-    pub(super) fn card_body(&self, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn card_body(&self, pal: &'static Palette, window: &Window, cx: &mut Context<Self>) -> AnyElement {
         let fg3 = c(pal.fg3);
         let centred = |id: &'static str, title: String, body: &'static str| {
             div()
@@ -178,7 +178,7 @@ impl Cauldron {
         match (&self.open, &self.thread) {
             (Some(_), Some(t)) => self.thread_view(t, pal, cx),
             (Some(_), None) => centred("thread-gone", "This thread is no longer here".into(), "It was deleted, or its file could not be read."),
-            (None, _) => centred("no-thread", "No thread open".into(), "Pick one in the sidebar, or start one with New thread."),
+            (None, _) => self.new_thread_view(pal, window, cx),
         }
     }
 
@@ -463,7 +463,7 @@ impl Cauldron {
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::super::{Cauldron, Threads};
     use super::lines;
     use backspace_core::chat::{Chats, Status};
@@ -514,19 +514,17 @@ mod tests {
         })
     }
 
-    fn open(cx: &mut TestAppContext) -> (gpui_kit::WindowHandle<Cauldron>, Arc<Chats>) {
+    pub(in crate::shell) fn open(cx: &mut TestAppContext) -> (gpui_kit::WindowHandle<Cauldron>, Arc<Chats>) {
         cx.update(gpui_kit::init);
         prefs();
         let d = data();
         let rt = tokio::runtime::Builder::new_multi_thread().worker_threads(1).enable_all().build().unwrap();
-        let (tx, rx) = async_channel::bounded(1);
+        // No change channel: a wake from core's tokio thread into the test scheduler makes the run
+        // non-deterministic (and panics). Tests call `refresh` where the app would be poked.
+        let (tx, _) = async_channel::bounded(1);
         let chats = Chats::open(d, rt.handle().clone(), tx);
         let ch = chats.clone();
-        let handle = cx.add_window(move |_, cx| {
-            let mut c = Cauldron { threads: Threads::Ready(ch.list()), core: Some((rt, ch)), ..Cauldron::new() };
-            c.watch(rx, cx);
-            c
-        });
+        let handle = cx.add_window(move |_, _| Cauldron { threads: Threads::Ready(ch.list()), core: Some((rt, ch)), ..Cauldron::new() });
         cx.simulate_window_resize(handle.into(), size(px(1240.), px(702.)));
         (handle, chats)
     }
@@ -558,7 +556,7 @@ mod tests {
         let (handle, _chats) = open(cx);
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
-            assert_eq!(window.find("no-thread").label(), Some("No thread open"));
+            assert!(window.try_find("nt-box").is_some(), "no thread open: the New thread screen");
             window.click(("thread", 0usize), cx);
             assert_eq!(window.find("thread-title").label(), Some("Get M3 through review"));
             assert_eq!(window.find(("tab", 0usize)).label(), Some("Get M3 through review"));
@@ -598,6 +596,7 @@ it");
             for _ in 0..200 {
                 let t = chats.peek("t2").unwrap();
                 if t.messages.last().is_some_and(|m| m.status == Status::Error) && !chats.is_busy("t2") {
+                    handle.update(cx, |c, _, _| c.refresh()).unwrap();
                     return t.messages.last().unwrap().id.clone();
                 }
                 std::thread::sleep(std::time::Duration::from_millis(10));
