@@ -1,10 +1,14 @@
 # The last Tauri build of the app (commit e3d472a), kept downloadable on its own release
-# while the GPUI app is rebuilt screen by screen. Manual only. It never touches
-# windows-preview, which holds the GPUI build. Delete this file when UI9 lands.
+# while the GPUI app is rebuilt screen by screen. Runs only when this file changes on a
+# claude/** branch (GitHub cannot dispatch a workflow that is not on main yet), and never
+# touches windows-preview, which holds the GPUI build. Delete this file when UI9 lands.
 name: Windows app (Tauri, frozen)
 
 on:
   workflow_dispatch:
+  push:
+    branches: ["claude/**"]
+    paths: [".github/workflows/windows-tauri.yml"]
 
 permissions:
   contents: write
