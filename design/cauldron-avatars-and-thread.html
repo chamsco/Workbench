@@ -38,14 +38,17 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .av .eye { fill: var(--eye); transform-box: fill-box; transform-origin: center; animation: blink 6.3s ease-in-out infinite; }
 .av .fx { opacity: 0; transition: opacity 0.2s; }
 .av .dots circle { fill: var(--eye); }
-.av .body, .av .head, .av .cog path { fill: var(--col); }
+.av .body, .av .head, .av .cog path, .av .minis circle { fill: var(--col); }
+.av.outline .body, .av.outline .head, .av.outline .cog path, .av.outline .minis circle { fill: none; stroke: var(--col); stroke-linejoin: round; stroke-linecap: round; }
+.av.outline .eye, .av.outline .dots circle { fill: var(--col); }
+.av .minis { opacity: 0; transition: opacity 0.22s; }
 .av .head { transition: opacity 0.22s, transform 0.22s var(--settle); transform-box: fill-box; transform-origin: center; }
 .av .cog { opacity: 0; transition: opacity 0.22s; }
 .av .cog .spin { transform-box: fill-box; transform-origin: center; }
 .av .dots { opacity: 0; transition: opacity 0.2s; }
-.av .q path { stroke: var(--fxc); fill: none; stroke-width: 16; stroke-linecap: round; stroke-linejoin: round; }
+.av .q path { stroke: var(--fxc); fill: none; stroke-width: 24; stroke-linecap: round; stroke-linejoin: round; }
 .av .q circle, .av .bang path, .av .bang circle { fill: var(--fxc); }
-.av .z text { fill: var(--fxc); font: 800 6px/1 ui-rounded, "SF Pro Rounded", system-ui, sans-serif; }
+.av .z text { fill: var(--fxc); font: 900 12px/1 ui-rounded, "SF Pro Rounded", system-ui, sans-serif; }
 @keyframes blink { 0%, 44%, 48%, 90%, 93%, 96%, 100% { transform: scaleY(1); } 46%, 91.5%, 94.5% { transform: scaleY(0.1); } }
 
 .av[data-mood="idle"] .look { animation: l-idle 11s cubic-bezier(0.45, 0, 0.2, 1) infinite; }
@@ -60,7 +63,13 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 @keyframes l-read { 0% { transform: translate(0, 0); } 12% { transform: translate(-3px, 0.8px); } 42% { transform: translate(3px, 0.8px); } 54% { transform: translate(-3px, -0.2px); } 84% { transform: translate(3px, -0.2px); } 100% { transform: translate(0, 0); } }
 
 .av[data-mood="typing"] .look, .av[data-mood="working"] .look { opacity: 0; }
-.av[data-mood="typing"] .dots { opacity: 1; }
+.av[data-typing="dots"][data-mood="typing"] .dots { opacity: 1; }
+.av[data-typing="heads"][data-mood="typing"] .head { opacity: 0; transform: scale(0.7); }
+.av[data-typing="heads"][data-mood="typing"] .minis { opacity: 1; }
+.av[data-typing="heads"][data-mood="typing"] .minis circle { animation: hop 1.2s ease-in-out infinite; }
+.av[data-typing="heads"][data-mood="typing"] .minis circle:nth-child(2) { animation-delay: 0.15s; }
+.av[data-typing="heads"][data-mood="typing"] .minis circle:nth-child(3) { animation-delay: 0.3s; }
+@keyframes hop { 0%, 60%, 100% { transform: translateY(0); } 30% { transform: translateY(-6px); } }
 .av[data-mood="working"] .head { opacity: 0; transform: scale(0.7); }
 .av[data-mood="working"] .cog { opacity: 1; }
 .av[data-mood="typing"] .dots circle { animation: dotb 1.2s ease-in-out infinite; }
@@ -105,7 +114,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .av.nofx .fx { display: none; }
 
 @media (prefers-reduced-motion: reduce) {
-  .av .eye, .av .look, .av .cog .spin, .av .dots circle, .av .q path, .av .bang, .av .z text { animation: none !important; }
+  .av .eye, .av .look, .av .cog .spin, .av .dots circle, .av .minis circle, .av .minis circle, .av .q path, .av .bang, .av .z text { animation: none !important; }
   .av[data-mood="asking"] .q path { stroke-dashoffset: 0; }
   .av[data-mood="sleepy"] .z text { opacity: 1; }
 }
@@ -293,15 +302,27 @@ code { font-family: ui-monospace, "SF Mono", Consolas, monospace; font-size: 12p
       <li><b>Figure at every size:</b> the head crop is gone. Rows, tabs and the status line draw the same figure, smaller.</li>
       <li><b>Flat, one colour:</b> no paint, no pearl, no light. The nine colours are the agent dots already in the app.</li>
       <li><b>Working:</b> the head itself becomes a turning cog with a hole, the face hides, the body stays still.</li>
-      <li><b>Unchanged:</b> typing (three bouncing dots), asking, waiting, watching and the rest of the moods.</li>
+      <li><b>Unchanged:</b> asking, waiting, watching and the rest of the moods.</li>
     </ul>
   </div>
+
+  <h3 style="margin-top:26px">Typing: the head becomes three small heads</h3>
+  <p class="note">The head hides and three smaller heads hop in turn, the same rhythm as the dots did. It still reads at 28px.</p>
+  <div class="stage" id="typing" style="margin-top:10px; justify-content: flex-start; gap: 32px"></div>
+
+  <h3 style="margin-top:26px">Marks: bigger and bolder</h3>
+  <p class="note">The question mark, exclamation mark and z's are about twice the size and weight, and now show from 28px up instead of 40px.</p>
+  <div class="stage" id="marks" style="margin-top:10px; justify-content: flex-start; gap: 32px"></div>
+
+  <h3 style="margin-top:26px">In the chat while it works: the outline agent</h3>
+  <p class="note">I read this as the status line in the thread: while a run is going, the agent is drawn as an outline in its colour, with the face and the moods inside. Rows, tabs and the empty state stay filled. The status line in the thread mock above uses it, so run it to see.</p>
+  <div class="stage" id="outline" style="margin-top:10px; justify-content: flex-start; gap: 22px"></div>
 
   <h3 style="margin-top:26px">The nine agent colours</h3>
   <div class="stage" id="palette" style="margin-top:10px"></div>
 
   <h3 style="margin-top:26px">Face moods</h3>
-  <p class="note">The eleven orbling moods. Only the face changes. Working turns the head into a cog, typing swaps the eyes for three bouncing dots, and the question mark, exclamation mark and z's show at 40px and up. Watching follows your pointer. Reduced motion shows still faces.</p>
+  <p class="note">The eleven orbling moods. Only the face changes. Working turns the head into a cog, typing turns it into three small heads, and the question mark, exclamation mark and z's show at 28px and up. Watching follows your pointer. Reduced motion shows still faces.</p>
   <div class="seg" id="matSeg" role="group" aria-label="Colour"></div>
   <div class="moods" id="moods"></div>
 
@@ -369,6 +390,7 @@ code { font-family: ui-monospace, "SF Mono", Consolas, monospace; font-size: 12p
     <ol>
       <li><b>Colour per role:</b> from the nine agent dots, I would use orange for the coordinator, cyan for the researcher, green for the builder and violet for the reviewer. OK?</li>
       <li><b>Face:</b> I kept bare pill eyes, as in A. The Windows build's first frame used a dark visor. Say so if you want that instead.</li>
+      <li><b>Outline agent:</b> I put it on the thread's status line while a run is going. Do you also want it on the sidebar row of a running thread?</li>
       <li><b>Buttons:</b> by "different colours" I read primary in solid accent and secondary in neutral. If you meant a different colour per kind of action, say which.</li>
       <li><b>Project grouping toggle</b> in the sidebar, next to the state grouping?</li>
       <li><b>Wallpaper</b> under the main card? If yes, send an image or I use a dark abstract one.</li>
@@ -385,24 +407,33 @@ var DOTS = { orange: '#e0703a', cyan: '#38c0e8', green: '#3fb27f', amber: '#e0a3
 var GEAR = 'M39.23 15.65 L41.41 2.27 L58.59 2.27 L60.77 15.65 A36 36 0 0 1 74.37 23.5 L87.04 18.7 L95.63 33.57 L85.13 42.15 A36 36 0 0 1 85.13 57.85 L95.63 66.43 L87.04 81.3 L74.37 76.5 A36 36 0 0 1 60.77 84.35 L58.59 97.73 L41.41 97.73 L39.23 84.35 A36 36 0 0 1 25.63 76.5 L12.96 81.3 L4.37 66.43 L14.87 57.85 A36 36 0 0 1 14.87 42.15 L4.37 33.57 L12.96 18.7 L25.63 23.5 A36 36 0 0 1 39.23 15.65 Z M64 50 A14 14 0 1 0 36 50 A14 14 0 1 0 64 50 Z';
 var PROPS = { now: { hr: 22, hcy: 33, br: 33, bcy: 92 }, before: { hr: 19, hcy: 33, br: 40, bcy: 97 } };
 
-function figure(col, mood, h, prop) {
-  var P = PROPS[prop || 'now'], hr = P.hr, hcy = P.hcy, br = P.br, bcy = P.bcy;
+function figure(col, mood, h, o) {
+  if (typeof o === 'string') o = { prop: o };
+  o = o || {};
+  var P = PROPS[o.prop || 'now'], hr = P.hr, hcy = P.hcy, br = P.br, bcy = P.bcy;
+  var out = !!o.outline, typing = o.typing || 'heads';
+  var sw = Math.max(2.4, 1.7 / (h / 94)).toFixed(2);          // outline weight: never thinner than ~1.7px
   var dx = Math.sqrt(br * br - (100 - bcy) * (100 - bcy));
-  var small = h < 40, D = 2 * hr, k = small ? 1.25 : 1;
+  var small = h < 28, D = 2 * hr, k = h < 40 ? 1.25 : 1;
   var w = 0.10 * D * k, eh = 0.19 * D * k, c = (0.14 * D) / 2 + w / 2;
-  var gs = (hr * 1.08) / 47.7;
+  var gs = (hr * 1.08) / 47.7, mr = hr * 0.33, ms = mr * 2.2;
   var eyes = '<rect class="eye" x="' + (-c - w / 2).toFixed(2) + '" y="' + (-eh / 2).toFixed(2) + '" width="' + w.toFixed(2) + '" height="' + eh.toFixed(2) + '" rx="' + (w / 2).toFixed(2) + '"/>' +
              '<rect class="eye" x="' + (c - w / 2).toFixed(2) + '" y="' + (-eh / 2).toFixed(2) + '" width="' + w.toFixed(2) + '" height="' + eh.toFixed(2) + '" rx="' + (w / 2).toFixed(2) + '"/>';
-  var fx = '<g class="fx q" transform="translate(63 4) rotate(10) scale(.085)"><path pathLength="1" d="M24 40 C24 18 40 6 58 6 C78 6 92 20 92 38 C92 56 78 64 68 72 C61 78 58 84 58 96"/><circle cx="58" cy="122" r="10"/></g>' +
-           '<g class="fx bang" transform="translate(69 3) scale(.1)"><path d="M20 4 C27 4 31 9 30 16 L26 62 C25.5 67 23 69 20 69 C17 69 14.5 67 14 62 L10 16 C9 9 13 4 20 4 Z"/><circle cx="20" cy="87" r="9"/></g>' +
-           '<g class="fx z"><text x="67" y="17">z</text><text x="71" y="12">z</text><text x="75" y="7">z</text></g>';
-  var svg = '<svg class="av' + (small ? ' nofx' : '') + '" viewBox="10 6 80 94" data-mood="' + mood + '" style="--col:' + col + ';--fxc:' + col + ';--eye:#14121a" aria-hidden="true">' +
-    '<path class="body" d="M' + (50 - dx).toFixed(2) + ' 100 A' + br + ' ' + br + ' 0 1 1 ' + (50 + dx).toFixed(2) + ' 100Z"/>' +
-    '<circle class="head" cx="50" cy="' + hcy + '" r="' + hr + '"/>' +
-    '<g class="cog" transform="translate(50 ' + hcy + ') scale(' + gs.toFixed(3) + ') translate(-50 -50)"><g class="spin"><path fill-rule="evenodd" d="' + GEAR + '"/></g></g>' +
+  // The marks float above and to the right of the head, bigger and bolder so they read at 28px and up
+  var fx = '<g class="fx q" transform="translate(62 -7) rotate(10) scale(.135)"><path pathLength="1" d="M24 40 C24 18 40 6 58 6 C78 6 92 20 92 38 C92 56 78 64 68 72 C61 78 58 84 58 96"/><circle cx="58" cy="124" r="13"/></g>' +
+           '<g class="fx bang" transform="translate(68 -8) scale(.17)"><path d="M20 4 C27 4 31 9 30 16 L26 62 C25.5 67 23 69 20 69 C17 69 14.5 67 14 62 L10 16 C9 9 13 4 20 4 Z"/><circle cx="20" cy="87" r="9"/></g>' +
+           '<g class="fx z"><text x="67" y="16">z</text><text x="72" y="8">z</text><text x="78" y="0">z</text></g>';
+  var bd = 'M' + (50 - dx).toFixed(2) + ' 100 A' + br + ' ' + br + ' 0 1 1 ' + (50 + dx).toFixed(2) + ' 100' + (out ? '' : 'Z');
+  var st = out ? ' stroke-width="' + sw + '"' : '';
+  var minis = [-ms, 0, ms].map(function (x) { return '<circle cx="' + (50 + x).toFixed(2) + '" cy="' + hcy + '" r="' + mr.toFixed(2) + '"' + st + '/>'; }).join('');
+  var svg = '<svg class="av' + (small ? ' nofx' : '') + (out ? ' outline' : '') + '" viewBox="10 4 80 96" data-mood="' + mood + '" data-typing="' + typing + '" style="--col:' + col + ';--fxc:' + col + ';--eye:#14121a" aria-hidden="true">' +
+    '<path class="body" d="' + bd + '"' + st + '/>' +
+    '<circle class="head" cx="50" cy="' + hcy + '" r="' + (hr - (out ? sw / 2 : 0)).toFixed(2) + '"' + st + '/>' +
+    '<g class="cog" transform="translate(50 ' + hcy + ') scale(' + gs.toFixed(3) + ') translate(-50 -50)"><g class="spin"><path fill-rule="evenodd" d="' + GEAR + '"' + (out ? ' stroke-width="' + (sw / gs).toFixed(2) + '"' : '') + '/></g></g>' +
+    '<g class="minis">' + minis + '</g>' +
     '<g transform="translate(50 ' + (hcy - 0.9) + ')"><g class="look">' + eyes + '</g>' +
     '<g class="dots"><circle cx="-7.5" cy="0" r="2.4"/><circle cx="0" cy="0" r="2.4"/><circle cx="7.5" cy="0" r="2.4"/></g></g>' + fx + '</svg>';
-  return '<span class="avw" style="width:' + Math.round(h * 0.851) + 'px;height:' + h + 'px">' + svg + '</span>';
+  return '<span class="avw" style="width:' + Math.round(h * 0.833) + 'px;height:' + h + 'px">' + svg + '</span>';
 }
 
 function mount() {
@@ -415,7 +446,7 @@ function mount() {
 // ---- Boards ----
 function cells(id, items) {
   document.getElementById(id).innerHTML = items.map(function (i) {
-    return '<span class="cell">' + figure(i.col, i.mood || 'idle', i.h, i.prop) + '<span>' + i.label + '</span></span>';
+    return '<span class="cell">' + figure(i.col, i.mood || 'idle', i.h, i.o || i.prop) + '<span>' + i.label + '</span></span>';
   }).join('');
 }
 cells('props', [
@@ -424,6 +455,27 @@ cells('props', [
   { col: DOTS.orange, h: 48, prop: 'now', label: '48' }
 ]);
 cells('sizes', [128, 64, 40, 28, 22, 16].map(function (h) { return { col: DOTS.cyan, h: h, label: String(h) }; }));
+cells('typing', [
+  { col: DOTS.orange, mood: 'typing', h: 112, o: { typing: 'dots' }, label: 'Dots, before' },
+  { col: DOTS.orange, mood: 'typing', h: 112, o: { typing: 'heads' }, label: 'Three heads' },
+  { col: DOTS.cyan, mood: 'typing', h: 112, o: { typing: 'heads', outline: true }, label: 'Outline' },
+  { col: DOTS.green, mood: 'typing', h: 40, o: { typing: 'heads' }, label: '40' },
+  { col: DOTS.violet, mood: 'typing', h: 28, o: { typing: 'heads' }, label: '28' }
+]);
+cells('marks', [
+  { col: DOTS.orange, mood: 'asking', h: 112, label: 'Asking' },
+  { col: DOTS.cyan, mood: 'surprised', h: 112, label: 'Surprised' },
+  { col: DOTS.violet, mood: 'sleepy', h: 112, label: 'Sleepy' },
+  { col: DOTS.orange, mood: 'asking', h: 48, label: '48' },
+  { col: DOTS.orange, mood: 'asking', h: 36, label: '36' },
+  { col: DOTS.orange, mood: 'asking', h: 28, label: '28' }
+]);
+cells('outline', ['thinking', 'typing', 'working', 'asking'].reduce(function (a, md) {
+  var col = md === 'thinking' ? DOTS.orange : md === 'typing' ? DOTS.green : md === 'working' ? DOTS.cyan : DOTS.violet;
+  a.push({ col: col, mood: md, h: 96, label: md[0].toUpperCase() + md.slice(1) + ', filled' });
+  a.push({ col: col, mood: md, h: 96, o: { outline: true }, label: 'Outline' });
+  return a;
+}, []));
 cells('palette', Object.keys(DOTS).map(function (n) { return { col: DOTS[n], h: 64, label: n }; }));
 
 var MOODS = ['idle', 'thinking', 'reading', 'typing', 'working', 'asking', 'waiting', 'watching', 'surprised', 'sleepy', 'error'];
@@ -470,7 +522,7 @@ function el(html) { var d = document.createElement('div'); d.innerHTML = html; r
 function add(node) { thread.appendChild(node); thread.scrollTop = thread.scrollHeight; return node; }
 function wait(ms, id) { return new Promise(function (r) { setTimeout(function () { r(id === run); }, quick ? Math.min(ms, 250) : ms); }); }
 function status(who, mood, label) {
-  return add(el('<div class="status">' + figure(DOTS[WHO[who]], mood, 30) + '<span class="lbl">' + label + '</span></div>'));
+  return add(el('<div class="status">' + figure(DOTS[WHO[who]], mood, 32, { outline: true }) + '<span class="lbl">' + label + '</span></div>'));
 }
 function ledger(text) { return add(el('<div class="ledger">' + CHECK + '<span>' + text + '</span></div>')); }
 
