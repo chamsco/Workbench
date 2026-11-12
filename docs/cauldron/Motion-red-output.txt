@@ -1,0 +1,15 @@
+   Compiling cauldron-chrome v0.1.0 (C:\Users\chamy\Documents\code\Workbench\crates\chrome)
+error[E0432]: unresolved import `cauldron_chrome::tokens::motion`
+   --> crates\chrome\tests\tokens.rs:152:34
+    |
+152 |     use cauldron_chrome::tokens::motion::*;
+    |                                  ^^^^^^ could not find `motion` in `tokens`
+
+error[E0432]: unresolved import `cauldron_chrome::tokens::motion`
+   --> crates\chrome\tests\tokens.rs:166:34
+    |
+166 |     use cauldron_chrome::tokens::motion::ease;
+    |                                  ^^^^^^ could not find `motion` in `tokens`
+
+For more information about this error, try `rustc --explain E0432`.
+error: could not compile `cauldron-chrome` (test "tokens") due to 2 previous errors

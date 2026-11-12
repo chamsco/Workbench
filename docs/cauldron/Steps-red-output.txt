@@ -1,0 +1,41 @@
+warning: variable does not need to be mutable
+   --> crates\core\src\usage.rs:339:9
+    |
+339 |     let mut sess = |id: &str, t: u64, by: &mut BTreeMap<String, Session>| {
+    |         ----^^^^
+    |         |
+    |         help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+   Compiling backspace v0.1.0 (C:\Users\chamy\Documents\code\Workbench\crates\app)
+warning: `backspace-core` (lib) generated 1 warning (run `cargo fix --lib -p backspace-core` to apply 1 suggestion)
+error[E0425]: cannot find function `steps` in module `super`
+   --> crates\app\src\shell\thread.rs:543:27
+    |
+543 | ...   assert_eq!(super::steps(&t, true), ["Thought", "Read 2 files", "Ran 2 commands, 1 failed", "Made 3 edits", "Searched the web"...
+    |                         ^^^^^ not found in `super`
+
+error[E0425]: cannot find function `steps` in module `super`
+   --> crates\app\src\shell\thread.rs:545:27
+    |
+545 |         assert_eq!(super::steps(&one, false), ["Read 1 file", "Ran 1 command"]);
+    |                           ^^^^^ not found in `super`
+
+error[E0425]: cannot find function `steps` in module `super`
+   --> crates\app\src\shell\thread.rs:546:24
+    |
+546 |         assert!(super::steps(&backspace_core::trace::Trace::default(), false).is_empty());
+    |                        ^^^^^ not found in `super`
+
+warning: unused import: `Stateful`
+ --> crates\app\src\shell\motion.rs:8:98
+  |
+8 | use gpui_kit::{canvas, div, px, AnimationExt, AnyElement, App, Bounds, Div, Hsla, Pixels, Point, Stateful};
+  |                                                                                                  ^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+For more information about this error, try `rustc --explain E0425`.
+warning: `backspace` (bin "backspace" test) generated 1 warning
+error: could not compile `backspace` (bin "backspace" test) due to 3 previous errors; 1 warning emitted
