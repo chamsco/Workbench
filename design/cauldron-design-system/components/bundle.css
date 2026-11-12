@@ -374,11 +374,11 @@
 .cx-pva .rowL.h,.cx-pva .rowR.h{height:28px;font-size:11px;color:var(--fg-3);font-weight:500;letter-spacing:.01em;box-shadow:0 1px 0 var(--line)}
 .cx-pva .rowR{position:relative;height:32px}
 .cx-pva .rowR.h span{position:absolute;top:6px;transform:translateX(-50%);font-family:var(--font-mono)}
-.cx-pva .plan{position:absolute;top:9px;height:14px;border-radius:4px;box-shadow:inset 0 0 0 1px var(--line-strong);background-image:repeating-linear-gradient(135deg,transparent 0 4px,var(--line) 4px 5px)}
-.cx-pva .act{position:absolute;top:9px;height:14px;border-radius:4px;background:var(--accent);opacity:.85}
-.cx-pva .over{position:absolute;top:9px;height:14px;border-radius:0 4px 4px 0;background:var(--warn);opacity:.7}
-.cx-pva .val{position:absolute;top:7px;font:500 12px/18px var(--font-mono);color:var(--fg);white-space:nowrap;display:flex;gap:6px}
-.cx-pva .dv{font-size:11px;line-height:18px;padding:0 6px;border-radius:var(--radius-tag);font-weight:500}
+.cx-pva .plan{position:absolute;top:50%;margin-top:-7px;height:14px;border-radius:4px;box-shadow:inset 0 0 0 1px var(--line-strong);background-image:repeating-linear-gradient(135deg,transparent 0 4px,var(--line) 4px 5px)}
+.cx-pva .act{position:absolute;top:50%;margin-top:-7px;height:14px;border-radius:4px;background:var(--accent);opacity:.85}
+.cx-pva .over{position:absolute;top:50%;margin-top:-7px;height:14px;border-radius:0 4px 4px 0;background:var(--warn);opacity:.7}
+.cx-pva .val{position:absolute;top:50%;transform:translateY(-50%);font:500 12px/18px var(--font-mono);color:var(--fg);white-space:nowrap;display:flex;align-items:center;gap:6px}
+.cx-pva .dv{display:inline-block;font-size:11px;line-height:16px;padding:0 6px;border-radius:var(--radius-tag);font-weight:500}
 .cx-pva .dv.good{background:var(--diff-add);color:var(--ok)}
 .cx-pva .dv.bad{background:var(--warn-soft);color:var(--warn)}
 .cx-pva .now{position:absolute;top:28px;bottom:0;width:1px;background:var(--accent)}
@@ -397,7 +397,12 @@
 .cx-node .m{display:flex;gap:8px;font:11px/14px var(--font-mono);color:var(--fg-3)}
 .cx-node .lane{position:absolute;top:-16px;left:0;font-size:10px;letter-spacing:.04em;color:var(--fg-3);font-weight:500}
 .cx-trc{box-shadow:0 -1px 0 var(--line);padding:8px 14px 12px;display:grid;gap:2px;font-size:12px}
-.cx-trc .r{display:grid;grid-template-columns:160px 1fr 52px;gap:10px;align-items:center;height:24px}
+.cx-trc .r{display:grid;grid-template-columns:160px 1fr 52px;gap:10px;align-items:center;height:24px;font-variant-numeric:tabular-nums}
+.cx-trc .ax{position:relative;height:100%;color:var(--fg-3);font-family:var(--font-mono);font-size:11px}
+.cx-trc .ax span{position:absolute;top:50%;transform:translate(-50%,-50%);white-space:nowrap}
+.cx-trc .ax span:first-child{transform:translateY(-50%)}
+.cx-trc .ax span:last-child{transform:translate(-100%,-50%)}
+.cx-trc .dur{text-align:right;font-family:var(--font-mono);color:var(--fg-2)}
 .cx-trc .b{position:relative;height:100%}
 .cx-trc .b i{position:absolute;top:8px;height:8px;border-radius:2px;background:var(--fg-3)}
 .cx-trc .b i.a{background:var(--accent)}
