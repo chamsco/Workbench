@@ -63,11 +63,38 @@ Width: the board's frame 1 has no open drawer, so its card is 944 wide; here Hig
 | Group head | 36 (12px, fg-3, count right) | 36 | |
 | Row | 30, radius 6, slot 18x22, title 13px, repo 11px fg-4 max 54, 6px ping | the same, repo in fg-3 | fg-4 is 2.9:1 on the window, under AA for text |
 | Figure drawn | 15x20, 12.6px into the row | 15x20, 13px in | |
-| Groups | Needs you, Running, Done | Unread, Running, Failed, Done | core has no Needs you per thread yet; Unread sits where it does |
+| Groups | Needs you, Running, Done | Needs you (empty, NL2d), Unread, Running, Failed, Done | core has no Needs you per thread yet; Unread sits where it does |
 | Age column | none | none (removed) | |
 
 - Figures only for agentic threads (Charles, 12 Nov): a thread with an agent or members shows its agent in the slot, in the row's mood (Running is Working, the cog; Failed is Error; else Idle). A normal thread shows a 6px state dot there: accent Running, bad Failed, fg-3 otherwise. The board draws a figure on every row; this follows Charles over the board.
 - At 22px the avatar draws no marks, so an Error figure looks like Idle; the Failed head says it. Figures are still until the motion clock drives them, and every figure is agent 1's colour for now.
-- Needs you and the usage line in the user row are not drawn: core has neither, and the brief says draw nothing there.
+- Needs you and the usage line: superseded by NL2d (Charles chose empty states, 12 Nov).
 - A selected row is `hover` on the window, as the board's `.th.sel`.
 - Runs: `docs/cauldron/NL2-sidebar-red.txt` (group heads 20 high, meta showed the last message), `NL2-rows-red.txt` (figures on normal rows), `NL2-sidebar-green.txt`.
+
+## NL2d: floating tabs (option A) and empty states
+
+Charles retired the folder tabs (12 Nov); the coordinator's answer on placement was option A (tabs in the top bar, the card right under it, no tab on a new thread, the crumbs in the card's head). Charles can still ask for B. On 13 Nov Charles asked for the tabs on the design-system scale rather than the board's raw `.ftab`; the rules came through the coordinator.
+
+`nl2-11-tabs-agentic-dark.png` / `nl2-14-...-light.png`: an agentic thread (`CAULDRON_FIXTURE_AGENTS=3`, the 1:1 fixture open). `nl2-12-tabs-normal-dark.png` / `nl2-15-...-light.png`: a normal thread from the sample data, no figure. `nl2-13-new-no-tabs-dark.png` / `nl2-16-...-light.png`: New thread, no tabs. Light shots come from a build forced to light, then reverted.
+`nl2-17-tabs-vs-board.png`: the board's bar and card head (dark, its terminal frame, which has the same bar) over the app's two threads. There is no light render of the board on hand, so the light shots stand alone.
+
+| | Board `.ftab` | App, measured at 1200x720 | Why |
+|---|---|---|---|
+| Bar | 44 | 40 | top bar A, merged in NL2b |
+| Tab | y 7, h 30, centred | y 6 to 36, h 30, centred | |
+| Row x | card + 6 (254) | card's left edge (257) | rule 8; clamped past the logo and name when the sidebar is closed (the board has no such frame) |
+| Radius | 7 | 8 (`radius::INNER`) | there is no 7 |
+| Text | 12.5px 400 | 12px / 16px, 500 | label style |
+| Open tab | card fill + shadow | `selected` fill (9%), no ring or shadow | tabs take no shadow |
+| Padding, gaps | 0 10 0 9, gap 7, tabs 4 | 0 8, figure to name 6, tabs 4 | 4px scale |
+| Figure | 15x18 on every tab | 14px tall, only on an agentic thread's tabs | Charles, 12 Nov |
+| Close | fg-4 | fg-3, on hover for closed tabs | fg-4 fails AA |
+| + | 28 | 28 | |
+| Card | y 44 under the bar | y 45 (bar 40 + gap 4 + border 1) | |
+| Card head | 44, title at card + 14, "repo /" fg-3 400 | the same; worktree and branch not drawn | core has no worktree or branch for a thread |
+
+- Agent tabs size to their names within an equal share of the row (72 to 200); past that the row scrolls with arrows, as before.
+- Empty states (Charles, 12 Nov): a "Needs you" head with no rows and no count above the groups (hidden while searching), and "No data yet" under the name in the user row. Neither invents a number.
+- The thread view's own title row and chips are gone; the card head carries the title.
+- Runs: `docs/cauldron/NL2-tabs-red.txt` (tabs still under the bar, no `selected` state, no card head, no empty states), `NL2-tabs-green.txt`. The 13 Nov sizes (14px figure, row at the card's edge) changed the tests and the code together; there is no separate red run for them.
