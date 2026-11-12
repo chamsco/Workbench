@@ -10,6 +10,7 @@ use serde_json::{json, Value};
 
 use crate::config::{ModelSpec, ProviderConfig, ProviderKind};
 use crate::effort::Effort;
+use crate::gateway::Authorization;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -89,6 +90,9 @@ pub struct Completion {
     pub output_tokens: u64,
     /// The advisor's own (input, output) tokens, billed at its rates.
     pub advisor_tokens: (u64, u64),
+    /// Input tokens as the provider counted them, cache reads and writes at
+    /// face value. `input_tokens` weights them by price, for cost math.
+    pub raw_input_tokens: u64,
 }
 
 impl Completion {
@@ -115,24 +119,52 @@ pub struct Request<'a> {
     pub advisor: Option<&'a str>,
 }
 
-pub async fn complete(http: &reqwest::Client, req: Request<'_>) -> Result<Completion> {
+/// What the input of a request is priced at, relative to the model's input
+/// rate, in the worst case: Anthropic bills a cache write at 1.25x.
+pub fn input_price_factor(kind: ProviderKind) -> f64 {
+    match kind {
+        ProviderKind::Anthropic => 1.25,
+        ProviderKind::Openai | ProviderKind::Cli => 1.0,
+    }
+}
+
+/// A request as it will be sent, built once so that what is measured is what
+/// is sent.
+pub struct Prepared {
+    pub url: String,
+    pub body: Value,
+    /// The exact bytes of the body.
+    pub bytes: Vec<u8>,
+    /// Messages and tool definitions in the wire body, as the provider counts them.
+    pub messages: usize,
+    pub tools: usize,
+}
+
+pub fn prepare(req: &Request) -> Result<Prepared> {
     let (url, body) = match req.provider.kind {
         ProviderKind::Anthropic => (
-            format!(
-                "{}/v1/messages",
-                req.provider.base_url.trim_end_matches('/')
-            ),
-            anthropic_body(&req),
+            format!("{}/v1/messages", req.provider.base_url.trim_end_matches('/')),
+            anthropic_body(req),
         ),
         ProviderKind::Openai => (
-            format!(
-                "{}/chat/completions",
-                req.provider.base_url.trim_end_matches('/')
-            ),
-            openai_body(&req),
+            format!("{}/chat/completions", req.provider.base_url.trim_end_matches('/')),
+            openai_body(req),
         ),
         ProviderKind::Cli => bail!("{} is a CLI harness, not an API", req.model.id),
     };
+    let bytes = serde_json::to_vec(&body)?;
+    let count = |k: &str| body[k].as_array().map_or(0, |a| a.len());
+    // Anthropic keeps the system prompt outside `messages`; OpenAI's is the first one.
+    let system = usize::from(req.provider.kind == ProviderKind::Anthropic);
+    let (messages, tools) = (count("messages") + system, count("tools"));
+    Ok(Prepared { url, body, bytes, messages, tools })
+}
+
+pub async fn complete(http: &reqwest::Client, req: Request<'_>, authorization: &Authorization<'_>) -> Result<Completion> {
+    let prepared = prepare(&req)?;
+    // A request that grew after it was reserved is not sent.
+    authorization.check_request(crate::gateway::input_bound(prepared.bytes.len(), prepared.messages, prepared.tools))?;
+    let (url, body) = (prepared.url, prepared.body);
 
     let mut attempt = 0;
     let v: Value = loop {
@@ -181,6 +213,36 @@ pub async fn complete(http: &reqwest::Client, req: Request<'_>) -> Result<Comple
         ProviderKind::Anthropic => parse_anthropic(v),
         _ => parse_openai(v),
     }
+}
+
+/// Run a turn through `backspace-runner` (a coding CLI, a local runtime, the
+/// router). The one place this crate enters the runner, so every such call
+/// says how it is metered. A reserved call is checked against its reservation
+/// by the caller (a CLI turn reports usage as it goes; see `run_cli_turn`).
+pub async fn run_target(
+    http: &reqwest::Client,
+    req: &backspace_runner::Request,
+    on: backspace_runner::Sink<'_>,
+    authorization: &Authorization<'_>,
+) -> Result<()> {
+    let out = backspace_runner::run(http, req, on).await;
+    if let Authorization::Unmetered(why) = authorization {
+        note_unmetered(*why);
+    }
+    out
+}
+
+/// Count a model call that is not metered by a reservation, by reason.
+pub fn note_unmetered(why: crate::gateway::Unmetered) {
+    let mut m = UNMETERED.lock().unwrap();
+    *m.entry(why.why()).or_insert(0) += 1;
+}
+
+static UNMETERED: std::sync::Mutex<std::collections::BTreeMap<&'static str, u64>> = std::sync::Mutex::new(std::collections::BTreeMap::new());
+
+/// How many model calls each unmetered reason has covered in this process.
+pub fn unmetered_calls() -> std::collections::BTreeMap<&'static str, u64> {
+    UNMETERED.lock().unwrap().clone()
 }
 
 // ---------------------------------------------------------------- anthropic
@@ -288,6 +350,9 @@ fn parse_anthropic(v: Value) -> Result<Completion> {
             + u["cache_creation_input_tokens"].as_u64().unwrap_or(0) * 5 / 4,
         output_tokens: u["output_tokens"].as_u64().unwrap_or(0),
         advisor_tokens: (adv_in, adv_out),
+        raw_input_tokens: u["input_tokens"].as_u64().unwrap_or(0)
+            + u["cache_read_input_tokens"].as_u64().unwrap_or(0)
+            + u["cache_creation_input_tokens"].as_u64().unwrap_or(0),
     })
 }
 
@@ -382,6 +447,7 @@ fn parse_openai(v: Value) -> Result<Completion> {
         input_tokens: v["usage"]["prompt_tokens"].as_u64().unwrap_or(0),
         output_tokens: v["usage"]["completion_tokens"].as_u64().unwrap_or(0),
         advisor_tokens: (0, 0),
+        raw_input_tokens: v["usage"]["prompt_tokens"].as_u64().unwrap_or(0),
     })
 }
 

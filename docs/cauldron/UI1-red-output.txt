@@ -1,0 +1,48 @@
+# UI1 remainder, red: each test written and run before the code it checks (11 Nov 2026)
+# Excerpts: the panic and result lines of each run. Compiling and Running lines removed; in tip-red the
+# list of registered element paths is shortened to "(pane slots only)".
+
+## rect-red
+thread 'shell::tests::panes_match_the_layout_solver_in_every_state' (52980) panicked at C:\Users\chamy\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gpui-kit-0.6.6\src\test.rs:54:9:
+missing ElementId Name("main") in scope []. Registered paths: <none; draw a frame and observe elements>. Check the ID, observation, and completed frame.
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.01s
+
+## tip-red
+thread 'shell::tests::icon_buttons_have_names_and_tooltips' (54028) panicked at C:\Users\chamy\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gpui-kit-0.6.6\src\test.rs:54:9:
+missing ElementId NamedInteger("fn", 4) in scope []. Registered paths: (pane slots only)
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.01s
+
+## tabs-red
+thread 'shell::tests::tabs_open_switch_close_and_join_the_card' (17664) panicked at C:\Users\chamy\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gpui-kit-0.6.6\src\test.rs:54:9:
+missing ElementId Name("tabs") in scope []. 
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.01s
+
+## tips beside their button, tabs that fit (second pass)
+test icons::tests::every_shell_icon_loads ... ok
+test shell::tests::icon_buttons_have_names_and_tooltips ... FAILED
+test shell::tests::panes_match_the_layout_solver_in_every_state ... ok
+test shell::tests::tabs_open_switch_close_and_join_the_card ... FAILED
+thread 'shell::tests::icon_buttons_have_names_and_tooltips' (13896) panicked at crates\app\src\shell.rs:736:13:
+right-rail tip sits 8px left of its button: Rect { x: 1150.0, y: 94.0, w: 54.0, h: 29.5 } Rect { x: 1191.0, y: 79.0, w: 28.0, h: 28.0 }
+thread 'shell::tests::tabs_open_switch_close_and_join_the_card' (60764) panicked at crates\app\src\shell.rs:789:17:
+tab 4 of 12 stays in the row: Rect { x: 841.0, y: 9.0, w: 144.0, h: 34.0 } Rect { x: 257.0, y: 9.0, w: 718.0, h: 34.0 }
+test result: FAILED. 2 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+
+## agent tabs (wireframe round 23), red: the tests reference the new tab model before it exists
+error[E0432]: unresolved import `super::AgentTab`
+error[E0560]: struct `Cauldron` has no field named `coordinator`
+error[E0560]: struct `Cauldron` has no field named `agents`
+error[E0560]: struct `Cauldron` has no field named `idle`
+error: could not compile `backspace` (bin "backspace" test) due to 4 previous errors
+
+## kind colours and agent dots, red
+error[E0432]: unresolved import `cauldron_chrome::tokens::AGENT_DOTS`
+error[E0609]: no field `info` on type `&Palette`
+error[E0609]: no field `design` on type `&Palette`
+error[E0609]: no field `mem` on type `&Palette`
+error[E0609]: no field `mem` on type `&Palette`
+error: could not compile `cauldron-chrome` (test "tokens") due to 5 previous errors
+
+## shadows, red
+error[E0432]: unresolved import `cauldron_chrome::tokens::shadow`
+error: could not compile `cauldron-chrome` (test "tokens") due to 1 previous error

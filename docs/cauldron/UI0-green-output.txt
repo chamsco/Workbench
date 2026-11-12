@@ -1,0 +1,37 @@
+   Compiling cauldron-chrome v0.1.0 (/home/user/workbench/crates/chrome)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.33s
+     Running unittests src/lib.rs (/tmp/claude-0/chrometarget/debug/deps/cauldron_chrome-43fa68bc63e6bbb5)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/tokens.rs (/tmp/claude-0/chrometarget/debug/deps/tokens-531c0f92b20f8e3e)
+
+running 6 tests
+test every_text_pair_passes_aa_in_both_themes ... ok
+test accent_on_the_frame_is_for_glyphs_only ... ok
+test contrast_follows_wcag ... ok
+test one_accent_and_status_colours_stay_distinct ... ok
+test radii_match_the_wireframe_and_nest_by_subtraction ... ok
+test palettes_match_the_wireframe_tokens_exactly ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/wireframe.rs (/tmp/claude-0/chrometarget/debug/deps/wireframe-f96bdf487c01d181)
+
+running 5 tests
+test main_keeps_a_minimum_width_by_closing_split_then_drawer ... ok
+test panes_never_overlap_and_stay_inside_the_window ... ok
+test solver_matches_every_golden_state_and_size ... ok
+test platforms_differ_only_in_window_controls ... ok
+test golden_has_two_window_sizes ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests cauldron_chrome
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

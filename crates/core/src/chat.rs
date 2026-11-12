@@ -94,6 +94,14 @@ pub struct Msg {
     /// Which model answered, as the backend reported it.
     #[serde(default)]
     pub model: Option<String>,
+    /// The reasoning the target showed while it worked, when it shows any.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub thinking: String,
+    /// Where in `text` (UTF-16 units, as the face counts) one assistant turn
+    /// ended and the next began, i.e. after a tool call. The face draws each
+    /// stretch as its own bubble.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub breaks: Vec<usize>,
     /// A sponsored card shown under this reply (Cloud free tier and
     /// overage only). Never part of the reply text.
     #[serde(default)]
@@ -140,6 +148,8 @@ impl Msg {
             model: None,
             ad: None,
             cost_usd: None,
+            thinking: String::new(),
+            breaks: Vec::new(),
             edited: false,
             via: None,
             author: None,
@@ -262,6 +272,8 @@ pub struct Scope {
 pub struct ThreadInfo {
     pub id: String,
     pub title: String,
+    /// When the thread was added (ms), for sorting and grouping the sidebar.
+    pub created: u64,
     pub updated: u64,
     pub pinned: bool,
     pub route: Route,
@@ -278,6 +290,23 @@ pub struct ThreadInfo {
     pub ghost: bool,
     /// A temporal chat: when it forgets itself, for the countdown.
     pub expires_at: Option<u64>,
+}
+
+/// See `Chats::activity`.
+#[derive(Serialize, Clone, Debug, Default)]
+pub struct Activity {
+    pub prompts: Vec<Prompt>,
+    /// Epoch hours (ms / 3,600,000) with at least one message.
+    pub hours: Vec<u64>,
+    pub sessions: usize,
+}
+
+/// One message you (or an agent, `agent`) sent, and the provider it went to.
+#[derive(Serialize, Clone, Debug)]
+pub struct Prompt {
+    pub at: u64,
+    pub provider: String,
+    pub agent: bool,
 }
 
 pub fn now_ms() -> u64 {
@@ -375,6 +404,11 @@ pub fn b64_decode(s: &str) -> Option<Vec<u8>> {
     Some(out)
 }
 
+/// Written by, or sent from, another harness tile (relay.rs).
+fn is_tile(m: &Msg) -> bool {
+    m.author.as_deref().is_some_and(|a| a.starts_with("tile:"))
+}
+
 /// `@codex ...` at the start of a message: answer with that CLI.
 pub fn mention(text: &str) -> Option<Route> {
     let w = text.trim_start().strip_prefix('@')?;
@@ -410,6 +444,29 @@ pub struct Chats {
     http: reqwest::Client,
     /// The latest Cloud account seen in a reply.
     account: Mutex<Option<Account>>,
+    /// Harness tiles (relay.rs): letters waiting for a busy tile, per thread.
+    inbox: Mutex<HashMap<String, std::collections::VecDeque<Inbound>>>,
+    /// The letter a tile's running turn answers, so its answer can go back.
+    answering: Mutex<HashMap<String, Inbound>>,
+    /// Hand-offs so far in the chain each thread's latest turn belongs to;
+    /// a turn the user started is 0.
+    hops: Mutex<HashMap<String, u8>>,
+}
+
+/// A message from another tile, waiting or being answered.
+#[derive(Clone, Debug)]
+struct Inbound {
+    /// The sending tile's thread.
+    from: String,
+    text: String,
+    /// Send the answer back to `from`.
+    reply: bool,
+    /// Instead of a turn for `from`, the answer is posted in its thread (an
+    /// @mention the user typed there).
+    as_note: bool,
+    hops: u8,
+    /// Who first asked and their exact words, when this letter is a hand-on.
+    origin: Option<(String, String)>,
 }
 
 /// OpenUI's prompt for rich answers (charts, tables, steps, forms), set by
@@ -438,6 +495,45 @@ struct Call {
     transcript: Option<String>,
     /// Carry on with a stopped reply instead of starting a new one.
     resume: bool,
+}
+
+/// One piece of a context window, for the agent page's map of it.
+#[derive(Serialize, Clone, Debug)]
+pub struct ContextPart {
+    /// "Instructions", "Memory", "Conversation" or "Files".
+    pub group: String,
+    pub label: String,
+    pub tokens: u64,
+}
+
+/// What a thread's next reply reads, and the window it reads it into.
+#[derive(Serialize, Clone, Debug)]
+pub struct ContextMap {
+    /// The model's window in tokens, as far as the app knows it.
+    pub window: u64,
+    pub model: String,
+    pub parts: Vec<ContextPart>,
+    pub last_input: Option<u64>,
+}
+
+/// Four characters a token: close enough for English and code to size a map.
+pub fn estimate_tokens(text: &str) -> u64 {
+    (text.chars().count() as u64).div_ceil(4)
+}
+
+/// A model's context window, from its name or its provider's usual one.
+pub fn window_of(route: &Route) -> u64 {
+    let m = route.model.as_deref().unwrap_or("").to_lowercase();
+    let p = route.provider.to_lowercase();
+    if m.contains("[1m]") || m.contains("gemini") || p == "gemini" {
+        1_000_000
+    } else if m.contains("gpt-5") || p == "codex" {
+        400_000
+    } else if m.contains("claude") || m.contains("opus") || m.contains("sonnet") || m.contains("haiku") || p == "claude" {
+        200_000
+    } else {
+        128_000
+    }
 }
 
 impl Chats {
@@ -474,6 +570,9 @@ impl Chats {
             rt,
             http: reqwest::Client::new(),
             account: Mutex::new(None),
+            inbox: Mutex::new(HashMap::new()),
+            answering: Mutex::new(HashMap::new()),
+            hops: Mutex::new(HashMap::new()),
         })
     }
 
@@ -602,6 +701,7 @@ impl Chats {
             .map(|t| ThreadInfo {
                 id: t.id.clone(),
                 title: t.title.clone(),
+                created: t.created,
                 updated: t.updated,
                 pinned: t.pinned,
                 route: t.route.clone(),
@@ -634,6 +734,35 @@ impl Chats {
     pub fn thread(&self, id: &str) -> Option<Thread> {
         self.unread.lock().unwrap().remove(id);
         self.threads.lock().unwrap().get(id).cloned()
+    }
+
+    /// What happened since `since` (epoch ms), for Home's "Last 30 days" card:
+    /// every prompt with who answered it, the hours anything was said in, and
+    /// how many threads were active. Days are left to the caller, which knows
+    /// the local time zone.
+    pub fn activity(&self, since: u64) -> Activity {
+        let mut a = Activity::default();
+        let mut hours = std::collections::BTreeSet::new();
+        for t in self.threads.lock().unwrap().values().filter(|t| !t.hidden) {
+            let mut live = false;
+            for m in t.messages.iter().filter(|m| m.at >= since) {
+                live = true;
+                hours.insert(m.at / 3_600_000);
+                if m.role == Role::User {
+                    a.prompts.push(Prompt {
+                        at: m.at,
+                        provider: m.via.as_ref().unwrap_or(&t.route).provider.clone(),
+                        agent: m.author.is_some(),
+                    });
+                }
+            }
+            if live {
+                a.sessions += 1;
+            }
+        }
+        a.prompts.sort_by_key(|p| p.at);
+        a.hours = hours.into_iter().collect();
+        a
     }
 
     /// Read a thread without marking it read (background jobs).
@@ -848,6 +977,8 @@ impl Chats {
         if let Some(h) = self.running.lock().unwrap().remove(id) {
             h.abort();
         }
+        // A stopped tile owes nobody an answer; the next letter waits for `pump`.
+        self.answering.lock().unwrap().remove(id);
         let _ = self.edit_thread(id, |t| {
             if let Some(m) = t.messages.last_mut() {
                 if matches!(m.status, Status::Sending | Status::Streaming) {
@@ -898,6 +1029,8 @@ impl Chats {
                 model: None,
                 ad: None,
                 cost_usd: None,
+                thinking: String::new(),
+                breaks: Vec::new(),
                 edited: false,
                 via: None,
                 author: None,
@@ -910,7 +1043,169 @@ impl Chats {
             t.updated = now;
             Chats::touched(t);
         })?;
+        self.hops.lock().unwrap().insert(id.to_string(), 0);
+        // `@codex ...` naming another harness tile hands the message to that
+        // tile: it answers in its own session, and the answer is posted here.
+        let tiles = crate::relay::tiles(&self.dir);
+        if let Some((to, rest)) = crate::relay::mention(&tiles, id, text).filter(|(_, r)| !r.is_empty()) {
+            let text = self.with_context(id, &tiles, &rest);
+            let inb = Inbound { from: id.to_string(), text, reply: true, as_note: true, hops: 1, origin: Some(("the user".into(), rest.clone())) };
+            return self.take_letter(&to.thread.clone(), inb, ctx);
+        }
         self.reply(id, ctx, mention(text))
+    }
+
+    // ------------------------------------------------------------ tiles
+
+    /// A letter from one harness tile to another (relay.rs), from a tile's
+    /// `message_tile` call.
+    pub fn deliver(self: &Arc<Self>, l: &crate::relay::Letter, ctx: Ctx) -> Result<()> {
+        let hops = self.hops.lock().unwrap().get(&l.from).copied().unwrap_or(0) + 1;
+        if hops > crate::relay::MAX_HOPS {
+            let why = format!(
+                "(Not delivered: this request has been handed on {} times already. Ask again to carry on.)",
+                crate::relay::MAX_HOPS
+            );
+            self.note(&l.from, &l.to, &why);
+            bail!("too many hand-offs");
+        }
+        // A tile passing work on rewrites it in its own words. Say what the
+        // chain started from, verbatim, so the receiver is not left with a
+        // summary of a summary.
+        let origin = self.answering.lock().unwrap().get(&l.from).map(|i| i.origin.clone().unwrap_or_else(|| (self.tile_label(&i.from), i.text.clone())));
+        let text = match &origin {
+            Some((who, said)) => format!("{}\n\n---\nThe original request, verbatim, from {who}:\n\n{said}", l.text),
+            None => l.text.clone(),
+        };
+        let inb = Inbound { from: l.from.clone(), text, reply: l.reply, as_note: false, hops, origin };
+        self.take_letter(&l.to, inb, ctx)
+    }
+
+    /// Deliver what tiles posted, and start the next waiting letter of every
+    /// tile that is free. The app calls this every second or so.
+    pub fn pump(self: &Arc<Self>, ctx: Ctx) {
+        for l in crate::relay::drain(&self.dir) {
+            let _ = self.deliver(&l, ctx.clone());
+        }
+        let ready: Vec<String> = self
+            .inbox
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(_, q)| !q.is_empty())
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in ready.into_iter().filter(|id| !self.is_busy(id)) {
+            let next = self.inbox.lock().unwrap().get_mut(&id).and_then(|q| q.pop_front());
+            if let Some(n) = next {
+                let _ = self.start_letter(&id, n, ctx.clone());
+            }
+        }
+    }
+
+    /// Letters waiting for a tile while it works.
+    pub fn waiting(&self, id: &str) -> usize {
+        self.inbox.lock().unwrap().get(id).map_or(0, |q| q.len())
+    }
+
+    fn tile_label(&self, id: &str) -> String {
+        crate::relay::tiles(&self.dir)
+            .into_iter()
+            .find(|t| t.thread == id)
+            .map(|t| t.label)
+            .unwrap_or_else(|| "another harness".into())
+    }
+
+    /// What the user typed after `@tile`, with this tile's last answer, so
+    /// "@codex review that" means something over there.
+    fn with_context(&self, id: &str, tiles: &[crate::relay::Tile], ask: &str) -> String {
+        let last = self.peek(id).and_then(|t| {
+            t.messages
+                .iter()
+                .rev()
+                .find(|m| m.role == Role::Assistant && m.status == Status::Done && !m.text.trim().is_empty())
+                .map(|m| m.text.clone())
+        });
+        let me = crate::relay::find(tiles, id).map(|t| t.label.clone()).unwrap_or_else(|| "the other tile".into());
+        match last {
+            Some(t) => {
+                let snip: String = t.chars().take(4000).collect();
+                format!("{ask}\n\n---\nFor context, what `{me}` last said in its session:\n\n{snip}")
+            }
+            None => ask.to_string(),
+        }
+    }
+
+    /// Hand a letter to a tile now, or queue it while the tile is busy.
+    fn take_letter(self: &Arc<Self>, to: &str, inb: Inbound, ctx: Ctx) -> Result<()> {
+        if !self.threads.lock().unwrap().contains_key(to) {
+            bail!("that tile's session is gone");
+        }
+        if self.is_busy(to) || self.waiting(to) > 0 {
+            self.inbox.lock().unwrap().entry(to.to_string()).or_default().push_back(inb);
+            self.poke();
+            return Ok(());
+        }
+        self.start_letter(to, inb, ctx)
+    }
+
+    /// A letter as the tile's next turn: posted under the sender's name, then answered.
+    fn start_letter(self: &Arc<Self>, to: &str, inb: Inbound, ctx: Ctx) -> Result<()> {
+        let mut m = Msg::new(Role::User, inb.text.clone(), Status::Done);
+        m.author = Some(format!("tile:{}", inb.from));
+        m.author_name = Some(self.tile_label(&inb.from));
+        self.edit_thread(to, |t| {
+            t.updated = m.at;
+            Chats::touched(t);
+            t.messages.push(m);
+        })?;
+        self.hops.lock().unwrap().insert(to.to_string(), inb.hops);
+        self.answering.lock().unwrap().insert(to.to_string(), inb);
+        let res = self.reply(to, ctx, None);
+        if res.is_err() {
+            self.answering.lock().unwrap().remove(to);
+        }
+        res
+    }
+
+    /// Something another tile said, posted in this thread without a turn. A
+    /// resumed CLI session reads it with the next message (`request`).
+    fn note(&self, to: &str, from: &str, text: &str) {
+        let mut m = Msg::new(Role::Assistant, text.to_string(), Status::Done);
+        m.author = Some(format!("tile:{from}"));
+        m.author_name = Some(self.tile_label(from));
+        let _ = self.edit_thread(to, |t| {
+            t.updated = m.at;
+            Chats::touched(t);
+            t.messages.push(m);
+        });
+        self.unread.lock().unwrap().insert(to.to_string());
+        self.poke();
+    }
+
+    /// A tile finished a turn: its answer goes back to whoever asked, and the
+    /// next letter waiting for it starts.
+    fn after_turn(self: &Arc<Self>, tid: &str, mid: &str, ctx: &Ctx) {
+        let inb = self.answering.lock().unwrap().remove(tid);
+        if let Some(inb) = inb.filter(|i| i.reply) {
+            let label = self.tile_label(tid);
+            let m = self.peek(tid).and_then(|t| t.messages.into_iter().find(|m| m.id == mid));
+            let body = match m {
+                Some(m) if m.status == Status::Error => format!("(`{label}` failed: {})", m.error.unwrap_or_default()),
+                Some(m) if m.status == Status::Done => m.text,
+                _ => format!("(`{label}` stopped before it answered)"),
+            };
+            if inb.as_note {
+                self.note(&inb.from, tid, &body);
+            } else {
+                let back = Inbound { from: tid.to_string(), text: body, reply: false, as_note: false, hops: inb.hops, origin: None };
+                let _ = self.take_letter(&inb.from, back, ctx.clone());
+            }
+        }
+        let next = self.inbox.lock().unwrap().get_mut(tid).and_then(|q| q.pop_front());
+        if let Some(n) = next {
+            let _ = self.start_letter(tid, n, ctx.clone());
+        }
     }
 
     /// Something from outside for an agent (its webhook): posted in its
@@ -1095,8 +1390,37 @@ impl Chats {
     fn spawn_reply(self: &Arc<Self>, id: &str, mid: String, route: Route, ctx: Ctx, call: Call, mentioned: bool) {
         let me = self.clone();
         let tid = id.to_string();
+        // Held until the handle is in: a reply that fails at once (nothing
+        // listening) must not remove itself before it is added, or the thread
+        // would read as busy for good.
+        let mut running = self.running.lock().unwrap();
         let task = self.rt.spawn(async move {
-            let res = me.run(&tid, &mid, &route, &ctx, &call).await;
+            let mut res = me.run(&tid, &mid, &route, &ctx, &call).await;
+            // Auto fallback: the agent's sheet may carry a chain. Clear the
+            // half-written reply, then try the next route once each.
+            if res.is_err() {
+                let chain = call.agent.as_ref().map(|a| a.fallbacks.clone()).unwrap_or_default();
+                for fb in chain {
+                    if fb == route {
+                        continue;
+                    }
+                    me.with_msg(&tid, &mid, |m| {
+                        m.text.clear();
+                        m.error = None;
+                        m.status = Status::Sending;
+                    });
+                    res = me.run(&tid, &mid, &fb, &ctx, &call).await;
+                    if res.is_ok() {
+                        me.with_msg(&tid, &mid, |m| {
+                            m.via = Some(fb.clone());
+                            if fb.model.is_some() {
+                                m.model = fb.model.clone();
+                            }
+                        });
+                        break;
+                    }
+                }
+            }
             if mentioned {
                 let _ = me.edit_thread(&tid, |t| t.cli_session = None);
             }
@@ -1106,13 +1430,12 @@ impl Chats {
             if spec {
                 me.file_spec(&tid, &mid);
             }
+            me.after_turn(&tid, &mid, &ctx);
             me.unread.lock().unwrap().insert(tid);
             me.poke();
         });
-        self.running
-            .lock()
-            .unwrap()
-            .insert(id.to_string(), task.abort_handle());
+        running.insert(id.to_string(), task.abort_handle());
+        drop(running);
         self.poke();
     }
 
@@ -1158,6 +1481,8 @@ impl Chats {
             if named.is_empty() { roster.clone().into() } else { named.into() };
         let me = self.clone();
         let tid = id.to_string();
+        // Held until the handle is in (see `spawn_reply`).
+        let mut running = self.running.lock().unwrap();
         let task = self.rt.spawn(async move {
             let mut turns = 0;
             while let Some(a) = queue.pop_front() {
@@ -1199,10 +1524,8 @@ impl Chats {
             me.unread.lock().unwrap().insert(tid);
             me.poke();
         });
-        self.running
-            .lock()
-            .unwrap()
-            .insert(id.to_string(), task.abort_handle());
+        running.insert(id.to_string(), task.abort_handle());
+        drop(running);
         self.poke();
         Ok(())
     }
@@ -1396,7 +1719,7 @@ impl Chats {
         // The final answer counts only if nothing streamed in this run
         // (a resumed reply already has text of its own).
         let mut streamed = false;
-        let res = backspace_runner::run(&self.http, &req, &mut |e| {
+        let res = crate::provider::run_target(&self.http, &req, &mut |e| {
             rec.on(&e);
             let e = match e {
                 RunEvent::Final { text } if !streamed && !text.is_empty() => RunEvent::Text { text },
@@ -1407,7 +1730,7 @@ impl Chats {
                 streamed = true;
             }
             self.on_event(id, mid, keep_session, e)
-        })
+        }, &crate::gateway::Authorization::Unmetered(crate::gateway::Unmetered::AgentChat))
         .await;
         let t = rec.finish(res.as_ref().err().map(|e| e.to_string()));
         if crate::trace::save(&self.dir, &t).is_ok() {
@@ -1429,6 +1752,56 @@ impl Chats {
         crate::trace::load(&self.dir, id)
     }
 
+    /// What the next reply in this thread would read, piece by piece: the
+    /// thread's and the agent's brief, each memory note, each message. Token
+    /// counts are estimates (four characters a token); `last_input` is what
+    /// the last traced reply actually read, when its provider reported it.
+    pub fn context_map(&self, id: &str, ctx: &Ctx) -> Option<ContextMap> {
+        let t = self.peek(id)?;
+        let agent = t.agent.as_ref().and_then(|a| ctx.agents.as_ref().and_then(|ag| ag.get(a)));
+        let project = t.project.clone().map(PathBuf::from).filter(|p| p.is_dir());
+        let mut parts: Vec<ContextPart> = Vec::new();
+        fn add(parts: &mut Vec<ContextPart>, group: &str, label: String, tokens: u64) {
+            if tokens > 0 {
+                parts.push(ContextPart { group: group.into(), label, tokens });
+            }
+        }
+        let push = |parts: &mut Vec<ContextPart>, group: &str, label: String, text: &str| add(parts, group, label, estimate_tokens(text));
+        if let Some(sys) = &t.system {
+            push(&mut parts, "Instructions", "The app's brief".into(), sys);
+        }
+        if let (Some(a), Some(ag)) = (&agent, &ctx.agents) {
+            push(&mut parts, "Instructions", format!("{}'s brief", a.name), &ag.brief_in(a, project.as_deref()));
+        }
+        let scope = match &agent {
+            Some(a) => project.as_ref().map(|p| p.display().to_string()).or_else(|| Some(format!("agent:{}", a.id))),
+            None => project.as_ref().map(|p| p.display().to_string()),
+        };
+        let mem_on = ctx.prefs.memory_on && agent.as_ref().is_none_or(|a| a.memory);
+        if let (true, Some(m)) = (mem_on, &ctx.memory) {
+            for n in m.context_notes(scope.as_deref()) {
+                push(&mut parts, "Memory", n.text.chars().take(80).collect(), &n.text);
+            }
+        }
+        for m in t.messages.iter().filter(|m| !m.text.trim().is_empty()) {
+            let who = if m.role == Role::User { "You" } else { m.author_name.as_deref().unwrap_or("Reply") };
+            let first: String = m.text.split_whitespace().take(10).collect::<Vec<_>>().join(" ");
+            push(&mut parts, "Conversation", format!("{who}: {first}"), &m.text);
+            for a in &m.attachments {
+                add(&mut parts, "Files", a.name.clone(), (a.size / 4).max(1));
+            }
+        }
+        let last_input = t
+            .messages
+            .iter()
+            .rev()
+            .filter_map(|m| m.trace.as_ref())
+            .find_map(|tid| crate::trace::load(&self.dir, tid))
+            .and_then(|tr| tr.spans.first().and_then(|s| s.attrs.get("gen_ai.usage.input_tokens")).and_then(|v| v.as_u64()));
+        let route = agent.as_ref().map(|a| a.route.clone()).unwrap_or_else(|| t.route.clone());
+        Some(ContextMap { window: window_of(&route), model: route.model.clone().unwrap_or_else(|| route.provider.clone()), parts, last_input })
+    }
+
     // ------------------------------------------------------------ runner
 
     /// This thread's history as the runner's turns.
@@ -1436,7 +1809,11 @@ impl Chats {
         hist.iter()
             .map(|m| Turn {
                 user: m.role == Role::User,
-                text: m.text.clone(),
+                // A letter from another tile says who it is from.
+                text: match (&m.author_name, m.role == Role::User && is_tile(m)) {
+                    (Some(who), true) => format!("[From `{who}`, another harness tiled next to you]\n\n{}", m.text),
+                    _ => m.text.clone(),
+                },
                 who: m.author_name.clone().or_else(|| m.via.as_ref().map(|v| v.provider.clone())),
                 files: m
                     .attachments
@@ -1488,6 +1865,29 @@ impl Chats {
         };
         let (hist, session) = self.history_for(id, call);
         let mut turns = self.turns(id, &hist);
+        // A resumed CLI session saw only its own turns. What was said here
+        // without it since (another tile's answer, an @tile hand-off) goes in
+        // front of the new message.
+        if session.is_some() && !call.resume && hist.len() > 1 {
+            let last = hist.len() - 1;
+            let own = |m: &Msg| m.role == Role::Assistant && !is_tile(m) && m.via.is_none();
+            if let Some(i) = hist[..last].iter().rposition(own) {
+                let missed: Vec<String> = hist[i + 1..last]
+                    .iter()
+                    .map(|m| {
+                        let who = match (&m.author_name, m.role) {
+                            (Some(n), _) if is_tile(m) => format!("`{n}`"),
+                            (_, Role::User) => "The user".into(),
+                            _ => "Another model".into(),
+                        };
+                        format!("{who}: {}", m.text.chars().take(4000).collect::<String>())
+                    })
+                    .collect();
+                if let (false, Some(t)) = (missed.is_empty(), turns.last_mut()) {
+                    t.text = format!("Said in this session while you were not answering:\n\n{}\n\n---\n\n{}", missed.join("\n\n"), t.text);
+                }
+            }
+        }
         if call.resume {
             const GO_ON: &str = "You were cut off before you finished (the app closed, or the user paused you). \
                 Carry on from exactly where you stopped. Don't repeat what you already said or did; \
@@ -1581,6 +1981,20 @@ Ask the reader for input with the real form parts: `f = FormControl(\"Name\", In
         if let Some(s) = &mem_scope {
             env.insert(crate::mcp::ENV_MEMORY.into(), s.clone().into());
         }
+        // A harness tile: who else is in the tab, and how to reach them.
+        let tile = crate::relay::brief(&crate::relay::tiles(&self.dir), id);
+        if let Some(b) = &tile {
+            let b = if matches!(route.provider.as_str(), "claude" | "codex") {
+                b.clone()
+            } else {
+                // No MCP for this CLI here: the same thing from its shell.
+                let exe = std::env::current_exe().map(|e| e.display().to_string()).unwrap_or_else(|_| "backspace".into());
+                format!("{b}\nYou have no `message_tile` tool: run `\"{exe}\" tile send <name> \"text\"` in your shell instead (`tile list` lists them).\n")
+            };
+            req.system = Some(format!("{}{b}", req.system.take().map(|s| s + "\n\n").unwrap_or_default()));
+            env.insert(crate::relay::ENV_TILE.into(), id.into());
+            req.env.push((crate::relay::ENV_TILE.into(), id.into()));
+        }
         // A bot's rules, however it is called (its thread or a group): the
         // CLI's own tools it may not use, and what `backspace mcp` leaves out.
         let deny = call.agent.as_ref().map(|a| a.deny()).unwrap_or_default();
@@ -1589,9 +2003,15 @@ Ask the reader for input with the real form parts: `f = FormControl(\"Name\", In
         if !deny.is_empty() {
             env.insert(crate::mcp::ENV_DENY.into(), deny.join(",").into());
         }
+        // Its browser and desktop use.
+        let hands = call.agent.as_ref().and_then(|a| a.hands_env());
+        if let Some(h) = &hands {
+            env.insert(crate::hands::ENV_HANDS.into(), serde_json::to_string(h)?.into());
+        }
         let mut servers = serde_json::Map::new();
-        // Installed apps' tools, the agent's computer and memory, through `backspace mcp`.
-        if !crate::mcp::app_tools(&deny).is_empty() || computer.is_some() || mem_scope.is_some() {
+        // Installed apps' tools, the agent's computer, memory and hands, and the
+        // other harness tiles, through `backspace mcp`.
+        if !crate::mcp::app_tools(&deny).is_empty() || computer.is_some() || mem_scope.is_some() || hands.is_some() || tile.is_some() {
             if let Ok(exe) = std::env::current_exe() {
                 servers.insert("backspace".into(), json!({"command": exe.display().to_string(), "args": ["mcp"], "env": env}));
             }
@@ -1619,17 +2039,25 @@ Ask the reader for input with the real form parts: `f = FormControl(\"Name\", In
         }
         match e {
             RunEvent::Text { text } => self.append(id, mid, &text),
+            RunEvent::Thinking { text } => self.with_msg(id, mid, |m| {
+                m.status = Status::Streaming;
+                m.thinking.push_str(&text);
+            }),
             RunEvent::Break => {
-                let need = self
-                    .threads
-                    .lock()
-                    .unwrap()
-                    .get(id)
-                    .and_then(|t| t.messages.iter().find(|m| m.id == mid))
-                    .is_some_and(|m| !m.text.is_empty() && !m.text.ends_with("\n\n"));
-                if need {
-                    self.append(id, mid, "\n\n");
-                }
+                // The next stretch is a new turn: note where this one ended,
+                // and keep the plain text readable as paragraphs.
+                self.with_msg(id, mid, |m| {
+                    if m.text.is_empty() {
+                        return;
+                    }
+                    let end = m.text.trim_end().encode_utf16().count();
+                    if m.breaks.last() != Some(&end) {
+                        m.breaks.push(end);
+                    }
+                    if !m.text.ends_with("\n\n") {
+                        m.text.push_str("\n\n");
+                    }
+                });
             }
             RunEvent::Replace { text } => self.set_text(id, mid, &text),
             // Turned into text by `run` when nothing else came.
@@ -1868,6 +2296,73 @@ mod tests {
     }
 
     #[test]
+    fn context_map_counts_the_brief_and_each_message() {
+        let dir = tmp("ctxmap");
+        let (c, _rt) = chats(&dir);
+        let t = c.create(route());
+        c.edit_thread(&t.id, |t| {
+            t.system = Some("x".repeat(400));
+            t.messages.push(Msg::new(Role::User, "a".repeat(40), Status::Done));
+            t.messages.push(Msg::new(Role::Assistant, "b".repeat(80), Status::Done));
+            t.messages.push(Msg::new(Role::Assistant, String::new(), Status::Streaming));
+        })
+        .unwrap();
+        let ctx = Ctx { prefs: Prefs::default(), memory: None, agents: None, plan: false };
+        let m = c.context_map(&t.id, &ctx).unwrap();
+        let got: Vec<(&str, u64)> = m.parts.iter().map(|p| (p.group.as_str(), p.tokens)).collect();
+        assert_eq!(got, vec![("Instructions", 100), ("Conversation", 10), ("Conversation", 20)]);
+        assert!(m.parts[1].label.starts_with("You: "));
+        assert_eq!(window_of(&Route { kind: RouteKind::Cli, provider: "claude".into(), model: None }), 200_000);
+        assert_eq!(m.last_input, None);
+    }
+
+    #[test]
+    fn activity_counts_prompts_hours_and_sessions() {
+        let dir = tmp("activity");
+        let (c, _rt) = chats(&dir);
+        let old = c.create(route());
+        let t = c.create(route());
+        let msg = |id: &str, role, at, author: Option<&str>| Msg {
+            id: id.into(),
+            role,
+            text: "x".into(),
+            at,
+            status: Status::Done,
+            error: None,
+            reply_to: None,
+            reactions: vec![],
+            attachments: vec![],
+            model: None,
+            ad: None,
+            cost_usd: None,
+            thinking: String::new(),
+            breaks: Vec::new(),
+            edited: false,
+            via: None,
+            author: author.map(Into::into),
+            author_name: None,
+            trace: None,
+            interrupted: false,
+            plan: false,
+            spec: None,
+        };
+        let h = 3_600_000;
+        c.edit_thread(&old.id, |t| t.messages.push(msg("o", Role::User, h, None))).unwrap();
+        c.edit_thread(&t.id, |t| {
+            t.messages.push(msg("a", Role::User, 100 * h, None));
+            t.messages.push(msg("b", Role::Assistant, 100 * h + 5, None));
+            t.messages.push(msg("c", Role::User, 102 * h, Some("planner")));
+        })
+        .unwrap();
+        let a = c.activity(50 * h);
+        assert_eq!(a.sessions, 1);
+        assert_eq!(a.hours, vec![100, 102]);
+        assert_eq!(a.prompts.len(), 2);
+        assert_eq!(a.prompts[0].provider, "ollama");
+        assert!(!a.prompts[0].agent && a.prompts[1].agent);
+    }
+
+    #[test]
     fn titles_are_short() {
         assert_eq!(title_from("  hi   there "), "hi there");
         let t = title_from(
@@ -1902,6 +2397,8 @@ mod tests {
                     model: None,
                     ad: None,
                     cost_usd: None,
+                    thinking: String::new(),
+                    breaks: Vec::new(),
                     edited: false,
                     via: None,
                     author: None,
@@ -2132,5 +2629,138 @@ mod tests {
         assert_eq!(serde_json::to_string(&Life::Ghost).unwrap(), "\"ghost\"");
         assert_eq!(serde_json::from_str::<Life>("\"temporal\"").unwrap(), Life::Temporal);
         assert_eq!(serde_json::from_str::<Life>("\"keep\"").unwrap(), Life::Keep);
+    }
+
+    // ------------------------------------------------------------ tiles
+
+    /// A context whose local model answers nothing, quickly: nothing listens on port 9.
+    fn dead_ctx() -> Ctx {
+        let mut prefs = Prefs::default();
+        prefs.ollama_url = "http://127.0.0.1:9".into();
+        Ctx { prefs, memory: None, agents: None, plan: false }
+    }
+
+    fn settle(c: &Chats, ids: &[&str]) {
+        for _ in 0..200 {
+            if ids.iter().all(|id| !c.is_busy(id) && c.waiting(id) == 0 && !c.answering.lock().unwrap().contains_key(*id)) {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        panic!("tiles never settled");
+    }
+
+    /// Two tiles, `claude` and `codex`, in a fresh data folder.
+    fn two_tiles(name: &str) -> (Arc<Chats>, tokio::runtime::Runtime, String, String) {
+        let dir = tmp(name);
+        let (c, rt) = chats(&dir);
+        let a = c.create(route()).id;
+        let b = c.create(route()).id;
+        let tile = |t: &str, l: &str| crate::relay::Tile { thread: t.into(), label: l.into(), runs: String::new(), coordinator: false };
+        crate::relay::set_tiles(&dir, vec![tile(&a, "claude"), tile(&b, "codex")]).unwrap();
+        (c, rt, a, b)
+    }
+
+    #[test]
+    fn a_letter_is_a_turn_and_its_answer_goes_back() {
+        let (c, _rt, a, b) = two_tiles("letter");
+        let l = crate::relay::Letter { from: a.clone(), to: b.clone(), text: "run the tests".into(), reply: true };
+        c.deliver(&l, dead_ctx()).unwrap();
+        settle(&c, &[&a, &b]);
+        let bt = c.thread(&b).unwrap();
+        assert_eq!(bt.messages[0].author_name.as_deref(), Some("claude"));
+        assert_eq!(bt.messages[0].text, "run the tests");
+        assert_eq!(bt.messages[1].role, Role::Assistant);
+        // The answer (here a failure) came back to `claude` as its next turn,
+        // and that turn's answer does not bounce back again.
+        let at = c.thread(&a).unwrap();
+        assert!(at.messages[0].author_name.as_deref() == Some("codex") && at.messages[0].text.contains("`codex` failed"), "{:?}", at.messages[0]);
+        assert_eq!(at.messages.len(), 2);
+        assert_eq!(c.thread(&b).unwrap().messages.len(), 2);
+    }
+
+    #[test]
+    fn a_busy_tile_gets_its_letter_after_the_turn() {
+        let (c, rt, a, b) = two_tiles("busy");
+        let fake = rt.spawn(async { tokio::time::sleep(Duration::from_secs(60)).await });
+        c.running.lock().unwrap().insert(b.clone(), fake.abort_handle());
+        let l = crate::relay::Letter { from: a.clone(), to: b.clone(), text: "later".into(), reply: false };
+        c.deliver(&l, dead_ctx()).unwrap();
+        assert_eq!(c.waiting(&b), 1);
+        assert!(c.thread(&b).unwrap().messages.is_empty(), "nothing reaches a tile mid-turn");
+        c.stop(&b);
+        c.pump(dead_ctx());
+        settle(&c, &[&b]);
+        assert_eq!(c.thread(&b).unwrap().messages[0].text, "later");
+        assert!(c.thread(&a).unwrap().messages.is_empty(), "no answer was asked for");
+    }
+
+    #[test]
+    fn the_second_hop_is_the_last() {
+        let (c, _rt, a, b) = two_tiles("twohops");
+        assert_eq!(crate::relay::MAX_HOPS, 2);
+        let l = crate::relay::Letter { from: a.clone(), to: b.clone(), text: "x".into(), reply: false };
+        c.hops.lock().unwrap().insert(a.clone(), 1);
+        assert!(c.deliver(&l, dead_ctx()).is_ok(), "the second hop goes through");
+        c.hops.lock().unwrap().insert(a.clone(), 2);
+        assert!(c.deliver(&l, dead_ctx()).is_err(), "a third is refused");
+    }
+
+    #[test]
+    fn a_forwarded_letter_carries_the_first_senders_words() {
+        let (c, _rt, a, b) = two_tiles("origin");
+        // `claude` is answering a request the user typed; it forwards a summary.
+        let user = Inbound { from: "user".into(), text: "make the build 2x faster, no new deps".into(), reply: true, as_note: true, hops: 1, origin: Some(("the user".into(), "make the build 2x faster, no new deps".into())) };
+        c.answering.lock().unwrap().insert(a.clone(), user);
+        c.hops.lock().unwrap().insert(a.clone(), 1);
+        let l = crate::relay::Letter { from: a.clone(), to: b.clone(), text: "speed up the build".into(), reply: false };
+        c.deliver(&l, dead_ctx()).unwrap();
+        settle(&c, &[&b]);
+        let m = &c.thread(&b).unwrap().messages[0];
+        assert!(m.text.starts_with("speed up the build"), "{}", m.text);
+        assert!(m.text.contains("the user") && m.text.contains("make the build 2x faster, no new deps"), "{}", m.text);
+    }
+
+    #[test]
+    fn a_chain_of_hand_offs_stops() {
+        let (c, _rt, a, b) = two_tiles("hops");
+        c.hops.lock().unwrap().insert(a.clone(), crate::relay::MAX_HOPS);
+        let l = crate::relay::Letter { from: a.clone(), to: b.clone(), text: "again".into(), reply: true };
+        assert!(c.deliver(&l, dead_ctx()).is_err());
+        assert!(c.thread(&b).unwrap().messages.is_empty());
+        assert!(c.thread(&a).unwrap().messages[0].text.contains("Not delivered"));
+    }
+
+    #[test]
+    fn at_a_tile_hands_over_and_posts_the_answer_here() {
+        let (c, _rt, a, b) = two_tiles("mention");
+        c.send(&a, "@codex check the build", vec![], None, dead_ctx()).unwrap();
+        settle(&c, &[&a, &b]);
+        let bt = c.thread(&b).unwrap();
+        assert!(bt.messages[0].text.starts_with("check the build"));
+        let at = c.thread(&a).unwrap();
+        assert_eq!(at.messages.len(), 2, "the user's message and codex's answer, and no turn of claude's");
+        assert_eq!((at.messages[1].role, at.messages[1].author_name.as_deref()), (Role::Assistant, Some("codex")));
+    }
+
+    #[test]
+    fn a_resumed_session_reads_what_it_missed() {
+        let (c, _rt, a, _b) = two_tiles("missed");
+        let mut own = Msg::new(Role::Assistant, "done with the parser".into(), Status::Done);
+        own.model = Some("m".into());
+        let ask = Msg::new(Role::User, "@codex review it".into(), Status::Done);
+        let mut note = Msg::new(Role::Assistant, "two bugs in lexer.rs".into(), Status::Done);
+        note.author = Some("tile:x".into());
+        note.author_name = Some("codex".into());
+        let now = Msg::new(Role::User, "fix what codex found".into(), Status::Done);
+        let empty = Msg::new(Role::Assistant, String::new(), Status::Sending);
+        c.edit_thread(&a, |t| {
+            t.cli_session = Some("s1".into());
+            t.messages = vec![Msg::new(Role::User, "write a parser".into(), Status::Done), own, ask, note, now, empty];
+        })
+        .unwrap();
+        let req = c.request(&a, &route(), &dead_ctx(), &Call::default()).unwrap();
+        let last = &req.history.last().unwrap().text;
+        assert!(last.contains("The user: @codex review it") && last.contains("`codex`: two bugs") && last.ends_with("fix what codex found"), "{last}");
     }
 }

@@ -417,6 +417,7 @@ mod tests {
             tickets,
             total_cost_usd: 0.0,
             router_cost_usd: 0.0,
+            router_unknown_cost_usd: 0.0,
             config_source: None,
             board: vec![],
             planner_session: None,
@@ -424,6 +425,7 @@ mod tests {
             options: vec![],
             artifacts: vec![],
             phase: Default::default(),
+            intake: Default::default(),
         }
     }
 

@@ -10,7 +10,16 @@ use backspace_core::chat::{Role, Route, RouteKind};
 use backspace_core::fleet::Fleet;
 use backspace_core::prefs::Prefs;
 
+/// Both tests point the process-wide `BACKSPACE_DATA` at a folder of their own, and
+/// the fleet reads it again as it works, so they run one at a time.
+static DATA_DIR: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn one_at_a_time() -> std::sync::MutexGuard<'static, ()> {
+    DATA_DIR.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 /// `extra` is added to the request line's headers (a credential, say).
+
 fn http_with(port: u16, method: &str, path: &str, body: &str, extra: &str) -> u16 {
     let deadline = Instant::now() + Duration::from_secs(10);
     let mut s = loop {
@@ -32,6 +41,7 @@ fn http(port: u16, method: &str, path: &str, body: &str) -> u16 {
 
 #[test]
 fn a_webhook_wakes_only_its_bot() {
+    let _one = one_at_a_time();
     let dir = std::env::temp_dir().join(format!("bs-hook-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::env::set_var("BACKSPACE_DATA", &dir);
@@ -52,11 +62,13 @@ fn a_webhook_wakes_only_its_bot() {
             personality: String::new(),
             // No such CLI: the reply fails at once, which is fine here.
             route: Route { kind: RouteKind::Cli, provider: "nope".into(), model: None },
+            fallbacks: vec![],
             shared: vec![],
             computer: Computer::default(),
             memory: false,
             off: vec![],
             apps_off: vec![],
+            hands: vec![],
             hook: secret.into(),
             routines: vec![],
             created: 0,
@@ -95,6 +107,7 @@ fn a_webhook_wakes_only_its_bot() {
 fn the_phone_cannot_read_agent_or_group_threads() {
     use backspace_core::chat::{Route, RouteKind, Scope};
 
+    let _one = one_at_a_time();
     let dir = std::env::temp_dir().join(format!("bs-phone-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::env::set_var("BACKSPACE_DATA", &dir);

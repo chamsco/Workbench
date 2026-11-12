@@ -1,0 +1,666 @@
+// The sidebar: Whirl's thread-row (MIT, src/whirl/LICENSE) — the whisper-quiet
+// rows on a hover pill, the spinner while a reply runs, the ⋯ menu — over
+// Backspace's threads, arranged as a project tree. A project is the thing you
+// navigate by, so the threads you have had in it and the canvases it is showing
+// both hang under its folder. Rendered into the vanilla sidebar through a portal.
+
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
+import {
+  IconChevronDown,
+  IconActivity,
+  IconAlertTriangleFilled,
+  IconBox,
+  IconCheck,
+  IconChevronRight,
+  IconCircleCheckFilled,
+  IconCircleFilled,
+  IconCloud,
+  IconDeviceDesktop,
+  IconDots,
+  IconEdit,
+  IconFileText,
+  IconFolder,
+  IconFolderPlus,
+  IconGitBranch,
+  IconLayoutCards,
+  IconLoader2,
+  IconMessageReply,
+  IconMessages,
+  IconPencil,
+  IconPin,
+  IconPinFilled,
+  IconPlugConnected,
+  IconPlus,
+  IconSearch,
+  IconSelector,
+  IconSettings,
+  IconSitemap,
+  IconSparkles,
+  IconSquareMinus,
+  IconTerminal2,
+  IconTrash,
+  IconWindow,
+  IconWorld,
+  type Icon,
+} from "@tabler/icons-react";
+import { AnimatePresence, motion } from "motion/react";
+
+import { cn } from "@/lib/utils";
+import { pinRasterPath } from "@/lib/motion";
+import { RowPill } from "@/components/row-pill";
+import { ConfirmDialog } from "@/components/confirm-dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { getHost, goHome, inScope, openThread, pin, remove, rename, setQuery, useChat, type ColonyStatus, type ThreadInfo } from "../bridge";
+
+const baseName = (p: string) => p.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || p;
+
+/** How long ago, in the quiet vocabulary the sidebar uses. */
+function ago(ms: number) {
+  const s = (Date.now() - ms) / 1000;
+  if (s < 60) return "now";
+  if (s < 3600) return `${Math.floor(s / 60)}m`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h`;
+  if (s < 7 * 86400) return `${Math.floor(s / 86400)}d`;
+  return new Date(ms).toLocaleDateString([], { month: "short", day: "numeric" });
+}
+
+/** One icon, no label: the sidebar's own actions. A row of words up here pushes
+ *  everything below it down and says nothing the icon does not. `popper` marks
+ *  the ones that open a menu from the shell — the outside-click handler needs
+ *  to know the button is part of the menu. */
+function Act({ icon: ActIcon, label, onClick, on, popper }: { icon: Icon; label: string; onClick: (el: HTMLElement) => void; on?: boolean; popper?: boolean }) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      aria-pressed={on}
+      data-popper={popper ? "" : undefined}
+      onClick={(e) => onClick(e.currentTarget)}
+      className={cn(
+        "relative flex size-7 cursor-pointer items-center justify-center rounded-lg text-foreground-soft hover:bg-accent hover:text-foreground",
+        on && "bg-accent text-foreground",
+      )}
+    >
+      <ActIcon size={16} />
+    </button>
+  );
+}
+
+/** The tree: a folder per project, and under it everything the project holds —
+ *  the threads you have had in it and the canvases it is showing. A project is
+ *  the thing you navigate by, so a thread is never floating on its own.
+ *
+ *  Canvas rows come from `Host.canvases()`, which reads the open tab, so the
+ *  sidebar and the tab bar can never disagree about what is open. */
+export function ThreadList({ onNewChat, user }: { onNewChat: () => void; user?: string }) {
+  const { threads: all, id, query, scope, epoch } = useChat();
+  const host = getHost();
+  const [searching, setSearching] = useState(false);
+  // Folders you folded, by path ("" for loose chats). A search unfolds them.
+  const [folded, setFolded] = useState<Set<string>>(() => new Set());
+  const fold = (k: string) =>
+    setFolded((s) => {
+      const n = new Set(s);
+      if (!n.delete(k)) n.add(k);
+      return n;
+    });
+  // The shell owns the fold (a class on #win); follow it so the toggle says
+  // what it will do.
+  const win = document.getElementById("win");
+  // Under 760px the card floats over the page and "open" is the class instead.
+  const isClosed = () =>
+    !!win && (win.classList.contains("side-closed") || (matchMedia("(max-width: 760px)").matches && !win.classList.contains("side-open")));
+  const [sideClosed, setSideClosed] = useState(isClosed);
+  useEffect(() => {
+    if (!win) return;
+    setSideClosed(isClosed());
+    const o = new MutationObserver(() => setSideClosed(isClosed()));
+    o.observe(win, { attributes: true, attributeFilter: ["class"] });
+    return () => o.disconnect();
+  }, [win]);
+
+  // In Code the sidebar belongs to the *project*, not to the chat face's scope:
+  // the IDE shows the same tree with no thread open at all, and `scope` is null
+  // there. Everywhere else it is the chat list, and the scope is the zone's.
+  const zone = host.zone();
+  const inCode = zone === "code";
+  const project = inCode ? host.project() : scope;
+
+  const folders = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const hit = (t: ThreadInfo) => !q || t.title.toLowerCase().includes(q) || t.preview.toLowerCase().includes(q);
+    const out: { path: string | null; name: string; open: boolean; items: ThreadInfo[] }[] = [];
+    const put = (path: string | null) => {
+      const items = all
+        .filter((t) => !t.app && (t.project ?? null) === path && hit(t))
+        .sort((a, b) => b.updated - a.updated);
+      // The open project keeps its folder even when it is empty — it is where
+      // you are, and its canvases hang there.
+      if (path === null && items.length === 0) return;
+      out.push({ path, name: path ? baseName(path) : "Chats", open: project === path, items });
+    };
+    put(project);
+    for (const t of all) {
+      const p = t.project ?? null;
+      if (t.app || p === project || out.some((f) => f.path === p)) continue;
+      put(p);
+    }
+    return out;
+  }, [all, project, query]);
+
+  // Read on every render, not memoised: the shell owns this list and changes it
+  // from outside React, so a memo keyed on the store's epoch goes stale the
+  // moment a canvas is added or removed. (`saveTabs` nudges the store too.)
+  const canvases = inCode ? host.canvases() : [];
+
+  const tree =
+    folders.length === 0 ? (
+      <div className="px-2.5 py-2 text-[13px]/5 text-muted-foreground">
+        {project
+          ? "Nothing in this project yet. Ask a CLI to change something; it works in the folder."
+          : inCode
+            ? "Open a project to see its threads and canvases."
+            : "No chats yet. Start one with any model you've connected."}
+      </div>
+    ) : (
+      folders.map((f) => {
+        const k = f.path ?? "";
+        const shut = folded.has(k) && !query;
+        return (
+        <section key={k || "chats"} className="flex flex-col gap-0.5">
+          {/* A folder folds: the square while it is open, the chevron while it is shut. */}
+          <button
+            type="button"
+            aria-expanded={!shut}
+            onClick={() => fold(k)}
+            title={f.path ?? undefined}
+            className="group/row relative flex h-7 w-full cursor-pointer items-center gap-2 rounded-lg px-2 text-[13.5px]/4 font-medium text-foreground-soft hover:text-foreground"
+          >
+            <RowPill />
+            {shut ? (
+              <IconChevronRight size={14} className="relative shrink-0 text-muted-foreground" aria-hidden />
+            ) : (
+              <IconSquareMinus size={14} className="relative shrink-0 text-muted-foreground" aria-hidden />
+            )}
+            <span className="relative min-w-0 truncate">{f.name}</span>
+            {f.open && canvases.length > 0 && <span className="relative ml-auto shrink-0 text-[11px] font-normal text-muted-foreground/60">{canvases.length}</span>}
+          </button>
+          {!shut && (
+          <div className="ml-[15px] flex flex-col gap-0.5 border-l border-foreground/12 pl-1.5">
+          {f.open && canvases.map((c) => <CanvasRow key={`c${c.index}`} canvas={c} />)}
+          {f.items.map((t) => (
+            <ThreadRow key={t.id} thread={t} active={t.id === id} inIde={inCode} />
+          ))}
+          {f.items.length === 0 && !(f.open && canvases.length > 0) && (
+            <div className="px-2.5 py-1 text-[12.5px]/5 text-muted-foreground">
+              {query ? "No match" : "No threads yet"}
+            </div>
+          )}
+          </div>
+          )}
+        </section>
+        );
+      })
+    );
+
+  // Search, drawn into #sidePills beside the frame's own sidebar toggle. It
+  // sits over the window rather than inside the card, so it stays put when the
+  // card folds away. New chat is the first row under it, inside the card.
+  const pills = (
+    <div className="flex w-full items-center">
+      <div className="side-pill flex h-8 items-center gap-0.5 rounded-full px-0.5">
+        <Act
+          icon={IconSearch}
+          label="Search"
+          on={searching}
+          onClick={() => {
+            if (sideClosed) {
+              host.setSide(true);
+              setSearching(true);
+              return;
+            }
+            setSearching((s) => !s);
+            if (searching) setQuery("");
+          }}
+        />
+      </div>
+    </div>
+  );
+  // New chat, with its chevron to pick the project it starts in.
+  const newChat = (
+    <div className="whirl-new group/row relative flex h-8 w-full items-center rounded-lg pr-0.5 text-[13.5px]/4 font-medium text-foreground-soft">
+      <RowPill />
+      <button
+        type="button"
+        onClick={onNewChat}
+        className="relative flex h-full min-w-0 flex-1 cursor-pointer items-center gap-2.5 whitespace-nowrap rounded-lg px-2.5 hover:text-foreground"
+      >
+        <IconEdit size={15} className="shrink-0" />
+        {scope || inCode ? "New thread" : "New chat"}
+      </button>
+      <button
+        type="button"
+        aria-label="Projects"
+        title="Projects"
+        data-popper=""
+        onClick={(e) => host.projectMenu(e.currentTarget)}
+        className="relative flex size-6 cursor-pointer items-center justify-center rounded-md hover:bg-accent hover:text-foreground"
+      >
+        <IconSelector size={13} />
+      </button>
+    </div>
+  );
+  const pillSlot = document.getElementById("sidePills");
+  const chatSide = !inCode;
+  const footSlot = document.getElementById("sideFoot");
+
+  const brand = (
+    <div className="bs-brand">
+      <span className="bs-brand-mark" aria-hidden>
+        <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M5.2 3.2h7.6a1 1 0 0 1 1 1v7.6a1 1 0 0 1-1 1H5.2L1.8 8z" />
+          <path d="m7.6 6 4 4M11.6 6l-4 4" />
+        </svg>
+      </span>
+      <span className="bs-brand-name">Backspace</span>
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          aria-label="Backspace menu"
+          className="bs-brand-more"
+        >
+          <IconChevronDown size={13} />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="min-w-48 p-1">
+          <DropdownMenuItem className="gap-2 px-2 py-1.5" onClick={() => host.newProject()}>
+            <IconFolderPlus size={15} className="text-muted-foreground" />
+            Open a project
+          </DropdownMenuItem>
+          <DropdownMenuItem className="gap-2 px-2 py-1.5" onClick={() => host.openSettings("appearance")}>
+            <IconSparkles size={15} className="text-muted-foreground" />
+            Appearance
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem className="gap-2 px-2 py-1.5" onClick={() => host.openSettings()}>
+            <IconSettings size={15} className="text-muted-foreground" />
+            Settings
+          </DropdownMenuItem>
+          <DropdownMenuItem className="gap-2 px-2 py-1.5" onClick={() => host.runSetup()}>
+            <IconSparkles size={15} className="text-muted-foreground" />
+            Run setup
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  );
+
+  const nav = (
+    <nav className="bs-nav" aria-label="Sections">
+      <button type="button" className="is-on" onClick={() => goHome()}>
+        <IconMessages size={15} />
+        Threads
+      </button>
+      <button type="button" onClick={() => host.openSettings("providers")}>
+        <IconPlugConnected size={15} />
+        Connections
+      </button>
+      <button type="button" onClick={() => host.openSettings()}>
+        <IconSettings size={15} />
+        Settings
+      </button>
+    </nav>
+  );
+
+  const footer = (
+    <div className="bs-user">
+      <span className="bs-user-avatar">{(user || "you").slice(0, 1).toUpperCase()}</span>
+      <span className="bs-user-name">
+        <b>{user || "You"}</b>
+        <small>{host.machineName()}</small>
+      </span>
+      <button type="button" aria-label="Settings" title="Settings" className="bs-user-gear" onClick={() => host.openSettings()}>
+        <IconSettings size={15} />
+      </button>
+    </div>
+  );
+
+  return (
+    <div className="whirl-side flex flex-col gap-2.5">
+      {pillSlot ? createPortal(pills, pillSlot) : pills}
+      {newChat}
+      {searching && (
+        <label className="group/row relative flex h-8 w-full items-center gap-2.5 rounded-lg px-2.5 text-[13.5px]/4 font-medium text-foreground-soft">
+          <RowPill className="group-focus-within/row:bg-accent" />
+          <IconSearch size={15} className="relative shrink-0" />
+          <input
+            autoFocus
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                setQuery("");
+                setSearching(false);
+              }
+            }}
+            placeholder="Search"
+            aria-label="Search chats"
+            className="relative h-full min-w-0 flex-1 bg-transparent outline-none placeholder:text-foreground-soft"
+          />
+        </label>
+      )}
+
+      {/* The machine is the root of the tree, and the folder it is running right
+          now hangs under it: which machine you are on, then what it holds. */}
+      <EnvironmentRow forceOpen={searching}>{tree}</EnvironmentRow>
+    </div>
+  );
+}
+
+/** A canvas the open project is showing, as a row in the tree. */
+function CanvasRow({ canvas }: { canvas: { index: number; kind: string; label: string } }) {
+  const host = getHost();
+  const Glyph = CANVAS_ICON[canvas.kind] ?? IconWindow;
+  return (
+    <button
+      type="button"
+      onClick={() => host.openCanvas(canvas.index)}
+      title={canvas.label}
+      className="group/row relative flex h-7 w-full cursor-pointer items-center gap-2 rounded-lg pr-2.5 pl-6 text-left text-[12.5px]/4 text-muted-foreground"
+    >
+      <RowPill />
+      <Glyph size={13} className="relative shrink-0" />
+      <span className="relative min-w-0 flex-1 truncate">{canvas.label}</span>
+    </button>
+  );
+}
+
+const CANVAS_ICON: Record<string, Icon> = {
+  agent: IconSparkles,
+  board: IconMessages,
+  conversation: IconMessageReply,
+  terminal: IconTerminal2,
+  files: IconFolder,
+  browser: IconWorld,
+  diagram: IconSitemap,
+  docs: IconFileText,
+  options: IconLayoutCards,
+  trace: IconActivity,
+  empty: IconWindow,
+};
+
+/* The root of the tree: which machine the work runs on, and — expanded — the
+ * folder it is running right now, with everything that folder holds.
+ *
+ * One row, like T3 Code's environment picker: this machine, or a machine the
+ * harness is paired with. Switching it moves the agents, the worktrees and the
+ * work, which is the ⋯ beside the row. Colony's named workspaces are listed
+ * there too when visor-core is there; they are created and driven by agents (see
+ * Settings → Workspaces and Colony), so picking one opens the page that manages
+ * them rather than pretending a thread can be pinned to it, which the core
+ * cannot do today. */
+function EnvironmentRow({ children, forceOpen }: { children: ReactNode; forceOpen?: boolean }) {
+  const host = getHost();
+  const { epoch } = useChat();
+  // Expanded by default: the folder you are running now is the point of the row,
+  // and a collapsed tree should be a choice rather than the way it lands. A
+  // search opens it, or matches would be hidden behind a collapsed root.
+  const [open, setOpen] = useState(true);
+  const expanded = open || !!forceOpen;
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [colony, setColony] = useState<ColonyStatus | null>(null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const all = useMemo(() => host.machines(), [epoch]);
+  const here = all.find((m) => m.selected);
+  const name = here ? (here.local ? "This machine" : here.name) : host.machineName();
+  const workspaces = colony?.ready ? colony.workspaces ?? [] : [];
+
+  useEffect(() => {
+    if (!menuOpen || colony) return;
+    let live = true;
+    host.colony().then((c) => live && setColony(c), () => live && setColony(null));
+    return () => {
+      live = false;
+    };
+  }, [menuOpen, colony, host]);
+
+  return (
+    <div className="flex min-h-0 flex-col gap-0.5">
+      <div className="group/row group/thread relative">
+        <button
+          type="button"
+          aria-expanded={expanded}
+          title={`${name} — the folder it is running right now`}
+          onClick={() => setOpen((o) => !o)}
+          className="group/row relative flex h-8 w-full cursor-pointer items-center gap-2.5 rounded-lg pr-8 pl-2 text-[14px]/4 font-medium text-foreground"
+        >
+          <RowPill />
+          <span className="relative shrink-0 text-foreground-soft">{here && !here.local ? <IconCloud size={16} /> : <IconDeviceDesktop size={16} />}</span>
+          <span className="relative min-w-0 flex-1 truncate text-left">{name}</span>
+          {!expanded && <IconChevronRight size={14} className="relative shrink-0 text-muted-foreground" />}
+        </button>
+        <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
+          <DropdownMenuTrigger
+            aria-label="Where the next thread runs"
+            title="Where the next thread runs"
+            className="absolute top-1/2 right-1 flex size-6 -translate-y-1/2 cursor-pointer items-center justify-center rounded-md text-foreground-soft opacity-0 transition-opacity duration-150 group-hover/thread:opacity-100 hover:text-foreground data-popup-open:opacity-100 coarse:opacity-100"
+          >
+            <IconDots size={16} />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="min-w-56 p-1">
+            <DropdownMenuGroup>
+              <DropdownMenuLabel className="px-2 py-1 text-[10.5px]">Start on</DropdownMenuLabel>
+              {all.map((m) => (
+                <DropdownMenuItem key={m.index} className="gap-2 px-2 py-1.5" onClick={() => void host.pickMachine(m.index)}>
+                  {m.local ? <IconDeviceDesktop size={15} /> : <IconCloud size={15} />}
+                  <span className="flex min-w-0 flex-col">
+                    <span className="truncate">{m.local ? "This machine" : m.name}</span>
+                    {!m.local && (
+                      <span className="truncate text-[11px] text-muted-foreground">
+                        {m.url} · {m.link.state}
+                      </span>
+                    )}
+                  </span>
+                  {m.selected && <IconCheck size={14} className="ml-auto shrink-0" />}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuGroup>
+            {workspaces.length > 0 && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuGroup>
+                  <DropdownMenuLabel className="px-2 py-1 text-[10.5px]">Colony workspaces</DropdownMenuLabel>
+                  {workspaces.map((w) => (
+                    <DropdownMenuItem key={w.name} className="gap-2 px-2 py-1.5" onClick={() => later(() => host.openSettings("colony"))}>
+                      <IconBox size={15} />
+                      <span className="flex min-w-0 flex-col">
+                        <span className="truncate">{w.name}</span>
+                        <span className="truncate text-[11px] text-muted-foreground">
+                          {[w.provider, w.os, w.state].filter(Boolean).join(" · ")}
+                        </span>
+                      </span>
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuGroup>
+              </>
+            )}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem className="gap-2 px-2 py-1.5" onClick={() => later(() => host.openSettings("machines"))}>
+              <IconPlus size={15} className="text-muted-foreground" />
+              Add a machine…
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+      {expanded && <div className="flex min-h-0 flex-col gap-0.5 pl-1.5">{children}</div>}
+    </div>
+  );
+}
+
+// Settings hides the sidebar, and with it this menu's trigger. Opened while the
+// menu is still closing, the menu never finishes and keeps the page inert, so
+// let it close first.
+function later(fn: () => void) {
+  setTimeout(fn, 200);
+}
+
+function ThreadRow({ thread, active, inIde }: { thread: ThreadInfo; active: boolean; inIde?: boolean }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [renaming, setRenaming] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [title, setTitle] = useState(thread.title);
+  const host = getHost();
+  const fail = (e: unknown) => host.toast(String(e), "err");
+  // A thread picked from the tree while the IDE is showing is read in the ADE,
+  // so the switch happens on the way there rather than teleporting the reader.
+  const open = () => {
+    if (inIde) host.showThread();
+    void openThread(thread.id);
+  };
+  return (
+    <div
+      className="group/row group/thread relative"
+      onContextMenu={(e) => {
+        e.preventDefault();
+        setMenuOpen(true);
+      }}
+    >
+      <button
+        type="button"
+        onClick={open}
+        title={`${thread.title} · ${ago(thread.updated)}${thread.preview ? `\n${thread.preview}` : ""}`}
+        className="relative flex h-7 w-full cursor-pointer items-center rounded-lg pr-8 pl-2 text-[13.5px]/4 text-foreground-soft"
+      >
+        <RowPill className={`group-has-data-popup-open/thread:bg-accent ${active ? "bg-accent" : ""}`} />
+        {/* Every row in the tree leads with a 13px glyph, so a thread's title
+            starts on the same line as a canvas's label beside it. */}
+        <span className="relative flex min-w-0 flex-1 items-center gap-2 text-left">
+          {thread.pinned ? (
+            <IconPinFilled size={13} className="shrink-0" aria-label="Pinned" />
+          ) : thread.title.endsWith("(branch)") ? (
+            <IconGitBranch size={13} className="shrink-0" aria-label="Branched thread" />
+          ) : (
+            <IconCircleCheckFilled size={15} className="shrink-0 text-muted-foreground/70" aria-hidden />
+          )}
+          <span className="block min-w-0 flex-1 truncate">{thread.title}</span>
+        </span>
+      </button>
+      <AnimatePresence mode="wait" initial={false}>
+        {thread.busy ? (
+          <motion.span
+            key="running"
+            initial={{ opacity: 0, scale: 0.5 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.5 }}
+            transition={{ duration: 0.15, ease: "easeOut" }}
+            transformTemplate={pinRasterPath}
+            className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 transition-opacity duration-150 group-hover/thread:opacity-0! group-has-data-popup-open/thread:opacity-0!"
+          >
+            <IconLoader2 size={14} className="animate-spin text-foreground-soft" />
+          </motion.span>
+        ) : thread.failed ? (
+          <motion.span
+            key="failed"
+            initial={{ opacity: 0, scale: 0.5 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.5 }}
+            transition={{ duration: 0.15, ease: "easeOut" }}
+            title={`The last reply failed: ${thread.failed}`}
+            className="absolute top-1/2 right-2.5 -translate-y-1/2 text-[#e5484d] transition-opacity duration-150 group-hover/thread:opacity-0!"
+          >
+            <IconAlertTriangleFilled size={14} aria-label="Failed" />
+          </motion.span>
+        ) : thread.unread && !active ? (
+          <motion.span
+            key="unread"
+            initial={{ opacity: 0, scale: 0.5 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.5 }}
+            transition={{ duration: 0.15, ease: "easeOut" }}
+            className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-foreground-soft transition-opacity duration-150 group-hover/thread:opacity-0!"
+          >
+            <IconCircleFilled size={7} />
+          </motion.span>
+        ) : null}
+      </AnimatePresence>
+      <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
+        <DropdownMenuTrigger
+          aria-label={`Options for ${thread.title}`}
+          className="absolute top-1/2 right-1 flex size-6 -translate-y-1/2 cursor-pointer items-center justify-center rounded-md text-foreground-soft opacity-0 transition-opacity duration-150 group-hover/thread:opacity-100 hover:text-foreground data-popup-open:opacity-100 coarse:opacity-100"
+        >
+          <IconDots size={16} />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="min-w-44 p-1">
+          <DropdownMenuItem className="gap-2 px-2 py-1.5" onClick={() => setRenaming(true)}>
+            <IconPencil size={15} className="text-muted-foreground" />
+            Rename
+          </DropdownMenuItem>
+          <DropdownMenuItem className="gap-2 px-2 py-1.5" onClick={() => void pin(thread.id, !thread.pinned).catch(fail)}>
+            <IconPin size={15} className="text-muted-foreground" />
+            {thread.pinned ? "Unpin" : "Pin"}
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem variant="destructive" className="gap-2 px-2 py-1.5" onClick={() => setDeleting(true)}>
+            <IconTrash size={15} />
+            Delete
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <Dialog open={renaming} onOpenChange={setRenaming}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Rename chat</DialogTitle>
+            <DialogDescription>Give it a name you'll find later.</DialogDescription>
+          </DialogHeader>
+          <input
+            autoFocus
+            value={title}
+            maxLength={80}
+            onChange={(e) => setTitle(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                void rename(thread.id, title).then(() => setRenaming(false), fail);
+              }
+            }}
+            className="h-9 w-full rounded-full bg-well px-3.5 text-[14px] outline-none shadow-[inset_0_0_0_1px_var(--well-outline),inset_0_1px_0_0_var(--well-highlight)]"
+          />
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setRenaming(false)}>
+              Cancel
+            </Button>
+            <Button onClick={() => void rename(thread.id, title).then(() => setRenaming(false), fail)}>Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <ConfirmDialog
+        open={deleting}
+        onOpenChange={setDeleting}
+        title="Delete this chat?"
+        message={`“${thread.title}” and its attachments will be gone for good.`}
+        confirmLabel="Delete"
+        destructive
+        onConfirm={() => {
+          void remove(thread.id).catch(fail);
+          if (active) goHome();
+        }}
+      />
+    </div>
+  );
+}

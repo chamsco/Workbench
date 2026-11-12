@@ -1,7 +1,7 @@
 //! Picks a (model, effort) pair per agent. Jev does the deciding when a key is
 //! present; a keyword heuristic keeps the harness usable without one.
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{anyhow, bail, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 
@@ -82,7 +82,15 @@ pub struct Decision {
     pub source: String,
     pub confidence: f32,
     pub router_cost_usd: f64,
+    /// The routing call's cost was already added to the project's spend when
+    /// it was settled (see `Router::with_recorder`), so the caller must not add it again.
+    #[serde(default)]
+    pub cost_settled: bool,
     pub note: Option<String>,
+    /// For the planner: what the task was classified as, and whether the
+    /// classifier was sure enough to act on. None for everything else.
+    #[serde(default)]
+    pub triage: Option<crate::decision::Triage>,
 }
 
 pub struct Router {
@@ -93,7 +101,26 @@ pub struct Router {
     /// (Settings → Local models; model_server.rs). Empty: the big model does
     /// everything, which is the default.
     local: std::collections::BTreeMap<String, String>,
+    /// Answers the typed question that says where the planner starts.
+    decider: std::sync::Arc<dyn crate::decision::DecisionModel>,
+    /// Holds a routing call's worst case against the project's budget. None:
+    /// no budget is around this router, and its calls are declared unmetered.
+    meter: Option<Meter>,
+    /// Records a Jev call's actual cost on the project's books. Run by
+    /// `Reservation::settle`, under the reservation table's lock and before the
+    /// call's hold is given back, so no other reservation sees the hold gone
+    /// and the cost not yet recorded.
+    recorder: Option<std::sync::Arc<dyn Fn(f64) + Send + Sync>>,
+    /// Records the cost of a call that was sent but whose cost was never
+    /// reported, at the amount held for it, and marks it as unknown. Run like
+    /// `recorder`, in the step that gives the hold back.
+    unknown_recorder: Option<std::sync::Arc<dyn Fn(f64) + Send + Sync>>,
+    /// How long a Jev request may take. A test seam; production keeps the default.
+    jev_timeout: std::time::Duration,
 }
+
+/// Reserves `(usd, tokens)` for a routing call, or says why it may not go out.
+pub type Meter = std::sync::Arc<dyn Fn(f64, u64) -> std::result::Result<crate::gateway::Reservation, crate::gateway::Refusal> + Send + Sync>;
 
 /// A local pick: the decision, plus which job it was for and which runtime
 /// holds it, so `route_for` can check the runtime is actually listening.
@@ -105,7 +132,43 @@ struct LocalPick {
 
 impl Router {
     pub fn new(http: reqwest::Client, cfg: Config) -> Self {
-        Self { http, cfg, local: Default::default() }
+        Self { http, cfg, local: Default::default(), decider: std::sync::Arc::new(crate::decision::KeywordDecider), meter: None, recorder: None, unknown_recorder: None, jev_timeout: std::time::Duration::from_secs(20) }
+    }
+
+    /// Swap the decision model without touching the router.
+    pub fn with_decider(mut self, decider: std::sync::Arc<dyn crate::decision::DecisionModel>) -> Self {
+        self.decider = decider;
+        self
+    }
+
+    /// Hold every Jev call's worst case against a budget before it is sent.
+    pub fn with_meter(mut self, meter: impl Fn(f64, u64) -> std::result::Result<crate::gateway::Reservation, crate::gateway::Refusal> + Send + Sync + 'static) -> Self {
+        self.meter = Some(std::sync::Arc::new(meter));
+        self
+    }
+
+    /// Record a Jev call's actual cost in the same step that releases its hold.
+    /// A decision whose cost was recorded this way says so (`Decision::cost_settled`)
+    /// and its `router_cost_usd` is not to be added again. Without a recorder the
+    /// caller adds `router_cost_usd` after the decision returns, as before.
+    pub fn with_recorder(mut self, recorder: impl Fn(f64) + Send + Sync + 'static) -> Self {
+        self.recorder = Some(std::sync::Arc::new(recorder));
+        self
+    }
+
+    /// Record the cost of a call that was sent and never reported one, at the
+    /// amount held for it, in the same step that releases the hold. Without it
+    /// the ordinary recorder is used; without either the hold is released and
+    /// the call's cost is lost to the books.
+    pub fn with_unknown_cost_recorder(mut self, recorder: impl Fn(f64) + Send + Sync + 'static) -> Self {
+        self.unknown_recorder = Some(std::sync::Arc::new(recorder));
+        self
+    }
+
+    /// Change how long a Jev request may take (tests; the default is 20 seconds).
+    pub fn with_jev_timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.jev_timeout = timeout;
+        self
     }
 
     /// Which small jobs run locally, and on what. Builder style so the
@@ -172,7 +235,9 @@ impl Router {
                 source: format!("local-{job}"),
                 confidence: 1.0,
                 router_cost_usd: 0.0,
+                cost_settled: false,
                 note: None,
+                triage: None,
             },
         })
     }
@@ -215,6 +280,19 @@ impl Router {
     }
 
     pub async fn route(&self, role: AgentRole, task: &str, context: &str) -> Result<Decision> {
+        self.route_with(role, task, context, None).await
+    }
+
+    /// Classify a task with this router's decision model and threshold, with no
+    /// model call and no routing. Intake uses it to decide whether to ask.
+    pub fn classify(&self, task: &str) -> Result<crate::decision::Triage> {
+        crate::decision::classify(self.decider.as_ref(), task, self.cfg.router.triage_threshold)
+    }
+
+    /// `route`, for a task whose classification is already known (the user
+    /// answered intake's question, or intake classified it): the planner
+    /// starts on the rung that classification allows rather than reclassifying.
+    pub async fn route_with(&self, role: AgentRole, task: &str, context: &str, known: Option<crate::decision::Triage>) -> Result<Decision> {
         let mut candidates = self.cfg.usable_models();
         // A local provider that is not listening is not a candidate. The injected
         // tiny model sits at tier 0, so without this the "fall back" in
@@ -233,6 +311,16 @@ impl Router {
                     .map(|p| !is_loopback(&p.base_url) || local_runtime_is_up(&p.base_url))
                     .unwrap_or(true)
         });
+        // The policy's lists steer the pick; the gateway still checks the call.
+        let gate = crate::gateway::Gateway::new(self.cfg.policy.clone());
+        let gate_role = match role {
+            AgentRole::Main => crate::gateway::Role::Orchestration,
+            AgentRole::Sub => crate::gateway::Role::Execution,
+        };
+        candidates.retain(|m| gate.check_model(gate_role, &m.id).is_ok());
+        if role == AgentRole::Sub {
+            candidates.retain(|m| !self.cfg.router.exclude_sub.contains(&m.id));
+        }
         let candidates = candidates;
         if role == AgentRole::Sub {
             if let Some(pin) = self
@@ -250,7 +338,9 @@ impl Router {
                         source: "pinned".into(),
                         confidence: 1.0,
                         router_cost_usd: 0.0,
+                        cost_settled: false,
                         note: None,
+                        triage: None,
                     });
                 }
             }
@@ -272,17 +362,39 @@ impl Router {
             AgentRole::Sub => self.cfg.router.pin_sub.as_ref(),
         };
 
+        // The planner starts on the cheapest class the task allows (PLAN §3.1):
+        // the frontier only for a long task the classifier is sure about. A
+        // decider that fails leaves the task unclassified, which starts mid
+        // rather than failing the turn or reaching for the dearest model.
+        let (triage, triage_note) = if role == AgentRole::Main {
+            match known.map(Ok).unwrap_or_else(|| self.classify(task)) {
+                Ok(t) => (Some(t), None),
+                Err(e) => (None, Some(format!("task not classified, starting mid: {e:#}"))),
+            }
+        } else {
+            (None, None)
+        };
+        let candidates: Vec<&ModelSpec> = if role == AgentRole::Main {
+            crate::ladder::within(&candidates, crate::ladder::planner_start(triage.as_ref()))
+        } else {
+            candidates
+        };
+
         let mut decision = match self.cfg.router.backend {
             RouterBackend::Jev => match self.jev(role, task, context, &candidates).await {
                 Ok(d) => d,
                 Err(e) => {
-                    let mut d = heuristic(role, task, &candidates);
+                    let mut d = heuristic_with(role, task, &candidates, triage.as_ref());
                     d.note = Some(format!("jev unavailable, heuristic used: {e:#}"));
                     d
                 }
             },
-            RouterBackend::Heuristic => heuristic(role, task, &candidates),
+            RouterBackend::Heuristic => heuristic_with(role, task, &candidates, triage.as_ref()),
         };
+        decision.triage = triage;
+        if decision.note.is_none() {
+            decision.note = triage_note;
+        }
 
         if let Some(pin) = pin {
             // The planner needs Backspace's own tools, so it never runs on a
@@ -312,6 +424,10 @@ impl Router {
         candidates: &[&ModelSpec],
     ) -> Result<Decision> {
         let rc = &self.cfg.router;
+        // The router's own model is a model call like any other, with a role of its own: the project's
+        // `routing_models` names it, or Jev is not asked and the heuristic decides. This comes before
+        // the key and the reservation, so a refused call costs and holds nothing.
+        crate::gateway::Gateway::new(self.cfg.policy.clone()).check_routing_model(&rc.jev_model)?;
         let key = std::env::var(&rc.jev_api_key_env)
             .ok()
             .filter(|k| !k.is_empty())
@@ -349,21 +465,73 @@ impl Router {
             },
         });
 
-        let resp = self
-            .http
-            .post(&rc.jev_endpoint)
-            .bearer_auth(key)
-            .json(&body)
-            .timeout(std::time::Duration::from_secs(20))
-            .send()
-            .await
-            .context("jev request failed")?;
+        // Where a budget is around the router, the call's worst case (the body
+        // as it goes, in bytes, and an assumed answer, at Jev's own rate) is
+        // held until the response is in; if it does not fit, Jev is not called
+        // and the heuristic decides. Without one the call is declared unmetered.
+        // Docs: docs/cauldron/M1-BUDGET-BOUNDARIES.md.
+        let hold = match &self.meter {
+            Some(meter) => {
+                let bytes = serde_json::to_string(&body)?.len();
+                let tokens = crate::gateway::input_bound(bytes, 1, 0) + crate::gateway::ROUTER_OUTPUT_TOKENS;
+                Some(meter(tokens as f64 * rc.jev_usd_per_mtok / 1_000_000.0, tokens)?)
+            }
+            None => {
+                crate::provider::note_unmetered(crate::gateway::Unmetered::JevRouter);
+                None
+            }
+        };
+        // From here on the request may have left. Until it is known not to have, it may have been
+        // billed: only a failure to connect, or to build the request at all, gives the hold back
+        // as nothing spent. Every other failure keeps the amount held on the books as spent,
+        // marked as an unknown cost, in the step that gives the hold back.
+        let resp = match self.http.post(&rc.jev_endpoint).bearer_auth(key).json(&body).timeout(self.jev_timeout).send().await {
+            Ok(r) => r,
+            Err(e) if e.is_connect() || e.is_builder() => return Err(anyhow::Error::new(e).context("jev request failed")),
+            Err(e) => return Err(self.unknown_cost(hold, anyhow::Error::new(e).context("jev request failed"))),
+        };
         let status = resp.status();
-        let text = resp.text().await?;
-        if !status.is_success() {
-            bail!("jev returned {status}: {}", truncate(&text, 300));
+        let text = match resp.text().await {
+            Ok(t) => t,
+            Err(e) => return Err(self.unknown_cost(hold, anyhow::Error::new(e).context("jev response could not be read"))),
+        };
+        let parsed: Option<Value> = serde_json::from_str(&text).ok();
+        // What Jev says it used, from any body: a failure can still be billed.
+        let reported = parsed.as_ref().and_then(|v| {
+            let (i, o) = (v["usage"]["input_tokens"].as_u64(), v["usage"]["output_tokens"].as_u64());
+            (i.is_some() || o.is_some()).then(|| i.unwrap_or(0) + o.unwrap_or(0))
+        });
+        let failure = if !status.is_success() {
+            Some(anyhow!("jev returned {status}: {}", truncate(&text, 300)))
+        } else if parsed.is_none() {
+            Some(anyhow!("jev returned non-JSON"))
+        } else {
+            None
+        };
+        if let Some(why) = failure {
+            return Err(match reported {
+                Some(tokens) => {
+                    self.settle(hold, tokens as f64 * rc.jev_usd_per_mtok / 1_000_000.0, tokens);
+                    why
+                }
+                None => self.unknown_cost(hold, why),
+            });
         }
-        let v: Value = serde_json::from_str(&text).context("jev returned non-JSON")?;
+        let v = parsed.expect("a 2xx body that parsed");
+        // The call is billed whether or not its answer is usable, so its cost goes on the books now, in
+        // the step that gives the hold back. An answer with no usage in it is used, and counted at the
+        // amount held for it.
+        let (cost, cost_settled, over) = match reported {
+            Some(tokens) => {
+                let cost = tokens as f64 * rc.jev_usd_per_mtok / 1_000_000.0;
+                let (settled, over) = self.settle(hold, cost, tokens);
+                (cost, settled, over)
+            }
+            None => {
+                let (cost, settled) = self.settle_unknown(hold);
+                (cost, settled, Some(unknown_note(cost, settled)))
+            }
+        };
 
         let choice = v["answers"]["model"]["choice"]
             .as_str()
@@ -375,8 +543,6 @@ impl Router {
             .as_f64()
             .ok_or_else(|| anyhow!("jev response missing answers.effort.score"))?;
         let confidence = v["answers"]["model"]["confidence"].as_f64().unwrap_or(0.0) as f32;
-        let tokens = v["usage"]["input_tokens"].as_u64().unwrap_or(0)
-            + v["usage"]["output_tokens"].as_u64().unwrap_or(0);
 
         Ok(Decision {
             model: choice.to_string(),
@@ -384,15 +550,85 @@ impl Router {
             effort: Effort::from_index((score + 0.5).floor().max(0.0) as usize),
             source: "jev".into(),
             confidence,
-            router_cost_usd: tokens as f64 * rc.jev_usd_per_mtok / 1_000_000.0,
-            note: None,
+            router_cost_usd: cost,
+            cost_settled,
+            note: over,
+            triage: None,
         })
+    }
+
+    /// A request that was sent and then failed with no report of what it cost. Its hold is not given
+    /// back as if nothing had been spent: the amount held is counted as spent, as an unknown cost, and the
+    /// error says so.
+    fn unknown_cost(&self, hold: Option<crate::gateway::Reservation>, why: anyhow::Error) -> anyhow::Error {
+        let (usd, counted) = self.settle_unknown(hold);
+        why.context(unknown_note(usd, counted))
+    }
+
+    /// Count what a call was held for as its cost, recorded under the table's lock in the step that
+    /// gives the hold back (see `Reservation::settle`). Through the unknown-cost recorder when there is
+    /// one, so the books can mark it; otherwise through the ordinary one. With neither, or with no
+    /// budget around the router, there is nothing to count it on and the hold is simply released.
+    /// Returns the amount counted and whether it was.
+    fn settle_unknown(&self, hold: Option<crate::gateway::Reservation>) -> (f64, bool) {
+        let Some(h) = hold else { return (0.0, false) };
+        let usd = h.reserved_usd();
+        match self.unknown_recorder.as_ref().or(self.recorder.as_ref()) {
+            Some(record) => {
+                h.settle(|| record(usd));
+                (usd, true)
+            }
+            None => (0.0, false),
+        }
+    }
+
+    /// End a Jev call's hold. With a recorder the cost is recorded under the
+    /// table's lock in the same step (see `Reservation::settle`); a cost above
+    /// what was held is recorded in full and named in the returned note.
+    /// Without one the hold is simply given back and the caller records the
+    /// cost afterwards, which leaves a gap of one call's cost.
+    fn settle(&self, hold: Option<crate::gateway::Reservation>, cost: f64, tokens: u64) -> (bool, Option<String>) {
+        let over = hold.as_ref().and_then(|h| h.overshoot(cost, tokens)).map(|o| {
+            format!("jev overshoot: the call cost ${cost:.6}, ${:.6} more than the ${:.6} held for it; counted in full", o.usd, cost - o.usd)
+        });
+        match (&self.recorder, hold) {
+            (Some(record), Some(h)) => h.settle(|| record(cost)),
+            (Some(record), None) => record(cost),
+            (None, _) => return (false, over),
+        }
+        (true, over)
+    }
+}
+
+/// What a decision or error says about a call whose cost was never reported.
+fn unknown_note(usd: f64, counted: bool) -> String {
+    if counted {
+        format!("jev cost is unknown: the ${usd:.6} held for the call is counted as spent")
+    } else {
+        "jev cost is unknown, and no budget is around the router to count it on".to_string()
     }
 }
 
 /// No-network fallback. Deliberately crude: it exists so the harness runs
-/// without Jev, not to compete with it.
+/// without Jev, not to compete with it. The planner is classified with the
+/// keyword baseline at the default threshold; the router passes its own.
 pub fn heuristic(role: AgentRole, task: &str, candidates: &[&ModelSpec]) -> Decision {
+    let triage = (role == AgentRole::Main)
+        .then(|| {
+            crate::decision::classify(&crate::decision::KeywordDecider, task, crate::decision::DEFAULT_TRIAGE_THRESHOLD).ok()
+        })
+        .flatten();
+    heuristic_with(role, task, candidates, triage.as_ref())
+}
+
+/// The heuristic with the planner's classification given. Only a confident
+/// "long" raises the planner to Xhigh; the old rule raised it on every task.
+pub fn heuristic_with(
+    role: AgentRole,
+    task: &str,
+    candidates: &[&ModelSpec],
+    triage: Option<&crate::decision::Triage>,
+) -> Decision {
     let t = task.to_lowercase();
     let has = |words: &[&str]| words.iter().any(|w| t.contains(w));
 
@@ -437,7 +673,7 @@ pub fn heuristic(role: AgentRole, task: &str, candidates: &[&ModelSpec]) -> Deci
     if task.len() > 4000 {
         level = level.max(2);
     }
-    if role == AgentRole::Main {
+    if role == AgentRole::Main && crate::ladder::planner_start(triage) == crate::ladder::ModelClass::Frontier {
         level = level.max(3);
     }
     let effort = Effort::from_index(level);
@@ -462,7 +698,9 @@ pub fn heuristic(role: AgentRole, task: &str, candidates: &[&ModelSpec]) -> Deci
         source: "heuristic".into(),
         confidence: 0.0,
         router_cost_usd: 0.0,
+        cost_settled: false,
         note: None,
+        triage: None,
     }
 }
 
@@ -508,6 +746,25 @@ mod tests {
     }
 
     #[test]
+    fn excluded_models_never_get_a_worker() {
+        let mut cfg = Config::parse(DEFAULT_CONFIG).unwrap();
+        // Every API provider "local" and listening, so all their models are usable.
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://127.0.0.1:{}/v1", l.local_addr().unwrap().port());
+        for p in cfg.providers.values_mut().filter(|p| !p.is_cli()) {
+            p.base_url = url.clone();
+        }
+        cfg.router.backend = RouterBackend::Heuristic;
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let hard = "audit the auth flow for security holes";
+        let pick = |cfg: &Config| rt.block_on(Router::new(reqwest::Client::new(), cfg.clone()).route(AgentRole::Sub, hard, "")).unwrap().model;
+        assert_eq!(pick(&cfg), "claude-fable-5-1");
+        cfg.router.exclude_sub = vec!["claude-fable-5-1".into()];
+        let other = pick(&cfg);
+        assert!(!other.is_empty() && other != "claude-fable-5-1", "{other}");
+    }
+
+    #[test]
     fn heuristic_scales_with_task() {
         let cfg = Config::parse(DEFAULT_CONFIG).unwrap();
         // The router only ever offers API models to the heuristic.
@@ -526,8 +783,18 @@ mod tests {
         );
         assert_eq!(hard.effort, Effort::Max);
         assert_eq!(hard.model, "claude-fable-5-1");
-        let main = heuristic(AgentRole::Main, "make a todo app", &all);
-        assert!(main.effort >= Effort::Xhigh);
+        // M2: the planner no longer starts at Xhigh on every task. A small task
+        // keeps its own effort (the user's `main_min_effort` floor is applied by
+        // the router, not here); a long one is still planned at Xhigh or above.
+        // Routing end to end is in tests/router_policy.rs.
+        let main_small = heuristic(AgentRole::Main, "fix a typo in the readme", &all);
+        assert!(main_small.effort < Effort::Xhigh, "{:?}", main_small.effort);
+        let main_long = heuristic(
+            AgentRole::Main,
+            "design and build a multi-tenant billing system across several services with database migrations, auth and an admin dashboard",
+            &all,
+        );
+        assert!(main_long.effort >= Effort::Xhigh, "{:?}", main_long.effort);
     }
 }
 

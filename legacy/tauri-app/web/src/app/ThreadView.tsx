@@ -1,0 +1,206 @@
+// Whirl's components/thread/thread-view.tsx (MIT, src/whirl/LICENSE): the
+// same scroller, spacing and row layout, fed from a Backspace thread.
+
+import { memo, useMemo } from "react";
+import { motion } from "motion/react";
+
+import { computeIsGenerating, type ChatMessage } from "@/lib/messages";
+import { EASE_OUT } from "@/lib/motion";
+import { cn } from "@/lib/utils";
+import {
+  MessageScroller,
+  MessageScrollerButton,
+  MessageScrollerContent,
+  MessageScrollerItem,
+  MessageScrollerProvider,
+  MessageScrollerViewport,
+} from "@/components/ui/message-scroller";
+import { UserMessage } from "@/components/thread/user-message";
+import { AssistantMessage } from "./AssistantMessage";
+import { LinkCard, Quote, SpecCard, RememberButton, ReplyButton, TapbackButton, Tapbacks } from "./Extras";
+import { agentById, branch, edit, getHost, retry, resume, toChatMessage, useChat, type Msg, type Thread } from "../bridge";
+import { MessageActions } from "./ask";
+import { Avatar } from "./Agents";
+import { sessionForMessage, sessionLabel, useNow, useSessions, type Session } from "./sessions";
+
+const PREVIOUS_TURN_PEEK_PX = 72;
+const EDGE_THRESHOLD_PX = 128;
+
+export function ThreadView({ thread, header }: { thread: Thread; header?: React.ReactNode }) {
+  const { epoch } = useChat();
+  const sessions = useSessions();
+  const now = useNow(30_000);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const messages = useMemo(() => thread.messages.map((m) => toChatMessage(thread, m)), [thread, epoch]);
+  const generating = computeIsGenerating(messages);
+  const host = getHost();
+  const lastAssistant = [...thread.messages].reverse().find((m) => m.role === "assistant")?.id;
+  // Which sitting each message belongs to: the one that had already started
+  // when the message was sent. A sitting's first message carries its marker.
+  const openers = useMemo(() => {
+    const seen = new Set<string>();
+    return thread.messages.map((m) => {
+      const s = sessionForMessage(sessions, thread.id, m.at);
+      if (!s || seen.has(s.id)) return undefined;
+      seen.add(s.id);
+      return s;
+    });
+  }, [sessions, thread.id, thread.messages]);
+
+  if (messages.length === 0) {
+    if (thread.agent || (thread.members?.length ?? 0) > 0) {
+      return <div className="h-full overflow-y-auto px-6 pb-40">{header}</div>;
+    }
+    return (
+      <div className="flex h-full items-center justify-center px-6 pb-40 text-center">
+        <div className="text-[15px]/6 text-muted-foreground">
+          Say hello to {host.routeName(thread.route)}. Replies stream in here.
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <motion.div
+      key={thread.id}
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ opacity: { duration: 0.22, ease: EASE_OUT }, y: { type: "spring", stiffness: 520, damping: 38 } }}
+      className="h-full min-h-0"
+    >
+      <MessageScrollerProvider
+        autoScroll={generating}
+        defaultScrollPosition="end"
+        scrollEdgeThreshold={EDGE_THRESHOLD_PX}
+        scrollPreviousItemPeek={PREVIOUS_TURN_PEEK_PX}
+      >
+        <MessageScroller>
+          <MessageScrollerViewport className="px-3 md:px-6">
+            <MessageScrollerContent
+              className={cn(
+                "mx-auto w-full max-w-2xl pt-8 pb-[max(11rem,calc(var(--dock-clearance,0px)+0.75rem))]",
+              )}
+            >
+              <MessageActions.Provider value={{ thread }}>
+                {header}
+                {thread.messages.map((m, i) => (
+                  <Row
+                    key={m.id}
+                    thread={thread}
+                    raw={m}
+                    message={messages[i]}
+                    canRetry={m.id === lastAssistant && !generating}
+                    generating={generating}
+                    epoch={epoch}
+                    // The sitting this message opened, when it opens one: the
+                    // marker the transcript scrolls back to.
+                    opens={openers[i]}
+                    now={now}
+                    // A question card is spent once the user has said anything
+                    // after it, whichever way they answered (card, Skip, prose).
+                    answered={thread.messages.slice(i + 1).some((x) => x.role === "user")}
+                  />
+                ))}
+              </MessageActions.Provider>
+            </MessageScrollerContent>
+          </MessageScrollerViewport>
+          <MessageScrollerButton className="bottom-32" />
+        </MessageScroller>
+      </MessageScrollerProvider>
+    </motion.div>
+  );
+}
+
+const Row = memo(function Row({
+  thread,
+  raw,
+  message,
+  canRetry,
+  generating,
+  answered,
+  opens,
+  now,
+}: {
+  thread: Thread;
+  raw: Msg;
+  message: ChatMessage;
+  canRetry: boolean;
+  generating: boolean;
+  /** A user message exists after this one: a question card here is spent. */
+  answered: boolean;
+  /** The session this message is the first of, when it is one. */
+  opens?: Session;
+  /** Ticking clock for the session marker's label. */
+  now: number;
+  /** Bumps when a link preview or attachment lands. */
+  epoch: number;
+}) {
+  const host = getHost();
+  const toast = (e: unknown) => host.toast(String(e), "err");
+  const author = raw.author ? agentById(raw.author) : undefined;
+  const answeredBy = raw.author_name ?? (raw.via ? `${host.providerName(raw.via)} answered` : undefined);
+  const of = raw.reply_to ? thread.messages.find((m) => m.id === raw.reply_to) : undefined;
+  const user = message.role === "user";
+  const actions = (
+    <>
+      <TapbackButton thread={thread.id} msg={raw} />
+      <ReplyButton msg={raw} />
+      <RememberButton msg={raw} />
+    </>
+  );
+  return (
+    <MessageScrollerItem messageId={message.id} scrollAnchor={user}>
+      <div data-message-id={raw.id} className="flex min-w-0 flex-col">
+        {/* The sitting's marker: the session's name and how it is doing, at
+            the message where it began. Clicking a session anywhere scrolls
+            this into view — the scroll-back-up of one long thread. */}
+        {opens && (
+          <div id={`session-${opens.id}`} data-session={opens.id} className="flex scroll-mt-28 items-center gap-2.5 pb-3 pt-2">
+            {sessionLabel(opens, now) && <span className="text-[11px]/4 font-medium text-muted-foreground/60">{sessionLabel(opens, now)}</span>}
+            <span className="max-w-[60%] truncate rounded-full bg-foreground/[0.05] px-2.5 py-1 text-[11.5px]/4 font-medium text-muted-foreground" title={opens.title}>
+              {opens.title}
+            </span>
+          </div>
+        )}
+        {user ? (
+          <UserMessage
+            message={message}
+            onEdit={generating ? undefined : (content) => void edit(thread.id, raw.id, content).catch(toast)}
+            quote={
+              <>
+                {/* Not you: an event that came in through the bot's webhook. */}
+                {raw.author_name && <span className="px-1 text-[11.5px] font-medium text-muted-foreground">{raw.author_name}</span>}
+                <Quote of={of} align="end" />
+              </>
+            }
+            badge={<Tapbacks thread={thread.id} msg={raw} />}
+            actions={actions}
+            below={<LinkCard text={raw.text} align="end" />}
+          />
+        ) : (
+          <AssistantMessage
+            message={message}
+            error={raw.error}
+            answeredBy={answeredBy}
+            answered={answered}
+            avatar={raw.author ? <Avatar agent={author} size={22} /> : undefined}
+            ad={raw.ad}
+            onRetry={canRetry ? () => void retry(thread.id).catch(toast) : undefined}
+            interrupted={!!raw.interrupted}
+            onResume={canRetry && raw.status === "stopped" && !thread.members?.length ? () => void resume(thread.id).catch(toast) : undefined}
+            onBranch={() => void branch(thread.id, raw.id).catch(toast)}
+            quote={<Quote of={of} align="start" />}
+            badge={<Tapbacks thread={thread.id} msg={raw} />}
+            actions={actions}
+            below={
+              <>
+                <SpecCard verdict={raw.spec} />
+                <LinkCard text={raw.text} />
+              </>
+            }
+          />
+        )}
+      </div>
+    </MessageScrollerItem>
+  );
+});

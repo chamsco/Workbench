@@ -1,0 +1,25 @@
+test a_one_shot_spec_that_is_not_light_is_refused_with_the_reason ... FAILED
+test a_one_shot_spec_is_one_ticket_with_a_goal_and_an_acceptance_line ... FAILED
+test a_report_is_written_under_the_reports_folder_and_never_overwrites ... FAILED
+test a_spec_is_handed_off_as_a_file ... FAILED
+test a_report_needs_a_title_and_a_body ... FAILED
+test an_answer_is_a_label_a_number_or_nothing ... FAILED
+test a_confident_long_task_keeps_the_full_planner ... FAILED
+test intake_is_off_by_default_and_must_be_allowed_to_ask ... FAILED
+test an_answer_starts_the_path_the_user_chose_on_the_original_task ... FAILED
+test an_unsure_task_asks_the_user_and_calls_no_model ... FAILED
+test the_long_path_is_not_restricted ... ok
+test the_one_shot_path_specifies_and_dispatches_but_never_builds_itself ... FAILED
+test a_task_after_a_report_is_classified_afresh ... FAILED
+test the_question_names_all_three_kinds_and_a_guess_when_there_is_one ... FAILED
+test the_research_path_can_read_and_report_and_nothing_else ... FAILED
+test one_shot_reaches_a_worker_with_a_lightweight_spec_and_no_plan_gate ... FAILED
+test with_intake_off_nothing_is_asked_and_the_model_gets_the_text ... ok
+test the_pending_question_survives_a_restart ... FAILED
+test research_returns_a_report_and_no_pr ... FAILED
+test two_unclear_answers_fall_to_the_long_path_and_keep_what_was_said ... FAILED
+test result: FAILED. 2 passed; 18 failed; 0 ignored; 0 measured; 0 filtered out; finished in 80.29s
+test a_cli_one_shot_files_one_validated_ticket_with_no_plan_gate ... FAILED
+test a_cli_research_task_cannot_plan_and_its_answer_is_filed_as_the_report ... FAILED
+test an_unsure_task_is_asked_about_before_the_cli_is_launched ... FAILED
+test result: FAILED. 0 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 40.24s

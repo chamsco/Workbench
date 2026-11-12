@@ -1,0 +1,68 @@
+# Builds Cauldron for Windows: the GPUI app, one .exe that runs as is on Windows 10/11.
+# Unsigned, so SmartScreen warns on first run: More info, then Run anyway.
+# The installer returns with UI8 (docs/cauldron/UI-PLAN.md).
+name: Windows app
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, app-frame-redesign, "claude/**"]
+    paths: ["crates/**", "Cargo.*", ".github/workflows/windows.yml"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: windows-gpui
+
+      # The app knows which commit it is (the update flow returns with UI8).
+      - name: Say which commit this build is
+        shell: bash
+        run: |
+          printf 'pub const BUILD: &str = "%s";\n' "$GITHUB_SHA" > crates/core/src/build_stamp.rs
+
+      - name: Test the chrome contract
+        run: cargo test -p cauldron-chrome
+
+      - name: Build Cauldron.exe
+        run: cargo build --release -p backspace
+
+      - name: Collect
+        shell: bash
+        run: |
+          mkdir -p out
+          cp target/release/backspace.exe out/Cauldron.exe
+          ls -la out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Cauldron-windows
+          path: out/*
+
+      # A push to main moves "windows-latest"; any other branch moves
+      # "windows-preview", so a branch build is never mistaken for main.
+      - name: Publish the pre-release
+        if: github.event_name == 'push'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$GITHUB_REF" = "refs/heads/main" ]; then tag=windows-latest; what="latest main"; else tag=windows-preview; what="${GITHUB_REF_NAME}"; fi
+          gh release delete "$tag" --yes --cleanup-tag 2>/dev/null || true
+          gh release create "$tag" out/* --prerelease --target "$GITHUB_SHA" \
+            --title "Cauldron for Windows ($what)" \
+            --notes "Built from ${GITHUB_SHA::7} on ${what}. Unsigned: Windows SmartScreen will warn the first time; choose More info, then Run anyway. Cauldron.exe runs without installing."

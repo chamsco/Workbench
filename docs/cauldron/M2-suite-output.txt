@@ -1,0 +1,459 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.36s
+     Running unittests src/main.rs (target/debug/deps/backspace_cli-e14ffda91c75b4ab)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/eval_cli.rs (target/debug/deps/eval_cli-09ac4138be3fc2f8)
+
+running 4 tests
+test the_threshold_can_be_given ... ok
+test it_prints_the_report_for_labeled_traces ... ok
+test unlabeled_traces_are_an_error ... ok
+test a_missing_file_is_an_error ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
+     Running unittests src/lib.rs (target/debug/deps/backspace_colony-0abb1bf7f3d72512)
+
+running 25 tests
+test backend::tests::capabilities_print_providers ... ok
+test backend::tests::cli_states_fold_into_five ... ok
+test backend::tests::cli_workspace_json_maps_to_ours ... ok
+test backend::tests::create_args_are_the_cli_flags ... ok
+test backend::tests::exec_output_reads_the_cli_exit_code ... ok
+test backend::tests::error_message_comes_out_verbatim ... ok
+test backend::tests::parse_error_ignores_noise_and_junk ... ok
+test colony::tests::a_missing_state_file_is_an_empty_colony ... ok
+test backend::tests::a_missing_cli_is_an_error_not_a_panic ... ok
+test colony::tests::a_corrupt_state_file_is_an_error ... ok
+test colony::tests::duplicate_name_is_refused_before_the_backend ... ok
+test colony::tests::colony_json_round_trips ... ok
+test colony::tests::exec_records_argv_and_returns_the_output ... ok
+test colony::tests::list_adopts_what_the_backend_reports ... ok
+test colony::tests::unknown_workspace_is_an_error_not_a_panic ... ok
+test fake::tests::the_fake_refuses_a_duplicate_like_the_cli ... ok
+test colony::tests::stop_force_reaches_the_backend ... ok
+test fake::tests::the_fake_reports_running_then_stopped ... ok
+test prompt::tests::chat_prompt_copes_without_a_task ... ok
+test prompt::tests::chat_prompt_names_the_workspace ... ok
+test colony::tests::task_and_created_survive_a_backend_round_trip ... ok
+test tools::tests::every_tool_carries_a_description_and_an_object_schema ... ok
+test tools::tests::five_tools_with_the_right_names ... ok
+test tools::tests::required_arguments_are_the_ones_the_registry_needs ... ok
+test colony::tests::lifecycle_create_list_status_stop_start_delete ... ok
+
+test result: ok. 25 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/backspace_core-506ff0b8f481c1a9)
+
+running 140 tests
+test accounts::tests::default_profile_dir_sits_under_the_data_accounts_folder ... ok
+test accounts::tests::env_for_uses_the_providers_own_variable ... ok
+test accounts::tests::note_limit_cools_down_and_note_fail_does_not ... ok
+test accounts::tests::best_prefers_healthy_over_warning_at_equal_failures ... ok
+test accounts::tests::order_drops_disabled_and_cooled_down_accounts ... ok
+test accounts::tests::order_ranks_state_then_failures_then_priority_then_last_ok ... ok
+test accounts::tests::fails_decay_after_a_day_and_the_ring_stays_small ... ok
+test accounts::tests::policies_decide_who_switches ... ok
+test agents::tests::next_run_maths ... ok
+test agents::tests::next_run_round_trips_a_negative_offset ... ok
+test agents::tests::quoting ... ok
+test accounts::tests::round_trips_through_json_and_decays_on_load ... ok
+test agents::tests::routine_summaries ... ok
+test agents::tests::rules_become_denied_tools ... ok
+test agents::tests::brief_in_names_the_project_personality_and_routines ... ok
+test agents::tests::save_cleans_routines_and_refreshes_a_passed_wake ... ok
+test agents::tests::routine_save_validates_and_persists ... ok
+test apps::tests::manifest_rules ... ok
+test artifact::tests::a_body_cannot_be_unbounded_and_a_summary_says_what_it_is ... ok
+test artifact::tests::a_table_row_must_match_the_header ... ok
+test artifact::tests::an_old_state_file_without_artifacts_still_loads ... ok
+test artifact::tests::each_kind_is_validated_on_its_own_field ... ok
+test artifact::tests::ids_are_unique_and_addressable ... ok
+test artifact::tests::kinds_this_build_does_not_know_are_kept_not_dropped ... ok
+test artifact::tests::options_must_refer_to_a_set_that_exists ... ok
+test agents::tests::save_list_brief_delete ... ok
+test artifact::tests::the_list_is_bounded_and_drops_the_oldest ... ok
+test board::tests::a_thread_is_the_pair_whichever_way_it_went ... ok
+test board::tests::conversations_group_replies_and_broadcasts_separately ... ok
+test board::tests::post_and_read ... ok
+test apps::tests::install_serve_store_remove ... ok
+test chat::tests::a_thread_file_without_a_life_loads_as_a_normal_chat ... ok
+test chat::tests::ansi_is_stripped ... ok
+test chat::tests::base64_roundtrip ... ok
+test chat::tests::link_meta ... ok
+test chat::tests::a_ghost_thread_is_never_written_and_never_listed ... ok
+test chat::tests::mentions_pick_a_cli ... ok
+test chat::tests::a_temporal_thread_forgets_itself_after_its_deadline ... ok
+test agents::tests::docker_computer ... ok
+test chat::tests::making_a_thread_a_ghost_deletes_the_file_it_had ... ok
+test chat::tests::titles_are_short ... ok
+test chat::tests::purging_ghosts_removes_only_ghosts ... ok
+test cloud::tests::plan_table ... ok
+test companion::tests::pair_link_escapes ... ok
+test chat::tests::talking_to_a_temporal_thread_moves_its_deadline ... ok
+test config::tests::default_config_parses ... ok
+test delegate::tests::adds_assigns_and_survives_a_reopen ... ok
+test delegate::tests::an_empty_title_is_refused ... ok
+test delegate::tests::a_task_whose_bot_is_gone_comes_back_unassigned ... ok
+test delegate::tests::auto_off_leaves_work_unassigned ... ok
+test delegate::tests::auto_picks_the_shortest_queue_then_the_cheaper_minute ... ok
+test delegate::tests::importing_tickets_twice_keeps_one_task_each ... ok
+test diagram::tests::plan_layers_by_blockers_and_flags_missing_checks ... ok
+test effort::tests::clamps_up_then_down ... ok
+test delegate::tests::the_snapshot_prices_a_queue_and_a_cli_is_free ... ok
+test git::tests::a_new_repo_lists_folders_and_says_so ... ok
+test git::tests::day_numbers ... ok
+test git::tests::parse_changes_reads_status_and_counts ... ok
+test harnesses::tests::codex_plan_from_id_token ... ok
+test harnesses::tests::toggles_override_scan ... ok
+test harnesses::tests::versions ... ok
+test layout::tests::a_card_can_come_out_and_a_split_still_works ... ok
+test layout::tests::a_full_stack_never_loses_a_canvas ... ok
+test layout::tests::a_stack_survives_json_and_older_shapes_still_load ... ok
+test layout::tests::centre_swaps_and_self_is_a_no_op ... ok
+test layout::tests::closing_a_card_keeps_the_stack_valid_and_renumbers_it ... ok
+test layout::tests::defaults_and_presets_cover_every_pane ... ok
+test layout::tests::drag_to_an_edge_splits_there_and_the_old_spot_closes ... ok
+test layout::tests::dropping_on_a_cards_middle_stacks_instead_of_swapping ... ok
+test layout::tests::json_shape ... ok
+test layout::tests::one_over_two_is_a_long_top_and_two_squares ... ok
+test layout::tests::remove_and_renumber_keep_it_valid ... ok
+test layout::tests::stacking_two_keeps_both_and_raising_swaps_which_is_in_front ... ok
+test layout::tests::zones ... ok
+test mcp::tests::rules_keep_tools_away ... ok
+test memory::tests::dates_and_meta ... ok
+test memory::tests::moves_old_json_in ... ok
+test chat::tests::threads_persist_react_branch_delete ... ok
+test cloud::tests::dev_server_end_to_end ... ok
+test memory::tests::repo_format_hand_edits_and_history ... ok
+test memory_dream::tests::plan_applies_conservatively ... ok
+test memory_dream::tests::prompt_lists_notes_and_messages ... ok
+test memory_learn::tests::learns_from_rejections ... ok
+test memory_learn::tests::proposes_and_skips ... ok
+test memory_learn::tests::third_person_rewrites ... ok
+test model_server::tests::human_size_reads_in_decimal_units ... ok
+test model_server::tests::is_loopback_only_for_this_machine ... ok
+test model_server::tests::openai_base_adds_v1_for_ollama ... ok
+test model_server::tests::order_breaks_ties_by_size_then_id ... ok
+test model_server::tests::order_puts_the_smallest_tiny_first ... ok
+test model_server::tests::parse_ollama_tags_fixture ... ok
+test model_server::tests::parse_openai_models_fixture ... ok
+test model_server::tests::pick_falls_back_and_handles_empty ... ok
+test model_server::tests::pick_maps_the_task_kind ... ok
+test model_server::tests::pick_prefers_the_named_family ... ok
+test model_server::tests::recommend_needs_a_running_runtime ... ok
+test model_server::tests::recommend_prefers_the_tiny_model_and_stays_stable ... ok
+test model_server::tests::tiny_by_parameter_count ... ok
+test model_server::tests::tiny_from_the_file_size_only_when_nothing_else_says ... ok
+test model_server::tests::tiny_from_the_name_when_the_count_is_missing ... ok
+test options::tests::add_names_variants_and_pick_records_the_choice ... ok
+test options::tests::bad_sets_are_refused ... ok
+test phase::tests::a_model_can_block_but_never_open ... ok
+test phase::tests::a_refusal_is_kept_and_a_pass_moves_on ... ok
+test phase::tests::a_refused_respec_reopens_specify_and_a_pass_does_not_skip_ahead ... ok
+test phase::tests::loads_and_saves_beside_the_project ... ok
+test phase::tests::round_trips_and_old_state_loads_without_it ... ok
+test projects::tests::save_list_rename_assign_delete ... ok
+test provider::tests::anthropic_body_sets_effort_only_when_supported ... ok
+test provider::tests::openai_roundtrips_tool_calls ... ok
+test router::liveness_tests::a_listening_port_is_up_and_a_closed_one_is_not ... ok
+test memory::tests::scopes_and_persistence ... ok
+test router::tests::heuristic_scales_with_task ... ok
+test memory::tests::the_librarian_files_a_batch_as_one_commit ... ok
+test skills::tests::a_workspace_folder_overrides_a_default_and_shows_as_ours ... ok
+test skills::tests::defaults_load_with_descriptions ... ok
+test skills::tests::description_reads_plain_folded_and_literal ... ok
+test skills::tests::found_says_where_a_skill_came_from ... ok
+test spec::tests::a_complete_spec_passes ... ok
+test spec::tests::coverage_names_every_hole ... ok
+test spec::tests::each_rule_names_what_is_missing ... ok
+test spec::tests::extract_takes_the_last_spec_block_only ... ok
+test spec::tests::the_prompt_carries_the_grilling_skill_the_rules_and_the_last_refusal ... ok
+test spec::tests::the_skeleton_alone_is_refused_for_every_empty_part ... ok
+test ticket::tests::parses_and_renders ... ok
+test tools::tests::resolve_blocks_escape ... ok
+test skills::tests::search_ranks_a_name_hit_above_a_body_hit ... ok
+test tools::tests::write_edit_read_bash ... ok
+test trace::tests::records_tools_and_exports_otlp ... ok
+test update::tests::a_merged_pull_request_reads_as_its_title ... ok
+test update::tests::another_commit_is_newer_but_the_same_one_is_not ... ok
+test update::tests::falls_back_to_the_notes ... ok
+test update::tests::notes_without_a_stamp_say_nothing ... ok
+test update::tests::only_a_hash_counts_as_a_commit ... ok
+test update::tests::reads_the_commit_the_workflow_passed ... ok
+test update::tests::the_changelog_is_pull_requests_newest_first ... ok
+test update::tests::the_stamp_is_the_commit_the_build_was_given ... ok
+test trace::tests::exports_to_a_collector ... ok
+test router::tests::cli_pin_routes_workers_not_the_planner ... ok
+test git::tests::branch_merge_and_conflict ... ok
+
+test result: ok. 140 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.59s
+
+     Running tests/agents.rs (target/debug/deps/agents-3e3bf92970288c0d)
+
+running 1 test
+test groups_take_turns_and_agents_work_in_their_folder ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.27s
+
+     Running tests/bya.rs (target/debug/deps/bya-e3043d92b9939e25)
+
+running 1 test
+test chat_with_a_remote_a2a_agent ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
+     Running tests/decision.rs (target/debug/deps/decision-a0cb766126eff04c)
+
+running 9 tests
+test a_different_decider_can_be_swapped_in_and_decides_instead ... ok
+test a_decider_that_fails_is_an_error_not_a_guess ... ok
+test nothing_to_go_on_is_never_a_confident_answer ... ok
+test below_the_threshold_the_user_is_asked_and_at_it_the_answer_stands ... ok
+test a_malformed_answer_is_rejected ... ok
+test the_baseline_answers_each_question_with_a_distribution_that_sums_to_one ... ok
+test task_types_round_trip_through_their_names ... ok
+test ties_resolve_the_same_way_every_time ... ok
+test the_baseline_separates_clear_cases ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/e2e.rs (target/debug/deps/e2e-36d83ee279d41137)
+
+running 8 tests
+test a_plan_must_cover_the_spec ... ok
+test filed_tickets_get_triaged ... ok
+test a_remote_machine_is_followed_and_driven ... ok
+test a_ticket_runs_on_a_cli_worker ... ok
+test visual_options_wait_for_the_users_pick ... ok
+test a_whole_project_reports_the_section_3_4_metrics ... ok
+test flat_project_with_gates_escalation_and_merges ... ok
+test nested_leads_review_and_revise_their_reports ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.36s
+
+     Running tests/eval.rs (target/debug/deps/eval-0706abaad829299b)
+
+running 10 tests
+test an_unlabeled_or_mislabeled_trace_is_an_error_naming_its_line ... ok
+test accuracy_is_reported_per_task_type ... ok
+test an_empty_trace_set_cannot_be_evaluated ... ok
+test a_decider_that_fails_on_a_trace_fails_the_eval ... ok
+test below_the_threshold_is_counted_as_asking_and_confident_mistakes_are_counted_apart ... ok
+test traces_load_from_json_lines_and_blank_lines_are_skipped ... ok
+test calibration_bins_ece_and_brier_match_the_hand_calculation ... ok
+test cost_is_compared_with_always_frontier_when_traces_carry_token_counts ... ok
+test the_report_renders_every_section_the_plan_asks_for ... ok
+test without_token_counts_cost_is_not_computed_rather_than_guessed ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/features.rs (target/debug/deps/features-f89239a6df61383c)
+
+running 17 tests
+test a_limit_is_recognised_from_the_clis_own_words_only ... ok
+test a_direct_message_between_two_agents_is_its_own_conversation ... ok
+test a_chosen_local_model_becomes_the_scout_model ... ok
+test a_local_model_on_a_custom_router_is_found_by_id ... ok
+test a_reply_to_a_message_that_is_not_there_is_refused ... ok
+test accounts_round_trip_and_keep_their_env ... ok
+test each_project_remembers_its_own_canvases ... ok
+test local_jobs_defaults_to_scouts_and_refuses_unknown_words ... ok
+test no_choice_or_an_unknown_runtime_leaves_the_config_alone ... ok
+test one_limited_login_does_not_stop_the_project ... ok
+test read_messages_hands_back_the_id_a_reply_can_name ... ok
+test the_board_message_shape_survives_a_round_trip ... ok
+test the_tick_gates_the_local_model_and_scouts_only_follow_their_own ... ok
+test a_worker_routes_to_the_local_model_only_while_it_is_listening ... ok
+test a_produced_artifact_reaches_the_snapshot_and_is_addressable ... ok
+test a_delegated_lookup_reaches_the_chosen_local_model ... ok
+test triage_can_run_on_the_local_model_with_no_api_key ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.68s
+
+     Running tests/gateway.rs (target/debug/deps/gateway-9f27bfde7bb591b6)
+
+running 20 tests
+test a_call_that_fits_gets_the_models_full_output ... ok
+test a_call_whose_input_alone_does_not_fit_is_refused_before_it_is_made ... ok
+test a_model_outside_the_orchestration_list_is_refused_for_orchestration_only ... ok
+test a_model_outside_the_execution_list_is_refused_for_execution_only ... ok
+test a_model_that_costs_nothing_is_not_stopped_by_a_dollar_budget_but_is_by_a_token_one ... ok
+test a_role_follows_what_the_agent_does ... ok
+test a_spent_budget_refuses_every_further_call ... ok
+test a_plugin_outside_the_list_is_refused_in_both_roles ... ok
+test a_refusal_names_the_policy_the_thing_and_the_role ... ok
+test a_token_budget_clamps_and_refuses_the_same_way ... ok
+test a_skill_outside_the_list_is_refused_in_both_roles ... ok
+test input_is_estimated_high_never_low ... ok
+test an_empty_list_refuses_everything_in_that_role ... ok
+test output_is_clamped_so_the_worst_case_cost_stays_inside_the_budget ... ok
+test the_per_task_line_comes_from_the_policy_and_carries_the_tasks_own_spend ... ok
+test text_dressed_as_an_instruction_cannot_widen_a_list ... ok
+test the_tightest_budget_wins_and_is_named ... ok
+test with_no_policy_every_model_skill_and_plugin_is_open ... ok
+test the_two_lists_are_separate ... ok
+test the_policy_is_read_from_the_project_config ... ok
+
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/gateway_e2e.rs (target/debug/deps/gateway_e2e-b4be863768da432a)
+
+running 13 tests
+test a_skill_outside_the_list_is_refused_for_an_execution_agent_too ... ok
+test a_task_budget_spent_by_one_call_stops_the_next_before_it_is_made ... ok
+test a_skill_outside_the_list_is_refused_and_not_offered_to_an_orchestration_agent ... ok
+test a_task_budget_smaller_than_the_first_call_stops_it_before_any_request ... ok
+test an_agent_cannot_rewrite_the_policy_file_with_the_file_tools ... ok
+test an_allowed_skill_still_loads ... ok
+test an_execution_model_outside_the_list_never_reaches_the_provider ... ok
+test the_output_limit_sent_to_the_provider_is_clamped_to_what_the_budget_can_pay ... ok
+test an_orchestration_model_outside_the_list_never_reaches_the_provider ... ok
+test the_policy_is_fixed_when_the_project_opens ... ok
+test the_project_budget_is_enforced_before_the_call_not_after_it ... ok
+test without_a_budget_the_output_limit_is_the_models_own ... ok
+test an_allowed_orchestration_model_is_called_normally ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.51s
+
+     Running tests/interrupted.rs (target/debug/deps/interrupted-f51eb1a30baed879)
+
+running 2 tests
+test a_restart_carries_a_cli_worker_on_in_its_own_session ... ok
+test only_an_interrupted_agent_can_carry_on ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.74s
+
+     Running tests/ladder.rs (target/debug/deps/ladder-46073cb4025b8ce5)
+
+running 16 tests
+test a_cheap_rung_that_keeps_failing_is_skipped_for_the_frontier ... ok
+test a_cheap_rung_that_mostly_works_is_kept ... ok
+test an_unmeasured_rung_is_a_coin_flip_and_no_rung_is_certain ... ok
+test an_unsure_or_missing_classification_does_not_start_on_the_frontier ... ok
+test an_explicit_class_beats_the_tier ... ok
+test a_free_model_can_still_be_a_frontier_call ... ok
+test an_unknown_class_is_a_config_error ... ok
+test classes_are_ordered_from_local_to_frontier ... ok
+test moving_up_needs_a_measured_failure ... ok
+test nothing_is_above_the_frontier ... ok
+test the_planner_starts_on_the_frontier_only_for_a_long_task ... ok
+test by_default_the_class_follows_the_tier ... ok
+test without_measurements_price_decides_and_the_cheap_rung_goes_first ... ok
+test tier_zero_is_local ... ok
+test cheapest_on_prefers_the_class_then_the_nearest_below_then_above ... ok
+test within_caps_the_candidates_and_never_empties_them ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/metrics.rs (target/debug/deps/metrics-ed4ae7eb713b813d)
+
+running 11 tests
+test decision_model_spend_counts_toward_cost_but_is_not_a_model_call ... ok
+test cost_to_green_includes_every_retry_up_to_the_green_result ... ok
+test a_task_that_never_goes_green_does_not_make_cost_to_green ... ok
+test finishing_a_task_that_was_never_started_still_counts_it ... ok
+test an_empty_ledger_reports_zeros_and_no_ratios ... ok
+test escalation_rate_and_success_rate_count_tasks_not_events ... ok
+test frontier_calls_are_counted_by_class_not_by_price ... ok
+test human_tokens_are_estimated_from_characters_and_split_into_typed_and_read ... ok
+test no_escalations_means_no_success_rate_rather_than_zero ... ok
+test per_merged_figures_divide_by_merged_tickets ... ok
+test the_json_form_carries_every_metric_and_round_trips ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/metrics_cli.rs (target/debug/deps/metrics_cli-7595efbb12da8c86)
+
+running 1 test
+test a_cli_workers_turn_is_a_frontier_call_even_though_it_costs_nothing ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.38s
+
+     Running tests/metrics_e2e.rs (target/debug/deps/metrics_e2e-679b03ac147030f4)
+
+running 4 tests
+test a_frontier_planner_turn_is_one_frontier_call_with_its_tokens_and_cost ... ok
+test a_mid_model_turn_is_not_a_frontier_call ... ok
+test the_harness_reports_the_same_numbers_it_wrote ... ok
+test the_file_only_ever_grows_by_whole_json_lines ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
+
+     Running tests/resume.rs (target/debug/deps/resume-c3b5cae2affceb3b)
+
+running 1 test
+test interrupted_replies_resume ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.15s
+
+     Running tests/router_policy.rs (target/debug/deps/router_policy-8c3f5b85b8a3cd2e)
+
+running 9 tests
+test a_one_shot_task_is_planned_on_a_mid_model_not_a_frontier_one ... ok
+test a_project_with_only_frontier_models_still_routes ... ok
+test a_long_task_is_planned_on_a_frontier_model_at_high_effort ... ok
+test a_pinned_planner_model_still_wins ... ok
+test a_research_task_is_planned_on_a_mid_model ... ok
+test an_unclear_task_starts_mid_and_is_marked_for_asking ... ok
+test the_threshold_in_the_config_decides_what_counts_as_unsure ... ok
+test workers_are_not_classified_by_the_planner_policy ... ok
+test swapping_the_decider_changes_where_the_planner_starts ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+
+     Running tests/spec_gate.rs (target/debug/deps/spec_gate-94498de447b56d3b)
+
+running 1 test
+test the_gate_refuses_twice_then_opens ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.24s
+
+     Running tests/webhook.rs (target/debug/deps/webhook-7da8c2b7530ee62e)
+
+running 2 tests
+test the_phone_cannot_read_agent_or_group_threads ... ok
+test a_webhook_wakes_only_its_bot ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+
+     Running unittests src/lib.rs (target/debug/deps/backspace_runner-7f3ebfbbcbbefa7b)
+
+running 3 tests
+test tests::transcripts_and_base64 ... ok
+test tests::codex_stream ... ok
+test tests::claude_stream_with_a_tool_call ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/http.rs (target/debug/deps/http-425a39f3299f7e6e)
+
+running 3 tests
+test openai_compatible_stream ... ok
+test bad_agent_addresses_say_so ... ok
+test a2a_card_and_task ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.55s
+
+   Doc-tests backspace_colony
+
+running 1 test
+test crates/colony/src/lib.rs - (line 15) - compile ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+   Doc-tests backspace_core
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests backspace_runner
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

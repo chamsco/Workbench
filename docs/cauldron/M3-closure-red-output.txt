@@ -1,0 +1,13 @@
+test a_root_reached_through_a_symlink_lists_normally ... FAILED
+test a_loop_or_a_second_route_to_a_shown_folder_is_not_walked_again ... FAILED
+test a_symlink_below_the_top_cannot_reveal_an_external_folder ... FAILED
+test a_dangling_symlink_is_shown_and_not_followed ... FAILED
+test an_external_symlinked_file_is_shown_and_not_followed ... FAILED
+test an_external_symlinked_folder_is_shown_and_not_entered ... FAILED
+test an_internal_symlink_keeps_its_existing_behaviour ... FAILED
+test result: FAILED. 1 passed; 7 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.26s
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.57s
+test a_cli_one_shot_the_classifier_chooses_is_refused_before_the_cli_runs ... FAILED
+test a_cli_task_the_user_answers_as_one_shot_is_refused_too ... FAILED
+test a_saved_one_shot_is_refused_after_a_restart_with_a_cli_planner ... FAILED
+test result: FAILED. 8 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 41.14s

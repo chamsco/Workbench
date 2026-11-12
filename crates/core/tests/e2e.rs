@@ -77,7 +77,7 @@ fn respond(req: &Value) -> Value {
             Some(t) if t.contains("Plan APPROVED") => tool_call("work_tickets", json!({})),
             Some(t) if t.contains("APPROVED by the user and merged") => tool_call(
                 "submit_deliverable",
-                json!({"summary": "hello.txt", "files": ["hello.txt"]}),
+                json!({"checks_run": [], "assumptions": [], "open_questions": [], "summary": "hello.txt", "files": ["hello.txt"]}),
             ),
             Some(t) => unexpected(t),
         };
@@ -113,7 +113,7 @@ fn respond(req: &Value) -> Value {
                 ]}),
             ),
             Some(t) if t.contains("The user chose") => {
-                tool_call("submit_deliverable", json!({"summary": "picked", "files": []}))
+                tool_call("submit_deliverable", json!({"checks_run": [], "assumptions": [], "open_questions": [], "summary": "picked", "files": []}))
             }
             Some(t) => unexpected(t),
         };
@@ -141,7 +141,7 @@ fn respond(req: &Value) -> Value {
             Some(t) if t.contains("Plan APPROVED") => tool_call("work_tickets", json!({})),
             Some(t) if t.contains("APPROVED by the user and merged") => tool_call(
                 "submit_deliverable",
-                json!({"summary": "a.txt and b.txt", "files": ["a.txt", "b.txt"]}),
+                json!({"checks_run": [], "assumptions": [], "open_questions": [], "summary": "a.txt and b.txt", "files": ["a.txt", "b.txt"]}),
             ),
             Some(t) => unexpected(t),
         };
@@ -149,13 +149,13 @@ fn respond(req: &Value) -> Value {
     if worker && c.first.starts_with("# a:") {
         return match c.last_tool {
             // Submit before doing the work: the check must bounce it.
-            None => tool_call("submit_deliverable", json!({"summary": "done?"})),
+            None => tool_call("submit_deliverable", json!({"checks_run": [], "assumptions": [], "open_questions": [], "summary": "done?"})),
             Some(t) if t.starts_with("CHECK FAILED") => {
                 tool_call("write", json!({"path": "a.txt", "content": "A"}))
             }
             Some(t) if t.starts_with("wrote") || t.contains("REJECTED") => tool_call(
                 "submit_deliverable",
-                json!({"summary": "wrote a.txt", "files": ["a.txt"]}),
+                json!({"checks_run": [], "assumptions": [], "open_questions": [], "summary": "wrote a.txt", "files": ["a.txt"]}),
             ),
             Some(t) => unexpected(t),
         };
@@ -169,7 +169,7 @@ fn respond(req: &Value) -> Value {
             None => tool_call("write", json!({"path": "b.txt", "content": "B"})),
             Some(t) if t.starts_with("wrote") => tool_call(
                 "submit_deliverable",
-                json!({"summary": "wrote b.txt", "files": ["b.txt"]}),
+                json!({"checks_run": [], "assumptions": [], "open_questions": [], "summary": "wrote b.txt", "files": ["b.txt"]}),
             ),
             Some(t) => unexpected(t),
         };
@@ -189,7 +189,7 @@ fn respond(req: &Value) -> Value {
                 tool_call("work_tickets", json!({"keys": ["lead"]}))
             }
             Some(t) if t.contains("APPROVED by the user and merged") => {
-                tool_call("submit_deliverable", json!({"summary": "nested done"}))
+                tool_call("submit_deliverable", json!({"checks_run": [], "assumptions": [], "open_questions": [], "summary": "nested done"}))
             }
             Some(t) => unexpected(t),
         };
@@ -208,7 +208,7 @@ fn respond(req: &Value) -> Value {
             None => tool_call("write", json!({"path": "leaf.txt", "content": "v1"})),
             Some(t) if t.starts_with("wrote") => tool_call(
                 "submit_deliverable",
-                json!({"summary": "wrote leaf", "files": ["leaf.txt"]}),
+                json!({"checks_run": [], "assumptions": [], "open_questions": [], "summary": "wrote leaf", "files": ["leaf.txt"]}),
             ),
             Some(t) => unexpected(t),
         };
@@ -241,7 +241,7 @@ fn respond(req: &Value) -> Value {
             ),
             Some(_) if reviews == 2 => tool_call(
                 "submit_deliverable",
-                json!({"summary": "leaf reviewed", "files": ["leaf.txt"]}),
+                json!({"checks_run": [], "assumptions": [], "open_questions": [], "summary": "leaf reviewed", "files": ["leaf.txt"]}),
             ),
             Some(t) => unexpected(t),
         };
@@ -793,5 +793,61 @@ fn visual_options_wait_for_the_users_pick() {
         "{:#?}",
         s.agents[0].log
     );
+    std::fs::remove_dir_all(&ws).unwrap();
+}
+
+/// M2: the §3.4 metrics from a whole project. The numbers are checked against
+/// the project's own tallies (`total_cost_usd`, per-agent tokens), which are
+/// kept separately from the metrics ledger.
+#[test]
+fn a_whole_project_reports_the_section_3_4_metrics() {
+    let (h, ws) = open_project("metrics");
+    h.send("flat build");
+    let mut rejected_plan = false;
+    let mut rejected_a = false;
+    run_until(
+        &h,
+        |s, id| {
+            let ap = &s.approvals[id];
+            if ap.kind == ApprovalKind::Plan && !rejected_plan {
+                rejected_plan = true;
+                return Err("also add b".into());
+            }
+            if ap.tickets == ["a"] && !rejected_a {
+                rejected_a = true;
+                return Err("looks thin".into());
+            }
+            Ok(())
+        },
+        |s| s.agents[0].status == AgentStatus::Approved,
+    );
+    let s = h.snapshot();
+    let m = h.metrics();
+
+    // Totals agree with the independent tallies.
+    assert!((m.total_usd - s.total_cost_usd).abs() < 1e-9, "{} vs {}", m.total_usd, s.total_cost_usd);
+    let tokens: u64 = s.agents.iter().map(|a| a.input_tokens + a.output_tokens).sum();
+    assert_eq!(m.total_tokens, tokens);
+    assert!(m.calls >= 4, "{m:?}");
+
+    // Ticket a started on mock-small (tier 1, mid) and climbed to mock-big
+    // (tier 4, frontier) after its check failed and the user rejected it.
+    assert!(m.frontier_calls >= 1 && m.frontier_calls < m.calls, "{m:?}");
+    assert_eq!((m.tasks, m.merged), (2, 2));
+    assert_eq!((m.escalated_tasks, m.escalated_green), (1, 1));
+    assert_eq!(m.escalation_rate, Some(0.5));
+    assert_eq!(m.escalation_success_rate, Some(1.0));
+    let ctg = m.cost_to_green_usd.expect("tickets went green");
+    assert!(ctg > 0.0 && ctg <= m.total_usd + 1e-12, "{m:?}");
+    assert!((m.usd_per_merged.unwrap() - m.total_usd / 2.0).abs() < 1e-12);
+    assert!(m.human_tokens_typed >= 4, "\"flat build\" alone is 4: {m:?}");
+    assert!(m.human_tokens_read > 0, "{m:?}");
+
+    // And the file carries the same figures.
+    let file = std::fs::read_to_string(ws.join(".backspace/metrics.jsonl")).unwrap();
+    let last: backspace_core::metrics::RunMetrics =
+        serde_json::from_str(file.lines().last().unwrap()).unwrap();
+    assert_eq!(last.merged, 2);
+    assert_eq!(last.escalated_tasks, 1);
     std::fs::remove_dir_all(&ws).unwrap();
 }

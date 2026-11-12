@@ -84,9 +84,47 @@ fn bash() -> &'static std::path::Path {
 }
 
 impl Workspace {
-    /// Lexically resolve `p` under the root and refuse anything that escapes.
-    /// Bash can still leave the workspace; this guards the file tools only.
+    /// Resolve `p` under the root and refuse anything that escapes, by name
+    /// (`..`, an absolute path elsewhere) or through a symlink that leaves the
+    /// workspace. Bash can still leave the workspace; this guards the file
+    /// tools only, and it checks at the moment of the call (a link made
+    /// between the check and the open is not caught, and would take a second
+    /// process; bash reaches further than that anyway).
     pub fn resolve(&self, p: &str) -> Result<PathBuf> {
+        let out = self.resolve_lexical(p)?;
+        self.refuse_symlink_escape(&out, p)?;
+        Ok(out)
+    }
+
+    /// Every component of `path` that already exists and is a symlink must
+    /// resolve to somewhere inside the root. A dangling link is refused too:
+    /// writing through it would create a file at its target, wherever that is.
+    /// Parts that do not exist yet cannot be followed, so they are not checked.
+    fn refuse_symlink_escape(&self, path: &Path, asked: &str) -> Result<()> {
+        let root = self.root.canonicalize().unwrap_or_else(|_| self.root.clone());
+        let rel = path.strip_prefix(&self.root).unwrap_or(path);
+        let mut cur = self.root.clone();
+        for c in rel.components() {
+            cur.push(c);
+            let meta = match std::fs::symlink_metadata(&cur) {
+                Ok(m) => m,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+                Err(e) => bail!("cannot check {asked}: {e}"),
+            };
+            if meta.file_type().is_symlink() {
+                let real = cur
+                    .canonicalize()
+                    .map_err(|_| anyhow!("{asked} goes through a symlink that does not resolve, so it is refused"))?;
+                if !real.starts_with(&root) {
+                    bail!("{asked} goes through a symlink that leaves the workspace, so it is refused");
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// The path `p` names under the root, worked out by name alone.
+    fn resolve_lexical(&self, p: &str) -> Result<PathBuf> {
         let rel = Path::new(p);
         let rel = rel.strip_prefix(&self.root).unwrap_or(rel);
         if rel.is_absolute() {
@@ -114,6 +152,19 @@ impl Workspace {
         Ok(out)
     }
 
+    /// The project's policy lives in `backspace.toml` at the workspace root.
+    /// An agent must not be able to widen its own allowlists or budgets by
+    /// writing it, in this checkout or in a worker's worktree. (`bash` is not
+    /// sandboxed until M6; the running gateway keeps the policy it opened
+    /// with either way.)
+    fn refuse_policy_file(&self, path: &Path) -> Result<()> {
+        let rel = path.strip_prefix(&self.root).unwrap_or(path);
+        if rel.as_os_str().eq_ignore_ascii_case("backspace.toml") {
+            bail!("backspace.toml is protected: the project policy lives there and only you can change it");
+        }
+        Ok(())
+    }
+
     pub async fn run(&self, name: &str, input: &Value) -> Result<String> {
         let s = |k: &str| {
             input[k]
@@ -135,6 +186,7 @@ impl Workspace {
             }
             "write" => {
                 let path = self.resolve(&s("path")?)?;
+                self.refuse_policy_file(&path)?;
                 if let Some(parent) = path.parent() {
                     tokio::fs::create_dir_all(parent).await?;
                 }
@@ -148,6 +200,7 @@ impl Workspace {
             }
             "edit" => {
                 let path = self.resolve(&s("path")?)?;
+                self.refuse_policy_file(&path)?;
                 let (old, new) = (s("old_text")?, s("new_text")?);
                 let text = tokio::fs::read_to_string(&path).await?;
                 match text.matches(&old).count() {
@@ -160,6 +213,22 @@ impl Workspace {
                 }
                 tokio::fs::write(&path, text.replacen(&old, &new, 1)).await?;
                 Ok(format!("edited {}", self.rel(&path)))
+            }
+            "list" => {
+                let path = self.resolve(input["path"].as_str().unwrap_or("."))?;
+                let mut dir = tokio::fs::read_dir(&path).await?;
+                let mut names = Vec::new();
+                while let Some(e) = dir.next_entry().await? {
+                    let name = e.file_name().to_string_lossy().into_owned();
+                    // Our own folder and git's are not the project.
+                    if name == ".git" || name == ".backspace" {
+                        continue;
+                    }
+                    let is_dir = e.file_type().await.map(|t| t.is_dir()).unwrap_or(false);
+                    names.push(if is_dir { format!("{name}/") } else { name });
+                }
+                names.sort();
+                Ok(cap(names.join("\n")))
             }
             "bash" => {
                 let (code, text) = self.sh(&s("command")?).await?;

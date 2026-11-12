@@ -9,6 +9,10 @@
 //!   `computer_write`), when started for an agent that has one (agents.rs);
 //! - memory (`memory_search`, `memory_save`), when started with a memory
 //!   scope (memory.rs);
+//! - the other harness tiles (`list_tiles`, `message_tile`), when started in
+//!   one (relay.rs);
+//! - browser and desktop use (`browser_*`, `desktop_*`), when started for an
+//!   agent given them (hands/);
 //! - every enabled app's tools (apps.rs).
 //!
 //! Which tools it lists depends only on the environment the CLI was given.
@@ -29,6 +33,11 @@ pub const ENV_MEMORY: &str = "BACKSPACE_MEMORY";
 
 fn memory_scope() -> Option<String> {
     std::env::var(ENV_MEMORY).ok().filter(|s| !s.is_empty())
+}
+
+/// The harness tile (its thread) a CLI was started in, if any (relay.rs).
+fn tile() -> Option<String> {
+    std::env::var(crate::relay::ENV_TILE).ok().filter(|s| !s.is_empty())
 }
 
 fn memory_search(scope: &str, query: &str) -> Result<String> {
@@ -84,6 +93,7 @@ fn denied(deny: &[String], tool: &str, app: Option<&str>) -> bool {
     match (tool, app) {
         ("computer_run", _) => has("run"),
         ("computer_write", _) => has("edit"),
+        (t, _) if t.starts_with("browser_") => has("web"),
         (_, Some(a)) => has("apps") || has(&format!("app:{a}")),
         _ => false,
     }
@@ -110,6 +120,7 @@ pub fn serve() -> Result<()> {
     // The board needs a project's bridge; app tools work without one.
     let b = crate::board::bridge();
     let deny = deny();
+    let hands = crate::hands::Env::from_env();
     let stdin = std::io::stdin();
     let mut out = std::io::stdout();
     for line in stdin.lock().lines() {
@@ -169,17 +180,42 @@ pub fn serve() -> Result<()> {
                     tools.push(json!({"name": "computer_write", "description": "Write a file on your own computer (creates folders as needed).",
                         "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"]}}));
                 }
+                if b.is_ok() {
+                    let t = crate::harness::note_tool();
+                    tools.push(json!({"name": t.name, "description": t.description, "inputSchema": t.schema}));
+                }
+                if tile().is_some() {
+                    tools.push(json!({"name": "list_tiles", "description": "The other coding harnesses tiled next to you in the user's IDE: their names, what runs them, and which one coordinates.",
+                        "inputSchema": {"type": "object", "properties": {}}}));
+                    tools.push(json!({"name": "message_tile", "description": "Hand another harness tile something to do or answer, by name. It becomes that harness's next turn (it waits if the harness is busy), and with `reply` (the default) its answer comes back to you as your next message, so end your turn after sending if you need the answer to go on.",
+                        "inputSchema": {"type": "object", "properties": {"to": {"type": "string"}, "text": {"type": "string"}, "reply": {"type": "boolean", "description": "Send me its answer (default true)"}}, "required": ["to", "text"]}}));
+                }
                 if memory_scope().is_some() {
                     tools.push(json!({"name": "memory_search", "description": "Search the user's memory (an Agent Memory Repo: notes and any topic files) for what this task needs: preferences, decisions, facts about people and projects, saved queries.",
                         "inputSchema": {"type": "object", "properties": {"query": {"type": "string", "description": "Words that must all appear"}}, "required": ["query"]}}));
                     tools.push(json!({"name": "memory_save", "description": "Propose one line worth knowing in later sessions: a preference, a decision, a fact the user would otherwise repeat. Not for things cheap to rediscover or only true for this task. Never secrets. It is filed into your own notes on the next pass, merged with any note it repeats; the user can see and undo it.",
                         "inputSchema": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}}));
                 }
+                if let Some(h) = &hands {
+                    tools.extend(crate::hands::tools(h, &crate::prefs::Prefs::load()));
+                }
                 tools.retain(|t| !denied(&deny, t["name"].as_str().unwrap_or(""), None));
                 for (name, app, t) in app_tools(&deny) {
                     tools.push(json!({"name": name, "description": format!("[{app} app] {}", t.description), "inputSchema": t.input_schema}));
                 }
                 Ok(json!({ "tools": tools }))
+            }
+            "tools/call" if crate::hands::is_tool(req["params"]["name"].as_str().unwrap_or("")) => {
+                let name = req["params"]["name"].as_str().unwrap_or("");
+                let r = match &hands {
+                    _ if denied(&deny, name, None) => Err(anyhow!("your rules don't allow {name}; the user turned it off")),
+                    None => Err(anyhow!("you weren't given browser or desktop use")),
+                    Some(h) => crate::hands::call(h, name, &req["params"]["arguments"]),
+                };
+                Ok(match r {
+                    Ok(content) => json!({ "content": content }),
+                    Err(e) => json!({"content": [{"type": "text", "text": format!("{e:#}")}], "isError": true}),
+                })
             }
             "tools/call" => {
                 let a = &req["params"]["arguments"];
@@ -209,6 +245,18 @@ pub fn serve() -> Result<()> {
                             "computer_read" => crate::agents::read(&env, a["path"].as_str().unwrap_or("")),
                             _ => crate::agents::write(&env, a["path"].as_str().unwrap_or(""), a["content"].as_str().unwrap_or("")),
                         },
+                    },
+                    "leave_note" => board().and_then(|b| crate::board::do_note(b, a["text"].as_str().unwrap_or(""))),
+                    "list_tiles" | "message_tile" => match tile() {
+                        None => Err(anyhow!("you are not in a harness tile")),
+                        Some(me) if name == "list_tiles" => crate::relay::list(&crate::prefs::Prefs::data_dir(), &me),
+                        Some(me) => crate::relay::send(
+                            &crate::prefs::Prefs::data_dir(),
+                            &me,
+                            a["to"].as_str().unwrap_or(""),
+                            a["text"].as_str().unwrap_or(""),
+                            a["reply"].as_bool().unwrap_or(true),
+                        ),
                     },
                     "memory_search" | "memory_save" => match memory_scope() {
                         None => Err(anyhow!("memory is not open to this session")),

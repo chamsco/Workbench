@@ -446,6 +446,8 @@ mod tests {
             memory: true,
             off: vec![],
             apps_off: vec![],
+            hands: vec![],
+            fallbacks: vec![],
             hook: String::new(),
             routines: vec![],
             created: 1,

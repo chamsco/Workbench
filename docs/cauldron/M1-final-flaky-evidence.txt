@@ -1,0 +1,27 @@
+M1 final hardening, section 9: the two flaky tests, before and after.
+Commands run from the repo root against the built test binaries; "isolated" means only the named test, "whole binary" means every test in the file, as `cargo test` runs them.
+
+BEFORE (no change to any test)
+  spec_gate::the_gate_refuses_twice_then_opens, isolated, 60 serial runs : 58 pass, 2 fail (runs 39 and 48)
+    both failures: panicked at crates/core/tests/spec_gate.rs:78:33 "a Plan reply with a spec gets a verdict"
+  webhook::a_webhook_wakes_only_its_bot, isolated, 60 serial runs        : 60 pass, 0 fail
+  webhook binary (both of its tests together), 80 serial runs           : 72 pass, 8 fail
+    failures: webhook.rs:68 (left 401, right 405) in 6 runs, webhook.rs:73 (left 401, right 202) in 2 runs
+
+CLASSIFICATION
+  spec_gate : timing. `Chats::is_busy` goes false when spawn_reply removes its `running` entry (chat.rs, `me.running.lock().unwrap().remove(&tid)`),
+              which runs BEFORE `me.finish(..)` and `me.file_spec(..)` attach the verdict. The test treated "not busy" as "verdict present".
+              A product ordering that the UI absorbs (it is poked again after the verdict); the test's wait condition was wrong.
+              Fix is test-only: wait for the verdict itself, inside the same 30 s limit. chat.rs is untouched.
+  webhook   : shared state. The two tests in webhook.rs each call std::env::set_var("BACKSPACE_DATA", <own dir>) on the one process-wide environment, and
+              the fleet reads it again as it works. Run together one test's agent store is the other's folder: the bot's secret is unknown to the
+              server that answers (401). 0/60 alone, 8/80 together. Fix is test-only: a static mutex serialises the two tests.
+              No webhook product code was changed.
+
+AFTER (the same loops)
+  spec_gate::the_gate_refuses_twice_then_opens, 4 loops in parallel x 30 runs (load) : 120 pass, 0 fail
+  webhook binary, 150 serial runs                                                    : 150 pass, 0 fail
+
+PRODUCT OBSERVATION, NOT CHANGED (owner's call)
+  chat.rs spawn_reply: remove the `running` entry after finish/file_spec instead of before, so "busy" covers the verdict. Also the entry is inserted
+  after `rt.spawn(..)`, so a reply that finishes before the insert leaves a stale busy flag. Both are outside M1's scope.

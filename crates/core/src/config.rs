@@ -18,6 +18,13 @@ pub struct Config {
     pub workflow: WorkflowConfig,
     #[serde(default)]
     pub advisor: AdvisorConfig,
+    /// Who may use which model, skill and plugin, and what a task may spend
+    /// (gateway.rs). Absent: unrestricted.
+    #[serde(default)]
+    pub policy: crate::gateway::PolicyConfig,
+    /// What happens to a first message before any planning (intake.rs).
+    #[serde(default)]
+    pub intake: IntakeConfig,
     pub providers: BTreeMap<String, ProviderConfig>,
     pub models: Vec<ModelSpec>,
 }
@@ -32,6 +39,34 @@ pub struct RouterConfig {
     pub main_min_effort: Effort,
     pub pin_main: Option<String>,
     pub pin_sub: Option<String>,
+    /// Models a worker is never routed to (the app's executor settings).
+    #[serde(default)]
+    pub exclude_sub: Vec<String>,
+    /// Below this top probability the task type is not acted on: the user is
+    /// asked. Provisional until the router eval has run.
+    #[serde(default = "default_triage_threshold")]
+    pub triage_threshold: f64,
+}
+
+/// Intake: classify a task before work starts, and ask the user when unsure.
+/// Off by default: the classifier is uncalibrated until the section 10 eval.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(default)]
+pub struct IntakeConfig {
+    pub enabled: bool,
+    /// At most this many questions to the user before the task goes down the
+    /// long path (the one that plans with the user).
+    pub max_asks: u8,
+}
+
+impl Default for IntakeConfig {
+    fn default() -> Self {
+        IntakeConfig { enabled: false, max_asks: crate::intake::DEFAULT_MAX_ASKS }
+    }
+}
+
+fn default_triage_threshold() -> f64 {
+    crate::decision::DEFAULT_TRIAGE_THRESHOLD
 }
 
 /// Orchestrator, advisor, scouts: the lead builds, a stronger model stays on
@@ -51,6 +86,10 @@ pub struct AdvisorConfig {
     pub cli_scouts: Option<String>,
     /// Scouts one call may send out at once.
     pub scouts: usize,
+    /// What a budget reservation assumes one advisor consultation may write.
+    /// The advisor tool takes no output cap, so this is an assumption about
+    /// the provider, not a limit it enforces.
+    pub max_output_tokens: u64,
 }
 
 impl Default for AdvisorConfig {
@@ -61,6 +100,7 @@ impl Default for AdvisorConfig {
             scout_model: None,
             cli_scouts: Some("haiku".into()),
             scouts: 3,
+            max_output_tokens: crate::gateway::ADVISOR_OUTPUT_TOKENS,
         }
     }
 }
@@ -88,6 +128,12 @@ pub struct OrchestratorConfig {
     /// Hard stop for the whole project, router calls included.
     #[serde(default)]
     pub max_project_usd: Option<f64>,
+    /// Hard stop for the whole project in tokens, as the providers count them
+    /// (the agents' own spend; a routing call's tokens are not in it). A turn
+    /// in a coding CLI holds everything that is left while it runs, so CLI
+    /// turns on this budget run one at a time. See docs/cauldron/M1-BUDGET-BOUNDARIES.md.
+    #[serde(default)]
+    pub max_project_tokens: Option<u64>,
     #[serde(default)]
     pub isolation: Isolation,
 }
@@ -213,6 +259,31 @@ pub struct ModelSpec {
     /// Effort levels the provider accepts for this model. Empty = no knob.
     #[serde(default)]
     pub efforts: Vec<Effort>,
+    /// Where this model sits on the cost ladder (`local`, `mid`, `frontier`).
+    /// Unset: by tier, 0 local, 1–2 mid, 3–4 frontier.
+    #[serde(default)]
+    pub class: Option<crate::ladder::ModelClass>,
+}
+
+/// The coding CLIs whose command-line `--model` is documented to take precedence over their
+/// environment variables and settings files (Claude Code: `--model` beats `ANTHROPIC_MODEL` and the
+/// `model` setting; Codex: CLI flags and `--config` overrides are the highest layer, above project,
+/// profile and user `config.toml`, and `--model`/`-m` is one argument in its source). Backspace relies
+/// on that documentation and source, not on a run of the real tools. What the documentation does not
+/// settle (a managed layer that replaces a model, the provider a model name is served by, a resumed
+/// Codex session, a Claude Code alias) is listed in `docs/cauldron/M1-BUDGET-BOUNDARIES.md`.
+pub const PINNABLE_CLIS: [&str; 2] = ["claude", "codex"];
+
+/// The names Claude Code documents as aliases (`--model`, `ANTHROPIC_MODEL` and a subagent's `model`
+/// take them). Claude Code resolves each to the newest version its provider has, and
+/// `ANTHROPIC_DEFAULT_*_MODEL` remaps them, so one is a family, not a model: only a full model id names one.
+/// Codex documents no aliases.
+pub const CLAUDE_ALIASES: [&str; 7] = ["default", "best", "fable", "sonnet", "opus", "haiku", "opusplan"];
+
+/// Whether `model` is one of Claude Code's aliases, with or without the `[1m]` context suffix.
+pub fn is_claude_alias(model: &str) -> bool {
+    let m = model.trim();
+    CLAUDE_ALIASES.contains(&m.strip_suffix("[1m]").unwrap_or(m))
 }
 
 impl ModelSpec {
@@ -245,7 +316,92 @@ impl Config {
                 return Ok((cfg, Some(path)));
             }
         }
-        Ok((Self::parse(DEFAULT_CONFIG)?, None))
+        Ok((Self::new_project(workspace), None))
+    }
+
+    /// The configuration a folder with none of its own starts with: the
+    /// built-in models and an explicit, enforced policy that allows what the
+    /// built-in config allows today (every model, for both roles, and every
+    /// skill found; no plugins, as there is no loader). The shipped
+    /// `default-config.toml` carries no `[policy]`, so a config file built on
+    /// it, with a policy of its own, stays valid.
+    pub fn new_project(workspace: &Path) -> Config {
+        let mut cfg = Self::parse(DEFAULT_CONFIG).expect("the built-in config parses");
+        let skills: Vec<String> = crate::skills::Skills::load(workspace).by_name.keys().cloned().collect();
+        cfg.policy = cfg.effective_policy(&skills);
+        cfg
+    }
+
+    /// This config's policy with every open dimension written out as the list
+    /// that allows what is allowed now, and `mode = "enforced"`. Lists that
+    /// are already there are kept as written, so the result never allows
+    /// more than the config does.
+    pub fn effective_policy(&self, skills: &[String]) -> crate::gateway::PolicyConfig {
+        let ids: Vec<String> = self.models.iter().map(|m| m.id.clone()).collect();
+        // The advisor and the scouts Claude Code is handed are named by alias
+        // (`opus`, `haiku`), not by a `[[models]]` id, and the lists apply to them:
+        // the advisor at the role of the agent that consults it, scouts as execution.
+        // A list written out for an open dimension names what the config uses.
+        let a = &self.advisor;
+        let with = |base: &[String], extra: &[&Option<String>]| {
+            let mut l = base.to_vec();
+            for e in extra.iter().filter_map(|e| e.as_ref()) {
+                if !l.contains(e) {
+                    l.push(e.clone());
+                }
+            }
+            l
+        };
+        // The model a pinned CLI entry runs is a model the config uses, so it is named too.
+        let pinned: Vec<Option<String>> = self.cli_entries().into_iter().map(|m| self.cli_pin(&m.id)).collect();
+        let pinned: Vec<&Option<String>> = pinned.iter().collect();
+        let p = &self.policy;
+        // A dimension that is open today is written out as what it lets through today; one that is
+        // already closed (an enforced file without the list) stays closed, so generating a policy never
+        // widens one the person wrote.
+        let closed = p.mode == Some(crate::gateway::PolicyMode::Enforced);
+        crate::gateway::PolicyConfig {
+            mode: Some(crate::gateway::PolicyMode::Enforced),
+            orchestration_models: p.orchestration_models.clone().or_else(|| Some(with(&with(&ids, &[&a.cli]), &pinned))),
+            execution_models: p.execution_models.clone().or_else(|| Some(with(&with(&ids, &[&a.cli, &a.cli_scouts]), &pinned))),
+            skills: p.skills.clone().or_else(|| Some(skills.to_vec())),
+            plugins: p.plugins.clone().or(Some(vec![])),
+            // The router's own model, which is the configured one, named explicitly.
+            routing_models: p.routing_models.clone().or_else(|| {
+                let m = self.router.jev_model.trim();
+                Some(if closed || m.is_empty() { vec![] } else { vec![m.to_string()] })
+            }),
+            unpinned_cli_models: p.unpinned_cli_models.clone().or_else(|| Some(if closed { vec![] } else { self.unpinned_cli_entries() })),
+            budget: p.budget.clone(),
+        }
+    }
+
+    /// A `[policy]` block that allows exactly what this config allows now
+    /// (open dimensions become explicit lists), for `policy init` and for
+    /// moving a project off legacy-open. It replaces a `[policy]` section the
+    /// file already has; a budget in it is carried over.
+    pub fn policy_init_block(&self, skills: &[String]) -> String {
+        let p = self.effective_policy(skills);
+        let list = |l: &Option<Vec<String>>| {
+            toml::Value::Array(l.iter().flatten().map(|s| toml::Value::String(s.clone())).collect()).to_string()
+        };
+        let mut out = String::from("[policy]\nmode = \"enforced\"\n");
+        out.push_str(&format!("orchestration_models = {}\n", list(&p.orchestration_models)));
+        out.push_str(&format!("execution_models = {}\n", list(&p.execution_models)));
+        out.push_str(&format!("skills = {}\n", list(&p.skills)));
+        out.push_str(&format!("plugins = {}\n", list(&p.plugins)));
+        out.push_str(&format!("routing_models = {}\n", list(&p.routing_models)));
+        out.push_str(&format!("unpinned_cli_models = {}\n", list(&p.unpinned_cli_models)));
+        if p.budget.max_usd.is_some() || p.budget.max_tokens.is_some() {
+            out.push_str("\n[policy.budget]\n");
+            if let Some(x) = p.budget.max_usd {
+                out.push_str(&format!("max_usd = {x:?}\n"));
+            }
+            if let Some(x) = p.budget.max_tokens {
+                out.push_str(&format!("max_tokens = {x}\n"));
+            }
+        }
+        out
     }
 
     pub fn search_paths(workspace: &Path) -> Vec<PathBuf> {
@@ -287,6 +443,36 @@ impl Config {
         self.providers.get(&m.provider).filter(|p| p.is_cli())
     }
 
+    /// The model a CLI entry pins, for Backspace to put on the command line: its wire `model`, when it
+    /// has one and the CLI is one whose command-line model is documented to win over the CLI's
+    /// environment and settings (Claude Code `--model`, Codex `--model`, which is also `-m`). Anything else, an empty `model`,
+    /// or a CLI where that precedence is not verified (Cursor, Grok, OpenCode), pins nothing: the CLI
+    /// runs whatever its own configuration selects.
+    pub fn cli_pin(&self, entry: &str) -> Option<String> {
+        let cli = self.cli_of(entry)?.cli.as_deref()?;
+        let model = self.model(entry)?.model.as_deref()?.trim();
+        (!model.is_empty() && PINNABLE_CLIS.contains(&cli)).then(|| model.to_string())
+    }
+
+    /// Every CLI entry in the config (a model whose provider is a coding CLI).
+    pub fn cli_entries(&self) -> Vec<&ModelSpec> {
+        self.models.iter().filter(|m| self.cli_of(&m.id).is_some()).collect()
+    }
+
+    /// The Claude Code entries whose pinned model is one of Claude Code's aliases, as (entry, alias).
+    pub fn alias_cli_pins(&self) -> Vec<(String, String)> {
+        self.cli_entries()
+            .into_iter()
+            .filter(|m| self.cli_of(&m.id).and_then(|p| p.cli.as_deref()) == Some("claude"))
+            .filter_map(|m| self.cli_pin(&m.id).filter(|p| is_claude_alias(p)).map(|p| (m.id.clone(), p)))
+            .collect()
+    }
+
+    /// The CLI entries that pin no model.
+    pub fn unpinned_cli_entries(&self) -> Vec<String> {
+        self.cli_entries().into_iter().filter(|m| self.cli_pin(&m.id).is_none()).map(|m| m.id.clone()).collect()
+    }
+
     /// A CLI model whose binary is installed.
     pub fn cli_usable(&self, model: &str) -> bool {
         self.cli_of(model)
@@ -313,6 +499,15 @@ impl Config {
         }
         if self.orchestrator.max_parallel_calls == 0 {
             bail!("orchestrator.max_parallel_calls must be >= 1");
+        }
+        if !(self.router.triage_threshold > 0.0 && self.router.triage_threshold <= 1.0) {
+            bail!("router.triage_threshold must be above 0 and at most 1");
+        }
+        if self.intake.max_asks == 0 {
+            bail!("intake.max_asks must be at least 1: 0 would never ask, and the task could not be told apart");
+        }
+        if let Err(e) = self.policy.check_complete() {
+            bail!(e);
         }
         Ok(())
     }

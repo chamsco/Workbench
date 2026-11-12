@@ -1,0 +1,1204 @@
+warning: method `count` is never used
+  --> crates/core/tests/jev_unknown_cost.rs:78:8
+   |
+73 | impl Jev {
+   | -------- method in this implementation
+...
+78 |     fn count(&self, m: Mode) -> usize {
+   |        ^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `backspace-core` (test "jev_unknown_cost") generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 05s
+     Running unittests src/main.rs (target/debug/deps/backspace_cli-aa4521d634f71934)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/eval_cli.rs (target/debug/deps/eval_cli-44092510f94537dd)
+
+running 4 tests
+test the_threshold_can_be_given ... ok
+test it_prints_the_report_for_labeled_traces ... ok
+test a_missing_file_is_an_error ... ok
+test unlabeled_traces_are_an_error ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.15s
+
+     Running tests/policy_cli.rs (target/debug/deps/policy_cli-132e95d8b24cbec4)
+
+running 3 tests
+test init_config_writes_a_config_with_an_explicit_enforced_policy ... ok
+test policy_init_prints_a_block_that_keeps_what_the_project_allows_today ... ok
+test policy_adopt_records_a_loosening_a_person_has_reviewed ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running unittests src/lib.rs (target/debug/deps/backspace_colony-0abb1bf7f3d72512)
+
+running 25 tests
+test backend::tests::cli_states_fold_into_five ... ok
+test backend::tests::create_args_are_the_cli_flags ... ok
+test backend::tests::error_message_comes_out_verbatim ... ok
+test backend::tests::capabilities_print_providers ... ok
+test backend::tests::cli_workspace_json_maps_to_ours ... ok
+test backend::tests::a_missing_cli_is_an_error_not_a_panic ... ok
+test backend::tests::exec_output_reads_the_cli_exit_code ... ok
+test backend::tests::parse_error_ignores_noise_and_junk ... ok
+test colony::tests::a_missing_state_file_is_an_empty_colony ... ok
+test colony::tests::a_corrupt_state_file_is_an_error ... ok
+test colony::tests::duplicate_name_is_refused_before_the_backend ... ok
+test colony::tests::exec_records_argv_and_returns_the_output ... ok
+test colony::tests::colony_json_round_trips ... ok
+test colony::tests::list_adopts_what_the_backend_reports ... ok
+test colony::tests::stop_force_reaches_the_backend ... ok
+test colony::tests::unknown_workspace_is_an_error_not_a_panic ... ok
+test fake::tests::the_fake_refuses_a_duplicate_like_the_cli ... ok
+test fake::tests::the_fake_reports_running_then_stopped ... ok
+test prompt::tests::chat_prompt_copes_without_a_task ... ok
+test colony::tests::task_and_created_survive_a_backend_round_trip ... ok
+test prompt::tests::chat_prompt_names_the_workspace ... ok
+test tools::tests::every_tool_carries_a_description_and_an_object_schema ... ok
+test tools::tests::five_tools_with_the_right_names ... ok
+test tools::tests::required_arguments_are_the_ones_the_registry_needs ... ok
+test colony::tests::lifecycle_create_list_status_stop_start_delete ... ok
+
+test result: ok. 25 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running unittests src/lib.rs (target/debug/deps/backspace_core-506ff0b8f481c1a9)
+
+running 140 tests
+test accounts::tests::default_profile_dir_sits_under_the_data_accounts_folder ... ok
+test accounts::tests::best_prefers_healthy_over_warning_at_equal_failures ... ok
+test accounts::tests::env_for_uses_the_providers_own_variable ... ok
+test accounts::tests::fails_decay_after_a_day_and_the_ring_stays_small ... ok
+test accounts::tests::note_limit_cools_down_and_note_fail_does_not ... ok
+test accounts::tests::order_drops_disabled_and_cooled_down_accounts ... ok
+test accounts::tests::policies_decide_who_switches ... ok
+test accounts::tests::order_ranks_state_then_failures_then_priority_then_last_ok ... ok
+test agents::tests::next_run_maths ... ok
+test accounts::tests::round_trips_through_json_and_decays_on_load ... ok
+test agents::tests::next_run_round_trips_a_negative_offset ... ok
+test agents::tests::quoting ... ok
+test agents::tests::routine_summaries ... ok
+test agents::tests::rules_become_denied_tools ... ok
+test agents::tests::brief_in_names_the_project_personality_and_routines ... ok
+test agents::tests::save_cleans_routines_and_refreshes_a_passed_wake ... ok
+test agents::tests::routine_save_validates_and_persists ... ok
+test apps::tests::manifest_rules ... ok
+test artifact::tests::a_body_cannot_be_unbounded_and_a_summary_says_what_it_is ... ok
+test artifact::tests::a_table_row_must_match_the_header ... ok
+test artifact::tests::an_old_state_file_without_artifacts_still_loads ... ok
+test artifact::tests::each_kind_is_validated_on_its_own_field ... ok
+test artifact::tests::ids_are_unique_and_addressable ... ok
+test artifact::tests::kinds_this_build_does_not_know_are_kept_not_dropped ... ok
+test artifact::tests::options_must_refer_to_a_set_that_exists ... ok
+test agents::tests::save_list_brief_delete ... ok
+test board::tests::a_thread_is_the_pair_whichever_way_it_went ... ok
+test board::tests::conversations_group_replies_and_broadcasts_separately ... ok
+test artifact::tests::the_list_is_bounded_and_drops_the_oldest ... ok
+test board::tests::post_and_read ... ok
+test chat::tests::a_temporal_thread_forgets_itself_after_its_deadline ... ok
+test chat::tests::a_thread_file_without_a_life_loads_as_a_normal_chat ... ok
+test chat::tests::ansi_is_stripped ... ok
+test chat::tests::base64_roundtrip ... ok
+test chat::tests::link_meta ... ok
+test chat::tests::a_ghost_thread_is_never_written_and_never_listed ... ok
+test chat::tests::mentions_pick_a_cli ... ok
+test chat::tests::making_a_thread_a_ghost_deletes_the_file_it_had ... ok
+test apps::tests::install_serve_store_remove ... ok
+test chat::tests::purging_ghosts_removes_only_ghosts ... ok
+test chat::tests::titles_are_short ... ok
+test chat::tests::talking_to_a_temporal_thread_moves_its_deadline ... ok
+test cloud::tests::plan_table ... ok
+test companion::tests::pair_link_escapes ... ok
+test config::tests::default_config_parses ... ok
+test delegate::tests::a_task_whose_bot_is_gone_comes_back_unassigned ... ok
+test chat::tests::threads_persist_react_branch_delete ... ok
+test delegate::tests::an_empty_title_is_refused ... ok
+test delegate::tests::adds_assigns_and_survives_a_reopen ... ok
+test delegate::tests::auto_off_leaves_work_unassigned ... ok
+test delegate::tests::importing_tickets_twice_keeps_one_task_each ... ok
+test delegate::tests::auto_picks_the_shortest_queue_then_the_cheaper_minute ... ok
+test diagram::tests::plan_layers_by_blockers_and_flags_missing_checks ... ok
+test effort::tests::clamps_up_then_down ... ok
+test delegate::tests::the_snapshot_prices_a_queue_and_a_cli_is_free ... ok
+test cloud::tests::dev_server_end_to_end ... ok
+test git::tests::day_numbers ... ok
+test git::tests::parse_changes_reads_status_and_counts ... ok
+test harnesses::tests::codex_plan_from_id_token ... ok
+test harnesses::tests::toggles_override_scan ... ok
+test harnesses::tests::versions ... ok
+test layout::tests::a_card_can_come_out_and_a_split_still_works ... ok
+test git::tests::a_new_repo_lists_folders_and_says_so ... ok
+test layout::tests::a_full_stack_never_loses_a_canvas ... ok
+test layout::tests::centre_swaps_and_self_is_a_no_op ... ok
+test layout::tests::a_stack_survives_json_and_older_shapes_still_load ... ok
+test layout::tests::closing_a_card_keeps_the_stack_valid_and_renumbers_it ... ok
+test layout::tests::defaults_and_presets_cover_every_pane ... ok
+test layout::tests::drag_to_an_edge_splits_there_and_the_old_spot_closes ... ok
+test layout::tests::dropping_on_a_cards_middle_stacks_instead_of_swapping ... ok
+test layout::tests::one_over_two_is_a_long_top_and_two_squares ... ok
+test layout::tests::json_shape ... ok
+test layout::tests::remove_and_renumber_keep_it_valid ... ok
+test layout::tests::stacking_two_keeps_both_and_raising_swaps_which_is_in_front ... ok
+test layout::tests::zones ... ok
+test mcp::tests::rules_keep_tools_away ... ok
+test memory::tests::dates_and_meta ... ok
+test memory::tests::moves_old_json_in ... ok
+test memory::tests::repo_format_hand_edits_and_history ... ok
+test memory::tests::scopes_and_persistence ... ok
+test memory_dream::tests::plan_applies_conservatively ... ok
+test memory_dream::tests::prompt_lists_notes_and_messages ... ok
+test memory_learn::tests::learns_from_rejections ... ok
+test memory_learn::tests::proposes_and_skips ... ok
+test memory_learn::tests::third_person_rewrites ... ok
+test model_server::tests::human_size_reads_in_decimal_units ... ok
+test model_server::tests::is_loopback_only_for_this_machine ... ok
+test model_server::tests::openai_base_adds_v1_for_ollama ... ok
+test model_server::tests::order_breaks_ties_by_size_then_id ... ok
+test model_server::tests::order_puts_the_smallest_tiny_first ... ok
+test model_server::tests::parse_ollama_tags_fixture ... ok
+test model_server::tests::parse_openai_models_fixture ... ok
+test model_server::tests::pick_falls_back_and_handles_empty ... ok
+test model_server::tests::pick_maps_the_task_kind ... ok
+test model_server::tests::pick_prefers_the_named_family ... ok
+test model_server::tests::recommend_needs_a_running_runtime ... ok
+test model_server::tests::recommend_prefers_the_tiny_model_and_stays_stable ... ok
+test model_server::tests::tiny_by_parameter_count ... ok
+test model_server::tests::tiny_from_the_file_size_only_when_nothing_else_says ... ok
+test model_server::tests::tiny_from_the_name_when_the_count_is_missing ... ok
+test options::tests::add_names_variants_and_pick_records_the_choice ... ok
+test options::tests::bad_sets_are_refused ... ok
+test phase::tests::a_model_can_block_but_never_open ... ok
+test phase::tests::a_refusal_is_kept_and_a_pass_moves_on ... ok
+test phase::tests::a_refused_respec_reopens_specify_and_a_pass_does_not_skip_ahead ... ok
+test phase::tests::loads_and_saves_beside_the_project ... ok
+test phase::tests::round_trips_and_old_state_loads_without_it ... ok
+test projects::tests::save_list_rename_assign_delete ... ok
+test provider::tests::anthropic_body_sets_effort_only_when_supported ... ok
+test provider::tests::openai_roundtrips_tool_calls ... ok
+test router::liveness_tests::a_listening_port_is_up_and_a_closed_one_is_not ... ok
+test router::tests::cli_pin_routes_workers_not_the_planner ... ok
+test router::tests::heuristic_scales_with_task ... ok
+test skills::tests::a_workspace_folder_overrides_a_default_and_shows_as_ours ... ok
+test skills::tests::defaults_load_with_descriptions ... ok
+test skills::tests::description_reads_plain_folded_and_literal ... ok
+test skills::tests::found_says_where_a_skill_came_from ... ok
+test skills::tests::search_ranks_a_name_hit_above_a_body_hit ... ok
+test spec::tests::a_complete_spec_passes ... ok
+test spec::tests::coverage_names_every_hole ... ok
+test spec::tests::each_rule_names_what_is_missing ... ok
+test spec::tests::extract_takes_the_last_spec_block_only ... ok
+test spec::tests::the_prompt_carries_the_grilling_skill_the_rules_and_the_last_refusal ... ok
+test spec::tests::the_skeleton_alone_is_refused_for_every_empty_part ... ok
+test ticket::tests::parses_and_renders ... ok
+test tools::tests::resolve_blocks_escape ... ok
+test tools::tests::write_edit_read_bash ... ok
+test trace::tests::exports_to_a_collector ... ok
+test trace::tests::records_tools_and_exports_otlp ... ok
+test update::tests::a_merged_pull_request_reads_as_its_title ... ok
+test update::tests::another_commit_is_newer_but_the_same_one_is_not ... ok
+test update::tests::falls_back_to_the_notes ... ok
+test update::tests::notes_without_a_stamp_say_nothing ... ok
+test update::tests::only_a_hash_counts_as_a_commit ... ok
+test update::tests::reads_the_commit_the_workflow_passed ... ok
+test update::tests::the_changelog_is_pull_requests_newest_first ... ok
+test update::tests::the_stamp_is_the_commit_the_build_was_given ... ok
+test memory::tests::the_librarian_files_a_batch_as_one_commit ... ok
+test git::tests::branch_merge_and_conflict ... ok
+test agents::tests::docker_computer ... ok
+
+test result: ok. 140 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.92s
+
+     Running tests/advisor_policy.rs (target/debug/deps/advisor_policy-162459cf964c4dfe)
+
+running 3 tests
+test the_same_advisor_is_attached_once_the_lists_name_it ... ok
+test it_is_checked_at_the_role_of_the_agent_that_calls_it ... ok
+test an_advisor_the_lists_do_not_name_is_left_off_and_the_call_still_goes_ahead ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.29s
+
+     Running tests/agents.rs (target/debug/deps/agents-3e3bf92970288c0d)
+
+running 1 test
+test groups_take_turns_and_agents_work_in_their_folder ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+
+     Running tests/budget_bound.rs (target/debug/deps/budget_bound-803aa2fadb0d135f)
+
+running 9 tests
+test a_call_that_fits_at_the_listed_price_can_be_refused_at_the_cache_write_price ... ok
+test only_anthropic_input_is_priced_above_its_listed_rate ... ok
+test the_allowances_grow_with_messages_and_tools_and_are_not_zero ... ok
+test counting_characters_was_not_enough_for_text_that_is_not_english ... ok
+test the_default_config_still_parses_and_prices_anthropic_models ... ok
+test the_prepared_bytes_are_the_body ... ok
+test the_system_prompt_counts_as_a_message_for_both_wire_formats ... ok
+test the_bound_is_never_below_the_bytes_of_the_body_that_is_sent ... ok
+test long_tool_schemas_are_counted_from_the_wire_body ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/budget_e2e.rs (target/debug/deps/budget_e2e-24cacb2f32982cc8)
+
+running 8 tests
+test a_call_that_costs_more_than_it_reserved_is_logged_and_stops_the_next_one ... ok
+test the_advisor_is_left_off_when_its_reserve_does_not_fit ... ok
+test source_code_in_the_prompt_is_bounded_by_its_bytes ... ok
+test a_unicode_prompt_is_bounded_by_its_bytes ... ok
+test token_budgets_count_the_providers_tokens_not_the_billing_weighted_ones ... ok
+test the_anthropic_prompt_is_reserved_at_the_cache_write_price ... ok
+test the_input_bound_is_read_from_the_request_that_was_sent ... ok
+test concurrent_agents_cannot_jointly_pass_the_project_budget ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.97s
+
+     Running tests/budget_reservation.rs (target/debug/deps/budget_reservation-080f4e2c5bb7ea62)
+
+running 8 tests
+test a_call_that_cost_more_than_its_reservation_is_reported_with_by_how_much ... ok
+test a_stopped_call_releases_its_reservation ... ok
+test a_fixed_reservation_for_the_advisor_fits_or_is_refused_and_is_released ... ok
+test a_reservation_is_the_worst_case_with_input_priced_at_the_factor ... ok
+test every_scope_a_call_belongs_to_is_held_and_others_are_not ... ok
+test what_is_held_never_passes_the_limit_while_calls_are_in_flight ... ok
+test parallel_calls_cannot_jointly_exceed_a_dollar_budget ... ok
+test parallel_calls_cannot_jointly_exceed_a_token_budget ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s
+
+     Running tests/budget_wording.rs (target/debug/deps/budget_wording-1bb0b92125066d20)
+
+running 5 tests
+test the_router_is_described_as_budgeted_where_it_is_and_unmetered_where_it_is_not ... ok
+test a_strict_budget_section_names_the_paths_to_switch_off ... ok
+test the_three_classes_are_kept_and_unmetered_paths_do_not_claim_a_guarantee ... ok
+test the_boundaries_state_every_assumption_a_reservation_rests_on ... ok
+test the_notes_do_not_oversell_policy_integrity ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/bya.rs (target/debug/deps/bya-e3043d92b9939e25)
+
+running 1 test
+test chat_with_a_remote_a2a_agent ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
+     Running tests/cli_budget.rs (target/debug/deps/cli_budget-0add117f62419560)
+
+running 4 tests
+test a_dollar_budget_with_an_unpriced_cli_model_fails_closed ... ok
+test a_running_cli_turn_is_stopped_when_it_crosses_the_limit ... ok
+test a_cli_turn_is_refused_when_the_task_budget_is_spent ... ok
+test a_cli_worker_without_any_budget_runs_as_before ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.24s
+
+     Running tests/cli_concurrency.rs (target/debug/deps/cli_concurrency-3837e1d0dc8edb2d)
+
+running 7 tests
+test a_dollar_limit_never_binds_a_cli_turn_even_when_its_model_has_a_price ... ok
+test the_allowance_comes_back_when_the_turn_ends_less_what_it_used ... ok
+test the_hold_is_taken_in_every_scope_the_turn_counts_toward ... ok
+test two_turns_on_one_budget_are_not_both_given_the_remaining_tokens ... ok
+test a_dollar_project_limit_refuses_a_priced_cli_worker_before_it_starts ... ok
+test parallel_admissions_on_one_budget_hand_out_it_at_most_once ... ok
+test cli_workers_on_one_project_token_budget_run_one_at_a_time_and_stop_when_it_is_spent ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.15s
+
+     Running tests/cli_model_policy.rs (target/debug/deps/cli_model_policy-814c3d8cb687ab02)
+
+running 23 tests
+test a_new_project_lets_its_own_cli_entries_run ... ok
+test a_generated_policy_names_the_cli_entries_that_run_unpinned_and_the_models_it_pins ... FAILED
+test a_list_the_person_wrote_is_not_widened_by_the_generated_exception ... FAILED
+test a_pinned_claude_code_entry_is_started_on_its_model ... FAILED
+test a_pinned_codex_entry_is_started_on_its_model ... FAILED
+test a_pin_on_a_cli_whose_command_line_precedence_is_not_verified_counts_as_unpinned ... FAILED
+test a_pinned_model_the_execution_list_does_not_name_is_refused_before_the_cli_starts ... FAILED
+test adding_an_unpinned_exception_is_a_loosening_that_waits_for_a_person ... FAILED
+test a_pinned_model_the_orchestration_list_does_not_name_is_refused_for_the_planner ... FAILED
+test an_enforced_policy_without_the_list_or_with_an_empty_one_accepts_no_unpinned_cli ... FAILED
+test a_planner_is_checked_as_the_entry_it_was_pinned_to_not_the_first_one_on_that_cli ... FAILED
+test an_enforced_project_with_an_unpinned_cli_entry_it_does_not_name_says_so_when_it_opens ... FAILED
+test an_entry_the_policy_names_as_unpinned_runs_without_a_model_argument_and_says_so ... FAILED
+test a_project_with_no_policy_runs_as_it_always_did ... ok
+test editing_backspace_toml_after_the_project_opened_does_not_change_the_model ... FAILED
+test legacy_open_runs_unpinned_too ... ok
+test planner_and_worker_are_checked_against_their_own_lists ... FAILED
+test the_environment_cannot_change_a_pinned_model ... FAILED
+test under_an_enforced_policy_a_cli_entry_runs_unpinned_only_if_the_policy_says_so ... FAILED
+test without_an_enforced_policy_unpinned_is_open_unless_a_list_says_otherwise ... FAILED
+test an_empty_model_is_not_a_pin ... FAILED
+test an_unpinned_entry_under_an_enforced_policy_is_refused_unless_named ... FAILED
+test the_exception_is_per_entry ... FAILED
+
+failures:
+
+---- a_generated_policy_names_the_cli_entries_that_run_unpinned_and_the_models_it_pins stdout ----
+
+thread 'a_generated_policy_names_the_cli_entries_that_run_unpinned_and_the_models_it_pins' (5263) panicked at crates/core/tests/cli_model_policy.rs:483:50:
+a generated policy states the exception
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- a_list_the_person_wrote_is_not_widened_by_the_generated_exception stdout ----
+
+thread 'a_list_the_person_wrote_is_not_widened_by_the_generated_exception' (5264) panicked at crates/core/tests/cli_model_policy.rs:501:5:
+assertion `left == right` failed: an enforced file with no such list accepts no unpinned CLI, and generating it does not change that
+  left: None
+ right: Some([])
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- a_pinned_claude_code_entry_is_started_on_its_model stdout ----
+
+thread 'a_pinned_claude_code_entry_is_started_on_its_model' (5268) panicked at crates/core/tests/cli_model_policy.rs:336:5:
+["-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--mcp-config", "{\"mcpServers\":{\"backspace\":{\"args\":[\"mcp\"],\"command\":\"/home/user/workbench/target/debug/deps/cli_model_policy-814c3d8cb687ab02\",\"env\":{\"BACKSPACE_AGENT\":\"job#1\",\"BACKSPACE_BRIDGE\":\"http://127.0.0.1:33875\",\"BACKSPACE_BRIDGE_TOKEN\":\"5eeca76fdaee8e056889b5889c8c5c00\"}}}}", "--advisor", "opus", "--agents", "{\"scout\":{\"description\":\"Fast read-only scout: finds the files that matter, reads code, docs and specs, and returns a short summary. Use it for discovery instead of reading a lot yourself; send several in parallel.\",\"model\":\"haiku\",\"prompt\":\"You are a scout: a fast, read-only helper. Answer the one question you are given by reading files and running read-only shell commands (ls, grep, cat, git log). Never change anything. Reply with a short, concrete summary: file paths with line numbers, names, the facts asked for. Under 200 words.\",\"tools\":[\"Read\",\"Grep\",\"Glob\",\"WebFetch\"]}}", "--permission-mode", "acceptEdits", "--allowedTools", "Bash,Edit,Write,Read,Glob,Grep,WebFetch,mcp__backspace"]
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- a_pinned_codex_entry_is_started_on_its_model stdout ----
+
+thread 'a_pinned_codex_entry_is_started_on_its_model' (5282) panicked at crates/core/tests/cli_model_policy.rs:343:5:
+["exec", "--json", "--skip-git-repo-check", "-s", "workspace-write", "-c", "mcp_servers.backspace={\"args\"=[\"mcp\"],\"command\"=\"/home/user/workbench/target/debug/deps/cli_model_policy-814c3d8cb687ab02\",\"env\"={\"BACKSPACE_AGENT\"=\"job#1\",\"BACKSPACE_BRIDGE\"=\"http://127.0.0.1:32929\",\"BACKSPACE_BRIDGE_TOKEN\"=\"da64186ffaf07afe5e5adf03e8c40c72\"}}", "-"]
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- a_pin_on_a_cli_whose_command_line_precedence_is_not_verified_counts_as_unpinned stdout ----
+
+thread 'a_pin_on_a_cli_whose_command_line_precedence_is_not_verified_counts_as_unpinned' (5266) panicked at crates/core/tests/cli_model_policy.rs:433:5:
+no usable models: set an API key for one of the providers (NONE, )
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- a_pinned_model_the_execution_list_does_not_name_is_refused_before_the_cli_starts stdout ----
+
+thread 'a_pinned_model_the_execution_list_does_not_name_is_refused_before_the_cli_starts' (5283) panicked at crates/core/tests/cli_model_policy.rs:362:5:
+
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- adding_an_unpinned_exception_is_a_loosening_that_waits_for_a_person stdout ----
+
+thread 'adding_an_unpinned_exception_is_a_loosening_that_waits_for_a_person' (5527) panicked at crates/core/tests/cli_model_policy.rs:530:5:
+assertion `left == right` failed: the file that excepts a CLI is not in force
+  left: PolicyConfig { mode: Some(Enforced), orchestration_models: Some(["cc"]), execution_models: Some(["cc"]), skills: Some([]), plugins: Some([]), routing_models: None, unpinned_cli_models: Some(["cc"]), budget: TaskBudget { max_usd: None, max_tokens: None } }
+ right: PolicyConfig { mode: Some(Enforced), orchestration_models: Some(["cc"]), execution_models: Some(["cc"]), skills: Some([]), plugins: Some([]), routing_models: None, unpinned_cli_models: None, budget: TaskBudget { max_usd: None, max_tokens: None } }
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- a_pinned_model_the_orchestration_list_does_not_name_is_refused_for_the_planner stdout ----
+
+thread 'a_pinned_model_the_orchestration_list_does_not_name_is_refused_for_the_planner' (5452) panicked at crates/core/tests/cli_model_policy.rs:369:5:
+
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- an_enforced_policy_without_the_list_or_with_an_empty_one_accepts_no_unpinned_cli stdout ----
+
+thread 'an_enforced_policy_without_the_list_or_with_an_empty_one_accepts_no_unpinned_cli' (5618) panicked at crates/core/tests/cli_model_policy.rs:318:9:
+None
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- a_planner_is_checked_as_the_entry_it_was_pinned_to_not_the_first_one_on_that_cli stdout ----
+
+thread 'a_planner_is_checked_as_the_entry_it_was_pinned_to_not_the_first_one_on_that_cli' (5460) panicked at crates/core/tests/cli_model_policy.rs:391:5:
+the pinned entry is the one checked: 
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- an_enforced_project_with_an_unpinned_cli_entry_it_does_not_name_says_so_when_it_opens stdout ----
+
+thread 'an_enforced_project_with_an_unpinned_cli_entry_it_does_not_name_says_so_when_it_opens' (5619) panicked at crates/core/tests/cli_model_policy.rs:519:5:
+
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- an_entry_the_policy_names_as_unpinned_runs_without_a_model_argument_and_says_so stdout ----
+
+thread 'an_entry_the_policy_names_as_unpinned_runs_without_a_model_argument_and_says_so' (5627) panicked at crates/core/tests/cli_model_policy.rs:414:9:
+claude: the log records the exception: initialised a git repository in the workspace
+agents work on `backspace/run`; your branch is left alone. Merge it when you're happy: git merge backspace/run
+routed by heuristic+pinned → mock-mid @ high
+routed by pinned → cc @ medium (100% confident)
+working on branch `backspace/job` from `backspace/run`
+handing this ticket to claude (/tmp/bs-climodel-bin-5258/claude) in /tmp/bs-climodel-excepted-claude-5258/.backspace/worktrees/job
+claude turn done (≈$0.010 at API prices; billed to your claude plan)
+Auto-approved.
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- editing_backspace_toml_after_the_project_opened_does_not_change_the_model stdout ----
+
+thread 'editing_backspace_toml_after_the_project_opened_does_not_change_the_model' (5790) panicked at crates/core/tests/cli_model_policy.rs:455:5:
+["-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--mcp-config", "{\"mcpServers\":{\"backspace\":{\"args\":[\"mcp\"],\"command\":\"/home/user/workbench/target/debug/deps/cli_model_policy-814c3d8cb687ab02\",\"env\":{\"BACKSPACE_AGENT\":\"job#1\",\"BACKSPACE_BRIDGE\":\"http://127.0.0.1:37343\",\"BACKSPACE_BRIDGE_TOKEN\":\"66c6ea35a092ceed9ca7c017a431cb61\"}}}}", "--advisor", "opus", "--agents", "{\"scout\":{\"description\":\"Fast read-only scout: finds the files that matter, reads code, docs and specs, and returns a short summary. Use it for discovery instead of reading a lot yourself; send several in parallel.\",\"model\":\"haiku\",\"prompt\":\"You are a scout: a fast, read-only helper. Answer the one question you are given by reading files and running read-only shell commands (ls, grep, cat, git log). Never change anything. Reply with a short, concrete summary: file paths with line numbers, names, the facts asked for. Under 200 words.\",\"tools\":[\"Read\",\"Grep\",\"Glob\",\"WebFetch\"]}}", "--permission-mode", "acceptEdits", "--allowedTools", "Bash,Edit,Write,Read,Glob,Grep,WebFetch,mcp__backspace"]
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- planner_and_worker_are_checked_against_their_own_lists stdout ----
+
+thread 'planner_and_worker_are_checked_against_their_own_lists' (5892) panicked at crates/core/tests/cli_model_policy.rs:378:5:
+the planner runs: ["-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--append-system-prompt", "You are the lead agent of a Backspace project. The user states a goal; you own getting it built. After the interview, the user's role is to approve the plan and the deliverables, so make every decision you can make yourself.", "", "How to work:", "1. Before planning, grill the user following the `grilling` skill: rounds of numbered questions, each with your recommended answer, so they can reply \"go\" to accept all. Stop as soon as the frontier is empty; do not re-ask what the goal already answers.", "2. Inspect the workspace (bash: ls, git log, existing files). You work directly on the project's checked-out branch; every ticket agent gets its own branch and worktree, forked from yours, and accepted work is merged back into yours.", "3. Write the architecture to PLAN.md: components, interfaces between them, how to build and test.", "4. Turn the plan into tickets with create_tickets, following the `to-tickets` skill: tracer-bullet vertical slices, each with testable acceptance criteria and, wherever the project allows, a `check` command that proves it (a test, a build, a script). The check gates review, so a good one saves the user from reviewing broken work. Prefactoring comes first. Use blocked_by only for real dependencies. Tickets are ready as soon as you create them.", "5. Dispatch with work_tickets. Agents start on cheap models and escalate only when they fail, so write briefs that a cheap model can follow: exact behaviour, interfaces, and what done looks like. Create as many tickets as the work genuinely splits into, and no more; each costs money and a review. Worker agents you can still dispatch: 4.", "6. When results return, verify the merged result yourself (build, run tests). Fix small gaps directly, reopen a ticket with revise_ticket, or create follow-up tickets. Agents may file tickets for problems outside their scope; decide whether each belongs in this goal.", "7. Finish with submit_deliverable: what was built, how to run it, what is verified and what is not.", "", "Keep replies to the user short. Report facts, not enthusiasm.", "", "", "# Your advisor", "", "A stronger model (claude-opus-5-5) is on call through the `advisor` tool; it reads this whole conversation. Consult it at three moments and stay on your own otherwise:", "- before a plan locks (before create_tickets, or before a large change): does it miss auth invariants, schema contracts or edge cases?", "- when the same check or error fails twice: is this the root cause, or a rabbit hole?", "- before you call it done (submit_deliverable): did the full diff break anything or skip a pre-flight rule?", "Never for routine steps.", "", "# Scouts", "", "For looking things up (which files matter, how an API works, what the docs say), send scouts with the `scout` tool: up to 3 small fast read-only agents in parallel, each returning a short summary. It is cheaper than reading a lot yourself.", "", "You are running on cli at high effort.", "", "# Skills", "", "Load any of these with the `skill` tool when it fits the task.", "", "", "Skills were written for a general coding agent. In Backspace: \"the Skill tool\" is the `skill` tool; \"the issue tracker\" and \"tickets\" are Backspace tickets (create_tickets, file_ticket, triage_ticket); \"dispatch a sub-agent\" means create_tickets + work_tickets if you have them, otherwise do it yourself; triage labels are ticket states (needs_triage, needs_info, ready_for_agent, ready_for_human, wontfix). Ignore setup steps such as /setup-matt-pocock-skills and anything about posting comments to GitHub. The ponytail skill's slash commands map onto this tool: `/ponytail` is loading it, `/ponytail lite|full|ultra` is the level in its body, and `/ponytail-review`, `/ponytail-audit`, `/ponytail-debt` and `/ponytail-gain` are just that level applied to a review of the diff, a read of the codebase, the shortcuts already in the code, or the size of the change you are about to make.", "", "# Advisor and scouts", "", "If you have an advisor tool, consult it at three moments only: before a plan locks, when the same check or error fails twice, and before you call the work done. For discovery (which files matter, what the docs say), send the `scout` subagent, several in parallel, rather than reading a lot yourself.", "", "# Your tools here", "", "You run inside a coding CLI. Backspace's planning tools are MCP tools named `create_tickets` and `work_tickets` (server `backspace`). Both return at once: after calling either, end your turn with a one-line note. The user's verdict on a plan, or each ticket's result, comes back as your next message. Do not build the tickets yourself; agents do that on their own branches, and their accepted work is merged into this checkout (branch `backspace/run`), where you can read and verify it.", "--mcp-config", "{\"mcpServers\":{\"backspace\":{\"args\":[\"mcp\"],\"command\":\"/home/user/workbench/target/debug/deps/cli_model_policy-814c3d8cb687ab02\",\"env\":{\"BACKSPACE_AGENT\":\"main\",\"BACKSPACE_BRIDGE\":\"http://127.0.0.1:44913\",\"BACKSPACE_BRIDGE_TOKEN\":\"bd3f5450d4c88c31ce206a0ce2386dd5\"}}}}", "--advisor", "opus", "--permission-mode", "acceptEdits", "--allowedTools", "Bash,Edit,Write,Read,Glob,Grep,WebFetch,mcp__backspace"]
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- the_environment_cannot_change_a_pinned_model stdout ----
+
+thread 'the_environment_cannot_change_a_pinned_model' (5910) panicked at crates/core/tests/cli_model_policy.rs:354:5:
+["-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--mcp-config", "{\"mcpServers\":{\"backspace\":{\"args\":[\"mcp\"],\"command\":\"/home/user/workbench/target/debug/deps/cli_model_policy-814c3d8cb687ab02\",\"env\":{\"BACKSPACE_AGENT\":\"job#1\",\"BACKSPACE_BRIDGE\":\"http://127.0.0.1:36641\",\"BACKSPACE_BRIDGE_TOKEN\":\"cd77a8bf1e05bf4cb3e83f1785ef36ab\"}}}}", "--advisor", "opus", "--agents", "{\"scout\":{\"description\":\"Fast read-only scout: finds the files that matter, reads code, docs and specs, and returns a short summary. Use it for discovery instead of reading a lot yourself; send several in parallel.\",\"model\":\"haiku\",\"prompt\":\"You are a scout: a fast, read-only helper. Answer the one question you are given by reading files and running read-only shell commands (ls, grep, cat, git log). Never change anything. Reply with a short, concrete summary: file paths with line numbers, names, the facts asked for. Under 200 words.\",\"tools\":[\"Read\",\"Grep\",\"Glob\",\"WebFetch\"]}}", "--permission-mode", "acceptEdits", "--allowedTools", "Bash,Edit,Write,Read,Glob,Grep,WebFetch,mcp__backspace"]
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- under_an_enforced_policy_a_cli_entry_runs_unpinned_only_if_the_policy_says_so stdout ----
+
+thread 'under_an_enforced_policy_a_cli_entry_runs_unpinned_only_if_the_policy_says_so' (5988) panicked at crates/core/tests/cli_model_policy.rs:306:49:
+called `Result::unwrap_err()` on an `Ok` value: ()
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- without_an_enforced_policy_unpinned_is_open_unless_a_list_says_otherwise stdout ----
+
+thread 'without_an_enforced_policy_unpinned_is_open_unless_a_list_says_otherwise' (5989) panicked at crates/core/tests/cli_model_policy.rs:328:5:
+assertion failed: g.check_cli_model("cc", false).is_ok() &&
+    g.check_cli_model("cx", false).is_err()
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- an_empty_model_is_not_a_pin stdout ----
+
+thread 'an_empty_model_is_not_a_pin' (5528) panicked at crates/core/tests/cli_model_policy.rs:442:5:
+
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- an_unpinned_entry_under_an_enforced_policy_is_refused_unless_named stdout ----
+
+thread 'an_unpinned_entry_under_an_enforced_policy_is_refused_unless_named' (5676) panicked at crates/core/tests/cli_model_policy.rs:403:9:
+claude worker: 
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- the_exception_is_per_entry stdout ----
+
+thread 'the_exception_is_per_entry' (5969) panicked at crates/core/tests/cli_model_policy.rs:423:5:
+
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+
+failures:
+    a_generated_policy_names_the_cli_entries_that_run_unpinned_and_the_models_it_pins
+    a_list_the_person_wrote_is_not_widened_by_the_generated_exception
+    a_pin_on_a_cli_whose_command_line_precedence_is_not_verified_counts_as_unpinned
+    a_pinned_claude_code_entry_is_started_on_its_model
+    a_pinned_codex_entry_is_started_on_its_model
+    a_pinned_model_the_execution_list_does_not_name_is_refused_before_the_cli_starts
+    a_pinned_model_the_orchestration_list_does_not_name_is_refused_for_the_planner
+    a_planner_is_checked_as_the_entry_it_was_pinned_to_not_the_first_one_on_that_cli
+    adding_an_unpinned_exception_is_a_loosening_that_waits_for_a_person
+    an_empty_model_is_not_a_pin
+    an_enforced_policy_without_the_list_or_with_an_empty_one_accepts_no_unpinned_cli
+    an_enforced_project_with_an_unpinned_cli_entry_it_does_not_name_says_so_when_it_opens
+    an_entry_the_policy_names_as_unpinned_runs_without_a_model_argument_and_says_so
+    an_unpinned_entry_under_an_enforced_policy_is_refused_unless_named
+    editing_backspace_toml_after_the_project_opened_does_not_change_the_model
+    planner_and_worker_are_checked_against_their_own_lists
+    the_environment_cannot_change_a_pinned_model
+    the_exception_is_per_entry
+    under_an_enforced_policy_a_cli_entry_runs_unpinned_only_if_the_policy_says_so
+    without_an_enforced_policy_unpinned_is_open_unless_a_list_says_otherwise
+
+test result: FAILED. 3 passed; 20 failed; 0 ignored; 0 measured; 0 filtered out; finished in 46.25s
+
+error: test failed, to rerun pass `-p backspace-core --test cli_model_policy`
+     Running tests/cli_policy.rs (target/debug/deps/cli_policy-d7521f010138135f)
+
+running 12 tests
+test a_generated_policy_names_the_advisor_and_scouts_the_config_already_uses ... ok
+test a_list_the_person_wrote_is_not_widened_by_the_aliases ... ok
+test a_planner_in_claude_code_loses_what_the_policy_does_not_name ... ok
+test a_planner_cli_entry_the_orchestration_list_does_not_name_is_refused_before_its_turn ... ok
+test a_planner_in_claude_code_gets_its_advisor_when_the_orchestration_list_names_it ... ok
+test a_project_with_no_policy_keeps_what_it_always_got ... ok
+test a_worker_that_may_create_tickets_is_an_orchestrator_and_is_checked_as_one ... ok
+test a_workers_advisor_is_checked_at_the_workers_role_not_the_planners ... ok
+test a_worker_cli_entry_the_execution_list_does_not_name_is_refused_before_its_turn ... ok
+test claude_codes_advisor_and_scouts_are_left_off_when_the_policy_does_not_name_their_models ... ok
+test each_is_decided_on_its_own ... ok
+test they_are_attached_when_the_policy_names_both_models ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.30s
+
+     Running tests/decision.rs (target/debug/deps/decision-a0cb766126eff04c)
+
+running 9 tests
+test a_decider_that_fails_is_an_error_not_a_guess ... ok
+test below_the_threshold_the_user_is_asked_and_at_it_the_answer_stands ... ok
+test a_different_decider_can_be_swapped_in_and_decides_instead ... ok
+test nothing_to_go_on_is_never_a_confident_answer ... ok
+test task_types_round_trip_through_their_names ... ok
+test a_malformed_answer_is_rejected ... ok
+test the_baseline_separates_clear_cases ... ok
+test ties_resolve_the_same_way_every_time ... ok
+test the_baseline_answers_each_question_with_a_distribution_that_sums_to_one ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/e2e.rs (target/debug/deps/e2e-36d83ee279d41137)
+
+running 8 tests
+test a_plan_must_cover_the_spec ... ok
+test filed_tickets_get_triaged ... ok
+test a_remote_machine_is_followed_and_driven ... ok
+test a_ticket_runs_on_a_cli_worker ... ok
+test visual_options_wait_for_the_users_pick ... ok
+test a_whole_project_reports_the_section_3_4_metrics ... ok
+test flat_project_with_gates_escalation_and_merges ... ok
+test nested_leads_review_and_revise_their_reports ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.12s
+
+     Running tests/eval.rs (target/debug/deps/eval-0706abaad829299b)
+
+running 10 tests
+test an_unlabeled_or_mislabeled_trace_is_an_error_naming_its_line ... ok
+test a_decider_that_fails_on_a_trace_fails_the_eval ... ok
+test accuracy_is_reported_per_task_type ... ok
+test an_empty_trace_set_cannot_be_evaluated ... ok
+test calibration_bins_ece_and_brier_match_the_hand_calculation ... ok
+test traces_load_from_json_lines_and_blank_lines_are_skipped ... ok
+test cost_is_compared_with_always_frontier_when_traces_carry_token_counts ... ok
+test below_the_threshold_is_counted_as_asking_and_confident_mistakes_are_counted_apart ... ok
+test the_report_renders_every_section_the_plan_asks_for ... ok
+test without_token_counts_cost_is_not_computed_rather_than_guessed ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/features.rs (target/debug/deps/features-f89239a6df61383c)
+
+running 17 tests
+test a_limit_is_recognised_from_the_clis_own_words_only ... ok
+test a_direct_message_between_two_agents_is_its_own_conversation ... ok
+test a_chosen_local_model_becomes_the_scout_model ... ok
+test a_reply_to_a_message_that_is_not_there_is_refused ... ok
+test a_local_model_on_a_custom_router_is_found_by_id ... ok
+test accounts_round_trip_and_keep_their_env ... ok
+test each_project_remembers_its_own_canvases ... ok
+test local_jobs_defaults_to_scouts_and_refuses_unknown_words ... ok
+test no_choice_or_an_unknown_runtime_leaves_the_config_alone ... ok
+test one_limited_login_does_not_stop_the_project ... ok
+test read_messages_hands_back_the_id_a_reply_can_name ... ok
+test the_board_message_shape_survives_a_round_trip ... ok
+test the_tick_gates_the_local_model_and_scouts_only_follow_their_own ... ok
+test a_produced_artifact_reaches_the_snapshot_and_is_addressable ... ok
+test a_worker_routes_to_the_local_model_only_while_it_is_listening ... ok
+test a_delegated_lookup_reaches_the_chosen_local_model ... ok
+test triage_can_run_on_the_local_model_with_no_api_key ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.65s
+
+     Running tests/gateway.rs (target/debug/deps/gateway-9f27bfde7bb591b6)
+
+running 20 tests
+test a_call_whose_input_alone_does_not_fit_is_refused_before_it_is_made ... ok
+test a_call_that_fits_gets_the_models_full_output ... ok
+test a_model_outside_the_orchestration_list_is_refused_for_orchestration_only ... ok
+test a_model_outside_the_execution_list_is_refused_for_execution_only ... ok
+test a_model_that_costs_nothing_is_not_stopped_by_a_dollar_budget_but_is_by_a_token_one ... ok
+test a_role_follows_what_the_agent_does ... ok
+test a_refusal_names_the_policy_the_thing_and_the_role ... ok
+test a_plugin_outside_the_list_is_refused_in_both_roles ... ok
+test a_skill_outside_the_list_is_refused_in_both_roles ... ok
+test a_spent_budget_refuses_every_further_call ... ok
+test input_is_estimated_high_never_low ... ok
+test a_token_budget_clamps_and_refuses_the_same_way ... ok
+test output_is_clamped_so_the_worst_case_cost_stays_inside_the_budget ... ok
+test an_empty_list_refuses_everything_in_that_role ... ok
+test the_tightest_budget_wins_and_is_named ... ok
+test the_per_task_line_comes_from_the_policy_and_carries_the_tasks_own_spend ... ok
+test the_two_lists_are_separate ... ok
+test text_dressed_as_an_instruction_cannot_widen_a_list ... ok
+test with_no_policy_every_model_skill_and_plugin_is_open ... ok
+test the_policy_is_read_from_the_project_config ... ok
+
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/gateway_e2e.rs (target/debug/deps/gateway_e2e-b4be863768da432a)
+
+running 13 tests
+test a_skill_outside_the_list_is_refused_and_not_offered_to_an_orchestration_agent ... ok
+test a_task_budget_smaller_than_the_first_call_stops_it_before_any_request ... ok
+test a_task_budget_spent_by_one_call_stops_the_next_before_it_is_made ... ok
+test a_skill_outside_the_list_is_refused_for_an_execution_agent_too ... ok
+test an_agent_cannot_rewrite_the_policy_file_with_the_file_tools ... ok
+test an_execution_model_outside_the_list_never_reaches_the_provider ... ok
+test an_allowed_skill_still_loads ... ok
+test the_policy_is_fixed_when_the_project_opens ... ok
+test an_orchestration_model_outside_the_list_never_reaches_the_provider ... ok
+test the_output_limit_sent_to_the_provider_is_clamped_to_what_the_budget_can_pay ... ok
+test the_project_budget_is_enforced_before_the_call_not_after_it ... ok
+test without_a_budget_the_output_limit_is_the_models_own ... ok
+test an_allowed_orchestration_model_is_called_normally ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.49s
+
+     Running tests/interrupted.rs (target/debug/deps/interrupted-f51eb1a30baed879)
+
+running 2 tests
+test a_restart_carries_a_cli_worker_on_in_its_own_session ... ok
+test only_an_interrupted_agent_can_carry_on ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.81s
+
+     Running tests/jev_settlement.rs (target/debug/deps/jev_settlement-2e08e3a178391d7b)
+
+running 11 tests
+test a_billed_answer_the_router_cannot_use_is_recorded_once_and_the_fallback_is_not_charged_again ... ok
+test a_model_jev_names_that_it_was_not_offered_is_not_used ... ok
+test a_pinned_model_does_not_stop_the_jev_call ... ok
+test a_cost_above_the_estimate_is_on_the_books_before_the_room_is_given_back ... ok
+test jev_is_only_offered_models_the_project_policy_allows_for_the_role ... ok
+test a_jev_decision_reaches_the_projects_spend_exactly_once ... ok
+test jev_calls_completing_among_api_reservations_never_leave_more_spent_than_the_limit ... ok
+test a_jev_call_must_fit_the_project_token_limit_and_its_tokens_are_not_counted_afterwards ... ok
+test the_heuristic_backend_is_the_supported_way_to_keep_jev_off_a_project ... ok
+test nobody_sees_the_hold_gone_and_the_spend_not_yet_recorded ... ok
+test simultaneous_jev_calls_cannot_jointly_pass_the_project_budget ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.97s
+
+     Running tests/jev_unknown_cost.rs (target/debug/deps/jev_unknown_cost-5a7e791aebc038da)
+
+running 13 tests
+test a_failure_that_reports_its_cost_is_recorded_at_that_cost ... FAILED
+test a_body_that_is_not_json_is_counted_at_the_reserved_amount ... FAILED
+test a_known_cost_above_the_hold_is_recorded_in_full_when_the_call_failed_too ... FAILED
+test a_connection_cut_after_dispatch_is_counted_at_the_reserved_amount ... FAILED
+test a_later_request_cannot_use_the_room_an_unknown_cost_call_held ... FAILED
+test a_request_that_never_left_releases_its_hold_and_records_nothing ... ok
+test a_usable_answer_with_no_usage_is_used_and_counted_at_the_reserved_amount ... FAILED
+test an_error_status_without_usage_is_counted_at_the_reserved_amount ... FAILED
+test nobody_sees_an_unknown_cost_call_with_no_hold_and_no_spend ... FAILED
+test a_retry_neither_frees_nor_double_counts_the_failed_attempt ... FAILED
+test a_mixture_of_outcomes_run_concurrently_adds_up_and_never_passes_the_limit ... FAILED
+test a_timeout_after_dispatch_is_counted_at_the_reserved_amount ... FAILED
+test the_heuristic_still_decides_whatever_happens_to_the_jev_call ... ok
+
+failures:
+
+---- a_failure_that_reports_its_cost_is_recorded_at_that_cost stdout ----
+
+thread 'a_failure_that_reports_its_cost_is_recorded_at_that_cost' (7790) panicked at crates/core/tests/jev_unknown_cost.rs:371:9:
+an error status that reports usage: recorded at what Jev said it cost, 0.24: 0
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- a_body_that_is_not_json_is_counted_at_the_reserved_amount stdout ----
+
+thread 'a_body_that_is_not_json_is_counted_at_the_reserved_amount' (7788) panicked at crates/core/tests/jev_unknown_cost.rs:282:5:
+the note says `cost is unknown`: jev unavailable, heuristic used: jev returned non-JSON: expected ident at line 1 column 2
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- a_known_cost_above_the_hold_is_recorded_in_full_when_the_call_failed_too stdout ----
+
+thread 'a_known_cost_above_the_hold_is_recorded_in_full_when_the_call_failed_too' (7791) panicked at crates/core/tests/jev_unknown_cost.rs:545:5:
+0 vs 54.24
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- a_connection_cut_after_dispatch_is_counted_at_the_reserved_amount stdout ----
+
+thread 'a_connection_cut_after_dispatch_is_counted_at_the_reserved_amount' (7789) panicked at crates/core/tests/jev_unknown_cost.rs:282:5:
+the note says `cost is unknown`: jev unavailable, heuristic used: jev request failed: error sending request for url (http://127.0.0.1:46541/route): client error (SendRequest): connection closed before message completed
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- a_later_request_cannot_use_the_room_an_unknown_cost_call_held stdout ----
+
+thread 'a_later_request_cannot_use_the_room_an_unknown_cost_call_held' (7837) panicked at crates/core/tests/jev_unknown_cost.rs:390:5:
+the first call's 5.424 is still counted: a second one must not fit in what is left
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- a_usable_answer_with_no_usage_is_used_and_counted_at_the_reserved_amount stdout ----
+
+thread 'a_usable_answer_with_no_usage_is_used_and_counted_at_the_reserved_amount' (7905) panicked at crates/core/tests/jev_unknown_cost.rs:354:5:
+the decision shows the cost that was counted: 0 settled=true
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- an_error_status_without_usage_is_counted_at_the_reserved_amount stdout ----
+
+thread 'an_error_status_without_usage_is_counted_at_the_reserved_amount' (7931) panicked at crates/core/tests/jev_unknown_cost.rs:282:5:
+the note says `cost is unknown`: jev unavailable, heuristic used: jev returned 500 Internal Server Error: {"error":"boom"}
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- nobody_sees_an_unknown_cost_call_with_no_hold_and_no_spend stdout ----
+
+thread '<unnamed>' (7959) panicked at crates/core/tests/jev_unknown_cost.rs:435:54:
+the router never recorded the unknown cost while it still held the reservation: Disconnected
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+thread 'nobody_sees_an_unknown_cost_call_with_no_hold_and_no_spend' (7946) panicked at crates/core/tests/jev_unknown_cost.rs:446:28:
+called `Result::unwrap()` on an `Err` value: Any { .. }
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- a_retry_neither_frees_nor_double_counts_the_failed_attempt stdout ----
+
+thread 'a_retry_neither_frees_nor_double_counts_the_failed_attempt' (7843) panicked at crates/core/tests/jev_unknown_cost.rs:405:5:
+0
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- a_mixture_of_outcomes_run_concurrently_adds_up_and_never_passes_the_limit stdout ----
+
+thread 'a_mixture_of_outcomes_run_concurrently_adds_up_and_never_passes_the_limit' (7839) panicked at crates/core/tests/jev_unknown_cost.rs:502:5:
+recorded 27.6; 2 known and 3 unknown Jev calls and 5 API calls cost 43.872 ([Ok, Hang, Cut, Ok, Error500], 1 sizing)
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- a_timeout_after_dispatch_is_counted_at_the_reserved_amount stdout ----
+
+thread 'a_timeout_after_dispatch_is_counted_at_the_reserved_amount' (7873) panicked at crates/core/tests/jev_unknown_cost.rs:282:5:
+the note says `cost is unknown`: jev unavailable, heuristic used: jev request failed: error sending request for url (http://127.0.0.1:33001/route): operation timed out
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+
+failures:
+    a_body_that_is_not_json_is_counted_at_the_reserved_amount
+    a_connection_cut_after_dispatch_is_counted_at_the_reserved_amount
+    a_failure_that_reports_its_cost_is_recorded_at_that_cost
+    a_known_cost_above_the_hold_is_recorded_in_full_when_the_call_failed_too
+    a_later_request_cannot_use_the_room_an_unknown_cost_call_held
+    a_mixture_of_outcomes_run_concurrently_adds_up_and_never_passes_the_limit
+    a_retry_neither_frees_nor_double_counts_the_failed_attempt
+    a_timeout_after_dispatch_is_counted_at_the_reserved_amount
+    a_usable_answer_with_no_usage_is_used_and_counted_at_the_reserved_amount
+    an_error_status_without_usage_is_counted_at_the_reserved_amount
+    nobody_sees_an_unknown_cost_call_with_no_hold_and_no_spend
+
+test result: FAILED. 2 passed; 11 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.06s
+
+error: test failed, to rerun pass `-p backspace-core --test jev_unknown_cost`
+     Running tests/ladder.rs (target/debug/deps/ladder-46073cb4025b8ce5)
+
+running 16 tests
+test a_cheap_rung_that_keeps_failing_is_skipped_for_the_frontier ... ok
+test a_cheap_rung_that_mostly_works_is_kept ... ok
+test an_unmeasured_rung_is_a_coin_flip_and_no_rung_is_certain ... ok
+test an_unsure_or_missing_classification_does_not_start_on_the_frontier ... ok
+test an_unknown_class_is_a_config_error ... ok
+test an_explicit_class_beats_the_tier ... ok
+test classes_are_ordered_from_local_to_frontier ... ok
+test moving_up_needs_a_measured_failure ... ok
+test nothing_is_above_the_frontier ... ok
+test the_planner_starts_on_the_frontier_only_for_a_long_task ... ok
+test a_free_model_can_still_be_a_frontier_call ... ok
+test tier_zero_is_local ... ok
+test without_measurements_price_decides_and_the_cheap_rung_goes_first ... ok
+test by_default_the_class_follows_the_tier ... ok
+test within_caps_the_candidates_and_never_empties_them ... ok
+test cheapest_on_prefers_the_class_then_the_nearest_below_then_above ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/max_project_tokens.rs (target/debug/deps/max_project_tokens-83e89b2920aa3b12)
+
+running 12 tests
+test a_cli_turn_is_given_what_the_api_calls_in_flight_have_not_reserved ... ok
+test a_config_without_it_loads_as_before_with_no_project_token_limit ... ok
+test a_negative_or_fractional_limit_is_not_a_limit ... ok
+test an_api_call_is_refused_and_not_queued_while_a_cli_turn_holds_the_project_tokens ... ok
+test the_setting_is_read_from_the_orchestrator_table ... ok
+test the_setting_survives_being_written_back ... ok
+test the_shipped_default_config_names_it_and_loads_without_it ... ok
+test the_tokens_one_call_used_are_counted_against_the_next_one ... ok
+test what_the_project_has_already_spent_comes_off_every_new_hold ... ok
+test a_call_that_cannot_fit_the_project_token_limit_is_refused_before_it_is_sent ... ok
+test api_calls_and_cli_turns_started_together_never_hold_more_than_the_project_limit ... ok
+test agents_started_together_cannot_jointly_pass_the_project_token_limit ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.69s
+
+     Running tests/metrics.rs (target/debug/deps/metrics-ed4ae7eb713b813d)
+
+running 11 tests
+test decision_model_spend_counts_toward_cost_but_is_not_a_model_call ... ok
+test an_empty_ledger_reports_zeros_and_no_ratios ... ok
+test a_task_that_never_goes_green_does_not_make_cost_to_green ... ok
+test escalation_rate_and_success_rate_count_tasks_not_events ... ok
+test finishing_a_task_that_was_never_started_still_counts_it ... ok
+test frontier_calls_are_counted_by_class_not_by_price ... ok
+test cost_to_green_includes_every_retry_up_to_the_green_result ... ok
+test no_escalations_means_no_success_rate_rather_than_zero ... ok
+test human_tokens_are_estimated_from_characters_and_split_into_typed_and_read ... ok
+test the_json_form_carries_every_metric_and_round_trips ... ok
+test per_merged_figures_divide_by_merged_tickets ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/metrics_cli.rs (target/debug/deps/metrics_cli-7595efbb12da8c86)
+
+running 1 test
+test a_cli_workers_turn_is_a_frontier_call_even_though_it_costs_nothing ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.39s
+
+     Running tests/metrics_e2e.rs (target/debug/deps/metrics_e2e-679b03ac147030f4)
+
+running 4 tests
+test a_mid_model_turn_is_not_a_frontier_call ... ok
+test a_frontier_planner_turn_is_one_frontier_call_with_its_tokens_and_cost ... ok
+test the_harness_reports_the_same_numbers_it_wrote ... ok
+test the_file_only_ever_grows_by_whole_json_lines ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+
+     Running tests/policy_integrity.rs (target/debug/deps/policy_integrity-4d46355d2e0d286a)
+
+running 13 tests
+test a_lock_that_cannot_be_read_stops_the_project_opening_rather_than_loosening_it ... ok
+test a_file_that_tightens_one_thing_and_loosens_another_is_not_adopted_in_part ... ok
+test a_person_adopting_a_loosening_makes_it_take_effect_and_stay ... ok
+test a_command_that_leaves_the_policy_alone_is_not_reported ... ok
+test each_workspace_has_its_own_lock ... ok
+test every_way_of_loosening_is_ignored ... ok
+test ignoring_a_loosening_does_not_wear_off ... ok
+test the_first_open_adopts_the_file_and_keeps_the_lock_outside_the_workspace ... ok
+test a_person_editing_the_file_between_agent_actions_is_not_undone ... ok
+test tightening_is_adopted_and_loosening_is_ignored_with_a_warning ... ok
+test a_loosened_file_found_when_the_project_opens_is_not_in_force ... ok
+test the_lock_is_restored_after_a_command_that_rewrites_it ... ok
+test bash_cannot_weaken_the_policy_for_the_next_session ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.51s
+
+     Running tests/policy_integrity_cli.rs (target/debug/deps/policy_integrity_cli-bfb429c8dddb4450)
+
+running 4 tests
+test a_delivery_that_leaves_the_policy_alone_is_still_auto_approved ... ok
+test a_cli_planner_cannot_weaken_the_policy_either ... ok
+test a_cli_worker_cannot_weaken_the_policy ... ok
+test a_merged_branch_that_edits_the_policy_is_held_even_under_auto_approve ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.63s
+
+     Running tests/policy_matrix.rs (target/debug/deps/policy_matrix-5d924624cc8fa9a4)
+
+running 14 tests
+test each_path_gets_the_phrase_it_has_earned_and_names_the_policy_it_is_checked_at ... FAILED
+test every_path_has_a_row ... FAILED
+test chats_direct_post_to_backspace_cloud_is_the_one_the_unmetered_scan_cannot_see ... FAILED
+test every_policy_cell_uses_an_agreed_phrase ... FAILED
+test every_assumption_and_limitation_the_review_named_is_written_down ... FAILED
+test the_document_states_what_max_project_tokens_costs ... ok
+test the_notes_keep_controls_recommendations_assumptions_limitations_and_future_work_apart ... FAILED
+test the_documents_never_promise_a_hard_budget_guarantee ... ok
+test the_paths_table_keeps_budget_and_policy_in_separate_columns ... FAILED
+test the_page_says_it_answers_two_questions_and_that_neither_is_read_from_the_other ... FAILED
+test the_remaining_limitation_column_names_what_each_path_still_cannot_do ... FAILED
+test the_strict_budget_section_separates_a_recommendation_from_an_enforced_setting_from_a_limit ... ok
+test the_strict_budget_section_and_the_jev_rows_say_the_same_things ... FAILED
+test every_place_that_posts_over_http_is_a_model_call_with_a_row_or_is_listed_as_not_one ... FAILED
+
+failures:
+
+---- each_path_gets_the_phrase_it_has_earned_and_names_the_policy_it_is_checked_at stdout ----
+
+thread 'each_path_gets_the_phrase_it_has_earned_and_names_the_policy_it_is_checked_at' (9127) panicked at crates/core/tests/policy_matrix.rs:63:85:
+no `budget classification and enforcement` column in ["Path", "Budget class", "Budget: what is enforced", "Budget: what is not", "Project policy check"]
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- every_path_has_a_row stdout ----
+
+thread 'every_path_has_a_row' (9129) panicked at crates/core/tests/policy_matrix.rs:63:85:
+no `budget classification and enforcement` column in ["Path", "Budget class", "Budget: what is enforced", "Budget: what is not", "Project policy check"]
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- chats_direct_post_to_backspace_cloud_is_the_one_the_unmetered_scan_cannot_see stdout ----
+
+thread 'chats_direct_post_to_backspace_cloud_is_the_one_the_unmetered_scan_cannot_see' (9126) panicked at crates/core/tests/policy_matrix.rs:63:85:
+no `budget classification and enforcement` column in ["Path", "Budget class", "Budget: what is enforced", "Budget: what is not", "Project policy check"]
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- every_policy_cell_uses_an_agreed_phrase stdout ----
+
+thread 'every_policy_cell_uses_an_agreed_phrase' (9131) panicked at crates/core/tests/policy_matrix.rs:63:85:
+no `budget classification and enforcement` column in ["Path", "Budget class", "Budget: what is enforced", "Budget: what is not", "Project policy check"]
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- every_assumption_and_limitation_the_review_named_is_written_down stdout ----
+
+thread 'every_assumption_and_limitation_the_review_named_is_written_down' (9128) panicked at crates/core/tests/policy_matrix.rs:398:9:
+the M1 documents do not mention bytes-per-token bound (`bytes per token`)
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- the_notes_keep_controls_recommendations_assumptions_limitations_and_future_work_apart stdout ----
+
+thread 'the_notes_keep_controls_recommendations_assumptions_limitations_and_future_work_apart' (9134) panicked at crates/core/tests/policy_matrix.rs:368:9:
+no `## …implemented and tested controls…` section; headings: ["## tests", "## what is enforced, and on what evidence", "## where it is not a hard guarantee", "## third review: findings", "## added after red", "## corrections to my own tests", "## deviations from the approved plan", "## not done, on purpose"]
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- the_paths_table_keeps_budget_and_policy_in_separate_columns stdout ----
+
+thread 'the_paths_table_keeps_budget_and_policy_in_separate_columns' (9136) panicked at crates/core/tests/policy_matrix.rs:63:85:
+no `budget classification and enforcement` column in ["Path", "Budget class", "Budget: what is enforced", "Budget: what is not", "Project policy check"]
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- the_page_says_it_answers_two_questions_and_that_neither_is_read_from_the_other stdout ----
+
+thread 'the_page_says_it_answers_two_questions_and_that_neither_is_read_from_the_other' (9135) panicked at crates/core/tests/policy_matrix.rs:63:85:
+no `budget classification and enforcement` column in ["Path", "Budget class", "Budget: what is enforced", "Budget: what is not", "Project policy check"]
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- the_remaining_limitation_column_names_what_each_path_still_cannot_do stdout ----
+
+thread 'the_remaining_limitation_column_names_what_each_path_still_cannot_do' (9137) panicked at crates/core/tests/policy_matrix.rs:63:85:
+no `budget classification and enforcement` column in ["Path", "Budget class", "Budget: what is enforced", "Budget: what is not", "Project policy check"]
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- the_strict_budget_section_and_the_jev_rows_say_the_same_things stdout ----
+
+thread 'the_strict_budget_section_and_the_jev_rows_say_the_same_things' (9138) panicked at crates/core/tests/policy_matrix.rs:63:85:
+no `budget classification and enforcement` column in ["Path", "Budget class", "Budget: what is enforced", "Budget: what is not", "Project policy check"]
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- every_place_that_posts_over_http_is_a_model_call_with_a_row_or_is_listed_as_not_one stdout ----
+
+thread 'every_place_that_posts_over_http_is_a_model_call_with_a_row_or_is_listed_as_not_one' (9130) panicked at crates/core/tests/policy_matrix.rs:63:85:
+no `budget classification and enforcement` column in ["Path", "Budget class", "Budget: what is enforced", "Budget: what is not", "Project policy check"]
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+
+failures:
+    chats_direct_post_to_backspace_cloud_is_the_one_the_unmetered_scan_cannot_see
+    each_path_gets_the_phrase_it_has_earned_and_names_the_policy_it_is_checked_at
+    every_assumption_and_limitation_the_review_named_is_written_down
+    every_path_has_a_row
+    every_place_that_posts_over_http_is_a_model_call_with_a_row_or_is_listed_as_not_one
+    every_policy_cell_uses_an_agreed_phrase
+    the_notes_keep_controls_recommendations_assumptions_limitations_and_future_work_apart
+    the_page_says_it_answers_two_questions_and_that_neither_is_read_from_the_other
+    the_paths_table_keeps_budget_and_policy_in_separate_columns
+    the_remaining_limitation_column_names_what_each_path_still_cannot_do
+    the_strict_budget_section_and_the_jev_rows_say_the_same_things
+
+test result: FAILED. 3 passed; 11 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+error: test failed, to rerun pass `-p backspace-core --test policy_matrix`
+     Running tests/policy_modes.rs (target/debug/deps/policy_modes-4ff9fb53e9ba2336)
+
+running 11 tests
+test an_empty_list_still_denies_everything ... ok
+test enforced_mode_needs_every_list ... ok
+test no_policy_opens_with_a_visible_warning ... ok
+test legacy_open_mode_is_a_note_not_a_warning ... ok
+test a_policy_with_every_list_has_nothing_to_warn_about ... ok
+test policy_init_reproduces_the_effective_permissions ... ok
+test the_shipped_default_file_is_not_a_policy ... ok
+test new_project_default_is_enforced_with_explicit_lists ... ok
+test partial_policy_warns_for_each_open_list ... ok
+test skills_present_but_not_allowed_are_named ... ok
+test user_enabled_local_models_stay_usable_under_an_execution_list ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+
+     Running tests/resume.rs (target/debug/deps/resume-c3b5cae2affceb3b)
+
+running 1 test
+test interrupted_replies_resume ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
+     Running tests/router_budget.rs (target/debug/deps/router_budget-07c22677b6b5e9a8)
+
+running 5 tests
+test a_refused_reservation_means_jev_is_never_called ... ok
+test the_reservation_covers_the_request_that_is_sent_and_is_released_after ... ok
+test only_a_router_without_a_budget_is_unmetered ... ok
+test a_project_with_room_calls_jev_and_its_cost_counts_toward_the_limit ... ok
+test a_project_too_close_to_its_limit_does_not_call_jev ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+     Running tests/router_policy.rs (target/debug/deps/router_policy-8c3f5b85b8a3cd2e)
+
+running 9 tests
+test a_project_with_only_frontier_models_still_routes ... ok
+test a_one_shot_task_is_planned_on_a_mid_model_not_a_frontier_one ... ok
+test a_pinned_planner_model_still_wins ... ok
+test a_long_task_is_planned_on_a_frontier_model_at_high_effort ... ok
+test a_research_task_is_planned_on_a_mid_model ... ok
+test an_unclear_task_starts_mid_and_is_marked_for_asking ... ok
+test the_threshold_in_the_config_decides_what_counts_as_unsure ... ok
+test swapping_the_decider_changes_where_the_planner_starts ... ok
+test workers_are_not_classified_by_the_planner_policy ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+
+     Running tests/routing_policy.rs (target/debug/deps/routing_policy-6f767505755968d9)
+
+running 18 tests
+test a_named_routing_model_is_called ... ok
+test a_generated_policy_names_the_configured_routing_model ... FAILED
+test a_list_the_person_wrote_is_not_widened ... FAILED
+test a_new_project_is_enforced_and_lets_its_configured_router_run ... FAILED
+test adding_a_routing_model_is_a_loosening_that_waits_for_a_person ... FAILED
+test an_enforced_policy_allows_only_the_routing_models_it_names ... FAILED
+test dropping_enforcement_while_the_list_is_absent_is_a_loosening ... ok
+test leaving_the_list_out_of_an_enforced_file_is_not_a_loosening ... ok
+test an_enforced_policy_that_does_not_name_it_never_calls_jev_and_the_heuristic_decides ... FAILED
+test naming_jev_in_the_ordinary_role_lists_does_not_permit_it ... FAILED
+test removing_a_routing_model_tightens_and_is_adopted_by_itself ... ok
+test a_project_that_does_not_name_its_routing_model_says_so_when_it_opens_and_never_calls_jev ... FAILED
+test the_routing_model_is_matched_exactly ... FAILED
+test under_an_enforced_policy_no_list_and_an_empty_list_both_allow_nothing ... FAILED
+test without_an_enforced_policy_the_routing_model_is_open_unless_a_list_says_otherwise ... FAILED
+test a_project_that_names_it_routes_through_jev ... ok
+test the_routing_list_does_not_widen_what_jev_may_choose ... ok
+test legacy_and_open_configurations_still_call_jev ... ok
+
+failures:
+
+---- a_generated_policy_names_the_configured_routing_model stdout ----
+
+thread 'a_generated_policy_names_the_configured_routing_model' (9445) panicked at crates/core/tests/routing_policy.rs:262:5:
+assertion `left == right` failed: the intended routing model, and no other
+  left: None
+ right: Some(["jev-latest"])
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- a_list_the_person_wrote_is_not_widened stdout ----
+
+thread 'a_list_the_person_wrote_is_not_widened' (9446) panicked at crates/core/tests/routing_policy.rs:294:5:
+an enforced file that does not name it is not turned into one that does
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- a_new_project_is_enforced_and_lets_its_configured_router_run stdout ----
+
+thread 'a_new_project_is_enforced_and_lets_its_configured_router_run' (9448) panicked at crates/core/tests/routing_policy.rs:281:5:
+assertion failed: g.check_routing_model("something-else").is_err()
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- adding_a_routing_model_is_a_loosening_that_waits_for_a_person stdout ----
+
+thread 'adding_a_routing_model_is_a_loosening_that_waits_for_a_person' (9465) panicked at crates/core/tests/routing_policy.rs:314:5:
+assertion `left == right` failed: the file that adds a routing model is not in force
+  left: PolicyConfig { mode: Some(Enforced), orchestration_models: Some(["mock-small", "mock-big"]), execution_models: Some(["mock-small", "mock-big"]), skills: Some([]), plugins: Some([]), routing_models: Some(["jev-test"]), unpinned_cli_models: None, budget: TaskBudget { max_usd: None, max_tokens: None } }
+ right: PolicyConfig { mode: Some(Enforced), orchestration_models: Some(["mock-small", "mock-big"]), execution_models: Some(["mock-small", "mock-big"]), skills: Some([]), plugins: Some([]), routing_models: None, unpinned_cli_models: None, budget: TaskBudget { max_usd: None, max_tokens: None } }
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- an_enforced_policy_allows_only_the_routing_models_it_names stdout ----
+
+thread 'an_enforced_policy_allows_only_the_routing_models_it_names' (9467) panicked at crates/core/tests/routing_policy.rs:165:50:
+called `Result::unwrap_err()` on an `Ok` value: ()
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- an_enforced_policy_that_does_not_name_it_never_calls_jev_and_the_heuristic_decides stdout ----
+
+thread 'an_enforced_policy_that_does_not_name_it_never_calls_jev_and_the_heuristic_decides' (9469) panicked at crates/core/tests/routing_policy.rs:212:9:
+assertion `left == right` failed: no routing list: not one request went to Jev
+  left: 1
+ right: 0
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- naming_jev_in_the_ordinary_role_lists_does_not_permit_it stdout ----
+
+thread 'naming_jev_in_the_ordinary_role_lists_does_not_permit_it' (9508) panicked at crates/core/tests/routing_policy.rs:226:5:
+assertion `left == right` failed
+  left: 1
+ right: 0
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- a_project_that_does_not_name_its_routing_model_says_so_when_it_opens_and_never_calls_jev stdout ----
+
+thread 'a_project_that_does_not_name_its_routing_model_says_so_when_it_opens_and_never_calls_jev' (9454) panicked at crates/core/tests/routing_policy.rs:379:5:
+the person is told when the project opens: 
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- the_routing_model_is_matched_exactly stdout ----
+
+thread 'the_routing_model_is_matched_exactly' (9532) panicked at crates/core/tests/routing_policy.rs:193:9:
+`JEV-TEST`
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- under_an_enforced_policy_no_list_and_an_empty_list_both_allow_nothing stdout ----
+
+thread 'under_an_enforced_policy_no_list_and_an_empty_list_both_allow_nothing' (9533) panicked at crates/core/tests/routing_policy.rs:174:9:
+``: enforced means a model is allowed only if a list names it
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- without_an_enforced_policy_the_routing_model_is_open_unless_a_list_says_otherwise stdout ----
+
+thread 'without_an_enforced_policy_the_routing_model_is_open_unless_a_list_says_otherwise' (9534) panicked at crates/core/tests/routing_policy.rs:186:5:
+assertion failed: g.check_routing_model("jev-test").is_ok() &&
+    g.check_routing_model("jev-other").is_err()
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+
+failures:
+    a_generated_policy_names_the_configured_routing_model
+    a_list_the_person_wrote_is_not_widened
+    a_new_project_is_enforced_and_lets_its_configured_router_run
+    a_project_that_does_not_name_its_routing_model_says_so_when_it_opens_and_never_calls_jev
+    adding_a_routing_model_is_a_loosening_that_waits_for_a_person
+    an_enforced_policy_allows_only_the_routing_models_it_names
+    an_enforced_policy_that_does_not_name_it_never_calls_jev_and_the_heuristic_decides
+    naming_jev_in_the_ordinary_role_lists_does_not_permit_it
+    the_routing_model_is_matched_exactly
+    under_an_enforced_policy_no_list_and_an_empty_list_both_allow_nothing
+    without_an_enforced_policy_the_routing_model_is_open_unless_a_list_says_otherwise
+
+test result: FAILED. 7 passed; 11 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.74s
+
+error: test failed, to rerun pass `-p backspace-core --test routing_policy`
+     Running tests/spec_gate.rs (target/debug/deps/spec_gate-94498de447b56d3b)
+
+running 1 test
+test the_gate_refuses_twice_then_opens ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.34s
+
+     Running tests/unmetered.rs (target/debug/deps/unmetered-97c5acd2e1e79ab4)
+
+running 4 tests
+test every_declared_boundary_is_written_down ... ok
+test the_list_of_reasons_is_closed ... ok
+test unmetered_is_only_used_where_declared ... ok
+test every_place_that_sends_a_model_call_carries_an_authorization ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/webhook.rs (target/debug/deps/webhook-7da8c2b7530ee62e)
+
+running 2 tests
+test the_phone_cannot_read_agent_or_group_threads ... ok
+test a_webhook_wakes_only_its_bot ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.63s
+
+     Running unittests src/lib.rs (target/debug/deps/backspace_runner-7f3ebfbbcbbefa7b)
+
+running 3 tests
+test tests::transcripts_and_base64 ... ok
+test tests::codex_stream ... ok
+test tests::claude_stream_with_a_tool_call ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/http.rs (target/debug/deps/http-425a39f3299f7e6e)
+
+running 3 tests
+test openai_compatible_stream ... ok
+test bad_agent_addresses_say_so ... ok
+test a2a_card_and_task ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.66s
+
+   Doc-tests backspace_colony
+
+running 1 test
+test crates/colony/src/lib.rs - (line 15) - compile ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+   Doc-tests backspace_core
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests backspace_runner
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: 4 targets failed:
+    `-p backspace-core --test cli_model_policy`
+    `-p backspace-core --test jev_unknown_cost`
+    `-p backspace-core --test policy_matrix`
+    `-p backspace-core --test routing_policy`
+EXIT=101

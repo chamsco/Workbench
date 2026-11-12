@@ -177,8 +177,14 @@ impl Skills {
 
     /// One line per skill for the system prompt; bodies load on demand.
     pub fn index(&self) -> String {
+        self.index_where(|_| true)
+    }
+
+    /// The same, for the skills `keep` lets through (the policy's allowlist).
+    pub fn index_where(&self, keep: impl Fn(&str) -> bool) -> String {
         self.by_name
             .values()
+            .filter(|s| keep(&s.name))
             .map(|s| format!("- {}: {}", s.name, s.description))
             .collect::<Vec<_>>()
             .join("\n")

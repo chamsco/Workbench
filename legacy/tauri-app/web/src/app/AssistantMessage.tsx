@@ -1,0 +1,391 @@
+// Whirl's components/thread/assistant-message.tsx (MIT, src/whirl/LICENSE),
+// cut to what Backspace's replies carry: streamed prose through the same
+// typewriter and Markdown, the same error banner, "Stopped", and the hover
+// row (copy, retry, branch). Tool-phase activity, artifacts and image
+// generation are Whirl-backend features and are left out. Added: who
+// answered (multi-harness threads) and the sponsored card for Cloud's
+// ad-supported plans, styled as one of Whirl's wells.
+
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  IconAlertTriangleFilled,
+  IconCheck,
+  IconChevronRight,
+  IconCopy,
+  IconPlayerStopFilled,
+  IconRefresh,
+  IconTimeline,
+  IconX,
+} from "@tabler/icons-react";
+
+import { isTerminal, type ChatMessage } from "@/lib/messages";
+import { useTypewriter } from "@/lib/use-typewriter";
+import { AiTypingIndicator } from "../components/ai-typing-indicator";
+import { CheckpointMenu } from "@/components/thread/checkpoint-menu";
+import { splitFences } from "./ask";
+import { RichText } from "./RichText";
+import { MessageActionButton } from "@/components/thread/message-action-button";
+import { getHost, openTrace, type Ad } from "../bridge";
+
+/** The wait for a reply, drawn the way a chat app shows someone typing: three
+ *  dots. Under the pointer they slowly turn into "Thinking"; a click opens what
+ *  is known of the turn. The reasoning text itself is not kept by the app, so
+ *  the panel shows the model, the clock and, once there is one, the trace. */
+function ThinkingDots({ message, dots = false }: { message: ChatMessage; dots?: boolean }) {
+  const [open, setOpen] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!open) return;
+    const t = setInterval(() => setNow(Date.now()), 500);
+    return () => clearInterval(t);
+  }, [open]);
+  const secs = Math.max(0, Math.round((now - message.createdAt) / 1000));
+  return (
+    <div className="flex flex-col items-start gap-2">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        aria-label={open ? "Hide thinking" : "Show thinking"}
+        className="cursor-pointer rounded-full text-left"
+      >
+        {dots ? (
+          <AiTypingIndicator variant="dots" label="Typing" />
+        ) : (
+          <AiTypingIndicator
+            phrases={[{ text: "Thinking", icon: "think" }, { text: "Working it out", icon: "search" }, { text: "Writing", icon: "write" }]}
+            showElapsed
+          />
+        )}
+      </button>
+      {open && <ThoughtPanel message={message} secs={secs} />}
+    </div>
+  );
+}
+
+/** What the model thought, as far as its backend showed it; otherwise what is
+ *  known of the turn. Follows the bottom while the thought is still coming. */
+function ThoughtPanel({ message, secs }: { message: ChatMessage; secs?: number }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const thought = message.thinking?.trim();
+  useEffect(() => {
+    const el = ref.current;
+    if (el && !isTerminal(message.status)) el.scrollTop = el.scrollHeight;
+  }, [thought, message.status]);
+  return (
+    <div className="flex w-full max-w-xl flex-col gap-1.5 rounded-2xl bg-well px-3.5 py-2.5 text-[12.5px]/5 text-muted-foreground shadow-[inset_0_0_0_1px_var(--well-outline)]">
+      {thought ? (
+        <div ref={ref} className="max-h-72 overflow-y-auto whitespace-pre-wrap text-foreground/80">
+          {thought}
+        </div>
+      ) : (
+        <>
+          <div>
+            {secs !== undefined ? `Working for ${secs}s` : "No reasoning shown"}
+            {message.model ? ` on ${message.model}` : ""}.
+          </div>
+          <div>This model's backend didn't share its reasoning for this turn. Tool calls and timing are in the trace.</div>
+        </>
+      )}
+      {message.traceId && (
+        <button type="button" onClick={() => openTrace(message.traceId!)} className="w-fit cursor-pointer underline-offset-2 hover:text-foreground hover:underline">
+          Open the trace
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** Above a finished reply that came with reasoning: a quiet "Thought" line that opens it. */
+function Thought({ message }: { message: ChatMessage }) {
+  const [open, setOpen] = useState(false);
+  if (!message.thinking?.trim()) return null;
+  return (
+    <div className="mb-2 flex w-full flex-col items-start gap-1.5">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="flex cursor-pointer items-center gap-1 text-[12.5px]/5 text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <IconChevronRight size={13} className={`transition-transform duration-200 ${open ? "rotate-90" : ""}`} />
+        Thought
+      </button>
+      {open && <ThoughtPanel message={message} />}
+    </div>
+  );
+}
+
+/** A bot's reply, a bubble per turn: what it said before a tool call is one
+ *  bubble and what it said after is the next, the way a person texts. Cards
+ *  (questions, routines) stay out of the bubble. */
+function Bubbles({ message, text, streaming, answered }: { message: ChatMessage; text: string; streaming: boolean; answered?: boolean }) {
+  const cuts = (message.breaks ?? []).filter((n) => n > 0 && n < text.length);
+  const parts: string[] = [];
+  let from = 0;
+  for (const n of cuts) {
+    parts.push(text.slice(from, n));
+    from = n;
+  }
+  parts.push(text.slice(from));
+  const shown = parts.map((p) => p.trim()).filter(Boolean);
+  return (
+    <div className="flex w-full flex-col items-start gap-1.5">
+      {shown.map((p, i) => {
+        const card = splitFences(p).some((b) => b.kind === "fence");
+        const last = i === shown.length - 1;
+        return card ? (
+          <RichText key={i} streaming={streaming && last} text={p} answered={answered} />
+        ) : (
+          <div
+            key={i}
+            className="max-w-[88%] rounded-[22px] rounded-bl-md bg-[color-mix(in_srgb,#3a72e8_17%,var(--well))] px-4 py-2.5 shadow-[inset_0_0_0_1px_color-mix(in_srgb,#3a72e8_28%,transparent)]"
+          >
+            <RichText streaming={streaming && last} text={p} answered={answered} />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** The bot went quiet mid-reply (a tool is running, or the next turn is on
+ *  its way): the typing dots come back after a beat, in a bubble of their own. */
+function QuietDots({ content, message }: { content: string; message: ChatMessage }) {
+  const [quiet, setQuiet] = useState(false);
+  useEffect(() => {
+    setQuiet(false);
+    const t = setTimeout(() => setQuiet(true), 1100);
+    return () => clearTimeout(t);
+  }, [content]);
+  return quiet ? <div className="mt-1.5"><ThinkingDots message={message} dots /></div> : null;
+}
+
+const WELL = "shadow-[inset_0_0_0_1px_var(--well-outline),inset_0_1px_0_0_var(--well-highlight)]";
+
+export function AssistantMessage({
+  message,
+  error,
+  answeredBy,
+  ad,
+  onRetry,
+  onBranch,
+  quote,
+  badge,
+  actions,
+  below,
+  avatar,
+  interrupted,
+  onResume,
+  answered,
+}: {
+  avatar?: ReactNode;
+  /** Cut off because Backspace closed. */
+  interrupted?: boolean;
+  /** Carry on with this stopped reply. */
+  onResume?: () => void;
+  /** A user message exists after this one: a question card here is spent. */
+  answered?: boolean;
+  message: ChatMessage;
+  error?: string | null;
+  answeredBy?: string;
+  ad?: Ad | null;
+  onRetry?: () => void;
+  onBranch?: () => void;
+  quote?: ReactNode;
+  badge?: ReactNode;
+  actions?: ReactNode;
+  below?: ReactNode;
+}) {
+  const terminal = isTerminal(message.status);
+  const [sawLive] = useState(!terminal);
+  const stopped = message.status === "stopped";
+  const { text, caughtUp } = useTypewriter(message.content, sawLive, stopped);
+  const failed = message.status === "error";
+  const streamingNow = !terminal && !failed;
+  const showText = !failed && text.length > 0;
+
+  return (
+    <div data-quotable="assistant" className="group/msg flex w-full min-w-0 flex-col items-start">
+      {quote}
+      {answeredBy && (
+        <div className="mb-1.5 flex items-center gap-2 text-[12px]/4 font-medium text-muted-foreground">
+          {avatar}
+          {answeredBy}
+        </div>
+      )}
+      {showText && !streamingNow && <Thought message={message} />}
+      {showText && !avatar && <RichText streaming={streamingNow || !caughtUp} text={text} answered={answered} />}
+      {showText && avatar && <Bubbles message={message} text={text} streaming={streamingNow || !caughtUp} answered={answered} />}
+      {streamingNow && !showText && <ThinkingDots message={message} />}
+      {streamingNow && showText && avatar && caughtUp && <QuietDots content={message.content} message={message} />}
+      {failed && <ErrorBanner detail={error ?? undefined} onRetry={onRetry} />}
+      {stopped && (
+        <div className="mt-2 flex items-center gap-1.5 text-[13px]/4 font-medium text-muted-foreground">
+          <IconPlayerStopFilled size={12} />
+          {interrupted ? "Cut off when Backspace closed" : "Stopped"}
+          {onResume && (
+            <button
+              type="button"
+              onClick={onResume}
+              className="ml-1.5 cursor-pointer rounded-full bg-primary px-2.5 py-1 text-[12px]/4 font-medium text-primary-foreground transition-[background-color,scale] duration-150 hover:bg-(--primary-hover) active:scale-[0.96]"
+            >
+              Carry on
+            </button>
+          )}
+        </div>
+      )}
+      {!terminal && showText && <div aria-hidden className="mt-1.5 h-7" />}
+      {terminal && !failed && below}
+      {badge && <div className="mt-1.5">{badge}</div>}
+      {terminal && !failed && (
+        <MessageActions message={message} onRetry={onRetry} onBranch={onBranch} extra={actions} />
+      )}
+      {ad && terminal && <AdCard ad={ad} />}
+    </div>
+  );
+}
+
+/* A gate (plan limit) reads as one of Whirl's paywall banners; anything
+   else is the plain "didn't make it" banner with a retry. */
+function ErrorBanner({ detail, onRetry }: { detail?: string; onRetry?: () => void }) {
+  const gate = !!detail && /plan|upgrade|free replies|sign up/i.test(detail);
+  const headline = gate ? "That needs a different plan." : "Something went wrong.";
+  const host = getHost();
+  return (
+    <div className={`flex w-full max-w-md flex-col gap-3 rounded-2xl bg-well px-4 py-3.5 ${WELL}`}>
+      <div className="flex items-start gap-2.5">
+        <IconAlertTriangleFilled size={17} className="mt-0.5 shrink-0 text-muted-foreground" />
+        <div className="min-w-0">
+          <div className="text-[14px]/5 font-medium">{headline}</div>
+          <div className="mt-0.5 text-[13px]/5 break-words text-muted-foreground [overflow-wrap:anywhere]">
+            {detail ?? "The reply didn't make it. Try again?"}
+          </div>
+        </div>
+      </div>
+      <div className="flex items-center gap-2 pl-[27.5px]">
+        {gate ? (
+          <button
+            type="button"
+            onClick={() => host.openSettings("plan")}
+            className="cursor-pointer rounded-full bg-primary px-3 py-1.5 text-[13px]/4 font-medium text-primary-foreground transition-[background-color,scale] duration-150 hover:bg-(--primary-hover) active:scale-[0.96]"
+          >
+            See plans
+          </button>
+        ) : (
+          onRetry && (
+            <button
+              type="button"
+              onClick={onRetry}
+              className="cursor-pointer rounded-full bg-primary px-3 py-1.5 text-[13px]/4 font-medium text-primary-foreground transition-[background-color,scale] duration-150 hover:bg-(--primary-hover) active:scale-[0.96]"
+            >
+              Try again
+            </button>
+          )
+        )}
+      </div>
+    </div>
+  );
+}
+
+function MessageActions({
+  message,
+  onRetry,
+  onBranch,
+  extra,
+}: {
+  message: ChatMessage;
+  onRetry?: () => void;
+  onBranch?: () => void;
+  extra?: ReactNode;
+}) {
+  const [copied, setCopied] = useState(false);
+  const text = message.content;
+  return (
+    <div className="mt-1.5 flex items-center gap-0.5 opacity-0 transition-opacity duration-150 group-hover/msg:opacity-100 focus-within:opacity-100 has-data-popup-open:opacity-100 coarse:opacity-100">
+      {text.length > 0 && (
+        <MessageActionButton
+          label="Copy message"
+          tooltip={copied ? "Copied" : "Copy message"}
+          onClick={() => {
+            navigator.clipboard
+              .writeText(text)
+              .then(() => {
+                setCopied(true);
+                setTimeout(() => setCopied(false), 1500);
+              })
+              .catch(() => {});
+          }}
+        >
+          {copied ? <IconCheck size={15} /> : <IconCopy size={15} />}
+        </MessageActionButton>
+      )}
+      {onRetry && (
+        <MessageActionButton label="Retry message" onClick={onRetry}>
+          <IconRefresh size={15} />
+        </MessageActionButton>
+      )}
+      {onBranch && <CheckpointMenu onBranch={onBranch} />}
+      {message.traceId && (
+        <MessageActionButton label="How this reply was made" onClick={() => openTrace(message.traceId!)}>
+          <IconTimeline size={15} />
+        </MessageActionButton>
+      )}
+      {extra}
+      {(message.model || message.usageCost) && (
+        <div className="ml-1.5 flex items-center gap-2.5 px-0.5 text-[11.5px]/4 font-medium tabular-nums text-muted-foreground">
+          {message.model && <span>{message.model}</span>}
+          {message.usageCost ? <span>${message.usageCost.toFixed(4)}</span> : null}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* Cloud's ad-supported plans: a labelled card under the reply, never part
+   of it. Dismissable; "Remove ads" goes to the plans. */
+function AdCard({ ad }: { ad: Ad }) {
+  const [hidden, setHidden] = useState(false);
+  const host = getHost();
+  if (hidden) return null;
+  const go = () => {
+    if (ad.url === "backspace://plans") host.openSettings("plan");
+    else if (ad.url.startsWith("backspace://settings/")) host.openSettings(ad.url.split("/").pop());
+    else host.openUrl(ad.url);
+  };
+  return (
+    <aside aria-label="Sponsored" className={`mt-3 flex w-full max-w-md flex-col gap-1.5 rounded-2xl bg-well px-4 py-3 ${WELL}`}>
+      <div className="flex items-center gap-2 text-[11px]/4 text-muted-foreground">
+        <span className="rounded-md border border-border px-1.5 font-semibold tracking-wide uppercase">Sponsored</span>
+        <span>{ad.advertiser}</span>
+        <button
+          type="button"
+          aria-label="Hide this ad"
+          onClick={() => setHidden(true)}
+          className="ml-auto flex size-6 cursor-pointer items-center justify-center rounded-full hover:bg-black/[0.05] hover:text-foreground dark:hover:bg-white/[0.06]"
+        >
+          <IconX size={13} />
+        </button>
+      </div>
+      <div className="text-[14px]/5 font-medium">{ad.title}</div>
+      <div className="text-[13px]/5 text-muted-foreground">{ad.body}</div>
+      <div className="mt-1 flex items-center gap-3">
+        <button
+          type="button"
+          onClick={go}
+          className="cursor-pointer rounded-full bg-primary px-3 py-1.5 text-[13px]/4 font-medium text-primary-foreground transition-[background-color,scale] duration-150 hover:bg-(--primary-hover) active:scale-[0.96]"
+        >
+          {ad.cta}
+        </button>
+        <button
+          type="button"
+          onClick={() => host.openSettings("plan")}
+          title="Free plan. Ads are not chosen from your messages."
+          className="cursor-pointer text-[12px]/4 text-muted-foreground hover:text-foreground"
+        >
+          Remove ads
+        </button>
+      </div>
+    </aside>
+  );
+}

@@ -1,0 +1,16 @@
+test research_cannot_read_through_a_symlink_that_leaves_the_project ... FAILED
+test one_shot_reaches_a_worker_with_a_lightweight_spec_and_no_plan_gate ... FAILED
+test result: FAILED. 20 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.40s
+test a_cli_research_task_cannot_plan_and_its_answer_is_filed_as_the_report ... FAILED
+test a_cli_one_shot_whose_ticket_fails_also_releases_its_path ... FAILED
+test a_cli_one_shot_dispatches_a_worker_and_its_path_ends_with_its_ticket ... FAILED
+test a_cli_research_task_is_refused_before_the_cli_runs ... FAILED
+test a_cli_task_the_user_answers_as_research_is_refused_too ... FAILED
+test result: FAILED. 2 passed; 5 failed; 0 ignored; 0 measured; 0 filtered out; finished in 43.31s
+test a_chain_of_symlinks_is_followed_to_its_end ... FAILED
+test a_symlinked_folder_outside_cannot_be_read_through_listed_or_written_into ... FAILED
+test a_symlink_to_a_file_outside_cannot_be_read ... FAILED
+test a_workspace_that_is_itself_reached_through_a_symlink_works ... FAILED
+test an_absolute_path_through_a_symlink_is_refused_too ... FAILED
+test writing_through_a_dangling_symlink_cannot_create_a_file_outside ... FAILED
+test result: FAILED. 3 passed; 6 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s

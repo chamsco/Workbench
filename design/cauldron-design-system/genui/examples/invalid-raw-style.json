@@ -1,0 +1,13 @@
+{
+ "v": 1,
+ "op": "create",
+ "at": "thread",
+ "block": {
+  "type": "Button",
+  "props": {
+   "label": "Go",
+   "action": "go",
+   "color": "#ff0000"
+  }
+ }
+}

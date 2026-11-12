@@ -1,0 +1,29 @@
+# UI1 step 0, red (Windows 11, 10 Nov 2026 local)
+
+$ cargo test -p backspace --bin backspace every_shell_icon_loads
+
+thread 'icons::tests::every_shell_icon_loads' (53176) panicked at crates\app\src\icons.rs:161:9:
+icons that do not load: ["gauge", "brain", "layout-grid", "pin", "diff", "terminal", "columns-2", "square", "x"]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    icons::tests::every_shell_icon_loads
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p backspace --bin backspace`
+
+$ pwsh tools/winshell/hit-test.ps1
+FAIL minimise             want min          got drag
+FAIL maximise             want max          got drag
+FAIL close                want close        got drag
+FAIL sidebar button       want client       got drag
+FAIL terminal             want client       got drag
+FAIL split                want client       got drag
+ok   empty top strip      want drag         got drag
+ok   main body            want client       got client
+ok   right edge           want right        got right
+ok   bottom edge          want bottom       got bottom
+ok   bottom-right corner  want bottomright  got bottomright
+5 passed, 6 failed

@@ -1,0 +1,50 @@
+# Chat busy-flag probe: raw output (scratch worktree at 577f819; never committed)
+
+## control, run 1 (before the stuck-versus-slow check was added)
+BUSY-PROBE stuck 1 of 3000
+
+## control, 3 runs, unmodified code
+BUSY-PROBE thread 1a19283920be9501289: busy=true last message Error error=Some("`nope` is not installed or not on PATH")
+BUSY-PROBE thread 1a19283a63f16aa1887: busy=true last message Error error=Some("`nope` is not installed or not on PATH")
+BUSY-PROBE still busy after 2 more seconds: 2 of 2
+BUSY-PROBE stuck 2 of 3000
+BUSY-PROBE still busy after 2 more seconds: 0 of 0
+BUSY-PROBE stuck 0 of 3000
+BUSY-PROBE still busy after 2 more seconds: 0 of 0
+BUSY-PROBE stuck 0 of 3000
+
+## 20 ms delay injected between spawn and insert
+BUSY-PROBE still busy after 2 more seconds: 99 of 99
+BUSY-PROBE stuck 99 of 100
+
+## same delay, running lock held across spawn and insert
+BUSY-PROBE still busy after 2 more seconds: 0 of 0
+BUSY-PROBE stuck 0 of 100
+
+## patches applied in the scratch worktree
+diff --git a/crates/core/src/chat.rs b/crates/core/src/chat.rs
+index aa8f92a..6801c04 100644
+--- a/crates/core/src/chat.rs
++++ b/crates/core/src/chat.rs
+@@ -1095,6 +1095,7 @@ impl Chats {
+     fn spawn_reply(self: &Arc<Self>, id: &str, mid: String, route: Route, ctx: Ctx, call: Call, mentioned: bool) {
+         let me = self.clone();
+         let tid = id.to_string();
++        let mut running = self.running.lock().unwrap(); // PROBE B
+         let task = self.rt.spawn(async move {
+             let res = me.run(&tid, &mid, &route, &ctx, &call).await;
+             if mentioned {
+@@ -1109,10 +1110,9 @@ impl Chats {
+             me.unread.lock().unwrap().insert(tid);
+             me.poke();
+         });
+-        self.running
+-            .lock()
+-            .unwrap()
+-            .insert(id.to_string(), task.abort_handle());
++        std::thread::sleep(std::time::Duration::from_millis(20)); // PROBE: the parent is descheduled here
++        running.insert(id.to_string(), task.abort_handle());
++        drop(running);
+         self.poke();
+     }
+ 

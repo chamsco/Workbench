@@ -1,0 +1,31 @@
+{
+ "v": 1,
+ "op": "create",
+ "at": "thread",
+ "block": {
+  "type": "AnswerCard",
+  "id": "ans1",
+  "props": {
+   "question": "What will the Lisbon offsite cost for 14 people?",
+   "sources": [
+    {
+     "title": "#team-offsite",
+     "name": "Slack"
+    },
+    {
+     "title": "Offsite plan",
+     "name": "Notion"
+    },
+    {
+     "title": "Lisbon",
+     "name": "Wikipedia"
+    }
+   ],
+   "answer": "Budget about **\u20ac9,800** for three days [1].\n- Venue and catering: \u20ac4,200 [1]\n- Hotel, 14 rooms \u00d7 2 nights: \u20ac3,360 [3]",
+   "followUps": [
+    "Which flights leave before 10:00?"
+   ],
+   "action": "answer.event"
+  }
+ }
+}

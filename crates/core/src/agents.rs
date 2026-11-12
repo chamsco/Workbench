@@ -43,6 +43,10 @@ pub struct Agent {
     #[serde(default)]
     pub personality: String,
     pub route: Route,
+    /// Routes to try, in order, when the one above fails (a usage limit, a
+    /// missing CLI). Empty means no fallback.
+    #[serde(default)]
+    pub fallbacks: Vec<Route>,
     /// Folders it may use besides its own.
     #[serde(default)]
     pub shared: Vec<String>,
@@ -57,6 +61,11 @@ pub struct Agent {
     /// Apps and connections it may not use, by id; the rest it may.
     #[serde(default)]
     pub apps_off: Vec<String>,
+    /// What it may drive besides its own computer: "browser" (its own tab in
+    /// the agents' Chrome) and "desktop" (the user's screen, mouse and
+    /// keyboard). Browser on by default; desktop only when the user says.
+    #[serde(default = "browser_only")]
+    pub hands: Vec<String>,
     /// Its webhook's secret (Reach this bot); empty while the webhook is off.
     #[serde(default)]
     pub hook: String,
@@ -73,6 +82,10 @@ fn yes() -> bool {
     true
 }
 
+fn browser_only() -> Vec<String> {
+    vec!["browser".into()]
+}
+
 impl Agent {
     pub fn allows(&self, rule: &str) -> bool {
         !self.off.iter().any(|o| o == rule)
@@ -82,6 +95,14 @@ impl Agent {
     /// rules turned off, and "app:<id>" for each app or connection it may not use.
     pub fn deny(&self) -> Vec<String> {
         self.off.iter().cloned().chain(self.apps_off.iter().map(|a| format!("app:{a}"))).collect()
+    }
+
+    /// Its hands, as `backspace mcp` reads them (BACKSPACE_HANDS). The web
+    /// rule turned off takes the browser too.
+    pub fn hands_env(&self) -> Option<crate::hands::Env> {
+        let has = |h: &str| self.hands.iter().any(|x| x == h);
+        let e = crate::hands::Env { who: self.id.clone(), browser: has("browser") && self.allows("web"), desktop: has("desktop") };
+        (e.browser || e.desktop).then_some(e)
     }
 }
 
@@ -940,11 +961,13 @@ mod tests {
             avatar: Avatar::default(),
             personality: String::new(),
             route: Route { kind: crate::chat::RouteKind::Cli, provider: "claude".into(), model: None },
+            fallbacks: vec![],
             shared: vec![],
             computer: Computer::default(),
             memory: true,
             off: vec![],
             apps_off: vec![],
+            hands: vec![],
             hook: String::new(),
             routines: vec![],
             created: 0,

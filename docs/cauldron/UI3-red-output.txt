@@ -1,0 +1,29 @@
+# UI3 red
+
+The shell sidebar tests were written before the sidebar code. The threads.rs tests were written with their code and shown red by stubbing the bodies.
+
+## threads.rs (grouping, search, age, subtitle) with stubbed bodies
+test threads::tests::ages_read_short ... FAILED
+test threads::tests::each_thread_lands_in_one_group_by_precedence ... FAILED
+test threads::tests::subtitle_is_the_project_folder_else_the_preview ... FAILED
+test threads::tests::search_matches_title_or_preview_ignoring_case ... FAILED
+test threads::tests::groups_come_in_order_keep_list_order_and_skip_empty_ones ... FAILED
+thread 'threads::tests::ages_read_short' (19016) panicked at crates\app\src\threads.rs:119:9:
+thread 'threads::tests::each_thread_lands_in_one_group_by_precedence' (44284) panicked at crates\app\src\threads.rs:86:9:
+thread 'threads::tests::subtitle_is_the_project_folder_else_the_preview' (15156) panicked at crates\app\src\threads.rs:133:9:
+thread 'threads::tests::search_matches_title_or_preview_ignoring_case' (40428) panicked at crates\app\src\threads.rs:110:9:
+thread 'threads::tests::groups_come_in_order_keep_list_order_and_skip_empty_ones' (12692) panicked at crates\app\src\threads.rs:102:9:
+test result: FAILED. 0 passed; 5 failed; 0 ignored; 0 measured; 7 filtered out; finished in 0.00s
+error: test failed, to rerun pass `-p backspace --bin backspace`
+
+## shell sidebar tests before the sidebar fields and states existed
+error[E0432]: unresolved import `super::Threads`
+error[E0560]: struct `Cauldron` has no field named `threads`
+error[E0560]: struct `Cauldron` has no field named `threads`
+error[E0560]: struct `Cauldron` has no field named `threads`
+error[E0560]: struct `Cauldron` has no field named `query`
+error[E0560]: struct `Cauldron` has no field named `threads`
+error[E0609]: no field `selected` on type `&mut Cauldron`
+error[E0609]: no field `query` on type `&mut Cauldron`
+error[E0609]: no field `threads` on type `&mut Cauldron`
+error: could not compile `backspace` (bin "backspace" test) due to 9 previous errors

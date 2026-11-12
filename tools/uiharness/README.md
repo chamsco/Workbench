@@ -40,6 +40,7 @@ exit non-zero and are listed at the end.
 | --- | --- |
 | `--shot <path.png>` | Full-page screenshot (`Page.captureScreenshot`, `captureBeyondViewport: true`) written to `path.png`, directories created as needed. |
 | `--size <W>x<H>` | Viewport via `Emulation.setDeviceMetricsOverride`. Default `1440x900`. |
+| `--scale <n>` | Device pixel ratio (1 to 4). Default `1`; use `2` for a screenshot a person will look at. |
 | `--eval <js>` | Evaluate after ready; prints `RESULT: <json>`. Repeatable, printed in the order given. |
 | `--eval-file <path>` | Same, expression read from a file. Repeatable, mixes freely with `--eval`. |
 | `--wait <ms>` | Extra settle time after ready, before evals/screenshots. Default `600`. |

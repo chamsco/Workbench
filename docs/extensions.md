@@ -2,8 +2,7 @@
 
 Backspace's window is a frame. The apps inside it — Chat and Code — are
 extensions in `crates/tauri-app/ui/extensions/`. The frame knows them by their
-manifest only: the switcher, the title-bar chip (name, On, New) and the window
-classes all come from there.
+manifest only: the switcher and the window classes come from there.
 
 ## The list
 
@@ -47,8 +46,8 @@ classes all come from there.
   of loading a script. The app SDK bridge (`docs/apps.md`) is not wired to it
   yet, so an app that wants agents, storage or tools still installs through
   Apps.
-- **action** is the chip's New. `label` is the tooltip; `icon` is a name from
-  `P` in `app.js`.
+- **action** is the app's New (a chat, a tab). `label` is the tooltip; `icon`
+  is a name from `P` in `app.js`.
 
 ## The host contract
 
@@ -63,7 +62,7 @@ end of its file:
 - `elFor()` — which section shows the app right now; the manifest's by
   default. Code returns `chat` in ADE pair mode and `canvas` in the IDE.
 - `classes()` — window classes while the app is active (Code: `pair-on`).
-- `newInstance(anchor)` — the chip's New; `anchor` is the button, for a
+- `newInstance(anchor)` — the app's New; `anchor` is the button, for a
   popover.
 - `head()` — HTML for the title bar's head while the app is active, or `null`
   when it has nothing to say. Code returns the project's folder (or
@@ -72,7 +71,7 @@ end of its file:
   "Backspace". Code names the project it has open.
 
 State lives in prefs, as it always has. `prefs.uses` is the On list: written by
-`Frame.setOn`, by the chip, and by Settings → General. Off apps stay in the
+`Frame.setOn` and by Settings → General. Off apps stay in the
 switcher, dimmed; going to one turns it on. The last app cannot be turned off.
 
 ## What is where

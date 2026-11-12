@@ -1,0 +1,64 @@
+{
+ "v": 1,
+ "op": "create",
+ "at": "drawer",
+ "block": {
+  "type": "PlanVsActual",
+  "id": "pva1",
+  "props": {
+   "title": "Plan vs actual",
+   "task": "Ship the pricing page",
+   "now": 159,
+   "budget": {
+    "time": 175,
+    "cost": 1.03
+   },
+   "steps": [
+    {
+     "name": "Read the brief",
+     "state": "done",
+     "plan": {
+      "start": 10,
+      "dur": 20
+     },
+     "actual": {
+      "start": 12,
+      "dur": 16
+     }
+    },
+    {
+     "name": "Draft the copy",
+     "state": "done",
+     "plan": {
+      "start": 30,
+      "dur": 40
+     },
+     "actual": {
+      "start": 30,
+      "dur": 52
+     }
+    },
+    {
+     "name": "Run tests and fix",
+     "state": "running",
+     "plan": {
+      "start": 120,
+      "dur": 30
+     },
+     "actual": {
+      "start": 125,
+      "dur": 17
+     }
+    },
+    {
+     "name": "Open the pull request",
+     "state": "todo",
+     "plan": {
+      "start": 150,
+      "dur": 15
+     }
+    }
+   ]
+  }
+ }
+}

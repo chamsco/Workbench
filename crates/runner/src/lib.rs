@@ -78,6 +78,8 @@ pub struct Request {
     pub edit: bool,
     /// Extra environment for a CLI (PATH included, if you need it).
     pub env: Vec<(String, String)>,
+    /// Variables the CLI is not given, whether they come from `env` or from this process.
+    pub env_remove: Vec<String>,
     /// An MCP config for CLIs that take one (`{"mcpServers": {...}}`).
     pub mcp: Option<Value>,
     /// Tool name prefixes the CLI may call without asking ("mcp__backspace").
@@ -116,6 +118,7 @@ impl Request {
             cwd: std::env::temp_dir(),
             edit: false,
             env: vec![],
+            env_remove: vec![],
             mcp: None,
             mcp_allow: vec![],
             add_dirs: vec![],
@@ -135,6 +138,8 @@ impl Request {
 pub enum Event {
     /// More of the answer.
     Text { text: String },
+    /// The model's reasoning, as far as the target shows it.
+    Thinking { text: String },
     /// A new paragraph starts (after a tool call): add a blank line if the
     /// answer so far doesn't end with one.
     Break,
@@ -318,6 +323,25 @@ impl Drop for KillTree {
     }
 }
 
+/// `{"mcpServers": ...}` as OpenCode's inline config: a local server is its
+/// command and arguments in one list, a remote one its URL.
+fn opencode_config(mcp: &Value) -> Option<Value> {
+    let mut out = serde_json::Map::new();
+    for (name, srv) in mcp["mcpServers"].as_object()? {
+        let entry = if let Some(cmd) = srv["command"].as_str() {
+            let mut argv = vec![Value::from(cmd)];
+            argv.extend(srv["args"].as_array().cloned().unwrap_or_default());
+            json!({"type": "local", "command": argv, "environment": srv.get("env").cloned().unwrap_or(json!({})), "enabled": true})
+        } else if let Some(url) = srv["url"].as_str() {
+            json!({"type": "remote", "url": url, "headers": srv.get("headers").cloned().unwrap_or(json!({})), "enabled": true})
+        } else {
+            continue;
+        };
+        out.insert(name.clone(), entry);
+    }
+    (!out.is_empty()).then(|| json!({"mcp": out}))
+}
+
 /// A JSON value as a TOML inline value (for Codex's `-c key=value`). JSON
 /// strings are valid TOML basic strings.
 fn toml_inline(v: &Value) -> String {
@@ -331,7 +355,9 @@ fn toml_inline(v: &Value) -> String {
     }
 }
 
-async fn run_cli(req: &Request, provider: &str, bin: &PathBuf, on: Sink<'_>) -> Result<()> {
+/// The command line, environment and stdin text of one CLI turn. Nothing is started here, so a test
+/// can read exactly what a CLI would be given.
+fn build_cli(req: &Request, provider: &str, bin: &PathBuf) -> Result<(tokio::process::Command, Option<String>)> {
     let mut cmd = tokio::process::Command::new(bin);
     cmd.current_dir(&req.cwd)
         .env("NO_COLOR", "1")
@@ -347,6 +373,9 @@ async fn run_cli(req: &Request, provider: &str, bin: &PathBuf, on: Sink<'_>) -> 
     }
     for (k, v) in &req.env {
         cmd.env(k, v);
+    }
+    for k in &req.env_remove {
+        cmd.env_remove(k);
     }
     let model = req.model.clone().filter(|m| !m.is_empty());
     let stdin_text: Option<String>;
@@ -415,7 +444,9 @@ async fn run_cli(req: &Request, provider: &str, bin: &PathBuf, on: Sink<'_>) -> 
                 (false, _) => cmd.args(["-s", "read-only"]),
             };
             if let Some(m) = &model {
-                cmd.args(["-m", m]);
+                // `--model` is the spelling the documentation gives; `-m` is the same argument. It is an
+                // option of `codex exec`, so it is set ahead of `resume` below.
+                cmd.args(["--model", m]);
             }
             if let Some(e) = &req.effort {
                 // Codex tops out at xhigh.
@@ -453,6 +484,11 @@ async fn run_cli(req: &Request, provider: &str, bin: &PathBuf, on: Sink<'_>) -> 
         }
         "opencode" => {
             cmd.arg("run");
+            // OpenCode reads inline config from this variable: the same MCP
+            // servers the other CLIs get, so its bot has its hands and memory too.
+            if let Some(cfg) = req.mcp.as_ref().and_then(opencode_config) {
+                cmd.env("OPENCODE_CONFIG_CONTENT", cfg.to_string());
+            }
             if let Some(m) = &model {
                 cmd.args(["-m", m]);
             }
@@ -468,6 +504,11 @@ async fn run_cli(req: &Request, provider: &str, bin: &PathBuf, on: Sink<'_>) -> 
         }
         other => bail!("{other} has no one-shot mode to chat with; use it from a project"),
     }
+    Ok((cmd, stdin_text))
+}
+
+async fn run_cli(req: &Request, provider: &str, bin: &PathBuf, on: Sink<'_>) -> Result<()> {
+    let (mut cmd, stdin_text) = build_cli(req, provider, bin)?;
     let mut child = cmd.spawn().with_context(|| format!("starting {}", bin.display()))?;
     // Dropping the turn kills the CLI; on Windows its `.cmd` shim's node
     // child would survive that, so the whole tree goes.
@@ -552,6 +593,8 @@ fn claude_line(line: &str, got_partial: &mut bool, fail: &mut Option<String>, on
             if e["type"] == "content_block_delta" && e["delta"]["type"] == "text_delta" {
                 *got_partial = true;
                 on(Event::Text { text: e["delta"]["text"].as_str().unwrap_or("").into() });
+            } else if e["type"] == "content_block_delta" && e["delta"]["type"] == "thinking_delta" {
+                on(Event::Thinking { text: e["delta"]["thinking"].as_str().unwrap_or("").into() });
             } else if e["type"] == "message_start" {
                 // A new assistant turn after a tool call.
                 on(Event::Break);
@@ -633,7 +676,11 @@ fn codex_line(line: &str, fail: &mut Option<String>, on: Sink<'_>) {
                     on(Event::Text { text: t.into() });
                 }
             }
-            "reasoning" => {}
+            "reasoning" => {
+                if let Some(t) = item["text"].as_str().filter(|t| !t.is_empty()) {
+                    on(Event::Thinking { text: format!("{t}\n\n") });
+                }
+            }
             _ => {
                 let out = item["aggregated_output"].as_str().map(String::from).unwrap_or_else(|| tool_text(&item["result"]));
                 let error = item["status"] == "failed" || item["exit_code"].as_i64().is_some_and(|c| c != 0);
@@ -836,6 +883,33 @@ mod tests {
     }
 
     #[test]
+    fn opencode_gets_the_backspace_server_as_inline_config() {
+        let mcp = json!({"mcpServers": {"backspace": {"command": "/bin/backspace", "args": ["mcp"], "env": {"BACKSPACE_HANDS": "{}"}}, "x": {"url": "https://x.test/mcp"}}});
+        let c = opencode_config(&mcp).unwrap();
+        assert_eq!(c["mcp"]["backspace"]["type"], "local");
+        assert_eq!(c["mcp"]["backspace"]["command"], json!(["/bin/backspace", "mcp"]));
+        assert_eq!(c["mcp"]["backspace"]["environment"]["BACKSPACE_HANDS"], "{}");
+        assert_eq!(c["mcp"]["x"]["type"], "remote");
+        assert!(opencode_config(&json!({"mcpServers": {}})).is_none());
+    }
+
+    #[test]
+    fn claude_thinking_deltas_are_kept_apart_from_the_answer() {
+        let lines = [
+            r#"{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"thinking_delta","thinking":"The user wants "}}}"#,
+            r#"{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"thinking_delta","thinking":"a digest."}}}"#,
+            r#"{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"Done."}}}"#,
+        ];
+        let (mut got, mut fail, mut ev) = (false, None, vec![]);
+        for l in lines {
+            claude_line(l, &mut got, &mut fail, &mut |e| ev.push(e));
+        }
+        let think: String = ev.iter().filter_map(|e| if let Event::Thinking { text } = e { Some(text.as_str()) } else { None }).collect();
+        assert_eq!(think, "The user wants a digest.");
+        assert!(ev.contains(&Event::Text { text: "Done.".into() }));
+    }
+
+    #[test]
     fn codex_stream() {
         let lines = [
             r#"{"type":"thread.started","thread_id":"th1"}"#,
@@ -850,6 +924,78 @@ mod tests {
         assert_eq!(ev[2], Event::ToolEnd { id: "i1".into(), output: "ok".into(), error: false });
         assert_eq!(ev[4], Event::Text { text: "Tests pass.".into() });
         assert_eq!(ev[5], Event::Usage { input: 100, output: 20 });
+    }
+
+    // What a CLI would be started with. Nothing is run: these show what is passed, not how the real
+    // CLI reads it.
+    fn args_of(req: &Request, provider: &str) -> Vec<String> {
+        let (cmd, _) = build_cli(req, provider, &PathBuf::from("/bin/true")).unwrap();
+        cmd.as_std().get_args().map(|a| a.to_string_lossy().into_owned()).collect()
+    }
+
+    fn cli_request(provider: &str, model: Option<&str>, session: Option<&str>) -> Request {
+        let mut r = Request::new(Target::Cli { provider: provider.into(), bin: "/bin/true".into() }, vec![Turn::user("hi")]);
+        r.edit = true;
+        r.model = model.map(String::from);
+        r.session = session.map(String::from);
+        r
+    }
+
+    fn pairs(args: &[String], flag: &str) -> Vec<String> {
+        args.windows(2).filter(|w| w[0] == flag).map(|w| w[1].clone()).collect()
+    }
+
+    #[test]
+    fn codex_is_given_its_model_by_the_long_flag() {
+        // `--model` is the documented spelling; `-m` is the same clap argument (codex-rs shared_options.rs)
+        // but is not what the documentation names, so the approved model is passed the documented way.
+        let args = args_of(&cli_request("codex", Some("codex-pin-1"), None), "codex");
+        assert_eq!(pairs(&args, "--model"), ["codex-pin-1"], "{args:?}");
+        assert!(!args.iter().any(|a| a == "-m"), "{args:?}");
+    }
+
+    #[test]
+    fn a_resumed_codex_turn_names_the_model_ahead_of_the_subcommand() {
+        let args = args_of(&cli_request("codex", Some("codex-pin-1"), Some("sess-1")), "codex");
+        let model = args.iter().position(|a| a == "--model").unwrap_or(usize::MAX);
+        let resume = args.iter().position(|a| a == "resume").expect("a resume");
+        assert!(model < resume, "the model is an exec option, set before `resume`: {args:?}");
+        assert_eq!(&args[resume..], ["resume", "sess-1", "-"], "{args:?}");
+    }
+
+    #[test]
+    fn codex_names_its_model_once_and_config_overrides_never_name_one() {
+        let mut r = cli_request("codex", Some("codex-pin-1"), None);
+        r.effort = Some("high".into());
+        r.mcp = Some(json!({"mcpServers": {"backspace": {"command": "x", "args": ["mcp"], "env": {"A": "b"}}}}));
+        let args = args_of(&r, "codex");
+        assert_eq!(pairs(&args, "--model").len() + pairs(&args, "-m").len(), 1, "{args:?}");
+        let keys: Vec<String> = pairs(&args, "-c").iter().map(|kv| kv.split('=').next().unwrap_or("").to_string()).collect();
+        assert!(!keys.iter().any(|k| k == "model" || k == "model_provider" || k == "profile"), "{keys:?}");
+        assert!(keys.iter().all(|k| k == "model_reasoning_effort" || k.starts_with("mcp_servers.")), "{keys:?}");
+        assert!(!args.iter().any(|a| a == "-p" || a == "--profile" || a == "--oss"), "{args:?}");
+    }
+
+    #[test]
+    fn claude_code_is_given_its_model_by_the_long_flag_and_no_model_means_no_flag() {
+        let args = args_of(&cli_request("claude", Some("claude-pin-1"), None), "claude");
+        assert_eq!(pairs(&args, "--model"), ["claude-pin-1"], "{args:?}");
+        for p in ["claude", "codex"] {
+            let args = args_of(&cli_request(p, None, None), p);
+            assert!(!args.iter().any(|a| a == "--model" || a == "-m"), "{p}: {args:?}");
+        }
+    }
+
+    #[test]
+    fn a_variable_listed_for_removal_is_not_given_to_the_cli() {
+        let mut r = cli_request("claude", None, None);
+        r.env = vec![("KEEP".into(), "1".into()), ("DROP".into(), "2".into())];
+        r.env_remove = vec!["DROP".into(), "FROM_THE_PROCESS".into()];
+        let (cmd, _) = build_cli(&r, "claude", &PathBuf::from("/bin/true")).unwrap();
+        let envs: std::collections::HashMap<_, _> = cmd.as_std().get_envs().map(|(k, v)| (k.to_string_lossy().into_owned(), v.map(|v| v.to_string_lossy().into_owned()))).collect();
+        assert_eq!(envs.get("KEEP"), Some(&Some("1".to_string())));
+        assert_eq!(envs.get("DROP"), Some(&None), "removed even though `env` set it");
+        assert_eq!(envs.get("FROM_THE_PROCESS"), Some(&None), "and one the process has is cleared for the child");
     }
 
     #[test]

@@ -1,0 +1,892 @@
+/* One window: the painting (art.js) runs behind the title bar, the sidebar
+   and the page; no rail, as few lines as possible; chrome floats on the
+   painting in soft chips and glass cards. Loaded last. */
+
+:root { --win-bg: #f4f1f4; --mp-bg: rgba(250, 248, 251, 0.97); --chip: rgba(255, 255, 255, 0.66); --card: rgba(255, 255, 255, 0.62); --card-strong: rgba(255, 255, 255, 0.8); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --win-bg: #121116; --mp-bg: rgba(26, 24, 30, 0.97); --chip: rgba(18, 17, 22, 0.62); --card: rgba(16, 15, 20, 0.58); --card-strong: rgba(20, 19, 25, 0.84); } }
+:root[data-theme="dark"] { --win-bg: #121116; --mp-bg: rgba(26, 24, 30, 0.97); --chip: rgba(18, 17, 22, 0.62); --card: rgba(16, 15, 20, 0.58); --card-strong: rgba(20, 19, 25, 0.84); }
+
+/* ---------- the window and its painting */
+.win { --rail-w: 0px; grid-template-columns: var(--side-w) minmax(0, 1fr); background: var(--win-bg); -webkit-backdrop-filter: none; backdrop-filter: none; transition: grid-template-columns 0.28s cubic-bezier(.2, .8, .2, 1); }
+.win[data-backdrop="aurora"] { background: var(--glass); -webkit-backdrop-filter: blur(48px) saturate(1.7); backdrop-filter: blur(48px) saturate(1.7); }
+.rail { display: none !important; }
+.win-art { position: absolute; inset: 0 0 auto 0; height: 72%; pointer-events: none; z-index: 0; }
+.win-art canvas { display: block; image-rendering: pixelated; opacity: 0; transition: opacity 0.6s ease; }
+.win-art canvas.on { opacity: 1; }
+/* The ASCII backdrops (Settings → Background → Sharks, Koi): a canvas of
+   glyphs drawn by ocean.js, under the glass. White ink on a dark window and
+   black on a light one for the sharks, one warm ink for the koi; fading in
+   below the title bar so no glyph ever sits under a label. */
+.win-ascii { position: absolute; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; display: none; color: #fff; }
+.win[data-backdrop="sharks-white"] .win-ascii { display: block; opacity: 0.22; }
+.win[data-backdrop="sharks-black"] .win-ascii { display: block; opacity: 0.18; color: #0b0a0e; }
+/* Koi: one warm ink that reads on a dark window and a light one alike. */
+.win[data-backdrop="koi"] .win-ascii { display: block; opacity: 0.34; color: #f27a2e; }
+.win-ascii .sea { position: absolute; inset: 0; -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 32%); mask-image: linear-gradient(to bottom, transparent 0, #000 32%); }
+.side, .mainc, .status { position: relative; z-index: 1; }
+.gutter-side { z-index: 2; }
+.desk:not([data-backdrop="aurora"]) .blob { display: none; }
+.desk[data-backdrop="aurora"] .blob { opacity: 0.5; filter: blur(90px); }
+.desk[data-backdrop="aurora"] .blob.c { display: none; }
+.desk:not([data-backdrop="aurora"]) { background: var(--desk-base); }
+
+/* Lines out: chrome is told apart by space and tone, not borders. */
+.side, .tbar, .mainc, .status { border: 0 !important; }
+.tbar, .mainc, .status { box-shadow: none; }
+.pane { border-color: transparent; }
+.ph { border-bottom: 0; }
+.set section { border-top: 0; }
+.drawer { border: 0; }
+
+/* ---------- the sidebar slides in and out (its look is under "the frame") */
+.side { transition: transform 0.28s cubic-bezier(.2, .8, .2, 1), opacity 0.2s ease, visibility 0s; }
+.win.side-closed .side { visibility: hidden; transform: translateX(-24px); opacity: 0; transition: transform 0.28s cubic-bezier(.2, .8, .2, 1), opacity 0.2s ease, visibility 0s linear 0.28s; }
+.side .side-head { padding: 2px 10px 6px; }
+.side .row:hover, .side .row.sel { background: color-mix(in srgb, var(--fg) 8%, transparent); }
+#sideOpen, #sideClose { width: 28px; height: 28px; background: var(--chip); border-radius: 9px; }
+/* The card starts 6px down: a 26px row puts its button on the title bar's centre line. */
+.side .side-top { height: 34px; padding: 0 4px 0 6px; justify-content: flex-start; gap: 6px; }
+@media (prefers-reduced-motion: reduce) { .win, .side, .win.side-closed .side { transition: none; } }
+
+/* ---------- title bar: zones, Pair | Workbench (or Chat | Agents), the view menu; search, panel, settings */
+.zones, .tbar .modes { display: flex; gap: 2px; padding: 2px; border-radius: 9px; background: var(--chip); flex: none; margin: 0; box-shadow: none; flex-basis: auto; }
+.zones button { position: relative; min-width: 28px; height: 24px; padding: 0 6.5px; border-radius: 7px; display: flex; align-items: center; justify-content: center; gap: 6px; color: var(--fg-3); }
+.zones button .zl { display: none; font-size: 12.5px; font-weight: 500; white-space: nowrap; }
+.zones button[aria-selected="true"] .zl { display: inline; }
+.zones button .ic, .zones button svg { width: 15px; height: 15px; }
+.zones button:hover { color: var(--fg); }
+.zones button[aria-selected="true"] { background: var(--pill-on); color: var(--fg); }
+.zones button.off { opacity: 0.4; }
+.zones button.off:hover { opacity: 0.8; }
+.zones .rb, .vbtn .rb { position: absolute; top: -3px; right: -3px; font-style: normal; min-width: 14px; height: 14px; padding: 0 3px; border-radius: 7px; background: var(--amber); color: #000; font-size: 9.5px; line-height: 14px; text-align: center; }
+
+/* Narrow: the search button gives up its label first. Without this the bar is
+   over budget and the project collapses under the search. */
+@media (max-width: 1180px) {
+  .srchbtn { width: 28px; padding: 0; justify-content: center; }
+  .srchbtn .srch-txt, .srchbtn kbd { display: none; }
+}
+/* A web extension fills its section with its own page. */
+.body > .zone > iframe { display: block; width: 100%; height: 100%; border: 0; background: #fff; }
+.tbar .modes button { height: 24px; padding: 0 9px; border-radius: 7px; font-size: 12px; font-weight: 500; color: var(--fg-3); }
+.tbar .modes button[aria-selected="true"] { background: var(--pill-on); color: var(--fg); box-shadow: none; font-weight: 600; }
+.tbar .modes button .ic { width: 13px; height: 13px; }
+
+/* ---------- Code's title is the folder it is working in ---------------------
+   A project, not an app name: the folder, switchable from the title itself. */
+.zone-head .zt.proj { height: 26px; padding: 0 8px 0 7px; border-radius: 8px; background: var(--chip); }
+.zone-head .zt.proj:hover { background: var(--hover); }
+.zone-head .zt.proj b { font-weight: 600; max-width: 34ch; overflow: hidden; text-overflow: ellipsis; }
+.zone-head .zt.proj.quiet b { color: var(--fg-2); font-weight: 500; }
+.zone-head .zt.proj .ic:last-child { width: 12px; height: 12px; color: var(--fg-3); }
+
+/* ---------- Chat | Agents and ADE | IDE sit in the middle of the title bar --
+   The switch belongs to the window, not to the card: centred over the page,
+   open or folded, in both zones. */
+.tbar { position: relative; }
+.win:is(.m-chat, .m-code) .tbar .modes:not([hidden]) {
+  display: flex; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 2;
+}
+.win:not(.m-chat):not(.m-code) .tbar .modes { display: none; }
+/* The IDE's bar also holds the tab strip and the project: once they would
+   reach the middle, the switch goes back into the row instead of over them. */
+@media (max-width: 1279px) {
+  .win.m-code .tbar .modes:not([hidden]) { position: static; transform: none; }
+}
+
+.vbtn { position: relative; height: 28px; padding: 0 8px 0 10px; border-radius: 9px; display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; background: var(--chip); color: var(--fg); flex: none; }
+.vbtn .ic { width: 14px; height: 14px; }
+.vbtn .ud { width: 12px; height: 12px; color: var(--fg-3); }
+.vmenu { min-width: 250px; }
+.vmenu .pi { height: auto; padding: 7px 8px; }
+.vt { display: grid; gap: 1px; }
+.vt small { color: var(--fg-3); font-size: 11px; }
+.vmenu .pi .rb { margin-left: auto; font-style: normal; font-size: 10px; min-width: 15px; height: 15px; line-height: 15px; text-align: center; border-radius: 8px; background: var(--amber); color: #000; }
+.vmenu .pi:disabled { opacity: 0.4; }
+#win.wb-alt #tabs, #win.wb-alt #addCanvas { display: none !important; }
+/* The tab strip flows after the controls on the left: the middle of the bar
+   is the ADE | IDE switch's, and centring both put one on the other. */
+#tabs { max-width: min(36%, 520px); justify-content: flex-start; }
+.tab { border: 0; background: var(--chip); }
+.srchbtn { white-space: nowrap; flex: none; height: 28px; padding: 0 8px 0 10px; border-radius: 9px; display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: var(--fg-2); background: var(--chip); }
+.srchbtn:hover { color: var(--fg); }
+.srchbtn [data-icon] { display: grid; }
+.srchbtn .ic { width: 14px; height: 14px; }
+.srchbtn kbd { white-space: nowrap; font: 10.5px var(--font-ui); color: var(--fg-3); padding: 1px 5px; border-radius: 5px; background: var(--hover); }
+.tbar .right .ib { background: var(--chip); border-radius: 9px; width: 28px; height: 28px; }
+.tbar .right .ib[aria-pressed="true"] { background: var(--pill-on); color: var(--fg); }
+.pop { border: 0; }
+.pop .pi.on { background: var(--sel); }
+.pop .pi .rb { margin-left: auto; font-style: normal; font-size: 10px; min-width: 15px; height: 15px; line-height: 15px; text-align: center; border-radius: 8px; background: var(--amber); color: #000; }
+.srch { width: min(460px, calc(100vw - 32px)); }
+.srch label { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 8px; color: var(--fg-3); }
+.srch input { flex: 1; border: 0; outline: 0; background: transparent; font: 13px var(--font-ui); color: var(--fg); }
+.srch-r { max-height: 360px; overflow-y: auto; }
+.srch-r .pi .st-t { overflow: hidden; text-overflow: ellipsis; }
+.srch-r .pi .st-s { margin-left: auto; color: var(--fg-4); font-size: 11px; max-width: 45%; overflow: hidden; text-overflow: ellipsis; }
+
+/* ---------- the machine row at the foot of the sidebar: the switcher, updates */
+.side-machine .upd { height: 22px; border: 0; background: transparent; padding: 0 7px; border-radius: 6px; flex: none; }
+.side-machine .upd:hover { background: var(--hover); }
+.side-machine .machines { background: transparent; padding: 0; gap: 2px; flex: none; }
+.side-machine .mach { width: auto; height: 22px; padding: 0 8px; gap: 6px; display: inline-flex; align-items: center; border-radius: 6px; font-size: 11.5px; color: var(--fg-3); }
+.side-machine .mach .ic { width: 12px; height: 12px; }
+.side-machine .mach[aria-pressed="true"] { background: var(--chip); color: var(--fg); box-shadow: none; }
+.side-machine .mach .md { position: static; width: 7px; height: 7px; border-radius: 50%; }
+.side-machine .mach .md.green { background: var(--green); box-shadow: 0 0 6px color-mix(in srgb, var(--green) 70%, transparent); }
+.side-machine .mach .md.orange { background: #f0a040; }
+.side-machine .mach .md.red { background: var(--red); }
+.side-acts, .side-foot, .ports { display: none !important; }
+
+/* ---------- Chat: the same gutter on both sides of the conversation */
+.win.whirl-on .chat { padding: 0 6px 6px 6px !important; }
+
+/* ---------- the side panel (rpanel.js) */
+.rpanel { position: absolute; z-index: 5; top: 44px; right: 6px; bottom: 36px; width: 320px; display: flex; flex-direction: column; border-radius: 12px; background: var(--card-strong); -webkit-backdrop-filter: blur(22px) saturate(1.3); backdrop-filter: blur(22px) saturate(1.3); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.22); overflow: hidden; animation: rpin 0.24s cubic-bezier(.2, .8, .2, 1); }
+.rpanel[hidden] { display: none; }
+@keyframes rpin { from { transform: translateX(20px); opacity: 0; } }
+.win.rpanel-on .body { margin-right: 328px; }
+.rp-tabs { display: flex; gap: 2px; padding: 8px 8px 4px; }
+.rp-tabs button { flex: 1; height: 28px; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; font-size: 12px; color: var(--fg-3); }
+.rp-tabs button[aria-selected="true"] { background: var(--sel); color: var(--fg); font-weight: 500; }
+.rp-tabs .ic { width: 13px; height: 13px; }
+.rp-head { display: flex; align-items: center; gap: 4px; padding: 4px 10px 0; font-size: 11.5px; color: var(--fg-2); }
+.rp-head .sp { flex: 1; }
+.rp-opt { display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 8px; border-radius: 7px; font-size: 11.5px; color: var(--fg-3); }
+.rp-opt:hover { background: var(--hover); color: var(--fg); }
+.rp-opt .ic { width: 11px; height: 11px; }
+.rp-sub { display: flex; align-items: center; gap: 5px; padding: 2px 10px 6px; font-size: 11px; color: var(--fg-3); }
+.rp-sub .ic { width: 11px; height: 11px; }
+.rp-search { display: flex; align-items: center; gap: 7px; margin: 0 8px 6px; padding: 6px 9px; border-radius: 8px; background: var(--hover); color: var(--fg-3); }
+.rp-search .ic { width: 13px; height: 13px; }
+.rp-search input { flex: 1; border: 0; outline: 0; background: transparent; font: 12px var(--font-ui); color: var(--fg); }
+.rp-list { flex: 1; min-height: 0; overflow-y: auto; padding: 0 6px 8px; }
+.rp-row { width: 100%; display: flex; align-items: flex-start; gap: 8px; padding: 7px 6px; border-radius: 8px; text-align: left; font-size: 12px; }
+button.rp-row:hover { background: var(--hover); }
+.rp-row > .ic { width: 13px; height: 13px; color: var(--fg-3); margin-top: 2px; flex: none; }
+.rp-row .tt { flex: 1; min-width: 0; display: grid; gap: 1px; }
+.rp-row .tt b { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rp-row .tt > span { color: var(--fg-3); font: 10.5px var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rp-row .dot { margin-top: 5px; }
+.rp-dot { width: 7px; height: 7px; border-radius: 50%; margin-top: 4px; flex: none; background: var(--violet); box-shadow: 0 0 0 3px color-mix(in srgb, var(--violet) 25%, transparent); }
+.refs { display: flex; gap: 3px; flex-wrap: wrap; margin-top: 2px; }
+.refs i { font-style: normal; font: 10px var(--font-mono); padding: 0 5px; border-radius: 5px; background: color-mix(in srgb, var(--blue) 18%, transparent); color: var(--blue); }
+.rp-file { width: 100%; display: flex; align-items: center; gap: 6px; height: 24px; border-radius: 6px; font-size: 12px; color: var(--fg-2); text-align: left; }
+.rp-file:hover { background: var(--hover); color: var(--fg); }
+.rp-file .ic { width: 12px; height: 12px; color: var(--fg-3); flex: none; }
+.rp-file span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A symlink: italic name and a marker at the end of the row. */
+.rp-link > span { font-style: italic; }
+.rp-file .lnk { margin-left: auto; padding-right: 4px; display: inline-flex; flex: none; color: var(--fg-3); }
+.rp-file .lnk .ic { width: 11px; height: 11px; }
+.rp-prev { margin-top: 8px; border-radius: 8px; background: var(--hover); }
+.rp-prev-h { display: flex; align-items: center; justify-content: space-between; padding: 4px 4px 0 8px; font-size: 11.5px; color: var(--fg-2); }
+.rp-prev pre { margin: 0; padding: 6px 8px 8px; max-height: 260px; overflow: auto; font: 10.5px/1.45 var(--font-mono); white-space: pre-wrap; word-break: break-word; }
+.warnmark { color: var(--red); font-weight: 700; }
+
+/* ---------- Home: the composer floats on the painting; the inbox under it; no page scroll */
+.grid.home-wrap { display: block; overflow: hidden; background: transparent; border: 0; scrollbar-width: none; }
+.grid.home-wrap::-webkit-scrollbar { display: none; }
+/* Only while the picker is open may Home grow past the window (short windows). */
+.grid.home-wrap:has(.home.picking) { overflow-y: auto; }
+.home.picking { height: auto; min-height: 100%; }
+.home.picking .home-hero { height: auto; }
+.home { position: relative; height: 100%; display: flex; justify-content: center; }
+.home-hero { position: relative; width: 100%; max-width: 720px; height: 100%; box-sizing: border-box; padding: clamp(36px, 15vh, 170px) 20px 14px; display: flex; flex-direction: column; transition: padding-top 0.5s cubic-bezier(.22, 1, .36, 1); }
+.home.picking .home-hero { padding-top: clamp(16px, 4vh, 48px); }
+.home-hero h1 { margin: 0 0 16px; font-size: 24px; font-weight: 600; letter-spacing: -0.02em; text-align: center; color: #fff; text-shadow: 0 1px 14px rgba(0, 0, 0, 0.45); flex: none; }
+.win:not(.art-vivid) .home-hero h1, .win[data-backdrop="plain"] .home-hero h1, .win[data-backdrop="aurora"] .home-hero h1 { color: var(--fg); text-shadow: none; }
+/* One line, always: the chips name where the work happens, and a chip that wraps
+   to a second line moves the composer under it. Long names truncate instead —
+   "This machine" is halfway through a sentence by the time it fits at 11.5px. */
+.hc-above { display: flex; flex-wrap: nowrap; justify-content: center; gap: 4px; margin-bottom: 6px; flex: none; min-width: 0; }
+.hc { container-type: inline-size; flex: none; width: 100%; border-radius: 14px; background: var(--card-strong); box-shadow: 0 14px 40px rgba(0, 0, 0, 0.25); -webkit-backdrop-filter: blur(24px) saturate(1.4); backdrop-filter: blur(24px) saturate(1.4); }
+.hc textarea { display: block; width: 100%; box-sizing: border-box; resize: none; border: 0; outline: 0; background: transparent; color: var(--fg); font: 14px/1.5 var(--font-ui); padding: 14px 16px 4px; min-height: 58px; }
+.hc textarea::placeholder { color: var(--fg-3); }
+.hc-bar { display: flex; align-items: center; gap: 6px; padding: 4px 10px 10px; }
+.hc-bar .sp { flex: 1; }
+.hc-hint { font-size: 11px; color: var(--fg-4); display: inline-flex; align-items: center; gap: 4px; }
+.hc-hint kbd { font: 10.5px var(--font-ui); color: var(--fg-3); padding: 1px 5px; border-radius: 5px; background: var(--hover); }
+.hc-par { height: 28px; padding: 0 9px; border-radius: 8px; display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--fg-3); }
+.hc-par:hover { background: var(--hover); color: var(--fg); }
+.hc-par .ic { width: 12px; height: 12px; }
+.hc-model { height: 28px; padding: 0 8px; border-radius: 8px; display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; color: var(--fg); }
+.hc-model:hover, .hc-model[aria-expanded="true"] { background: var(--hover); }
+.hc-model .eff { color: var(--fg-3); font-weight: 400; }
+.hc-model .ic { width: 12px; height: 12px; color: var(--fg-3); transition: transform 0.2s; }
+.hc-model[aria-expanded="true"] .ic { transform: rotate(180deg); }
+.hc-send { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; background: var(--fg); color: var(--win-bg); }
+.hc-send .ic { width: 15px; height: 15px; }
+/* The picker unfolds inside the composer, part of the same card. */
+.hc-panel { margin: 0 6px 6px; padding-top: 2px; animation: unfold 0.42s cubic-bezier(.22, 1, .36, 1); }
+.hc-panel[hidden] { display: none; }
+@keyframes unfold { from { opacity: 0; transform: translateY(-10px); clip-path: inset(0 0 100% 0 round 10px); } to { clip-path: inset(0 0 0 0 round 10px); } }
+.hc-panel .mp-body { border-radius: 10px; background: color-mix(in srgb, var(--fg) 3.5%, transparent); }
+.hc-panel .mp-list { max-height: min(240px, 30vh); }
+.hc-chip { height: 24px; padding: 0 8px; border-radius: 7px; display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--fg-2); max-width: 240px; min-width: 0; background: var(--chip); }
+.hc-chip .v, .hc-chip .br, .hc-chip .mach { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hc-chip .ic { width: 13px; height: 13px; flex: none; }
+.hc-chip:not(.quiet):hover { color: var(--fg); }
+.hc-chip.quiet { color: var(--fg-3); }
+.home-dock { flex: 1; min-height: 0; display: flex; flex-direction: column; margin-top: 18px; transition: opacity 0.2s; }
+.home-dock { transition: opacity 0.3s ease; }
+.home.picking .home-dock { opacity: 0; pointer-events: none; }
+.home-pills { flex: none; display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
+.hpill { height: 30px; padding: 0 12px; border-radius: 999px; display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: var(--fg-2); background: var(--chip); white-space: nowrap; }
+.hpill:hover { color: var(--fg); }
+.hpill[aria-selected="true"] { background: var(--pill-on); color: var(--fg); }
+.hpill b { font-weight: 600; color: var(--fg); }
+.hpill .ic { width: 13px; height: 13px; color: var(--fg-3); }
+.hpill .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--fg-4); }
+.hpill .dim { color: var(--fg-3); }
+.hpill .need { color: var(--amber); font-size: 11px; }
+.hpill .add { color: var(--green); font: 11px var(--font-mono); }
+.hpill .del { color: var(--red); font: 11px var(--font-mono); }
+.spark { width: 62px; height: 14px; fill: var(--blue); opacity: 0.9; }
+.home-open { flex: 0 1 auto; min-height: 0; overflow-y: auto; margin-top: 10px; padding: 6px; border-radius: 14px; background: var(--card); -webkit-backdrop-filter: blur(24px); backdrop-filter: blur(24px); }
+.home-open:empty { display: none; }
+.home-open .grp-label { padding: 8px 8px 4px; font-size: 11px; color: var(--fg-3); }
+.hw-empty { color: var(--fg-3); font-size: 12px; padding: 10px; }
+.hw-empty > span { display: block; }
+.hw-alt { margin-top: 8px; display: flex; align-items: center; gap: 8px; }
+.hw-row { width: 100%; box-sizing: border-box; display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-radius: 8px; text-align: left; font-size: 12.5px; cursor: default; }
+.hw-row:hover { background: var(--hover); }
+.hw-row .tt { flex: 1; min-width: 0; display: grid; }
+.hw-row .tt b { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hw-row .tt .tag { font-style: normal; font-size: 10px; color: var(--fg-3); padding: 0 5px; border-radius: 5px; background: var(--hover); }
+.hw-row .tt span { color: var(--fg-3); font: 11px var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hw-row .meta { color: var(--fg-3); font-size: 11px; white-space: nowrap; }
+.hw-row .meta.on { color: var(--green); }
+.hw-row > .ic { width: 14px; height: 14px; color: var(--fg-3); flex: none; }
+.home-open .big { display: flex; align-items: baseline; gap: 8px; padding: 6px 8px 10px; font-size: 24px; font-weight: 500; }
+.home-open .big span { font-size: 11.5px; color: var(--fg-3); font-weight: 400; }
+.home-open .big .sp { flex: 1; }
+.home-open .big .add { color: var(--green); font: 11px var(--font-mono); }
+.home-open .big .del { color: var(--red); font: 11px var(--font-mono); }
+.bars { display: grid; grid-template-columns: repeat(14, 1fr); gap: 4px; height: 76px; padding: 0 8px 4px; align-items: end; }
+.bar { height: 100%; display: grid; grid-template-rows: 1fr auto; gap: 3px; }
+.bar i { align-self: end; display: block; border-radius: 2px; background: color-mix(in srgb, var(--blue) 70%, transparent); }
+.bar.now i { background: var(--blue); }
+.bar span { font-size: 9px; color: var(--fg-4); text-align: center; }
+.tix { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; padding: 4px; }
+.tix-c { display: grid; justify-items: center; gap: 2px; padding: 8px 2px; border-radius: 8px; font-size: 11px; color: var(--fg-3); }
+.tix-c:hover { background: var(--hover); }
+.tix-c b { font-size: 18px; font-weight: 500; color: var(--fg); }
+@media (max-width: 760px) { .home-hero { padding: 40px 16px 12px; } .hpill .dim, .spark, .hc-hint { display: none; } }
+
+/* ---------- the model picker without lines */
+.mpick { border: 0; }
+.mp-tabs { border-bottom: 0; }
+.mp-left { border-right: 0; }
+.mp-search { margin: 0 8px 4px; padding: 8px 10px; border-radius: 9px; background: var(--hover); border-bottom: 0; }
+
+/* ---------- the effort slider: pixels and the galaxy on a canvas, the brain on top */
+.effort { position: relative; margin: 8px; padding: 10px 12px 26px; border-radius: 11px; background: var(--hover); border: 0; }
+.effort .fx { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1; }
+.effort .eh, .effort .ends { position: relative; z-index: 2; }
+.effort .rec { position: absolute; z-index: 2; }
+.effort .track { z-index: auto; background: color-mix(in srgb, var(--fg) 7%, transparent); }
+.effort .knob { z-index: 3; transition: none; }
+.effort .stop { z-index: 0; }
+.effort .stop.rec { width: 2px; height: 10px; margin: -5px 0 0 -1px; border-radius: 1px; background: var(--fg-3); }
+.effort .knob svg { fill: #fd92ba; stroke: #611836; filter: drop-shadow(0 0 5px rgba(253, 146, 186, 0.7)); }
+.effort .knob svg .g { stroke: #611836; }
+.effort.top .knob svg { width: 30px; height: 30px; fill: #a08af7; stroke: #22137c; filter: drop-shadow(0 0 9px rgba(124, 116, 255, 0.95)); }
+.effort.top .knob svg .g { stroke: #22137c; }
+.effort.top .eh .lvl { color: #8fd3ff; text-shadow: 0 0 10px rgba(120, 180, 255, 0.6); }
+.effort .rays { display: none; }
+.effort.none { padding-bottom: 10px; }
+.effort.none .note { margin: 6px 0 0; color: var(--fg-3); font-size: 12px; }
+
+/* A narrow composer drops the hint, then the Parallel label; nothing wraps. */
+.hc-model, .hc-par, .hc-hint { white-space: nowrap; }
+@container (max-width: 560px) { .hc-hint { display: none; } }
+@container (max-width: 420px) { .hc-par { font-size: 0; gap: 0; } .hc-model .eff { display: none; } }
+
+/* ---------- Code chat: the agents' composer card, Plan mode, the project list beside a thread */
+/* On the chat pane (not the painting) the card is a step lighter than what is under it. */
+.code-composer .hc { background: color-mix(in srgb, var(--fg) 7%, var(--card-strong)); box-shadow: 0 10px 32px rgba(0, 0, 0, 0.22), inset 0 0 0 0.5px color-mix(in srgb, var(--fg) 10%, transparent); }
+.code-composer .hc textarea { min-height: 0; max-height: 200px; }
+/* Not `.plan`: that is the billing card's class (chat.css), which padded the composer. */
+.code-composer .hc.is-plan { box-shadow: 0 10px 32px rgba(0, 0, 0, 0.22), inset 0 0 0 1px color-mix(in srgb, var(--amber) 45%, transparent); }
+.code-composer { padding-bottom: 2px; }
+.hc-ic { width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; color: var(--fg-3); }
+.hc-ic:hover { background: var(--hover); color: var(--fg); }
+/* Fixed width: turning Plan on used to add an ✕ to the label, which widened the
+   button and shifted the whole centred composer row. */
+.hc-plan { height: 26px; padding: 0 8px; min-width: 78px; justify-content: center; border-radius: 8px; display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--fg-3); }
+.hc-plan:hover { background: var(--hover); color: var(--fg); }
+.hc-plan[aria-pressed="true"] { background: color-mix(in srgb, var(--amber) 16%, transparent); color: var(--amber); }
+.hc-plan .x { opacity: 0.7; }
+/* The ghost toggle: a chat that is never written to disk. Pressed, it reads
+   violet — the app's colour for a temporary thing — not amber like Plan. */
+.hc-plan.hc-ghost[aria-pressed="true"] { background: color-mix(in srgb, var(--violet) 18%, transparent); color: var(--violet); }
+.hc-plan:disabled { opacity: 0.5; }
+/* Plan | Fast: two halves of one well, the chosen one lit (Plan in amber, as
+   the card's edge is; Fast in plain ink). */
+.hc-mode { display: inline-flex; height: 26px; padding: 2px; gap: 2px; border-radius: 8px; background: var(--chip); box-shadow: inset 0 0 0 1px var(--pane-edge); }
+.hc-mode button { display: inline-flex; align-items: center; gap: 4px; padding: 0 8px; border-radius: 6px; font-size: 12px; color: var(--fg-3); transition: background-color 0.15s ease, color 0.15s ease; }
+.hc-mode button:hover { color: var(--fg); }
+.hc-mode button.on { background: var(--hover); color: var(--fg); }
+.hc-mode button.on:first-child { background: color-mix(in srgb, var(--amber) 16%, transparent); color: var(--amber); }
+
+/* ---------- the ghost toggle, to Whirl's incognito button ------------------
+   A 32px circle wearing the tools' translucent well when off, filling with ink
+   when on, so the mode reads at a glance. Icon only: the ghost says it all. */
+.ghost-toggle { position: relative; width: 32px; height: 32px; flex: none; display: grid; place-items: center; border-radius: 50%; background: var(--chip); color: var(--fg-3); box-shadow: inset 0 0 0 1px var(--pane-edge), inset 0 1px 0 0 rgba(255, 255, 255, 0.07); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); transition: background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease; }
+.ghost-toggle:hover { color: var(--fg); }
+.ghost-toggle[aria-pressed="true"] { background: var(--fg); color: var(--win-bg); box-shadow: 0 2px 12px rgba(0, 0, 0, 0.35); }
+.ghost-toggle:disabled { opacity: 0.6; }
+.ghost-ic { position: relative; width: 18px; height: 18px; display: grid; place-items: center; }
+.ghost-glyph { position: absolute; inset: 0; display: grid; place-items: center; }
+
+/* The chatbox carried a 1px gradient "silver" frame for a round. Over a dark
+   painting a 1px ring reads as a thin grey outline, not metal — the effect needs
+   a real bevel (an inset top highlight, a dark trough, a specular sweep on the
+   edge itself) and that is a different composer, not a border. Removed rather
+   than shipped half-right; see the note in the handoff. */
+
+
+/* ---------- popovers rise in from their anchor -----------------------------
+   The model picker, the view menu, search: one entrance, so a menu never just
+   blinks into place. transform only, and never a filter — Chromium refuses to
+   paint a descendant backdrop-filter under an ancestor that has one. */
+.pop { animation: pop-in 0.16s cubic-bezier(0.22, 0.61, 0.36, 1); }
+@keyframes pop-in { from { opacity: 0; transform: translateY(-4px) scale(0.97); } }
+.settings { animation: settings-in 0.18s cubic-bezier(0.22, 0.61, 0.36, 1); }
+@keyframes settings-in { from { opacity: 0; transform: translateY(6px) scale(0.995); } }
+@media (prefers-reduced-motion: reduce) { .pop, .settings { animation: none; } }
+.hc-model .lg { display: inline-flex; } .hc-model .lg .logo { width: 14px; height: 14px; }
+.hc-model .v { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 160px; }
+.hc-send:disabled { opacity: 0.35; cursor: default; }
+.code-side { position: absolute; top: 14px; right: 16px; width: 128px; display: flex; flex-direction: column; gap: 1px; font-size: 12.5px; }
+.code-side .cs-h { padding: 0 8px 4px; font-size: 11px; color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.code-side button { height: 26px; padding: 0 8px; border-radius: 7px; text-align: left; color: var(--fg-2); }
+.code-side button:hover { background: var(--hover); color: var(--fg); }
+.win.rpanel-on .code-side { display: none; }
+@media (max-width: 1180px) { .code-side { display: none; } }
+
+/* ---------- side panel: Changes */
+.rp-chg .cm { width: 14px; flex: none; font: 600 10.5px var(--font-mono); font-style: normal; text-align: center; color: var(--amber); }
+.rp-chg .cm-A, .rp-chg .cm-U { color: var(--green); } .rp-chg .cm-D { color: var(--red); } .rp-chg .cm-R { color: var(--blue); }
+.rp-chg .nm { flex: 1; min-width: 0; }
+.rp-chg .nm small { margin-left: 6px; color: var(--fg-3); font-size: 10.5px; }
+.rp-chg .nm .ic { width: 12px; height: 12px; margin-right: 4px; vertical-align: -2px; color: var(--fg-3); }
+.rp-note { margin: 2px 4px 6px; padding: 8px 10px; border-radius: 8px; background: var(--hover); font-size: 11.5px; line-height: 1.45; color: var(--fg-2); }
+.rp-chg b { font: 500 10.5px var(--font-mono); } .rp-chg b.add { color: var(--green); } .rp-chg b.del { color: var(--red); margin-left: 4px; }
+.rp-prev pre .add { color: var(--green); } .rp-prev pre .del { color: var(--red); } .rp-prev pre .hunk { color: var(--blue); }
+.rp-none { display: grid; justify-items: center; gap: 4px; padding: 48px 12px; text-align: center; font-size: 12px; color: var(--fg-3); }
+.rp-none .ic { width: 22px; height: 22px; margin-bottom: 6px; }
+.rp-none b { color: var(--fg); font-weight: 600; }
+
+/* ---------- Code's sidebar is the tree, in both of its surfaces -------------
+   The ADE and the IDE are two views of one project, so they share one sidebar:
+   the folder, the threads in it and the canvases it is showing. The vanilla
+   Projects/Workers list and the brand line step aside for it — the tree already
+   says which machine and which folder, in less room. */
+.win.m-code #chatList:not([hidden]) { display: block !important; }
+.win.m-code #list { display: none !important; }
+.win.m-code .seg, .win.m-code .brand { display: none !important; }
+
+/* ---------- the session card: what this canvas is talking to ----------------
+   The IDE opens on a session, so the three things you would otherwise go to
+   Settings for — which CLI, on which model and effort, on whose account — sit
+   at the top of the session, with the folder it is working in. */
+.banner { align-items: flex-start; gap: 11px; margin: 2px 0 16px; padding: 12px 14px; border-radius: 12px; background: var(--card); box-shadow: inset 0 0 0 1px var(--well-outline), inset 0 1px 0 0 var(--well-highlight); }
+.banner > svg, .banner .pav { width: 30px; height: 30px; flex: none; border-radius: 9px; }
+.banner .pav .logo { width: 19px; height: 19px; }
+.banner .bt { min-width: 0; }
+.banner .bt .bt-h { font-weight: 650; font-size: 13.5px; }
+.banner .bt .bt-plan { color: var(--fg-3); }
+.banner .bt .bt-p { font: 11.5px var(--font-mono); color: var(--fg-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 64ch; }
+/* The status line that says which mode the CLI is in, and how many agents are
+   on the machine — the one an IDE user reads without looking away. */
+.hint .dim { color: var(--fg-4); margin-left: 2px; }
+
+/* ---------- the ghost collapse owns its transition --------------------------
+   `.win.side-closed .side` earlier in this file sets a transition that omits
+   width, and --side-w is a custom property, so it cannot be transitioned at
+   all: the rail snapped shut in one frame while only its opacity moved. This
+   file loads last, so the same selector here wins. */
+.win.ghost-side .side {
+  transition: width 0.28s cubic-bezier(0.32, 0.72, 0, 1), transform 0.28s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.2s ease, visibility 0s linear 0.28s;
+}
+
+/* ---------- updates: downloading, ready to restart, what changed, the ask */
+.status .upd .uspin { width: 11px; height: 11px; border-radius: 50%; border: 1.5px solid color-mix(in srgb, var(--fg-3) 35%, transparent); border-top-color: var(--fg-2); animation: uspin 0.8s linear infinite; flex: none; }
+@keyframes uspin { to { transform: rotate(360deg); } }
+.status .upd.ready { width: 26px; height: 26px; padding: 0; border-radius: 50%; justify-content: center; background: var(--chip); color: var(--fg); }
+.status .upd.ready:hover { background: var(--hover); }
+.upd .ur { position: relative; display: inline-flex; }
+.upd .ur > .ic { width: 15px; height: 15px; }
+.upd .ub { position: absolute; right: -4px; bottom: -4px; width: 10px; height: 10px; border-radius: 50%; background: var(--green); color: var(--desk-base); display: grid; place-items: center; box-shadow: 0 0 0 1.5px var(--sheet); }
+.upd .ub .ic { width: 8px; height: 8px; stroke-width: 2.4; }
+.updpop { position: fixed; -webkit-backdrop-filter: blur(30px) saturate(1.6); backdrop-filter: blur(30px) saturate(1.6); z-index: 40; width: 380px; max-width: calc(100vw - 16px); max-height: min(480px, 70vh); overflow-y: auto; padding: 12px 14px; border-radius: 11px; background: var(--sheet); border: 0.5px solid var(--pane-edge); box-shadow: 0 14px 34px rgba(0, 0, 0, 0.28); color: var(--fg); font-size: 12.5px; animation: pop-in 0.16s cubic-bezier(0.22, 0.61, 0.36, 1); }
+.updpop .uh { display: block; text-align: left; font-weight: 600; font-size: 13px; line-height: 1.35; color: var(--fg); padding: 0; }
+.updpop .uh:hover { text-decoration: underline; text-underline-offset: 2px; }
+.updpop h6 { margin: 12px 0 6px; font-size: 11.5px; font-weight: 600; color: var(--fg-2); }
+.updpop ul { margin: 0; padding-left: 16px; list-style: disc; display: grid; gap: 6px; color: var(--fg-2); line-height: 1.4; }
+.updpop a { color: inherit; text-decoration: underline; text-decoration-color: var(--fg-4); text-underline-offset: 2px; }
+.updpop .more { display: inline-flex; align-items: center; gap: 4px; margin-top: 10px; font-size: 11.5px; color: var(--fg-3); }
+.updpop .more .ic, .updtoast a .ic { width: 11px; height: 11px; }
+.updtoast { position: fixed; -webkit-backdrop-filter: blur(30px) saturate(1.6); backdrop-filter: blur(30px) saturate(1.6); z-index: 45; top: 44px; right: 14px; width: 340px; max-width: calc(100vw - 28px); display: flex; gap: 10px; align-items: flex-start; padding: 12px 34px 12px 14px; border-radius: 11px; background: var(--sheet); border: 0.5px solid var(--pane-edge); box-shadow: 0 14px 34px rgba(0, 0, 0, 0.28); color: var(--fg); font-size: 12.5px; animation: memin 0.2s ease-out; transition: opacity 0.18s, transform 0.18s; }
+.updtoast.out { opacity: 0; transform: translateY(-6px); }
+.updtoast .ok { color: var(--green); flex: none; margin-top: 1px; }
+.updtoast .ok .ic { width: 15px; height: 15px; border: 1.4px solid currentColor; border-radius: 50%; padding: 2px; box-sizing: border-box; }
+.updtoast b { font-weight: 600; font-size: 13px; }
+.updtoast p { margin: 3px 0 0; color: var(--fg-3); line-height: 1.4; }
+.updtoast a { color: var(--fg-2); display: inline-flex; align-items: center; gap: 3px; text-decoration: underline; text-decoration-color: var(--fg-4); text-underline-offset: 2px; }
+.updtoast .x { position: absolute; top: 8px; right: 8px; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; color: var(--fg-3); }
+.updtoast .x:hover { background: var(--hover); color: var(--fg); }
+.updtoast .x .ic { width: 11px; height: 11px; }
+.updask { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; background: rgba(0, 0, 0, 0.42); animation: memin 0.14s ease-out; }
+.updask .box { -webkit-backdrop-filter: blur(30px) saturate(1.6); backdrop-filter: blur(30px) saturate(1.6); width: 520px; max-width: calc(100vw - 32px); border-radius: 14px; background: var(--sheet); border: 0.5px solid var(--pane-edge); box-shadow: 0 24px 60px rgba(0, 0, 0, 0.4); overflow: hidden; }
+.updask h3 { margin: 0; padding: 22px 24px 0; font-size: 17px; font-weight: 600; line-height: 1.3; color: var(--fg); }
+.updask p { margin: 6px 0 0; padding: 0 24px 22px; color: var(--fg-3); font-size: 12.5px; line-height: 1.45; }
+.updask .acts { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 18px; border-top: 0.5px solid var(--pane-edge); background: color-mix(in srgb, var(--fg) 3%, transparent); }
+.updask .btn.primary { background: #3d6ff2; color: #fff; }
+.updask .btn.primary:hover { background: #2f5fe0; }
+@media (prefers-reduced-motion: reduce) { .status .upd .uspin { animation-duration: 2.4s; } .updpop, .updtoast, .updask { animation: none; } }
+
+/* Home's composer: the executor chip beside the orchestrator's, and its menu
+   (Runs in picker.js). */
+.hc-exec { height: 28px; padding: 0 8px; border-radius: 8px; display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--fg-2); white-space: nowrap; }
+.hc-exec:hover { background: var(--hover); color: var(--fg); }
+.hc-exec .ic { width: 12px; height: 12px; color: var(--fg-3); }
+.hc-exec .v { overflow: hidden; text-overflow: ellipsis; max-width: 150px; }
+@container (max-width: 420px) { .hc-exec .v { display: none; } }
+.ex { width: 320px; display: flex; flex-direction: column; gap: 8px; padding: 4px; }
+.ex-h b { display: block; font-size: 13px; }
+.ex-h span, .ex-note { color: var(--fg-3); font-size: 11.5px; margin: 0; }
+.ex-mode { align-self: flex-start; }
+.ex-list { display: flex; flex-direction: column; gap: 2px; max-height: 300px; overflow: auto; }
+.ex-row { display: flex; align-items: flex-start; gap: 8px; padding: 5px 6px; border-radius: 6px; cursor: pointer; }
+.ex-row:hover { background: var(--hover); }
+.ex-row.off { opacity: .55; }
+.ex-row b, .ex-cli b { display: block; font-size: 12px; font-weight: 600; }
+.ex-row small, .ex-cli small { display: block; color: var(--fg-3); font-size: 11px; white-space: normal; }
+.pop .pi.ex-cli { height: auto; padding: 5px 8px; white-space: normal; }
+.pop .pi.ex-cli.on { background: var(--sel); }
+
+/* The four stages under Home's composer (stages.js). */
+.stg { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; width: 100%; }
+.stg[hidden] { display: none; }
+.stg-row { display: flex; align-items: stretch; gap: 6px; flex-wrap: wrap; }
+.stg-s { flex: 1 1 150px; min-width: 0; display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; column-gap: 8px; row-gap: 4px; padding: 8px 10px; border-radius: 10px; border: 0.5px solid var(--pane-edge); background: var(--glass); opacity: .72; }
+.stg-s.current { opacity: 1; border-color: var(--bs-accent); }
+.stg-s.done { opacity: .9; }
+.stg-n { width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 700; background: var(--hover); color: var(--fg-2); align-self: center; }
+.stg-s.current .stg-n { background: var(--bs-accent); color: #fff; }
+.stg-s.done .stg-n { background: var(--green); color: #fff; }
+.stg-n .ic { width: 11px; height: 11px; }
+.stg-t b { display: block; font-size: 12.5px; }
+.stg-t small { color: var(--fg-3); font-size: 11px; }
+.stg-m { grid-column: 1 / -1; justify-self: start; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; padding: 2px 7px; border-radius: 999px; color: var(--fg-3); background: var(--hover); }
+.stg-m:hover { color: var(--fg); }
+.stg-go { align-self: center; padding: 7px 12px; border-radius: 9px; font-size: 12px; font-weight: 600; background: var(--bs-accent); color: #fff; }
+.stg-go[disabled] { opacity: .4; cursor: not-allowed; }
+.stg-note { font-size: 11.5px; color: var(--fg-3); padding: 0 2px; }
+.stg-note i { font-style: normal; color: var(--fg-4); }
+.stg-err { font-size: 11.5px; color: var(--red); }
+/* ---------- the frame -------------------------------------------------------
+   Three columns on one flat window: the sidebar (the window's own row, the app
+   tiles, the tree, the machine), the page as a card with its header, and the
+   page's chat with its composer at the foot. No bar runs across the top and
+   none along the bottom; the window is dragged by the sidebar's row and the
+   page header. Settings → Appearance → Window picks what it is made of:
+   frosted glass over the painting (the default), the desktop seen through it,
+   or solid panes, where the painting only shows in Code's card. */
+:root { --win-bg: #f3f3f1; --frame-bg: #fbfbfa; --frame-edge: #e3e3e0; --dcard: #ffffff; --dcard-edge: #e6e6e3; --tile-on: rgba(0, 0, 0, 0.07); --glass-mix: 30%; --glass-page-mix: 70%; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --win-bg: #0d0d0e; --frame-bg: #121213; --frame-edge: #232325; --dcard: #161617; --dcard-edge: #26262a; --tile-on: rgba(255, 255, 255, 0.09); --glass-mix: 30%; --glass-page-mix: 44%; } }
+:root[data-theme="dark"] { --win-bg: #0d0d0e; --frame-bg: #121213; --frame-edge: #232325; --dcard: #161617; --dcard-edge: #26262a; --tile-on: rgba(255, 255, 255, 0.09); --glass-mix: 30%; --glass-page-mix: 44%; }
+
+.win { --side-w: var(--side-w-user, 300px); }
+:root[data-window="solid"] #win:not(.m-code, .m-chat) :is(.win-art, .win-ascii), :root[data-window="clear"] #win :is(.win-art, .win-ascii) { display: none; }
+#win .side, #win .chatcol { background: var(--win-bg); }
+/* The tree is the window's, not Chat's: Home shows it too. */
+#win.m-home #chatList { display: block !important; }
+#win.m-home .whirl-new { display: none; }
+#win:not(.m-chat):not(.m-code) .side-pills { display: none; }
+#win.whirl-on:is(.m-chat, .m-code) #searchBtn { display: none; }
+.side-machine { margin-top: auto; }
+#win { --chat-w: 340px; --chat-on: var(--chat-w); grid-template-columns: var(--side-w) minmax(0, 1fr) var(--chat-on); grid-template-rows: minmax(0, 1fr); background: var(--win-bg); }
+#win.chat-off, #win:not(.m-home) { --chat-on: 0px; }
+/* The column is Home's: every other page takes the window's whole width,
+   still 8px in from its edges with its rounded corners. */
+#win:not(.m-home) > .chatcol, #win:not(.m-home) .gutter-chat, #win:not(.m-home) #aiBtn { display: none; }
+#win:not(.m-home) .mainc { margin-right: 8px; }
+#win > .side, #win > .mainc, #win > .chatcol { grid-row: 1; }
+#win > .side { grid-column: 1; }
+#win > .mainc { grid-column: 2; }
+#win > .chatcol { grid-column: 3; }
+#win > .status { display: none; }
+#win:not(.dragging-chat) { transition: grid-template-columns 0.28s cubic-bezier(.2, .8, .2, 1); }
+.win-art { height: 100%; }
+
+/* The sidebar is the window itself, not a card on it. */
+#win .side { margin: 0; border-radius: 0; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
+.side .side-top { height: 52px; flex: none; display: flex; align-items: center; gap: 2px; padding: 0 10px 0 12px; justify-content: flex-start; }
+.side .side-top .lights-gap { width: 0; flex: none; }
+.os-mac .side .side-top .lights-gap, :root:not(.native) .side .side-top .lights-gap { width: 64px; }
+.side .side-top .ib { width: 28px; height: 28px; border-radius: 8px; background: transparent; color: var(--fg-3); }
+.side .side-top .ib:hover:not(:disabled) { background: var(--hover); color: var(--fg); }
+.side .side-top .ib:disabled { opacity: 0.35; }
+.side .side-top .ib .ic { width: 16px; height: 16px; }
+.side .side-top .ib[aria-pressed="true"] { color: var(--fg); background: var(--tile-on); }
+#sideOpen, #sideClose { background: transparent; }
+#sideOpen { width: 28px; height: 28px; border-radius: 8px; }
+/* Chat's face draws search and its own toggle into the row; ours steps aside. */
+.side-pills { display: contents; }
+.side-pills:empty { display: none; }
+.side-pills .side-pill { background: transparent !important; -webkit-backdrop-filter: none; backdrop-filter: none; height: 28px; padding: 0; gap: 2px; }
+.side-pills .side-pill button { width: 28px; height: 28px; border-radius: 8px; color: var(--fg-3); }
+.side-pills .side-pill button:hover { background: var(--hover); color: var(--fg); }
+.lights { top: 20px; left: 16px; }
+/* The window buttons on Windows and Linux sit inside the page card, at the
+   right end of its header (shell.js moves them there), so the card keeps the
+   same 8px from every edge of the window. macOS keeps its lights on the
+   sidebar, and the card steps down for them when the sidebar is away. */
+#win .tbar .caps { display: flex; align-self: center; align-items: center; gap: 2px; margin-left: 6px; }
+.os-win #win .tbar .caps button { width: 34px; height: 30px; border-radius: 8px; display: grid; place-items: center; background: transparent; color: var(--fg-2); }
+.os-win #win .tbar .caps button:hover { background: var(--hover); color: var(--fg); }
+.os-win #win .tbar .caps button[data-cap="close"]:hover { background: #c42b1c; color: #fff; }
+.os-win #win .tbar .caps .ic { width: 14px; height: 14px; }
+.os-mac #win:is(.side-closed, .ghost-side, .settings-on) > .mainc { margin-top: 40px; }
+#win > .capstrip { display: none; position: absolute; z-index: 7; top: 0; left: var(--side-w); right: 0; height: 40px; }
+.os-mac #win:is(.side-closed, .ghost-side, .settings-on) > .capstrip { display: block; }
+
+/* The app tiles: every app as a square, then + for the catalog. */
+.side > .zones { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 12px 14px; background: transparent; border-radius: 0; }
+.side > .zones button { width: 38px; height: 38px; min-width: 0; padding: 0; border-radius: 10px; display: grid; place-items: center; color: var(--fg-2); }
+.side > .zones button .ic, .side > .zones button svg, .side > .zones button .ag { width: 19px; height: 19px; }
+.side > .zones button:hover { background: var(--hover); color: var(--fg); }
+.side > .zones button[aria-selected="true"] { background: var(--tile-on); color: var(--fg); }
+.side > .zones button.add { color: var(--fg-3); }
+.side > .zones button.add .ic { width: 16px; height: 16px; }
+
+/* The machine at the foot: one row per machine, the one you are on lit. */
+.side-machine { flex: none; display: flex; align-items: center; gap: 4px; padding: 8px 10px 12px; }
+.side-machine .machines { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.side-machine .mach { width: 100%; height: 34px; padding: 0 8px; gap: 10px; justify-content: flex-start; border-radius: 9px; font-size: 13.5px; font-weight: 500; color: var(--fg-2); }
+.side-machine .mach:hover { background: var(--hover); color: var(--fg); }
+.side-machine .mach[aria-pressed="true"] { background: transparent; color: var(--fg); }
+.side-machine .mach .ic { width: 22px; height: 22px; padding: 4px; border-radius: 7px; background: var(--tile-on); color: var(--fg); }
+.side-machine .mach .mn { flex: 1; min-width: 0; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The update pill: a slim round frame on a little glass, always there. Its
+   colour is its state (app.js renderUpd). */
+.side-machine .upd { flex: none; height: 26px; max-width: 52%; padding: 0 10px 0 8px; border-radius: 999px; overflow: hidden; white-space: nowrap; font-size: 11.5px; font-weight: 500; color: var(--fg-2); display: inline-flex; align-items: center; gap: 5px; --uc: var(--fg-3); background: color-mix(in srgb, var(--uc) 12%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--uc) 45%, transparent); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); transition: background-color 0.15s ease; }
+.side-machine .upd:hover { background: color-mix(in srgb, var(--uc) 22%, transparent); }
+.side-machine .upd .ic { width: 13px; height: 13px; flex: none; color: var(--uc); }
+.side-machine .upd .lbl { overflow: hidden; text-overflow: ellipsis; }
+.side-machine .upd.new { --uc: #f08a24; color: var(--fg); }
+.side-machine .upd.bad { --uc: var(--red); }
+.side-machine .upd.ok { --uc: var(--green); }
+.side-machine .upd.busy .ic { animation: updspin 0.9s linear infinite; }
+@keyframes updspin { to { transform: rotate(360deg); } }
+
+/* The page: a card with its header, on the window. */
+#win .mainc { margin: 8px 0 8px; border: 1px solid var(--frame-edge) !important; border-radius: 12px; background: var(--frame-bg); overflow: hidden; }
+#win.side-closed .mainc, #win.ghost-side .mainc { margin-left: 8px; }
+#win.chat-off .mainc { margin-right: 8px; }
+/* Code's painting belongs to its card: clipped to the card's own rounded box
+   (8px in from the window, the sidebar's width on the left), and dimmed under
+   a layer of the window's colour so the page reads dark. */
+#win:is(.m-code, .m-chat) .mainc { background: color-mix(in srgb, var(--win-bg) 58%, transparent); border-color: color-mix(in srgb, var(--fg) 12%, transparent) !important; }
+:root[data-window="solid"] #win:is(.m-code, .m-chat) :is(.win-art, .win-ascii) { clip-path: inset(8px 8px 8px var(--side-w) round 12px); }
+:root[data-window="solid"] #win:is(.m-code, .m-chat):is(.side-closed, .ghost-side) :is(.win-art, .win-ascii) { clip-path: inset(8px round 12px); }
+/* Settings is a page too: it fills the card under the header, and the card
+   takes the whole window, since Settings brings its own list of sections. */
+#win.settings-on { --side-w: 0px; --chat-on: 0px; }
+#win.settings-on .mainc { margin-left: 8px; margin-right: 8px; }
+#win.settings-on .side, #win.settings-on .chatcol, #win.settings-on .gutter-chat { visibility: hidden; }
+#win .settings { position: absolute; inset: 45px 0 0 0; border: 0; border-radius: 0; background: var(--frame-bg); -webkit-backdrop-filter: none; backdrop-filter: none; }
+#win .tbar { height: 44px; flex: none; box-sizing: content-box; padding: 0 10px 0 12px; background: transparent; border-bottom: 0 !important; }
+#win.side-closed .tbar { padding-left: 12px; }
+.tbar .zt.page { display: inline-flex; align-items: center; gap: 9px; font-size: 14px; font-weight: 600; color: var(--fg); }
+.tbar .zt.page .ic, .tbar .zt.page .ag { width: 16px; height: 16px; color: var(--fg-2); }
+.page-line { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); max-width: 52%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 12px var(--font-mono); color: var(--fg-3); pointer-events: none; }
+.page-line[hidden] { display: none; }
+.tbar .right .ib { background: transparent; }
+.tbar .right .ib:hover { background: var(--hover); }
+.tbar .right #aiBtn[aria-pressed="true"] { background: transparent; color: var(--fg-2); }
+/* Apps and Memory are named by the header; their own H1 would say it twice. */
+.apz-h h1, .mem-h h1 { display: none; }
+.mem-ht { justify-content: flex-end; }
+#win .apps.zone, #win .memory.zone { padding: 0; }
+#win .apps.zone > .apz, #win .memory.zone > .mem { max-width: none; padding: 22px max(24px, calc((100% - 820px) / 2)) 48px; background: transparent; box-shadow: none; border-radius: 0; }
+
+/* ---------- the glass ------------------------------------------------------
+   Frosted: the painting runs behind the whole window and every pane is a
+   sheet of glass on it, the sidebar and the chat thinner than the page so the
+   painting reads at the edges; Code's card stays the clear, dimmed one.
+   See-through: the window itself is transparent (tauri.*.conf.json) and the
+   same sheets sit on the desktop. macOS blurs what is behind (vibrancy), and
+   Windows lays Mica under it; Linux has no blur, so the sheets are thicker. */
+:root:is([data-window="frosted"], [data-window="clear"]) { --glass-line: color-mix(in srgb, var(--fg) 11%, transparent); }
+/* One sheet of glass under the sidebar, the chat column and the 8px around
+   the card, so all three are the same 30% tint and blur. It has a hole where
+   the card is (shell.js sets its clip-path), so the card shows the painting
+   its own way: clear and dimmed in Code and Chat, frosted elsewhere. */
+#win { isolation: isolate; }
+#win > .glass { position: absolute; inset: 0; z-index: 0; pointer-events: none; display: none; }
+:root:is([data-window="frosted"], [data-window="clear"]) #win > .glass { display: block; background: color-mix(in srgb, var(--win-bg) var(--glass-mix), transparent); -webkit-backdrop-filter: blur(28px) saturate(1.5); backdrop-filter: blur(28px) saturate(1.5); }
+:root:is([data-window="frosted"], [data-window="clear"]) #win .side, :root:is([data-window="frosted"], [data-window="clear"]) #win > .chatcol { background: transparent; -webkit-backdrop-filter: none; backdrop-filter: none; }
+:root[data-window="frosted"] #win:not(.m-code, .m-chat) .mainc { background: color-mix(in srgb, var(--frame-bg) var(--glass-page-mix), transparent); -webkit-backdrop-filter: blur(30px) saturate(1.4); backdrop-filter: blur(30px) saturate(1.4); }
+:root:is([data-window="frosted"], [data-window="clear"]) #win .mainc { border-color: var(--glass-line) !important; }
+:root:is([data-window="frosted"], [data-window="clear"]) #win .settings { background: transparent; }
+:root:is([data-window="frosted"], [data-window="clear"]) :is(.dc, .cc-box, .cc-hits) { background: color-mix(in srgb, var(--dcard) 50%, transparent); border-color: var(--glass-line); }
+:root[data-window="clear"] body, :root[data-window="clear"] .desk, :root[data-window="clear"] #win { background: transparent !important; }
+:root[data-window="clear"] #win .mainc { background: color-mix(in srgb, var(--frame-bg) 70%, transparent); }
+.os-linux:root[data-window="clear"] { --glass-mix: 80%; }
+.os-linux:root[data-window="clear"] #win .mainc { background: color-mix(in srgb, var(--frame-bg) 88%, transparent); }
+
+/* ---------- the page's chat (ai.js) */
+.chatcol { position: relative; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+#win.chat-off .chatcol { visibility: hidden; }
+.gutter-chat { position: absolute; top: 0; bottom: 0; right: calc(var(--chat-on) - 4px); width: 8px; cursor: col-resize; z-index: 4; }
+#win.chat-off .gutter-chat { display: none; }
+.cc-top { height: 44px; flex: none; display: flex; align-items: center; gap: 2px; padding: 0 8px 0 14px; }
+.os-win .cc-top, .os-linux .cc-top { padding-right: 140px; }
+.cc-top .ib { width: 28px; height: 28px; border-radius: 8px; }
+.cc-top .ib .ic { width: 15px; height: 15px; }
+.cc-out { flex: 1; min-height: 0; overflow-y: auto; padding: 0 14px 12px 14px; display: flex; flex-direction: column; gap: 14px; font-size: 14px; line-height: 1.55; color: var(--fg); }
+.cc-q { align-self: flex-end; max-width: 86%; padding: 8px 12px; border-radius: 12px; background: var(--tile-on); white-space: pre-wrap; word-break: break-word; }
+.cc-a > :first-child { margin-top: 0; } .cc-a > :last-child { margin-bottom: 0; }
+.cc-a ul, .cc-a ol { padding-left: 1.2em; margin: 8px 0; }
+.cc-a ul { list-style: disc; } .cc-a ol { list-style: decimal; }
+.cc-a li + li { margin-top: 4px; }
+.cc-a.err { color: var(--red, #e5484d); }
+.cc-done { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--fg-3); margin-bottom: -6px; }
+.cc-done .ic { width: 12px; height: 12px; }
+.cc-done span { color: var(--fg-4); }
+.cc-empty { margin: auto 0 0; color: var(--fg-3); font-size: 13px; }
+.cc-hits { margin: 0 10px 6px; display: grid; gap: 1px; padding: 4px; border-radius: 10px; background: var(--dcard); border: 1px solid var(--dcard-edge); }
+.cc-hits[hidden] { display: none; }
+.cc-hits .pi { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px; border-radius: 7px; font-size: 13px; }
+.cc-hits .pi.on, .cc-hits .pi:hover { background: var(--hover); }
+.cc-hits .st-s { margin-left: auto; color: var(--fg-3); font-size: 11.5px; }
+.cc-box { flex: none; margin: 0 8px 8px; padding: 10px 10px 8px 14px; border-radius: 14px; background: var(--dcard); border: 1px solid var(--dcard-edge); }
+.cc-box textarea { width: 100%; resize: none; border: 0; outline: 0; background: transparent; font: 14px/1.45 var(--font-ui); color: var(--fg); min-height: 42px; max-height: 30vh; }
+.cc-box textarea::placeholder { color: var(--fg-3); }
+.cc-bar { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
+.cc-bar .ib { width: 26px; height: 26px; margin-left: -6px; }
+.cc-model { font-size: 12px; color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cc-send { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; background: var(--tile-on); color: var(--fg); flex: none; }
+.cc-send:hover { background: var(--fg); color: var(--win-bg); }
+.cc-send .ic { width: 15px; height: 15px; }
+.ask-dots { display: inline-flex; gap: 4px; } .ask-dots i { width: 5px; height: 5px; border-radius: 50%; background: var(--fg-3); animation: pulse 1.2s ease-in-out infinite; }
+.ask-dots i:nth-child(2) { animation-delay: 0.15s; } .ask-dots i:nth-child(3) { animation-delay: 0.3s; }
+.ask-tip { padding: 2px 8px; font-size: 11px; color: var(--fg-4); }
+
+/* Narrow: the chat floats over the page instead of taking a column. */
+@media (max-width: 1000px) {
+  #win { --chat-on: 0px; }
+  #win .mainc { margin-right: 8px; }
+  #win:not(.chat-off) > .chatcol { position: absolute; top: 8px; right: 8px; bottom: 8px; width: min(340px, calc(100% - 16px)); z-index: 20; border-radius: 12px; background: var(--frame-bg); border: 1px solid var(--frame-edge); box-shadow: 0 18px 48px rgba(0, 0, 0, 0.35); }
+  .gutter-chat { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { #win { transition: none !important; } }
+
+/* Home › a memory folder: Home is the way back. */
+.tbar .zt.crumb { display: inline-flex; align-items: center; gap: 9px; font-size: 14px; font-weight: 500; color: var(--fg-3); background: transparent; padding: 0; }
+.tbar .zt.crumb:hover { color: var(--fg); }
+.tbar .zt.crumb .ic { width: 16px; height: 16px; }
+.tbar .crumb-sep { display: inline-flex; margin: 0 6px; color: var(--fg-4); }
+.tbar .crumb-sep .ic { width: 12px; height: 12px; }
+
+/* ---------- the folded sidebar's rail
+   With the sidebar hidden, a slim glass trail sits centred on the left edge:
+   the apps, a line, then what is live (shell.js renderRun). */
+#win:is(.side-closed, .ghost-side):not(.settings-on) > .rail { display: flex !important; position: absolute; left: 8px; top: 50%; transform: translateY(-50%); z-index: 6; width: 46px; max-height: calc(100% - 32px); overflow: visible; padding: 6px 0; gap: 4px; border: 0; border-radius: 999px; background: color-mix(in srgb, var(--win-bg) 40%, transparent); box-shadow: inset 0 0 0 1px var(--glass-line, var(--pane-edge)); -webkit-backdrop-filter: blur(18px) saturate(1.4); backdrop-filter: blur(18px) saturate(1.4); }
+#win:is(.side-closed, .ghost-side) > .rail :is(.sp, #gear) { display: none; }
+#win:is(.side-closed, .ghost-side):not(.settings-on) .mainc { margin-left: 62px; }
+#win:is(.side-closed, .ghost-side) .rail .rz[aria-selected="true"] .sq { background: var(--tile-on); color: var(--fg); }
+#win:is(.side-closed, .ghost-side) .rail .rz:hover .sq { background: var(--hover); color: var(--fg); }
+.rail-run { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.rail-run:empty { display: none; }
+.rz.live .rs { position: absolute; right: 3px; bottom: 3px; width: 8px; height: 8px; border-radius: 999px; box-shadow: 0 0 0 2px color-mix(in srgb, var(--win-bg) 80%, transparent); }
+.rz.live.run .rs { right: 2px; bottom: 2px; width: 10px; height: 10px; background: none; border: 2px solid color-mix(in srgb, var(--fg) 25%, transparent); border-top-color: var(--fg); animation: updspin 0.8s linear infinite; box-shadow: none; }
+.rz.live.need .rs { width: 12px; height: 6px; right: 1px; background: var(--blue); animation: needpulse 1.4s ease-in-out infinite; }
+.rz.live.done .rs { background: var(--green); }
+.rz.live.bad .rs { background: var(--red); }
+@keyframes needpulse { 50% { opacity: 0.35; transform: scale(0.85); } }
+.reduce-motion .rz.live .rs { animation: none; }
+#win:is(.side-closed, .ghost-side) .rail .rsep { width: 20px; background: color-mix(in srgb, var(--fg) 20%, transparent); margin: 3px 0; }
+
+/* ---------- the terminal dock (code.js setDock): under the page or to its
+   right, and the page makes room for it. */
+.tdock { position: absolute; z-index: 4; display: flex; flex-direction: column; border-radius: 10px; overflow: hidden; background: color-mix(in srgb, var(--win-bg) 82%, transparent); box-shadow: inset 0 0 0 1px var(--glass-line, var(--frame-edge)); animation: unfold 0.32s cubic-bezier(.22, 1, .36, 1); }
+.tdock .tterm { background: transparent; flex: 1; min-height: 0; overflow: auto; margin: 0; padding: 10px 12px; white-space: pre-wrap; font: 12px/1.5 var(--font-mono); color: var(--fg-2); }
+.mainc.term-under .tdock { left: 8px; right: 8px; bottom: 8px; height: 260px; }
+.mainc.term-right .tdock { top: 52px; right: 8px; bottom: 8px; width: 420px; }
+.mainc.term-under > .body { margin-bottom: 268px; }
+.mainc.term-right > .body { margin-right: 428px; }
+#win:not(.m-code) .tdock { display: none; }
+#win:not(.m-code) .mainc > .body { margin: 0; }
+
+/* ---------- the project map (code.js projectMap) */
+.pmap { position: absolute; inset: 0; display: flex; flex-direction: column; }
+.pmap-h { display: flex; align-items: center; gap: 8px; padding: 10px 14px; font-size: 13px; color: var(--fg); }
+.pmap-h .btn .ic { width: 13px; height: 13px; margin-right: 4px; }
+.pmap-svg { flex: 1; min-height: 0; overflow: auto; display: grid; place-items: center; padding: 12px; }
+.pmap-svg svg { max-width: 100%; height: auto; }
+.pmap-svg .empty { display: grid; justify-items: center; gap: 10px; max-width: 360px; text-align: center; }
+.stage:has(.pmap) { cursor: default; }
+#win.settings-on .tbar .right .code-only { display: none; }
+#win > .win-ascii { z-index: 1; }
+
+/* ---------- the chat's surfaces follow the window
+   The React face's wells, composer, bubbles and menus are tints of --paper.
+   Under glass, that is the window's own colour, thinned, so they read as part
+   of the card instead of a grey slab on it (style.css keeps solid paper for
+   the Solid window). */
+:root:is([data-window="frosted"], [data-window="clear"]) {
+  --paper: color-mix(in srgb, var(--win-bg) 58%, transparent);
+  --paper-card: color-mix(in srgb, var(--win-bg) 72%, transparent);
+  --paper-line: color-mix(in srgb, var(--fg) 11%, transparent);
+}
+:root:is([data-window="frosted"], [data-window="clear"]) :is(.raised, [data-base-ui-portal] [role="menu"], [role="dialog"]) {
+  -webkit-backdrop-filter: blur(22px) saturate(1.3); backdrop-filter: blur(22px) saturate(1.3);
+}
+
+/* Agents with the sidebar folded: the pill trail carries the bots too, one
+   face each under the apps (ChatApp portals them into #railBots). */
+.rail-bots { display: none; flex-direction: column; align-items: center; gap: 4px; max-height: 38vh; overflow-y: auto; scrollbar-width: none; }
+.rail-bots::-webkit-scrollbar { display: none; }
+#win.agents-on:is(.side-closed, .ghost-side):not(.settings-on) .rail-bots { display: flex; }
+.rail-bots .rb-sep { width: 20px; height: 1px; margin: 3px 0; background: color-mix(in srgb, var(--fg) 20%, transparent); }
+
+/* Scrollbars, Arc-style: a thin rounded thumb that floats in the margin, no
+   arrows and no track, brighter under the pointer. */
+*::-webkit-scrollbar { width: 10px; height: 10px; background: transparent; }
+*::-webkit-scrollbar-track, *::-webkit-scrollbar-corner { background: transparent; }
+*::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
+*::-webkit-scrollbar-thumb { background-color: color-mix(in srgb, var(--fg, #888) 26%, transparent); border: 3px solid transparent; background-clip: padding-box; border-radius: 999px; min-height: 36px; }
+*::-webkit-scrollbar-thumb:hover { background-color: color-mix(in srgb, var(--fg, #888) 48%, transparent); }
+
+/* ---------- the app rail ---------------------------------------------------
+   With the sidebar open, the apps (and Plugins, Skills, Agents) are the tile
+   row at its top. With it folded, they become a vertical pill on the
+   window's left edge, with what is live under them. */
+#win.settings-on > .rail { display: none !important; }
+#win:is(.side-closed, .ghost-side):not(.settings-on) > .rail { overflow-y: auto; scrollbar-width: none; }
+#win > .rail::-webkit-scrollbar { display: none; }
+#win > .rail .rz { width: 34px; height: 34px; }
+#win > .rail .rz .sq { width: 34px; height: 34px; border-radius: 999px; }
+#win > .rail .rz .sq .ic { width: 17px; height: 17px; }
+#win > .rail .rz[aria-selected="true"] .sq, #win > .rail .rz[aria-pressed="true"] .sq { background: var(--tile-on); color: var(--fg); box-shadow: none; }
+#win > .rail .rz[aria-selected="true"]::before { display: none; }
+#win > .rail .rz:hover .sq { background: var(--hover); color: var(--fg); }
+#win > .rail .rsep { flex: none; width: 20px; height: 1px; margin: 3px 0; background: color-mix(in srgb, var(--fg) 20%, transparent); }
+#win > .rail .rail-apps:empty { display: none; }
+.rail-ext { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.side > .zones .zsep { width: 1px; height: 22px; align-self: center; margin: 0 2px; background: color-mix(in srgb, var(--fg) 16%, transparent); }
+.side > .zones button[aria-pressed="true"] { background: var(--tile-on); color: var(--fg); }
+.os-mac #win .side .side-top .lights-gap, :root:not(.native) #win .side .side-top .lights-gap { width: 64px; }
+/* The leading pill: New thread | the sidebar toggle. */
+/* New thread: the first row under the app icons, above the project tree. */
+#win .side > .side-new { flex: none; display: flex; align-items: center; gap: 9px; height: 32px; margin: 0 8px 6px; padding: 0 10px; border-radius: 8px; font-size: 13px; font-weight: 500; color: var(--fg-2); text-align: left; }
+#win .side > .side-new:hover { background: var(--hover); color: var(--fg); }
+#win .side > .side-new .ic { width: 16px; height: 16px; }
+#win .side > .side-new kbd { margin-left: auto; font: 11px var(--font-mono, monospace); color: var(--fg-3); opacity: 0; }
+#win .side > .side-new:hover kbd { opacity: 1; }
+#win .side .side-pills { display: none !important; }
+#win.whirl-on:is(.m-chat, .m-code) #searchBtn { display: grid; }
+.gutter-side { margin-left: -3px; }
+
+/* Settings' way out: a large round close at the card's top right. */
+.set-x { display: none; }
+#win.settings-on .set-x { display: grid; place-items: center; position: absolute; z-index: 12; top: 10px; right: 12px; width: 44px; height: 44px; border-radius: 50%; color: var(--fg-2); background: color-mix(in srgb, var(--fg) 8%, var(--card-strong)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fg) 14%, transparent), 0 6px 18px rgba(0, 0, 0, 0.2); }
+#win.settings-on .set-x:hover { color: var(--fg); background: color-mix(in srgb, var(--fg) 14%, var(--card-strong)); }
+#win.settings-on .set-x .ic { width: 18px; height: 18px; }
+/* New thread is the rail's now; the face's own row would say it twice. */
+#win .whirl-new { display: none; }
+
+/* ---------- the ADE's work area (work.js) -----------------------------------
+   A split beside the agent chat, inside the card: tabs along the top, the
+   chat narrowed to make room, the left edge draggable. */
+#win { --work-w: 46%; }
+.work { position: absolute; z-index: 5; top: 44px; right: 8px; bottom: 8px; width: var(--work-w); min-width: 300px; display: flex; flex-direction: column; border-radius: 12px; background: color-mix(in srgb, var(--win-bg) 62%, transparent); -webkit-backdrop-filter: blur(30px) saturate(1.4); backdrop-filter: blur(30px) saturate(1.4); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fg) 9%, transparent); overflow: hidden; }
+.work[hidden] { display: none; }
+#win.work-on .body { margin-right: calc(var(--work-w) + 16px); }
+#win.work-drag, #win.work-drag * { cursor: col-resize !important; user-select: none; }
+#win.work-drag iframe { pointer-events: none; }
+.wk-gut { position: absolute; left: 0; top: 0; bottom: 0; width: 6px; cursor: col-resize; z-index: 2; }
+.wk-gut:hover { background: color-mix(in srgb, var(--accent, #2a66d9) 35%, transparent); }
+.wk-tabs { flex: none; display: flex; align-items: center; gap: 2px; padding: 6px 6px 4px 10px; border-bottom: 1px solid color-mix(in srgb, var(--fg) 8%, transparent); }
+.wk-tabs .sp { flex: 1; }
+.wk-tabs [role="tab"] { position: relative; height: 28px; padding: 0 9px; border-radius: 8px; display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--fg-3); white-space: nowrap; }
+.wk-tabs [role="tab"]:hover { color: var(--fg); background: var(--hover); }
+.wk-tabs [role="tab"][aria-selected="true"] { background: var(--sel, var(--tile-on)); color: var(--fg); font-weight: 500; }
+.wk-tabs [role="tab"] .ic { width: 13px; height: 13px; }
+.wk-tabs .wk-n { font-style: normal; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--amber); color: #000; font-size: 10px; line-height: 16px; text-align: center; }
+.wk-tabs .ib { width: 26px; height: 26px; border-radius: 7px; display: grid; place-items: center; color: var(--fg-3); }
+.wk-tabs .ib:hover { background: var(--hover); color: var(--fg); }
+.wk-tabs .ib .ic { width: 13px; height: 13px; }
+@container (max-width: 430px) { .wk-tabs [role="tab"] span { display: none; } }
+.work { container-type: inline-size; }
+.wk-body, .wk-live { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.wk-body[hidden], .wk-live[hidden] { display: none; }
+.wk-live > .browser, .wk-live > .tterm { flex: 1; min-height: 0; }
+.wk-split { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(150px, 36%) minmax(0, 1fr); }
+.wk-list { min-height: 0; overflow-y: auto; padding: 6px; border-right: 1px solid color-mix(in srgb, var(--fg) 8%, transparent); }
+.wk-list.wk-full { flex: 1; border-right: 0; }
+.wk-list .rp-search { margin: 0 0 6px; }
+.wk-list .rp-file.sel { background: var(--tile-on); color: var(--fg); }
+.wk-list .rp-chg .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wk-view { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.wk-vh { flex: none; display: flex; align-items: center; gap: 6px; padding: 8px 10px 6px; font: 11.5px var(--font-mono); color: var(--fg-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wk-vh .ib { width: 24px; height: 24px; border-radius: 6px; display: grid; place-items: center; }
+.wk-pre { flex: 1; min-height: 0; margin: 0; padding: 4px 12px 12px; overflow: auto; font: 11px/1.5 var(--font-mono); white-space: pre; color: var(--fg); }
+.wk-diff .add { color: var(--green); background: color-mix(in srgb, var(--green) 10%, transparent); }
+.wk-diff .del { color: var(--red); background: color-mix(in srgb, var(--red) 10%, transparent); }
+.wk-diff .hunk { color: var(--violet, #8a6bd6); }
+.wk-seg { flex: none; display: inline-flex; gap: 2px; margin: 8px 10px 4px; padding: 2px; border-radius: 8px; background: var(--chip); align-self: flex-start; }
+.wk-seg button { height: 24px; padding: 0 10px; border-radius: 6px; font-size: 12px; color: var(--fg-3); }
+.wk-seg button[aria-pressed="true"] { background: var(--pill-on); color: var(--fg); }
+.wk-sum { flex: none; display: flex; align-items: center; gap: 5px; padding: 2px 12px 6px; font-size: 11.5px; color: var(--fg-3); }
+.wk-sum .ic { width: 12px; height: 12px; }
+.wk-sum b { font: 500 11px var(--font-mono); } .wk-sum .add { color: var(--green); } .wk-sum .del { color: var(--red); }
+.wk-wait { padding: 14px; font-size: 12px; color: var(--fg-3); }
+.wk-none { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 24px; text-align: center; color: var(--fg-3); font-size: 12px; }
+.wk-none .ic { width: 22px; height: 22px; opacity: 0.6; }
+.wk-none b { color: var(--fg-2); font-size: 13px; font-weight: 500; }
+.wk-grid { flex: 1; min-height: 0; overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; padding: 10px; align-content: start; }
+.wk-thumb { display: grid; gap: 4px; padding: 6px; border-radius: 9px; text-align: left; }
+.wk-thumb:hover { background: var(--hover); }
+.wk-thumb img { width: 100%; aspect-ratio: 4 / 3; object-fit: contain; border-radius: 6px; background: color-mix(in srgb, var(--fg) 6%, transparent); }
+.wk-thumb span { font-size: 11px; color: var(--fg-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wk-big { flex: 1; min-height: 0; display: grid; place-items: center; padding: 10px; overflow: auto; }
+.wk-big img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 8px; }
+.wk-bar { flex: none; padding: 8px 10px 4px; }
+.wk-bar select { width: 100%; }
+.wk-trace { flex: 1; min-height: 0; overflow: auto; padding: 0 4px 8px; }
+@media (max-width: 900px) { #win.work-on .body { margin-right: 0; } .work { left: 8px; width: auto; } }
+/* A trace row's bar shares its class with the card header; keep the header's
+   rules off it (the IDE's trace pane and the work area's Logs). */
+#win .tr-row .tbar { display: block; height: 8px; min-height: 0; padding: 0; margin: 0; border: 0; border-radius: 4px; background: var(--hover); box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
+:root[data-window="solid"] #win:is(.m-code, .m-chat) :is(.win-art, .win-ascii) { clip-path: inset(8px 8px 8px calc(var(--rail-w) + var(--side-w)) round 12px); }
+:root[data-window="solid"] #win:is(.m-code, .m-chat):is(.side-closed, .ghost-side) :is(.win-art, .win-ascii) { clip-path: inset(8px 8px 8px calc(var(--rail-w) + 8px) round 12px); }
+/* The IDE's Canvases/Wall switch shows only while a session runs. */
+#win.no-session #viewBtn { display: none !important; }
+/* The work area's tab strip: the tabs you opened, each closable, then +. */
+.wk-strip { flex: 0 1 auto; min-width: 0; display: flex; align-items: center; gap: 2px; overflow-x: auto; scrollbar-width: none; }
+.wk-strip::-webkit-scrollbar { display: none; }
+.wk-tab { position: relative; flex: none; height: 28px; padding: 0 4px 0 9px; border-radius: 8px; display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--fg-3); white-space: nowrap; cursor: pointer; }
+.wk-tab:hover { color: var(--fg); background: var(--hover); }
+.wk-tab[aria-selected="true"] { background: var(--sel, var(--tile-on)); color: var(--fg); font-weight: 500; }
+.wk-tab > .ic { width: 13px; height: 13px; }
+.wk-tab .wk-x { width: 18px; height: 18px; border-radius: 5px; display: grid; place-items: center; color: var(--fg-3); opacity: 0.7; }
+.wk-tab .wk-x:hover { background: var(--hover); color: var(--fg); opacity: 1; }
+.wk-tab .wk-x .ic { width: 10px; height: 10px; }
+/* The New tab page, after ZCode's: what the work area can show, one card each. */
+.wk-new { flex: 1; min-height: 0; overflow-y: auto; padding: 22px 26px; display: flex; flex-direction: column; gap: 10px; }
+.wk-new h3 { margin: 0 0 10px; font-size: 18px; font-weight: 600; color: var(--fg); }
+.wk-card { display: flex; align-items: center; gap: 14px; padding: 6px 0; }
+.wk-ci { flex: none; width: 46px; height: 46px; border-radius: 12px; display: grid; place-items: center; background: color-mix(in srgb, var(--fg) 7%, transparent); color: var(--fg-2); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fg) 8%, transparent); }
+.wk-ci .ic { width: 20px; height: 20px; }
+.wk-ct { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.wk-ct b { font-size: 13.5px; font-weight: 600; color: var(--fg); }
+.wk-ct span { font-size: 12px; color: var(--fg-3); }
+.wk-card .btn { flex: none; border-radius: 999px; padding: 0 12px; }
+#work .wk-live > .tterm { background: transparent; color: var(--fg-2); }

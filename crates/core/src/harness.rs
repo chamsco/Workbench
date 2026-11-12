@@ -21,12 +21,15 @@ use serde_json::{json, Value};
 use tokio::sync::{mpsc, oneshot, watch, Semaphore};
 
 use crate::config::{Config, Isolation};
+use crate::decision::TaskType;
+use crate::intake;
 use crate::effort::Effort;
 use crate::phase::GateBy;
 use crate::git;
 use crate::project::*;
 use crate::provider::{self, Block, Message, Role, Stop, ToolDef};
 use crate::router::{truncate, AgentRole, Decision, Router};
+use crate::gateway::{BudgetLine, Gateway, Role as GateRole};
 use crate::skills::{Skills, ADAPTER};
 use crate::ticket::{Ticket, TicketState};
 use crate::tools::{file_tools, Workspace};
@@ -42,6 +45,17 @@ struct Inner {
     cfg: Config,
     http: reqwest::Client,
     router: Router,
+    /// The project's policy, fixed when it opened (gateway.rs). Every model
+    /// call, skill load and CLI hand-off asks it first.
+    gateway: Gateway,
+    /// What every in-flight model call may still cost at most, per budget scope.
+    reservations: Arc<crate::gateway::Reservations>,
+    /// Undoes a change to the policy files made while an agent was acting.
+    guard: Arc<crate::policy_guard::PolicyGuard>,
+    /// What the user should know about the policy, as found when the project opened.
+    notices: Vec<crate::gateway::PolicyNotice>,
+    /// Every model call and task outcome so far, for the §3.4 metrics.
+    ledger: Mutex<crate::metrics::Ledger>,
     root: PathBuf,
     /// Branch checked out in the root workspace; the main agent's branch.
     base_branch: String,
@@ -112,6 +126,8 @@ pub struct Overrides {
     pub effort: Option<String>,
     /// Where traces go besides this machine.
     pub tracing: Option<crate::trace::Export>,
+    /// Models the router may not give a worker.
+    pub exclude: Vec<String>,
 }
 
 pub struct Harness {
@@ -158,6 +174,7 @@ fn new_record(
         traces: vec![],
         advisor_calls: 0,
         ses: None,
+        notes: vec![],
     }
 }
 
@@ -208,15 +225,8 @@ pub fn local_subagent(cfg: &mut Config, prefs: &crate::prefs::Prefs) {
         return;
     };
     if !cfg.models.iter().any(|m| m.id == spec) {
-        let base_url = match runtime {
-            "ollama" => format!("{}/v1", prefs.ollama_url.trim_end_matches('/')),
-            "lmstudio" => "http://127.0.0.1:1234/v1".to_string(),
-            "llamacpp" => "http://127.0.0.1:8080/v1".to_string(),
-            "mlx" => "http://127.0.0.1:8081/v1".to_string(),
-            other => match prefs.routers.iter().find(|r| r.id == other || r.name.eq_ignore_ascii_case(other)) {
-                Some(r) => r.base_url.trim_end_matches('/').to_string(),
-                None => return,
-            },
+        let Some(base_url) = runtime_base(prefs, runtime) else {
+            return;
         };
         cfg.providers.insert(
             runtime.to_string(),
@@ -232,6 +242,7 @@ pub fn local_subagent(cfg: &mut Config, prefs: &crate::prefs::Prefs) {
             output_usd_per_mtok: 0.0,
             max_output_tokens: 4096,
             efforts: vec![],
+            class: None,
         });
     }
     // `advisor.scout_model` is the one place scouts take a model from, so it
@@ -240,6 +251,18 @@ pub fn local_subagent(cfg: &mut Config, prefs: &crate::prefs::Prefs) {
     if jobs.contains_key("scouts") {
         cfg.advisor.scout_model = Some(spec);
     }
+}
+
+/// Where a local runtime ("ollama", "lmstudio"...) or a named router serves
+/// its OpenAI API, from its default port: no probe.
+pub fn runtime_base(prefs: &crate::prefs::Prefs, runtime: &str) -> Option<String> {
+    Some(match runtime {
+        "ollama" => format!("{}/v1", prefs.ollama_url.trim_end_matches('/')),
+        "lmstudio" => "http://127.0.0.1:1234/v1".to_string(),
+        "llamacpp" => "http://127.0.0.1:8080/v1".to_string(),
+        "mlx" => "http://127.0.0.1:8081/v1".to_string(),
+        other => prefs.routers.iter().find(|r| r.id == other || r.name.eq_ignore_ascii_case(other))?.base_url.trim_end_matches('/').to_string(),
+    })
 }
 
 /// Which small delegated jobs run on the tiny local model, from prefs.
@@ -340,11 +363,19 @@ impl Harness {
         std::fs::create_dir_all(&workspace)?;
         let root = dunce::canonicalize(&workspace)?;
         let (mut cfg, config_source) = Config::load(&root)?;
+        // The policy this project runs under is the one it adopted (gateway.rs);
+        // a file that loosens it is ignored, with a warning.
+        let (policy, mut notices) = crate::gateway::resolve_policy(&root, &cfg.policy)?;
+        cfg.policy = policy;
+        notices.extend(cfg.policy.notices());
+        let router_model = (cfg.router.backend == crate::config::RouterBackend::Jev && !cfg.router.jev_model.trim().is_empty()).then(|| cfg.router.jev_model.clone());
+        notices.extend(cfg.policy.model_notices(router_model.as_deref(), &cfg.unpinned_cli_entries(), &cfg.alias_cli_pins()));
         if let Some(w) = over.worker.clone().filter(|w| !w.is_empty()) {
             if cfg.model(&w).is_some() {
                 cfg.router.pin_sub = Some(w);
             }
         }
+        cfg.router.exclude_sub.extend(over.exclude.iter().cloned());
         let rt = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .build()?;
@@ -354,7 +385,33 @@ impl Harness {
         // model scouts and other small delegated jobs run on (model_server.rs).
         // No probing here — the string says which runtime and which model, and
         // the runtime's default port is enough to point a provider at it.
+        let models_before: Vec<String> = cfg.models.iter().map(|m| m.id.clone()).collect();
         local_subagent(&mut cfg, &crate::prefs::Prefs::load());
+        // A model the user turned on in Settings is theirs to run workers on,
+        // so it joins a non-empty execution list. An empty list is their word
+        // that nothing runs, and a toggle does not overrule it.
+        for m in cfg.models.iter().filter(|m| !models_before.contains(&m.id)) {
+            match &mut cfg.policy.execution_models {
+                Some(list) if !list.is_empty() => {
+                    list.push(m.id.clone());
+                    notices.push(crate::gateway::PolicyNotice {
+                        level: crate::gateway::NoticeLevel::Note,
+                        text: format!("the local model `{}` you turned on in Settings was added to execution_models for this session", m.id),
+                    });
+                }
+                Some(_) => notices.push(crate::gateway::PolicyNotice {
+                    level: crate::gateway::NoticeLevel::Warning,
+                    text: format!("the local model `{}` is turned on in Settings, but execution_models is empty, so it will not run", m.id),
+                }),
+                None => {}
+            }
+        }
+        let skills = Skills::load(&root);
+        // Only skills the project or the user added are worth a warning: the
+        // shipped ones are known, and a short list that leaves them out is
+        // the usual way to say "only these".
+        let added: Vec<String> = skills.found(&root).into_iter().filter(|f| f.origin != "built-in").map(|f| f.name).collect();
+        notices.extend(cfg.policy.skill_notices(&added));
         // Auto (the router picks per ticket): the effort slider caps where workers start.
         if over.worker.as_deref().is_none_or(|w| w.is_empty()) {
             if let Some(e) = over.effort.as_ref().and_then(|e| serde_json::from_value::<Effort>(json!(e)).ok()) {
@@ -393,6 +450,13 @@ impl Harness {
         for n in git_notes {
             main.log.push(LogEntry { kind: LogKind::System, text: n });
         }
+        for n in &notices {
+            let text = match n.level {
+                crate::gateway::NoticeLevel::Warning => format!("policy warning: {}", n.text),
+                crate::gateway::NoticeLevel::Note => format!("policy: {}", n.text),
+            };
+            main.log.push(LogEntry { kind: LogKind::System, text });
+        }
         let fresh = ProjectState {
             name,
             workspace: root.clone(),
@@ -401,6 +465,7 @@ impl Harness {
             tickets: vec![],
             total_cost_usd: 0.0,
             router_cost_usd: 0.0,
+            router_unknown_cost_usd: 0.0,
             config_source: config_source.clone(),
             board: vec![],
             planner_session: None,
@@ -408,6 +473,7 @@ impl Harness {
             options: vec![],
             artifacts: vec![],
             phase: Default::default(),
+            intake: Default::default(),
         };
         // A project opened before carries on: tickets, approvals, spend and
         // the board come back; what was running is marked interrupted.
@@ -420,11 +486,57 @@ impl Harness {
 
         let (changed_tx, changed_rx) = async_channel::bounded(1);
         let prefs_at_open = crate::prefs::Prefs::load();
-        let inner = Arc::new(Inner {
-            router: Router::new(http.clone(), cfg.clone()).with_local(local_jobs(&prefs_at_open)),
+        let inner = Arc::new_cyclic(|me: &std::sync::Weak<Inner>| Inner {
+            // A routing call is held against the project's budget while it is in flight.
+            router: Router::new(http.clone(), cfg.clone()).with_local(local_jobs(&prefs_at_open)).with_meter({
+                let me = me.clone();
+                move |usd, tokens| {
+                    let inner = me.upgrade().ok_or_else(|| crate::gateway::Refusal::Budget { label: "project".into(), detail: "the project is closed".into() })?;
+                    inner.reservations.reserve_fixed("the router", usd, tokens, || {
+                        let s = inner.state.lock().unwrap();
+                        project_line(&inner, &s).into_iter().collect()
+                    })
+                }
+            })
+            // What the call really cost goes on the books in the step that gives its hold back.
+            .with_recorder({
+                let me = me.clone();
+                move |usd| {
+                    if let Some(inner) = me.upgrade() {
+                        inner.update(|s| {
+                            s.router_cost_usd += usd;
+                            s.total_cost_usd += usd;
+                        });
+                        inner.ledger.lock().unwrap().record_decision(usd);
+                    }
+                }
+            })
+            // A request that was sent and failed with no report of its cost is counted at the amount
+            // held for it, as spend, marked as unknown; the same step gives the hold back.
+            .with_unknown_cost_recorder({
+                let me = me.clone();
+                move |usd| {
+                    if let Some(inner) = me.upgrade() {
+                        inner.update(|s| {
+                            s.router_cost_usd += usd;
+                            s.total_cost_usd += usd;
+                            s.router_unknown_cost_usd += usd;
+                        });
+                        inner.ledger.lock().unwrap().record_decision(usd);
+                    }
+                }
+            }),
+            gateway: Gateway::new(cfg.policy.clone()),
+            reservations: Arc::default(),
+            guard: crate::policy_guard::PolicyGuard::new(vec![
+                (root.join("backspace.toml"), "backspace.toml"),
+                (crate::gateway::lock_path(&root), "the policy lock"),
+            ]),
+            notices,
+            ledger: Mutex::new(Default::default()),
             agents_md: std::fs::read_to_string(root.join("AGENTS.md")).ok(),
             memory: over.memory.clone(),
-            skills: Skills::load(&root),
+            skills,
             limiter: Semaphore::new(cfg.orchestrator.max_parallel_calls),
             state: Mutex::new(state),
             verdicts: Mutex::new(HashMap::new()),
@@ -499,7 +611,9 @@ impl Harness {
 
     /// Talk to the main agent. The first message is the project goal.
     pub fn send(&self, text: impl Into<String>) {
-        let _ = self.to_main.send(text.into());
+        let text = text.into();
+        self.inner.record_request(crate::request::EntryKind::Message, &text, None);
+        let _ = self.to_main.send(text);
     }
 
     pub fn approve(&self, approval: usize) {
@@ -514,6 +628,7 @@ impl Harness {
     /// means they dismissed it. Any waiting `show_options` call is released.
     pub fn pick_option(&self, id: &str, variant: Option<&str>) {
         let variant = variant.filter(|v| !v.is_empty());
+        self.inner.record_pick(id, variant);
         if let Err(e) = self.inner.update(|s| crate::options::pick(s, id, variant)) {
             eprintln!("pick_option: {e}");
         }
@@ -529,6 +644,22 @@ impl Harness {
         let inner = self.inner.clone();
         self.rt
             .block_on(async move { file_ticket(&inner, MAIN, MAIN, &input) })
+    }
+
+    /// The policy this project is running under, after the lock and the
+    /// local-model additions have been applied.
+    pub fn policy(&self) -> crate::gateway::PolicyConfig {
+        self.inner.cfg.policy.clone()
+    }
+
+    /// What the user should know about the policy, as found when the project opened.
+    pub fn policy_notices(&self) -> Vec<crate::gateway::PolicyNotice> {
+        self.inner.notices.clone()
+    }
+
+    /// The PLAN §3.4 metrics for this run so far.
+    pub fn metrics(&self) -> crate::metrics::RunMetrics {
+        self.inner.ledger.lock().unwrap().metrics()
     }
 
     pub fn snapshot(&self) -> ProjectState {
@@ -561,6 +692,23 @@ impl Harness {
 
     pub fn block_on<F: std::future::Future>(&self, f: F) -> F::Output {
         self.rt.block_on(f)
+    }
+
+    /// The main agent's compiled notes, taken for the Librarian: the list is
+    /// empty afterwards. `keep` puts back the ones it could not file.
+    pub fn take_notes(&self) -> Vec<FieldNote> {
+        let n = self.inner.update(|s| std::mem::take(&mut s.agents[MAIN].notes));
+        self.inner.save();
+        n
+    }
+
+    pub fn return_notes(&self, notes: Vec<FieldNote>) {
+        self.inner.update(|s| {
+            for n in notes {
+                add_note(&mut s.agents[MAIN].notes, n);
+            }
+        });
+        self.inner.save();
     }
 
     /// The project's root (the primary worktree).
@@ -636,6 +784,15 @@ impl Harness {
 }
 
 fn resolve(inner: &Arc<Inner>, to_main: &mpsc::UnboundedSender<String>, approval: usize, verdict: Verdict) {
+    // A rejection's feedback is the person correcting the work: it joins
+    // their request, word for word.
+    if let Verdict::Rejected(f) = &verdict {
+        let about = inner.state.lock().unwrap().approvals.get(approval).map(|a| {
+            let what = if a.kind == ApprovalKind::Plan { "the plan" } else { "the delivery" };
+            if a.tickets.is_empty() { what.to_string() } else { format!("{what} for {}", a.tickets.join(", ")) }
+        });
+        inner.record_request(crate::request::EntryKind::Rejection, f, about.as_deref());
+    }
     if let Some(tx) = inner.verdicts.lock().unwrap().remove(&approval) {
         let _ = tx.send(verdict);
         return;
@@ -679,8 +836,15 @@ fn stop(inner: &Arc<Inner>, agent: Option<AgentId>) {
             .collect()
     };
     // Only a turn in progress: a stored wake-up would cut the next one short.
-    if agent.is_none_or(|id| id == MAIN) && ids.contains(&MAIN) {
-        inner.stop_main.notify_one();
+    if agent.is_none_or(|id| id == MAIN) {
+        if ids.contains(&MAIN) {
+            inner.stop_main.notify_one();
+        } else if end_restricted_path(inner) {
+            // Nothing is running, but a research or one-shot task can still be
+            // open (a one-shot whose worker failed leaves the main agent idle
+            // with its path held). Stop is how it is given up.
+            inner.log(MAIN, LogKind::System, "stopped by you");
+        }
     }
     for id in ids.into_iter().filter(|&id| id != MAIN) {
         if let Some(h) = inner.tasks.lock().unwrap().remove(&id) {
@@ -720,6 +884,7 @@ impl crate::remote::Api for Served {
         self.inner.state.lock().unwrap().clone()
     }
     fn send(&self, text: String) {
+        self.inner.record_request(crate::request::EntryKind::Message, &text, None);
         let _ = self.to_main.send(text);
     }
     fn resolve(&self, id: usize, feedback: Option<String>) {
@@ -765,6 +930,7 @@ impl crate::remote::Api for Served {
     }
     fn pick_option(&self, id: &str, variant: Option<String>) {
         let variant = variant.filter(|v| !v.is_empty());
+        self.inner.record_pick(id, variant.as_deref());
         if let Err(e) = self.inner.update(|s| crate::options::pick(s, id, variant.as_deref())) {
             eprintln!("pick_option: {e}");
         }
@@ -778,6 +944,30 @@ impl crate::remote::Api for Served {
 }
 
 impl Inner {
+    /// Add the person's own words to the project's request log (request.rs).
+    /// A log that cannot be written is reported, never fatal.
+    fn record_request(&self, kind: crate::request::EntryKind, text: &str, about: Option<&str>) {
+        if let Err(e) = crate::request::append(&self.root, kind, text, about) {
+            eprintln!("request log: {e:#}");
+        }
+    }
+
+    /// A pick on a set of options is a decision the person made.
+    fn record_pick(&self, id: &str, variant: Option<&str>) {
+        let Some(v) = variant else { return };
+        let (title, label) = {
+            let s = self.state.lock().unwrap();
+            let set = s.options.iter().find(|o| o.id == id);
+            let label = set.and_then(|o| o.variants.iter().find(|x| x.id == v)).map(|x| x.label.clone());
+            (set.map(|o| o.title.clone()), label)
+        };
+        let text = match label {
+            Some(l) => format!("{v} ({l})"),
+            None => v.to_string(),
+        };
+        self.record_request(crate::request::EntryKind::Pick, &text, title.as_deref());
+    }
+
     fn update<R>(&self, f: impl FnOnce(&mut ProjectState) -> R) -> R {
         let r = f(&mut self.state.lock().unwrap());
         self.touch();
@@ -811,6 +1001,39 @@ impl Inner {
             text
         };
         self.agent(id, |a| a.log.push(LogEntry { kind, text }));
+    }
+
+    /// `leave_note`: something an agent learned that may be worth keeping.
+    /// It stays with the agent and goes up to its parent when its work is
+    /// accepted; nothing reaches memory before the Librarian (stages.rs).
+    fn leave_note(&self, me: &str, text: &str) -> Result<String> {
+        let text = text.trim().replace(['\n', '\r'], " ");
+        if text.is_empty() {
+            bail!("a note needs some text");
+        }
+        if text.chars().count() > 400 {
+            bail!("keep a note to one line (under 400 characters)");
+        }
+        if crate::memory::looks_secret(&text) {
+            bail!("that looks like a secret; notes never keep credentials");
+        }
+        let id = self.state.lock().unwrap().agents.iter().find(|a| a.key == me).map(|a| a.id).ok_or_else(|| anyhow!("no agent `{me}`"))?;
+        let added = self.agent(id, |a| add_note(&mut a.notes, FieldNote { text, from: me.to_string() }));
+        self.save();
+        Ok(if added { "Noted. It goes up with your work when it is accepted.".into() } else { "You already noted that.".into() })
+    }
+
+    /// An agent's work was accepted: its notes join its parent's, minus the
+    /// ones the parent already has. That is the compiling step: by the time
+    /// they reach the main agent, each claim is there once.
+    fn notes_up(&self, id: AgentId) {
+        self.update(|s| {
+            let Some(parent) = s.agents[id].parent else { return };
+            let notes = std::mem::take(&mut s.agents[id].notes);
+            for n in notes {
+                add_note(&mut s.agents[parent].notes, n);
+            }
+        });
     }
 
     fn set_status(&self, id: AgentId, status: AgentStatus) {
@@ -989,7 +1212,7 @@ impl Inner {
             "\n\nYou are running on {} at {} effort.\n\n# Skills\n\nLoad any of these with the `skill` tool when it fits the task.\n{}\n\n{ADAPTER}",
             decision.model,
             decision.effort,
-            self.skills.index()
+            self.skills.index_where(|n| self.gateway.skill_allowed(n))
         ));
         let injected = match kind {
             AgentKind::Main => &wf.main_skills,
@@ -999,6 +1222,9 @@ impl Inner {
         };
         for name in injected {
             if name == "grilling" && !wf.grill {
+                continue;
+            }
+            if !self.gateway.skill_allowed(name) {
                 continue;
             }
             if let Some(body) = self.skills.read(name, None) {
@@ -1073,6 +1299,9 @@ struct Conversation {
     kind: AgentKind,
     ticket: Option<String>,
     can_spawn: bool,
+    /// The intake path this agent is on (research, one-shot), which limits its
+    /// tools in code (`intake::allows`). None: not restricted.
+    path: Option<TaskType>,
     ws: Workspace,
     initial: Decision,
     decision: Decision,
@@ -1082,6 +1311,26 @@ struct Conversation {
     budget_warned_at: Option<usize>,
     turns_total: usize,
     recent_calls: Vec<String>,
+}
+
+/// The tools the main agent is offered on a restricted path: the full list
+/// (plus the two the paths add) cut down to what `intake::allows` names. The
+/// same function gates the calls, so what is offered and what runs agree.
+fn tools_for_path(path: TaskType) -> Vec<ToolDef> {
+    let mut tools = tools_for(AgentKind::Main, true);
+    tools.extend([intake::list_tool(), intake::submit_report_tool()]);
+    tools.retain(|t| intake::allows(path, t.name));
+    tools
+}
+
+/// The brief on a restricted path: its own, not the planner's.
+fn path_system(path: TaskType, d: &Decision) -> String {
+    let body = match path {
+        TaskType::Research => intake::RESEARCH_PROMPT,
+        TaskType::OneShot => intake::ONE_SHOT_PROMPT,
+        TaskType::Long => unreachable!("the long path uses the planner's brief"),
+    };
+    format!("{body}\nYou are running on {} at {} effort.", d.model, d.effort)
 }
 
 fn tools_for(kind: AgentKind, can_spawn: bool) -> Vec<ToolDef> {
@@ -1314,24 +1563,81 @@ fn board_tools() -> Vec<ToolDef> {
             description: "New messages to you or to everyone, each with its id. They also arrive on their own at the start of a turn.",
             schema: json!({"type": "object", "properties": {}}),
         },
+        note_tool(),
     ]
+}
+
+pub(crate) fn note_tool() -> ToolDef {
+    ToolDef {
+        name: "leave_note",
+        description: "Note one thing you learned that later sessions should know: a decision, a constraint, a fact about this codebase that cost you time to find. One line, no secrets, not things that are obvious from the code. It goes up to whoever assigned your work when it is accepted; the Librarian decides what is kept.",
+        schema: json!({"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}),
+    }
+}
+
+/// Add a note unless the list already says the same thing.
+fn add_note(list: &mut Vec<FieldNote>, n: FieldNote) -> bool {
+    if list.iter().any(|x| crate::memory::similar(&x.text, &n.text)) {
+        return false;
+    }
+    list.push(n);
+    true
 }
 
 async fn main_loop(inner: Arc<Inner>, mut inbox: mpsc::UnboundedReceiver<String>) {
     let mut convo: Option<Conversation> = load_main(&inner);
     while let Some(text) = inbox.recv().await {
+        inner.ledger.lock().unwrap().human_typed(text.chars().count());
         inner.log(MAIN, LogKind::User, text.clone());
         inner.set_status(MAIN, AgentStatus::Running);
         inner.trace_start(MAIN, "turn · main", &text);
         let turn = async {
+            // Intake (intake.rs): before any planning, classify the task and
+            // ask when unsure. Off unless `[intake] enabled`.
+            let mut text = text;
+            let mut known = None;
+            if inner.cfg.intake.enabled && inner.state.lock().unwrap().intake.path.is_none() {
+                match intake_step(&inner, &text) {
+                    Intake::Asked => return Ok(TurnEnd::Replied),
+                    Intake::Go { text: t, path, triage } => {
+                        text = t;
+                        known = triage;
+                        if path != TaskType::Long {
+                            // Research and one-shot start clean: the planner's
+                            // conversation, tools and CLI session are not theirs.
+                            convo = None;
+                            inner.update(|s| s.planner_session = None);
+                        }
+                    }
+                }
+            }
+            let path = inner.state.lock().unwrap().intake.path;
+            if let (Some(p @ (TaskType::Research | TaskType::OneShot)), true) = (path, inner.planner.is_some()) {
+                // Neither restricted path can be kept to its rules in a coding
+                // CLI: it has its own file and shell tools, and nothing in code
+                // gates them (that is M6's sandbox). Whether the path came from
+                // the classifier, from the user's answer or from saved state, it
+                // does not run: no launch, no spend, nothing created, nothing
+                // left half-started, and it is not turned into a long task.
+                inner.update(|s| s.intake = Default::default());
+                inner.save();
+                bail!("{}", intake::cli_refusal(p));
+            }
             if let Some(cli) = inner.planner.clone() {
                 return plan_on_cli(&inner, &cli, text).await.map(|_| TurnEnd::Replied);
             }
+            // A conversation kept from a task on another path is not this task's
+            // (Stop can end a research or one-shot task while the main agent is
+            // idle, leaving its conversation behind in memory).
+            let want = path.filter(|p| *p != TaskType::Long);
+            if convo.as_ref().is_some_and(|c| c.path != want) {
+                convo = None;
+            }
             if convo.is_none() {
-                let d = inner.router.route(AgentRole::Main, &text, "").await?;
+                let d = inner.router.route_with(AgentRole::Main, &text, "", known).await?;
                 announce_route(&inner, MAIN, &d);
                 inner.agent(MAIN, |a| a.brief = text.clone());
-                convo = Some(main_convo(&inner, d, vec![]));
+                convo = Some(main_convo(&inner, d, vec![], path));
             }
             let c = convo.as_mut().unwrap();
             match c.messages.last_mut() {
@@ -1350,6 +1656,12 @@ async fn main_loop(inner: Arc<Inner>, mut inbox: mpsc::UnboundedReceiver<String>
         match res {
             Some(Ok(TurnEnd::Delivered(d))) => {
                 inner.agent(MAIN, |a| a.deliverable = Some(d));
+                // A research or one-shot task is over: its next message is a new
+                // task. Released before the status changes, so whoever sees the
+                // task delivered also sees its path gone.
+                if end_restricted_path(&inner) {
+                    convo = None;
+                }
                 inner.set_status(MAIN, AgentStatus::Approved);
                 inner.trace_finish(MAIN, None);
             }
@@ -1368,6 +1680,11 @@ async fn main_loop(inner: Arc<Inner>, mut inbox: mpsc::UnboundedReceiver<String>
                 }
                 inner.planner_queue.lock().unwrap().clear();
                 inner.log(MAIN, LogKind::System, "stopped by you");
+                // Stop is how a research or one-shot task is given up: the next
+                // message is asked about afresh. (A long task keeps its conversation.)
+                if end_restricted_path(&inner) {
+                    convo = None;
+                }
                 inner.set_status(MAIN, AgentStatus::Idle);
                 inner.trace_finish(MAIN, Some("stopped".into()));
             }
@@ -1375,22 +1692,103 @@ async fn main_loop(inner: Arc<Inner>, mut inbox: mpsc::UnboundedReceiver<String>
         if let Some(c) = &convo {
             save_main(&inner, c);
         }
+        emit_metrics(&inner);
+    }
+}
+
+enum Intake {
+    /// The user was asked which kind of task this is; nothing else runs.
+    Asked,
+    Go { text: String, path: TaskType, triage: Option<crate::decision::Triage> },
+}
+
+/// One message through intake (intake.rs): the first message of a task is
+/// classified, and an unsure one (or the reply to the question) is handled
+/// here, with no model call. What comes back is either "I asked" or the path
+/// the task goes down, saved with the project.
+fn intake_step(inner: &Arc<Inner>, text: &str) -> Intake {
+    let pending = inner.state.lock().unwrap().intake.pending.clone();
+    // A planner in a coding CLI can only run the long path, so that is all the
+    // question offers (the others are refused before the CLI starts).
+    let paths = intake::Paths::for_planner(inner.planner.is_some());
+    let next = match &pending {
+        Some(p) => intake::answer_in(p, text, inner.cfg.intake.max_asks, paths),
+        None => intake::first_in(text, inner.router.classify(text), paths),
+    };
+    match next {
+        intake::Next::Ask(p, question) => {
+            inner.update(|s| s.intake.pending = Some(p));
+            inner.log(MAIN, LogKind::Assistant, question);
+            inner.save();
+            Intake::Asked
+        }
+        intake::Next::Go { text, path, triage, note } => {
+            inner.update(|s| s.intake = intake::IntakeState { path: Some(path), pending: None, spec_key: None });
+            let why = match (&note, triage) {
+                (Some(n), _) => format!(" ({n})"),
+                (None, Some(crate::decision::Triage::Confident { p, .. })) => format!(" ({:.0}% sure)", p * 100.0),
+                _ => String::new(),
+            };
+            inner.log(MAIN, LogKind::System, format!("intake: {} path{why}", intake::label(path)));
+            inner.save();
+            Intake::Go { text, path, triage }
+        }
+    }
+}
+
+/// A research or one-shot task ends (delivered, or stopped): clear its path
+/// and its saved conversation so the next message is a new task. True when it
+/// was one. The long path is left alone.
+fn end_restricted_path(inner: &Inner) -> bool {
+    let ended = matches!(inner.state.lock().unwrap().intake.path, Some(TaskType::Research | TaskType::OneShot));
+    if ended {
+        inner.update(|s| s.intake = Default::default());
+        let _ = std::fs::remove_file(inner.root.join(".backspace/main.json"));
+        inner.save();
+    }
+    ended
+}
+
+/// Append the §3.4 metrics so far to `.backspace/metrics.jsonl`, one line per
+/// call, written when a main-agent turn ends and when a ticket settles.
+fn emit_metrics(inner: &Inner) {
+    let line = match serde_json::to_string(&inner.ledger.lock().unwrap().metrics()) {
+        Ok(l) => l,
+        Err(_) => return,
+    };
+    let dir = inner.root.join(".backspace");
+    let _ = std::fs::create_dir_all(&dir);
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(dir.join("metrics.jsonl")) {
+        use std::io::Write;
+        let _ = writeln!(f, "{line}");
     }
 }
 
 /// The main agent's conversation, on an API model.
-fn main_convo(inner: &Inner, d: Decision, messages: Vec<Message>) -> Conversation {
+///
+/// `path` is the intake path the task is on. Research and one-shot get their
+/// own brief and a tool list cut down by `intake::allows`; the long path (and
+/// no path, with intake off) is the planner as it always was.
+fn main_convo(inner: &Inner, d: Decision, messages: Vec<Message>, path: Option<TaskType>) -> Conversation {
+    let restricted = path.filter(|p| *p != TaskType::Long);
     Conversation {
         id: MAIN,
         kind: AgentKind::Main,
         ticket: None,
         can_spawn: true,
+        path: restricted,
         ws: inner.workspace(&inner.run_dir),
         initial: d.clone(),
-        system: inner.system_prompt(AgentKind::Main, 0, &d),
+        system: match restricted {
+            Some(p) => path_system(p, &d),
+            None => inner.system_prompt(AgentKind::Main, 0, &d),
+        },
         decision: d,
         messages,
-        tools: tools_for(AgentKind::Main, true),
+        tools: match restricted {
+            Some(p) => tools_for_path(p),
+            None => tools_for(AgentKind::Main, true),
+        },
         budget_warned_at: None,
         turns_total: 0,
         recent_calls: vec![],
@@ -1427,7 +1825,8 @@ fn load_main(inner: &Inner) -> Option<Conversation> {
     let v: Value = serde_json::from_str(&std::fs::read_to_string(inner.root.join(".backspace/main.json")).ok()?).ok()?;
     let d: Decision = serde_json::from_value(v["decision"].clone()).ok()?;
     let messages: Vec<Message> = serde_json::from_value(v["messages"].clone()).ok()?;
-    let mut c = main_convo(inner, d, messages);
+    let path = inner.state.lock().unwrap().intake.path;
+    let mut c = main_convo(inner, d, messages, path);
     close_open_calls(&mut c);
     Some(c)
 }
@@ -1438,13 +1837,19 @@ fn load_main(inner: &Inner) -> Option<Conversation> {
 /// next prompt (on the same session) until it answers without asking for
 /// anything.
 async fn plan_on_cli(inner: &Arc<Inner>, cli: &str, text: String) -> Result<()> {
+    // The planner CLI is a model choice like any other: its id is the config entry that runs it.
+    let model = planner_entry(inner, cli).unwrap_or(cli);
+    inner.gateway.check_model(GateRole::Orchestration, model)?;
+    let pin = cli_model(inner, MAIN, GateRole::Orchestration, model)?;
     let bin = crate::harnesses::which(crate::harnesses::bin_for(cli))
         .ok_or_else(|| anyhow!("`{cli}` is not installed on this machine"))?;
     let mut prompt = text;
     loop {
         let session = inner.state.lock().unwrap().planner_session.clone();
         let system = session.is_none().then(|| planner_system(inner));
-        let (_, sid) = run_cli_turn(inner, MAIN, cli, &bin, &inner.run_dir.clone(), &prompt, session.as_deref(), system.as_deref()).await?;
+        let admitted = admit_cli(inner, MAIN, model).await?;
+        let (_, sid) = run_cli_turn(inner, MAIN, GateRole::Orchestration, pin.as_deref(), cli, &bin, &inner.run_dir.clone(), &prompt, session.as_deref(), system.as_deref(), &crate::gateway::Authorization::Reserved(&admitted)).await?;
+        drop(admitted);
         if sid.is_some() {
             inner.update(|s| s.planner_session = sid);
             inner.save();
@@ -1485,7 +1890,9 @@ fn planner_system(inner: &Inner) -> String {
         source: "pinned".into(),
         confidence: 1.0,
         router_cost_usd: 0.0,
+        cost_settled: false,
         note: None,
+        triage: None,
     };
     format!(
         "{}{}\n\n# Your tools here\n\nYou run inside a coding CLI. Backspace's planning tools are MCP tools named `create_tickets` and `work_tickets` (server `backspace`). Both return at once: after calling either, end your turn with a one-line note. The user's verdict on a plan, or each ticket's result, comes back as your next message. Do not build the tickets yourself; agents do that on their own branches, and their accepted work is merged into this checkout (branch `{}`), where you can read and verify it.",
@@ -1505,10 +1912,17 @@ fn announce_route(inner: &Inner, id: AgentId, d: &Decision) {
     }
     inner.log(id, LogKind::System, msg);
     inner.update(|s| {
-        s.router_cost_usd += d.router_cost_usd;
-        s.total_cost_usd += d.router_cost_usd;
+        // A Jev call's cost was already added when its hold was given back.
+        if !d.cost_settled {
+            s.router_cost_usd += d.router_cost_usd;
+            s.total_cost_usd += d.router_cost_usd;
+        }
         s.agents[id].decision = Some(d.clone());
     });
+    // A settled call's cost reached the ledger with the books, in the same step.
+    if !d.cost_settled {
+        inner.ledger.lock().unwrap().record_decision(d.router_cost_usd);
+    }
 }
 
 /// One rung up: more effort while the model has headroom below `high`, then
@@ -1535,11 +1949,13 @@ fn escalate(inner: &Inner, c: &mut Conversation, reason: &str) -> bool {
             && next_effort.clamp_to(&spec.efforts).is_some()
             && next_effort.clamp_to(&spec.efforts) != c.decision.effort.clamp_to(&spec.efforts)
     };
+    let role = GateRole::of(c.kind, c.can_spawn);
     let stronger = inner
         .cfg
         .usable_models()
         .into_iter()
-        .filter(|m| m.tier > spec.tier)
+        .filter(|m| m.tier > spec.tier && !inner.cfg.router.exclude_sub.contains(&m.id))
+        .filter(|m| inner.gateway.check_model(role, &m.id).is_ok())
         .min_by(|a, b| {
             a.tier
                 .cmp(&b.tier)
@@ -1573,6 +1989,9 @@ fn escalate(inner: &Inner, c: &mut Conversation, reason: &str) -> bool {
         a.escalations.push(line);
         a.decision = Some(d);
     });
+    if let Some(k) = &c.ticket {
+        inner.ledger.lock().unwrap().task_escalated(k);
+    }
     true
 }
 
@@ -1614,6 +2033,9 @@ async fn finish_cli(
     brief: &str,
     session: Option<String>,
 ) -> Result<Deliverable> {
+    let role = GateRole::of(c.kind, c.can_spawn);
+    inner.gateway.check_model(role, &c.decision.model)?;
+    let pin = cli_model(inner, c.id, role, &c.decision.model)?;
     let bin = crate::harnesses::which(crate::harnesses::bin_for(cli))
         .ok_or_else(|| anyhow!("`{cli}` is not installed on this machine"))?;
     inner.log(
@@ -1635,7 +2057,7 @@ async fn finish_cli(
         })
         .unwrap_or_else(|| "backspace".into());
     let mut prompt = format!(
-        "{brief}{}\n\n# How to work\n\nYou are one worker in a team; this directory is your own git worktree for this ticket. Make the change, run the project's tests or checks if it has any, and fix what fails. Do not commit or push: Backspace commits your work and sends it for review. When you are done, reply with a short summary of what you changed; its first line is the one-line summary.\n\n# Talking to the team\n\nOther agents work on other tickets at the same time, some on other models or CLIs. Your key is `{me}`. From your shell:\n- `{exe} msg agents` lists them\n- `{exe} msg send <key|main|all> \"text\"` messages one (or everyone)\n- `{exe} msg read` shows messages for you\nCheck messages before you finish, and tell others about interfaces or shared files you change.",
+        "{brief}{}\n\n# How to work\n\nYou are one worker in a team; this directory is your own git worktree for this ticket. Make the change, run the project's tests or checks if it has any, and fix what fails. Do not commit or push: Backspace commits your work and sends it for review. When you are done, reply with a short summary of what you changed (its first line is the one-line summary), then end your reply with this record block, filled in, so the tickets that depend on yours know exactly what you did:\n\n```delivery\n{{\"checks_run\": [{{\"command\": \"cargo test\", \"result\": \"12 passed\", \"exit_status\": 0}}], \"assumptions\": [\"what you decided where the request or spec did not say\"], \"open_questions\": [\"what someone else should decide\"]}}\n```\n\nUse [] for a list with nothing in it.\n\n# Talking to the team\n\nOther agents work on other tickets at the same time, some on other models or CLIs. Your key is `{me}`. From your shell:\n- `{exe} msg agents` lists them\n- `{exe} msg send <key|main|all> \"text\"` messages one (or everyone)\n- `{exe} msg read` shows messages for you\nCheck messages before you finish, and tell others about interfaces or shared files you change.",
         cli_team_notes(inner)
     );
     // A reopened project: this worker already had a CLI session, so answer in
@@ -1651,20 +2073,25 @@ async fn finish_cli(
         );
     }
     for round in 0..4 {
+        let admitted = admit_cli(inner, c.id, &c.decision.model).await?;
         let (summary, sid) =
-            run_cli_turn(inner, c.id, cli, &bin, dir, &prompt, session.as_deref(), None).await?;
+            run_cli_turn(inner, c.id, role, pin.as_deref(), cli, &bin, dir, &prompt, session.as_deref(), None, &crate::gateway::Authorization::Reserved(&admitted)).await?;
+        drop(admitted);
         session = sid.or(session);
         // Keep it in the agent's record as well: this is what survives a
         // restart, so a re-dispatched worker resumes instead of starting over.
         if let Some(sid) = session.clone() {
             inner.agent(c.id, |a| a.ses = Some(sid));
         }
+        let (summary, record) = split_cli_delivery(&summary);
         let summary = if summary.trim().is_empty() {
             format!("{cli} finished without a summary")
         } else {
             summary
         };
-        match submit(inner, c, &json!({ "summary": summary })).await? {
+        let mut input = record.filter(|r| r.is_object()).unwrap_or_else(|| json!({}));
+        input["summary"] = json!(summary);
+        match submit_as(inner, c, &input, Source::Cli).await? {
             ToolOutcome::Delivered(d, note) => {
                 inner.log(c.id, LogKind::System, note);
                 return Ok(d);
@@ -1683,6 +2110,77 @@ async fn finish_cli(
         }
     }
     bail!("{cli} did not get the ticket accepted in 4 rounds")
+}
+
+/// The config entry the planner runs as when it lives in the coding CLI `cli`: the one the person
+/// picked (the settings override, then `pin_main`), then the worker pin and the stock entries
+/// `pick_planner` falls back to, then the first entry on that CLI. The policy checks this entry, so
+/// it has to be the one that runs and not merely the first that shares the CLI.
+fn planner_entry<'a>(inner: &'a Inner, cli: &str) -> Option<&'a str> {
+    let on_cli = |id: &str| inner.cfg.model(id).filter(|m| inner.cfg.cli_of(&m.id).and_then(|p| p.cli.as_deref()) == Some(cli)).map(|m| m.id.as_str());
+    let picked = [inner.over.planner.as_deref(), inner.cfg.router.pin_main.as_deref(), inner.cfg.router.pin_sub.as_deref(), Some("claude-code"), Some("codex")];
+    picked.into_iter().flatten().filter(|p| !p.is_empty()).find_map(on_cli).or_else(|| inner.cfg.models.iter().find_map(|m| on_cli(&m.id)))
+}
+
+/// What model a coding-CLI turn runs, decided before it starts. Under an enforced policy the entry
+/// either pins a model, which is checked against the role's list and put on the command line
+/// (`--model` for both, which the CLIs document as winning over their environment and settings), or pins
+/// none, in which case the CLI runs whatever its own configuration selects and the turn is refused
+/// unless `unpinned_cli_models` names the entry. Without an enforced policy nothing is pinned and the
+/// CLI picks, as it always did, unless a list the person wrote says otherwise.
+fn cli_model(inner: &Inner, id: AgentId, role: GateRole, entry: &str) -> Result<Option<String>> {
+    let pin = if inner.gateway.enforced() { inner.cfg.cli_pin(entry) } else { None };
+    inner.gateway.check_cli_model(entry, pin.is_some())?;
+    match &pin {
+        Some(m) => inner.gateway.check_model(role, m)?,
+        None if inner.gateway.enforced() => inner.log(
+            id,
+            LogKind::System,
+            format!("policy: `{entry}` pins no model, so its CLI runs the model its own configuration selects (accepted by [policy] unpinned_cli_models)"),
+        ),
+        None => {}
+    }
+    Ok(pin)
+}
+
+/// Whether the project's model lists allow a model that Backspace hands to a
+/// coding CLI as its advisor or scout; if not, say so in the agent's log.
+fn cli_helper_allowed(inner: &Inner, id: AgentId, what: &str, model: &str, role: GateRole) -> bool {
+    match inner.gateway.check_model(role, model) {
+        Ok(()) => true,
+        Err(e) => {
+            inner.log(id, LogKind::System, format!("Claude Code's {what} on `{model}` is left off: {e}"));
+            false
+        }
+    }
+}
+
+/// Let a turn in a coding CLI start (see `Reservations::admit_cli`). A turn
+/// that is refused only because another is still running on the same token
+/// budget waits for it to end and asks again; any other refusal ends the worker.
+async fn admit_cli(inner: &Arc<Inner>, id: AgentId, model: &str) -> Result<crate::gateway::Reservation> {
+    let spec = inner.cfg.model(model).ok_or_else(|| anyhow!("routed to unknown model {model}"))?;
+    let mut told = false;
+    loop {
+        // Subscribed before asking, so a release between the two is not missed.
+        let released = inner.reservations.released().notified();
+        tokio::pin!(released);
+        released.as_mut().enable();
+        match inner.reservations.admit_cli(spec, || scoped_lines(inner, id)) {
+            Ok(r) => return Ok(r),
+            Err(e) if e.is_held() => {
+                if !told {
+                    inner.log(id, LogKind::System, format!("waiting for a running turn on the same budget to end: {e}"));
+                    told = true;
+                }
+                tokio::select! {
+                    _ = &mut released => {}
+                    _ = tokio::time::sleep(Duration::from_secs(5)) => {}
+                }
+            }
+            Err(e) => return Err(e.into()),
+        }
+    }
 }
 
 /// A CLI that prints nothing for this long is stuck: it is stopped.
@@ -1716,15 +2214,30 @@ fn account_env(cli: &str) -> Vec<(String, String)> {
 async fn run_cli_turn(
     inner: &Arc<Inner>,
     id: AgentId,
+    role: GateRole,
+    pin: Option<&str>,
     cli: &str,
     bin: &Path,
     dir: &Path,
     prompt: &str,
     session: Option<&str>,
     system: Option<&str>,
+    authorization: &crate::gateway::Authorization<'_>,
 ) -> Result<(String, Option<String>)> {
     use backspace_runner::{Event, Request, Target, Turn};
+    // What this turn may report before it is stopped. A CLI states its usage
+    // as it goes (Codex) or once at the end (Claude Code), so this is a stop
+    // on the turn, not a bound on what it spends before saying so.
+    let ceiling = match authorization {
+        crate::gateway::Authorization::Reserved(r) => r.token_ceiling(),
+        crate::gateway::Authorization::Unmetered(_) => None,
+    };
+    let over = Arc::new(tokio::sync::Notify::new());
     let me = inner.state.lock().unwrap().agents[id].key.clone();
+    let tokens_before = {
+        let s = inner.state.lock().unwrap();
+        (s.agents[id].input_tokens, s.agents[id].output_tokens)
+    };
     let exe = std::env::var("BACKSPACE_EXE")
         .ok()
         .map(PathBuf::from)
@@ -1736,6 +2249,8 @@ async fn run_cli_turn(
     );
     req.cwd = dir.to_path_buf();
     req.edit = true;
+    // The model checked against the policy is the one on the command line.
+    req.model = pin.map(String::from);
     req.session = session.map(String::from);
     req.system = system.map(String::from);
     req.permission = inner.over.permission.clone();
@@ -1743,9 +2258,12 @@ async fn run_cli_turn(
     // Several logins for this CLI: run as the healthiest one (accounts.rs).
     let acc = account_env(cli);
     if cli == "claude" {
-        // Orchestrator, advisor, scouts, in Claude Code's own terms.
-        req.advisor = inner.cfg.advisor.cli.clone();
-        if let Some(m) = &inner.cfg.advisor.cli_scouts {
+        // Orchestrator, advisor, scouts, in Claude Code's own terms. Backspace
+        // names the models of the advisor and the scouts, so the project's model
+        // lists apply to them: the advisor at the role of the agent that consults
+        // it, scouts as execution work. One the lists do not name is left off.
+        req.advisor = inner.cfg.advisor.cli.clone().filter(|m| cli_helper_allowed(inner, id, "advisor", m, role));
+        if let Some(m) = inner.cfg.advisor.cli_scouts.as_ref().filter(|m| cli_helper_allowed(inner, id, "scout", m, GateRole::Execution)) {
             req.agents = Some(json!({"scout": {
                 "description": "Fast read-only scout: finds the files that matter, reads code, docs and specs, and returns a short summary. Use it for discovery instead of reading a lot yourself; send several in parallel.",
                 "prompt": SCOUT_PROMPT,
@@ -1756,6 +2274,17 @@ async fn run_cli_turn(
     }
     req.env.push(("PATH".into(), crate::harnesses::path_env().to_string_lossy().into_owned()));
     req.env.extend(acc.iter().cloned());
+    if cli == "claude" && inner.gateway.enforced() && (pin.is_some() || req.agents.is_some()) {
+        // Backspace has named the models: `--model` for the agent, the definition for the scout. A subagent
+        // with no model of its own takes this variable's before the main model, and before Claude Code
+        // v2.1.251 it beat a definition's model too. So that nothing but the approved model decides, it is
+        // not handed on. `ANTHROPIC_MODEL` is left: `--model` is documented to take precedence over it.
+        const SUBAGENT_MODEL: &str = "CLAUDE_CODE_SUBAGENT_MODEL";
+        if std::env::var_os(SUBAGENT_MODEL).is_some() || req.env.iter().any(|(k, _)| k == SUBAGENT_MODEL) {
+            inner.log(id, LogKind::System, format!("policy: {SUBAGENT_MODEL} is not passed to Claude Code, so a subagent runs on the model it was given or the approved one"));
+        }
+        req.env_remove.push(SUBAGENT_MODEL.into());
+    }
     if let Some((url, token)) = &bridge {
         // The board, for `backspace msg` and the MCP server.
         let vars = [(crate::board::ENV_URL, url.as_str()), (crate::board::ENV_TOKEN, token.as_str()), (crate::board::ENV_AGENT, me.as_str())];
@@ -1790,7 +2319,7 @@ async fn run_cli_turn(
     }
     let mut st = Said::default();
     let res = {
-        let (inner2, last2) = (inner.clone(), last.clone());
+        let (inner2, last2, over2) = (inner.clone(), last.clone(), over.clone());
         let st = &mut st;
         let mut sink = |e: Event| {
             *last2.lock().unwrap() = std::time::Instant::now();
@@ -1816,28 +2345,66 @@ async fn run_cli_turn(
                         inner2.log(id, if *error { LogKind::Error } else { LogKind::ToolResult }, truncate(output, 800));
                     }
                 }
-                Event::Usage { input, output } => inner2.agent(id, |a| {
-                    a.input_tokens = a.input_tokens.max(*input);
-                    a.output_tokens = a.output_tokens.max(*output);
-                }),
+                Event::Usage { input, output } => {
+                    // Tokens of earlier turns stay counted: this turn's own
+                    // figure (the largest it has reported) comes on top.
+                    inner2.agent(id, |a| {
+                        a.input_tokens = a.input_tokens.max(tokens_before.0 + *input);
+                        a.output_tokens = a.output_tokens.max(tokens_before.1 + *output);
+                    });
+                    if ceiling.is_some_and(|left| input + output > left) {
+                        over2.notify_one();
+                    }
+                }
                 Event::Cost { usd } => inner2.log(id, LogKind::System, format!("{cli} turn done (≈${usd:.3} at API prices; billed to your {cli} plan)")),
-                Event::Model { .. } => {}
+                Event::Model { .. } | Event::Thinking { .. } => {}
             }
         };
-        let run = backspace_runner::run(&inner.http, &req, &mut sink);
+        // The policy files are the host's, not the CLI's: put back what it
+        // changed while it ran (see policy_guard).
+        let acting = inner.guard.begin();
+        let run = crate::provider::run_target(&inner.http, &req, &mut sink, authorization);
         tokio::pin!(run);
-        loop {
+        let out = loop {
             tokio::select! {
                 r = &mut run => break r,
+                _ = over.notified() => {
+                    let left = ceiling.unwrap_or(0);
+                    break Err(anyhow::Error::new(crate::gateway::Refusal::Budget {
+                        label: "task".into(),
+                        detail: format!("{cli} reported more than the {left} tokens this task had left, so the turn was stopped"),
+                    }));
+                }
                 _ = tokio::time::sleep(Duration::from_secs(20)) => {
                     if last.lock().unwrap().elapsed() > CLI_STALL {
                         break Err(anyhow!("{cli} printed nothing for {} minutes; stopped it", CLI_STALL.as_secs() / 60));
                     }
                 }
             }
+        };
+        for note in acting.end() {
+            inner.log(id, LogKind::System, note);
         }
+        out
     };
     st.flush(inner, id);
+    // A CLI turn is one call of its model's class. It is billed to a plan, so
+    // it adds no dollars here; its own model calls are not visible to us.
+    {
+        let (model, after) = {
+            let s = inner.state.lock().unwrap();
+            let a = &s.agents[id];
+            (a.decision.as_ref().map(|d| d.model.clone()), (a.input_tokens, a.output_tokens))
+        };
+        let class = model.as_deref().and_then(|m| inner.cfg.model(m)).map_or(crate::ladder::ModelClass::Frontier, crate::ladder::class_of);
+        inner.ledger.lock().unwrap().record_call(crate::metrics::CallRecord {
+            model: model.unwrap_or_else(|| cli.to_string()),
+            class,
+            input_tokens: after.0.saturating_sub(tokens_before.0),
+            output_tokens: after.1.saturating_sub(tokens_before.1),
+            usd: 0.0,
+        });
+    }
     // Health follows the CLI's own word. A confirmed usage limit cools the
     // account down so the next turn picks another one; a plain rate limit or a
     // crash only marks it warning (see accounts.rs), so one 429 does not
@@ -1942,6 +2509,7 @@ async fn run_triage_again(inner: Arc<Inner>, id: AgentId) -> Result<Deliverable>
     let mut c = Conversation {
         id,
         kind: AgentKind::Triage,
+        path: None,
         ticket: Some(key),
         can_spawn: false,
         ws: inner.workspace(&dir),
@@ -1957,8 +2525,63 @@ async fn run_triage_again(inner: Arc<Inner>, id: AgentId) -> Result<Deliverable>
     finish(&inner, &mut c).await
 }
 
+/// Every budget this agent's next call must fit under, each with the key that
+/// says which in-flight calls count against it: the policy's per-task limit
+/// (this agent's own spend), any ticket budget on it or an agent above it
+/// (spent by its whole subtree), and the project's. Tokens are the provider's
+/// own count, cache reads and writes at face value.
+fn scoped_lines(inner: &Inner, id: AgentId) -> Vec<crate::gateway::ScopedLine> {
+    use crate::gateway::ScopedLine;
+    let s = inner.state.lock().unwrap();
+    let a = &s.agents[id];
+    let mut lines: Vec<ScopedLine> = inner
+        .gateway
+        .task_budget(a.cost_usd, a.input_tokens + a.output_tokens)
+        .into_iter()
+        .map(|line| ScopedLine { key: format!("task:{id}"), line })
+        .collect();
+    for up in s.ancestry(id) {
+        if let Some(limit) = s.agents[up].budget_usd {
+            lines.push(ScopedLine {
+                key: format!("agent:{up}"),
+                line: BudgetLine {
+                    label: format!("agent `{}`", s.agents[up].key),
+                    limit_usd: Some(limit),
+                    limit_tokens: None,
+                    spent_usd: s.subtree_cost(up),
+                    spent_tokens: 0,
+                },
+            });
+        }
+    }
+    lines.extend(project_line(inner, &s));
+    lines
+}
+
+/// The project's own budget, if it has one: dollars (router calls included)
+/// and tokens (the agents' own spend, as the providers count it).
+fn project_line(inner: &Inner, s: &ProjectState) -> Option<crate::gateway::ScopedLine> {
+    let o = &inner.cfg.orchestrator;
+    (o.max_project_usd.is_some() || o.max_project_tokens.is_some()).then(|| crate::gateway::ScopedLine {
+        key: "project".into(),
+        line: BudgetLine {
+            label: "project".into(),
+            limit_usd: o.max_project_usd,
+            limit_tokens: o.max_project_tokens,
+            spent_usd: s.total_cost_usd,
+            spent_tokens: s.agents.iter().map(|a| a.input_tokens + a.output_tokens).sum(),
+        },
+    })
+}
+
 fn over_budget(inner: &Inner, id: AgentId) -> Option<String> {
     let s = inner.state.lock().unwrap();
+    if let Some(max) = inner.cfg.orchestrator.max_project_tokens {
+        let used: u64 = s.agents.iter().map(|a| a.input_tokens + a.output_tokens).sum();
+        if used >= max {
+            return Some(format!("project token budget of {max} spent"));
+        }
+    }
     if let Some(max) = inner.cfg.orchestrator.max_project_usd {
         if s.total_cost_usd >= max {
             return Some(format!("project budget ${max:.2} spent"));
@@ -2027,7 +2650,9 @@ async fn drive(inner: &Arc<Inner>, c: &mut Conversation) -> Result<TurnEnd> {
             }
         }
 
-        let spec = inner
+        let role = GateRole::of(c.kind, c.can_spawn);
+        inner.gateway.check_model(role, &c.decision.model)?;
+        let mut spec = inner
             .cfg
             .model(&c.decision.model)
             .ok_or_else(|| anyhow!("routed to unknown model {}", c.decision.model))?
@@ -2035,45 +2660,149 @@ async fn drive(inner: &Arc<Inner>, c: &mut Conversation) -> Result<TurnEnd> {
         let provider_cfg = inner.cfg.providers[&spec.provider].clone();
         // The advisor: Anthropic only, and only for an executor it can rank
         // above (an Opus advisor can't advise Fable). Scouts work without one.
-        let advisor = inner.cfg.advisor.model.clone().filter(|a| {
-            provider_cfg.kind == crate::config::ProviderKind::Anthropic
+        let mut advisor = inner.cfg.advisor.model.clone().filter(|a| {
+            let id = inner.cfg.models.iter().find(|m| m.wire_model() == a).map_or(a.as_str(), |m| m.id.as_str());
+            inner.gateway.check_model(role, id).is_ok()
+                && provider_cfg.kind == crate::config::ProviderKind::Anthropic
                 && c.kind != AgentKind::Scout
                 && !spec.wire_model().contains("fable")
                 && a != spec.wire_model()
         });
-        let completion = {
-            let _permit = inner.limiter.acquire().await?;
-            provider::complete(
-                &inner.http,
-                provider::Request {
-                    provider: &provider_cfg,
-                    model: &spec,
-                    effort: c.decision.effort,
-                    system: &c.system,
-                    messages: &c.messages,
-                    tools: &c.tools,
-                    advisor: advisor.as_deref(),
-                },
-            )
-            .await?
+        let _permit = inner.limiter.acquire().await?;
+        // Pre-call budget, taken only now that the call can go out: its worst
+        // case (the request as it will be sent, bounded in bytes, and the
+        // whole output it may ask for) is held against every budget it
+        // belongs to until it finishes, so concurrent agents cannot all spend
+        // the same dollar. Refused before anything is sent.
+        let bound = {
+            let p = provider::prepare(&provider::Request {
+                provider: &provider_cfg,
+                model: &spec,
+                effort: c.decision.effort,
+                system: &c.system,
+                messages: &c.messages,
+                tools: &c.tools,
+                advisor: advisor.as_deref(),
+            })?;
+            crate::gateway::input_bound(p.bytes.len(), p.messages, p.tools)
         };
+        let reservation = inner.reservations.reserve(
+            &inner.gateway,
+            role,
+            &spec,
+            bound,
+            provider::input_price_factor(provider_cfg.kind),
+            || scoped_lines(inner, c.id),
+        )?;
+        spec.max_output_tokens = reservation.grant.max_output_tokens;
+        // The advisor reads the transcript and answers up to its own cap; the
+        // provider does not enforce that cap, so this is an assumed bound.
+        // It is offered only if its worst case fits beside the call's.
+        let advisor_hold = match advisor.clone() {
+            Some(a) => {
+                let adv = inner.cfg.models.iter().find(|m| m.wire_model() == a);
+                let cap = inner.cfg.advisor.max_output_tokens;
+                let (pin, pout) = adv.map_or((None, None), |m| (Some(m.input_usd_per_mtok), Some(m.output_usd_per_mtok)));
+                let usd = match (pin, pout) {
+                    (Some(i), Some(o)) => Some((bound as f64 * i * provider::input_price_factor(provider_cfg.kind) + cap as f64 * o) / 1e6),
+                    // A model not in the config has no price to reserve.
+                    _ => None,
+                };
+                let lines = scoped_lines(inner, c.id);
+                let priced_limit = lines.iter().any(|l| l.line.limit_usd.is_some());
+                match usd {
+                    None if priced_limit => Err(format!("the advisor `{a}` has no price in the config, so its cost cannot be held against a dollar limit")),
+                    usd => inner
+                        .reservations
+                        .reserve_fixed("the advisor", usd.unwrap_or(0.0), bound + cap, || scoped_lines(inner, c.id))
+                        .map_err(|r| r.to_string()),
+                }
+                .map(Some)
+            }
+            None => Ok(None),
+        };
+        let advisor_hold = match advisor_hold {
+            Ok(h) => h,
+            Err(why) => {
+                inner.log(c.id, LogKind::System, format!("left the advisor off this call: {why}"));
+                advisor = None;
+                None
+            }
+        };
+        let completion = provider::complete(
+            &inner.http,
+            provider::Request {
+                provider: &provider_cfg,
+                model: &spec,
+                effort: c.decision.effort,
+                system: &c.system,
+                messages: &c.messages,
+                tools: &c.tools,
+                advisor: advisor.as_deref(),
+            },
+            &crate::gateway::Authorization::Reserved(&reservation),
+        )
+        .await?;
 
         let mut cost = spec.cost(completion.input_tokens, completion.output_tokens);
+        // Tokens as the provider counted them: what a token budget is made of.
+        let (raw_in, raw_out) = (completion.raw_input_tokens, completion.output_tokens);
+        let mut records = vec![crate::metrics::CallRecord {
+            model: spec.id.clone(),
+            class: crate::ladder::class_of(&spec),
+            input_tokens: raw_in,
+            output_tokens: raw_out,
+            usd: cost,
+        }];
         let (ai, ao) = completion.advisor_tokens;
         if ai + ao > 0 {
-            if let Some(m) = advisor.as_deref().and_then(|a| inner.cfg.models.iter().find(|m| m.wire_model() == a)) {
+            let adv = advisor.as_deref().and_then(|a| inner.cfg.models.iter().find(|m| m.wire_model() == a));
+            if let Some(m) = adv {
                 cost += m.cost(ai, ao);
             }
+            // The advisor is a stronger model reading the whole transcript: its
+            // own call, on its own class (frontier if the config does not say).
+            records.push(crate::metrics::CallRecord {
+                model: adv.map_or_else(|| advisor.clone().unwrap_or_default(), |m| m.id.clone()),
+                class: adv.map_or(crate::ladder::ModelClass::Frontier, crate::ladder::class_of),
+                input_tokens: ai,
+                output_tokens: ao,
+                usd: adv.map_or(0.0, |m| m.cost(ai, ao)),
+            });
             inner.log(c.id, LogKind::System, format!("consulted the advisor ({}): {}k tokens read", advisor.as_deref().unwrap_or("advisor"), ai / 1000));
             inner.agent(c.id, |a| a.advisor_calls += 1);
+        }
+        // What this call cost against what was held for it. The hold covers the
+        // executor's call and, if one was made, the advisor's.
+        let tokens_used = raw_in + raw_out + ai + ao;
+        let held_usd = reservation.reserved_usd() + advisor_hold.as_ref().map_or(0.0, |h| h.reserved_usd());
+        let held_tokens = reservation.reserved_tokens() + advisor_hold.as_ref().map_or(0, |h| h.reserved_tokens());
+        if cost > held_usd + 1e-9 || tokens_used > held_tokens {
+            inner.log(
+                c.id,
+                LogKind::System,
+                format!(
+                    "overshoot: the call to `{}` cost ${cost:.4} and used {tokens_used} tokens against a reservation of ${held_usd:.4} and {held_tokens} tokens; the provider billed past the limits that were sent. It is counted in full, and the next call is checked against it.",
+                    spec.id
+                ),
+            );
         }
         inner.update(|s| {
             let a = &mut s.agents[c.id];
             a.cost_usd += cost;
-            a.input_tokens += completion.input_tokens;
-            a.output_tokens += completion.output_tokens;
+            a.input_tokens += raw_in + ai;
+            a.output_tokens += raw_out + ao;
             s.total_cost_usd += cost;
         });
+        // Only now is the hold let go: its place is taken by the spend above.
+        drop(advisor_hold);
+        drop(reservation);
+        {
+            let mut ledger = inner.ledger.lock().unwrap();
+            for r in records {
+                ledger.record_call(r);
+            }
+        }
         {
             let (i, o, usd) = {
                 let s = inner.state.lock().unwrap();
@@ -2084,10 +2813,14 @@ async fn drive(inner: &Arc<Inner>, c: &mut Conversation) -> Result<TurnEnd> {
             inner.trace_event(c.id, &backspace_runner::Event::Usage { input: i, output: o });
             inner.trace_event(c.id, &backspace_runner::Event::Cost { usd });
         }
+        drop(_permit);
 
         let text = completion.text();
         if !text.trim().is_empty() {
             inner.log(c.id, LogKind::Assistant, text.clone());
+            if c.id == MAIN {
+                inner.ledger.lock().unwrap().human_read(text.chars().count());
+            }
         }
         c.messages.push(Message {
             role: Role::Assistant,
@@ -2123,6 +2856,9 @@ async fn drive(inner: &Arc<Inner>, c: &mut Conversation) -> Result<TurnEnd> {
             })
             .collect();
 
+        // The shell is not sandboxed, so whatever the tools did to the policy
+        // files is undone once the batch ends (see policy_guard).
+        let acting = inner.guard.begin();
         let results = {
             let cref = &*c;
             join_all(calls.iter().map(|(call_id, name, input)| {
@@ -2140,6 +2876,9 @@ async fn drive(inner: &Arc<Inner>, c: &mut Conversation) -> Result<TurnEnd> {
             }))
             .await
         };
+        for note in acting.end() {
+            inner.log(c.id, LogKind::System, note);
+        }
 
         let mut blocks = Vec::new();
         let mut delivered = None;
@@ -2229,9 +2968,16 @@ async fn run_tool(
     input: &Value,
 ) -> Result<ToolOutcome> {
     let text = ToolOutcome::Text;
+    // A task's path limits what it may do, in code, whatever the model was told.
+    if let Some(p) = c.path {
+        if !intake::allows(p, name) {
+            bail!("{}", intake::refusal(p, name));
+        }
+    }
     match name {
         "skill" => {
             let n = input["name"].as_str().context("missing `name`")?;
+            inner.gateway.check_skill(GateRole::of(c.kind, c.can_spawn), n)?;
             inner
                 .skills
                 .read(n, input["file"].as_str())
@@ -2278,6 +3024,10 @@ async fn run_tool(
             let me = s.agents[c.id].key.clone();
             Ok(text(inner.cursors.lock().unwrap().take(&s, &me)))
         }
+        "leave_note" => {
+            let me = inner.state.lock().unwrap().agents[c.id].key.clone();
+            inner.leave_note(&me, input["text"].as_str().unwrap_or("")).map(text)
+        }
         "scout" if c.kind != AgentKind::Scout => scouts(inner, c, input).await.map(text),
         "open_canvas" | "close_canvas" => {
             let me = inner.state.lock().unwrap().agents[c.id].key.clone();
@@ -2296,6 +3046,8 @@ async fn run_tool(
         "colony_create" | "colony_exec" | "colony_list" | "colony_status" | "colony_destroy" => {
             colony_tool(name, input).map(text)
         }
+        "list" if c.path.is_some() => c.ws.run(name, input).await.map(text),
+        "submit_report" if c.path == Some(TaskType::Research) => submit_report(inner, input),
         "read" | "bash" => c.ws.run(name, input).await.map(text),
         "write" | "edit" if c.kind != AgentKind::Triage => c.ws.run(name, input).await.map(text),
         other => bail!("tool `{other}` is not available to you"),
@@ -2364,6 +3116,10 @@ async fn show_options(inner: &Arc<Inner>, me: &str, input: &Value) -> Result<Str
 async fn await_verdict(inner: &Arc<Inner>, approval: Approval) -> Verdict {
     let (tx, rx) = oneshot::channel();
     let agent = approval.agent;
+    // What the user is shown to decide on counts as read.
+    let shown = approval.deliverable.summary.chars().count()
+        + approval.deliverable.diff_stat.as_deref().map_or(0, |d| d.chars().count());
+    inner.ledger.lock().unwrap().human_read(shown);
     let id = inner.update(|s| {
         let id = s.approvals.len();
         s.approvals.push(Approval { id, ..approval });
@@ -2374,6 +3130,9 @@ async fn await_verdict(inner: &Arc<Inner>, approval: Approval) -> Verdict {
     let verdict = rx
         .await
         .unwrap_or(Verdict::Rejected("approval channel closed".into()));
+    if let Verdict::Rejected(feedback) = &verdict {
+        inner.ledger.lock().unwrap().human_typed(feedback.chars().count());
+    }
     inner.update(|s| {
         s.approvals[id].state = match &verdict {
             Verdict::Approved => ApprovalState::Approved,
@@ -2386,7 +3145,108 @@ async fn await_verdict(inner: &Arc<Inner>, approval: Approval) -> Verdict {
     verdict
 }
 
+/// Research is done: file the report and end the task. Nothing was planned,
+/// branched or merged, and nothing waits for approval: a report changes nothing.
+fn submit_report(inner: &Arc<Inner>, input: &Value) -> Result<ToolOutcome> {
+    let report = intake::Report::from_json(input)?;
+    let rel = file_report(inner, &report)?;
+    Ok(ToolOutcome::Delivered(
+        Deliverable { summary: report.title.clone(), files: vec![rel.clone()], ..Default::default() },
+        format!("Report filed at {rel}. No ticket, branch or PR was made."),
+    ))
+}
+
+/// Write the report under `.backspace/reports/` and record it as a document,
+/// so the user's shell shows it under the session.
+fn file_report(inner: &Arc<Inner>, report: &intake::Report) -> Result<String> {
+    let rel = report.write(&inner.root)?;
+    inner.update(|s| {
+        crate::artifact::add(
+            s,
+            crate::artifact::Artifact { by: "main".into(), kind: "document".into(), title: report.title.clone(), path: Some(rel.clone()), ..Default::default() },
+        )
+    })?;
+    inner.log(MAIN, LogKind::System, format!("report filed at {rel}"));
+    Ok(rel)
+}
+
+/// Where a delivery came from: the `submit_deliverable` tool, or a coding
+/// CLI's final message (which may or may not end with a record block).
+#[derive(Clone, Copy, PartialEq)]
+enum Source {
+    Tool,
+    Cli,
+}
+
 async fn submit(inner: &Arc<Inner>, c: &Conversation, input: &Value) -> Result<ToolOutcome> {
+    submit_as(inner, c, input, Source::Tool).await
+}
+
+/// The structured part of a delivery: checks_run, assumptions and
+/// open_questions. None when the input has none of the three; an error when
+/// it has some but not all, or one is malformed. Each may be an empty list.
+pub(crate) fn delivery_record(input: &Value) -> Result<Option<(Vec<crate::project::CheckRun>, Vec<String>, Vec<String>)>> {
+    const KEYS: [&str; 3] = ["checks_run", "assumptions", "open_questions"];
+    if KEYS.iter().all(|k| input.get(*k).is_none_or(|v| v.is_null())) {
+        return Ok(None);
+    }
+    let missing: Vec<&str> = KEYS.iter().copied().filter(|k| !input[*k].is_array()).collect();
+    if !missing.is_empty() {
+        bail!("{} must be a list (use [] when there is nothing to say)", missing.join(", "));
+    }
+    let strings = |k: &str| -> Result<Vec<String>> {
+        input[k]
+            .as_array()
+            .expect("checked above")
+            .iter()
+            .map(|v| v.as_str().map(String::from).with_context(|| format!("every item of {k} must be a string")))
+            .collect()
+    };
+    let mut checks = Vec::new();
+    for v in input["checks_run"].as_array().expect("checked above") {
+        let command = v["command"].as_str().filter(|c| !c.trim().is_empty()).context("every item of checks_run needs a `command`")?;
+        let result = v["result"].as_str().context("every item of checks_run needs a `result`")?;
+        let exit_status = match &v["exit_status"] {
+            Value::Null => None,
+            x => Some(x.as_i64().context("`exit_status` must be a whole number")? as i32),
+        };
+        checks.push(crate::project::CheckRun { command: command.to_string(), result: result.to_string(), exit_status });
+    }
+    Ok(Some((checks, strings("assumptions")?, strings("open_questions")?)))
+}
+
+/// A coding CLI's final message, split into its prose and the record block it
+/// was asked to end with (a ```delivery fenced JSON object). The last such
+/// block wins; without one, the whole message is the summary.
+pub(crate) fn split_cli_delivery(message: &str) -> (String, Option<Value>) {
+    let Some(start) = message.rfind("```delivery") else { return (message.to_string(), None) };
+    let body_at = start + "```delivery".len();
+    let Some(len) = message[body_at..].find("```") else { return (message.to_string(), None) };
+    let Ok(v) = serde_json::from_str::<Value>(message[body_at..body_at + len].trim()) else {
+        return (message.to_string(), None);
+    };
+    let mut prose = message[..start].to_string();
+    prose.push_str(&message[body_at + len + 3..]);
+    (prose.trim().to_string(), Some(v))
+}
+
+async fn submit_as(inner: &Arc<Inner>, c: &Conversation, input: &Value, source: Source) -> Result<ToolOutcome> {
+    // A worker hands back a record, not only prose: what it ran, what it
+    // assumed and what it could not settle. Through the tool it is required;
+    // a CLI that did not give one is recorded as "not reported".
+    let record = match delivery_record(input) {
+        Ok(r) => r,
+        Err(e) if source == Source::Tool => {
+            return Ok(ToolOutcome::Failure(format!("Nothing was submitted: {e:#}."), "malformed delivery record".into()));
+        }
+        Err(_) => None,
+    };
+    if record.is_none() && source == Source::Tool && c.kind == AgentKind::Worker {
+        return Ok(ToolOutcome::Failure(
+            "Nothing was submitted: a delivery needs its record as well as the summary. Add `checks_run` (each {command, result, exit_status}), `assumptions` and `open_questions`, using [] where there is nothing to say, then call submit_deliverable again.".into(),
+            "delivery without a record".into(),
+        ));
+    }
     let mut deliverable = Deliverable {
         summary: input["summary"]
             .as_str()
@@ -2394,6 +3254,7 @@ async fn submit(inner: &Arc<Inner>, c: &Conversation, input: &Value) -> Result<T
             .to_string(),
         files: input["files"]
             .as_array()
+            .or_else(|| input["files_changed"].as_array())
             .map(|a| {
                 a.iter()
                     .filter_map(|f| f.as_str().map(String::from))
@@ -2403,7 +3264,14 @@ async fn submit(inner: &Arc<Inner>, c: &Conversation, input: &Value) -> Result<T
         diff_stat: None,
         changes: vec![],
         check_passed: None,
+        ..Default::default()
     };
+    if let Some((checks, assumptions, questions)) = record {
+        deliverable.checks_run = checks;
+        deliverable.assumptions = assumptions;
+        deliverable.open_questions = questions;
+        deliverable.reported = true;
+    }
     let (depth, parent) = {
         let s = inner.state.lock().unwrap();
         (s.agents[c.id].depth, s.agents[c.id].parent)
@@ -2455,12 +3323,21 @@ async fn submit(inner: &Arc<Inner>, c: &Conversation, input: &Value) -> Result<T
         }
         deliverable.check_passed = Some(check);
     }
+    // The project's policy is a person's to change. A delivery that edits the
+    // file is held for one, whoever would otherwise have approved it: merged
+    // into the run branch and then into the workspace, it would be the next
+    // session's policy.
+    let edits_policy = deliverable.changes.iter().any(|f| f.path == "backspace.toml");
+    if edits_policy {
+        deliverable.summary = format!("Changes project policy (backspace.toml): {}", deliverable.summary);
+        inner.log(c.id, LogKind::System, "this delivery edits backspace.toml, so it waits for a person even where deliveries are approved automatically");
+    }
     inner.agent(c.id, |a| a.deliverable = Some(deliverable.clone()));
 
     // 3. Review: the agent's manager for deep work, otherwise the human.
     let manager_reviews =
-        c.kind == AgentKind::Worker && depth > inner.cfg.orchestrator.human_review_depth;
-    if !manager_reviews && !inner.cfg.orchestrator.auto_approve {
+        c.kind == AgentKind::Worker && depth > inner.cfg.orchestrator.human_review_depth && !edits_policy;
+    if !manager_reviews && (!inner.cfg.orchestrator.auto_approve || edits_policy) {
         if let Some(k) = &c.ticket {
             inner.ticket(k, |t| t.state = TicketState::InReview);
         }
@@ -2504,7 +3381,7 @@ async fn submit(inner: &Arc<Inner>, c: &Conversation, input: &Value) -> Result<T
 
     let note = if manager_reviews {
         "Merged and sent to your manager for review. If they request changes, you will be reopened."
-    } else if inner.cfg.orchestrator.auto_approve {
+    } else if inner.cfg.orchestrator.auto_approve && !edits_policy {
         "Auto-approved."
     } else {
         "Approved by the user."
@@ -2526,14 +3403,40 @@ async fn create_tickets(inner: &Arc<Inner>, caller: AgentId, input: &Value) -> R
 /// Returns their keys and whether it does. `planned`: the planner made it,
 /// so it answers to gate 2; a task you started yourself does not.
 fn create_batch(inner: &Inner, caller: AgentId, input: &Value, planned: bool) -> Result<(Vec<String>, bool)> {
+    // The task's path decides what may be planned (intake.rs): research plans
+    // nothing; a one-shot files exactly one validated ticket. A CLI planner
+    // never has either path (main_loop refuses it before the CLI runs), so the
+    // bridge's `/v1/plan/*` reaching this under one is defence in depth.
+    let path = if caller == MAIN { inner.state.lock().unwrap().intake.path } else { None };
+    let spec = match path {
+        Some(TaskType::Research) => bail!("{}", intake::refusal(TaskType::Research, "create_tickets")),
+        Some(TaskType::OneShot) => {
+            // The slot is held by the one-shot's ticket for as long as there is
+            // one. A ticket that was dropped (gone, or wontfix) no longer holds
+            // it; a failed one still does, and is retried rather than replaced.
+            let held = {
+                let s = inner.state.lock().unwrap();
+                s.intake.spec_key.clone().and_then(|k| s.ticket(&k).map(|t| (k, t.state)))
+            };
+            match held {
+                Some((k, TicketState::Failed)) => bail!("this one-shot already has its ticket (`{k}`), which failed: call work_tickets to try it again"),
+                Some((k, st)) if st != TicketState::Wontfix => bail!("this one-shot already has its ticket (`{k}`): call work_tickets"),
+                _ => {}
+            }
+            Some(intake::OneShotSpec::from_tickets(input)?)
+        }
+        _ => None,
+    };
+    let one_shot = spec.is_some();
     let specs = input["tickets"]
         .as_array()
         .context("`tickets` must be an array")?;
     if specs.is_empty() {
         bail!("no tickets given");
     }
+    // A one-shot's lightweight spec stands in for the plan, so there is no plan gate.
     let needs_approval =
-        caller == MAIN && inner.cfg.workflow.plan_approval && !inner.cfg.orchestrator.auto_approve;
+        caller == MAIN && inner.cfg.workflow.plan_approval && !inner.cfg.orchestrator.auto_approve && !one_shot;
     let state = if needs_approval {
         TicketState::Proposed
     } else {
@@ -2563,7 +3466,7 @@ fn create_batch(inner: &Inner, caller: AgentId, input: &Value, planned: bool) ->
             }
             batch.push(t);
         }
-        if caller == MAIN && planned {
+        if caller == MAIN && planned && !one_shot {
             // Earlier tickets count toward coverage only where they said what they cover.
             let earlier = s.tickets.iter().filter(|t| t.owner == MAIN && !t.covers.is_empty() && t.state != TicketState::Wontfix);
             plan_gate(&inner.root, earlier.chain(batch.iter()))?;
@@ -2571,11 +3474,17 @@ fn create_batch(inner: &Inner, caller: AgentId, input: &Value, planned: bool) ->
         s.tickets.extend(batch.iter().cloned());
         Ok(batch)
     })?;
-    if caller == MAIN && planned && !needs_approval {
+    if caller == MAIN && planned && !needs_approval && !one_shot {
         plan_passed(&inner.root, GateBy::Rules);
     }
     for t in &batch {
         t.write(&inner.root);
+    }
+    if let Some(spec) = spec {
+        let rel = spec.write(&inner.root).with_context(|| format!("filed ticket `{}` but could not write its handoff file", spec.key))?;
+        inner.update(|s| s.intake.spec_key = Some(spec.key.clone()));
+        inner.save();
+        inner.log(MAIN, LogKind::System, format!("one-shot spec handed off at {rel}"));
     }
     Ok((batch.iter().map(|t| t.key.clone()).collect(), needs_approval))
 }
@@ -2655,6 +3564,7 @@ async fn approve_plan(inner: &Arc<Inner>, caller: AgentId, keys: Vec<String>) ->
             diff_stat: None,
             changes: vec![],
             check_passed: None,
+            ..Default::default()
         },
         tickets: keys.clone(),
         state: ApprovalState::Pending,
@@ -2698,12 +3608,24 @@ async fn work_tickets(inner: &Arc<Inner>, caller: AgentId, input: &Value) -> Res
     let ids: Vec<(AgentId, String)> = inner.update(|s| -> Result<Vec<(AgentId, String)>> {
         let keys: Vec<String> = match &requested {
             Some(k) => k.clone(),
-            None => s
-                .tickets
-                .iter()
-                .filter(|t| t.owner == caller && t.state == TicketState::ReadyForAgent)
-                .map(|t| t.key.clone())
-                .collect(),
+            None => {
+                let mut keys: Vec<String> = s
+                    .tickets
+                    .iter()
+                    .filter(|t| t.owner == caller && t.state == TicketState::ReadyForAgent)
+                    .map(|t| t.key.clone())
+                    .collect();
+                // A one-shot's failed ticket is the task's own: "dispatch what
+                // is ready" tries it again, as create_tickets' refusal says.
+                if caller == MAIN && s.intake.path == Some(TaskType::OneShot) {
+                    if let Some(k) = s.intake.spec_key.clone() {
+                        if s.ticket(&k).is_some_and(|t| t.owner == caller && t.state == TicketState::Failed) && !keys.contains(&k) {
+                            keys.push(k);
+                        }
+                    }
+                }
+                keys
+            }
         };
         if keys.is_empty() {
             bail!("no tickets ready for agents; create_tickets first");
@@ -2807,7 +3729,10 @@ async fn work_tickets(inner: &Arc<Inner>, caller: AgentId, input: &Value) -> Res
 fn settle(inner: &Inner, id: AgentId, key: &str, res: &Result<Deliverable>) {
     inner.trace_finish(id, res.as_ref().err().map(|e| format!("{e:#}")));
     match res {
-        Ok(_) => inner.set_status(id, AgentStatus::Approved),
+        Ok(_) => {
+            inner.notes_up(id);
+            inner.set_status(id, AgentStatus::Approved)
+        }
         Err(e) => {
             inner.log(id, LogKind::Error, format!("{e:#}"));
             inner.set_status(id, AgentStatus::Failed);
@@ -2844,6 +3769,8 @@ fn settle(inner: &Inner, id: AgentId, key: &str, res: &Result<Deliverable>) {
         use std::io::Write;
         let _ = writeln!(f, "{line}");
     }
+    inner.ledger.lock().unwrap().task_finished(key, res.is_ok());
+    emit_metrics(inner);
 }
 
 /// Explicit BoxFuture return type breaks the drive → work_tickets →
@@ -2895,58 +3822,102 @@ fn run_worker_with(
             }
         }
 
-        let (brief, context, depth, parent) = {
+        // The worker starts from files, not from summaries of summaries: the
+        // person's own words (request.rs), the agreed spec, the tickets above
+        // it and its blockers' delivery records, written into its directory.
+        let (brief, context, depth, parent, mut handoff) = {
             let s = inner.state.lock().unwrap();
             let me = &s.agents[id];
             let t = s.ticket(&key).context("ticket vanished")?;
-            let deps: Vec<String> = t
+            let deps: Vec<(String, String)> = t
                 .blocked_by
                 .iter()
                 .filter_map(|b| s.ticket(b))
                 .map(|bt| {
                     let del = bt.assignee.and_then(|a| s.agents[a].deliverable.clone());
-                    match (bt.state, del) {
-                        (TicketState::Done, Some(d)) => {
-                            format!(
-                                "## `{}` ({}), done and merged into your base\n{}",
-                                bt.key, bt.title, d.summary
-                            )
-                        }
+                    let md = match (bt.state, del) {
+                        (TicketState::Done, Some(d)) => format!(
+                            "# `{}`: {}\n\nStatus: done and merged into your base, from branch `{}`; its changes are already in your directory, and `git log -p` shows them.\n\n{}",
+                            bt.key,
+                            bt.title,
+                            git::branch_name(&bt.key),
+                            d.record()
+                        ),
                         _ => format!(
-                            "## `{}` ({}) FAILED; work around it or report the gap.",
+                            "# `{}`: {}\n\nFAILED: none of it is in your base. Work around it or report the gap.\n",
                             bt.key, bt.title
                         ),
-                    }
+                    };
+                    (bt.key.clone(), md)
                 })
                 .collect();
-            // Goal ancestry: every agent knows why its ticket exists.
-            let chain: Vec<String> = s
+            // This ticket first, then the tickets of the agents above it.
+            let tickets: Vec<(String, String)> = s
+                .ancestry(id)
+                .into_iter()
+                .filter_map(|a| s.agents[a].ticket.clone())
+                .filter_map(|k| s.ticket(&k).map(|t| (k, t.markdown())))
+                .collect();
+            let spec = std::fs::read_to_string(inner.root.join(crate::spec::FILE)).ok().or_else(|| {
+                (s.intake.spec_key.as_deref() == Some(key.as_str()))
+                    .then(|| std::fs::read_to_string(inner.root.join(crate::request::handoff_dir(&key)).join("spec.md")).ok())
+                    .flatten()
+            });
+            let handoff = crate::request::Handoff {
+                key: key.clone(),
+                request: crate::request::load(&inner.root),
+                spec,
+                tickets,
+                deps,
+            };
+            let rel = crate::request::handoff_dir(&key);
+            let later = handoff.request.len().saturating_sub(1);
+            let mut ctx = format!(
+                "\n# Your handoff: read these before you start\n\nIn your directory, under `{rel}/`:\n- `request.md`: the person's own words, verbatim: the original request and {later} later message(s) or decision(s). It says what they want.\n"
+            );
+            if handoff.spec.is_some() {
+                ctx.push_str("- `spec.md`: the agreed contract for this work. It says what was agreed to build.\n");
+            }
+            ctx.push_str(&format!("- `ticket-{key}.md`: your ticket"));
+            if handoff.tickets.len() > 1 {
+                ctx.push_str(", and `ticket-<key>.md` for each ticket above yours");
+            }
+            ctx.push('\n');
+            if !handoff.deps.is_empty() {
+                ctx.push_str("- `deps/<key>.md`: the delivery record of each ticket that blocked yours (below as well)\n");
+            }
+            ctx.push_str("\nThe request and the spec are not the same thing: one is what the person wants, the other what was agreed. Where they disagree, ask `main` instead of choosing.\n");
+            match crate::request::original(&handoff.request) {
+                Some(o) => {
+                    let fence = "`".repeat(crate::request::longest_backtick_run(&o.text).max(2) + 1);
+                    ctx.push_str(&format!("\n# The original request, verbatim\n\n{fence}text\n{}\n{fence}\n", o.text));
+                }
+                None => ctx.push_str("\n# The original request\n\nNone recorded: work from your ticket.\n"),
+            }
+            // The tickets above this one, whole: why it exists, without
+            // anyone's summary of it.
+            let above: Vec<String> = s
                 .ancestry(id)
                 .into_iter()
                 .skip(1)
                 .rev()
-                .map(|a| {
-                    format!(
-                        "- {}: {}",
-                        s.agents[a].title,
-                        truncate(&s.agents[a].brief, 600)
-                    )
-                })
+                .filter_map(|a| s.agents[a].ticket.clone())
+                .filter_map(|k| s.ticket(&k))
+                .map(|t| format!("- `{}` ({}): {}", t.key, t.title, t.what_to_build))
                 .collect();
-            let mut ctx = format!(
-                "# Why this ticket exists (project goal first)\n\n{}",
-                chain.join("\n")
-            );
-            if !deps.is_empty() {
-                ctx.push_str("\n\n# Tickets that blocked this one\n\n");
-                ctx.push_str(&deps.join("\n\n"));
+            if !above.is_empty() {
+                ctx.push_str(&format!("\n# The tickets above yours, top first\n\n{}\n", above.join("\n")));
+            }
+            if !handoff.deps.is_empty() {
+                ctx.push_str("\n# Tickets that blocked this one\n\n");
+                ctx.push_str(&handoff.deps.iter().map(|(_, md)| md.replacen("# ", "## ", 1)).collect::<Vec<_>>().join("\n"));
             }
             if let Some(b) = me.budget_usd {
                 ctx.push_str(&format!(
                     "\n\nYour budget, including anything you delegate: ${b:.2}."
                 ));
             }
-            (t.brief(), ctx, me.depth, me.parent.unwrap_or(MAIN))
+            (t.brief(), ctx, me.depth, me.parent.unwrap_or(MAIN), handoff)
         };
 
         inner.set_status(id, AgentStatus::Running);
@@ -2987,7 +3958,12 @@ fn run_worker_with(
             inner.root.clone()
         };
 
+        // Fresh at every start, so a resumed worker sees what the person
+        // said since.
+        handoff.request = crate::request::load(&inner.root);
+        handoff.write(&dir).with_context(|| format!("could not write `{key}`'s handoff files"))?;
         let first = format!("{brief}\n{context}");
+        inner.ledger.lock().unwrap().task_started(&key);
         inner.log(id, LogKind::User, first.clone());
         let cli = inner
             .cfg
@@ -2997,6 +3973,7 @@ fn run_worker_with(
         let mut c = Conversation {
             id,
             kind: AgentKind::Worker,
+            path: None,
             ticket: Some(key),
             can_spawn,
             ws: inner.workspace(&dir),
@@ -3061,7 +4038,7 @@ async fn scouts(inner: &Arc<Inner>, c: &Conversation, input: &Value) -> Result<S
         .unwrap_or_default();
     if !local.is_empty() {
         inner.log(c.id, LogKind::System, format!("scouts run on{local}"));
-    }    let d = Decision { model, effort: Effort::Low, source: "scout".into(), confidence: 1.0, router_cost_usd: 0.0, note: None };
+    }    let d = Decision { model, effort: Effort::Low, source: "scout".into(), confidence: 1.0, router_cost_usd: 0.0, cost_settled: false, note: None, triage: None };
     let (depth, dir) = {
         let s = inner.state.lock().unwrap();
         (s.agents[c.id].depth + 1, c.ws.root.clone())
@@ -3083,6 +4060,7 @@ async fn scouts(inner: &Arc<Inner>, c: &Conversation, input: &Value) -> Result<S
             let mut sc = Conversation {
                 id,
                 kind: AgentKind::Scout,
+                path: None,
                 ticket: None,
                 can_spawn: false,
                 ws: inner.workspace(&dir),
@@ -3120,6 +4098,18 @@ fn start_task(inner: &Arc<Inner>, rt: &tokio::runtime::Handle, text: &str) -> Re
     let text = text.trim();
     if text.is_empty() {
         bail!("say what the task is");
+    }
+    // The project's own folder must still be there and reachable: ticket files
+    // and a worktree are written under it, and a folder that has gone is not
+    // recreated by a task started against it.
+    if !inner.root.is_dir() {
+        bail!("the project folder is not accessible ({}), so no task was started", inner.root.display());
+    }
+    // A research task makes no tickets or branches, and a one-shot has exactly
+    // one ticket, its own: a task started alongside would break either.
+    let open = inner.state.lock().unwrap().intake.path;
+    if let Some(p @ (TaskType::Research | TaskType::OneShot)) = open {
+        bail!("{}", intake::start_refusal(p));
     }
     let slug: String = text
         .to_lowercase()
@@ -3327,6 +4317,7 @@ fn run_triage(inner: Arc<Inner>, key: String) -> BoxFuture<'static, ()> {
             let mut c = Conversation {
                 id,
                 kind: AgentKind::Triage,
+                path: None,
                 ticket: Some(key.clone()),
                 can_spawn: false,
                 ws: inner.workspace(&dir),
@@ -3400,6 +4391,7 @@ fn triage(inner: &Arc<Inner>, c: &Conversation, input: &Value) -> Result<ToolOut
         diff_stat: None,
         changes: vec![],
         check_passed: None,
+        ..Default::default()
     };
     Ok(ToolOutcome::Delivered(d, "Triage recorded.".into()))
 }
@@ -3490,10 +4482,17 @@ fn triage_tool() -> ToolDef {
 fn deliver_tool() -> ToolDef {
     ToolDef {
         name: "submit_deliverable",
-        description: "Submit your finished work. Your ticket's check runs first; then it goes to review (the user, or your manager deep in the tree). Blocks until accepted or returned with feedback.",
+        description: "Submit your finished work. Your ticket's check runs first; then it goes to review (the user, or your manager deep in the tree). Blocks until accepted or returned with feedback. A ticket worker must give checks_run, assumptions and open_questions (each may be []): tickets that depend on yours get this record and your diff, not your prose alone.",
         schema: json!({"type": "object", "properties": {
             "summary": {"type": "string", "description": "what was built, how it connects to the rest, how you verified it, what is left"},
-            "files": {"type": "array", "items": {"type": "string"}}
+            "files": {"type": "array", "items": {"type": "string"}},
+            "checks_run": {"type": "array", "description": "every command you ran to verify the work, as it happened", "items": {"type": "object", "properties": {
+                "command": {"type": "string"},
+                "result": {"type": "string", "description": "what it showed, e.g. \"12 passed\" or \"2 failed: test_x, test_y\""},
+                "exit_status": {"type": ["integer", "null"]}
+            }, "required": ["command", "result", "exit_status"]}},
+            "assumptions": {"type": "array", "items": {"type": "string"}, "description": "what you decided where the request, spec or ticket did not say"},
+            "open_questions": {"type": "array", "items": {"type": "string"}, "description": "what you could not settle and someone should decide"}
         }, "required": ["summary"]}),
     }
 }
@@ -3546,6 +4545,9 @@ async fn bridge_handle(
             let me = body["me"].as_str().unwrap_or("");
             Ok(json!({"text": inner.cursors.lock().unwrap().take(&s, me)}))
         }
+        "/v1/note" => inner
+            .leave_note(body["me"].as_str().unwrap_or("?"), body["text"].as_str().unwrap_or(""))
+            .map(|t| json!({"text": t})),
         "/v1/board/agents" => {
             Ok(json!({"text": crate::board::agents_line(&inner.state.lock().unwrap())}))
         }
@@ -3568,6 +4570,9 @@ async fn bridge_handle(
                 json!({"text": format!("Created {keys_s}. Call work_tickets to dispatch them.")})
             }
         }),
+        "/v1/plan/dispatch" if inner.state.lock().unwrap().intake.path == Some(TaskType::Research) => {
+            Err(anyhow!("{}", intake::refusal(TaskType::Research, "work_tickets")))
+        }
         "/v1/plan/dispatch" => {
             let keys = body["keys"].as_array().map(|a| a.iter().filter_map(|k| k.as_str().map(String::from)).collect());
             inner.planner_queue.lock().unwrap().push(PlanAction::Dispatch(keys));
@@ -3578,5 +4583,41 @@ async fn bridge_handle(
     match res {
         Ok(v) => respond(&mut stream, 200, &v).await,
         Err(e) => respond(&mut stream, 400, &json!({"error": e.to_string()})).await,
+    }
+}
+
+#[cfg(test)]
+mod delivery_record_tests {
+    use super::*;
+
+    #[test]
+    fn a_cli_reply_splits_into_prose_and_its_record() {
+        let msg = "Added the parser.\nTests pass.\n\n```delivery\n{\"checks_run\": [{\"command\": \"cargo test\", \"result\": \"3 passed\", \"exit_status\": 0}], \"assumptions\": [\"UTF-8 only\"], \"open_questions\": []}\n```\n";
+        let (prose, rec) = split_cli_delivery(msg);
+        assert_eq!(prose, "Added the parser.\nTests pass.");
+        let (checks, assumptions, questions) = delivery_record(&rec.unwrap()).unwrap().unwrap();
+        assert_eq!(checks[0].command, "cargo test");
+        assert_eq!(checks[0].exit_status, Some(0));
+        assert_eq!(assumptions, vec!["UTF-8 only".to_string()]);
+        assert!(questions.is_empty());
+    }
+
+    #[test]
+    fn a_cli_reply_without_a_record_is_all_prose() {
+        let (prose, rec) = split_cli_delivery("Done.\n```delivery\nnot json\n```");
+        assert_eq!(prose, "Done.\n```delivery\nnot json\n```");
+        assert!(rec.is_none());
+        assert_eq!(split_cli_delivery("Done.").1, None);
+    }
+
+    #[test]
+    fn a_partial_or_malformed_record_is_refused() {
+        assert!(delivery_record(&json!({"summary": "x"})).unwrap().is_none());
+        let e = delivery_record(&json!({"assumptions": []})).unwrap_err().to_string();
+        assert!(e.contains("checks_run") && e.contains("open_questions"), "{e}");
+        assert!(delivery_record(&json!({"checks_run": [{"result": "ok"}], "assumptions": [], "open_questions": []})).is_err());
+        assert!(delivery_record(&json!({"checks_run": [], "assumptions": [3], "open_questions": []})).is_err());
+        let ok = delivery_record(&json!({"checks_run": [{"command": "make", "result": "ok", "exit_status": null}], "assumptions": [], "open_questions": []})).unwrap().unwrap();
+        assert_eq!(ok.0[0].exit_status, None);
     }
 }

@@ -1,0 +1,2 @@
+# UI green state: same eval against the UI after the change (harness exit code 0).
+  "pass": true,

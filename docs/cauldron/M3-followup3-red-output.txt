@@ -1,0 +1,53 @@
+# Red state: the new tests against the source before the fixes (stubs for the Paths functions only).
+# Rust: cargo test -p backspace-core --test intake -- <new tests>; cargo test -p backspace-core --test intake_cli
+
+## --test intake
+test a_long_task_does_not_stop_a_side_task_from_starting ... ok
+test a_one_shot_whose_ticket_is_gone_can_file_its_spec_again ... FAILED
+test a_failed_one_shot_is_retried_in_the_same_turn_on_its_one_ticket ... FAILED
+test a_one_shot_whose_ticket_was_dropped_as_wontfix_can_file_its_spec_again ... FAILED
+test a_failed_one_shot_stays_open_for_a_retry_and_keeps_to_its_one_ticket ... ok
+test a_started_task_is_not_a_task_for_the_planner_or_the_question ... ok
+test a_one_shot_worker_the_user_stops_fails_its_ticket_and_can_be_dispatched_again ... FAILED
+test a_task_cannot_be_started_while_a_one_shot_is_open_and_does_not_take_its_ticket ... FAILED
+test intake_asks_and_asks_again_with_the_paths_that_can_run ... FAILED
+test a_task_cannot_be_started_while_a_research_task_is_open ... FAILED
+test nothing_can_be_started_from_nothing ... ok
+test no_agent_is_offered_a_way_to_start_a_task ... ok
+test the_question_offers_only_the_paths_that_can_run ... FAILED
+test a_rejected_one_shot_deliverable_goes_back_to_its_worker_and_the_path_ends_with_the_delivery ... ok
+test with_an_api_planner_the_question_still_offers_all_three_paths ... ok
+test the_task_endpoint_wants_the_token_and_starts_nothing_without_it ... ok
+test a_started_task_skips_the_plan_gate_but_its_delivery_still_waits_for_the_user ... ok
+test stop_releases_a_failed_one_shot_even_though_the_main_agent_is_idle ... FAILED
+test result: FAILED. 9 passed; 9 failed; 0 ignored; 0 measured; 23 filtered out; finished in 41.39s
+
+### first line of each failure
+- a_one_shot_whose_ticket_is_gone_can_file_its_spec_again: crates/core/tests/intake.rs:1088:5: a dropped ticket must not hold the slot: error: this one-shot already has its ticket (`dropped-one`): call work_tickets stack backtrace: 0: __rustc::rust_begin_unwind
+- a_failed_one_shot_is_retried_in_the_same_turn_on_its_one_ticket: crates/core/tests/intake.rs:941:5: assertion `left == right` failed: the failed worker, then its retry: [ "Created fix-readme. Dispatch them with work_tickets.", "## `fix-readme` Fix the README typo: FAILED ($0.000)\nagent stopped without calling submit_deliverable",
+- a_one_shot_whose_ticket_was_dropped_as_wontfix_can_file_its_spec_again: crates/core/tests/intake.rs:1088:5: a dropped ticket must not hold the slot: error: this one-shot already has its ticket (`dropped-one`): call work_tickets stack backtrace: 0: __rustc::rust_begin_unwind
+- a_one_shot_worker_the_user_stops_fails_its_ticket_and_can_be_dispatched_again: crates/core/tests/intake.rs:1030:40: index out of bounds: the len is 1 but the index is 1 stack backtrace: 0: __rustc::rust_begin_unwind
+- a_task_cannot_be_started_while_a_one_shot_is_open_and_does_not_take_its_ticket: crates/core/tests/intake.rs:1284:37: a one-shot has exactly one ticket, its own: "add-a-short-contributing" stack backtrace: 0: __rustc::rust_begin_unwind
+- intake_asks_and_asks_again_with_the_paths_that_can_run: crates/core/tests/intake.rs:799:5: I can't tell what kind of task this is. My best guess is research (50% sure), which is not enough to act on. Which is it? 1. one-shot: a small, contained change (one ticket, no interview)
+- a_task_cannot_be_started_while_a_research_task_is_open: crates/core/tests/intake.rs:1259:9: `research task is open` missing from the refusal: `create_tickets` is not available on the research path: a research task reads and writes a report, and changes nothing (no tickets, branches or prs). use read and list to look, then submit_report. stack backtra
+- the_question_offers_only_the_paths_that_can_run: crates/core/tests/intake.rs:781:9: `not available` missing from: I can't tell what kind of task this is. My best guess is one-shot (55% sure), which is not enough to act on. Which is it?
+- stop_releases_a_failed_one_shot_even_though_the_main_agent_is_idle: crates/core/tests/intake.rs:369:9: timed out waiting for the stop to release the task: [ ( "main",
+
+## --test intake_cli
+test a_cli_long_task_still_launches_the_planner_as_before ... ok
+test a_cli_one_shot_the_classifier_chooses_is_refused_before_the_cli_runs ... ok
+test a_cli_research_task_is_refused_before_the_cli_runs ... ok
+test a_cli_task_the_user_answers_as_one_shot_is_refused_too ... ok
+test a_cli_task_the_user_answers_as_research_is_refused_too ... ok
+test an_answer_for_a_path_that_cannot_run_is_still_refused_after_the_question_that_left_it_out ... FAILED
+test an_unclear_answer_under_a_cli_planner_is_asked_again_with_the_same_options ... FAILED
+test the_question_under_a_cli_planner_offers_only_the_path_that_can_run ... FAILED
+test a_saved_one_shot_is_refused_after_a_restart_with_a_cli_planner ... ok
+test a_saved_research_task_is_refused_after_a_restart_with_a_cli_planner ... ok
+test an_unsure_task_is_asked_about_before_the_cli_is_launched ... ok
+test result: FAILED. 8 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.09s
+
+### first line of each failure
+- an_answer_for_a_path_that_cannot_run_is_still_refused_after_the_question_that_left_it_out: crates/core/tests/intake_cli.rs:274:9: `not available` missing from: I can't tell what kind of task this is. My best guess is one-shot (33% sure), which is not enough to act on. Which is it?
+- an_unclear_answer_under_a_cli_planner_is_asked_again_with_the_same_options: crates/core/tests/intake_cli.rs:274:9: `not available` missing from: I didn't get a clear answer.
+- the_question_under_a_cli_planner_offers_only_the_path_that_can_run: crates/core/tests/intake_cli.rs:274:9: `not available` missing from: I can't tell what kind of task this is. My best guess is one-shot (33% sure), which is not enough to act on. Which is it?

@@ -25,6 +25,7 @@ bash_timeout_secs = 120
 max_depth = 2               # main=0 -> its reports=1 -> their reports=2
 human_review_depth = 1      # deeper deliverables are reviewed by their manager
 # max_project_usd = 20.0    # hard stop for the whole project
+# max_project_tokens = 5000000   # the same in tokens; coding-CLI turns on it run one at a time
 isolation = "worktree"      # "worktree": a git branch + worktree per ticket; "shared": no git
 
 # Start cheap, climb on evidence (failed check, rejection, loop, turn budget).
@@ -34,6 +35,15 @@ start_max_effort = "medium"
 start_max_tier = 2
 max_steps = 3
 loop_repeats = 3
+
+# Intake: classify each task before any work (one-shot, long or research) and
+# ask you when it is unsure. Off by default: the classifier is uncalibrated
+# until the router eval (PLAN section 10) has run, and a wrong guess would skip
+# planning. When on: research returns a report and nothing else; a one-shot gets
+# one ticket from a lightweight spec, with no plan to approve.
+[intake]
+enabled = false
+max_asks = 2                # questions before an unclear task goes the long way
 
 # Orchestrator, advisor, scouts. The advisor (a stronger model, on call)
 # is consulted before a plan locks, when the same check fails twice and

@@ -1,0 +1,393 @@
+// Home: where work starts and where you watch it. The window's painting
+// runs behind it at full strength (art.js); on it, one composer (what should
+// your agents work on, in which project, on whom) whose model and effort
+// picker unfolds from the composer itself, and under it the inbox: what
+// needs you, who is working, who is idle, then tickets, git activity and
+// projects. After Berth's home and Zeron's new-session canvas (MIT;
+// THIRD_PARTY_NOTICES.md).
+//
+// Home.render(grid) builds it once and then only refreshes what changes, so
+// typing survives state updates. It never scrolls as a page; the inbox
+// scrolls inside itself.
+
+var Home = (() => {
+  let proj = null, open = "agents", picking = false, activity = { path: "", at: 0, data: null }, stats = { at: 0, data: null, err: "", sel: null, propose: null, key: "" };
+
+  // The home can be mounted twice at once: the canvas zone draws one, and Code →
+  // ADE draws another. Every refresh therefore walks the roots that are still in
+  // the document — `document.querySelector(".home")` wrote both screens' pills
+  // into whichever came first, which is a screen the reader may not even be
+  // looking at.
+  const roots = new Set();
+  function each(fn) {
+    for (const r of [...roots]) {
+      if (!r.isConnected) { roots.delete(r); continue; }
+      fn(r);
+    }
+  }
+  // What the reader is looking at, when more than one home is mounted: the
+  // canvas zone's home is display:none behind the ADE's, and a picker opened
+  // from a hidden composer is a picker nobody can see.
+  const firstWith = sel =>
+    [...roots].find(r => r.isConnected && r.offsetParent !== null && r.querySelector(sel)) ||
+    [...roots].find(r => r.isConnected && r.querySelector(sel)) ||
+    null;
+
+  const project = () => proj || (hasProject && snap.workspace) || (prefs.projects || [])[0] || null;
+  // The composer's model chip is the orchestrator: it plans and talks to you.
+  // Who builds each ticket is the executor chip beside it (Runs, picker.js).
+  const choice = () => ({ model: prefs.planner || "", permission: prefs.cli_permission || "edits", effort: prefs.cli_effort || null });
+  const name = a => (a.id === MAIN ? "Main agent" : a.title);
+  const visible = () => treeOrder().map(agent).filter(a => a && a.kind !== "triage");
+
+  function shell() {
+    return `<div class="home">
+      <div class="home-hero">
+        <h1>What should your agents work on?</h1>
+        <div class="hc-above">
+          <button class="hc-chip" data-act="proj" data-popper>${icon("folder")}<span class="v"></span>${icon("chevd")}</button>
+          <button class="hc-chip" data-act="branch" data-popper title="The branch your agents work on">${icon("branch")}<span class="br">backspace/run</span>${icon("chevd")}</button>
+          <button class="hc-chip" data-act="mach" data-popper title="The machine the work runs on">${icon("pc")}<span class="mn"></span>${icon("chevd")}</button>
+        </div>
+        <div class="hc">
+          <textarea rows="2" placeholder="Describe a task, a bug to fix, an idea to try…" aria-label="What should your agents work on?"></textarea>
+          <div class="hc-bar">
+            <span class="hc-hint"><kbd>↵</kbd> start <kbd>Ctrl ↵</kbd> in parallel</span>
+            <span class="sp"></span>
+            <button class="hc-par" data-act="par" title="Start another task in parallel, on its own branch">${icon("branch")}Parallel</button>
+            <button class="hc-exec" data-act="exec" data-popper title="Executor: who builds each ticket">${icon("branch")}<span class="v"></span>${icon("chevd")}</button>
+            <button class="hc-model" data-act="model" aria-expanded="false" title="Orchestrator: plans the work and talks to you"><span class="lg"></span><span class="v"></span><span class="eff"></span>${icon("chevd")}</button>
+            <button class="hc-send" data-act="send" aria-label="Start">${icon("up")}</button>
+          </div>
+          <div class="hc-panel" hidden></div>
+        </div>
+        <div class="stg" hidden></div>
+        <div class="home-dock">
+          <div class="home-pills" role="tablist" aria-label="What's going on"></div>
+          <div class="home-open"></div>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  // A sparkline of commits a day, for the git pill.
+  function spark(days) {
+    const max = Math.max(1, ...days), w = 3, gap = 1.5;
+    return `<svg class="spark" viewBox="0 0 ${days.length * (w + gap)} 14" aria-hidden="true">${days.map((n, i) => { const h = Math.max(n ? 2.5 : 1, (n / max) * 14); return `<rect x="${i * (w + gap)}" y="${14 - h}" width="${w}" height="${h}" rx="0.8"/>`; }).join("")}</svg>`;
+  }
+  function bars(days) {
+    const max = Math.max(1, ...days);
+    const names = ["S", "M", "T", "W", "T", "F", "S"], today = new Date().getDay();
+    return `<div class="bars">${days.map((n, i) => `<div class="bar${i === days.length - 1 ? " now" : ""}" title="${n} commit${n === 1 ? "" : "s"}"><i style="height:${Math.max(n ? 6 : 2, (n / max) * 100)}%"></i><span>${names[(today - (days.length - 1 - i) + 70) % 7]}</span></div>`).join("")}</div>`;
+  }
+  const fmtK = n => (n >= 1000 ? (n / 1000).toFixed(1) + "k" : String(n));
+
+  async function loadActivity() {
+    const p = project();
+    if (!p || (activity.path === p && Date.now() - activity.at < 60_000)) return;
+    activity = { path: p, at: Date.now(), data: null };
+    activity.data = await invoke("git_activity", { path: p }).catch(() => null);
+    if (activity.path === p) pills();
+  }
+
+  // Usage from the session logs of the agent tools on this machine (read-only;
+  // counts, timings and tool names only). Loaded when the Stats pill opens.
+  // Settings → Tracing sets the window and which tools are counted (this device only).
+  const statsCfg = () => {
+    let days = 7, skip = [];
+    try { days = Number(localStorage.getItem("stats_days")) || 7; skip = JSON.parse(localStorage.getItem("stats_skip") || "[]"); } catch {}
+    return { days, skip };
+  };
+  async function loadStats() {
+    const cfg = statsCfg(), key = JSON.stringify(cfg);
+    if (key === stats.key && Date.now() - stats.at < 300_000) return;
+    stats.at = Date.now(); stats.key = key; stats.propose = null;
+    try { stats.data = await invoke("usage_summary", cfg); stats.err = ""; } catch (e) { stats.err = String(e); }
+    if (open === "stats") details();
+  }
+  const tokK = n => (n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : fmtK(n));
+  const dur = s => (s < 60 ? Math.round(s) + "s" : s < 3600 ? Math.round(s / 60) + "m" : (s / 3600).toFixed(1) + "h");
+  // One session's calls on a time axis: green ok, red failed.
+  function waterfall(x) {
+    const total = Math.max(1, x.end - x.start), calls = x.calls || [];
+    if (!calls.length) return `<div class="hw-empty">This log doesn't record individual calls.</div>`;
+    return `<div class="wf">${calls.map(c => `<div class="wf-r"><span class="wf-n">${c.ok ? "✓" : "✕"} ${esc(c.name)}</span><span class="wf-t"><i style="left:${((c.start - x.start) / total * 100).toFixed(2)}%;width:${Math.max(0.4, c.dur_s * 1000 / total * 100).toFixed(2)}%;background:${c.ok ? "#3ecf8e" : "#ff6b6b"}"></i></span><span class="meta">${dur(c.dur_s)}</span></div>`).join("")}</div>${(x.calls.length < x.tool_calls) ? `<div class="hw-empty">First ${x.calls.length} of ${x.tool_calls} calls.</div>` : ""}`;
+  }
+  function statsView() {
+    loadStats();
+    const d = stats.data;
+    if (!d) return `<div class="hw-empty">${stats.err ? esc(stats.err) : "Reading the last 7 days of session logs…"}</div>`;
+    if (!d.sessions.length) return `<div class="hw-empty">No Claude Code or Codex sessions in the last 7 days.</div>`;
+    const tk = d.tokens, byModel = {};
+    for (const x of d.sessions) for (const [m, t] of Object.entries(x.models)) byModel[m] = (byModel[m] || 0) + t.input + t.output + t.cache_read + t.cache_write;
+    const models = Object.entries(byModel).sort((a, b) => b[1] - a[1]), top = Math.max(1, ...models.map(m => m[1]));
+    const cfg = statsCfg();
+    const kpi = (l, v, n) => `<button class="tix-c" data-tix><b>${v}</b><span>${l}${n ? ` · ${n}` : ""}</span></button>`;
+    const total = tk.input + tk.output + tk.cache_read + tk.cache_write;
+    return `<div class="tix">${kpi("tool calls", d.tool_calls.toLocaleString())}${kpi("prompts", d.prompts)}${kpi("error rate", d.tool_calls ? (d.errors / d.tool_calls * 100).toFixed(1) + "%" : "not logged")}${kpi("tokens", tokK(total), total ? Math.round(tk.cache_read / total * 100) + "% cache reads" : "")}${kpi("p95 latency", d.p95_latency_s == null ? "not logged" : dur(d.p95_latency_s))}</div>`
+      + models.map(([m, n]) => `<div class="hw-row"><span class="tt"><b>${esc(m)}</b><span><i style="display:block;height:5px;width:${Math.max(2, n / top * 100)}%;background:#7c9cff;border-radius:3px"></i></span></span><span class="meta">${tokK(n)}</span></div>`).join("")
+      + `<div class="grp-label">Biggest sessions · ${d.sessions.length} in ${cfg.days} days · click one for its calls</div>`
+      + d.sessions.slice(0, 6).map(x => `<div class="hw-row" data-sess="${esc(x.tool + x.id)}" role="button" tabindex="0" aria-expanded="${stats.sel === x.tool + x.id}"><span class="tt"><b>${esc(x.project || "—")}${x.subagent ? ` <i class="tag">subagent</i>` : ""}</b><span>${esc(x.tool)} · ${x.prompts} prompts · ${x.tool_calls} calls${x.errors ? ` · ${x.errors} failed` : ""} · ${dur((x.end - x.start) / 1000)}</span></span><span class="meta">${tokK(x.tokens.input + x.tokens.output + x.tokens.cache_read + x.tokens.cache_write)}</span></div>${stats.sel === x.tool + x.id ? waterfall(x) : ""}`).join("")
+      + `<div class="grp-label">Config changes <button class="btn sm" data-propose>Propose changes</button></div>`
+      + (stats.propose ? `<pre class="mono" style="white-space:pre-wrap;font-size:12px;margin:6px 0;user-select:text">${esc(stats.propose.join(String.fromCharCode(10)))}</pre><div class="hw-empty">Suggestions for CLAUDE.md or AGENTS.md, from this window's numbers. Nothing is written.</div>` : `<div class="hw-empty">Reads the numbers above and suggests lines for CLAUDE.md or AGENTS.md. Nothing is written.</div>`);
+  }
+
+  function pills() {
+    each(r => {
+      const el = r.querySelector(".home-pills");
+      if (!el) return;
+      const all = visible(), needs = all.filter(needsYou), working = all.filter(a => !needsYou(a) && busy(a));
+      const t = snap.tickets || [], act = activity.data, consults = all.reduce((n, a) => n + (a.advisor_calls || 0), 0);
+      const ps = (prefs.projects || []).slice(0, 3).map(base);
+      const P = [
+        ["agents", `<span class="dot ${needs.length ? "wait" : working.length ? "run" : ""}"></span>Agents<b>${all.length}</b>${needs.length ? `<span class="need">${needs.length} need you</span>` : ""}`],
+        ["tix", `${icon("ticket")}Tickets<b>${t.length}</b>`],
+        ["git", act ? `${icon("branch")}${spark(act.days)}<b>${act.days.reduce((a, b) => a + b, 0)}</b><span class="dim">commits · 14d</span><span class="add">+${fmtK(act.added)}</span><span class="del">−${fmtK(act.removed)}</span>` : `${icon("branch")}Git activity`],
+        ["proj", `${icon("folder")}${ps.length ? esc(ps.join(" · ")) : "Projects"}`],
+      ];
+      P.push(["stats", `${icon("activity")}Stats${stats.data ? `<b>${stats.data.tool_calls.toLocaleString()}</b><span class="dim">calls · 7d</span>` : ""}`]);
+      if (consults) P.push(["adv", `${icon("sparkle")}Advisor<b>${consults}</b><span class="dim">consult${consults === 1 ? "" : "s"}</span>`]);
+      el.innerHTML = P.map(([k, h]) => `<button class="hpill" role="tab" aria-selected="${open === k}" data-pill="${k}">${h}</button>`).join("");
+      el.querySelectorAll("[data-pill]").forEach(b => (b.onclick = () => { open = b.dataset.pill; pills(); }));
+    });
+    details();
+  }
+
+  // The inbox, fused into Home: what needs you, who is working, who is idle.
+  function inbox() {
+    const all = visible();
+    if (!all.length || (all.length === 1 && !all[0].log.some(e => e.kind === "user"))) {
+      return `<div class="hw-empty"><span>${hasProject ? "No agents yet. Describe a task above to talk it through with the CLI, or Parallel to hand it to a worker on its own branch." : "Pick a project above, then describe a task."}</span>
+        <span class="hw-alt">Or start this project by view: <button class="btn sm" data-act="view">${icon("window")}Open a canvas</button></span></div>`;
+    }
+    const needs = all.filter(needsYou), working = all.filter(a => !needsYou(a) && busy(a));
+    const idle = all.filter(a => !needsYou(a) && !busy(a) && a.kind !== "scout");
+    const row = (a, right) => `<div class="hw-row" data-open="${a.id}" role="button" tabindex="0"><span class="dot ${dotFor(a.status)}"></span><span class="tt"><b>${esc(name(a))}${a.kind === "scout" ? ` <i class="tag">scout</i>` : ""}</b><span>${esc(right.sub || lastLine(a))}</span></span>${right.html || ""}</div>`;
+    const sec = (title, rows) => rows.length ? `<div class="grp-label">${title} · ${rows.length}</div>${rows.join("")}` : "";
+    return sec("Needs you", needs.map(a => { const n = needsYou(a); return row(a, { sub: n.why, html: n.resume ? `<button class="btn sm primary" data-resume="${a.id}">Carry on</button>` : `<button class="btn sm${n.ap ? " primary" : ""}" data-act-on="${a.id}">${n.ap ? "Review" : "Open"}</button>` }); }))
+      + sec("Working", working.map(a => row(a, { html: `<span class="meta">${esc(a.decision ? a.decision.model : "queued")}</span><button class="ib stopb" data-stop="${a.id}" aria-label="Stop" title="Stop">${icon("stop")}</button>` })))
+      + sec("Idle", idle.map(a => row(a, { html: `<span class="meta">${esc(a.status.replace(/_/g, " "))}</span>` })));
+  }
+
+  function details() {
+    each(root => {
+      const el = root.querySelector(".home-open");
+      if (!el) return;
+      const t = snap.tickets || [], act = activity.data;
+      const by = sts => t.filter(x => sts.includes(x.state)).length;
+      const keep = el.scrollTop;
+      el.innerHTML = {
+        agents: inbox,
+        tix: () => t.length ? `<div class="tix">${[["Needs you", ["proposed", "in_review", "ready_for_human", "needs_info"], "wait"], ["Running", ["queued", "in_progress"], "run"], ["Ready", ["ready_for_agent", "needs_triage"], ""], ["Done", ["done"], "done"], ["Failed", ["failed"], "fail"]].map(([l, sts, d]) => `<button class="tix-c" data-tix><span class="dot ${d}"></span><b>${by(sts)}</b><span>${l}</span></button>`).join("")}</div>` : `<div class="hw-empty">The main agent turns your goal into tickets.</div>`,
+        git: () => act ? `<div class="big">${act.days.reduce((a, b) => a + b, 0)}<span>commits in 14 days on every branch of ${esc(base(activity.path))}</span><span class="sp"></span><span class="add">+${act.added.toLocaleString()}</span><span class="del">−${act.removed.toLocaleString()}</span></div>${bars(act.days)}` : `<div class="hw-empty">${project() ? "Not a git repository yet." : "Open a project to see its activity."}</div>`,
+        proj: () => (prefs.projects || []).slice(0, 8).map(p => `<div class="hw-row" data-proj="${esc(p)}" role="button" tabindex="0">${icon("folder")}<span class="tt"><b>${esc(base(p))}</b><span>${esc(p)}</span></span>${hasProject && p === snap.workspace ? `<span class="meta on">open</span>` : p === project() ? `<span class="meta">chosen</span>` : ""}</div>`).join("") + `<div class="hw-row" data-act="openf" role="button" tabindex="0">${icon("plus")}<span class="tt"><b>Open folder…</b></span></div>`,
+        stats: statsView,
+        adv: () => visible().filter(a => a.advisor_calls).map(a => `<div class="hw-row" data-open="${a.id}" role="button" tabindex="0">${icon("sparkle")}<span class="tt"><b>${esc(name(a))}</b><span>consulted the advisor ${a.advisor_calls} time${a.advisor_calls === 1 ? "" : "s"}</span></span></div>`).join(""),
+      }[open]();
+      el.scrollTop = keep;
+      el.querySelectorAll("[data-sess]").forEach(b => (b.onclick = () => { stats.sel = stats.sel === b.dataset.sess ? null : b.dataset.sess; details(); }));
+      const pr = el.querySelector("[data-propose]");
+      if (pr) pr.onclick = async () => { try { stats.propose = await invoke("usage_propose", statsCfg()); } catch (e) { stats.propose = ["- " + String(e)]; } details(); };
+      el.querySelectorAll("[data-open]").forEach(b => (b.onclick = e => {
+        const s = e.target.closest("[data-stop]"), r = e.target.closest("[data-act-on]"), rs = e.target.closest("[data-resume]");
+        if (s) { e.stopPropagation(); invoke("stop", { agent: +s.dataset.stop }); return; }
+        if (rs) {
+        e.stopPropagation();
+        invoke("resume", { agent: +rs.dataset.resume })
+          .then(t => { toast(t, "ok"); setTimeout(() => refresh(false), 400); })
+          .catch(err => toast(String(err), "err"));
+        return;
+      }
+      if (r) { e.stopPropagation(); Code.actOn(agent(+r.dataset.actOn)); return; }
+      Code.openIn({ kind: "agent", agent: +b.dataset.open });
+    }));
+      el.querySelectorAll("[data-proj]").forEach(b => (b.onclick = () => { proj = b.dataset.proj; bar(); activity.path = ""; loadActivity(); pills(); }));
+      el.querySelectorAll("[data-tix]").forEach(b => (b.onclick = () => Code.setDrawer(true)));
+      const of = el.querySelector("[data-act=openf]"); if (of) of.onclick = pickProject;
+      const byv = el.querySelector("[data-act=view]"); if (byv) byv.onclick = startByView;
+    });
+  }
+
+  // The same project, started by view instead of by task: open it, switch to
+  // the canopies view and let the canvas picker choose what goes in it.
+  async function startByView() {
+    if (!(await ensureProject())) return;
+    try { await invoke("set_view_prefs", { chatView: null, motion: null, wbView: "canvases" }); } catch { }
+    prefs.wb_view = "canvases"; S.wb = "canvases";
+    setMode("code", false); setCodeView("agents");
+    const t = window.Code ? Code.tab() : null;
+    const empty = t ? t.panes.findIndex(p => p.kind === "empty") : -1;
+    if (empty >= 0) { S.focus = empty; Code.renderTabs(); Code.renderGrid(); }
+    else Code.openView({ kind: "empty", agent: 0, url: null });
+  }
+
+  // The model's name is a promise (the picker owns it), so this can resume after
+  // Home has been swapped out — the canvases took its place, or the project
+  // changed under it — and every write past the await would then be a null.
+  // Hold the root, and leave quietly if it is gone.
+  //
+  // Every mounted home gets the chips, not just one: the canvas zone and the ADE
+  // can both hold a home at once (the ADE's is the one on screen), and a chip
+  // line that only one of them received is a chip line that is wrong half the
+  // time. The model's name is a promise, so it is written after the await and
+  // only into the roots that still have the element.
+  async function bar() {
+    const live = [];
+    each(r => {
+      const proj = r.querySelector(".hc-above [data-act=proj] .v");
+      if (!proj) return;
+      const p = project();
+      proj.textContent = p ? base(p) : "Choose a project";
+      r.querySelector(".hc-above .mn").textContent = machine().name;
+      const main = agent(MAIN);
+      r.querySelector(".hc-above .br").textContent = (hasProject && main && main.branch) || "backspace/run";
+      r.querySelector(".hc-model .lg").innerHTML = Logos.mark(Picker.cliOf(choice().model));
+      live.push(r);
+    });
+    if (!live.length) return;
+    const c = choice();
+    const label = await Picker.label(c.model);
+    const ex = await Runs.executorLabel();
+    for (const r of live) { const v = r.querySelector(".hc-exec .v"); if (v) v.textContent = ex; }
+    for (const r of live) {
+      // The root outlives this await (the canvas grid is reused, not replaced)
+      // but its contents do not: look again, and skip one that has moved on.
+      const v = r.querySelector(".hc-model .v"), eff = r.querySelector(".hc-model .eff");
+      if (!v || !eff) continue;
+      v.textContent = label;
+      eff.textContent = Effort.name(Picker.cliOf(c.model), c.effort);
+    }
+  }
+
+  function projMenu(anchor) {
+    const ps = prefs.projects || [];
+    openPop(anchor, `${ps.map(p => `<button class="pi" data-p="${esc(p)}">${icon("folder")}${esc(base(p))}</button>`).join("")}<div class="psep"></div><button class="pi" data-p="">${icon("plus")}Open folder…</button>`, pop => {
+      pop.querySelectorAll("[data-p]").forEach(b => (b.onclick = () => { closePop(); if (!b.dataset.p) pickProject(); else { proj = b.dataset.p; bar(); activity.path = ""; loadActivity(); } }));
+    });
+  }
+
+  // The agents always work on backspace/run, a branch of their own beside
+  // yours; its menu says so and leads to where it is merged.
+  function branchMenu(anchor) {
+    openPop(anchor, `<div class="ph-t">backspace/run</div><div class="note">Your agents commit here, never on your branch. Merge it when their work is reviewed.</div>
+      <div class="psep"></div><button class="pi" data-b="git">${icon("branch")}Git activity</button><button class="pi" data-b="copy">${icon("copy")}Copy the branch name</button>`, pop => {
+      pop.querySelector("[data-b=git]").onclick = () => { closePop(); open = "git"; pills(); };
+      pop.querySelector("[data-b=copy]").onclick = () => { closePop(); navigator.clipboard && navigator.clipboard.writeText("backspace/run"); toast("Copied backspace/run", "ok"); };
+    });
+  }
+  // Where the work runs: this machine, or one it is paired with.
+  async function machMenu(anchor) {
+    const ms = await invoke("machines").catch(() => []);
+    openPop(anchor, `<div class="ph-t">Run on</div>${ms.map(m => `<button class="pi" data-m="${m.index}">${icon(m.local ? "pc" : "cloud")}${esc(m.local ? "This machine" : m.name)}${m.selected ? `<span class="meta on">${icon("check")}</span>` : ""}</button>`).join("")}
+      <div class="psep"></div><button class="pi" data-m="add">${icon("plus")}Add a machine…</button>`, pop => {
+      pop.querySelectorAll("[data-m]").forEach(b => (b.onclick = async () => {
+        closePop();
+        if (b.dataset.m === "add") { openSettings("machines"); return; }
+        await invoke("select_machine", { index: +b.dataset.m });
+        await refresh(true);
+      }));
+    });
+  }
+
+  // A new choice applies when the project is next opened; reopen it now if
+  // nothing is running.
+  let reopenT = null;
+  async function choose(c) {
+    prefs.planner = c.model || null;
+    prefs.cli_permission = c.permission; prefs.cli_effort = c.effort;
+    await invoke("set_agent_run", { planner: prefs.planner, worker: prefs.worker, permission: c.permission, effort: c.effort });
+    bar();
+    clearTimeout(reopenT);
+    reopenT = setTimeout(async () => {
+      if (!hasProject || !machine().local) return;
+      if (snap.agents.some(busy)) toast("Applies when you next open the project; agents are working.");
+      else await invoke("open_project", { path: snap.workspace }).catch(e => toast(String(e), "err"));
+    }, 900);
+  }
+
+  // The picker unfolds from the composer; the inbox steps aside meanwhile.
+  // `firstWith` hands back the root the home was drawn into, so the element the
+  // "picking" class belongs on is the `.home` inside it — that is what the CSS
+  // moves the hero up for.
+  function togglePicker() {
+    const root = firstWith(".hc-panel");
+    if (!root) return;
+    const home = root.querySelector(".home"), panel = root.querySelector(".hc-panel"), btn = root.querySelector("[data-act=model]");
+    if (picking) { Picker.close(); return; }
+    picking = true; panel.hidden = false; home.classList.add("picking"); btn.setAttribute("aria-expanded", "true");
+    Picker.mount(panel, choice(), choose, () => { picking = false; panel.hidden = true; home.classList.remove("picking"); btn.setAttribute("aria-expanded", "false"); });
+  }
+
+  async function ensureProject() {
+    const p = project();
+    if (!p) { pickProject(); return false; }
+    if (!hasProject || p !== snap.workspace) {
+      await openProject(p);
+      if (!hasProject || snap.workspace !== p) return false;
+    }
+    return true;
+  }
+
+  async function send(parallel) {
+    const bar = firstWith(".hc textarea");
+    const ta = bar && bar.querySelector(".hc textarea"), text = ta && ta.value.trim();
+    if (!text || !(await ensureProject())) return;
+    if (parallel) {
+      try {
+        const key = await invoke("start_task", { text });
+        toast(`Started ${key} in parallel, on its own branch`, "ok");
+      } catch (e) { toast(String(e), "err"); return; }
+      ta.value = ""; ta.style.height = "";
+      open = "agents"; pills();
+      return;
+    }
+    // Enter opens a conversation with the CLI in the project, the way Claude
+    // Code or T3 Code do: the ADE's chat, not the IDE's main-agent canvas.
+    const cli = window.Picker ? Picker.cliOf(choice().model) : "auto";
+    const route = cli !== "auto" ? { kind: "cli", provider: cli, model: null } : window.Chat && Chat.defaultRoute();
+    if (!route) { toast("Pick a CLI first: no model is set up yet.", "err"); return; }
+    try {
+      const t = await invoke("chat_new", { route, scope: { project: snap.workspace } });
+      await invoke("chat_send", { id: t.id, text, files: [], replyTo: null });
+      ta.value = ""; ta.style.height = "";
+      setCodeView("pair");
+      if (window.Chat) await Chat.open(t.id);
+    } catch (e) { toast(String(e), "err"); }
+  }
+
+  /// Draw the home into `g` — the hero, the ask line under it, then the pills
+  /// and the inbox, as one column. Whoever draws it gets all of it: Code → ADE
+  /// shows this screen whole, and the chat face's own composer steps aside.
+  function render(g) {
+    roots.add(g);
+    let home = g.querySelector(".home");
+    if (!home) {
+      g.className = "grid home-wrap";
+      g.innerHTML = shell();
+      home = g.querySelector(".home");
+      home.querySelector("[data-act=proj]").onclick = e => projMenu(e.currentTarget);
+      home.querySelector("[data-act=branch]").onclick = e => branchMenu(e.currentTarget);
+      home.querySelector("[data-act=mach]").onclick = e => machMenu(e.currentTarget);
+      home.querySelector("[data-act=model]").onclick = togglePicker;
+      home.querySelector("[data-act=exec]").onclick = e => Runs.pickExecutor(e.currentTarget, bar);
+      home.querySelector("[data-act=send]").onclick = () => send(false);
+      home.querySelector("[data-act=par]").onclick = () => send(true);
+      const ta = home.querySelector("textarea");
+      ta.onkeydown = e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(e.ctrlKey || e.metaKey); } };
+      ta.oninput = () => { ta.style.height = "auto"; ta.style.height = Math.min(200, ta.scrollHeight) + "px"; };
+      requestAnimationFrame(() => ta.focus());
+      picking = false;
+    }
+    bar();
+    pills();
+    loadActivity();
+    const stg = home.querySelector(".stg");
+    if (stg) {
+      stg.hidden = !hasProject;
+      if (hasProject && !stg._again) stg._again = Stages.mount(stg);
+      else if (stg._again) stg._again();
+    }
+  }
+
+  return { render };
+})();
