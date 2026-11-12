@@ -1,0 +1,538 @@
+<!doctype html>
+<meta name="claude:viewport-fit-sides" content="cover">
+<title>Cauldron Reference Study</title>
+<style>
+/* Order: what changed, the thread mock, the avatar study (two directions, pick, face moods, sizes, build), what we take from the references, Capy, decisions. Dark only: it is the app's look. */
+:root {
+  --bg: #09090a; --frame: #0c0c0d; --card: #161618; --raised: #1f1f22; --well: #252528; --line: #2e2e32;
+  --fg: #f4f3f6; --fg2: #c9c4cf; --fg3: #8d8794; --accent: #ff4d2d; --ok: #4ade80; --warn: #f0b429;
+  --settle: cubic-bezier(0.32, 0.72, 0, 1);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--fg);
+  font: 14px/1.5 "Inter", system-ui, sans-serif;
+  padding-block: 28px 56px;
+  padding-inline: max(16px, env(safe-area-inset-left, 0px)) max(16px, env(safe-area-inset-right, 0px));
+}
+.wrap { max-width: 1040px; margin: 0 auto; }
+h1 { font-size: 26px; line-height: 1.15; font-weight: 600; letter-spacing: -0.02em; margin: 0 0 8px; text-wrap: balance; }
+h2 { font-size: 18px; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 6px; }
+h3 { font-size: 14px; font-weight: 600; margin: 0 0 4px; }
+p { margin: 0; color: var(--fg2); max-width: 70ch; }
+.muted { color: var(--fg3); }
+section { margin-top: 44px; }
+.note { font-size: 12.5px; color: var(--fg3); }
+button { font: inherit; color: inherit; cursor: pointer; }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.verdict { border: 1px solid var(--line); background: var(--card); border-radius: 12px; padding: 18px; display: grid; gap: 10px; margin-top: 20px; }
+.verdict ul { margin: 0; padding-left: 18px; color: var(--fg2); display: grid; gap: 6px; }
+.verdict b { color: var(--fg); font-weight: 600; }
+
+/* ---------- Avatars ---------- */
+.avw { display: inline-block; flex: none; line-height: 0; }
+.av { display: block; overflow: visible; width: 100%; height: 100%; }
+.av .look { transition: opacity 0.2s; }
+.av .eye { fill: var(--eye); transform-box: fill-box; transform-origin: center; animation: blink 6.3s ease-in-out infinite; }
+.av .fx { opacity: 0; transition: opacity 0.2s; }
+.av .dots circle { fill: var(--eye); }
+.av .body, .av .head, .av .cog path { fill: var(--col); }
+.av .head { transition: opacity 0.22s, transform 0.22s var(--settle); transform-box: fill-box; transform-origin: center; }
+.av .cog { opacity: 0; transition: opacity 0.22s; }
+.av .cog .spin { transform-box: fill-box; transform-origin: center; }
+.av .dots { opacity: 0; transition: opacity 0.2s; }
+.av .q path { stroke: var(--fxc); fill: none; stroke-width: 16; stroke-linecap: round; stroke-linejoin: round; }
+.av .q circle, .av .bang path, .av .bang circle { fill: var(--fxc); }
+.av .z text { fill: var(--fxc); font: 800 6px/1 ui-rounded, "SF Pro Rounded", system-ui, sans-serif; }
+@keyframes blink { 0%, 44%, 48%, 90%, 93%, 96%, 100% { transform: scaleY(1); } 46%, 91.5%, 94.5% { transform: scaleY(0.1); } }
+
+.av[data-mood="idle"] .look { animation: l-idle 11s cubic-bezier(0.45, 0, 0.2, 1) infinite; }
+@keyframes l-idle { 0%, 16% { transform: translate(0, 0); } 20%, 34% { transform: translate(-3.2px, 1px); } 38%, 50% { transform: translate(0, 0); } 54%, 66% { transform: translate(3px, -0.5px); } 70%, 80% { transform: translate(1px, 2.4px); } 84%, 100% { transform: translate(0, 0); } }
+
+.av[data-mood="thinking"] .look { animation: l-think 4.6s var(--settle) infinite; }
+.av[data-mood="thinking"] .eye { animation: squint 4.6s var(--settle) infinite; }
+@keyframes l-think { 0%, 8% { transform: translate(0, 0); } 22%, 40% { transform: translate(-3px, -3px); } 54%, 70% { transform: translate(2.8px, -2.6px); } 76% { transform: translate(0.7px, 0.6px); } 94%, 100% { transform: translate(0, 0); } }
+@keyframes squint { 0%, 10% { transform: scale(1, 1); } 22%, 70% { transform: scale(1.06, 0.78); } 76%, 100% { transform: scale(1, 1); } }
+
+.av[data-mood="reading"] .look { animation: l-read 4.2s cubic-bezier(0.45, 0, 0.25, 1) infinite; }
+@keyframes l-read { 0% { transform: translate(0, 0); } 12% { transform: translate(-3px, 0.8px); } 42% { transform: translate(3px, 0.8px); } 54% { transform: translate(-3px, -0.2px); } 84% { transform: translate(3px, -0.2px); } 100% { transform: translate(0, 0); } }
+
+.av[data-mood="typing"] .look, .av[data-mood="working"] .look { opacity: 0; }
+.av[data-mood="typing"] .dots { opacity: 1; }
+.av[data-mood="working"] .head { opacity: 0; transform: scale(0.7); }
+.av[data-mood="working"] .cog { opacity: 1; }
+.av[data-mood="typing"] .dots circle { animation: dotb 1.2s ease-in-out infinite; }
+.av[data-mood="typing"] .dots circle:nth-child(2) { animation-delay: 0.15s; }
+.av[data-mood="typing"] .dots circle:nth-child(3) { animation-delay: 0.3s; }
+@keyframes dotb { 0%, 60%, 100% { transform: translateY(0); } 30% { transform: translateY(-2.4px); } }
+.av[data-mood="working"] .cog .spin { animation: spin 3.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.av[data-mood="asking"] .look { animation: l-wonder 4.2s cubic-bezier(0.45, 0, 0.2, 1) infinite; }
+.av[data-mood="asking"] .q { opacity: 1; }
+.av[data-mood="asking"] .q path { stroke-dasharray: 1; animation: draw 4.2s infinite; }
+@keyframes l-wonder { 0%, 10%, 88%, 100% { transform: translate(0, 0); } 22%, 76% { transform: translate(3.2px, -3px); } }
+@keyframes draw { 0%, 14% { stroke-dashoffset: 1; } 32%, 76% { stroke-dashoffset: 0; } 88%, 100% { stroke-dashoffset: 1; } }
+
+.av[data-mood="waiting"] .look { animation: l-down 4.2s cubic-bezier(0.45, 0, 0.25, 1) infinite; }
+@keyframes l-down { 0%, 8% { transform: translate(0, 0); } 22% { transform: translate(-1.6px, 4px); } 52%, 72% { transform: translate(1.6px, 4px); } 88%, 100% { transform: translate(0, 0); } }
+
+.av[data-mood="watching"] .look { transform: translate(var(--wx, 0px), var(--wy, 0px)); transition: transform 0.12s linear; }
+
+.av[data-mood="surprised"] .look { animation: l-up 2.6s cubic-bezier(0.45, 0, 0.25, 1) infinite; }
+.av[data-mood="surprised"] .eye { animation: wide 2.6s cubic-bezier(0.45, 0, 0.25, 1) infinite; }
+.av[data-mood="surprised"] .bang { opacity: 1; animation: pop 2.6s infinite; }
+@keyframes l-up { 0%, 12%, 84%, 100% { transform: translate(0, 0); } 24%, 72% { transform: translate(0, -1.4px); } }
+@keyframes wide { 0%, 12% { transform: scale(1); } 20%, 72% { transform: scale(1.3); } 84%, 100% { transform: scale(1); } }
+@keyframes pop { 0%, 20% { opacity: 0; } 30%, 72% { opacity: 1; } 84%, 100% { opacity: 0; } }
+
+.av[data-mood="sleepy"] .look { animation: l-sleep 5.6s cubic-bezier(0.45, 0, 0.25, 1) infinite; }
+.av[data-mood="sleepy"] .eye { animation: lids 5.6s cubic-bezier(0.45, 0, 0.25, 1) infinite; }
+.av[data-mood="sleepy"] .z { opacity: 1; }
+.av[data-mood="sleepy"] .z text { animation: zfloat 5.6s ease-in-out infinite; }
+.av[data-mood="sleepy"] .z text:nth-child(2) { animation-delay: 0.6s; }
+.av[data-mood="sleepy"] .z text:nth-child(3) { animation-delay: 1.2s; }
+@keyframes l-sleep { 0%, 8%, 90%, 100% { transform: translate(0, 0); } 26%, 82% { transform: translate(0, 1px); } }
+@keyframes lids { 0%, 8% { transform: scale(1, 1); } 26%, 82% { transform: scale(1.6, 0.42) translateY(0.9px); } 94%, 100% { transform: scale(1, 1); } }
+@keyframes zfloat { 0%, 22% { opacity: 0; transform: translate(0, 0); } 32% { opacity: 1; } 64%, 100% { opacity: 0; transform: translate(2.4px, -4px); } }
+
+.av[data-mood="error"] .look { animation: l-no 2.4s cubic-bezier(0.45, 0, 0.25, 1) infinite; }
+.av[data-mood="error"] .eye { animation: squint2 2.4s cubic-bezier(0.45, 0, 0.25, 1) infinite; }
+@keyframes l-no { 0%, 8% { transform: translate(0, 0); } 16% { transform: translate(-4.2px, 0); } 26% { transform: translate(4.2px, 0); } 36% { transform: translate(-3px, 0); } 46% { transform: translate(2px, 0); } 56%, 84% { transform: translate(0, 2px); } 94%, 100% { transform: translate(0, 0); } }
+@keyframes squint2 { 0%, 8% { transform: scale(1, 1); } 16%, 84% { transform: scale(1.1, 0.55); } 94%, 100% { transform: scale(1, 1); } }
+.av.nofx .fx { display: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .av .eye, .av .look, .av .cog .spin, .av .dots circle, .av .q path, .av .bang, .av .z text { animation: none !important; }
+  .av[data-mood="asking"] .q path { stroke-dashoffset: 0; }
+  .av[data-mood="sleepy"] .z text { opacity: 1; }
+}
+
+/* ---------- Window mock ---------- */
+.win { background: var(--frame); border: 1px solid var(--line); border-radius: 12px; padding: 10px; margin-top: 14px; min-width: 0; overflow: hidden; }
+.bar { height: 40px; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 8px; padding: 0 4px; }
+.bar .left, .bar .right { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.bar .right { justify-content: flex-end; color: var(--fg3); font-size: 12px; }
+.bar .mid { font-size: 12.5px; color: var(--fg3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bar .mid b { color: var(--fg2); font-weight: 500; }
+.logo { width: 18px; height: 18px; border-radius: 50%; background: var(--accent); flex: none; }
+.name { font-size: 13px; font-weight: 600; }
+.body { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 8px; margin-top: 4px; }
+@media (max-width: 720px) { .body { grid-template-columns: minmax(0, 1fr); } .side { display: none; } .bar .mid { display: none; } .bar { grid-template-columns: 1fr auto; } }
+.side { background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 10px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; align-content: start; min-width: 0; }
+.side .h { font-size: 11px; color: var(--fg3); padding: 6px 4px 2px; }
+.trow { display: flex; align-items: center; gap: 8px; padding: 6px; border-radius: 4px; font-size: 12.5px; color: var(--fg2); }
+.trow .t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.trow .age { margin-left: auto; color: var(--fg3); font-size: 11px; flex: none; }
+.main { display: flex; flex-direction: column; min-width: 0; }
+.tabs { height: 26px; display: flex; align-items: flex-end; flex: none; }
+.tab { position: relative; height: 26px; padding: 0 14px; display: inline-flex; align-items: center; gap: 6px; background: var(--card); border: 1px solid var(--line); border-bottom: 0; border-radius: 8px 8px 0 0; font-size: 12.5px; font-weight: 500; }
+.tab::after { content: ""; position: absolute; bottom: -1px; right: -10px; width: 10px; height: 10px; background: radial-gradient(circle at 100% 0, transparent 9.5px, var(--card) 10px); }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 6px; border-top-left-radius: 0; margin-top: -1px; display: flex; flex-direction: column; height: 500px; min-width: 0; }
+.scroll { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+.bubble { align-self: flex-end; max-width: 78%; background: var(--raised); border-radius: 6px; padding: 8px 12px; font-size: 13px; animation: rise 0.26s var(--settle) both; }
+@keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+/* Step ledger: a thin grey check and grey text, nothing else */
+.ledger { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--fg3); animation: fade 0.16s ease-out both; }
+.ledger svg { width: 14px; height: 14px; flex: none; stroke: currentColor; fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+.status { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--fg2); animation: fade 0.16s ease-out both; }
+.status .lbl { background: linear-gradient(90deg, var(--fg3) 0%, var(--fg) 50%, var(--fg3) 100%); background-size: 200% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: shimmer 1.8s linear infinite; }
+@keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .status .lbl { animation: none; color: var(--fg2); background: none; }
+  @keyframes rise { from { opacity: 0; } to { opacity: 1; } }
+}
+
+/* Question card: full width, rises in, chips follow 25ms apart, collapses away once answered */
+.collapse { display: grid; grid-template-rows: 1fr; transition: grid-template-rows 0.24s var(--settle), opacity 0.18s ease-out; }
+.collapse > div { min-height: 0; overflow: hidden; }
+.collapse.gone { grid-template-rows: 0fr; opacity: 0; }
+.ask { border: 1px solid var(--line); background: var(--raised); border-radius: 6px; padding: 14px 16px 16px; display: grid; gap: 12px; animation: rise 0.28s var(--settle) both; }
+.ask .q { font-size: 14px; font-weight: 600; }
+.opts { display: flex; gap: 8px; flex-wrap: wrap; }
+.opt { border: 1px solid var(--line); background: var(--well); border-radius: 4px; padding: 7px 14px; font-size: 13px; animation: rise 0.22s var(--settle) both; animation-delay: calc(90ms + var(--i) * 25ms); transition: background 0.12s, border-color 0.12s; }
+.opt:hover { background: #2d2d31; border-color: #3b3b41; }
+.opt.picked { border-color: var(--accent); background: rgba(255, 77, 45, 0.14); }
+
+/* Result card: a small gradient in the corner behind the call to action, solid button colours */
+.reply { font-size: 13px; color: var(--fg); animation: fade 0.2s ease-out both; }
+.result { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; border: 1px solid var(--line); border-radius: 6px; padding: 16px 16px 16px 18px; background: radial-gradient(110% 160% at 100% 100%, rgba(255, 77, 45, 0.34), rgba(255, 77, 45, 0.1) 36%, rgba(255, 77, 45, 0) 62%), var(--raised); animation: rise 0.28s var(--settle) both; }
+.result h3 { font-size: 15px; margin: 0; }
+.result .sub { font-size: 12.5px; color: var(--fg3); }
+.btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.btn { border: 1px solid transparent; border-radius: 4px; padding: 7px 14px; font-size: 12.5px; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; }
+.btn.pri { background: var(--accent); color: #190a06; }
+.btn.pri:hover { background: #ff6246; }
+.btn.sec { background: var(--well); border-color: #3b3b41; color: var(--fg); }
+.btn.sec:hover { background: #2d2d31; }
+.btn.quiet { background: transparent; color: var(--fg2); border-color: var(--line); }
+.btn svg { width: 12px; height: 12px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.composer { margin: 0 16px 16px; border: 1px solid var(--line); background: var(--frame); border-radius: 6px; padding: 10px 12px; display: flex; align-items: center; gap: 10px; }
+.composer .in { flex: 1; color: var(--fg3); font-size: 13px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.send { width: 28px; height: 28px; border-radius: 50%; background: var(--fg); color: var(--bg); border: 0; display: grid; place-items: center; flex: none; font-size: 14px; }
+.send[disabled] { opacity: 0.35; cursor: default; }
+.replay { color: var(--fg3); font-size: 12px; background: none; border: 0; padding: 0; text-decoration: underline; }
+.empty { margin: auto; display: grid; justify-items: center; gap: 14px; text-align: center; padding: 20px; }
+.empty h3 { font-size: 16px; margin: 0; }
+.prompts { display: grid; gap: 8px; width: min(100%, 360px); }
+.prompts .opt { text-align: left; }
+
+/* ---------- Boards ---------- */
+.dir { display: grid; gap: 14px; grid-template-columns: 1fr; margin-top: 14px; }
+@media (min-width: 820px) { .dir { grid-template-columns: 1.15fr 1fr; } }
+.panel { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; display: grid; gap: 12px; align-content: start; min-width: 0; }
+.panel .tag { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--fg3); }
+.stage { background: var(--frame); border: 1px solid var(--line); border-radius: 8px; padding: 14px; display: flex; gap: 8px; justify-content: space-around; align-items: flex-end; flex-wrap: wrap; }
+.stage .cell { display: grid; justify-items: center; gap: 6px; font-size: 11.5px; color: var(--fg3); }
+.pros { margin: 0; padding-left: 16px; display: grid; gap: 3px; font-size: 13px; color: var(--fg2); }
+.pros b { color: var(--fg); font-weight: 600; }
+.pick { border: 1px solid var(--accent); background: var(--card); border-radius: 10px; padding: 16px; margin-top: 14px; display: grid; gap: 8px; }
+.pick .tag { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent); }
+.pick ul { margin: 0; padding-left: 18px; display: grid; gap: 5px; color: var(--fg2); }
+.pick b { color: var(--fg); font-weight: 600; }
+.moods { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 10px; margin-top: 12px; }
+.moods .cell { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 12px 8px 10px; display: grid; justify-items: center; gap: 6px; font-size: 12px; color: var(--fg2); }
+.seg { display: inline-flex; gap: 4px; margin-top: 12px; flex-wrap: wrap; }
+.seg button { border: 1px solid var(--line); background: var(--card); border-radius: 4px; padding: 4px 10px; font-size: 12px; color: var(--fg2); }
+.seg button[aria-pressed="true"] { border-color: var(--accent); color: var(--fg); background: rgba(255, 77, 45, 0.12); }
+.inline { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+code { font-family: ui-monospace, "SF Mono", Consolas, monospace; font-size: 12px; color: var(--fg); }
+
+.tbl { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 13px; }
+.tbl th { text-align: left; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--fg3); font-weight: 600; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+.tbl td { padding: 10px; border-bottom: 1px solid var(--line); color: var(--fg2); vertical-align: top; }
+.tbl td:first-child { color: var(--fg); white-space: nowrap; }
+.scrollx { overflow-x: auto; }
+.pill { display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--raised); color: var(--fg2); white-space: nowrap; }
+.pill.now { background: rgba(74, 222, 128, 0.15); color: var(--ok); }
+.pill.later { background: rgba(240, 180, 41, 0.15); color: var(--warn); }
+.pill.skip { color: var(--fg3); }
+.decisions { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 18px; margin-top: 14px; display: grid; gap: 10px; }
+.decisions ol { margin: 0; padding-left: 20px; display: grid; gap: 8px; color: var(--fg2); }
+.decisions b { color: var(--fg); font-weight: 600; }
+</style>
+
+<div class="wrap">
+<h1>Thread pattern and flat avatars</h1>
+<p>Updated from your notes: a cleaner step ledger, a wider question card that animates, a result card with a corner gradient and solid button colours, and avatars redrawn as flat figures with orbling's face moods.</p>
+
+<div class="verdict">
+  <ul>
+    <li><b>Ledger:</b> a thin grey check and grey text, no circle, tighter rows, as in orbling.</li>
+    <li><b>Question card:</b> full width, rises in, chips follow 25ms apart, collapses away when answered.</li>
+    <li><b>Result card:</b> a coral gradient in the corner. Primary button is solid accent, secondary is neutral.</li>
+    <li><b>Avatars:</b> the figure at every size, flat single colours, bigger head and smaller body. The face carries the eleven orbling moods and, when working, the whole head turns into a cog.</li>
+  </ul>
+</div>
+
+<section>
+  <h2>The thread, in our window</h2>
+  <p>Press Send, or pick a prompt. The status line shows the active agent's face and its mood, finished steps collapse into the ledger, and the run stops at the question card until you answer.</p>
+  <div class="win">
+    <div class="bar">
+      <div class="left"><span class="logo"></span><span class="name">Cauldron</span></div>
+      <div class="mid">Threads <span class="muted">/</span> <b>Review the M3 start_task change</b></div>
+      <div class="right">Terminal · Split</div>
+    </div>
+    <div class="body">
+      <aside class="side">
+        <div class="h">Needs you</div>
+        <div class="trow"><span class="avw" style="height:24px" data-av="orange:asking"></span><span class="t">Review the M3 start_task change</span><span class="age">now</span></div>
+        <div class="h">Running</div>
+        <div class="trow"><span class="avw" style="height:24px" data-av="green:working"></span><span class="t">Rampart mutation score</span><span class="age">4m</span></div>
+        <div class="h">Done</div>
+        <div class="trow"><span class="avw" style="height:24px" data-av="violet:idle"></span><span class="t">Router weights for the eval set</span><span class="age">5w</span></div>
+      </aside>
+      <div class="main">
+        <div class="tabs"><span class="tab"><span class="avw" style="height:18px" data-av="orange:idle"></span>Coordinator</span></div>
+        <div class="card">
+          <div class="scroll" id="thread" aria-live="polite"></div>
+          <div class="composer">
+            <span class="in" id="composerText">Ask anything</span>
+            <button class="send" id="send" aria-label="Send">&#8593;</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p class="note" style="margin-top:8px"><button class="replay" id="replay" type="button">Replay</button> <span class="muted">· Radii stay on your 6/4 anchor, so the card is 6 and the chips 4, not orbling's pills.</span></p>
+
+  <h3 style="margin-top:20px">Button colours</h3>
+  <div class="inline" style="margin-top:8px">
+    <button class="btn pri" type="button">Trust and run</button>
+    <button class="btn sec" type="button">Open patch</button>
+    <button class="btn quiet" type="button">Dismiss</button>
+    <span class="note">Primary is the one accent. Secondary is neutral. Quiet is for dismiss and cancel.</span>
+  </div>
+</section>
+
+<section>
+  <h2>Avatars: the figure, flat</h2>
+  <p>You picked A, so the figure stays at every size. The head is bigger and the body smaller, the colours are flat, one per agent, and when an agent is working the whole head turns into a cog. Bare pill eyes stay, as in A.</p>
+
+  <div class="dir" style="grid-template-columns: 1fr 1fr">
+    <div class="panel">
+      <span class="tag">Proportions</span>
+      <div class="stage" id="props"></div>
+      <ul class="pros"><li>Head 19 to 22, body 40 to 33 (radius in a 100 box), so the head is about two thirds of the body's width, up from under half.</li><li>A small gap stays between them, as in your images. Same flat colour, so the gap is what separates them.</li></ul>
+    </div>
+    <div class="panel">
+      <span class="tag">Sizes, body kept</span>
+      <div class="stage" id="sizes"></div>
+      <ul class="pros"><li>Below about 24px the face is two dots. The status label carries the mood, not the face.</li></ul>
+    </div>
+  </div>
+
+  <div class="pick">
+    <span class="tag">Your notes, applied</span>
+    <ul>
+      <li><b>Figure at every size:</b> the head crop is gone. Rows, tabs and the status line draw the same figure, smaller.</li>
+      <li><b>Flat, one colour:</b> no paint, no pearl, no light. The nine colours are the agent dots already in the app.</li>
+      <li><b>Working:</b> the head itself becomes a turning cog with a hole, the face hides, the body stays still.</li>
+      <li><b>Unchanged:</b> typing (three bouncing dots), asking, waiting, watching and the rest of the moods.</li>
+    </ul>
+  </div>
+
+  <h3 style="margin-top:26px">The nine agent colours</h3>
+  <div class="stage" id="palette" style="margin-top:10px"></div>
+
+  <h3 style="margin-top:26px">Face moods</h3>
+  <p class="note">The eleven orbling moods. Only the face changes. Working turns the head into a cog, typing swaps the eyes for three bouncing dots, and the question mark, exclamation mark and z's show at 40px and up. Watching follows your pointer. Reduced motion shows still faces.</p>
+  <div class="seg" id="matSeg" role="group" aria-label="Colour"></div>
+  <div class="moods" id="moods"></div>
+
+  <h3 style="margin-top:26px">How it is built in the app</h3>
+  <ul class="pros" style="margin-top:6px">
+    <li><b>All vector, no image files:</b> two circles, the face and the cog are plain path fills in GPUI. This replaces the generated textured spheres, so the seeded-texture code is no longer needed.</li>
+    <li><b>Face and cog:</b> eye positions per mood and time, and the cog's angle, are pure functions in <code>cauldron-chrome</code> with tests, driven by the motion clock we already have.</li>
+    <li><b>Colour:</b> the agent's dot, from the existing token list.</li>
+    <li><b>Cost:</b> smaller than the textured version. The mood from core is limited to what it knows today, see the table below.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>Moods and what drives them</h2>
+  <div class="scrollx">
+  <table class="tbl">
+    <thead><tr><th>Mood</th><th>Cauldron thread state</th><th>Driven by</th></tr></thead>
+    <tbody>
+      <tr><td>thinking</td><td>Running</td><td>Message is sending, or reasoning text is arriving <span class="pill now">core today</span></td></tr>
+      <tr><td>typing</td><td>Running</td><td>The reply is streaming <span class="pill now">core today</span></td></tr>
+      <tr><td>error</td><td>Failed</td><td>Last reply failed <span class="pill now">core today</span></td></tr>
+      <tr><td>idle</td><td>Done</td><td>Nothing running <span class="pill now">core today</span></td></tr>
+      <tr><td>reading, working</td><td>Running</td><td>Needs tool and agent events from core <span class="pill later">later</span></td></tr>
+      <tr><td>asking, waiting</td><td>Needs you</td><td>Needs ask cards from core <span class="pill later">later</span></td></tr>
+      <tr><td>sleepy</td><td>Hibernating</td><td>Needs hibernation in core <span class="pill later">later</span></td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section>
+  <h2>What we take from the references</h2>
+  <div class="scrollx">
+  <table class="tbl">
+    <thead><tr><th>Source</th><th>Take</th><th>Skip</th></tr></thead>
+    <tbody>
+      <tr><td>orbling (MIT)</td><td>Mood names and the face behaviour. Status line with a shimmer label. Steps collapsing to a ledger. The question card that blocks the run. Result card with one call to action.</td><td>The WebGL heat, the gear and dots replacing the whole body, the scripted demo, the pill radii.</td></tr>
+      <tr><td>open-bot-avatar (MIT)</td><td>The idea of a small declarative avatar spec that a model can write.</td><td>Its path shapes, the 3D renderer, the editor.</td></tr>
+      <tr><td>Capy</td><td>Ideas only, see below.</td><td>Assets, wallpaper, branding.</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="note" style="margin-top:8px">Both repos are MIT. We copy the mood names, the question and exclamation mark paths and the shimmer idea, so the app gets a THIRD-PARTY notice with their copyright lines.</p>
+</section>
+
+<section>
+  <h2>Capy, idea by idea</h2>
+  <div class="scrollx">
+  <table class="tbl">
+    <thead><tr><th>Capy</th><th>Cauldron now</th><th>Recommendation</th></tr></thead>
+    <tbody>
+      <tr><td>Nav as a text list</td><td>Seven-icon function row</td><td><span class="pill skip">keep ours</span> You picked the icons.</td></tr>
+      <tr><td>Threads grouped by project, ID and age on line two</td><td>Grouped by state</td><td><span class="pill now">add a toggle</span> Group by State or Project.</td></tr>
+      <tr><td>Chips above the composer: project, machine and worktree, branch</td><td>Machine switcher inside the box</td><td><span class="pill now">add</span> Project and branch chips above the New thread box.</td></tr>
+      <tr><td>Wallpaper under a translucent main card</td><td>Flat dark card</td><td><span class="pill now">add</span> A pre-blurred wallpaper under a translucent card. GPUI cannot blur a single element live.</td></tr>
+      <tr><td>Short tabs beside the window controls</td><td>26px tabs, top bar above</td><td><span class="pill skip">already there</span></td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section>
+  <h2>Decisions for you</h2>
+  <div class="decisions">
+    <ol>
+      <li><b>Colour per role:</b> from the nine agent dots, I would use orange for the coordinator, cyan for the researcher, green for the builder and violet for the reviewer. OK?</li>
+      <li><b>Face:</b> I kept bare pill eyes, as in A. The Windows build's first frame used a dark visor. Say so if you want that instead.</li>
+      <li><b>Buttons:</b> by "different colours" I read primary in solid accent and secondary in neutral. If you meant a different colour per kind of action, say which.</li>
+      <li><b>Project grouping toggle</b> in the sidebar, next to the state grouping?</li>
+      <li><b>Wallpaper</b> under the main card? If yes, send an image or I use a dark abstract one.</li>
+      <li><b>Generative blocks:</b> should the next board be the closed block set (about eight types), drawn in this style?</li>
+    </ol>
+  </div>
+</section>
+</div>
+
+<script>
+// ---- Avatar: two flat circles and a round face, in an agent colour ----
+var DOTS = { orange: '#e0703a', cyan: '#38c0e8', green: '#3fb27f', amber: '#e0a32a', pink: '#d9669a', blue: '#5b8cf0', red: '#e05656', lavender: '#9a82f5', violet: '#8b5cf6' };
+// Orbling's cog outline (MIT), with a hole cut in the middle
+var GEAR = 'M39.23 15.65 L41.41 2.27 L58.59 2.27 L60.77 15.65 A36 36 0 0 1 74.37 23.5 L87.04 18.7 L95.63 33.57 L85.13 42.15 A36 36 0 0 1 85.13 57.85 L95.63 66.43 L87.04 81.3 L74.37 76.5 A36 36 0 0 1 60.77 84.35 L58.59 97.73 L41.41 97.73 L39.23 84.35 A36 36 0 0 1 25.63 76.5 L12.96 81.3 L4.37 66.43 L14.87 57.85 A36 36 0 0 1 14.87 42.15 L4.37 33.57 L12.96 18.7 L25.63 23.5 A36 36 0 0 1 39.23 15.65 Z M64 50 A14 14 0 1 0 36 50 A14 14 0 1 0 64 50 Z';
+var PROPS = { now: { hr: 22, hcy: 33, br: 33, bcy: 92 }, before: { hr: 19, hcy: 33, br: 40, bcy: 97 } };
+
+function figure(col, mood, h, prop) {
+  var P = PROPS[prop || 'now'], hr = P.hr, hcy = P.hcy, br = P.br, bcy = P.bcy;
+  var dx = Math.sqrt(br * br - (100 - bcy) * (100 - bcy));
+  var small = h < 40, D = 2 * hr, k = small ? 1.25 : 1;
+  var w = 0.10 * D * k, eh = 0.19 * D * k, c = (0.14 * D) / 2 + w / 2;
+  var gs = (hr * 1.08) / 47.7;
+  var eyes = '<rect class="eye" x="' + (-c - w / 2).toFixed(2) + '" y="' + (-eh / 2).toFixed(2) + '" width="' + w.toFixed(2) + '" height="' + eh.toFixed(2) + '" rx="' + (w / 2).toFixed(2) + '"/>' +
+             '<rect class="eye" x="' + (c - w / 2).toFixed(2) + '" y="' + (-eh / 2).toFixed(2) + '" width="' + w.toFixed(2) + '" height="' + eh.toFixed(2) + '" rx="' + (w / 2).toFixed(2) + '"/>';
+  var fx = '<g class="fx q" transform="translate(63 4) rotate(10) scale(.085)"><path pathLength="1" d="M24 40 C24 18 40 6 58 6 C78 6 92 20 92 38 C92 56 78 64 68 72 C61 78 58 84 58 96"/><circle cx="58" cy="122" r="10"/></g>' +
+           '<g class="fx bang" transform="translate(69 3) scale(.1)"><path d="M20 4 C27 4 31 9 30 16 L26 62 C25.5 67 23 69 20 69 C17 69 14.5 67 14 62 L10 16 C9 9 13 4 20 4 Z"/><circle cx="20" cy="87" r="9"/></g>' +
+           '<g class="fx z"><text x="67" y="17">z</text><text x="71" y="12">z</text><text x="75" y="7">z</text></g>';
+  var svg = '<svg class="av' + (small ? ' nofx' : '') + '" viewBox="10 6 80 94" data-mood="' + mood + '" style="--col:' + col + ';--fxc:' + col + ';--eye:#14121a" aria-hidden="true">' +
+    '<path class="body" d="M' + (50 - dx).toFixed(2) + ' 100 A' + br + ' ' + br + ' 0 1 1 ' + (50 + dx).toFixed(2) + ' 100Z"/>' +
+    '<circle class="head" cx="50" cy="' + hcy + '" r="' + hr + '"/>' +
+    '<g class="cog" transform="translate(50 ' + hcy + ') scale(' + gs.toFixed(3) + ') translate(-50 -50)"><g class="spin"><path fill-rule="evenodd" d="' + GEAR + '"/></g></g>' +
+    '<g transform="translate(50 ' + (hcy - 0.9) + ')"><g class="look">' + eyes + '</g>' +
+    '<g class="dots"><circle cx="-7.5" cy="0" r="2.4"/><circle cx="0" cy="0" r="2.4"/><circle cx="7.5" cy="0" r="2.4"/></g></g>' + fx + '</svg>';
+  return '<span class="avw" style="width:' + Math.round(h * 0.851) + 'px;height:' + h + 'px">' + svg + '</span>';
+}
+
+function mount() {
+  document.querySelectorAll('[data-av]').forEach(function (el) {
+    var p = el.dataset.av.split(':');
+    el.outerHTML = figure(DOTS[p[0]], p[1], parseInt(el.style.height, 10) || 24);
+  });
+}
+
+// ---- Boards ----
+function cells(id, items) {
+  document.getElementById(id).innerHTML = items.map(function (i) {
+    return '<span class="cell">' + figure(i.col, i.mood || 'idle', i.h, i.prop) + '<span>' + i.label + '</span></span>';
+  }).join('');
+}
+cells('props', [
+  { col: DOTS.orange, h: 112, prop: 'before', label: 'Before' },
+  { col: DOTS.orange, h: 112, prop: 'now', label: 'Now' },
+  { col: DOTS.orange, h: 48, prop: 'now', label: '48' }
+]);
+cells('sizes', [128, 64, 40, 28, 22, 16].map(function (h) { return { col: DOTS.cyan, h: h, label: String(h) }; }));
+cells('palette', Object.keys(DOTS).map(function (n) { return { col: DOTS[n], h: 64, label: n }; }));
+
+var MOODS = ['idle', 'thinking', 'reading', 'typing', 'working', 'asking', 'waiting', 'watching', 'surprised', 'sleepy', 'error'];
+var curCol = 'orange';
+function drawMoods() {
+  document.getElementById('moods').innerHTML = MOODS.map(function (md) {
+    return '<span class="cell">' + figure(DOTS[curCol], md, 96) + '<span>' + md[0].toUpperCase() + md.slice(1) + '</span></span>';
+  }).join('');
+}
+var seg = document.getElementById('matSeg');
+['orange', 'cyan', 'green', 'violet'].forEach(function (k) {
+  var b = document.createElement('button'); b.type = 'button'; b.textContent = k[0].toUpperCase() + k.slice(1); b.setAttribute('aria-pressed', k === curCol ? 'true' : 'false');
+  b.addEventListener('click', function () {
+    curCol = k;
+    seg.querySelectorAll('button').forEach(function (x) { x.setAttribute('aria-pressed', x === b ? 'true' : 'false'); });
+    drawMoods();
+  });
+  seg.appendChild(b);
+});
+drawMoods();
+
+// Watching follows the pointer
+document.addEventListener('pointermove', function (e) {
+  document.querySelectorAll('.av[data-mood="watching"]').forEach(function (s) {
+    var r = s.getBoundingClientRect(), dx = e.clientX - (r.left + r.width / 2), dy = e.clientY - (r.top + r.height / 2);
+    var d = Math.max(1, Math.hypot(dx, dy)), k = Math.min(1, d / 140);
+    s.style.setProperty('--wx', (dx / d * 3.6 * k).toFixed(2) + 'px');
+    s.style.setProperty('--wy', (dy / d * 3 * k).toFixed(2) + 'px');
+  });
+});
+
+// ---- The thread ----
+var thread = document.getElementById('thread');
+var send = document.getElementById('send');
+var composerText = document.getElementById('composerText');
+var quick = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+var run = 0;
+var WHO = { brain: 'orange', magnifier: 'cyan', rocket: 'green', shield: 'violet' };
+var CHECK = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7"/></svg>';
+var ARROW = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 11l6-6M6 5h5v5"/></svg>';
+var PROMPTS = ['Review the M3 start_task change and open a patch', 'Find why the Windows build is red', 'Summarize what changed this week'];
+
+function el(html) { var d = document.createElement('div'); d.innerHTML = html; return d.firstElementChild; }
+function add(node) { thread.appendChild(node); thread.scrollTop = thread.scrollHeight; return node; }
+function wait(ms, id) { return new Promise(function (r) { setTimeout(function () { r(id === run); }, quick ? Math.min(ms, 250) : ms); }); }
+function status(who, mood, label) {
+  return add(el('<div class="status">' + figure(DOTS[WHO[who]], mood, 30) + '<span class="lbl">' + label + '</span></div>'));
+}
+function ledger(text) { return add(el('<div class="ledger">' + CHECK + '<span>' + text + '</span></div>')); }
+
+async function step(id, who, mood, label, ms, done) {
+  var s = status(who, mood, label);
+  if (!(await wait(ms, id))) return false;
+  s.remove();
+  ledger(done);
+  return true;
+}
+
+function showEmpty() {
+  thread.innerHTML = '';
+  var e = add(el('<div class="empty">' + figure(DOTS.orange, 'idle', 132) + '<h3>What can I help with?</h3><div class="prompts"></div></div>'));
+  PROMPTS.forEach(function (t, i) {
+    var b = el('<button class="opt" type="button" style="--i:' + i + '">' + t + '</button>');
+    b.addEventListener('click', function () { play(t); });
+    e.querySelector('.prompts').appendChild(b);
+  });
+}
+
+async function play(text) {
+  var id = ++run;
+  send.disabled = true;
+  thread.innerHTML = '';
+  composerText.textContent = 'Waiting for the coordinator';
+  add(el('<div class="bubble">' + (typeof text === 'string' ? text : PROMPTS[0]) + '</div>'));
+  if (!(await step(id, 'brain', 'thinking', 'Thinking…', 1500, 'Thought for 2s'))) return;
+  if (!(await step(id, 'magnifier', 'reading', 'Reading 12 files…', 1800, 'Read 12 files'))) return;
+  if (!(await step(id, 'rocket', 'working', 'Drafting the change…', 1800, 'Drafted 3 edits'))) return;
+  var s = status('brain', 'asking', 'Waiting for your answer…');
+  var wrap = add(el('<div class="collapse"><div><div class="ask"><div class="q">Which branch should the patch go to?</div><div class="opts"></div></div></div></div>'));
+  var picked = await new Promise(function (resolve) {
+    ['main', 'release/1.2', 'Ask me later'].forEach(function (t, i) {
+      var b = el('<button class="opt" type="button" style="--i:' + i + '">' + t + '</button>');
+      b.addEventListener('click', function () { b.classList.add('picked'); setTimeout(function () { resolve(t); }, quick ? 0 : 140); });
+      wrap.querySelector('.opts').appendChild(b);
+    });
+    window.__cancel = function () { resolve(null); };
+  });
+  if (picked === null || id !== run) return;
+  s.remove();
+  wrap.classList.add('gone');
+  if (!(await wait(240, id))) return;
+  wrap.remove();
+  add(el('<div class="bubble">' + picked + '</div>'));
+  if (!(await step(id, 'shield', 'thinking', 'Reviewing the patch…', 1600, 'Reviewed, no blockers'))) return;
+  add(el('<div class="reply">Done. The patch is ready on <b>' + picked + '</b>.</div>'));
+  add(el('<div class="result"><div><h3>Patch ready</h3><div class="sub">3 files · +42 &minus;7 · ' + picked + '</div></div><div class="btns"><button class="btn sec" type="button">Open patch</button><button class="btn pri" type="button">Trust and run ' + ARROW + '</button></div></div>'));
+  composerText.textContent = 'Reply to the coordinator';
+  send.disabled = false;
+}
+
+function reset() {
+  run++;
+  if (window.__cancel) window.__cancel();
+  composerText.textContent = 'Ask anything';
+  send.disabled = false;
+  showEmpty();
+}
+mount();
+showEmpty();
+send.addEventListener('click', function () { play(); });
+document.getElementById('replay').addEventListener('click', reset);
+</script>
