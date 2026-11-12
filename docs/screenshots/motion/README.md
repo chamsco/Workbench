@@ -19,6 +19,6 @@ Captured on Charles's Windows 11 PC, 12 Nov 2026, 100% scaling, 1240x702, dark t
 
 - Reduced motion with the Windows setting off (changing it is a system setting); the cut path is tested with `set_reduce_motion(true)` in every test window.
 - The setting is read at launch only, not when it changes.
-- The highlight slide was not shot mid-frame. Slowed runs stall: the shot window sits in the background, where Windows throttles frames, so the animation only advances on input. At real speed it settles with no input (checked).
+- The highlight slide was not shot mid-frame. In my screenshot harness (window driven by posted messages, not focused), slowed runs stop getting frames about 0.3s after the last input: logged at 100x, the machine menu's pop-in reached 0.119 in 58 frames, then nothing for 20s. At real speed, logged with no input, it reaches 1.0 in 10 frames and does not restart over 5s. Why frames stop there is not established.
 - The menu and tooltip motion has no unit test of its own; the earlier `Tween` and `lerp` helpers, and their two tests (written with the module, so no red run), were removed as unused. `Motion-green-output.txt` predates that.
 - Items 3, 5, 1, 2, 4, 6, 7, 9 are not built yet.
