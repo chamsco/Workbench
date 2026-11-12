@@ -326,7 +326,7 @@ code { font-family: ui-monospace, "SF Mono", Consolas, monospace; font-size: 12p
   <div class="stage" id="outline" style="margin-top:10px; justify-content: flex-start; gap: 22px"></div>
 
   <h3 style="margin-top:26px">Chat agent: a bust, so the face shows</h3>
-  <p class="note">For the thread status line the figure is cropped to the head plus the top of the shoulders, so the head is about a third bigger at the same height. Top row at real size, bottom row zoomed four times. Rows and tabs still draw the full figure.</p>
+  <p class="note">For the thread status line the figure is cropped to the head plus the shoulders (crop 18 7 64 64: the head is about 12% smaller than in the first bust, and twice as much shoulder shows), so the head is still far bigger than the full figure at the same height. Top row at real size, bottom row zoomed four times. Rows and tabs still draw the full figure.</p>
   <div class="stage" id="bust" style="margin-top:10px; justify-content: flex-start; gap: 26px"></div>
 
   <h3 style="margin-top:26px">The nine agent colours</h3>
@@ -424,9 +424,11 @@ function figure(col, mood, h, o) {
   o = o || {};
   var P = PROPS[o.prop || 'now'], hr = P.hr, hcy = P.hcy, br = P.br, bcy = P.bcy;
   var out = !!o.outline, typing = o.typing || 'heads', bust = !!o.bust;
-  var vb = bust ? '22 9 56 56' : '10 4 80 96', vh = bust ? 56 : 96;   // the bust is the head plus the top of the shoulders
+  var BV = window.BUSVB || [18, 7, 64];                         // bust crop: x, y, side
+  var vb = bust ? BV[0] + ' ' + BV[1] + ' ' + BV[2] + ' ' + BV[2] : '10 4 80 96', vh = bust ? BV[2] : 96;   // the bust is the head plus the top of the shoulders
   var sw = Math.max(2.4, 1.4 / (h / vh)).toFixed(2);          // outline weight: never thinner than ~1.7px
-  var dx = Math.sqrt(br * br - (100 - bcy) * (100 - bcy));
+  var yc = bust ? BV[1] + BV[2] : 100;                           // where the body is cut: the crop's bottom edge for a bust
+  var dx = Math.sqrt(br * br - (yc - bcy) * (yc - bcy));
   var small = bust ? h < 14 : h < 28, D = 2 * hr, k = bust ? 1.1 : (h < 40 ? 1.25 : 1);
   var w = 0.10 * D * k, eh = 0.24 * D * k, c = (0.14 * D) / 2 + w / 2;
   var gs = (hr * 1.08) / 47.7, mr = hr * 0.33, ms = mr * 2.2;
@@ -434,13 +436,13 @@ function figure(col, mood, h, o) {
              '<rect class="eye" x="' + (c - w / 2).toFixed(2) + '" y="' + (-eh / 2).toFixed(2) + '" width="' + w.toFixed(2) + '" height="' + eh.toFixed(2) + '" rx="' + (w / 2).toFixed(2) + '"/>';
   // The marks float above and to the right of the head, bigger and bolder so they read at 28px and up
   var fx = bust
-    ? '<g class="fx q" transform="translate(61 -13) rotate(10) scale(.2)"><path pathLength="1" d="M24 40 C24 18 40 6 58 6 C78 6 92 20 92 38 C92 56 78 64 68 72 C61 78 58 84 58 96"/><circle cx="58" cy="124" r="13"/></g>' +
-      '<g class="fx bang" transform="translate(68 -10) scale(.25)"><path d="M20 4 C27 4 31 9 30 16 L26 62 C25.5 67 23 69 20 69 C17 69 14 67 14 62 L10 16 C9 9 13 4 20 4 Z"/><circle cx="20" cy="87" r="9"/></g>' +
-      '<g class="fx z" style="font-size:17px"><text x="64" y="14">z</text><text x="70" y="3">z</text><text x="76" y="-8">z</text></g>'
+    ? '<g class="fx q" transform="translate(61 -13) rotate(10) scale(.228)"><path pathLength="1" d="M24 40 C24 18 40 6 58 6 C78 6 92 20 92 38 C92 56 78 64 68 72 C61 78 58 84 58 96"/><circle cx="58" cy="124" r="13"/></g>' +
+      '<g class="fx bang" transform="translate(68 -10) scale(.285)"><path d="M20 4 C27 4 31 9 30 16 L26 62 C25.5 67 23 69 20 69 C17 69 14 67 14 62 L10 16 C9 9 13 4 20 4 Z"/><circle cx="20" cy="87" r="9"/></g>' +
+      '<g class="fx z" style="font-size:19px"><text x="64" y="14">z</text><text x="70" y="3">z</text><text x="76" y="-8">z</text></g>'
     : '<g class="fx q" transform="translate(62 -7) rotate(10) scale(.135)"><path pathLength="1" d="M24 40 C24 18 40 6 58 6 C78 6 92 20 92 38 C92 56 78 64 68 72 C61 78 58 84 58 96"/><circle cx="58" cy="124" r="13"/></g>' +
       '<g class="fx bang" transform="translate(68 -8) scale(.17)"><path d="M20 4 C27 4 31 9 30 16 L26 62 C25.5 67 23 69 20 69 C17 69 14.5 67 14 62 L10 16 C9 9 13 4 20 4 Z"/><circle cx="20" cy="87" r="9"/></g>' +
       '<g class="fx z"><text x="67" y="16">z</text><text x="72" y="8">z</text><text x="78" y="0">z</text></g>';
-  var bd = 'M' + (50 - dx).toFixed(2) + ' 100 A' + br + ' ' + br + ' 0 1 1 ' + (50 + dx).toFixed(2) + ' 100' + (out ? '' : 'Z');
+  var bd = 'M' + (50 - dx).toFixed(2) + ' ' + yc + ' A' + br + ' ' + br + ' 0 ' + (yc > bcy ? 1 : 0) + ' 1 ' + (50 + dx).toFixed(2) + ' ' + yc + (out ? '' : 'Z');
   var st = out ? ' stroke-width="' + sw + '"' : '';
   var minis = [-ms, 0, ms].map(function (x) { return '<circle cx="' + (50 + x).toFixed(2) + '" cy="' + hcy + '" r="' + mr.toFixed(2) + '"' + st + '/>'; }).join('');
   var svg = '<svg class="av' + (small ? ' nofx' : '') + (out ? ' outline' : '') + '" viewBox="' + vb + '" data-mood="' + mood + '" data-typing="' + typing + '" style="--col:' + col + ';--fxc:' + col + ';--eye:#14121a" aria-hidden="true">' +
