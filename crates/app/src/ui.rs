@@ -14,8 +14,10 @@ use crate::icons;
 use crate::pal::Pal;
 
 /// gpui takes one family name, not a CSS stack: the system faces on macOS
-/// (SF Pro, Menlo) and Windows (Segoe UI); elsewhere the bundled Inter (the
-/// closest open match to SF Pro) and JetBrains Mono.
+/// (SF Pro, Menlo) and Windows (Segoe UI Variable Text); elsewhere the bundled
+/// Inter (the closest open match to SF Pro) and JetBrains Mono.
+// ponytail: Segoe UI Variable ships with Windows 11 only. On Windows 10 gpui falls back to a
+// system face (checked: text stays readable, bold flattens); add font_fallbacks if that matters.
 pub(crate) const MONO: &str = if cfg!(target_os = "macos") {
     "Menlo"
 } else {

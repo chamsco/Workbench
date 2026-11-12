@@ -1,15 +1,13 @@
-//! Tweens for the shell: how one state becomes the next, never what it is. Every tween lands
-//! exactly on the target and is skipped under `App::reduce_motion` (GPUI's own `Animation`
-//! honours the same flag), which the app sets from the OS at launch.
+//! Motion for the shell: how one state becomes the next, never what it is. Built on GPUI's
+//! `Animation`, which lands on the final frame and skips straight to it under
+//! `App::reduce_motion`; the app sets that flag from the OS at launch.
 
-use cauldron_chrome::layout::Rect;
 use cauldron_chrome::tokens::motion::{ease, stagger, INDICATOR, MENU, RISE};
 use gpui_kit::prelude::*;
-use gpui_kit::{canvas, div, px, AnimationExt, AnyElement, App, Bounds, Div, Hsla, Pixels, Point};
+use gpui_kit::{canvas, div, px, AnimationExt, AnyElement, Bounds, Div, Hsla, Pixels, Point};
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::time::Instant;
 
 /// Windows' "Show animations in Windows" (SPI_GETCLIENTAREAANIMATION) is off.
 #[cfg(windows)]
@@ -42,65 +40,6 @@ fn slow() -> f32 {
 /// A GPUI animation of `ms` on the shared curve (stretched in debug by CAULDRON_MOTION_SLOW).
 pub(crate) fn anim(ms: f32) -> gpui_kit::Animation {
     gpui_kit::Animation::new(std::time::Duration::from_secs_f32(ms * slow() / 1000.0)).with_easing(ease)
-}
-
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct Tween {
-    start: Instant,
-    ms: f32,
-}
-
-impl Tween {
-    pub(crate) fn new(ms: f32) -> Self {
-        Tween { start: Instant::now(), ms: ms * slow() }
-    }
-
-    /// Linear progress in 0..1 while running; None once done or under reduced motion.
-    pub(crate) fn linear(&self, cx: &App) -> Option<f32> {
-        if cx.reduce_motion() {
-            return None;
-        }
-        let k = self.start.elapsed().as_secs_f32() * 1000.0 / self.ms;
-        (k < 1.0).then_some(k.max(0.0))
-    }
-
-    /// Eased progress while running; None once done or under reduced motion.
-    pub(crate) fn at(&self, cx: &App) -> Option<f32> {
-        self.linear(cx).map(ease)
-    }
-}
-
-pub(crate) fn lerp(a: f32, b: f32, t: f32) -> f32 {
-    a + (b - a) * t
-}
-
-pub(crate) fn lerp_rect(a: Rect, b: Rect, t: f32) -> Rect {
-    Rect::new(lerp(a.x, b.x, t), lerp(a.y, b.y, t), lerp(a.w, b.w, t), lerp(a.h, b.h, t))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn rects_lerp_from_one_to_the_other() {
-        let (a, b) = (Rect::new(0., 10., 100., 20.), Rect::new(50., 30., 0., 40.));
-        assert_eq!(lerp_rect(a, b, 0.0), a);
-        assert_eq!(lerp_rect(a, b, 1.0), b);
-        assert_eq!(lerp_rect(a, b, 0.5), Rect::new(25., 20., 50., 30.));
-    }
-
-    #[gpui_kit::test]
-    fn tweens_run_then_stop_and_never_run_under_reduced_motion(cx: &mut gpui_kit::TestAppContext) {
-        cx.update(|cx| {
-            let t = Tween { start: Instant::now(), ms: 60_000.0 };
-            assert!(t.at(cx).is_some_and(|k| k < 0.1));
-            let done = Tween { start: Instant::now() - std::time::Duration::from_millis(300), ms: 200.0 };
-            assert!(done.at(cx).is_none());
-            cx.set_reduce_motion(true);
-            assert!(t.at(cx).is_none());
-        });
-    }
 }
 
 /// Item `i` of a menu: fades in STAGGER after the one before, all done by MENU.

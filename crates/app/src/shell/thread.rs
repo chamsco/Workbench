@@ -100,7 +100,11 @@ pub(super) fn steps(t: &backspace_core::trace::Trace, thought: bool) -> Vec<Stri
             K::Code => "Searched the code".into(),
             K::Agent => format!("Ran {}", n(calls, "subagent", "subagents")),
             K::Plan => "Updated the plan".into(),
-            K::Other(name) => format!("Used {name}"),
+            // MCP tools arrive as mcp__server__tool: say "Used linear: get_issue".
+            K::Other(name) => match name.strip_prefix("mcp__").and_then(|r| r.split_once("__")) {
+                Some((server, tool)) => format!("Used {server}: {tool}"),
+                None => format!("Used {name}"),
+            },
         };
         out.push(if failed > 0 { format!("{line}, {failed} failed") } else { line });
     }
@@ -132,13 +136,17 @@ pub(super) fn mix(a: Rgb, b: Rgb, t: f32) -> Hsla {
 }
 
 /// Each finished reply's steps, read from its trace once (render never touches the disk).
-fn step_map(chats: &Chats, t: Option<&Thread>) -> std::collections::HashMap<String, Vec<String>> {
-    t.into_iter()
-        .flat_map(|t| t.messages.iter())
-        .filter(|m| m.role != Role::User)
-        .filter_map(|m| Some((m.id.clone(), steps(&chats.trace(m.trace.as_ref()?)?, !m.thinking.is_empty()))))
-        .filter(|(_, s)| !s.is_empty())
-        .collect()
+/// Adds step lines for replies not yet in `map`. A saved trace never changes, so each one is
+/// read once per thread load, not on every core poke.
+fn fill_steps(chats: &Chats, t: Option<&Thread>, map: &mut std::collections::HashMap<String, Vec<String>>) {
+    for m in t.into_iter().flat_map(|t| t.messages.iter()).filter(|m| m.role != Role::User) {
+        if map.contains_key(&m.id) {
+            continue;
+        }
+        if let Some(tr) = m.trace.as_ref().and_then(|id| chats.trace(id)) {
+            map.insert(m.id.clone(), steps(&tr, !m.thinking.is_empty()));
+        }
+    }
 }
 
 impl Cauldron {
@@ -146,7 +154,8 @@ impl Cauldron {
     pub(super) fn open_thread(&mut self, id: String) {
         let Some((_, chats)) = &self.core else { return };
         self.thread = chats.thread(&id);
-        self.steps = step_map(chats, self.thread.as_ref());
+        self.steps.clear();
+        fill_steps(chats, self.thread.as_ref(), &mut self.steps);
         self.coordinator = Some(self.thread.as_ref().map_or_else(|| "Thread".into(), |t| t.title.clone().into()));
         self.agents.clear();
         self.idle.clear();
@@ -163,7 +172,7 @@ impl Cauldron {
             self.threads = Threads::Ready(chats.list());
             if let Some(id) = &self.open {
                 self.thread = chats.peek(id);
-                self.steps = step_map(chats, self.thread.as_ref());
+                fill_steps(chats, self.thread.as_ref(), &mut self.steps);
             }
         }
     }
@@ -330,7 +339,7 @@ impl Cauldron {
                 .flex_col()
                 .gap(px(6.))
                 .aria_label(if l.text.is_empty() { shown.clone() } else { l.text.clone() })
-                .when_some(self.steps.get(&l.id), |d, st| {
+                .when_some(self.steps.get(&l.id).filter(|s| !s.is_empty()), |d, st| {
                     let mut col = div().id(("steps", i)).flex().flex_col().gap(px(2.)).aria_label(st.join(", "));
                     for s in st {
                         col = col.child(div().flex().items_center().gap(px(8.)).h(px(20.)).text_size(px(12.5)).text_color(fg3).child(glyph("check", 13., fg3)).child(s.clone()));
@@ -620,7 +629,7 @@ pub(super) mod tests {
             ],
             ..Default::default()
         };
-        assert_eq!(super::steps(&t, true), ["Thought", "Read 2 files", "Ran 2 commands, 1 failed", "Made 3 edits", "Searched the web", "Searched the code", "Used mcp__linear__get_issue"]);
+        assert_eq!(super::steps(&t, true), ["Thought", "Read 2 files", "Ran 2 commands, 1 failed", "Made 3 edits", "Searched the web", "Searched the code", "Used linear: get_issue"]);
         let one = backspace_core::trace::Trace { spans: vec![t.spans[0].clone(), span("Read", r#"{"file_path":"a.rs"}"#, false), span("Bash", "{}", false)], ..Default::default() };
         assert_eq!(super::steps(&one, false), ["Read 1 file", "Ran 1 command"]);
         assert!(super::steps(&backspace_core::trace::Trace::default(), false).is_empty());
