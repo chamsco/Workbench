@@ -160,9 +160,11 @@ fn ctx() -> Ctx {
 pub(super) const EFFORTS: [Option<&str>; 5] = [None, Some("low"), Some("medium"), Some("high"), Some("max")];
 
 /// `a` mixed toward `b` by `t`, as CSS `color-mix(in srgb, b t, a)`.
-pub(super) fn mix(a: Rgb, b: Rgb, t: f32) -> Hsla {
+/// An overlay `a` mixes its alpha toward `b`'s full opacity too.
+pub(super) fn mix(a: impl Into<Rgba>, b: Rgb, t: f32) -> Hsla {
+    let Rgba(a, al) = a.into();
     let m = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t).round() as u8;
-    c(Rgb(m(a.0, b.0), m(a.1, b.1), m(a.2, b.2)))
+    c(Rgba(Rgb(m(a.0, b.0), m(a.1, b.1), m(a.2, b.2)), al + (1.0 - al) * t))
 }
 
 /// Each finished reply's steps, read from its trace once (render never touches the disk).
@@ -301,7 +303,7 @@ impl Cauldron {
                 .items_center()
                 .px(px(8.))
                 .py(px(3.))
-                .rounded(px(radius::R1))
+                .rounded(px(radius::CONTROL))
                 .border_1()
                 .border_color(mix(pal.line, col, 0.45))
                 .bg(ca(col, 0.12))
@@ -317,10 +319,10 @@ impl Cauldron {
             .gap(px(8.))
             .flex_none()
             .child(div().id("thread-title").min_w_0().truncate().text_size(px(14.)).font_weight(FontWeight::SEMIBOLD).text_color(fg).aria_label(t.title.clone()).child(t.title.clone()).test_support())
-            .child(chip("Code".into(), pal.info));
+            .child(chip("Code".into(), pal.fg2));
         if let Some(p) = &t.project {
             let name = p.rsplit(['/', '\\']).find(|s| !s.is_empty()).unwrap_or(p).to_string();
-            head = head.child(chip(name, pal.mem));
+            head = head.child(chip(name, pal.fg2));
         }
 
         let mut msgs = div().id("transcript").flex_1().min_h_0().overflow_y_scroll().flex().flex_col().gap(px(12.));
@@ -350,8 +352,8 @@ impl Cauldron {
                         .max_w(relative(0.72))
                         .px(px(12.))
                         .py(px(9.))
-                        .rounded(px(radius::R))
-                        .bg(mix(pal.raised, pal.info, 0.22))
+                        .rounded(px(radius::PANEL))
+                        .bg(c(pal.raised))
                         .text_size(px(13.))
                         .line_height(px(19.))
                         .text_color(fg)
@@ -396,7 +398,7 @@ impl Cauldron {
                             .ml(px(4.))
                             .px(px(9.))
                             .py(px(3.))
-                            .rounded(px(radius::R2))
+                            .rounded(px(radius::INNER))
                             .border_1()
                             .border_color(c(pal.line))
                             .bg(c(pal.raised))
@@ -458,8 +460,8 @@ impl Cauldron {
             .flex()
             .items_center()
             .justify_center()
-            .rounded(px(radius::R2))
-            .bg(c(pal.well))
+            .rounded(px(radius::INNER))
+            .bg(c(pal.inset))
             .border_1()
             .border_color(c(pal.line))
             .cursor_pointer()
@@ -473,10 +475,10 @@ impl Cauldron {
                 .gap(px(5.))
                 .px(px(8.))
                 .py(px(3.))
-                .rounded(px(radius::R1))
+                .rounded(px(radius::CONTROL))
                 .border_1()
                 .border_color(c(pal.line))
-                .bg(c(pal.well))
+                .bg(c(pal.inset))
                 .text_size(px(11.5))
                 .line_height(px(16.))
                 .font_weight(FontWeight::MEDIUM)
@@ -500,7 +502,7 @@ impl Cauldron {
             .gap(px(8.))
             .px(px(12.))
             .py(px(10.))
-            .rounded(px(radius::R))
+            .rounded(px(radius::PANEL))
             .border_1()
             .border_color(c(pal.line))
             .bg(c(pal.raised))

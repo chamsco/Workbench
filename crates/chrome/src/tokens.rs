@@ -1,5 +1,5 @@
-//! Design tokens, value for value from the wireframe `:root` (dark) and its light override.
-//! `tests/tokens.rs` compares every value with `tests/golden/wireframe.json`.
+//! Design tokens, value for value from the design system (`tests/golden/design-system.json`,
+//! design/cauldron-design-system/tokens.json at 45d2432). `tests/tokens.rs` compares them.
 
 /// An opaque sRGB colour.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -35,80 +35,119 @@ impl Rgb {
     }
 }
 
-/// One theme. Surfaces step up from `frame` (the window) to `card`, `raised` and `well`.
+/// A colour laid over whatever is beneath it: sRGB plus alpha 0..=1.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Rgba(pub Rgb, pub f32);
+
+impl Rgba {
+    pub const fn new(v: u32, a: f32) -> Self {
+        Rgba(Rgb::hex(v), a)
+    }
+
+    /// The solid colour this makes over `surface` (source-over in sRGB, as a browser paints it).
+    pub fn over(self, surface: Rgb) -> Rgb {
+        let m = |c: u8, s: u8| (c as f32 * self.1 + s as f32 * (1.0 - self.1)).round() as u8;
+        Rgb(m(self.0 .0, surface.0), m(self.0 .1, surface.1), m(self.0 .2, surface.2))
+    }
+
+    /// `rgba(r,g,b,a)` as tokens.json writes it.
+    pub fn to_css(self) -> String {
+        format!("rgba({},{},{},{})", self.0 .0, self.0 .1, self.0 .2, self.1)
+    }
+}
+
+impl From<Rgb> for Rgba {
+    fn from(c: Rgb) -> Self {
+        Rgba(c, 1.0)
+    }
+}
+
+/// One theme, value for value from the design system's tokens.json (Tuff surfaces, purple
+/// accent). The window is `bg`; a Shell (`card`) holds a Panel (`panel`); menus are `raised`.
+/// `inset`, `hover`, `selected`, `line` and `line_strong` are overlays on any surface.
 #[derive(Clone, Copy, Debug)]
 pub struct Palette {
     pub bg: Rgb,
     pub frame: Rgb,
     pub card: Rgb,
+    pub panel: Rgb,
     pub raised: Rgb,
-    pub well: Rgb,
-    pub line: Rgb,
-    /// The dark band around the New thread box and the selected Code/Design tab.
-    pub strip: Rgb,
+    pub inset: Rgba,
+    pub hover: Rgba,
+    pub selected: Rgba,
+    pub line: Rgba,
+    pub line_strong: Rgba,
+    /// Edges that carry meaning (an off toggle, a checkbox): 3:1 on bg, card and panel.
+    pub line_control: Rgb,
     pub fg: Rgb,
     pub fg2: Rgb,
     pub fg3: Rgb,
-    /// The one accent: focus, the current stage, the New thread button.
+    /// Disabled labels and the idle dot only; never text someone must read.
+    pub fg4: Rgb,
+    /// The one accent: primary button, focus ring, needs-you dot, current stage.
     pub accent: Rgb,
+    pub accent_hover: Rgb,
     pub on_accent: Rgb,
-    pub run: Rgb,
+    pub accent_soft: Rgba,
     pub ok: Rgb,
     pub warn: Rgb,
     pub bad: Rgb,
-    /// Code threads and tabs.
-    pub info: Rgb,
-    /// Design threads and tabs.
-    pub design: Rgb,
-    /// The librarian ("filed by librarian") and memory.
-    pub mem: Rgb,
+    pub bad_soft: Rgba,
 }
 
 pub const DARK: Palette = Palette {
-    bg: Rgb::hex(0x09090a),
-    frame: Rgb::hex(0x0c0c0d),
-    card: Rgb::hex(0x161618),
-    raised: Rgb::hex(0x1f1f22),
-    well: Rgb::hex(0x252528),
-    line: Rgb::hex(0x2e2e32),
-    strip: Rgb::hex(0x0f0f10),
-    fg: Rgb::hex(0xf4f3f6),
-    fg2: Rgb::hex(0xc9c4cf),
-    fg3: Rgb::hex(0x8d8794),
-    accent: Rgb::hex(0xff4d2d),
-    on_accent: Rgb::hex(0x1a0400),
-    run: Rgb::hex(0x38c0e8),
-    ok: Rgb::hex(0x3fb27f),
-    warn: Rgb::hex(0xe0a32a),
-    bad: Rgb::hex(0xe05656),
-    info: Rgb::hex(0x5b8cf0),
-    design: Rgb::hex(0xd9669a),
-    mem: Rgb::hex(0x9a82f5),
+    bg: Rgb::hex(0x111111),
+    frame: Rgb::hex(0x111111),
+    card: Rgb::hex(0x1d1d1d),
+    panel: Rgb::hex(0x151515),
+    raised: Rgb::hex(0x282828),
+    inset: Rgba::new(0xf5f5f5, 0.05),
+    hover: Rgba::new(0xf5f5f5, 0.05),
+    selected: Rgba::new(0xf5f5f5, 0.09),
+    line: Rgba::new(0xffffff, 0.06),
+    line_strong: Rgba::new(0xffffff, 0.12),
+    line_control: Rgb::hex(0x7c7c82),
+    fg: Rgb::hex(0xf5f5f5),
+    fg2: Rgb::hex(0xc9c9cd),
+    fg3: Rgb::hex(0x9e9ea3),
+    fg4: Rgb::hex(0x5e5e64),
+    accent: Rgb::hex(0xa08cff),
+    accent_hover: Rgb::hex(0xb4a4ff),
+    on_accent: Rgb::hex(0x12082e),
+    accent_soft: Rgba::new(0xa08cff, 0.14),
+    ok: Rgb::hex(0x30d158),
+    warn: Rgb::hex(0xff9f0a),
+    bad: Rgb::hex(0xff453a),
+    bad_soft: Rgba::new(0xff453a, 0.12),
 };
 
 pub const LIGHT: Palette = Palette {
-    bg: Rgb::hex(0xe9e8e5),
-    frame: Rgb::hex(0xe4e3df),
-    card: Rgb::hex(0xf7f7f5),
-    raised: Rgb::hex(0xffffff),
-    well: Rgb::hex(0xefeeec),
-    line: Rgb::hex(0xdcdbd7),
-    strip: Rgb::hex(0xecebe8),
-    fg: Rgb::hex(0x1c1a1f),
-    fg2: Rgb::hex(0x55505b),
-    fg3: Rgb::hex(0x68626f),
-    accent: Rgb::hex(0xc9330f),
+    bg: Rgb::hex(0xf7f7f8),
+    frame: Rgb::hex(0xf7f7f8),
+    card: Rgb::hex(0xeeeef0),
+    panel: Rgb::hex(0xffffff),
+    raised: Rgb::hex(0xe4e4e7),
+    inset: Rgba::new(0x1c1c1f, 0.04),
+    hover: Rgba::new(0x1c1c1f, 0.05),
+    selected: Rgba::new(0x1c1c1f, 0.09),
+    line: Rgba::new(0x1c1c1f, 0.07),
+    line_strong: Rgba::new(0x1c1c1f, 0.14),
+    line_control: Rgb::hex(0x7e7e86),
+    fg: Rgb::hex(0x1c1c1f),
+    fg2: Rgb::hex(0x45454c),
+    fg3: Rgb::hex(0x62626a),
+    fg4: Rgb::hex(0xa6a6ad),
+    accent: Rgb::hex(0x6236d6),
+    accent_hover: Rgb::hex(0x5229bd),
     on_accent: Rgb::hex(0xffffff),
-    run: Rgb::hex(0x0f7f9f),
-    ok: Rgb::hex(0x2f9e6e),
-    warn: Rgb::hex(0xc98a12),
-    bad: Rgb::hex(0xd64545),
-    info: Rgb::hex(0x3a72e8),
-    design: Rgb::hex(0xc23f7e),
-    mem: Rgb::hex(0x7a5cf0),
+    accent_soft: Rgba::new(0x6236d6, 0.08),
+    ok: Rgb::hex(0x23784f),
+    warn: Rgb::hex(0x8a5a00),
+    bad: Rgb::hex(0xb83232),
+    bad_soft: Rgba::new(0xb83232, 0.08),
 };
 
-/// Agent identity dots (tabs, the + menu), the same in both themes as in the wireframe.
+/// Agent identity colours `agent-1` to `agent-9`, the same in both themes.
 pub const AGENT_DOTS: [Rgb; 9] = [
     Rgb::hex(0x8b5cf6),
     Rgb::hex(0x38c0e8),
@@ -122,7 +161,7 @@ pub const AGENT_DOTS: [Rgb; 9] = [
 ];
 
 /// Agent avatars (`crate::avatar`): the figure is the agent's dot colour; this draws the eyes.
-/// Not in the wireframe (it has no avatars), so not compared with the golden file.
+/// Not in tokens.json, so not compared with the golden file.
 pub mod avatar {
     use super::Rgb;
     /// The eyes on a filled figure (an outline figure draws them in its own colour).
@@ -147,18 +186,23 @@ pub mod shadow {
     pub const BOX: Shadow = Shadow { y: 16.0, blur: 32.0, spread: -18.0, alpha: 0.65 };
 }
 
-/// One radius family, anchored on the folder tab. Circles are drawn as circles, not as a radius.
+/// Tuff radii from tokens.json. A box nests by its padding: outer = inner + padding (a Shell's
+/// 6px around a Panel). Circles are drawn as circles, not as a radius.
 pub mod radius {
-    /// Cards, tabs, the composer, the New thread box.
-    pub const R: f32 = 6.0;
-    /// Buttons, chips, rows.
-    pub const R1: f32 = 4.0;
-    /// Anything inside a padded box.
-    pub const R2: f32 = 3.0;
-    /// The window itself.
-    pub const WINDOW: f32 = R + 4.0;
-    /// The New thread box: R around its 4px padding, so the body inside keeps R (wireframe `.nt-box`).
-    pub const BOX: f32 = R + 4.0;
+    /// The Shell, the window, the composer shell.
+    pub const SHELL: f32 = 22.0;
+    /// The Panel in a shell; cards, menus, dialogs.
+    pub const PANEL: f32 = 16.0;
+    /// The Inset well, tool rows, the segmented track.
+    pub const INSET: f32 = 12.0;
+    /// Buttons, inputs, thread rows.
+    pub const CONTROL: f32 = 10.0;
+    /// Segments, icon tiles, anything inside a padded inset.
+    pub const INNER: f32 = 8.0;
+    /// Tags and Kbd.
+    pub const TAG: f32 = 6.0;
+    /// A Shell's padding around its Panel.
+    pub const SHELL_PAD: f32 = SHELL - PANEL;
 
     /// Inner radius of a box with `padding` inside an `outer` radius, never negative.
     pub fn nested(outer: f32, padding: f32) -> f32 {

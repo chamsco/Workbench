@@ -31,6 +31,15 @@ pub(crate) const UI: &str = if cfg!(target_os = "macos") {
     "Inter"
 };
 
+/// The Cauldron shell's faces (design system): Geist with its ss01 alternates and
+/// tabular figures, and Geist Mono. Bundled, so the same on every OS.
+pub(crate) const SANS: &str = "Geist";
+pub(crate) const SANS_MONO: &str = "Geist Mono";
+
+pub(crate) fn sans_features() -> FontFeatures {
+    FontFeatures(std::sync::Arc::new(vec![("ss01".into(), 1), ("tnum".into(), 1)]))
+}
+
 /// The faces registered at startup (crates/app/assets/fonts).
 pub(crate) fn bundled_fonts() -> Vec<std::borrow::Cow<'static, [u8]>> {
     macro_rules! font {
@@ -41,6 +50,11 @@ pub(crate) fn bundled_fonts() -> Vec<std::borrow::Cow<'static, [u8]>> {
         };
     }
     let mut v = vec![
+        font!("Geist-Regular"),
+        font!("Geist-Medium"),
+        font!("Geist-SemiBold"),
+        font!("GeistMono-Regular"),
+        font!("GeistMono-Medium"),
         font!("JetBrainsMono-Regular"),
         font!("JetBrainsMono-Medium"),
         font!("JetBrainsMono-Bold"),

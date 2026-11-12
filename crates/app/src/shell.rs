@@ -6,11 +6,11 @@
 //! (docs/cauldron/UI-PLAN.md): the thread list is UI3, the thread view UI4, the drawer UI6.
 
 use cauldron_chrome::layout::{self, metric, Platform, Rect, ShellState};
-use cauldron_chrome::tokens::{self, motion as mt, radius, Palette, Rgb};
+use cauldron_chrome::tokens::{self, motion as mt, radius, Palette, Rgb, Rgba};
 use gpui_kit::*;
 
 use crate::threads::{self, Group};
-use crate::ui::UI;
+use crate::ui::{sans_features, SANS};
 use backspace_core::chat::{Chats, Thread, ThreadInfo};
 use backspace_core::prefs::Prefs;
 use gpui_kit::component::input::{Input, InputEvent, InputState, TextareaState};
@@ -39,8 +39,12 @@ pub(crate) fn lights_origin() -> (f32, f32) {
     (l.x, l.y)
 }
 
-fn c(v: Rgb) -> Hsla {
-    gpui_kit::rgb(((v.0 as u32) << 16) | ((v.1 as u32) << 8) | v.2 as u32).into()
+/// A token colour for GPUI; overlays keep their alpha and composite over what is beneath.
+fn c(v: impl Into<Rgba>) -> Hsla {
+    let Rgba(v, a) = v.into();
+    let mut h: Hsla = gpui_kit::rgb(((v.0 as u32) << 16) | ((v.1 as u32) << 8) | v.2 as u32).into();
+    h.a = a;
+    h
 }
 
 fn ca(v: Rgb, a: f32) -> Hsla {
@@ -61,7 +65,7 @@ enum Foot {
 
 /// The concave corner where the open tab flares into the card, the wireframe's `.tab.on::before/::after`.
 fn foot(side: Foot, fill: Hsla) -> impl IntoElement {
-    let r = radius::R;
+    let r = radius::PANEL;
     let el = canvas(
         |_, _, _| (),
         move |b, _, window, _| {
@@ -358,7 +362,7 @@ impl Cauldron {
         match &self.threads {
             Threads::Loading => {
                 // Skeleton rows shaped like the real ones, static (no shimmer to turn off for reduced motion).
-                let bar = |w: f32| div().h(px(8.)).w(relative(w)).rounded(px(radius::R2)).bg(c(pal.well));
+                let bar = |w: f32| div().h(px(8.)).w(relative(w)).rounded(px(radius::INNER)).bg(c(pal.inset));
                 let mut sk = div().id("threads-loading").flex().flex_col().pt(px(8.)).aria_label("Loading threads");
                 for w in [0.72, 0.56, 0.8, 0.48, 0.64] {
                     sk = sk.child(
@@ -369,7 +373,7 @@ impl Cauldron {
                             .px(px(6.))
                             .py(px(6.))
                             .child(div().w(px(8.)).flex_none())
-                            .child(div().size(px(22.)).flex_none().rounded(px(radius::R2)).bg(c(pal.well)))
+                            .child(div().size(px(22.)).flex_none().rounded(px(radius::INNER)).bg(c(pal.inset)))
                             .child(div().flex_1().flex().flex_col().gap(px(6.)).child(bar(w)).child(bar(w * 0.6))),
                     );
                 }
@@ -444,7 +448,7 @@ impl Cauldron {
                                 .gap(px(7.))
                                 .px(px(6.))
                                 .py(px(4.))
-                                .rounded(px(radius::R1))
+                                .rounded(px(radius::CONTROL))
                                 .border_1()
                                 .border_color(if on { c(pal.line) } else { gpui_kit::transparent_black() })
                                 .when_live(on, |d| d.bg(c(pal.raised)))
@@ -460,7 +464,7 @@ impl Cauldron {
                                         .when_live(t.unread, |d| d.child(div().size(px(7.)).rounded_full().bg(c(pal.accent)))),
                                 )
                                 // ponytail: every row is Code; core does not mark a thread as design work yet.
-                                .child(div().size(px(22.)).flex_none().flex().items_center().justify_center().rounded(px(radius::R2)).bg(c(pal.well)).child(glyph("code", 13., c(pal.info))))
+                                .child(div().size(px(22.)).flex_none().flex().items_center().justify_center().rounded(px(radius::INNER)).bg(c(pal.inset)).child(glyph("code", 13., c(pal.fg2))))
                                 .child(
                                     div()
                                         .flex_1()
@@ -536,7 +540,7 @@ impl Cauldron {
     /// The + menu: spawn a subagent (wired to core in UI4), or open a 1:1 with an agent not open yet.
     fn tab_menu_el(&self, pal: &'static Palette, cx: &mut Context<Self>) -> impl IntoElement {
         let item = |id: ElementId| {
-            div().id(id).flex().items_center().gap(px(8.)).px(px(8.)).py(px(6.)).rounded(px(radius::R1))
+            div().id(id).flex().items_center().gap(px(8.)).px(px(8.)).py(px(6.)).rounded(px(radius::CONTROL))
         };
         let mut menu = div()
             .id("tab-menu")
@@ -546,12 +550,12 @@ impl Cauldron {
             .flex()
             .flex_col()
             .gap(px(1.))
-            .rounded(px(radius::R))
+            .rounded(px(radius::PANEL))
             .bg(c(pal.raised))
             .border_1()
             .border_color(c(pal.line))
             .shadow(vec![drop(tokens::shadow::MENU)])
-            .font_family(UI)
+            .font_family(SANS).font_features(sans_features())
             .text_size(px(12.5))
             .font_weight(FontWeight::MEDIUM)
             .text_color(c(pal.fg2))
@@ -561,7 +565,7 @@ impl Cauldron {
                 cx.notify();
             }))
             .child(self.tab_slide.measure(None))
-            .children(self.tab_slide.highlight(ca(pal.fg, 0.06), radius::R1))
+            .children(self.tab_slide.highlight(ca(pal.fg, 0.06), radius::CONTROL))
             // ponytail: spawning needs the thread view's core wiring (UI4); shown, not live.
             .child(item("menu-spawn".into()).text_color(c(pal.fg3)).aria_label("Spawn a subagent").child(glyph("plus", 14., c(pal.fg3))).child("Spawn a subagent…").test_support().with_animation("in", motion::staggered(0), |d, t| d.opacity(t)));
         if !self.idle.is_empty() {
@@ -654,7 +658,7 @@ fn icon_button(id: impl Into<ElementId>, name: &str, label: &'static str, pal: &
         .flex()
         .items_center()
         .justify_center()
-        .rounded(px(radius::R1))
+        .rounded(px(radius::CONTROL))
         .cursor_pointer()
         .bg(if on { sel } else { gpui_kit::transparent_black() })
         .hover(move |d| d.bg(if on { sel } else { hover }))
@@ -720,12 +724,12 @@ fn tip(label: SharedString, side: Side, pal: &'static Palette) -> impl IntoEleme
         .px(px(8.))
         .flex()
         .items_center()
-        .rounded(px(radius::R2))
+        .rounded(px(radius::INNER))
         .bg(c(pal.raised))
         .border_1()
         .border_color(c(pal.line))
         .shadow(vec![drop(tokens::shadow::TIP)])
-        .font_family(UI)
+        .font_family(SANS).font_features(sans_features())
         .text_size(px(12.))
         .line_height(px(16.))
         .font_weight(FontWeight::MEDIUM)
@@ -777,7 +781,7 @@ impl Render for Cauldron {
             .relative()
             .overflow_hidden()
             .bg(frame)
-            .font_family(UI)
+            .font_family(SANS).font_features(sans_features())
             .text_size(px(13.))
             .text_color(fg);
 
@@ -808,7 +812,7 @@ impl Render for Cauldron {
                 t.muted_foreground = fg3;
                 t.caret = accent;
                 t.selection = ca(pal.accent, 0.25);
-                t.font_family = UI.into();
+                t.font_family = SANS.into();
                 let st = cx.new(|cx| InputState::new(window, cx).placeholder("Search threads"));
                 let sub = cx.subscribe(&st, |this, st, ev: &InputEvent, cx| {
                     if let InputEvent::Change = ev {
@@ -830,7 +834,7 @@ impl Render for Cauldron {
                 .items_center()
                 .gap(px(8.))
                 .px(px(10.))
-                .rounded(px(radius::R1))
+                .rounded(px(radius::CONTROL))
                 .cursor_pointer()
                 .bg(ca(pal.accent, 0.15))
                 .border_1()
@@ -843,7 +847,7 @@ impl Render for Cauldron {
             let card_el = pane("sidebar", r)
                 .flex()
                 .flex_col()
-                .rounded(px(radius::R))
+                .rounded(px(radius::PANEL))
                 .bg(card)
                 .border_1()
                 .border_color(ring)
@@ -869,7 +873,7 @@ impl Render for Cauldron {
                             .items_center()
                             .gap(px(8.))
                             .px(px(9.))
-                            .rounded(px(radius::R1))
+                            .rounded(px(radius::CONTROL))
                             .border_1()
                             .border_color(line)
                             .text_color(fg3)
@@ -918,7 +922,7 @@ impl Render for Cauldron {
         let thread = self.coordinator.is_some();
         let anchor_label: SharedString = self.coordinator.clone().unwrap_or_else(|| NEW_TAB.into());
         let label_w = {
-            let run = TextRun { len: anchor_label.len(), font: Font { weight: FontWeight::MEDIUM, ..font(UI) }, color: fg, background_color: None, underline: None, strikethrough: None };
+            let run = TextRun { len: anchor_label.len(), font: Font { weight: FontWeight::MEDIUM, features: sans_features(), ..font(SANS) }, color: fg, background_color: None, underline: None, strikethrough: None };
             f32::from(window.text_system().shape_line(anchor_label.clone(), px(12.), &[run], None).width)
         };
         // padding 12 + icon 14 + gap 7 + label + padding 12, as the wireframe's `.tab`
@@ -990,14 +994,14 @@ impl Render for Cauldron {
             .w(px(anchor_w))
             .h(px(metric::TAB_H + if on { 1.0 } else { 0.0 }))
             .px(px(12.))
-            .rounded_t(px(radius::R))
+            .rounded_t(px(radius::PANEL))
             .occlude()
             .cursor_pointer()
             .aria_label(anchor_label.clone())
             .text_size(px(12.))
             .font_weight(FontWeight::MEDIUM)
             .text_color(if on { fg } else { fg3 })
-            .child(if thread { glyph("code", 14., c(pal.info)) } else { glyph("square-pen", 14., if on { fg2 } else { fg3 }) })
+            .child(if thread { glyph("code", 14., c(pal.fg2)) } else { glyph("square-pen", 14., if on { fg2 } else { fg3 }) })
             .child(div().min_w_0().truncate().child(anchor_label.clone()))
             .on_scroll_wheel(cx.listener(|this, ev: &ScrollWheelEvent, _, cx| this.wheel_tabs(ev, cx)))
             .on_click(cx.listener(|this, _, window, cx| {
@@ -1023,7 +1027,7 @@ impl Render for Cauldron {
                 .flex()
                 .items_center()
                 .justify_center()
-                .rounded(px(radius::R2))
+                .rounded(px(radius::INNER))
                 // Inactive tabs show their close on hover, over the end of the name, so a 72px tab
                 // still has room for a few letters.
                 .when_live(!on, |d| d.absolute().right(px(6.)).top(px(8.)).bg(frame).opacity(0.).group_hover(group.clone(), |s| s.opacity(1.)))
@@ -1047,7 +1051,7 @@ impl Render for Cauldron {
                 .h(px(metric::TAB_H + if on { 1.0 } else { 0.0 }))
                 .pl(px(10.))
                 .pr(px(6.))
-                .rounded_t(px(radius::R))
+                .rounded_t(px(radius::PANEL))
                 .occlude()
                 .cursor_pointer()
                 .aria_label(agent.name.clone())
@@ -1087,7 +1091,7 @@ impl Render for Cauldron {
                     .flex()
                     .items_center()
                     .justify_center()
-                    .rounded(px(radius::R1))
+                    .rounded(px(radius::CONTROL))
                     .occlude()
                     .when_live(live, |d| d.cursor_pointer().hover(|d| d.bg(ca(pal.fg, 0.08))))
                     .aria_label(label)
@@ -1113,7 +1117,7 @@ impl Render for Cauldron {
                 .flex()
                 .items_center()
                 .justify_center()
-                .rounded(px(radius::R1))
+                .rounded(px(radius::CONTROL))
                 .occlude()
                 .cursor_pointer()
                 .hover(|d| d.bg(ca(pal.fg, 0.08)))
@@ -1141,7 +1145,7 @@ impl Render for Cauldron {
             .flex()
             .flex_col()
             .overflow_hidden()
-            .rounded(px(radius::R))
+            .rounded(px(radius::PANEL))
             .bg(card)
             .border_1()
             .border_color(ring)
@@ -1162,7 +1166,7 @@ impl Render for Cauldron {
                     div()
                         .w(px(122.))
                         .p(px(10.))
-                        .rounded(px(radius::R1))
+                        .rounded(px(radius::CONTROL))
                         .bg(c(pal.raised))
                         .border_1()
                         .border_color(ring)
@@ -1172,7 +1176,7 @@ impl Render for Cauldron {
             }
             root = root.child(
                 pane("half", r)
-                    .rounded(px(radius::R))
+                    .rounded(px(radius::PANEL))
                     .bg(card)
                     .border_1()
                     .border_color(ring)
