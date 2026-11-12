@@ -5,7 +5,7 @@
 use cauldron_chrome::layout::Rect;
 use cauldron_chrome::tokens::motion::{ease, stagger, INDICATOR, MENU, RISE};
 use gpui_kit::prelude::*;
-use gpui_kit::{canvas, div, px, AnimationExt, AnyElement, App, Bounds, Div, Hsla, Pixels, Point, Stateful};
+use gpui_kit::{canvas, div, px, AnimationExt, AnyElement, App, Bounds, Div, Hsla, Pixels, Point};
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;

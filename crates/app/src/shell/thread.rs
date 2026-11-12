@@ -7,10 +7,12 @@
 use super::*;
 use backspace_core::chat::{Ctx, Msg, Role, Status, Thread};
 use gpui_kit::component::input::{Textarea, TextareaState};
+use gpui_kit::prelude::FluentBuilder;
 
 /// One transcript entry as drawn.
 #[derive(Debug, PartialEq)]
 pub(super) struct Line {
+    pub id: String,
     pub mine: bool,
     pub text: String,
     pub status: Status,
@@ -20,7 +22,7 @@ pub(super) struct Line {
 }
 
 pub(super) fn lines(t: &Thread) -> Vec<Line> {
-    t.messages.iter().map(|m| Line { mine: m.role == Role::User, text: m.text.clone(), status: m.status, error: m.error.clone(), meta: meta(m) }).collect()
+    t.messages.iter().map(|m| Line { id: m.id.clone(), mine: m.role == Role::User, text: m.text.clone(), status: m.status, error: m.error.clone(), meta: meta(m) }).collect()
 }
 
 fn meta(m: &Msg) -> Option<String> {
@@ -44,6 +46,65 @@ fn meta(m: &Msg) -> Option<String> {
 pub(super) fn cost(t: &Thread) -> f64 {
     // fold from +0.0: an empty f64 sum is -0.0, which prints as "$-0.00".
     t.messages.iter().filter_map(|m| m.cost_usd).fold(0.0, |a, b| a + b)
+}
+
+/// How a reply was made, from its trace: one plain line per kind of tool call, in the order each
+/// kind first happened ("Read 12 files", "Made 3 edits"). Core does not time the thinking, so
+/// "Thought" carries no duration.
+pub(super) fn steps(t: &backspace_core::trace::Trace, thought: bool) -> Vec<String> {
+    #[derive(PartialEq)]
+    enum K {
+        Read,
+        Edit,
+        Run,
+        Web,
+        Code,
+        Agent,
+        Plan,
+        Other(String),
+    }
+    // (kind, calls, failed, distinct files)
+    let mut ks: Vec<(K, usize, usize, std::collections::BTreeSet<String>)> = Vec::new();
+    for sp in t.spans.iter().filter(|s| s.kind == "tool") {
+        let k = match sp.name.as_str() {
+            "Read" => K::Read,
+            "Edit" | "MultiEdit" | "Write" | "NotebookEdit" => K::Edit,
+            "Bash" | "PowerShell" => K::Run,
+            "WebSearch" | "WebFetch" => K::Web,
+            "Grep" | "Glob" | "LS" => K::Code,
+            "Task" | "Agent" => K::Agent,
+            "TodoWrite" => K::Plan,
+            n => K::Other(n.to_string()),
+        };
+        let i = match ks.iter().position(|e| e.0 == k) {
+            Some(i) => i,
+            None => {
+                ks.push((k, 0, 0, Default::default()));
+                ks.len() - 1
+            }
+        };
+        let e = &mut ks[i];
+        e.1 += 1;
+        e.2 += usize::from(sp.error.is_some());
+        let file = serde_json::from_str::<serde_json::Value>(&sp.input).ok().and_then(|v| v.get("file_path").or_else(|| v.get("path")).and_then(|p| p.as_str()).map(str::to_string));
+        e.3.insert(file.unwrap_or_else(|| format!("#{}", e.1)));
+    }
+    let n = |k: usize, one: &str, many: &str| format!("{k} {}", if k == 1 { one } else { many });
+    let mut out: Vec<String> = thought.then(|| "Thought".to_string()).into_iter().collect();
+    for (k, calls, failed, files) in ks {
+        let line = match k {
+            K::Read => format!("Read {}", n(files.len(), "file", "files")),
+            K::Edit => format!("Made {}", n(calls, "edit", "edits")),
+            K::Run => format!("Ran {}", n(calls, "command", "commands")),
+            K::Web => "Searched the web".into(),
+            K::Code => "Searched the code".into(),
+            K::Agent => format!("Ran {}", n(calls, "subagent", "subagents")),
+            K::Plan => "Updated the plan".into(),
+            K::Other(name) => format!("Used {name}"),
+        };
+        out.push(if failed > 0 { format!("{line}, {failed} failed") } else { line });
+    }
+    out
 }
 
 /// What a reply that is not finished says in place of its text.
@@ -70,11 +131,22 @@ pub(super) fn mix(a: Rgb, b: Rgb, t: f32) -> Hsla {
     c(Rgb(m(a.0, b.0), m(a.1, b.1), m(a.2, b.2)))
 }
 
+/// Each finished reply's steps, read from its trace once (render never touches the disk).
+fn step_map(chats: &Chats, t: Option<&Thread>) -> std::collections::HashMap<String, Vec<String>> {
+    t.into_iter()
+        .flat_map(|t| t.messages.iter())
+        .filter(|m| m.role != Role::User)
+        .filter_map(|m| Some((m.id.clone(), steps(&chats.trace(m.trace.as_ref()?)?, !m.thinking.is_empty()))))
+        .filter(|(_, s)| !s.is_empty())
+        .collect()
+}
+
 impl Cauldron {
     /// Opens a thread in the main card. Reading it through core marks it read.
     pub(super) fn open_thread(&mut self, id: String) {
         let Some((_, chats)) = &self.core else { return };
         self.thread = chats.thread(&id);
+        self.steps = step_map(chats, self.thread.as_ref());
         self.coordinator = Some(self.thread.as_ref().map_or_else(|| "Thread".into(), |t| t.title.clone().into()));
         self.agents.clear();
         self.idle.clear();
@@ -91,6 +163,7 @@ impl Cauldron {
             self.threads = Threads::Ready(chats.list());
             if let Some(id) = &self.open {
                 self.thread = chats.peek(id);
+                self.steps = step_map(chats, self.thread.as_ref());
             }
         }
     }
@@ -257,6 +330,13 @@ impl Cauldron {
                 .flex_col()
                 .gap(px(6.))
                 .aria_label(if l.text.is_empty() { shown.clone() } else { l.text.clone() })
+                .when_some(self.steps.get(&l.id), |d, st| {
+                    let mut col = div().id(("steps", i)).flex().flex_col().gap(px(2.)).aria_label(st.join(", "));
+                    for s in st {
+                        col = col.child(div().flex().items_center().gap(px(8.)).h(px(20.)).text_size(px(12.5)).text_color(fg3).child(glyph("check", 13., fg3)).child(s.clone()));
+                    }
+                    d.child(col.test_support())
+                })
                 .when_live(!shown.is_empty(), |d| d.child(div().text_size(px(13.)).line_height(px(20.)).text_color(if l.text.is_empty() { fg3 } else { fg }).child(shown.clone())));
             if let Some(e) = &l.error {
                 let mut err = div()
@@ -468,10 +548,17 @@ pub(super) mod tests {
             "project": "C:\\code\\Cauldron",
             "messages": [
                 msg("m1", "user", "Run the tests", serde_json::json!({})),
-                msg("m2", "assistant", "All 591 pass.", serde_json::json!({ "model": "opus", "cost_usd": 0.42 })),
+                msg("m2", "assistant", "All 591 pass.", serde_json::json!({ "model": "opus", "cost_usd": 0.42, "thinking": "Check the suite.", "trace": "00ff00ff" })),
             ]
         });
         let t2 = serde_json::json!({ "id": "t2", "title": "Empty one", "created": 1, "updated": 2, "route": route, "messages": [] });
+        std::fs::create_dir_all(d.join("traces")).unwrap();
+        let tool = |name: &str, input: &str| serde_json::json!({ "span_id": "s", "name": name, "kind": "tool", "start": 1, "input": input });
+        let trace = serde_json::json!({ "trace_id": "00ff00ff", "thread": "t1", "message": "m2", "spans": [
+            { "span_id": "r", "name": "reply", "kind": "reply", "start": 1 },
+            tool("Read", r#"{"file_path":"a.rs"}"#), tool("Bash", r#"{"command":"cargo test"}"#),
+        ]});
+        std::fs::write(d.join("traces").join("00ff00ff.json"), trace.to_string()).unwrap();
         for t in [t1, t2] {
             std::fs::write(d.join("threads").join(format!("{}.json", t["id"].as_str().unwrap())), t.to_string()).unwrap();
         }
@@ -507,6 +594,38 @@ pub(super) mod tests {
         (handle, chats)
     }
 
+    fn span(name: &str, input: &str, error: bool) -> backspace_core::trace::Span {
+        backspace_core::trace::Span { name: name.into(), kind: "tool".into(), input: input.into(), error: error.then(|| "failed".into()), ..Default::default() }
+    }
+
+    /// A reply's tool calls read as a few plain lines, in the order they first happened: files
+    /// counted once, failures said, unknown tools named.
+    #[test]
+    fn steps_group_a_replys_tool_calls() {
+        let root = backspace_core::trace::Span { name: "reply".into(), kind: "reply".into(), ..Default::default() };
+        let t = backspace_core::trace::Trace {
+            spans: vec![
+                root,
+                span("Read", r#"{"file_path":"a.rs"}"#, false),
+                span("Bash", r#"{"command":"cargo test"}"#, false),
+                span("Read", r#"{"file_path":"b.rs"}"#, false),
+                span("Read", r#"{"file_path":"a.rs"}"#, false),
+                span("Edit", r#"{"file_path":"a.rs"}"#, false),
+                span("Write", r#"{"file_path":"c.rs"}"#, false),
+                span("Edit", r#"{"file_path":"a.rs"}"#, false),
+                span("Bash", r#"{"command":"cargo build"}"#, true),
+                span("WebSearch", r#"{"query":"gpui"}"#, false),
+                span("Grep", r#"{"pattern":"x"}"#, false),
+                span("mcp__linear__get_issue", "{}", false),
+            ],
+            ..Default::default()
+        };
+        assert_eq!(super::steps(&t, true), ["Thought", "Read 2 files", "Ran 2 commands, 1 failed", "Made 3 edits", "Searched the web", "Searched the code", "Used mcp__linear__get_issue"]);
+        let one = backspace_core::trace::Trace { spans: vec![t.spans[0].clone(), span("Read", r#"{"file_path":"a.rs"}"#, false), span("Bash", "{}", false)], ..Default::default() };
+        assert_eq!(super::steps(&one, false), ["Read 1 file", "Ran 1 command"]);
+        assert!(super::steps(&backspace_core::trace::Trace::default(), false).is_empty());
+    }
+
     #[test]
     fn lines_carry_who_answered_and_the_cost() {
         let t: backspace_core::chat::Thread = serde_json::from_value(serde_json::json!({
@@ -540,6 +659,7 @@ pub(super) mod tests {
             assert_eq!(window.find(("tab", 0usize)).label(), Some("Get M3 through review"));
             assert_eq!(window.find(("msg", 0usize)).label(), Some("Run the tests"));
             assert_eq!(window.find(("msg", 1usize)).label(), Some("All 591 pass."));
+            assert_eq!(window.find(("steps", 1usize)).label(), Some("Thought, Read 1 file, Ran 1 command"), "how the reply was made, from its trace");
             assert!(window.find(("msg", 0usize)).bounds().origin.x > window.find(("msg", 1usize)).bounds().origin.x, "your message sits right");
             assert_eq!(window.find("usage").label(), Some("This thread has cost $0.42"));
             assert_eq!(window.find("composer").label(), Some("Message the coordinator"));
