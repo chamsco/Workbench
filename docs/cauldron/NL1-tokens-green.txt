@@ -1,0 +1,12 @@
+test contrast_follows_wcag ... ok
+test motion_stays_within_the_200ms_cap ... ok
+test glyphs_and_control_edges_hold_3_to_1 ... ok
+test one_accent_and_status_colours_stay_distinct ... ok
+test selected_on_a_card_is_under_aa_in_light ... ok
+test overlays_composite_like_a_browser ... ok
+test every_text_pair_passes_aa_in_both_themes ... ok
+test the_easing_curve_runs_from_rest_to_rest_without_overshoot ... ok
+test radii_match_the_design_system_and_nest_by_the_shell_padding ... ok
+test palettes_match_the_design_system_exactly ... ok
+test agent_colours_are_agent_1_to_9 ... ok
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
