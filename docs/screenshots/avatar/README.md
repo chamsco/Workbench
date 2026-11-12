@@ -1,9 +1,16 @@
-# Avatars, early frame (not in the app yet)
+# Avatars
 
-`01-early-frame-idle.png`: six agents (seeds 11, 42, 7, 99, 1234, 5) at 96px, and five of them at 32px, idle face. Rendered from the SVG that `cauldron_chrome::avatar::svg` writes, by headless Edge on Charles's Windows 11 PC, 12 Nov 2026. GPUI renders SVG through resvg, so the in-app look still has to be checked.
+## 02: flat figure A, in the app
 
-- A textured head sphere over a body sphere, generated in code from a seed: the body colour is the agent's dot (`AGENT_DOTS`), paint patches come from seeded noise, then light and shade. No image files; the reference photos were not copied.
-- The rounded face is the only part that will change with mood; the moods follow orbling (github.com/kochjar/orbling, MIT). Only Idle exists so far, waiting on the owner's look at this frame.
-- Radii: the face and the eyes are pills (radius half their height), under the circles exception.
-- Colours come only from tokens (`tokens::avatar` plus `AGENT_DOTS`), tested.
-- Red and green runs: `docs/cauldron/Avatar-red-output.txt`, `Avatar-green-output.txt`.
+`02-flat-moods-in-app-sample.png`: the eleven moods at 52px, five as outlines, then asking at 40, 28, 22 and 16px. Shot from the real window (debug build, sample data folder, 1240x702, 12 Nov 2026) with the strip placed in the empty Highlights panel for the shot only; that placement was reverted and is not committed. GPUI draws each figure from the SVG that `cauldron_chrome::avatar::svg` writes.
+
+- Ported from the sheet Charles picked A from (`design/cauldron-avatars-and-thread.html` on `claude/project-thread-gg3ogp`): flat head over body in the agent's dot colour at every size, bigger head and smaller body, the cog head for working, three small heads for typing, marks (?, !, z) from 28px up, the outline agent for the chat status line. Mood faces and the cog follow orbling (MIT).
+- Still poses only: the cog angle and the typing hop are tested functions of the motion clock, but nothing animates on screen yet; the eye wander, blink and mark draw-on come with the status line.
+- In the app today: the agent tabs and the + menu draw the figure (idle, 16px) in place of the dot. The sample data has no agents, so those two spots were not shot.
+- Departures from the sheet: the drawn box is taller (y from -12) so marks are not clipped; marks show whole under reduced motion; the z's are paths, not text.
+- Radii: head, eyes and minis are circles or pills, under the circles exception.
+- Red and green runs: `docs/cauldron/Avatar-flat-red-output.txt`, `Avatar-flat-green-output.txt` (red is the compile failure before the module existed).
+
+## 01: textured spheres (superseded)
+
+`01-early-frame-idle.png`: the first try, seeded textured spheres rendered by headless Edge. Replaced by figure A at Charles's request; the texture code is gone.

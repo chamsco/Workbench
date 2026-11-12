@@ -1,0 +1,6 @@
+error[E0432]: unresolved imports `cauldron_chrome::avatar::cog_angle`, `cauldron_chrome::avatar::hop`, `cauldron_chrome::avatar::Look`, `cauldron_chrome::avatar::MOODS`
+error[E0308]: mismatched types
+error[E0277]: cannot calculate the remainder of `u64` divided by `usize`
+error[E0277]: the type `[Rgb]` cannot be indexed by `u64`
+error[E0599]: no variant, associated function, or constant named `Working` found for enum `Mood` in the current scope
+error[E0308]: mismatched types

@@ -1,0 +1,30 @@
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test the_cog_turns_once_every_3_8_seconds ... ok
+test marks_show_from_28px_up ... ok
+test reduced_motion_still_shows_the_mark ... ok
+test avatars_paint_only_with_tokens_and_take_the_agents_colour ... ok
+test the_outline_agent_is_stroked_not_filled ... ok
+test the_three_heads_hop_6_units_one_after_another ... ok
+test typing_turns_the_head_into_three_small_heads ... ok
+test working_turns_the_head_into_a_cog ... ok
+test there_are_eleven_moods_and_each_draws_deterministically ... ok
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test accent_on_the_frame_is_for_glyphs_only ... ok
+test contrast_follows_wcag ... ok
+test kind_colours_match_the_wireframe_and_read_on_cards ... ok
+test motion_stays_within_the_200ms_cap ... ok
+test every_text_pair_passes_aa_in_both_themes ... ok
+test one_accent_and_status_colours_stay_distinct ... ok
+test the_easing_curve_runs_from_rest_to_rest_without_overshoot ... ok
+test shadows_come_from_the_wireframe ... ok
+test agent_dots_come_from_the_wireframe ... ok
+test radii_match_the_wireframe_and_nest_by_subtraction ... ok
+test palettes_match_the_wireframe_tokens_exactly ... ok
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test main_keeps_a_minimum_width_by_closing_split_then_drawer ... ok
+test platforms_differ_only_in_window_controls ... ok
+test panes_never_overlap_and_stay_inside_the_window ... ok
+test solver_matches_every_golden_state_and_size ... ok
+test golden_has_two_window_sizes ... ok
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
