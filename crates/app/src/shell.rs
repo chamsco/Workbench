@@ -1,10 +1,11 @@
-//! The Cauldron shell (UI1): the frame, top bar, sidebar card, main card with tabs,
+//! The Cauldron shell (UI1): the frame, top bar, sidebar, main card with tabs,
 //! right rail, drawer and split. Every rectangle comes from `cauldron_chrome::layout::solve`,
 //! which is tested against numbers measured from the wireframe; nothing here picks a position.
 //!
 //! Content inside the panes is a labelled placeholder until the milestone that owns it
 //! (docs/cauldron/UI-PLAN.md): the thread list is UI3, the thread view UI4, the drawer UI6.
 
+use cauldron_chrome::avatar::{self, Look, Mood};
 use cauldron_chrome::layout::{self, metric, Platform, Rect, ShellState};
 use cauldron_chrome::motion::Frame;
 use cauldron_chrome::tokens::{self, motion as mt, radius, Palette, Rgb, Rgba};
@@ -351,7 +352,6 @@ impl Cauldron {
             .overflow_y_scroll()
             .flex()
             .flex_col()
-            .px(px(4.))
             .pb(px(8.))
             .track_focus(&focus)
             .on_key_down(cx.listener(|this, ev: &KeyDownEvent, _, cx| {
@@ -388,18 +388,18 @@ impl Cauldron {
             Threads::Loading => {
                 // Skeleton rows shaped like the real ones, static (no shimmer to turn off for reduced motion).
                 let bar = |w: f32| div().h(px(8.)).w(relative(w)).rounded(px(radius::INNER)).bg(c(pal.inset));
-                let mut sk = div().id("threads-loading").flex().flex_col().pt(px(8.)).aria_label("Loading threads");
+                let mut sk = div().id("threads-loading").flex().flex_col().pt(px(14.)).aria_label("Loading threads");
                 for w in [0.72, 0.56, 0.8, 0.48, 0.64] {
                     sk = sk.child(
                         div()
                             .flex()
                             .items_center()
-                            .gap(px(7.))
-                            .px(px(6.))
-                            .py(px(6.))
-                            .child(div().w(px(8.)).flex_none())
-                            .child(div().size(px(22.)).flex_none().rounded(px(radius::INNER)).bg(c(pal.inset)))
-                            .child(div().flex_1().flex().flex_col().gap(px(6.)).child(bar(w)).child(bar(w * 0.6))),
+                            .gap(px(8.))
+                            .h(px(30.))
+                            .pl(px(11.))
+                            .pr(px(8.))
+                            .child(div().w(px(18.)).h(px(22.)).flex_none().rounded(px(radius::TAG)).bg(c(pal.inset)))
+                            .child(div().flex_1().child(bar(w))),
                     );
                 }
                 list.child(sk.test_support())
@@ -420,7 +420,6 @@ impl Cauldron {
                     let q = self.query.trim().to_string();
                     return list.child(note("threads-no-match", format!("No threads match {q}"), None, format!("No threads match \u{201c}{q}\u{201d}"), None));
                 }
-                let now = now_ms();
                 let mut i = 0usize;
                 for (gi, (g, ts)) in groups.into_iter().enumerate() {
                     let n = ts.len();
@@ -430,12 +429,13 @@ impl Cauldron {
                             .flex()
                             .items_center()
                             .gap(px(6.))
+                            .h(px(36.))
+                            .flex_none()
                             .px(px(8.))
-                            .pt(px(if gi == 0 { 2. } else { 8. }))
-                            .pb(px(2.))
-                            .text_size(px(11.5))
-                            .line_height(px(16.))
-                            .font_weight(FontWeight::SEMIBOLD)
+                            .pt(px(14.))
+                            .pb(px(4.))
+                            .text_size(px(12.))
+                            .line_height(px(18.))
                             .text_color(if g == Group::Failed { c(pal.bad) } else { fg3 })
                             .aria_label(format!("{}, {n}", g.label()))
                             .child(g.label())
@@ -445,60 +445,48 @@ impl Cauldron {
                     for t in ts {
                         let on = self.selected.as_deref() == Some(t.id.as_str());
                         let id = t.id.clone();
-                        let mut title_line = div()
-                            .flex()
-                            .items_center()
-                            .gap(px(6.))
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .truncate()
-                                    .text_size(px(12.5))
-                                    .line_height(px(17.))
-                                    .font_weight(if t.unread { FontWeight::SEMIBOLD } else { FontWeight(450.) })
-                                    .text_color(if t.unread { fg } else { fg2 })
-                                    .child(t.title.clone()),
-                            );
-                        if t.pinned {
-                            title_line = title_line.child(glyph("pin", 11., fg3));
-                        }
-                        // ponytail: no spinner on Running rows; the group says it, and nothing moves for reduced motion.
-                        title_line = title_line.child(div().flex_none().text_size(px(11.)).text_color(fg3).font_features(tnum()).child(threads::age(now, t.updated)));
+                        // An agentic thread shows its agent in the state's mood (the board's 18x22
+                        // figure, still: ms None); a normal thread a state dot (Charles, 12 Nov).
+                        let agentic = t.agent.is_some() || !t.members.is_empty();
+                        let (mood, state, dot) = match g {
+                            Group::Running => (Mood::Working, "Working", c(pal.accent)),
+                            Group::Failed => (Mood::Error, "Failed", c(pal.bad)),
+                            Group::Unread => (Mood::Idle, "Unread", fg3),
+                            Group::Done => (Mood::Idle, "Done", fg3),
+                        };
+                        let slot = div().id(("thread-av", i)).w(px(18.)).h(px(22.)).flex_none().flex().items_center().justify_center().aria_label(state);
+                        let slot = if agentic {
+                            let (fw, fh) = avatar::size(22.);
+                            let fig = img(Arc::new(Image::from_bytes(ImageFormat::Svg, avatar::svg(0, mood, Look { px: 22., outline: false, ms: None, bust: false, ink: None }).into_bytes())));
+                            slot.child(div().id(("thread-fig", i)).flex_none().child(fig.w(px(fw)).h(px(fh))).test_support())
+                        } else {
+                            slot.child(div().id(("thread-dot", i)).size(px(6.)).rounded_full().bg(dot).test_support())
+                        };
                         list = list.child(
                             div()
                                 .id(("thread", i))
+                                .h(px(30.))
+                                .flex_none()
                                 .flex()
                                 .items_center()
-                                .gap(px(7.))
-                                .px(px(6.))
-                                .py(px(4.))
-                                .rounded(px(radius::CONTROL))
-                                .border_1()
-                                .border_color(if on { c(pal.line) } else { gpui_kit::transparent_black() })
-                                .when_live(on, |d| d.bg(c(pal.raised)))
-                                .when_live(!on, |d| d.hover(|d| d.bg(ca(pal.fg, 0.05))))
+                                .gap(px(8.))
+                                .pl(px(11.))
+                                .pr(px(8.))
+                                .rounded(px(radius::TAG))
+                                .text_size(px(13.))
+                                .text_color(if on || t.unread { fg } else { fg2 })
+                                .when_live(on, |d| d.bg(c(pal.hover)))
+                                .when_live(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
                                 .cursor_pointer()
                                 .aria_label(t.title.clone())
-                                .child(
-                                    div()
-                                        .w(px(8.))
-                                        .flex_none()
-                                        .flex()
-                                        .justify_center()
-                                        .when_live(t.unread, |d| d.child(div().size(px(7.)).rounded_full().bg(c(pal.accent)))),
-                                )
-                                // ponytail: every row is Code; core does not mark a thread as design work yet.
-                                .child(div().size(px(22.)).flex_none().flex().items_center().justify_center().rounded(px(radius::INNER)).bg(c(pal.inset)).child(glyph("code", 13., c(pal.fg2))))
-                                .child(
-                                    div()
-                                        .flex_1()
-                                        .min_w_0()
-                                        .flex()
-                                        .flex_col()
-                                        .child(title_line)
-                                        .child(div().truncate().text_size(px(11.5)).line_height(px(15.)).text_color(fg3).child(threads::subtitle(t))),
-                                )
+                                .child(slot.test_support())
+                                .child(div().flex_1().min_w_0().truncate().font_weight(if t.unread { FontWeight::SEMIBOLD } else { FontWeight::NORMAL }).child(t.title.clone()))
+                                .when_live(t.pinned, |d| d.child(glyph("pin", 11., fg3)))
+                                .child({
+                                    let m = threads::meta(t);
+                                    div().id(("thread-meta", i)).flex_none().max_w(px(54.)).truncate().text_size(px(11.)).text_color(fg3).aria_label(m.clone()).child(m).test_support()
+                                })
+                                .when_live(t.unread, |d| d.child(div().id(("ping", i)).size(px(6.)).flex_none().rounded_full().bg(c(pal.accent)).test_support()))
                                 .on_click(cx.listener(move |this, _, window, cx| {
                                     this.selected = Some(id.clone());
                                     this.open_thread(id.clone());
@@ -718,14 +706,15 @@ fn icon_button_in(id: impl Into<ElementId>, name: &str, label: &'static str, pal
 }
 
 /// The left edge of function slot `pos` (fractional while the indicator slides) in the sidebar's
-/// row. The row spreads its buttons across the card with equal gaps (justify_between), inside the
-/// card's 1px border and the row's 2px side padding.
-fn fn_slot_x(card_w: f32, pos: f32) -> f32 {
+/// apps row, `row_w` wide. The row spreads its buttons edge to edge with equal gaps (justify_between).
+fn fn_slot_x(row_w: f32, pos: f32) -> f32 {
     let n = FUNCTIONS.len() as f32;
-    let inner = card_w - 2.0 - 4.0;
-    let gap = (inner - n * metric::SBTN) / (n - 1.0);
-    3.0 + pos * (metric::SBTN + gap)
+    let gap = (row_w - n * metric::SBTN) / (n - 1.0);
+    pos * (metric::SBTN + gap)
 }
+
+/// The sidebar's right padding: its content ends at the board's x 240.
+const SIDE_PR: f32 = 9.0;
 
 /// Agent tabs share the room between these widths; below TAB_MIN the row scrolls.
 const TAB_MIN: f32 = 72.0;
@@ -879,7 +868,6 @@ impl Render for Cauldron {
 
         let frame = c(pal.frame);
         let card = c(pal.card);
-        let line = c(pal.line);
         let ring = ca(pal.fg, if dark { 0.08 } else { 0.09 });
         let fg = c(pal.fg);
         let fg2 = c(pal.fg2);
@@ -913,15 +901,15 @@ impl Render for Cauldron {
             root = root.child(col.test_support());
         }
 
-        // ---- sidebar card with the function row
+        // ---- sidebar with the function row, on the window
         if let Some(sp) = s.sidebar {
-            let mut fnrow = div().relative().flex().justify_between().px(px(2.)).pt(px(12.)).pb(px(8.));
+            let mut fnrow = div().relative().flex().justify_between().pt(px(12.)).pb(px(8.));
             // The indicator sits under the buttons and slides to the selected one (INDICATOR ms).
             let pos = crate::motion::ease_between(self.section_from, self.section as f32, self.section_since, now, cauldron_chrome::motion::time::INDICATOR);
             fnrow = fnrow.child(
                 div()
                     .absolute()
-                    .left(px(fn_slot_x(sp.rect.w, pos)))
+                    .left(px(fn_slot_x(sp.rect.w - SIDE_PR, pos)))
                     .top(px(12.))
                     .size(px(metric::SBTN))
                     .rounded(px(radius::CONTROL))
@@ -958,70 +946,57 @@ impl Render for Cauldron {
                 .h(px(32.))
                 .flex()
                 .items_center()
-                .gap(px(8.))
-                .px(px(10.))
-                .rounded(px(radius::CONTROL))
+                .gap(px(9.))
+                .px(px(8.))
+                .rounded(px(radius::TAG))
                 .cursor_pointer()
-                .bg(ca(pal.accent, 0.15))
-                .border_1()
-                .border_color(ca(pal.accent, 0.65))
-                .shadow(vec![BoxShadow { color: ca(pal.accent, 0.30), offset: point(px(0.), px(0.)), blur_radius: px(16.), spread_radius: px(-2.), inset: false }])
-                .child(glyph("plus", 14., accent))
-                .child(div().text_size(px(13.)).text_color(fg).child("New thread"))
+                .hover(|d| d.bg(c(pal.hover)))
+                .text_size(px(13.))
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(fg)
+                .child(glyph("square-pen", 15., fg))
+                .child("New thread")
                 .on_click(cx.listener(|this, _, window, cx| this.new_thread(window, cx)))
                 .test_support();
+            // The board's `.side`: on the window, no card; the apps row, New thread, Search, the list.
+            // ponytail: the layout keeps the card era's 12px margin, so the content starts at x 13,
+            // the board's at 10; the right edge is the board's 240 (9px in from the pane's 249).
             let card_el = pane("sidebar", sp.rect)
                 .opacity(sp.alpha)
                 .flex()
                 .flex_col()
-                .rounded(px(radius::PANEL))
-                .bg(card)
-                .border_1()
-                .border_color(ring)
+                .pr(px(SIDE_PR))
                 .overflow_hidden()
+                .child(fnrow)
+                .child(new_thread)
                 .child(
-                    div()
-                        .h(px(metric::TAB_H))
-                        .flex_none()
-                        .flex()
-                        .items_center()
-                        .pl(px(10.))
-                        .text_size(px(13.))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .child("Threads"),
-                )
-                .child(div().px(px(5.)).child(fnrow))
-                .child(
-                    div().px(px(5.)).pb(px(6.)).child(
+                    div().child(
                         div()
                             .id("search")
-                            .h(px(30.))
+                            .h(px(32.))
                             .flex()
                             .items_center()
-                            .gap(px(8.))
-                            .px(px(9.))
-                            .rounded(px(radius::CONTROL))
-                            .border_1()
-                            .border_color(line)
-                            .text_color(fg3)
+                            .gap(px(9.))
+                            .px(px(8.))
+                            .rounded(px(radius::TAG))
+                            .hover(|d| d.bg(c(pal.hover)))
+                            .text_color(fg2)
                             .aria_label("Search threads")
-                            .child(glyph("search", 14., fg3))
-                            .child(div().flex_1().min_w_0().child(Input::new(&search).appearance(false).text_size(px(12.5)).p_0()))
+                            .child(glyph("search", 15., fg2))
+                            .child(div().flex_1().min_w_0().child(Input::new(&search).appearance(false).text_size(px(13.)).p_0()))
                             .test_support(),
                     ),
                 )
-                .child(div().px(px(5.)).pb(px(8.)).child(new_thread))
                 .child(list)
                 .child(
                     div()
-                        .h(px(44.))
+                        .h(px(37.))
                         .flex_none()
                         .flex()
                         .items_center()
-                        .gap(px(8.))
-                        .px(px(10.))
-                        .border_t_1()
-                        .border_color(line)
+                        .gap(px(9.))
+                        .pl(px(3.))
+                        .pt(px(8.))
                         .child(
                             div()
                                 .size(px(24.))
@@ -1470,10 +1445,11 @@ mod tests {
     use crate::threads::sample;
 
     #[test]
-    fn function_slots_span_the_card_with_equal_gaps() {
-        let w = 180.0;
-        assert_eq!(fn_slot_x(w, 0.0), 3.0);
-        assert!((fn_slot_x(w, 6.0) + metric::SBTN - (w - 3.0)).abs() < 1e-3, "last button ends at the padding");
+    fn function_slots_span_the_row_with_equal_gaps() {
+        // The row has no card border or padding now: the board's `.apps` runs edge to edge.
+        let w = 227.0;
+        assert_eq!(fn_slot_x(w, 0.0), 0.0);
+        assert!((fn_slot_x(w, 6.0) + metric::SBTN - w).abs() < 1e-3, "last button ends at the row's edge");
         let step = fn_slot_x(w, 1.0) - fn_slot_x(w, 0.0);
         assert!((fn_slot_x(w, 6.0) - fn_slot_x(w, 0.0) - 6.0 * step).abs() < 1e-3, "equal steps");
     }
@@ -1762,6 +1738,7 @@ mod tests {
             .collect();
         v[0].pinned = true;
         v[1].busy = true;
+        v[1].agent = Some("Rampart".into());
         v[2].unread = true;
         v[3].failed = Some("usage limit".into());
         Cauldron { threads: Threads::Ready(v), ..Cauldron::new() }
@@ -1772,7 +1749,7 @@ mod tests {
     }
 
     /// The sidebar lists core's threads as Unread, Running, Failed, Done, each with its count,
-    /// top to bottom, inside the sidebar card.
+    /// top to bottom, inside the sidebar.
     #[gpui_kit::test]
     fn sidebar_lists_threads_in_groups_with_counts(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
@@ -1791,6 +1768,43 @@ mod tests {
                 assert!(r.x >= side.x && r.right() <= side.right(), "row {i} inside the sidebar");
             }
             assert!(rect(window, ("thread", 0usize)).y > rect(window, "new-thread").bottom(), "rows under New thread");
+        })
+        .unwrap();
+    }
+
+    /// The rows are the new-look board's `.th`: 30 high, the title, the repo in 11px, and a 6px ping
+    /// on an unread row only. An agentic thread (one with an agent or members) shows its agent as an
+    /// 18x22 figure in its state's mood; a normal thread shows a state dot in the same slot (Charles,
+    /// 12 Nov). Group heads are the board's 36px `.sect`; New thread is a 32px row, not a button.
+    #[gpui_kit::test]
+    fn thread_rows_are_the_boards(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = open(cx, with_threads());
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            assert_eq!(rect(window, "new-thread").h, 32.0);
+            for g in 0..4usize {
+                assert_eq!(rect(window, ("group", g)).h, 36.0, "group {g}");
+            }
+            // Row 1 (Rampart mutation score) is agentic; the rest are normal threads.
+            for (i, state) in [(0usize, "Unread"), (1, "Working"), (2, "Failed"), (3, "Done"), (4, "Done")] {
+                let r = rect(window, ("thread", i));
+                assert_eq!(r.h, 30.0, "row {i}");
+                let a = rect(window, ("thread-av", i));
+                assert_eq!((a.w, a.h), (18.0, 22.0), "row {i}'s slot");
+                assert!((a.y + a.h / 2.0 - (r.y + r.h / 2.0)).abs() <= 1.0, "row {i}'s slot is centred");
+                assert!((10.0..=13.0).contains(&(a.x - r.x)), "row {i}'s slot is 11px in, as the board's");
+                assert_eq!(window.find(("thread-av", i)).label(), Some(state), "row {i}");
+                assert_eq!(window.try_find(("thread-fig", i)).is_some(), i == 1, "row {i}: a figure only on the agentic thread");
+                assert_eq!(window.try_find(("thread-dot", i)).is_some(), i != 1, "row {i}: a state dot on a normal thread");
+                assert_eq!(window.find(("thread-meta", i)).label(), Some("no repo"), "row {i}");
+            }
+            let (row, ping) = (rect(window, ("thread", 0usize)), rect(window, ("ping", 0usize)));
+            assert_eq!((ping.w, ping.h), (6.0, 6.0));
+            assert!(row.right() - ping.right() <= 10.0, "the ping is at the row's right");
+            for i in 1..5usize {
+                assert!(window.try_find(("ping", i)).is_none(), "row {i} is read");
+            }
         })
         .unwrap();
     }
