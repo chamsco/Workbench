@@ -7,6 +7,7 @@
 use super::*;
 use backspace_core::chat::{Ctx, Msg, Role, Status, Thread};
 use gpui_kit::component::input::{Textarea, TextareaState};
+use cauldron_chrome::avatar::{self, bust_frame, Look, Mood};
 use gpui_kit::prelude::FluentBuilder;
 
 /// One transcript entry as drawn.
@@ -114,11 +115,40 @@ pub(super) fn steps(t: &backspace_core::trace::Trace, thought: bool) -> Vec<Stri
 /// What a reply that is not finished says in place of its text.
 fn pending(s: Status) -> Option<&'static str> {
     match s {
-        Status::Sending => Some("Waiting for the reply"),
-        Status::Streaming => Some("Writing"),
         Status::Stopped => Some("Stopped"),
+        s => live(s).map(|(_, label)| label),
+    }
+}
+
+/// A reply on its way: the agent's mood and what its status line says.
+fn live(s: Status) -> Option<(Mood, &'static str)> {
+    match s {
+        Status::Sending => Some((Mood::Waiting, "Waiting for the reply")),
+        Status::Streaming => Some((Mood::Typing, "Writing")),
         _ => None,
     }
+}
+
+/// The agent's bust in a 16px slot, then its label: the same slot and 8px gap as the step
+/// lines, so the label starts where their text does. It stays under the text while the reply
+/// streams. The head and marks overhang the slot, so the image sits absolutely above it.
+fn status_line(i: usize, mood: Mood, label: &'static str, grey: Rgb) -> impl IntoElement {
+    // ponytail: a still frame (ms None); the cog spin and typing hop come with the motion clock.
+    let look = Look { px: 16., outline: true, ms: None, bust: true, ink: Some(grey) };
+    let (w, h, top) = bust_frame(16.);
+    let pic = img(Arc::new(Image::from_bytes(ImageFormat::Svg, avatar::svg(0, mood, look).into_bytes())));
+    div()
+        .id(("live", i))
+        .flex()
+        .items_center()
+        .gap(px(8.))
+        .h(px(20.))
+        .text_size(px(12.5))
+        .text_color(c(grey))
+        .aria_label(label)
+        .child(div().id(("bust", i)).relative().size(px(16.)).flex_none().child(pic.absolute().left_0().top(px(-top)).w(px(w)).h(px(h))).test_support())
+        .child(div().id(("live-text", i)).child(label).test_support())
+        .test_support()
 }
 
 /// The settings a send carries: the saved prefs, nothing else wired yet.
@@ -341,12 +371,13 @@ impl Cauldron {
                 .aria_label(if l.text.is_empty() { shown.clone() } else { l.text.clone() })
                 .when_some(self.steps.get(&l.id).filter(|s| !s.is_empty()), |d, st| {
                     let mut col = div().id(("steps", i)).flex().flex_col().gap(px(2.)).aria_label(st.join(", "));
-                    for s in st {
-                        col = col.child(div().flex().items_center().gap(px(8.)).h(px(20.)).text_size(px(12.5)).text_color(fg3).child(glyph("check", 13., fg3)).child(s.clone()));
+                    for (j, s) in st.iter().enumerate() {
+                        col = col.child(div().flex().items_center().gap(px(8.)).h(px(20.)).text_size(px(12.5)).text_color(fg3).child(div().size(px(16.)).flex_none().flex().items_center().justify_center().child(glyph("check", 13., fg3))).child(div().id(format!("step-text-{i}-{j}")).child(s.clone()).test_support()));
                     }
                     d.child(col.test_support())
                 })
-                .when_live(!shown.is_empty(), |d| d.child(div().text_size(px(13.)).line_height(px(20.)).text_color(if l.text.is_empty() { fg3 } else { fg }).child(shown.clone())));
+                .when_live(!l.text.is_empty() || live(l.status).is_none(), |d| d.child(div().text_size(px(13.)).line_height(px(20.)).text_color(if l.text.is_empty() { fg3 } else { fg }).child(shown.clone())))
+                .when_some(live(l.status), |d, (mood, label)| d.child(status_line(i, mood, label, pal.fg3)));
             if let Some(e) = &l.error {
                 let mut err = div()
                     .id(("msg-error", i))
@@ -677,6 +708,45 @@ pub(super) mod tests {
             assert_eq!(window.find("thread-empty").label(), Some("No messages yet"));
         })
         .unwrap();
+    }
+
+    /// A reply still on its way shows the agent's bust and what it is doing, in the step lines'
+    /// grey with its label lined up on the step text, under any text so far; a finished reply has none.
+    #[gpui_kit::test]
+    fn a_running_reply_shows_the_bust_on_its_status_line(cx: &mut TestAppContext) {
+        let (handle, _chats) = open(cx);
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            window.click(("thread", 0usize), cx);
+        })
+        .unwrap();
+        for (status, label, text) in [(Status::Streaming, "Writing", ""), (Status::Sending, "Waiting for the reply", ""), (Status::Streaming, "Writing", "Half a sen")] {
+            handle
+                .update(cx, |c, _, _| {
+                    let t = c.thread.as_mut().unwrap();
+                    t.messages.truncate(2);
+                    let mut m = t.messages[1].clone();
+                    m.id = "m3".into();
+                    m.text = text.into();
+                    m.status = status;
+                    t.messages.push(m);
+                })
+                .unwrap();
+            cx.update_window(handle.into(), |_, window, cx| {
+                window.render_frame(cx);
+                assert_eq!(window.find(("live", 2usize)).label(), Some(label));
+                let bust = window.find(("bust", 2usize)).bounds();
+                assert_eq!((bust.size.width, bust.size.height), (px(16.), px(16.)), "a 16px square slot");
+                let tx = window.find(("live-text", 2usize)).bounds().origin.x;
+                let step = window.find("step-text-1-0").bounds().origin.x;
+                assert_eq!(tx, step, "the label lines up with the step text");
+                assert!(window.try_find(("bust", 1usize)).is_none(), "a finished reply has no status line");
+                if !text.is_empty() {
+                    assert_eq!(window.find(("msg", 2usize)).label(), Some(text), "the text shows above the status line while it streams");
+                }
+            })
+            .unwrap();
+        }
     }
 
     /// Typing and Enter send to core; the message appears at once, and the reply's failure

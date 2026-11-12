@@ -105,13 +105,13 @@ fn px_is_the_sheets_figure_height_with_headroom_only_for_marks() {
 fn the_bust_is_the_head_and_shoulders_in_a_square_slot_with_marks_overhanging() {
     let b = Look { bust: true, outline: true, ..look(16.) };
     let s = svg(0, Mood::Asking, b);
-    assert!(s.contains(r#"viewBox="22 -18 64 83""#), "{s}");
+    assert!(s.contains(r#"viewBox="18 -18 72 89""#), "{s}");
     assert!(s.contains("class=\"mark\""), "the bust keeps its marks at 16px");
     assert!(!svg(0, Mood::Asking, Look { px: 13., ..b }).contains("class=\"mark\""));
-    // The slot is the sheet's 22 9 56 56: 16 units of image per 56 units, the image 27 units above.
+    // The slot is the sheet's 18 7 64 64 (shoulders show): 16px per 64 units, the image 25 units above.
     let (w, h, top) = cauldron_chrome::avatar::bust_frame(16.);
-    let k = 16. / 56.;
-    assert!((w - 64. * k).abs() < 1e-3 && (h - 83. * k).abs() < 1e-3 && (top - 27. * k).abs() < 1e-3);
+    let k = 16. / 64.;
+    assert!((w - 72. * k).abs() < 1e-3 && (h - 89. * k).abs() < 1e-3 && (top - 25. * k).abs() < 1e-3);
 }
 
 #[test]

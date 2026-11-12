@@ -59,8 +59,8 @@ const BCY: f32 = 92.0;
 const SHEET: (f32, f32, f32, f32) = (10.0, 4.0, 80.0, 96.0);
 const TALL: (f32, f32, f32, f32) = (10.0, -12.0, 80.0, 112.0);
 /// The bust's slot (the sheet's crop), and the drawn box: the slot plus room up and right for the marks.
-const BUST: (f32, f32, f32, f32) = (22.0, 9.0, 56.0, 56.0);
-const BUST_DRAW: (f32, f32, f32, f32) = (22.0, -18.0, 64.0, 83.0);
+const BUST: (f32, f32, f32, f32) = (18.0, 7.0, 64.0, 64.0);
+const BUST_DRAW: (f32, f32, f32, f32) = (18.0, -18.0, 72.0, 89.0);
 /// Marks on the bust from this slot size up.
 pub const BUST_MARKS_FROM: f32 = 14.0;
 /// Marks (?, !, z) only from this height up.
@@ -204,7 +204,7 @@ fn eyes(mood: Mood, look: Look, col: &str) -> String {
 /// The mark beside the head: ? asking, ! surprised, z's sleepy. Drawn whole (no draw-on), as paths.
 /// On the bust they are about 1.5x bigger and placed clear of the head (sheet 5742272).
 fn mark(mood: Mood, col: &str, bust: bool) -> String {
-    let (q, b) = if bust { ("translate(61 -13) rotate(10) scale(.2)", "translate(68 -10) scale(.25)") } else { ("translate(62 -7) rotate(10) scale(.135)", "translate(68 -8) scale(.17)") };
+    let (q, b) = if bust { ("translate(61 -13) rotate(10) scale(.228)", "translate(68 -10) scale(.285)") } else { ("translate(62 -7) rotate(10) scale(.135)", "translate(68 -8) scale(.17)") };
     match mood {
         Mood::Asking => format!(
             r#"<g class="mark" transform="{q}"><path d="M24 40 C24 18 40 6 58 6 C78 6 92 20 92 38 C92 56 78 64 68 72 C61 78 58 84 58 96" fill="none" stroke="{col}" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/><circle cx="58" cy="124" r="13" fill="{col}"/></g>"#
@@ -215,8 +215,8 @@ fn mark(mood: Mood, col: &str, bust: bool) -> String {
         Mood::Sleepy => {
             // Three z's, each smaller and higher, apart so they read as three.
             let z = |x: f32, y: f32, s: f32| format!("M{x} {} h{s} l-{s} {s} h{s}", y - s);
-            let zs = if bust { [z(64.0, 15.0, 9.0), z(72.0, 3.0, 7.5), z(79.0, -8.0, 6.0)] } else { [z(65.0, 17.0, 7.0), z(75.0, 7.0, 5.5), z(83.0, -1.0, 4.0)] };
-            let w = if bust { 3.2 } else { 2.4 };
+            let zs = if bust { [z(64.0, 15.0, 10.3), z(72.0, 3.0, 8.6), z(79.0, -8.0, 6.8)] } else { [z(65.0, 17.0, 7.0), z(75.0, 7.0, 5.5), z(83.0, -1.0, 4.0)] };
+            let w = if bust { 3.65 } else { 2.4 };
             format!(
                 r#"<path class="mark" d="{} {} {}" fill="none" stroke="{col}" stroke-width="{w}" stroke-linecap="round" stroke-linejoin="round"/>"#,
                 zs[0], zs[1], zs[2]
