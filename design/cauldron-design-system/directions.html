@@ -1,0 +1,135 @@
+<title>Cauldron System Directions</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Layout: two labelled direction columns rendering the same four pieces, then a decision card. */
+:root{
+  --bg:#ecebee;--fg:#18171b;--fg2:#3f3c45;--fg3:#68636f;--line:#e3e1e6;
+  --a-frame:#f3f2f4;--a-card:#ffffff;--a-inset:#f5f4f6;--a-hover:#ebeaed;--a-acc:#c9330f;--a-on:#ffffff;--a-bad:#b83232;
+  --b-tray:#eeeef0;--b-card:#ffffff;--b-ring:rgba(20,18,24,.10);--b-acc:#2f63e6;--b-on:#ffffff;
+  --b-green-bg:#e3f4ea;--b-green:#1e6b44;--b-blue-bg:#e6edfd;--b-blue:#2a4fb5;--b-amber-bg:#fbf0d9;--b-amber:#7c5300;--b-red-bg:#fbe5e5;--b-red:#a22b2b;--b-violet-bg:#efe9fd;--b-violet:#5b3fc4;
+  --sans:"Segoe UI Variable Text","Segoe UI",-apple-system,"SF Pro Text",system-ui,sans-serif;
+  --mono:"Cascadia Mono","SF Mono",ui-monospace,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#08080a;--fg:#f2f1f4;--fg2:#cfcad4;--fg3:#8e8896;--line:#26262a;
+  --a-frame:#0e0e10;--a-card:#161618;--a-inset:#121214;--a-hover:#232327;--a-acc:#ff4d2d;--a-on:#1a0400;--a-bad:#ef6a6a;
+  --b-tray:#1b1b1e;--b-card:#242428;--b-ring:rgba(255,255,255,.10);--b-acc:#5b8cf0;--b-on:#0a1530;
+  --b-green-bg:#16301f;--b-green:#6fd39f;--b-blue-bg:#18233f;--b-blue:#93b4ff;--b-amber-bg:#33270f;--b-amber:#f0c060;--b-red-bg:#3a1a1a;--b-red:#ff9a9a;--b-violet-bg:#261e42;--b-violet:#b9a6ff;
+  color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#08080a;--fg:#f2f1f4;--fg2:#cfcad4;--fg3:#8e8896;--line:#26262a;
+  --a-frame:#0e0e10;--a-card:#161618;--a-inset:#121214;--a-hover:#232327;--a-acc:#ff4d2d;--a-on:#1a0400;--a-bad:#ef6a6a;
+  --b-tray:#1b1b1e;--b-card:#242428;--b-ring:rgba(255,255,255,.10);--b-acc:#5b8cf0;--b-on:#0a1530;
+  --b-green-bg:#16301f;--b-green:#6fd39f;--b-blue-bg:#18233f;--b-blue:#93b4ff;--b-amber-bg:#33270f;--b-amber:#f0c060;--b-red-bg:#3a1a1a;--b-red:#ff9a9a;--b-violet-bg:#261e42;--b-violet:#b9a6ff;
+  color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font:13px/18px var(--sans);font-variant-numeric:tabular-nums;padding-block:28px 48px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.wrap{max-width:1120px;margin:0 auto;display:grid;gap:20px}
+h1{font-size:20px;line-height:26px;font-weight:600;margin:0;letter-spacing:-.01em}
+.lede{color:var(--fg2);max-width:70ch;margin:4px 0 0}
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,480px),1fr));gap:16px}
+.col{display:grid;gap:10px;align-content:start;min-width:0}
+.lab{display:flex;gap:10px;align-items:baseline}
+.lab b{font-size:15px;line-height:20px}
+.lab span{color:var(--fg3)}
+.notes{margin:0;padding-left:18px;color:var(--fg2);display:grid;gap:2px}
+.mono{font-family:var(--mono);font-size:12px}
+/* ---------- A: Tone steps ---------- */
+.A{background:var(--a-frame);border-radius:10px;padding:8px;display:grid;gap:8px}
+.A .card{background:var(--a-card);border-radius:6px;padding:12px;display:grid;gap:10px}
+.A .row{display:flex;align-items:center;gap:8px;height:28px;padding:0 8px;border-radius:4px}
+.A .row.sel{background:var(--a-hover)}
+.A .t{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.A .meta{color:var(--fg3);font-size:12px}
+.A .dot{width:6px;height:6px;border-radius:50%;background:var(--fg3)}
+.A .dot.need{background:var(--a-acc)}
+.A .tool{display:flex;align-items:center;gap:8px;height:32px;padding:0 8px;border-radius:4px;background:var(--a-inset)}
+.A .tool .n{font-family:var(--mono);font-size:12px}
+.A .tool .s{flex:1;color:var(--fg3);min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.A .st{display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--fg2)}
+.A .st.bad{color:var(--a-bad)}
+.A .tag{font-family:var(--mono);font-size:11px;line-height:18px;padding:0 6px;border-radius:3px;background:var(--a-inset);color:var(--fg2)}
+.A .btns{display:flex;gap:6px;justify-content:flex-end}
+.A .btn{height:28px;padding:0 12px;border-radius:4px;border:0;font:500 13px var(--sans);background:var(--a-hover);color:var(--fg)}
+.A .btn.p{background:var(--a-acc);color:var(--a-on)}
+/* ---------- B: Instrument panel ---------- */
+.B{background:var(--b-tray);border-radius:14px;padding:12px;display:grid;gap:12px}
+.B .card{background:var(--b-card);border-radius:12px;padding:14px;display:grid;gap:10px;box-shadow:0 0 0 1px var(--b-ring),0 1px 2px rgba(0,0,0,.06)}
+.B .row{display:flex;align-items:center;gap:8px;height:32px;padding:0 10px;border-radius:8px;box-shadow:inset 0 0 0 1px transparent}
+.B .row.sel{box-shadow:inset 0 0 0 1px var(--b-ring);background:var(--b-tray)}
+.B .t{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.B .pill{font-size:11px;line-height:20px;padding:0 8px;border-radius:999px;font-weight:500}
+.g{background:var(--b-green-bg);color:var(--b-green)}.bl{background:var(--b-blue-bg);color:var(--b-blue)}.am{background:var(--b-amber-bg);color:var(--b-amber)}.rd{background:var(--b-red-bg);color:var(--b-red)}.vi{background:var(--b-violet-bg);color:var(--b-violet)}
+.B .tool{display:flex;align-items:center;gap:10px;min-height:44px;padding:8px 10px;border-radius:10px;box-shadow:inset 0 0 0 1px var(--b-ring)}
+.B .ic{width:26px;height:26px;border-radius:7px;background:var(--b-tray);display:grid;place-items:center}
+.B .tool .n{font-family:var(--mono);font-size:12px}
+.B .tool .s{flex:1;color:var(--fg3);min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.B .btns{display:flex;gap:8px;justify-content:flex-end}
+.B .btn{height:36px;padding:0 16px;border-radius:10px;border:0;font:500 13px var(--sans);background:var(--b-card);color:var(--fg);box-shadow:0 0 0 1px var(--b-ring)}
+.B .btn.p{background:var(--b-acc);color:var(--b-on);box-shadow:none}
+svg{flex:none}
+.dec{background:var(--a-card);border-radius:6px;padding:16px;display:grid;gap:8px;max-width:760px}
+.dec h2{font-size:15px;line-height:20px;margin:0}
+.dec p{margin:0;color:var(--fg2)}
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Cauldron design system: two directions</h1>
+    <p class="lede">Same four pieces drawn both ways: a sidebar thread list, two tool calls, status and tags, and an approval's buttons. A builds on what Charles approved; B is what a Palermo/affectUI-style kit looks like when taken straight.</p>
+  </header>
+
+  <div class="cols">
+    <section class="col">
+      <div class="lab"><b>A · Tone steps</b><span>Tuff-style layering, one accent</span></div>
+      <div class="A">
+        <div class="card">
+          <div class="row sel"><span class="dot need"></span><span class="t">Approve M3 start_task</span><span class="meta">needs you</span></div>
+          <div class="row"><span class="dot"></span><span class="t">Windows build on UI5</span><span class="meta">21m</span></div>
+          <div class="row"><span class="dot"></span><span class="t">Policy gateway budgets</span><span class="meta">2h</span></div>
+        </div>
+        <div class="card">
+          <div class="tool"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg><span class="n">read_file</span><span class="s">crates/chrome/src/tokens.rs</span><span class="meta">0.4s</span></div>
+          <div class="tool"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="color:var(--a-bad)"><path d="M18 6 6 18M6 6l12 12"/></svg><span class="n">cargo test</span><span class="s">-p cauldron-chrome</span><span class="st bad">Failed · 2 of 11</span></div>
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><span class="tag">opus-5.5</span><span class="tag">main</span><span class="st">Running · 0:42</span><span class="st">Done</span></div>
+          <div class="btns"><button class="btn">Deny</button><button class="btn p">Approve</button></div>
+        </div>
+      </div>
+      <ul class="notes">
+        <li>Depth from tone: frame, card, inset. No outlines on cards, no card shadows.</li>
+        <li>Radii 10 / 6 / 4 / 3 as approved. Accent only on the one thing that wants you.</li>
+        <li>Status is ink text plus a glyph; red only for failure.</li>
+      </ul>
+    </section>
+
+    <section class="col">
+      <div class="lab"><b>B · Instrument panel</b><span>Palermo/affectUI-style kit</span></div>
+      <div class="B">
+        <div class="card">
+          <div class="row sel"><span class="t">Approve M3 start_task</span><span class="pill am">Waiting</span></div>
+          <div class="row"><span class="t">Windows build on UI5</span><span class="pill bl">Running</span></div>
+          <div class="row"><span class="t">Policy gateway budgets</span><span class="pill g">Done</span></div>
+        </div>
+        <div class="card">
+          <div class="tool"><span class="ic"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M14 3H6v18h12V7z"/></svg></span><span class="n">read_file</span><span class="s">crates/chrome/src/tokens.rs</span><span class="pill g">0.4s</span></div>
+          <div class="tool"><span class="ic"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="m4 17 6-6-6-6M12 19h8"/></svg></span><span class="n">cargo test</span><span class="s">-p cauldron-chrome</span><span class="pill rd">Failed</span></div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap"><span class="pill vi">opus-5.5</span><span class="pill bl">main</span><span class="pill bl">Running</span><span class="pill g">Done</span></div>
+          <div class="btns"><button class="btn">Deny</button><button class="btn p">Approve</button></div>
+        </div>
+      </div>
+      <ul class="notes">
+        <li>White cards on a grey tray, ring plus 1px shadow on every surface.</li>
+        <li>Radii 12 / 10 / 8, pill badges in five hues, blue accent.</li>
+        <li>Reads clearly in isolation; in a full window it is a wall of tinted pills.</li>
+      </ul>
+    </section>
+  </div>
+
+  <section class="dec" aria-label="Decision">
+    <h2>Decision: A, tone steps</h2>
+    <p><b>Load and scanning.</b> A list of 30 threads in B carries 30 coloured pills; in A only the rows that need Charles carry colour, so they are found in one glance. That is the job of the sidebar.</p>
+    <p><b>Consistency.</b> A keeps the approved radii (6/4/3), the single ember accent and Segoe UI Variable. B would reopen three decisions that were settled.</p>
+    <p><b>Build cost in GPUI.</b> A is flat fills. B puts a ring and a shadow on every surface, which GPUI draws per element and which the wireframes already cut once.</p>
+    <p><b>Self-critique of A.</b> Near-black with one vermilion accent is itself a common AI look. A only escapes it if the accent stays rare (focus, one primary per view, needs-you) and the neutrals carry the hierarchy. Tone steps in light mode are subtle (white card on #f3f2f4), so hover and selection must use a real fill, not a hairline.</p>
+  </section>
+</div>

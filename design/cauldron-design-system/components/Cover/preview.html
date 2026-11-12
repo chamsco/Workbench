@@ -1,0 +1,34 @@
+<!-- @dsCard height=288 -->
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>cover</title>
+<style>
+html,body{margin:0;height:100%}
+body{background:var(--card);color:var(--fg);font-family:var(--font-display);position:relative;width:960px;height:288px;overflow:hidden}
+svg{position:absolute;inset:0}
+.acc{fill:var(--accent)} .ink{fill:var(--fg)} .frm{fill:var(--frame)} .ins{fill:var(--selected)} .tint{fill:var(--accent-soft)}
+.r{rx:6px;ry:6px} .r4{rx:4px;ry:4px} .round{rx:999px}
+.dot{fill:var(--card)}
+.name{position:absolute;left:48px;bottom:44px;max-width:440px}
+.name h1{margin:0;font-size:96px;line-height:.92;font-weight:600;letter-spacing:-.03em}
+.name p{margin:12px 0 0;font:400 14px/20px var(--font-sans);color:var(--fg-3)}
+</style></head>
+<body>
+<svg width="960" height="288" viewBox="0 0 960 288" aria-hidden="true">
+<!-- blocks: frame 456x288 (full-bleed field), selected 200x120, accent 120x120 (radius-card), ink 240x108 (radius-card)
+     arrangement: modular grid on a 12px pitch right of x=480, the ember square set as the one hot cell, the way the app spends its accent
+     pattern: dot grid at space-12 in card colour cut out of the ink block; chosen because the system is precise and mono-on-a-grid, and the frame already carries a dot texture
+     scales: space-12 gaps and pitch, radius-card 6 on blocks, radius-round for dots -->
+<rect class="frm" x="504" y="0" width="456" height="288"/>
+<rect class="ins r" x="528" y="24" width="200" height="120"/>
+<rect class="acc r" x="740" y="24" width="120" height="120"/>
+<rect class="ins r" x="872" y="24" width="64" height="120"/>
+<rect class="ink r" x="740" y="156" width="196" height="108"/>
+<rect class="ins r" x="528" y="156" width="200" height="48"/>
+<rect class="ins r" x="528" y="216" width="96" height="48"/>
+<rect class="tint r" x="636" y="216" width="92" height="48"/>
+<circle class="dot" cx="752" cy="184" r="1.5"/><circle class="dot" cx="764" cy="184" r="1.5"/><circle class="dot" cx="776" cy="184" r="1.5"/><circle class="dot" cx="788" cy="184" r="1.5"/><circle class="dot" cx="800" cy="184" r="1.5"/><circle class="dot" cx="812" cy="184" r="1.5"/><circle class="dot" cx="824" cy="184" r="1.5"/><circle class="dot" cx="836" cy="184" r="1.5"/><circle class="dot" cx="752" cy="196" r="1.5"/><circle class="dot" cx="764" cy="196" r="1.5"/><circle class="dot" cx="776" cy="196" r="1.5"/><circle class="dot" cx="788" cy="196" r="1.5"/><circle class="dot" cx="800" cy="196" r="1.5"/><circle class="dot" cx="812" cy="196" r="1.5"/><circle class="dot" cx="824" cy="196" r="1.5"/><circle class="dot" cx="836" cy="196" r="1.5"/><circle class="dot" cx="752" cy="208" r="1.5"/><circle class="dot" cx="764" cy="208" r="1.5"/><circle class="dot" cx="776" cy="208" r="1.5"/><circle class="dot" cx="788" cy="208" r="1.5"/><circle class="dot" cx="800" cy="208" r="1.5"/><circle class="dot" cx="812" cy="208" r="1.5"/><circle class="dot" cx="824" cy="208" r="1.5"/><circle class="dot" cx="836" cy="208" r="1.5"/><circle class="dot" cx="752" cy="220" r="1.5"/><circle class="dot" cx="764" cy="220" r="1.5"/><circle class="dot" cx="776" cy="220" r="1.5"/><circle class="dot" cx="788" cy="220" r="1.5"/><circle class="dot" cx="800" cy="220" r="1.5"/><circle class="dot" cx="812" cy="220" r="1.5"/><circle class="dot" cx="824" cy="220" r="1.5"/><circle class="dot" cx="836" cy="220" r="1.5"/><circle class="dot" cx="752" cy="232" r="1.5"/><circle class="dot" cx="764" cy="232" r="1.5"/><circle class="dot" cx="776" cy="232" r="1.5"/><circle class="dot" cx="788" cy="232" r="1.5"/><circle class="dot" cx="800" cy="232" r="1.5"/><circle class="dot" cx="812" cy="232" r="1.5"/><circle class="dot" cx="824" cy="232" r="1.5"/><circle class="dot" cx="836" cy="232" r="1.5"/>
+</svg>
+<div class="name"><h1>Cauldron</h1><p>Neutral tone steps, one ember accent, facts in words and numbers.</p></div>
+</body>
+</html>
