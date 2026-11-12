@@ -21,3 +21,24 @@ sample data folder.
 - Not changed: motion stays Cauldron's (200ms cap); the design system's 240 and 300ms durations break that rule. The
   shadows keep their dark values in both themes, and the 1px rings from `shadow-menu`/`shadow-tip` are not added yet.
 - Runs: `docs/cauldron/NL1-tokens-red.txt` (the new tests against the old tokens: no `Rgba`, no new radii), `NL1-tokens-green.txt`.
+
+## NL2a: the new thread box
+
+`nl2-01-new-thread.png` against `board-frame1.png`: the board's centred column, the machine above a box,
+and in the box the editor, Add a file, effort and a round Start. The brand, the Code/Design tabs and the
+cards under the box are gone.
+
+| | Board | App | Why |
+|---|---|---|---|
+| Box height (one line) | 84 | 84 | |
+| Box width | 780 | 628 | the card is 676 wide here, 944 on the board: the sidebar and top bar move with top bar A |
+| Ctx row above the box | 34 | 34 | |
+| Box radius / dd radius | 10 / 6 | 10 / 6 | CONTROL, TAG |
+| Start | 28 round, raised | 28 round, raised (accent once there is text) | |
+| Placeholder | "Ask the coordinator, @ an agent..." | "Describe a task, a bug or an idea..." | there is no coordinator in core yet |
+| Trust, Coordinator, mic, Worktree/Isolated, usage bars, stage strip | shown | not drawn | core has none of them; no fakes |
+| Card header and close | shown | not drawn | arrives with top bar A |
+
+- The editor starts at one row (was two) so the box is the board's 84 with no text.
+- Runs: `docs/cauldron/NL2-newthread-red.txt` (the centred-box test fails on the old screen), `NL2-newthread-green.txt`.
+- `nl2-02-machine-menu.png`: the machine menu opens under the machine and draws over the box (deferred, since the box now comes after it). `nl2-03-cant-reach.png`: the error state, a sample machine that is not running; the line sits under the box and the column re-centres around it.
