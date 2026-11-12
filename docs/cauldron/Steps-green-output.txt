@@ -1,70 +1,29 @@
-
-running 29 tests
-test shell::motion::tests::rects_lerp_from_one_to_the_other ... ok
+# Re-run after the audit fixes (step lines cached per thread load, MCP names tidied, unused tweens removed): 27 tests.
 test shell::newthread::tests::the_body_line_turns_accent_with_focus ... ok
-test shell::motion::tests::tweens_run_then_stop_and_never_run_under_reduced_motion ... ok
 test icons::tests::every_shell_icon_loads ... ok
 test shell::tests::new_thread_screen_has_one_fixed_tab_joined_to_the_card ... ok
 test shell::thread::tests::lines_carry_who_answered_and_the_cost ... ok
-test shell::newthread::tests::start_waits_while_core_opens_and_says_when_it_failed ... ok
 test shell::thread::tests::steps_group_a_replys_tool_calls ... ok
 test shell::newthread::tests::the_new_thread_screen_draws_the_box_joined_to_its_tab ... ok
+test shell::newthread::tests::start_waits_while_core_opens_and_says_when_it_failed ... ok
 test shell::tests::sidebar_lists_threads_in_groups_with_counts ... ok
 test threads::tests::ages_read_short ... ok
 test threads::tests::each_thread_lands_in_one_group_by_precedence ... ok
 test threads::tests::groups_come_in_order_keep_list_order_and_skip_empty_ones ... ok
-test threads::tests::search_matches_title_or_preview_ignoring_case ... ok
 test threads::tests::subtitle_is_the_project_folder_else_the_preview ... ok
-test shell::tests::plus_opens_a_one_to_one ... ok
-test shell::tests::sidebar_draws_loading_empty_no_match_and_error ... ok
+test threads::tests::search_matches_title_or_preview_ignoring_case ... ok
 test shell::tests::icon_buttons_have_names_and_tooltips ... ok
+test shell::tests::sidebar_draws_loading_empty_no_match_and_error ... ok
+test shell::tests::plus_opens_a_one_to_one ... ok
 test shell::thread::tests::a_row_opens_its_thread ... ok
 test shell::tests::panes_match_the_layout_solver_in_every_state ... ok
 test shell::thread::tests::the_effort_chip_cycles_and_saves ... ok
 test shell::newthread::tests::an_unreadable_file_leaves_no_thread_behind ... ok
-test shell::newthread::tests::start_waits_for_a_subscription_and_design_only_notes ... ok
 test shell::thread::tests::the_composer_sends_through_core ... ok
+test shell::newthread::tests::start_waits_for_a_subscription_and_design_only_notes ... ok
 test shell::newthread::tests::start_creates_sends_and_opens_the_thread ... ok
 test shell::tests::search_filters_and_arrows_move_the_selection ... ok
 test shell::tests::the_open_tab_is_kept_in_view ... ok
 test shell::tests::agent_tabs_clamp_then_scroll_with_the_coordinator_pinned ... ok
 test shell::newthread::tests::start_on_a_connected_machine_sends_a_task ... ok
-
-test result: ok. 29 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.70s
-
-
-running 0 tests
-
-test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
-
-
-running 11 tests
-test accent_on_the_frame_is_for_glyphs_only ... ok
-test contrast_follows_wcag ... ok
-test every_text_pair_passes_aa_in_both_themes ... ok
-test motion_stays_within_the_200ms_cap ... ok
-test kind_colours_match_the_wireframe_and_read_on_cards ... ok
-test one_accent_and_status_colours_stay_distinct ... ok
-test the_easing_curve_runs_from_rest_to_rest_without_overshoot ... ok
-test agent_dots_come_from_the_wireframe ... ok
-test palettes_match_the_wireframe_tokens_exactly ... ok
-test radii_match_the_wireframe_and_nest_by_subtraction ... ok
-test shadows_come_from_the_wireframe ... ok
-
-test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
-
-
-running 5 tests
-test main_keeps_a_minimum_width_by_closing_split_then_drawer ... ok
-test platforms_differ_only_in_window_controls ... ok
-test panes_never_overlap_and_stay_inside_the_window ... ok
-test golden_has_two_window_sizes ... ok
-test solver_matches_every_golden_state_and_size ... ok
-
-test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
-
-
-running 0 tests
-
-test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
-
+test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.69s

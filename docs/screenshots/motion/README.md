@@ -6,6 +6,7 @@ Captured on Charles's Windows 11 PC, 12 Nov 2026, 100% scaling, 1240x702, dark t
 |---|---|
 | `01-plus-menu-100x-slow-sample.png` | The + menu opening with `CAULDRON_MOTION_SLOW=100` (debug only), at about 1s, 5s and 19s of 15s: the panel fades in and rises, its item follows. Mid-frames can only be shot slowed down; at real speed it takes 150ms. |
 | `02-plus-menu-settled-sample.png` | The same menu at real speed, settled: opaque, where it was before motion. |
+| `03-machine-menu-highlight-sample.png` | The machine menu at real speed: hover on "This machine", then on "Studio". The highlight lines up with the item and sits behind its text. |
 
 ## What moves
 
@@ -18,5 +19,6 @@ Captured on Charles's Windows 11 PC, 12 Nov 2026, 100% scaling, 1240x702, dark t
 
 - Reduced motion with the Windows setting off (changing it is a system setting); the cut path is tested with `set_reduce_motion(true)` in every test window.
 - The setting is read at launch only, not when it changes.
-- The highlight slide and the machine menu were not shot mid-frame.
+- The highlight slide was not shot mid-frame. Slowed runs stall: the shot window sits in the background, where Windows throttles frames, so the animation only advances on input. At real speed it settles with no input (checked).
+- The menu and tooltip motion has no unit test of its own; the earlier `Tween` and `lerp` helpers, and their two tests (written with the module, so no red run), were removed as unused. `Motion-green-output.txt` predates that.
 - Items 3, 5, 1, 2, 4, 6, 7, 9 are not built yet.
