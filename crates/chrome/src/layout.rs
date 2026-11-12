@@ -49,7 +49,6 @@ pub struct Shell {
     pub rail: Option<Rect>,
     pub sidebar: Option<Rect>,
     pub bar: Rect,
-    pub crumbs: Rect,
     pub main: Rect,
     pub tabs: Rect,
     pub half: Option<Rect>,
@@ -76,10 +75,10 @@ pub mod metric {
     /// The top bar, full width. Its height and the gap under it.
     pub const BAR_H: f32 = 40.0;
     pub const BAR_GAP: f32 = 4.0;
-    /// The tab row above the main card (34 in the old wireframe, 26 from the top bar decision).
-    pub const TAB_H: f32 = 26.0;
-    /// The logo and the name after the sidebar button, before the breadcrumbs.
-    pub const TITLE_W: f32 = 184.0;
+    /// A floating tab in the top bar (the new-look board's `.ftab`).
+    pub const TAB_H: f32 = 30.0;
+    /// The logo and the name after the sidebar button; the tabs never start before its end.
+    pub const TITLE_W: f32 = 96.0;
     pub const SBTN: f32 = 28.0;
     pub const TOPR_W: f32 = 58.0;
     pub const TOPR_H: f32 = 28.0;
@@ -107,21 +106,19 @@ pub fn layout(w: f32, h: f32, state: ShellState, platform: Platform) -> Shell {
     };
 
     let rrail = Rect::new(inner.right() - MARGIN_SIDE - RRAIL_W, top, RRAIL_W, height);
-    let below_tabs = |x: f32, w: f32| Rect::new(x, top + TAB_H, w, height - TAB_H);
 
     let mut main_right = rrail.x;
     let drawer = state.drawer_open.then(|| {
-        let d = below_tabs(rrail.x - DRAWER_W, DRAWER_W);
+        let d = Rect::new(rrail.x - DRAWER_W, top, DRAWER_W, height);
         main_right = d.x - GAP;
         d
     });
     let half = state.split_open.then(|| {
-        let hf = below_tabs(main_right - SPLIT_W, SPLIT_W);
+        let hf = Rect::new(main_right - SPLIT_W, top, SPLIT_W, height);
         main_right = hf.x - GAP;
         hf
     });
     let main = Rect::new(main_x, top, main_right - main_x, height);
-    let tabs = Rect::new(main.x, top, main.w, TAB_H);
 
     let has_lights = platform != Platform::Windows;
     let has_caps = platform != Platform::Mac;
@@ -133,11 +130,12 @@ pub fn layout(w: f32, h: f32, state: ShellState, platform: Platform) -> Shell {
     let topr_right = caps.map_or(inner.right() - CAPS_MARGIN_RIGHT, |c| c.x - GAP);
     let topr = Rect::new(topr_right - TOPR_W, inner.y + (BAR_H - TOPR_H) / 2.0, TOPR_W, TOPR_H);
 
-    // Breadcrumbs take what is left between the logo and name and the bar's right group.
-    let crumbs_x = sidebar_button.right() + GAP + TITLE_W;
-    let crumbs = Rect::new(crumbs_x, inner.y, topr.x - GAP - crumbs_x, BAR_H);
+    // The tabs float in the bar from the card's left edge, clear of the logo and name, up to
+    // Terminal and Split.
+    let tabs_x = main.x.max(sidebar_button.right() + GAP + TITLE_W);
+    let tabs = Rect::new(tabs_x, inner.y + (BAR_H - TAB_H) / 2.0, (topr.x - GAP - tabs_x).max(0.0), TAB_H);
 
-    Shell { effective: state, rail, sidebar, bar, crumbs, main, tabs, half, drawer, rrail, sidebar_button, lights, topr, caps }
+    Shell { effective: state, rail, sidebar, bar, main, tabs, half, drawer, rrail, sidebar_button, lights, topr, caps }
 }
 
 /// The state that actually fits: the thread column keeps [`metric::MAIN_MIN_W`], so Split closes

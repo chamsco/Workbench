@@ -298,34 +298,6 @@ impl Cauldron {
 
     fn thread_view(&self, t: &Thread, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
         let (fg, fg2, fg3) = (c(pal.fg), c(pal.fg2), c(pal.fg3));
-        let chip = |label: String, col: Rgb| {
-            div()
-                .flex()
-                .items_center()
-                .px(px(8.))
-                .py(px(3.))
-                .rounded(px(radius::CONTROL))
-                .border_1()
-                .border_color(mix(pal.line, col, 0.45))
-                .bg(ca(col, 0.12))
-                .text_size(px(11.5))
-                .line_height(px(16.))
-                .font_weight(FontWeight::MEDIUM)
-                .text_color(c(col))
-                .child(label)
-        };
-        let mut head = div()
-            .flex()
-            .items_center()
-            .gap(px(8.))
-            .flex_none()
-            .child(div().id("thread-title").min_w_0().truncate().text_size(px(14.)).font_weight(FontWeight::SEMIBOLD).text_color(fg).aria_label(t.title.clone()).child(t.title.clone()).test_support())
-            .child(chip("Code".into(), pal.fg2));
-        if let Some(p) = &t.project {
-            let name = p.rsplit(['/', '\\']).find(|s| !s.is_empty()).unwrap_or(p).to_string();
-            head = head.child(chip(name, pal.fg2));
-        }
-
         // The transcript fades in over the second half of the carry after a thread opens.
         let now = std::time::Instant::now();
         let open_k = self.open_since.map_or(1.0, |t0| cauldron_chrome::motion::fade_in(crate::motion::run(now, t0, cauldron_chrome::motion::time::CARRY)));
@@ -576,7 +548,6 @@ impl Cauldron {
             .gap(px(10.))
             .px(px(18.))
             .py(px(14.))
-            .child(head)
             .child(msgs)
             .child(composer.test_support())
             .child(usage)

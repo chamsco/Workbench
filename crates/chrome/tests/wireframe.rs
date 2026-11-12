@@ -123,6 +123,34 @@ fn panes_never_overlap_and_stay_inside_the_window() {
     }
 }
 
+/// The floating tabs: 30px tall, centred in the top bar, starting at the card's left edge, never over the lights, the sidebar button or the name, and ending before
+/// Terminal and Split. The card, the drawer and Split start right under the bar.
+#[test]
+fn tabs_float_in_the_bar_and_the_panes_start_under_it() {
+    for &(w, h) in &[(1200.0, 720.0), (1000.0, 640.0), (1920.0, 1080.0)] {
+        for platform in [Platform::Mac, Platform::Windows, Platform::Reference] {
+            for bits in 0..8u8 {
+                let st = ShellState { sidebar_open: bits & 1 != 0, drawer_open: bits & 2 != 0, split_open: bits & 4 != 0 };
+                let s = solve(w, h, st, platform);
+                let t = s.tabs;
+                let at = format!("{w}x{h} {platform:?} {st:?}: tabs {t:?}");
+                assert_eq!(t.h, 30.0, "{at}");
+                assert!(inside(s.bar, t), "{at} inside the bar {:?}", s.bar);
+                assert_eq!(t.y - s.bar.y, s.bar.bottom() - t.bottom(), "{at} centred in the bar");
+                assert!(t.x >= s.main.x, "{at} starts at or after the card's edge");
+                assert!(t.x >= s.sidebar_button.right() + 8.0 + 96.0, "{at} clears the button, logo and name");
+                assert!(t.right() <= s.topr.x - 8.0 + 0.01, "{at} ends before Terminal and Split");
+                for r in [Some(s.main), s.drawer, s.half].into_iter().flatten() {
+                    assert_eq!(r.y, s.bar.bottom() + 4.0, "{at} pane {r:?} right under the bar");
+                }
+            }
+        }
+    }
+    // Sidebar open: at the card's left edge.
+    let s = solve(1200.0, 720.0, ShellState { sidebar_open: true, drawer_open: true, split_open: false }, Platform::Windows);
+    assert_eq!(s.tabs.x, s.main.x);
+}
+
 // Proposed rule, not drawn in the wireframe: the thread column never gets narrower than 360px.
 // Split closes first, then the drawer. The sidebar is the user's choice and is never closed by the solver.
 #[test]
@@ -150,7 +178,6 @@ fn platforms_differ_only_in_window_controls() {
     // The sidebar button and the logo sit inside the top bar on both.
     for s in [&mac, &win] {
         assert!(inside(s.bar, s.sidebar_button), "button {:?} outside the bar {:?}", s.sidebar_button, s.bar);
-        assert!(s.crumbs.x > s.sidebar_button.right(), "breadcrumbs start after the sidebar button");
     }
     // Windows: Terminal and Split sit directly left of the caption buttons.
     let caps = win.caps.unwrap();

@@ -123,7 +123,6 @@ pub struct Frame {
     pub sidebar_button: Rect,
     pub topr: Rect,
     pub bar: Rect,
-    pub crumbs: Rect,
 }
 
 fn at_rest(r: Option<Rect>) -> Option<Pane> {
@@ -154,7 +153,6 @@ impl Frame {
             sidebar_button: s.sidebar_button,
             topr: s.topr,
             bar: s.bar,
-            crumbs: s.crumbs,
         }
     }
 
@@ -204,7 +202,6 @@ impl Frame {
             sidebar_button: rect(from.sidebar_button, to.sidebar_button),
             topr: rect(from.topr, to.topr),
             bar: rect(from.bar, to.bar),
-            crumbs: rect(from.crumbs, to.crumbs),
         }
     }
 }

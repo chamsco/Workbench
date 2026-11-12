@@ -60,53 +60,6 @@ fn abs(r: Rect) -> Div {
     div().absolute().left(px(r.x)).top(px(r.y)).w(px(r.w)).h(px(r.h))
 }
 
-#[derive(Clone, Copy)]
-enum Foot {
-    Left,
-    Right,
-}
-
-/// The flare's radius: 10px, the approved top bar board.
-const FOOT: f32 = radius::CONTROL;
-
-/// The concave corner where the open tab flares into the card, the wireframe's `.tab.on::before/::after`.
-fn foot(side: Foot, fill: Hsla) -> impl IntoElement {
-    let r = FOOT;
-    let el = canvas(
-        |_, _, _| (),
-        move |b, _, window, _| {
-            let p = |x: f32, y: f32| point(b.origin.x + px(x), b.origin.y + px(y));
-            let mut f = PathBuilder::fill();
-            // The square's corner away from the tab stays empty: a quarter circle centred there is cut out.
-            match side {
-                Foot::Left => {
-                    f.move_to(p(r, 0.));
-                    f.line_to(p(r, r));
-                    f.line_to(p(0., r));
-                    f.arc_to(point(px(r), px(r)), px(0.), false, false, p(r, 0.));
-                }
-                Foot::Right => {
-                    f.move_to(p(0., 0.));
-                    f.line_to(p(0., r));
-                    f.line_to(p(r, r));
-                    f.arc_to(point(px(r), px(r)), px(0.), false, true, p(0., 0.));
-                }
-            }
-            f.close();
-            if let Ok(path) = f.build() {
-                window.paint_path(path, fill);
-            }
-        },
-    )
-    .absolute()
-    .bottom_0()
-    .size(px(r));
-    match side {
-        Foot::Left => el.left(px(-r)),
-        Foot::Right => el.right(px(-r)),
-    }
-}
-
 /// A pane the layout tests find by `id` and compare with `layout::solve`.
 fn pane(id: &'static str, r: Rect) -> Stateful<Div> {
     abs(r).id(id)
@@ -420,6 +373,27 @@ impl Cauldron {
                     let q = self.query.trim().to_string();
                     return list.child(note("threads-no-match", format!("No threads match {q}"), None, format!("No threads match \u{201c}{q}\u{201d}"), None));
                 }
+                // Core has no Needs you yet, so the group is its head alone, without a count
+                // (Charles chose empty states, 12 Nov).
+                if self.query.trim().is_empty() {
+                    list = list.child(
+                        div()
+                            .id("group-needs")
+                            .flex()
+                            .items_center()
+                            .h(px(36.))
+                            .flex_none()
+                            .px(px(8.))
+                            .pt(px(14.))
+                            .pb(px(4.))
+                            .text_size(px(12.))
+                            .line_height(px(18.))
+                            .text_color(fg3)
+                            .aria_label("Needs you")
+                            .child("Needs you")
+                            .test_support(),
+                    );
+                }
                 let mut i = 0usize;
                 for (gi, (g, ts)) in groups.into_iter().enumerate() {
                     let n = ts.len();
@@ -447,7 +421,7 @@ impl Cauldron {
                         let id = t.id.clone();
                         // An agentic thread shows its agent in the state's mood (the board's 18x22
                         // figure, still: ms None); a normal thread a state dot (Charles, 12 Nov).
-                        let agentic = t.agent.is_some() || !t.members.is_empty();
+                        let agentic = threads::agentic(&t.agent, &t.members);
                         let (mood, state, dot) = match g {
                             Group::Running => (Mood::Working, "Working", c(pal.accent)),
                             Group::Failed => (Mood::Error, "Failed", c(pal.bad)),
@@ -532,8 +506,8 @@ impl Cauldron {
             ScrollDelta::Lines(p) => -(p.y + p.x),
             ScrollDelta::Pixels(p) => {
                 self.wheel -= f32::from(p.y + p.x);
-                let st = (self.wheel / (TAB_MIN + 2.0)).trunc();
-                self.wheel -= st * (TAB_MIN + 2.0);
+                let st = (self.wheel / (TAB_MIN + TAB_GAP)).trunc();
+                self.wheel -= st * (TAB_MIN + TAB_GAP);
                 st
             }
         };
@@ -718,7 +692,15 @@ const SIDE_PR: f32 = 9.0;
 
 /// Agent tabs share the room between these widths; below TAB_MIN the row scrolls.
 const TAB_MIN: f32 = 72.0;
-const TAB_MAX: f32 = 210.0;
+const TAB_MAX: f32 = 200.0;
+/// A floating tab, on the design-system scale rather than the board's raw `.ftab` (Charles, 13 Nov):
+/// 4px between tabs, 8px padding, 6px from the figure to the name, a 14px figure.
+const TAB_GAP: f32 = 4.0;
+const TAB_PAD: f32 = 8.0;
+const FIG_GAP: f32 = 6.0;
+const FIG_H: f32 = 14.0;
+/// The + after the tabs (the board's `.ib`).
+const ADD_W: f32 = 28.0;
 /// The pinned coordinator tab is at most this wide.
 const ANCHOR_MAX: f32 = 190.0;
 const ADD_LABEL: &str = "Spawn a subagent or open a 1:1";
@@ -1005,195 +987,197 @@ impl Render for Cauldron {
                                 .items_center()
                                 .justify_center()
                                 .rounded_full()
-                                .bg(gpui_kit::rgb(0xb5532e))
+                                .bg(accent)
                                 .text_size(px(11.))
-                                .text_color(gpui_kit::rgb(0xffffff))
+                                .text_color(c(pal.on_accent))
                                 .child(initial),
                         )
-                        .child(div().flex_1().text_size(px(12.5)).child(user))
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .flex()
+                                .flex_col()
+                                .line_height(px(15.))
+                                .child(div().truncate().text_size(px(12.5)).child(user))
+                                // Core has no usage per subscription yet: an empty state, no number.
+                                .child(div().id("usage-left").text_size(px(11.)).text_color(fg3).aria_label("No data yet").child("No data yet").test_support()),
+                        )
                         .child(self.tipped("settings", icon_button("settings", "settings", "Settings", pal, false), "Settings", Side::Right, pal, cx).test_support()),
                 );
             root = root.child(card_el.test_support());
         }
 
-        // ---- main column: one thread's agents as folder tabs on the frame, the card under them.
-        // The coordinator (or "New thread" before the thread exists) is pinned at the left. Agent
-        // tabs share the room equally between TAB_MIN and TAB_MAX; when TAB_MIN no longer fits,
-        // arrows appear beside + and the row shows a window of 72px tabs.
-        let focus = self.tab_focus.get_or_insert_with(|| cx.focus_handle()).clone();
-        let thread = self.coordinator.is_some();
-        let anchor_label: SharedString = self.coordinator.clone().unwrap_or_else(|| NEW_TAB.into());
-        let label_w = {
-            let run = TextRun { len: anchor_label.len(), font: Font { weight: FontWeight::MEDIUM, features: sans_features(), ..font(SANS) }, color: fg, background_color: None, underline: None, strikethrough: None };
-            f32::from(window.text_system().shape_line(anchor_label.clone(), px(12.), &[run], None).width)
-        };
-        // padding 12 + icon 14 + gap 7 + label + padding 12, as the wireframe's `.tab`
-        let anchor_w = (45.0 + label_w).ceil().min(ANCHOR_MAX);
-        let n = self.agents.len();
-        let room = s.tabs.w - anchor_w - if thread { 24.0 } else { 0.0 };
-        let scrolls = n as f32 * (TAB_MIN + 2.0) + 2.0 > room;
-        let (k, tab_w) = if scrolls {
-            (((room - 54.0) / (TAB_MIN + 2.0)).floor().max(1.0) as usize, Some(TAB_MIN))
-        } else if n > 0 {
-            let per = ((room - 2.0 * (n as f32 + 1.0)) / n as f32).floor();
-            (n, (per < TAB_MAX).then_some(per))
-        } else {
-            (0, None)
-        };
-        // Keep the open tab in view when it changed; the arrows and wheel may move it away after.
-        let mut first = self.tab_first.min(n.saturating_sub(k));
-        // A resize changes how many fit, which can push the open tab out too.
-        let reveal = std::mem::take(&mut self.reveal) || k != self.tab_window;
-        if reveal && self.active > 0 {
-            let a = self.active - 1;
-            if a < first {
-                first = a;
-            } else if a >= first + k {
-                first = a + 1 - k;
-            }
-        }
-        self.tab_first = first;
-        self.tab_window = k;
-
-        let mut row = div()
-            .id("tabs")
-            .absolute()
-            .left_0()
-            .top_0()
-            .w(px(s.tabs.w))
-            .h(px(s.tabs.h))
-            .flex()
-            .items_start()
-            .gap(px(2.))
-            .track_focus(&focus)
-            .on_key_down(cx.listener(|this, ev: &KeyDownEvent, _, cx| {
-                let last = this.agents.len();
-                match ev.keystroke.key.as_str() {
-                    "left" => this.active = this.active.saturating_sub(1),
-                    "right" => this.active = (this.active + 1).min(last),
-                    "home" => this.active = 0,
-                    "end" => this.active = last,
-                    "delete" if this.active > 0 => this.close_agent(this.active - 1),
-                    _ => return,
+        // ---- the thread's tabs, floating in the top bar (the board's `.ftab`). Only an open thread
+        // has them: the coordinator pinned at the left, then its agents, each sized to its name
+        // within an equal share of the room (TAB_MIN to TAB_MAX); when TAB_MIN no longer fits, arrows appear beside +
+        // and the row shows a window of 72px tabs. Figures only for an agentic thread (Charles, 12 Nov).
+        let mut tab_row = None;
+        if let Some(anchor_label) = self.coordinator.clone() {
+            let focus = self.tab_focus.get_or_insert_with(|| cx.focus_handle()).clone();
+            let agentic = !self.agents.is_empty() || self.thread.as_ref().is_some_and(|t| threads::agentic(&t.agent, &t.members));
+            let label_w = {
+                let run = TextRun { len: anchor_label.len(), font: Font { weight: FontWeight::MEDIUM, features: sans_features(), ..font(SANS) }, color: fg, background_color: None, underline: None, strikethrough: None };
+                f32::from(window.text_system().shape_line(anchor_label.clone(), px(12.), &[run], None).width)
+            };
+            // padding, the figure and its gap, the label, padding
+            let fig_w = if agentic { avatar::size(FIG_H).0 + FIG_GAP } else { 0.0 };
+            let anchor_w = (TAB_PAD + fig_w + label_w + TAB_PAD).ceil().min(ANCHOR_MAX);
+            let n = self.agents.len();
+            let room = s.tabs.w - anchor_w - (TAB_GAP + ADD_W);
+            let scrolls = n as f32 * (TAB_MIN + TAB_GAP) + TAB_GAP > room;
+            let (k, tab_w) = if scrolls {
+                (((room - 54.0) / (TAB_MIN + TAB_GAP)).floor().max(1.0) as usize, Some(TAB_MIN))
+            } else if n > 0 {
+                let per = ((room - TAB_GAP * (n as f32 + 1.0)) / n as f32).floor();
+                (n, Some(per.min(TAB_MAX)))
+            } else {
+                (0, None)
+            };
+            // Keep the open tab in view when it changed; the arrows and wheel may move it away after.
+            let mut first = self.tab_first.min(n.saturating_sub(k));
+            // A resize changes how many fit, which can push the open tab out too.
+            let reveal = std::mem::take(&mut self.reveal) || k != self.tab_window;
+            if reveal && self.active > 0 {
+                let a = self.active - 1;
+                if a < first {
+                    first = a;
+                } else if a >= first + k {
+                    first = a + 1 - k;
                 }
-                this.reveal = true;
-                cx.stop_propagation();
-                cx.notify();
-            }))
-            .on_scroll_wheel(cx.listener(|this, ev: &ScrollWheelEvent, _, cx| this.wheel_tabs(ev, cx)));
-        // Tabs occlude (or Windows would drag the window from them), which also hides the wheel
-        // from the row, so each tab carries the row's wheel handler too.
+            }
+            self.tab_first = first;
+            self.tab_window = k;
 
-        // The pinned tab.
-        let on = self.active == 0;
-        let mut anchor = div()
-            .id(("tab", 0usize))
-            .relative()
-            .flex_none()
-            .flex()
-            .items_center()
-            .gap(px(7.))
-            .w(px(anchor_w))
-            .h(px(metric::TAB_H + if on { 1.0 } else { 0.0 }))
-            .px(px(12.))
-            .rounded_t(px(radius::PANEL))
-            .occlude()
-            .cursor_pointer()
-            .aria_label(anchor_label.clone())
-            .text_size(px(12.))
-            .font_weight(FontWeight::MEDIUM)
-            .text_color(if on { fg } else { fg3 })
-            .child(if thread { glyph("code", 14., c(pal.fg2)) } else { glyph("square-pen", 14., if on { fg2 } else { fg3 }) })
-            .child(div().min_w_0().truncate().child(anchor_label.clone()))
-            .on_scroll_wheel(cx.listener(|this, ev: &ScrollWheelEvent, _, cx| this.wheel_tabs(ev, cx)))
-            .on_click(cx.listener(|this, _, window, cx| {
-                this.active = 0;
-                this.focus_tabs(window, cx);
-                cx.notify();
-            }));
-        if on {
-            // The first tab sits on the card's corner: no left foot, and the card's corner is square.
-            anchor = anchor.bg(card).child(foot(Foot::Right, card));
-        }
-        row = row.child(anchor.test_support());
-
-        for (j, agent) in self.agents.iter().enumerate().skip(first).take(k) {
-            let i = j + 1;
-            let on = i == self.active;
-            let group: SharedString = format!("tab{i}").into();
-            let close = div()
-                .id(("tab-close", i))
-                .size(px(18.))
-                .ml_auto()
-                .flex_none()
+            let mut row = abs(s.tabs)
+                .id("tabs")
                 .flex()
                 .items_center()
-                .justify_center()
-                .rounded(px(radius::INNER))
-                // Inactive tabs show their close on hover, over the end of the name, so a 72px tab
-                // still has room for a few letters.
-                .when_live(!on, |d| d.absolute().right(px(6.)).top(px(8.)).bg(frame).opacity(0.).group_hover(group.clone(), |s| s.opacity(1.)))
-                .hover(|d| d.bg(ca(pal.fg, 0.08)))
-                .aria_label("Close tab")
-                .child(glyph("x", 12., fg3))
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    cx.stop_propagation();
-                    this.close_agent(j);
+                .gap(px(TAB_GAP))
+                .track_focus(&focus)
+                .on_key_down(cx.listener(|this, ev: &KeyDownEvent, _, cx| {
+                    let last = this.agents.len();
+                    match ev.keystroke.key.as_str() {
+                        "left" => this.active = this.active.saturating_sub(1),
+                        "right" => this.active = (this.active + 1).min(last),
+                        "home" => this.active = 0,
+                        "end" => this.active = last,
+                        "delete" if this.active > 0 => this.close_agent(this.active - 1),
+                        _ => return,
+                    }
                     this.reveal = true;
+                    cx.stop_propagation();
                     cx.notify();
                 }))
-                .test_support();
-            let mut tab = div()
-                .id(("tab", i))
-                .group(group)
-                .relative()
-                .flex()
-                .items_center()
-                .gap(px(6.))
-                .h(px(metric::TAB_H + if on { 1.0 } else { 0.0 }))
-                .pl(px(10.))
-                .pr(px(6.))
-                .rounded_t(px(radius::PANEL))
-                .occlude()
-                .cursor_pointer()
-                .aria_label(agent.name.clone())
-                .text_size(px(12.))
-                .font_weight(FontWeight::MEDIUM)
-                .text_color(if on { fg } else { fg3 })
-                .child(div().flex_none().size(px(8.)).rounded_full().bg(c(tokens::AGENT_DOTS[agent.dot % tokens::AGENT_DOTS.len()])))
-                .child(div().min_w_0().truncate().child(agent.name.clone()))
-                .child(close)
-                .on_scroll_wheel(cx.listener(|this, ev: &ScrollWheelEvent, _, cx| this.wheel_tabs(ev, cx)))
-                .on_click(cx.listener(move |this, _, window, cx| {
-                    this.active = i;
-                    this.reveal = true;
+                .on_scroll_wheel(cx.listener(|this, ev: &ScrollWheelEvent, _, cx| this.wheel_tabs(ev, cx)));
+            // Tabs occlude (or Windows would drag the window from them), which also hides the wheel
+            // from the row, so each tab carries the row's wheel handler too. The open tab is the
+            // `selected` fill with no ring or shadow (tabs take none); the rest are fg3 on the frame.
+            let ftab = |id: (&'static str, usize), on: bool, cx: &mut Context<Self>| {
+                div()
+                    .id(id)
+                    .relative()
+                    .flex()
+                    .items_center()
+                    .gap(px(FIG_GAP))
+                    .h(px(metric::TAB_H))
+                    .rounded(px(radius::INNER))
+                    .when_live(on, |d| d.bg(c(pal.selected)))
+                    .when_live(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
+                    .occlude()
+                    .cursor_pointer()
+                    .aria_selected(on)
+                    .text_size(px(12.))
+                    .line_height(px(16.))
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(if on { fg } else { fg3 })
+                    .on_scroll_wheel(cx.listener(|this, ev: &ScrollWheelEvent, _, cx| this.wheel_tabs(ev, cx)))
+            };
+            // The agent's 14px figure, still (ms None), idle until core reports an agent's state.
+            let fig = |id: usize, dot: usize| {
+                let (fw, fh) = avatar::size(FIG_H);
+                div()
+                    .id(("tab-fig", id))
+                    .flex_none()
+                    .w(px(fw))
+                    .h(px(fh))
+                    .child(img(Arc::new(Image::from_bytes(ImageFormat::Svg, avatar::svg(dot, Mood::Idle, Look { px: FIG_H, outline: false, ms: None, bust: false, ink: None }).into_bytes()))).size_full())
+                    .test_support()
+            };
+
+            // The pinned tab.
+            let on = self.active == 0;
+            let anchor = ftab(("tab", 0), on, cx)
+                .flex_none()
+                .w(px(anchor_w))
+                .px(px(TAB_PAD))
+                .aria_label(anchor_label.clone())
+                .when_live(agentic, |d| d.child(fig(0, 0)))
+                .child(div().min_w_0().truncate().child(anchor_label.clone()))
+                .on_click(cx.listener(|this, _, window, cx| {
+                    this.active = 0;
                     this.focus_tabs(window, cx);
                     cx.notify();
                 }));
-            tab = match tab_w {
-                Some(w) => tab.flex_none().w(px(w)),
-                None => tab.flex_none().max_w(px(TAB_MAX)),
-            };
-            if on {
-                tab = tab.bg(card).child(foot(Foot::Right, card)).child(foot(Foot::Left, card));
-            }
-            // The full name as a tip once the tab is narrower than the widest it gets.
-            let tab = if tab_w.is_some() { self.tipped(("tab", i), tab, agent.name.clone(), Side::Below, pal, cx) } else { tab };
-            row = row.child(tab.test_support());
-        }
+            row = row.child(anchor.test_support());
 
-        if thread {
+            for (j, agent) in self.agents.iter().enumerate().skip(first).take(k) {
+                let i = j + 1;
+                let on = i == self.active;
+                let group: SharedString = format!("tab{i}").into();
+                let close = div()
+                    .id(("tab-close", i))
+                    .size(px(18.))
+                    .ml_auto()
+                    .flex_none()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(px(radius::TAG))
+                    // Inactive tabs show their close on hover, over the end of the name, so a 72px tab
+                    // still has room for a few letters.
+                    .when_live(!on, |d| d.absolute().right(px(4.)).top(px(6.)).bg(frame).opacity(0.).group_hover(group.clone(), |s| s.opacity(1.)))
+                    .hover(|d| d.bg(ca(pal.fg, 0.08)))
+                    .aria_label("Close tab")
+                    .child(glyph("x", 13., fg3))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        cx.stop_propagation();
+                        this.close_agent(j);
+                        this.reveal = true;
+                        cx.notify();
+                    }))
+                    .test_support();
+                let mut tab = ftab(("tab", i), on, cx)
+                    .group(group)
+                    .px(px(TAB_PAD))
+                    .aria_label(agent.name.clone())
+                    .child(fig(i, agent.dot))
+                    .child(div().min_w_0().truncate().child(agent.name.clone()))
+                    .child(close)
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.active = i;
+                        this.reveal = true;
+                        this.focus_tabs(window, cx);
+                        cx.notify();
+                    }));
+                // Sized to the name, as the board, within the tab's share of the room; 72px while scrolling.
+                let share = tab_w.unwrap_or(TAB_MAX);
+                tab = if scrolls { tab.flex_none().w(px(TAB_MIN)) } else { tab.flex_none().min_w(px(TAB_MIN)).max_w(px(share)) };
+                // The full name as a tip once the tab may be narrower than the widest it gets.
+                let tab = if share < TAB_MAX { self.tipped(("tab", i), tab, agent.name.clone(), Side::Below, pal, cx) } else { tab };
+                row = row.child(tab.test_support());
+            }
+
             let small_btn = |id: &'static str, icon: &'static str, label: &'static str, live: bool| {
                 div()
                     .id(id)
                     .w(px(24.))
                     .h(px(28.))
-                    .mt(px(3.))
                     .flex_none()
                     .flex()
                     .items_center()
                     .justify_center()
-                    .rounded(px(radius::CONTROL))
+                    .rounded(px(radius::TAG))
                     .occlude()
                     .when_live(live, |d| d.cursor_pointer().hover(|d| d.bg(ca(pal.fg, 0.08))))
                     .aria_label(label)
@@ -1213,18 +1197,17 @@ impl Render for Cauldron {
             let mut add = div()
                 .id("tab-add")
                 .relative()
-                .mt(px(5.))
-                .size(px(24.))
+                .size(px(ADD_W))
                 .flex_none()
                 .flex()
                 .items_center()
                 .justify_center()
-                .rounded(px(radius::CONTROL))
+                .rounded(px(radius::TAG))
                 .occlude()
                 .cursor_pointer()
                 .hover(|d| d.bg(ca(pal.fg, 0.08)))
                 .aria_label(ADD_LABEL)
-                .child(glyph("plus", 14., fg3))
+                .child(glyph("plus", 13., fg3))
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.tab_menu = !this.tab_menu;
                     this.tab_slide.reset();
@@ -1234,16 +1217,43 @@ impl Render for Cauldron {
                 add = add.child(self.tab_menu_el(pal, cx));
             }
             let add = if self.tab_menu { add } else { self.tipped("tab-add", add, ADD_LABEL, Side::Below, pal, cx) };
-            row = row.child(add.test_support());
+            tab_row = Some(row.child(add.test_support()));
         }
 
-        let mut card_el = div()
+        // The card right under the bar; its 44px head names the thread (the board's `.ch`).
+        let head_title: SharedString = self.coordinator.clone().unwrap_or_else(|| NEW_TAB.into());
+        let mut head = div()
+            .id("card-head")
+            .h(px(44.))
+            .flex_none()
+            .flex()
+            .items_center()
+            .gap(px(4.))
+            .pl(px(13.))
+            .pr(px(14.))
+            .text_size(px(13.))
+            .text_color(fg3);
+        if let Some(p) = self.thread.as_ref().and_then(|t| t.project.as_ref()) {
+            let folder = p.rsplit(['/', '\\']).find(|s| !s.is_empty()).unwrap_or(p).to_string();
+            head = head.child(div().id("card-crumb").flex_none().aria_label(folder.clone()).child(format!("{folder} /")).test_support());
+        }
+        head = head.child(
+            div()
+                .id(if self.thread.is_some() { "thread-title" } else { "card-title" })
+                .min_w_0()
+                .truncate()
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(fg)
+                .aria_label(head_title.clone())
+                .child(head_title)
+                .test_support(),
+        );
+        let card_el = div()
             .id("card")
             .absolute()
             .left_0()
-            .top(px(s.tabs.h))
-            .w(px(s.main.w))
-            .h(px(s.main.h - s.tabs.h))
+            .top_0()
+            .size_full()
             .flex()
             .flex_col()
             .overflow_hidden()
@@ -1252,12 +1262,9 @@ impl Render for Cauldron {
             .border_1()
             .border_color(ring)
             .text_color(fg3)
-            .child(self.card_body(pal, window, cx));
-        if self.active == 0 {
-            // The first tab sits on the card's corner, so the corner is square.
-            card_el = card_el.rounded_tl(px(0.));
-        }
-        root = root.child(pane("main", s.main).child(card_el.test_support()).child(row.test_support()).test_support());
+            .child(head.test_support())
+            .child(div().flex_1().min_h_0().child(self.card_body(pal, window, cx)));
+        root = root.child(pane("main", s.main).child(card_el.test_support()).test_support());
 
         // ---- split card
         if let Some(hp) = s.half {
@@ -1315,7 +1322,7 @@ impl Render for Cauldron {
         }
 
         // ---- right rail
-        let mut rr = pane("rrail", s.rrail).flex().flex_col().items_center().gap(px(4.)).pt(px(metric::TAB_H + 4.0));
+        let mut rr = pane("rrail", s.rrail).flex().flex_col().items_center().gap(px(4.)).pt(px(4.));
         for (i, p) in TOP_PANELS.iter().enumerate() {
             let p = *p;
             rr = rr.child(
@@ -1337,7 +1344,7 @@ impl Render for Cauldron {
         );
         root = root.child(rr.pb(px(8.)).test_support());
 
-        // ---- top bar: the logo and name after the sidebar button, breadcrumbs in the middle
+        // ---- top bar: the logo and name after the sidebar button
         let logo_x = s.sidebar_button.right() + metric::GAP;
         root = root.child(abs(Rect::new(logo_x, s.bar.y + (metric::BAR_H - 18.0) / 2.0, 18.0, 18.0)).rounded(px(9.)).bg(accent));
         root = root.child(
@@ -1349,18 +1356,9 @@ impl Render for Cauldron {
                 .text_color(fg)
                 .child("Cauldron"),
         );
-        let crumb: SharedString = self.thread.as_ref().map_or_else(|| "New thread".into(), |t| t.title.clone().into());
-        root = root.child(
-            abs(s.crumbs)
-                .flex()
-                .items_center()
-                .gap(px(6.))
-                .text_size(px(12.5))
-                .text_color(fg3)
-                .child(div().flex_none().child("Threads"))
-                .child(div().flex_none().child("/"))
-                .child(div().min_w_0().truncate().font_weight(FontWeight::MEDIUM).text_color(fg2).child(crumb)),
-        );
+        if let Some(row) = tab_row {
+            root = root.child(row.test_support());
+        }
 
         // ---- sidebar button (top bar, left)
         root = root.child(
@@ -1588,27 +1586,99 @@ mod tests {
         (1..=n).filter(|&i| window.try_find(("tab", i)).is_some()).collect()
     }
 
-    /// The New thread screen: one tab that cannot be closed and no +, sitting on the card's corner.
+    fn on(window: &Window, i: usize) -> bool {
+        window.find(("tab", i)).selected() == Some(true)
+    }
+
+    /// The New thread screen has no tabs; the card starts right under the bar and its 44px head
+    /// says New thread at the board's x (card + 14).
     #[gpui_kit::test]
-    fn new_thread_screen_has_one_fixed_tab_joined_to_the_card(cx: &mut TestAppContext) {
+    fn new_thread_screen_has_no_tabs_and_a_card_head(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let handle = open(cx, Cauldron::new());
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
             let s = layout::solve(W, H, ShellState { sidebar_open: true, drawer_open: true, split_open: false }, platform());
-            let row = rect(window, "tabs");
-            assert_eq!((row.x, row.y, row.w, row.h), (s.tabs.x, s.tabs.y, s.tabs.w, s.tabs.h), "tab row");
+            assert!(window.try_find("tabs").is_none() && window.try_find(("tab", 0usize)).is_none(), "no tab before the thread exists");
+            assert!(window.try_find("tab-add").is_none(), "no +");
             let card = rect(window, "card");
-            assert_eq!((card.x, card.y, card.w, card.h), (s.main.x, s.main.y + s.tabs.h, s.main.w, s.main.h - s.tabs.h), "card");
-            assert_eq!(window.find(("tab", 0usize)).label(), Some("New thread"));
-            assert_eq!(rect(window, ("tab", 0usize)).bottom(), card.y + 1.0, "the open tab covers the card's top edge");
-            assert!(window.try_find(("tab-close", 0usize)).is_none(), "not closable");
-            assert!(window.try_find("tab-add").is_none(), "no + before the thread exists");
+            assert_eq!((card.x, card.y, card.w, card.h), (s.main.x, s.main.y, s.main.w, s.main.h), "card right under the bar");
+            let head = rect(window, "card-head");
+            assert_eq!((head.x, head.y, head.w, head.h), (card.x + 1.0, card.y + 1.0, card.w - 2.0, 44.0), "head");
+            assert_eq!(window.find("card-title").label(), Some("New thread"));
+            assert_eq!(rect(window, "card-title").x, card.x + 14.0, "title at the board's x");
         })
         .unwrap();
     }
 
-    /// Agent tabs share the room equally between 72 and 210px; the arrows appear exactly when 72px
+    /// A thread's tabs float in the top bar (the board's `.ftab`): 30px, the open one selected.
+    #[gpui_kit::test]
+    fn thread_tabs_float_in_the_bar(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = open(cx, with_agents(3, &[]));
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            let s = layout::solve(W, H, ShellState { sidebar_open: true, drawer_open: true, split_open: false }, platform());
+            let row = rect(window, "tabs");
+            assert_eq!((row.x, row.y, row.w, row.h), (s.tabs.x, s.tabs.y, s.tabs.w, s.tabs.h), "tab row");
+            assert!(row.bottom() <= s.bar.bottom(), "in the bar");
+            for i in 0..=3usize {
+                let t = rect(window, ("tab", i));
+                assert_eq!((t.y, t.h), (row.y, 30.0), "tab {i}");
+                assert_eq!(on(window, i), i == 0, "tab {i}: only the coordinator is open");
+            }
+            for i in 1..=3usize {
+                assert_eq!(rect(window, ("tab", i)).x - rect(window, ("tab", i - 1)).right(), 4.0, "4px between tabs {} and {i}", i - 1);
+            }
+            let add = rect(window, "tab-add");
+            assert_eq!(add.y + add.h / 2.0, row.y + 15.0, "+ centred on the row");
+            window.click(("tab", 2usize), cx);
+            assert!(on(window, 2) && !on(window, 0), "a click opens the tab");
+            assert_eq!(rect(window, "card").y, s.main.y, "the card stays under the bar");
+        })
+        .unwrap();
+    }
+
+    /// Figures only on an agentic thread's tabs (Charles, 12 Nov): the 14px figure, else none.
+    #[gpui_kit::test]
+    fn tab_figures_only_for_agentic_threads(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = open(cx, with_agents(2, &[]));
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            for i in 0..=2usize {
+                let f = rect(window, ("tab-fig", i));
+                let (w, h) = cauldron_chrome::avatar::size(14.0);
+                assert!((f.w - w).abs() < 0.5 && f.h == h, "figure {i}: {f:?}, the 14px figure is {w}x{h}");
+                assert_eq!(f.x, rect(window, ("tab", i)).x + 8.0, "figure {i} after the 8px padding");
+            }
+        })
+        .unwrap();
+        let handle = open(cx, Cauldron { coordinator: Some("Plain thread".into()), ..Cauldron::new() });
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            assert_eq!(window.find(("tab", 0usize)).label(), Some("Plain thread"));
+            assert!(window.try_find(("tab-fig", 0usize)).is_none(), "a normal thread's tab has no figure");
+        })
+        .unwrap();
+    }
+
+    /// Core has no Needs you or usage yet, so both draw as empty states (Charles, 12 Nov): the
+    /// group's head with no rows and no count, and "No data yet" under the name.
+    #[gpui_kit::test]
+    fn needs_you_and_usage_are_empty_states(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = open(cx, with_threads());
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            assert_eq!(window.find("group-needs").label(), Some("Needs you"), "no count");
+            assert!(rect(window, "group-needs").bottom() <= rect(window, ("group", 0usize)).y, "first, with no rows under it");
+            assert_eq!(window.find("usage-left").label(), Some("No data yet"));
+        })
+        .unwrap();
+    }
+
+    /// Agent tabs fit their names within an equal share, 72 to 200px; the arrows appear exactly when 72px
     /// tabs no longer fit; the coordinator is pinned at the left, never scrolls and has no close.
     #[gpui_kit::test]
     fn agent_tabs_clamp_then_scroll_with_the_coordinator_pinned(cx: &mut TestAppContext) {
@@ -1623,8 +1693,8 @@ mod tests {
                 assert!(anchor.w <= 190.0, "{n}: coordinator at most 190: {anchor:?}");
                 assert_eq!(window.find(("tab", 0usize)).label(), Some("Cauldron · coordinator"));
                 assert!(window.try_find(("tab-close", 0usize)).is_none(), "{n}: coordinator has no close");
-                let room = row.w - anchor.w - 24.0;
-                let need = n as f32 * 74.0 + 2.0;
+                let room = row.w - anchor.w - 32.0;
+                let need = n as f32 * 76.0 + 4.0;
                 let arrows = window.try_find("tab-prev").is_some();
                 assert_eq!(arrows, need > room, "{n}: arrows iff 72px tabs do not fit (need {need}, room {room})");
                 let seen = visible(window, n);
@@ -1673,7 +1743,7 @@ mod tests {
             window.click(("tab", 1usize), cx);
             window.press("end", cx);
             assert!(visible(window, n).contains(&n), "End opens and shows the last tab");
-            assert_eq!(rect(window, ("tab", n)).bottom(), rect(window, "card").y + 1.0, "and it is the open one");
+            assert!(on(window, n), "and it is the open one");
             for _ in 0..20 {
                 window.click("tab-prev", cx);
             }
@@ -1681,7 +1751,7 @@ mod tests {
             window.press("left", cx);
             assert!(visible(window, n).contains(&(n - 1)), "Left opens the tab before and shows it");
             window.press("home", cx);
-            assert_eq!(rect(window, ("tab", 0usize)).bottom(), rect(window, "card").y + 1.0, "Home opens the coordinator");
+            assert!(on(window, 0), "Home opens the coordinator");
             window.press("delete", cx);
             assert!(window.try_find(("tab", 0usize)).is_some(), "Delete never closes the coordinator");
             window.press("right", cx);
@@ -1725,7 +1795,7 @@ mod tests {
             window.render_frame(cx);
             assert!(window.try_find("tab-menu").is_none(), "the menu closes");
             assert_eq!(window.find(("tab", 3usize)).label(), Some("Tester"));
-            assert_eq!(rect(window, ("tab", 3usize)).bottom(), rect(window, "card").y + 1.0, "the new tab is open");
+            assert!(on(window, 3), "the new tab is open");
         })
         .unwrap();
     }

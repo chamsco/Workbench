@@ -63,6 +63,12 @@ pub(crate) fn meta(t: &ThreadInfo) -> String {
     }
 }
 
+/// A thread with one of your agents, or a group of them: only these show agent figures, in the
+/// sidebar and in the tabs (Charles, 12 Nov).
+pub(crate) fn agentic(agent: &Option<String>, members: &[String]) -> bool {
+    agent.is_some() || !members.is_empty()
+}
+
 #[cfg(any(test, debug_assertions))]
 pub(crate) fn sample(id: &str, title: &str) -> ThreadInfo {
     use backspace_core::chat::{Route, RouteKind};
