@@ -157,3 +157,46 @@ pub mod radius {
         (outer - padding).max(0.0)
     }
 }
+
+/// Motion: how one state becomes the next. Every transition is 200ms or less and lands where
+/// the state change alone would put it; with reduced motion it simply cuts.
+pub mod motion {
+    /// The cap (hard rule).
+    pub const MAX: f32 = 200.0;
+    /// Menus and popovers, in ms.
+    pub const MENU: f32 = 150.0;
+    /// Indicators that travel between controls (a selected mark, a highlight).
+    pub const INDICATOR: f32 = 180.0;
+    /// Panes and shared elements moving between screens.
+    pub const BASE: f32 = 200.0;
+    /// Tooltips.
+    pub const TIP: f32 = 120.0;
+    /// Gap between staggered items.
+    pub const STAGGER: f32 = 25.0;
+    /// How far a tooltip or menu rises as it appears, in px.
+    pub const RISE: f32 = 4.0;
+
+    /// cubic-bezier(.32,.72,0,1) at time `t` in 0..=1.
+    pub fn ease(t: f32) -> f32 {
+        if t <= 0.0 {
+            return 0.0;
+        }
+        if t >= 1.0 {
+            return 1.0;
+        }
+        let bez = |s: f32, a: f32, b: f32| 3.0 * (1.0 - s) * (1.0 - s) * s * a + 3.0 * (1.0 - s) * s * s * b + s * s * s;
+        // x(s) is monotonic for these control points, so bisection finds s for x = t.
+        let (mut lo, mut hi) = (0.0f32, 1.0f32);
+        for _ in 0..24 {
+            let mid = (lo + hi) / 2.0;
+            if bez(mid, 0.32, 0.0) < t { lo = mid } else { hi = mid }
+        }
+        bez((lo + hi) / 2.0, 0.72, 1.0).clamp(0.0, 1.0)
+    }
+
+    /// When item `i` of a staggered group starts and ends inside `total` ms: each starts
+    /// STAGGER after the one before, at most half way in, and all end together.
+    pub fn stagger(i: usize, total: f32) -> (f32, f32) {
+        ((i as f32 * STAGGER).min(total / 2.0), total)
+    }
+}

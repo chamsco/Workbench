@@ -146,3 +146,34 @@ fn shadows_come_from_the_wireframe() {
         assert!(html.contains(&css), "{css} not in the wireframe");
     }
 }
+
+#[test]
+fn motion_stays_within_the_200ms_cap() {
+    use cauldron_chrome::tokens::motion::*;
+    for d in [MENU, INDICATOR, BASE, TIP] {
+        assert!(d <= MAX && d > 0.0, "{d}");
+    }
+    // Staggered items finish with the menu: a later item starts later, never past half of it.
+    for i in 0..20 {
+        let (start, end) = stagger(i, MENU);
+        assert!(start >= 0.0 && start <= MENU / 2.0 && end == MENU, "item {i}: {start}..{end}");
+        assert!(i == 0 || start >= stagger(i - 1, MENU).0);
+    }
+}
+
+#[test]
+fn the_easing_curve_runs_from_rest_to_rest_without_overshoot() {
+    use cauldron_chrome::tokens::motion::ease;
+    assert_eq!(ease(0.0), 0.0);
+    assert_eq!(ease(1.0), 1.0);
+    assert_eq!(ease(-1.0), 0.0);
+    assert_eq!(ease(2.0), 1.0);
+    let mut last = 0.0;
+    for i in 1..=100 {
+        let y = ease(i as f32 / 100.0);
+        assert!(y >= last && y <= 1.0, "{i}: {y}");
+        last = y;
+    }
+    // cubic-bezier(.32,.72,0,1) is front-loaded: well past half way at a third of the time.
+    assert!(ease(1.0 / 3.0) > 0.6, "{}", ease(1.0 / 3.0));
+}

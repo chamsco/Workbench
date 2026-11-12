@@ -501,6 +501,7 @@ pub(super) mod tests {
         let (tx, _) = async_channel::bounded(1);
         let chats = Chats::open(d, rt.handle().clone(), tx);
         let ch = chats.clone();
+        cx.update(|cx| cx.set_reduce_motion(true));
         let handle = cx.add_window(move |_, _| Cauldron { threads: Threads::Ready(ch.list()), core: Some((rt, ch)), ..Cauldron::new() });
         cx.simulate_window_resize(handle.into(), size(px(1240.), px(702.)));
         (handle, chats)

@@ -34,6 +34,7 @@ pub(crate) struct Start {
     pub(crate) remote: Option<Arc<Remote>>,
     remote_watch: Option<Task<()>>,
     pub(crate) menu: bool,
+    slide: super::motion::Slide,
     pub(crate) files: Vec<PathBuf>,
     pub(crate) error: Option<String>,
     /// What a connected machine answered, e.g. "Sent to Studio as T-7".
@@ -421,6 +422,7 @@ impl Cauldron {
                             .child(glyph("chevron-down", 12., fg3))
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.start.menu = !this.start.menu;
+                                this.start.slide.reset();
                                 cx.notify();
                             }))
                             .test_support(),
@@ -436,6 +438,7 @@ impl Cauldron {
                             // Opens the machine list, which says where machines are added.
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.start.menu = true;
+                                this.start.slide.reset();
                                 cx.notify();
                             }))
                             .test_support(),
@@ -621,6 +624,7 @@ impl Cauldron {
             .border_1()
             .border_color(c(pal.line))
             .shadow(vec![drop(tokens::shadow::MENU)])
+            .relative()
             .text_size(px(12.))
             .aria_label("Machine")
             .occlude()
@@ -628,7 +632,9 @@ impl Cauldron {
                 this.start.menu = false;
                 cx.notify();
             }))
-            .test_support();
+            .test_support()
+            .child(self.start.slide.measure(None))
+            .children(self.start.slide.highlight(c(pal.well), radius::R2));
         let names = std::iter::once("This machine".to_string()).chain(self.start.machines.iter().map(|m| m.name.clone()));
         for (i, n) in names.enumerate() {
             let on = i == self.start.machine;
@@ -640,26 +646,34 @@ impl Cauldron {
                     .gap(px(8.))
                     .px(px(8.))
                     .py(px(6.))
+                    .relative()
                     .rounded(px(radius::R2))
                     .cursor_pointer()
                     .text_color(if on { fg } else { fg2 })
                     .when(on, |d| d.bg(c(pal.well)))
-                    .hover(|d| d.bg(c(pal.well)))
+                    .child(self.start.slide.measure(Some(i)))
+                    .on_hover(cx.listener(move |this, h: &bool, _, cx| {
+                        if this.start.slide.hover(i, *h) {
+                            cx.notify();
+                        }
+                    }))
                     .aria_label(n.clone())
                     .aria_selected(on)
                     .child(glyph(if i == 0 { "terminal" } else { "monitor" }, 13., fg3))
                     .child(n)
                     .on_click(cx.listener(move |this, _, _, cx| this.pick_machine(i, cx)))
-                    .test_support(),
+                    .test_support()
+                    .with_animation(("in", i), super::motion::staggered(i), |d, t| d.opacity(t)),
             );
         }
+        let n = self.start.machines.len() + 1;
         if self.start.machines.is_empty() {
-            menu = menu.child(div().px(px(8.)).py(px(6.)).text_color(fg3).child("No other machines yet. Add one in Settings."));
+            menu = menu.child(div().px(px(8.)).py(px(6.)).text_color(fg3).child("No other machines yet. Add one in Settings.").with_animation("in-hint", super::motion::staggered(n), |d, t| d.opacity(t)));
         } else {
-            menu = menu.child(div().px(px(8.)).pt(px(6.)).pb(px(4.)).text_size(px(11.5)).text_color(fg3).child("Add machines in Settings."));
+            menu = menu.child(div().px(px(8.)).pt(px(6.)).pb(px(4.)).text_size(px(11.5)).text_color(fg3).child("Add machines in Settings.").with_animation("in-hint", super::motion::staggered(n), |d, t| d.opacity(t)));
         }
         // Right-aligned under the machine button: the box's right edge less Start and the gap.
-        div().absolute().top_0().left_0().size_full().flex().justify_center().child(div().relative().w_full().max_w(px(WRAP_W)).child(div().absolute().top(px(MENU_TOP)).right(px(4. + 12. + 30. + 10.)).child(menu))).into_any_element()
+        div().absolute().top_0().left_0().size_full().flex().justify_center().child(div().relative().w_full().max_w(px(WRAP_W)).child(div().absolute().top(px(MENU_TOP)).right(px(4. + 12. + 30. + 10.)).child(super::motion::pop_in(div(), menu, "menu-in", 0.)))).into_any_element()
     }
 }
 
@@ -810,6 +824,7 @@ mod tests {
     fn start_waits_while_core_opens_and_says_when_it_failed(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         for (threads, why) in [(super::super::Threads::Loading, "Opening your threads"), (super::super::Threads::Error("disk full".into()), "Can't open your threads: disk full")] {
+            cx.update(|cx| cx.set_reduce_motion(true));
             let handle = cx.add_window(|_, _| Cauldron { threads, ..Cauldron::new() });
             cx.simulate_window_resize(handle.into(), gpui_kit::size(gpui_kit::px(1240.), gpui_kit::px(702.)));
             cx.update_window(handle.into(), |_, window, cx| {

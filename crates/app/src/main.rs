@@ -2906,6 +2906,7 @@ fn main() -> anyhow::Result<()> {
         .with_assets(icons::Assets)
         .run(move |cx: &mut App| {
             gpui_kit::init(cx);
+            cx.set_reduce_motion(shell::os_reduces_motion());
             if let Err(e) = cx.text_system().add_fonts(bundled_fonts()) {
                 eprintln!("bundled fonts: {e}");
             }

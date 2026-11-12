@@ -6,7 +6,7 @@
 //! (docs/cauldron/UI-PLAN.md): the thread list is UI3, the thread view UI4, the drawer UI6.
 
 use cauldron_chrome::layout::{self, metric, Platform, Rect, ShellState};
-use cauldron_chrome::tokens::{self, radius, Palette, Rgb};
+use cauldron_chrome::tokens::{self, motion as mt, radius, Palette, Rgb};
 use gpui_kit::*;
 
 use crate::threads::{self, Group};
@@ -17,6 +17,7 @@ use gpui_kit::component::input::{Input, InputEvent, InputState, TextareaState};
 use gpui_kit::component::Theme;
 use std::sync::Arc;
 
+mod motion;
 mod newthread;
 mod thread;
 
@@ -30,6 +31,8 @@ pub(crate) fn platform() -> Platform {
 }
 
 /// Top-left of the traffic lights, from the wireframe (`layout::layout` Reference lights rect).
+pub(crate) use motion::os_reduces_motion;
+
 pub(crate) fn lights_origin() -> (f32, f32) {
     let s = layout::layout(1240.0, 702.0, ShellState { sidebar_open: true, drawer_open: false, split_open: false }, Platform::Mac);
     let l = s.lights.expect("mac layout has lights");
@@ -176,6 +179,7 @@ pub(crate) struct Cauldron {
     tab_window: usize,
     wheel: f32,
     tab_menu: bool,
+    tab_slide: motion::Slide,
     tab_focus: Option<FocusHandle>,
     /// The icon button under the pointer, whether its tip is showing yet, and until when a
     /// neighbour's tip may show at once (the wireframe's `.rail.warm`).
@@ -245,7 +249,7 @@ impl Cauldron {
     }
 
     pub(crate) fn new() -> Self {
-        Cauldron { sidebar_open: true, drawer: Some(Panel::Highlights), split: false, coordinator: None, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, composer: None, send_error: None, start: Default::default() }
+        Cauldron { sidebar_open: true, drawer: Some(Panel::Highlights), split: false, coordinator: None, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, composer: None, send_error: None, start: Default::default() }
     }
 
     /// Opens core off the main thread (the sidebar shows Loading meanwhile), then keeps the thread
@@ -534,10 +538,7 @@ impl Cauldron {
         };
         let mut menu = div()
             .id("tab-menu")
-            .absolute()
-            .top_full()
-            .mt(px(6.))
-            .right_0()
+            .relative()
             .w(px(236.))
             .p(px(4.))
             .flex()
@@ -557,16 +558,25 @@ impl Cauldron {
                 this.tab_menu = false;
                 cx.notify();
             }))
+            .child(self.tab_slide.measure(None))
+            .children(self.tab_slide.highlight(ca(pal.fg, 0.06), radius::R1))
             // ponytail: spawning needs the thread view's core wiring (UI4); shown, not live.
-            .child(item("menu-spawn".into()).text_color(c(pal.fg3)).aria_label("Spawn a subagent").child(glyph("plus", 14., c(pal.fg3))).child("Spawn a subagent…").test_support());
+            .child(item("menu-spawn".into()).text_color(c(pal.fg3)).aria_label("Spawn a subagent").child(glyph("plus", 14., c(pal.fg3))).child("Spawn a subagent…").test_support().with_animation("in", motion::staggered(0), |d, t| d.opacity(t)));
         if !self.idle.is_empty() {
-            menu = menu.child(div().px(px(8.)).pt(px(6.)).pb(px(2.)).text_size(px(11.)).font_weight(FontWeight::SEMIBOLD).text_color(c(pal.fg3)).child("Open 1:1 with"));
+            menu = menu.child(div().px(px(8.)).pt(px(6.)).pb(px(2.)).text_size(px(11.)).font_weight(FontWeight::SEMIBOLD).text_color(c(pal.fg3)).child("Open 1:1 with").with_animation("in", motion::staggered(1), |d, t| d.opacity(t)));
         }
         for (j, a) in self.idle.iter().enumerate() {
             menu = menu.child(
                 item(("menu-agent", j).into())
+                    .relative()
                     .cursor_pointer()
-                    .hover(|d| d.bg(ca(pal.fg, 0.06)).text_color(c(pal.fg)))
+                    .hover(|d| d.text_color(c(pal.fg)))
+                    .child(self.tab_slide.measure(Some(j)))
+                    .on_hover(cx.listener(move |this, h: &bool, _, cx| {
+                        if this.tab_slide.hover(j, *h) {
+                            cx.notify();
+                        }
+                    }))
                     .aria_label(a.name.clone())
                     .child(div().flex_none().size(px(8.)).rounded_full().bg(c(tokens::AGENT_DOTS[a.dot % tokens::AGENT_DOTS.len()])))
                     .child(a.name.clone())
@@ -574,10 +584,11 @@ impl Cauldron {
                         this.open_agent(j);
                         cx.notify();
                     }))
-                    .test_support(),
+                    .test_support()
+                    .with_animation(("in", j + 2), motion::staggered(j + 2), |d, t| d.opacity(t)),
             );
         }
-        deferred(menu.test_support()).with_priority(2)
+        deferred(motion::pop_in(div().absolute().top_full().right_0(), menu.test_support(), "menu-in", 6.)).with_priority(2)
     }
 
     fn hover_tip(&mut self, key: ElementId, hovered: bool, cx: &mut Context<Self>) {
@@ -720,11 +731,21 @@ fn tip(label: SharedString, side: Side, pal: &'static Palette) -> impl IntoEleme
         .aria_label(label.clone())
         .child(label);
     let d = match side {
-        Side::Right => d.left_full().ml(px(8.)).top(px(mid)),
-        Side::Left => d.right_full().mr(px(8.)).top(px(mid)),
-        Side::Below => d.top_full().mt(px(8.)).right_0(),
+        Side::Right => d.left_full().top(px(mid)),
+        Side::Left => d.right_full().top(px(mid)),
+        Side::Below => d.top_full().right_0(),
     };
-    deferred(d.test_support()).with_priority(1)
+    // Fades in and settles the last RISE px away from its button.
+    let d = d.test_support().with_animation("tip-in", motion::anim(mt::TIP), move |d, t| {
+        let gap = px(8. - tokens::motion::RISE * (1. - t));
+        let d = d.opacity(t);
+        match side {
+            Side::Right => d.ml(gap),
+            Side::Left => d.mr(gap),
+            Side::Below => d.mt(gap),
+        }
+    });
+    deferred(d).with_priority(1)
 }
 
 impl Render for Cauldron {
@@ -1098,6 +1119,7 @@ impl Render for Cauldron {
                 .child(glyph("plus", 14., fg3))
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.tab_menu = !this.tab_menu;
+                    this.tab_slide.reset();
                     cx.notify();
                 }));
             if self.tab_menu {
@@ -1344,6 +1366,7 @@ mod tests {
         cx.update(gpui_kit::init);
         for bits in 0..8u8 {
             let state = ShellState { sidebar_open: bits & 1 != 0, drawer_open: bits & 2 != 0, split_open: bits & 4 != 0 };
+            cx.update(|cx| cx.set_reduce_motion(true));
             let handle = cx.add_window(move |_, _| Cauldron {
                 sidebar_open: state.sidebar_open,
                 drawer: state.drawer_open.then_some(Panel::Highlights),
@@ -1375,6 +1398,7 @@ mod tests {
     #[gpui_kit::test]
     fn icon_buttons_have_names_and_tooltips(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
+        cx.update(|cx| cx.set_reduce_motion(true));
         let handle = cx.add_window(|_, _| Cauldron { drawer: None, ..Cauldron::new() });
         cx.simulate_window_resize(handle.into(), size(px(W), px(H)));
         let ms = std::time::Duration::from_millis;
@@ -1441,6 +1465,7 @@ mod tests {
     }
 
     fn open(cx: &mut TestAppContext, c: Cauldron) -> gpui_kit::WindowHandle<Cauldron> {
+        cx.update(|cx| cx.set_reduce_motion(true));
         let handle = cx.add_window(move |_, _| c);
         cx.simulate_window_resize(handle.into(), size(px(W), px(H)));
         handle
