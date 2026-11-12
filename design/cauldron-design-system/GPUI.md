@@ -40,3 +40,7 @@ Each component page lists exact sizes. Screens: AgentBoard, AgentChat and ToolCa
 ## Licence notice
 
 Tuff UI is MIT ("Copyright (c) 2026 TUFFUI contributors"): colour values, radii, the Surface layering, the Coding Agent and Agent Console screen layouts and the motion curves are taken from it, so keep that notice in `THIRD_PARTY_NOTICES.md`. Geist and Geist Mono are SIL OFL 1.1: ship the licence text beside the font files. affectUI's free pieces are MIT. Components not taken from a free source are drawn for Cauldron.
+
+## Generative UI
+
+See `GENUI.md`. The renderer is a function from a validated `genui` block to the same GPUI components as the host screens. Build order after the first components exist: the envelope and validator (port `genui/validate.py` and its examples), then `ApprovalCard` and `AgentQuestion` wired to an `ActionRegistry`, then `ResultCard`, `AnswerCard` and `ThinkingTrace`.

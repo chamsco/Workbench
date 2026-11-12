@@ -1,0 +1,2445 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "https://cauldron.local/genui.schema.json",
+ "title": "Cauldron generative UI block",
+ "oneOf": [
+  {
+   "$ref": "#/$defs/Stack"
+  },
+  {
+   "$ref": "#/$defs/Shell"
+  },
+  {
+   "$ref": "#/$defs/Panel"
+  },
+  {
+   "$ref": "#/$defs/Well"
+  },
+  {
+   "$ref": "#/$defs/Text"
+  },
+  {
+   "$ref": "#/$defs/Button"
+  },
+  {
+   "$ref": "#/$defs/IconButton"
+  },
+  {
+   "$ref": "#/$defs/StatusLabel"
+  },
+  {
+   "$ref": "#/$defs/Tag"
+  },
+  {
+   "$ref": "#/$defs/Toggle"
+  },
+  {
+   "$ref": "#/$defs/SegmentedSwitch"
+  },
+  {
+   "$ref": "#/$defs/Menu"
+  },
+  {
+   "$ref": "#/$defs/StepLedger"
+  },
+  {
+   "$ref": "#/$defs/ThinkingTrace"
+  },
+  {
+   "$ref": "#/$defs/ToolCall"
+  },
+  {
+   "$ref": "#/$defs/ApprovalCard"
+  },
+  {
+   "$ref": "#/$defs/AgentQuestion"
+  },
+  {
+   "$ref": "#/$defs/ResultCard"
+  },
+  {
+   "$ref": "#/$defs/AnswerCard"
+  },
+  {
+   "$ref": "#/$defs/ContextMeter"
+  },
+  {
+   "$ref": "#/$defs/ContextMap"
+  },
+  {
+   "$ref": "#/$defs/RunCost"
+  },
+  {
+   "$ref": "#/$defs/PlanVsActual"
+  },
+  {
+   "$ref": "#/$defs/ToolCallGraph"
+  },
+  {
+   "$ref": "#/$defs/AgentInbox"
+  },
+  {
+   "$ref": "#/$defs/OrchestrationGraph"
+  },
+  {
+   "$ref": "#/$defs/AgentCursors"
+  }
+ ],
+ "$defs": {
+  "Stack": {
+   "type": "object",
+   "properties": {
+    "type": {
+     "const": "Stack"
+    },
+    "id": {
+     "type": "string",
+     "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,47}$"
+    },
+    "props": {
+     "type": "object",
+     "properties": {
+      "direction": {
+       "enum": [
+        "column",
+        "row"
+       ]
+      },
+      "gap": {
+       "enum": [
+        4,
+        8,
+        12,
+        16,
+        24
+       ]
+      },
+      "wrap": {
+       "type": "boolean"
+      }
+     },
+     "required": [],
+     "additionalProperties": false
+    },
+    "children": {
+     "type": "array",
+     "items": {
+      "$ref": "#"
+     },
+     "maxItems": 24
+    }
+   },
+   "required": [
+    "type"
+   ],
+   "additionalProperties": false
+  },
+  "Shell": {
+   "type": "object",
+   "properties": {
+    "type": {
+     "const": "Shell"
+    },
+    "id": {
+     "type": "string",
+     "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,47}$"
+    },
+    "props": {
+     "type": "object",
+     "properties": {
+      "title": {
+       "type": "string",
+       "maxLength": 80
+      },
+      "subtitle": {
+       "type": "string",
+       "maxLength": 120
+      },
+      "icon": {
+       "type": "string",
+       "enum": [
+        "check",
+        "x",
+        "plus",
+        "up",
+        "mic",
+        "shield",
+        "down",
+        "right",
+        "branch",
+        "terminal",
+        "file",
+        "copy",
+        "stop",
+        "folder",
+        "laptop",
+        "code",
+        "edit",
+        "archive",
+        "trash",
+        "panel",
+        "history",
+        "split",
+        "pin",
+        "git",
+        "search",
+        "thumb-up",
+        "thumb-down",
+        "refresh",
+        "arrow",
+        "warning",
+        "wrench",
+        "chart",
+        "message",
+        "doc"
+       ]
+      },
+      "badge": {
+       "type": "string",
+       "maxLength": 24
+      }
+     },
+     "required": [],
+     "additionalProperties": false
+    },
+    "children": {
+     "type": "array",
+     "items": {
+      "$ref": "#"
+     },
+     "maxItems": 4
+    }
+   },
+   "required": [
+    "type"
+   ],
+   "additionalProperties": false
+  },
+  "Panel": {
+   "type": "object",
+   "properties": {
+    "type": {
+     "const": "Panel"
+    },
+    "id": {
+     "type": "string",
+     "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,47}$"
+    },
+    "props": {
+     "type": "object",
+     "properties": {
+      "padding": {
+       "enum": [
+        "none",
+        "md"
+       ]
+      }
+     },
+     "required": [],
+     "additionalProperties": false
+    },
+    "children": {
+     "type": "array",
+     "items": {
+      "$ref": "#"
+     },
+     "maxItems": 24
+    }
+   },
+   "required": [
+    "type"
+   ],
+   "additionalProperties": false
+  },
+  "Well": {
+   "type": "object",
+   "properties": {
+    "type": {
+     "const": "Well"
+    },
+    "id": {
+     "type": "string",
+     "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,47}$"
+    },
+    "props": {
+     "type": "object",
+     "properties": {
+      "text": {
+       "type": "string",
+       "maxLength": 2000
+      },
+      "mono": {
+       "type": "boolean"
+      }
+     },
+     "required": [],
+     "additionalProperties": false
+    },
+    "children": {
+     "type": "array",
+     "items": {
+      "$ref": "#"
+     },
+     "maxItems": 0
+    }
+   },
+   "required": [
+    "type"
+   ],
+   "additionalProperties": false
+  },
+  "Text": {
+   "type": "object",
+   "properties": {
+    "type": {
+     "const": "Text"
+    },
+    "id": {
+     "type": "string",
+     "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,47}$"
+    },
+    "props": {
+     "type": "object",
+     "properties": {
+      "text": {
+       "type": "string",
+       "maxLength": 2000
+      },
+      "style": {
+       "enum": [
+        "body",
+        "body-strong",
+        "meta",
+        "caption",
+        "reading",
+        "title",
+        "mono"
+       ]
+      },
+      "tone": {
+       "enum": [
+        "default",
+        "muted",
+        "warn",
+        "bad"
+       ]
+      }
+     },
+     "required": [
+      "text"
+     ],
+     "additionalProperties": false
+    },
+    "children": {
+     "type": "array",
+     "items": {
+      "$ref": "#"
+     },
+     "maxItems": 0
+    }
+   },
+   "required": [
+    "type"
+   ],
+   "additionalProperties": false
+  },
+  "Button": {
+   "type": "object",
+   "properties": {
+    "type": {
+     "const": "Button"
+    },
+    "id": {
+     "type": "string",
+     "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,47}$"
+    },
+    "props": {
+     "type": "object",
+     "properties": {
+      "label": {
+       "type": "string",
+       "maxLength": 40
+      },
+      "variant": {
+       "enum": [
+        "primary",
+        "secondary",
+        "quiet",
+        "danger"
+       ]
+      },
+      "size": {
+       "enum": [
+        "md",
+        "sm"
+       ]
+      },
+      "icon": {
+       "type": "string",
+       "enum": [
+        "check",
+        "x",
+        "plus",
+        "up",
+        "mic",
+        "shield",
+        "down",
+        "right",
+        "branch",
+        "terminal",
+        "file",
+        "copy",
+        "stop",
+        "folder",
+        "laptop",
+        "code",
+        "edit",
+        "archive",
+        "trash",
+        "panel",
+        "history",
+        "split",
+        "pin",
+        "git",
+        "search",
+        "thumb-up",
+        "thumb-down",
+        "refresh",
+        "arrow",
+        "warning",
+        "wrench",
+        "chart",
+        "message",
+        "doc"
+       ]
+      },
+      "kbd": {
+       "type": "string",
+       "maxLength": 12
+      },
+      "action": {
+       "type": "string",
+       "pattern": "^[a-z][a-z0-9_.:-]{0,63}$",
+       "description": "An action id the host registered for this block. The agent names it; the host decides whether to run it."
+      },
+      "disabled": {
+       "type": "boolean"
+      }
+     },
+     "required": [
+      "label",
+      "action"
+     ],
+     "additionalProperties": false
+    },
+    "children": {
+     "type": "array",
+     "items": {
+      "$ref": "#"
+     },
+     "maxItems": 0
+    }
+   },
+   "required": [
+    "type"
+   ],
+   "additionalProperties": false
+  },
+  "IconButton": {
+   "type": "object",
+   "properties": {
+    "type": {
+     "const": "IconButton"
+    },
+    "id": {
+     "type": "string",
+     "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,47}$"
+    },
+    "props": {
+     "type": "object",
+     "properties": {
+      "icon": {
+       "type": "string",
+       "enum": [
+        "check",
+        "x",
+        "plus",
+        "up",
+        "mic",
+        "shield",
+        "down",
+        "right",
+        "branch",
+        "terminal",
+        "file",
+        "copy",
+        "stop",
+        "folder",
+        "laptop",
+        "code",
+        "edit",
+        "archive",
+        "trash",
+        "panel",
+        "history",
+        "split",
+        "pin",
+        "git",
+        "search",
+        "thumb-up",
+        "thumb-down",
+        "refresh",
+        "arrow",
+        "warning",
+        "wrench",
+        "chart",
+        "message",
+        "doc"
+       ]
+      },
+      "label": {
+       "type": "string",
+       "maxLength": 40
+      },
+      "action": {
+       "type": "string",
+       "pattern": "^[a-z][a-z0-9_.:-]{0,63}$",
+       "description": "An action id the host registered for this block. The agent names it; the host decides whether to run it."
+      },
+      "pressed": {
+       "type": "boolean"
+      }
+     },
+     "required": [
+      "icon",
+      "label",
+      "action"
+     ],
+     "additionalProperties": false
+    },
+    "children": {
+     "type": "array",
+     "items": {
+      "$ref": "#"
+     },
+     "maxItems": 0
+    }
+   },
+   "required": [
+    "type"
+   ],
+   "additionalProperties": false
+  },
+  "StatusLabel": {
+   "type": "object",
+   "properties": {
+    "type": {
+     "const": "StatusLabel"
+    },
+    "id": {
+     "type": "string",
+     "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,47}$"
+    },
+    "props": {
+     "type": "object",
+     "properties": {
+      "state": {
+       "type": "string",
+       "enum": [
+        "running",
+        "done",
+        "needs-you",
+        "failed",
+        "stopped",
+        "idle",
+        "queued",
+        "expiring"
+       ]
+      },
+      "text": {
+       "type": "string",
+       "maxLength": 40
+      },
+      "elapsed": {
+       "type": "string",
+       "maxLength": 12
+      }
+     },
+     "required": [
+      "state"
+     ],
+     "additionalProperties": false
+    },
+    "children": {
+     "type": "array",
+     "items": {
+      "$ref": "#"
+     },
+     "maxItems": 0
+    }
+   },
+   "required": [
+    "type"
+   ],
+   "additionalProperties": false
+  },
+  "Tag": {
+   "type": "object",
+   "properties": {
+    "type": {
+     "const": "Tag"
+    },
+    "id": {
+     "type": "string",
+     "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,47}$"
+    },
+    "props": {
+     "type": "object",
+     "properties": {
+      "text": {
+       "type": "string",
+       "maxLength": 60
+      },
+      "icon": {
+       "type": "string",
+       "enum": [
+        "check",
+        "x",
+        "plus",
+        "up",
+        "mic",
+        "shield",
+        "down",
+        "right",
+        "branch",
+        "terminal",
+        "file",
+        "copy",
+        "stop",
+        "folder",
+        "laptop",
+        "code",
+        "edit",
+        "archive",
+        "trash",
+        "panel",
+        "history",
+        "split",
+        "pin",
+        "git",
+        "search",
+        "thumb-up",
+        "thumb-down",
+        "refresh",
+        "arrow",
+        "warning",
+        "wrench",
+        "chart",
+        "message",
+        "doc"
+       ]
+      },
+      "kind": {
+       "enum": [
+        "id",
+        "key"
+       ]
+      }
+     },
+     "required": [
+      "text"
+     ],
+     "additionalProperties": false
+    },
+    "children": {
+     "type": "array",
+     "items": {
+      "$ref": "#"
+     },
+     "maxItems": 0
+    }
+   },
+   "required": [
+    "type"
+   ],
+   "additionalProperties": false
+  },
+  "Toggle": {
+   "type": "object",
+   "properties": {
+    "type": {
+     "const": "Toggle"
+    },
+    "id": {
+     "type": "string",
+     "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,47}$"
+    },
+    "props": {
+     "type": "object",
+     "properties": {
+      "label": {
+       "type": "string",
+       "maxLength": 60
+      },
+      "description": {
+       "type": "string",
+       "maxLength": 160
+      },
+      "value": {
+       "type": "boolean"
+      },
+      "action": {
+       "type": "string",
+       "pattern": "^[a-z][a-z0-9_.:-]{0,63}$",
+       "description": "An action id the host registered for this block. The agent names it; the host decides whether to run it."
+      }
+     },
+     "required": [
+      "label",
+      "value",
+      "action"
+     ],
+     "additionalProperties": false
+    },
+    "children": {
+     "type": "array",
+     "items": {
+      "$ref": "#"
+     },
+     "maxItems": 0
+    }
+   },
+   "required": [
+    "type"
+   ],
+   "additionalProperties": false
+  },
+  "SegmentedSwitch": {
+   "type": "object",
+   "properties": {
+    "type": {
+     "const": "SegmentedSwitch"
+    },
+    "id": {
+     "type": "string",
+     "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,47}$"
+    },
+    "props": {
+     "type": "object",
+     "properties": {
+      "options": {
+       "type": "array",
+       "minItems": 2,
+       "maxItems": 4,
+       "items": {
+        "type": "object",
+        "properties": {
+         "id": {
+          "type": "string",
+          "maxLength": 24
+         },
+         "label": {
+          "type": "string",
+          "maxLength": 24
+         },
+         "icon": {
+          "type": "string",
+          "enum": [
+           "check",
+           "x",
+           "plus",
+           "up",
+           "mic",
+           "shield",
+           "down",
+           "right",
+           "branch",
+           "terminal",
+           "file",
+           "copy",
+           "stop",
+           "folder",
+           "laptop",
+           "code",
+           "edit",
+           "archive",
+           "trash",
+           "panel",
+           "history",
+           "split",
+           "pin",
+           "git",
+           "search",
+           "thumb-up",
+           "thumb-down",
+           "refresh",
+           "arrow",
+           "warning",
+           "wrench",
+           "chart",
+           "message",
+           "doc"
+          ]
+         }
+        },
+        "required": [
+         "id",
+         "label"
+        ],
+        "additionalProperties": false
+       }
+      },
+      "value": {
+       "type": "string",
+       "maxLength": 24
+      },
+      "action": {
+       "type": "string",
+       "pattern": "^[a-z][a-z0-9_.:-]{0,63}$",
+       "description": "An action id the host registered for this block. The agent names it; the host decides whether to run it."
+      }
+     },
+     "required": [
+      "options",
+      "value",
+      "action"
+     ],
+     "additionalProperties": false
+    },
+    "children": {
+     "type": "array",
+     "items": {
+      "$ref": "#"
+     },
+     "maxItems": 0
+    }
+   },
+   "required": [
+    "type"
+   ],
+   "additionalProperties": false
+  },
+  "Menu": {
+   "type": "object",
+   "properties": {
+    "type": {
+     "const": "Menu"
+    },
+    "id": {
+     "type": "string",
+     "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,47}$"
+    },
+    "props": {
+     "type": "object",
+     "properties": {
+      "items": {
+       "type": "array",
+       "maxItems": 10,
+       "items": {
+        "type": "object",
+        "properties": {
+         "label": {
+          "type": "string",
+          "maxLength": 40
+         },
+         "icon": {
+          "type": "string",
+          "enum": [
+           "check",
+           "x",
+           "plus",
+           "up",
+           "mic",
+           "shield",
+           "down",
+           "right",
+           "branch",
+           "terminal",
+           "file",
+           "copy",
+           "stop",
+           "folder",
+           "laptop",
+           "code",
+           "edit",
+           "archive",
+           "trash",
+           "panel",
+           "history",
+           "split",
+           "pin",
+           "git",
+           "search",
+           "thumb-up",
+           "thumb-down",
+           "refresh",
+           "arrow",
+           "warning",
+           "wrench",
+           "chart",
+           "message",
+           "doc"
+          ]
+         },
+         "kbd": {
+          "type": "string",
+          "maxLength": 12
+         },
+         "action": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_.:-]{0,63}$",
+          "description": "An action id the host registered for this block. The agent names it; the host decides whether to run it."
+         },
+         "danger": {
+          "type": "boolean"
+         },
+         "separatorBefore": {
+          "type": "boolean"
+         }
+        },
+        "required": [
+         "label",
+         "action"
+        ],
+        "additionalProperties": false
+       }
+      }
+     },
+     "required": [
+      "items"
+     ],
+     "additionalProperties": false
+    },
+    "children": {
+     "type": "array",
+     "items": {
+      "$ref": "#"
+     },
+     "maxItems": 0
+    }
+   },
+   "required": [
+    "type"
+   ],
+   "additionalProperties": false
+  },
+  "StepLedger": {
+   "type": "object",
+   "properties": {
+    "type": {
+     "const": "StepLedger"
+    },
+    "id": {
+     "type": "string",
+     "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,47}$"
+    },
+    "props": {
+     "type": "object",
+     "properties": {
+      "steps": {
+       "type": "array",
+       "maxItems": 12,
+       "items": {
+        "type": "object",
+        "properties": {
+         "text": {
+          "type": "string",
+          "maxLength": 120
+         },
+         "state": {
+          "enum": [
+           "done",
+           "now",
+           "todo",
+           "failed"
+          ]
+         }
+        },
+        "required": [
+         "text",
+         "state"
+        ],
+        "additionalProperties": false
+       }
+      }
+     },
+     "required": [
+      "steps"
+     ],
+     "additionalProperties": false
+    },
+    "children": {
+     "type": "array",
+     "items": {
+      "$ref": "#"
+     },
+     "maxItems": 0
+    }
+   },
+   "required": [
+    "type"
+   ],
+   "additionalProperties": false
+  },
+  "ThinkingTrace": {
+   "type": "object",
+   "properties": {
+    "type": {
+     "const": "ThinkingTrace"
+    },
+    "id": {
+     "type": "string",
+     "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,47}$"
+    },
+    "props": {
+     "type": "object",
+     "properties": {
+      "elapsed": {
+       "type": "string",
+       "maxLength": 12
+      },
+      "sources": {
+       "type": "array",
+       "maxItems": 8,
+       "items": {
+        "type": "object",
+        "properties": {
+         "name": {
+          "type": "string",
+          "maxLength": 40
+         },
+         "title": {
+          "type": "string",
+          "maxLength": 60
+         }
+        },
+        "required": [
+         "name"
+        ],
+        "additionalProperties": false
+       }
+      },
+      "steps": {
+       "type": "array",
+       "maxItems": 6,
+       "items": {
+        "type": "string",
+        "maxLength": 120
+       }
+      },
+      "current": {
+       "type": "string",
+       "maxLength": 120
+      }
+     },
+     "required": [
+      "steps"
+     ],
+     "additionalProperties": false
+    },
+    "children": {
+     "type": "array",
+     "items": {
+      "$ref": "#"
+     },
+     "maxItems": 0
+    }
+   },
+   "required": [
+    "type"
+   ],
+   "additionalProperties": false
+  },
+  "ToolCall": {
+   "type": "object",
+   "properties": {
+    "type": {
+     "const": "ToolCall"
+    },
+    "id": {
+     "type": "string",
+     "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,47}$"
+    },
+    "props": {
+     "type": "object",
+     "properties": {
+      "name": {
+       "type": "string",
+       "maxLength": 60
+      },
+      "summary": {
+       "type": "string",
+       "maxLength": 160
+      },
+      "state": {
+       "enum": [
+        "running",
+        "done",
+        "failed"
+       ]
+      },
+      "duration": {
+       "type": "string",
+       "maxLength": 12
+      },
+      "input": {
+       "type": "string",
+       "maxLength": 2000
+      },
+      "output": {
+       "type": "string",
+       "maxLength": 4000
+      },
+      "retryAction": {
+       "type": "string",
+       "pattern": "^[a-z][a-z0-9_.:-]{0,63}$",
+       "description": "An action id the host registered for this block. The agent names it; the host decides whether to run it."
+      }
+     },
+     "required": [
+      "name",
+      "state"
+     ],
+     "additionalProperties": false
+    },
+    "children": {
+     "type": "array",
+     "items": {
+      "$ref": "#"
+     },
+     "maxItems": 0
+    }
+   },
+   "required": [
+    "type"
+   ],
+   "additionalProperties": false
+  },
+  "ApprovalCard": {
+   "type": "object",
+   "properties": {
+    "type": {
+     "const": "ApprovalCard"
+    },
+    "id": {
+     "type": "string",
+     "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,47}$"
+    },
+    "props": {
+     "type": "object",
+     "properties": {
+      "agent": {
+       "type": "string",
+       "maxLength": 40
+      },
+      "title": {
+       "type": "string",
+       "maxLength": 100
+      },
+      "why": {
+       "type": "string",
+       "maxLength": 300
+      },
+      "risk": {
+       "enum": [
+        "low",
+        "medium",
+        "high"
+       ]
+      },
+      "details": {
+       "type": "array",
+       "maxItems": 6,
+       "items": {
+        "type": "object",
+        "properties": {
+         "key": {
+          "type": "string",
+          "maxLength": 24
+         },
+         "value": {
+          "type": "string",
+          "maxLength": 200
+         }
+        },
+        "required": [
+         "key",
+         "value"
+        ],
+        "additionalProperties": false
+       }
+      },
+      "approveAction": {
+       "type": "string",
+       "pattern": "^[a-z][a-z0-9_.:-]{0,63}$",
+       "description": "An action id the host registered for this block. The agent names it; the host decides whether to run it."
+      },
+      "denyAction": {
+       "type": "string",
+       "pattern": "^[a-z][a-z0-9_.:-]{0,63}$",
+       "description": "An action id the host registered for this block. The agent names it; the host decides whether to run it."
+      },
+      "allowAlwaysAction": {
+       "type": "string",
+       "pattern": "^[a-z][a-z0-9_.:-]{0,63}$",
+       "description": "An action id the host registered for this block. The agent names it; the host decides whether to run it."
+      },
+      "expiresIn": {
+       "type": "integer",
+       "minimum": 1,
+       "maximum": 3600
+      }
+     },
+     "required": [
+      "title",
+      "why",
+      "risk",
+      "approveAction",
+      "denyAction"
+     ],
+     "additionalProperties": false
+    },
+    "children": {
+     "type": "array",
+     "items": {
+      "$ref": "#"
+     },
+     "maxItems": 0
+    }
+   },
+   "required": [
+    "type"
+   ],
+   "additionalProperties": false
+  },
+  "AgentQuestion": {
+   "type": "object",
+   "properties": {
+    "type": {
+     "const": "AgentQuestion"
+    },
+    "id": {
+     "type": "string",
+     "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,47}$"
+    },
+    "props": {
+     "type": "object",
+     "properties": {
+      "question": {
+       "type": "string",
+       "maxLength": 200
+      },
+      "options": {
+       "type": "array",
+       "minItems": 2,
+       "maxItems": 6,
+       "items": {
+        "type": "object",
+        "properties": {
+         "id": {
+          "type": "string",
+          "maxLength": 24
+         },
+         "label": {
+          "type": "string",
+          "maxLength": 60
+         },
+         "description": {
+          "type": "string",
+          "maxLength": 160
+         }
+        },
+        "required": [
+         "id",
+         "label"
+        ],
+        "additionalProperties": false
+       }
+      },
+      "multiple": {
+       "type": "boolean"
+      },
+      "allowText": {
+       "type": "boolean"
+      },
+      "action": {
+       "type": "string",
+       "pattern": "^[a-z][a-z0-9_.:-]{0,63}$",
+       "description": "An action id the host registered for this block. The agent names it; the host decides whether to run it."
+      }
+     },
+     "required": [
+      "question",
+      "options",
+      "action"
+     ],
+     "additionalProperties": false
+    },
+    "children": {
+     "type": "array",
+     "items": {
+      "$ref": "#"
+     },
+     "maxItems": 0
+    }
+   },
+   "required": [
+    "type"
+   ],
+   "additionalProperties": false
+  },
+  "ResultCard": {
+   "type": "object",
+   "properties": {
+    "type": {
+     "const": "ResultCard"
+    },
+    "id": {
+     "type": "string",
+     "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,47}$"
+    },
+    "props": {
+     "type": "object",
+     "properties": {
+      "title": {
+       "type": "string",
+       "maxLength": 120
+      },
+      "state": {
+       "enum": [
+        "done",
+        "failed",
+        "stopped"
+       ]
+      },
+      "facts": {
+       "type": "array",
+       "maxItems": 6,
+       "items": {
+        "type": "string",
+        "maxLength": 40
+       }
+      },
+      "files": {
+       "type": "array",
+       "maxItems": 20,
+       "items": {
+        "type": "object",
+        "properties": {
+         "path": {
+          "type": "string",
+          "maxLength": 200
+         },
+         "added": {
+          "type": "integer",
+          "minimum": 0
+         },
+         "removed": {
+          "type": "integer",
+          "minimum": 0
+         }
+        },
+        "required": [
+         "path"
+        ],
+        "additionalProperties": false
+       }
+      },
+      "links": {
+       "type": "array",
+       "maxItems": 3,
+       "items": {
+        "type": "object",
+        "properties": {
+         "label": {
+          "type": "string",
+          "maxLength": 40
+         },
+         "action": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_.:-]{0,63}$",
+          "description": "An action id the host registered for this block. The agent names it; the host decides whether to run it."
+         }
+        },
+        "required": [
+         "label",
+         "action"
+        ],
+        "additionalProperties": false
+       }
+      },
+      "primary": {
+       "type": "object",
+       "properties": {
+        "label": {
+         "type": "string",
+         "maxLength": 40
+        },
+        "variant": {
+         "enum": [
+          "primary",
+          "secondary",
+          "quiet",
+          "danger"
+         ]
+        },
+        "size": {
+         "enum": [
+          "md",
+          "sm"
+         ]
+        },
+        "icon": {
+         "type": "string",
+         "enum": [
+          "check",
+          "x",
+          "plus",
+          "up",
+          "mic",
+          "shield",
+          "down",
+          "right",
+          "branch",
+          "terminal",
+          "file",
+          "copy",
+          "stop",
+          "folder",
+          "laptop",
+          "code",
+          "edit",
+          "archive",
+          "trash",
+          "panel",
+          "history",
+          "split",
+          "pin",
+          "git",
+          "search",
+          "thumb-up",
+          "thumb-down",
+          "refresh",
+          "arrow",
+          "warning",
+          "wrench",
+          "chart",
+          "message",
+          "doc"
+         ]
+        },
+        "kbd": {
+         "type": "string",
+         "maxLength": 12
+        },
+        "action": {
+         "type": "string",
+         "pattern": "^[a-z][a-z0-9_.:-]{0,63}$",
+         "description": "An action id the host registered for this block. The agent names it; the host decides whether to run it."
+        },
+        "disabled": {
+         "type": "boolean"
+        }
+       },
+       "required": [
+        "label",
+        "action"
+       ],
+       "additionalProperties": false
+      },
+      "secondary": {
+       "type": "object",
+       "properties": {
+        "label": {
+         "type": "string",
+         "maxLength": 40
+        },
+        "variant": {
+         "enum": [
+          "primary",
+          "secondary",
+          "quiet",
+          "danger"
+         ]
+        },
+        "size": {
+         "enum": [
+          "md",
+          "sm"
+         ]
+        },
+        "icon": {
+         "type": "string",
+         "enum": [
+          "check",
+          "x",
+          "plus",
+          "up",
+          "mic",
+          "shield",
+          "down",
+          "right",
+          "branch",
+          "terminal",
+          "file",
+          "copy",
+          "stop",
+          "folder",
+          "laptop",
+          "code",
+          "edit",
+          "archive",
+          "trash",
+          "panel",
+          "history",
+          "split",
+          "pin",
+          "git",
+          "search",
+          "thumb-up",
+          "thumb-down",
+          "refresh",
+          "arrow",
+          "warning",
+          "wrench",
+          "chart",
+          "message",
+          "doc"
+         ]
+        },
+        "kbd": {
+         "type": "string",
+         "maxLength": 12
+        },
+        "action": {
+         "type": "string",
+         "pattern": "^[a-z][a-z0-9_.:-]{0,63}$",
+         "description": "An action id the host registered for this block. The agent names it; the host decides whether to run it."
+        },
+        "disabled": {
+         "type": "boolean"
+        }
+       },
+       "required": [
+        "label",
+        "action"
+       ],
+       "additionalProperties": false
+      }
+     },
+     "required": [
+      "title",
+      "state"
+     ],
+     "additionalProperties": false
+    },
+    "children": {
+     "type": "array",
+     "items": {
+      "$ref": "#"
+     },
+     "maxItems": 0
+    }
+   },
+   "required": [
+    "type"
+   ],
+   "additionalProperties": false
+  },
+  "AnswerCard": {
+   "type": "object",
+   "properties": {
+    "type": {
+     "const": "AnswerCard"
+    },
+    "id": {
+     "type": "string",
+     "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,47}$"
+    },
+    "props": {
+     "type": "object",
+     "properties": {
+      "question": {
+       "type": "string",
+       "maxLength": 200
+      },
+      "sources": {
+       "type": "array",
+       "maxItems": 12,
+       "items": {
+        "type": "object",
+        "properties": {
+         "title": {
+          "type": "string",
+          "maxLength": 120
+         },
+         "name": {
+          "type": "string",
+          "maxLength": 40
+         },
+         "href": {
+          "type": "string",
+          "format": "uri",
+          "maxLength": 300
+         },
+         "snippet": {
+          "type": "string",
+          "maxLength": 300
+         }
+        },
+        "required": [
+         "title",
+         "name"
+        ],
+        "additionalProperties": false
+       }
+      },
+      "answer": {
+       "type": "string",
+       "maxLength": 6000
+      },
+      "streaming": {
+       "type": "boolean"
+      },
+      "followUps": {
+       "type": "array",
+       "maxItems": 3,
+       "items": {
+        "type": "string",
+        "maxLength": 120
+       }
+      },
+      "action": {
+       "type": "string",
+       "pattern": "^[a-z][a-z0-9_.:-]{0,63}$",
+       "description": "An action id the host registered for this block. The agent names it; the host decides whether to run it."
+      }
+     },
+     "required": [
+      "answer"
+     ],
+     "additionalProperties": false
+    },
+    "children": {
+     "type": "array",
+     "items": {
+      "$ref": "#"
+     },
+     "maxItems": 0
+    }
+   },
+   "required": [
+    "type"
+   ],
+   "additionalProperties": false
+  },
+  "ContextMeter": {
+   "type": "object",
+   "properties": {
+    "type": {
+     "const": "ContextMeter"
+    },
+    "id": {
+     "type": "string",
+     "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,47}$"
+    },
+    "props": {
+     "type": "object",
+     "properties": {
+      "used": {
+       "type": "number",
+       "minimum": 0
+      },
+      "window": {
+       "type": "number",
+       "minimum": 0
+      },
+      "parts": {
+       "type": "array",
+       "maxItems": 6,
+       "items": {
+        "type": "object",
+        "properties": {
+         "name": {
+          "type": "string",
+          "maxLength": 40
+         },
+         "tokens": {
+          "type": "number",
+          "minimum": 0
+         }
+        },
+        "required": [
+         "name",
+         "tokens"
+        ],
+        "additionalProperties": false
+       }
+      }
+     },
+     "required": [
+      "used",
+      "window"
+     ],
+     "additionalProperties": false
+    },
+    "children": {
+     "type": "array",
+     "items": {
+      "$ref": "#"
+     },
+     "maxItems": 0
+    }
+   },
+   "required": [
+    "type"
+   ],
+   "additionalProperties": false
+  },
+  "ContextMap": {
+   "type": "object",
+   "properties": {
+    "type": {
+     "const": "ContextMap"
+    },
+    "id": {
+     "type": "string",
+     "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,47}$"
+    },
+    "props": {
+     "type": "object",
+     "properties": {
+      "agent": {
+       "type": "string",
+       "maxLength": 40
+      },
+      "window": {
+       "type": "number",
+       "minimum": 0
+      },
+      "parts": {
+       "type": "array",
+       "maxItems": 16,
+       "items": {
+        "type": "object",
+        "properties": {
+         "name": {
+          "type": "string",
+          "maxLength": 40
+         },
+         "kind": {
+          "type": "string",
+          "maxLength": 24
+         },
+         "tokens": {
+          "type": "number",
+          "minimum": 0
+         }
+        },
+        "required": [
+         "name",
+         "tokens"
+        ],
+        "additionalProperties": false
+       }
+      },
+      "compactedFrom": {
+       "type": "number",
+       "minimum": 0
+      }
+     },
+     "required": [
+      "window",
+      "parts"
+     ],
+     "additionalProperties": false
+    },
+    "children": {
+     "type": "array",
+     "items": {
+      "$ref": "#"
+     },
+     "maxItems": 0
+    }
+   },
+   "required": [
+    "type"
+   ],
+   "additionalProperties": false
+  },
+  "RunCost": {
+   "type": "object",
+   "properties": {
+    "type": {
+     "const": "RunCost"
+    },
+    "id": {
+     "type": "string",
+     "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,47}$"
+    },
+    "props": {
+     "type": "object",
+     "properties": {
+      "task": {
+       "type": "string",
+       "maxLength": 100
+      },
+      "total": {
+       "type": "object",
+       "properties": {
+        "cost": {
+         "type": "number",
+         "minimum": 0
+        },
+        "tokens": {
+         "type": "number",
+         "minimum": 0
+        }
+       },
+       "required": [
+        "cost"
+       ],
+       "additionalProperties": false
+      },
+      "rows": {
+       "type": "array",
+       "maxItems": 30,
+       "items": {
+        "type": "object",
+        "properties": {
+         "name": {
+          "type": "string",
+          "maxLength": 60
+         },
+         "kind": {
+          "enum": [
+           "model",
+           "agent",
+           "tool"
+          ]
+         },
+         "cost": {
+          "type": "number",
+          "minimum": 0
+         },
+         "ms": {
+          "type": "number",
+          "minimum": 0
+         },
+         "depth": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3
+         },
+         "failed": {
+          "type": "boolean"
+         }
+        },
+        "required": [
+         "name",
+         "kind",
+         "cost"
+        ],
+        "additionalProperties": false
+       }
+      }
+     },
+     "required": [
+      "rows"
+     ],
+     "additionalProperties": false
+    },
+    "children": {
+     "type": "array",
+     "items": {
+      "$ref": "#"
+     },
+     "maxItems": 0
+    }
+   },
+   "required": [
+    "type"
+   ],
+   "additionalProperties": false
+  },
+  "PlanVsActual": {
+   "type": "object",
+   "properties": {
+    "type": {
+     "const": "PlanVsActual"
+    },
+    "id": {
+     "type": "string",
+     "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,47}$"
+    },
+    "props": {
+     "type": "object",
+     "properties": {
+      "title": {
+       "type": "string",
+       "maxLength": 80
+      },
+      "task": {
+       "type": "string",
+       "maxLength": 120
+      },
+      "steps": {
+       "type": "array",
+       "maxItems": 20,
+       "items": {
+        "type": "object",
+        "properties": {
+         "name": {
+          "type": "string",
+          "maxLength": 60
+         },
+         "state": {
+          "enum": [
+           "done",
+           "running",
+           "todo",
+           "failed"
+          ]
+         },
+         "plan": {
+          "type": "object",
+          "properties": {
+           "start": {
+            "type": "number",
+            "minimum": 0
+           },
+           "dur": {
+            "type": "number",
+            "minimum": 0
+           }
+          },
+          "required": [
+           "start",
+           "dur"
+          ],
+          "additionalProperties": false
+         },
+         "actual": {
+          "type": "object",
+          "properties": {
+           "start": {
+            "type": "number",
+            "minimum": 0
+           },
+           "dur": {
+            "type": "number",
+            "minimum": 0
+           }
+          },
+          "required": [],
+          "additionalProperties": false
+         }
+        },
+        "required": [
+         "name",
+         "state",
+         "plan"
+        ],
+        "additionalProperties": false
+       }
+      },
+      "now": {
+       "type": "number",
+       "minimum": 0
+      },
+      "budget": {
+       "type": "object",
+       "properties": {
+        "time": {
+         "type": "number",
+         "minimum": 0
+        },
+        "cost": {
+         "type": "number",
+         "minimum": 0
+        }
+       },
+       "required": [],
+       "additionalProperties": false
+      }
+     },
+     "required": [
+      "steps"
+     ],
+     "additionalProperties": false
+    },
+    "children": {
+     "type": "array",
+     "items": {
+      "$ref": "#"
+     },
+     "maxItems": 0
+    }
+   },
+   "required": [
+    "type"
+   ],
+   "additionalProperties": false
+  },
+  "ToolCallGraph": {
+   "type": "object",
+   "properties": {
+    "type": {
+     "const": "ToolCallGraph"
+    },
+    "id": {
+     "type": "string",
+     "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,47}$"
+    },
+    "props": {
+     "type": "object",
+     "properties": {
+      "agent": {
+       "type": "string",
+       "maxLength": 40
+      },
+      "range": {
+       "type": "string",
+       "maxLength": 24
+      },
+      "tools": {
+       "type": "array",
+       "maxItems": 12,
+       "items": {
+        "type": "object",
+        "properties": {
+         "name": {
+          "type": "string",
+          "maxLength": 60
+         },
+         "calls": {
+          "type": "integer",
+          "minimum": 0
+         },
+         "p50ms": {
+          "type": "number",
+          "minimum": 0
+         },
+         "p95ms": {
+          "type": "number",
+          "minimum": 0
+         },
+         "errorRate": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+         }
+        },
+        "required": [
+         "name",
+         "calls"
+        ],
+        "additionalProperties": false
+       }
+      },
+      "metric": {
+       "enum": [
+        "calls",
+        "latency",
+        "errors"
+       ]
+      }
+     },
+     "required": [
+      "agent",
+      "tools"
+     ],
+     "additionalProperties": false
+    },
+    "children": {
+     "type": "array",
+     "items": {
+      "$ref": "#"
+     },
+     "maxItems": 0
+    }
+   },
+   "required": [
+    "type"
+   ],
+   "additionalProperties": false
+  },
+  "AgentInbox": {
+   "type": "object",
+   "properties": {
+    "type": {
+     "const": "AgentInbox"
+    },
+    "id": {
+     "type": "string",
+     "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,47}$"
+    },
+    "props": {
+     "type": "object",
+     "properties": {
+      "items": {
+       "type": "array",
+       "maxItems": 40,
+       "items": {
+        "type": "object",
+        "properties": {
+         "id": {
+          "type": "string",
+          "maxLength": 40
+         },
+         "title": {
+          "type": "string",
+          "maxLength": 100
+         },
+         "summary": {
+          "type": "string",
+          "maxLength": 200
+         },
+         "state": {
+          "type": "string",
+          "enum": [
+           "running",
+           "done",
+           "needs-you",
+           "failed",
+           "stopped",
+           "idle",
+           "queued",
+           "expiring"
+          ]
+         },
+         "elapsed": {
+          "type": "string",
+          "maxLength": 12
+         },
+         "searches": {
+          "type": "integer",
+          "minimum": 0
+         },
+         "tools": {
+          "type": "integer",
+          "minimum": 0
+         },
+         "threadAction": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_.:-]{0,63}$",
+          "description": "An action id the host registered for this block. The agent names it; the host decides whether to run it."
+         }
+        },
+        "required": [
+         "id",
+         "title",
+         "state"
+        ],
+        "additionalProperties": false
+       }
+      },
+      "view": {
+       "enum": [
+        "board",
+        "list"
+       ]
+      }
+     },
+     "required": [
+      "items"
+     ],
+     "additionalProperties": false
+    },
+    "children": {
+     "type": "array",
+     "items": {
+      "$ref": "#"
+     },
+     "maxItems": 0
+    }
+   },
+   "required": [
+    "type"
+   ],
+   "additionalProperties": false
+  },
+  "OrchestrationGraph": {
+   "type": "object",
+   "properties": {
+    "type": {
+     "const": "OrchestrationGraph"
+    },
+    "id": {
+     "type": "string",
+     "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,47}$"
+    },
+    "props": {
+     "type": "object",
+     "properties": {
+      "run": {
+       "type": "object",
+       "properties": {
+        "id": {
+         "type": "string",
+         "maxLength": 40
+        },
+        "state": {
+         "type": "string",
+         "enum": [
+          "running",
+          "done",
+          "needs-you",
+          "failed",
+          "stopped",
+          "idle",
+          "queued",
+          "expiring"
+         ]
+        },
+        "title": {
+         "type": "string",
+         "maxLength": 80
+        }
+       },
+       "required": [
+        "id",
+        "state"
+       ],
+       "additionalProperties": false
+      },
+      "nodes": {
+       "type": "array",
+       "maxItems": 40,
+       "items": {
+        "type": "object",
+        "properties": {
+         "id": {
+          "type": "string",
+          "maxLength": 40
+         },
+         "parent": {
+          "type": "string",
+          "maxLength": 40
+         },
+         "lane": {
+          "type": "string",
+          "maxLength": 24
+         },
+         "name": {
+          "type": "string",
+          "maxLength": 40
+         },
+         "task": {
+          "type": "string",
+          "maxLength": 120
+         },
+         "state": {
+          "type": "string",
+          "enum": [
+           "running",
+           "done",
+           "needs-you",
+           "failed",
+           "stopped",
+           "idle",
+           "queued",
+           "expiring"
+          ]
+         },
+         "model": {
+          "type": "string",
+          "maxLength": 24
+         },
+         "cost": {
+          "type": "number",
+          "minimum": 0
+         },
+         "elapsed": {
+          "type": "string",
+          "maxLength": 12
+         }
+        },
+        "required": [
+         "id",
+         "name",
+         "state"
+        ],
+        "additionalProperties": false
+       }
+      }
+     },
+     "required": [
+      "run",
+      "nodes"
+     ],
+     "additionalProperties": false
+    },
+    "children": {
+     "type": "array",
+     "items": {
+      "$ref": "#"
+     },
+     "maxItems": 0
+    }
+   },
+   "required": [
+    "type"
+   ],
+   "additionalProperties": false
+  },
+  "AgentCursors": {
+   "type": "object",
+   "properties": {
+    "type": {
+     "const": "AgentCursors"
+    },
+    "id": {
+     "type": "string",
+     "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,47}$"
+    },
+    "props": {
+     "type": "object",
+     "properties": {
+      "title": {
+       "type": "string",
+       "maxLength": 80
+      },
+      "agents": {
+       "type": "array",
+       "maxItems": 6,
+       "items": {
+        "type": "object",
+        "properties": {
+         "id": {
+          "type": "string",
+          "maxLength": 24
+         },
+         "name": {
+          "type": "string",
+          "maxLength": 24
+         },
+         "color": {
+          "enum": [
+           "agent-1",
+           "agent-2",
+           "agent-3",
+           "agent-4",
+           "agent-5",
+           "agent-6",
+           "agent-7",
+           "agent-8",
+           "agent-9"
+          ]
+         },
+         "cost": {
+          "type": "number",
+          "minimum": 0
+         }
+        },
+        "required": [
+         "id",
+         "name",
+         "color"
+        ],
+        "additionalProperties": false
+       }
+      },
+      "blocks": {
+       "type": "array",
+       "maxItems": 60,
+       "items": {
+        "type": "object",
+        "properties": {
+         "kind": {
+          "enum": [
+           "title",
+           "heading",
+           "paragraph",
+           "item",
+           "code"
+          ]
+         },
+         "text": {
+          "type": "string",
+          "maxLength": 2000
+         }
+        },
+        "required": [
+         "kind",
+         "text"
+        ],
+        "additionalProperties": false
+       }
+      },
+      "suggestions": {
+       "type": "array",
+       "maxItems": 30,
+       "items": {
+        "type": "object",
+        "properties": {
+         "id": {
+          "type": "string",
+          "maxLength": 24
+         },
+         "agent": {
+          "type": "string",
+          "maxLength": 24
+         },
+         "block": {
+          "type": "integer",
+          "minimum": 0
+         },
+         "remove": {
+          "type": "string",
+          "maxLength": 500
+         },
+         "insert": {
+          "type": "string",
+          "maxLength": 500
+         },
+         "note": {
+          "type": "string",
+          "maxLength": 300
+         }
+        },
+        "required": [
+         "id",
+         "agent",
+         "block"
+        ],
+        "additionalProperties": false
+       }
+      },
+      "acceptAction": {
+       "type": "string",
+       "pattern": "^[a-z][a-z0-9_.:-]{0,63}$",
+       "description": "An action id the host registered for this block. The agent names it; the host decides whether to run it."
+      },
+      "rejectAction": {
+       "type": "string",
+       "pattern": "^[a-z][a-z0-9_.:-]{0,63}$",
+       "description": "An action id the host registered for this block. The agent names it; the host decides whether to run it."
+      },
+      "acceptAllAction": {
+       "type": "string",
+       "pattern": "^[a-z][a-z0-9_.:-]{0,63}$",
+       "description": "An action id the host registered for this block. The agent names it; the host decides whether to run it."
+      }
+     },
+     "required": [
+      "agents",
+      "blocks"
+     ],
+     "additionalProperties": false
+    },
+    "children": {
+     "type": "array",
+     "items": {
+      "$ref": "#"
+     },
+     "maxItems": 0
+    }
+   },
+   "required": [
+    "type"
+   ],
+   "additionalProperties": false
+  }
+ }
+}

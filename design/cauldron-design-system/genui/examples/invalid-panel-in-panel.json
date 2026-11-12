@@ -1,0 +1,21 @@
+{
+ "v": 1,
+ "op": "create",
+ "at": "thread",
+ "block": {
+  "type": "Shell",
+  "props": {
+   "title": "x"
+  },
+  "children": [
+   {
+    "type": "Panel",
+    "children": [
+     {
+      "type": "Panel"
+     }
+    ]
+   }
+  ]
+ }
+}

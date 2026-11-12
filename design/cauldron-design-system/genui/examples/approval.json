@@ -1,0 +1,29 @@
+{
+ "v": 1,
+ "op": "create",
+ "at": "thread",
+ "block": {
+  "type": "ApprovalCard",
+  "id": "push1",
+  "props": {
+   "agent": "Builder",
+   "title": "Push 3 commits to origin",
+   "why": "The branch is ahead by 3 commits. Pushing starts the Windows build and replaces the windows-preview download.",
+   "risk": "medium",
+   "details": [
+    {
+     "key": "Command",
+     "value": "git push origin claude/ui5"
+    },
+    {
+     "key": "Touches",
+     "value": "remote \u00b7 release windows-preview"
+    }
+   ],
+   "approveAction": "git.push.approve",
+   "denyAction": "git.push.deny",
+   "allowAlwaysAction": "git.push.allow-thread",
+   "expiresIn": 60
+  }
+ }
+}

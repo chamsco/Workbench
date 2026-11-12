@@ -1,0 +1,9 @@
+{
+ "v": 1,
+ "op": "patch",
+ "id": "ans1",
+ "set": {
+  "props.answer": "Budget about **\u20ac9,800** for three days [1].",
+  "props.streaming": true
+ }
+}

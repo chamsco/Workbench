@@ -62,3 +62,7 @@ Cauldron is a desktop app for running coding agents. The interface is a quiet in
 - No glow, no gradient fills, no glass or blur on panels, no dot-texture behind text.
 - No coloured pills for status, no coloured left-border cards, no hero numbers.
 - No centred wordmark in the chrome; the logo lives only on first run.
+
+## Generative UI
+
+Agents may produce interface, but only from this system and only through the contract in the GenUI section: a fixed catalog of components, props that name tokens and never raw values, actions that the host owns, and a validator that runs before anything renders. An agent never writes colours, sizes, CSS or code; if the catalog has no component for what it wants to show, it writes prose.
