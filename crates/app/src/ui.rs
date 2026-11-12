@@ -24,7 +24,7 @@ pub(crate) const MONO: &str = if cfg!(target_os = "macos") {
 pub(crate) const UI: &str = if cfg!(target_os = "macos") {
     ".SystemUIFont"
 } else if cfg!(target_os = "windows") {
-    "Segoe UI"
+    "Segoe UI Variable Text"
 } else {
     "Inter"
 };
