@@ -7,4 +7,5 @@
 
 pub mod avatar;
 pub mod layout;
+pub mod motion;
 pub mod tokens;

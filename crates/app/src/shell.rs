@@ -1,4 +1,4 @@
-//! The Cauldron shell (UI1): the wireframe's frame, notch, sidebar card, main card with tabs,
+//! The Cauldron shell (UI1): the frame, top bar, sidebar card, main card with tabs,
 //! right rail, drawer and split. Every rectangle comes from `cauldron_chrome::layout::solve`,
 //! which is tested against numbers measured from the wireframe; nothing here picks a position.
 //!
@@ -6,9 +6,11 @@
 //! (docs/cauldron/UI-PLAN.md): the thread list is UI3, the thread view UI4, the drawer UI6.
 
 use cauldron_chrome::layout::{self, metric, Platform, Rect, ShellState};
+use cauldron_chrome::motion::Frame;
 use cauldron_chrome::tokens::{self, motion as mt, radius, Palette, Rgb, Rgba};
 use gpui_kit::*;
 
+use crate::motion::ShellMotion;
 use crate::threads::{self, Group};
 use crate::ui::{sans_features, SANS};
 use backspace_core::chat::{Chats, Thread, ThreadInfo};
@@ -63,9 +65,12 @@ enum Foot {
     Right,
 }
 
+/// The flare's radius: 10px, the approved top bar board.
+const FOOT: f32 = radius::CONTROL;
+
 /// The concave corner where the open tab flares into the card, the wireframe's `.tab.on::before/::after`.
 fn foot(side: Foot, fill: Hsla) -> impl IntoElement {
-    let r = radius::PANEL;
+    let r = FOOT;
     let el = canvas(
         |_, _, _| (),
         move |b, _, window, _| {
@@ -184,6 +189,26 @@ pub(crate) struct Cauldron {
     wheel: f32,
     tab_menu: bool,
     tab_slide: motion::Slide,
+    /// The shell's motion clock, the drawer's panel crossfade (from, when), the drawer's last
+    /// panel (kept while it closes).
+    motion: ShellMotion,
+    swap: Option<(Panel, std::time::Instant)>,
+    /// The selected function (an index into FUNCTIONS), and the indicator's slide: where it was
+    /// from, in slots, and when the slide began.
+    section: usize,
+    section_from: f32,
+    section_since: Option<std::time::Instant>,
+    /// When the reply last started or stopped (the Send and Stop glyphs cross-fade from then), and
+    /// whether the last render saw one running.
+    action_since: Option<std::time::Instant>,
+    busy_shown: bool,
+    /// When the open thread was opened (its transcript fades in), when a reply bubble of the
+    /// user's last appeared, and how many of the user's bubbles the open thread had at the last render.
+    open_since: Option<std::time::Instant>,
+    bubble_since: Option<std::time::Instant>,
+    mine_for: Option<String>,
+    mine_n_shown: usize,
+    drawer_last: Option<Panel>,
     tab_focus: Option<FocusHandle>,
     /// The icon button under the pointer, whether its tip is showing yet, and until when a
     /// neighbour's tip may show at once (the wireframe's `.rail.warm`).
@@ -255,7 +280,7 @@ impl Cauldron {
     }
 
     pub(crate) fn new() -> Self {
-        Cauldron { sidebar_open: true, drawer: Some(Panel::Highlights), split: false, coordinator: None, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
+        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: None, sidebar_open: true, drawer: Some(Panel::Highlights), split: false, coordinator: None, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
     }
 
     /// Opens core off the main thread (the sidebar shows Loading meanwhile), then keeps the thread
@@ -641,15 +666,41 @@ impl Cauldron {
         }
     }
 
+    /// Selects a function. The sidebar indicator slides to it from wherever it is now.
+    fn select_section(&mut self, i: usize, cx: &mut Context<Self>) {
+        if i != self.section {
+            let now = std::time::Instant::now();
+            self.section_from = crate::motion::ease_between(self.section_from, self.section as f32, self.section_since, now, cauldron_chrome::motion::time::INDICATOR);
+            self.section = i;
+            self.section_since = Some(now);
+        }
+        cx.notify();
+    }
+
     fn toggle_panel(&mut self, p: Panel) {
-        self.drawer = if self.drawer == Some(p) { None } else { Some(p) };
+        let was = self.drawer;
+        self.drawer = if was == Some(p) { None } else { Some(p) };
+        // Switching panels while one is open crossfades the body; closing keeps the last panel.
+        if let Some(a) = was.filter(|a| *a != p && self.drawer.is_some()) {
+            self.swap = Some((a, std::time::Instant::now()));
+        }
+        if self.drawer.is_some() {
+            self.drawer_last = self.drawer;
+        }
     }
 }
 
 /// A square icon button, 28px, the wireframe's `.fn`, `.ib` and `.rb`.
 fn icon_button(id: impl Into<ElementId>, name: &str, label: &'static str, pal: &'static Palette, on: bool) -> Stateful<Div> {
+    icon_button_in(id, name, label, pal, on, true)
+}
+
+/// `paint`: whether a lit button draws its own fill. The sidebar row draws one indicator that
+/// slides between its buttons, so its buttons do not.
+fn icon_button_in(id: impl Into<ElementId>, name: &str, label: &'static str, pal: &'static Palette, on: bool, paint: bool) -> Stateful<Div> {
     let hover = ca(pal.fg, 0.05);
     let sel = ca(pal.fg, 0.09);
+    let fill = on && paint;
     div()
         .id(id)
         .w(px(metric::SBTN))
@@ -660,10 +711,20 @@ fn icon_button(id: impl Into<ElementId>, name: &str, label: &'static str, pal: &
         .justify_center()
         .rounded(px(radius::CONTROL))
         .cursor_pointer()
-        .bg(if on { sel } else { gpui_kit::transparent_black() })
-        .hover(move |d| d.bg(if on { sel } else { hover }))
+        .bg(if fill { sel } else { gpui_kit::transparent_black() })
+        .hover(move |d| d.bg(if fill { sel } else { hover }))
         .child(glyph(name, 16., if on { c(pal.fg) } else { c(pal.fg2) }))
         .aria_label(label)
+}
+
+/// The left edge of function slot `pos` (fractional while the indicator slides) in the sidebar's
+/// row. The row spreads its buttons across the card with equal gaps (justify_between), inside the
+/// card's 1px border and the row's 2px side padding.
+fn fn_slot_x(card_w: f32, pos: f32) -> f32 {
+    let n = FUNCTIONS.len() as f32;
+    let inner = card_w - 2.0 - 4.0;
+    let gap = (inner - n * metric::SBTN) / (n - 1.0);
+    3.0 + pos * (metric::SBTN + gap)
 }
 
 /// Agent tabs share the room between these widths; below TAB_MIN the row scrolls.
@@ -762,7 +823,59 @@ impl Render for Cauldron {
         let (w, h) = (f32::from(vs.width), f32::from(vs.height));
         let plat = platform();
         let want = ShellState { sidebar_open: self.sidebar_open, drawer_open: self.drawer.is_some(), split_open: self.split };
-        let s = layout::solve(w, h, want, plat);
+        let now = std::time::Instant::now();
+        let reduce = cx.reduce_motion();
+        let (s, mut moving) = self.motion.frame(want, Frame::at_rest(&layout::solve(w, h, want, plat)), now, reduce);
+        // The drawer body's crossfade, the + menu's open and close, and the Send/Stop glyphs.
+        let busy_now = self.busy();
+        if busy_now != self.busy_shown {
+            self.busy_shown = busy_now;
+            self.action_since = Some(now);
+        }
+        // A new bubble of the user's rises in; a thread opened fades its transcript in. A thread
+        // change is not a new bubble.
+        let mine_n = self.thread.as_ref().map_or(0, |t| thread::lines(t).iter().filter(|l| l.mine).count());
+        if self.open != self.mine_for {
+            self.mine_for = self.open.clone();
+            self.mine_n_shown = mine_n;
+        } else if mine_n > self.mine_n_shown {
+            self.bubble_since = Some(now);
+            self.mine_n_shown = mine_n;
+        }
+        let running = |t: Option<std::time::Instant>| t.is_some_and(|t0| crate::motion::run(now, t0, cauldron_chrome::motion::time::CARRY) < 1.0);
+        moving |= running(self.open_since) || running(self.bubble_since);
+        if !running(self.open_since) {
+            self.open_since = None;
+        }
+        if !running(self.bubble_since) {
+            self.bubble_since = None;
+        }
+        if let Some(t0) = self.section_since {
+            if crate::motion::run(now, t0, cauldron_chrome::motion::time::INDICATOR) >= 1.0 {
+                self.section_since = None;
+            } else {
+                moving = true;
+            }
+        }
+        if let Some(t0) = self.action_since {
+            if crate::motion::run(now, t0, cauldron_chrome::motion::time::SWAP) >= 1.0 {
+                self.action_since = None;
+            } else {
+                moving = true;
+            }
+        }
+        let swap = self.swap.and_then(|(a, t0)| {
+            let k = crate::motion::run(now, t0, cauldron_chrome::motion::time::PANEL);
+            (k < 1.0).then_some((a, k))
+        });
+        if swap.is_none() {
+            self.swap = None;
+        } else {
+            moving = true;
+        }
+        if moving {
+            window.request_animation_frame();
+        }
 
         let frame = c(pal.frame);
         let card = c(pal.card);
@@ -787,23 +900,36 @@ impl Render for Cauldron {
 
         // Window drag strip, under every control.
         root = root.child(
-            abs(Rect::new(1.0, 1.0, w - 2.0, metric::NOTCH_H - 8.0)).window_control_area(WindowControlArea::Drag),
+            abs(Rect::new(1.0, 1.0, w - 2.0, metric::BAR_H)).window_control_area(WindowControlArea::Drag),
         );
 
         // ---- rail (only while the sidebar is hidden)
-        if let Some(r) = s.rail {
-            let mut col = pane("rail", r).flex().flex_col().items_center().gap(px(4.)).pt(px(metric::NOTCH_H));
+        if let Some(rp) = s.rail {
+            let mut col = pane("rail", rp.rect).opacity(rp.alpha).flex().flex_col().items_center().gap(px(4.)).pt(px(8.));
             for (i, (name, label)) in FUNCTIONS.iter().enumerate() {
-                col = col.child(self.tipped(("rail", i), icon_button(("rail", i), name, label, pal, i == 0), *label, Side::Right, pal, cx).test_support());
+                let b = icon_button(("rail", i), name, label, pal, i == self.section).on_click(cx.listener(move |this, _, _, cx| this.select_section(i, cx)));
+                col = col.child(self.tipped(("rail", i), b, *label, Side::Right, pal, cx).test_support());
             }
             root = root.child(col.test_support());
         }
 
         // ---- sidebar card with the function row
-        if let Some(r) = s.sidebar {
-            let mut fnrow = div().flex().justify_between().px(px(2.)).pt(px(12.)).pb(px(8.));
+        if let Some(sp) = s.sidebar {
+            let mut fnrow = div().relative().flex().justify_between().px(px(2.)).pt(px(12.)).pb(px(8.));
+            // The indicator sits under the buttons and slides to the selected one (INDICATOR ms).
+            let pos = crate::motion::ease_between(self.section_from, self.section as f32, self.section_since, now, cauldron_chrome::motion::time::INDICATOR);
+            fnrow = fnrow.child(
+                div()
+                    .absolute()
+                    .left(px(fn_slot_x(sp.rect.w, pos)))
+                    .top(px(12.))
+                    .size(px(metric::SBTN))
+                    .rounded(px(radius::CONTROL))
+                    .bg(ca(pal.fg, 0.09)),
+            );
             for (i, (name, label)) in FUNCTIONS.iter().enumerate() {
-                fnrow = fnrow.child(self.tipped(("fn", i), icon_button(("fn", i), name, label, pal, i == 0), *label, Side::Right, pal, cx).test_support());
+                let b = icon_button_in(("fn", i), name, label, pal, i == self.section, false).on_click(cx.listener(move |this, _, _, cx| this.select_section(i, cx)));
+                fnrow = fnrow.child(self.tipped(("fn", i), b, *label, Side::Right, pal, cx).test_support());
             }
             if self.search.is_none() {
                 // The input's caret, selection and text come from the tokens, not the component theme.
@@ -844,7 +970,8 @@ impl Render for Cauldron {
                 .child(div().text_size(px(13.)).text_color(fg).child("New thread"))
                 .on_click(cx.listener(|this, _, window, cx| this.new_thread(window, cx)))
                 .test_support();
-            let card_el = pane("sidebar", r)
+            let card_el = pane("sidebar", sp.rect)
+                .opacity(sp.alpha)
                 .flex()
                 .flex_col()
                 .rounded(px(radius::PANEL))
@@ -858,7 +985,7 @@ impl Render for Cauldron {
                         .flex_none()
                         .flex()
                         .items_center()
-                        .pl(px(metric::NOTCH_W - metric::MARGIN_SIDE - 1.0))
+                        .pl(px(10.))
                         .text_size(px(13.))
                         .font_weight(FontWeight::SEMIBOLD)
                         .child("Threads"),
@@ -1158,7 +1285,8 @@ impl Render for Cauldron {
         root = root.child(pane("main", s.main).child(card_el.test_support()).child(row.test_support()).test_support());
 
         // ---- split card
-        if let Some(r) = s.half {
+        if let Some(hp) = s.half {
+            let r = hp.rect;
             let tiles = ["Highlights", "Files", "Changes", "Terminal", "Browser", "Add an app"];
             let mut grid = div().flex().flex_wrap().gap(px(8.)).p(px(12.));
             for t in tiles {
@@ -1176,6 +1304,7 @@ impl Render for Cauldron {
             }
             root = root.child(
                 pane("half", r)
+                    .opacity(hp.alpha)
                     .rounded(px(radius::PANEL))
                     .bg(card)
                     .border_1()
@@ -1188,18 +1317,26 @@ impl Render for Cauldron {
         }
 
         // ---- drawer (frame colour, no border on the shared edge)
-        if let (Some(r), Some(p)) = (s.drawer, self.drawer) {
-            root = root.child(
-                pane("drawer", r)
+        if let (Some(dp), Some(p)) = (s.drawer, self.drawer.or(self.drawer_last)) {
+            // A panel's body: absolute so two bodies can cross-fade in the same pane.
+            let body = |p: Panel, a: f32| {
+                div()
+                    .absolute()
+                    .left(px(10.))
+                    .right(px(10.))
+                    .top(px(8.))
                     .flex()
                     .flex_col()
-                    .px(px(10.))
-                    .pt(px(8.))
                     .gap(px(6.))
+                    .opacity(a)
                     .child(div().font_weight(FontWeight::SEMIBOLD).child(p.title()))
                     .child(div().text_size(px(12.)).text_color(fg3).child(format!("This panel arrives in {}.", p.milestone())))
-                    .test_support(),
-            );
+            };
+            let mut d = pane("drawer", dp.rect).opacity(dp.alpha).child(body(p, swap.map_or(1.0, |(_, k)| k)));
+            if let Some((a, k)) = swap {
+                d = d.child(body(a, 1.0 - k));
+            }
+            root = root.child(d.test_support());
         }
 
         // ---- right rail
@@ -1225,52 +1362,32 @@ impl Render for Cauldron {
         );
         root = root.child(rr.pb(px(8.)).test_support());
 
-        // ---- notch: cuts the sidebar corner, holds the lights and the sidebar button
-        if let Some(n) = s.notch {
-            let nw = n.w;
-            let (fill_c, line_c) = (frame, ring);
-            root = root.child(
-                canvas(
-                    |_, _, _| (),
-                    move |b, _, window, _| {
-                        let o = b.origin;
-                        let p = |x: f32, y: f32| point(o.x + px(x), o.y + px(y));
-                        let r6 = point(px(6.), px(6.));
-                        let mut f = PathBuilder::fill();
-                        f.move_to(p(0., 0.));
-                        f.line_to(p(nw, 0.));
-                        f.line_to(p(nw, 8.));
-                        f.curve_to(p(nw - 6., 14.), p(nw - 6., 8.));
-                        f.line_to(p(nw - 6., 36.));
-                        f.curve_to(p(nw - 12., 42.), p(nw - 6., 42.));
-                        f.line_to(p(18., 42.));
-                        f.arc_to(r6, px(0.), false, false, p(12., 48.));
-                        f.line_to(p(0., 48.));
-                        f.close();
-                        if let Ok(path) = f.build() {
-                            window.paint_path(path, fill_c);
-                        }
-                        let mut l = PathBuilder::stroke(px(1.));
-                        l.move_to(p(12., 48.));
-                        l.arc_to(r6, px(0.), false, true, p(18., 42.));
-                        l.line_to(p(nw - 12., 42.));
-                        l.curve_to(p(nw - 6., 36.), p(nw - 6., 42.));
-                        l.line_to(p(nw - 6., 14.));
-                        l.curve_to(p(nw, 8.), p(nw - 6., 8.));
-                        if let Ok(path) = l.build() {
-                            window.paint_path(path, line_c);
-                        }
-                    },
-                )
-                .absolute()
-                .left(px(n.x))
-                .top(px(n.y))
-                .w(px(n.w))
-                .h(px(n.h)),
-            );
-        }
+        // ---- top bar: the logo and name after the sidebar button, breadcrumbs in the middle
+        let logo_x = s.sidebar_button.right() + metric::GAP;
+        root = root.child(abs(Rect::new(logo_x, s.bar.y + (metric::BAR_H - 18.0) / 2.0, 18.0, 18.0)).rounded(px(9.)).bg(accent));
+        root = root.child(
+            abs(Rect::new(logo_x + 26.0, s.bar.y, metric::TITLE_W - 26.0, metric::BAR_H))
+                .flex()
+                .items_center()
+                .text_size(px(13.))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(fg)
+                .child("Cauldron"),
+        );
+        let crumb: SharedString = self.thread.as_ref().map_or_else(|| "New thread".into(), |t| t.title.clone().into());
+        root = root.child(
+            abs(s.crumbs)
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .text_size(px(12.5))
+                .text_color(fg3)
+                .child(div().flex_none().child("Threads"))
+                .child(div().flex_none().child("/"))
+                .child(div().min_w_0().truncate().font_weight(FontWeight::MEDIUM).text_color(fg2).child(crumb)),
+        );
 
-        // ---- sidebar button (inside the notch when the sidebar is open)
+        // ---- sidebar button (top bar, left)
         root = root.child(
             pane("sbtn-slot", s.sidebar_button).child(
                 // occlude: buttons over the drag strip stop the hit test, or Windows drags instead of clicking.
@@ -1306,7 +1423,8 @@ impl Render for Cauldron {
         );
 
         // ---- Windows caption buttons (macOS uses the native lights)
-        if let Some(r) = s.caps {
+        if let Some(cp) = s.caps {
+            let r = cp.rect;
             let bad = c(pal.bad);
             let cell = |id: &'static str, name: &'static str, area: WindowControlArea, danger: bool| {
                 div()
@@ -1323,6 +1441,7 @@ impl Render for Cauldron {
             };
             root = root.child(
                 pane("caps", r)
+                    .opacity(cp.alpha)
                     .flex()
                     .child(cell("cap-min", "minus", WindowControlArea::Min, false))
                     .child(cell("cap-max", "square", WindowControlArea::Max, false))
@@ -1346,9 +1465,20 @@ impl Render for Cauldron {
 #[cfg(test)]
 mod tests {
     // Explicit imports: a glob of gpui_kit brings GPUI's `test` macro, which shadows Rust's.
-    use super::{platform, AgentTab, Cauldron, Panel, Threads};
+    use super::{fn_slot_x, platform, AgentTab, Cauldron, Panel, Threads};
+    use cauldron_chrome::layout::metric;
     use crate::threads::sample;
+
+    #[test]
+    fn function_slots_span_the_card_with_equal_gaps() {
+        let w = 180.0;
+        assert_eq!(fn_slot_x(w, 0.0), 3.0);
+        assert!((fn_slot_x(w, 6.0) + metric::SBTN - (w - 3.0)).abs() < 1e-3, "last button ends at the padding");
+        let step = fn_slot_x(w, 1.0) - fn_slot_x(w, 0.0);
+        assert!((fn_slot_x(w, 6.0) - fn_slot_x(w, 0.0) - 6.0 * step).abs() < 1e-3, "equal steps");
+    }
     use cauldron_chrome::layout::{self, Rect, ShellState};
+    use cauldron_chrome::motion::Frame;
     use gpui_kit::test::TestWindowExt;
     use gpui_kit::{px, size, AppContext, ElementId, TestAppContext, Window};
 
@@ -1382,12 +1512,13 @@ mod tests {
             cx.simulate_window_resize(handle.into(), size(px(W), px(H)));
             cx.update_window(handle.into(), |_, window, cx| {
                 window.render_frame(cx);
-                let s = layout::solve(W, H, state, platform());
+                let s = Frame::at_rest(&layout::solve(W, H, state, platform()));
                 assert_rect(window, "main", s.main, state);
                 assert_rect(window, "rrail", s.rrail, state);
                 assert_rect(window, "sbtn-slot", s.sidebar_button, state);
                 assert_rect(window, "topr", s.topr, state);
                 for (id, r) in [("sidebar", s.sidebar), ("rail", s.rail), ("drawer", s.drawer), ("half", s.half), ("caps", s.caps)] {
+                    let r = r.map(|p| p.rect);
                     match r {
                         Some(r) => assert_rect(window, id, r, state),
                         None => assert!(window.try_find(id).is_none(), "{id} drawn in {state:?} but solve() has none"),
@@ -1613,6 +1744,9 @@ mod tests {
             window.click("tab-add", cx);
             assert_eq!(window.find(("menu-agent", 0usize)).label(), Some("Tester"));
             window.click(("menu-agent", 0usize), cx);
+            // The menu fades out over MENU ms; the check reads the settled frame.
+            std::thread::sleep(std::time::Duration::from_millis(cauldron_chrome::motion::time::MENU + 50));
+            window.render_frame(cx);
             assert!(window.try_find("tab-menu").is_none(), "the menu closes");
             assert_eq!(window.find(("tab", 3usize)).label(), Some("Tester"));
             assert_eq!(rect(window, ("tab", 3usize)).bottom(), rect(window, "card").y + 1.0, "the new tab is open");

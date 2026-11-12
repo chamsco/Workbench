@@ -26,9 +26,9 @@ impl Rect {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Platform {
-    /// Traffic lights in the notch, no caption buttons.
+    /// Traffic lights in the top bar, no caption buttons.
     Mac,
-    /// Caption buttons top right, no traffic lights. The notch shrinks to hold the sidebar button.
+    /// Caption buttons top right, no traffic lights.
     Windows,
     /// The wireframe window, which draws both so the review page shows each control once.
     Reference,
@@ -48,8 +48,8 @@ pub struct Shell {
     /// The 44px function rail, shown only while the sidebar is hidden.
     pub rail: Option<Rect>,
     pub sidebar: Option<Rect>,
-    /// The cut at the top-left of the sidebar that holds the lights and the sidebar button.
-    pub notch: Option<Rect>,
+    pub bar: Rect,
+    pub crumbs: Rect,
     pub main: Rect,
     pub tabs: Rect,
     pub half: Option<Rect>,
@@ -66,7 +66,6 @@ pub struct Shell {
 pub mod metric {
     pub const BORDER: f32 = 1.0;
     pub const MARGIN_SIDE: f32 = 12.0;
-    pub const MARGIN_TOP: f32 = 8.0;
     pub const MARGIN_BOTTOM: f32 = 12.0;
     pub const GAP: f32 = 8.0;
     pub const RAIL_W: f32 = 44.0;
@@ -74,34 +73,37 @@ pub mod metric {
     pub const RRAIL_W: f32 = 44.0;
     pub const DRAWER_W: f32 = 200.0;
     pub const SPLIT_W: f32 = 292.0;
-    pub const TAB_H: f32 = 34.0;
-    pub const NOTCH_W: f32 = 126.0;
-    pub const NOTCH_W_NO_LIGHTS: f32 = 62.0;
-    pub const NOTCH_H: f32 = 52.0;
+    /// The top bar, full width. Its height and the gap under it.
+    pub const BAR_H: f32 = 40.0;
+    pub const BAR_GAP: f32 = 4.0;
+    /// The tab row above the main card (34 in the old wireframe, 26 from the top bar decision).
+    pub const TAB_H: f32 = 26.0;
+    /// The logo and the name after the sidebar button, before the breadcrumbs.
+    pub const TITLE_W: f32 = 184.0;
     pub const SBTN: f32 = 28.0;
     pub const TOPR_W: f32 = 58.0;
     pub const TOPR_H: f32 = 28.0;
-    pub const TOPR_Y: f32 = 13.0;
     pub const CAPS_W: f32 = 108.0;
     pub const CAPS_H: f32 = 32.0;
-    pub const CAPS_Y: f32 = 11.0;
     pub const CAPS_MARGIN_RIGHT: f32 = 20.0;
     /// Proposed, not drawn in the wireframe.
     pub const MAIN_MIN_W: f32 = 360.0;
 }
 
-/// The wireframe's geometry for exactly the state asked for.
+/// The window's geometry for exactly the state asked for. The top bar runs the full width; the
+/// sidebar or rail, the main card and the right rail all start under it.
 pub fn layout(w: f32, h: f32, state: ShellState, platform: Platform) -> Shell {
     use metric::*;
     let inner = Rect::new(BORDER, BORDER, w - 2.0 * BORDER, h - 2.0 * BORDER);
-    let top = inner.y + MARGIN_TOP;
-    let height = inner.h - MARGIN_TOP - MARGIN_BOTTOM;
+    let bar = Rect::new(inner.x, inner.y, inner.w, BAR_H);
+    let top = inner.y + BAR_H + BAR_GAP;
+    let height = inner.bottom() - top - MARGIN_BOTTOM;
 
     let (rail, sidebar, main_x) = if state.sidebar_open {
         let sb = Rect::new(inner.x + MARGIN_SIDE, top, SIDEBAR_W, height);
         (None, Some(sb), sb.right() + GAP)
     } else {
-        (Some(Rect::new(inner.x, inner.y, RAIL_W, inner.h)), None, inner.x + RAIL_W + GAP)
+        (Some(Rect::new(inner.x, top, RAIL_W, height)), None, inner.x + RAIL_W + GAP)
     };
 
     let rrail = Rect::new(inner.right() - MARGIN_SIDE - RRAIL_W, top, RRAIL_W, height);
@@ -123,18 +125,19 @@ pub fn layout(w: f32, h: f32, state: ShellState, platform: Platform) -> Shell {
 
     let has_lights = platform != Platform::Windows;
     let has_caps = platform != Platform::Mac;
-    let lights = has_lights.then(|| Rect::new(inner.x + 14.0, inner.y + 19.0, 52.0, 12.0));
+    let lights = has_lights.then(|| Rect::new(inner.x + 14.0, inner.y + 14.0, 52.0, 12.0));
     let sbtn_x = if has_lights { inner.x + 78.0 } else { inner.x + 14.0 };
-    let sidebar_button = Rect::new(sbtn_x, inner.y + 12.0, SBTN, SBTN);
-    let notch = state.sidebar_open.then(|| {
-        Rect::new(inner.x, inner.y, if has_lights { NOTCH_W } else { NOTCH_W_NO_LIGHTS }, NOTCH_H)
-    });
+    let sidebar_button = Rect::new(sbtn_x, inner.y + (BAR_H - SBTN) / 2.0, SBTN, SBTN);
 
-    let caps = has_caps.then(|| Rect::new(inner.right() - CAPS_MARGIN_RIGHT - CAPS_W, CAPS_Y, CAPS_W, CAPS_H));
+    let caps = has_caps.then(|| Rect::new(inner.right() - CAPS_MARGIN_RIGHT - CAPS_W, inner.y + (BAR_H - CAPS_H) / 2.0, CAPS_W, CAPS_H));
     let topr_right = caps.map_or(inner.right() - CAPS_MARGIN_RIGHT, |c| c.x - GAP);
-    let topr = Rect::new(topr_right - TOPR_W, TOPR_Y, TOPR_W, TOPR_H);
+    let topr = Rect::new(topr_right - TOPR_W, inner.y + (BAR_H - TOPR_H) / 2.0, TOPR_W, TOPR_H);
 
-    Shell { effective: state, rail, sidebar, notch, main, tabs, half, drawer, rrail, sidebar_button, lights, topr, caps }
+    // Breadcrumbs take what is left between the logo and name and the bar's right group.
+    let crumbs_x = sidebar_button.right() + GAP + TITLE_W;
+    let crumbs = Rect::new(crumbs_x, inner.y, topr.x - GAP - crumbs_x, BAR_H);
+
+    Shell { effective: state, rail, sidebar, bar, crumbs, main, tabs, half, drawer, rrail, sidebar_button, lights, topr, caps }
 }
 
 /// The state that actually fits: the thread column keeps [`metric::MAIN_MIN_W`], so Split closes

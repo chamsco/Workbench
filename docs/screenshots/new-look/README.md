@@ -31,14 +31,20 @@ cards under the box are gone.
 | | Board | App | Why |
 |---|---|---|---|
 | Box height (one line) | 84 | 84 | |
-| Box width | 780 | 628 | the card is 676 wide here, 944 on the board: the sidebar and top bar move with top bar A |
+| Box width | 780 | 628 | the card is 676 wide here, 944 on the board: the drawer is open here and not on the board (see NL2b) |
 | Ctx row above the box | 34 | 34 | |
 | Box radius / dd radius | 10 / 6 | 10 / 6 | CONTROL, TAG |
 | Start | 28 round, raised | 28 round, raised (accent once there is text) | |
 | Placeholder | "Ask the coordinator, @ an agent..." | "Describe a task, a bug or an idea..." | there is no coordinator in core yet |
 | Trust, Coordinator, mic, Worktree/Isolated, usage bars, stage strip | shown | not drawn | core has none of them; no fakes |
-| Card header and close | shown | not drawn | arrives with top bar A |
+| Card header and close | shown | not drawn | still to do: NL3, with the thread view |
 
 - The editor starts at one row (was two) so the box is the board's 84 with no text.
 - Runs: `docs/cauldron/NL2-newthread-red.txt` (the centred-box test fails on the old screen), `NL2-newthread-green.txt`.
 - `nl2-02-machine-menu.png`: the machine menu opens under the machine and draws over the box (deferred, since the box now comes after it). `nl2-03-cant-reach.png`: the error state, a sample machine that is not running; the line sits under the box and the column re-centres around it.
+
+## NL2b: top bar A merged
+
+Merged `claude/project-thread-gg3ogp` (top bar A, 81698a0, and its motion clock) as MERGE-NOTES says: the + menu keeps this branch's pop-in, gg3ogp's `menu_since`, `menu_shown` and the `k` argument are gone, every other motion field stays. The tab flare is `radius::CONTROL` (10, the board's).
+`nl2-04-top-bar-new-thread.png`, `nl2-05-top-bar-thread.png`, `nl2-06-top-bar-plus-menu.png`: one bar across the window (sidebar button, logo and name, breadcrumbs, Terminal, Split, window controls); the sidebar, card and rail start under it. The notch is kept for later: see `docs/cauldron/NOTCH.md`.
+Width: the board's frame 1 has no open drawer, so its card is 944 wide; here Highlights is open and the card is 676. The new thread test holds the box at 780, or the card's inside less 48 when narrower.

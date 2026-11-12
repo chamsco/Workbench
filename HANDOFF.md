@@ -778,6 +778,15 @@ State as of 7 Oct 2026, commit `56ff91a` on `main`.
 
 `crates/tauri-app` moved to `legacy/tauri-app` (not built). `crates/app` opens the new Cauldron shell (`shell.rs`, laid out by `crates/chrome`); `CAULDRON_LEGACY=1` opens the older coding workbench. Windows and macOS workflows build the GPUI app and have not run yet. Plan: `docs/cauldron/UI-PLAN.md`. Revert the "Retire the Tauri shell" commit to bring Tauri back.
 
+**11 Nov 2026 update.**
+
+- **Branches.** `claude/project-thread-gg3ogp` holds the plan, wireframe, docs and CI. The GPUI app itself is being built on Charles's Windows PC by a Remote Control session on `claude/project-thread-sa3a1p` (cut from gg3ogp; it merges gg3ogp in). Merge sa3a1p into gg3ogp only when Charles reviews.
+- **Builds.** Every push to `claude/**` that touches `crates/**` rebuilds the `windows-preview` release (now the GPUI `Cauldron.exe`). The last Tauri Windows build is the `windows-tauri` release (commit e3d472a); its workflow runs only when `.github/workflows/windows-tauri.yml` changes, because GitHub cannot dispatch a workflow that is not on main yet. `mac-latest` still holds an older Tauri Mac build. The GPUI macOS build has never run: three manual dispatches were cancelled within 3 seconds with no steps; probable cause is the account's macOS minutes (billed at 10x), not confirmed. Use `[skip ci]` on docs-only commits.
+- **Spec and decisions.** `design/cauldron-master-layout.html` (artifact W1yiVkytvdBLVdCNJJ9vt4, v22) is the spec; `crates/chrome` tests are measured from it (`tools/wireframe-golden/extract.js`). Round 22 and 23: the New thread box has 10px outer and 6px inner corners; tabs show one thread's agents only (coordinator pinned, tabs shrink 210 to 72px, then two arrows scroll); first install is the empty app, blurred and dimmed, with a four-step wizard in front (GPUI cannot blur content behind a card, so a pre-blurred picture is used). Onboarding drops Name workspace, Organization and Plan (no hosted account).
+- **Core gap.** The wireframe's Needs you per thread, Hibernating, Archived, agent graph, teammates and "% left" quotas have no support in `crates/core` (see `docs/cauldron/UI3-CORE-MAP.md`, `THREAD-STATE.md`). Charles decided these come after UI5; until then the sidebar shows Running, Failed, Done and Unread only and never fakes the rest.
+- **Working loop.** The cloud container cannot open a window and cannot download CI artifacts, so visual checks come from the PC session, which commits screenshots under `docs/screenshots/ui<N>/` for the cloud thread to read after a `git fetch`.
+- **Milestone state.** UI0 and UI1 done and tested; UI3 (sidebar), UI4 (thread view), UI5 (New thread), UI6 (drawer) next, then first-run, UI2, UI7 to UI9. See `docs/cauldron/UI-PLAN.md`.
+
 ## Where things are
 
 - **Repo:** `github.com/chamsco/Workbench`. It was renamed from `chamsco/ohMyHarness`, which was earlier `chamsco/backspace`. The old local clone's remote still says `ohMyHarness`. Pushes work through GitHub's redirect, but the `gh api` proxy rejects the redirect. Run this first:

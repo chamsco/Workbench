@@ -21,6 +21,7 @@
 mod arrange;
 mod canvas;
 mod icons;
+mod motion;
 mod pal;
 mod shell;
 mod threads;

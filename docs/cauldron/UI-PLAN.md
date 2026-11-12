@@ -74,3 +74,13 @@ Every screen draws: normal, empty, loading (skeleton shaped like the final layou
 - **Pinned pre-release GPUI.** `gpui-pre 0.3.6` through `gpui-kit 0.6.6`. An upgrade can break drawing code; upgrade only between milestones.
 - **No local display.** The cloud container cannot open a window. Visual checks run on CI runners or on Charles's machines; layout tests run anywhere.
 - **Scope.** The Tauri UI is about 7.1k lines of JS and 4k of CSS across many screens. Retiring it is the long part; UI7 is where that cost lands.
+
+## Design gates before UI6 and UI7 (11 Nov 2026, Charles's rule)
+
+Each gate has two boards in `design/cauldron-master-layout.html` ("Next gates" section), a pick and a reason. The Windows session builds from the picks, in this order: UI4 thread view, UI5 New thread, UI6 drawer, UI7 screens.
+
+- **Drawer (UI6): A, drag to dock.** Five drop zones (above, below, beside left, beside right, on top) appear only while a panel is dragged. Side by side widens the drawer to 330px. Every drop has a panel-menu equivalent for keyboard users. The arrangement lasts while the app runs; saving it waits for core. Mode switch (B) cannot express mixed layouts.
+- **Agent settings (UI7): A, settings in the split.** The settings open from a trigger in the agent's tab row, in the same split region Split uses. Rows open pages inside the split, with Back. iMessage stays hidden until a channel exists.
+- **Design thread (UI5, UI7): A, options board for v0.** Chat beside a set of options with Keep. The canvas (frames, sticky notes, cursors) is the target and comes after v0. Decided by Charles, 11 Nov 2026: options board first.
+
+No-board rules that apply on every screen: the bare plus in a column header becomes a labelled button under search (New thread, New project, New agent); tab names are centred.

@@ -1,0 +1,347 @@
+commit 81698a0ae0ec71d39e74561c092f093a3b7ed046
+Author: Claude <noreply@anthropic.com>
+Date:   Thu Nov 12 10:50:52 2026 +0000
+
+    Top bar A: one bar across the window; notch removed; tabs 26px; new thread box 84px
+    
+    - The top bar runs the full width. Left: sidebar button, logo and name. Middle: breadcrumbs (Threads / thread title). Right: Terminal, Split, then the window controls.
+    - The notch is gone. The sidebar card, the rail and the main column all start under the bar.
+    - Tab height 34px to 26px. The active tab's bottom corners flare onto the card, 10px. The first tab stays flush left, with no left flare.
+    - New thread box min height 104px to 84px.
+    - The wireframe golden predates this decision. Its solver test is ignored until the wireframe is updated and the golden re-measured. Invariant checks for the bar stay on.
+    
+    Co-Authored-By: Claude <noreply@anthropic.com>
+    Claude-Session: https://claude.ai/code/session_01LKPD2Hk9KD59W7bGZJor27
+
+diff --git a/crates/app/src/shell.rs b/crates/app/src/shell.rs
+index 1eb7672..64e60f6 100644
+--- a/crates/app/src/shell.rs
++++ b/crates/app/src/shell.rs
+@@ -1,4 +1,4 @@
+-//! The Cauldron shell (UI1): the wireframe's frame, notch, sidebar card, main card with tabs,
++//! The Cauldron shell (UI1): the frame, top bar, sidebar card, main card with tabs,
+ //! right rail, drawer and split. Every rectangle comes from `cauldron_chrome::layout::solve`,
+ //! which is tested against numbers measured from the wireframe; nothing here picks a position.
+ //!
+@@ -58,9 +58,12 @@ enum Foot {
+     Right,
+ }
+ 
++/// The flare's radius: 10px, the approved top bar board.
++const FOOT: f32 = 10.0;
++
+ /// The concave corner where the open tab flares into the card, the wireframe's `.tab.on::before/::after`.
+ fn foot(side: Foot, fill: Hsla) -> impl IntoElement {
+-    let r = radius::R;
++    let r = FOOT;
+     let el = canvas(
+         |_, _, _| (),
+         move |b, _, window, _| {
+@@ -892,12 +895,12 @@ impl Render for Cauldron {
+ 
+         // Window drag strip, under every control.
+         root = root.child(
+-            abs(Rect::new(1.0, 1.0, w - 2.0, metric::NOTCH_H - 8.0)).window_control_area(WindowControlArea::Drag),
++            abs(Rect::new(1.0, 1.0, w - 2.0, metric::BAR_H)).window_control_area(WindowControlArea::Drag),
+         );
+ 
+         // ---- rail (only while the sidebar is hidden)
+         if let Some(rp) = s.rail {
+-            let mut col = pane("rail", rp.rect).opacity(rp.alpha).flex().flex_col().items_center().gap(px(4.)).pt(px(metric::NOTCH_H));
++            let mut col = pane("rail", rp.rect).opacity(rp.alpha).flex().flex_col().items_center().gap(px(4.)).pt(px(8.));
+             for (i, (name, label)) in FUNCTIONS.iter().enumerate() {
+                 let b = icon_button(("rail", i), name, label, pal, i == self.section).on_click(cx.listener(move |this, _, _, cx| this.select_section(i, cx)));
+                 col = col.child(self.tipped(("rail", i), b, *label, Side::Right, pal, cx).test_support());
+@@ -977,7 +980,7 @@ impl Render for Cauldron {
+                         .flex_none()
+                         .flex()
+                         .items_center()
+-                        .pl(px(metric::NOTCH_W - metric::MARGIN_SIDE - 1.0))
++                        .pl(px(10.))
+                         .text_size(px(13.))
+                         .font_weight(FontWeight::SEMIBOLD)
+                         .child("Threads"),
+@@ -1353,54 +1356,32 @@ impl Render for Cauldron {
+         );
+         root = root.child(rr.pb(px(8.)).test_support());
+ 
+-        // ---- notch: cuts the sidebar corner, holds the lights and the sidebar button
+-        if let Some(np) = s.notch {
+-            let n = np.rect;
+-            let nw = n.w;
+-            let (fill_c, line_c) = (frame, ring);
+-            root = root.child(
+-                canvas(
+-                    |_, _, _| (),
+-                    move |b, _, window, _| {
+-                        let o = b.origin;
+-                        let p = |x: f32, y: f32| point(o.x + px(x), o.y + px(y));
+-                        let r6 = point(px(6.), px(6.));
+-                        let mut f = PathBuilder::fill();
+-                        f.move_to(p(0., 0.));
+-                        f.line_to(p(nw, 0.));
+-                        f.line_to(p(nw, 8.));
+-                        f.curve_to(p(nw - 6., 14.), p(nw - 6., 8.));
+-                        f.line_to(p(nw - 6., 36.));
+-                        f.curve_to(p(nw - 12., 42.), p(nw - 6., 42.));
+-                        f.line_to(p(18., 42.));
+-                        f.arc_to(r6, px(0.), false, false, p(12., 48.));
+-                        f.line_to(p(0., 48.));
+-                        f.close();
+-                        if let Ok(path) = f.build() {
+-                            window.paint_path(path, fill_c);
+-                        }
+-                        let mut l = PathBuilder::stroke(px(1.));
+-                        l.move_to(p(12., 48.));
+-                        l.arc_to(r6, px(0.), false, true, p(18., 42.));
+-                        l.line_to(p(nw - 12., 42.));
+-                        l.curve_to(p(nw - 6., 36.), p(nw - 6., 42.));
+-                        l.line_to(p(nw - 6., 14.));
+-                        l.curve_to(p(nw, 8.), p(nw - 6., 8.));
+-                        if let Ok(path) = l.build() {
+-                            window.paint_path(path, line_c);
+-                        }
+-                    },
+-                )
+-                .opacity(np.alpha)
+-                .absolute()
+-                .left(px(n.x))
+-                .top(px(n.y))
+-                .w(px(n.w))
+-                .h(px(n.h)),
+-            );
+-        }
++        // ---- top bar: the logo and name after the sidebar button, breadcrumbs in the middle
++        let logo_x = s.sidebar_button.right() + metric::GAP;
++        root = root.child(abs(Rect::new(logo_x, s.bar.y + (metric::BAR_H - 18.0) / 2.0, 18.0, 18.0)).rounded(px(9.)).bg(accent));
++        root = root.child(
++            abs(Rect::new(logo_x + 26.0, s.bar.y, metric::TITLE_W - 26.0, metric::BAR_H))
++                .flex()
++                .items_center()
++                .text_size(px(13.))
++                .font_weight(FontWeight::SEMIBOLD)
++                .text_color(fg)
++                .child("Cauldron"),
++        );
++        let crumb: SharedString = self.thread.as_ref().map_or_else(|| "New thread".into(), |t| t.title.clone().into());
++        root = root.child(
++            abs(s.crumbs)
++                .flex()
++                .items_center()
++                .gap(px(6.))
++                .text_size(px(12.5))
++                .text_color(fg3)
++                .child(div().flex_none().child("Threads"))
++                .child(div().flex_none().child("/"))
++                .child(div().min_w_0().truncate().font_weight(FontWeight::MEDIUM).text_color(fg2).child(crumb)),
++        );
+ 
+-        // ---- sidebar button (inside the notch when the sidebar is open)
++        // ---- sidebar button (top bar, left)
+         root = root.child(
+             pane("sbtn-slot", s.sidebar_button).child(
+                 // occlude: buttons over the drag strip stop the hit test, or Windows drags instead of clicking.
+diff --git a/crates/chrome/src/layout.rs b/crates/chrome/src/layout.rs
+index c2caf72..dd8afca 100644
+--- a/crates/chrome/src/layout.rs
++++ b/crates/chrome/src/layout.rs
+@@ -26,9 +26,9 @@ impl Rect {
+ 
+ #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+ pub enum Platform {
+-    /// Traffic lights in the notch, no caption buttons.
++    /// Traffic lights in the top bar, no caption buttons.
+     Mac,
+-    /// Caption buttons top right, no traffic lights. The notch shrinks to hold the sidebar button.
++    /// Caption buttons top right, no traffic lights.
+     Windows,
+     /// The wireframe window, which draws both so the review page shows each control once.
+     Reference,
+@@ -48,8 +48,8 @@ pub struct Shell {
+     /// The 44px function rail, shown only while the sidebar is hidden.
+     pub rail: Option<Rect>,
+     pub sidebar: Option<Rect>,
+-    /// The cut at the top-left of the sidebar that holds the lights and the sidebar button.
+-    pub notch: Option<Rect>,
++    pub bar: Rect,
++    pub crumbs: Rect,
+     pub main: Rect,
+     pub tabs: Rect,
+     pub half: Option<Rect>,
+@@ -66,7 +66,6 @@ pub struct Shell {
+ pub mod metric {
+     pub const BORDER: f32 = 1.0;
+     pub const MARGIN_SIDE: f32 = 12.0;
+-    pub const MARGIN_TOP: f32 = 8.0;
+     pub const MARGIN_BOTTOM: f32 = 12.0;
+     pub const GAP: f32 = 8.0;
+     pub const RAIL_W: f32 = 44.0;
+@@ -74,34 +73,37 @@ pub mod metric {
+     pub const RRAIL_W: f32 = 44.0;
+     pub const DRAWER_W: f32 = 200.0;
+     pub const SPLIT_W: f32 = 292.0;
+-    pub const TAB_H: f32 = 34.0;
+-    pub const NOTCH_W: f32 = 126.0;
+-    pub const NOTCH_W_NO_LIGHTS: f32 = 62.0;
+-    pub const NOTCH_H: f32 = 52.0;
++    /// The top bar, full width. Its height and the gap under it.
++    pub const BAR_H: f32 = 40.0;
++    pub const BAR_GAP: f32 = 4.0;
++    /// The tab row above the main card (34 in the old wireframe, 26 from the top bar decision).
++    pub const TAB_H: f32 = 26.0;
++    /// The logo and the name after the sidebar button, before the breadcrumbs.
++    pub const TITLE_W: f32 = 184.0;
+     pub const SBTN: f32 = 28.0;
+     pub const TOPR_W: f32 = 58.0;
+     pub const TOPR_H: f32 = 28.0;
+-    pub const TOPR_Y: f32 = 13.0;
+     pub const CAPS_W: f32 = 108.0;
+     pub const CAPS_H: f32 = 32.0;
+-    pub const CAPS_Y: f32 = 11.0;
+     pub const CAPS_MARGIN_RIGHT: f32 = 20.0;
+     /// Proposed, not drawn in the wireframe.
+     pub const MAIN_MIN_W: f32 = 360.0;
+ }
+ 
+-/// The wireframe's geometry for exactly the state asked for.
++/// The window's geometry for exactly the state asked for. The top bar runs the full width; the
++/// sidebar or rail, the main card and the right rail all start under it.
+ pub fn layout(w: f32, h: f32, state: ShellState, platform: Platform) -> Shell {
+     use metric::*;
+     let inner = Rect::new(BORDER, BORDER, w - 2.0 * BORDER, h - 2.0 * BORDER);
+-    let top = inner.y + MARGIN_TOP;
+-    let height = inner.h - MARGIN_TOP - MARGIN_BOTTOM;
++    let bar = Rect::new(inner.x, inner.y, inner.w, BAR_H);
++    let top = inner.y + BAR_H + BAR_GAP;
++    let height = inner.bottom() - top - MARGIN_BOTTOM;
+ 
+     let (rail, sidebar, main_x) = if state.sidebar_open {
+         let sb = Rect::new(inner.x + MARGIN_SIDE, top, SIDEBAR_W, height);
+         (None, Some(sb), sb.right() + GAP)
+     } else {
+-        (Some(Rect::new(inner.x, inner.y, RAIL_W, inner.h)), None, inner.x + RAIL_W + GAP)
++        (Some(Rect::new(inner.x, top, RAIL_W, height)), None, inner.x + RAIL_W + GAP)
+     };
+ 
+     let rrail = Rect::new(inner.right() - MARGIN_SIDE - RRAIL_W, top, RRAIL_W, height);
+@@ -123,18 +125,19 @@ pub fn layout(w: f32, h: f32, state: ShellState, platform: Platform) -> Shell {
+ 
+     let has_lights = platform != Platform::Windows;
+     let has_caps = platform != Platform::Mac;
+-    let lights = has_lights.then(|| Rect::new(inner.x + 14.0, inner.y + 19.0, 52.0, 12.0));
++    let lights = has_lights.then(|| Rect::new(inner.x + 14.0, inner.y + 14.0, 52.0, 12.0));
+     let sbtn_x = if has_lights { inner.x + 78.0 } else { inner.x + 14.0 };
+-    let sidebar_button = Rect::new(sbtn_x, inner.y + 12.0, SBTN, SBTN);
+-    let notch = state.sidebar_open.then(|| {
+-        Rect::new(inner.x, inner.y, if has_lights { NOTCH_W } else { NOTCH_W_NO_LIGHTS }, NOTCH_H)
+-    });
++    let sidebar_button = Rect::new(sbtn_x, inner.y + (BAR_H - SBTN) / 2.0, SBTN, SBTN);
+ 
+-    let caps = has_caps.then(|| Rect::new(inner.right() - CAPS_MARGIN_RIGHT - CAPS_W, CAPS_Y, CAPS_W, CAPS_H));
++    let caps = has_caps.then(|| Rect::new(inner.right() - CAPS_MARGIN_RIGHT - CAPS_W, inner.y + (BAR_H - CAPS_H) / 2.0, CAPS_W, CAPS_H));
+     let topr_right = caps.map_or(inner.right() - CAPS_MARGIN_RIGHT, |c| c.x - GAP);
+-    let topr = Rect::new(topr_right - TOPR_W, TOPR_Y, TOPR_W, TOPR_H);
++    let topr = Rect::new(topr_right - TOPR_W, inner.y + (BAR_H - TOPR_H) / 2.0, TOPR_W, TOPR_H);
++
++    // Breadcrumbs take what is left between the logo and name and the bar's right group.
++    let crumbs_x = sidebar_button.right() + GAP + TITLE_W;
++    let crumbs = Rect::new(crumbs_x, inner.y, topr.x - GAP - crumbs_x, BAR_H);
+ 
+-    Shell { effective: state, rail, sidebar, notch, main, tabs, half, drawer, rrail, sidebar_button, lights, topr, caps }
++    Shell { effective: state, rail, sidebar, bar, crumbs, main, tabs, half, drawer, rrail, sidebar_button, lights, topr, caps }
+ }
+ 
+ /// The state that actually fits: the thread column keeps [`metric::MAIN_MIN_W`], so Split closes
+diff --git a/crates/chrome/src/motion.rs b/crates/chrome/src/motion.rs
+index c46a2d4..d814cb5 100644
+--- a/crates/chrome/src/motion.rs
++++ b/crates/chrome/src/motion.rs
+@@ -113,7 +113,6 @@ pub struct Pane {
+ pub struct Frame {
+     pub sidebar: Option<Pane>,
+     pub rail: Option<Pane>,
+-    pub notch: Option<Pane>,
+     pub drawer: Option<Pane>,
+     pub half: Option<Pane>,
+     pub caps: Option<Pane>,
+@@ -123,6 +122,8 @@ pub struct Frame {
+     pub rrail: Rect,
+     pub sidebar_button: Rect,
+     pub topr: Rect,
++    pub bar: Rect,
++    pub crumbs: Rect,
+ }
+ 
+ fn at_rest(r: Option<Rect>) -> Option<Pane> {
+@@ -143,7 +144,6 @@ impl Frame {
+         Frame {
+             sidebar: at_rest(s.sidebar),
+             rail: at_rest(s.rail),
+-            notch: at_rest(s.notch),
+             drawer: at_rest(s.drawer),
+             half: at_rest(s.half),
+             caps: at_rest(s.caps),
+@@ -153,6 +153,8 @@ impl Frame {
+             rrail: s.rrail,
+             sidebar_button: s.sidebar_button,
+             topr: s.topr,
++            bar: s.bar,
++            crumbs: s.crumbs,
+         }
+     }
+ 
+@@ -192,7 +194,6 @@ impl Frame {
+         Frame {
+             sidebar: pane(from.sidebar, to.sidebar, 0.0),
+             rail: pane(from.rail, to.rail, 0.0),
+-            notch: pane(from.notch, to.notch, 0.0),
+             drawer: pane(from.drawer, to.drawer, DRAWER_SLIDE),
+             half: pane(from.half, to.half, 0.0),
+             caps: pane(from.caps, to.caps, 0.0),
+@@ -202,6 +203,8 @@ impl Frame {
+             rrail: rect(from.rrail, to.rrail),
+             sidebar_button: rect(from.sidebar_button, to.sidebar_button),
+             topr: rect(from.topr, to.topr),
++            bar: rect(from.bar, to.bar),
++            crumbs: rect(from.crumbs, to.crumbs),
+         }
+     }
+ }
+diff --git a/crates/chrome/tests/wireframe.rs b/crates/chrome/tests/wireframe.rs
+index ceb43a0..7ea2101 100644
+--- a/crates/chrome/tests/wireframe.rs
++++ b/crates/chrome/tests/wireframe.rs
+@@ -40,7 +40,7 @@ fn pick(s: &Shell, key: &str) -> Option<Rect> {
+         "half" => s.half,
+         "drawer" => s.drawer,
+         "rrail" => Some(s.rrail),
+-        "notch" => s.notch,
++        "notch" => None,
+         "sbtn" => Some(s.sidebar_button),
+         "tabs" => Some(s.tabs),
+         "topr" => Some(s.topr),
+@@ -50,7 +50,10 @@ fn pick(s: &Shell, key: &str) -> Option<Rect> {
+     }
+ }
+ 
++/// Ignored: the golden file was measured from the wireframe before the top bar decision (option A,
++/// 2026-11-12). It has a notch and tabs 34px tall. Re-measure it after the wireframe is updated.
+ #[test]
++#[ignore = "golden predates the top bar A decision; re-measure after the wireframe is updated"]
+ fn solver_matches_every_golden_state_and_size() {
+     let g: Value = serde_json::from_str(GOLDEN).unwrap();
+     let mut checked = 0;
+@@ -144,10 +147,10 @@ fn platforms_differ_only_in_window_controls() {
+     assert_eq!(mac.main, win.main, "same pane geometry on both platforms");
+     assert_eq!(mac.rrail, win.rrail);
+     assert_eq!(mac.sidebar, win.sidebar);
+-    // The sidebar button stays inside the notch on both.
++    // The sidebar button and the logo sit inside the top bar on both.
+     for s in [&mac, &win] {
+-        let n = s.notch.unwrap();
+-        assert!(inside(n, s.sidebar_button), "button {:?} outside notch {n:?}", s.sidebar_button);
++        assert!(inside(s.bar, s.sidebar_button), "button {:?} outside the bar {:?}", s.sidebar_button, s.bar);
++        assert!(s.crumbs.x > s.sidebar_button.right(), "breadcrumbs start after the sidebar button");
+     }
+     // Windows: Terminal and Split sit directly left of the caption buttons.
+     let caps = win.caps.unwrap();

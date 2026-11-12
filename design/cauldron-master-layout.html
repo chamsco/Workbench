@@ -112,7 +112,7 @@ section{display:grid;gap:14px;min-width:0}
 .main{display:grid;grid-template-rows:auto minmax(0,1fr);min-width:0;min-height:0}
 .tabs{display:flex;align-items:flex-end;gap:2px;padding:0 6px 0 22px;min-width:0}
 .tab{display:flex;align-items:center;gap:7px;height:34px;padding:0 12px;border-radius:var(--r1) var(--r1) 0 0;font:500 12px/16px var(--ui);color:var(--fg-3);max-width:210px;min-width:0;position:relative}
-.tab span.n{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tab span.n{flex:1;min-width:0;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .tab .ic{width:14px;height:14px}
 .tab.c .ic{color:var(--info)}.tab.d .ic{color:var(--design)}
 .tab.on{background:var(--card);color:var(--fg);height:35px;padding-bottom:1px;box-sizing:border-box;margin-bottom:-1px;z-index:2}
@@ -677,6 +677,49 @@ section{display:grid;gap:14px;min-width:0}
 @media (max-width:1100px){.wzrow{grid-template-columns:1fr}}
 .wzmini{position:relative;height:330px;border:1px solid var(--line);border-radius:var(--r);background:color-mix(in srgb,var(--frame-w) 80%,var(--raised));overflow:hidden}
 .wzmini .wizcard{transform:translate(-50%,-50%) scale(.72);transform-origin:center}
+
+/* Next gates: drawer, agent settings, Design thread (boards only, not the product) */
+.gboards{display:grid;gap:14px}
+.gstage{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+@media (max-width:980px){.gstage{grid-template-columns:1fr}}
+.mini{background:var(--frame);border-radius:var(--r);padding:10px;display:grid;gap:8px;align-content:start;min-width:0;box-shadow:0 0 0 1px var(--ring)}
+.mini .cap{font:500 11.5px/15px var(--ui);color:var(--fg-3)}
+.mdr{position:relative;height:200px;background:var(--card);border-radius:var(--r);padding:8px;display:flex;flex-direction:column;gap:6px;overflow:hidden;min-width:0}
+.mdr.row{flex-direction:row}
+.mp{position:relative;background:var(--raised);border:1px solid var(--line);border-radius:var(--r2);padding:6px 8px;font:600 11px/14px var(--ui);color:var(--fg);display:flex;align-items:center;gap:6px;min-width:0;white-space:nowrap}
+.mp i{width:8px;height:8px;border-radius:50%;background:var(--accent);flex:none}
+.mp.ghost{position:absolute;box-shadow:0 8px 20px -6px rgb(0 0 0 / .5)}
+.ml{height:6px;border-radius:3px;background:var(--well)}
+.ml.s{width:60%}
+.mcol{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px}
+.mdz{position:absolute;border:1.5px dashed var(--accent);border-radius:var(--r2);background:color-mix(in srgb,var(--accent) 12%,transparent);color:var(--accent);font:600 10.5px/13px var(--ui);display:grid;place-items:center;text-align:center;z-index:2}
+.mhead{display:flex;gap:2px;background:var(--well);border-radius:var(--r1);padding:2px;font:500 10.5px/14px var(--ui)}
+.mhead span{flex:1;text-align:center;padding:3px 4px;border-radius:var(--r2);color:var(--fg-3);white-space:nowrap}
+.mhead span.on{background:var(--raised);color:var(--fg)}
+.mtabs{display:flex;gap:2px;font:500 10.5px/14px var(--ui)}
+.mtabs span{padding:4px 8px;border-radius:var(--r1) var(--r1) 0 0;color:var(--fg-3);background:var(--well)}
+.mtabs span.on{background:var(--raised);color:var(--fg)}
+.mwin2{background:var(--card);border-radius:var(--r);padding:8px;display:grid;gap:8px;min-width:0;height:236px;grid-template-rows:auto minmax(0,1fr)}
+.mtab-row{display:flex;align-items:center;gap:6px;font:500 11px/14px var(--ui);min-width:0}
+.mtab{padding:5px 10px;border-radius:var(--r1) var(--r1) 0 0;background:var(--raised);color:var(--fg);font-weight:600;white-space:nowrap}
+.mtab.d i{width:8px;height:8px;border-radius:50%;background:var(--design);display:inline-block;margin-right:6px}
+.mtrig{margin-left:auto;padding:4px 8px;border-radius:var(--r1);border:1px solid var(--line);color:var(--fg-2);white-space:nowrap}
+.mtrig.on{background:color-mix(in srgb,var(--accent) 18%,transparent);color:var(--accent);border-color:transparent}
+.msw{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,44%);gap:8px;min-height:0}
+.mchat{display:flex;flex-direction:column;gap:6px;min-width:0}
+.mbub{background:var(--raised);border-radius:var(--r2);height:14px;width:70%}
+.mbub.r{align-self:flex-end;width:50%;background:color-mix(in srgb,var(--fg) 8%,transparent)}
+.msplit{background:var(--raised);border-radius:var(--r2);padding:4px;display:flex;flex-direction:column;min-width:0;font:500 11px/14px var(--ui);color:var(--fg)}
+.msplit span{padding:6px;display:flex;justify-content:space-between;white-space:nowrap}
+.msplit span+span{border-top:1px solid var(--line)}
+.msplit small{padding:6px;color:var(--fg-3);font-size:10px}
+.mboard{display:grid;grid-template-columns:1fr 1fr;gap:6px;align-content:start;min-width:0}
+.mopt{background:var(--raised);border-radius:var(--r2);padding:6px;display:grid;gap:4px;font:500 10px/13px var(--ui);color:var(--fg-3);min-width:0}
+.mopt b{color:var(--fg);font-weight:600}
+.mopt i{height:24px;border-radius:var(--r2);background:var(--well)}
+.mcanvas{position:relative;background:var(--well);border-radius:var(--r2);min-height:0;overflow:hidden}
+.msticky{position:absolute;width:76px;height:50px;border-radius:var(--r2);font:500 9.5px/12px var(--ui);color:#222;padding:5px}
+.mframe{position:absolute;border:1px solid var(--line);border-radius:var(--r2);background:var(--card)}
 </style>
 
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -1030,8 +1073,9 @@ section{display:grid;gap:14px;min-width:0}
   <div class="scroll"><div class="window nt">
     <nav class="rail" data-on="projects"></nav>
     <div class="col">
-      <div class="colh"><button class="ib tg" type="button" aria-label="Hide sidebar" aria-expanded="true"><svg class="ic"><use href="#i-sidebar"/></svg></button><span class="vsep"></span><h3>Projects</h3><span class="sp"></span><button class="ib" type="button" aria-label="New project"><svg class="ic"><use href="#i-plus"/></svg></button></div>
+      <div class="colh"><button class="ib tg" type="button" aria-label="Hide sidebar" aria-expanded="true"><svg class="ic"><use href="#i-sidebar"/></svg></button><span class="vsep"></span><h3>Projects</h3><span class="sp"></span></div>
       <div class="colh" style="padding-top:0"><span class="search"><svg class="ic" style="width:14px;height:14px"><use href="#i-search"/></svg>Search projects</span></div>
+      <div class="colh" style="padding:0 4px 6px"><button class="newbtn" type="button"><svg class="ic" style="width:14px;height:14px"><use href="#i-plus"/></svg>New project</button></div>
       <div class="row on"><span class="d w"></span><span class="k"><svg class="ic"><use href="#i-folder"/></svg></span><span class="t">Cauldron</span><span class="tm">9</span><span class="s">5 code · 4 design</span></div>
       <div class="row"><span class="d u"></span><span class="k"><svg class="ic"><use href="#i-folder"/></svg></span><span class="t">Brainwave</span><span class="tm">14</span><span class="s">6 code · 8 design</span></div>
       <div class="row"><span class="d"></span><span class="k"><svg class="ic"><use href="#i-folder"/></svg></span><span class="t">Ocean</span><span class="tm">5</span><span class="s">1 code · 4 design</span></div>
@@ -1083,8 +1127,9 @@ section{display:grid;gap:14px;min-width:0}
   <div class="scroll"><div class="window nt">
     <nav class="rail" data-on="agents"></nav>
     <div class="col">
-      <div class="colh"><button class="ib tg" type="button" aria-label="Hide sidebar" aria-expanded="true"><svg class="ic"><use href="#i-sidebar"/></svg></button><span class="vsep"></span><h3>Agents</h3><span class="sp"></span><button class="ib" type="button" aria-label="New agent"><svg class="ic"><use href="#i-plus"/></svg></button></div>
+      <div class="colh"><button class="ib tg" type="button" aria-label="Hide sidebar" aria-expanded="true"><svg class="ic"><use href="#i-sidebar"/></svg></button><span class="vsep"></span><h3>Agents</h3><span class="sp"></span></div>
       <div class="colh" style="padding-top:0"><span class="search"><svg class="ic" style="width:14px;height:14px"><use href="#i-search"/></svg>Search agents</span></div>
+      <div class="colh" style="padding:0 4px 6px"><button class="newbtn" type="button"><svg class="ic" style="width:14px;height:14px"><use href="#i-plus"/></svg>New agent</button></div>
       <div class="arow on"><span class="face" style="--c:#b055c8;--s:30px"><i></i><i></i></span><b>Pele</b><span></span><span class="s">Chat · this machine</span></div><div class="arow"><span class="face" style="--c:#2f9e9e;--s:30px"><i></i><i></i></span><b>Rampart</b><span class="meta"> 3</span><span class="s">Tests · 3 threads</span></div><div class="arow"><span class="face" style="--c:#e0a32a;--s:30px"><i></i><i></i></span><b>Builder</b><span></span><span class="s">Writes code · idle</span></div><div class="arow"><span class="face" style="--c:#5b8cf0;--s:30px"><i></i><i></i></span><b>Reviewer</b><span></span><span class="s">Reads diffs · waiting</span></div>
       <div class="sec">Sessions · Pele <span class="sp"></span></div>
       <div class="sec" style="padding-top:4px">Needs you <span class="sp"></span>0</div>
@@ -1130,13 +1175,111 @@ section{display:grid;gap:14px;min-width:0}
 
 <!-- ========== SCREEN 5 ========== -->
 <section>
+  <h2>Next gates: the drawer, the agent settings and the Design thread</h2>
+  <p>Three gates, each drawn as two directions before any code, as your rule asks. Each board carries its pick, the reason and what it costs. The Windows session builds UI5 first, then UI6 and UI7, from these picks. Two changes need no board and apply everywhere: the bare plus in a column header becomes a labelled New button under search (Threads, Projects, Agents), and tab names are centred.</p>
+
+  <h3>1 · The drawer: drag a panel into place (UI6)</h3>
+  <div class="gboards">
+    <div class="board pick"><span class="tag pick">A · Drag to dock</span><h3>Drop a panel on a side of the drawer</h3>
+      <div class="gstage">
+        <div class="mini"><span class="cap">1 · At rest: one panel, 200px wide</span>
+          <div class="mdr"><div class="mp"><i></i>Highlights<span class="g">⋮⋮</span></div><div class="mcol"><div class="ml"></div><div class="ml s"></div><div class="ml"></div><div class="ml s"></div></div></div></div>
+        <div class="mini"><span class="cap">2 · Dragging Patches: the zones show</span>
+          <div class="mdr"><div class="mdz" style="top:0;left:0;right:0;height:26%">Above</div><div class="mdz" style="bottom:0;left:0;right:0;height:26%">Below</div><div class="mdz" style="top:26%;bottom:26%;left:0;width:28%">Beside</div><div class="mdz" style="top:26%;bottom:26%;right:0;width:28%">Beside</div><div class="mdz" style="top:26%;bottom:26%;left:28%;right:28%">On top</div><div class="mp">Highlights</div><div class="mp ghost" style="left:22px;top:118px"><i></i>Patches</div></div></div>
+        <div class="mini"><span class="cap">3 · Dropped beside: 330px with two columns</span>
+          <div class="mdr row"><div class="mcol"><div class="mp"><i></i>Highlights</div><div class="ml"></div><div class="ml s"></div></div><div class="mcol"><div class="mp"><i></i>Patches</div><div class="ml"></div><div class="ml s"></div></div></div></div>
+      </div>
+      <div class="pc"><div><b>Good</b><ul><li>Any arrangement: one panel above two side by side</li><li>Zones show only while dragging, so the rest state stays calm</li><li>Built-in panels and patches move the same way</li></ul></div><div><b>Costs</b><ul><li>Needs a keyboard route: each panel's menu offers Dock above, below, beside and on top</li><li>Side by side needs 330px, so the thread gets narrower; the split closes first, then the drawer</li></ul></div></div>
+    </div>
+    <div class="board"><span class="tag">B · Mode switch</span><h3>Choose one of three layouts for the drawer</h3>
+      <div class="gstage">
+        <div class="mini"><span class="cap">1 · A switch in the drawer header</span>
+          <div class="mdr"><div class="mhead"><span class="on">Side by side</span><span>Stacked</span><span>Layered</span></div><div class="mp"><i></i>Highlights</div></div></div>
+        <div class="mini"><span class="cap">2 · Stacked: one above the other</span>
+          <div class="mdr"><div class="mhead"><span>Side by side</span><span class="on">Stacked</span><span>Layered</span></div><div class="mp"><i></i>Highlights</div><div class="mp"><i></i>Patches</div></div></div>
+        <div class="mini"><span class="cap">3 · Layered: one visible at a time</span>
+          <div class="mdr"><div class="mhead"><span>Side by side</span><span>Stacked</span><span class="on">Layered</span></div><div class="mtabs"><span class="on">Highlights</span><span>Patches</span></div><div class="mp"><i></i>Highlights</div></div></div>
+      </div>
+      <div class="pc"><div><b>Good</b><ul><li>One control, always visible</li><li>Keyboard and screen readers work with no extra code</li><li>Stacked and layered stay at 200px</li></ul></div><div><b>Costs</b><ul><li>Cannot mix: one panel above two side by side is not on offer</li><li>Choosing a layout is not dragging, which is what you described</li></ul></div></div>
+    </div>
+  </div>
+  <div class="decision">
+    <h3>Decision: A, drag to dock, with the panel menu as the keyboard route</h3>
+    <p>B is the safer build, but it cannot express a layout that mixes sides, and mixing is the reason to drag at all. A's costs are handled in the spec: zones appear only while dragging, every drop has a menu equivalent, and side by side widens the drawer to 330px. The arrangement lasts while the app runs. Saving it across launches waits for core.</p>
+    <p><b>Spec for UI6.</b> Panels come from the rail or a patch. Drag by the panel header. Five zones: above, below, beside left, beside right, on top. One panel: drawer 200px. Two side by side: 330px. The thread keeps at least 360px (UI-PLAN decision 3). Panel menu: Dock above, Dock below, Dock beside, Layer on top. Escape cancels a drag.</p>
+  </div>
+
+  <h3>2 · Agents: settings in one split beside the chat (UI7)</h3>
+  <div class="gboards">
+    <div class="board pick"><span class="tag pick">A · Settings in the split</span><h3>The settings open in the split beside the chat</h3>
+      <div class="gstage two">
+        <div class="mini"><span class="cap">1 · Settings opens from the trigger in the tab row</span>
+          <div class="mwin2"><div class="mtab-row"><span class="mtab">Pele</span><span class="mtrig on">Settings</span></div>
+            <div class="msw"><div class="mchat"><div class="mbub"></div><div class="mbub r"></div><div class="mbub" style="width:55%"></div></div><div class="msplit"><span>Sharing<em>›</em></span><span>Connections<em>›</em></span><span>Memory<em>›</em></span><span>Budget<em>›</em></span><span>Advanced<em>›</em></span></div></div></div></div>
+        <div class="mini"><span class="cap">2 · A row opens its page in the same split, with Back</span>
+          <div class="mwin2"><div class="mtab-row"><span class="mtab">Pele</span><span class="mtrig on">Sharing</span></div>
+            <div class="msw"><div class="mchat"><div class="mbub"></div><div class="mbub r"></div></div><div class="msplit"><span>‹ Back<em></em></span><span>Who can use Pele<em></em></span><span>Share with the project<em></em></span><small>iMessage appears once a channel exists.</small></div></div></div></div>
+      </div>
+      <div class="pc"><div><b>Good</b><ul><li>The chat you test against stays on screen while you change sharing or a connection</li><li>Reuses the Split region and its code path, so there is one split, not two</li><li>The agent list stays in the sidebar, under New agent</li></ul></div><div><b>Costs</b><ul><li>A narrow window closes the split first, so settings hide below the split's minimum</li><li>iMessage stays out until a channel exists, as the notes in the Agents section say</li></ul></div></div>
+    </div>
+    <div class="board"><span class="tag">B · Pages in the card</span><h3>The settings replace the chat, with Back</h3>
+      <div class="gstage two">
+        <div class="mini"><span class="cap">1 · Settings as the card's only page</span>
+          <div class="mwin2"><div class="mtab-row"><span class="mtab">‹ Pele settings</span></div>
+            <div class="msplit" style="height:100%"><span>Sharing<em>›</em></span><span>iMessage<em>›</em></span><span>Connections<em>›</em></span><span>Memory<em>›</em></span><span>Budget<em>›</em></span></div></div></div>
+        <div class="mini"><span class="cap">2 · Back returns to the chat, which is unchanged</span>
+          <div class="mwin2"><div class="mtab-row"><span class="mtab">Pele</span></div><div class="mchat"><div class="mbub"></div><div class="mbub r"></div><div class="mbub" style="width:55%"></div></div></div></div>
+      </div>
+      <div class="pc"><div><b>Good</b><ul><li>Full width for long rows</li><li>Nothing to shrink on a narrow window</li></ul></div><div><b>Costs</b><ul><li>The chat disappears while you edit sharing</li><li>Going back and forth loses the thing you were checking</li></ul></div></div>
+    </div>
+  </div>
+  <div class="decision">
+    <h3>Decision: A, settings in the split</h3>
+    <p>The Agents page already has a settings pane. Making it a split instead of a fixed pane keeps one region for side content: Split and agent settings share it, and the trigger sits in the tab row next to Split. Rows open a page inside the split, with Back. Sharing, Connections, Memory, Budget and Advanced; iMessage stays hidden until a channel exists.</p>
+    <p><b>Spec for UI7.</b> Settings trigger in the tab row of an agent. The split closes at the same width rule as Split. New agent sits under Search agents, like New thread under Search threads. Pele's first tab keeps its face.</p>
+  </div>
+
+  <h3>3 · Design thread: options board first (UI5 and UI7)</h3>
+  <div class="gboards">
+    <div class="board pick"><span class="tag pick">A · Options board, v0</span><h3>Chat beside a set of options</h3>
+      <div class="gstage two">
+        <div class="mini"><span class="cap">1 · A Design thread: chat left, options right</span>
+          <div class="mwin2"><div class="mtab-row"><span class="mtab d"><i></i>Dashboard v2</span></div>
+            <div class="msw" style="grid-template-columns:minmax(0,38%) minmax(0,1fr)"><div class="mchat"><div class="mbub r"></div><div class="mbub"></div><div class="mbub" style="width:60%"></div></div>
+              <div class="mboard"><div class="mopt"><b>A · line</b><i></i>Keep</div><div class="mopt"><b>B · bars</b><i></i>Keep</div><div class="mopt"><b>C · both</b><i></i>Keep</div><div class="mopt"><b>D · table</b><i></i>Keep</div></div></div></div></div>
+        <div class="mini"><span class="cap">2 · Keep one option: it becomes a branch and a PR later</span>
+          <div class="mwin2"><div class="mtab-row"><span class="mtab d"><i></i>Dashboard v2</span></div>
+            <div class="msw" style="grid-template-columns:minmax(0,38%) minmax(0,1fr)"><div class="mchat"><div class="mbub r"></div><div class="mbub"></div></div>
+              <div class="mboard"><div class="mopt"><b>A · line</b><i></i><span style="color:var(--ok)">Kept</span></div><div class="mopt"><b>B · bars</b><i></i>Keep</div></div></div></div></div>
+      </div>
+      <div class="pc"><div><b>Good</b><ul><li>Matches Plan milestone 6, the honest scope for Design v0</li><li>Chat and options share one card, so Design reads as the same tab family</li><li>Options are plain choices with a Keep button, which is easy to test</li></ul></div><div><b>Costs</b><ul><li>Not a canvas: no cursors, sticky notes or free layout yet</li><li>Needs a clear state for a kept option, which is added in UI7</li></ul></div></div>
+    </div>
+    <div class="board"><span class="tag">B · Canvas</span><h3>Frames, sticky notes and live cursors</h3>
+      <div class="gstage two">
+        <div class="mini"><span class="cap">1 · The full target, drawn from the Dashboard reference below</span>
+          <div class="mwin2"><div class="mtab-row"><span class="mtab d"><i></i>Dashboard v2</span></div>
+            <div class="mcanvas"><div class="msticky" style="left:8px;top:6px;background:#f7e08c">Line view with a baseline?</div><div class="msticky" style="left:100px;top:6px;background:#a8e6b4">Bars for daily</div><div class="mframe" style="left:20px;top:70px;width:70%;height:55%"></div></div></div></div>
+        <div class="mini"><span class="cap">2 · What it takes: a canvas engine and multiplayer</span>
+          <div class="mdr"><div class="mp">Live cursors need a sync path between machines</div><div class="mp">Frames need branches and PRs wired in</div></div></div>
+      </div>
+      <div class="pc"><div><b>Good</b><ul><li>The look you drew from the Dashboard reference</li><li>Frames map to branches and PRs, which bridges Design and Code</li></ul></div><div><b>Costs</b><ul><li>A product on its own; the notes below put it at the end</li><li>Needs multiplayer and a canvas engine before Design v0 ships</li></ul></div></div>
+    </div>
+  </div>
+  <div class="decision">
+    <h3>Decision for v0: the options board. The canvas stays the target.</h3>
+    <p>The New thread Design tab takes the design colour and its own placeholder, and opens this Design thread. Its chat sits left and its options board right. Canvas work waits until you say it is next, because it is a product of its own.</p>
+  </div>
+</section>
+
+<section>
   <h2>A Design thread, drawn from your Dashboard v2 reference</h2>
   <p>A Design thread keeps the same card and the same tab. Inside, chat sits on the left and a canvas on the right, with frames, sticky notes, other people's cursors and a floating tool bar. The side pane becomes Properties and Comments for the selected frame. Frames link to a branch and a PR, so a design can become code without leaving the thread. Share and the member avatars sit on the tab bar. Design does not exist yet; this is the target, and it is the multiplayer case from the Spaces section above.</p>
   <div class="scroll"><div class="window nt">
     <nav class="rail" data-on="threads"></nav>
     <div class="col">
-      <div class="colh"><button class="ib tg" type="button" aria-label="Hide sidebar" aria-expanded="true"><svg class="ic"><use href="#i-sidebar"/></svg></button><span class="vsep"></span><h3>Threads</h3><span class="sp"></span><button class="ib" type="button" aria-label="New thread"><svg class="ic"><use href="#i-plus"/></svg></button></div>
+      <div class="colh"><button class="ib tg" type="button" aria-label="Hide sidebar" aria-expanded="true"><svg class="ic"><use href="#i-sidebar"/></svg></button><span class="vsep"></span><h3>Threads</h3><span class="sp"></span></div>
       <div class="colh" style="padding-top:0"><span class="search"><svg class="ic" style="width:14px;height:14px"><use href="#i-search"/></svg>Search threads</span></div>
+      <div class="colh" style="padding:0 4px 6px"><button class="newbtn" type="button"><svg class="ic" style="width:14px;height:14px"><use href="#i-plus"/></svg>New thread</button></div>
       <div class="sec">Needs you <span class="sp"></span>1</div>
       <div class="row on"><span class="d u"></span><span class="k d"><svg class="ic"><use href="#i-design"/></svg></span><span class="t">Dashboard v2, two chart variants</span><span class="tm">5h</span><span class="s">Northstar · 3 people</span></div>
       <div class="sec">Running <span class="sp"></span>1</div>
