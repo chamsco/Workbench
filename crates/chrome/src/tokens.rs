@@ -121,6 +121,21 @@ pub const AGENT_DOTS: [Rgb; 9] = [
     Rgb::hex(0xe0703a),
 ];
 
+/// Agent avatars (`crate::avatar`): the sphere's body is the agent's dot; these paint the rest.
+pub mod avatar {
+    use super::Rgb;
+    /// The second paint on the spheres' texture.
+    pub const PAINT: Rgb = Rgb::hex(0xece8df);
+    /// The rounded face screen.
+    pub const FACE: Rgb = Rgb::hex(0x101216);
+    /// The eyes on the face.
+    pub const EYE: Rgb = Rgb::hex(0xf2f4f7);
+    /// Shadow side of a sphere, used at low alpha.
+    pub const SHADE: Rgb = Rgb::hex(0x000000);
+    /// Lit side of a sphere, used at low alpha.
+    pub const LIGHT: Rgb = Rgb::hex(0xffffff);
+}
+
 /// Black drop shadows from the wireframe, the same in both themes.
 pub mod shadow {
     /// Offset y, blur and spread in px, and the black's alpha.
