@@ -1,4 +1,4 @@
-use cauldron_chrome::avatar::{cog_angle, hop, svg, Look, Mood, MOODS};
+use cauldron_chrome::avatar::{cog_angle, hop, size, svg, Look, Mood, MOODS};
 use cauldron_chrome::tokens::{avatar, AGENT_DOTS};
 
 fn look(px: f32) -> Look {
@@ -90,4 +90,13 @@ fn the_three_heads_hop_6_units_one_after_another() {
     assert!((hop(0, 360) + 6.0).abs() < 0.01);
     assert!((hop(1, 510) + 6.0).abs() < 0.01);
     assert!((hop(2, 660) + 6.0).abs() < 0.01);
+}
+
+#[test]
+fn px_is_the_sheets_figure_height_with_headroom_only_for_marks() {
+    assert!(svg(0, Mood::Idle, look(16.)).contains(r#"viewBox="10 4 80 96""#));
+    assert_eq!(size(16.), (16. * 80. / 96., 16.));
+    // From 28px up the box grows upward; the figure keeps the sheet's scale (96 units = px).
+    let (w, h) = size(64.);
+    assert!((h - 64. * 112. / 96.).abs() < 1e-3 && (w - 64. * 80. / 96.).abs() < 1e-3);
 }

@@ -36,8 +36,8 @@ pub const MOODS: [Mood; 11] = [
     Mood::Error,
 ];
 
-/// How to draw: `px` is the drawn height (headroom included), `ms` the motion clock (None under
-/// reduced motion: a still frame with the marks showing).
+/// How to draw: `px` is the figure's height as on the sheet's size ladder (its 96-unit box), `ms`
+/// the motion clock (None under reduced motion: a still frame with the marks showing).
 #[derive(Clone, Copy, Debug)]
 pub struct Look {
     pub px: f32,
@@ -50,13 +50,28 @@ const HR: f32 = 22.0;
 const HCY: f32 = 33.0;
 const BR: f32 = 33.0;
 const BCY: f32 = 92.0;
-/// The drawn box: the sheet's 10 4 80 96, raised to y -12 so the marks fit.
-const VIEW: (f32, f32, f32, f32) = (10.0, -12.0, 80.0, 112.0);
+/// The sheet's box, and the same raised to y -12 so the marks fit (used from MARKS_FROM up).
+const SHEET: (f32, f32, f32, f32) = (10.0, 4.0, 80.0, 96.0);
+const TALL: (f32, f32, f32, f32) = (10.0, -12.0, 80.0, 112.0);
 /// Marks (?, !, z) only from this height up.
 pub const MARKS_FROM: f32 = 28.0;
 
 /// Orbling's cog outline (MIT) in a 100-unit box centred on 50,50, with a hole cut in the middle.
 const GEAR: &str = "M39.23 15.65 L41.41 2.27 L58.59 2.27 L60.77 15.65 A36 36 0 0 1 74.37 23.5 L87.04 18.7 L95.63 33.57 L85.13 42.15 A36 36 0 0 1 85.13 57.85 L95.63 66.43 L87.04 81.3 L74.37 76.5 A36 36 0 0 1 60.77 84.35 L58.59 97.73 L41.41 97.73 L39.23 84.35 A36 36 0 0 1 25.63 76.5 L12.96 81.3 L4.37 66.43 L14.87 57.85 A36 36 0 0 1 14.87 42.15 L4.37 33.57 L12.96 18.7 L25.63 23.5 A36 36 0 0 1 39.23 15.65 Z M64 50 A14 14 0 1 0 36 50 A14 14 0 1 0 64 50 Z";
+
+fn view(px: f32) -> (f32, f32, f32, f32) {
+    if px >= MARKS_FROM {
+        TALL
+    } else {
+        SHEET
+    }
+}
+
+/// The drawn width and height for figure height `px`: taller than `px` when there is room for marks.
+pub fn size(px: f32) -> (f32, f32) {
+    let (_, _, w, h) = view(px);
+    (px * w / SHEET.3, px * h / SHEET.3)
+}
 
 /// The cog turns once every 3.8s.
 pub fn cog_angle(ms: u64) -> f32 {
@@ -96,19 +111,15 @@ fn pose(m: Mood) -> (f32, f32, f32, f32) {
 // instead of rasterising a new image every frame.
 pub fn svg(dot: usize, mood: Mood, look: Look) -> String {
     let col = AGENT_DOTS[dot % AGENT_DOTS.len()].to_hex();
-    let (vx, vy, vw, vh) = VIEW;
-    let units_per_px = vh / look.px;
-    let sw = (1.7 * units_per_px).max(2.4);
+    let (vx, vy, vw, vh) = view(look.px);
+    let sw = (1.7 * SHEET.3 / look.px).max(2.4);
     let paint = if look.outline {
         format!(r#"fill="none" stroke="{col}" stroke-width="{sw:.2}" stroke-linejoin="round" stroke-linecap="round""#)
     } else {
         format!(r#"fill="{col}""#)
     };
-    let mut out = format!(
-        r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="{vx} {vy} {vw} {vh}" width="{:.1}" height="{:.1}">"#,
-        look.px * vw / vh,
-        look.px
-    );
+    let (w, h) = size(look.px);
+    let mut out = format!(r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="{vx} {vy} {vw} {vh}" width="{w:.1}" height="{h:.1}">"#);
 
     let dx = (BR * BR - (100.0 - BCY).powi(2)).sqrt();
     let close = if look.outline { "" } else { "Z" };
@@ -151,7 +162,7 @@ fn eyes(mood: Mood, look: Look, col: &str) -> String {
     let fill = if look.outline { col.to_string() } else { avatar::EYE.to_hex() };
     let k = if look.px < 40.0 { 1.25 } else { 1.0 };
     let d = 2.0 * HR;
-    let (w, h) = (0.10 * d * k, 0.19 * d * k);
+    let (w, h) = (0.10 * d * k, 0.24 * d * k);
     let c = 0.14 * d / 2.0 + w / 2.0;
     let (ox, oy, sx, sy) = pose(mood);
     let (w, h) = (w * sx, h * sy);
