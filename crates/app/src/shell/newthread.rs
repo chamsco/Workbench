@@ -448,7 +448,7 @@ impl Cauldron {
             .flex()
             .flex_col()
             .gap(px(10.))
-            .min_h(px(104.))
+            .min_h(px(84.))
             .pt(px(12.))
             .px(px(12.))
             .pb(px(10.))

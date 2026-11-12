@@ -113,7 +113,6 @@ pub struct Pane {
 pub struct Frame {
     pub sidebar: Option<Pane>,
     pub rail: Option<Pane>,
-    pub notch: Option<Pane>,
     pub drawer: Option<Pane>,
     pub half: Option<Pane>,
     pub caps: Option<Pane>,
@@ -123,6 +122,8 @@ pub struct Frame {
     pub rrail: Rect,
     pub sidebar_button: Rect,
     pub topr: Rect,
+    pub bar: Rect,
+    pub crumbs: Rect,
 }
 
 fn at_rest(r: Option<Rect>) -> Option<Pane> {
@@ -143,7 +144,6 @@ impl Frame {
         Frame {
             sidebar: at_rest(s.sidebar),
             rail: at_rest(s.rail),
-            notch: at_rest(s.notch),
             drawer: at_rest(s.drawer),
             half: at_rest(s.half),
             caps: at_rest(s.caps),
@@ -153,6 +153,8 @@ impl Frame {
             rrail: s.rrail,
             sidebar_button: s.sidebar_button,
             topr: s.topr,
+            bar: s.bar,
+            crumbs: s.crumbs,
         }
     }
 
@@ -192,7 +194,6 @@ impl Frame {
         Frame {
             sidebar: pane(from.sidebar, to.sidebar, 0.0),
             rail: pane(from.rail, to.rail, 0.0),
-            notch: pane(from.notch, to.notch, 0.0),
             drawer: pane(from.drawer, to.drawer, DRAWER_SLIDE),
             half: pane(from.half, to.half, 0.0),
             caps: pane(from.caps, to.caps, 0.0),
@@ -202,6 +203,8 @@ impl Frame {
             rrail: rect(from.rrail, to.rrail),
             sidebar_button: rect(from.sidebar_button, to.sidebar_button),
             topr: rect(from.topr, to.topr),
+            bar: rect(from.bar, to.bar),
+            crumbs: rect(from.crumbs, to.crumbs),
         }
     }
 }

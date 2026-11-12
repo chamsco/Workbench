@@ -1,4 +1,4 @@
-//! The Cauldron shell (UI1): the wireframe's frame, notch, sidebar card, main card with tabs,
+//! The Cauldron shell (UI1): the frame, top bar, sidebar card, main card with tabs,
 //! right rail, drawer and split. Every rectangle comes from `cauldron_chrome::layout::solve`,
 //! which is tested against numbers measured from the wireframe; nothing here picks a position.
 //!
@@ -58,9 +58,12 @@ enum Foot {
     Right,
 }
 
+/// The flare's radius: 10px, the approved top bar board.
+const FOOT: f32 = 10.0;
+
 /// The concave corner where the open tab flares into the card, the wireframe's `.tab.on::before/::after`.
 fn foot(side: Foot, fill: Hsla) -> impl IntoElement {
-    let r = radius::R;
+    let r = FOOT;
     let el = canvas(
         |_, _, _| (),
         move |b, _, window, _| {
@@ -892,12 +895,12 @@ impl Render for Cauldron {
 
         // Window drag strip, under every control.
         root = root.child(
-            abs(Rect::new(1.0, 1.0, w - 2.0, metric::NOTCH_H - 8.0)).window_control_area(WindowControlArea::Drag),
+            abs(Rect::new(1.0, 1.0, w - 2.0, metric::BAR_H)).window_control_area(WindowControlArea::Drag),
         );
 
         // ---- rail (only while the sidebar is hidden)
         if let Some(rp) = s.rail {
-            let mut col = pane("rail", rp.rect).opacity(rp.alpha).flex().flex_col().items_center().gap(px(4.)).pt(px(metric::NOTCH_H));
+            let mut col = pane("rail", rp.rect).opacity(rp.alpha).flex().flex_col().items_center().gap(px(4.)).pt(px(8.));
             for (i, (name, label)) in FUNCTIONS.iter().enumerate() {
                 let b = icon_button(("rail", i), name, label, pal, i == self.section).on_click(cx.listener(move |this, _, _, cx| this.select_section(i, cx)));
                 col = col.child(self.tipped(("rail", i), b, *label, Side::Right, pal, cx).test_support());
@@ -977,7 +980,7 @@ impl Render for Cauldron {
                         .flex_none()
                         .flex()
                         .items_center()
-                        .pl(px(metric::NOTCH_W - metric::MARGIN_SIDE - 1.0))
+                        .pl(px(10.))
                         .text_size(px(13.))
                         .font_weight(FontWeight::SEMIBOLD)
                         .child("Threads"),
@@ -1353,54 +1356,32 @@ impl Render for Cauldron {
         );
         root = root.child(rr.pb(px(8.)).test_support());
 
-        // ---- notch: cuts the sidebar corner, holds the lights and the sidebar button
-        if let Some(np) = s.notch {
-            let n = np.rect;
-            let nw = n.w;
-            let (fill_c, line_c) = (frame, ring);
-            root = root.child(
-                canvas(
-                    |_, _, _| (),
-                    move |b, _, window, _| {
-                        let o = b.origin;
-                        let p = |x: f32, y: f32| point(o.x + px(x), o.y + px(y));
-                        let r6 = point(px(6.), px(6.));
-                        let mut f = PathBuilder::fill();
-                        f.move_to(p(0., 0.));
-                        f.line_to(p(nw, 0.));
-                        f.line_to(p(nw, 8.));
-                        f.curve_to(p(nw - 6., 14.), p(nw - 6., 8.));
-                        f.line_to(p(nw - 6., 36.));
-                        f.curve_to(p(nw - 12., 42.), p(nw - 6., 42.));
-                        f.line_to(p(18., 42.));
-                        f.arc_to(r6, px(0.), false, false, p(12., 48.));
-                        f.line_to(p(0., 48.));
-                        f.close();
-                        if let Ok(path) = f.build() {
-                            window.paint_path(path, fill_c);
-                        }
-                        let mut l = PathBuilder::stroke(px(1.));
-                        l.move_to(p(12., 48.));
-                        l.arc_to(r6, px(0.), false, true, p(18., 42.));
-                        l.line_to(p(nw - 12., 42.));
-                        l.curve_to(p(nw - 6., 36.), p(nw - 6., 42.));
-                        l.line_to(p(nw - 6., 14.));
-                        l.curve_to(p(nw, 8.), p(nw - 6., 8.));
-                        if let Ok(path) = l.build() {
-                            window.paint_path(path, line_c);
-                        }
-                    },
-                )
-                .opacity(np.alpha)
-                .absolute()
-                .left(px(n.x))
-                .top(px(n.y))
-                .w(px(n.w))
-                .h(px(n.h)),
-            );
-        }
+        // ---- top bar: the logo and name after the sidebar button, breadcrumbs in the middle
+        let logo_x = s.sidebar_button.right() + metric::GAP;
+        root = root.child(abs(Rect::new(logo_x, s.bar.y + (metric::BAR_H - 18.0) / 2.0, 18.0, 18.0)).rounded(px(9.)).bg(accent));
+        root = root.child(
+            abs(Rect::new(logo_x + 26.0, s.bar.y, metric::TITLE_W - 26.0, metric::BAR_H))
+                .flex()
+                .items_center()
+                .text_size(px(13.))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(fg)
+                .child("Cauldron"),
+        );
+        let crumb: SharedString = self.thread.as_ref().map_or_else(|| "New thread".into(), |t| t.title.clone().into());
+        root = root.child(
+            abs(s.crumbs)
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .text_size(px(12.5))
+                .text_color(fg3)
+                .child(div().flex_none().child("Threads"))
+                .child(div().flex_none().child("/"))
+                .child(div().min_w_0().truncate().font_weight(FontWeight::MEDIUM).text_color(fg2).child(crumb)),
+        );
 
-        // ---- sidebar button (inside the notch when the sidebar is open)
+        // ---- sidebar button (top bar, left)
         root = root.child(
             pane("sbtn-slot", s.sidebar_button).child(
                 // occlude: buttons over the drag strip stop the hit test, or Windows drags instead of clicking.

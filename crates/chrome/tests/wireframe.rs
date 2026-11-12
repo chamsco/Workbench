@@ -40,7 +40,7 @@ fn pick(s: &Shell, key: &str) -> Option<Rect> {
         "half" => s.half,
         "drawer" => s.drawer,
         "rrail" => Some(s.rrail),
-        "notch" => s.notch,
+        "notch" => None,
         "sbtn" => Some(s.sidebar_button),
         "tabs" => Some(s.tabs),
         "topr" => Some(s.topr),
@@ -50,7 +50,10 @@ fn pick(s: &Shell, key: &str) -> Option<Rect> {
     }
 }
 
+/// Ignored: the golden file was measured from the wireframe before the top bar decision (option A,
+/// 2026-11-12). It has a notch and tabs 34px tall. Re-measure it after the wireframe is updated.
 #[test]
+#[ignore = "golden predates the top bar A decision; re-measure after the wireframe is updated"]
 fn solver_matches_every_golden_state_and_size() {
     let g: Value = serde_json::from_str(GOLDEN).unwrap();
     let mut checked = 0;
@@ -144,10 +147,10 @@ fn platforms_differ_only_in_window_controls() {
     assert_eq!(mac.main, win.main, "same pane geometry on both platforms");
     assert_eq!(mac.rrail, win.rrail);
     assert_eq!(mac.sidebar, win.sidebar);
-    // The sidebar button stays inside the notch on both.
+    // The sidebar button and the logo sit inside the top bar on both.
     for s in [&mac, &win] {
-        let n = s.notch.unwrap();
-        assert!(inside(n, s.sidebar_button), "button {:?} outside notch {n:?}", s.sidebar_button);
+        assert!(inside(s.bar, s.sidebar_button), "button {:?} outside the bar {:?}", s.sidebar_button, s.bar);
+        assert!(s.crumbs.x > s.sidebar_button.right(), "breadcrumbs start after the sidebar button");
     }
     // Windows: Terminal and Split sit directly left of the caption buttons.
     let caps = win.caps.unwrap();
