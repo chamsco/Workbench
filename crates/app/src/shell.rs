@@ -707,7 +707,7 @@ fn now_ms() -> u64 {
 
 /// Tabular figures, so counts and ages line up.
 fn tnum() -> FontFeatures {
-    FontFeatures(Arc::new(vec![("tnum".into(), 1)]))
+    crate::ui::sans_features()
 }
 
 fn drop(s: tokens::shadow::Shadow) -> BoxShadow {

@@ -1,9 +1,9 @@
-//! The New thread screen (UI5): the Code and Design tabs joined to the box, the box (files,
-//! effort, machine, Start) and the cards under it. Start creates the thread in core, attaches the
-//! files, sends the text and opens it. On a connected machine Start sends the text as a task to
-//! that machine's harness (`/v1/task`), as the Tauri shell did; it does not open a local thread.
+//! The New thread screen, as the new-look board's frame 1: the machine above a box centred in
+//! the card, and in the box the editor, files, effort and Start. Start creates the thread in
+//! core, attaches the files, sends the text and opens it. On a connected machine Start sends the
+//! text as a task to that machine's harness (`/v1/task`); it does not open a local thread.
 //!
-//! Sizes are measured from the rendered wireframe at 1240x702 (`.nt-wrap` and children).
+//! Sizes are measured from design/cauldron-new-look.html (2096c8f) at 1200x720.
 
 use super::thread::{mix, EFFORTS};
 use super::*;
@@ -14,16 +14,15 @@ use gpui_kit::component::input::{Textarea, TextareaState};
 use gpui_kit::prelude::FluentBuilder;
 use std::path::PathBuf;
 
-/// The rendered `.nt-wrap` at 1240x702: an auto-sized grid track, not the CSS's 680.
-const WRAP_W: f32 = 608.0;
-/// The cards under the box.
-const CARDS_W: f32 = 600.0;
-/// The machine menu's top, under the box's foot: brand 28 + 20, tab 35, box padding 4, body 104, 4.
-const MENU_TOP: f32 = 72. + 28. + 20. + 35. + 4. + 104. + 4.;
+/// The board's column (`.w`): the ctx row and the box.
+const WRAP_W: f32 = 780.0;
+/// The box with one line of text (`.box`).
+const BOX_H: f32 = 84.0;
+/// The ctx row above the box (`.ctx`): the machine on the left.
+const CTX_H: f32 = 34.0;
 
 #[derive(Default)]
 pub(crate) struct Start {
-    pub(crate) design: bool,
     pub(crate) input: Option<(Entity<TextareaState>, Subscription)>,
     /// Who answers a new thread here: prefs' default route, else Claude Code if installed.
     /// Resolved when core opens; tests set it so nothing reaches a real model.
@@ -56,13 +55,7 @@ pub(super) fn body_line(pal: &Palette, focused: bool) -> Hsla {
     }
 }
 
-fn placeholder(design: bool) -> &'static str {
-    if design {
-        "Describe a screen or a flow to design…"
-    } else {
-        "Describe a task, a bug or an idea…"
-    }
-}
+const PLACEHOLDER: &str = "Describe a task, a bug or an idea…";
 
 fn mime(name: &str) -> &'static str {
     match name.rsplit('.').next().map(str::to_ascii_lowercase).as_deref() {
@@ -100,7 +93,7 @@ impl Cauldron {
         if self.start.input.is_some() {
             return;
         }
-        let st = cx.new(|cx| TextareaState::new(window, cx).auto_grow(2, 10).submit_on_enter(true).placeholder(placeholder(false)));
+        let st = cx.new(|cx| TextareaState::new(window, cx).auto_grow(1, 10).submit_on_enter(true).placeholder(PLACEHOLDER));
         let sub = cx.subscribe_in(&st, window, |this, _, ev: &InputEvent, window, cx| match ev {
             InputEvent::PressEnter { shift: false, .. } => this.start_thread(window, cx),
             InputEvent::Focus | InputEvent::Blur => cx.notify(),
@@ -111,9 +104,6 @@ impl Cauldron {
 
     /// Why Start cannot run now, if it cannot.
     fn start_blocked(&self) -> Option<String> {
-        if self.start.design {
-            return Some("Design is a planned app".into());
-        }
         if self.start.sending {
             return Some("Sending".into());
         }
@@ -251,96 +241,24 @@ impl Cauldron {
 
     pub(super) fn new_thread_view(&self, pal: &'static Palette, window: &Window, cx: &mut Context<Self>) -> AnyElement {
         let (fg, fg2, fg3) = (c(pal.fg), c(pal.fg2), c(pal.fg3));
-        let design = self.start.design;
         let blocked = self.start_blocked();
         let input = self.start.input.as_ref().expect("made in render").0.clone();
         let focused = input.read(cx).focus_handle(cx).is_focused(window);
 
-        let brand = div()
-            .id("nt-brand")
-            .flex()
-            .items_center()
-            .gap(px(10.))
-            .mb(px(20.))
-            .aria_label("Cauldron")
-            .child(div().size(px(28.)).flex().items_center().justify_center().rounded(px(radius::INNER)).bg(c(pal.raised)).border_1().border_color(c(pal.line)).child(glyph("flask-conical", 17., c(pal.accent))))
-            .child(div().text_size(px(19.)).line_height(px(26.)).font_weight(FontWeight(650.)).text_color(fg).child("Cauldron"))
-            .test_support();
-
-        // The tab and the box are one shape: the selected tab has the box's colour, covers its top
-        // line and curves into it with an inverse corner of radius R on each free side. GPUI draws a
-        // border over its children, so the corners sit beside the tab, one pixel over its side line.
-        let corner = |left: bool| {
-            div()
-                .absolute()
-                .bottom_0()
-                .when(left, |d| d.left(px(-radius::PANEL)))
-                .when(!left, |d| d.right(px(-radius::PANEL)))
-                .w(px(radius::PANEL + 1.))
-                .h(px(radius::PANEL))
-                .overflow_hidden()
-                .bg(c(pal.line_strong))
-                .child(
-                    div()
-                        .absolute()
-                        .top(px(-radius::PANEL))
-                        .when(left, |d| d.left(px(-radius::PANEL)))
-                        .when(!left, |d| d.left(px(1.)))
-                        .size(px(radius::PANEL * 2.))
-                        .rounded_full()
-                        .bg(c(pal.card))
-                        .border_1()
-                        .border_color(c(pal.line)),
-                )
-        };
-        let kind = |i: usize, label: &'static str, icon: &'static str| {
-            let on = design == (i == 1);
-            let tab = div()
-                .id(("kind", i))
-                .h(px(if on { 35. } else { 34. }))
-                .flex()
-                .items_center()
-                .gap(px(7.))
-                .px(px(15.))
-                .rounded_t(px(radius::PANEL))
-                .border_1()
-                .border_b_0()
-                .text_size(px(13.))
-                .font_weight(FontWeight::MEDIUM)
-                .cursor_pointer()
-                .aria_label(label)
-                .aria_selected(on)
-                .when(on, |d| d.bg(c(pal.line_strong)).border_color(c(pal.line)).text_color(fg))
-                .when(!on, |d| d.border_color(transparent_black()).text_color(fg3).hover(|d| d.text_color(fg).bg(c(pal.raised))))
-                .child(glyph(icon, 14., if on { c(pal.fg2) } else { fg3 }))
-                .child(label)
-                .on_click(cx.listener(move |this, _, window, cx| {
-                    this.start.design = i == 1;
-                    if let Some((st, _)) = &this.start.input {
-                        st.update(cx, |s, cx| s.set_placeholder(placeholder(i == 1), window, cx));
-                    }
-                    cx.notify();
-                }))
-                .test_support();
-            div().relative().mb(px(-1.)).child(tab).when(on, |d| d.child(corner(false)).when(i > 0, |d| d.child(corner(true))))
-        };
-        let tabs = div().id("kinds").flex().items_end().gap(px(2.)).aria_label("Kind of work").child(kind(0, "Code", "code")).child(kind(1, "Design", "palette"));
-
-        let foot_btn = |id: &'static str| {
+        // A dropdown-looking control as on the board (`.dd`): 26px, radius 6, the label, then a chevron.
+        let dd = |id: &'static str| {
             div()
                 .id(id)
-                .h(px(30.))
+                .h(px(26.))
                 .flex()
                 .items_center()
-                .gap(px(6.))
-                .bg(c(pal.inset))
-                .border_1()
-                .border_color(c(pal.line))
+                .gap(px(4.))
+                .px(px(8.))
+                .rounded(px(radius::TAG))
                 .text_size(px(12.))
-                .font_weight(FontWeight::MEDIUM)
                 .text_color(fg2)
                 .cursor_pointer()
-                .hover(|d| d.text_color(fg))
+                .hover(|d| d.bg(c(pal.hover)).text_color(fg))
         };
         let effort = Prefs::load().cli_effort;
         let effort_label = match effort.as_deref() {
@@ -351,52 +269,42 @@ impl Cauldron {
             }
         };
         let machine_name = if self.start.machine == 0 { "This machine".to_string() } else { self.start.machines.get(self.start.machine - 1).map_or_else(|| "This machine".into(), |m| m.name.clone()) };
+        let ready = blocked.is_none() && !input.read(cx).value().trim().is_empty();
         let start_btn = div()
             .id("start")
-            .size(px(30.))
+            .size(px(28.))
             .flex_none()
             .flex()
             .items_center()
             .justify_center()
-            .rounded(px(radius::INNER))
-            .bg(c(pal.inset))
-            .border_1()
-            .border_color(c(pal.line))
+            .rounded_full()
+            .bg(if ready { c(pal.accent) } else { c(pal.raised) })
             .aria_label("Start")
             .when_some(blocked.clone(), |d, why| d.aria_description(why).opacity(0.45))
             .when(blocked.is_none(), |d| d.cursor_pointer())
-            .child(glyph("arrow-up", 16., fg))
+            .child(glyph("arrow-up", 14., if ready { c(pal.on_accent) } else { fg2 }))
             .on_click(cx.listener(|this, _, window, cx| this.start_thread(window, cx)))
             .test_support();
-        let foot = div()
+        let tools = div()
             .flex()
             .items_center()
-            .gap(px(10.))
+            .gap(px(4.))
             .child(
-                div()
-                    .id("add-file")
-                    .size(px(30.))
-                    .flex()
-                    .items_center()
+                dd("add-file")
+                    .w(px(29.))
                     .justify_center()
-                    .rounded(px(radius::CONTROL))
-                    .cursor_pointer()
-                    .hover(|d| d.bg(c(pal.inset)))
+                    .px_0()
                     .aria_label("Add a file")
                     .child(glyph("plus", 15., fg2))
                     .on_click(cx.listener(|this, _, window, cx| this.pick_files(window, cx)))
                     .test_support(),
             )
+            .child(div().flex_1())
             .child(
-                div()
-                    .id("nt-effort")
-                    .text_size(px(12.))
-                    .font_weight(FontWeight::MEDIUM)
-                    .text_color(fg2)
-                    .cursor_pointer()
-                    .hover(|d| d.text_color(fg))
+                dd("nt-effort")
                     .aria_label(effort_label.clone())
                     .child(effort_label)
+                    .child(glyph("chevron-down", 13., fg3))
                     .on_click(cx.listener(|_, _, _, cx| {
                         let mut p = Prefs::load();
                         let at = EFFORTS.iter().position(|e| *e == p.cli_effort.as_deref()).unwrap_or(0);
@@ -406,71 +314,24 @@ impl Cauldron {
                     }))
                     .test_support(),
             )
-            .child(div().flex_1())
-            .child(
-                div()
-                    .flex()
-                    .gap(px(1.))
-                    .child(
-                        foot_btn("machine")
-                            .px(px(10.))
-                            .rounded_l(px(radius::CONTROL))
-                            .aria_label(machine_name.clone())
-                            .aria_expanded(self.start.menu)
-                            .child(glyph("terminal", 13., fg2))
-                            .child(machine_name)
-                            .child(glyph("chevron-down", 12., fg3))
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.start.menu = !this.start.menu;
-                                this.start.slide.reset();
-                                cx.notify();
-                            }))
-                            .test_support(),
-                    )
-                    .child(
-                        foot_btn("add-machine")
-                            .w(px(31.))
-                            .justify_center()
-                            .rounded_r(px(radius::CONTROL))
-                            .aria_label("Add another machine")
-                            .aria_description("Machines are added in Settings")
-                            .child(glyph("plus", 13., fg2))
-                            // Opens the machine list, which says where machines are added.
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.start.menu = true;
-                                this.start.slide.reset();
-                                cx.notify();
-                            }))
-                            .test_support(),
-                    ),
-            )
             .child(start_btn);
 
-        let mut body = div()
-            .id("nt-body")
+        let mut nt_box = div()
+            .id("nt-box")
             .flex()
             .flex_col()
-            .gap(px(10.))
-            .min_h(px(104.))
-            .pt(px(12.))
-            .px(px(12.))
+            .min_h(px(BOX_H))
+            .pt(px(4.))
+            .px(px(15.))
             .pb(px(10.))
-            .bg(c(pal.raised))
-            .rounded(px(radius::PANEL))
-            .when(!design, |d| d.rounded_tl(px(radius::INNER)))
+            .bg(c(pal.panel))
+            .rounded(px(radius::CONTROL))
             .border_1()
-            .border_color(body_line(pal, focused))
-            .child(
-                div()
-                    .id("nt-input")
-                    .mx(px(-10.))
-                    .mt(px(-8.))
-                    .text_size(px(14.))
-                    .child(Textarea::new(&input).appearance(false))
-                    .test_support(),
-            );
+            .border_color(if focused { body_line(pal, true) } else { c(pal.line_strong) })
+            .shadow(vec![drop(tokens::shadow::BOX)])
+            .child(div().id("nt-input").mx(px(-10.)).text_size(px(13.)).child(Textarea::new(&input).appearance(false)).test_support());
         if !self.start.files.is_empty() {
-            let mut row = div().flex().flex_wrap().gap(px(6.));
+            let mut row = div().flex().flex_wrap().gap(px(6.)).pb(px(6.));
             for (i, p) in self.start.files.iter().enumerate() {
                 let name = p.file_name().map_or_else(String::new, |n| n.to_string_lossy().to_string());
                 row = row.child(
@@ -481,10 +342,8 @@ impl Cauldron {
                         .gap(px(6.))
                         .px(px(8.))
                         .py(px(3.))
-                        .rounded(px(radius::CONTROL))
+                        .rounded(px(radius::TAG))
                         .bg(c(pal.inset))
-                        .border_1()
-                        .border_color(c(pal.line))
                         .text_size(px(12.))
                         .text_color(fg2)
                         .aria_label(name.clone())
@@ -504,32 +363,40 @@ impl Cauldron {
                         .test_support(),
                 );
             }
-            body = body.child(row);
+            nt_box = nt_box.child(row);
         }
-        let body = body.child(div().mt_auto().child(foot)).test_support();
+        let nt_box = nt_box.child(div().mt_auto().child(tools)).test_support();
 
-        let nt_box = div()
-            .id("nt-box")
-            .p(px(4.))
-            .bg(c(pal.line_strong))
-            .border_1()
-            .border_color(c(pal.line))
-            .rounded(px(radius::SHELL))
-            .when(!design, |d| d.rounded_tl(px(0.)))
-            .shadow(vec![
-                // The same ring the cards wear, then the wireframe's drop.
-                BoxShadow { color: ca(pal.fg, if std::ptr::eq(pal, &tokens::DARK) { 0.08 } else { 0.09 }), offset: point(px(0.), px(0.)), blur_radius: px(0.), spread_radius: px(1.), inset: false },
-                drop(tokens::shadow::BOX),
-            ])
-            .child(body)
+        let ctx = div()
+            .id("nt-ctx")
+            .relative()
+            .h(px(CTX_H))
+            .flex()
+            .items_center()
+            .child(
+                dd("machine")
+                    .px(px(6.))
+                    .text_color(fg3)
+                    .aria_label(machine_name.clone())
+                    .aria_expanded(self.start.menu)
+                    .child(glyph("laptop", 13., fg3))
+                    .child(machine_name)
+                    .child(glyph("chevron-down", 12., fg3))
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.start.menu = !this.start.menu;
+                        this.start.slide.reset();
+                        cx.notify();
+                    }))
+                    .test_support(),
+            )
+            // Deferred: the box comes after this row and would paint over the menu.
+            .when(self.start.menu, |d| d.child(deferred(div().absolute().top(px(CTX_H - 4.)).left_0().child(self.machine_menu(pal, cx))).with_priority(2)))
             .test_support();
 
-        // What the box says under it: why Start waits, a refusal, a machine's answer, or Design's note.
-        let line = |id: &'static str, text: String, col: Hsla| div().id(id).mt(px(10.)).text_size(px(12.)).line_height(px(17.)).text_color(col).aria_label(text.clone()).child(text).test_support();
-        let mut wrap = div().w_full().max_w(px(WRAP_W)).flex().flex_col().child(brand).child(tabs).child(nt_box);
-        if design {
-            wrap = wrap.child(line("design-note", "Design is a planned app. Until it ships, describe the screen in a Code thread.".into(), fg3));
-        } else if let Some(e) = &self.start.error {
+        // What the box says under it: why Start waits, a refusal, or a machine's answer.
+        let line = |id: &'static str, text: String, col: Hsla| div().id(id).mt(px(10.)).px(px(6.)).text_size(px(12.)).line_height(px(17.)).text_color(col).aria_label(text.clone()).child(text).test_support();
+        let mut wrap = div().w_full().max_w(px(WRAP_W)).flex().flex_col().child(ctx).child(nt_box);
+        if let Some(e) = &self.start.error {
             wrap = wrap.child(line("start-error", e.clone(), c(pal.bad)));
         } else if let Some(n) = &self.start.note {
             wrap = wrap.child(line("start-note", n.clone(), c(pal.ok)));
@@ -538,79 +405,21 @@ impl Cauldron {
             wrap = wrap.child(line("start-why", why, if bad { c(pal.bad) } else { fg3 }));
         }
 
-        let mut screen = div()
+        // ponytail: the board's trust, Coordinator, mic, Worktree/Isolated, usage and stage
+        // controls need core (UI-PLAN decision 5); they come when core has them, not as fakes.
+        let screen = div()
             .id("new-thread-screen")
             .relative()
             .size_full()
             .flex()
             .flex_col()
             .items_center()
-            .pt(px(72.))
+            .justify_center()
             .px(px(24.))
-            .child(wrap);
-        if let Some(cards) = self.start_cards(pal) {
-            screen = screen.child(cards);
-        }
-        if self.start.menu {
-            screen = screen.child(self.machine_menu(pal, cx));
-        }
-        screen.into_any_element()
-    }
-
-    /// The cards under the box, from what core has: the thread counts and the recent projects.
-    /// Pull requests wait for a GitHub connection in core.
-    fn start_cards(&self, pal: &'static Palette) -> Option<Stateful<Div>> {
-        let Threads::Ready(list) = &self.threads else { return None };
-        if list.is_empty() {
-            return None;
-        }
-        let (fg, fg2, fg3) = (c(pal.fg), c(pal.fg2), c(pal.fg3));
-        let card = |id: &'static str, title: &'static str| {
-            div()
-                .id(id)
-                .flex_1()
-                .min_w_0()
-                .flex()
-                .flex_col()
-                .gap(px(5.))
-                .p(px(10.))
-                .rounded(px(radius::CONTROL))
-                .bg(c(pal.raised))
-                .border_1()
-                .border_color(c(pal.line))
-                .child(div().text_size(px(12.)).line_height(px(16.)).font_weight(FontWeight::SEMIBOLD).text_color(fg2).child(title))
-        };
-        let running = list.iter().filter(|t| t.busy).count();
-        let failed = list.iter().filter(|t| t.failed.is_some()).count();
-        let counts = card("nt-threads", "Threads")
-            .aria_label(format!("{} threads, {running} running, {failed} failed", list.len()))
-            .child(div().text_size(px(22.)).line_height(px(26.)).font_weight(FontWeight::SEMIBOLD).text_color(fg).font_features(tnum()).child(list.len().to_string()))
-            .child(div().text_size(px(11.5)).text_color(fg3).font_features(tnum()).child(format!("{running} running · {failed} failed")))
+            .pb(px(40.))
+            .child(wrap)
             .test_support();
-        let mut projects: Vec<(String, usize)> = Vec::new();
-        for t in list.iter().filter(|t| t.project.is_some()) {
-            let name = threads::subtitle(t);
-            match projects.iter_mut().find(|(n, _)| *n == name) {
-                Some(p) => p.1 += 1,
-                None => projects.push((name, 1)),
-            }
-        }
-        let mut proj = card("nt-projects", "Projects").aria_label(if projects.is_empty() { "No projects yet".to_string() } else { projects.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>().join(", ") });
-        if projects.is_empty() {
-            proj = proj.child(div().text_size(px(11.5)).text_color(fg3).child("Threads in a project folder show here."));
-        }
-        for (n, k) in projects.iter().take(2) {
-            proj = proj.child(
-                div()
-                    .flex()
-                    .items_baseline()
-                    .gap(px(6.))
-                    .min_w_0()
-                    .child(div().text_size(px(12.)).font_weight(FontWeight::SEMIBOLD).text_color(fg).truncate().child(n.clone()))
-                    .child(div().text_size(px(11.5)).text_color(fg3).font_features(tnum()).child(format!("{k} thread{}", if *k == 1 { "" } else { "s" }))),
-            );
-        }
-        Some(div().id("nt-cards").w_full().max_w(px(CARDS_W)).mt(px(16.)).flex().gap(px(8.)).child(counts).child(proj.test_support()))
+        screen.into_any_element()
     }
 
     fn machine_menu(&self, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
@@ -672,8 +481,7 @@ impl Cauldron {
         } else {
             menu = menu.child(div().px(px(8.)).pt(px(6.)).pb(px(4.)).text_size(px(11.5)).text_color(fg3).child("Add machines in Settings.").with_animation("in-hint", super::motion::staggered(n), |d, t| d.opacity(t)));
         }
-        // Right-aligned under the machine button: the box's right edge less Start and the gap.
-        div().absolute().top_0().left_0().size_full().flex().justify_center().child(div().relative().w_full().max_w(px(WRAP_W)).child(div().absolute().top(px(MENU_TOP)).right(px(4. + 12. + 30. + 10.)).child(super::motion::pop_in(div(), menu, "menu-in", 0.)))).into_any_element()
+        super::motion::pop_in(div(), menu, "menu-in", 0.).into_any_element()
     }
 }
 
@@ -701,30 +509,33 @@ mod tests {
         (f32::from(b.origin.x), f32::from(b.origin.y), f32::from(b.size.width), f32::from(b.size.height))
     }
 
-    /// With no thread open the card is the New thread screen: brand, Code and Design tabs joined
-    /// to the box, the box's controls, and cards from core's threads.
+    /// With no thread open the card is the New thread screen, as the new-look board's frame 1:
+    /// the machine above a 780px box centred in the card, the box's controls inside it, and
+    /// nothing else (no brand, no Code/Design tabs, no cards).
     #[gpui_kit::test]
-    fn the_new_thread_screen_draws_the_box_joined_to_its_tab(cx: &mut TestAppContext) {
+    fn the_new_thread_screen_is_the_boards_centred_box(cx: &mut TestAppContext) {
         let (handle, _chats) = open(cx);
         handle.update(cx, |c, _, _| c.start.route = missing()).unwrap();
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
-            assert_eq!(window.find("nt-brand").label(), Some("Cauldron"));
-            assert_eq!(window.find(("kind", 0usize)).selected(), Some(true));
-            assert_eq!(window.find(("kind", 1usize)).selected(), Some(false));
-            let (tx, ty, _, th) = rect(window, ("kind", 0usize));
-            let (bx, by, bw, _) = rect(window, "nt-box");
-            assert_eq!(tx, bx, "Code sits on the box's left edge");
-            assert_eq!(ty + th, by + 1.0, "the open tab covers the box's top line");
-            assert_eq!(th, 35.0);
-            let (cx0, _, cw, _) = rect(window, "card");
-            assert_eq!(bw, 608f32.min(cw - 48.0), "the wireframe's width, or the card less its padding");
-            assert!(((bx + bw / 2.0) - (cx0 + cw / 2.0)).abs() <= 1.0, "centred in the card");
-            for (id, label) in [("add-file", "Add a file"), ("nt-effort", "Auto"), ("machine", "This machine"), ("add-machine", "Add another machine"), ("start", "Start")] {
+            for gone in ["nt-brand", "kinds", "nt-cards", "add-machine"] {
+                assert!(window.try_find(gone).is_none(), "{gone} is not on the board");
+            }
+            let (bx, by, bw, bh) = rect(window, "nt-box");
+            let (cx0, cy0, cw, ch) = rect(window, "new-thread-screen");
+            assert_eq!(bw, 780f32.min(cw - 48.0), "the board's 780, or the card's inside less its padding");
+            assert_eq!(bh, 84.0, "the board's box with one line");
+            assert!(((bx + bw / 2.0) - (cx0 + cw / 2.0)).abs() <= 1.0, "centred across the card");
+            assert!(((by + bh / 2.0) - (cy0 + ch / 2.0)).abs() <= 48.0, "about the middle of the card");
+            let (mx, my, _, mh) = rect(window, "machine");
+            assert_eq!(mx, bx, "the machine sits on the box's left edge");
+            assert!(my + mh <= by && by - (my + mh) <= 6.0, "just above the box");
+            for (id, label) in [("add-file", "Add a file"), ("nt-effort", "Auto"), ("machine", "This machine"), ("start", "Start")] {
                 assert_eq!(window.find(id).label(), Some(label), "{id}");
             }
-            assert_eq!(window.find("nt-threads").label(), Some("2 threads, 0 running, 0 failed"));
-            assert_eq!(window.find("nt-projects").label(), Some("Cauldron"));
+            let (sx, sy, sw, sh) = rect(window, "start");
+            assert_eq!((sw, sh), (28.0, 28.0));
+            assert!(sx + sw <= bx + bw - 12.0 && sy + sh <= by + bh - 8.0, "Start sits in the box's bottom right");
             assert!(window.try_find("start-why").is_none(), "nothing in the way");
         })
         .unwrap();
@@ -793,10 +604,9 @@ mod tests {
         assert_eq!(chats.list().len(), 2);
     }
 
-    /// Without a subscription, Start says why and does nothing. Design shows its note, moves the
-    /// join (the box's top-left rounds again) and does not start either.
+    /// Without a subscription, Start says why and does nothing.
     #[gpui_kit::test]
-    fn start_waits_for_a_subscription_and_design_only_notes(cx: &mut TestAppContext) {
+    fn start_waits_for_a_subscription(cx: &mut TestAppContext) {
         let (handle, chats) = open(cx);
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
@@ -804,19 +614,10 @@ mod tests {
             window.click("nt-input", cx);
             window.input("Anything", cx);
             window.click("start", cx);
-            window.click(("kind", 1usize), cx);
-            window.render_frame(cx);
-            assert_eq!(window.find(("kind", 1usize)).selected(), Some(true));
-            assert!(window.find("design-note").label().unwrap().starts_with("Design is a planned app"));
-            let (tx, _, _, _) = rect(window, ("kind", 1usize));
-            let (bx, _, _, _) = rect(window, "nt-box");
-            assert!(tx > bx, "Design's tab is not on the corner");
         })
         .unwrap();
-        handle.update(cx, |c, _, _| c.start.route = missing()).unwrap();
-        cx.update_window(handle.into(), |_, window, cx| window.click("start", cx)).unwrap();
         cx.run_until_parked();
-        assert_eq!(chats.list().len(), 2, "neither started a thread");
+        assert_eq!(chats.list().len(), 2, "nothing started");
     }
 
     /// Loading and error: Start waits and says why.
@@ -830,7 +631,6 @@ mod tests {
             cx.update_window(handle.into(), |_, window, cx| {
                 window.render_frame(cx);
                 assert_eq!(window.find("start-why").label(), Some(why));
-                assert!(window.try_find("nt-cards").is_none());
             })
             .unwrap();
         }
