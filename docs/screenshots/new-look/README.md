@@ -48,3 +48,26 @@ cards under the box are gone.
 Merged `claude/project-thread-gg3ogp` (top bar A, 81698a0, and its motion clock) as MERGE-NOTES says: the + menu keeps this branch's pop-in, gg3ogp's `menu_since`, `menu_shown` and the `k` argument are gone, every other motion field stays. The tab flare is `radius::CONTROL` (10, the board's).
 `nl2-04-top-bar-new-thread.png`, `nl2-05-top-bar-thread.png`, `nl2-06-top-bar-plus-menu.png`: one bar across the window (sidebar button, logo and name, breadcrumbs, Terminal, Split, window controls); the sidebar, card and rail start under it. The notch is kept for later: see `docs/cauldron/NOTCH.md`.
 Width: the board's frame 1 has no open drawer, so its card is 944 wide; here Highlights is open and the card is 676. The new thread test holds the box at 780, or the card's inside less 48 when narrower.
+
+## NL2c: the sidebar
+
+`nl2-07-sidebar.png` (made-up threads, `CAULDRON_FIXTURE_THREADS=list`) against `board-frame1.png`;
+`nl2-08-sidebar-states.png`: list, loading, empty and error, left to right. `nl2-09-sidebar-light.png`: light (a build forced to light, reverted).
+`nl2-10-sidebar-folded.png`: the sidebar folded to the rail; the box then reaches the board's 780. "Opening your threads" under the box is the fixture mode (no core), not part of the screen.
+
+| | Board | App | Why |
+|---|---|---|---|
+| Sidebar | on the window, no card | on the window, no card | |
+| Content left / right (apps row, rows) | 10 / 240 | 13 / 240 | the layout keeps the card era's 12px margin |
+| New thread, Search | 32px rows, Ctrl N / Ctrl K hints | 32px rows, no hints | the app has no Ctrl N or Ctrl K binding yet |
+| Group head | 36 (12px, fg-3, count right) | 36 | |
+| Row | 30, radius 6, slot 18x22, title 13px, repo 11px fg-4 max 54, 6px ping | the same, repo in fg-3 | fg-4 is 2.9:1 on the window, under AA for text |
+| Figure drawn | 15x20, 12.6px into the row | 15x20, 13px in | |
+| Groups | Needs you, Running, Done | Unread, Running, Failed, Done | core has no Needs you per thread yet; Unread sits where it does |
+| Age column | none | none (removed) | |
+
+- Figures only for agentic threads (Charles, 12 Nov): a thread with an agent or members shows its agent in the slot, in the row's mood (Running is Working, the cog; Failed is Error; else Idle). A normal thread shows a 6px state dot there: accent Running, bad Failed, fg-3 otherwise. The board draws a figure on every row; this follows Charles over the board.
+- At 22px the avatar draws no marks, so an Error figure looks like Idle; the Failed head says it. Figures are still until the motion clock drives them, and every figure is agent 1's colour for now.
+- Needs you and the usage line in the user row are not drawn: core has neither, and the brief says draw nothing there.
+- A selected row is `hover` on the window, as the board's `.th.sel`.
+- Runs: `docs/cauldron/NL2-sidebar-red.txt` (group heads 20 high, meta showed the last message), `NL2-rows-red.txt` (figures on normal rows), `NL2-sidebar-green.txt`.
