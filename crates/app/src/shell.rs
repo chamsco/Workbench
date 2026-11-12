@@ -580,7 +580,7 @@ impl Cauldron {
                         }
                     }))
                     .aria_label(a.name.clone())
-                    .child(div().flex_none().size(px(8.)).rounded_full().bg(c(tokens::AGENT_DOTS[a.dot % tokens::AGENT_DOTS.len()])))
+                    .child(figure(a.dot, 16.))
                     .child(a.name.clone())
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.open_agent(j);
@@ -668,6 +668,14 @@ const TAB_MAX: f32 = 210.0;
 /// The pinned coordinator tab is at most this wide.
 const ANCHOR_MAX: f32 = 190.0;
 const ADD_LABEL: &str = "Spawn a subagent or open a 1:1";
+
+/// An agent's figure (`cauldron_chrome::avatar`), still, `h` px tall, drawn through GPUI's SVG path.
+// ponytail: built per render; GPUI caches the raster by the bytes' hash. Moods arrive with the status line.
+fn figure(dot: usize, h: f32) -> impl IntoElement {
+    use cauldron_chrome::avatar::{svg, Look, Mood};
+    let s = svg(dot, Mood::Idle, Look { px: h, outline: false, ms: None });
+    img(std::sync::Arc::new(Image::from_bytes(ImageFormat::Svg, s.into_bytes()))).flex_none().w(px(h * 80. / 112.)).h(px(h))
+}
 
 /// An agent of the thread: its name and its identity dot (an index into `tokens::AGENT_DOTS`).
 pub(crate) struct AgentTab {
@@ -1054,7 +1062,7 @@ impl Render for Cauldron {
                 .text_size(px(12.))
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(if on { fg } else { fg3 })
-                .child(div().flex_none().size(px(8.)).rounded_full().bg(c(tokens::AGENT_DOTS[agent.dot % tokens::AGENT_DOTS.len()])))
+                .child(figure(agent.dot, 16.))
                 .child(div().min_w_0().truncate().child(agent.name.clone()))
                 .child(close)
                 .on_scroll_wheel(cx.listener(|this, ev: &ScrollWheelEvent, _, cx| this.wheel_tabs(ev, cx)))

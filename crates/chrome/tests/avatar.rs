@@ -1,27 +1,34 @@
-use cauldron_chrome::avatar::{svg, Mood};
+use cauldron_chrome::avatar::{cog_angle, hop, svg, Look, Mood, MOODS};
 use cauldron_chrome::tokens::{avatar, AGENT_DOTS};
 
+fn look(px: f32) -> Look {
+    Look { px, outline: false, ms: Some(1000) }
+}
+
 fn colours(s: &str) -> Vec<String> {
-    s.match_indices('#').map(|(i, _)| s[i..i + 7].to_lowercase()).filter(|h| h[1..].chars().all(|c| c.is_ascii_hexdigit())).collect()
+    s.match_indices('#')
+        .filter_map(|(i, _)| s.get(i..i + 7))
+        .filter(|h| h[1..].chars().all(|c| c.is_ascii_hexdigit()))
+        .map(str::to_lowercase)
+        .collect()
 }
 
 #[test]
-fn an_agent_always_gets_the_same_avatar() {
-    assert_eq!(svg(7, 2, Mood::Idle), svg(7, 2, Mood::Idle));
+fn there_are_eleven_moods_and_each_draws_deterministically() {
+    assert_eq!(MOODS.len(), 11);
+    for m in MOODS {
+        assert_eq!(svg(2, m, look(64.)), svg(2, m, look(64.)));
+        assert!(svg(2, m, look(64.)).starts_with("<svg"));
+    }
 }
 
 #[test]
-fn agents_get_different_textures() {
-    assert_ne!(svg(1, 2, Mood::Idle), svg(2, 2, Mood::Idle));
-}
-
-#[test]
-fn avatars_paint_only_with_tokens() {
+fn avatars_paint_only_with_tokens_and_take_the_agents_colour() {
     let mut ok: Vec<String> = AGENT_DOTS.iter().map(|c| c.to_hex()).collect();
-    ok.extend([avatar::PAINT, avatar::FACE, avatar::EYE, avatar::SHADE, avatar::LIGHT].map(|c| c.to_hex()));
-    for seed in 0..20 {
-        let s = svg(seed, seed as usize, Mood::Idle);
-        assert!(s.starts_with("<svg"), "{s}");
+    ok.push(avatar::EYE.to_hex());
+    for (d, m) in MOODS.iter().enumerate() {
+        let s = svg(d, *m, look(64.));
+        assert!(s.contains(&AGENT_DOTS[d % AGENT_DOTS.len()].to_hex()));
         for c in colours(&s) {
             assert!(ok.contains(&c), "{c} is not a token");
         }
@@ -29,6 +36,58 @@ fn avatars_paint_only_with_tokens() {
 }
 
 #[test]
-fn the_body_takes_the_agents_dot_colour() {
-    assert!(svg(3, 4, Mood::Idle).contains(&AGENT_DOTS[4].to_hex()));
+fn working_turns_the_head_into_a_cog() {
+    let s = svg(0, Mood::Working, look(64.));
+    assert!(s.contains("class=\"cog\""));
+    assert!(!s.contains("class=\"head\""));
+    assert!(svg(0, Mood::Idle, look(64.)).contains("class=\"head\""));
+}
+
+#[test]
+fn typing_turns_the_head_into_three_small_heads() {
+    let s = svg(0, Mood::Typing, look(64.));
+    assert_eq!(s.matches("class=\"mini\"").count(), 3);
+    assert!(!s.contains("class=\"head\""));
+}
+
+#[test]
+fn the_outline_agent_is_stroked_not_filled() {
+    let s = svg(0, Mood::Idle, Look { outline: true, ..look(64.) });
+    assert!(s.contains("fill=\"none\""));
+    assert!(s.contains("stroke=\""));
+}
+
+#[test]
+fn marks_show_from_28px_up() {
+    for m in [Mood::Asking, Mood::Surprised, Mood::Sleepy] {
+        assert!(!svg(0, m, look(27.)).contains("class=\"mark\""), "{m:?} at 27");
+        assert!(svg(0, m, look(28.)).contains("class=\"mark\""), "{m:?} at 28");
+    }
+    assert!(!svg(0, Mood::Idle, look(64.)).contains("class=\"mark\""));
+}
+
+#[test]
+fn reduced_motion_still_shows_the_mark() {
+    for m in [Mood::Asking, Mood::Surprised, Mood::Sleepy] {
+        assert!(svg(0, m, Look { ms: None, ..look(64.) }).contains("class=\"mark\""), "{m:?}");
+    }
+}
+
+#[test]
+fn the_cog_turns_once_every_3_8_seconds() {
+    assert_eq!(cog_angle(0), 0.0);
+    assert!((cog_angle(1900) - 180.0).abs() < 0.01);
+    assert!(cog_angle(3800).abs() < 0.01);
+}
+
+#[test]
+fn the_three_heads_hop_6_units_one_after_another() {
+    for ms in (0..1200).step_by(10) {
+        for i in 0..3 {
+            assert!((-6.0..=0.0).contains(&hop(i, ms)));
+        }
+    }
+    assert!((hop(0, 360) + 6.0).abs() < 0.01);
+    assert!((hop(1, 510) + 6.0).abs() < 0.01);
+    assert!((hop(2, 660) + 6.0).abs() < 0.01);
 }

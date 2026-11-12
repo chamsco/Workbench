@@ -121,19 +121,12 @@ pub const AGENT_DOTS: [Rgb; 9] = [
     Rgb::hex(0xe0703a),
 ];
 
-/// Agent avatars (`crate::avatar`): the sphere's body is the agent's dot; these paint the rest.
+/// Agent avatars (`crate::avatar`): the figure is the agent's dot colour; this draws the eyes.
+/// Not in the wireframe (it has no avatars), so not compared with the golden file.
 pub mod avatar {
     use super::Rgb;
-    /// The second paint on the spheres' texture.
-    pub const PAINT: Rgb = Rgb::hex(0xece8df);
-    /// The rounded face screen.
-    pub const FACE: Rgb = Rgb::hex(0x101216);
-    /// The eyes on the face.
-    pub const EYE: Rgb = Rgb::hex(0xf2f4f7);
-    /// Shadow side of a sphere, used at low alpha.
-    pub const SHADE: Rgb = Rgb::hex(0x000000);
-    /// Lit side of a sphere, used at low alpha.
-    pub const LIGHT: Rgb = Rgb::hex(0xffffff);
+    /// The eyes on a filled figure (an outline figure draws them in its own colour).
+    pub const EYE: Rgb = Rgb::hex(0x14121a);
 }
 
 /// Black drop shadows from the wireframe, the same in both themes.
