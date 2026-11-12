@@ -148,7 +148,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .ledger { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--fg3); animation: fade 0.16s ease-out both; }
 .ledger svg { width: 14px; height: 14px; flex: none; stroke: currentColor; fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
 @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
-.status { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--fg2); animation: fade 0.16s ease-out both; }
+.status { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--fg2); animation: fade 0.16s ease-out both; }
 .status .lbl { background: linear-gradient(90deg, var(--fg3) 0%, var(--fg) 50%, var(--fg3) 100%); background-size: 200% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: shimmer 1.8s linear infinite; }
 @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
 @media (prefers-reduced-motion: reduce) {
@@ -405,6 +405,7 @@ code { font-family: ui-monospace, "SF Mono", Consolas, monospace; font-size: 12p
 var DOTS = { orange: '#e0703a', cyan: '#38c0e8', green: '#3fb27f', amber: '#e0a32a', pink: '#d9669a', blue: '#5b8cf0', red: '#e05656', lavender: '#9a82f5', violet: '#8b5cf6' };
 // Orbling's cog outline (MIT), with a hole cut in the middle
 var GEAR = 'M39.23 15.65 L41.41 2.27 L58.59 2.27 L60.77 15.65 A36 36 0 0 1 74.37 23.5 L87.04 18.7 L95.63 33.57 L85.13 42.15 A36 36 0 0 1 85.13 57.85 L95.63 66.43 L87.04 81.3 L74.37 76.5 A36 36 0 0 1 60.77 84.35 L58.59 97.73 L41.41 97.73 L39.23 84.35 A36 36 0 0 1 25.63 76.5 L12.96 81.3 L4.37 66.43 L14.87 57.85 A36 36 0 0 1 14.87 42.15 L4.37 33.57 L12.96 18.7 L25.63 23.5 A36 36 0 0 1 39.23 15.65 Z M64 50 A14 14 0 1 0 36 50 A14 14 0 1 0 64 50 Z';
+var GREY = '#8d8794';  // the step lines' grey (--fg3)
 var PROPS = { now: { hr: 22, hcy: 33, br: 33, bcy: 92 }, before: { hr: 19, hcy: 33, br: 40, bcy: 97 } };
 
 function figure(col, mood, h, o) {
@@ -412,10 +413,10 @@ function figure(col, mood, h, o) {
   o = o || {};
   var P = PROPS[o.prop || 'now'], hr = P.hr, hcy = P.hcy, br = P.br, bcy = P.bcy;
   var out = !!o.outline, typing = o.typing || 'heads';
-  var sw = Math.max(2.4, 1.7 / (h / 94)).toFixed(2);          // outline weight: never thinner than ~1.7px
+  var sw = Math.max(2.4, 1.5 / (h / 94)).toFixed(2);          // outline weight: never thinner than ~1.7px
   var dx = Math.sqrt(br * br - (100 - bcy) * (100 - bcy));
   var small = h < 28, D = 2 * hr, k = h < 40 ? 1.25 : 1;
-  var w = 0.10 * D * k, eh = 0.19 * D * k, c = (0.14 * D) / 2 + w / 2;
+  var w = 0.10 * D * k, eh = 0.24 * D * k, c = (0.14 * D) / 2 + w / 2;
   var gs = (hr * 1.08) / 47.7, mr = hr * 0.33, ms = mr * 2.2;
   var eyes = '<rect class="eye" x="' + (-c - w / 2).toFixed(2) + '" y="' + (-eh / 2).toFixed(2) + '" width="' + w.toFixed(2) + '" height="' + eh.toFixed(2) + '" rx="' + (w / 2).toFixed(2) + '"/>' +
              '<rect class="eye" x="' + (c - w / 2).toFixed(2) + '" y="' + (-eh / 2).toFixed(2) + '" width="' + w.toFixed(2) + '" height="' + eh.toFixed(2) + '" rx="' + (w / 2).toFixed(2) + '"/>';
@@ -522,7 +523,7 @@ function el(html) { var d = document.createElement('div'); d.innerHTML = html; r
 function add(node) { thread.appendChild(node); thread.scrollTop = thread.scrollHeight; return node; }
 function wait(ms, id) { return new Promise(function (r) { setTimeout(function () { r(id === run); }, quick ? Math.min(ms, 250) : ms); }); }
 function status(who, mood, label) {
-  return add(el('<div class="status">' + figure(DOTS[WHO[who]], mood, 32, { outline: true }) + '<span class="lbl">' + label + '</span></div>'));
+  return add(el('<div class="status">' + figure(GREY, mood, 17, { outline: true }) + '<span class="lbl">' + label + '</span></div>'));
 }
 function ledger(text) { return add(el('<div class="ledger">' + CHECK + '<span>' + text + '</span></div>')); }
 
