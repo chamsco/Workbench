@@ -5,7 +5,7 @@
 //!
 //! Geometry is in the sheet's 100-unit box; the drawn box adds headroom above for the marks.
 
-use crate::tokens::{avatar, AGENT_DOTS};
+use crate::tokens::{avatar, Rgb, AGENT_DOTS};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mood {
@@ -43,6 +43,11 @@ pub struct Look {
     pub px: f32,
     pub outline: bool,
     pub ms: Option<u64>,
+    /// Head and the top of the shoulders only (the chat status line): `px` is then the square slot
+    /// (the sheet's 22 9 56 56); the image is bigger, with room for the marks, see `bust_frame`.
+    pub bust: bool,
+    /// Draw in this colour instead of the agent's dot (the status line uses the step-line grey).
+    pub ink: Option<Rgb>,
 }
 
 // The figure (sheet PROPS.now): head radius and centre, body radius and centre; the body is cut at y 100.
@@ -53,6 +58,11 @@ const BCY: f32 = 92.0;
 /// The sheet's box, and the same raised to y -12 so the marks fit (used from MARKS_FROM up).
 const SHEET: (f32, f32, f32, f32) = (10.0, 4.0, 80.0, 96.0);
 const TALL: (f32, f32, f32, f32) = (10.0, -12.0, 80.0, 112.0);
+/// The bust's slot (the sheet's crop), and the drawn box: the slot plus room up and right for the marks.
+const BUST: (f32, f32, f32, f32) = (22.0, 9.0, 56.0, 56.0);
+const BUST_DRAW: (f32, f32, f32, f32) = (22.0, -18.0, 64.0, 83.0);
+/// Marks on the bust from this slot size up.
+pub const BUST_MARKS_FROM: f32 = 14.0;
 /// Marks (?, !, z) only from this height up.
 pub const MARKS_FROM: f32 = 28.0;
 
@@ -71,6 +81,13 @@ fn view(px: f32) -> (f32, f32, f32, f32) {
 pub fn size(px: f32) -> (f32, f32) {
     let (_, _, w, h) = view(px);
     (px * w / SHEET.3, px * h / SHEET.3)
+}
+
+/// A bust in a `px` square slot: the image's width, height, and how far its top sits above the
+/// slot's top (place it absolutely at left 0, top -that, so the marks overhang the slot).
+pub fn bust_frame(px: f32) -> (f32, f32, f32) {
+    let k = px / BUST.3;
+    (BUST_DRAW.2 * k, BUST_DRAW.3 * k, (BUST.1 - BUST_DRAW.1) * k)
 }
 
 /// The cog turns once every 3.8s.
@@ -110,15 +127,16 @@ fn pose(m: Mood) -> (f32, f32, f32, f32) {
 // ponytail: a string per frame; the animated status line should paint these shapes directly
 // instead of rasterising a new image every frame.
 pub fn svg(dot: usize, mood: Mood, look: Look) -> String {
-    let col = AGENT_DOTS[dot % AGENT_DOTS.len()].to_hex();
-    let (vx, vy, vw, vh) = view(look.px);
-    let sw = (1.7 * SHEET.3 / look.px).max(2.4);
+    let col = look.ink.unwrap_or(AGENT_DOTS[dot % AGENT_DOTS.len()]).to_hex();
+    let (vx, vy, vw, vh) = if look.bust { BUST_DRAW } else { view(look.px) };
+    // About 1.4px on the bust, 1.7px on the figure, never under 2.4 units.
+    let sw = if look.bust { 1.4 * BUST.3 / look.px } else { 1.7 * SHEET.3 / look.px }.max(2.4);
     let paint = if look.outline {
         format!(r#"fill="none" stroke="{col}" stroke-width="{sw:.2}" stroke-linejoin="round" stroke-linecap="round""#)
     } else {
         format!(r#"fill="{col}""#)
     };
-    let (w, h) = size(look.px);
+    let (w, h) = if look.bust { let (w, h, _) = bust_frame(look.px); (w, h) } else { size(look.px) };
     let mut out = format!(r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="{vx} {vy} {vw} {vh}" width="{w:.1}" height="{h:.1}">"#);
 
     let dx = (BR * BR - (100.0 - BCY).powi(2)).sqrt();
@@ -151,8 +169,10 @@ pub fn svg(dot: usize, mood: Mood, look: Look) -> String {
         }
     }
 
-    if look.px >= MARKS_FROM {
-        out += &mark(mood, &col);
+    if look.bust && look.px >= BUST_MARKS_FROM {
+        out += &mark(mood, &col, true);
+    } else if !look.bust && look.px >= MARKS_FROM {
+        out += &mark(mood, &col, false);
     }
     out + "</svg>"
 }
@@ -160,7 +180,7 @@ pub fn svg(dot: usize, mood: Mood, look: Look) -> String {
 /// Two pill eyes, 1.25x bigger below 40px so they still read.
 fn eyes(mood: Mood, look: Look, col: &str) -> String {
     let fill = if look.outline { col.to_string() } else { avatar::EYE.to_hex() };
-    let k = if look.px < 40.0 { 1.25 } else { 1.0 };
+    let k = if look.bust { 1.1 } else if look.px < 40.0 { 1.25 } else { 1.0 };
     let d = 2.0 * HR;
     let (w, h) = (0.10 * d * k, 0.24 * d * k);
     let c = 0.14 * d / 2.0 + w / 2.0;
@@ -182,22 +202,24 @@ fn eyes(mood: Mood, look: Look, col: &str) -> String {
 }
 
 /// The mark beside the head: ? asking, ! surprised, z's sleepy. Drawn whole (no draw-on), as paths.
-fn mark(mood: Mood, col: &str) -> String {
+/// On the bust they are about 1.5x bigger and placed clear of the head (sheet 5742272).
+fn mark(mood: Mood, col: &str, bust: bool) -> String {
+    let (q, b) = if bust { ("translate(61 -13) rotate(10) scale(.2)", "translate(68 -10) scale(.25)") } else { ("translate(62 -7) rotate(10) scale(.135)", "translate(68 -8) scale(.17)") };
     match mood {
         Mood::Asking => format!(
-            r#"<g class="mark" transform="translate(62 -7) rotate(10) scale(.135)"><path d="M24 40 C24 18 40 6 58 6 C78 6 92 20 92 38 C92 56 78 64 68 72 C61 78 58 84 58 96" fill="none" stroke="{col}" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/><circle cx="58" cy="124" r="13" fill="{col}"/></g>"#
+            r#"<g class="mark" transform="{q}"><path d="M24 40 C24 18 40 6 58 6 C78 6 92 20 92 38 C92 56 78 64 68 72 C61 78 58 84 58 96" fill="none" stroke="{col}" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/><circle cx="58" cy="124" r="13" fill="{col}"/></g>"#
         ),
         Mood::Surprised => format!(
-            r#"<g class="mark" transform="translate(68 -8) scale(.17)"><path d="M20 4 C27 4 31 9 30 16 L26 62 C25.5 67 23 69 20 69 C17 69 14.5 67 14 62 L10 16 C9 9 13 4 20 4 Z" fill="{col}"/><circle cx="20" cy="87" r="9" fill="{col}"/></g>"#
+            r#"<g class="mark" transform="{b}"><path d="M20 4 C27 4 31 9 30 16 L26 62 C25.5 67 23 69 20 69 C17 69 14.5 67 14 62 L10 16 C9 9 13 4 20 4 Z" fill="{col}"/><circle cx="20" cy="87" r="9" fill="{col}"/></g>"#
         ),
         Mood::Sleepy => {
             // Three z's, each smaller and higher, apart so they read as three.
             let z = |x: f32, y: f32, s: f32| format!("M{x} {} h{s} l-{s} {s} h{s}", y - s);
+            let zs = if bust { [z(64.0, 15.0, 9.0), z(72.0, 3.0, 7.5), z(79.0, -8.0, 6.0)] } else { [z(65.0, 17.0, 7.0), z(75.0, 7.0, 5.5), z(83.0, -1.0, 4.0)] };
+            let w = if bust { 3.2 } else { 2.4 };
             format!(
-                r#"<path class="mark" d="{} {} {}" fill="none" stroke="{col}" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>"#,
-                z(65.0, 17.0, 7.0),
-                z(75.0, 7.0, 5.5),
-                z(83.0, -1.0, 4.0)
+                r#"<path class="mark" d="{} {} {}" fill="none" stroke="{col}" stroke-width="{w}" stroke-linecap="round" stroke-linejoin="round"/>"#,
+                zs[0], zs[1], zs[2]
             )
         }
         _ => String::new(),

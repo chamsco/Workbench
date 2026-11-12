@@ -1,8 +1,8 @@
 use cauldron_chrome::avatar::{cog_angle, hop, size, svg, Look, Mood, MOODS};
-use cauldron_chrome::tokens::{avatar, AGENT_DOTS};
+use cauldron_chrome::tokens::{avatar, Rgb, AGENT_DOTS};
 
 fn look(px: f32) -> Look {
-    Look { px, outline: false, ms: Some(1000) }
+    Look { px, outline: false, ms: Some(1000), bust: false, ink: None }
 }
 
 fn colours(s: &str) -> Vec<String> {
@@ -99,4 +99,25 @@ fn px_is_the_sheets_figure_height_with_headroom_only_for_marks() {
     // From 28px up the box grows upward; the figure keeps the sheet's scale (96 units = px).
     let (w, h) = size(64.);
     assert!((h - 64. * 112. / 96.).abs() < 1e-3 && (w - 64. * 80. / 96.).abs() < 1e-3);
+}
+
+#[test]
+fn the_bust_is_the_head_and_shoulders_in_a_square_slot_with_marks_overhanging() {
+    let b = Look { bust: true, outline: true, ..look(16.) };
+    let s = svg(0, Mood::Asking, b);
+    assert!(s.contains(r#"viewBox="22 -18 64 83""#), "{s}");
+    assert!(s.contains("class=\"mark\""), "the bust keeps its marks at 16px");
+    assert!(!svg(0, Mood::Asking, Look { px: 13., ..b }).contains("class=\"mark\""));
+    // The slot is the sheet's 22 9 56 56: 16 units of image per 56 units, the image 27 units above.
+    let (w, h, top) = cauldron_chrome::avatar::bust_frame(16.);
+    let k = 16. / 56.;
+    assert!((w - 64. * k).abs() < 1e-3 && (h - 83. * k).abs() < 1e-3 && (top - 27. * k).abs() < 1e-3);
+}
+
+#[test]
+fn ink_draws_the_figure_in_another_token_colour() {
+    let grey = Rgb::hex(0x8e8896);
+    let s = svg(3, Mood::Typing, Look { outline: true, ink: Some(grey), ..look(17.) });
+    assert!(s.contains("#8e8896"));
+    assert!(!s.contains(&AGENT_DOTS[3].to_hex()));
 }
