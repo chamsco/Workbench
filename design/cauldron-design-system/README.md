@@ -10,8 +10,8 @@ Cauldron is a desktop app for running coding agents. The interface is a quiet in
 
 ## Surfaces and depth
 
-- Stack surfaces in tone, not lines: `frame` (window, sidebar, top bar) holds `card` (the main card), which holds `inset` (tool rows, code, tags, switch tracks).
-- Cards take no shadow and no outline. Only overlays lift: menus and popovers use `raised` with `shadow-menu`, tooltips `shadow-tip`, the composer `shadow-box`.
+- Stack surfaces in tone, not lines, as Tuff UI's Surface does: `bg`/`frame` (window, sidebar, top bar) holds a Shell (`card`), which holds a Panel (`panel`), which holds Insets (`inset`: tool rows, code, tags, switch tracks). In light the panel is white on a grey shell; in dark it is darker than the shell.
+- Shells and panels take no shadow; a panel gets a 1px `line` ring. Only overlays lift: menus and popovers use `raised` with `shadow-menu`, tooltips `shadow-tip`, the composer `shadow-box`.
 - Hairlines (`line`) separate rows inside a card. `line-strong` is for the composer edge, menu rings and Kbd. `line-control` (3:1) is for edges that carry meaning, such as an off toggle.
 - Hover is a fill (`hover`), selection a deeper fill (`selected`). Never show hover or selection with a border or an accent bar.
 
@@ -27,7 +27,7 @@ Cauldron is a desktop app for running coding agents. The interface is a quiet in
 ## Type
 
 - UI text is `body` (13/18). Metadata is `meta` (12/16). Agent prose in the thread is `reading` (14/22, max 72ch). Card titles are `title` (15/20); page headings `heading`; `display` only on first run and empty states.
-- Windows uses Segoe UI Variable (Text below 20px, Display above), macOS uses SF Pro. Mono is Cascadia Mono on Windows and SF Mono on macOS.
+- The face is Geist, the same as Tuff UI (SIL Open Font License, so it may be bundled), with Geist Mono for code. Switch on the stylistic sets `cv11` and `ss01` everywhere, as Tuff does. Bundle the Geist and Geist Mono font files with the app: Windows and macOS do not ship them. Fall back to Segoe UI Variable on Windows and SF Pro on macOS.
 - Identifiers are mono (`mono-tag` in tags): models, branches, files, tools, commands. Prose is never mono.
 - Turn on tabular numerals for every number that changes or lines up.
 - Two weights: 400 and 600 for text, 500 for controls and labels. No 700, no italics in chrome.
