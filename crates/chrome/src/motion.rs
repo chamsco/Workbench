@@ -13,17 +13,17 @@ pub const SETTLE: Bezier = Bezier::new(0.32, 0.72, 0.0, 1.0);
 /// Durations in milliseconds.
 pub mod time {
     /// A pane moves, opens or closes (sidebar, drawer, split).
-    pub const LAYOUT: u64 = 300;
+    pub const LAYOUT: u64 = 200;
     /// The open panel's content changes (drawer panel switch).
-    pub const PANEL: u64 = 240;
+    pub const PANEL: u64 = 200;
     /// The selected function icon's indicator travels.
-    pub const INDICATOR: u64 = 220;
+    pub const INDICATOR: u64 = 180;
     /// A menu grows in or out.
     pub const MENU: u64 = 160;
     /// Each menu item starts this much after the one above.
     pub const STAGGER: u64 = 25;
     /// The sent text lands in its bubble.
-    pub const CARRY: u64 = 300;
+    pub const CARRY: u64 = 200;
     /// Send and Stop swap.
     pub const SWAP: u64 = 120;
     /// The cross-fade used when the system asks for less motion.
