@@ -1,5 +1,11 @@
 # Avatars
 
+## 03: the chat status line agent, a bust
+
+`03-status-line-bust-in-app-sample.png`: two step lines, then status lines with the agent as a bust (sheet 5742272): head plus the top of the shoulders in a 16px square slot (the sheet's 22 9 56 56), outline about 1.4px in the step lines' grey (`DARK.fg3` via `Look.ink`), 6px gap so the label starts where the step text does. Marks are about 1.5x bigger and overhang the slot up and right (`avatar::bust_frame` gives the image size and offset). Real window, placed in the Highlights panel for the shot only (reverted, not committed). The status line itself is not built yet; still frames.
+
+- The bust tests were written with the code; the red run (`Avatar-bust-red-output.txt`) is from the first bust try, before `bust` and `ink` existed.
+
 ## 02: flat figure A, in the app
 
 `02-flat-moods-in-app-sample.png`: the eleven moods at 48px, five as outlines, then asking at 40, 28, 22 and 16px. Shot from the real window (debug build, sample data folder, 1240x702, 12 Nov 2026) with the strip placed in the empty Highlights panel for the shot only; that placement was reverted and is not committed. GPUI draws each figure from the SVG that `cauldron_chrome::avatar::svg` writes.
