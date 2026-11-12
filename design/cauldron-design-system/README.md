@@ -1,4 +1,4 @@
-Cauldron is a desktop app for running coding agents. The interface is a quiet instrument: neutral surfaces stacked in tone steps, one ember accent that only ever means "this wants you", and facts written as numbers and words. Build every screen from these tokens; a value that is not here is a question for the design thread, not a new hex code.
+Cauldron is a desktop app for running coding agents. The interface is a quiet instrument: neutral surfaces stacked in tone steps, one purple accent that only ever means "this wants you", and facts written as numbers and words. Build every screen from these tokens; a value that is not here is a question for the design thread, not a new hex code.
 
 ## Voice
 
@@ -36,7 +36,7 @@ Cauldron is a desktop app for running coding agents. The interface is a quiet in
 
 - Spacing steps are `space-2` to `space-48`; window margins and card padding are `space-12`, rows pad `space-8`.
 - Controls are 28 (`size-control`), 24 in dense places, 32 for tabs and tool rows. Sidebar rows are 28, two-line rows 44.
-- Radii nest from the tab: `radius-card` 6 for cards, tabs and menus; `radius-control` 4 for buttons, rows and chips; `radius-inner` 3 inside padded boxes; `radius-window` 10 for the window and the composer shell. `radius-round` is for circles only: no pill-shaped buttons or badges.
+- Radii are Tuff's and nest by the 6px shell padding: `radius-shell` 22 (shell, window, composer shell), `radius-panel` 16 (panel, cards, dialogs), `radius-inset` 12 (insets, tool rows, menus), `radius-control` 10 (buttons, rows), `radius-inner` 8, `radius-tag` 6. `radius-round` is for circles only.
 
 ## Motion
 
