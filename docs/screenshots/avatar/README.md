@@ -1,8 +1,18 @@
 # Avatars
 
+## 04 to 07: the bust in the thread's status line
+
+`04-thread-writing.png` (Writing: three small heads), `05-thread-waiting.png` (Waiting for the reply: head and shoulders), `06-thread-streaming-text.png` (text arriving, the status line stays under it), `07-status-line-zoom-8x.png` (04 and 05 enlarged). Real window, debug build, 1240x702, a copy of the sample data folder with a running reply added. For the shot only, core was kept from turning that stale reply into Stopped on load (reverted, not committed).
+
+- Crop v2 (`docs/cauldron/BUST-CROP-V2.md` on gg3ogp): slot 18 7 64 64, so the head is a little smaller and the shoulders show to the slot edge; marks keep their on-screen size.
+- A reply that is Sending or Streaming draws the bust (outline, the palette's `fg3`) in a 16px slot, then its label in the step lines' 12.5px grey, under any text so far. Step checks now sit in the same 16px slot with the same 8px gap, so the label starts where the step text does (the step text moved 3px right); the test checks the x.
+- At 16px the typing mood's three heads read as a dotted bar (07).
+- Still frames: the cog spin and typing hop come with the motion clock.
+- Runs: `docs/cauldron/Avatar-crop2-red.txt`, `Avatar-crop2-green.txt`, `Thread-bust-red.txt` (no status line yet), `Thread-bust-green.txt`.
+
 ## 03: the chat status line agent, a bust
 
-`03-status-line-bust-in-app-sample.png`: two step lines, then status lines with the agent as a bust (sheet 5742272): head plus the top of the shoulders in a 16px square slot (the sheet's 22 9 56 56), outline about 1.4px in the step lines' grey (`DARK.fg3` via `Look.ink`), 6px gap so the label starts where the step text does. Marks are about 1.5x bigger and overhang the slot up and right (`avatar::bust_frame` gives the image size and offset). Real window, placed in the Highlights panel for the shot only (reverted, not committed). The status line itself is not built yet; still frames.
+`03-status-line-bust-in-app-sample.png`: two step lines, then status lines with the agent as a bust (sheet 5742272): head plus the top of the shoulders in a 16px square slot (the sheet's 22 9 56 56, since cropped wider; see 04), outline about 1.4px in the step lines' grey (`DARK.fg3` via `Look.ink`), 6px gap (now a shared 16px slot and 8px gap, see 04) so the label starts where the step text does. Marks are about 1.5x bigger and overhang the slot up and right (`avatar::bust_frame` gives the image size and offset). Real window, placed in the Highlights panel for the shot only (reverted, not committed). The status line itself is not built yet; still frames.
 
 - The bust tests were written with the code; the red run (`Avatar-bust-red-output.txt`) is from the first bust try, before `bust` and `ink` existed.
 
