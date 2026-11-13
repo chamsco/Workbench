@@ -3,10 +3,11 @@
 //! field, a value of the wrong type) still gives these two their saved values or sane defaults, and
 //! never a half state. Old Tauri values carry over only where they map cleanly: "plain" is None,
 //! the Tauri paintings are themselves; the ASCII sea, the koi and the aurora are gone, so they fall
-//! back to the default, the Flow held still (Moving is a choice: it costs about 10% of a core).
+//! back to the default, Flow moving (it plays for a few seconds, then rests).
 //!
 //! The background's motion lives in the same saved id, so core's prefs need no new field: "flow" is
-//! Moving, "flow-still" or a painting is Still (that picture), "plain" is Off.
+//! Moving (plays, then rests), "flow-live" Always moving, "flow-still" or a painting Still (that
+//! picture), "plain" Off.
 
 use std::path::Path;
 
@@ -53,7 +54,10 @@ pub(crate) struct Look {
 /// Settings > Appearance > Background.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Motion {
+    /// Plays for `REST_AFTER` on launch, on focus and on each New stream, then rests.
     Moving,
+    /// Moves whenever it may (about 10% of a core, measured).
+    Always,
     Still,
     Off,
 }
@@ -62,6 +66,7 @@ impl Motion {
     pub(crate) fn label(self) -> &'static str {
         match self {
             Motion::Moving => "Moving",
+            Motion::Always => "Always moving",
             Motion::Still => "Still",
             Motion::Off => "Off",
         }
@@ -72,24 +77,54 @@ impl Look {
     pub(crate) fn motion(&self) -> Motion {
         match self.backdrop {
             "flow" => Motion::Moving,
+            "flow-live" => Motion::Always,
             "plain" => Motion::Off,
             _ => Motion::Still,
         }
     }
 }
 
-/// The saved id for the next Background choice: Moving, Still (Flow held still), Off.
+/// The saved id for the next Background choice: Moving, Always moving, Still (Flow held still), Off.
 pub(crate) fn next_motion(m: Motion) -> &'static str {
     match m {
-        Motion::Moving => "flow-still",
+        Motion::Moving => "flow-live",
+        Motion::Always => "flow-still",
         Motion::Still => "plain",
         Motion::Off => "flow",
     }
 }
 
+/// How long Moving plays before it rests.
+pub(crate) const REST_AFTER: std::time::Duration = std::time::Duration::from_secs(8);
+
+/// Moving's play-then-rest timer (the coordinator, 13 Nov 19:38Z): it plays for `REST_AFTER` on
+/// launch, when the window comes back to the front, and each time New stream is shown, then holds
+/// its last frame. Nothing else wakes it; typing in the composer does not.
+#[derive(Default, Debug)]
+pub(crate) struct Burst {
+    until: Option<std::time::Instant>,
+    /// The window in front, and New stream shown, at the last look.
+    last: Option<(bool, bool)>,
+}
+
+impl Burst {
+    /// Whether it plays at `now`, given whether the window is in front and New stream is shown.
+    pub(crate) fn playing(&mut self, now: std::time::Instant, active: bool, new_stream: bool) -> bool {
+        let woke = match self.last {
+            None => true,
+            Some((was_active, was_new)) => (active && !was_active) || (new_stream && !was_new),
+        };
+        self.last = Some((active, new_stream));
+        if woke {
+            self.until = Some(now + REST_AFTER);
+        }
+        self.until.is_some_and(|u| now < u)
+    }
+}
+
 impl Default for Look {
     fn default() -> Look {
-        Look { theme: Theme::System, backdrop: "flow-still" }
+        Look { theme: Theme::System, backdrop: "flow" }
     }
 }
 
@@ -104,7 +139,7 @@ pub(crate) fn theme(id: &str) -> Theme {
 /// A saved backdrop id as one Settings offers: the paintings are themselves, "plain" (or "none")
 /// is None, anything else (an old Tauri backdrop, a typo) is the default painting.
 pub(crate) fn backdrop(id: &str) -> &'static str {
-    super::backdrop::BACKDROPS.iter().map(|b| b.0).find(|b| *b == id).unwrap_or(if id.eq_ignore_ascii_case("none") { "plain" } else { "flow-still" })
+    super::backdrop::BACKDROPS.iter().map(|b| b.0).find(|b| *b == id).unwrap_or(if id.eq_ignore_ascii_case("none") { "plain" } else { "flow" })
 }
 
 /// The look in a prefs file's text, or the defaults; never fails.
@@ -113,7 +148,7 @@ pub(crate) fn from_json(text: Option<&str>) -> Look {
     let field = |k: &str| v.as_ref().and_then(|v| v.get(k)).and_then(|x| x.as_str()).map(str::to_string);
     Look {
         theme: field("theme").map_or(Theme::System, |t| theme(&t)),
-        backdrop: field("backdrop").map_or("flow-still", |b| backdrop(&b)),
+        backdrop: field("backdrop").map_or("flow", |b| backdrop(&b)),
     }
 }
 
@@ -132,8 +167,8 @@ mod tests {
         assert_eq!(from_json(None), Look::default());
         assert_eq!(from_json(Some("not json {")), Look::default());
         assert_eq!(load(Some(Path::new("/nonexistent/cauldron/prefs.json"))), Look::default());
-        assert_eq!(Look::default().backdrop, "flow-still");
-        assert_eq!(Look::default().motion(), Motion::Still, "Background is Still by default: moving costs more than the board allowed");
+        assert_eq!(Look::default().backdrop, "flow");
+        assert_eq!(Look::default().motion(), Motion::Moving, "Background is Moving (plays, then rests) by default");
     }
 
     #[test]
@@ -142,7 +177,7 @@ mod tests {
         assert_eq!(backdrop("none"), "plain");
         assert_eq!(backdrop("harbour"), "harbour");
         for gone in ["aurora", "sharks-white", "sharks-black", "koi", "", "Harbour!"] {
-            assert_eq!(backdrop(gone), "flow-still", "{gone:?} falls back to the default, Flow held still");
+            assert_eq!(backdrop(gone), "flow", "{gone:?} falls back to the default, Flow");
         }
         assert_eq!(theme("dark"), Theme::Dark);
         assert_eq!(theme("auto"), Theme::System, "an unknown theme follows the OS");
@@ -155,7 +190,7 @@ mod tests {
         let retired = r#"{"tabs":"floating","tab_place":"pane","theme":"light","backdrop":"fog"}"#;
         assert_eq!(from_json(Some(retired)), Look { theme: Theme::Light, backdrop: "fog" });
         let tauri = r#"{"theme":"dark","backdrop":"sharks-white","glass":true,"vivid":false,"tabs":[{"name":"Home","panes":[]}],"active_tab":3}"#;
-        assert_eq!(from_json(Some(tauri)), Look { theme: Theme::Dark, backdrop: "flow-still" });
+        assert_eq!(from_json(Some(tauri)), Look { theme: Theme::Dark, backdrop: "flow" });
         let wrong_types = r#"{"theme":7,"backdrop":null}"#;
         assert_eq!(from_json(Some(wrong_types)), Look::default());
     }
@@ -164,8 +199,29 @@ mod tests {
     #[test]
     fn the_background_reads_from_the_saved_id() {
         let m = |b: &str| from_json(Some(&format!(r#"{{"backdrop":"{b}"}}"#))).motion();
-        assert_eq!([m("flow"), m("flow-still"), m("harbour"), m("plain")], [Motion::Moving, Motion::Still, Motion::Still, Motion::Off]);
-        assert_eq!([next_motion(Motion::Moving), next_motion(Motion::Still), next_motion(Motion::Off)], ["flow-still", "plain", "flow"]);
+        assert_eq!([m("flow"), m("flow-live"), m("flow-still"), m("harbour"), m("plain")], [Motion::Moving, Motion::Always, Motion::Still, Motion::Still, Motion::Off]);
+        assert_eq!([Motion::Moving, Motion::Always, Motion::Still, Motion::Off].map(next_motion), ["flow-live", "flow-still", "plain", "flow"]);
+    }
+
+    /// Moving plays for 8s on launch, on coming back to the front and on each New stream, then
+    /// rests; renders in between (typing in the composer) do not wake it. A fake clock.
+    #[test]
+    fn moving_plays_then_rests() {
+        let t0 = std::time::Instant::now();
+        let at = |s: f32| t0 + std::time::Duration::from_secs_f32(s);
+        let mut b = Burst::default();
+        assert!(b.playing(at(0.0), true, true), "plays on launch");
+        assert!(b.playing(at(7.9), true, true), "for 8 seconds");
+        assert!(!b.playing(at(8.0), true, true), "then rests");
+        for k in 0..50 {
+            assert!(!b.playing(at(9.0 + k as f32 * 0.1), true, true), "typing re-renders but does not wake it");
+        }
+        assert!(!b.playing(at(20.0), false, true), "the window leaves the front");
+        assert!(b.playing(at(30.0), true, true), "and plays again when it comes back");
+        assert!(!b.playing(at(38.5), true, true));
+        assert!(!b.playing(at(40.0), true, false), "a stream opens");
+        assert!(b.playing(at(50.0), true, true), "New stream shown again plays");
+        assert!(!b.playing(at(58.1), true, true));
     }
 
     #[test]

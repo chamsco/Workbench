@@ -14,8 +14,9 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 /// The backdrops, as saved in prefs: (id, name). "flow" is the moving Flow (S1), "flow-still" the
 /// same held still; the paintings are the Tauri app's; "plain" is none.
-pub(crate) const BACKDROPS: [(&str, &str); 8] = [
+pub(crate) const BACKDROPS: [(&str, &str); 9] = [
     ("flow", "Flow"),
+    ("flow-live", "Flow"),
     ("flow-still", "Flow"),
     ("harbour", "Harbour"),
     ("dawn", "Lighthouse at dawn"),
@@ -34,7 +35,7 @@ pub(crate) const FLOW: &str = "flow";
 /// The painting for a backdrop in a theme: the harbour is the night in dark and the dawn in light.
 pub(crate) fn painting(id: &str, dark: bool) -> Option<&'static str> {
     match id {
-        "flow" | "flow-still" => Some(FLOW),
+        "flow" | "flow-live" | "flow-still" => Some(FLOW),
         "harbour" => Some(if dark { "harbour-night" } else { "harbour-dawn" }),
         "dawn" => Some("dawn"),
         "night" => Some("night"),
@@ -484,7 +485,7 @@ mod tests {
                 }
             }
         }
-        assert_eq!(cases.len(), 14, "Flow moving and still, five paintings, two themes");
+        assert_eq!(cases.len(), 16, "Flow (three ways), five paintings, two themes");
         for (dark, pal, name) in cases {
             let mut b = Backdrop::default();
             b.window(name, dark, 1200, 720, rgb(pal.panel));

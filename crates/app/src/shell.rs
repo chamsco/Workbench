@@ -160,6 +160,8 @@ pub(crate) struct Cauldron {
     flow_clock: Option<(std::time::Instant, f32)>,
     flow_task: Option<Task<()>>,
     flow_running: bool,
+    /// Moving's play-then-rest timer.
+    flow_burst: appearance::Burst,
     flow_at: Option<((f32, f32), (i32, i32, u32, u32), bool)>,
     /// Pictures retired last frame, freed from the GPU this frame.
     retired: Vec<Arc<RenderImage>>,
@@ -331,7 +333,7 @@ impl Cauldron {
     }
 
     pub(crate) fn new() -> Self {
-        Cauldron { motion: ShellMotion::default(), swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: None, sidebar_open: true, drawer: None, backdrop: Default::default(), glass_at: Default::default(), glass_card: std::cell::Cell::new(None), appearance_sub: None, active_sub: None, flow_clock: None, flow_task: None, flow_running: false, flow_at: None, retired: Vec::new(), flow_stats: (0, std::time::Duration::ZERO), prefs_file: None, plat: platform(), folder_open: Default::default(), page: Default::default(), page_agents: Vec::new(), agent_sel: None, agent_tab: 0, settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_menu: false, tab_slide: Default::default(), tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
+        Cauldron { motion: ShellMotion::default(), swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: None, sidebar_open: true, drawer: None, backdrop: Default::default(), glass_at: Default::default(), glass_card: std::cell::Cell::new(None), appearance_sub: None, active_sub: None, flow_clock: None, flow_task: None, flow_running: false, flow_burst: Default::default(), flow_at: None, retired: Vec::new(), flow_stats: (0, std::time::Duration::ZERO), prefs_file: None, plat: platform(), folder_open: Default::default(), page: Default::default(), page_agents: Vec::new(), agent_sel: None, agent_tab: 0, settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_menu: false, tab_slide: Default::default(), tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
     }
 
     /// Opens core off the main thread (the sidebar shows Loading meanwhile), then keeps the thread
@@ -1412,7 +1414,17 @@ impl Render for Cauldron {
         let sh = s.shell;
         // Flow moves only behind the new stream, with the window in front and motion allowed; any
         // stream, page or Settings, or a split, holds the last frame still.
-        let flowing = look.motion() == appearance::Motion::Moving && new_screen && !split && !reduce && window.is_window_active();
+        let active = window.is_window_active();
+        let playing = self.flow_burst.playing(now, active, new_screen && !split);
+        let flowing = match look.motion() {
+            appearance::Motion::Always => true,
+            appearance::Motion::Moving => playing,
+            _ => false,
+        } && new_screen
+            && !split
+            && !reduce
+            && active;
+        // The loop's own frames re-render, so the first render after the play ends stops it.
         self.flow_at = flowing.then_some(((w, h), (s.main.x as i32, s.main.y as i32, s.main.w as u32, card_h as u32), dark));
         if flowing && !self.flow_running {
             self.start_flow(cx);

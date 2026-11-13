@@ -182,7 +182,7 @@ impl Cauldron {
             col = col.child(section("Theme"));
             col = col.child(row(("look", 0), "Theme".into(), "Light, dark, or System, which follows your computer as it changes.".into(), theme.into_any_element()));
             col = col.child(section("Background"));
-            col = col.child(row(("look", 1), "Background".into(), "Moving: the Flow moves behind the new stream, and only there, while the window is in front. Still: a picture that does not move. Off: the plain frame.".into(), bg.into_any_element()));
+            col = col.child(row(("look", 1), "Background".into(), "Moving: the Flow plays for a few seconds behind the new stream, then rests. Always moving: it keeps moving there (about a tenth of a core). Still: a picture. Off: the plain frame.".into(), bg.into_any_element()));
             if motion == super::appearance::Motion::Still {
                 col = col.child(row(("look", 2), "Picture".into(), "Behind the whole window, in the old dither; the new stream shows it clear, every other surface frosted.".into(), pic.into_any_element()));
             }
