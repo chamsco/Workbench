@@ -1,0 +1,60 @@
+{
+ "v": 1,
+ "op": "create",
+ "at": "thread",
+ "block": {
+  "type": "Shell",
+  "id": "sh1",
+  "props": {
+   "title": "Step ledger moved to the new tokens",
+   "icon": "check"
+  },
+  "children": [
+   {
+    "type": "Panel",
+    "id": "pn1",
+    "children": [
+     {
+      "type": "ResultCard",
+      "id": "res1",
+      "props": {
+       "title": "4 files changed",
+       "state": "done",
+       "facts": [
+        "3m 12s",
+        "$0.84"
+       ],
+       "files": [
+        {
+         "path": "crates/chrome/src/tokens.rs",
+         "added": 48,
+         "removed": 12
+        },
+        {
+         "path": "crates/app/src/ledger.rs",
+         "added": 61,
+         "removed": 22
+        }
+       ],
+       "links": [
+        {
+         "label": "Ask for a review",
+         "action": "review.request"
+        }
+       ],
+       "primary": {
+        "label": "Create PR",
+        "variant": "primary",
+        "action": "pr.create"
+       },
+       "secondary": {
+        "label": "Open diff",
+        "action": "diff.open"
+       }
+      }
+     }
+    ]
+   }
+  ]
+ }
+}

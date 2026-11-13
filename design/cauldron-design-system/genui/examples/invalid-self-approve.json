@@ -1,0 +1,15 @@
+{
+ "v": 1,
+ "op": "create",
+ "at": "thread",
+ "block": {
+  "type": "ApprovalCard",
+  "props": {
+   "title": "Delete branch",
+   "why": "Cleanup",
+   "risk": "high",
+   "approveAction": "x.do",
+   "denyAction": "x.do"
+  }
+ }
+}

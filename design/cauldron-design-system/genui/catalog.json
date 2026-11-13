@@ -1,0 +1,2028 @@
+{
+ "version": 1,
+ "name": "Cauldron generative UI",
+ "components": [
+  {
+   "name": "Stack",
+   "kind": "layout",
+   "summary": "Vertical or horizontal group with token gaps.",
+   "useWhen": "Group blocks that belong together.",
+   "props": {
+    "type": "object",
+    "properties": {
+     "direction": {
+      "enum": [
+       "column",
+       "row"
+      ]
+     },
+     "gap": {
+      "enum": [
+       4,
+       8,
+       12,
+       16,
+       24
+      ]
+     },
+     "wrap": {
+      "type": "boolean"
+     }
+    },
+    "required": [],
+    "additionalProperties": false
+   },
+   "children": {
+    "max": 24
+   },
+   "events": [],
+   "notes": ""
+  },
+  {
+   "name": "Shell",
+   "kind": "layout",
+   "summary": "A tray with an optional header and footer that holds one Panel.",
+   "useWhen": "A standalone card in the thread or drawer: the outer layer of anything with a title.",
+   "props": {
+    "type": "object",
+    "properties": {
+     "title": {
+      "type": "string",
+      "maxLength": 80
+     },
+     "subtitle": {
+      "type": "string",
+      "maxLength": 120
+     },
+     "icon": {
+      "type": "string",
+      "enum": [
+       "check",
+       "x",
+       "plus",
+       "up",
+       "mic",
+       "shield",
+       "down",
+       "right",
+       "branch",
+       "terminal",
+       "file",
+       "copy",
+       "stop",
+       "folder",
+       "laptop",
+       "code",
+       "edit",
+       "archive",
+       "trash",
+       "panel",
+       "history",
+       "split",
+       "pin",
+       "git",
+       "search",
+       "thumb-up",
+       "thumb-down",
+       "refresh",
+       "arrow",
+       "warning",
+       "wrench",
+       "chart",
+       "message",
+       "doc"
+      ]
+     },
+     "badge": {
+      "type": "string",
+      "maxLength": 24
+     }
+    },
+    "required": [],
+    "additionalProperties": false
+   },
+   "children": {
+    "allowed": [
+     "Panel",
+     "Row"
+    ],
+    "max": 4
+   },
+   "events": [],
+   "notes": ""
+  },
+  {
+   "name": "Panel",
+   "kind": "layout",
+   "summary": "The content surface inside a Shell.",
+   "useWhen": "Always inside a Shell, never inside another Panel.",
+   "props": {
+    "type": "object",
+    "properties": {
+     "padding": {
+      "enum": [
+       "none",
+       "md"
+      ]
+     }
+    },
+    "required": [],
+    "additionalProperties": false
+   },
+   "children": {
+    "max": 24
+   },
+   "events": [],
+   "notes": ""
+  },
+  {
+   "name": "Well",
+   "kind": "layout",
+   "summary": "An inset well for code, payloads or details.",
+   "useWhen": "Show a command, a value list or output inside a Panel.",
+   "props": {
+    "type": "object",
+    "properties": {
+     "text": {
+      "type": "string",
+      "maxLength": 2000
+     },
+     "mono": {
+      "type": "boolean"
+     }
+    },
+    "required": [],
+    "additionalProperties": false
+   },
+   "children": null,
+   "events": [],
+   "notes": ""
+  },
+  {
+   "name": "Text",
+   "kind": "atom",
+   "summary": "A run of text in a token style.",
+   "useWhen": "Any prose or label that is not inside a component's own props.",
+   "props": {
+    "type": "object",
+    "properties": {
+     "text": {
+      "type": "string",
+      "maxLength": 2000
+     },
+     "style": {
+      "enum": [
+       "body",
+       "body-strong",
+       "meta",
+       "caption",
+       "reading",
+       "title",
+       "mono"
+      ]
+     },
+     "tone": {
+      "enum": [
+       "default",
+       "muted",
+       "warn",
+       "bad"
+      ]
+     }
+    },
+    "required": [
+     "text"
+    ],
+    "additionalProperties": false
+   },
+   "children": null,
+   "events": [],
+   "notes": ""
+  },
+  {
+   "name": "Button",
+   "kind": "atom",
+   "summary": "A button.",
+   "useWhen": "One action. At most one primary per view.",
+   "props": {
+    "type": "object",
+    "properties": {
+     "label": {
+      "type": "string",
+      "maxLength": 40
+     },
+     "variant": {
+      "enum": [
+       "primary",
+       "secondary",
+       "quiet",
+       "danger"
+      ]
+     },
+     "size": {
+      "enum": [
+       "md",
+       "sm"
+      ]
+     },
+     "icon": {
+      "type": "string",
+      "enum": [
+       "check",
+       "x",
+       "plus",
+       "up",
+       "mic",
+       "shield",
+       "down",
+       "right",
+       "branch",
+       "terminal",
+       "file",
+       "copy",
+       "stop",
+       "folder",
+       "laptop",
+       "code",
+       "edit",
+       "archive",
+       "trash",
+       "panel",
+       "history",
+       "split",
+       "pin",
+       "git",
+       "search",
+       "thumb-up",
+       "thumb-down",
+       "refresh",
+       "arrow",
+       "warning",
+       "wrench",
+       "chart",
+       "message",
+       "doc"
+      ]
+     },
+     "kbd": {
+      "type": "string",
+      "maxLength": 12
+     },
+     "action": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_.:-]{0,63}$",
+      "description": "An action id the host registered for this block. The agent names it; the host decides whether to run it."
+     },
+     "disabled": {
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "label",
+     "action"
+    ],
+    "additionalProperties": false
+   },
+   "children": null,
+   "events": [
+    "press"
+   ],
+   "notes": ""
+  },
+  {
+   "name": "IconButton",
+   "kind": "atom",
+   "summary": "A square icon button.",
+   "useWhen": "Chrome actions whose meaning the icon carries.",
+   "props": {
+    "type": "object",
+    "properties": {
+     "icon": {
+      "type": "string",
+      "enum": [
+       "check",
+       "x",
+       "plus",
+       "up",
+       "mic",
+       "shield",
+       "down",
+       "right",
+       "branch",
+       "terminal",
+       "file",
+       "copy",
+       "stop",
+       "folder",
+       "laptop",
+       "code",
+       "edit",
+       "archive",
+       "trash",
+       "panel",
+       "history",
+       "split",
+       "pin",
+       "git",
+       "search",
+       "thumb-up",
+       "thumb-down",
+       "refresh",
+       "arrow",
+       "warning",
+       "wrench",
+       "chart",
+       "message",
+       "doc"
+      ]
+     },
+     "label": {
+      "type": "string",
+      "maxLength": 40
+     },
+     "action": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_.:-]{0,63}$",
+      "description": "An action id the host registered for this block. The agent names it; the host decides whether to run it."
+     },
+     "pressed": {
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "icon",
+     "label",
+     "action"
+    ],
+    "additionalProperties": false
+   },
+   "children": null,
+   "events": [
+    "press"
+   ],
+   "notes": ""
+  },
+  {
+   "name": "StatusLabel",
+   "kind": "atom",
+   "summary": "A glyph and a word for a run or tool state.",
+   "useWhen": "Any state. Colour comes from the state, never from the agent.",
+   "props": {
+    "type": "object",
+    "properties": {
+     "state": {
+      "type": "string",
+      "enum": [
+       "running",
+       "done",
+       "needs-you",
+       "failed",
+       "stopped",
+       "idle",
+       "queued",
+       "expiring"
+      ]
+     },
+     "text": {
+      "type": "string",
+      "maxLength": 40
+     },
+     "elapsed": {
+      "type": "string",
+      "maxLength": 12
+     }
+    },
+    "required": [
+     "state"
+    ],
+    "additionalProperties": false
+   },
+   "children": null,
+   "events": [],
+   "notes": ""
+  },
+  {
+   "name": "Tag",
+   "kind": "atom",
+   "summary": "Mono label for a model, branch, file or tool; also a key hint.",
+   "useWhen": "An identifier.",
+   "props": {
+    "type": "object",
+    "properties": {
+     "text": {
+      "type": "string",
+      "maxLength": 60
+     },
+     "icon": {
+      "type": "string",
+      "enum": [
+       "check",
+       "x",
+       "plus",
+       "up",
+       "mic",
+       "shield",
+       "down",
+       "right",
+       "branch",
+       "terminal",
+       "file",
+       "copy",
+       "stop",
+       "folder",
+       "laptop",
+       "code",
+       "edit",
+       "archive",
+       "trash",
+       "panel",
+       "history",
+       "split",
+       "pin",
+       "git",
+       "search",
+       "thumb-up",
+       "thumb-down",
+       "refresh",
+       "arrow",
+       "warning",
+       "wrench",
+       "chart",
+       "message",
+       "doc"
+      ]
+     },
+     "kind": {
+      "enum": [
+       "id",
+       "key"
+      ]
+     }
+    },
+    "required": [
+     "text"
+    ],
+    "additionalProperties": false
+   },
+   "children": null,
+   "events": [],
+   "notes": ""
+  },
+  {
+   "name": "Toggle",
+   "kind": "atom",
+   "summary": "On/off setting that applies immediately.",
+   "useWhen": "A setting with a consequence line.",
+   "props": {
+    "type": "object",
+    "properties": {
+     "label": {
+      "type": "string",
+      "maxLength": 60
+     },
+     "description": {
+      "type": "string",
+      "maxLength": 160
+     },
+     "value": {
+      "type": "boolean"
+     },
+     "action": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_.:-]{0,63}$",
+      "description": "An action id the host registered for this block. The agent names it; the host decides whether to run it."
+     }
+    },
+    "required": [
+     "label",
+     "value",
+     "action"
+    ],
+    "additionalProperties": false
+   },
+   "children": null,
+   "events": [
+    "change"
+   ],
+   "notes": ""
+  },
+  {
+   "name": "SegmentedSwitch",
+   "kind": "atom",
+   "summary": "2 to 4 exclusive views.",
+   "useWhen": "Switch between views of the same thing.",
+   "props": {
+    "type": "object",
+    "properties": {
+     "options": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 4,
+      "items": {
+       "type": "object",
+       "properties": {
+        "id": {
+         "type": "string",
+         "maxLength": 24
+        },
+        "label": {
+         "type": "string",
+         "maxLength": 24
+        },
+        "icon": {
+         "type": "string",
+         "enum": [
+          "check",
+          "x",
+          "plus",
+          "up",
+          "mic",
+          "shield",
+          "down",
+          "right",
+          "branch",
+          "terminal",
+          "file",
+          "copy",
+          "stop",
+          "folder",
+          "laptop",
+          "code",
+          "edit",
+          "archive",
+          "trash",
+          "panel",
+          "history",
+          "split",
+          "pin",
+          "git",
+          "search",
+          "thumb-up",
+          "thumb-down",
+          "refresh",
+          "arrow",
+          "warning",
+          "wrench",
+          "chart",
+          "message",
+          "doc"
+         ]
+        }
+       },
+       "required": [
+        "id",
+        "label"
+       ],
+       "additionalProperties": false
+      }
+     },
+     "value": {
+      "type": "string",
+      "maxLength": 24
+     },
+     "action": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_.:-]{0,63}$",
+      "description": "An action id the host registered for this block. The agent names it; the host decides whether to run it."
+     }
+    },
+    "required": [
+     "options",
+     "value",
+     "action"
+    ],
+    "additionalProperties": false
+   },
+   "children": null,
+   "events": [
+    "change"
+   ],
+   "notes": ""
+  },
+  {
+   "name": "Menu",
+   "kind": "atom",
+   "summary": "A short action list.",
+   "useWhen": "Actions on one object.",
+   "props": {
+    "type": "object",
+    "properties": {
+     "items": {
+      "type": "array",
+      "maxItems": 10,
+      "items": {
+       "type": "object",
+       "properties": {
+        "label": {
+         "type": "string",
+         "maxLength": 40
+        },
+        "icon": {
+         "type": "string",
+         "enum": [
+          "check",
+          "x",
+          "plus",
+          "up",
+          "mic",
+          "shield",
+          "down",
+          "right",
+          "branch",
+          "terminal",
+          "file",
+          "copy",
+          "stop",
+          "folder",
+          "laptop",
+          "code",
+          "edit",
+          "archive",
+          "trash",
+          "panel",
+          "history",
+          "split",
+          "pin",
+          "git",
+          "search",
+          "thumb-up",
+          "thumb-down",
+          "refresh",
+          "arrow",
+          "warning",
+          "wrench",
+          "chart",
+          "message",
+          "doc"
+         ]
+        },
+        "kbd": {
+         "type": "string",
+         "maxLength": 12
+        },
+        "action": {
+         "type": "string",
+         "pattern": "^[a-z][a-z0-9_.:-]{0,63}$",
+         "description": "An action id the host registered for this block. The agent names it; the host decides whether to run it."
+        },
+        "danger": {
+         "type": "boolean"
+        },
+        "separatorBefore": {
+         "type": "boolean"
+        }
+       },
+       "required": [
+        "label",
+        "action"
+       ],
+       "additionalProperties": false
+      }
+     }
+    },
+    "required": [
+     "items"
+    ],
+    "additionalProperties": false
+   },
+   "children": null,
+   "events": [
+    "select"
+   ],
+   "notes": ""
+  },
+  {
+   "name": "StepLedger",
+   "kind": "molecule",
+   "summary": "The agent's finished steps as plain lines.",
+   "useWhen": "Progress of a turn that has finished or is paused.",
+   "props": {
+    "type": "object",
+    "properties": {
+     "steps": {
+      "type": "array",
+      "maxItems": 12,
+      "items": {
+       "type": "object",
+       "properties": {
+        "text": {
+         "type": "string",
+         "maxLength": 120
+        },
+        "state": {
+         "enum": [
+          "done",
+          "now",
+          "todo",
+          "failed"
+         ]
+        }
+       },
+       "required": [
+        "text",
+        "state"
+       ],
+       "additionalProperties": false
+      }
+     }
+    },
+    "required": [
+     "steps"
+    ],
+    "additionalProperties": false
+   },
+   "children": null,
+   "events": [],
+   "notes": ""
+  },
+  {
+   "name": "ThinkingTrace",
+   "kind": "molecule",
+   "summary": "Live rail of steps with an optional Searched row.",
+   "useWhen": "A turn that is still running and takes more than a couple of seconds.",
+   "props": {
+    "type": "object",
+    "properties": {
+     "elapsed": {
+      "type": "string",
+      "maxLength": 12
+     },
+     "sources": {
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+       "type": "object",
+       "properties": {
+        "name": {
+         "type": "string",
+         "maxLength": 40
+        },
+        "title": {
+         "type": "string",
+         "maxLength": 60
+        }
+       },
+       "required": [
+        "name"
+       ],
+       "additionalProperties": false
+      }
+     },
+     "steps": {
+      "type": "array",
+      "maxItems": 6,
+      "items": {
+       "type": "string",
+       "maxLength": 120
+      }
+     },
+     "current": {
+      "type": "string",
+      "maxLength": 120
+     }
+    },
+    "required": [
+     "steps"
+    ],
+    "additionalProperties": false
+   },
+   "children": null,
+   "events": [],
+   "notes": ""
+  },
+  {
+   "name": "ToolCall",
+   "kind": "molecule",
+   "summary": "One tool call with state and optional input and output.",
+   "useWhen": "Show a call the agent made or is making.",
+   "props": {
+    "type": "object",
+    "properties": {
+     "name": {
+      "type": "string",
+      "maxLength": 60
+     },
+     "summary": {
+      "type": "string",
+      "maxLength": 160
+     },
+     "state": {
+      "enum": [
+       "running",
+       "done",
+       "failed"
+      ]
+     },
+     "duration": {
+      "type": "string",
+      "maxLength": 12
+     },
+     "input": {
+      "type": "string",
+      "maxLength": 2000
+     },
+     "output": {
+      "type": "string",
+      "maxLength": 4000
+     },
+     "retryAction": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_.:-]{0,63}$",
+      "description": "An action id the host registered for this block. The agent names it; the host decides whether to run it."
+     }
+    },
+    "required": [
+     "name",
+     "state"
+    ],
+    "additionalProperties": false
+   },
+   "children": null,
+   "events": [
+    "retry"
+   ],
+   "notes": ""
+  },
+  {
+   "name": "ApprovalCard",
+   "kind": "molecule",
+   "summary": "The agent asks before an action it may not do alone.",
+   "useWhen": "Any action that writes outside the worktree, spends money, pushes, deletes or messages people.",
+   "props": {
+    "type": "object",
+    "properties": {
+     "agent": {
+      "type": "string",
+      "maxLength": 40
+     },
+     "title": {
+      "type": "string",
+      "maxLength": 100
+     },
+     "why": {
+      "type": "string",
+      "maxLength": 300
+     },
+     "risk": {
+      "enum": [
+       "low",
+       "medium",
+       "high"
+      ]
+     },
+     "details": {
+      "type": "array",
+      "maxItems": 6,
+      "items": {
+       "type": "object",
+       "properties": {
+        "key": {
+         "type": "string",
+         "maxLength": 24
+        },
+        "value": {
+         "type": "string",
+         "maxLength": 200
+        }
+       },
+       "required": [
+        "key",
+        "value"
+       ],
+       "additionalProperties": false
+      }
+     },
+     "approveAction": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_.:-]{0,63}$",
+      "description": "An action id the host registered for this block. The agent names it; the host decides whether to run it."
+     },
+     "denyAction": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_.:-]{0,63}$",
+      "description": "An action id the host registered for this block. The agent names it; the host decides whether to run it."
+     },
+     "allowAlwaysAction": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_.:-]{0,63}$",
+      "description": "An action id the host registered for this block. The agent names it; the host decides whether to run it."
+     },
+     "expiresIn": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 3600
+     }
+    },
+    "required": [
+     "title",
+     "why",
+     "risk",
+     "approveAction",
+     "denyAction"
+    ],
+    "additionalProperties": false
+   },
+   "children": null,
+   "events": [
+    "approve",
+    "deny",
+    "allow-always"
+   ],
+   "notes": "The host runs the action. The agent can never approve its own card."
+  },
+  {
+   "name": "AgentQuestion",
+   "kind": "molecule",
+   "summary": "The agent asks the person a question with choices or free text.",
+   "useWhen": "The agent is blocked on a decision only the person can make.",
+   "props": {
+    "type": "object",
+    "properties": {
+     "question": {
+      "type": "string",
+      "maxLength": 200
+     },
+     "options": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 6,
+      "items": {
+       "type": "object",
+       "properties": {
+        "id": {
+         "type": "string",
+         "maxLength": 24
+        },
+        "label": {
+         "type": "string",
+         "maxLength": 60
+        },
+        "description": {
+         "type": "string",
+         "maxLength": 160
+        }
+       },
+       "required": [
+        "id",
+        "label"
+       ],
+       "additionalProperties": false
+      }
+     },
+     "multiple": {
+      "type": "boolean"
+     },
+     "allowText": {
+      "type": "boolean"
+     },
+     "action": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_.:-]{0,63}$",
+      "description": "An action id the host registered for this block. The agent names it; the host decides whether to run it."
+     }
+    },
+    "required": [
+     "question",
+     "options",
+     "action"
+    ],
+    "additionalProperties": false
+   },
+   "children": null,
+   "events": [
+    "answer"
+   ],
+   "notes": ""
+  },
+  {
+   "name": "ResultCard",
+   "kind": "molecule",
+   "summary": "What an agent finished: facts, files, next steps.",
+   "useWhen": "A turn ended with changes or a deliverable.",
+   "props": {
+    "type": "object",
+    "properties": {
+     "title": {
+      "type": "string",
+      "maxLength": 120
+     },
+     "state": {
+      "enum": [
+       "done",
+       "failed",
+       "stopped"
+      ]
+     },
+     "facts": {
+      "type": "array",
+      "maxItems": 6,
+      "items": {
+       "type": "string",
+       "maxLength": 40
+      }
+     },
+     "files": {
+      "type": "array",
+      "maxItems": 20,
+      "items": {
+       "type": "object",
+       "properties": {
+        "path": {
+         "type": "string",
+         "maxLength": 200
+        },
+        "added": {
+         "type": "integer",
+         "minimum": 0
+        },
+        "removed": {
+         "type": "integer",
+         "minimum": 0
+        }
+       },
+       "required": [
+        "path"
+       ],
+       "additionalProperties": false
+      }
+     },
+     "links": {
+      "type": "array",
+      "maxItems": 3,
+      "items": {
+       "type": "object",
+       "properties": {
+        "label": {
+         "type": "string",
+         "maxLength": 40
+        },
+        "action": {
+         "type": "string",
+         "pattern": "^[a-z][a-z0-9_.:-]{0,63}$",
+         "description": "An action id the host registered for this block. The agent names it; the host decides whether to run it."
+        }
+       },
+       "required": [
+        "label",
+        "action"
+       ],
+       "additionalProperties": false
+      }
+     },
+     "primary": {
+      "type": "object",
+      "properties": {
+       "label": {
+        "type": "string",
+        "maxLength": 40
+       },
+       "variant": {
+        "enum": [
+         "primary",
+         "secondary",
+         "quiet",
+         "danger"
+        ]
+       },
+       "size": {
+        "enum": [
+         "md",
+         "sm"
+        ]
+       },
+       "icon": {
+        "type": "string",
+        "enum": [
+         "check",
+         "x",
+         "plus",
+         "up",
+         "mic",
+         "shield",
+         "down",
+         "right",
+         "branch",
+         "terminal",
+         "file",
+         "copy",
+         "stop",
+         "folder",
+         "laptop",
+         "code",
+         "edit",
+         "archive",
+         "trash",
+         "panel",
+         "history",
+         "split",
+         "pin",
+         "git",
+         "search",
+         "thumb-up",
+         "thumb-down",
+         "refresh",
+         "arrow",
+         "warning",
+         "wrench",
+         "chart",
+         "message",
+         "doc"
+        ]
+       },
+       "kbd": {
+        "type": "string",
+        "maxLength": 12
+       },
+       "action": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_.:-]{0,63}$",
+        "description": "An action id the host registered for this block. The agent names it; the host decides whether to run it."
+       },
+       "disabled": {
+        "type": "boolean"
+       }
+      },
+      "required": [
+       "label",
+       "action"
+      ],
+      "additionalProperties": false
+     },
+     "secondary": {
+      "type": "object",
+      "properties": {
+       "label": {
+        "type": "string",
+        "maxLength": 40
+       },
+       "variant": {
+        "enum": [
+         "primary",
+         "secondary",
+         "quiet",
+         "danger"
+        ]
+       },
+       "size": {
+        "enum": [
+         "md",
+         "sm"
+        ]
+       },
+       "icon": {
+        "type": "string",
+        "enum": [
+         "check",
+         "x",
+         "plus",
+         "up",
+         "mic",
+         "shield",
+         "down",
+         "right",
+         "branch",
+         "terminal",
+         "file",
+         "copy",
+         "stop",
+         "folder",
+         "laptop",
+         "code",
+         "edit",
+         "archive",
+         "trash",
+         "panel",
+         "history",
+         "split",
+         "pin",
+         "git",
+         "search",
+         "thumb-up",
+         "thumb-down",
+         "refresh",
+         "arrow",
+         "warning",
+         "wrench",
+         "chart",
+         "message",
+         "doc"
+        ]
+       },
+       "kbd": {
+        "type": "string",
+        "maxLength": 12
+       },
+       "action": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_.:-]{0,63}$",
+        "description": "An action id the host registered for this block. The agent names it; the host decides whether to run it."
+       },
+       "disabled": {
+        "type": "boolean"
+       }
+      },
+      "required": [
+       "label",
+       "action"
+      ],
+      "additionalProperties": false
+     }
+    },
+    "required": [
+     "title",
+     "state"
+    ],
+    "additionalProperties": false
+   },
+   "children": null,
+   "events": [
+    "press"
+   ],
+   "notes": ""
+  },
+  {
+   "name": "AnswerCard",
+   "kind": "molecule",
+   "summary": "An answer with sources, citations, follow-ups.",
+   "useWhen": "A research or Q&A turn.",
+   "props": {
+    "type": "object",
+    "properties": {
+     "question": {
+      "type": "string",
+      "maxLength": 200
+     },
+     "sources": {
+      "type": "array",
+      "maxItems": 12,
+      "items": {
+       "type": "object",
+       "properties": {
+        "title": {
+         "type": "string",
+         "maxLength": 120
+        },
+        "name": {
+         "type": "string",
+         "maxLength": 40
+        },
+        "href": {
+         "type": "string",
+         "format": "uri",
+         "maxLength": 300
+        },
+        "snippet": {
+         "type": "string",
+         "maxLength": 300
+        }
+       },
+       "required": [
+        "title",
+        "name"
+       ],
+       "additionalProperties": false
+      }
+     },
+     "answer": {
+      "type": "string",
+      "maxLength": 6000
+     },
+     "streaming": {
+      "type": "boolean"
+     },
+     "followUps": {
+      "type": "array",
+      "maxItems": 3,
+      "items": {
+       "type": "string",
+       "maxLength": 120
+      }
+     },
+     "action": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_.:-]{0,63}$",
+      "description": "An action id the host registered for this block. The agent names it; the host decides whether to run it."
+     }
+    },
+    "required": [
+     "answer"
+    ],
+    "additionalProperties": false
+   },
+   "children": null,
+   "events": [
+    "follow-up",
+    "feedback",
+    "regenerate",
+    "stop"
+   ],
+   "notes": ""
+  },
+  {
+   "name": "ContextMeter",
+   "kind": "molecule",
+   "summary": "How full the context window is, split by what fills it.",
+   "useWhen": "Narrow places such as the drawer.",
+   "props": {
+    "type": "object",
+    "properties": {
+     "used": {
+      "type": "number",
+      "minimum": 0
+     },
+     "window": {
+      "type": "number",
+      "minimum": 0
+     },
+     "parts": {
+      "type": "array",
+      "maxItems": 6,
+      "items": {
+       "type": "object",
+       "properties": {
+        "name": {
+         "type": "string",
+         "maxLength": 40
+        },
+        "tokens": {
+         "type": "number",
+         "minimum": 0
+        }
+       },
+       "required": [
+        "name",
+        "tokens"
+       ],
+       "additionalProperties": false
+      }
+     }
+    },
+    "required": [
+     "used",
+     "window"
+    ],
+    "additionalProperties": false
+   },
+   "children": null,
+   "events": [],
+   "notes": ""
+  },
+  {
+   "name": "ContextMap",
+   "kind": "molecule",
+   "summary": "Context as proportional tiles with free space hatched.",
+   "useWhen": "The person asks why an agent is running out, or after compaction.",
+   "props": {
+    "type": "object",
+    "properties": {
+     "agent": {
+      "type": "string",
+      "maxLength": 40
+     },
+     "window": {
+      "type": "number",
+      "minimum": 0
+     },
+     "parts": {
+      "type": "array",
+      "maxItems": 16,
+      "items": {
+       "type": "object",
+       "properties": {
+        "name": {
+         "type": "string",
+         "maxLength": 40
+        },
+        "kind": {
+         "type": "string",
+         "maxLength": 24
+        },
+        "tokens": {
+         "type": "number",
+         "minimum": 0
+        }
+       },
+       "required": [
+        "name",
+        "tokens"
+       ],
+       "additionalProperties": false
+      }
+     },
+     "compactedFrom": {
+      "type": "number",
+      "minimum": 0
+     }
+    },
+    "required": [
+     "window",
+     "parts"
+    ],
+    "additionalProperties": false
+   },
+   "children": null,
+   "events": [],
+   "notes": ""
+  },
+  {
+   "name": "RunCost",
+   "kind": "molecule",
+   "summary": "Cost and time by step.",
+   "useWhen": "After a run, or when the person asks where the money went.",
+   "props": {
+    "type": "object",
+    "properties": {
+     "task": {
+      "type": "string",
+      "maxLength": 100
+     },
+     "total": {
+      "type": "object",
+      "properties": {
+       "cost": {
+        "type": "number",
+        "minimum": 0
+       },
+       "tokens": {
+        "type": "number",
+        "minimum": 0
+       }
+      },
+      "required": [
+       "cost"
+      ],
+      "additionalProperties": false
+     },
+     "rows": {
+      "type": "array",
+      "maxItems": 30,
+      "items": {
+       "type": "object",
+       "properties": {
+        "name": {
+         "type": "string",
+         "maxLength": 60
+        },
+        "kind": {
+         "enum": [
+          "model",
+          "agent",
+          "tool"
+         ]
+        },
+        "cost": {
+         "type": "number",
+         "minimum": 0
+        },
+        "ms": {
+         "type": "number",
+         "minimum": 0
+        },
+        "depth": {
+         "type": "integer",
+         "minimum": 0,
+         "maximum": 3
+        },
+        "failed": {
+         "type": "boolean"
+        }
+       },
+       "required": [
+        "name",
+        "kind",
+        "cost"
+       ],
+       "additionalProperties": false
+      }
+     }
+    },
+    "required": [
+     "rows"
+    ],
+    "additionalProperties": false
+   },
+   "children": null,
+   "events": [],
+   "notes": ""
+  },
+  {
+   "name": "PlanVsActual",
+   "kind": "molecule",
+   "summary": "A run's plan against what happened.",
+   "useWhen": "A plan with timed steps exists and the run is under way or done.",
+   "props": {
+    "type": "object",
+    "properties": {
+     "title": {
+      "type": "string",
+      "maxLength": 80
+     },
+     "task": {
+      "type": "string",
+      "maxLength": 120
+     },
+     "steps": {
+      "type": "array",
+      "maxItems": 20,
+      "items": {
+       "type": "object",
+       "properties": {
+        "name": {
+         "type": "string",
+         "maxLength": 60
+        },
+        "state": {
+         "enum": [
+          "done",
+          "running",
+          "todo",
+          "failed"
+         ]
+        },
+        "plan": {
+         "type": "object",
+         "properties": {
+          "start": {
+           "type": "number",
+           "minimum": 0
+          },
+          "dur": {
+           "type": "number",
+           "minimum": 0
+          }
+         },
+         "required": [
+          "start",
+          "dur"
+         ],
+         "additionalProperties": false
+        },
+        "actual": {
+         "type": "object",
+         "properties": {
+          "start": {
+           "type": "number",
+           "minimum": 0
+          },
+          "dur": {
+           "type": "number",
+           "minimum": 0
+          }
+         },
+         "required": [],
+         "additionalProperties": false
+        }
+       },
+       "required": [
+        "name",
+        "state",
+        "plan"
+       ],
+       "additionalProperties": false
+      }
+     },
+     "now": {
+      "type": "number",
+      "minimum": 0
+     },
+     "budget": {
+      "type": "object",
+      "properties": {
+       "time": {
+        "type": "number",
+        "minimum": 0
+       },
+       "cost": {
+        "type": "number",
+        "minimum": 0
+       }
+      },
+      "required": [],
+      "additionalProperties": false
+     }
+    },
+    "required": [
+     "steps"
+    ],
+    "additionalProperties": false
+   },
+   "children": null,
+   "events": [],
+   "notes": ""
+  },
+  {
+   "name": "ToolCallGraph",
+   "kind": "molecule",
+   "summary": "Which tools an agent calls, how slow, how often failing.",
+   "useWhen": "Debugging or reviewing an agent's tool use.",
+   "props": {
+    "type": "object",
+    "properties": {
+     "agent": {
+      "type": "string",
+      "maxLength": 40
+     },
+     "range": {
+      "type": "string",
+      "maxLength": 24
+     },
+     "tools": {
+      "type": "array",
+      "maxItems": 12,
+      "items": {
+       "type": "object",
+       "properties": {
+        "name": {
+         "type": "string",
+         "maxLength": 60
+        },
+        "calls": {
+         "type": "integer",
+         "minimum": 0
+        },
+        "p50ms": {
+         "type": "number",
+         "minimum": 0
+        },
+        "p95ms": {
+         "type": "number",
+         "minimum": 0
+        },
+        "errorRate": {
+         "type": "number",
+         "minimum": 0,
+         "maximum": 1
+        }
+       },
+       "required": [
+        "name",
+        "calls"
+       ],
+       "additionalProperties": false
+      }
+     },
+     "metric": {
+      "enum": [
+       "calls",
+       "latency",
+       "errors"
+      ]
+     }
+    },
+    "required": [
+     "agent",
+     "tools"
+    ],
+    "additionalProperties": false
+   },
+   "children": null,
+   "events": [],
+   "notes": ""
+  },
+  {
+   "name": "AgentInbox",
+   "kind": "molecule",
+   "summary": "Agents' work as Needs you, Running, Done.",
+   "useWhen": "Many agents or tasks and the person wants to know what needs them.",
+   "props": {
+    "type": "object",
+    "properties": {
+     "items": {
+      "type": "array",
+      "maxItems": 40,
+      "items": {
+       "type": "object",
+       "properties": {
+        "id": {
+         "type": "string",
+         "maxLength": 40
+        },
+        "title": {
+         "type": "string",
+         "maxLength": 100
+        },
+        "summary": {
+         "type": "string",
+         "maxLength": 200
+        },
+        "state": {
+         "type": "string",
+         "enum": [
+          "running",
+          "done",
+          "needs-you",
+          "failed",
+          "stopped",
+          "idle",
+          "queued",
+          "expiring"
+         ]
+        },
+        "elapsed": {
+         "type": "string",
+         "maxLength": 12
+        },
+        "searches": {
+         "type": "integer",
+         "minimum": 0
+        },
+        "tools": {
+         "type": "integer",
+         "minimum": 0
+        },
+        "threadAction": {
+         "type": "string",
+         "pattern": "^[a-z][a-z0-9_.:-]{0,63}$",
+         "description": "An action id the host registered for this block. The agent names it; the host decides whether to run it."
+        }
+       },
+       "required": [
+        "id",
+        "title",
+        "state"
+       ],
+       "additionalProperties": false
+      }
+     },
+     "view": {
+      "enum": [
+       "board",
+       "list"
+      ]
+     }
+    },
+    "required": [
+     "items"
+    ],
+    "additionalProperties": false
+   },
+   "children": null,
+   "events": [
+    "open"
+   ],
+   "notes": ""
+  },
+  {
+   "name": "OrchestrationGraph",
+   "kind": "molecule",
+   "summary": "A multi-agent run as a tree with its trace.",
+   "useWhen": "An orchestrator fanned out to sub-agents.",
+   "props": {
+    "type": "object",
+    "properties": {
+     "run": {
+      "type": "object",
+      "properties": {
+       "id": {
+        "type": "string",
+        "maxLength": 40
+       },
+       "state": {
+        "type": "string",
+        "enum": [
+         "running",
+         "done",
+         "needs-you",
+         "failed",
+         "stopped",
+         "idle",
+         "queued",
+         "expiring"
+        ]
+       },
+       "title": {
+        "type": "string",
+        "maxLength": 80
+       }
+      },
+      "required": [
+       "id",
+       "state"
+      ],
+      "additionalProperties": false
+     },
+     "nodes": {
+      "type": "array",
+      "maxItems": 40,
+      "items": {
+       "type": "object",
+       "properties": {
+        "id": {
+         "type": "string",
+         "maxLength": 40
+        },
+        "parent": {
+         "type": "string",
+         "maxLength": 40
+        },
+        "lane": {
+         "type": "string",
+         "maxLength": 24
+        },
+        "name": {
+         "type": "string",
+         "maxLength": 40
+        },
+        "task": {
+         "type": "string",
+         "maxLength": 120
+        },
+        "state": {
+         "type": "string",
+         "enum": [
+          "running",
+          "done",
+          "needs-you",
+          "failed",
+          "stopped",
+          "idle",
+          "queued",
+          "expiring"
+         ]
+        },
+        "model": {
+         "type": "string",
+         "maxLength": 24
+        },
+        "cost": {
+         "type": "number",
+         "minimum": 0
+        },
+        "elapsed": {
+         "type": "string",
+         "maxLength": 12
+        }
+       },
+       "required": [
+        "id",
+        "name",
+        "state"
+       ],
+       "additionalProperties": false
+      }
+     }
+    },
+    "required": [
+     "run",
+     "nodes"
+    ],
+    "additionalProperties": false
+   },
+   "children": null,
+   "events": [
+    "select",
+    "pause",
+    "stop"
+   ],
+   "notes": ""
+  },
+  {
+   "name": "AgentCursors",
+   "kind": "molecule",
+   "summary": "Agents editing a shared document with suggestions and pointers.",
+   "useWhen": "Several agents edit one document and the person reviews.",
+   "props": {
+    "type": "object",
+    "properties": {
+     "title": {
+      "type": "string",
+      "maxLength": 80
+     },
+     "agents": {
+      "type": "array",
+      "maxItems": 6,
+      "items": {
+       "type": "object",
+       "properties": {
+        "id": {
+         "type": "string",
+         "maxLength": 24
+        },
+        "name": {
+         "type": "string",
+         "maxLength": 24
+        },
+        "color": {
+         "enum": [
+          "agent-1",
+          "agent-2",
+          "agent-3",
+          "agent-4",
+          "agent-5",
+          "agent-6",
+          "agent-7",
+          "agent-8",
+          "agent-9"
+         ]
+        },
+        "cost": {
+         "type": "number",
+         "minimum": 0
+        }
+       },
+       "required": [
+        "id",
+        "name",
+        "color"
+       ],
+       "additionalProperties": false
+      }
+     },
+     "blocks": {
+      "type": "array",
+      "maxItems": 60,
+      "items": {
+       "type": "object",
+       "properties": {
+        "kind": {
+         "enum": [
+          "title",
+          "heading",
+          "paragraph",
+          "item",
+          "code"
+         ]
+        },
+        "text": {
+         "type": "string",
+         "maxLength": 2000
+        }
+       },
+       "required": [
+        "kind",
+        "text"
+       ],
+       "additionalProperties": false
+      }
+     },
+     "suggestions": {
+      "type": "array",
+      "maxItems": 30,
+      "items": {
+       "type": "object",
+       "properties": {
+        "id": {
+         "type": "string",
+         "maxLength": 24
+        },
+        "agent": {
+         "type": "string",
+         "maxLength": 24
+        },
+        "block": {
+         "type": "integer",
+         "minimum": 0
+        },
+        "remove": {
+         "type": "string",
+         "maxLength": 500
+        },
+        "insert": {
+         "type": "string",
+         "maxLength": 500
+        },
+        "note": {
+         "type": "string",
+         "maxLength": 300
+        }
+       },
+       "required": [
+        "id",
+        "agent",
+        "block"
+       ],
+       "additionalProperties": false
+      }
+     },
+     "acceptAction": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_.:-]{0,63}$",
+      "description": "An action id the host registered for this block. The agent names it; the host decides whether to run it."
+     },
+     "rejectAction": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_.:-]{0,63}$",
+      "description": "An action id the host registered for this block. The agent names it; the host decides whether to run it."
+     },
+     "acceptAllAction": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_.:-]{0,63}$",
+      "description": "An action id the host registered for this block. The agent names it; the host decides whether to run it."
+     }
+    },
+    "required": [
+     "agents",
+     "blocks"
+    ],
+    "additionalProperties": false
+   },
+   "children": null,
+   "events": [
+    "accept",
+    "reject",
+    "accept-all"
+   ],
+   "notes": ""
+  }
+ ]
+}
