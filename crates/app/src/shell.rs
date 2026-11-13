@@ -24,6 +24,7 @@ mod motion;
 mod newthread;
 mod appearance;
 mod backdrop;
+mod pages;
 mod panes;
 mod ptabs;
 mod settings;
@@ -159,6 +160,10 @@ pub(crate) struct Cauldron {
     /// Which window controls the shell draws: the OS's, or Windows' drawn on a Mac for a preview
     /// (debug `CAULDRON_PLATFORM=windows`).
     plat: Platform,
+    /// Which app fills the window: Streams, Agents or Memory (Charles, 13 Nov 13:40Z).
+    page: pages::AppPage,
+    /// Core's agents (name, job), read when Agents opens.
+    page_agents: Vec<(String, String)>,
     /// Settings is open on this page (v3 frame 7): its pages take the sidebar's list, the page the card.
     settings: Option<usize>,
     /// Where Settings reads the subscriptions; None is core's `accounts.json` (tests use their own).
@@ -303,7 +308,7 @@ impl Cauldron {
     }
 
     pub(crate) fn new() -> Self {
-        Cauldron { motion: ShellMotion::default(), swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: None, sidebar_open: true, drawer: Some(Panel::Highlights), backdrop: Default::default(), glass_at: Default::default(), glass_card: std::cell::Cell::new(None), appearance_sub: None, prefs_file: None, plat: platform(), settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_menu: false, tab_slide: Default::default(), tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
+        Cauldron { motion: ShellMotion::default(), swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: None, sidebar_open: true, drawer: Some(Panel::Highlights), backdrop: Default::default(), glass_at: Default::default(), glass_card: std::cell::Cell::new(None), appearance_sub: None, prefs_file: None, plat: platform(), page: Default::default(), page_agents: Vec::new(), settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_menu: false, tab_slide: Default::default(), tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
     }
 
     /// Opens core off the main thread (the sidebar shows Loading meanwhile), then keeps the thread
@@ -857,7 +862,7 @@ impl Render for Cauldron {
         let vs = window.viewport_size();
         let (w, h) = (f32::from(vs.width), f32::from(vs.height));
         let plat = self.plat;
-        let want = ShellState { sidebar_open: self.sidebar_open, drawer_open: self.drawer.is_some(), split_open: false, terminal_open: self.terminal, plugins: self.settings.is_none() };
+        let want = ShellState { sidebar_open: self.sidebar_open, drawer_open: self.drawer.is_some(), split_open: false, terminal_open: self.terminal, plugins: self.settings.is_none() && self.page == pages::AppPage::Streams };
         let now = std::time::Instant::now();
         let reduce = cx.reduce_motion();
         let (s, mut moving) = self.motion.frame(want, Frame::at_rest(&layout::solve(w, h, want, plat)), now, reduce);
@@ -1026,9 +1031,11 @@ impl Render for Cauldron {
                 .flex_col()
                 .pr(px(SIDE_PR))
                 .overflow_hidden()
+                .child(self.page_switch(pal, cx).test_support())
                 .when_live(self.settings.is_some(), |d| d.child(self.settings_nav(self.settings.unwrap_or(0), pal, cx).test_support()))
-                .when_live(self.settings.is_none(), |d| d.child(new_thread))
-                .when_live(self.settings.is_none(), |d| d.child(
+                .when_live(self.settings.is_none() && self.page != pages::AppPage::Streams, |d| d.child(self.page_nav(pal).test_support()))
+                .when_live(self.settings.is_none() && self.page == pages::AppPage::Streams, |d| d.child(new_thread))
+                .when_live(self.settings.is_none() && self.page == pages::AppPage::Streams, |d| d.child(
                     div().child(
                         div()
                             .id("search")
@@ -1046,7 +1053,7 @@ impl Render for Cauldron {
                             .test_support(),
                     ),
                 ))
-                .when_live(self.settings.is_none(), |d| d.child(list))
+                .when_live(self.settings.is_none() && self.page == pages::AppPage::Streams, |d| d.child(list))
                 .child(
                     div()
                         .h(px(37.))
@@ -1092,7 +1099,14 @@ impl Render for Cauldron {
         // The card's head is its pane's header (Charles, 13 Nov 06:52Z: tabs in each pane, no
         // breadcrumb): the thread's tabs, or the screen's name, then split, the terminal and the
         // Code pill. Settings has its name only.
-        let head_title: SharedString = if self.settings.is_some() { "Settings".into() } else { NEW_TAB.into() };
+        let streams = self.settings.is_none() && self.page == pages::AppPage::Streams;
+        let head_title: SharedString = if self.settings.is_some() {
+            "Settings".into()
+        } else if !streams {
+            self.page.label().into()
+        } else {
+            NEW_TAB.into()
+        };
         let mut head = div()
             .id("card-head")
             .h(px(HEAD_H))
@@ -1104,7 +1118,7 @@ impl Render for Cauldron {
             .pr(px(8.))
             .text_size(px(13.))
             .text_color(fg3);
-        let tabbed = self.coordinator.is_some() && self.settings.is_none();
+        let tabbed = self.coordinator.is_some() && streams;
         if tabbed && plat == Platform::Windows {
             head = head.child(self.crumb(pal).test_support());
         } else if tabbed {
@@ -1127,20 +1141,20 @@ impl Render for Cauldron {
                     .test_support(),
             );
         }
-        if self.settings.is_none() {
+        if streams {
             head = head
                 .child(div().id("head-drag").flex_1().h_full().window_control_area(WindowControlArea::Drag))
                 .child(self.head_controls(None, pal, now, reduce, false, cx).test_support());
         }
         // A new thread keeps a 32px bar under its card, in the Shell's grey (Charles 13 Nov).
-        let new_screen = self.open.is_none() && self.active == 0 && self.settings.is_none();
+        let new_screen = self.open.is_none() && self.active == 0 && streams;
         let card_h = s.main.h - if new_screen { STAGE_H } else { 0.0 };
         // Split (direction B): under the head the card holds up to four panes on the Shell's grey;
         // a shape that no longer fits steps back, as the shell closes Split when the window narrows.
         // Split with the tabs in the panes, the card head goes: each pane's header carries its tabs.
         let full = Rect::new(s.main.x, s.main.y, s.main.w, card_h);
         let headed = Rect::new(s.main.x, s.main.y + HEAD_H, s.main.w, card_h - HEAD_H);
-        let shape = if self.settings.is_some() { Shape::One } else { cauldron_chrome::panes::effective(full, self.panes.shape) };
+        let shape = if !streams { Shape::One } else { cauldron_chrome::panes::effective(full, self.panes.shape) };
         // Split, the card head goes: each pane's header carries its own tabs and controls.
         let headless = shape != Shape::One;
         let area = if headless { full } else { headed };
@@ -1168,6 +1182,7 @@ impl Render for Cauldron {
         self.glass_card.set(wall.map(|_| (0.0, 0.0, dark)));
         let body = match self.settings {
             Some(page) => self.settings_page(page, pal, cx),
+            None if !streams => self.page_body(pal),
             None => self.card_body(pal, window, cx),
         };
         let inside = if split { self.pane_stage(pal, area, shape, body, window, cx).into_any_element() } else { body };
@@ -1238,7 +1253,7 @@ impl Render for Cauldron {
 
         // ---- Windows: each pane's tabs float in a strip above it, in the Shell's top band (the
         // board e0fd268, B); the rightmost leaves the caption buttons their room.
-        if plat == Platform::Windows && self.settings.is_none() {
+        if plat == Platform::Windows && streams {
             let cards: Vec<Rect> = if split { cauldron_chrome::panes::rects(area, sp) } else { vec![Rect::new(s.main.x, s.main.y, s.main.w, card_h)] };
             let top = s.shell.y + (metric::CAPS_BAND - 26.0) / 2.0;
             for (slot, r) in cards.into_iter().enumerate() {
