@@ -424,13 +424,13 @@ table.n th{color:var(--fg);font-weight:500}
 .cm .who b{color:var(--fg);font-weight:500;margin-right:6px}
 .cm .bub{color:var(--fg);max-width:62ch}
 .me2{margin-left:auto;background:var(--fg);color:var(--panel);border-radius:16px;padding:8px 12px;max-width:60ch}
-.agp{width:280px;flex:none;padding:8px 6px 0;display:flex;flex-direction:column;gap:2px}
+.agp{width:200px;flex:none;padding:8px 6px 0;display:flex;flex-direction:column;gap:2px}
 .agp .top{display:flex;align-items:center;gap:10px;padding:2px 6px 8px}
 .agp .top b{display:block;font-weight:600;color:var(--fg)}
 .agp .top small{color:var(--fg3);font-size:11.5px}
 .rings{display:flex;gap:14px;padding:8px 6px;border-top:1px solid var(--line)}
 .ttabs{display:flex;gap:2px;padding:4px 2px}
-.ttabs span{height:24px;padding:0 9px;border-radius:8px;color:var(--fg3);font-size:12px;display:inline-flex;align-items:center}
+.ttabs span{height:24px;padding:0 6px;border-radius:8px;color:var(--fg3);font-size:12px;display:inline-flex;align-items:center}
 .ttabs span.on{background:var(--selected);color:var(--fg)}
 .treemap{display:grid;grid-template-columns:2.2fr 1.4fr;grid-template-rows:64px 44px;gap:3px;padding:6px}
 .treemap div{border-radius:8px;padding:6px 8px;font-size:11px;color:var(--fg);background:var(--accent-soft)}
@@ -479,6 +479,51 @@ table.n th{color:var(--fg);font-weight:500}
 .crewh h3{white-space:nowrap}
 .fcard.add{box-shadow:none;border:1px dashed var(--line2);place-items:center;color:var(--fg3);align-content:center}
 
+.ttabs span .ic{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.6}
+
+
+/* v3: glass folders (ported from the Tauri Home "folds": coloured back, two sheets, frosted front) */
+.card.paintd{background:radial-gradient(520px 340px at 10% 6%,color-mix(in srgb,var(--accent) 30%,transparent),transparent 70%),radial-gradient(480px 320px at 94% 92%,rgba(56,192,232,.22),transparent 70%),radial-gradient(360px 240px at 72% 8%,rgba(224,112,58,.16),transparent 70%),var(--panel)}
+.card.paintd:before{content:"";position:absolute;inset:0;z-index:0;pointer-events:none;background-image:radial-gradient(var(--fg) .55px,transparent .75px);background-size:3px 3px;opacity:.05}
+.gfs{display:grid;grid-template-columns:repeat(4,1fr);gap:6px 4px;padding:10px 22px 6px}
+.gf{--fc:#8b5cf6;display:grid;align-content:start;justify-items:center;gap:2px;padding:10px 6px 12px;border-radius:16px;text-align:center;color:var(--fg);position:relative}
+.gf.hov{background:color-mix(in srgb,var(--panel) 60%,transparent);box-shadow:0 0 0 1px var(--line2)}
+.gf b{margin-top:8px;font-size:13.5px;font-weight:600;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gf .fs{font-size:12px;color:var(--fg3)}
+.gf .fl2{display:flex;gap:10px;font-size:11.5px;color:var(--fg3);margin-top:3px;align-items:center}
+.gf .fl2 span{display:flex;gap:5px;align-items:center}
+.gf-art{position:relative;width:148px;height:108px}
+.gf-art .back{position:absolute;inset:12px 4px 6px;border-radius:12px;background:color-mix(in srgb,var(--fc) 62%,#000)}
+.gf-art .back:before{content:"";position:absolute;left:0;top:-9px;width:52px;height:16px;border-radius:9px 11px 0 0;background:inherit}
+.gf-art .sh{position:absolute;top:2px;width:58px;height:66px;padding:10px 8px;border-radius:6px;background:#f4f4f2;box-shadow:0 2px 6px rgba(0,0,0,.2);display:grid;align-content:start;gap:5px;transition:transform .25s var(--settle)}
+.gf-art .sh i{display:block;height:3px;border-radius:2px;background:#d4d4d9}
+.gf-art .sh i:nth-child(2){width:80%}.gf-art .sh i:nth-child(3){width:60%}
+.gf-art .s1{left:20px;transform:rotate(-8deg)}.gf-art .s2{right:20px;transform:rotate(6deg)}
+.gf.hov .s1{transform:rotate(-12deg) translateY(-5px)}.gf.hov .s2{transform:rotate(10deg) translateY(-6px)}
+.gf-art .front{position:absolute;left:0;right:0;bottom:0;height:70px;border-radius:13px;display:flex;align-items:flex-end;justify-content:space-between;gap:4px;padding:0 8px 8px;
+ background:linear-gradient(180deg,color-mix(in srgb,var(--fc) 50%,rgba(255,255,255,.4)) 0%,color-mix(in srgb,var(--fc) 86%,transparent) 100%);
+ -webkit-backdrop-filter:blur(8px) saturate(1.3);backdrop-filter:blur(8px) saturate(1.3);
+ box-shadow:inset 0 1px 0 rgba(255,255,255,.4),inset 0 0 0 1px rgba(255,255,255,.1),0 10px 20px rgba(0,0,0,.26)}
+.gf-art .fw{display:flex;align-items:flex-end;min-width:0}
+.gf-art .fw>span{margin-right:-6px;display:flex;filter:drop-shadow(0 1px 2px rgba(0,0,0,.35))}
+.gf-art .fu{height:18px;padding:0 7px;border-radius:9px;display:inline-flex;align-items:center;font-size:10px;font-weight:500;color:#fff;background:rgba(0,0,0,.24);white-space:nowrap}
+.gf-art .fn{position:absolute;top:10px;right:12px;min-width:16px;height:16px;border-radius:8px;padding:0 4px;display:grid;place-items:center;font-size:10px;font-weight:600;color:#fff;background:rgba(0,0,0,.24)}
+.gf.ghost .back{background:transparent;box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--fc) 75%,transparent)}
+.gf.ghost .back:before{background:transparent;box-shadow:inset 1.5px 0 0 color-mix(in srgb,var(--fc) 75%,transparent),inset 0 1.5px 0 color-mix(in srgb,var(--fc) 75%,transparent)}
+.gf.ghost .front{opacity:.55;box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--fc) 75%,transparent)}
+.gf.ghost .sh{opacity:.5}
+.gf .tagp{font-size:10.5px;color:var(--accent);box-shadow:0 0 0 1px color-mix(in srgb,var(--accent) 45%,transparent);border-radius:6px;padding:0 6px;margin-top:4px}
+.gf.addf .gf-art{opacity:.8}
+.gf.addf .back{background:transparent;box-shadow:inset 0 0 0 1.5px var(--line2)}
+.gf.addf .back:before{background:transparent;box-shadow:inset 1.5px 0 0 var(--line2),inset 0 1.5px 0 var(--line2)}
+.gf.addf .front{background:var(--hover);box-shadow:inset 0 0 0 1px var(--line2);align-items:center;justify-content:center;color:var(--fg3);-webkit-backdrop-filter:none;backdrop-filter:none}
+.gf.addf .front .ic{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.6}
+.fhead{display:flex;align-items:center;gap:14px}
+.fhead .gf-art{zoom:.72;flex:none}
+.fhead h3{margin:0;font-size:18px}
+.fhead small{display:block;color:var(--fg3);font-size:12px;margin-top:2px}
+.gnote2{font-size:11.5px;color:var(--fg3);padding:2px 26px 14px}
+
 </style>
 </head>
 <body>
@@ -513,12 +558,13 @@ table.n th{color:var(--fg);font-weight:500}
 </div>
 
 <h2>3. Folders</h2>
-<p>A: cards for the overview. B: list and detail on one screen. Both show the Librarian's filing proposals.</p>
-<div class="cap" style="margin-top:14px"><b>A</b>Cards</div><div class="fit-wrap" id="w-foldA"></div>
-<div class="cap" style="margin-top:22px"><b>B</b>List and detail. My pick</div><div class="fit-wrap" id="w-foldB"></div>
+<p>Charles asked for the old glass look back. In the Tauri app it is the Memory folder on Home (<code>dash.css</code> <code>.fold-art</code>): a coloured back with a tab, two sheets sticking out, and a frosted front with a gradient, a top highlight and a blur. That art is redrawn here in the new tokens, with each folder's agents on the glass and an Updated pill. The window painting behind it is the same painting as the rest of the app.</p>
+<div class="cap" style="margin-top:14px"><b>A</b>Glass cards. My pick for the page</div><div class="fit-wrap" id="w-foldA"></div>
+<div class="cap" style="margin-top:22px"><b>B</b>What a click on a card opens: the same glass folder as the header of a list and detail</div><div class="fit-wrap" id="w-foldB"></div>
 <div class="pick">
-<div class="row"><b>Pick</b><span>B. The sidebar already shows folders as a tree, so this page is for managing them, not browsing. B keeps the proposals next to the folder they affect and needs no second screen.</span></div>
-<div class="row"><b>What B costs</b><span>It is denser, and with three folders the detail looks half empty. A reads better at a glance but needs a click to manage anything.</span></div>
+<div class="row"><b>Pick</b><span>A as the page, B as what a card opens. I first picked B alone, but the glass is the thing you asked for, and B shrinks it to a header. A shows it at full size, keeps the Librarian's proposed folder as a see-through card next to the real ones, and the sidebar tree already covers quick browsing.</span></div>
+<div class="row"><b>What it costs</b><span>Managing a folder takes a click. Past about a dozen folders the grid scrolls, so it needs a search box. Four tiles per row at this width; the real app should let the tile width flex between 168 and 200.</span></div>
+<div class="row"><b>Build note</b><span>GPUI has no backdrop blur, so the frosted front is a pre-blurred crop of the folder's own back and sheets under a tint, cached per colour. It never blurs the window behind it, so it costs nothing per frame.</span></div>
 </div>
 
 <h2>4. Agents</h2>
@@ -526,6 +572,7 @@ table.n th{color:var(--fg);font-weight:500}
 <div class="fit-wrap" id="w-agents"></div>
 <div class="pick">
 <div class="row"><b>Reused</b><span>Roster, group chats, per-agent busts in the chat, the agent panel with weekly and 5-hour rings, Context treemap, Traces, Routines, Settings. Nothing new is drawn except the Librarian row.</span></div>
+<div class="row"><b>Drawer width</b><span>Narrowed from about 236px to 200px (the UI-PLAN width) after Charles said it was too big. At 200px four tab labels do not fit, so Settings becomes a cog. The rings, treemap and name block already fit.</span></div>
 <div class="row"><b>In the build</b><span>Real agents from core where there are any, example content marked as such otherwise.</span></div>
 </div>
 
@@ -672,9 +719,10 @@ function rail(active,o={}){
 const ctlHead=(tabs,mk)=>`<div class="ph"><div class="pane-tabs">${tabs}</div>${mk?'<span class="mk">Mockup</span>':''}<span class="sp"></span><div class="ctl"><span class="ib">${ic('split')}</span><span class="ib">${ic('term')}</span></div><span class="mode">Code</span></div>`;
 const railM=`<div class="rail"><span class="ib">${ic('panel')}</span><span class="sep"></span><span class="ib">${ic('git')}</span><span class="ib">${ic('act')}</span></div>`;
 const win=(s,m,d='')=>`<div class="win">${s}<div class="shell"><div class="srow"><div class="panes">${m}</div>${d}${railM}</div></div></div>`;
-const page=(title,sub,body,extra='')=>`<div class="card"><div class="ph"><div class="pane-tabs"><span class="ftab on">${title}</span></div><span class="mk">Mockup</span><span class="sp"></span>${extra}</div>${body}</div>`;
+const page=(title,sub,body,extra='',cls='')=>`<div class="card${cls?' '+cls:''}"><div class="ph"><div class="pane-tabs"><span class="ftab on">${title}</span></div><span class="mk">Mockup</span><span class="sp"></span>${extra}</div>${body}</div>`;
 const AV=(c,m,h,o)=>figure(DOTS[c],m,h,o);
 const SW=(c,m,h)=>AV(c,m,h,{bust:true});
+const pageP=(t,s,b)=>page(t,s,b,'','paintd');
 
 /* new stream, apart from the directory */
 function mainNew(){
@@ -693,20 +741,32 @@ const AGS={workbench:['violet','green','red'],site:['blue'],notes:['amber'],Unfi
 const NOTESN={workbench:12,site:5,notes:9,Unfiled:0};
 const cnt=(f,k)=>f.s.filter(s=>s[1]===k).length;
 const pl=(n,w)=>n+' '+w+(n===1?'':'s');
+const FC={workbench:'#8b5cf6',site:'#3fb27f',notes:'#e0a32a',Unfiled:'#8a8a93','Site copy':'#5b8cf0'};
+const UPD={workbench:'now',site:'4m',notes:'2d',Unfiled:'1d'};
+const ago=t=>t==='now'?'now':t+' ago';
+function gfolder(n,o={}){
+ const f=FOLD.find(x=>x.n===n)||{s:[]}, ag=(AGS[n]||[]).slice(0,3);
+ const art=`<div class="gf-art"><div class="back"></div><div class="sh s1"><i></i><i></i><i></i></div><div class="sh s2"><i></i><i></i><i></i></div>
+  <div class="front"><div class="fw">${ag.map(c=>`<span>${AV(c,'idle',24,{bust:true})}</span>`).join('')}</div>${o.upd?`<span class="fu">Updated ${o.upd}</span>`:''}</div></div>`;
+ return `<div class="gf${o.cls?' '+o.cls:''}" style="--fc:${FC[n]}">${art}<b>${n}</b><span class="fs">${o.sub}</span>${o.row||''}${o.tag||''}</div>`;
+}
 function foldersA(){
- const cards=FOLD.map(f=>`<div class="fcard"><div class="t">${ic('folder')}${f.n}<span class="sp" style="flex:1"></span><small>${MACH[f.n]}</small></div><small>${f.n==='Unfiled'?'Streams the Librarian has not filed':pl(f.s.length,'stream')+', last active '+(f.s[0][2]==='now'?'now':f.s[0][2]+' ago')}</small>
-  <div class="cnt"><span><i class="sd run"></i>${cnt(f,'run')} running</span><span><i class="sd need"></i>${cnt(f,'need')} needs you</span><span>${ic('db')}${NOTESN[f.n]} notes</span></div>
-  <div style="display:flex;gap:4px;min-height:22px">${AGS[f.n].map(c=>SW(c,'idle',22)).join('')}</div></div>`).join('')+`<div class="fcard add">${ic('plus')}New folder</div>`;
- return page('Folders','',`<div class="pgh"><div><h2>Folders</h2><p>Where streams are filed. Each folder holds streams, notes and agents.</p></div></div>
+ const fl=f=>`<div class="fl2"><span><i class="sd run"></i>${cnt(f,'run')}</span><span><i class="sd need"></i>${cnt(f,'need')}</span><span>${ic('db')}${NOTESN[f.n]}</span></div>`;
+ const t=FOLD.map((f,i)=>gfolder(f.n,{cls:i===0?'hov':'',upd:f.n==='Unfiled'?'':ago(UPD[f.n]),sub:f.n==='Unfiled'?'Not filed yet · '+pl(f.s.length,'stream'):pl(f.s.length,'stream')+' · '+MACH[f.n],row:f.n==='Unfiled'?'':fl(f)})).join('');
+ const prop=gfolder('Site copy',{cls:'ghost',sub:'3 streams proposed',tag:'<span class="tagp">Proposed by the Librarian</span>'});
+ const add=`<div class="gf addf"><div class="gf-art"><div class="back"></div><div class="front">${ic('plus')}</div></div><b style="color:var(--fg3)">New folder</b><span class="fs">Name it yourself</span></div>`;
+ return pageP('Folders','',`<div class="pgh"><div><h2>Folders</h2><p>Where streams are filed. Each folder holds streams, notes and agents.</p></div></div>
  <div class="stripe">${SW('amber','reading',24)}<span><b>The Librarian proposes filing 3 streams</b> and creating one folder, Site copy.</span><span class="sp"></span><span class="btn">Review</span></div>
- <div class="fgrid">${cards}</div>`);
+ <div class="gfs">${t}${prop}${add}</div>
+ <div class="gnote2">The folder art is the old app's Memory folder (coloured back, two sheets, frosted front) redrawn in the new tokens. The dots count running, needs-you and notes. An outlined, see-through folder is a Librarian proposal.</div>`);
 }
 function foldersB(){
- const lst=FOLD.map((f,i)=>`<div class="ag${i===0?' sel':''}">${ic('folder')}<span><b>${f.n}</b><small>${pl(f.s.length,'stream')}${f.n==='Unfiled'?'':' · '+NOTESN[f.n]+' notes'}</small></span></div>`).join('')+`<div class="ag" style="color:var(--fg3)">${ic('plus')}New folder</div>`;
+ const lst=FOLD.map((f,i)=>`<div class="ag${i===0?' sel':''}"><span class="ib" style="width:18px;height:18px;color:${FC[f.n]}">${ic('folder')}</span><span><b>${f.n}</b><small>${pl(f.s.length,'stream')}${f.n==='Unfiled'?'':' · '+NOTESN[f.n]+' notes'}</small></span></div>`).join('')+`<div class="ag" style="color:var(--fg3)">${ic('plus')}New folder</div>`;
  const trs=[['Round 3 build','run','now'],['Fix policy tests','need','12m'],['Pages plan','done','1h'],['PR 43 CI','done','3h']].map(s=>`<div class="trow"><i class="sd ${s[1]}"></i>${s[0]}<span class="m">${s[2]}</span></div>`).join('');
- return page('Folders','',`<div class="pg"><div class="ros">${lst}</div><div class="mdet">
-  <h3>workbench</h3><div class="kv" style="border:0;padding:2px 0"><span style="color:var(--fg3)">mac.home · a stream's working directory is set on the stream, not on the folder</span></div>
-  <div class="stripe" style="margin:8px 0">${SW('amber','reading',22)}<span><b>Proposed for this folder:</b> Bayer question (from Unfiled)</span><span class="sp"></span><span class="btn">Reject</span><span class="btn pri">Accept</span></div>
+ return pageP('Folders','',`<div class="pg"><div class="ros">${lst}</div><div class="mdet">
+  <div class="fhead"><div class="gf" style="--fc:${FC.workbench};padding:0">${`<div class="gf-art"><div class="back"></div><div class="sh s1"><i></i><i></i><i></i></div><div class="sh s2"><i></i><i></i><i></i></div><div class="front"><div class="fw">${['violet','green','red'].map(c=>`<span>${AV(c,'idle',24,{bust:true})}</span>`).join('')}</div></div></div>`}</div>
+   <div><h3>workbench</h3><small>mac.home · 4 streams · 12 notes · a stream's working directory is set on the stream, not on the folder</small></div></div>
+  <div class="stripe" style="margin:10px 0 4px">${SW('amber','reading',22)}<span><b>Proposed for this folder:</b> Bayer question (from Unfiled)</span><span class="sp"></span><span class="btn">Reject</span><span class="btn pri">Accept</span></div>
   <div class="subh">Streams</div>${trs}
   <div class="subh">Agents</div><div style="display:flex;gap:6px;align-items:center">${['violet','green','red'].map(c=>SW(c,'idle',24)).join('')}<span style="color:var(--fg3);font-size:12px;margin-left:6px">Pele, Builder, Rampart</span></div>
   <div class="subh">Library</div><div class="trow">${ic('db')}12 notes for this folder<span class="m">Open in Library</span></div>
@@ -721,7 +781,7 @@ function agentsPage(){
  const msgs=M.map(m=>`<div class="cm">${SW(m[0],m[1],22)}<div><div class="who"><b>${m[2]}</b>${m[3]}</div><div class="bub">${m[4]}</div></div></div>`).join('');
  const drawer=`<div class="agp"><div class="top">${AV('green','working',38)}<span><b>Builder</b><small>Writes the code for a ticket · Opus</small></span></div>
   <div class="rings"><span class="upr"><span class="rg hot" style="--p:91"><i>91</i></span><span><small>Week</small></span></span><span class="upr"><span class="rg" style="--p:0"><i>0</i></span><span><small>5 hours</small></span></span></div>
-  <div class="ttabs"><span class="on">Context</span><span>Traces</span><span>Routines</span><span>Settings</span></div>
+  <div class="ttabs"><span class="on">Context</span><span>Traces</span><span>Routines</span><span style="padding:0 5px" title="Settings">${ic('cog')}</span></div>
   <div class="treemap"><div class="big">Ticket and spec<small>18k</small></div><div>Files<small>12k</small></div><div>Notes<small>4k</small></div></div>
   <div class="hint">34k of 200k tokens</div></div>`;
  const body=`<div class="pg"><div class="crewl"><div class="sub">Agents</div>${ros}<div class="sub">Group chats</div>
