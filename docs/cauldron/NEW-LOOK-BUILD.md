@@ -52,10 +52,10 @@ Verified:
 - The real app window on the display at 1200x720 (`CAULDRON_SIZE`), on sample data in a scratch folder rather than Charles's own threads.
 
 Which shots are real window captures (13 Nov, after Charles granted Screen Recording; the first retry at 01:31Z still failed with `could not create image from display`, the next one worked):
-- **Real captures** (`screencapture -l` of the live window, native traffic lights and window corners included): `nl3d-new-*`, `nl3d-thread-*`, `nl3d-folded-*`, `nl3d-split-*`, dark and light.
+- **Real captures** (`screencapture -l` of the live window, native traffic lights and window corners included): `nl3d-new-*`, `nl3d-thread-*`, `nl3d-folded-*`, dark and light, and the six pane shapes `nl4-panes-*` (below).
 - **Headless Metal renders**: `nl3d-tabs-*-render.png` (the agent-tab fixture has no live start-up option) and `nl3d-before-new-*` (the state before the Shell).
 - The real captures are 1200x720 at 1x. This Mac's display is 1920x1080 at scale 1, so a capture of the live window cannot be 2x. The headless renders are 2x.
-- "Thread beside terminal" is shot as Split (`nl3d-split-*`): the Terminal button in the top bar does nothing yet, and Split opens the "Open in this half" placeholder.
+- "Thread beside terminal" is not shot: the Terminal button in the top bar does nothing yet. The old Split shots (`nl3d-split-*`) are removed, because Split now opens the panes below.
 - Hover states are not in the shots. I moved the pointer with a posted CGEvent, but no hover showed. Posting events most likely needs Accessibility permission for the Claude Code process, which it does not have.
 
 Not verified:
@@ -67,15 +67,39 @@ Not verified:
 
 - `CAULDRON_THEME=light|dark` (debug builds) forces the theme.
 - `CAULDRON_SIZE=1200x720` (debug builds) sets the window's starting size.
-- `CAULDRON_OPEN=<thread id>`, `CAULDRON_DRAWER=folded` and `CAULDRON_SPLIT=1` (debug builds) start the live window in a given state, for real captures.
+- `CAULDRON_OPEN=<thread id>`, `CAULDRON_DRAWER=folded` and `CAULDRON_PANES=<0-5>` (a shape from `Shape::ALL`) (debug builds) start the live window in a given state, for real captures.
 - `cargo run -p backspace --features shots` with `CAULDRON_SHOTS=<dir> BACKSPACE_DATA=<sample data>` renders New thread, a thread, the drawer folded, and agent tabs in dark and light to PNG, then exits (`crates/app/src/shell/shots.rs`, macOS only). It runs on the main thread because AppKit requires it, so it cannot be a test.
 
 ## Note for Charles
 
 The v3 board draws the drawer and the bottom bar on the window frame. This build follows the brief instead and puts both on the Shell grey (`card`), inside a rounded Shell that holds the card. The card is now the `panel` token, so it stands apart from the Shell in both themes: darker in dark, white in light.
 
+## Split panes, direction B (13 Nov)
+
+The board is `design/cauldron-split-panes.html` (published at https://claude.ai/artifact/EAWJMVG33f8ue1f8guXhf1). It keeps both directions, so Charles can still overrule B with A.
+Charles, through the coordinator: "go for B, make a pane button that has an animation that shows the different options (add also 2 side by side on top & long vertical at the bottom)".
+
+What is built:
+- **Six shapes**, in the layout button's order: one pane, two side by side, two stacked, one beside two, two on top with one long pane below (new), and a 2×2 grid. The geometry is `cauldron_chrome::panes`: pure, tested in `crates/chrome/tests/panes.rs`.
+- **Layout button** in the card head, at the right, 28px. It draws a small sketch of the shape a click switches to, and its tooltip and name say it ("Layout: One beside two"). Each click steps to the next shape, and the grid goes back to one pane. On a click the sketch morphs from the old shape to the new one in 200ms on the settle curve; with reduced motion it switches at once. The Split button in the top bar goes from one pane to two side by side, and back to one.
+- **Two lines**: a vertical one and a horizontal one, each over its 4px gap with a 12px grab area. The accent mark shows on hover and while dragging. Dragging moves the split with the pointer, and double-clicking makes it even. In One beside two the horizontal line spans the right column; in Two on top, one below the vertical line spans the top row.
+- **Limits**: 4px between panes (Split was 8px). No pane gets smaller than 200 × 120, so a line stops there. A shape that no longer fits the card (a narrow window, or the drawer open) is drawn as the nearest earlier shape that fits, as the shell already closes Split when the window narrows. Four panes at most, since no shape has more.
+- **Close**: every pane after the first has an ×. Closing one steps back one pane: the grid goes to one beside two, either three-pane shape goes to two side by side, and a two-pane shape goes to one pane.
+- **Panes**: pane 0 holds the thread, or the new-thread screen. The others say "Open in this pane", with the old half's tiles as placeholders (Highlights, Files, Changes, Terminal, Browser, Add an app); none of them opens anything yet. Split, the panes are the Panels and the card head sits on the Shell's grey, as on the board.
+- **Removed**: the solver's half pane is no longer drawn (`split_open` is always false). Split lives inside the card now.
+- **Thread in a narrow pane**: the route chip ("Answered by …") now shrinks first, so Send stays in view.
+
+Interpretation to check: "long vertical at the bottom" is built as one full-width pane under two side by side (the coordinator's reading). If Charles meant a tall pane instead, it is one shape in `panes.rs`.
+
+Tests:
+- Geometry, test-first: `docs/cauldron/NL4-panes-red.txt` (the module did not exist yet) and `NL4-panes-green.txt` (8 pass). They cover six shapes holding 1 to 4 panes, the stepping order and wrap, close stepping back, the 4px gaps, panes filling the area, 200 × 120 under any drag, lines lining up, reset, and shapes that do not fit.
+- App: `docs/cauldron/NL4-app-green.txt`, 42 of 42 (three new). The new tests check that the button sits in the card head and steps through all six shapes; that panes are 4px apart, keep 200 × 120, and closing steps back; and that a real pointer drag moves the line, stops at 200, and a double-click makes it even. The sixth shape changed tests and code together, so there is no separate red run for it.
+- The solver-match test now covers four states (sidebar and drawer), since Split no longer uses the solver.
+
+Shots (real window captures, 1200x720 at 1x, a thread open, drawer open): `docs/screenshots/new-look/nl4-panes-<n>-<shape>-<dark|light>.png` for all six shapes.
+Not captured: the morph itself (a still shows one frame), hover on the lines, and a drag in the live window. The tests cover the drag.
+
 ## Not done (as asked)
 
-- Split panes: unchanged. The prototype board with two directions comes first.
 - Top bar A: untouched.
 - Nothing merged or pushed anywhere except this branch.

@@ -7,6 +7,7 @@
 
 use cauldron_chrome::layout::{self, metric, Platform, Rect, ShellState};
 use cauldron_chrome::motion::Frame;
+use cauldron_chrome::panes::{Shape, Split};
 use cauldron_chrome::tokens::{self, motion as mt, radius, Palette, Rgb, Rgba};
 use gpui_kit::*;
 
@@ -21,6 +22,7 @@ use std::sync::Arc;
 
 mod motion;
 mod newthread;
+mod panes;
 mod thread;
 #[cfg(all(feature = "shots", target_os = "macos"))]
 pub(crate) mod shots;
@@ -131,7 +133,12 @@ pub(crate) enum Threads {
 pub(crate) struct Cauldron {
     sidebar_open: bool,
     drawer: Option<Panel>,
-    split: bool,
+    /// The thread card's panes (direction B): the shape and where its two lines sit.
+    panes: Split,
+    /// The layout button's morph: the shape it drew before, and since when.
+    layout_since: Option<(Shape, std::time::Instant)>,
+    /// A line held down: vertical or not, and the panes' area when it was grabbed.
+    pane_drag: Option<(bool, Rect)>,
     /// The thread's coordinator, pinned as the first tab; None on the New thread screen.
     coordinator: Option<SharedString>,
     /// Agents with an open 1:1 tab, in tab order, and the thread's other agents (the + menu).
@@ -225,14 +232,14 @@ impl Cauldron {
             _ => c.connect(cx),
         }
         // Debug builds only: `CAULDRON_DRAWER=folded` starts with the drawer folded to its rail and
-        // `CAULDRON_SPLIT=1` with Split open, for screenshots of the live window.
+        // `CAULDRON_PANES=n` with the card split into `Shape::ALL[n]`, for screenshots of the live window.
         #[cfg(debug_assertions)]
         {
             if std::env::var("CAULDRON_DRAWER").as_deref() == Ok("folded") {
                 c.drawer_last = c.drawer.take();
             }
-            if std::env::var_os("CAULDRON_SPLIT").is_some() {
-                c.split = true;
+            if let Some(i) = std::env::var("CAULDRON_PANES").ok().and_then(|v| v.parse::<usize>().ok()) {
+                c.panes.shape = Shape::ALL[i % Shape::ALL.len()];
             }
         }
         #[cfg(debug_assertions)]
@@ -248,7 +255,7 @@ impl Cauldron {
     }
 
     pub(crate) fn new() -> Self {
-        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: None, sidebar_open: true, drawer: Some(Panel::Highlights), split: false, coordinator: None, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
+        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: None, sidebar_open: true, drawer: Some(Panel::Highlights), panes: Split::default(), layout_since: None, pane_drag: None, coordinator: None, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
     }
 
     /// Opens core off the main thread (the sidebar shows Loading meanwhile), then keeps the thread
@@ -824,7 +831,7 @@ impl Render for Cauldron {
         let vs = window.viewport_size();
         let (w, h) = (f32::from(vs.width), f32::from(vs.height));
         let plat = platform();
-        let want = ShellState { sidebar_open: self.sidebar_open, drawer_open: self.drawer.is_some(), split_open: self.split };
+        let want = ShellState { sidebar_open: self.sidebar_open, drawer_open: self.drawer.is_some(), split_open: false };
         let now = std::time::Instant::now();
         let reduce = cx.reduce_motion();
         let (s, mut moving) = self.motion.frame(want, Frame::at_rest(&layout::solve(w, h, want, plat)), now, reduce);
@@ -875,6 +882,13 @@ impl Render for Cauldron {
         } else {
             moving = true;
         }
+        if let Some((_, t0)) = self.layout_since {
+            if reduce || crate::motion::run(now, t0, cauldron_chrome::motion::time::LAYOUT) >= 1.0 {
+                self.layout_since = None;
+            } else {
+                moving = true;
+            }
+        }
         if moving {
             window.request_animation_frame();
         }
@@ -897,7 +911,13 @@ impl Render for Cauldron {
             .bg(frame)
             .font_family(SANS).font_features(sans_features())
             .text_size(px(13.))
-            .text_color(fg);
+            .text_color(fg)
+            .on_mouse_move(cx.listener(|this, ev: &MouseMoveEvent, _, cx| this.drag_line(ev, cx)))
+            .on_mouse_up(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                if this.pane_drag.take().is_some() {
+                    cx.notify();
+                }
+            }));
 
         // Window drag strip, under every control.
         root = root.child(
@@ -1263,9 +1283,17 @@ impl Render for Cauldron {
                 .child(head_title)
                 .test_support(),
         );
+        head = head.child(div().flex_1()).child(self.layout_button(pal, now, reduce, cx).test_support());
         // A new thread keeps a 32px bar under its card, in the Shell's grey (Charles 13 Nov).
         let new_screen = self.open.is_none() && self.active == 0;
         let card_h = s.main.h - if new_screen { STAGE_H } else { 0.0 };
+        // Split (direction B): under the head the card holds up to four panes on the Shell's grey;
+        // a shape that no longer fits steps back, as the shell closes Split when the window narrows.
+        let area = Rect::new(s.main.x, s.main.y + 44.0, s.main.w, card_h - 44.0);
+        let shape = cauldron_chrome::panes::effective(area, self.panes.shape);
+        let split = shape != Shape::One;
+        let body = self.card_body(pal, window, cx);
+        let inside = if split { self.pane_stage(pal, area, shape, body, cx).into_any_element() } else { body };
         let card_el = div()
             .id("card")
             .absolute()
@@ -1277,13 +1305,12 @@ impl Render for Cauldron {
             .flex_col()
             .overflow_hidden()
             .rounded(px(radius::PANEL))
-            // A Panel in its Shell: darker than the Shell in dark, white on it in light.
-            .bg(c(pal.panel))
-            .border_1()
-            .border_color(ring)
+            // A Panel in its Shell: darker than the Shell in dark, white on it in light. Split, the
+            // panes are the Panels and the head sits on the Shell.
+            .when_live(!split, |d| d.bg(c(pal.panel)).border_1().border_color(ring))
             .text_color(fg3)
             .child(head.test_support())
-            .child(div().flex_1().min_h_0().child(self.card_body(pal, window, cx)));
+            .child(div().flex_1().min_h_0().child(inside));
         // The grey Shell behind the card, Split and the drawer: the drawer stands in its right
         // gutter and the new thread's bar in its bottom one (the coordinator's brief, 13 Nov).
         root = root.child(pane("shell", s.shell).rounded(px(radius::SHELL)).bg(card).test_support());
@@ -1317,38 +1344,6 @@ impl Render for Cauldron {
             );
         }
         root = root.child(main_el.test_support());
-
-        // ---- split card
-        if let Some(hp) = s.half {
-            let r = hp.rect;
-            let tiles = ["Highlights", "Files", "Changes", "Terminal", "Browser", "Add an app"];
-            let mut grid = div().flex().flex_wrap().gap(px(8.)).p(px(12.));
-            for t in tiles {
-                grid = grid.child(
-                    div()
-                        .w(px(122.))
-                        .p(px(10.))
-                        .rounded(px(radius::CONTROL))
-                        .bg(c(pal.raised))
-                        .border_1()
-                        .border_color(ring)
-                        .text_size(px(12.5))
-                        .child(t),
-                );
-            }
-            root = root.child(
-                pane("half", r)
-                    .opacity(hp.alpha)
-                    .rounded(px(radius::PANEL))
-                    .bg(card)
-                    .border_1()
-                    .border_color(ring)
-                    .overflow_hidden()
-                    .child(div().px(px(12.)).pt(px(10.)).text_color(fg3).text_size(px(12.)).child("Open in this half"))
-                    .child(grid)
-                    .test_support(),
-            );
-        }
 
         // ---- drawer (on the Shell's grey, no border of its own)
         if let (Some(dp), Some(p)) = (s.drawer, self.drawer.or(self.drawer_last)) {
@@ -1477,8 +1472,9 @@ impl Render for Cauldron {
                 .gap(px(2.))
                 .child(self.tipped("top-term", icon_button("top-term", "terminal", "Terminal", pal, false), "Terminal", Side::Below, pal, cx).occlude().test_support())
                 .child(
-                    self.tipped("top-split", icon_button("top-split", "columns-2", "Split", pal, self.split), "Split", Side::Below, pal, cx).occlude().on_click(cx.listener(|this, _, _, cx| {
-                        this.split = !this.split;
+                    self.tipped("top-split", icon_button("top-split", "columns-2", "Split", pal, self.panes.shape != Shape::One), "Split", Side::Below, pal, cx).occlude().on_click(cx.listener(|this, _, _, cx| {
+                        // Split opens two side by side, or goes back to one pane.
+                        this.set_shape(if this.panes.shape == Shape::One { Shape::Cols } else { Shape::One });
                         cx.notify();
                     }))
                     .test_support(),
@@ -1547,8 +1543,8 @@ mod tests {
     use gpui_kit::test::TestWindowExt;
     use gpui_kit::{px, size, AppContext, ElementId, TestAppContext, Window};
 
-    const W: f32 = 1240.0;
-    const H: f32 = 702.0;
+    pub(super) const W: f32 = 1240.0;
+    pub(super) const H: f32 = 702.0;
 
     fn assert_rect(window: &Window, id: &'static str, want: Rect, state: ShellState) {
         let b = window.find(id).bounds();
@@ -1561,17 +1557,17 @@ mod tests {
     }
 
     /// Every pane the shell draws sits exactly where `cauldron_chrome::layout::solve` puts it,
-    /// in all eight combinations of sidebar, drawer and split.
+    /// in all four combinations of sidebar and drawer. Split lives inside the card now (direction B),
+    /// so the solver's half pane is never drawn.
     #[gpui_kit::test]
     fn panes_match_the_layout_solver_in_every_state(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
-        for bits in 0..8u8 {
-            let state = ShellState { sidebar_open: bits & 1 != 0, drawer_open: bits & 2 != 0, split_open: bits & 4 != 0 };
+        for bits in 0..4u8 {
+            let state = ShellState { sidebar_open: bits & 1 != 0, drawer_open: bits & 2 != 0, split_open: false };
             cx.update(|cx| cx.set_reduce_motion(true));
             let handle = cx.add_window(move |_, _| Cauldron {
                 sidebar_open: state.sidebar_open,
                 drawer: state.drawer_open.then_some(Panel::Highlights),
-                split: state.split_open,
                 ..Cauldron::new()
             });
             cx.simulate_window_resize(handle.into(), size(px(W), px(H)));
@@ -1693,7 +1689,7 @@ mod tests {
         .unwrap();
     }
 
-    fn rect(window: &Window, id: impl Into<ElementId>) -> Rect {
+    pub(super) fn rect(window: &Window, id: impl Into<ElementId>) -> Rect {
         let b = window.find(id).bounds();
         Rect::new(f32::from(b.origin.x), f32::from(b.origin.y), f32::from(b.size.width), f32::from(b.size.height))
     }

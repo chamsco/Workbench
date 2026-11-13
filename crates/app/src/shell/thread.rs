@@ -510,8 +510,9 @@ impl Cauldron {
                     .flex()
                     .items_center()
                     .gap(px(6.))
-                    .child(chip_btn("route", format!("Answered by {}", t.route.provider)).test_support())
-                    .child(effort_chip.test_support())
+                    // In a narrow pane the route chip gives way first, so Send stays in view.
+                    .child(chip_btn("route", format!("Answered by {}", t.route.provider)).min_w_0().truncate().test_support())
+                    .child(effort_chip.flex_none().test_support())
                     .child(action),
             );
         if let Some(e) = &self.send_error {
