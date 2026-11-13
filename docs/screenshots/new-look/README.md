@@ -81,8 +81,8 @@ Charles retired the folder tabs (12 Nov); the coordinator's answer on placement 
 
 | | Board `.ftab` | App, measured at 1200x720 | Why |
 |---|---|---|---|
-| Bar | 44 | 40 | top bar A, merged in NL2b |
-| Tab | y 7, h 30, centred | y 6 to 36, h 30, centred | |
+| Bar | 44 | 44 (was 40 from top bar A; moved to the board's 44 on 13 Nov so the bar and the card head line up) | |
+| Tab | y 7, h 30, centred | y 8 to 38, h 30, centred (the window's 1px border adds 1 to every y) | |
 | Row x | card + 6 (254) | card's left edge (257) | rule 8; clamped past the logo and name when the sidebar is closed (the board has no such frame) |
 | Radius | 7 | 8 (`radius::INNER`) | there is no 7 |
 | Text | 12.5px 400 | 12px / 16px, 500 | label style |
@@ -91,10 +91,11 @@ Charles retired the folder tabs (12 Nov); the coordinator's answer on placement 
 | Figure | 15x18 on every tab | 14px tall, only on an agentic thread's tabs | Charles, 12 Nov |
 | Close | fg-4 | fg-3, on hover for closed tabs | fg-4 fails AA |
 | + | 28 | 28 | |
-| Card | y 44 under the bar | y 45 (bar 40 + gap 4 + border 1) | |
+| Card | y 44, right under the bar | y 45, right under the bar (no gap) | |
+| Sidebar first row (apps) | y 48 | y 49 | the apps row then 16 to New thread, the board's 15 on the 4px scale |
 | Card head | 44, title at card + 14, "repo /" fg-3 400 | the same; worktree and branch not drawn | core has no worktree or branch for a thread |
 
 - Agent tabs size to their names within an equal share of the row (72 to 200); past that the row scrolls with arrows, as before.
 - Empty states (Charles, 12 Nov): a "Needs you" head with no rows and no count above the groups (hidden while searching), and "No data yet" under the name in the user row. Neither invents a number.
 - The thread view's own title row and chips are gone; the card head carries the title.
-- Runs: `docs/cauldron/NL2-tabs-red.txt` (tabs still under the bar, no `selected` state, no card head, no empty states), `NL2-tabs-green.txt`. The 13 Nov sizes (14px figure, row at the card's edge) changed the tests and the code together; there is no separate red run for them.
+- Runs: `docs/cauldron/NL2-bar44-red.txt` / `NL2-bar44-green.txt` (the 44px bar, panes under it); `docs/cauldron/NL2-tabs-red.txt` (tabs still under the bar, no `selected` state, no card head, no empty states), `NL2-tabs-green.txt`. The 13 Nov sizes (14px figure, row at the card's edge) changed the tests and the code together; there is no separate red run for them.
