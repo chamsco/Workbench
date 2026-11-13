@@ -180,6 +180,8 @@ impl Cauldron {
     /// Opens a thread in the main card. Reading it through core marks it read.
     pub(super) fn open_thread(&mut self, id: String) {
         let Some((_, chats)) = &self.core else { return };
+        // A stream opens in Streams, whichever app was showing (the pages board).
+        self.page = super::pages::AppPage::Streams;
         self.thread = chats.thread(&id);
         self.steps.clear();
         fill_steps(chats, self.thread.as_ref(), &mut self.steps);
@@ -639,7 +641,9 @@ pub(super) mod tests {
         let chats = Chats::open(d, rt.handle().clone(), tx);
         let ch = chats.clone();
         cx.update(|cx| cx.set_reduce_motion(true));
-        let handle = cx.add_window(move |_, _| Cauldron { threads: Threads::Ready(ch.list()), core: Some((rt, ch)), ..Cauldron::new() });
+        // Folders open, so the tests see every stream's row (a closed folder hides its rows).
+        let folder_open = [("Cauldron".to_string(), true), ("Unfiled".to_string(), true)].into_iter().collect();
+        let handle = cx.add_window(move |_, _| Cauldron { threads: Threads::Ready(ch.list()), core: Some((rt, ch)), folder_open, ..Cauldron::new() });
         cx.simulate_window_resize(handle.into(), size(px(1240.), px(702.)));
         (handle, chats)
     }

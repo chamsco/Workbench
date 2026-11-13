@@ -1,5 +1,5 @@
 //! The three apps (Charles, 13 Nov 13:40Z): Streams, Agents and Memory, switched at the top of the
-//! sidebar; each replaces the main content area (not tabs). Streams is the built one. Agents and
+//! sidebar; each replaces the main content area (not tabs), and the sidebar's streams stay. Streams is the built one. Agents and
 //! Memory are mockups for now, so the switch leads somewhere: the coordinator's pages board will
 //! design them. A mockup says it is one and shows no sample data as if it were real; Agents lists
 //! core's agents by name, read only.
@@ -75,19 +75,6 @@ impl Cauldron {
             // Core's agents, by name and job; read only.
             self.page_agents = backspace_core::agents::Agents::open(Prefs::data_dir().join("agents")).list().into_iter().map(|a| (a.name, a.job)).collect();
         }
-    }
-
-    /// The sidebar under the switch while Agents or Memory is open.
-    pub(super) fn page_nav(&self, pal: &'static Palette) -> Stateful<Div> {
-        div()
-            .id("page-nav")
-            .flex_1()
-            .min_h_0()
-            .px(px(8.))
-            .pt(px(8.))
-            .text_size(px(12.))
-            .text_color(c(pal.fg3))
-            .child(format!("{} has its own list here once the page is designed.", self.page.label()))
     }
 
     /// Agents' or Memory's page in the card: a labelled mockup of what it will hold.
@@ -171,14 +158,15 @@ mod tests {
             window.render_frame(cx);
             assert_eq!(window.find("card-title").label(), Some("Memory"));
             assert!(window.try_find("page-body").is_some() && window.try_find("mockup-tag").is_some(), "Memory's mockup, labelled");
-            assert!(window.try_find(("thread", 0usize)).is_none() && window.try_find("drawer").is_none() && window.try_find("rrail").is_none(), "no streams, no drawer");
-            window.click(("app-page", 0usize), cx);
+            assert!(window.try_find(("thread", 0usize)).is_some(), "the sidebar's streams stay");
+            assert!(window.try_find("drawer").is_none() && window.try_find("rrail").is_none(), "Memory has no drawer");
+            window.click(("thread", 0usize), cx);
         })
         .unwrap();
         rest(cx);
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
-            assert!(window.try_find("page-body").is_none() && window.try_find(("thread", 0usize)).is_some(), "Streams again");
+            assert!(window.try_find("page-body").is_none() && window.find(("app-page", 0usize)).selected() == Some(true), "a stream brings Streams back");
         })
         .unwrap();
     }

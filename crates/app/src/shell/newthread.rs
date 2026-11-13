@@ -72,6 +72,7 @@ fn mime(name: &str) -> &'static str {
 impl Cauldron {
     /// Back to the New stream screen with an empty box.
     pub(super) fn new_thread(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.page = super::pages::AppPage::Streams;
         self.open = None;
         self.thread = None;
         self.selected = None;

@@ -43,16 +43,83 @@ impl Group {
     }
 }
 
-/// Threads matching `query` (case-insensitive, in the title or the preview), in groups, each
-/// keeping `list()`'s order (pinned first, then newest). Empty groups are left out.
-pub(crate) fn grouped<'a>(list: &'a [ThreadInfo], query: &str) -> Vec<(Group, Vec<&'a ThreadInfo>)> {
+/// Streams by folder (Charles, 13 Nov 13:40Z: streams belong to a folder, for tidying up and
+/// search): each folder in the order its newest stream comes in the list, the streams in list order
+/// under it, and the ones with no folder last. A query matches the title, the last words or the
+/// folder's name, ignoring case; folders with no match are left out.
+pub(crate) fn by_folder<'a>(list: &'a [ThreadInfo], query: &str) -> Vec<(String, Vec<&'a ThreadInfo>)> {
     let q = query.trim().to_lowercase();
-    let hit = |t: &ThreadInfo| q.is_empty() || t.title.to_lowercase().contains(&q) || t.preview.to_lowercase().contains(&q);
-    Group::ALL
-        .iter()
-        .map(|&g| (g, list.iter().filter(|t| Group::of(t) == g && hit(t)).collect::<Vec<_>>()))
-        .filter(|(_, v)| !v.is_empty())
-        .collect()
+    let hit = |t: &ThreadInfo| q.is_empty() || t.title.to_lowercase().contains(&q) || t.preview.to_lowercase().contains(&q) || folder(t).is_some_and(|f| f.to_lowercase().contains(&q));
+    let mut out: Vec<(Option<String>, Vec<&ThreadInfo>)> = Vec::new();
+    for t in list.iter().filter(|t| hit(t)) {
+        let f = folder(t);
+        match out.iter_mut().find(|(k, _)| *k == f) {
+            Some((_, v)) => v.push(t),
+            None => out.push((f, vec![t])),
+        }
+    }
+    out.sort_by_key(|(k, _)| k.is_none());
+    out.into_iter().map(|(k, v)| (k.unwrap_or_else(|| NO_FOLDER.into()), v)).collect()
+}
+
+/// The heading for streams with no folder.
+pub(crate) const NO_FOLDER: &str = "Unfiled";
+
+/// A stream waiting on you: an unopened reply (core has no other "needs you" yet).
+pub(crate) fn needs_you(t: &ThreadInfo) -> bool {
+    Group::of(t) == Group::Unread
+}
+
+/// One line of the sidebar's list (the pages board 5b7662c, folders direction B).
+pub(crate) enum Item<'a> {
+    /// "Needs you", pinned on top, with how many.
+    Needs(usize),
+    /// "Folders", with its +.
+    Folders,
+    /// A folder: its name, every stream in it, open or not, and a dot when closed over a stream
+    /// that needs you.
+    Folder { name: String, count: usize, open: bool, dot: bool },
+    /// A stream, with its folder as a chip where the folder is not the heading above it.
+    Row { t: &'a ThreadInfo, chip: Option<String> },
+}
+
+/// The sidebar's list. Searching, a flat list of hits, each with its folder. Otherwise: Needs you
+/// (flat, those streams not repeated under their folder), Folders, then each folder, open when it
+/// holds a running or waiting stream unless `toggles` says otherwise, and Unfiled last.
+pub(crate) fn sidebar<'a>(list: &'a [ThreadInfo], query: &str, toggles: &std::collections::HashMap<String, bool>) -> Vec<Item<'a>> {
+    let chip = |t: &ThreadInfo| Some(folder(t).unwrap_or_else(|| NO_FOLDER.into()));
+    if !query.trim().is_empty() {
+        return by_folder(list, query).into_iter().flat_map(|(_, ts)| ts).map(|t| Item::Row { t, chip: chip(t) }).collect();
+    }
+    let needs: Vec<&ThreadInfo> = list.iter().filter(|t| needs_you(t)).collect();
+    let mut out = vec![Item::Needs(needs.len())];
+    out.extend(needs.iter().map(|t| Item::Row { t, chip: chip(t) }));
+    out.push(Item::Folders);
+    for (name, ts) in by_folder(list, "") {
+        let waiting = ts.iter().any(|t| needs_you(t));
+        let open = toggles.get(&name).copied().unwrap_or(waiting || ts.iter().any(|t| t.busy));
+        out.push(Item::Folder { name: name.clone(), count: ts.len(), open, dot: !open && waiting });
+        if open {
+            out.extend(ts.into_iter().filter(|t| !needs_you(t)).map(|t| Item::Row { t, chip: None }));
+        }
+    }
+    out
+}
+
+/// How long ago, as the row's age: 4m, 2h, 3d, 1w.
+pub(crate) fn age(updated: u64, now: u64) -> String {
+    let m = now.saturating_sub(updated) / 60_000;
+    match m {
+        0..=59 => format!("{}m", m.max(1)),
+        60..=1439 => format!("{}h", m / 60),
+        1440..=10079 => format!("{}d", m / 1440),
+        _ => format!("{}w", m / 10080),
+    }
+}
+
+/// A stream's folder: its project's last path part.
+pub(crate) fn folder(t: &ThreadInfo) -> Option<String> {
+    t.project.as_ref().map(|p| p.rsplit(['/', '\\']).find(|s| !s.is_empty()).unwrap_or(p).to_string())
 }
 
 /// The row's meta after the title, as the board's `.m`: the project's folder name, else "no repo".
@@ -120,7 +187,8 @@ pub(crate) fn fixture(now: u64) -> Vec<ThreadInfo> {
 
 #[cfg(test)]
 mod tests {
-    use super::{grouped, meta, sample, Group};
+    use super::{age, by_folder, meta, sample, sidebar, Group, Item, NO_FOLDER};
+    use std::collections::HashMap;
 
     #[test]
     fn each_thread_lands_in_one_group_by_precedence() {
@@ -135,26 +203,72 @@ mod tests {
     }
 
     #[test]
-    fn groups_come_in_order_keep_list_order_and_skip_empty_ones() {
+    fn streams_group_by_folder_in_list_order_with_no_folder_last() {
         let mut v: Vec<_> = ["p", "q", "r", "s", "t"].iter().map(|id| sample(id, id)).collect();
-        v[0].pinned = true;
-        v[1].busy = true;
-        v[2].unread = true;
-        v[4].unread = true;
-        let g = grouped(&v, "");
-        let ids: Vec<(Group, Vec<&str>)> = g.iter().map(|(g, ts)| (*g, ts.iter().map(|t| t.id.as_str()).collect())).collect();
-        assert_eq!(ids, vec![(Group::Unread, vec!["r", "t"]), (Group::Running, vec!["q"]), (Group::Done, vec!["p", "s"])]);
+        v[0].project = Some("/code/Cauldron".into());
+        v[1].project = None;
+        v[2].project = Some("C:\\code\\Ocean\\".into());
+        v[3].project = Some("/code/Cauldron/".into());
+        v[4].project = Some("/elsewhere/Cauldron".into());
+        let g: Vec<(String, Vec<&str>)> = by_folder(&v, "").iter().map(|(f, ts)| (f.clone(), ts.iter().map(|t| t.id.as_str()).collect())).collect();
+        assert_eq!(g, vec![("Cauldron".to_string(), vec!["p", "s", "t"]), ("Ocean".into(), vec!["r"]), (NO_FOLDER.into(), vec!["q"])]);
+    }
+
+    /// Direction B: Needs you flat on top (not repeated under its folder), Folders, each folder
+    /// open when it holds running or waiting work, closed (with a dot if it hides a waiting stream)
+    /// otherwise, a toggle wins, and Unfiled last.
+    #[test]
+    fn the_sidebar_is_needs_you_then_folders() {
+        let mut v: Vec<_> = ["a", "b", "c", "d", "e"].iter().map(|id| sample(id, id)).collect();
+        v[0].project = Some("/code/Cauldron".into());
+        v[0].unread = true;
+        v[1].project = Some("/code/Cauldron".into());
+        v[2].project = Some("/code/Ocean".into());
+        v[3].project = Some("/code/Ocean".into());
+        v[3].busy = true;
+        let mut toggles = HashMap::new();
+        let names = |items: &[Item]| -> Vec<String> {
+            items
+                .iter()
+                .map(|i| match i {
+                    Item::Needs(n) => format!("needs {n}"),
+                    Item::Folders => "folders".into(),
+                    Item::Folder { name, count, open, dot } => format!("{name} {count} {} {}", if *open { "open" } else { "shut" }, if *dot { "dot" } else { "-" }),
+                    Item::Row { t, chip } => format!("{} {}", t.id, chip.clone().unwrap_or_default()),
+                })
+                .collect()
+        };
+        assert_eq!(
+            names(&sidebar(&v, "", &toggles)),
+            ["needs 1", "a Cauldron", "folders", "Cauldron 2 open -", "b ", "Ocean 2 open -", "c ", "d ", "Unfiled 1 shut -"]
+        );
+        toggles.insert("Cauldron".to_string(), false);
+        toggles.insert("Unfiled".to_string(), true);
+        assert_eq!(
+            names(&sidebar(&v, "", &toggles)),
+            ["needs 1", "a Cauldron", "folders", "Cauldron 2 shut dot", "Ocean 2 open -", "c ", "d ", "Unfiled 1 open -", "e "]
+        );
+        assert_eq!(names(&sidebar(&v, "ocean", &toggles)), ["c Ocean", "d Ocean"], "a search lists its hits flat, each with its folder");
     }
 
     #[test]
-    fn search_matches_title_or_preview_ignoring_case() {
-        let mut v = vec![sample("a", "Rampart mutation score"), sample("b", "Koi palette")];
+    fn age_reads_minutes_hours_days_weeks() {
+        let m = 60_000u64;
+        let now = 100 * 10080 * m;
+        assert_eq!([age(now, now), age(now - 4 * m, now), age(now - 120 * m, now), age(now - 3 * 1440 * m, now), age(now - 15 * 1440 * m, now)], ["1m", "4m", "2h", "3d", "2w"]);
+    }
+
+    #[test]
+    fn search_matches_title_preview_or_folder_ignoring_case() {
+        let mut v = vec![sample("a", "Rampart mutation score"), sample("b", "Koi palette"), sample("c", "Build")];
         v[1].preview = "Light MODE colours".into();
-        let ids = |q: &str| grouped(&v, q).into_iter().flat_map(|(_, ts)| ts.into_iter().map(|t| t.id.clone())).collect::<Vec<_>>();
+        v[2].project = Some("/code/Brainwave".into());
+        let ids = |q: &str| by_folder(&v, q).into_iter().flat_map(|(_, ts)| ts.into_iter().map(|t| t.id.clone())).collect::<Vec<_>>();
         assert_eq!(ids("  ramPART "), ["a"]);
         assert_eq!(ids("mode"), ["b"]);
+        assert_eq!(ids("brainWAVE"), ["c"], "the folder's name finds its streams");
         assert!(ids("nothing like it").is_empty());
-        assert_eq!(ids("").len(), 2);
+        assert_eq!(ids("").len(), 3);
     }
 
     #[test]

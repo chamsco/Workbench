@@ -160,6 +160,9 @@ pub(crate) struct Cauldron {
     /// Which window controls the shell draws: the OS's, or Windows' drawn on a Mac for a preview
     /// (debug `CAULDRON_PLATFORM=windows`).
     plat: Platform,
+    /// Folders the user opened or closed by hand, by name (the session's choice wins over the
+    /// default: open when the folder holds running or waiting work).
+    folder_open: std::collections::HashMap<String, bool>,
     /// Which app fills the window: Streams, Agents or Memory (Charles, 13 Nov 13:40Z).
     page: pages::AppPage,
     /// Core's agents (name, job), read when Agents opens.
@@ -308,7 +311,7 @@ impl Cauldron {
     }
 
     pub(crate) fn new() -> Self {
-        Cauldron { motion: ShellMotion::default(), swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: None, sidebar_open: true, drawer: Some(Panel::Highlights), backdrop: Default::default(), glass_at: Default::default(), glass_card: std::cell::Cell::new(None), appearance_sub: None, prefs_file: None, plat: platform(), page: Default::default(), page_agents: Vec::new(), settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_menu: false, tab_slide: Default::default(), tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
+        Cauldron { motion: ShellMotion::default(), swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: None, sidebar_open: true, drawer: Some(Panel::Highlights), backdrop: Default::default(), glass_at: Default::default(), glass_card: std::cell::Cell::new(None), appearance_sub: None, prefs_file: None, plat: platform(), folder_open: Default::default(), page: Default::default(), page_agents: Vec::new(), settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_menu: false, tab_slide: Default::default(), tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
     }
 
     /// Opens core off the main thread (the sidebar shows Loading meanwhile), then keeps the thread
@@ -356,7 +359,13 @@ impl Cauldron {
     /// Thread ids in the order the sidebar draws them.
     fn visible_ids(&self) -> Vec<String> {
         match &self.threads {
-            Threads::Ready(v) => threads::grouped(v, &self.query).into_iter().flat_map(|(_, ts)| ts.into_iter().map(|t| t.id.clone())).collect(),
+            Threads::Ready(v) => threads::sidebar(v, &self.query, &self.folder_open)
+                .into_iter()
+                .filter_map(|i| match i {
+                    threads::Item::Row { t, .. } => Some(t.id.clone()),
+                    _ => None,
+                })
+                .collect(),
             _ => Vec::new(),
         }
     }
@@ -448,110 +457,126 @@ impl Cauldron {
                 list.child(note("threads-empty", "No streams yet".into(), None, "No streams yet".into(), Some("Start one with New stream.".into())))
             }
             Threads::Ready(v) => {
-                let groups = threads::grouped(v, &self.query);
-                if groups.is_empty() {
+                let items = threads::sidebar(v, &self.query, &self.folder_open);
+                if items.is_empty() {
                     let q = self.query.trim().to_string();
                     return list.child(note("threads-no-match", format!("No streams match {q}"), None, format!("No streams match \u{201c}{q}\u{201d}"), None));
                 }
-                // Core has no Needs you yet, so the group is its head alone, without a count
-                // (Charles chose empty states, 12 Nov).
-                if self.query.trim().is_empty() {
-                    list = list.child(
-                        div()
-                            .id("group-needs")
-                            .flex()
-                            .items_center()
-                            .h(px(36.))
-                            .flex_none()
-                            .px(px(8.))
-                            .pt(px(14.))
-                            .pb(px(4.))
-                            .text_size(px(12.))
-                            .line_height(px(18.))
-                            .text_color(fg3)
-                            .aria_label("Needs you")
-                            .child("Needs you")
-                            .test_support(),
-                    );
-                }
+                // The pages board (5b7662c), folders direction B: Needs you, then Folders, each
+                // folder folding, Unfiled last; a row is its state dot, its title and its age.
+                let now = now_ms();
+                let head = |id: ElementId| div().id(id).flex().items_center().gap(px(6.)).h(px(36.)).flex_none().px(px(8.)).pt(px(14.)).pb(px(4.)).text_size(px(12.)).line_height(px(18.)).text_color(fg3);
                 let mut i = 0usize;
-                for (gi, (g, ts)) in groups.into_iter().enumerate() {
-                    let n = ts.len();
-                    list = list.child(
-                        div()
-                            .id(("group", gi))
-                            .flex()
-                            .items_center()
-                            .gap(px(6.))
-                            .h(px(36.))
-                            .flex_none()
-                            .px(px(8.))
-                            .pt(px(14.))
-                            .pb(px(4.))
-                            .text_size(px(12.))
-                            .line_height(px(18.))
-                            .text_color(if g == Group::Failed { c(pal.bad) } else { fg3 })
-                            .aria_label(format!("{}, {n}", g.label()))
-                            .child(g.label())
-                            .child(div().ml_auto().font_features(tnum()).child(n.to_string()))
-                            .test_support(),
-                    );
-                    for t in ts {
-                        let on = self.selected.as_deref() == Some(t.id.as_str());
-                        let id = t.id.clone();
-                        // A state dot, agent or not: figures belong to the Agents page (Charles, 13 Nov).
-                        let (state, dot) = match g {
-                            Group::Running => ("Working", c(pal.accent)),
-                            Group::Failed => ("Failed", c(pal.bad)),
-                            Group::Unread => ("Unread", fg3),
-                            Group::Done => ("Done", fg3),
-                        };
-                        let slot = div()
-                            .id(("thread-av", i))
-                            .w(px(18.))
-                            .h(px(22.))
-                            .flex_none()
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .aria_label(state)
-                            .child(div().id(("thread-dot", i)).size(px(6.)).rounded_full().bg(dot).test_support());
-                        list = list.child(
-                            div()
-                                .id(("thread", i))
-                                .h(px(30.))
-                                .flex_none()
-                                .flex()
-                                .items_center()
-                                .gap(px(8.))
-                                .pl(px(11.))
-                                .pr(px(8.))
-                                .rounded(px(radius::TAG))
-                                .text_size(px(13.))
-                                .text_color(if on || t.unread { fg } else { fg2 })
-                                .when_live(on, |d| d.bg(c(pal.hover)))
-                                .when_live(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
-                                .cursor_pointer()
-                                .aria_label(t.title.clone())
-                                .child(slot.test_support())
-                                .child(div().flex_1().min_w_0().truncate().font_weight(if t.unread { FontWeight::SEMIBOLD } else { FontWeight::NORMAL }).child(t.title.clone()))
-                                .when_live(t.pinned, |d| d.child(glyph("pin", 11., fg3)))
-                                .child({
-                                    let m = threads::meta(t);
-                                    div().id(("thread-meta", i)).flex_none().max_w(px(54.)).truncate().text_size(px(11.)).text_color(fg3).aria_label(m.clone()).child(m).test_support()
-                                })
-                                .when_live(t.unread, |d| d.child(div().id(("ping", i)).size(px(6.)).flex_none().rounded_full().bg(c(pal.accent)).test_support()))
-                                .on_click(cx.listener(move |this, _, window, cx| {
-                                    this.selected = Some(id.clone());
-                                    this.open_thread(id.clone());
-                                    if let Some(f) = &this.list_focus {
-                                        window.focus(f, cx);
-                                    }
-                                    cx.notify();
-                                }))
-                                .test_support(),
-                        );
-                        i += 1;
+                for (gi, item) in items.into_iter().enumerate() {
+                    match item {
+                        threads::Item::Needs(n) => {
+                            let label = if n == 0 { "Needs you".to_string() } else { format!("Needs you, {n}") };
+                            list = list.child(head("group-needs".into()).aria_label(label).child("Needs you").when_live(n > 0, |d| d.child(div().ml_auto().font_features(tnum()).child(n.to_string()))).test_support());
+                        }
+                        threads::Item::Folders => {
+                            list = list.child(
+                                head("group-folders".into())
+                                    .aria_label("Folders")
+                                    .child("Folders")
+                                    .child(
+                                        div()
+                                            .id("folder-add")
+                                            .ml_auto()
+                                            .size(px(20.))
+                                            .flex()
+                                            .items_center()
+                                            .justify_center()
+                                            .rounded(px(radius::TAG))
+                                            .aria_label("New folder (arrives later)")
+                                            .child(glyph("plus", 12., c(pal.fg4)))
+                                            .test_support(),
+                                    )
+                                    .test_support(),
+                            );
+                        }
+                        threads::Item::Folder { name, count, open, dot } => {
+                            let key = name.clone();
+                            list = list.child(
+                                div()
+                                    .id(("group", gi))
+                                    .h(px(30.))
+                                    .flex_none()
+                                    .flex()
+                                    .items_center()
+                                    .gap(px(6.))
+                                    .px(px(8.))
+                                    .rounded(px(radius::TAG))
+                                    .cursor_pointer()
+                                    .hover(|d| d.bg(c(pal.hover)))
+                                    .text_size(px(13.))
+                                    .text_color(fg2)
+                                    .aria_label(format!("{name}, {count}"))
+                                    .aria_expanded(open)
+                                    .child(glyph(if open { "chevron-down" } else { "chevron-right" }, 12., fg3))
+                                    .child(glyph("folder", 14., fg3))
+                                    .child(div().flex_1().min_w_0().truncate().child(name))
+                                    .when_live(dot, |d| d.child(div().id(("folder-dot", gi)).size(px(6.)).flex_none().rounded_full().bg(c(pal.accent)).test_support()))
+                                    .child(div().flex_none().text_size(px(11.)).text_color(fg3).font_features(tnum()).child(count.to_string()))
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.folder_open.insert(key.clone(), !open);
+                                        cx.notify();
+                                    }))
+                                    .test_support(),
+                            );
+                        }
+                        threads::Item::Row { t, chip } => {
+                            let on = self.selected.as_deref() == Some(t.id.as_str());
+                            let id = t.id.clone();
+                            // The state dot (the board): needs you filled accent, running a ring in
+                            // accent, failed bad, done grey. No figures: they belong to Agents.
+                            let (state, fill, ring) = match Group::of(t) {
+                                Group::Running => ("Working", None, Some(c(pal.accent))),
+                                Group::Failed => ("Failed", Some(c(pal.bad)), None),
+                                Group::Unread => ("Needs you", Some(c(pal.accent)), None),
+                                Group::Done => ("Done", Some(fg3), None),
+                            };
+                            let mut dotel = div().id(("thread-dot", i)).size(px(7.)).rounded_full();
+                            if let Some(f) = fill {
+                                dotel = dotel.bg(f);
+                            }
+                            if let Some(r) = ring {
+                                dotel = dotel.border_1().border_color(r);
+                            }
+                            let slot = div().id(("thread-av", i)).w(px(18.)).h(px(22.)).flex_none().flex().items_center().justify_center().aria_label(state).child(dotel.test_support());
+                            list = list.child(
+                                div()
+                                    .id(("thread", i))
+                                    .h(px(30.))
+                                    .flex_none()
+                                    .flex()
+                                    .items_center()
+                                    .gap(px(8.))
+                                    .pl(px(if chip.is_some() { 11. } else { 23. }))
+                                    .pr(px(8.))
+                                    .rounded(px(radius::TAG))
+                                    .text_size(px(13.))
+                                    .text_color(if on || t.unread { fg } else { fg2 })
+                                    .when_live(on, |d| d.bg(c(pal.hover)))
+                                    .when_live(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
+                                    .cursor_pointer()
+                                    .aria_label(t.title.clone())
+                                    .child(slot.test_support())
+                                    .child(div().flex_1().min_w_0().truncate().font_weight(if t.unread { FontWeight::SEMIBOLD } else { FontWeight::NORMAL }).child(t.title.clone()))
+                                    .when_live(t.pinned, |d| d.child(glyph("pin", 11., fg3)))
+                                    .children(chip.map(|f| div().id(("thread-chip", i)).flex_none().max_w(px(72.)).truncate().px(px(5.)).rounded(px(radius::TAG)).bg(c(pal.inset)).text_size(px(11.)).text_color(fg3).aria_label(f.clone()).child(f).test_support()))
+                                    .child(div().id(("thread-age", i)).flex_none().text_size(px(11.)).text_color(fg3).font_features(tnum()).child(threads::age(t.updated, now)).test_support())
+                                    .on_click(cx.listener(move |this, _, window, cx| {
+                                        this.selected = Some(id.clone());
+                                        this.open_thread(id.clone());
+                                        if let Some(f) = &this.list_focus {
+                                            window.focus(f, cx);
+                                        }
+                                        cx.notify();
+                                    }))
+                                    .test_support(),
+                            );
+                            i += 1;
+                        }
                     }
                 }
                 list
@@ -862,7 +887,7 @@ impl Render for Cauldron {
         let vs = window.viewport_size();
         let (w, h) = (f32::from(vs.width), f32::from(vs.height));
         let plat = self.plat;
-        let want = ShellState { sidebar_open: self.sidebar_open, drawer_open: self.drawer.is_some(), split_open: false, terminal_open: self.terminal, plugins: self.settings.is_none() && self.page == pages::AppPage::Streams };
+        let want = ShellState { sidebar_open: self.sidebar_open, drawer_open: self.drawer.is_some(), split_open: false, terminal_open: self.terminal, plugins: self.settings.is_none() && self.page != pages::AppPage::Memory };
         let now = std::time::Instant::now();
         let reduce = cx.reduce_motion();
         let (s, mut moving) = self.motion.frame(want, Frame::at_rest(&layout::solve(w, h, want, plat)), now, reduce);
@@ -1033,9 +1058,8 @@ impl Render for Cauldron {
                 .overflow_hidden()
                 .child(self.page_switch(pal, cx).test_support())
                 .when_live(self.settings.is_some(), |d| d.child(self.settings_nav(self.settings.unwrap_or(0), pal, cx).test_support()))
-                .when_live(self.settings.is_none() && self.page != pages::AppPage::Streams, |d| d.child(self.page_nav(pal).test_support()))
-                .when_live(self.settings.is_none() && self.page == pages::AppPage::Streams, |d| d.child(new_thread))
-                .when_live(self.settings.is_none() && self.page == pages::AppPage::Streams, |d| d.child(
+                .when_live(self.settings.is_none(), |d| d.child(new_thread))
+                .when_live(self.settings.is_none(), |d| d.child(
                     div().child(
                         div()
                             .id("search")
@@ -1053,7 +1077,7 @@ impl Render for Cauldron {
                             .test_support(),
                     ),
                 ))
-                .when_live(self.settings.is_none() && self.page == pages::AppPage::Streams, |d| d.child(list))
+                .when_live(self.settings.is_none(), |d| d.child(list))
                 .child(
                     div()
                         .h(px(37.))
@@ -1736,8 +1760,8 @@ mod tests {
         let handle = open(cx, with_threads());
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
-            assert_eq!(window.find("group-needs").label(), Some("Needs you"), "no count");
-            assert!(rect(window, "group-needs").bottom() <= rect(window, ("group", 0usize)).y, "first, with no rows under it");
+            assert_eq!(window.find("group-needs").label(), Some("Needs you, 1"));
+            assert!(rect(window, "group-needs").bottom() <= rect(window, ("thread", 0usize)).y, "first, its stream under it");
             assert_eq!(window.find("usage-left").label(), Some("No data yet"));
         })
         .unwrap();
@@ -1775,27 +1799,48 @@ mod tests {
         v[1].agent = Some("Rampart".into());
         v[2].unread = true;
         v[3].failed = Some("usage limit".into());
-        Cauldron { threads: Threads::Ready(v), ..Cauldron::new() }
+        // Folders: Cauldron (p, q), Ocean (r, s), and f unfiled; Unfiled opened by hand.
+        for (i, f) in [(0, "/code/Cauldron"), (1, "/code/Cauldron"), (2, "/code/Ocean"), (4, "/code/Ocean")] {
+            v[i].project = Some(f.into());
+        }
+        let folder_open = [("Unfiled".to_string(), true)].into_iter().collect();
+        Cauldron { threads: Threads::Ready(v), folder_open, ..Cauldron::new() }
+    }
+
+    /// The sidebar's headings in order, with their labels.
+    fn heads(window: &Window) -> Vec<String> {
+        let mut v = Vec::new();
+        for id in ["group-needs", "group-folders"] {
+            if let Some(e) = window.try_find(id) {
+                v.push((e.bounds().origin.y, e.label().unwrap_or_default().to_string()));
+            }
+        }
+        for g in 0..32usize {
+            if let Some(e) = window.try_find(("group", g)) {
+                v.push((e.bounds().origin.y, e.label().unwrap_or_default().to_string()));
+            }
+        }
+        v.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+        v.into_iter().map(|(_, l)| l).collect()
     }
 
     fn row_labels(window: &Window) -> Vec<String> {
         (0usize..).map_while(|i| window.try_find(("thread", i)).map(|e| e.label().unwrap_or_default().to_string())).collect()
     }
 
-    /// The sidebar lists core's threads as Unread, Running, Failed, Done, each with its count,
-    /// top to bottom, inside the sidebar.
+    /// The sidebar (the pages board, folders direction B): Needs you with its streams flat, then
+    /// Folders, each folder with its count, open when it holds running or waiting work, and
+    /// Unfiled last; the rows inside the sidebar, under New stream.
     #[gpui_kit::test]
-    fn sidebar_lists_threads_in_groups_with_counts(cx: &mut TestAppContext) {
+    fn sidebar_is_needs_you_then_folders(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let handle = open(cx, with_threads());
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
-            let heads: Vec<String> = (0..4usize).map(|g| window.find(("group", g)).label().unwrap().to_string()).collect();
-            assert_eq!(heads, ["Unread, 1", "Running, 1", "Failed, 1", "Done, 2"]);
-            for g in 1..4usize {
-                assert!(rect(window, ("group", g - 1)).y < rect(window, ("group", g)).y, "group {g} below the one before");
-            }
-            assert_eq!(row_labels(window), ["Koi palette", "Rampart mutation score", "M2 eval task texts", "Pinned notes", "Agent delegation"]);
+            assert_eq!(heads(window), ["Needs you, 1", "Folders", "Cauldron, 2", "Ocean, 2", "Unfiled, 1"]);
+            assert_eq!(row_labels(window), ["Koi palette", "Pinned notes", "Rampart mutation score", "Agent delegation", "M2 eval task texts"]);
+            assert_eq!(window.find(("thread-chip", 0usize)).label(), Some("Ocean"), "a needs-you row shows its folder");
+            assert!(window.try_find(("thread-chip", 1usize)).is_none(), "under its folder, no chip");
             let side = rect(window, "sidebar");
             for i in 0..5usize {
                 let r = rect(window, ("thread", i));
@@ -1806,10 +1851,30 @@ mod tests {
         .unwrap();
     }
 
-    /// The rows are the new-look board's `.th`: 30 high, the title, the repo in 11px, and a 6px ping
-    /// on an unread row only. Every row shows a state dot in its 18x22 slot, an agentic thread too:
-    /// agent figures belong to the Agents page (Charles, 13 Nov). Group heads are the board's 36px
-    /// `.sect`; New stream is a 32px row, not a button.
+    /// A folder folds by hand; closed over a stream that needs you it shows the accent dot.
+    #[gpui_kit::test]
+    fn folders_fold_and_keep_a_dot_for_needs_you(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let mut c = with_threads();
+        if let Threads::Ready(v) = &mut c.threads {
+            v[4].unread = true;
+            v[2].unread = false;
+        }
+        let handle = open(cx, c);
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            let ocean = (0..32usize).find(|&g| window.try_find(("group", g)).is_some_and(|e| e.label().is_some_and(|l| l.starts_with("Ocean")))).unwrap();
+            assert_eq!(window.find(("group", ocean)).expanded(), Some(true), "open: it holds a stream that needs you");
+            window.click(("group", ocean), cx);
+            window.render_frame(cx);
+            assert_eq!(window.find(("group", ocean)).expanded(), Some(false));
+            assert!(window.try_find(("folder-dot", ocean)).is_some(), "closed over a waiting stream: the dot");
+        })
+        .unwrap();
+    }
+
+    /// Rows are 30 high: the state dot in its 18x22 slot (needs you, working, done; no figures),
+    /// the title and the age; a 6px ping on an unread row only.
     #[gpui_kit::test]
     fn thread_rows_are_the_boards(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
@@ -1817,27 +1882,15 @@ mod tests {
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
             assert_eq!(rect(window, "new-thread").h, 32.0);
-            for g in 0..4usize {
-                assert_eq!(rect(window, ("group", g)).h, 36.0, "group {g}");
-            }
-            // Row 1 (Rampart mutation score) has an agent; it still shows a dot.
-            for (i, state) in [(0usize, "Unread"), (1, "Working"), (2, "Failed"), (3, "Done"), (4, "Done")] {
+            for (i, state) in [(0usize, "Needs you"), (1, "Done"), (2, "Working"), (3, "Done"), (4, "Failed")] {
                 let r = rect(window, ("thread", i));
                 assert_eq!(r.h, 30.0, "row {i}");
                 let a = rect(window, ("thread-av", i));
                 assert_eq!((a.w, a.h), (18.0, 22.0), "row {i}'s slot");
                 assert!((a.y + a.h / 2.0 - (r.y + r.h / 2.0)).abs() <= 1.0, "row {i}'s slot is centred");
-                assert!((10.0..=13.0).contains(&(a.x - r.x)), "row {i}'s slot is 11px in, as the board's");
                 assert_eq!(window.find(("thread-av", i)).label(), Some(state), "row {i}");
                 assert!(window.try_find(("thread-fig", i)).is_none(), "row {i}: no figure");
-                assert!(window.try_find(("thread-dot", i)).is_some(), "row {i}: a state dot");
-                assert_eq!(window.find(("thread-meta", i)).label(), Some("no repo"), "row {i}");
-            }
-            let (row, ping) = (rect(window, ("thread", 0usize)), rect(window, ("ping", 0usize)));
-            assert_eq!((ping.w, ping.h), (6.0, 6.0));
-            assert!(row.right() - ping.right() <= 10.0, "the ping is at the row's right");
-            for i in 1..5usize {
-                assert!(window.try_find(("ping", i)).is_none(), "row {i} is read");
+                assert!(window.try_find(("thread-dot", i)).is_some() && window.try_find(("thread-age", i)).is_some(), "row {i}: a dot and an age");
             }
         })
         .unwrap();
@@ -1880,7 +1933,7 @@ mod tests {
         })
         .unwrap();
         let sel = |cx: &mut TestAppContext| handle.update(cx, |c, _, _| c.selected.clone()).unwrap();
-        assert_eq!(sel(cx).as_deref(), Some("p"), "click Running row, then two down: Failed, then Done's first");
+        assert_eq!(sel(cx).as_deref(), Some("s"), "click Pinned notes, then two down: Rampart, then Agent delegation");
         cx.update_window(handle.into(), |_, window, cx| {
             for _ in 0..9 {
                 window.press("up", cx);
@@ -1897,8 +1950,8 @@ mod tests {
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
             assert_eq!(row_labels(window), ["Koi palette"]);
-            assert_eq!(window.find(("group", 0usize)).label(), Some("Unread, 1"));
-            assert!(window.try_find(("group", 1usize)).is_none(), "groups with no match are left out");
+            assert_eq!(window.find(("thread-chip", 0usize)).label(), Some("Ocean"), "a hit shows its folder");
+            assert!(heads(window).is_empty(), "a search is a flat list of hits");
         })
         .unwrap();
         handle
