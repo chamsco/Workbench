@@ -362,7 +362,7 @@ impl Cauldron {
     /// Thread ids in the order the sidebar draws them.
     fn visible_ids(&self) -> Vec<String> {
         match &self.threads {
-            Threads::Ready(v) => threads::sidebar(v, &self.query, &self.folder_open)
+            Threads::Ready(v) => threads::sidebar(v, &self.query, &self.folder_open, self.selected.as_deref())
                 .into_iter()
                 .filter_map(|i| match i {
                     threads::Item::Row { t, .. } => Some(t.id.clone()),
@@ -460,7 +460,7 @@ impl Cauldron {
                 list.child(note("threads-empty", "No streams yet".into(), None, "No streams yet".into(), Some("Start one with New stream.".into())))
             }
             Threads::Ready(v) => {
-                let items = threads::sidebar(v, &self.query, &self.folder_open);
+                let items = threads::sidebar(v, &self.query, &self.folder_open, self.selected.as_deref());
                 if items.is_empty() {
                     let q = self.query.trim().to_string();
                     return list.child(note("threads-no-match", format!("No streams match {q}"), None, format!("No streams match \u{201c}{q}\u{201d}"), None));
@@ -823,28 +823,13 @@ impl Cauldron {
     /// The version, as a small button by the cog: it opens Settings > General, where the version
     /// and how updates come are said. Core has no update check wired to the window yet.
     fn version_button(&self, pal: &'static Palette, cx: &mut Context<Self>) -> Stateful<Div> {
-        let label = format!("v{}", env!("CARGO_PKG_VERSION"));
-        let el = div()
-            .id("version")
-            .h(px(22.))
-            .flex_none()
-            .flex()
-            .items_center()
-            .px(px(6.))
-            .rounded(px(radius::TAG))
-            .border_1()
-            .border_color(c(pal.line_strong))
-            .cursor_pointer()
-            .hover(|d| d.bg(c(pal.hover)))
-            .text_size(px(11.))
-            .text_color(c(pal.fg3))
-            .aria_label(format!("Version {}", env!("CARGO_PKG_VERSION")))
-            .child(label)
-            .on_click(cx.listener(|this, _, _, cx| {
-                this.settings = Some(1);
-                cx.notify();
-            }));
-        self.tipped("version-tip", el, "Version and updates", Side::Right, pal, cx)
+        // An icon, so the name keeps its room; the version is in its name and tip.
+        let label = format!("Version {}", env!("CARGO_PKG_VERSION"));
+        let el = icon_button("version", "circle-arrow-up", "Version and updates", pal, false).aria_label(label.clone()).on_click(cx.listener(|this, _, _, cx| {
+            this.settings = Some(1);
+            cx.notify();
+        }));
+        self.tipped("version-tip", el, label, Side::Right, pal, cx)
     }
 
     /// The drawer's own button (the right rail's top, and the drawer strip's first): folds the open

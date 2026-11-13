@@ -85,8 +85,9 @@ pub(crate) enum Item<'a> {
 
 /// The sidebar's list. Searching, a flat list of hits, each with its folder. Otherwise: Needs you
 /// (flat, those streams not repeated under their folder), Folders, then each folder, open when it
-/// holds a running or waiting stream unless `toggles` says otherwise, and Unfiled last.
-pub(crate) fn sidebar<'a>(list: &'a [ThreadInfo], query: &str, toggles: &std::collections::HashMap<String, bool>) -> Vec<Item<'a>> {
+/// holds a running or waiting stream, or the selected one, unless `toggles` says otherwise, and
+/// Unfiled last.
+pub(crate) fn sidebar<'a>(list: &'a [ThreadInfo], query: &str, toggles: &std::collections::HashMap<String, bool>, selected: Option<&str>) -> Vec<Item<'a>> {
     let chip = |t: &ThreadInfo| Some(folder(t).unwrap_or_else(|| NO_FOLDER.into()));
     if !query.trim().is_empty() {
         return by_folder(list, query).into_iter().flat_map(|(_, ts)| ts).map(|t| Item::Row { t, chip: chip(t) }).collect();
@@ -97,7 +98,7 @@ pub(crate) fn sidebar<'a>(list: &'a [ThreadInfo], query: &str, toggles: &std::co
     out.push(Item::Folders);
     for (name, ts) in by_folder(list, "") {
         let waiting = ts.iter().any(|t| needs_you(t));
-        let open = toggles.get(&name).copied().unwrap_or(waiting || ts.iter().any(|t| t.busy));
+        let open = toggles.get(&name).copied().unwrap_or(waiting || ts.iter().any(|t| t.busy || Some(t.id.as_str()) == selected));
         out.push(Item::Folder { name: name.clone(), count: ts.len(), open, dot: !open && waiting });
         if open {
             out.extend(ts.into_iter().filter(|t| !needs_you(t)).map(|t| Item::Row { t, chip: None }));
@@ -239,16 +240,18 @@ mod tests {
                 .collect()
         };
         assert_eq!(
-            names(&sidebar(&v, "", &toggles)),
+            names(&sidebar(&v, "", &toggles, None)),
             ["needs 1", "a Cauldron", "folders", "Cauldron 2 open -", "b ", "Ocean 2 open -", "c ", "d ", "Unfiled 1 shut -"]
         );
         toggles.insert("Cauldron".to_string(), false);
         toggles.insert("Unfiled".to_string(), true);
         assert_eq!(
-            names(&sidebar(&v, "", &toggles)),
+            names(&sidebar(&v, "", &toggles, None)),
             ["needs 1", "a Cauldron", "folders", "Cauldron 2 shut dot", "Ocean 2 open -", "c ", "d ", "Unfiled 1 open -", "e "]
         );
-        assert_eq!(names(&sidebar(&v, "ocean", &toggles)), ["c Ocean", "d Ocean"], "a search lists its hits flat, each with its folder");
+        assert_eq!(names(&sidebar(&v, "ocean", &toggles, None)), ["c Ocean", "d Ocean"], "a search lists its hits flat, each with its folder");
+        toggles.clear();
+        assert!(names(&sidebar(&v, "", &toggles, Some("e"))).contains(&"Unfiled 1 open -".to_string()), "a folder opens over the selected stream");
     }
 
     #[test]
