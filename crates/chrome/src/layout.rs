@@ -97,10 +97,11 @@ pub mod metric {
     /// The logo and the name after the sidebar button; the tabs never start before its end.
     pub const TITLE_W: f32 = 96.0;
     pub const SBTN: f32 = 28.0;
-    /// Windows' caption buttons: three of 40 x 24, in a 30px band at the Shell's top right.
+    /// Windows' caption buttons: three of 40 x 24, in a 31px band at the Shell's top right that also
+    /// carries the panes' tab strips.
     pub const CAPS_W: f32 = 120.0;
     pub const CAPS_H: f32 = 24.0;
-    pub const CAPS_BAND: f32 = 30.0;
+    pub const CAPS_BAND: f32 = 31.0;
     /// Proposed, not drawn in the wireframe.
     pub const MAIN_MIN_W: f32 = 360.0;
     /// The Shell's inside padding: the card's radius nests in the Shell's (22 = 16 + 6).

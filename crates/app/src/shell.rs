@@ -67,6 +67,11 @@ fn abs(r: Rect) -> Div {
     div().absolute().left(px(r.x)).top(px(r.y)).w(px(r.w)).h(px(r.h))
 }
 
+/// Windows' tab strip over pane `slot`.
+fn pane_strip(slot: usize, r: Rect) -> Stateful<Div> {
+    abs(r).id(("pane-strip", slot)).flex().items_center().overflow_hidden()
+}
+
 /// A pane the layout tests find by `id` and compare with `layout::solve`.
 fn pane(id: &'static str, r: Rect) -> Stateful<Div> {
     abs(r).id(id)
@@ -112,12 +117,12 @@ impl Panel {
 }
 
 const FUNCTIONS: [(&str, &str); 7] = [
-    ("inbox", "Threads"),
+    ("message-square", "Threads"),
     ("folder", "Projects"),
     ("calendar", "Schedule"),
     ("bot", "Agents"),
     ("gauge", "Usage"),
-    ("brain", "Memory"),
+    ("database", "Memory"),
     ("layout-grid", "Apps"),
 ];
 
@@ -145,6 +150,9 @@ pub(crate) struct Cauldron {
     /// top-left; the glass is cut at those rects.
     glass_at: std::rc::Rc<std::cell::RefCell<std::collections::HashMap<&'static str, Bounds<Pixels>>>>,
     glass_card: std::cell::Cell<Option<(f32, f32, bool)>>,
+    /// Which window controls the shell draws: the OS's, or Windows' drawn on a Mac for a preview
+    /// (debug `CAULDRON_PLATFORM=windows`).
+    plat: Platform,
     /// Settings is open on this page (v3 frame 7): its pages take the sidebar's list, the page the card.
     settings: Option<usize>,
     /// Where Settings reads the subscriptions; None is core's `accounts.json` (tests use their own).
@@ -262,6 +270,9 @@ impl Cauldron {
         // `CAULDRON_PANES=n` with the card split into `Shape::ALL[n]`, for screenshots of the live window.
         #[cfg(debug_assertions)]
         {
+            if std::env::var("CAULDRON_PLATFORM").as_deref() == Ok("windows") {
+                c.plat = Platform::Windows;
+            }
             if std::env::var("CAULDRON_SIDEBAR").as_deref() == Ok("folded") {
                 c.sidebar_open = false;
             }
@@ -291,7 +302,7 @@ impl Cauldron {
     }
 
     pub(crate) fn new() -> Self {
-        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: None, sidebar_open: true, drawer: Some(Panel::Highlights), backdrop: Default::default(), glass_at: Default::default(), glass_card: std::cell::Cell::new(None), settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_menu: false, tab_slide: Default::default(), tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
+        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: None, sidebar_open: true, drawer: Some(Panel::Highlights), backdrop: Default::default(), glass_at: Default::default(), glass_card: std::cell::Cell::new(None), plat: platform(), settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_menu: false, tab_slide: Default::default(), tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
     }
 
     /// Opens core off the main thread (the sidebar shows Loading meanwhile), then keeps the thread
@@ -849,7 +860,7 @@ impl Render for Cauldron {
         let pal: &'static Palette = if dark { &tokens::DARK } else { &tokens::LIGHT };
         let vs = window.viewport_size();
         let (w, h) = (f32::from(vs.width), f32::from(vs.height));
-        let plat = platform();
+        let plat = self.plat;
         let want = ShellState { sidebar_open: self.sidebar_open, drawer_open: self.drawer.is_some(), split_open: false, terminal_open: self.terminal, plugins: self.settings.is_none() };
         let now = std::time::Instant::now();
         let reduce = cx.reduce_motion();
@@ -939,6 +950,19 @@ impl Render for Cauldron {
                 }
             }));
 
+        // The painting behind the whole window: made once per window size, painting and theme, then
+        // its blurred copy under the sidebar's tint is the window itself (None: the plain frame).
+        let wall = backdrop::painting(&Prefs::load().backdrop, dark);
+        if let Some(name) = wall {
+            let mut b = self.backdrop.borrow_mut();
+            b.window(name, dark, w.max(1.0) as u32, h.max(1.0) as u32, [pal.panel.0, pal.panel.1, pal.panel.2]);
+            if let Some(f) = b.glass(0, 0, w as u32, h as u32) {
+                root = root
+                    .child(img(f).id("window-art").absolute().top_0().left_0().size_full().test_support())
+                    .child(div().absolute().top_0().left_0().size_full().bg(backdrop::hsla(backdrop::Surface::Sidebar, dark)));
+            }
+        }
+
         // Window drag strip, under every control.
         root = root.child(
             abs(s.bar).window_control_area(WindowControlArea::Drag),
@@ -961,7 +985,8 @@ impl Render for Cauldron {
 
         // ---- sidebar with the function row, on the window
         if let Some(sp) = s.sidebar {
-            let mut fnrow = div().relative().flex().justify_between().pt(px(4.)).pb(px(16.));
+            // The app row (the v3 board's icons), a hairline under it, then New thread.
+            let mut fnrow = div().relative().flex().justify_between().pt(px(4.)).pb(px(8.)).mb(px(8.)).border_b_1().border_color(c(pal.line));
             // The indicator sits under the buttons and slides to the selected one (INDICATOR ms).
             let pos = crate::motion::ease_between(self.section_from, self.section as f32, self.section_since, now, cauldron_chrome::motion::time::INDICATOR);
             fnrow = fnrow.child(
@@ -1105,7 +1130,9 @@ impl Render for Cauldron {
             .text_size(px(13.))
             .text_color(fg3);
         let tabbed = self.coordinator.is_some() && self.settings.is_none();
-        if tabbed {
+        if tabbed && plat == Platform::Windows {
+            head = head.child(self.crumb(pal).test_support());
+        } else if tabbed {
             head = head.child(self.tab_strip(pal, s.main.w, cx).test_support());
         } else {
             head = head.child(
@@ -1148,22 +1175,21 @@ impl Render for Cauldron {
         let at = self.pane_content.iter().position(|p| *p == panes::Content::Thread).unwrap_or(0).min(shape.count() - 1);
         let tb = cauldron_chrome::panes::rects(area, sp)[at];
         self.thread_box.set(if split { (tb.w, tb.h - HEAD_H) } else { (tb.w, tb.h) });
-        // Background A, painting Y (the coordinator's board b427b05): on the new thread the painting
-        // lies under the whole grey frame, frosted there, and the card is a clear window onto it.
-        // Threads keep a solid card and a grey frame.
-        let painting = if new_screen && !split { backdrop::painting(&Prefs::load().backdrop, dark) } else { None };
+        // The painting behind the whole window (painting X, the board e0fd268): frosted under every
+        // surface, sharp only through the new thread's clear card.
         let sh = s.shell;
-        let (frost, art) = match painting {
-            Some(name) => {
+        let (frost, art, card_frost) = match wall {
+            Some(_) => {
                 let mut b = self.backdrop.borrow_mut();
-                b.card(name, dark, sh.w.max(1.0) as u32, sh.h.max(1.0) as u32, [pal.card.0, pal.card.1, pal.card.2]);
-                let frost = b.glass(0, 0, sh.w as u32, sh.h as u32);
-                let art = b.sharp((s.main.x - sh.x) as i32, (s.main.y - sh.y) as i32, s.main.w as u32, card_h as u32);
-                (frost, art)
+                let frost = b.glass(sh.x as i32, sh.y as i32, sh.w as u32, sh.h as u32);
+                let cut = (s.main.x as i32, s.main.y as i32, s.main.w as u32, card_h as u32);
+                let art = (new_screen && !split).then(|| b.sharp(cut.0, cut.1, cut.2, cut.3)).flatten();
+                let card_frost = (!(new_screen && !split) && !split).then(|| b.glass(cut.0, cut.1, cut.2, cut.3)).flatten();
+                (frost, art, card_frost)
             }
-            None => (None, None),
+            None => (None, None, None),
         };
-        self.glass_card.set(art.as_ref().map(|_| (sh.x, sh.y, dark)));
+        self.glass_card.set(wall.map(|_| (0.0, 0.0, dark)));
         let body = match self.settings {
             Some(page) => self.settings_page(page, pal, cx),
             None => self.card_body(pal, window, cx),
@@ -1182,10 +1208,12 @@ impl Render for Cauldron {
             .rounded(px(radius::PANEL))
             // A Panel in its Shell: darker than the Shell in dark, white on it in light. Split, the
             // panes are the Panels and the head sits on the Shell.
-            .when_live(!split && art.is_none(), |d| d.bg(c(pal.panel)))
+            .when_live(!split && wall.is_none(), |d| d.bg(c(pal.panel)))
             .when_live(!split, |d| d.border_1().border_color(ring))
             .text_color(fg3)
             .children(art.map(|art| img(art).id("card-art").absolute().top_0().left_0().size_full().rounded(px(radius::PANEL)).test_support()))
+            .children(card_frost.clone().map(|f| img(f).id("card-frost").absolute().top_0().left_0().size_full().rounded(px(radius::PANEL)).test_support()))
+            .when_live(card_frost.is_some(), |d| d.child(div().absolute().top_0().left_0().size_full().rounded(px(radius::PANEL)).bg(backdrop::hsla(backdrop::Surface::Card, dark))))
             .when_live(!headless, |d| d.child(head.test_support()))
             .child(div().flex_1().min_h_0().child(inside));
         // The grey Shell behind the card, Split and the drawer: the drawer stands in its right
@@ -1193,7 +1221,7 @@ impl Render for Cauldron {
         let mut shell_el = pane("shell", s.shell).rounded(px(radius::SHELL)).bg(card);
         if let Some(f) = frost {
             // The frame is frosted painting: the blurred copy under the Shell colour at 77% / 83%.
-            let t = backdrop::frame_tint(dark, pal);
+            let t = backdrop::hsla(backdrop::Surface::Shell, dark);
             shell_el = shell_el
                 .child(img(f).id("shell-art").absolute().top_0().left_0().size_full().rounded(px(radius::SHELL)).test_support())
                 .child(div().absolute().top_0().left_0().size_full().rounded(px(radius::SHELL)).bg(t));
@@ -1229,6 +1257,25 @@ impl Render for Cauldron {
             );
         }
         root = root.child(main_el.test_support());
+
+        // ---- Windows: each pane's tabs float in a strip above it, in the Shell's top band (the
+        // board e0fd268, B); the rightmost leaves the caption buttons their room.
+        if plat == Platform::Windows && self.settings.is_none() {
+            let cards: Vec<Rect> = if split { cauldron_chrome::panes::rects(area, sp) } else { vec![Rect::new(s.main.x, s.main.y, s.main.w, card_h)] };
+            let top = s.shell.y + (metric::CAPS_BAND - 26.0) / 2.0;
+            for (slot, r) in cards.into_iter().enumerate() {
+                let content = if split { self.pane_content[slot] } else { panes::Content::Thread };
+                let right = s.caps.map_or(r.right(), |cp| if cp.rect.x < r.right() { cp.rect.x - 8.0 } else { r.right() });
+                let strip_r = Rect::new(r.x, top, (right - r.x).max(0.0), 26.0);
+                let inner = if content == panes::Content::Thread {
+                    if self.coordinator.is_none() { continue; }
+                    self.tab_strip(pal, strip_r.w, cx)
+                } else {
+                    div().id(("strip-name", slot)).flex().items_center().h(px(metric::TAB_H)).px(px(8.)).rounded(px(radius::INNER)).bg(c(pal.selected)).text_size(px(12.)).font_weight(FontWeight::MEDIUM).text_color(fg).child(content.title())
+                };
+                root = root.child(pane_strip(slot, strip_r).child(inner).test_support());
+            }
+        }
 
         // ---- drawer (on the Shell's grey, no border of its own)
         if let (Some(dp), Some(p)) = (s.drawer, self.drawer.or(self.drawer_last)) {

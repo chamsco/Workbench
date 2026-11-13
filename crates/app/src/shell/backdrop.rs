@@ -1,8 +1,10 @@
-//! Background A (the coordinator's board 88454ee): a painting in the old dither on the new
-//! thread's card, never behind a thread, and frosted glass on the composer and its chip. GPUI cannot
-//! blur what is behind an element (docs/cauldron/GLASS-FEASIBILITY.md), so each glass element draws a
-//! pre-blurred copy of the same painting cut at its own rect, under a tint. Everything is made on
-//! the CPU once per card size and cached; a crop is cached by its rect. Nothing runs per frame.
+//! The painting behind the whole window (the coordinator's board e0fd268, painting X; Charles,
+//! 13 Nov 07:03Z: it must not disappear on the sidebars and panes). It is dithered once at the
+//! window's size and shown sharp only through the new thread's clear card; everywhere else one
+//! blurred copy of it, cut at the surface's rect, lies under that surface's tint (the window and the
+//! sidebar, the grey frame, each card, the composer and its chips). GPUI cannot blur what is behind an
+//! element (docs/cauldron/GLASS-FEASIBILITY.md), so this is how glass is made. Everything is made on
+//! the CPU once per window size and cached; a cut is cached by its rect. Nothing runs per frame.
 
 use cauldron_chrome::dither::{self, Band};
 use gpui_kit::RenderImage;
@@ -44,25 +46,49 @@ fn decoded(name: &'static str) -> Arc<RgbaImage> {
     m.entry(name).or_insert_with(|| Arc::new(image::load_from_memory_with_format(bytes(name), image::ImageFormat::WebP).expect("bundled painting").into_rgba8())).clone()
 }
 
-/// The glass tint over the blurred painting: the panel colour at 74% in dark (the board's) and 75%
-/// in light, a point over the board so the composer's fg3 clears the board's 5.2:1 here too.
-pub(crate) fn tint(dark: bool) -> [f32; 4] {
-    if dark { [21.0, 21.0, 21.0, 0.74] } else { [255.0, 255.0, 255.0, 0.75] }
-}
-/// The frame's frost: the Shell colour over the blurred painting, 77% in dark and 83% in light (the
-/// coordinator's board b427b05), so the drawer's text reads straight on it.
-pub(crate) fn frame_alpha(dark: bool) -> f32 {
-    if dark { 0.77 } else { 0.83 }
+/// What lies over the blurred painting.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Surface {
+    /// The window behind everything, and so the sidebar on it.
+    Sidebar,
+    /// The grey frame: gutters, drawer, rail, stage bar.
+    Shell,
+    /// A thread's card, a pane, the terminal, Settings' page.
+    Card,
+    /// The composer, its chips and the header's pills.
+    Glass,
 }
 
-pub(crate) fn frame_tint(dark: bool, pal: &cauldron_chrome::tokens::Palette) -> gpui_kit::Hsla {
-    let mut h: gpui_kit::Hsla = gpui_kit::rgb(((pal.card.0 as u32) << 16) | ((pal.card.1 as u32) << 8) | pal.card.2 as u32).into();
-    h.a = frame_alpha(dark);
+/// Each surface's tint over the blurred painting, dark and light (the board e0fd268, measured
+/// again here: every one keeps fg2 and fg3 at 4.5:1 or better, see the tests).
+pub(crate) fn tint_of(s: Surface, dark: bool) -> [f32; 4] {
+    match (s, dark) {
+        (Surface::Sidebar, true) => [17.0, 17.0, 17.0, 0.64],
+        (Surface::Sidebar, false) => [247.0, 247.0, 248.0, 0.78],
+        (Surface::Shell, true) => [29.0, 29.0, 29.0, 0.68],
+        (Surface::Shell, false) => [238.0, 238.0, 240.0, 0.72],
+        (Surface::Card, true) => [21.0, 21.0, 21.0, 0.78],
+        (Surface::Card, false) => [255.0, 255.0, 255.0, 0.80],
+        (Surface::Glass, true) => [21.0, 21.0, 21.0, 0.75],
+        (Surface::Glass, false) => [255.0, 255.0, 255.0, 0.75],
+    }
+}
+
+/// The glass tint (composer, chips, pills).
+pub(crate) fn tint(dark: bool) -> [f32; 4] {
+    tint_of(Surface::Glass, dark)
+}
+
+/// A surface's tint as a GPUI colour.
+pub(crate) fn hsla(s: Surface, dark: bool) -> gpui_kit::Hsla {
+    let t = tint_of(s, dark);
+    let mut h: gpui_kit::Hsla = gpui_kit::rgb(((t[0] as u32) << 16) | ((t[1] as u32) << 8) | t[2] as u32).into();
+    h.a = t[3];
     h
 }
 
-/// How soft the glass is.
-const BLUR_SIGMA: f32 = 14.0;
+/// How soft the glass is: about 27px across (the board's).
+const BLUR_SIGMA: f32 = 13.5;
 
 /// The painting drawn into a `w` x `h` card as `Art.band` drew it: covered, drawn small at
 /// `band.soft` and scaled up, dithered at `band.cell` px per dot, then scaled up with hard pixels.
@@ -102,7 +128,6 @@ struct Key {
 #[derive(Default)]
 pub(crate) struct Backdrop {
     key: Option<Key>,
-    card: Option<Arc<RenderImage>>,
     art: Option<RgbaImage>,
     blurred: Option<RgbaImage>,
     crops: HashMap<(i32, i32, u32, u32), Arc<RenderImage>>,
@@ -112,8 +137,9 @@ pub(crate) struct Backdrop {
 }
 
 impl Backdrop {
-    /// The card's painting at `w` x `h`, made only when the painting, theme or size changed.
-    pub(crate) fn card(&mut self, name: &'static str, dark: bool, w: u32, h: u32, bg: [u8; 3]) -> Arc<RenderImage> {
+    /// The painting at the window's `w` x `h`, made only when the painting, theme or size changed;
+    /// `bg` is the colour it is muted toward and lies over.
+    pub(crate) fn window(&mut self, name: &'static str, dark: bool, w: u32, h: u32, bg: [u8; 3]) {
         let key = Key { name, dark, w, h };
         if self.key.as_ref() != Some(&key) {
             let band = Band::board(dark);
@@ -122,21 +148,23 @@ impl Backdrop {
             let mut flat = RgbaImage::from_pixel(w, h, image::Rgba([bg[0], bg[1], bg[2], 255]));
             imageops::overlay(&mut flat, &art, 0, 0);
             self.blurred = Some(imageops::fast_blur(&flat, BLUR_SIGMA));
-            self.card = Some(to_render(art.clone()));
             self.art = Some(art);
             self.crops.clear();
             self.sharp_crops.clear();
             self.key = Some(key);
             self.made += 1;
         }
-        self.card.clone().expect("made above")
     }
 
-    /// The blurred painting cut at `r` (card coordinates), cached by rect; None before `card`.
+    /// The blurred painting cut at a rect (window coordinates), cached by rect; None before
+    /// `window`. A drag can cut many rects, so the cache starts over past 64 of them.
     pub(crate) fn glass(&mut self, x: i32, y: i32, w: u32, h: u32) -> Option<Arc<RenderImage>> {
         let b = self.blurred.as_ref()?;
         if w == 0 || h == 0 {
             return None;
+        }
+        if self.crops.len() > 64 {
+            self.crops.clear();
         }
         Some(
             self.crops
@@ -201,24 +229,24 @@ mod tests {
     }
 
     /// Made once per size: the same size is a cache hit, a resize makes it again, and so does a
-    /// theme change. A crop is cut once per rect.
+    /// theme change. A cut is made once per rect.
     #[test]
     fn the_painting_is_made_once_per_size() {
         let mut b = Backdrop::default();
-        let a = b.card("harbour-night", true, 300, 200, rgb(DARK.panel));
-        let again = b.card("harbour-night", true, 300, 200, rgb(DARK.panel));
-        assert!(Arc::ptr_eq(&a, &again) && b.made == 1, "same size: no work");
-        b.card("harbour-night", true, 320, 200, rgb(DARK.panel));
+        b.window("harbour-night", true, 300, 200, rgb(DARK.panel));
+        b.window("harbour-night", true, 300, 200, rgb(DARK.panel));
+        assert_eq!(b.made, 1, "same size: no work");
+        b.window("harbour-night", true, 320, 200, rgb(DARK.panel));
         assert_eq!(b.made, 2, "a resize makes it again");
-        b.card("harbour-dawn", false, 320, 200, rgb(LIGHT.panel));
+        b.window("harbour-dawn", false, 320, 200, rgb(LIGHT.panel));
         assert_eq!(b.made, 3, "so does the other theme");
         let g1 = b.glass(10, 20, 100, 40).unwrap();
         let g2 = b.glass(10, 20, 100, 40).unwrap();
-        assert!(Arc::ptr_eq(&g1, &g2), "a crop is cut once per rect");
+        assert!(Arc::ptr_eq(&g1, &g2), "a cut is made once per rect");
         assert_eq!(g1.size(0).width.0, 100);
     }
 
-    /// The painting dissolves into the card toward the foot: the bottom row is mostly transparent.
+    /// The painting dissolves toward the window's foot: the bottom row is mostly transparent.
     #[test]
     fn the_painting_dissolves_toward_the_foot() {
         let art = render(&decoded("harbour-night"), 400, 300, &Band::board(true), rgb(DARK.panel));
@@ -228,59 +256,47 @@ mod tests {
         assert!(clear(299) > 300, "the foot is the card: {}", clear(299));
     }
 
-    /// The 1200x720 Mac window, drawer open: the Shell is 930 x 706, the card 676 wide 6px in, the
-    /// drawer 236 wide in the right gutter; the composer box is 628 x 84 centred in the card.
-    const SHELL: (u32, u32) = (930, 706);
-    const COMPOSER: (u32, u32, u32, u32) = (6 + (676 - 628) / 2, 6 + 650 / 2 - 42, 628, 84);
-    const CHIP: (u32, u32, u32, u32) = (6 + (676 - 628) / 2, 6 + 650 / 2 - 42 - 34, 140, 26);
-    const DRAWER: (u32, u32, u32, u32) = (930 - 6 - 236, 6, 236, 694);
-
-    /// Text on the glass reads: fg2 and fg3 at 4.5:1 or better over every pixel of the composer's
-    /// and the chip's glass, in both themes (the board measured the composer at 5.5:1 dark and 5.2:1
-    /// light).
+    /// Every surface's text reads on its glass: fg2 and fg3 at 4.5:1 or better over every pixel of
+    /// the surface, in both themes, at the 1200x720 Mac window with the drawer open.
     #[test]
-    fn text_on_the_glass_holds_4_5_to_1() {
+    fn text_on_every_surface_holds_4_5_to_1() {
+        // (surface, x, y, w, h) in the window: the sidebar, the drawer and the stage bar on the
+        // frame, the thread's card, and the composer box on the new thread.
+        let rects = [
+            ("sidebar", Surface::Sidebar, (13, 45, 236, 668)),
+            ("drawer", Surface::Shell, (945, 13, 236, 694)),
+            ("stage bar", Surface::Shell, (263, 675, 676, 32)),
+            ("thread card", Surface::Card, (263, 13, 676, 694)),
+            ("composer", Surface::Glass, (287, 320, 628, 84)),
+            ("chip", Surface::Glass, (287, 286, 140, 26)),
+        ];
         for (dark, pal, name) in [(true, &DARK, "harbour-night"), (false, &LIGHT, "harbour-dawn")] {
             let mut b = Backdrop::default();
-            b.card(name, dark, SHELL.0, SHELL.1, rgb(pal.card));
-            let blurred = b.blurred().unwrap();
-            for (what, r) in [("composer", COMPOSER), ("chip", CHIP)] {
+            b.window(name, dark, 1200, 720, rgb(pal.panel));
+            for (what, surf, r) in rects {
                 for (fgn, fg) in [("fg2", pal.fg2), ("fg3", pal.fg3)] {
-                    let c = worst_contrast(blurred, r, tint(dark), fg);
+                    let c = worst_contrast(b.blurred().unwrap(), r, tint_of(surf, dark), fg);
                     assert!(c >= 4.5, "{name} {what} {fgn}: {c:.2}:1");
                 }
             }
         }
     }
 
-    /// The drawer's text sits straight on the frosted frame: fg2 and fg3 at 4.5:1 or better over
-    /// every pixel of the drawer (the board measured fg3 at 5.0:1 dark and 4.8:1 light).
-    #[test]
-    fn text_on_the_frosted_frame_holds_4_5_to_1() {
-        for (dark, pal, name) in [(true, &DARK, "harbour-night"), (false, &LIGHT, "harbour-dawn")] {
-            let mut b = Backdrop::default();
-            b.card(name, dark, SHELL.0, SHELL.1, rgb(pal.card));
-            let frame = [pal.card.0 as f32, pal.card.1 as f32, pal.card.2 as f32, frame_alpha(dark)];
-            for (fgn, fg) in [("fg2", pal.fg2), ("fg3", pal.fg3)] {
-                let c = worst_contrast(b.blurred().unwrap(), DRAWER, frame, fg);
-                assert!(c >= 4.5, "{name} drawer {fgn}: {c:.2}:1");
-            }
-        }
-    }
-
-    /// The painting is on the new thread's card only: a thread's card has none, and neither does
-    /// the composer there.
+    /// The painting is behind every screen: the window carries its frosted copy; the new thread's
+    /// card is a clear window onto it; a thread's card is frosted, not solid.
     #[gpui_kit::test]
-    fn the_painting_shows_on_the_new_thread_only(cx: &mut gpui_kit::TestAppContext) {
+    fn the_painting_is_behind_every_screen(cx: &mut gpui_kit::TestAppContext) {
         use gpui_kit::test::TestWindowExt;
         use gpui_kit::AppContext;
         let (handle, _chats) = super::super::thread::tests::open(cx);
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
-            assert!(window.try_find("card-art").is_some(), "the new thread shows the painting");
+            assert!(window.try_find("window-art").is_some() && window.try_find("shell-art").is_some(), "window and frame frosted");
+            assert!(window.try_find("card-art").is_some(), "the new thread is a clear window");
             window.click(("thread", 0usize), cx);
             window.render_frame(cx);
-            assert!(window.try_find("card-art").is_none(), "a thread's card is solid");
+            assert!(window.try_find("card-art").is_none() && window.try_find("card-frost").is_some(), "a thread's card is frosted");
+            assert!(window.try_find("window-art").is_some(), "and the window still shows the painting");
         })
         .unwrap();
     }

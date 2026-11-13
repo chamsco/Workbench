@@ -118,6 +118,30 @@ impl Cauldron {
         strip.child(add.test_support())
     }
 
+    /// Windows' card head (the board e0fd268, B): the project, then the thread, at the left; the
+    /// tabs are in the strip above the pane.
+    pub(super) fn crumb(&self, pal: &'static Palette) -> Stateful<Div> {
+        let title = self.thread.as_ref().map_or_else(|| self.coordinator.clone().unwrap_or_else(|| NEW_TAB.into()).to_string(), |t| t.title.clone());
+        let folder = self.thread.as_ref().and_then(|t| t.project.as_ref()).map(|p| p.rsplit(['/', '\\']).find(|s| !s.is_empty()).unwrap_or(p).to_string());
+        let label = match &folder {
+            Some(f) => format!("{f} / {title}"),
+            None => title.clone(),
+        };
+        div()
+            .id("crumb")
+            .flex_1()
+            .min_w_0()
+            .flex()
+            .items_center()
+            .gap(px(4.))
+            .px(px(4.))
+            .text_size(px(12.))
+            .text_color(c(pal.fg3))
+            .aria_label(label)
+            .children(folder.map(|f| div().flex_none().child(format!("{f} /"))))
+            .child(div().min_w_0().truncate().font_weight(FontWeight::MEDIUM).text_color(c(pal.fg2)).child(title))
+    }
+
     /// The right end of a pane's header: split (the layout button), the terminal and the Code pill.
     /// `slot` is the pane, or None for the card head. `narrow` drops the terminal but keeps split, so
     /// a pane of three at 320px can still step the layout. On the new thread's painting the group
@@ -242,6 +266,29 @@ mod tests {
             window.click("ptab-more", cx);
             window.render_frame(cx);
             assert_eq!(window.find(("ptab", 1usize)).label(), Some("Rampart"), "+N steps to the next");
+        })
+        .unwrap();
+    }
+
+    /// Windows (the board e0fd268, B): the thread's tabs float in a strip above its pane, in the
+    /// Shell's top band, clear of the caption buttons; the card head keeps the breadcrumb and the
+    /// controls; the card starts 38px down.
+    #[gpui_kit::test]
+    fn windows_puts_the_tabs_above_the_pane(cx: &mut TestAppContext) {
+        let (handle, _chats) = open(cx);
+        handle.update(cx, |c, _, _| c.plat = cauldron_chrome::layout::Platform::Windows).unwrap();
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            window.click(("thread", 0usize), cx);
+            window.render_frame(cx);
+            let (card, strip, caps) = (rect(window, "card"), rect(window, ("pane-strip", 0usize)), rect(window, "caps"));
+            assert_eq!(card.y, 38.0);
+            assert!(strip.bottom() <= card.y && strip.h == 26.0, "the strip above the card");
+            assert!(strip.right() <= caps.x - 8.0 + 0.5, "clear of the caption buttons");
+            let t = rect(window, ("ptab", 0usize));
+            assert!(t.y >= strip.y && t.bottom() <= strip.bottom(), "the tab in the strip");
+            assert_eq!(window.find("crumb").label(), Some("Cauldron / Get M3 through review"), "the head keeps the breadcrumb");
+            assert!(window.try_find("code-pill").is_some());
         })
         .unwrap();
     }

@@ -221,13 +221,24 @@ impl Cauldron {
                     }))
                     .test_support(),
             );
+        // Over the painting the terminal is frosted glass; without it, the panel.
+        let frost = self.glass_card.get().and_then(|(_, _, dark)| self.backdrop.borrow_mut().glass(r.x as i32, r.y as i32, r.w as u32, r.h as u32).map(|f| (f, dark)));
         pane("terminal", r)
             .opacity(alpha)
             .flex()
             .flex_col()
             .overflow_hidden()
             .rounded(px(radius::PANEL))
-            .bg(c(pal.panel))
+            .when_live(frost.is_none(), |d| d.bg(c(pal.panel)))
+            .children(frost.map(|(f, dark)| {
+                div()
+                    .absolute()
+                    .top_0()
+                    .left_0()
+                    .size_full()
+                    .child(img(f).absolute().top_0().left_0().size_full().rounded(px(radius::PANEL)))
+                    .child(div().absolute().top_0().left_0().size_full().rounded(px(radius::PANEL)).bg(super::backdrop::hsla(super::backdrop::Surface::Card, dark)))
+            }))
             .border_1()
             .border_color(c(pal.line))
             .child(head.test_support())

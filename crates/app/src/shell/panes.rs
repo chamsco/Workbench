@@ -56,7 +56,7 @@ impl Surface {
 }
 
 impl Content {
-    fn title(self) -> &'static str {
+    pub(super) fn title(self) -> &'static str {
         match self {
             Content::Thread => "Thread",
             Content::Empty => "New pane",
@@ -208,7 +208,8 @@ impl Cauldron {
             let title = content.title();
             // The thread's pane carries the thread's tabs; the others their own name.
             let tabbed = content == Content::Thread && self.coordinator.is_some();
-            let strip = tabbed.then(|| self.tab_strip(pal, r.w, cx));
+            // Windows keeps the tabs in the strip above the pane and the breadcrumb here (the board's B).
+            let strip = tabbed.then(|| if self.plat == Platform::Windows { self.crumb(pal) } else { self.tab_strip(pal, r.w, cx) });
             // Under 320px only the Code pill stays on the right (the coordinator's board b427b05).
             let narrow = r.w < super::ptabs::NARROW;
             let controls = self.head_controls(Some(slot), pal, now, reduce, narrow, cx);
@@ -345,13 +346,24 @@ impl Cauldron {
                     .test_support()
                     .into_any_element(),
             };
+            // Over the painting a pane is frosted glass (the board e0fd268); without it, the panel.
+            let frost = self.glass_card.get().and_then(|(_, _, dark)| self.backdrop.borrow_mut().glass(r.x as i32, r.y as i32, r.w as u32, r.h as u32).map(|f| (f, dark)));
             let p = abs(local(r))
                 .id(("pane", slot))
                 .flex()
                 .flex_col()
                 .overflow_hidden()
                 .rounded(px(radius::INSET))
-                .bg(c(pal.panel))
+                .when_live(frost.is_none(), |d| d.bg(c(pal.panel)))
+                .children(frost.map(|(f, dark)| {
+                    div()
+                        .absolute()
+                        .top_0()
+                        .left_0()
+                        .size_full()
+                        .child(img(f).absolute().top_0().left_0().size_full().rounded(px(radius::INSET)))
+                        .child(div().absolute().top_0().left_0().size_full().rounded(px(radius::INSET)).bg(super::backdrop::hsla(super::backdrop::Surface::Card, dark)))
+                }))
                 .border_1()
                 .border_color(ring)
                 .aria_label(title)

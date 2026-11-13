@@ -126,8 +126,8 @@ fn panes_never_overlap_and_stay_inside_the_window() {
 /// the top and bottom ... getting rid of the breadcrumbs"): the lights, the sidebar button and the
 /// name keep a 44px row over the sidebar; the Shell runs from 8px under the window's top to 8px over
 /// its bottom. With the sidebar folded the Shell starts under that row, so it never meets the name.
-/// On Windows the caption buttons (3 x 40 x 24) sit inside the Shell's top-right, in a 30px grey band
-/// the panes start under (the coordinator's board b427b05). Elsewhere the card, the drawer and the
+/// On Windows the caption buttons (3 x 40 x 24) sit inside the Shell's top-right, in a 31px band the
+/// panes start under, which also carries each pane's tab strip (the board e0fd268, B: card top 38). Elsewhere the card, the drawer and the
 /// rail sit 6px inside the Shell: the card 12px from the window's top and bottom.
 #[test]
 fn the_shell_runs_near_the_top_and_bottom() {
@@ -145,8 +145,8 @@ fn the_shell_runs_near_the_top_and_bottom() {
                 let pad_top = s.caps.map_or(6.0, |c| {
                     assert!(inside(s.shell, c), "{at}: caption buttons inside the Shell");
                     assert_eq!((c.w, c.h), (120.0, 24.0), "{at}: three 40x24 buttons");
-                    assert_eq!((c.right(), c.y), (s.shell.right() - 6.0, s.shell.y + 3.0), "{at}: at its top right, centred in the band");
-                    30.0
+                    assert_eq!((c.right(), c.y), (s.shell.right() - 6.0, s.shell.y + 3.5), "{at}: at its top right, centred in the band");
+                    31.0
                 });
                 for r in [Some(s.main), s.drawer, s.rrail, s.half].into_iter().flatten() {
                     assert_eq!((r.y, r.bottom()), (s.shell.y + pad_top, s.shell.bottom() - 6.0), "{at} pane {r:?} inside the Shell");
@@ -203,7 +203,8 @@ fn platforms_differ_only_in_window_controls() {
     assert!(mac.lights.is_some() && mac.caps.is_none());
     assert!(win.lights.is_none() && win.caps.is_some());
     assert_eq!((mac.main.x, mac.main.w, mac.main.bottom()), (win.main.x, win.main.w, win.main.bottom()), "the same columns on both platforms");
-    assert_eq!(win.main.y - mac.main.y, 24.0, "Windows starts the panes under its 30px caption band");
+    assert_eq!(win.main.y - mac.main.y, 25.0, "Windows starts the panes under its 31px band");
+    assert_eq!(win.main.y, 38.0, "Windows: the card 38px under the window's top edge");
     assert_eq!(mac.main.y, 1.0 + 6.0 + 6.0, "Mac: the card 12px under the window's top edge");
     assert_eq!(mac.sidebar, win.sidebar);
     // The sidebar button and the logo sit inside the top bar on both.
