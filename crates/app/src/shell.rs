@@ -24,6 +24,7 @@ mod motion;
 mod newthread;
 mod appearance;
 mod backdrop;
+mod pages;
 mod panes;
 mod ptabs;
 mod settings;
@@ -117,8 +118,9 @@ impl Panel {
     }
 }
 
-const FUNCTIONS: [(&str, &str); 7] = [
-    ("message-square", "Threads"),
+/// The apps, listed in Settings > Apps (Charles, 13 Nov 07:34Z: out of the sidebar, into Settings).
+pub(super) const FUNCTIONS: [(&str, &str); 7] = [
+    ("message-square", "Streams"),
     ("folder", "Projects"),
     ("calendar", "Schedule"),
     ("bot", "Agents"),
@@ -127,13 +129,11 @@ const FUNCTIONS: [(&str, &str); 7] = [
     ("layout-grid", "Apps"),
 ];
 
-const NEW_TAB: &str = "New thread";
+const NEW_TAB: &str = "New stream";
 /// A pane's header, and the card's head: tabs on the left, the controls on the right.
 pub(super) const HEAD_H: f32 = 40.0;
 
 const TOP_PANELS: [Panel; 4] = [Panel::Highlights, Panel::Usage, Panel::Koi, Panel::Review];
-/// The drawer's strip: the rail's panels in order, Patches last.
-const ALL_PANELS: [Panel; 5] = [Panel::Highlights, Panel::Usage, Panel::Koi, Panel::Review, Panel::Patches];
 
 /// The sidebar's threads from core: still opening, opened, or core failed to open.
 pub(crate) enum Threads {
@@ -158,6 +158,15 @@ pub(crate) struct Cauldron {
     /// Which window controls the shell draws: the OS's, or Windows' drawn on a Mac for a preview
     /// (debug `CAULDRON_PLATFORM=windows`).
     plat: Platform,
+    /// Folders the user opened or closed by hand, by name (the session's choice wins over the
+    /// default: open when the folder holds running or waiting work).
+    folder_open: std::collections::HashMap<String, bool>,
+    /// Which app fills the window: Streams, Agents or Memory (Charles, 13 Nov 13:40Z).
+    page: pages::AppPage,
+    /// Core's agents, read when Agents opens.
+    page_agents: Vec<pages::AgentCard>,
+    /// The Agents demo's selection: an agent in the roster, or None for the first room.
+    agent_sel: Option<usize>,
     /// Settings is open on this page (v3 frame 7): its pages take the sidebar's list, the page the card.
     settings: Option<usize>,
     /// Where Settings reads the subscriptions; None is core's `accounts.json` (tests use their own).
@@ -185,7 +194,7 @@ pub(crate) struct Cauldron {
     /// The transcript's scroll, kept at the newest message when a thread opens or grows.
     transcript_scroll: ScrollHandle,
     transcript_seen: std::cell::RefCell<Option<(String, usize)>>,
-    /// The thread's coordinator, pinned as the first tab; None on the New thread screen.
+    /// The thread's coordinator, pinned as the first tab; None on the New stream screen.
     coordinator: Option<SharedString>,
     /// Agents with an open 1:1 tab, in tab order, and the thread's other agents (the + menu).
     agents: Vec<AgentTab>,
@@ -200,11 +209,6 @@ pub(crate) struct Cauldron {
     /// panel (kept while it closes).
     motion: ShellMotion,
     swap: Option<(Panel, std::time::Instant)>,
-    /// The selected function (an index into FUNCTIONS), and the indicator's slide: where it was
-    /// from, in slots, and when the slide began.
-    section: usize,
-    section_from: f32,
-    section_since: Option<std::time::Instant>,
     /// When the reply last started or stopped (the Send and Stop glyphs cross-fade from then), and
     /// whether the last render saw one running.
     action_since: Option<std::time::Instant>,
@@ -241,7 +245,7 @@ pub(crate) struct Cauldron {
     steps: std::collections::HashMap<String, Vec<String>>,
     composer: Option<(Entity<TextareaState>, Subscription)>,
     send_error: Option<String>,
-    /// The New thread screen (UI5).
+    /// The New stream screen (UI5).
     start: newthread::Start,
 }
 
@@ -275,6 +279,12 @@ impl Cauldron {
         // `CAULDRON_PANES=n` with the card split into `Shape::ALL[n]`, for screenshots of the live window.
         #[cfg(debug_assertions)]
         {
+            match std::env::var("CAULDRON_PAGE").as_deref() {
+                Ok("agents") => c.open_page(pages::AppPage::Agents),
+                Ok("library") => c.open_page(pages::AppPage::Library),
+                Ok("usage") => c.open_page(pages::AppPage::Usage),
+                _ => {}
+            }
             if std::env::var("CAULDRON_PLATFORM").as_deref() == Ok("windows") {
                 c.plat = Platform::Windows;
             }
@@ -307,7 +317,7 @@ impl Cauldron {
     }
 
     pub(crate) fn new() -> Self {
-        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: None, sidebar_open: true, drawer: Some(Panel::Highlights), backdrop: Default::default(), glass_at: Default::default(), glass_card: std::cell::Cell::new(None), appearance_sub: None, prefs_file: None, plat: platform(), settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_menu: false, tab_slide: Default::default(), tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
+        Cauldron { motion: ShellMotion::default(), swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: None, sidebar_open: true, drawer: Some(Panel::Highlights), backdrop: Default::default(), glass_at: Default::default(), glass_card: std::cell::Cell::new(None), appearance_sub: None, prefs_file: None, plat: platform(), folder_open: Default::default(), page: Default::default(), page_agents: Vec::new(), agent_sel: None, settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_menu: false, tab_slide: Default::default(), tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
     }
 
     /// Opens core off the main thread (the sidebar shows Loading meanwhile), then keeps the thread
@@ -355,7 +365,13 @@ impl Cauldron {
     /// Thread ids in the order the sidebar draws them.
     fn visible_ids(&self) -> Vec<String> {
         match &self.threads {
-            Threads::Ready(v) => threads::grouped(v, &self.query).into_iter().flat_map(|(_, ts)| ts.into_iter().map(|t| t.id.clone())).collect(),
+            Threads::Ready(v) => threads::sidebar(v, &self.query, &self.folder_open, self.selected.as_deref())
+                .into_iter()
+                .filter_map(|i| match i {
+                    threads::Item::Row { t, .. } => Some(t.id.clone()),
+                    _ => None,
+                })
+                .collect(),
             _ => Vec::new(),
         }
     }
@@ -420,7 +436,7 @@ impl Cauldron {
             Threads::Loading => {
                 // Skeleton rows shaped like the real ones, static (no shimmer to turn off for reduced motion).
                 let bar = |w: f32| div().h(px(8.)).w(relative(w)).rounded(px(radius::INNER)).bg(c(pal.inset));
-                let mut sk = div().id("threads-loading").flex().flex_col().pt(px(14.)).aria_label("Loading threads");
+                let mut sk = div().id("threads-loading").flex().flex_col().pt(px(14.)).aria_label("Loading streams");
                 for w in [0.72, 0.56, 0.8, 0.48, 0.64] {
                     sk = sk.child(
                         div()
@@ -438,119 +454,135 @@ impl Cauldron {
             }
             Threads::Error(e) => list.child(note(
                 "threads-error",
-                format!("Threads could not load: {e}"),
+                format!("Streams could not load: {e}"),
                 Some(("circle-alert", c(pal.bad))),
-                "Threads could not load".into(),
+                "Streams could not load".into(),
                 Some(e.to_string()),
             )),
             Threads::Ready(v) if v.is_empty() => {
-                list.child(note("threads-empty", "No threads yet".into(), None, "No threads yet".into(), Some("Start one with New thread.".into())))
+                list.child(note("threads-empty", "No streams yet".into(), None, "No streams yet".into(), Some("Start one with New stream.".into())))
             }
             Threads::Ready(v) => {
-                let groups = threads::grouped(v, &self.query);
-                if groups.is_empty() {
+                let items = threads::sidebar(v, &self.query, &self.folder_open, self.selected.as_deref());
+                if items.is_empty() {
                     let q = self.query.trim().to_string();
-                    return list.child(note("threads-no-match", format!("No threads match {q}"), None, format!("No threads match \u{201c}{q}\u{201d}"), None));
+                    return list.child(note("threads-no-match", format!("No streams match {q}"), None, format!("No streams match \u{201c}{q}\u{201d}"), None));
                 }
-                // Core has no Needs you yet, so the group is its head alone, without a count
-                // (Charles chose empty states, 12 Nov).
-                if self.query.trim().is_empty() {
-                    list = list.child(
-                        div()
-                            .id("group-needs")
-                            .flex()
-                            .items_center()
-                            .h(px(36.))
-                            .flex_none()
-                            .px(px(8.))
-                            .pt(px(14.))
-                            .pb(px(4.))
-                            .text_size(px(12.))
-                            .line_height(px(18.))
-                            .text_color(fg3)
-                            .aria_label("Needs you")
-                            .child("Needs you")
-                            .test_support(),
-                    );
-                }
+                // The pages board (5b7662c), folders direction B: Needs you, then Folders, each
+                // folder folding, Unfiled last; a row is its state dot, its title and its age.
+                let now = now_ms();
+                let head = |id: ElementId| div().id(id).flex().items_center().gap(px(6.)).h(px(36.)).flex_none().px(px(8.)).pt(px(14.)).pb(px(4.)).text_size(px(12.)).line_height(px(18.)).text_color(fg3);
                 let mut i = 0usize;
-                for (gi, (g, ts)) in groups.into_iter().enumerate() {
-                    let n = ts.len();
-                    list = list.child(
-                        div()
-                            .id(("group", gi))
-                            .flex()
-                            .items_center()
-                            .gap(px(6.))
-                            .h(px(36.))
-                            .flex_none()
-                            .px(px(8.))
-                            .pt(px(14.))
-                            .pb(px(4.))
-                            .text_size(px(12.))
-                            .line_height(px(18.))
-                            .text_color(if g == Group::Failed { c(pal.bad) } else { fg3 })
-                            .aria_label(format!("{}, {n}", g.label()))
-                            .child(g.label())
-                            .child(div().ml_auto().font_features(tnum()).child(n.to_string()))
-                            .test_support(),
-                    );
-                    for t in ts {
-                        let on = self.selected.as_deref() == Some(t.id.as_str());
-                        let id = t.id.clone();
-                        // A state dot, agent or not: figures belong to the Agents page (Charles, 13 Nov).
-                        let (state, dot) = match g {
-                            Group::Running => ("Working", c(pal.accent)),
-                            Group::Failed => ("Failed", c(pal.bad)),
-                            Group::Unread => ("Unread", fg3),
-                            Group::Done => ("Done", fg3),
-                        };
-                        let slot = div()
-                            .id(("thread-av", i))
-                            .w(px(18.))
-                            .h(px(22.))
-                            .flex_none()
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .aria_label(state)
-                            .child(div().id(("thread-dot", i)).size(px(6.)).rounded_full().bg(dot).test_support());
-                        list = list.child(
-                            div()
-                                .id(("thread", i))
-                                .h(px(30.))
-                                .flex_none()
-                                .flex()
-                                .items_center()
-                                .gap(px(8.))
-                                .pl(px(11.))
-                                .pr(px(8.))
-                                .rounded(px(radius::TAG))
-                                .text_size(px(13.))
-                                .text_color(if on || t.unread { fg } else { fg2 })
-                                .when_live(on, |d| d.bg(c(pal.hover)))
-                                .when_live(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
-                                .cursor_pointer()
-                                .aria_label(t.title.clone())
-                                .child(slot.test_support())
-                                .child(div().flex_1().min_w_0().truncate().font_weight(if t.unread { FontWeight::SEMIBOLD } else { FontWeight::NORMAL }).child(t.title.clone()))
-                                .when_live(t.pinned, |d| d.child(glyph("pin", 11., fg3)))
-                                .child({
-                                    let m = threads::meta(t);
-                                    div().id(("thread-meta", i)).flex_none().max_w(px(54.)).truncate().text_size(px(11.)).text_color(fg3).aria_label(m.clone()).child(m).test_support()
-                                })
-                                .when_live(t.unread, |d| d.child(div().id(("ping", i)).size(px(6.)).flex_none().rounded_full().bg(c(pal.accent)).test_support()))
-                                .on_click(cx.listener(move |this, _, window, cx| {
-                                    this.selected = Some(id.clone());
-                                    this.open_thread(id.clone());
-                                    if let Some(f) = &this.list_focus {
-                                        window.focus(f, cx);
-                                    }
-                                    cx.notify();
-                                }))
-                                .test_support(),
-                        );
-                        i += 1;
+                for (gi, item) in items.into_iter().enumerate() {
+                    match item {
+                        threads::Item::Needs(n) => {
+                            let label = if n == 0 { "Needs you".to_string() } else { format!("Needs you, {n}") };
+                            list = list.child(head("group-needs".into()).aria_label(label).child("Needs you").when_live(n > 0, |d| d.child(div().ml_auto().font_features(tnum()).child(n.to_string()))).test_support());
+                        }
+                        threads::Item::Folders => {
+                            list = list.child(
+                                head("group-folders".into())
+                                    .aria_label("Folders")
+                                    .child("Folders")
+                                    .child(
+                                        div()
+                                            .id("folder-add")
+                                            .ml_auto()
+                                            .size(px(20.))
+                                            .flex()
+                                            .items_center()
+                                            .justify_center()
+                                            .rounded(px(radius::TAG))
+                                            .aria_label("New folder (arrives later)")
+                                            .child(glyph("plus", 12., c(pal.fg4)))
+                                            .test_support(),
+                                    )
+                                    .test_support(),
+                            );
+                        }
+                        threads::Item::Folder { name, count, open, dot } => {
+                            let key = name.clone();
+                            list = list.child(
+                                div()
+                                    .id(("group", gi))
+                                    .h(px(30.))
+                                    .flex_none()
+                                    .flex()
+                                    .items_center()
+                                    .gap(px(6.))
+                                    .px(px(8.))
+                                    .rounded(px(radius::TAG))
+                                    .cursor_pointer()
+                                    .hover(|d| d.bg(c(pal.hover)))
+                                    .text_size(px(13.))
+                                    .text_color(fg2)
+                                    .aria_label(format!("{name}, {count}"))
+                                    .aria_expanded(open)
+                                    .child(glyph(if open { "chevron-down" } else { "chevron-right" }, 12., fg3))
+                                    .child(glyph("folder", 14., fg3))
+                                    .child(div().flex_1().min_w_0().truncate().child(name))
+                                    .when_live(dot, |d| d.child(div().id(("folder-dot", gi)).size(px(6.)).flex_none().rounded_full().bg(c(pal.accent)).test_support()))
+                                    .child(div().flex_none().text_size(px(11.)).text_color(fg3).font_features(tnum()).child(count.to_string()))
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.folder_open.insert(key.clone(), !open);
+                                        cx.notify();
+                                    }))
+                                    .test_support(),
+                            );
+                        }
+                        threads::Item::Row { t, chip } => {
+                            let on = self.selected.as_deref() == Some(t.id.as_str());
+                            let id = t.id.clone();
+                            // The state dot (the board): needs you filled accent, running a ring in
+                            // accent, failed bad, done grey. No figures: they belong to Agents.
+                            let (state, fill, ring) = match Group::of(t) {
+                                Group::Running => ("Working", None, Some(c(pal.accent))),
+                                Group::Failed => ("Failed", Some(c(pal.bad)), None),
+                                Group::Unread => ("Needs you", Some(c(pal.accent)), None),
+                                Group::Done => ("Done", Some(fg3), None),
+                            };
+                            let mut dotel = div().id(("thread-dot", i)).size(px(7.)).rounded_full();
+                            if let Some(f) = fill {
+                                dotel = dotel.bg(f);
+                            }
+                            if let Some(r) = ring {
+                                dotel = dotel.border_1().border_color(r);
+                            }
+                            let slot = div().id(("thread-av", i)).w(px(18.)).h(px(22.)).flex_none().flex().items_center().justify_center().aria_label(state).child(dotel.test_support());
+                            list = list.child(
+                                div()
+                                    .id(("thread", i))
+                                    .h(px(30.))
+                                    .flex_none()
+                                    .flex()
+                                    .items_center()
+                                    .gap(px(8.))
+                                    .pl(px(if chip.is_some() { 11. } else { 23. }))
+                                    .pr(px(8.))
+                                    .rounded(px(radius::TAG))
+                                    .text_size(px(13.))
+                                    .text_color(if on || t.unread { fg } else { fg2 })
+                                    .when_live(on, |d| d.bg(c(pal.hover)))
+                                    .when_live(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
+                                    .cursor_pointer()
+                                    .aria_label(t.title.clone())
+                                    .child(slot.test_support())
+                                    .child(div().flex_1().min_w_0().truncate().font_weight(if t.unread { FontWeight::SEMIBOLD } else { FontWeight::NORMAL }).child(t.title.clone()))
+                                    .when_live(t.pinned, |d| d.child(glyph("pin", 11., fg3)))
+                                    .children(chip.map(|f| div().id(("thread-chip", i)).flex_none().max_w(px(72.)).truncate().px(px(5.)).rounded(px(radius::TAG)).bg(c(pal.inset)).text_size(px(11.)).text_color(fg3).aria_label(f.clone()).child(f).test_support()))
+                                    .child(div().id(("thread-age", i)).flex_none().text_size(px(11.)).text_color(fg3).font_features(tnum()).child(threads::age(t.updated, now)).test_support())
+                                    .on_click(cx.listener(move |this, _, window, cx| {
+                                        this.selected = Some(id.clone());
+                                        this.open_thread(id.clone());
+                                        if let Some(f) = &this.list_focus {
+                                            window.focus(f, cx);
+                                        }
+                                        cx.notify();
+                                    }))
+                                    .test_support(),
+                            );
+                            i += 1;
+                        }
                     }
                 }
                 list
@@ -684,14 +716,136 @@ impl Cauldron {
     }
 
     /// Selects a function. The sidebar indicator slides to it from wherever it is now.
-    fn select_section(&mut self, i: usize, cx: &mut Context<Self>) {
-        if i != self.section {
-            let now = std::time::Instant::now();
-            self.section_from = crate::motion::ease_between(self.section_from, self.section as f32, self.section_since, now, cauldron_chrome::motion::time::INDICATOR);
-            self.section = i;
-            self.section_since = Some(now);
+
+    /// The sidebar folded to its rail (the pages board 5b7662c): usage on top, the three apps,
+    /// search and New stream, a square per folder (its letter, a dot when it holds a stream that
+    /// needs you), then the version, the cog and the avatar stacked at the foot.
+    fn folded_rail(&self, pal: &'static Palette, r: Rect, alpha: f32, cx: &mut Context<Self>) -> Stateful<Div> {
+        let fg3 = c(pal.fg3);
+        let sep = || div().w(px(20.)).h(px(1.)).my(px(4.)).bg(c(pal.line_strong));
+        let mut col = pane("rail", r).opacity(alpha).flex().flex_col().items_center().gap(px(4.)).pt(px(4.)).pb(px(8.));
+        for (i, p) in pages::AppPage::ALL.into_iter().enumerate() {
+            let on = self.page == p && self.settings.is_none();
+            col = col.child(
+                self.tipped(("rail-page", i), icon_button(("rail-page", i), p.icon(), p.label(), pal, on), p.label(), Side::Right, pal, cx)
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.open_page(p);
+                        cx.notify();
+                    }))
+                    .test_support(),
+            );
         }
-        cx.notify();
+        col = col
+            .child(sep())
+            .child(
+                self.tipped("rail-search", icon_button("rail-search", "search", "Search streams", pal, false), "Search streams", Side::Right, pal, cx)
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.sidebar_open = true;
+                        cx.notify();
+                    }))
+                    .test_support(),
+            )
+            .child(
+                self.tipped("rail-new", icon_button("rail-new", "plus", "New stream", pal, false), "New stream", Side::Right, pal, cx)
+                    .on_click(cx.listener(|this, _, window, cx| this.new_thread(window, cx)))
+                    .test_support(),
+            );
+        if let Threads::Ready(v) = &self.threads {
+            let folders = threads::by_folder(v, "");
+            if !folders.is_empty() {
+                col = col.child(sep());
+            }
+            for (i, (name, ts)) in folders.into_iter().enumerate() {
+                let waiting = ts.iter().any(|t| threads::needs_you(t));
+                let letter = name.chars().next().map(|ch| ch.to_uppercase().to_string()).unwrap_or_default();
+                let key = name.clone();
+                let sq = div()
+                    .id(("rail-folder", i))
+                    .relative()
+                    .size(px(28.))
+                    .flex_none()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(px(radius::INNER))
+                    .bg(c(pal.inset))
+                    .border_1()
+                    .border_color(c(pal.line))
+                    .cursor_pointer()
+                    .hover(|d| d.bg(c(pal.hover)))
+                    .text_size(px(12.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(c(pal.fg2))
+                    .aria_label(format!("{name}, {}", ts.len()))
+                    .child(letter)
+                    .when_live(waiting, |d| d.child(div().absolute().top(px(-2.)).right(px(-2.)).size(px(7.)).rounded_full().bg(c(pal.accent))))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        // The sidebar opens on that folder.
+                        this.sidebar_open = true;
+                        this.folder_open.insert(key.clone(), true);
+                        cx.notify();
+                    }));
+                col = col.child(self.tipped(("rail-folder", i), sq, name, Side::Right, pal, cx).test_support());
+            }
+        }
+        let user = std::env::var("USER").or_else(|_| std::env::var("USERNAME")).unwrap_or_else(|_| "You".into());
+        let initial = user.chars().next().map(|ch| ch.to_uppercase().to_string()).unwrap_or_else(|| "Y".into());
+        col.child(div().flex_1())
+            // Usage at the foot (Charles, 13 Nov 15:54Z): the ring, its card on hover, the page on click.
+            .child(self.usage_ring("rail-usage", pal, cx).test_support())
+            .child(
+                self.tipped("rail-version", icon_button("rail-version", "circle-arrow-up", "Version and updates", pal, false), format!("Version {}", env!("CARGO_PKG_VERSION")), Side::Right, pal, cx)
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.settings = Some(1);
+                        cx.notify();
+                    }))
+                    .test_support(),
+            )
+            .child(
+                self.tipped("rail-settings", icon_button("rail-settings", "settings", "Settings", pal, self.settings.is_some()), "Settings", Side::Right, pal, cx)
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.settings = if this.settings.is_some() { None } else { Some(0) };
+                        cx.notify();
+                    }))
+                    .test_support(),
+            )
+            .child(div().id("rail-avatar").mt(px(4.)).size(px(24.)).flex().items_center().justify_center().rounded_full().bg(c(pal.accent)).text_size(px(11.)).text_color(c(pal.on_accent)).aria_label(user.clone()).child(initial).test_support())
+            .text_color(fg3)
+    }
+
+    /// Usage: a ring (with its number where core reports usage; with none, "No data yet" is in its
+    /// name and tip, so the user's name keeps its room); a click opens the Usage page. Core has no per-subscription usage yet.
+    fn usage_ring(&self, id: &'static str, pal: &'static Palette, cx: &mut Context<Self>) -> Stateful<Div> {
+        let rail = id == "rail-usage";
+        let el = div()
+            .id(id)
+            .flex_none()
+            .flex()
+            .items_center()
+            .gap(px(5.))
+            .p(px(if rail { 0. } else { 3. }))
+            .rounded(px(radius::TAG))
+            .cursor_pointer()
+            .hover(|d| d.bg(c(pal.hover)))
+            .aria_label("No data yet")
+            .child(div().size(px(if rail { 20. } else { 12. })).my(px(if rail { 4. } else { 0. })).rounded_full().border_2().border_color(c(pal.line_strong)))
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.open_page(pages::AppPage::Usage);
+                cx.notify();
+            }));
+        self.tipped((id, 1usize), el, "Usage: no data yet. Core does not report it per subscription.", Side::Right, pal, cx)
+    }
+
+    /// The version, as a small button by the cog: it opens Settings > General, where the version
+    /// and how updates come are said. Core has no update check wired to the window yet.
+    fn version_button(&self, pal: &'static Palette, cx: &mut Context<Self>) -> Stateful<Div> {
+        // An icon, so the name keeps its room; the version is in its name and tip.
+        let label = format!("Version {}", env!("CARGO_PKG_VERSION"));
+        let el = icon_button("version", "circle-arrow-up", "Version and updates", pal, false).w(px(24.)).h(px(24.)).aria_label(label.clone()).on_click(cx.listener(|this, _, _, cx| {
+            this.settings = Some(1);
+            cx.notify();
+        }));
+        self.tipped("version-tip", el, label, Side::Right, pal, cx)
     }
 
     /// The drawer's own button (the right rail's top, and the drawer strip's first): folds the open
@@ -747,19 +901,13 @@ fn icon_button_in(id: impl Into<ElementId>, name: &str, label: &'static str, pal
         .justify_center()
         .rounded(px(radius::CONTROL))
         .cursor_pointer()
+        .aria_selected(on)
         .bg(if fill { sel } else { gpui_kit::transparent_black() })
         .hover(move |d| d.bg(if fill { sel } else { hover }))
         .child(glyph(name, 16., if on { c(pal.fg) } else { c(pal.fg2) }))
         .aria_label(label)
 }
 
-/// The left edge of function slot `pos` (fractional while the indicator slides) in the sidebar's
-/// apps row, `row_w` wide. The row spreads its buttons edge to edge with equal gaps (justify_between).
-fn fn_slot_x(row_w: f32, pos: f32) -> f32 {
-    let n = FUNCTIONS.len() as f32;
-    let gap = (row_w - n * metric::SBTN) / (n - 1.0);
-    pos * (metric::SBTN + gap)
-}
 
 /// The sidebar's right padding: its content ends at the board's x 240.
 const SIDE_PR: f32 = 9.0;
@@ -877,7 +1025,7 @@ impl Render for Cauldron {
         let vs = window.viewport_size();
         let (w, h) = (f32::from(vs.width), f32::from(vs.height));
         let plat = self.plat;
-        let want = ShellState { sidebar_open: self.sidebar_open, drawer_open: self.drawer.is_some(), split_open: false, terminal_open: self.terminal, plugins: self.settings.is_none() };
+        let want = ShellState { sidebar_open: self.sidebar_open, drawer_open: self.drawer.is_some(), split_open: false, terminal_open: self.terminal, plugins: self.settings.is_none() && self.page.has_drawer() };
         let now = std::time::Instant::now();
         let reduce = cx.reduce_motion();
         let (s, mut moving) = self.motion.frame(want, Frame::at_rest(&layout::solve(w, h, want, plat)), now, reduce);
@@ -904,13 +1052,6 @@ impl Render for Cauldron {
         }
         if !running(self.bubble_since) {
             self.bubble_since = None;
-        }
-        if let Some(t0) = self.section_since {
-            if crate::motion::run(now, t0, cauldron_chrome::motion::time::INDICATOR) >= 1.0 {
-                self.section_since = None;
-            } else {
-                moving = true;
-            }
         }
         if let Some(t0) = self.action_since {
             if crate::motion::run(now, t0, cauldron_chrome::motion::time::SWAP) >= 1.0 {
@@ -999,33 +1140,11 @@ impl Render for Cauldron {
 
         // ---- rail (only while the sidebar is hidden)
         if let Some(rp) = s.rail {
-            let mut col = pane("rail", rp.rect).opacity(rp.alpha).flex().flex_col().items_center().gap(px(4.)).pt(px(4.));
-            for (i, (name, label)) in FUNCTIONS.iter().enumerate() {
-                let b = icon_button(("rail", i), name, label, pal, i == self.section).on_click(cx.listener(move |this, _, _, cx| this.select_section(i, cx)));
-                col = col.child(self.tipped(("rail", i), b, *label, Side::Right, pal, cx).test_support());
-            }
-            root = root.child(col.test_support());
+            root = root.child(self.folded_rail(pal, rp.rect, rp.alpha, cx).test_support());
         }
 
         // ---- sidebar with the function row, on the window
         if let Some(sp) = s.sidebar {
-            // The app row (the v3 board's icons), a hairline under it, then New thread.
-            let mut fnrow = div().relative().flex().justify_between().pt(px(4.)).pb(px(8.)).mb(px(8.)).border_b_1().border_color(c(pal.line));
-            // The indicator sits under the buttons and slides to the selected one (INDICATOR ms).
-            let pos = crate::motion::ease_between(self.section_from, self.section as f32, self.section_since, now, cauldron_chrome::motion::time::INDICATOR);
-            fnrow = fnrow.child(
-                div()
-                    .absolute()
-                    .left(px(fn_slot_x(sp.rect.w - SIDE_PR, pos)))
-                    .top(px(4.))
-                    .size(px(metric::SBTN))
-                    .rounded(px(radius::CONTROL))
-                    .bg(ca(pal.fg, 0.09)),
-            );
-            for (i, (name, label)) in FUNCTIONS.iter().enumerate() {
-                let b = icon_button_in(("fn", i), name, label, pal, i == self.section, false).on_click(cx.listener(move |this, _, _, cx| this.select_section(i, cx)));
-                fnrow = fnrow.child(self.tipped(("fn", i), b, *label, Side::Right, pal, cx).test_support());
-            }
             if self.search.is_none() {
                 // The input's caret, selection and text come from the tokens, not the component theme.
                 let t = Theme::global_mut(cx);
@@ -1034,7 +1153,7 @@ impl Render for Cauldron {
                 t.caret = accent;
                 t.selection = ca(pal.accent, 0.25);
                 t.font_family = SANS.into();
-                let st = cx.new(|cx| InputState::new(window, cx).placeholder("Search threads"));
+                let st = cx.new(|cx| InputState::new(window, cx).placeholder("Search streams"));
                 let sub = cx.subscribe(&st, |this, st, ev: &InputEvent, cx| {
                     if let InputEvent::Change = ev {
                         this.query = st.read(cx).value().to_string();
@@ -1062,10 +1181,10 @@ impl Render for Cauldron {
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(fg)
                 .child(glyph("square-pen", 15., fg))
-                .child("New thread")
+                .child("New stream")
                 .on_click(cx.listener(|this, _, window, cx| this.new_thread(window, cx)))
                 .test_support();
-            // The board's `.side`: on the window, no card; the apps row, New thread, Search, the list.
+            // The board's `.side`: on the window, no card; the apps row, New stream, Search, the list.
             // ponytail: the layout keeps the card era's 12px margin, so the content starts at x 13,
             // the board's at 10; the right edge is the board's 240 (9px in from the pane's 249).
             let card_el = pane("sidebar", sp.rect)
@@ -1074,7 +1193,7 @@ impl Render for Cauldron {
                 .flex_col()
                 .pr(px(SIDE_PR))
                 .overflow_hidden()
-                .child(fnrow)
+                .child(self.page_switch(pal, cx).test_support())
                 .when_live(self.settings.is_some(), |d| d.child(self.settings_nav(self.settings.unwrap_or(0), pal, cx).test_support()))
                 .when_live(self.settings.is_none(), |d| d.child(new_thread))
                 .when_live(self.settings.is_none(), |d| d.child(
@@ -1089,7 +1208,7 @@ impl Render for Cauldron {
                             .rounded(px(radius::TAG))
                             .hover(|d| d.bg(c(pal.hover)))
                             .text_color(fg2)
-                            .aria_label("Search threads")
+                            .aria_label("Search streams")
                             .child(glyph("search", 15., fg2))
                             .child(div().flex_1().min_w_0().child(Input::new(&search).appearance(false).text_size(px(13.)).p_0()))
                             .test_support(),
@@ -1102,7 +1221,7 @@ impl Render for Cauldron {
                         .flex_none()
                         .flex()
                         .items_center()
-                        .gap(px(9.))
+                        .gap(px(6.))
                         .pl(px(3.))
                         .pt(px(8.))
                         .child(
@@ -1118,18 +1237,20 @@ impl Render for Cauldron {
                                 .text_color(c(pal.on_accent))
                                 .child(initial),
                         )
+                        // The name with usage beside it (Charles, 13 Nov 07:34Z), then the version and
+                        // the cog. Core has no usage per subscription yet: an empty state, no number.
                         .child(
                             div()
                                 .flex_1()
                                 .min_w_0()
                                 .flex()
-                                .flex_col()
-                                .line_height(px(15.))
-                                .child(div().truncate().text_size(px(12.5)).child(user))
-                                // Core has no usage per subscription yet: an empty state, no number.
-                                .child(div().id("usage-left").text_size(px(11.)).text_color(fg3).aria_label("No data yet").child("No data yet").test_support()),
+                                .items_center()
+                                .gap(px(6.))
+                                .child(div().min_w_0().truncate().text_size(px(12.5)).child(user))
+                                .child(self.usage_ring("usage-left", pal, cx).test_support()),
                         )
-                        .child(self.tipped("settings", icon_button("settings", "settings", "Settings", pal, self.settings.is_some()), "Settings", Side::Right, pal, cx).on_click(cx.listener(|this, _, _, cx| {
+                        .child(self.version_button(pal, cx).test_support())
+                        .child(self.tipped("settings", icon_button("settings", "settings", "Settings", pal, self.settings.is_some()).w(px(24.)).h(px(24.)), "Settings", Side::Right, pal, cx).on_click(cx.listener(|this, _, _, cx| {
                             this.settings = if this.settings.is_some() { None } else { Some(0) };
                             cx.notify();
                         })).test_support()),
@@ -1141,7 +1262,14 @@ impl Render for Cauldron {
         // The card's head is its pane's header (Charles, 13 Nov 06:52Z: tabs in each pane, no
         // breadcrumb): the thread's tabs, or the screen's name, then split, the terminal and the
         // Code pill. Settings has its name only.
-        let head_title: SharedString = if self.settings.is_some() { "Settings".into() } else { NEW_TAB.into() };
+        let streams = self.settings.is_none() && self.page == pages::AppPage::Streams;
+        let head_title: SharedString = if self.settings.is_some() {
+            "Settings".into()
+        } else if !streams {
+            self.page.label().into()
+        } else {
+            NEW_TAB.into()
+        };
         let mut head = div()
             .id("card-head")
             .h(px(HEAD_H))
@@ -1153,7 +1281,7 @@ impl Render for Cauldron {
             .pr(px(8.))
             .text_size(px(13.))
             .text_color(fg3);
-        let tabbed = self.coordinator.is_some() && self.settings.is_none();
+        let tabbed = self.coordinator.is_some() && streams;
         if tabbed && plat == Platform::Windows {
             head = head.child(self.crumb(pal).test_support());
         } else if tabbed {
@@ -1176,20 +1304,20 @@ impl Render for Cauldron {
                     .test_support(),
             );
         }
-        if self.settings.is_none() {
+        if streams {
             head = head
                 .child(div().id("head-drag").flex_1().h_full().window_control_area(WindowControlArea::Drag))
                 .child(self.head_controls(None, pal, now, reduce, false, cx).test_support());
         }
         // A new thread keeps a 32px bar under its card, in the Shell's grey (Charles 13 Nov).
-        let new_screen = self.open.is_none() && self.active == 0 && self.settings.is_none();
+        let new_screen = self.open.is_none() && self.active == 0 && streams;
         let card_h = s.main.h - if new_screen { STAGE_H } else { 0.0 };
         // Split (direction B): under the head the card holds up to four panes on the Shell's grey;
         // a shape that no longer fits steps back, as the shell closes Split when the window narrows.
         // Split with the tabs in the panes, the card head goes: each pane's header carries its tabs.
         let full = Rect::new(s.main.x, s.main.y, s.main.w, card_h);
         let headed = Rect::new(s.main.x, s.main.y + HEAD_H, s.main.w, card_h - HEAD_H);
-        let shape = if self.settings.is_some() { Shape::One } else { cauldron_chrome::panes::effective(full, self.panes.shape) };
+        let shape = if !streams { Shape::One } else { cauldron_chrome::panes::effective(full, self.panes.shape) };
         // Split, the card head goes: each pane's header carries its own tabs and controls.
         let headless = shape != Shape::One;
         let area = if headless { full } else { headed };
@@ -1217,6 +1345,7 @@ impl Render for Cauldron {
         self.glass_card.set(wall.map(|_| (0.0, 0.0, dark)));
         let body = match self.settings {
             Some(page) => self.settings_page(page, pal, cx),
+            None if !streams => self.page_body(pal, cx),
             None => self.card_body(pal, window, cx),
         };
         let inside = if split { self.pane_stage(pal, area, shape, body, window, cx).into_any_element() } else { body };
@@ -1243,13 +1372,15 @@ impl Render for Cauldron {
             .child(div().flex_1().min_h_0().child(inside));
         // The grey Shell behind the card, Split and the drawer: the drawer stands in its right
         // gutter and the new thread's bar in its bottom one (the coordinator's brief, 13 Nov).
-        let mut shell_el = pane("shell", s.shell).rounded(px(radius::SHELL)).bg(card);
+        // The Shell meets the sidebar flush, square on its left (Charles, 13 Nov 07:34Z: no gap at
+        // the corners), rounded on its right.
+        let mut shell_el = pane("shell", s.shell).rounded_tr(px(radius::SHELL)).rounded_br(px(radius::SHELL)).bg(card);
         if let Some(f) = frost {
             // The frame is frosted painting: the blurred copy under the Shell colour at 77% / 83%.
             let t = self.backdrop.borrow_mut().hsla_for(backdrop::Surface::Shell, dark, (sh.x as i32, sh.y as i32, sh.w as u32, sh.h as u32), pal);
             shell_el = shell_el
-                .child(img(f).id("shell-art").absolute().top_0().left_0().size_full().rounded(px(radius::SHELL)).test_support())
-                .child(div().absolute().top_0().left_0().size_full().rounded(px(radius::SHELL)).bg(t));
+                .child(img(f).id("shell-art").absolute().top_0().left_0().size_full().rounded_tr(px(radius::SHELL)).rounded_br(px(radius::SHELL)).test_support())
+                .child(div().absolute().top_0().left_0().size_full().rounded_tr(px(radius::SHELL)).rounded_br(px(radius::SHELL)).bg(t));
         }
         root = root.child(shell_el.test_support());
         let mut main_el = pane("main", s.main).child(card_el.test_support());
@@ -1285,7 +1416,7 @@ impl Render for Cauldron {
 
         // ---- Windows: each pane's tabs float in a strip above it, in the Shell's top band (the
         // board e0fd268, B); the rightmost leaves the caption buttons their room.
-        if plat == Platform::Windows && self.settings.is_none() {
+        if plat == Platform::Windows && streams {
             let cards: Vec<Rect> = if split { cauldron_chrome::panes::rects(area, sp) } else { vec![Rect::new(s.main.x, s.main.y, s.main.w, card_h)] };
             let top = s.shell.y + (metric::CAPS_BAND - 26.0) / 2.0;
             for (slot, r) in cards.into_iter().enumerate() {
@@ -1318,56 +1449,19 @@ impl Render for Cauldron {
                     .child(div().font_weight(FontWeight::SEMIBOLD).child(p.title()))
                     .child(div().text_size(px(12.)).text_color(fg3).child(format!("This panel arrives in {}.", p.milestone())))
             };
-            // The panels as a strip on top (the v3 board's `.dtabs`): the open one selected, its
-            // button folds the drawer back to the rail.
-            let mut strip = div().id("drawer-strip").flex().gap(px(4.)).pb(px(8.)).border_b_1().border_color(c(pal.line));
-            strip = strip.child(
-                self.tipped("strip-drawer", icon_button("strip-drawer", "panel-right", "Hide the drawer", pal, true), "Hide the drawer", Side::Below, pal, cx)
-                    .flex_none()
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.toggle_drawer();
-                        cx.notify();
-                    }))
-                    .test_support(),
-            );
-            for (i, q) in ALL_PANELS.iter().enumerate() {
-                let q = *q;
-                let on = self.drawer == Some(q);
-                strip = strip.child(
-                    self.tipped(
-                        ("dt", i),
-                        div()
-                            .id(("dt", i))
-                            .flex_1()
-                            .h(px(28.))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .rounded(px(radius::INNER))
-                            .when_live(on, |d| d.bg(c(pal.selected)))
-                            .when_live(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
-                            .cursor_pointer()
-                            .aria_selected(on)
-                            .aria_label(q.title())
-                            .child(glyph(q.icon(), 16., if on { fg } else { fg3 })),
-                        q.title(),
-                        Side::Below,
-                        pal,
-                        cx,
-                    )
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.toggle_panel(q);
-                        cx.notify();
-                    }))
-                    .test_support(),
-                );
+            // The panels are switched from the rail beside the drawer (Charles, 13 Nov 07:34Z: icons
+            // stacked, never in a row). Both bodies share one box, so the outgoing one cross-fades.
+            // On Agents the drawer is Agents' own (a mockup until the page is designed).
+            let mut bodies = div().relative().flex_1().min_h_0();
+            if self.page == pages::AppPage::Agents {
+                bodies = bodies.child(self.agents_drawer(pal).test_support());
+            } else {
+                bodies = bodies.child(body(p, swap.map_or(1.0, |(_, k)| k)));
+                if let Some((a, k)) = swap {
+                    bodies = bodies.child(body(a, 1.0 - k));
+                }
             }
-            // Both bodies share one box under the strip, so the outgoing one cross-fades in place.
-            let mut bodies = div().relative().flex_1().min_h_0().child(body(p, swap.map_or(1.0, |(_, k)| k)));
-            if let Some((a, k)) = swap {
-                bodies = bodies.child(body(a, 1.0 - k));
-            }
-            let d = pane("drawer", dp.rect).opacity(dp.alpha).flex().flex_col().child(strip.test_support()).child(bodies);
+            let d = pane("drawer", dp.rect).opacity(dp.alpha).flex().flex_col().child(bodies);
             root = root.child(d.test_support());
         }
 
@@ -1376,13 +1470,13 @@ impl Render for Cauldron {
             root = root.child(self.terminal_card(pal, tp.rect, tp.alpha, cx).test_support());
         }
 
-        // ---- right rail, only while the drawer is folded
+        // ---- right rail: always standing, the drawer (when open) beside it
         if let Some(rp) = s.rrail {
         let mut rr = pane("rrail", rp.rect).opacity(rp.alpha).flex().flex_col().items_center().gap(px(4.)).pt(px(4.));
         // The drawer's button on top (Charles, 13 Nov 06:52Z), a hairline, then the panels.
         rr = rr
             .child(
-                self.tipped("rail-drawer", icon_button("rail-drawer", "panel-right", "Show the drawer", pal, false), "Show the drawer", Side::Left, pal, cx)
+                self.tipped("rail-drawer", icon_button("rail-drawer", "panel-right", if self.drawer.is_some() && !self.terminal { "Hide the drawer" } else { "Show the drawer" }, pal, self.drawer.is_some() && !self.terminal), if self.drawer.is_some() && !self.terminal { "Hide the drawer" } else { "Show the drawer" }, Side::Left, pal, cx)
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.toggle_drawer();
                         cx.notify();
@@ -1393,7 +1487,7 @@ impl Render for Cauldron {
         for (i, p) in TOP_PANELS.iter().enumerate() {
             let p = *p;
             rr = rr.child(
-                self.tipped(("rb", i), icon_button(("rb", i), p.icon(), p.title(), pal, self.drawer == Some(p)), p.title(), Side::Left, pal, cx)
+                self.tipped(("rb", i), icon_button(("rb", i), p.icon(), p.title(), pal, self.drawer == Some(p) && !self.terminal), p.title(), Side::Left, pal, cx)
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.toggle_panel(p);
                         cx.notify();
@@ -1402,7 +1496,7 @@ impl Render for Cauldron {
             );
         }
         rr = rr.child(div().flex_1()).child(
-            self.tipped("rb-patches", icon_button("rb-patches", Panel::Patches.icon(), Panel::Patches.title(), pal, self.drawer == Some(Panel::Patches)), Panel::Patches.title(), Side::Left, pal, cx)
+            self.tipped("rb-patches", icon_button("rb-patches", Panel::Patches.icon(), Panel::Patches.title(), pal, self.drawer == Some(Panel::Patches) && !self.terminal), Panel::Patches.title(), Side::Left, pal, cx)
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.toggle_panel(Panel::Patches);
                     cx.notify();
@@ -1486,23 +1580,13 @@ impl Render for Cauldron {
 #[cfg(test)]
 mod tests {
     // Explicit imports: a glob of gpui_kit brings GPUI's `test` macro, which shadows Rust's.
-    use super::{fn_slot_x, platform, AgentTab, Cauldron, Panel, Threads};
-    use cauldron_chrome::layout::metric;
+    use super::{platform, AgentTab, Cauldron, Panel, Threads};
     use crate::threads::sample;
 
-    #[test]
-    fn function_slots_span_the_row_with_equal_gaps() {
-        // The row has no card border or padding now: the board's `.apps` runs edge to edge.
-        let w = 227.0;
-        assert_eq!(fn_slot_x(w, 0.0), 0.0);
-        assert!((fn_slot_x(w, 6.0) + metric::SBTN - w).abs() < 1e-3, "last button ends at the row's edge");
-        let step = fn_slot_x(w, 1.0) - fn_slot_x(w, 0.0);
-        assert!((fn_slot_x(w, 6.0) - fn_slot_x(w, 0.0) - 6.0 * step).abs() < 1e-3, "equal steps");
-    }
     use cauldron_chrome::layout::{self, Rect, ShellState};
     use cauldron_chrome::motion::Frame;
     use gpui_kit::test::TestWindowExt;
-    use gpui_kit::{px, size, AppContext, ElementId, TestAppContext, Window};
+    use gpui_kit::{point, px, size, AppContext, ElementId, TestAppContext, Window};
 
     pub(super) const W: f32 = 1240.0;
     pub(super) const H: f32 = 702.0;
@@ -1550,45 +1634,48 @@ mod tests {
         }
     }
 
-    /// The open drawer carries its panels as a strip on top (the v3 board's `.dtabs`): one 28px
-    /// button per panel sharing the width, the open one selected. Its button folds the drawer back to
-    /// the rail; a rail button opens it again on that panel.
+    /// The rail stands beside the open drawer (Charles, 13 Nov 07:34Z: its icons stacked, never in
+    /// a row): its top button folds or opens the drawer, a panel's button switches to that panel,
+    /// the open one lit, and the open one's button folds it.
     #[gpui_kit::test]
-    fn the_drawer_switches_panels_from_its_own_strip(cx: &mut TestAppContext) {
+    fn the_rail_stands_beside_the_drawer_and_switches_it(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         cx.update(|cx| cx.set_reduce_motion(true));
         let handle = cx.add_window(|_, _| Cauldron::new());
         cx.simulate_window_resize(handle.into(), size(px(W), px(H)));
-        cx.update_window(handle.into(), |_, window, cx| {
-            window.render_frame(cx);
-            let d = rect(window, "drawer");
-            assert!(window.try_find("rrail").is_none(), "no rail beside the open drawer");
-            for i in 0..5usize {
-                let b = rect(window, ("dt", i));
-                assert_eq!((b.y, b.h), (d.y, 28.0), "strip button {i} at the drawer's top");
-                assert!(b.x >= d.x && b.right() <= d.right(), "strip button {i} inside the drawer");
-                assert_eq!(dt_on(window, i), i == 0, "strip button {i}: Highlights is open");
-            }
-            assert_eq!(window.find(("dt", 4usize)).label(), Some("Patches"));
-            window.click(("dt", 4usize), cx);
-            assert!(dt_on(window, 4usize) && !dt_on(window, 0usize), "a strip button switches the panel");
-            window.click(("dt", 4usize), cx);
-        })
-        .unwrap();
-        // The shell moves on the wall clock, so start each check from rest.
         let rest = |cx: &mut TestAppContext| handle.update(cx, |c, _, _| c.motion = Default::default()).unwrap();
-        rest(cx);
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
-            assert!(window.try_find("drawer").is_none() && window.try_find("rrail").is_some(), "the open panel's button folds the drawer to the rail");
+            let (d, r) = (rect(window, "drawer"), rect(window, "rrail"));
+            assert_eq!(d.right() + 6.0, r.x, "the drawer left of the rail");
+            assert!(window.try_find("drawer-strip").is_none(), "no strip in a row");
+            let ys: Vec<f32> = (0..4usize).map(|i| rect(window, ("rb", i)).y).collect();
+            assert!(ys.windows(2).all(|w| w[1] > w[0]), "the panels stacked: {ys:?}");
+            assert!(rect(window, "rail-drawer").y < ys[0], "the drawer's button on top");
+            assert_eq!(window.find("rail-drawer").label(), Some("Hide the drawer"));
+            assert_eq!(window.find(("rb", 0usize)).selected(), Some(true), "Highlights is open");
             window.click(("rb", 1usize), cx);
         })
         .unwrap();
         rest(cx);
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
-            assert!(window.try_find("drawer").is_some() && dt_on(window, 1usize), "a rail button opens the drawer on its panel");
-            assert!(window.try_find("rrail").is_none(), "and the rail gives way");
+            assert_eq!(window.find(("rb", 1usize)).selected(), Some(true), "a rail button switches the panel");
+            window.click("rail-drawer", cx);
+        })
+        .unwrap();
+        rest(cx);
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            assert!(window.try_find("drawer").is_none() && window.try_find("rrail").is_some(), "folded: the rail alone");
+            window.click("rail-drawer", cx);
+        })
+        .unwrap();
+        rest(cx);
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            assert!(window.try_find("drawer").is_some(), "and open again on the last panel");
+            assert_eq!(window.find(("rb", 1usize)).selected(), Some(true));
         })
         .unwrap();
     }
@@ -1605,8 +1692,7 @@ mod tests {
         let ms = std::time::Duration::from_millis;
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
-            let named: [(ElementId, &str); 7] = [
-                (("fn", 4usize).into(), "Usage"),
+            let named: [(ElementId, &str); 6] = [
                 (("rb", 0usize).into(), "Highlights"),
                 ("rb-patches".into(), "Patches"),
                 ("sbtn".into(), "Hide sidebar"),
@@ -1640,10 +1726,10 @@ mod tests {
         .unwrap();
         cx.executor().advance_clock(ms(1000));
         cx.update_window(handle.into(), |_, window, cx| {
-            window.hover(("fn", 4usize), cx);
+            window.hover("settings", cx);
             window.render_frame(cx);
-            assert_eq!(window.find("tooltip").label(), Some("Usage"));
-            let (tip, btn) = (rect(window, "tooltip"), rect(window, ("fn", 4usize)));
+            assert_eq!(window.find("tooltip").label(), Some("Settings"));
+            let (tip, btn) = (rect(window, "tooltip"), rect(window, "settings"));
             assert!((tip.x - (btn.right() + 8.0)).abs() < 0.5, "left-side tip sits 8px right of its button: {tip:?} {btn:?}");
         })
         .unwrap();
@@ -1672,16 +1758,12 @@ mod tests {
         handle
     }
 
-    fn dt_on(window: &Window, i: usize) -> bool {
-        window.find(("dt", i)).selected() == Some(true)
-    }
-
     fn on(window: &Window, i: usize) -> bool {
         window.find(("ptab", i)).selected() == Some(true)
     }
 
-    /// The New thread screen has no tabs; the card starts 12px from the window's top and its 40px
-    /// head says New thread, then split, the terminal and Code.
+    /// The New stream screen has no tabs; the card starts 12px from the window's top and its 40px
+    /// head says New stream, then split, the terminal and Code.
     #[gpui_kit::test]
     fn new_thread_screen_has_no_tabs_and_a_card_head(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
@@ -1703,7 +1785,7 @@ mod tests {
             let shell = rect(window, "shell");
             assert_eq!((shell.x, shell.y, shell.right(), shell.bottom()), (s.shell.x, s.shell.y, s.shell.right(), s.shell.bottom()), "the Shell");
             assert_eq!(bar.bottom() + 6.0, shell.bottom(), "the bar in the Shell's bottom gutter, not on the frame");
-            assert!(rect(window, "drawer").right() + 6.0 == shell.right(), "the drawer in the Shell's right gutter");
+            assert!(rect(window, "rrail").right() + 6.0 == shell.right() && rect(window, "drawer").right() + 6.0 == rect(window, "rrail").x, "the drawer and the rail in the Shell's right gutter");
             assert_eq!(window.find("stage-usage").label(), Some("No usage data yet"));
             let mut last = rect(window, "stage-usage").right();
             for (i, name) in ["Plan", "Execute", "Ship", "Commit"].into_iter().enumerate() {
@@ -1716,7 +1798,7 @@ mod tests {
             assert!(bar.right() - last <= 13.0, "the stages end at the bar's right padding");
             let head = rect(window, "card-head");
             assert_eq!((head.x, head.y, head.w, head.h), (card.x + 1.0, card.y + 1.0, card.w - 2.0, 40.0), "head");
-            assert_eq!(window.find("card-title").label(), Some("New thread"));
+            assert_eq!(window.find("card-title").label(), Some("New stream"));
             assert_eq!(rect(window, "card-title").x, card.x + 9.0, "title 8px in");
             assert!(rect(window, "code-pill").right() <= head.right() - 8.0, "the Code pill at the head's right");
         })
@@ -1742,7 +1824,8 @@ mod tests {
             }
             let add = rect(window, "tab-add");
             assert_eq!((add.y, add.h), (head.y + 8.0, 24.0), "+ as tall as the tabs");
-            window.click(("ptab", 2usize), cx);
+            // On its name, clear of its close.
+            window.click_at(("ptab", 2usize), point(px(10.), px(12.)), cx);
             window.render_frame(cx);
             assert!(on(window, 2) && !on(window, 0), "a click opens the tab");
         })
@@ -1779,8 +1862,8 @@ mod tests {
         let handle = open(cx, with_threads());
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
-            assert_eq!(window.find("group-needs").label(), Some("Needs you"), "no count");
-            assert!(rect(window, "group-needs").bottom() <= rect(window, ("group", 0usize)).y, "first, with no rows under it");
+            assert_eq!(window.find("group-needs").label(), Some("Needs you, 1"));
+            assert!(rect(window, "group-needs").bottom() <= rect(window, ("thread", 0usize)).y, "first, its stream under it");
             assert_eq!(window.find("usage-left").label(), Some("No data yet"));
         })
         .unwrap();
@@ -1818,41 +1901,117 @@ mod tests {
         v[1].agent = Some("Rampart".into());
         v[2].unread = true;
         v[3].failed = Some("usage limit".into());
-        Cauldron { threads: Threads::Ready(v), ..Cauldron::new() }
+        // Folders: Cauldron (p, q), Ocean (r, s), and f unfiled; Unfiled opened by hand.
+        for (i, f) in [(0, "/code/Cauldron"), (1, "/code/Cauldron"), (2, "/code/Ocean"), (4, "/code/Ocean")] {
+            v[i].project = Some(f.into());
+        }
+        let folder_open = [("Unfiled".to_string(), true)].into_iter().collect();
+        Cauldron { threads: Threads::Ready(v), folder_open, ..Cauldron::new() }
+    }
+
+    /// The sidebar's headings in order, with their labels.
+    fn heads(window: &Window) -> Vec<String> {
+        let mut v = Vec::new();
+        for id in ["group-needs", "group-folders"] {
+            if let Some(e) = window.try_find(id) {
+                v.push((e.bounds().origin.y, e.label().unwrap_or_default().to_string()));
+            }
+        }
+        for g in 0..32usize {
+            if let Some(e) = window.try_find(("group", g)) {
+                v.push((e.bounds().origin.y, e.label().unwrap_or_default().to_string()));
+            }
+        }
+        v.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+        v.into_iter().map(|(_, l)| l).collect()
     }
 
     fn row_labels(window: &Window) -> Vec<String> {
         (0usize..).map_while(|i| window.try_find(("thread", i)).map(|e| e.label().unwrap_or_default().to_string())).collect()
     }
 
-    /// The sidebar lists core's threads as Unread, Running, Failed, Done, each with its count,
-    /// top to bottom, inside the sidebar.
+    /// The sidebar (the pages board, folders direction B): Needs you with its streams flat, then
+    /// Folders, each folder with its count, open when it holds running or waiting work, and
+    /// Unfiled last; the rows inside the sidebar, under New stream.
     #[gpui_kit::test]
-    fn sidebar_lists_threads_in_groups_with_counts(cx: &mut TestAppContext) {
+    fn sidebar_is_needs_you_then_folders(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let handle = open(cx, with_threads());
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
-            let heads: Vec<String> = (0..4usize).map(|g| window.find(("group", g)).label().unwrap().to_string()).collect();
-            assert_eq!(heads, ["Unread, 1", "Running, 1", "Failed, 1", "Done, 2"]);
-            for g in 1..4usize {
-                assert!(rect(window, ("group", g - 1)).y < rect(window, ("group", g)).y, "group {g} below the one before");
-            }
-            assert_eq!(row_labels(window), ["Koi palette", "Rampart mutation score", "M2 eval task texts", "Pinned notes", "Agent delegation"]);
+            assert_eq!(heads(window), ["Needs you, 1", "Folders", "Cauldron, 2", "Ocean, 2", "Unfiled, 1"]);
+            assert_eq!(row_labels(window), ["Koi palette", "Pinned notes", "Rampart mutation score", "Agent delegation", "M2 eval task texts"]);
+            assert_eq!(window.find(("thread-chip", 0usize)).label(), Some("Ocean"), "a needs-you row shows its folder");
+            assert!(window.try_find(("thread-chip", 1usize)).is_none(), "under its folder, no chip");
             let side = rect(window, "sidebar");
             for i in 0..5usize {
                 let r = rect(window, ("thread", i));
                 assert!(r.x >= side.x && r.right() <= side.right(), "row {i} inside the sidebar");
             }
-            assert!(rect(window, ("thread", 0usize)).y > rect(window, "new-thread").bottom(), "rows under New thread");
+            assert!(rect(window, ("thread", 0usize)).y > rect(window, "new-thread").bottom(), "rows under New stream");
         })
         .unwrap();
     }
 
-    /// The rows are the new-look board's `.th`: 30 high, the title, the repo in 11px, and a 6px ping
-    /// on an unread row only. Every row shows a state dot in its 18x22 slot, an agentic thread too:
-    /// agent figures belong to the Agents page (Charles, 13 Nov). Group heads are the board's 36px
-    /// `.sect`; New thread is a 32px row, not a button.
+    /// A folder folds by hand; closed over a stream that needs you it shows the accent dot.
+    #[gpui_kit::test]
+    fn folders_fold_and_keep_a_dot_for_needs_you(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let mut c = with_threads();
+        if let Threads::Ready(v) = &mut c.threads {
+            v[4].unread = true;
+            v[2].unread = false;
+        }
+        let handle = open(cx, c);
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            let ocean = (0..32usize).find(|&g| window.try_find(("group", g)).is_some_and(|e| e.label().is_some_and(|l| l.starts_with("Ocean")))).unwrap();
+            assert_eq!(window.find(("group", ocean)).expanded(), Some(true), "open: it holds a stream that needs you");
+            window.click(("group", ocean), cx);
+            window.render_frame(cx);
+            assert_eq!(window.find(("group", ocean)).expanded(), Some(false));
+            assert!(window.try_find(("folder-dot", ocean)).is_some(), "closed over a waiting stream: the dot");
+        })
+        .unwrap();
+    }
+
+    /// Folded, the rail (the destinations board): the six apps, search and New stream, a
+    /// square per folder (a dot on the one with a stream that needs you), then the version, the cog
+    /// and the avatar stacked at the foot. Unfolded, usage sits beside the name, then the version
+    /// and the cog.
+    #[gpui_kit::test]
+    fn the_folded_rail_stacks_usage_apps_folders_and_the_foot(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = open(cx, with_threads());
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            let (name_row, usage, version, cog) = (rect(window, "usage-left"), rect(window, "usage-left"), rect(window, "version"), rect(window, "settings"));
+            assert!((usage.y + usage.h / 2.0 - (version.y + version.h / 2.0)).abs() <= 2.0 && version.x > name_row.x && cog.x > version.x, "usage, then version, then the cog, on one row");
+        })
+        .unwrap();
+        handle.update(cx, |c, _, _| {
+            c.sidebar_open = false;
+            c.motion = Default::default();
+        })
+        .unwrap();
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            let order = ["rail-search", "rail-new"].map(|id| rect(window, id).y);
+            let pages: Vec<f32> = (0..6usize).map(|i| rect(window, ("rail-page", i)).y).collect();
+            assert!(pages.windows(2).all(|w| w[1] > w[0]) && pages[5] < order[0] && order[0] < order[1], "the six apps stacked, search, New stream");
+            let folders: Vec<String> = (0..3usize).filter_map(|i| window.try_find(("rail-folder", i)).and_then(|e| e.label().map(str::to_string))).collect();
+            assert_eq!(folders, ["Cauldron, 2", "Ocean, 2", "Unfiled, 1"]);
+            let (u, v, g, a) = (rect(window, "rail-usage"), rect(window, "rail-version"), rect(window, "rail-settings"), rect(window, "rail-avatar"));
+            assert!(u.y < v.y && v.y < g.y && g.y < a.y, "usage, version, cog, avatar stacked at the foot (Charles, 13 Nov 15:54Z)");
+            assert!(a.bottom() >= rect(window, "rail").bottom() - 12.0, "at the foot");
+            window.click(("rail-folder", 1usize), cx);
+        })
+        .unwrap();
+        assert!(handle.update(cx, |c, _, _| c.sidebar_open).unwrap(), "a folder square opens the sidebar on it");
+    }
+
+    /// Rows are 30 high: the state dot in its 18x22 slot (needs you, working, done; no figures),
+    /// the title and the age; a 6px ping on an unread row only.
     #[gpui_kit::test]
     fn thread_rows_are_the_boards(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
@@ -1860,27 +2019,15 @@ mod tests {
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
             assert_eq!(rect(window, "new-thread").h, 32.0);
-            for g in 0..4usize {
-                assert_eq!(rect(window, ("group", g)).h, 36.0, "group {g}");
-            }
-            // Row 1 (Rampart mutation score) has an agent; it still shows a dot.
-            for (i, state) in [(0usize, "Unread"), (1, "Working"), (2, "Failed"), (3, "Done"), (4, "Done")] {
+            for (i, state) in [(0usize, "Needs you"), (1, "Done"), (2, "Working"), (3, "Done"), (4, "Failed")] {
                 let r = rect(window, ("thread", i));
                 assert_eq!(r.h, 30.0, "row {i}");
                 let a = rect(window, ("thread-av", i));
                 assert_eq!((a.w, a.h), (18.0, 22.0), "row {i}'s slot");
                 assert!((a.y + a.h / 2.0 - (r.y + r.h / 2.0)).abs() <= 1.0, "row {i}'s slot is centred");
-                assert!((10.0..=13.0).contains(&(a.x - r.x)), "row {i}'s slot is 11px in, as the board's");
                 assert_eq!(window.find(("thread-av", i)).label(), Some(state), "row {i}");
                 assert!(window.try_find(("thread-fig", i)).is_none(), "row {i}: no figure");
-                assert!(window.try_find(("thread-dot", i)).is_some(), "row {i}: a state dot");
-                assert_eq!(window.find(("thread-meta", i)).label(), Some("no repo"), "row {i}");
-            }
-            let (row, ping) = (rect(window, ("thread", 0usize)), rect(window, ("ping", 0usize)));
-            assert_eq!((ping.w, ping.h), (6.0, 6.0));
-            assert!(row.right() - ping.right() <= 10.0, "the ping is at the row's right");
-            for i in 1..5usize {
-                assert!(window.try_find(("ping", i)).is_none(), "row {i} is read");
+                assert!(window.try_find(("thread-dot", i)).is_some() && window.try_find(("thread-age", i)).is_some(), "row {i}: a dot and an age");
             }
         })
         .unwrap();
@@ -1891,10 +2038,10 @@ mod tests {
     fn sidebar_draws_loading_empty_no_match_and_error(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let states = [
-            (Cauldron { threads: Threads::Loading, ..Cauldron::new() }, "threads-loading", "Loading threads"),
-            (Cauldron { threads: Threads::Ready(Vec::new()), ..Cauldron::new() }, "threads-empty", "No threads yet"),
-            (Cauldron { query: "zzz".into(), ..with_threads() }, "threads-no-match", "No threads match zzz"),
-            (Cauldron { threads: Threads::Error("disk full".into()), ..Cauldron::new() }, "threads-error", "Threads could not load: disk full"),
+            (Cauldron { threads: Threads::Loading, ..Cauldron::new() }, "threads-loading", "Loading streams"),
+            (Cauldron { threads: Threads::Ready(Vec::new()), ..Cauldron::new() }, "threads-empty", "No streams yet"),
+            (Cauldron { query: "zzz".into(), ..with_threads() }, "threads-no-match", "No streams match zzz"),
+            (Cauldron { threads: Threads::Error("disk full".into()), ..Cauldron::new() }, "threads-error", "Streams could not load: disk full"),
         ];
         for (c, id, label) in states {
             let handle = open(cx, c);
@@ -1916,14 +2063,14 @@ mod tests {
         let handle = open(cx, with_threads());
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
-            assert_eq!(window.find("search").label(), Some("Search threads"));
+            assert_eq!(window.find("search").label(), Some("Search streams"));
             window.click(("thread", 1usize), cx);
             window.press("down", cx);
             window.press("down", cx);
         })
         .unwrap();
         let sel = |cx: &mut TestAppContext| handle.update(cx, |c, _, _| c.selected.clone()).unwrap();
-        assert_eq!(sel(cx).as_deref(), Some("p"), "click Running row, then two down: Failed, then Done's first");
+        assert_eq!(sel(cx).as_deref(), Some("s"), "click Pinned notes, then two down: Rampart, then Agent delegation");
         cx.update_window(handle.into(), |_, window, cx| {
             for _ in 0..9 {
                 window.press("up", cx);
@@ -1940,8 +2087,8 @@ mod tests {
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
             assert_eq!(row_labels(window), ["Koi palette"]);
-            assert_eq!(window.find(("group", 0usize)).label(), Some("Unread, 1"));
-            assert!(window.try_find(("group", 1usize)).is_none(), "groups with no match are left out");
+            assert_eq!(window.find(("thread-chip", 0usize)).label(), Some("Ocean"), "a hit shows its folder");
+            assert!(heads(window).is_empty(), "a search is a flat list of hits");
         })
         .unwrap();
         handle

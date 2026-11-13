@@ -7,12 +7,13 @@ use super::*;
 use backspace_core::accounts::{Accounts, FailoverPolicy};
 
 /// Settings' pages, in the sidebar's order: (name, icon).
-pub(crate) const PAGES: [(&str, &str); 5] = [
+pub(crate) const PAGES: [(&str, &str); 6] = [
     ("Agents and subscriptions", "bot"),
     ("General", "settings"),
     ("Appearance", "palette"),
     ("Machines", "monitor"),
     ("Shortcuts", "keyboard"),
+    ("Apps", "layout-grid"),
 ];
 
 fn policy_label(p: FailoverPolicy) -> &'static str {
@@ -63,7 +64,7 @@ impl Cauldron {
                 .text_size(px(13.))
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(fg)
-                .aria_label("Back to threads")
+                .aria_label("Back to streams")
                 .child(glyph("chevron-left", 15., fg))
                 .child("Settings")
                 .on_click(cx.listener(|this, _, _, cx| {
@@ -168,7 +169,58 @@ impl Cauldron {
             col = col.child(section("Theme"));
             col = col.child(row(("look", 0), "Theme".into(), "Light, dark, or System, which follows your computer as it changes.".into(), theme.into_any_element()));
             col = col.child(section("Background"));
-            col = col.child(row(("look", 1), "Painting".into(), "Behind the whole window, in the old dither; the new thread shows it clear, every other surface frosted. None keeps the plain frame.".into(), bg.into_any_element()));
+            col = col.child(row(("look", 1), "Painting".into(), "Behind the whole window, in the old dither; the new stream shows it clear, every other surface frosted. None keeps the plain frame.".into(), bg.into_any_element()));
+            return div().id("settings-body").size_full().overflow_y_scroll().flex().justify_center().child(col).test_support().into_any_element();
+        }
+        if page == 5 {
+            // Apps (Charles, 13 Nov 07:34Z: out of the sidebar, into Settings). A plain list for
+            // now: the pages behind them are being designed, and only Streams exists.
+            col = col.child(div().text_size(px(13.)).text_color(fg3).mb(px(6.)).child("The parts of Cauldron. Streams is the one built so far."));
+            for (i, (icon, name)) in super::FUNCTIONS.iter().enumerate() {
+                let control = if i == 0 {
+                    div()
+                        .id(("app-open", i))
+                        .cursor_pointer()
+                        .hover(|d| d.opacity(0.85))
+                        .aria_label(format!("Open {name}"))
+                        .child(value("Open".into()))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.settings = None;
+                            cx.notify();
+                        }))
+                        .test_support()
+                        .into_any_element()
+                } else {
+                    div().id(("app-later", i)).text_size(px(12.)).text_color(fg3).aria_label("Arrives later").child("Arrives later").test_support().into_any_element()
+                };
+                col = col.child(
+                    div()
+                        .id(("app", i))
+                        .flex()
+                        .items_center()
+                        .gap(px(12.))
+                        .py(px(8.))
+                        .border_t_1()
+                        .border_color(line)
+                        .aria_label(*name)
+                        .child(glyph(icon, 16., fg2))
+                        .child(div().flex_1().min_w_0().text_size(px(13.)).text_color(fg).child(*name))
+                        .child(control)
+                        .test_support(),
+                );
+            }
+            return div().id("settings-body").size_full().overflow_y_scroll().flex().justify_center().child(col).test_support().into_any_element();
+        }
+        if page == 1 {
+            // General: the version, and how a new one arrives.
+            col = col.child(div().text_size(px(13.)).text_color(fg3).mb(px(6.)).child("This copy of Cauldron."));
+            col = col.child(section("Version"));
+            col = col.child(row(
+                ("general", 0),
+                format!("Cauldron {}", env!("CARGO_PKG_VERSION")),
+                "New builds come from the release workflow (mac-latest, windows-latest). Checking from here comes later.".into(),
+                div().into_any_element(),
+            ));
             return div().id("settings-body").size_full().overflow_y_scroll().flex().justify_center().child(col).test_support().into_any_element();
         }
         if page != 0 {
@@ -184,7 +236,7 @@ impl Cauldron {
             );
             return div().id("settings-body").size_full().overflow_y_scroll().flex().justify_center().child(col).test_support().into_any_element();
         }
-        col = col.child(div().text_size(px(13.)).text_color(fg3).mb(px(6.)).child("Who answers in your threads, and the subscriptions they run on."));
+        col = col.child(div().text_size(px(13.)).text_color(fg3).mb(px(6.)).child("Who answers in your streams, and the subscriptions they run on."));
 
         // Subscriptions: one row per login core knows (accounts.json). Usage only where the CLI reported it.
         let accounts = Accounts::load(&self.accounts_path());
@@ -278,15 +330,17 @@ mod tests {
             window.render_frame(cx);
             assert!(window.try_find(("thread", 0usize)).is_none() && window.try_find("new-thread").is_none(), "the thread list gives way");
             assert_eq!(window.find(("sub", 0usize)).label(), Some("No subscriptions on this machine yet"));
-            assert_eq!(window.find("settings-back").label(), Some("Back to threads"));
+            assert_eq!(window.find("settings-back").label(), Some("Back to streams"));
             assert_eq!(window.find(("settings-page", 0usize)).label(), Some("Agents and subscriptions"));
             assert_eq!(window.find(("settings-page", 0usize)).selected(), Some(true));
             let card = super::super::tests::rect(window, "card");
             let page = super::super::tests::rect(window, "settings-body");
             assert!(page.x >= card.x && page.right() <= card.right(), "the page is in the card");
             assert_eq!(window.find(("agent", 2usize)).label(), Some("Effort"));
+            window.click(("settings-page", 3usize), cx);
+            assert_eq!(window.find("settings-empty").label(), Some("Machines settings arrive in a later milestone."));
             window.click(("settings-page", 1usize), cx);
-            assert_eq!(window.find("settings-empty").label(), Some("General settings arrive in a later milestone."));
+            assert!(window.find(("general", 0usize)).label().is_some_and(|l| l.starts_with("Cauldron ")), "General: the version");
             window.click(("settings-page", 2usize), cx);
             assert_eq!(window.find(("look", 0usize)).label(), Some("Theme"), "Appearance: the theme");
             assert_eq!(window.find(("look", 1usize)).label(), Some("Painting"), "and the painting");

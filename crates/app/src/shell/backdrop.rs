@@ -74,11 +74,6 @@ pub(crate) fn tint_of(s: Surface, dark: bool) -> [f32; 4] {
     }
 }
 
-/// The glass tint (composer, chips, pills).
-pub(crate) fn tint(dark: bool) -> [f32; 4] {
-    tint_of(Surface::Glass, dark)
-}
-
 /// A surface's tint as a GPUI colour.
 pub(crate) fn hsla(s: Surface, dark: bool) -> gpui_kit::Hsla {
     let t = tint_of(s, dark);

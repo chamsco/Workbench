@@ -1,0 +1,31 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.94s
+     Running tests/wireframe.rs (target/debug/deps/wireframe-05edcf627b982a80)
+
+running 9 tests
+test solver_matches_every_golden_state_and_size ... ignored, golden predates the top bar A decision; re-measure after the wireframe is updated
+test platforms_differ_only_in_window_controls ... ok
+test main_keeps_a_minimum_width_by_closing_split_then_drawer ... ok
+test the_terminal_takes_the_drawers_place ... ok
+test without_plugins_the_card_takes_the_right_gutter ... ok
+test panes_never_overlap_and_stay_inside_the_window ... ok
+test the_drawer_takes_the_right_rails_place ... FAILED
+test the_shell_runs_near_the_top_and_bottom ... ok
+test golden_has_two_window_sizes ... ok
+
+failures:
+
+---- the_drawer_takes_the_right_rails_place stdout ----
+
+thread 'the_drawer_takes_the_right_rails_place' (14663104) panicked at crates/chrome/tests/wireframe.rs:174:9:
+assertion `left == right` failed: Mac: the Shell from the sidebar's edge to the side margin
+  left: (257.0, 1187.0)
+ right: (249.0, 1187.0)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    the_drawer_takes_the_right_rails_place
+
+test result: FAILED. 7 passed; 1 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p cauldron-chrome --test wireframe`
