@@ -22,6 +22,7 @@ use std::sync::Arc;
 
 mod motion;
 mod newthread;
+mod appearance;
 mod backdrop;
 mod panes;
 mod ptabs;
@@ -150,6 +151,10 @@ pub(crate) struct Cauldron {
     /// top-left; the glass is cut at those rects.
     glass_at: std::rc::Rc<std::cell::RefCell<std::collections::HashMap<&'static str, Bounds<Pixels>>>>,
     glass_card: std::cell::Cell<Option<(f32, f32, bool)>>,
+    /// Re-renders when the OS switches light and dark, so System follows it live.
+    appearance_sub: Option<Subscription>,
+    /// Where the theme and the painting are read from; None is core's prefs file (tests use their own).
+    prefs_file: Option<std::path::PathBuf>,
     /// Which window controls the shell draws: the OS's, or Windows' drawn on a Mac for a preview
     /// (debug `CAULDRON_PLATFORM=windows`).
     plat: Platform,
@@ -302,7 +307,7 @@ impl Cauldron {
     }
 
     pub(crate) fn new() -> Self {
-        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: None, sidebar_open: true, drawer: Some(Panel::Highlights), backdrop: Default::default(), glass_at: Default::default(), glass_card: std::cell::Cell::new(None), plat: platform(), settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_menu: false, tab_slide: Default::default(), tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
+        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: None, sidebar_open: true, drawer: Some(Panel::Highlights), backdrop: Default::default(), glass_at: Default::default(), glass_card: std::cell::Cell::new(None), appearance_sub: None, prefs_file: None, plat: platform(), settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_menu: false, tab_slide: Default::default(), tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
     }
 
     /// Opens core off the main thread (the sidebar shows Loading meanwhile), then keeps the thread
@@ -856,7 +861,18 @@ fn forced_dark() -> Option<bool> {
 
 impl Render for Cauldron {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let dark = forced_dark().unwrap_or_else(|| !matches!(window.appearance(), WindowAppearance::Light | WindowAppearance::VibrantLight));
+        // The theme: Settings' choice, or the OS's while it is System (followed live: the window's
+        // appearance changing re-renders, painting included).
+        if self.appearance_sub.is_none() {
+            self.appearance_sub = Some(cx.observe_window_appearance(window, |_, _, cx| cx.notify()));
+        }
+        let look = appearance::load(self.prefs_file.as_deref());
+        let os_dark = !matches!(window.appearance(), WindowAppearance::Light | WindowAppearance::VibrantLight);
+        let dark = forced_dark().unwrap_or(match look.theme {
+            appearance::Theme::System => os_dark,
+            appearance::Theme::Light => false,
+            appearance::Theme::Dark => true,
+        });
         let pal: &'static Palette = if dark { &tokens::DARK } else { &tokens::LIGHT };
         let vs = window.viewport_size();
         let (w, h) = (f32::from(vs.width), f32::from(vs.height));
@@ -952,14 +968,22 @@ impl Render for Cauldron {
 
         // The painting behind the whole window: made once per window size, painting and theme, then
         // its blurred copy under the sidebar's tint is the window itself (None: the plain frame).
-        let wall = backdrop::painting(&Prefs::load().backdrop, dark);
+        let wall = backdrop::painting(look.backdrop, dark);
+        if wall.is_none() {
+            // None: the plain frame, and no old painting kept (or shown) from before.
+            self.backdrop.borrow_mut().drop_all();
+        }
         if let Some(name) = wall {
             let mut b = self.backdrop.borrow_mut();
             b.window(name, dark, w.max(1.0) as u32, h.max(1.0) as u32, [pal.panel.0, pal.panel.1, pal.panel.2]);
             if let Some(f) = b.glass(0, 0, w as u32, h as u32) {
                 root = root
                     .child(img(f).id("window-art").absolute().top_0().left_0().size_full().test_support())
-                    .child(div().absolute().top_0().left_0().size_full().bg(backdrop::hsla(backdrop::Surface::Sidebar, dark)));
+                    .child(div().absolute().top_0().left_0().size_full().bg({
+                        // The sidebar's text reads over this: its tint holds 4.5:1 there.
+                        let r = s.sidebar.or(s.rail).map_or(Rect::new(0.0, 0.0, w, h), |p| p.rect);
+                        b.hsla_for(backdrop::Surface::Sidebar, dark, (r.x as i32, r.y as i32, r.w as u32, r.h as u32), pal)
+                    }));
             }
         }
 
@@ -1178,16 +1202,17 @@ impl Render for Cauldron {
         // The painting behind the whole window (painting X, the board e0fd268): frosted under every
         // surface, sharp only through the new thread's clear card.
         let sh = s.shell;
-        let (frost, art, card_frost) = match wall {
+        let (frost, art, card_frost, card_tint) = match wall {
             Some(_) => {
                 let mut b = self.backdrop.borrow_mut();
                 let frost = b.glass(sh.x as i32, sh.y as i32, sh.w as u32, sh.h as u32);
                 let cut = (s.main.x as i32, s.main.y as i32, s.main.w as u32, card_h as u32);
                 let art = (new_screen && !split).then(|| b.sharp(cut.0, cut.1, cut.2, cut.3)).flatten();
                 let card_frost = (!(new_screen && !split) && !split).then(|| b.glass(cut.0, cut.1, cut.2, cut.3)).flatten();
-                (frost, art, card_frost)
+                let tint = b.hsla_for(backdrop::Surface::Card, dark, cut, pal);
+                (frost, art, card_frost, tint)
             }
-            None => (None, None, None),
+            None => (None, None, None, c(pal.panel)),
         };
         self.glass_card.set(wall.map(|_| (0.0, 0.0, dark)));
         let body = match self.settings {
@@ -1213,7 +1238,7 @@ impl Render for Cauldron {
             .text_color(fg3)
             .children(art.map(|art| img(art).id("card-art").absolute().top_0().left_0().size_full().rounded(px(radius::PANEL)).test_support()))
             .children(card_frost.clone().map(|f| img(f).id("card-frost").absolute().top_0().left_0().size_full().rounded(px(radius::PANEL)).test_support()))
-            .when_live(card_frost.is_some(), |d| d.child(div().absolute().top_0().left_0().size_full().rounded(px(radius::PANEL)).bg(backdrop::hsla(backdrop::Surface::Card, dark))))
+            .when_live(card_frost.is_some(), |d| d.child(div().absolute().top_0().left_0().size_full().rounded(px(radius::PANEL)).bg(card_tint)))
             .when_live(!headless, |d| d.child(head.test_support()))
             .child(div().flex_1().min_h_0().child(inside));
         // The grey Shell behind the card, Split and the drawer: the drawer stands in its right
@@ -1221,7 +1246,7 @@ impl Render for Cauldron {
         let mut shell_el = pane("shell", s.shell).rounded(px(radius::SHELL)).bg(card);
         if let Some(f) = frost {
             // The frame is frosted painting: the blurred copy under the Shell colour at 77% / 83%.
-            let t = backdrop::hsla(backdrop::Surface::Shell, dark);
+            let t = self.backdrop.borrow_mut().hsla_for(backdrop::Surface::Shell, dark, (sh.x as i32, sh.y as i32, sh.w as u32, sh.h as u32), pal);
             shell_el = shell_el
                 .child(img(f).id("shell-art").absolute().top_0().left_0().size_full().rounded(px(radius::SHELL)).test_support())
                 .child(div().absolute().top_0().left_0().size_full().rounded(px(radius::SHELL)).bg(t));

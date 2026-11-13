@@ -47,7 +47,7 @@ fn decoded(name: &'static str) -> Arc<RgbaImage> {
 }
 
 /// What lies over the blurred painting.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum Surface {
     /// The window behind everything, and so the sidebar on it.
     Sidebar,
@@ -132,6 +132,8 @@ pub(crate) struct Backdrop {
     blurred: Option<RgbaImage>,
     crops: HashMap<(i32, i32, u32, u32), Arc<RenderImage>>,
     sharp_crops: HashMap<(i32, i32, u32, u32), Arc<RenderImage>>,
+    /// Each surface's tint alpha over its rect, for this painting and size.
+    alphas: HashMap<(Surface, i32, i32, u32, u32), f32>,
     /// How many times the painting was made; tests read it to see the cache work.
     pub(crate) made: usize,
 }
@@ -151,6 +153,7 @@ impl Backdrop {
             self.art = Some(art);
             self.crops.clear();
             self.sharp_crops.clear();
+            self.alphas.clear();
             self.key = Some(key);
             self.made += 1;
         }
@@ -176,6 +179,54 @@ impl Backdrop {
                 })
                 .clone(),
         )
+    }
+
+    /// The tint for surface `s` over the rect `r` (window coordinates): the board's alpha, raised
+    /// only as far as this painting needs for fg2 and fg3 to keep 4.6:1 over every part of the
+    /// rect (a bright painting under a light theme needs more frost than the harbour). Cached per
+    /// painting, size and rect.
+    pub(crate) fn tint_for(&mut self, s: Surface, dark: bool, r: (i32, i32, u32, u32), pal: &cauldron_chrome::tokens::Palette) -> [f32; 4] {
+        let base = tint_of(s, dark);
+        let Some(b) = self.blurred.as_ref() else { return base };
+        let key = (s, r.0, r.1, r.2, r.3);
+        if let Some(a) = self.alphas.get(&key) {
+            return [base[0], base[1], base[2], *a];
+        }
+        let rr = (r.0.max(0) as u32, r.1.max(0) as u32, r.2, r.3);
+        let mut a = base[3];
+        while a < 0.99 {
+            let t = [base[0], base[1], base[2], a];
+            if worst_over(b, rr, t, pal.fg2, 2).min(worst_over(b, rr, t, pal.fg3, 2)) >= 4.6 {
+                break;
+            }
+            a = (a + 0.02).min(0.99);
+        }
+        if self.alphas.len() > 64 {
+            self.alphas.clear();
+        }
+        self.alphas.insert(key, a);
+        [base[0], base[1], base[2], a]
+    }
+
+    /// The same as a GPUI colour.
+    pub(crate) fn hsla_for(&mut self, s: Surface, dark: bool, r: (i32, i32, u32, u32), pal: &cauldron_chrome::tokens::Palette) -> gpui_kit::Hsla {
+        let t = self.tint_for(s, dark, r, pal);
+        let mut h: gpui_kit::Hsla = gpui_kit::rgb(((t[0] as u32) << 16) | ((t[1] as u32) << 8) | t[2] as u32).into();
+        h.a = t[3];
+        h
+    }
+
+    /// Forgets the painting, its blurred copy and every cut: the painting is None now.
+    pub(crate) fn drop_all(&mut self) {
+        if self.key.is_some() {
+            *self = Backdrop { made: self.made, ..Default::default() };
+        }
+    }
+
+    /// Whether anything is held, for the tests.
+    #[cfg(test)]
+    pub(crate) fn holds(&self) -> bool {
+        self.key.is_some() || self.art.is_some() || self.blurred.is_some() || !self.crops.is_empty() || !self.sharp_crops.is_empty() || !self.alphas.is_empty()
     }
 
     /// The painting itself cut at `r`, for the new thread's card: a clear window onto it.
@@ -207,9 +258,14 @@ impl Backdrop {
 /// painting inside `r`.
 #[cfg(test)]
 pub(crate) fn worst_contrast(blurred: &RgbaImage, r: (u32, u32, u32, u32), tint: [f32; 4], fg: cauldron_chrome::tokens::Rgb) -> f32 {
+    worst_over(blurred, r, tint, fg, 1)
+}
+
+/// The same, looking at every `step`th pixel each way (the blur makes neighbours alike).
+fn worst_over(blurred: &RgbaImage, r: (u32, u32, u32, u32), tint: [f32; 4], fg: cauldron_chrome::tokens::Rgb, step: usize) -> f32 {
     let mut worst = f32::MAX;
-    for y in r.1..(r.1 + r.3).min(blurred.height()) {
-        for x in r.0..(r.0 + r.2).min(blurred.width()) {
+    for y in (r.1..(r.1 + r.3).min(blurred.height())).step_by(step) {
+        for x in (r.0..(r.0 + r.2).min(blurred.width())).step_by(step) {
             let p = blurred.get_pixel(x, y).0;
             let mix = |c: usize| (tint[c] * tint[3] + p[c] as f32 * (1.0 - tint[3])).round() as u8;
             let under = cauldron_chrome::tokens::Rgb(mix(0), mix(1), mix(2));
@@ -246,6 +302,25 @@ mod tests {
         assert_eq!(g1.size(0).width.0, 100);
     }
 
+    /// No stale state: resizing away and back gives the same painting byte for byte; a theme or
+    /// painting change drops every old cut; None drops everything held.
+    #[test]
+    fn resizing_back_gives_the_same_painting_and_nothing_stale_is_kept() {
+        let mut b = Backdrop::default();
+        b.window("fog", true, 300, 200, rgb(DARK.panel));
+        let first = (b.art.clone().unwrap(), b.blurred.clone().unwrap());
+        let cut = b.glass(0, 0, 50, 50).unwrap();
+        b.window("fog", true, 340, 220, rgb(DARK.panel));
+        assert!(b.crops.is_empty() && b.sharp_crops.is_empty(), "a resize drops the old cuts");
+        b.window("fog", true, 300, 200, rgb(DARK.panel));
+        assert_eq!((b.art.clone().unwrap(), b.blurred.clone().unwrap()), first, "identical after the round trip");
+        assert!(!Arc::ptr_eq(&cut, &b.glass(0, 0, 50, 50).unwrap()), "cut afresh, not kept from before");
+        b.window("fog", false, 300, 200, rgb(LIGHT.panel));
+        assert_ne!(b.art.clone().unwrap(), first.0, "the other theme is another painting");
+        b.drop_all();
+        assert!(!b.holds(), "None keeps nothing");
+    }
+
     /// The painting dissolves toward the window's foot: the bottom row is mostly transparent.
     #[test]
     fn the_painting_dissolves_toward_the_foot() {
@@ -270,12 +345,24 @@ mod tests {
             ("composer", Surface::Glass, (287, 320, 628, 84)),
             ("chip", Surface::Glass, (287, 286, 140, 26)),
         ];
-        for (dark, pal, name) in [(true, &DARK, "harbour-night"), (false, &LIGHT, "harbour-dawn")] {
+        // Every painting Settings offers, in both themes.
+        let mut cases = Vec::new();
+        for (id, _) in BACKDROPS {
+            for dark in [true, false] {
+                if let Some(name) = painting(id, dark) {
+                    cases.push((dark, if dark { &DARK } else { &LIGHT }, name));
+                }
+            }
+        }
+        assert_eq!(cases.len(), 10, "five paintings, two themes");
+        for (dark, pal, name) in cases {
             let mut b = Backdrop::default();
             b.window(name, dark, 1200, 720, rgb(pal.panel));
             for (what, surf, r) in rects {
+                let t = b.tint_for(surf, dark, (r.0 as i32, r.1 as i32, r.2, r.3), pal);
+                assert!(t[3] >= tint_of(surf, dark)[3], "never below the board's tint");
                 for (fgn, fg) in [("fg2", pal.fg2), ("fg3", pal.fg3)] {
-                    let c = worst_contrast(b.blurred().unwrap(), r, tint_of(surf, dark), fg);
+                    let c = worst_contrast(b.blurred().unwrap(), r, t, fg);
                     assert!(c >= 4.5, "{name} {what} {fgn}: {c:.2}:1");
                 }
             }
@@ -299,5 +386,52 @@ mod tests {
             assert!(window.try_find("window-art").is_some(), "and the window still shows the painting");
         })
         .unwrap();
+    }
+
+    /// Every theme x every painting (and None) x every view renders, and None falls back to the
+    /// opaque tokens: no painting, no frost, nowhere.
+    #[gpui_kit::test]
+    fn every_theme_painting_and_view_renders(cx: &mut gpui_kit::TestAppContext) {
+        use cauldron_chrome::panes::Shape;
+        use gpui_kit::test::TestWindowExt;
+        use gpui_kit::AppContext;
+        let (handle, _chats) = super::super::thread::tests::open(cx);
+        let path = std::env::temp_dir().join(format!("cauldron-look-{}.json", std::process::id()));
+        handle.update(cx, |c, _, _| c.prefs_file = Some(path.clone())).unwrap();
+        for theme in ["light", "dark", "system"] {
+            for (id, _) in BACKDROPS {
+                std::fs::write(&path, format!(r#"{{"theme":"{theme}","backdrop":"{id}"}}"#)).unwrap();
+                for view in ["new", "thread", "two panes", "drawer folded", "settings"] {
+                    handle
+                        .update(cx, |c, _, _| {
+                            c.settings = (view == "settings").then_some(2);
+                            c.panes.shape = if view == "two panes" { Shape::Cols } else { Shape::One };
+                            c.drawer = if view == "drawer folded" { None } else { Some(super::super::Panel::Highlights) };
+                            c.motion = Default::default();
+                        })
+                        .unwrap();
+                    cx.update_window(handle.into(), |_, window, cx| {
+                        window.render_frame(cx);
+                        if view != "new" && view != "settings" && window.try_find(("ptab", 0usize)).is_none() {
+                            window.click(("thread", 0usize), cx);
+                            window.render_frame(cx);
+                        }
+                        let at = format!("{theme} {id} {view}");
+                        let painted = id != "plain";
+                        assert_eq!(window.try_find("window-art").is_some(), painted, "{at}: the painting behind the window");
+                        if !painted {
+                            for none in ["shell-art", "card-art", "card-frost"] {
+                                assert!(window.try_find(none).is_none(), "{at}: no {none} with None");
+                            }
+                        }
+                        if view == "settings" {
+                            assert!(window.try_find("drawer").is_none() && window.try_find("rrail").is_none(), "{at}: Settings has no drawer or rail");
+                        }
+                    })
+                    .unwrap();
+                }
+            }
+        }
+        let _ = std::fs::remove_file(path);
     }
 }

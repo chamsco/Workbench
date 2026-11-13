@@ -24,6 +24,22 @@ fn policy_label(p: FailoverPolicy) -> &'static str {
 }
 
 impl Cauldron {
+    /// Changes the saved look: in the test's own prefs file, or through core's prefs.
+    fn save_look(&self, f: impl FnOnce(&mut Prefs)) {
+        match &self.prefs_file {
+            Some(path) => {
+                let mut p: Prefs = std::fs::read_to_string(path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+                f(&mut p);
+                let _ = std::fs::write(path, serde_json::to_string(&p).unwrap_or_default());
+            }
+            None => {
+                let mut p = Prefs::load();
+                f(&mut p);
+                p.save();
+            }
+        }
+    }
+
     /// Where the subscriptions are read from: core's `accounts.json`, or a test's own file.
     fn accounts_path(&self) -> std::path::PathBuf {
         self.accounts_file.clone().unwrap_or_else(Accounts::path)
@@ -120,27 +136,39 @@ impl Cauldron {
         let section = |title: &'static str| div().mt(px(24.)).mb(px(4.)).text_size(px(11.)).line_height(px(14.)).font_weight(FontWeight::MEDIUM).text_color(fg3).child(title);
         let value = |text: String| div().h(px(28.)).px(px(8.)).flex().items_center().rounded(px(radius::CONTROL)).border_1().border_color(c(pal.line_strong)).text_size(px(12.)).font_weight(FontWeight::MEDIUM).text_color(fg2).child(text);
         if page == 2 {
-            // Appearance: the new thread's painting (background A), as the Tauri app offered them.
-            let p = Prefs::load();
-            let name = super::backdrop::BACKDROPS.iter().find(|b| b.0 == p.backdrop).map_or("Harbour", |b| b.1);
+            // Appearance: the theme, and the painting behind the window (the Tauri app's), both read
+            // through `appearance` so an old or odd prefs file shows what the window shows.
+            let look = super::appearance::load(self.prefs_file.as_deref());
+            let theme = div()
+                .id("set-theme")
+                .cursor_pointer()
+                .hover(|d| d.opacity(0.85))
+                .aria_label("Change theme")
+                .child(value(look.theme.label().into()))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.save_look(|p| p.theme = look.theme.next().id().into());
+                    cx.notify();
+                }))
+                .test_support();
+            let name = super::backdrop::BACKDROPS.iter().find(|b| b.0 == look.backdrop).map_or("Harbour", |b| b.1);
             let bg = div()
                 .id("set-backdrop")
                 .cursor_pointer()
                 .hover(|d| d.opacity(0.85))
-                .aria_label("Change background")
+                .aria_label("Change painting")
                 .child(value(name.into()))
-                .on_click(cx.listener(|_, _, _, cx| {
-                    let mut p = Prefs::load();
+                .on_click(cx.listener(move |this, _, _, cx| {
                     let all = super::backdrop::BACKDROPS;
-                    let at = all.iter().position(|b| b.0 == p.backdrop).unwrap_or(0);
-                    p.backdrop = all[(at + 1) % all.len()].0.to_string();
-                    p.save();
+                    let at = all.iter().position(|b| b.0 == look.backdrop).unwrap_or(0);
+                    this.save_look(|p| p.backdrop = all[(at + 1) % all.len()].0.to_string());
                     cx.notify();
                 }))
                 .test_support();
             col = col.child(div().text_size(px(13.)).text_color(fg3).mb(px(6.)).child("How Cauldron looks around your work."));
+            col = col.child(section("Theme"));
+            col = col.child(row(("look", 0), "Theme".into(), "Light, dark, or System, which follows your computer as it changes.".into(), theme.into_any_element()));
             col = col.child(section("Background"));
-            col = col.child(row(("look", 0), "Painting".into(), "Shown on the new thread, in the old dither, with the composer on frosted glass. Never behind a thread.".into(), bg.into_any_element()));
+            col = col.child(row(("look", 1), "Painting".into(), "Behind the whole window, in the old dither; the new thread shows it clear, every other surface frosted. None keeps the plain frame.".into(), bg.into_any_element()));
             return div().id("settings-body").size_full().overflow_y_scroll().flex().justify_center().child(col).test_support().into_any_element();
         }
         if page != 0 {
@@ -260,7 +288,8 @@ mod tests {
             window.click(("settings-page", 1usize), cx);
             assert_eq!(window.find("settings-empty").label(), Some("General settings arrive in a later milestone."));
             window.click(("settings-page", 2usize), cx);
-            assert_eq!(window.find(("look", 0usize)).label(), Some("Painting"), "Appearance: the background choice");
+            assert_eq!(window.find(("look", 0usize)).label(), Some("Theme"), "Appearance: the theme");
+            assert_eq!(window.find(("look", 1usize)).label(), Some("Painting"), "and the painting");
             window.click("settings-back", cx);
             window.render_frame(cx);
             assert!(window.try_find("settings-body").is_none(), "the card is back");

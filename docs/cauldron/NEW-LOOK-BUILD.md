@@ -197,6 +197,78 @@ Any lit button in a shot is the real pointer resting there, not a state.
 
 **The macOS app workflow:** every `macos.yml` run since at least 10 Nov is "cancelled" within about a second with no runner and no steps. That includes the pushes to main and the workflow_dispatch runs (42887499596, 42890395148, 42946753888, 43282129950, 43379886775, 43380184861). The concurrency group cannot cancel a lone dispatch, so GitHub is not handing out a `macos-14` runner, which points to the account's Actions billing or spending limit for macOS minutes.
 
+## The frame without a top bar, painting X, Windows B, and the Appearance pass (13 Nov, 06:52Z on)
+
+Charles, 06:52Z, asked for these:
+- the painting under the grey borders as well;
+- more room at the top and bottom of the content, with tabs in each pane ("Variant, two panes");
+- no breadcrumbs;
+- the right sidebar's button on the right rail;
+- split and terminal at the top right of the content, left of a Code pill;
+- on Windows, the caption buttons inside the grey border.
+
+At 07:03Z he followed up: the painting must not disappear on the sidebars and panes. At 07:08Z he approved the design and asked that themes and paintings never clash or carry stale state. The coordinator's boards are `design/cauldron-frame-no-topbar.html` (b427b05, then e0fd268, on gg3ogp). Everything here is on `claude/new-look-next` in PR #43.
+
+**Frame (Mac):**
+- There is no top bar over the content. The lights, the sidebar button and the name keep a 44px row over the sidebar, and under it sits the app row: message, folder, calendar, bot, gauge, database and grid, with a hairline under it.
+- The Shell runs 6px from the window's top and bottom, so the card is 12px from each.
+- With the sidebar folded, the Shell starts under that row, so it never meets the lights or the name (`nl9-sidebar-folded-*`).
+
+**Panes:**
+- Every pane's 40px header (the card's head when it is one pane) has the tabs on the left, then split (the layout button), the terminal and the Code pill.
+- The Code pill is a static label: only coding threads exist, and Charles asked for it by name.
+- Under 320px a pane keeps the active tab, "+N", split and Code; the terminal button makes way.
+- The breadcrumb, the floating tab strip and its Settings switch are gone; Charles chose the variant.
+- The thread strip's "+" (spawn a subagent or open a 1:1) and agent tab closes moved into the pane strip.
+
+**The drawer's toggle:** at the top of the right rail, then a hairline, then the panels. While the drawer is open, it is the first button of the drawer's strip, lit.
+
+**Windows (B, the board e0fd268):**
+- The caption buttons (3 × 40 × 24) sit inside the Shell's top right, in a 31px band.
+- Each pane's tabs float in a 26px strip in that band, above the pane. The rightmost strip stops 8px short of the caption buttons.
+- The card head shows the breadcrumb ("project / thread") on the left and split, terminal and Code on the right. The card starts 38px down.
+- `CAULDRON_PLATFORM=windows` draws this layout on a Mac for a preview (`nl10-windows-thread-*`); the Mac's own lights still show there. It has not run on Windows.
+
+**Painting X: behind the whole window.**
+- The painting is dithered once at window size, and one blurred copy (sigma 13.5, about 27px) is made from it. Both are cached by painting, theme and size.
+- The blurred copy, cut at each surface's rect, lies under every surface's tint: the window and sidebar, the Shell (gutters, drawer, rail, stage bar), every card and pane, the terminal, Settings' page, the composer, its chip and the header pills.
+- The new thread's card is the one clear window onto the sharp painting.
+- The tints are the board's, as a floor. Each surface's alpha rises only as far as that painting needs for fg2 and fg3 to keep 4.6:1 over its rect, computed once and cached with the cuts.
+  - At Harbour the board's values hold in both themes. Measured worst-case fg3, dark / light: sidebar 5.35 / 4.64, drawer 4.69 / 4.62, stage bar 6.39 / 5.39, thread card 5.47 / 5.36, composer 5.76 / 5.23, chip 5.69 / 5.42.
+  - The brighter paintings need more frost in light, up to alpha .94 for the drawer over Lighthouse at dawn.
+
+**Appearance pass: what I found and fixed.**
+1. The theme came only from the OS; `prefs.theme` was never read. Settings > Appearance now has Theme (System, Light, Dark). System follows the OS live: an appearance observer re-renders, painting included.
+2. The board's fixed tints fail on the other paintings. In light, Lighthouse at dawn under the sidebar gave fg3 4.08:1. Fixed by the adaptive alpha above.
+3. Core's `Prefs::load` resets the whole file to defaults if any field has the wrong type. An old file with `"tabs": "floating"` would lose its theme and painting. The window now reads theme and painting field by field (`shell/appearance.rs`). The core loader is unchanged.
+4. Old painting ids: "plain" and "none" map to None, the Tauri paintings to themselves, and anything else (aurora, the sharks, koi, typos) to the default, Harbour. A missing file, an unreadable one, or wrong types give the defaults.
+5. With None, the old painting and its cuts stayed in memory. Now everything is dropped, and None draws the opaque tokens: no window art, no frost, no glass layers.
+6. Cache keys were already painting, theme and size. A resize away and back now gives the same painting byte for byte (tested).
+
+Settings follows the same rules: it is frosted, with no drawer and no rail.
+
+**Tests:**
+- App: `docs/cauldron/NL11-app-green.txt`, 61 of 61.
+- Chrome: `NL11-chrome-green.txt`, all suites.
+- New tests:
+  - The frame solver, written red first (`NL9-frame-red.txt`; the Windows band `NL10-windows-red.txt`).
+  - The pane header, plus the Windows tab strip and breadcrumb.
+  - fg2 and fg3 at 4.5:1 or better on six surfaces, for all five paintings in both themes.
+  - The resize round trip and "None keeps nothing".
+  - The render matrix: 3 themes × 6 backdrops (None included) × 5 views (new thread, thread, two panes, drawer folded, Settings), each rendered with the painting present or absent as expected and no drawer in Settings.
+  - Appearance parsing: defaults, Tauri mappings, files core cannot parse, the theme cycle.
+- The appearance tests read their own prefs file per window, never the user's.
+
+**Shots:**
+- Real window captures at 1200x720 on Mac: `nl9-*` (round 1) and `nl10-*` (round 2: new thread, thread, two panes, Settings, and the Windows preview).
+- The contact sheets, real captures through the prefs file (not the debug theme override): `nl11-sheet-new.png` and `nl11-sheet-thread.png`, light and dark × Harbour, Lighthouse at dawn, Moorings at night, Open sea, Fog and None.
+
+**Limits:**
+- Windows has not been run.
+- Hover and drags are not captured.
+- The blurred copy is static: a pane resize or a drag cuts new rects, and the cache holds 64 of them.
+- `backspace-core`'s two `policy_integrity` failures on this Mac are as before and unrelated.
+
 ## Not done (as asked)
 
 - Top bar A: untouched.

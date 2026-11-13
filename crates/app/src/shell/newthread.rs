@@ -261,16 +261,18 @@ impl Cauldron {
         .size_full()
         .into_any_element();
         let mut out = vec![probe];
+        // Until it has been laid out once, the board's tint; then the tint this painting needs there.
+        let mut tint = super::backdrop::hsla(super::backdrop::Surface::Glass, dark);
         if let Some(b) = self.glass_at.borrow().get(key) {
             let (x, y) = ((f32::from(b.origin.x) - cx0).round() as i32, (f32::from(b.origin.y) - cy0).round() as i32);
             let (w, h) = (f32::from(b.size.width).round() as u32, f32::from(b.size.height).round() as u32);
-            if let Some(crop) = self.backdrop.borrow_mut().glass(x, y, w, h) {
+            let pal = if dark { &tokens::DARK } else { &tokens::LIGHT };
+            let mut bd = self.backdrop.borrow_mut();
+            tint = bd.hsla_for(super::backdrop::Surface::Glass, dark, (x, y, w, h), pal);
+            if let Some(crop) = bd.glass(x, y, w, h) {
                 out.push(img(crop).absolute().top_0().left_0().size_full().rounded(px(r)).into_any_element());
             }
         }
-        let t = super::backdrop::tint(dark);
-        let mut tint = gpui_kit::rgb(((t[0] as u32) << 16) | ((t[1] as u32) << 8) | t[2] as u32);
-        tint.a = t[3];
         out.push(div().absolute().top_0().left_0().size_full().rounded(px(r)).bg(tint).into_any_element());
         out
     }

@@ -347,7 +347,12 @@ impl Cauldron {
                     .into_any_element(),
             };
             // Over the painting a pane is frosted glass (the board e0fd268); without it, the panel.
-            let frost = self.glass_card.get().and_then(|(_, _, dark)| self.backdrop.borrow_mut().glass(r.x as i32, r.y as i32, r.w as u32, r.h as u32).map(|f| (f, dark)));
+            let frost = self.glass_card.get().and_then(|(_, _, dark)| {
+                let mut b = self.backdrop.borrow_mut();
+                let cut = (r.x as i32, r.y as i32, r.w as u32, r.h as u32);
+                let tint = b.hsla_for(super::backdrop::Surface::Card, dark, cut, pal);
+                b.glass(cut.0, cut.1, cut.2, cut.3).map(|f| (f, tint))
+            });
             let p = abs(local(r))
                 .id(("pane", slot))
                 .flex()
@@ -355,14 +360,14 @@ impl Cauldron {
                 .overflow_hidden()
                 .rounded(px(radius::INSET))
                 .when_live(frost.is_none(), |d| d.bg(c(pal.panel)))
-                .children(frost.map(|(f, dark)| {
+                .children(frost.map(|(f, tint)| {
                     div()
                         .absolute()
                         .top_0()
                         .left_0()
                         .size_full()
                         .child(img(f).absolute().top_0().left_0().size_full().rounded(px(radius::INSET)))
-                        .child(div().absolute().top_0().left_0().size_full().rounded(px(radius::INSET)).bg(super::backdrop::hsla(super::backdrop::Surface::Card, dark)))
+                        .child(div().absolute().top_0().left_0().size_full().rounded(px(radius::INSET)).bg(tint))
                 }))
                 .border_1()
                 .border_color(ring)
