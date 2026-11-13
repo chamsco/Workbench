@@ -291,6 +291,10 @@ pub struct ProjectState {
     /// waiting on the user's answer to "which kind is this?".
     #[serde(default)]
     pub intake: crate::intake::IntakeState,
+    /// The long path's planning stage (planning.rs): the spec put to the
+    /// user, whether its checklist passed, and the hash they said yes to.
+    #[serde(default)]
+    pub planning: crate::planning::PlanningState,
 }
 
 /// An agent opening or closing a canvas: a browser on its dev server, its
@@ -334,6 +338,7 @@ impl ProjectState {
             artifacts: vec![],
             phase: Default::default(),
             intake: Default::default(),
+            planning: Default::default(),
         }
     }
 
