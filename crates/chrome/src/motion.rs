@@ -114,6 +114,7 @@ pub struct Frame {
     pub sidebar: Option<Pane>,
     pub rail: Option<Pane>,
     pub drawer: Option<Pane>,
+    pub terminal: Option<Pane>,
     pub half: Option<Pane>,
     pub caps: Option<Pane>,
     pub lights: Option<Pane>,
@@ -145,6 +146,7 @@ impl Frame {
             sidebar: at_rest(s.sidebar),
             rail: at_rest(s.rail),
             drawer: at_rest(s.drawer),
+            terminal: at_rest(s.terminal),
             half: at_rest(s.half),
             caps: at_rest(s.caps),
             lights: at_rest(s.lights),
@@ -195,6 +197,7 @@ impl Frame {
             sidebar: pane(from.sidebar, to.sidebar, 0.0),
             rail: pane(from.rail, to.rail, 0.0),
             drawer: pane(from.drawer, to.drawer, DRAWER_SLIDE),
+            terminal: pane(from.terminal, to.terminal, DRAWER_SLIDE),
             half: pane(from.half, to.half, 0.0),
             caps: pane(from.caps, to.caps, 0.0),
             lights: pane(from.lights, to.lights, 0.0),
@@ -218,7 +221,7 @@ mod tests {
     const H: f32 = 702.0;
 
     fn shell(sidebar: bool, drawer: bool, split: bool) -> Shell {
-        solve(W, H, ShellState { sidebar_open: sidebar, drawer_open: drawer, split_open: split }, Platform::Windows)
+        solve(W, H, ShellState { sidebar_open: sidebar, drawer_open: drawer, split_open: split, terminal_open: false }, Platform::Windows)
     }
 
     fn close(a: Rect, b: Rect) -> bool {

@@ -147,7 +147,7 @@ fn status_line(i: usize, label: &'static str, grey: Rgb) -> impl IntoElement {
 }
 
 /// The settings a send carries: the saved prefs, nothing else wired yet.
-fn ctx() -> Ctx {
+pub(super) fn ctx() -> Ctx {
     Ctx { prefs: Prefs::load(), memory: None, agents: None, plan: false }
 }
 
@@ -183,6 +183,8 @@ impl Cauldron {
         self.thread = chats.thread(&id);
         self.steps.clear();
         fill_steps(chats, self.thread.as_ref(), &mut self.steps);
+        self.term_blocks = super::terminal::blocks(chats, self.thread.as_ref());
+        self.term_scroll.scroll_to_bottom();
         self.coordinator = Some(self.thread.as_ref().map_or_else(|| "Thread".into(), |t| t.title.clone().into()));
         self.agents.clear();
         self.idle.clear();
@@ -201,6 +203,7 @@ impl Cauldron {
             if let Some(id) = &self.open {
                 self.thread = chats.peek(id);
                 fill_steps(chats, self.thread.as_ref(), &mut self.steps);
+                self.term_blocks = super::terminal::blocks(chats, self.thread.as_ref());
             }
         }
     }

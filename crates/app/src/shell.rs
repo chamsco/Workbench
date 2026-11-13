@@ -23,6 +23,8 @@ use std::sync::Arc;
 mod motion;
 mod newthread;
 mod panes;
+mod settings;
+mod terminal;
 mod thread;
 #[cfg(all(feature = "shots", target_os = "macos"))]
 pub(crate) mod shots;
@@ -40,7 +42,7 @@ pub(crate) fn platform() -> Platform {
 pub(crate) use motion::os_reduces_motion;
 
 pub(crate) fn lights_origin() -> (f32, f32) {
-    let s = layout::layout(1240.0, 702.0, ShellState { sidebar_open: true, drawer_open: false, split_open: false }, Platform::Mac);
+    let s = layout::layout(1240.0, 702.0, ShellState { sidebar_open: true, drawer_open: false, split_open: false, terminal_open: false }, Platform::Mac);
     let l = s.lights.expect("mac layout has lights");
     (l.x, l.y)
 }
@@ -133,6 +135,18 @@ pub(crate) enum Threads {
 pub(crate) struct Cauldron {
     sidebar_open: bool,
     drawer: Option<Panel>,
+    /// Settings is open on this page (v3 frame 7): its pages take the sidebar's list, the page the card.
+    settings: Option<usize>,
+    /// Where Settings reads the subscriptions; None is core's `accounts.json` (tests use their own).
+    accounts_file: Option<std::path::PathBuf>,
+    /// The terminal card is open, in the drawer's place (v3 frame 5).
+    terminal: bool,
+    /// Its blocks: the open thread's commands, from core's traces.
+    term_blocks: Vec<terminal::Block>,
+    term_input: Option<(Entity<InputState>, Subscription)>,
+    /// What the input line answered last (no shell yet, or a send error).
+    term_note: Option<String>,
+    term_scroll: ScrollHandle,
     /// The thread card's panes (direction B): the shape and where its two lines sit.
     panes: Split,
     /// The layout button's morph: the shape it drew before, and since when.
@@ -247,6 +261,12 @@ impl Cauldron {
             if std::env::var("CAULDRON_DRAWER").as_deref() == Ok("folded") {
                 c.drawer_last = c.drawer.take();
             }
+            if std::env::var_os("CAULDRON_SETTINGS").is_some() {
+                c.settings = Some(0);
+            }
+            if std::env::var_os("CAULDRON_TERMINAL").is_some() {
+                c.terminal = true;
+            }
             if let Some(i) = std::env::var("CAULDRON_PANES").ok().and_then(|v| v.parse::<usize>().ok()) {
                 c.panes.shape = Shape::ALL[i % Shape::ALL.len()];
             }
@@ -264,7 +284,7 @@ impl Cauldron {
     }
 
     pub(crate) fn new() -> Self {
-        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: None, sidebar_open: true, drawer: Some(Panel::Highlights), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
+        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: None, sidebar_open: true, drawer: Some(Panel::Highlights), settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
     }
 
     /// Opens core off the main thread (the sidebar shows Loading meanwhile), then keeps the thread
@@ -676,6 +696,13 @@ impl Cauldron {
     }
 
     fn toggle_panel(&mut self, p: Panel) {
+        // With the terminal open the drawer is folded to its rail: a rail button brings it back.
+        if self.terminal {
+            self.terminal = false;
+            self.drawer = Some(p);
+            self.drawer_last = Some(p);
+            return;
+        }
         let was = self.drawer;
         self.drawer = if was == Some(p) { None } else { Some(p) };
         // Switching panels while one is open crossfades the body; closing keeps the last panel.
@@ -840,7 +867,7 @@ impl Render for Cauldron {
         let vs = window.viewport_size();
         let (w, h) = (f32::from(vs.width), f32::from(vs.height));
         let plat = platform();
-        let want = ShellState { sidebar_open: self.sidebar_open, drawer_open: self.drawer.is_some(), split_open: false };
+        let want = ShellState { sidebar_open: self.sidebar_open, drawer_open: self.drawer.is_some(), split_open: false, terminal_open: self.terminal };
         let now = std::time::Instant::now();
         let reduce = cx.reduce_motion();
         let (s, mut moving) = self.motion.frame(want, Frame::at_rest(&layout::solve(w, h, want, plat)), now, reduce);
@@ -911,6 +938,7 @@ impl Render for Cauldron {
         let accent = c(pal.accent);
 
         self.ensure_composer(window, cx);
+        self.ensure_term_input(window, cx);
         self.ensure_start(window, cx);
         let mut root = div()
             .id("cauldron")
@@ -1010,8 +1038,9 @@ impl Render for Cauldron {
                 .pr(px(SIDE_PR))
                 .overflow_hidden()
                 .child(fnrow)
-                .child(new_thread)
-                .child(
+                .when_live(self.settings.is_some(), |d| d.child(self.settings_nav(self.settings.unwrap_or(0), pal, cx).test_support()))
+                .when_live(self.settings.is_none(), |d| d.child(new_thread))
+                .when_live(self.settings.is_none(), |d| d.child(
                     div().child(
                         div()
                             .id("search")
@@ -1028,8 +1057,8 @@ impl Render for Cauldron {
                             .child(div().flex_1().min_w_0().child(Input::new(&search).appearance(false).text_size(px(13.)).p_0()))
                             .test_support(),
                     ),
-                )
-                .child(list)
+                ))
+                .when_live(self.settings.is_none(), |d| d.child(list))
                 .child(
                     div()
                         .h(px(37.))
@@ -1063,7 +1092,10 @@ impl Render for Cauldron {
                                 // Core has no usage per subscription yet: an empty state, no number.
                                 .child(div().id("usage-left").text_size(px(11.)).text_color(fg3).aria_label("No data yet").child("No data yet").test_support()),
                         )
-                        .child(self.tipped("settings", icon_button("settings", "settings", "Settings", pal, false), "Settings", Side::Right, pal, cx).test_support()),
+                        .child(self.tipped("settings", icon_button("settings", "settings", "Settings", pal, self.settings.is_some()), "Settings", Side::Right, pal, cx).on_click(cx.listener(|this, _, _, cx| {
+                            this.settings = if this.settings.is_some() { None } else { Some(0) };
+                            cx.notify();
+                        })).test_support()),
                 );
             root = root.child(card_el.test_support());
         }
@@ -1265,7 +1297,7 @@ impl Render for Cauldron {
         }
 
         // The card right under the bar; its 44px head names the thread (the board's `.ch`).
-        let head_title: SharedString = self.coordinator.clone().unwrap_or_else(|| NEW_TAB.into());
+        let head_title: SharedString = if self.settings.is_some() { "Settings".into() } else { self.coordinator.clone().unwrap_or_else(|| NEW_TAB.into()) };
         let mut head = div()
             .id("card-head")
             .h(px(44.))
@@ -1277,7 +1309,7 @@ impl Render for Cauldron {
             .pr(px(14.))
             .text_size(px(13.))
             .text_color(fg3);
-        if let Some(p) = self.thread.as_ref().and_then(|t| t.project.as_ref()) {
+        if let Some(p) = self.thread.as_ref().filter(|_| self.settings.is_none()).and_then(|t| t.project.as_ref()) {
             let folder = p.rsplit(['/', '\\']).find(|s| !s.is_empty()).unwrap_or(p).to_string();
             head = head.child(div().id("card-crumb").flex_none().aria_label(folder.clone()).child(format!("{folder} /")).test_support());
         }
@@ -1292,21 +1324,26 @@ impl Render for Cauldron {
                 .child(head_title)
                 .test_support(),
         );
-        head = head.child(div().flex_1()).child(self.layout_button(pal, now, reduce, cx).test_support());
+        if self.settings.is_none() {
+            head = head.child(div().flex_1()).child(self.layout_button(pal, now, reduce, cx).test_support());
+        }
         // A new thread keeps a 32px bar under its card, in the Shell's grey (Charles 13 Nov).
-        let new_screen = self.open.is_none() && self.active == 0;
+        let new_screen = self.open.is_none() && self.active == 0 && self.settings.is_none();
         let card_h = s.main.h - if new_screen { STAGE_H } else { 0.0 };
         // Split (direction B): under the head the card holds up to four panes on the Shell's grey;
         // a shape that no longer fits steps back, as the shell closes Split when the window narrows.
         let area = Rect::new(s.main.x, s.main.y + 44.0, s.main.w, card_h - 44.0);
-        let shape = cauldron_chrome::panes::effective(area, self.panes.shape);
+        let shape = if self.settings.is_some() { Shape::One } else { cauldron_chrome::panes::effective(area, self.panes.shape) };
         let split = shape != Shape::One;
         // The thread view drops what does not fit its pane, so it needs that pane's size first.
         let sp = Split { shape, ..self.panes };
         let at = self.pane_content.iter().position(|p| *p == panes::Content::Thread).unwrap_or(0).min(shape.count() - 1);
         let tb = cauldron_chrome::panes::rects(area, sp)[at];
         self.thread_box.set(if split { (tb.w, tb.h - 32.0) } else { (tb.w, tb.h) });
-        let body = self.card_body(pal, window, cx);
+        let body = match self.settings {
+            Some(page) => self.settings_page(page, pal, cx),
+            None => self.card_body(pal, window, cx),
+        };
         let inside = if split { self.pane_stage(pal, area, shape, body, window, cx).into_any_element() } else { body };
         let card_el = div()
             .id("card")
@@ -1419,6 +1456,11 @@ impl Render for Cauldron {
             root = root.child(d.test_support());
         }
 
+        // ---- terminal card, in the drawer's place
+        if let Some(tp) = s.terminal {
+            root = root.child(self.terminal_card(pal, tp.rect, tp.alpha, cx).test_support());
+        }
+
         // ---- right rail, only while the drawer is folded
         if let Some(rp) = s.rrail {
         let mut rr = pane("rrail", rp.rect).opacity(rp.alpha).flex().flex_col().items_center().gap(px(4.)).pt(px(4.));
@@ -1484,7 +1526,11 @@ impl Render for Cauldron {
                 .flex()
                 .items_center()
                 .gap(px(2.))
-                .child(self.tipped("top-term", icon_button("top-term", "terminal", "Terminal", pal, false), "Terminal", Side::Below, pal, cx).occlude().test_support())
+                .child(self.tipped("top-term", icon_button("top-term", "terminal", "Terminal", pal, self.terminal), "Terminal", Side::Below, pal, cx).occlude().on_click(cx.listener(|this, _, _, cx| {
+                    this.terminal = !this.terminal;
+                    this.term_scroll.scroll_to_bottom();
+                    cx.notify();
+                })).test_support())
                 .child(
                     self.tipped("top-split", icon_button("top-split", "columns-2", "Split", pal, self.panes.shape != Shape::One), "Split", Side::Below, pal, cx).occlude().on_click(cx.listener(|this, _, _, cx| {
                         // Split opens two side by side, or goes back to one pane.
@@ -1577,7 +1623,7 @@ mod tests {
     fn panes_match_the_layout_solver_in_every_state(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         for bits in 0..4u8 {
-            let state = ShellState { sidebar_open: bits & 1 != 0, drawer_open: bits & 2 != 0, split_open: false };
+            let state = ShellState { sidebar_open: bits & 1 != 0, drawer_open: bits & 2 != 0, split_open: false, terminal_open: false };
             cx.update(|cx| cx.set_reduce_motion(true));
             let handle = cx.add_window(move |_, _| Cauldron {
                 sidebar_open: state.sidebar_open,
@@ -1746,7 +1792,7 @@ mod tests {
         let handle = open(cx, Cauldron::new());
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
-            let s = layout::solve(W, H, ShellState { sidebar_open: true, drawer_open: true, split_open: false }, platform());
+            let s = layout::solve(W, H, ShellState { sidebar_open: true, drawer_open: true, split_open: false, terminal_open: false }, platform());
             assert!(window.try_find("tabs").is_none() && window.try_find(("tab", 0usize)).is_none(), "no tab before the thread exists");
             assert!(window.try_find("tab-add").is_none(), "no +");
             let card = rect(window, "card");
@@ -1786,7 +1832,7 @@ mod tests {
         let handle = open(cx, with_agents(3, &[]));
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
-            let s = layout::solve(W, H, ShellState { sidebar_open: true, drawer_open: true, split_open: false }, platform());
+            let s = layout::solve(W, H, ShellState { sidebar_open: true, drawer_open: true, split_open: false, terminal_open: false }, platform());
             let row = rect(window, "tabs");
             assert_eq!((row.x, row.y, row.w, row.h), (s.tabs.x, s.tabs.y, s.tabs.w, s.tabs.h), "tab row");
             assert!(row.bottom() <= s.bar.bottom(), "in the bar");

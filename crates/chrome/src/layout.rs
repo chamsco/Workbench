@@ -40,6 +40,8 @@ pub struct ShellState {
     pub sidebar_open: bool,
     pub drawer_open: bool,
     pub split_open: bool,
+    /// The terminal card in the right gutter, in the drawer's place.
+    pub terminal_open: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -58,6 +60,8 @@ pub struct Shell {
     pub tabs: Rect,
     pub half: Option<Rect>,
     pub drawer: Option<Rect>,
+    /// The terminal card (v3 frame 5): in the right gutter, the drawer folded to its rail beside it.
+    pub terminal: Option<Rect>,
     /// The 44px panel rail, shown only while the drawer is folded (the open drawer carries the
     /// panels as a strip on top).
     pub rrail: Option<Rect>,
@@ -80,6 +84,8 @@ pub mod metric {
     /// The drawer in the right gutter: as wide as the sidebar (v3 board, Charles 13 Nov).
     pub const DRAWER_W: f32 = SIDEBAR_W;
     pub const SPLIT_W: f32 = 292.0;
+    /// The terminal card, the v3 board's `.term`.
+    pub const TERM_W: f32 = 430.0;
     /// The top bar, full width: the board's 44, the height of the card's head, so the two lines
     /// match. The card and the side panes start right under it.
     pub const BAR_H: f32 = 44.0;
@@ -119,12 +125,17 @@ pub fn layout(w: f32, h: f32, state: ShellState, platform: Platform) -> Shell {
     // right gutter holds the open drawer, or the rail while it is folded.
     let shell = Rect::new(main_x, top, inner.right() - MARGIN_SIDE - main_x, height);
     let (in_top, in_h, right) = (top + PAD, height - 2.0 * PAD, shell.right() - PAD);
-    let (drawer, rrail) = if state.drawer_open {
+    let (drawer, rrail) = if state.drawer_open && !state.terminal_open {
         (Some(Rect::new(right - DRAWER_W, in_top, DRAWER_W, in_h)), None)
     } else {
         (None, Some(Rect::new(right - RRAIL_W, in_top, RRAIL_W, in_h)))
     };
     let mut main_right = drawer.or(rrail).map_or(right, |r| r.x) - PAD;
+    let terminal = state.terminal_open.then(|| {
+        let t = Rect::new(main_right - TERM_W, in_top, TERM_W, in_h);
+        main_right = t.x - PAD;
+        t
+    });
     let half = state.split_open.then(|| {
         let hf = Rect::new(main_right - SPLIT_W, in_top, SPLIT_W, in_h);
         main_right = hf.x - PAD;
@@ -147,15 +158,17 @@ pub fn layout(w: f32, h: f32, state: ShellState, platform: Platform) -> Shell {
     let tabs_x = main.x.max(sidebar_button.right() + GAP + TITLE_W);
     let tabs = Rect::new(tabs_x, inner.y + (BAR_H - TAB_H) / 2.0, (topr.x - GAP - tabs_x).max(0.0), TAB_H);
 
-    Shell { effective: state, rail, sidebar, bar, shell, main, tabs, half, drawer, rrail, sidebar_button, lights, topr, caps }
+    Shell { effective: state, rail, sidebar, bar, shell, main, tabs, half, drawer, terminal, rrail, sidebar_button, lights, topr, caps }
 }
 
 /// The state that actually fits: the thread column keeps [`metric::MAIN_MIN_W`], so Split closes
-/// first, then the drawer. The sidebar is the user's choice and stays.
+/// first, then the terminal, then the drawer. The sidebar is the user's choice and stays.
 pub fn resolve(w: f32, h: f32, mut state: ShellState, platform: Platform) -> ShellState {
     while layout(w, h, state, platform).main.w < metric::MAIN_MIN_W {
         if state.split_open {
             state.split_open = false;
+        } else if state.terminal_open {
+            state.terminal_open = false;
         } else if state.drawer_open {
             state.drawer_open = false;
         } else {

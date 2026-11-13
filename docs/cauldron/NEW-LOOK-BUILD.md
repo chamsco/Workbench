@@ -67,7 +67,7 @@ Not verified:
 
 - `CAULDRON_THEME=light|dark` (debug builds) forces the theme.
 - `CAULDRON_SIZE=1200x720` (debug builds) sets the window's starting size.
-- `CAULDRON_OPEN=<thread id>`, `CAULDRON_DRAWER=folded` and `CAULDRON_PANES=<0-5>` (a shape from `Shape::ALL`) (debug builds) start the live window in a given state, for real captures.
+- `CAULDRON_OPEN=<thread id>`, `CAULDRON_DRAWER=folded`, `CAULDRON_PANES=<0-5>` (a shape from `Shape::ALL`), `CAULDRON_TERMINAL=1` and `CAULDRON_SETTINGS=1` (debug builds) start the live window in a given state, for real captures.
 - `cargo run -p backspace --features shots` with `CAULDRON_SHOTS=<dir> BACKSPACE_DATA=<sample data>` renders New thread, a thread, the drawer folded, and agent tabs in dark and light to PNG, then exits (`crates/app/src/shell/shots.rs`, macOS only). It runs on the main thread because AppKit requires it, so it cannot be a test.
 
 ## Note for Charles
@@ -114,6 +114,42 @@ Shots (real window captures, 1200x720 at 1x, a thread open, drawer open), in `do
 - Not captured: the morph, a header drag in progress, and a line drag in the live window. The tests cover the drags.
 
 Disk: the Mac's startup volume ran out of space during this build (258 MB free; the link failed with "No space left on device"). I deleted only this worktree's incremental build cache and its old test binaries, which freed about 1.2 GB. This worktree's `target/` is still about 5 GB. Charles may want to free space; `cargo clean` in `~/Documents/code/Workbench-newlook` frees all of it.
+
+## Finish: terminal card, Settings, thread view (13 Nov, 06:19Z)
+
+Charles, 06:19Z: "lets finish it". The coordinator listed the order: the terminal card, Settings, the thread view, captures, then this report.
+
+**Terminal card** (v3 frame 5):
+- **Opening it:** the Terminal button in the top bar opens a second card beside the thread, in the grey Shell's right gutter, 430 wide. It takes the drawer's place, and the drawer folds to its rail. A rail button, or the card's ×, closes the terminal and brings the drawer back. The layout solver has it (`ShellState::terminal_open`, `Shell::terminal`). If the thread would drop under 360px, the terminal closes, after Split and before the drawer.
+- **Blocks from core's traces:** every `Bash` tool span in the open thread's replies is one block. A block has a meta line (the model that answered, the start time, the duration, and "ok", "failed" or "no exit recorded"), then `$ command`, then the output. A failed block has the bad colour on its left edge. Core records that a command failed, not its exit code, so the meta line says "failed" rather than a number. Empty states: "No thread open" and "No commands yet".
+- **Input line:** "Type a command, or # to ask the agent". A line that starts with `#` is sent to the thread's agent through core, as the composer sends it. Anything else is not run, and the line says why: core has no shell for this terminal yet. Nothing is made up.
+- The drawer has no Terminal entry (its panels are Highlights, Usage, Koi preview, Code review and Patches), so the top-bar button is the only way in. The Terminal surface in a split pane is still a placeholder.
+
+**Settings** (v3 frame 7):
+- **Layout:** the gear in the user row opens Settings. Its pages replace the sidebar's thread list, under a back row: Agents and subscriptions, General, Appearance, Machines and Shortcuts. The page itself takes the card, whose head reads "Settings". The back row, or the gear again, returns to the threads.
+- **Agents and subscriptions:**
+  - Subscriptions: one row per account in core's `accounts.json` (name, then provider and who it is signed in as). The usage meter appears only when the CLI reported used and limit; otherwise "No data yet". With no accounts it says so.
+  - Agents: Orchestrator and Executor (from the prefs, shown as values). Effort cycles Auto, low, medium, high and max, and saves, as the composer's chip does. "When a subscription hits its limit" cycles Ask me, Switch and resume, and Off, saved to `accounts.json`.
+- **Other pages:** "<Page> settings arrive in a later milestone."
+
+**Thread view:** the narrow- and short-pane rules from f8149e9 are kept. Beside the terminal, the thread is 432 wide at 1200x720 and reads normally (`nl6-terminal-*`).
+
+**Tests:**
+- Layout: `docs/cauldron/NL6-terminal-red.txt` (the terminal did not exist in the solver), `NL6-terminal-green.txt` (all chrome suites pass, with the new `the_terminal_takes_the_drawers_place`).
+- App: `docs/cauldron/NL6-app-green.txt`, 49 of 49. Four tests are new:
+  - The meta line's wording.
+  - The Terminal button opens the card, folds the drawer, shows the thread's command from its trace, and closing brings the drawer back. A typed command is not run.
+  - Settings replaces the list, puts its page in the card, switches pages and goes back.
+  - A subscription with no usage says "No data yet".
+- The Settings tests read and write their own temporary `accounts.json`, never the user's.
+
+**Captures** (real window captures, 1200x720 at 1x, on the scratch sample data):
+- `nl6-terminal-dark.png` and `nl6-terminal-light.png`: the thread beside the terminal, four blocks, one failed.
+- `nl6-settings-dark.png` and `nl6-settings-light.png`: Agents and subscriptions, with two sample accounts and no usage.
+- The sample trace and the two accounts were written for the shots. They are not anyone's real commands or logins.
+- **Hover: not captured.** Pointer moves posted with CGEvent do not reach the app; posting events needs Accessibility permission for the Claude Code process, and it does not have it.
+
+Not verified: typing in the live terminal or clicking through Settings in the live window (the tests cover both); the drawer-to-terminal animation; narrow windows.
 
 ## Not done (as asked)
 
