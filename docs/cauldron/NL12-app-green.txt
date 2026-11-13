@@ -30,19 +30,19 @@ warning: constant `SANS_MONO` is never used
    |                  ^^^^^^^^^
 
 warning: `backspace` (bin "backspace" test) generated 2 warnings
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.68s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.99s
 warning: the following packages contain code that will be rejected by a future version of Rust: block v0.1.6
 note: to see what the problems were, use the option `--future-incompat-report`, or run `cargo report future-incompatibilities --id 1`
      Running unittests src/main.rs (target/debug/deps/backspace-a66c1ac568f531d8)
 
-running 66 tests
-test motion::tests::a_slide_starts_at_from_ends_at_to_and_eases_between ... ok
+running 67 tests
 test shell::appearance::tests::the_theme_cycles_system_light_dark ... ok
-test motion::tests::the_first_render_is_at_rest_and_asks_for_no_frame ... ok
-test motion::tests::a_change_starts_at_the_frame_drawn_and_ends_at_the_new_rest ... ok
-test motion::tests::a_resize_moves_the_target_without_restarting_the_run ... ok
-test motion::tests::an_interrupted_run_continues_from_the_drawn_frame ... ok
 test motion::tests::reduced_motion_is_quick_and_moves_nothing ... ok
+test motion::tests::an_interrupted_run_continues_from_the_drawn_frame ... ok
+test motion::tests::the_first_render_is_at_rest_and_asks_for_no_frame ... ok
+test motion::tests::a_resize_moves_the_target_without_restarting_the_run ... ok
+test motion::tests::a_change_starts_at_the_frame_drawn_and_ends_at_the_new_rest ... ok
+test motion::tests::a_slide_starts_at_from_ends_at_to_and_eases_between ... ok
 test shell::appearance::tests::old_tauri_values_map_only_where_they_map_cleanly ... ok
 test shell::appearance::tests::a_file_core_cannot_parse_keeps_its_look ... ok
 test shell::appearance::tests::a_missing_or_unreadable_file_gives_the_defaults ... ok
@@ -52,56 +52,57 @@ test shell::backdrop::tests::the_painting_dissolves_toward_the_foot ... ok
 test shell::backdrop::tests::the_painting_is_made_once_per_size ... ok
 test shell::backdrop::tests::resizing_back_gives_the_same_painting_and_nothing_stale_is_kept ... ok
 test shell::newthread::tests::the_new_thread_screen_is_the_boards_centred_box ... ok
-test shell::backdrop::tests::the_painting_is_behind_every_screen ... ok
-test shell::newthread::tests::an_unreadable_file_leaves_no_thread_behind ... ok
 test shell::newthread::tests::start_waits_for_a_subscription ... ok
-test shell::newthread::tests::the_folder_chip_picks_where_the_stream_runs ... ok
 test shell::newthread::tests::start_creates_sends_and_opens_the_thread ... ok
+test shell::backdrop::tests::the_painting_is_behind_every_screen ... ok
+test shell::newthread::tests::the_folder_chip_picks_where_the_stream_runs ... ok
+test shell::newthread::tests::an_unreadable_file_leaves_no_thread_behind ... ok
 test shell::newthread::tests::start_on_a_connected_machine_sends_a_task ... ok
 test shell::pages::tests::the_switch_replaces_the_main_content ... ok
 test shell::panes::tests::a_new_pane_offers_the_surfaces ... ok
 test shell::newthread::tests::start_waits_while_core_opens_and_says_when_it_failed ... ok
-test shell::panes::tests::panes_are_4px_apart_and_close_steps_back ... ok
-test shell::terminal::tests::the_meta_line_says_who_and_how_it_ended ... ok
 test shell::panes::tests::a_pane_drags_onto_another_to_swap ... ok
-test shell::ptabs::tests::split_panes_carry_their_own_tabs ... ok
+test shell::terminal::tests::the_meta_line_says_who_and_how_it_ended ... ok
+test shell::panes::tests::panes_are_4px_apart_and_close_steps_back ... ok
 test shell::ptabs::tests::the_tabs_sit_in_the_pane_header ... ok
 test shell::panes::tests::the_layout_button_steps_through_six_shapes ... ok
+test shell::ptabs::tests::split_panes_carry_their_own_tabs ... ok
 test shell::ptabs::tests::windows_puts_the_tabs_above_the_pane ... ok
-test shell::panes::tests::the_lines_drag_the_split ... ok
 test shell::settings::tests::a_subscription_without_usage_says_no_data_yet ... ok
+test shell::panes::tests::the_lines_drag_the_split ... ok
 test shell::settings::tests::settings_has_no_plugins ... ok
 test shell::backdrop::tests::text_on_every_surface_holds_4_5_to_1 ... ok
-test shell::tests::folders_fold_and_keep_a_dot_for_needs_you ... ok
-test shell::tests::icon_buttons_have_names_and_tooltips ... ok
 test shell::settings::tests::settings_swaps_the_sidebar_list_and_fills_the_card ... ok
 test shell::terminal::tests::the_terminal_shows_the_threads_commands ... ok
-test shell::tests::needs_you_and_usage_are_empty_states ... ok
+test shell::tests::folders_fold_and_keep_a_dot_for_needs_you ... ok
 test shell::tests::new_thread_screen_has_no_tabs_and_a_card_head ... ok
+test shell::tests::needs_you_and_usage_are_empty_states ... ok
+test shell::tests::icon_buttons_have_names_and_tooltips ... ok
 test shell::tests::plus_opens_a_one_to_one ... ok
 test shell::tests::search_filters_and_arrows_move_the_selection ... ok
 test shell::thread::tests::lines_carry_who_answered_and_the_cost ... ok
 test shell::thread::tests::steps_group_a_replys_tool_calls ... ok
 test shell::tests::sidebar_is_needs_you_then_folders ... ok
+test shell::tests::the_rail_stands_beside_the_drawer_and_switches_it ... ok
 test shell::tests::thread_rows_are_the_boards ... ok
-test shell::tests::thread_tabs_sit_in_the_card_head ... ok
 test threads::tests::age_reads_minutes_hours_days_weeks ... ok
 test threads::tests::each_thread_lands_in_one_group_by_precedence ... ok
 test threads::tests::meta_is_the_project_folder_else_no_repo ... ok
+test threads::tests::no_needs_you_heading_without_a_waiting_stream ... ok
 test threads::tests::search_matches_title_preview_or_folder_ignoring_case ... ok
 test threads::tests::streams_group_by_folder_in_list_order_with_no_folder_last ... ok
 test threads::tests::the_sidebar_is_needs_you_then_folders ... ok
-test shell::tests::the_rail_stands_beside_the_drawer_and_switches_it ... ok
-test shell::thread::tests::a_row_opens_its_thread ... ok
+test shell::tests::thread_tabs_sit_in_the_card_head ... ok
 test shell::tests::the_folded_rail_stacks_usage_apps_folders_and_the_foot ... ok
+test shell::thread::tests::a_row_opens_its_thread ... ok
 test shell::thread::tests::a_running_reply_shows_a_status_line ... ok
 test shell::thread::tests::the_composer_sends_through_core ... ok
-test shell::tests::tabs_carry_no_agent_figures ... ok
 test shell::thread::tests::the_effort_chip_cycles_and_saves ... ok
+test shell::tests::tabs_carry_no_agent_figures ... ok
 test shell::thread::tests::the_thread_fits_the_smallest_pane ... ok
 test shell::tests::sidebar_draws_loading_empty_no_match_and_error ... ok
 test shell::tests::panes_match_the_layout_solver_in_every_state ... ok
 test shell::backdrop::tests::every_theme_painting_and_view_renders ... ok
 
-test result: ok. 66 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 38.77s
+test result: ok. 67 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 41.75s
 

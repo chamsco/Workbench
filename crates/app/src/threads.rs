@@ -93,8 +93,12 @@ pub(crate) fn sidebar<'a>(list: &'a [ThreadInfo], query: &str, toggles: &std::co
         return by_folder(list, query).into_iter().flat_map(|(_, ts)| ts).map(|t| Item::Row { t, chip: chip(t) }).collect();
     }
     let needs: Vec<&ThreadInfo> = list.iter().filter(|t| needs_you(t)).collect();
-    let mut out = vec![Item::Needs(needs.len())];
-    out.extend(needs.iter().map(|t| Item::Row { t, chip: chip(t) }));
+    // Needs you only when something does: an empty heading reads as a missing list.
+    let mut out = Vec::new();
+    if !needs.is_empty() {
+        out.push(Item::Needs(needs.len()));
+        out.extend(needs.iter().map(|t| Item::Row { t, chip: chip(t) }));
+    }
     out.push(Item::Folders);
     for (name, ts) in by_folder(list, "") {
         let waiting = ts.iter().any(|t| needs_you(t));
@@ -253,6 +257,18 @@ mod tests {
         assert_eq!(names(&sidebar(&v, "ocean", &toggles, None)), ["c Ocean", "d Ocean"], "a search lists its hits flat, each with its folder");
         toggles.clear();
         assert!(names(&sidebar(&v, "", &toggles, Some("e"))).contains(&"Unfiled 1 open -".to_string()), "a folder opens over the selected stream");
+    }
+
+    /// With nothing waiting, there is no Needs you heading: the list starts at Folders.
+    #[test]
+    fn no_needs_you_heading_without_a_waiting_stream() {
+        let mut v: Vec<_> = ["a", "b"].iter().map(|id| sample(id, id)).collect();
+        v[0].project = Some("/code/Cauldron".into());
+        let items = sidebar(&v, "", &HashMap::new(), None);
+        assert!(matches!(items.first(), Some(Item::Folders)), "Folders first");
+        assert!(!items.iter().any(|i| matches!(i, Item::Needs(_))));
+        v[1].unread = true;
+        assert!(matches!(sidebar(&v, "", &HashMap::new(), None).first(), Some(Item::Needs(1))), "and back when one waits");
     }
 
     #[test]
