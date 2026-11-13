@@ -77,6 +77,16 @@ impl Cauldron {
         }
     }
 
+    /// Agents' own drawer (the pages board): Context, Traces, Routines and Settings. A mockup.
+    pub(super) fn agents_drawer(&self, pal: &'static Palette) -> Stateful<Div> {
+        let mut d = div().id("agents-drawer").absolute().left(px(10.)).right(px(10.)).top(px(8.)).flex().flex_col().gap(px(10.));
+        d = d.child(div().flex().items_center().gap(px(6.)).child(div().font_weight(FontWeight::SEMIBOLD).child("Agent")).child(div().px(px(5.)).rounded(px(radius::TAG)).bg(c(pal.accent_soft)).text_size(px(10.)).text_color(c(pal.accent)).child("Mockup")));
+        for (title, help) in [("Context", "What the agent knows about this work."), ("Traces", "Its recent runs, step by step."), ("Routines", "What it runs on a schedule."), ("Settings", "Its model, computer and rules.")] {
+            d = d.child(div().flex().flex_col().gap(px(2.)).child(div().text_size(px(12.)).font_weight(FontWeight::MEDIUM).text_color(c(pal.fg2)).child(title)).child(div().text_size(px(11.)).text_color(c(pal.fg3)).child(help)));
+        }
+        d
+    }
+
     /// Agents' or Memory's page in the card: a labelled mockup of what it will hold.
     pub(super) fn page_body(&self, pal: &'static Palette) -> AnyElement {
         let (fg, fg2, fg3) = (c(pal.fg), c(pal.fg2), c(pal.fg3));

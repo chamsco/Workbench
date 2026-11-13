@@ -168,13 +168,16 @@ fn the_drawer_takes_the_right_rails_place() {
     for platform in [Platform::Mac, Platform::Windows] {
         let open = solve(1200.0, 720.0, ShellState { sidebar_open: true, drawer_open: true, split_open: false, terminal_open: false, plugins: true }, platform);
         let d = open.drawer.expect("drawer open");
-        assert!(open.rrail.is_none(), "{platform:?}: no right rail beside an open drawer");
+        // The rail stays, vertical, with the drawer beside it (Charles, 13 Nov 07:34Z).
+        let rail = open.rrail.expect("the rail beside the open drawer");
         let sh = open.shell;
         // Flush against the sidebar (Charles, 13 Nov 07:34Z: no gap where the content meets it).
         assert_eq!((sh.x, sh.right()), (open.sidebar.unwrap().right(), 1200.0 - 1.0 - 12.0), "{platform:?}: the Shell from the sidebar's edge to the side margin");
         let shut = solve(1200.0, 720.0, ShellState { sidebar_open: false, ..ShellState { sidebar_open: true, drawer_open: true, split_open: false, terminal_open: false, plugins: true } }, platform);
         assert_eq!(shut.shell.x, shut.rail.unwrap().right(), "{platform:?}: flush against the folded rail too");
-        assert_eq!((d.right(), d.w), (sh.right() - 6.0, 236.0), "{platform:?}: the drawer 6px inside the Shell's right edge, sidebar-wide");
+        assert_eq!((rail.right(), rail.w), (sh.right() - 6.0, 44.0), "{platform:?}: the rail at the Shell's right edge");
+        assert_eq!((d.right() + 6.0, d.w), (rail.x, 236.0), "{platform:?}: the drawer left of the rail, sidebar-wide");
+        assert_eq!((rail.y, rail.bottom()), (d.y, d.bottom()), "{platform:?}: as tall as the drawer");
         assert_eq!((d.y, d.bottom()), (open.main.y, open.main.bottom()), "{platform:?}: as tall as the card");
         assert_eq!(open.main.right() + 6.0, d.x, "{platform:?}: 6px from the card");
         let shut = solve(1200.0, 720.0, ShellState { sidebar_open: true, drawer_open: false, split_open: false, terminal_open: false, plugins: true }, platform);
@@ -191,7 +194,8 @@ fn main_keeps_a_minimum_width_by_closing_split_then_drawer() {
     let all = ShellState { sidebar_open: true, drawer_open: true, split_open: true, terminal_open: false, plugins: true };
     let s = solve(1240.0, 702.0, all, Platform::Reference);
     assert_eq!(s.effective, all, "nothing closes at the reviewed size");
-    let s = solve(900.0, 600.0, all, Platform::Reference);
+    // 1000 wide: room for the drawer beside the standing rail, not for Split too.
+    let s = solve(1000.0, 600.0, all, Platform::Reference);
     assert!(s.main.w >= 360.0, "main {}", s.main.w);
     assert!(!s.effective.split_open && s.effective.drawer_open, "split closes before the drawer: {:?}", s.effective);
     let s = solve(700.0, 600.0, all, Platform::Reference);

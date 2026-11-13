@@ -251,14 +251,14 @@ mod tests {
         let (fa, fb) = (Frame::at_rest(&a), Frame::at_rest(&b));
         let f0 = Frame::between(&fa, &fb, 0.0, false);
         assert!(close(f0.main, a.main), "main starts where it was");
-        assert!(close(f0.rrail.expect("the rail fades out").rect, a.rrail.unwrap()));
+        assert!(close(f0.rrail.expect("the rail stands").rect, a.rrail.unwrap()));
         assert_eq!(f0.drawer, None, "a drawer that is opening is not drawn at its first frame");
         let f1 = Frame::between(&fa, &fb, 1.0, false);
         assert!(close(f1.main, b.main), "main ends where the new shell says");
         let d = f1.drawer.expect("drawer is drawn at the end");
         assert!(close(d.rect, b.drawer.unwrap()));
         assert_eq!(d.alpha, 1.0);
-        assert_eq!(f1.rrail, None, "the rail is gone once the drawer is open");
+        assert!(close(f1.rrail.expect("the rail stays beside the open drawer").rect, b.rrail.unwrap()));
     }
 
     #[test]

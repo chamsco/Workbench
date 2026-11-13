@@ -134,8 +134,6 @@ const NEW_TAB: &str = "New stream";
 pub(super) const HEAD_H: f32 = 40.0;
 
 const TOP_PANELS: [Panel; 4] = [Panel::Highlights, Panel::Usage, Panel::Koi, Panel::Review];
-/// The drawer's strip: the rail's panels in order, Patches last.
-const ALL_PANELS: [Panel; 5] = [Panel::Highlights, Panel::Usage, Panel::Koi, Panel::Review, Panel::Patches];
 
 /// The sidebar's threads from core: still opening, opened, or core failed to open.
 pub(crate) enum Threads {
@@ -897,6 +895,7 @@ fn icon_button_in(id: impl Into<ElementId>, name: &str, label: &'static str, pal
         .justify_center()
         .rounded(px(radius::CONTROL))
         .cursor_pointer()
+        .aria_selected(on)
         .bg(if fill { sel } else { gpui_kit::transparent_black() })
         .hover(move |d| d.bg(if fill { sel } else { hover }))
         .child(glyph(name, 16., if on { c(pal.fg) } else { c(pal.fg2) }))
@@ -1444,56 +1443,19 @@ impl Render for Cauldron {
                     .child(div().font_weight(FontWeight::SEMIBOLD).child(p.title()))
                     .child(div().text_size(px(12.)).text_color(fg3).child(format!("This panel arrives in {}.", p.milestone())))
             };
-            // The panels as a strip on top (the v3 board's `.dtabs`): the open one selected, its
-            // button folds the drawer back to the rail.
-            let mut strip = div().id("drawer-strip").flex().gap(px(4.)).pb(px(8.)).border_b_1().border_color(c(pal.line));
-            strip = strip.child(
-                self.tipped("strip-drawer", icon_button("strip-drawer", "panel-right", "Hide the drawer", pal, true), "Hide the drawer", Side::Below, pal, cx)
-                    .flex_none()
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.toggle_drawer();
-                        cx.notify();
-                    }))
-                    .test_support(),
-            );
-            for (i, q) in ALL_PANELS.iter().enumerate() {
-                let q = *q;
-                let on = self.drawer == Some(q);
-                strip = strip.child(
-                    self.tipped(
-                        ("dt", i),
-                        div()
-                            .id(("dt", i))
-                            .flex_1()
-                            .h(px(28.))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .rounded(px(radius::INNER))
-                            .when_live(on, |d| d.bg(c(pal.selected)))
-                            .when_live(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
-                            .cursor_pointer()
-                            .aria_selected(on)
-                            .aria_label(q.title())
-                            .child(glyph(q.icon(), 16., if on { fg } else { fg3 })),
-                        q.title(),
-                        Side::Below,
-                        pal,
-                        cx,
-                    )
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.toggle_panel(q);
-                        cx.notify();
-                    }))
-                    .test_support(),
-                );
+            // The panels are switched from the rail beside the drawer (Charles, 13 Nov 07:34Z: icons
+            // stacked, never in a row). Both bodies share one box, so the outgoing one cross-fades.
+            // On Agents the drawer is Agents' own (a mockup until the page is designed).
+            let mut bodies = div().relative().flex_1().min_h_0();
+            if self.page == pages::AppPage::Agents {
+                bodies = bodies.child(self.agents_drawer(pal));
+            } else {
+                bodies = bodies.child(body(p, swap.map_or(1.0, |(_, k)| k)));
+                if let Some((a, k)) = swap {
+                    bodies = bodies.child(body(a, 1.0 - k));
+                }
             }
-            // Both bodies share one box under the strip, so the outgoing one cross-fades in place.
-            let mut bodies = div().relative().flex_1().min_h_0().child(body(p, swap.map_or(1.0, |(_, k)| k)));
-            if let Some((a, k)) = swap {
-                bodies = bodies.child(body(a, 1.0 - k));
-            }
-            let d = pane("drawer", dp.rect).opacity(dp.alpha).flex().flex_col().child(strip.test_support()).child(bodies);
+            let d = pane("drawer", dp.rect).opacity(dp.alpha).flex().flex_col().child(bodies);
             root = root.child(d.test_support());
         }
 
@@ -1502,13 +1464,13 @@ impl Render for Cauldron {
             root = root.child(self.terminal_card(pal, tp.rect, tp.alpha, cx).test_support());
         }
 
-        // ---- right rail, only while the drawer is folded
+        // ---- right rail: always standing, the drawer (when open) beside it
         if let Some(rp) = s.rrail {
         let mut rr = pane("rrail", rp.rect).opacity(rp.alpha).flex().flex_col().items_center().gap(px(4.)).pt(px(4.));
         // The drawer's button on top (Charles, 13 Nov 06:52Z), a hairline, then the panels.
         rr = rr
             .child(
-                self.tipped("rail-drawer", icon_button("rail-drawer", "panel-right", "Show the drawer", pal, false), "Show the drawer", Side::Left, pal, cx)
+                self.tipped("rail-drawer", icon_button("rail-drawer", "panel-right", if self.drawer.is_some() && !self.terminal { "Hide the drawer" } else { "Show the drawer" }, pal, self.drawer.is_some() && !self.terminal), if self.drawer.is_some() && !self.terminal { "Hide the drawer" } else { "Show the drawer" }, Side::Left, pal, cx)
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.toggle_drawer();
                         cx.notify();
@@ -1519,7 +1481,7 @@ impl Render for Cauldron {
         for (i, p) in TOP_PANELS.iter().enumerate() {
             let p = *p;
             rr = rr.child(
-                self.tipped(("rb", i), icon_button(("rb", i), p.icon(), p.title(), pal, self.drawer == Some(p)), p.title(), Side::Left, pal, cx)
+                self.tipped(("rb", i), icon_button(("rb", i), p.icon(), p.title(), pal, self.drawer == Some(p) && !self.terminal), p.title(), Side::Left, pal, cx)
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.toggle_panel(p);
                         cx.notify();
@@ -1528,7 +1490,7 @@ impl Render for Cauldron {
             );
         }
         rr = rr.child(div().flex_1()).child(
-            self.tipped("rb-patches", icon_button("rb-patches", Panel::Patches.icon(), Panel::Patches.title(), pal, self.drawer == Some(Panel::Patches)), Panel::Patches.title(), Side::Left, pal, cx)
+            self.tipped("rb-patches", icon_button("rb-patches", Panel::Patches.icon(), Panel::Patches.title(), pal, self.drawer == Some(Panel::Patches) && !self.terminal), Panel::Patches.title(), Side::Left, pal, cx)
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.toggle_panel(Panel::Patches);
                     cx.notify();
@@ -1618,7 +1580,7 @@ mod tests {
     use cauldron_chrome::layout::{self, Rect, ShellState};
     use cauldron_chrome::motion::Frame;
     use gpui_kit::test::TestWindowExt;
-    use gpui_kit::{px, size, AppContext, ElementId, TestAppContext, Window};
+    use gpui_kit::{point, px, size, AppContext, ElementId, TestAppContext, Window};
 
     pub(super) const W: f32 = 1240.0;
     pub(super) const H: f32 = 702.0;
@@ -1666,45 +1628,48 @@ mod tests {
         }
     }
 
-    /// The open drawer carries its panels as a strip on top (the v3 board's `.dtabs`): one 28px
-    /// button per panel sharing the width, the open one selected. Its button folds the drawer back to
-    /// the rail; a rail button opens it again on that panel.
+    /// The rail stands beside the open drawer (Charles, 13 Nov 07:34Z: its icons stacked, never in
+    /// a row): its top button folds or opens the drawer, a panel's button switches to that panel,
+    /// the open one lit, and the open one's button folds it.
     #[gpui_kit::test]
-    fn the_drawer_switches_panels_from_its_own_strip(cx: &mut TestAppContext) {
+    fn the_rail_stands_beside_the_drawer_and_switches_it(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         cx.update(|cx| cx.set_reduce_motion(true));
         let handle = cx.add_window(|_, _| Cauldron::new());
         cx.simulate_window_resize(handle.into(), size(px(W), px(H)));
-        cx.update_window(handle.into(), |_, window, cx| {
-            window.render_frame(cx);
-            let d = rect(window, "drawer");
-            assert!(window.try_find("rrail").is_none(), "no rail beside the open drawer");
-            for i in 0..5usize {
-                let b = rect(window, ("dt", i));
-                assert_eq!((b.y, b.h), (d.y, 28.0), "strip button {i} at the drawer's top");
-                assert!(b.x >= d.x && b.right() <= d.right(), "strip button {i} inside the drawer");
-                assert_eq!(dt_on(window, i), i == 0, "strip button {i}: Highlights is open");
-            }
-            assert_eq!(window.find(("dt", 4usize)).label(), Some("Patches"));
-            window.click(("dt", 4usize), cx);
-            assert!(dt_on(window, 4usize) && !dt_on(window, 0usize), "a strip button switches the panel");
-            window.click(("dt", 4usize), cx);
-        })
-        .unwrap();
-        // The shell moves on the wall clock, so start each check from rest.
         let rest = |cx: &mut TestAppContext| handle.update(cx, |c, _, _| c.motion = Default::default()).unwrap();
-        rest(cx);
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
-            assert!(window.try_find("drawer").is_none() && window.try_find("rrail").is_some(), "the open panel's button folds the drawer to the rail");
+            let (d, r) = (rect(window, "drawer"), rect(window, "rrail"));
+            assert_eq!(d.right() + 6.0, r.x, "the drawer left of the rail");
+            assert!(window.try_find("drawer-strip").is_none(), "no strip in a row");
+            let ys: Vec<f32> = (0..4usize).map(|i| rect(window, ("rb", i)).y).collect();
+            assert!(ys.windows(2).all(|w| w[1] > w[0]), "the panels stacked: {ys:?}");
+            assert!(rect(window, "rail-drawer").y < ys[0], "the drawer's button on top");
+            assert_eq!(window.find("rail-drawer").label(), Some("Hide the drawer"));
+            assert_eq!(window.find(("rb", 0usize)).selected(), Some(true), "Highlights is open");
             window.click(("rb", 1usize), cx);
         })
         .unwrap();
         rest(cx);
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
-            assert!(window.try_find("drawer").is_some() && dt_on(window, 1usize), "a rail button opens the drawer on its panel");
-            assert!(window.try_find("rrail").is_none(), "and the rail gives way");
+            assert_eq!(window.find(("rb", 1usize)).selected(), Some(true), "a rail button switches the panel");
+            window.click("rail-drawer", cx);
+        })
+        .unwrap();
+        rest(cx);
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            assert!(window.try_find("drawer").is_none() && window.try_find("rrail").is_some(), "folded: the rail alone");
+            window.click("rail-drawer", cx);
+        })
+        .unwrap();
+        rest(cx);
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            assert!(window.try_find("drawer").is_some(), "and open again on the last panel");
+            assert_eq!(window.find(("rb", 1usize)).selected(), Some(true));
         })
         .unwrap();
     }
@@ -1787,10 +1752,6 @@ mod tests {
         handle
     }
 
-    fn dt_on(window: &Window, i: usize) -> bool {
-        window.find(("dt", i)).selected() == Some(true)
-    }
-
     fn on(window: &Window, i: usize) -> bool {
         window.find(("ptab", i)).selected() == Some(true)
     }
@@ -1818,7 +1779,7 @@ mod tests {
             let shell = rect(window, "shell");
             assert_eq!((shell.x, shell.y, shell.right(), shell.bottom()), (s.shell.x, s.shell.y, s.shell.right(), s.shell.bottom()), "the Shell");
             assert_eq!(bar.bottom() + 6.0, shell.bottom(), "the bar in the Shell's bottom gutter, not on the frame");
-            assert!(rect(window, "drawer").right() + 6.0 == shell.right(), "the drawer in the Shell's right gutter");
+            assert!(rect(window, "rrail").right() + 6.0 == shell.right() && rect(window, "drawer").right() + 6.0 == rect(window, "rrail").x, "the drawer and the rail in the Shell's right gutter");
             assert_eq!(window.find("stage-usage").label(), Some("No usage data yet"));
             let mut last = rect(window, "stage-usage").right();
             for (i, name) in ["Plan", "Execute", "Ship", "Commit"].into_iter().enumerate() {
@@ -1857,7 +1818,8 @@ mod tests {
             }
             let add = rect(window, "tab-add");
             assert_eq!((add.y, add.h), (head.y + 8.0, 24.0), "+ as tall as the tabs");
-            window.click(("ptab", 2usize), cx);
+            // On its name, clear of its close.
+            window.click_at(("ptab", 2usize), point(px(10.), px(12.)), cx);
             window.render_frame(cx);
             assert!(on(window, 2) && !on(window, 0), "a click opens the tab");
         })

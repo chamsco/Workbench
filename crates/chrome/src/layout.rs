@@ -135,12 +135,13 @@ pub fn layout(w: f32, h: f32, state: ShellState, platform: Platform) -> Shell {
     let caps = has_caps.then(|| Rect::new(shell.right() - PAD - CAPS_W, shell.y + (CAPS_BAND - CAPS_H) / 2.0, CAPS_W, CAPS_H));
     let in_top = shell.y + if has_caps { CAPS_BAND } else { PAD };
     let (in_h, right) = (shell.bottom() - PAD - in_top, shell.right() - PAD);
+    // The rail always stands at the right edge (its icons stacked), the open drawer beside it.
     let (drawer, rrail) = if !state.plugins {
         (None, None)
-    } else if state.drawer_open && !state.terminal_open {
-        (Some(Rect::new(right - DRAWER_W, in_top, DRAWER_W, in_h)), None)
     } else {
-        (None, Some(Rect::new(right - RRAIL_W, in_top, RRAIL_W, in_h)))
+        let rail = Rect::new(right - RRAIL_W, in_top, RRAIL_W, in_h);
+        let drawer = (state.drawer_open && !state.terminal_open).then(|| Rect::new(rail.x - PAD - DRAWER_W, in_top, DRAWER_W, in_h));
+        (drawer, Some(rail))
     };
     let mut main_right = drawer.or(rrail).map_or(right, |r| r.x - PAD);
     let terminal = (state.terminal_open && state.plugins).then(|| {
