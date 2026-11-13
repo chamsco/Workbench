@@ -220,6 +220,17 @@ fn platforms_differ_only_in_window_controls() {
     }
     // Mac: lights and button do not touch.
     assert!(!overlaps(mac.lights.unwrap(), mac.sidebar_button));
+    // The top row is: window buttons, the sidebar button, search, then the name. This follows
+    // Charles's 13 Nov 19:29Z instruction ("at the top left next to the sidebar retract button"),
+    // not the old wireframe, which had no search there; the sidebar button keeps its place.
+    for s in [&mac, &win] {
+        let q = s.search_button.expect("search beside the sidebar button while it is open");
+        assert_eq!((q.x, q.y, q.w, q.h), (s.sidebar_button.right() + 2.0, s.sidebar_button.y, 28.0, 28.0), "search right of the sidebar button");
+        assert!(inside(s.bar, q) && !overlaps(q, s.sidebar_button));
+        assert!(s.lights.is_none_or(|l| !overlaps(l, q)));
+    }
+    let folded = layout(1200.0, 720.0, ShellState { sidebar_open: false, drawer_open: false, split_open: false, terminal_open: false, plugins: true }, Platform::Mac);
+    assert!(folded.search_button.is_none(), "folded, search is on top of the rail instead");
 }
 
 /// The terminal card (v3 frame 5): it takes the drawer's place in the Shell's right gutter, 430

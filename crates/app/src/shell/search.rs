@@ -400,6 +400,10 @@ mod tests {
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
             assert_eq!(window.find("search-btn").label(), Some("Search"));
+            // Window buttons, the sidebar button, search, then the name (Charles, 13 Nov 19:29Z).
+            let (sb, q, name) = (super::super::tests::rect(window, "sbtn"), super::super::tests::rect(window, "search-btn"), super::super::tests::rect(window, "project-name"));
+            assert!(q.x > sb.right() && q.x - sb.right() <= 4.0 && (q.y - sb.y).abs() < 1.0, "search right beside the sidebar button: {sb:?} {q:?}");
+            assert!(name.x > q.right(), "the name after search");
             window.click("search-btn", cx);
             window.render_frame(cx);
             assert!(window.try_find("search-menu").is_some(), "the menu opens");

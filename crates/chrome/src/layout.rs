@@ -68,6 +68,10 @@ pub struct Shell {
     /// panels as a strip on top).
     pub rrail: Option<Rect>,
     pub sidebar_button: Rect,
+    /// Global search, immediately right of the sidebar button while the sidebar is open (Charles,
+    /// 13 Nov 19:29Z: "at the top left next to the sidebar retract button"). Folded, it is on top of
+    /// the rail instead.
+    pub search_button: Option<Rect>,
     pub lights: Option<Rect>,
     /// Windows' caption buttons, inside the Shell's top right.
     pub caps: Option<Rect>,
@@ -98,6 +102,8 @@ pub mod metric {
     /// The logo and the name after the sidebar button; the tabs never start before its end.
     pub const TITLE_W: f32 = 96.0;
     pub const SBTN: f32 = 28.0;
+    /// Between the sidebar button and the search button.
+    pub const SEARCH_GAP: f32 = 2.0;
     /// Windows' caption buttons: three of 40 x 24, in a 31px band at the Shell's top right that also
     /// carries the panes' tab strips.
     pub const CAPS_W: f32 = 120.0;
@@ -161,8 +167,9 @@ pub fn layout(w: f32, h: f32, state: ShellState, platform: Platform) -> Shell {
     let lights = has_lights.then(|| Rect::new(inner.x + 14.0, inner.y + (BAR_H - 12.0) / 2.0, 52.0, 12.0));
     let sbtn_x = if has_lights { inner.x + 78.0 } else { inner.x + 14.0 };
     let sidebar_button = Rect::new(sbtn_x, inner.y + (BAR_H - SBTN) / 2.0, SBTN, SBTN);
+    let search_button = state.sidebar_open.then(|| Rect::new(sidebar_button.right() + SEARCH_GAP, sidebar_button.y, SBTN, SBTN));
 
-    Shell { effective: state, rail, sidebar, bar, shell, main, half, drawer, terminal, rrail, sidebar_button, lights, caps }
+    Shell { effective: state, rail, sidebar, bar, shell, main, half, drawer, terminal, rrail, sidebar_button, search_button, lights, caps }
 }
 
 /// The state that actually fits: the thread column keeps [`metric::MAIN_MIN_W`], so Split closes

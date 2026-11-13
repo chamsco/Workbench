@@ -11,4 +11,5 @@ pub mod flow;
 pub mod layout;
 pub mod motion;
 pub mod panes;
+pub mod snap;
 pub mod tokens;

@@ -1648,23 +1648,30 @@ impl Render for Cauldron {
         }
 
         // ---- top bar: the logo and name after the sidebar button
-        let logo_x = s.sidebar_button.right() + metric::GAP;
+        // The name after search; it truncates first when the sidebar is narrow.
+        let logo_x = s.search_button.map_or(s.sidebar_button, |p| p.rect).right() + metric::GAP;
+        let name_w = (s.bar.right() - 8.0 - (logo_x + 26.0)).clamp(0.0, metric::TITLE_W - 26.0);
         root = root.child(abs(Rect::new(logo_x, s.bar.y + (metric::BAR_H - 18.0) / 2.0, 18.0, 18.0)).rounded(px(9.)).bg(accent));
         root = root.child(
-            abs(Rect::new(logo_x + 26.0, s.bar.y, metric::TITLE_W - 26.0, metric::BAR_H))
+            abs(Rect::new(logo_x + 26.0, s.bar.y, name_w, metric::BAR_H))
+                .id("project-name")
+                .overflow_hidden()
+                .whitespace_nowrap()
+                .text_ellipsis()
                 .flex()
                 .items_center()
                 .text_size(px(13.))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(fg)
-                .child("Cauldron"),
+                .aria_label("Cauldron")
+                .child("Cauldron")
+                .test_support(),
         );
 
-        // ---- search, at the right end of the sidebar's top row (the context-sidebar board)
-        if let Some(sp) = s.sidebar {
-            let r = Rect::new(sp.rect.right() - SIDE_PR - 28.0, s.bar.y + (metric::BAR_H - 28.0) / 2.0, 28.0, 28.0);
+        // ---- search, right of the sidebar button (Charles, 13 Nov 19:29Z)
+        if let Some(sb) = s.search_button {
             root = root.child(
-                pane("search-btn-slot", r).opacity(sp.alpha).child(
+                pane("search-btn-slot", sb.rect).opacity(sb.alpha).child(
                     self.tipped("search-btn", icon_button("search-btn", "search", "Search", pal, self.search_ui.is_some()), search_tip(), Side::Below, pal, cx)
                         .occlude()
                         .on_click(cx.listener(|this, _, window, cx| this.toggle_search(window, cx)))

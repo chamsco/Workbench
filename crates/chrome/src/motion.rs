@@ -122,6 +122,7 @@ pub struct Frame {
     pub main: Rect,
     pub rrail: Option<Pane>,
     pub sidebar_button: Rect,
+    pub search_button: Option<Pane>,
     pub bar: Rect,
 }
 
@@ -152,6 +153,7 @@ impl Frame {
             main: s.main,
             rrail: at_rest(s.rrail),
             sidebar_button: s.sidebar_button,
+            search_button: at_rest(s.search_button),
             bar: s.bar,
         }
     }
@@ -201,6 +203,7 @@ impl Frame {
             main: rect(from.main, to.main),
             rrail: pane(from.rrail, to.rrail, 0.0),
             sidebar_button: rect(from.sidebar_button, to.sidebar_button),
+            search_button: pane(from.search_button, to.search_button, 0.0),
             bar: rect(from.bar, to.bar),
         }
     }
