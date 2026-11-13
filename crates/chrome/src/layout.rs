@@ -72,9 +72,9 @@ pub mod metric {
     pub const RRAIL_W: f32 = 44.0;
     pub const DRAWER_W: f32 = 200.0;
     pub const SPLIT_W: f32 = 292.0;
-    /// The top bar, full width. Its height and the gap under it.
-    pub const BAR_H: f32 = 40.0;
-    pub const BAR_GAP: f32 = 4.0;
+    /// The top bar, full width: the board's 44, the height of the card's head, so the two lines
+    /// match. The card and the side panes start right under it.
+    pub const BAR_H: f32 = 44.0;
     /// A floating tab in the top bar (the new-look board's `.ftab`).
     pub const TAB_H: f32 = 30.0;
     /// The logo and the name after the sidebar button; the tabs never start before its end.
@@ -95,7 +95,7 @@ pub fn layout(w: f32, h: f32, state: ShellState, platform: Platform) -> Shell {
     use metric::*;
     let inner = Rect::new(BORDER, BORDER, w - 2.0 * BORDER, h - 2.0 * BORDER);
     let bar = Rect::new(inner.x, inner.y, inner.w, BAR_H);
-    let top = inner.y + BAR_H + BAR_GAP;
+    let top = inner.y + BAR_H;
     let height = inner.bottom() - top - MARGIN_BOTTOM;
 
     let (rail, sidebar, main_x) = if state.sidebar_open {
@@ -122,7 +122,7 @@ pub fn layout(w: f32, h: f32, state: ShellState, platform: Platform) -> Shell {
 
     let has_lights = platform != Platform::Windows;
     let has_caps = platform != Platform::Mac;
-    let lights = has_lights.then(|| Rect::new(inner.x + 14.0, inner.y + 14.0, 52.0, 12.0));
+    let lights = has_lights.then(|| Rect::new(inner.x + 14.0, inner.y + (BAR_H - 12.0) / 2.0, 52.0, 12.0));
     let sbtn_x = if has_lights { inner.x + 78.0 } else { inner.x + 14.0 };
     let sidebar_button = Rect::new(sbtn_x, inner.y + (BAR_H - SBTN) / 2.0, SBTN, SBTN);
 

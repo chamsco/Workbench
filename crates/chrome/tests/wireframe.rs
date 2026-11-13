@@ -134,14 +134,14 @@ fn tabs_float_in_the_bar_and_the_panes_start_under_it() {
                 let s = solve(w, h, st, platform);
                 let t = s.tabs;
                 let at = format!("{w}x{h} {platform:?} {st:?}: tabs {t:?}");
-                assert_eq!(t.h, 30.0, "{at}");
+                assert_eq!((t.h, s.bar.h), (30.0, 44.0), "{at}: the board's 44px bar, its card head's height");
                 assert!(inside(s.bar, t), "{at} inside the bar {:?}", s.bar);
                 assert_eq!(t.y - s.bar.y, s.bar.bottom() - t.bottom(), "{at} centred in the bar");
                 assert!(t.x >= s.main.x, "{at} starts at or after the card's edge");
                 assert!(t.x >= s.sidebar_button.right() + 8.0 + 96.0, "{at} clears the button, logo and name");
                 assert!(t.right() <= s.topr.x - 8.0 + 0.01, "{at} ends before Terminal and Split");
                 for r in [Some(s.main), s.drawer, s.half].into_iter().flatten() {
-                    assert_eq!(r.y, s.bar.bottom() + 4.0, "{at} pane {r:?} right under the bar");
+                    assert_eq!(r.y, s.bar.bottom(), "{at} pane {r:?} right under the bar, as the board");
                 }
             }
         }

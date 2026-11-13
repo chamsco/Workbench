@@ -875,7 +875,7 @@ impl Render for Cauldron {
 
         // ---- rail (only while the sidebar is hidden)
         if let Some(rp) = s.rail {
-            let mut col = pane("rail", rp.rect).opacity(rp.alpha).flex().flex_col().items_center().gap(px(4.)).pt(px(8.));
+            let mut col = pane("rail", rp.rect).opacity(rp.alpha).flex().flex_col().items_center().gap(px(4.)).pt(px(4.));
             for (i, (name, label)) in FUNCTIONS.iter().enumerate() {
                 let b = icon_button(("rail", i), name, label, pal, i == self.section).on_click(cx.listener(move |this, _, _, cx| this.select_section(i, cx)));
                 col = col.child(self.tipped(("rail", i), b, *label, Side::Right, pal, cx).test_support());
@@ -885,14 +885,14 @@ impl Render for Cauldron {
 
         // ---- sidebar with the function row, on the window
         if let Some(sp) = s.sidebar {
-            let mut fnrow = div().relative().flex().justify_between().pt(px(12.)).pb(px(8.));
+            let mut fnrow = div().relative().flex().justify_between().pt(px(4.)).pb(px(16.));
             // The indicator sits under the buttons and slides to the selected one (INDICATOR ms).
             let pos = crate::motion::ease_between(self.section_from, self.section as f32, self.section_since, now, cauldron_chrome::motion::time::INDICATOR);
             fnrow = fnrow.child(
                 div()
                     .absolute()
                     .left(px(fn_slot_x(sp.rect.w - SIDE_PR, pos)))
-                    .top(px(12.))
+                    .top(px(4.))
                     .size(px(metric::SBTN))
                     .rounded(px(radius::CONTROL))
                     .bg(ca(pal.fg, 0.09)),
