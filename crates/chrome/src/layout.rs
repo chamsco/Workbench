@@ -42,6 +42,9 @@ pub struct ShellState {
     pub split_open: bool,
     /// The terminal card in the right gutter, in the drawer's place.
     pub terminal_open: bool,
+    /// The right gutter's plugins (drawer, its rail, the terminal): coding screens only. Settings and
+    /// the other non-coding pages have none, and the card takes the room.
+    pub plugins: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -125,13 +128,15 @@ pub fn layout(w: f32, h: f32, state: ShellState, platform: Platform) -> Shell {
     // right gutter holds the open drawer, or the rail while it is folded.
     let shell = Rect::new(main_x, top, inner.right() - MARGIN_SIDE - main_x, height);
     let (in_top, in_h, right) = (top + PAD, height - 2.0 * PAD, shell.right() - PAD);
-    let (drawer, rrail) = if state.drawer_open && !state.terminal_open {
+    let (drawer, rrail) = if !state.plugins {
+        (None, None)
+    } else if state.drawer_open && !state.terminal_open {
         (Some(Rect::new(right - DRAWER_W, in_top, DRAWER_W, in_h)), None)
     } else {
         (None, Some(Rect::new(right - RRAIL_W, in_top, RRAIL_W, in_h)))
     };
-    let mut main_right = drawer.or(rrail).map_or(right, |r| r.x) - PAD;
-    let terminal = state.terminal_open.then(|| {
+    let mut main_right = drawer.or(rrail).map_or(right, |r| r.x - PAD);
+    let terminal = (state.terminal_open && state.plugins).then(|| {
         let t = Rect::new(main_right - TERM_W, in_top, TERM_W, in_h);
         main_right = t.x - PAD;
         t

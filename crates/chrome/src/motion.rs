@@ -221,7 +221,7 @@ mod tests {
     const H: f32 = 702.0;
 
     fn shell(sidebar: bool, drawer: bool, split: bool) -> Shell {
-        solve(W, H, ShellState { sidebar_open: sidebar, drawer_open: drawer, split_open: split, terminal_open: false }, Platform::Windows)
+        solve(W, H, ShellState { sidebar_open: sidebar, drawer_open: drawer, split_open: split, terminal_open: false, plugins: true }, Platform::Windows)
     }
 
     fn close(a: Rect, b: Rect) -> bool {

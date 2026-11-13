@@ -42,7 +42,7 @@ pub(crate) fn platform() -> Platform {
 pub(crate) use motion::os_reduces_motion;
 
 pub(crate) fn lights_origin() -> (f32, f32) {
-    let s = layout::layout(1240.0, 702.0, ShellState { sidebar_open: true, drawer_open: false, split_open: false, terminal_open: false }, Platform::Mac);
+    let s = layout::layout(1240.0, 702.0, ShellState { sidebar_open: true, drawer_open: false, split_open: false, terminal_open: false, plugins: true }, Platform::Mac);
     let l = s.lights.expect("mac layout has lights");
     (l.x, l.y)
 }
@@ -867,7 +867,7 @@ impl Render for Cauldron {
         let vs = window.viewport_size();
         let (w, h) = (f32::from(vs.width), f32::from(vs.height));
         let plat = platform();
-        let want = ShellState { sidebar_open: self.sidebar_open, drawer_open: self.drawer.is_some(), split_open: false, terminal_open: self.terminal };
+        let want = ShellState { sidebar_open: self.sidebar_open, drawer_open: self.drawer.is_some(), split_open: false, terminal_open: self.terminal, plugins: self.settings.is_none() };
         let now = std::time::Instant::now();
         let reduce = cx.reduce_motion();
         let (s, mut moving) = self.motion.frame(want, Frame::at_rest(&layout::solve(w, h, want, plat)), now, reduce);
@@ -1623,7 +1623,7 @@ mod tests {
     fn panes_match_the_layout_solver_in_every_state(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         for bits in 0..4u8 {
-            let state = ShellState { sidebar_open: bits & 1 != 0, drawer_open: bits & 2 != 0, split_open: false, terminal_open: false };
+            let state = ShellState { sidebar_open: bits & 1 != 0, drawer_open: bits & 2 != 0, split_open: false, terminal_open: false, plugins: true };
             cx.update(|cx| cx.set_reduce_motion(true));
             let handle = cx.add_window(move |_, _| Cauldron {
                 sidebar_open: state.sidebar_open,
@@ -1792,7 +1792,7 @@ mod tests {
         let handle = open(cx, Cauldron::new());
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
-            let s = layout::solve(W, H, ShellState { sidebar_open: true, drawer_open: true, split_open: false, terminal_open: false }, platform());
+            let s = layout::solve(W, H, ShellState { sidebar_open: true, drawer_open: true, split_open: false, terminal_open: false, plugins: true }, platform());
             assert!(window.try_find("tabs").is_none() && window.try_find(("tab", 0usize)).is_none(), "no tab before the thread exists");
             assert!(window.try_find("tab-add").is_none(), "no +");
             let card = rect(window, "card");
@@ -1832,7 +1832,7 @@ mod tests {
         let handle = open(cx, with_agents(3, &[]));
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
-            let s = layout::solve(W, H, ShellState { sidebar_open: true, drawer_open: true, split_open: false, terminal_open: false }, platform());
+            let s = layout::solve(W, H, ShellState { sidebar_open: true, drawer_open: true, split_open: false, terminal_open: false, plugins: true }, platform());
             let row = rect(window, "tabs");
             assert_eq!((row.x, row.y, row.w, row.h), (s.tabs.x, s.tabs.y, s.tabs.w, s.tabs.h), "tab row");
             assert!(row.bottom() <= s.bar.bottom(), "in the bar");

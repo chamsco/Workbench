@@ -244,6 +244,37 @@ mod tests {
         let _ = handle.update(cx, |_, _, _| ());
     }
 
+    /// Settings carries no plugins (Charles, 13 Nov): no drawer, no strip, no rail, no terminal, and
+    /// the card runs to the Shell's padding; back in the threads they return.
+    #[gpui_kit::test]
+    fn settings_has_no_plugins(cx: &mut TestAppContext) {
+        let (handle, _chats) = open(cx);
+        let rest = |cx: &mut TestAppContext| handle.update(cx, |c, _, _| c.motion = Default::default()).unwrap();
+        handle.update(cx, |c, _, _| c.terminal = true).unwrap();
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            window.click("settings", cx);
+        })
+        .unwrap();
+        rest(cx);
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            for id in ["drawer", "drawer-strip", "rrail", "terminal"] {
+                assert!(window.try_find(id).is_none(), "no {id} in Settings");
+            }
+            let (card, shell) = (super::super::tests::rect(window, "card"), super::super::tests::rect(window, "shell"));
+            assert_eq!(card.right(), shell.right() - 6.0, "the card takes the right gutter");
+            window.click("settings-back", cx);
+        })
+        .unwrap();
+        rest(cx);
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            assert!(window.try_find("terminal").is_some(), "back in the thread, the terminal returns");
+        })
+        .unwrap();
+    }
+
     /// A subscription with no usage from core shows "No data yet", never a made-up number.
     #[gpui_kit::test]
     fn a_subscription_without_usage_says_no_data_yet(cx: &mut TestAppContext) {

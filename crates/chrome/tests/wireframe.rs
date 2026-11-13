@@ -16,7 +16,7 @@ fn state(name: &str) -> ShellState {
         "sidebar_hidden_drawer_closed" => (false, false, false),
         other => panic!("unknown golden state {other}"),
     };
-    ShellState { sidebar_open, drawer_open, split_open, terminal_open: false }
+    ShellState { sidebar_open, drawer_open, split_open, terminal_open: false, plugins: true }
 }
 
 fn want(r: &Value) -> Rect {
@@ -109,7 +109,7 @@ fn panes_never_overlap_and_stay_inside_the_window() {
         let win = Rect { x: 0.0, y: 0.0, w, h };
         for platform in [Platform::Mac, Platform::Windows, Platform::Reference] {
             for bits in 0..8u8 {
-                let st = ShellState { sidebar_open: bits & 1 != 0, drawer_open: bits & 2 != 0, split_open: bits & 4 != 0, terminal_open: false };
+                let st = ShellState { sidebar_open: bits & 1 != 0, drawer_open: bits & 2 != 0, split_open: bits & 4 != 0, terminal_open: false, plugins: true };
                 let s = solve(w, h, st, platform);
                 assert!(s.main.w >= 100.0 && s.main.h > 100.0, "{w}x{h} {platform:?} {st:?}: main collapsed {:?}", s.main);
                 let ps = panes(&s);
@@ -132,7 +132,7 @@ fn tabs_float_in_the_bar_and_the_panes_start_under_it() {
     for &(w, h) in &[(1200.0, 720.0), (1000.0, 640.0), (1920.0, 1080.0)] {
         for platform in [Platform::Mac, Platform::Windows, Platform::Reference] {
             for bits in 0..8u8 {
-                let st = ShellState { sidebar_open: bits & 1 != 0, drawer_open: bits & 2 != 0, split_open: bits & 4 != 0, terminal_open: false };
+                let st = ShellState { sidebar_open: bits & 1 != 0, drawer_open: bits & 2 != 0, split_open: bits & 4 != 0, terminal_open: false, plugins: true };
                 let s = solve(w, h, st, platform);
                 let t = s.tabs;
                 let at = format!("{w}x{h} {platform:?} {st:?}: tabs {t:?}");
@@ -151,7 +151,7 @@ fn tabs_float_in_the_bar_and_the_panes_start_under_it() {
         }
     }
     // Sidebar open: at the card's left edge.
-    let s = solve(1200.0, 720.0, ShellState { sidebar_open: true, drawer_open: true, split_open: false, terminal_open: false }, Platform::Windows);
+    let s = solve(1200.0, 720.0, ShellState { sidebar_open: true, drawer_open: true, split_open: false, terminal_open: false, plugins: true }, Platform::Windows);
     assert_eq!(s.tabs.x, s.main.x);
 }
 
@@ -161,7 +161,7 @@ fn tabs_float_in_the_bar_and_the_panes_start_under_it() {
 #[test]
 fn the_drawer_takes_the_right_rails_place() {
     for platform in [Platform::Mac, Platform::Windows] {
-        let open = solve(1200.0, 720.0, ShellState { sidebar_open: true, drawer_open: true, split_open: false, terminal_open: false }, platform);
+        let open = solve(1200.0, 720.0, ShellState { sidebar_open: true, drawer_open: true, split_open: false, terminal_open: false, plugins: true }, platform);
         let d = open.drawer.expect("drawer open");
         assert!(open.rrail.is_none(), "{platform:?}: no right rail beside an open drawer");
         let sh = open.shell;
@@ -169,7 +169,7 @@ fn the_drawer_takes_the_right_rails_place() {
         assert_eq!((d.right(), d.w), (sh.right() - 6.0, 236.0), "{platform:?}: the drawer 6px inside the Shell's right edge, sidebar-wide");
         assert_eq!((d.y, d.bottom()), (open.main.y, open.main.bottom()), "{platform:?}: as tall as the card");
         assert_eq!(open.main.right() + 6.0, d.x, "{platform:?}: 6px from the card");
-        let shut = solve(1200.0, 720.0, ShellState { sidebar_open: true, drawer_open: false, split_open: false, terminal_open: false }, platform);
+        let shut = solve(1200.0, 720.0, ShellState { sidebar_open: true, drawer_open: false, split_open: false, terminal_open: false, plugins: true }, platform);
         let r = shut.rrail.expect("rail while folded");
         assert_eq!((r.right(), r.w), (shut.shell.right() - 6.0, 44.0), "{platform:?}: the folded rail in the same gutter");
         assert_eq!(shut.main.right() + 6.0, r.x, "{platform:?}: 6px from the card");
@@ -180,7 +180,7 @@ fn the_drawer_takes_the_right_rails_place() {
 // Split closes first, then the drawer. The sidebar is the user's choice and is never closed by the solver.
 #[test]
 fn main_keeps_a_minimum_width_by_closing_split_then_drawer() {
-    let all = ShellState { sidebar_open: true, drawer_open: true, split_open: true, terminal_open: false };
+    let all = ShellState { sidebar_open: true, drawer_open: true, split_open: true, terminal_open: false, plugins: true };
     let s = solve(1240.0, 702.0, all, Platform::Reference);
     assert_eq!(s.effective, all, "nothing closes at the reviewed size");
     let s = solve(900.0, 600.0, all, Platform::Reference);
@@ -192,7 +192,7 @@ fn main_keeps_a_minimum_width_by_closing_split_then_drawer() {
 
 #[test]
 fn platforms_differ_only_in_window_controls() {
-    let st = ShellState { sidebar_open: true, drawer_open: true, split_open: false, terminal_open: false };
+    let st = ShellState { sidebar_open: true, drawer_open: true, split_open: false, terminal_open: false, plugins: true };
     let mac = solve(1240.0, 702.0, st, Platform::Mac);
     let win = solve(1240.0, 702.0, st, Platform::Windows);
     assert!(mac.lights.is_some() && mac.caps.is_none());
@@ -216,7 +216,7 @@ fn platforms_differ_only_in_window_controls() {
 #[test]
 fn the_terminal_takes_the_drawers_place() {
     for platform in [Platform::Mac, Platform::Windows] {
-        let st = ShellState { sidebar_open: true, drawer_open: true, split_open: false, terminal_open: true };
+        let st = ShellState { sidebar_open: true, drawer_open: true, split_open: false, terminal_open: true, plugins: true };
         let s = solve(1200.0, 720.0, st, platform);
         let t = s.terminal.expect("terminal open");
         let r = s.rrail.expect("the drawer folds to its rail");
@@ -229,6 +229,19 @@ fn the_terminal_takes_the_drawers_place() {
         assert!(closed.terminal.is_none() && closed.drawer.is_some(), "{platform:?}: closing it brings the drawer back");
     }
     // Too narrow for the thread beside it: the terminal closes, as Split does.
-    let s = solve(900.0, 600.0, ShellState { sidebar_open: true, drawer_open: false, split_open: false, terminal_open: true }, Platform::Mac);
+    let s = solve(900.0, 600.0, ShellState { sidebar_open: true, drawer_open: false, split_open: false, terminal_open: true, plugins: true }, Platform::Mac);
     assert!(s.main.w >= 360.0 && s.terminal.is_none() && !s.effective.terminal_open);
+}
+
+/// Settings and other non-coding pages have no plugins (Charles, 13 Nov: "settings page should not
+/// have the addons / right side plugins, it's only for coding"): no drawer, no rail, no terminal,
+/// and the card runs to the Shell's right edge.
+#[test]
+fn without_plugins_the_card_takes_the_right_gutter() {
+    for platform in [Platform::Mac, Platform::Windows] {
+        let st = ShellState { sidebar_open: true, drawer_open: true, split_open: false, terminal_open: true, plugins: false };
+        let s = solve(1200.0, 720.0, st, platform);
+        assert!(s.drawer.is_none() && s.rrail.is_none() && s.terminal.is_none(), "{platform:?}: nothing on the right");
+        assert_eq!(s.main.right(), s.shell.right() - 6.0, "{platform:?}: the card runs to the Shell's padding");
+    }
 }
