@@ -331,8 +331,8 @@ impl Cauldron {
                 .text_size(px(13.))
                 .text_color(c(pal.fg4))
                 .aria_label("Not connected")
-                .child(div().flex_1().child(format!("Not connected: messages to {title} are not sent yet")))
-                .child(div().size(px(28.)).rounded_full().flex().items_center().justify_center().bg(c(pal.hover)).child(glyph("arrow-up", 14., c(pal.fg4)))),
+                .child(div().flex_1().min_w_0().truncate().child(format!("Not connected: messages to {title} are not sent yet")))
+                .child(div().flex_none().size(px(28.)).rounded_full().flex().items_center().justify_center().bg(c(pal.hover)).child(glyph("arrow-up", 14., c(pal.fg4)))),
             "Demo: not built yet",
             Side::Right,
             pal,
@@ -384,9 +384,11 @@ impl Cauldron {
                 .flex()
                 .items_center()
                 .gap(px(8.))
+                .flex_1()
+                .min_w_0()
                 .aria_label(format!("{label} {pct}% (example)"))
                 .child(div().size(px(36.)).flex_none().rounded_full().border_2().border_color(if pct >= 80 { c(pal.warn) } else { c(pal.line_strong) }).flex().items_center().justify_center().text_size(px(10.)).font_weight(FontWeight::SEMIBOLD).text_color(fg).child(format!("{pct}%")))
-                .child(div().flex().flex_col().child(div().text_size(px(11.)).text_color(fg2).child(label)).child(div().text_size(px(10.)).text_color(fg3).child(sub)))
+                .child(div().flex_1().min_w_0().flex().flex_col().child(div().truncate().text_size(px(11.)).text_color(fg2).child(label)).child(div().truncate().text_size(px(10.)).text_color(fg3).child(sub)))
                 .test_support()
         };
         let mut tree = div().id("context-treemap").h(px(64.)).flex().gap(px(2.));
@@ -407,7 +409,7 @@ impl Cauldron {
             .flex_col()
             .gap(px(8.))
             .child(div().flex().items_center().gap(px(8.)).child(figure(a.dot, a.mood, 30., false)).child(div().flex_1().min_w_0().flex().flex_col().child(div().text_size(px(14.)).font_weight(FontWeight::SEMIBOLD).text_color(fg).child(a.name.clone())).child(div().truncate().text_size(px(11.)).text_color(fg3).child(a.job.clone()))).child(tag("drawer-example", "Example", pal).test_support()))
-            .child(div().flex().gap(px(16.)).child(ring("ring-week", 91, "Weekly", "Resets Mon 09:00")).child(ring("ring-5h", 12, "5-hour", "12% of 5 hours")))
+            .child(div().flex().gap(px(10.)).child(ring("ring-week", 91, "Weekly", "Resets Mon")).child(ring("ring-5h", 12, "5-hour", "12% used")))
             .child(head("Current task"))
             .child(div().p(px(8.)).rounded(px(radius::INNER)).bg(c(pal.inset)).text_size(px(12.)).text_color(fg2).child(if a.name == "Librarian" { "Reading the room and filing two notes to the Friday demo folder." } else { "Reading the receipt flow and splitting the work." }))
             .child(head("Context"))

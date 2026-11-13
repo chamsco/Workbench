@@ -295,7 +295,7 @@ These are Charles's 07:34Z list and 13:40Z note ("not as tabs, they need to repl
 - Move to folder is not built. A stream's project is where its CLI runs (`chat.rs`: "the project folder a CLI works in"), so moving one would change where it runs.
 
 **User row and folded rail.**
-- Unfolded: the name with usage beside it ("No data yet": core has no per-subscription usage), the version button (an icon; it opens Settings > General, which shows the version and says updates come from the release workflow), and the cog.
+- Unfolded: the name with the usage ring beside it (with no data, "No data yet" is in its tip: core has no per-subscription usage), the version button (an icon; it opens Settings > General, which shows the version and says updates come from the release workflow), and the cog.
 - Folded rail, top to bottom: a usage ring (empty), the three apps, search (opens the sidebar), New stream, a square per folder (its letter, a dot over a waiting stream; it opens the sidebar on that folder), then the version, the cog and the avatar at the foot.
 
 **The right rail.** It always stands at the Shell's right edge, its icons stacked: the drawer's toggle (lit while open), a hairline, then the panels (the open one lit). The open drawer sits beside it; there is no horizontal strip. The card is about 50px narrower with the drawer open, and the minimum-width rule closes Split and then the drawer a little sooner. Solver test red first: `NL12-rail-red.txt` / `NL12-rail-green.txt`.
@@ -336,7 +336,8 @@ The coordinator's board is `design/cauldron-destinations.html` (ac5ef7a on gg3og
 - Folded, the same six stack on the rail.
 
 **Usage:**
-- An empty ring and "No data yet" sit beside the name; core has no usage per subscription. Hovering shows its tip, and a click opens the Usage page.
+- An empty ring sits beside the name; core has no usage per subscription. With no data the ring stands alone, so the name keeps its room: "No data yet" is in its tip and accessible name. A click opens the Usage page.
+- The agent drawer's ring captions and the room's composer text truncate inside their box, so nothing runs into the rail or cuts off the send button.
 - On the folded rail the ring sits at the foot, above version, cog and avatar.
 
 **The Agents demo:**

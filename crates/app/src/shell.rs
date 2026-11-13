@@ -813,8 +813,8 @@ impl Cauldron {
             .text_color(fg3)
     }
 
-    /// Usage: a ring and its number where core reports usage, "No data yet" until then; hovering
-    /// shows the card, a click opens the Usage page. Core has no per-subscription usage yet.
+    /// Usage: a ring (with its number where core reports usage; with none, "No data yet" is in its
+    /// name and tip, so the user's name keeps its room); a click opens the Usage page. Core has no per-subscription usage yet.
     fn usage_ring(&self, id: &'static str, pal: &'static Palette, cx: &mut Context<Self>) -> Stateful<Div> {
         let rail = id == "rail-usage";
         let el = div()
@@ -823,18 +823,17 @@ impl Cauldron {
             .flex()
             .items_center()
             .gap(px(5.))
-            .px(px(if rail { 0. } else { 4. }))
+            .p(px(if rail { 0. } else { 3. }))
             .rounded(px(radius::TAG))
             .cursor_pointer()
             .hover(|d| d.bg(c(pal.hover)))
             .aria_label("No data yet")
             .child(div().size(px(if rail { 20. } else { 12. })).my(px(if rail { 4. } else { 0. })).rounded_full().border_2().border_color(c(pal.line_strong)))
-            .when_live(!rail, |d| d.child(div().text_size(px(10.5)).text_color(c(pal.fg3)).child("No data yet")))
             .on_click(cx.listener(|this, _, _, cx| {
                 this.open_page(pages::AppPage::Usage);
                 cx.notify();
             }));
-        self.tipped((id, 1usize), el, "Usage: no data yet. Core does not report it per subscription.", if rail { Side::Right } else { Side::Right }, pal, cx)
+        self.tipped((id, 1usize), el, "Usage: no data yet. Core does not report it per subscription.", Side::Right, pal, cx)
     }
 
     /// The version, as a small button by the cog: it opens Settings > General, where the version
