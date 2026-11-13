@@ -163,8 +163,8 @@ pub(crate) struct Cauldron {
     folder_open: std::collections::HashMap<String, bool>,
     /// Which app fills the window: Streams, Agents or Memory (Charles, 13 Nov 13:40Z).
     page: pages::AppPage,
-    /// Core's agents (name, job), read when Agents opens.
-    page_agents: Vec<(String, String)>,
+    /// Core's agents, read when Agents opens.
+    page_agents: Vec<pages::AgentCard>,
     /// Settings is open on this page (v3 frame 7): its pages take the sidebar's list, the page the card.
     settings: Option<usize>,
     /// Where Settings reads the subscriptions; None is core's `accounts.json` (tests use their own).
@@ -277,6 +277,11 @@ impl Cauldron {
         // `CAULDRON_PANES=n` with the card split into `Shape::ALL[n]`, for screenshots of the live window.
         #[cfg(debug_assertions)]
         {
+            match std::env::var("CAULDRON_PAGE").as_deref() {
+                Ok("agents") => c.open_page(pages::AppPage::Agents),
+                Ok("memory") => c.open_page(pages::AppPage::Memory),
+                _ => {}
+            }
             if std::env::var("CAULDRON_PLATFORM").as_deref() == Ok("windows") {
                 c.plat = Platform::Windows;
             }
@@ -1339,7 +1344,7 @@ impl Render for Cauldron {
         self.glass_card.set(wall.map(|_| (0.0, 0.0, dark)));
         let body = match self.settings {
             Some(page) => self.settings_page(page, pal, cx),
-            None if !streams => self.page_body(pal),
+            None if !streams => self.page_body(pal, cx),
             None => self.card_body(pal, window, cx),
         };
         let inside = if split { self.pane_stage(pal, area, shape, body, window, cx).into_any_element() } else { body };
