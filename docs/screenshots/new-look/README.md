@@ -66,7 +66,7 @@ Width: the board's frame 1 has no open drawer, so its card is 944 wide; here Hig
 | Groups | Needs you, Running, Done | Needs you (empty, NL2d), Unread, Running, Failed, Done | core has no Needs you per thread yet; Unread sits where it does |
 | Age column | none | none (removed) | |
 
-- Figures only for agentic threads (Charles, 12 Nov): a thread with an agent or members shows its agent in the slot, in the row's mood (Running is Working, the cog; Failed is Error; else Idle). A normal thread shows a 6px state dot there: accent Running, bad Failed, fg-3 otherwise. The board draws a figure on every row; this follows Charles over the board.
+- Superseded by NL3a (13 Nov): no row shows a figure now. Figures only for agentic threads (Charles, 12 Nov): a thread with an agent or members shows its agent in the slot, in the row's mood (Running is Working, the cog; Failed is Error; else Idle). A normal thread shows a 6px state dot there: accent Running, bad Failed, fg-3 otherwise. The board draws a figure on every row; this follows Charles over the board.
 - At 22px the avatar draws no marks, so an Error figure looks like Idle; the Failed head says it. Figures are still until the motion clock drives them, and every figure is agent 1's colour for now.
 - Needs you and the usage line: superseded by NL2d (Charles chose empty states, 12 Nov).
 - A selected row is `hover` on the window, as the board's `.th.sel`.
@@ -88,7 +88,7 @@ Charles retired the folder tabs (12 Nov); the coordinator's answer on placement 
 | Text | 12.5px 400 | 12px / 16px, 500 | label style |
 | Open tab | card fill + shadow | `selected` fill (9%), no ring or shadow | tabs take no shadow |
 | Padding, gaps | 0 10 0 9, gap 7, tabs 4 | 0 8, figure to name 6, tabs 4 | 4px scale |
-| Figure | 15x18 on every tab | 14px tall, only on an agentic thread's tabs | Charles, 12 Nov |
+| Figure | 15x18 on every tab | 14px tall, only on an agentic thread's tabs; none since NL3a | Charles, 12 Nov; 13 Nov |
 | Close | fg-4 | fg-3, on hover for closed tabs | fg-4 fails AA |
 | + | 28 | 28 | |
 | Card | y 44, right under the bar | y 45, right under the bar (no gap) | |
@@ -99,3 +99,22 @@ Charles retired the folder tabs (12 Nov); the coordinator's answer on placement 
 - Empty states (Charles, 12 Nov): a "Needs you" head with no rows and no count above the groups (hidden while searching), and "No data yet" under the name in the user row. Neither invents a number.
 - The thread view's own title row and chips are gone; the card head carries the title.
 - Runs: `docs/cauldron/NL2-bar44-red.txt` / `NL2-bar44-green.txt` (the 44px bar, panes under it); `docs/cauldron/NL2-tabs-red.txt` (tabs still under the bar, no `selected` state, no card head, no empty states), `NL2-tabs-green.txt`. The 13 Nov sizes (14px figure, row at the card's edge) changed the tests and the code together; there is no separate red run for them.
+
+## NL3: the v3 board in the app
+
+Spec: `design/cauldron-new-look-v3.html` (the v2 board on the design system, Charles approved 13 Nov). `nl3-01-new-thread-dark.png` / `nl3-04-...-light.png`: New thread with the stage bar. `nl3-02-thread-drawer-dark.png` / `nl3-05-...-light.png`: a thread from the sample data, drawer open. `nl3-03-tabs-dark.png` / `nl3-06-...-light.png`: the agent-tab fixture (`CAULDRON_FIXTURE_AGENTS=3`). `nl3-07-app-vs-board.png`: the board (left) against the app (right), new thread and thread. Light shots come from a build forced to light, then reverted.
+
+| | v3 board | App | Note |
+|---|---|---|---|
+| Tab | 24 tall, 12/16 500, padding 0 8, radius 8 | the same; + and the scroll arrows 24 too | control-sm; the coordinator asked for 26, which is not a size token |
+| Figures in a thread | none: rows, tabs, status line, drawer | none: rows show the state dot, tabs the name, the status line a 6px dot | Charles, 13 Nov: figures belong to the Agents page |
+| Drawer | on the frame, the panel strip on top, no rail beside it | 236 wide (the sidebar's width), strip of five 28px buttons, rail only while folded | the strip's open button folds it to the rail |
+| New thread bottom bar | on the frame under the card: usage, then Plan, Execute, Ship, Commit | 32 high, card-wide, 11/14 500 fg3 | static: core has no stages or usage, so "No usage data yet" and no current stage |
+
+Limits:
+- The bottom bar is on the frame, as the board draws it and as the drawer sits; the coordinator read "the same grey" as the card token, the board does not.
+- The drawer panels' bodies are still UI6 placeholders. The board's five panels (Highlights, Patches, Git, Agent trace, Dev) differ from the app's five (Highlights, Usage, Koi preview, Code review, Patches); the app keeps its own until UI6.
+- The thread view keeps its stage line inside the card; only New thread got the bar (Charles asked for it there).
+- Split panes are unchanged; a proposal board comes first.
+- Runs: `docs/cauldron/NL3a-red.txt` / `NL3a-green.txt` (24px tabs, no figures), `NL3b-red.txt` / `NL3b-green.txt` (the drawer takes the rail's place, strip on top), `NL3c-red.txt` / `NL3c-green.txt` (the stage bar). The 24px arrows changed a clamp test after the code; there is no separate red run for that.
+

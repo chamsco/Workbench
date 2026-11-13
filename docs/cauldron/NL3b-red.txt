@@ -1,0 +1,76 @@
+   Compiling cauldron-chrome v0.1.0 (C:\Users\chamy\Documents\code\Workbench\crates\chrome)
+error[E0308]: `match` arms have incompatible types
+  --> crates\chrome\tests\wireframe.rs:42:20
+   |
+36 | /     match key {
+37 | |         "rail" => s.rail,
+38 | |         "sidebar" => s.sidebar,
+39 | |         "main" => Some(s.main),
+40 | |         "half" => s.half,
+41 | |         "drawer" => s.drawer,
+   | |                     -------- this and all prior arms are found to be of type `Option<Rect>`
+42 | |         "rrail" => s.rrail,
+   | |                    ^^^^^^^ expected `Option<Rect>`, found `Rect`
+...  |
+49 | |         other => panic!("unknown golden rect {other}"),
+50 | |     }
+   | |_____- `match` arms have incompatible types
+   |
+   = note: expected enum `Option<Rect>`
+            found struct `Rect`
+help: try wrapping the expression in `Some`
+   |
+42 |         "rrail" => Some(s.rrail),
+   |                    +++++       +
+
+error[E0277]: `Rect` is not an iterator
+  --> crates\chrome\tests\wireframe.rs:99:14
+   |
+99 |     v.extend(s.rrail);
+   |       ------ ^^^^^^^ `Rect` is not an iterator
+   |       |
+   |       required by a bound introduced by this call
+   |
+   = help: the trait `Iterator` is not implemented for `Rect`
+   = note: required for `Rect` to implement `IntoIterator`
+note: required by a bound in `extend`
+  --> /rustc/8bab26f4f68e0e26f0bb7960be334d5b520ea452/library\core\src\iter\traits\collect.rs:416:4
+
+error[E0599]: no method named `is_none` found for struct `Rect` in the current scope
+   --> crates\chrome\tests\wireframe.rs:163:28
+    |
+163 |         assert!(open.rrail.is_none(), "{platform:?}: no right rail beside an open drawer");
+    |                            ^^^^^^^ method not found in `Rect`
+
+error[E0599]: no method named `expect` found for struct `Rect` in the current scope
+   --> crates\chrome\tests\wireframe.rs:168:28
+    |
+168 |         let r = shut.rrail.expect("rail while folded");
+    |                            ^^^^^^ method not found in `Rect`
+
+Some errors have detailed explanations: E0277, E0308, E0599.
+For more information about an error, try `rustc --explain E0277`.
+error: could not compile `cauldron-chrome` (test "wireframe") due to 4 previous errors
+   Compiling backspace v0.1.0 (C:\Users\chamy\Documents\code\Workbench\crates\app)
+warning: variable does not need to be mutable
+   --> crates\core\src\usage.rs:339:9
+    |
+339 |     let mut sess = |id: &str, t: u64, by: &mut BTreeMap<String, Session>| {
+    |         ----^^^^
+    |         |
+    |         help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `backspace-core` (lib) generated 1 warning (run `cargo fix --lib -p backspace-core` to apply 1 suggestion)
+error[E0308]: mismatched types
+    --> crates\app\src\shell.rs:1475:85
+     |
+1475 | ...   for (id, r) in [("sidebar", s.sidebar), ("rail", s.rail), ("rrail", s.rrail), ("drawer", s.drawer), ("half", s.half), ("caps...
+     |                                                                           ^^^^^^^ expected `Option<Pane>`, found `Rect`
+     |
+     = note: expected enum `std::option::Option<cauldron_chrome::motion::Pane>`
+              found struct `cauldron_chrome::layout::Rect`
+
+For more information about this error, try `rustc --explain E0308`.
+error: could not compile `backspace` (bin "backspace" test) due to 1 previous error
