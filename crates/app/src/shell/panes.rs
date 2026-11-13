@@ -205,12 +205,22 @@ impl Cauldron {
         let can_add = shape.add();
         let can_down = shape.split_down();
         let drawer_open = self.drawer.is_some();
+        // Tabs in the pane header: a 40px header with the thread's tabs in its pane, the layout button
+        // in the first; floating, the 32px header with the pane's name.
+        let in_pane = !self.tabs_floating && self.coordinator.is_some();
+        let head_h = if in_pane { 40.0 } else { HEAD_H };
+        let now = std::time::Instant::now();
+        let reduce = cx.reduce_motion();
         for (slot, r) in panes::rects(area, sp).into_iter().enumerate() {
             let content = self.pane_content[slot];
             let title = content.title();
+            let strip = (in_pane && content == Content::Thread).then(|| self.tab_strip(pal, r.w, cx));
+            let layout = (in_pane && slot == 0).then(|| self.layout_button(pal, now, reduce, cx));
+            // A narrow pane keeps its tabs: expand, split bottom and the drawer toggle make way.
+            let roomy = r.w >= super::ptabs::NARROW;
             let head = div()
                 .id(("pane-head", slot))
-                .h(px(HEAD_H))
+                .h(px(head_h))
                 .flex_none()
                 .flex()
                 .items_center()
@@ -226,11 +236,13 @@ impl Cauldron {
                         cx.notify();
                     }))
                 }).test_support())
+                .children(strip.map(|s| s.test_support()))
                 // The name is the handle: drag it onto another pane to swap the two.
                 .child(
                     div()
                         .id(("pane-grip", slot))
-                        .flex_1()
+                        .when_live(in_pane && content == Content::Thread, |d| d.flex_none().w(px(12.)).child(glyph("grip-vertical", 12., fg3)))
+                        .when_live(!(in_pane && content == Content::Thread), |d| d.flex_1())
                         .min_w_0()
                         .h_full()
                         .flex()
@@ -241,29 +253,30 @@ impl Cauldron {
                         .font_weight(FontWeight::MEDIUM)
                         .text_color(fg2)
                         .aria_label(title)
-                        .child(div().min_w_0().truncate().child(title))
+                        .when_live(!(in_pane && content == Content::Thread), |d| d.child(div().min_w_0().truncate().child(title)))
                         .on_drag(PaneDrag(slot), move |_, _, _, cx| cx.new(|_| DragChip(title, pal)))
                         .test_support(),
                 )
-                .child(head_button(("pane-expand", slot), "maximize-2", "Expand", true, pal).on_click(cx.listener(move |this, _, _, cx| {
+                .when_live(roomy, |d| d.child(head_button(("pane-expand", slot), "maximize-2", "Expand", true, pal).on_click(cx.listener(move |this, _, _, cx| {
                     // This pane alone: it moves first and the card goes back to one pane.
                     this.pane_content.swap(0, slot);
                     this.set_shape(Shape::One);
                     cx.notify();
-                })).test_support())
-                .child(head_button(("pane-down", slot), "panel-bottom", "Split bottom", can_down.is_some(), pal).when_live(can_down.is_some(), |d| {
+                })).test_support()))
+                .when_live(roomy, |d| d.child(head_button(("pane-down", slot), "panel-bottom", "Split bottom", can_down.is_some(), pal).when_live(can_down.is_some(), |d| {
                     d.on_click(cx.listener(move |this, _, _, cx| {
                         if let Some(s) = this.panes.shape.split_down() {
                             this.set_shape(s);
                         }
                         cx.notify();
                     }))
-                }).test_support())
-                .child(head_button(("pane-drawer", slot), "panel-right", if drawer_open { "Hide the drawer" } else { "Show the drawer" }, true, pal).on_click(cx.listener(|this, _, _, cx| {
+                }).test_support()))
+                .when_live(roomy, |d| d.child(head_button(("pane-drawer", slot), "panel-right", if drawer_open { "Hide the drawer" } else { "Show the drawer" }, true, pal).on_click(cx.listener(|this, _, _, cx| {
                     let p = this.drawer.or(this.drawer_last).unwrap_or(Panel::Highlights);
                     this.toggle_panel(p);
                     cx.notify();
-                })).test_support())
+                })).test_support()))
+                .children(layout.map(|l| l.test_support()))
                 .when_live(content != Content::Thread, |d| {
                     d.child(head_button(("pane-close", slot), "x", "Close pane", true, pal).on_click(cx.listener(move |this, _, _, cx| {
                         this.close_pane(slot);
@@ -372,7 +385,7 @@ impl Cauldron {
                     this.pane_content.swap(d.0, slot);
                     cx.notify();
                 }))
-                .child(head)
+                .child(head.test_support())
                 .child(div().flex_1().min_h_0().overflow_hidden().child(inner));
             stage = stage.child(p.test_support());
         }

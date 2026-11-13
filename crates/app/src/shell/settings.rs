@@ -141,6 +141,22 @@ impl Cauldron {
             col = col.child(div().text_size(px(13.)).text_color(fg3).mb(px(6.)).child("How Cauldron looks around your work."));
             col = col.child(section("Background"));
             col = col.child(row(("look", 0), "Painting".into(), "Shown on the new thread, in the old dither, with the composer on frosted glass. Never behind a thread.".into(), bg.into_any_element()));
+            let tabs = div()
+                .id("set-tabs")
+                .cursor_pointer()
+                .hover(|d| d.opacity(0.85))
+                .aria_label("Change where tabs sit")
+                .child(value(if self.tabs_floating { "Floating on top".into() } else { "In the pane header".into() }))
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.tabs_floating = !this.tabs_floating;
+                    let mut p = Prefs::load();
+                    p.tab_place = if this.tabs_floating { "floating" } else { "pane" }.into();
+                    p.save();
+                    cx.notify();
+                }))
+                .test_support();
+            col = col.child(section("Tabs"));
+            col = col.child(row(("look", 1), "Where tabs sit".into(), "In the header of the pane they switch, or floating in the window bar as before.".into(), tabs.into_any_element()));
             return div().id("settings-body").size_full().overflow_y_scroll().flex().justify_center().child(col).test_support().into_any_element();
         }
         if page != 0 {

@@ -24,6 +24,7 @@ mod motion;
 mod newthread;
 mod backdrop;
 mod panes;
+mod ptabs;
 mod settings;
 mod terminal;
 mod thread;
@@ -136,6 +137,10 @@ pub(crate) enum Threads {
 pub(crate) struct Cauldron {
     sidebar_open: bool,
     drawer: Option<Panel>,
+    /// The thread's tabs float in the window bar (the old strip) instead of sitting in the pane
+    /// header (Settings > Appearance > Tabs). `launch` reads the preference; `new`, which the unit
+    /// tests build from, keeps the floating strip those tests were written for.
+    tabs_floating: bool,
     /// Background A: the new thread card's painting and the glass cut from it, cached by size and rect.
     backdrop: std::cell::RefCell<backdrop::Backdrop>,
     /// Where the glass elements were laid out last frame (window coordinates), and the painted card's
@@ -240,6 +245,7 @@ impl Cauldron {
     /// n agent tabs, for screenshots until UI4 brings real agents from core.
     pub(crate) fn launch(cx: &mut Context<Self>) -> Self {
         let mut c = Self::new();
+        c.tabs_floating = Prefs::load().tab_place == "floating";
         // Debug builds only: `CAULDRON_FIXTURE_THREADS=list|loading|empty|error` draws the sidebar
         // from made-up threads instead of core, for screenshots that hold no real thread titles.
         #[cfg(debug_assertions)]
@@ -268,8 +274,8 @@ impl Cauldron {
             if std::env::var("CAULDRON_DRAWER").as_deref() == Ok("folded") {
                 c.drawer_last = c.drawer.take();
             }
-            if std::env::var_os("CAULDRON_SETTINGS").is_some() {
-                c.settings = Some(0);
+            if let Ok(v) = std::env::var("CAULDRON_SETTINGS") {
+                c.settings = Some(v.parse::<usize>().unwrap_or(0).min(settings::PAGES.len() - 1));
             }
             if std::env::var_os("CAULDRON_TERMINAL").is_some() {
                 c.terminal = true;
@@ -291,7 +297,7 @@ impl Cauldron {
     }
 
     pub(crate) fn new() -> Self {
-        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: None, sidebar_open: true, drawer: Some(Panel::Highlights), backdrop: Default::default(), glass_at: Default::default(), glass_card: std::cell::Cell::new(None), settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
+        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: None, sidebar_open: true, drawer: Some(Panel::Highlights), tabs_floating: true, backdrop: Default::default(), glass_at: Default::default(), glass_card: std::cell::Cell::new(None), settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
     }
 
     /// Opens core off the main thread (the sidebar shows Loading meanwhile), then keeps the thread
@@ -1112,7 +1118,7 @@ impl Render for Cauldron {
         // within an equal share of the room (TAB_MIN to TAB_MAX); when TAB_MIN no longer fits, arrows appear beside +
         // and the row shows a window of 72px tabs. No figures (Charles, 13 Nov).
         let mut tab_row = None;
-        if let Some(anchor_label) = self.coordinator.clone() {
+        if let Some(anchor_label) = self.coordinator.clone().filter(|_| self.tabs_floating) {
             let focus = self.tab_focus.get_or_insert_with(|| cx.focus_handle()).clone();
             let label_w = {
                 let run = TextRun { len: anchor_label.len(), font: Font { weight: FontWeight::MEDIUM, features: sans_features(), ..font(SANS) }, color: fg, background_color: None, underline: None, strikethrough: None };
@@ -1316,11 +1322,15 @@ impl Render for Cauldron {
             .pr(px(14.))
             .text_size(px(13.))
             .text_color(fg3);
-        if let Some(p) = self.thread.as_ref().filter(|_| self.settings.is_none()).and_then(|t| t.project.as_ref()) {
+        // Tabs in the pane header: the thread's tabs are the head, the active one its title.
+        let pane_tabs = !self.tabs_floating && self.coordinator.is_some() && self.settings.is_none();
+        if pane_tabs {
+            head = head.pl(px(8.)).child(self.tab_strip(pal, s.main.w, cx).test_support());
+        } else if let Some(p) = self.thread.as_ref().filter(|_| self.settings.is_none()).and_then(|t| t.project.as_ref()) {
             let folder = p.rsplit(['/', '\\']).find(|s| !s.is_empty()).unwrap_or(p).to_string();
             head = head.child(div().id("card-crumb").flex_none().aria_label(folder.clone()).child(format!("{folder} /")).test_support());
         }
-        head = head.child(
+        if !pane_tabs { head = head.child(
             div()
                 .id(if self.thread.is_some() { "thread-title" } else { "card-title" })
                 .min_w_0()
@@ -1330,7 +1340,7 @@ impl Render for Cauldron {
                 .aria_label(head_title.clone())
                 .child(head_title)
                 .test_support(),
-        );
+        ); }
         if self.settings.is_none() {
             head = head.child(div().flex_1()).child(self.layout_button(pal, now, reduce, cx).test_support());
         }
@@ -1339,14 +1349,20 @@ impl Render for Cauldron {
         let card_h = s.main.h - if new_screen { STAGE_H } else { 0.0 };
         // Split (direction B): under the head the card holds up to four panes on the Shell's grey;
         // a shape that no longer fits steps back, as the shell closes Split when the window narrows.
-        let area = Rect::new(s.main.x, s.main.y + 44.0, s.main.w, card_h - 44.0);
-        let shape = if self.settings.is_some() { Shape::One } else { cauldron_chrome::panes::effective(area, self.panes.shape) };
+        // Split with the tabs in the panes, the card head goes: each pane's header carries its tabs.
+        let full = Rect::new(s.main.x, s.main.y, s.main.w, card_h);
+        let headed = Rect::new(s.main.x, s.main.y + 44.0, s.main.w, card_h - 44.0);
+        let shape = if self.settings.is_some() { Shape::One } else { cauldron_chrome::panes::effective(headed, self.panes.shape) };
+        let headless = pane_tabs && shape != Shape::One;
+        let area = if headless { full } else { headed };
+        let shape = if headless { cauldron_chrome::panes::effective(area, self.panes.shape) } else { shape };
         let split = shape != Shape::One;
         // The thread view drops what does not fit its pane, so it needs that pane's size first.
         let sp = Split { shape, ..self.panes };
         let at = self.pane_content.iter().position(|p| *p == panes::Content::Thread).unwrap_or(0).min(shape.count() - 1);
         let tb = cauldron_chrome::panes::rects(area, sp)[at];
-        self.thread_box.set(if split { (tb.w, tb.h - 32.0) } else { (tb.w, tb.h) });
+        let pane_head = if self.tabs_floating { 32.0 } else { 40.0 };
+        self.thread_box.set(if split { (tb.w, tb.h - pane_head) } else { (tb.w, tb.h) });
         // Background A: a painting on the new thread's card only, never behind a thread.
         let painting = if new_screen && !split { backdrop::painting(&Prefs::load().backdrop, dark) } else { None };
         let art = painting.map(|name| {
@@ -1376,7 +1392,7 @@ impl Render for Cauldron {
             .when_live(!split, |d| d.bg(c(pal.panel)).border_1().border_color(ring))
             .text_color(fg3)
             .children(art.map(|art| img(art).id("card-art").absolute().top_0().left_0().size_full().rounded(px(radius::PANEL - 1.)).test_support()))
-            .child(head.test_support())
+            .when_live(!headless, |d| d.child(head.test_support()))
             .child(div().flex_1().min_h_0().child(inside));
         // The grey Shell behind the card, Split and the drawer: the drawer stands in its right
         // gutter and the new thread's bar in its bottom one (the coordinator's brief, 13 Nov).
@@ -1516,6 +1532,10 @@ impl Render for Cauldron {
         );
         if let Some(row) = tab_row {
             root = root.child(row.test_support());
+        } else if !self.tabs_floating && self.settings.is_none() {
+            if let Some(crumb) = self.bar_crumb(pal, s.tabs) {
+                root = root.child(crumb.test_support());
+            }
         }
 
         // ---- sidebar button (top bar, left)
