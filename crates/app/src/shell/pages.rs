@@ -75,7 +75,7 @@ fn example_agents() -> Vec<AgentCard> {
 }
 
 /// The demo's group rooms: name, members (roster indexes), last line.
-const ROOMS: [(&str, [usize; 3], &str); 2] = [("Launch crew", [0, 1, 2], "Cursor: preview is up"), ("Design room", [0, 2, 3], "Librarian filed the palette")];
+pub(super) const ROOMS: [(&str, [usize; 3], &str); 2] = [("Launch crew", [0, 1, 2], "Cursor: preview is up"), ("Design room", [0, 2, 3], "Librarian filed the palette")];
 
 /// The demo room's example messages: who (roster index; None is you), what.
 const MESSAGES: [(Option<usize>, &str); 6] = [
@@ -87,7 +87,7 @@ const MESSAGES: [(Option<usize>, &str); 6] = [
     (Some(0), "Noted. I'll read the diff once Cursor is done."),
 ];
 
-fn figure(dot: usize, mood: Mood, px_: f32, bust: bool) -> Img {
+pub(super) fn figure(dot: usize, mood: Mood, px_: f32, bust: bool) -> Img {
     let (fw, fh) = avatar::size(px_);
     img(Arc::new(Image::from_bytes(ImageFormat::Svg, avatar::svg(dot, mood, Look { px: px_, outline: false, ms: None, bust, ink: None }).into_bytes()))).w(px(fw)).h(px(fh)).flex_none()
 }
@@ -134,6 +134,7 @@ impl Cauldron {
     pub(super) fn open_page(&mut self, p: AppPage) {
         self.page = p;
         self.settings = None;
+        self.side_data = super::context::SideData::load(p);
         if p == AppPage::Agents {
             // Agents keeps its own drawer open: the agent's panel is part of the page.
             self.drawer.get_or_insert(super::Panel::Highlights);
@@ -156,7 +157,7 @@ impl Cauldron {
     }
 
     /// The roster: core's agents, then the examples.
-    fn roster(&self) -> Vec<AgentCard> {
+    pub(super) fn roster(&self) -> Vec<AgentCard> {
         let mut v = self.page_agents.clone();
         v.extend(example_agents());
         v
@@ -192,78 +193,19 @@ impl Cauldron {
         div().id("page-body").size_full().overflow_y_scroll().flex().justify_center().child(col).test_support().into_any_element()
     }
 
-    /// Agents: the roster and the group rooms on the left, the open room on the right (the old
-    /// Crew screens, on the approved figure: flat colour, moods, a bust in the room).
+    /// Agents: the open room (the old Crew screens, on the approved figure: flat colour, moods, a
+    /// bust in the room). The roster and the crews are in the sidebar now (the context-sidebar board).
     fn agents_page(&self, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
         let (fg, fg2, fg3) = (c(pal.fg), c(pal.fg2), c(pal.fg3));
         let roster = self.roster();
         let real = roster.iter().filter(|a| !a.example).count();
-        let section = |t: &'static str| div().px(px(8.)).pt(px(12.)).pb(px(4.)).text_size(px(11.)).font_weight(FontWeight::MEDIUM).text_color(fg3).child(t);
-        let mut left = div().id("agent-roster").w(px(220.)).flex_none().flex().flex_col().gap(px(2.)).child(section("Agents"));
-        for (i, a) in roster.iter().enumerate() {
-            let on = self.agent_sel == Some(i);
-            left = left.child(
-                div()
-                    .id(("agent-row", i))
-                    .h(px(40.))
-                    .flex()
-                    .items_center()
-                    .gap(px(8.))
-                    .px(px(8.))
-                    .rounded(px(radius::INNER))
-                    .cursor_pointer()
-                    .when_live(on, |d| d.bg(c(pal.selected)))
-                    .when_live(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
-                    .aria_label(a.name.clone())
-                    .aria_selected(on)
-                    .child(figure(a.dot, a.mood, 22., false))
-                    .child(div().flex_1().min_w_0().flex().flex_col().child(div().truncate().text_size(px(13.)).text_color(fg).child(a.name.clone())).child(div().truncate().text_size(px(11.)).text_color(fg3).child(a.status.clone())))
-                    .when_live(a.example, |d| d.child(tag(("agent-example", i), "Example", pal).test_support()))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.agent_sel = Some(i);
-                        cx.notify();
-                    }))
-                    .test_support(),
-            );
-        }
-        left = left.child(section("Group chats"));
-        for (r, (name, members, last)) in ROOMS.iter().enumerate() {
-            let on = self.agent_sel.is_none() && r == 0;
-            let mut faces = div().flex().w(px(40.)).flex_none();
-            for m in members {
-                let a = &roster[real + m];
-                faces = faces.child(div().ml(px(-4.)).child(figure(a.dot, a.mood, 16., false)));
-            }
-            left = left.child(
-                div()
-                    .id(("room-row", r))
-                    .h(px(40.))
-                    .flex()
-                    .items_center()
-                    .gap(px(8.))
-                    .px(px(8.))
-                    .pl(px(12.))
-                    .rounded(px(radius::INNER))
-                    .cursor_pointer()
-                    .when_live(on, |d| d.bg(c(pal.selected)))
-                    .when_live(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
-                    .aria_label(*name)
-                    .child(faces)
-                    .child(div().flex_1().min_w_0().flex().flex_col().child(div().truncate().text_size(px(13.)).text_color(fg).child(*name)).child(div().truncate().text_size(px(11.)).text_color(fg3).child(*last)))
-                    .child(tag(("room-example", r), "Example", pal).test_support())
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.agent_sel = None;
-                        cx.notify();
-                    }))
-                    .test_support(),
-            );
-        }
-        left = left.child(self.tipped("new-group", div().id("new-group").h(px(30.)).px(px(8.)).flex().items_center().gap(px(6.)).text_size(px(12.)).text_color(c(pal.fg4)).aria_label("New group (demo: not built yet)").child(glyph("plus", 12., c(pal.fg4))).child("New group"), "Demo: not built yet", Side::Right, pal, cx).test_support());
-
         // The open room (or an agent's 1:1): header, the day, the messages, the disabled composer.
         let (title, sub, faces): (String, String, Vec<usize>) = match self.agent_sel {
             Some(i) if i < roster.len() => (roster[i].name.clone(), format!("{} · {}", roster[i].status, roster[i].route), vec![i]),
-            _ => (ROOMS[0].0.into(), format!("{} agents · {}", ROOMS[0].1.len(), ROOMS[0].2), ROOMS[0].1.iter().map(|m| real + m).collect()),
+            _ => {
+                let room = &ROOMS[self.room_sel.min(ROOMS.len() - 1)];
+                (room.0.into(), format!("{} agents · {}", room.1.len(), room.2), room.1.iter().map(|m| real + m).collect())
+            }
         };
         let mut head_faces = div().flex();
         for i in &faces {
@@ -274,7 +216,8 @@ impl Cauldron {
         let shown: Vec<(Option<usize>, &str)> = match self.agent_sel {
             Some(i) if i >= real => MESSAGES.iter().copied().filter(|(w, _)| w.map_or(true, |w| real + w == i)).collect(),
             Some(_) => Vec::new(),
-            None => MESSAGES.to_vec(),
+            // The second room shows its members' lines from the same example conversation.
+            None => MESSAGES.iter().copied().filter(|(w, _)| self.room_sel == 0 || w.map_or(true, |w| ROOMS[self.room_sel.min(ROOMS.len() - 1)].1.contains(&w))).collect(),
         };
         if shown.is_empty() {
             msgs = msgs.child(div().id("room-empty").text_size(px(12.)).text_color(fg3).child("No messages here yet: chatting with an agent is not built yet.").test_support());
@@ -367,7 +310,7 @@ impl Cauldron {
             .px(px(16.))
             .pb(px(12.))
             .child(div().flex().items_center().gap(px(8.)).py(px(8.)).child(div().text_size(px(13.)).text_color(fg3).child("Agents work as a team in rooms; this is how it will look.")).child(tag("demo-tag", "Demo", pal).test_support()))
-            .child(div().flex_1().min_h_0().flex().gap(px(16.)).child(left.test_support()).child(room.test_support()))
+            .child(div().flex_1().min_h_0().flex().child(room.test_support()))
             .test_support()
             .into_any_element()
     }
@@ -482,15 +425,21 @@ mod tests {
             window.render_frame(cx);
             assert_eq!(window.find("card-title").label(), Some("Library"));
             assert!(window.try_find("demo-tag").is_some(), "a placeholder says it is a demo");
-            assert!(window.try_find(("thread", 0usize)).is_some(), "the sidebar's streams stay");
+            // The sidebar follows the destination (the context-sidebar board): Library's own list.
+            assert!(window.try_find(("thread", 0usize)).is_none() && window.try_find("side-zone").is_some(), "the sidebar shows Library's list");
+            assert_eq!(window.find(("lib-notes", 0usize)).label(), Some("Notes"));
             assert!(window.try_find("drawer").is_none() && window.try_find("rrail").is_none(), "Library has no drawer");
-            window.click(("thread", 0usize), cx);
+            window.click(("lib-notes", 0usize), cx);
+            window.render_frame(cx);
+            assert_eq!(window.find(("lib-notes", 0usize)).selected(), Some(true), "selecting a row highlights it");
+            window.click(("app-page", 0usize), cx);
         })
         .unwrap();
         rest(cx);
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
-            assert!(window.try_find("page-body").is_none() && window.find(("app-page", 0usize)).selected() == Some(true), "a stream brings Streams back");
+            assert!(window.try_find("page-body").is_none() && window.find(("app-page", 0usize)).selected() == Some(true), "Streams comes back");
+            assert!(window.try_find(("thread", 0usize)).is_some(), "with its streams");
         })
         .unwrap();
     }

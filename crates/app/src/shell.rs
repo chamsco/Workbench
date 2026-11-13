@@ -24,6 +24,7 @@ mod motion;
 mod newthread;
 mod appearance;
 mod backdrop;
+mod context;
 mod pages;
 mod panes;
 mod ptabs;
@@ -183,6 +184,12 @@ pub(crate) struct Cauldron {
     agent_sel: Option<usize>,
     /// The agent drawer's tab: Context, Traces, Routines, Settings.
     agent_tab: usize,
+    /// The crew room shown on Agents.
+    room_sel: usize,
+    /// Each destination's selected row in the sidebar, by `AppPage as usize`.
+    side_sel: [Option<usize>; 6],
+    /// What the open destination's sidebar list reads from core.
+    side_data: context::SideData,
     /// Settings is open on this page (v3 frame 7): its pages take the sidebar's list, the page the card.
     settings: Option<usize>,
     /// Where Settings reads the subscriptions; None is core's `accounts.json` (tests use their own).
@@ -333,7 +340,7 @@ impl Cauldron {
     }
 
     pub(crate) fn new() -> Self {
-        Cauldron { motion: ShellMotion::default(), swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: None, sidebar_open: true, drawer: None, backdrop: Default::default(), glass_at: Default::default(), glass_card: std::cell::Cell::new(None), appearance_sub: None, active_sub: None, flow_clock: None, flow_task: None, flow_running: false, flow_burst: Default::default(), flow_at: None, retired: Vec::new(), flow_stats: (0, std::time::Duration::ZERO), prefs_file: None, plat: platform(), folder_open: Default::default(), page: Default::default(), page_agents: Vec::new(), agent_sel: None, agent_tab: 0, settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_menu: false, tab_slide: Default::default(), tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
+        Cauldron { motion: ShellMotion::default(), swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: None, sidebar_open: true, drawer: None, backdrop: Default::default(), glass_at: Default::default(), glass_card: std::cell::Cell::new(None), appearance_sub: None, active_sub: None, flow_clock: None, flow_task: None, flow_running: false, flow_burst: Default::default(), flow_at: None, retired: Vec::new(), flow_stats: (0, std::time::Duration::ZERO), prefs_file: None, plat: platform(), folder_open: Default::default(), page: Default::default(), page_agents: Vec::new(), agent_sel: None, agent_tab: 0, room_sel: 0, side_sel: [None; 6], side_data: Default::default(), settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_menu: false, tab_slide: Default::default(), tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
     }
 
     /// Opens core off the main thread (the sidebar shows Loading meanwhile), then keeps the thread
@@ -999,6 +1006,12 @@ trait WhenLive: Sized {
     fn when_live(self, cond: bool, f: impl FnOnce(Self) -> Self) -> Self {
         if cond { f(self) } else { self }
     }
+    fn when_opt<V>(self, v: Option<V>, f: impl FnOnce(Self, V) -> Self) -> Self {
+        match v {
+            Some(v) => f(self, v),
+            None => self,
+        }
+    }
 }
 impl<T> WhenLive for T {}
 
@@ -1156,7 +1169,6 @@ impl Render for Cauldron {
         }
 
         let frame = c(pal.frame);
-        let card = c(pal.card);
         let ring = ca(pal.fg, if dark { 0.08 } else { 0.09 });
         let fg = c(pal.fg);
         let fg2 = c(pal.fg2);
@@ -1247,6 +1259,7 @@ impl Render for Cauldron {
             let search = self.search.as_ref().expect("just created").0.clone();
             self.list_focus.get_or_insert_with(|| cx.focus_handle());
             let list = self.thread_list(pal, cx);
+            let streams_side = self.settings.is_none() && self.page == pages::AppPage::Streams;
             let user = std::env::var("USER").or_else(|_| std::env::var("USERNAME")).unwrap_or_else(|_| "You".into());
             let initial = user.chars().next().map(|ch| ch.to_uppercase().to_string()).unwrap_or_else(|| "Y".into());
             let new_thread = div()
@@ -1276,9 +1289,13 @@ impl Render for Cauldron {
                 .pr(px(SIDE_PR))
                 .overflow_hidden()
                 .child(self.page_switch(pal, cx).test_support())
+                .when_opt(self.needs_pill(pal, cx), |d, p| d.child(p.test_support()))
                 .when_live(self.settings.is_some(), |d| d.child(self.settings_nav(self.settings.unwrap_or(0), pal, cx).test_support()))
-                .when_live(self.settings.is_none(), |d| d.child(new_thread))
-                .when_live(self.settings.is_none(), |d| d.child(
+                // The sidebar follows the destination (the context-sidebar board): Streams' list
+                // here, each other destination its own zone.
+                .when_live(self.settings.is_none() && self.page != pages::AppPage::Streams, |d| d.child(self.side_zone(pal, cx).test_support()))
+                .when_live(streams_side, |d| d.child(new_thread))
+                .when_live(streams_side, |d| d.child(
                     div().child(
                         div()
                             .id("search")
@@ -1296,7 +1313,7 @@ impl Render for Cauldron {
                             .test_support(),
                     ),
                 ))
-                .when_live(self.settings.is_none(), |d| d.child(list))
+                .when_live(streams_side, |d| d.child(list))
                 .child(
                     div()
                         .h(px(37.))
