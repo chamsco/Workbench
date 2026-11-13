@@ -121,9 +121,9 @@ pub fn layout(w: f32, h: f32, state: ShellState, platform: Platform) -> Shell {
 
     let (rail, sidebar, main_x) = if state.sidebar_open {
         let sb = Rect::new(inner.x + MARGIN_SIDE, side_top, SIDEBAR_W, foot - side_top);
-        (None, Some(sb), sb.right() + GAP)
+        (None, Some(sb), sb.right())
     } else {
-        (Some(Rect::new(inner.x, side_top, RAIL_W, foot - side_top)), None, inner.x + RAIL_W + GAP)
+        (Some(Rect::new(inner.x, side_top, RAIL_W, foot - side_top)), None, inner.x + RAIL_W)
     };
     let bar = if state.sidebar_open { Rect::new(inner.x, inner.y, main_x - inner.x, BAR_H) } else { Rect::new(inner.x, inner.y, inner.w, BAR_H) };
     let top = if state.sidebar_open { inner.y + MARGIN_TOP } else { side_top };

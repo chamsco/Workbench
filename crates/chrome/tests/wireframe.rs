@@ -170,7 +170,10 @@ fn the_drawer_takes_the_right_rails_place() {
         let d = open.drawer.expect("drawer open");
         assert!(open.rrail.is_none(), "{platform:?}: no right rail beside an open drawer");
         let sh = open.shell;
-        assert_eq!((sh.x, sh.right()), (open.sidebar.unwrap().right() + 8.0, 1200.0 - 1.0 - 12.0), "{platform:?}: the Shell from the sidebar to the side margin");
+        // Flush against the sidebar (Charles, 13 Nov 07:34Z: no gap where the content meets it).
+        assert_eq!((sh.x, sh.right()), (open.sidebar.unwrap().right(), 1200.0 - 1.0 - 12.0), "{platform:?}: the Shell from the sidebar's edge to the side margin");
+        let shut = solve(1200.0, 720.0, ShellState { sidebar_open: false, ..ShellState { sidebar_open: true, drawer_open: true, split_open: false, terminal_open: false, plugins: true } }, platform);
+        assert_eq!(shut.shell.x, shut.rail.unwrap().right(), "{platform:?}: flush against the folded rail too");
         assert_eq!((d.right(), d.w), (sh.right() - 6.0, 236.0), "{platform:?}: the drawer 6px inside the Shell's right edge, sidebar-wide");
         assert_eq!((d.y, d.bottom()), (open.main.y, open.main.bottom()), "{platform:?}: as tall as the card");
         assert_eq!(open.main.right() + 6.0, d.x, "{platform:?}: 6px from the card");

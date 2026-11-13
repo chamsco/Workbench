@@ -1243,13 +1243,15 @@ impl Render for Cauldron {
             .child(div().flex_1().min_h_0().child(inside));
         // The grey Shell behind the card, Split and the drawer: the drawer stands in its right
         // gutter and the new thread's bar in its bottom one (the coordinator's brief, 13 Nov).
-        let mut shell_el = pane("shell", s.shell).rounded(px(radius::SHELL)).bg(card);
+        // The Shell meets the sidebar flush, square on its left (Charles, 13 Nov 07:34Z: no gap at
+        // the corners), rounded on its right.
+        let mut shell_el = pane("shell", s.shell).rounded_tr(px(radius::SHELL)).rounded_br(px(radius::SHELL)).bg(card);
         if let Some(f) = frost {
             // The frame is frosted painting: the blurred copy under the Shell colour at 77% / 83%.
             let t = self.backdrop.borrow_mut().hsla_for(backdrop::Surface::Shell, dark, (sh.x as i32, sh.y as i32, sh.w as u32, sh.h as u32), pal);
             shell_el = shell_el
-                .child(img(f).id("shell-art").absolute().top_0().left_0().size_full().rounded(px(radius::SHELL)).test_support())
-                .child(div().absolute().top_0().left_0().size_full().rounded(px(radius::SHELL)).bg(t));
+                .child(img(f).id("shell-art").absolute().top_0().left_0().size_full().rounded_tr(px(radius::SHELL)).rounded_br(px(radius::SHELL)).test_support())
+                .child(div().absolute().top_0().left_0().size_full().rounded_tr(px(radius::SHELL)).rounded_br(px(radius::SHELL)).bg(t));
         }
         root = root.child(shell_el.test_support());
         let mut main_el = pane("main", s.main).child(card_el.test_support());
