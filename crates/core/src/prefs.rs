@@ -85,9 +85,6 @@ pub struct Prefs {
     /// The window's backdrop: "harbour", "dawn", "night", "open-sea",
     /// "fog", "aurora" or "plain".
     pub backdrop: String,
-    /// Where a thread's tabs sit in the Cauldron shell: "pane" (in each pane's header) or
-    /// "floating" (on top, in the window bar).
-    pub tab_place: String,
     /// How Backspace tells you something needs you: "system" (the OS's
     /// notifications), "app" (inside the app only) or "off".
     pub notify: String,
@@ -138,7 +135,6 @@ impl Default for Prefs {
             cli_permission: "edits".into(),
             cli_effort: None,
             backdrop: "harbour".into(),
-            tab_place: "pane".into(),
             notify: "system".into(),
             companion: CompanionCfg::default(),
             uses: vec!["chat".into(), "code".into()],

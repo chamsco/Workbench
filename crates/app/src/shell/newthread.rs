@@ -242,7 +242,7 @@ impl Cauldron {
     /// Frosted glass under a new-thread element, while the card shows a painting: the blurred
     /// painting cut at where the element was laid out last frame, a tint over it, and a probe that
     /// records where it is now (a move asks for one more frame). Nothing without a painting.
-    fn glass(&self, key: &'static str, r: f32) -> Vec<AnyElement> {
+    pub(super) fn glass(&self, key: &'static str, r: f32) -> Vec<AnyElement> {
         let Some((cx0, cy0, dark)) = self.glass_card.get() else { return Vec::new() };
         let at = self.glass_at.clone();
         let probe = canvas(
@@ -616,7 +616,7 @@ mod tests {
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
             assert!(window.try_find("nt-box").is_none(), "the thread replaced the screen");
-            assert!(window.try_find("thread-title").is_some(), "the thread view replaced it");
+            assert!(window.try_find(("ptab", 0usize)).is_some(), "the thread view replaced it");
             window.click("new-thread", cx);
             window.render_frame(cx);
             assert!(window.try_find("nt-box").is_some(), "New thread brings it back");

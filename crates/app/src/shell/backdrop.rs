@@ -49,6 +49,18 @@ fn decoded(name: &'static str) -> Arc<RgbaImage> {
 pub(crate) fn tint(dark: bool) -> [f32; 4] {
     if dark { [21.0, 21.0, 21.0, 0.74] } else { [255.0, 255.0, 255.0, 0.75] }
 }
+/// The frame's frost: the Shell colour over the blurred painting, 77% in dark and 83% in light (the
+/// coordinator's board b427b05), so the drawer's text reads straight on it.
+pub(crate) fn frame_alpha(dark: bool) -> f32 {
+    if dark { 0.77 } else { 0.83 }
+}
+
+pub(crate) fn frame_tint(dark: bool, pal: &cauldron_chrome::tokens::Palette) -> gpui_kit::Hsla {
+    let mut h: gpui_kit::Hsla = gpui_kit::rgb(((pal.card.0 as u32) << 16) | ((pal.card.1 as u32) << 8) | pal.card.2 as u32).into();
+    h.a = frame_alpha(dark);
+    h
+}
+
 /// How soft the glass is.
 const BLUR_SIGMA: f32 = 14.0;
 
@@ -91,8 +103,10 @@ struct Key {
 pub(crate) struct Backdrop {
     key: Option<Key>,
     card: Option<Arc<RenderImage>>,
+    art: Option<RgbaImage>,
     blurred: Option<RgbaImage>,
     crops: HashMap<(i32, i32, u32, u32), Arc<RenderImage>>,
+    sharp_crops: HashMap<(i32, i32, u32, u32), Arc<RenderImage>>,
     /// How many times the painting was made; tests read it to see the cache work.
     pub(crate) made: usize,
 }
@@ -108,8 +122,10 @@ impl Backdrop {
             let mut flat = RgbaImage::from_pixel(w, h, image::Rgba([bg[0], bg[1], bg[2], 255]));
             imageops::overlay(&mut flat, &art, 0, 0);
             self.blurred = Some(imageops::fast_blur(&flat, BLUR_SIGMA));
-            self.card = Some(to_render(art));
+            self.card = Some(to_render(art.clone()));
+            self.art = Some(art);
             self.crops.clear();
+            self.sharp_crops.clear();
             self.key = Some(key);
             self.made += 1;
         }
@@ -128,6 +144,24 @@ impl Backdrop {
                 .or_insert_with(|| {
                     let mut out = RgbaImage::new(w, h);
                     imageops::overlay(&mut out, b, -(x as i64), -(y as i64));
+                    to_render(out)
+                })
+                .clone(),
+        )
+    }
+
+    /// The painting itself cut at `r`, for the new thread's card: a clear window onto it.
+    pub(crate) fn sharp(&mut self, x: i32, y: i32, w: u32, h: u32) -> Option<Arc<RenderImage>> {
+        let a = self.art.as_ref()?;
+        if w == 0 || h == 0 {
+            return None;
+        }
+        Some(
+            self.sharp_crops
+                .entry((x, y, w, h))
+                .or_insert_with(|| {
+                    let mut out = RgbaImage::new(w, h);
+                    imageops::overlay(&mut out, a, -(x as i64), -(y as i64));
                     to_render(out)
                 })
                 .clone(),
@@ -194,25 +228,42 @@ mod tests {
         assert!(clear(299) > 300, "the foot is the card: {}", clear(299));
     }
 
+    /// The 1200x720 Mac window, drawer open: the Shell is 930 x 706, the card 676 wide 6px in, the
+    /// drawer 236 wide in the right gutter; the composer box is 628 x 84 centred in the card.
+    const SHELL: (u32, u32) = (930, 706);
+    const COMPOSER: (u32, u32, u32, u32) = (6 + (676 - 628) / 2, 6 + 650 / 2 - 42, 628, 84);
+    const CHIP: (u32, u32, u32, u32) = (6 + (676 - 628) / 2, 6 + 650 / 2 - 42 - 34, 140, 26);
+    const DRAWER: (u32, u32, u32, u32) = (930 - 6 - 236, 6, 236, 694);
+
     /// Text on the glass reads: fg2 and fg3 at 4.5:1 or better over every pixel of the composer's
-    /// glass, in both themes, at the 1200x720 window's new-thread card (the board measured the
-    /// composer at 5.5:1 dark and 5.2:1 light).
+    /// and the chip's glass, in both themes (the board measured the composer at 5.5:1 dark and 5.2:1
+    /// light).
     #[test]
     fn text_on_the_glass_holds_4_5_to_1() {
-        // The card at 1200x720 with the drawer open is 676 x 618 (inside its border); the box is
-        // 628 x 84, centred, with its chip row above it.
-        let (w, h) = (676, 618);
         for (dark, pal, name) in [(true, &DARK, "harbour-night"), (false, &LIGHT, "harbour-dawn")] {
             let mut b = Backdrop::default();
-            b.card(name, dark, w, h, rgb(pal.panel));
+            b.card(name, dark, SHELL.0, SHELL.1, rgb(pal.card));
             let blurred = b.blurred().unwrap();
-            let composer = ((w - 628) / 2, h / 2 - 42, 628, 84);
-            let chip = ((w - 628) / 2, h / 2 - 42 - 34, 140, 26);
-            for (what, r) in [("composer", composer), ("chip", chip)] {
+            for (what, r) in [("composer", COMPOSER), ("chip", CHIP)] {
                 for (fgn, fg) in [("fg2", pal.fg2), ("fg3", pal.fg3)] {
                     let c = worst_contrast(blurred, r, tint(dark), fg);
                     assert!(c >= 4.5, "{name} {what} {fgn}: {c:.2}:1");
                 }
+            }
+        }
+    }
+
+    /// The drawer's text sits straight on the frosted frame: fg2 and fg3 at 4.5:1 or better over
+    /// every pixel of the drawer (the board measured fg3 at 5.0:1 dark and 4.8:1 light).
+    #[test]
+    fn text_on_the_frosted_frame_holds_4_5_to_1() {
+        for (dark, pal, name) in [(true, &DARK, "harbour-night"), (false, &LIGHT, "harbour-dawn")] {
+            let mut b = Backdrop::default();
+            b.card(name, dark, SHELL.0, SHELL.1, rgb(pal.card));
+            let frame = [pal.card.0 as f32, pal.card.1 as f32, pal.card.2 as f32, frame_alpha(dark)];
+            for (fgn, fg) in [("fg2", pal.fg2), ("fg3", pal.fg3)] {
+                let c = worst_contrast(b.blurred().unwrap(), DRAWER, frame, fg);
+                assert!(c >= 4.5, "{name} drawer {fgn}: {c:.2}:1");
             }
         }
     }

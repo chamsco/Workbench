@@ -42,8 +42,6 @@ fn pick(s: &Shell, key: &str) -> Option<Rect> {
         "rrail" => s.rrail,
         "notch" => None,
         "sbtn" => Some(s.sidebar_button),
-        "tabs" => Some(s.tabs),
-        "topr" => Some(s.topr),
         "wcaps" => s.caps,
         "lights" => s.lights,
         other => panic!("unknown golden rect {other}"),
@@ -124,35 +122,42 @@ fn panes_never_overlap_and_stay_inside_the_window() {
     }
 }
 
-/// The floating tabs: 30px tall, centred in the top bar, starting at the card's left edge, never over the lights, the sidebar button or the name, and ending before
-/// Terminal and Split. The Shell starts right under the bar; the card, the drawer and Split sit 6px
-/// inside it.
+/// No top bar over the content (Charles, 13 Nov 06:52Z: "the main content area take more space on
+/// the top and bottom ... getting rid of the breadcrumbs"): the lights, the sidebar button and the
+/// name keep a 44px row over the sidebar; the Shell runs from 8px under the window's top to 8px over
+/// its bottom. With the sidebar folded the Shell starts under that row, so it never meets the name.
+/// On Windows the caption buttons (3 x 40 x 24) sit inside the Shell's top-right, in a 30px grey band
+/// the panes start under (the coordinator's board b427b05). Elsewhere the card, the drawer and the
+/// rail sit 6px inside the Shell: the card 12px from the window's top and bottom.
 #[test]
-fn tabs_float_in_the_bar_and_the_panes_start_under_it() {
+fn the_shell_runs_near_the_top_and_bottom() {
     for &(w, h) in &[(1200.0, 720.0), (1000.0, 640.0), (1920.0, 1080.0)] {
         for platform in [Platform::Mac, Platform::Windows, Platform::Reference] {
             for bits in 0..8u8 {
                 let st = ShellState { sidebar_open: bits & 1 != 0, drawer_open: bits & 2 != 0, split_open: bits & 4 != 0, terminal_open: false, plugins: true };
                 let s = solve(w, h, st, platform);
-                let t = s.tabs;
-                let at = format!("{w}x{h} {platform:?} {st:?}: tabs {t:?}");
-                assert_eq!((t.h, s.bar.h), (24.0, 44.0), "{at}: the board's 44px bar, its card head's height");
-                assert!(inside(s.bar, t), "{at} inside the bar {:?}", s.bar);
-                assert_eq!(t.y - s.bar.y, s.bar.bottom() - t.bottom(), "{at} centred in the bar");
-                assert!(t.x >= s.main.x, "{at} starts at or after the card's edge");
-                assert!(t.x >= s.sidebar_button.right() + 8.0 + 96.0, "{at} clears the button, logo and name");
-                assert!(t.right() <= s.topr.x - 8.0 + 0.01, "{at} ends before Terminal and Split");
-                assert_eq!(s.shell.y, s.bar.bottom(), "{at}: the Shell right under the bar");
+                let at = format!("{w}x{h} {platform:?} {st:?}");
+                let top = if st.sidebar_open { 1.0 + 6.0 } else { 1.0 + 44.0 };
+                assert_eq!((s.shell.y, s.shell.bottom()), (top, h - 1.0 - 6.0), "{at}: the Shell's top and bottom");
+                assert_eq!(s.bar.h, 44.0, "{at}: the row for the lights, the button and the name");
+                assert!(inside(s.bar, s.sidebar_button), "{at}: the button in that row");
+                assert!(!overlaps(s.bar, s.shell), "{at}: the row stays off the Shell");
+                let pad_top = s.caps.map_or(6.0, |c| {
+                    assert!(inside(s.shell, c), "{at}: caption buttons inside the Shell");
+                    assert_eq!((c.w, c.h), (120.0, 24.0), "{at}: three 40x24 buttons");
+                    assert_eq!((c.right(), c.y), (s.shell.right() - 6.0, s.shell.y + 3.0), "{at}: at its top right, centred in the band");
+                    30.0
+                });
                 for r in [Some(s.main), s.drawer, s.rrail, s.half].into_iter().flatten() {
-                    assert_eq!((r.y, r.bottom()), (s.shell.y + 6.0, s.shell.bottom() - 6.0), "{at} pane {r:?} 6px inside the Shell");
+                    assert_eq!((r.y, r.bottom()), (s.shell.y + pad_top, s.shell.bottom() - 6.0), "{at} pane {r:?} inside the Shell");
                     assert!(r.x >= s.shell.x + 6.0 && r.right() <= s.shell.right() - 6.0, "{at} pane {r:?} inside the Shell");
+                }
+                if let Some(sb) = s.sidebar {
+                    assert_eq!((sb.y, sb.bottom()), (s.bar.bottom(), h - 1.0 - 6.0), "{at}: the sidebar under the row, to the same foot");
                 }
             }
         }
     }
-    // Sidebar open: at the card's left edge.
-    let s = solve(1200.0, 720.0, ShellState { sidebar_open: true, drawer_open: true, split_open: false, terminal_open: false, plugins: true }, Platform::Windows);
-    assert_eq!(s.tabs.x, s.main.x);
 }
 
 /// The v3 drawer (Charles, 13 Nov): in the grey Shell's right gutter (the coordinator's brief,
@@ -197,16 +202,14 @@ fn platforms_differ_only_in_window_controls() {
     let win = solve(1240.0, 702.0, st, Platform::Windows);
     assert!(mac.lights.is_some() && mac.caps.is_none());
     assert!(win.lights.is_none() && win.caps.is_some());
-    assert_eq!(mac.main, win.main, "same pane geometry on both platforms");
-    assert_eq!(mac.rrail, win.rrail);
+    assert_eq!((mac.main.x, mac.main.w, mac.main.bottom()), (win.main.x, win.main.w, win.main.bottom()), "the same columns on both platforms");
+    assert_eq!(win.main.y - mac.main.y, 24.0, "Windows starts the panes under its 30px caption band");
+    assert_eq!(mac.main.y, 1.0 + 6.0 + 6.0, "Mac: the card 12px under the window's top edge");
     assert_eq!(mac.sidebar, win.sidebar);
     // The sidebar button and the logo sit inside the top bar on both.
     for s in [&mac, &win] {
         assert!(inside(s.bar, s.sidebar_button), "button {:?} outside the bar {:?}", s.sidebar_button, s.bar);
     }
-    // Windows: Terminal and Split sit directly left of the caption buttons.
-    let caps = win.caps.unwrap();
-    assert!((win.topr.x + win.topr.w + 8.0 - caps.x).abs() <= TOL);
     // Mac: lights and button do not touch.
     assert!(!overlaps(mac.lights.unwrap(), mac.sidebar_button));
 }

@@ -60,7 +60,6 @@ pub struct Shell {
     /// and the new thread's bar in its bottom one.
     pub shell: Rect,
     pub main: Rect,
-    pub tabs: Rect,
     pub half: Option<Rect>,
     pub drawer: Option<Rect>,
     /// The terminal card (v3 frame 5): in the right gutter, the drawer folded to its rail beside it.
@@ -70,8 +69,7 @@ pub struct Shell {
     pub rrail: Option<Rect>,
     pub sidebar_button: Rect,
     pub lights: Option<Rect>,
-    /// Terminal and Split.
-    pub topr: Rect,
+    /// Windows' caption buttons, inside the Shell's top right.
     pub caps: Option<Rect>,
 }
 
@@ -79,7 +77,9 @@ pub struct Shell {
 pub mod metric {
     pub const BORDER: f32 = 1.0;
     pub const MARGIN_SIDE: f32 = 12.0;
-    pub const MARGIN_BOTTOM: f32 = 12.0;
+    /// From the window's edge to the Shell, top and bottom (the card sits 12px in).
+    pub const MARGIN_TOP: f32 = 6.0;
+    pub const MARGIN_BOTTOM: f32 = 6.0;
     pub const GAP: f32 = 8.0;
     pub const RAIL_W: f32 = 44.0;
     pub const SIDEBAR_W: f32 = 236.0;
@@ -97,37 +97,43 @@ pub mod metric {
     /// The logo and the name after the sidebar button; the tabs never start before its end.
     pub const TITLE_W: f32 = 96.0;
     pub const SBTN: f32 = 28.0;
-    pub const TOPR_W: f32 = 58.0;
-    pub const TOPR_H: f32 = 28.0;
-    pub const CAPS_W: f32 = 108.0;
-    pub const CAPS_H: f32 = 32.0;
-    pub const CAPS_MARGIN_RIGHT: f32 = 20.0;
+    /// Windows' caption buttons: three of 40 x 24, in a 30px band at the Shell's top right.
+    pub const CAPS_W: f32 = 120.0;
+    pub const CAPS_H: f32 = 24.0;
+    pub const CAPS_BAND: f32 = 30.0;
     /// Proposed, not drawn in the wireframe.
     pub const MAIN_MIN_W: f32 = 360.0;
     /// The Shell's inside padding: the card's radius nests in the Shell's (22 = 16 + 6).
     pub const PAD: f32 = crate::tokens::radius::SHELL_PAD;
 }
 
-/// The window's geometry for exactly the state asked for. The top bar runs the full width; the
-/// sidebar or rail, the main card and the right rail all start under it.
+/// The window's geometry for exactly the state asked for. There is no top bar over the content
+/// (Charles, 13 Nov 06:52Z): a 44px row over the sidebar holds the lights, the sidebar button and
+/// the name; the Shell runs from 6px under the window's top to 6px over its bottom (under that row
+/// while the sidebar is folded, so it never meets the name). On Windows the caption buttons sit in a
+/// 30px band at the Shell's top right, and the panes start under it.
 pub fn layout(w: f32, h: f32, state: ShellState, platform: Platform) -> Shell {
     use metric::*;
     let inner = Rect::new(BORDER, BORDER, w - 2.0 * BORDER, h - 2.0 * BORDER);
-    let bar = Rect::new(inner.x, inner.y, inner.w, BAR_H);
-    let top = inner.y + BAR_H;
-    let height = inner.bottom() - top - MARGIN_BOTTOM;
+    let foot = inner.bottom() - MARGIN_BOTTOM;
+    let side_top = inner.y + BAR_H;
 
     let (rail, sidebar, main_x) = if state.sidebar_open {
-        let sb = Rect::new(inner.x + MARGIN_SIDE, top, SIDEBAR_W, height);
+        let sb = Rect::new(inner.x + MARGIN_SIDE, side_top, SIDEBAR_W, foot - side_top);
         (None, Some(sb), sb.right() + GAP)
     } else {
-        (Some(Rect::new(inner.x, top, RAIL_W, height)), None, inner.x + RAIL_W + GAP)
+        (Some(Rect::new(inner.x, side_top, RAIL_W, foot - side_top)), None, inner.x + RAIL_W + GAP)
     };
+    let bar = if state.sidebar_open { Rect::new(inner.x, inner.y, main_x - inner.x, BAR_H) } else { Rect::new(inner.x, inner.y, inner.w, BAR_H) };
+    let top = if state.sidebar_open { inner.y + MARGIN_TOP } else { side_top };
 
-    // The Shell from the sidebar to the side margin; everything in it sits SHELL_PAD in, and its
-    // right gutter holds the open drawer, or the rail while it is folded.
-    let shell = Rect::new(main_x, top, inner.right() - MARGIN_SIDE - main_x, height);
-    let (in_top, in_h, right) = (top + PAD, height - 2.0 * PAD, shell.right() - PAD);
+    // The Shell from the sidebar to the side margin; everything in it sits SHELL_PAD in (under the
+    // caption band on Windows), and its right gutter holds the open drawer, or the rail while folded.
+    let shell = Rect::new(main_x, top, inner.right() - MARGIN_SIDE - main_x, foot - top);
+    let has_caps = platform != Platform::Mac;
+    let caps = has_caps.then(|| Rect::new(shell.right() - PAD - CAPS_W, shell.y + (CAPS_BAND - CAPS_H) / 2.0, CAPS_W, CAPS_H));
+    let in_top = shell.y + if has_caps { CAPS_BAND } else { PAD };
+    let (in_h, right) = (shell.bottom() - PAD - in_top, shell.right() - PAD);
     let (drawer, rrail) = if !state.plugins {
         (None, None)
     } else if state.drawer_open && !state.terminal_open {
@@ -149,21 +155,11 @@ pub fn layout(w: f32, h: f32, state: ShellState, platform: Platform) -> Shell {
     let main = Rect::new(shell.x + PAD, in_top, main_right - shell.x - PAD, in_h);
 
     let has_lights = platform != Platform::Windows;
-    let has_caps = platform != Platform::Mac;
     let lights = has_lights.then(|| Rect::new(inner.x + 14.0, inner.y + (BAR_H - 12.0) / 2.0, 52.0, 12.0));
     let sbtn_x = if has_lights { inner.x + 78.0 } else { inner.x + 14.0 };
     let sidebar_button = Rect::new(sbtn_x, inner.y + (BAR_H - SBTN) / 2.0, SBTN, SBTN);
 
-    let caps = has_caps.then(|| Rect::new(inner.right() - CAPS_MARGIN_RIGHT - CAPS_W, inner.y + (BAR_H - CAPS_H) / 2.0, CAPS_W, CAPS_H));
-    let topr_right = caps.map_or(inner.right() - CAPS_MARGIN_RIGHT, |c| c.x - GAP);
-    let topr = Rect::new(topr_right - TOPR_W, inner.y + (BAR_H - TOPR_H) / 2.0, TOPR_W, TOPR_H);
-
-    // The tabs float in the bar from the card's left edge, clear of the logo and name, up to
-    // Terminal and Split.
-    let tabs_x = main.x.max(sidebar_button.right() + GAP + TITLE_W);
-    let tabs = Rect::new(tabs_x, inner.y + (BAR_H - TAB_H) / 2.0, (topr.x - GAP - tabs_x).max(0.0), TAB_H);
-
-    Shell { effective: state, rail, sidebar, bar, shell, main, tabs, half, drawer, terminal, rrail, sidebar_button, lights, topr, caps }
+    Shell { effective: state, rail, sidebar, bar, shell, main, half, drawer, terminal, rrail, sidebar_button, lights, caps }
 }
 
 /// The state that actually fits: the thread column keeps [`metric::MAIN_MIN_W`], so Split closes

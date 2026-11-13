@@ -267,7 +267,7 @@ mod tests {
             window.render_frame(cx);
             window.click(("thread", 0usize), cx);
             assert!(window.try_find("terminal").is_none());
-            window.click("top-term", cx);
+            window.click("term-btn", cx);
         })
         .unwrap();
         rest(cx);

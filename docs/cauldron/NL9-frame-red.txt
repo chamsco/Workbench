@@ -1,0 +1,39 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.80s
+     Running tests/wireframe.rs (target/debug/deps/wireframe-05edcf627b982a80)
+
+running 9 tests
+test solver_matches_every_golden_state_and_size ... ignored, golden predates the top bar A decision; re-measure after the wireframe is updated
+test the_drawer_takes_the_right_rails_place ... ok
+test the_terminal_takes_the_drawers_place ... ok
+test main_keeps_a_minimum_width_by_closing_split_then_drawer ... ok
+test without_plugins_the_card_takes_the_right_gutter ... ok
+test panes_never_overlap_and_stay_inside_the_window ... ok
+test platforms_differ_only_in_window_controls ... FAILED
+test the_shell_runs_near_the_top_and_bottom ... FAILED
+test golden_has_two_window_sizes ... ok
+
+failures:
+
+---- platforms_differ_only_in_window_controls stdout ----
+
+thread 'platforms_differ_only_in_window_controls' (14589677) panicked at crates/chrome/tests/wireframe.rs:206:5:
+assertion `left == right` failed: Windows starts the panes under its 30px caption band
+  left: 0.0
+ right: 24.0
+
+---- the_shell_runs_near_the_top_and_bottom stdout ----
+
+thread 'the_shell_runs_near_the_top_and_bottom' (14589679) panicked at crates/chrome/tests/wireframe.rs:141:17:
+assertion `left == right` failed: 1200x720 Mac ShellState { sidebar_open: false, drawer_open: false, split_open: false, terminal_open: false, plugins: true }: the Shell's top and bottom
+  left: (45.0, 707.0)
+ right: (45.0, 713.0)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    platforms_differ_only_in_window_controls
+    the_shell_runs_near_the_top_and_bottom
+
+test result: FAILED. 6 passed; 2 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p cauldron-chrome --test wireframe`
