@@ -107,14 +107,15 @@ pub(crate) fn sidebar<'a>(list: &'a [ThreadInfo], query: &str, toggles: &std::co
     out
 }
 
-/// How long ago, as the row's age: 4m, 2h, 3d, 1w.
+/// How long ago, as the row's age: 4m, 2h, 3d, 1w, 2y.
 pub(crate) fn age(updated: u64, now: u64) -> String {
     let m = now.saturating_sub(updated) / 60_000;
     match m {
         0..=59 => format!("{}m", m.max(1)),
         60..=1439 => format!("{}h", m / 60),
         1440..=10079 => format!("{}d", m / 1440),
-        _ => format!("{}w", m / 10080),
+        10080..=525599 => format!("{}w", m / 10080),
+        _ => format!("{}y", m / 525600),
     }
 }
 
@@ -257,8 +258,8 @@ mod tests {
     #[test]
     fn age_reads_minutes_hours_days_weeks() {
         let m = 60_000u64;
-        let now = 100 * 10080 * m;
-        assert_eq!([age(now, now), age(now - 4 * m, now), age(now - 120 * m, now), age(now - 3 * 1440 * m, now), age(now - 15 * 1440 * m, now)], ["1m", "4m", "2h", "3d", "2w"]);
+        let now = 1000 * 10080 * m;
+        assert_eq!([age(now, now), age(now - 4 * m, now), age(now - 120 * m, now), age(now - 3 * 1440 * m, now), age(now - 15 * 1440 * m, now), age(now - 800 * 1440 * m, now)], ["1m", "4m", "2h", "3d", "2w", "2y"]);
     }
 
     #[test]
