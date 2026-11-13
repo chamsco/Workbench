@@ -25,6 +25,7 @@ mod newthread;
 mod appearance;
 mod backdrop;
 mod context;
+mod search;
 mod pages;
 mod panes;
 mod ptabs;
@@ -190,6 +191,13 @@ pub(crate) struct Cauldron {
     side_sel: [Option<usize>; 6],
     /// What the open destination's sidebar list reads from core.
     side_data: context::SideData,
+    /// Global search, when open, and the notes it searches.
+    search_ui: Option<search::SearchState>,
+    search_notes: Vec<(String, String)>,
+    /// The window's own focus, so Cmd/Ctrl+K reaches the shell with nothing else focused.
+    root_focus: Option<FocusHandle>,
+    /// Debug builds: `CAULDRON_SEARCH=<query>` opens search with that query, for screenshots.
+    debug_search: Option<String>,
     /// Settings is open on this page (v3 frame 7): its pages take the sidebar's list, the page the card.
     settings: Option<usize>,
     /// Where Settings reads the subscriptions; None is core's `accounts.json` (tests use their own).
@@ -308,6 +316,7 @@ impl Cauldron {
                 Ok("usage") => c.open_page(pages::AppPage::Usage),
                 _ => {}
             }
+            c.debug_search = std::env::var("CAULDRON_SEARCH").ok();
             if std::env::var("CAULDRON_PLATFORM").as_deref() == Ok("windows") {
                 c.plat = Platform::Windows;
             }
@@ -340,7 +349,7 @@ impl Cauldron {
     }
 
     pub(crate) fn new() -> Self {
-        Cauldron { motion: ShellMotion::default(), swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: None, sidebar_open: true, drawer: None, backdrop: Default::default(), glass_at: Default::default(), glass_card: std::cell::Cell::new(None), appearance_sub: None, active_sub: None, flow_clock: None, flow_task: None, flow_running: false, flow_burst: Default::default(), flow_at: None, retired: Vec::new(), flow_stats: (0, std::time::Duration::ZERO), prefs_file: None, plat: platform(), folder_open: Default::default(), page: Default::default(), page_agents: Vec::new(), agent_sel: None, agent_tab: 0, room_sel: 0, side_sel: [None; 6], side_data: Default::default(), settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_menu: false, tab_slide: Default::default(), tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
+        Cauldron { motion: ShellMotion::default(), swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: None, sidebar_open: true, drawer: None, backdrop: Default::default(), glass_at: Default::default(), glass_card: std::cell::Cell::new(None), appearance_sub: None, active_sub: None, flow_clock: None, flow_task: None, flow_running: false, flow_burst: Default::default(), flow_at: None, retired: Vec::new(), flow_stats: (0, std::time::Duration::ZERO), prefs_file: None, plat: platform(), folder_open: Default::default(), page: Default::default(), page_agents: Vec::new(), agent_sel: None, agent_tab: 0, room_sel: 0, side_sel: [None; 6], side_data: Default::default(), search_ui: None, search_notes: Vec::new(), root_focus: None, debug_search: None, settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_menu: false, tab_slide: Default::default(), tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
     }
 
     /// Opens core off the main thread (the sidebar shows Loading meanwhile), then keeps the thread
@@ -740,13 +749,19 @@ impl Cauldron {
 
     /// Selects a function. The sidebar indicator slides to it from wherever it is now.
 
-    /// The sidebar folded to its rail (the pages board 5b7662c): usage on top, the three apps,
-    /// search and New stream, a square per folder (its letter, a dot when it holds a stream that
+    /// The sidebar folded to its rail (the pages board 5b7662c): search on top, the six buttons,
+    /// New stream, a square per folder (its letter, a dot when it holds a stream that
     /// needs you), then the version, the cog and the avatar stacked at the foot.
     fn folded_rail(&self, pal: &'static Palette, r: Rect, alpha: f32, cx: &mut Context<Self>) -> Stateful<Div> {
         let fg3 = c(pal.fg3);
         let sep = || div().w(px(20.)).h(px(1.)).my(px(4.)).bg(c(pal.line_strong));
         let mut col = pane("rail", r).opacity(alpha).flex().flex_col().items_center().gap(px(4.)).pt(px(4.)).pb(px(8.));
+        // Search on top, under the window buttons (the context-sidebar board).
+        col = col.child(
+            self.tipped("rail-search", icon_button("rail-search", "search", "Search", pal, self.search_ui.is_some()), search_tip(), Side::Right, pal, cx)
+                .on_click(cx.listener(|this, _, window, cx| this.toggle_search(window, cx)))
+                .test_support(),
+        );
         for (i, p) in pages::AppPage::ALL.into_iter().enumerate() {
             let on = self.page == p && self.settings.is_none();
             col = col.child(
@@ -760,14 +775,6 @@ impl Cauldron {
         }
         col = col
             .child(sep())
-            .child(
-                self.tipped("rail-search", icon_button("rail-search", "search", "Search streams", pal, false), "Search streams", Side::Right, pal, cx)
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.sidebar_open = true;
-                        cx.notify();
-                    }))
-                    .test_support(),
-            )
             .child(
                 self.tipped("rail-new", icon_button("rail-new", "plus", "New stream", pal, false), "New stream", Side::Right, pal, cx)
                     .on_click(cx.listener(|this, _, window, cx| this.new_thread(window, cx)))
@@ -1178,8 +1185,30 @@ impl Render for Cauldron {
         self.ensure_composer(window, cx);
         self.ensure_term_input(window, cx);
         self.ensure_start(window, cx);
+        if let Some(q) = self.debug_search.take() {
+            self.toggle_search(window, cx);
+            if let Some(st) = self.search_ui.as_ref().map(|s| s.input.clone()) {
+                st.update(cx, |st, cx| st.set_value(q, window, cx));
+            }
+        }
+        let root_focus = self.root_focus.get_or_insert_with(|| cx.focus_handle()).clone();
+        if window.focused(cx).is_none() {
+            root_focus.focus(window, cx);
+        }
+        let in_terminal = self.term_input.as_ref().is_some_and(|(st, _)| st.read(cx).focus_handle(cx).is_focused(window));
         let mut root = div()
             .id("cauldron")
+            .track_focus(&root_focus)
+            // Cmd+K (Mac) / Ctrl+K opens search from anywhere; while it is open, the arrows,
+            // Enter and Esc are its own, before the input sees them.
+            .capture_key_down(cx.listener(move |this, ev: &KeyDownEvent, window, cx| {
+                if search::is_toggle(&ev.keystroke, cfg!(target_os = "macos"), in_terminal) {
+                    this.toggle_search(window, cx);
+                    cx.stop_propagation();
+                } else if this.search_ui.is_some() && this.search_key(ev, window, cx) {
+                    cx.stop_propagation();
+                }
+            }))
             .size_full()
             .relative()
             .overflow_hidden()
@@ -1631,6 +1660,19 @@ impl Render for Cauldron {
                 .child("Cauldron"),
         );
 
+        // ---- search, at the right end of the sidebar's top row (the context-sidebar board)
+        if let Some(sp) = s.sidebar {
+            let r = Rect::new(sp.rect.right() - SIDE_PR - 28.0, s.bar.y + (metric::BAR_H - 28.0) / 2.0, 28.0, 28.0);
+            root = root.child(
+                pane("search-btn-slot", r).opacity(sp.alpha).child(
+                    self.tipped("search-btn", icon_button("search-btn", "search", "Search", pal, self.search_ui.is_some()), search_tip(), Side::Below, pal, cx)
+                        .occlude()
+                        .on_click(cx.listener(|this, _, window, cx| this.toggle_search(window, cx)))
+                        .test_support(),
+                ),
+            );
+        }
+
         // ---- sidebar button (top bar, left)
         root = root.child(
             pane("sbtn-slot", s.sidebar_button).child(
@@ -1677,7 +1719,8 @@ impl Render for Cauldron {
             );
         }
 
-        // ---- window ring, drawn last so it sits on top of every pane edge
+        // ---- window ring, drawn last so it sits on top of every pane edge; search above all
+        let overlay = self.search_overlay(w, h, dark, pal, cx);
         root.child(
             div()
                 .absolute()
@@ -1686,7 +1729,13 @@ impl Render for Cauldron {
                 .border_color(ring)
                 .rounded(px(if cfg!(target_os = "macos") { 0.0 } else { 0.0 })),
         )
+        .when_opt(overlay, |d, o| d.child(o.test_support()))
     }
+}
+
+/// The search icon's tip, with its shortcut.
+fn search_tip() -> &'static str {
+    if cfg!(target_os = "macos") { "Search  \u{2318}K" } else { "Search  Ctrl+K" }
 }
 
 #[cfg(test)]
@@ -2114,7 +2163,7 @@ mod tests {
             window.render_frame(cx);
             let order = ["rail-search", "rail-new"].map(|id| rect(window, id).y);
             let pages: Vec<f32> = (0..6usize).map(|i| rect(window, ("rail-page", i)).y).collect();
-            assert!(pages.windows(2).all(|w| w[1] > w[0]) && pages[5] < order[0] && order[0] < order[1], "the six apps stacked, search, New stream");
+            assert!(order[0] < pages[0] && pages.windows(2).all(|w| w[1] > w[0]) && pages[5] < order[1], "search on top, the six apps stacked, then New stream");
             let folders: Vec<String> = (0..3usize).filter_map(|i| window.try_find(("rail-folder", i)).and_then(|e| e.label().map(str::to_string))).collect();
             assert_eq!(folders, ["Cauldron, 2", "Ocean, 2", "Unfiled, 1"]);
             let (u, v, g, a) = (rect(window, "rail-usage"), rect(window, "rail-version"), rect(window, "rail-settings"), rect(window, "rail-avatar"));

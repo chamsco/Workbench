@@ -406,3 +406,28 @@ The coordinator's board is `design/cauldron-destinations.html` (ac5ef7a on gg3og
 - **One frame colour:** the separately tinted Shell behind the card is gone, so there is no second slab with square corners and no edge between the sidebar and the content. The window's frosted tint now holds 4.5:1 over the whole window, since the drawer and rail sit on it. The card is the only rounded surface.
 - **No usage strip under the card:** usage is in the sidebar's footer; the bar under the new stream keeps only the stages.
 - **Shots:** before `nl15-flow-dark` (drawer open, the slab, the strip); after `nl16-launch-*` (Flow still), `nl16-launch-harbour-*`, `nl16-stream-*`.
+
+## The sidebar follows the destination, and global search (13 Nov, Charles 18:57Z)
+
+From the context-sidebar board (direction A, sections 1 to 5).
+
+**Sidebar.** The top row, the six buttons and the footer stay; the zone between them is the open destination's (`shell/context.rs`):
+
+- **Streams:** unchanged.
+- **Agents:** New chat and New group (disabled: "Demo: not built yet"), Agents (core's, unmarked, then the examples marked Example), Crew (the two example crews, marked). The Agents page drops its in-page roster: the chat is wider, the 200 drawer stays. Picking a crew shows that crew's room.
+- **Folders:** New folder (disabled), All folders, the folders the streams are in with their colours (real: from the streams' folders), Proposed by the Librarian (one row, Example).
+- **Automations:** New automation (disabled), Templates (Example), Yours (core's agents' routines, real), Recent runs (from the routines' last run, real; "Nothing has run yet" when none).
+- **Usage:** Overview, Tools (the coding tools core reads usage from and finds on this machine, real, each "No data yet": core has no per-tool numbers yet), Alerts (Example). No create action.
+- **Library:** New note (disabled), Proposals (Example), Notes (the count from memory), Graph, Librarian, Notes by folder (memory's notes grouped by place, real; nothing when memory has none). Memory is only read if it already exists: opening it would create it.
+- Outside Streams, a one-line pill "N need you in Streams" (the same count as Streams' Needs you: an unopened reply), shown only when N > 0; a click goes to Streams.
+- A picked row is highlighted as a stream is; until one is picked, the destination's main view is (All folders, Templates, Overview, Notes). The folded rail does not change per destination.
+
+**Search** (`shell/search.rs`):
+
+- A magnifier at the right end of the sidebar's top row, and on top of the folded rail; its tip names the shortcut. **Deviation:** the board puts it immediately left of the retract button with both at the right; the retract button stays where the reviewed wireframe has it (left, after the window buttons; `layout::sidebar_button` and its golden tests), so the magnifier sits alone at the row's right end.
+- Cmd+K (Mac), Ctrl+K (Windows, Linux) or the icon opens a centred menu (560 wide, scrim, input focused); Esc or the shortcut again closes it, and focus returns where it was. Up, Down and Enter move and open. Cmd+K and Ctrl+K were bound nowhere before (the app and gpui-component). On Windows and Linux, Ctrl+K goes to the terminal when its input has focus, and Ctrl+Shift+K opens search there.
+- **Ranking, not filtering:** a case-insensitive substring on the title, then the context and text; a title that starts with the query first, then one containing it, then a text match. The open destination's group first, then everything else under Elsewhere. Nothing typed: Recent (the three newest streams), Actions in this destination (only ones that work), Go to.
+- **What it finds:** streams (title and last words), core's agents, folders, notes in memory, the destinations, Settings and its pages, New stream and Hide/Show sidebar. The example agents and crews carry "Example". Not searched: automation runs and the Librarian's proposals (not in core). Opening a result goes to its destination; the sidebar follows.
+- **Not done:** the 120ms list crossfade (optional on the board). **Accessibility:** the menu, its field and each result carry names and the selected state GPUI exposes (`aria_label`, `aria_selected`, what the tests read); GPUI has no platform accessibility tree on macOS, so VoiceOver cannot announce a dialog or listbox role. That needs GPUI support, not app code.
+- **Tests:** `the_current_destination_ranks_first`, `nothing_typed_gives_recent_actions_and_places`, `the_shortcut_by_platform`, `search_opens_ranks_and_closes` (icon, focus, ranking, Esc, the shortcut opens and closes), `the_pill_counts_streams_that_need_you`, `notes_group_by_place`; the destinations test now checks Library's own list and a picked row's highlight.
+- **Shots:** `nl17-agents-*`, `nl17-library-*`, `nl17-usage-*`, `nl17-search-agents-*` (nothing typed), `nl17-search-streams-*` ("m" on Streams).
