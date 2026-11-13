@@ -1,0 +1,268 @@
+<title>Cauldron Split Panes</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* Layout: the v3 board's surfaces (design/cauldron-new-look-v3.html, tokens.rs). A decision card on top, then
+   direction A and direction B, each a live mock of the thread card's inside: drag the gutters, add and close panes. */
+:root{
+  --bg:#f7f7f8; --shell:#eeeef0; --panel:#ffffff; --raised:#e4e4e7;
+  --hover:rgba(28,28,31,.05); --selected:rgba(28,28,31,.09);
+  --line:rgba(28,28,31,.07); --line2:rgba(28,28,31,.14);
+  --fg:#1c1c1f; --fg2:#45454c; --fg3:#62626a; --fg4:#a6a6ad;
+  --accent:#6236d6; --on-accent:#ffffff; --accent-soft:rgba(98,54,214,.08); --ok:#23784f; --bad:#b83232;
+  --sans:Geist,-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+  --mono:"Geist Mono",ui-monospace,"SF Mono",Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#111111; --shell:#1d1d1d; --panel:#151515; --raised:#282828;
+  --hover:rgba(245,245,245,.05); --selected:rgba(245,245,245,.09);
+  --line:rgba(255,255,255,.06); --line2:rgba(255,255,255,.12);
+  --fg:#f5f5f5; --fg2:#c9c9cd; --fg3:#9e9ea3; --fg4:#5e5e64;
+  --accent:#a08cff; --on-accent:#12082e; --accent-soft:rgba(160,140,255,.14); --ok:#30d158; --bad:#ff453a;
+  color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#111111; --shell:#1d1d1d; --panel:#151515; --raised:#282828;
+  --hover:rgba(245,245,245,.05); --selected:rgba(245,245,245,.09);
+  --line:rgba(255,255,255,.06); --line2:rgba(255,255,255,.12);
+  --fg:#f5f5f5; --fg2:#c9c9cd; --fg3:#9e9ea3; --fg4:#5e5e64;
+  --accent:#a08cff; --on-accent:#12082e; --accent-soft:rgba(160,140,255,.14); --ok:#30d158; --bad:#ff453a;
+  color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font:13px/18px var(--sans);font-variant-numeric:tabular-nums;
+  padding-block:28px 56px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.page{max-width:1080px;margin:0 auto;display:grid;grid-template-columns:minmax(0,1fr);gap:40px}
+h1{font-size:28px;line-height:32px;font-weight:600;letter-spacing:-.01em;margin:0 0 8px;text-wrap:balance}
+h2{font-size:20px;line-height:26px;font-weight:600;margin:0;text-wrap:balance}
+h3{font-size:13px;line-height:18px;font-weight:600;margin:0}
+p{margin:0;color:var(--fg2);font-size:14px;line-height:22px;max-width:68ch}
+.label{font-size:11px;line-height:14px;font-weight:500;letter-spacing:.06em;text-transform:uppercase;color:var(--fg3)}
+.top{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap}
+.top>div{min-width:0;flex:1 1 280px}
+button{font:inherit;color:inherit}
+.btn{height:28px;padding:0 12px;border-radius:10px;border:1px solid var(--line2);background:var(--panel);color:var(--fg2);font-size:12px;font-weight:500;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+.btn:hover{background:var(--hover)}
+.btn:focus-visible,.ib:focus-visible,.gut:focus-visible,.lay:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+
+/* decision card */
+.decide{background:var(--panel);border:1px solid var(--line2);border-radius:16px;padding:20px;display:grid;gap:16px}
+.decide .row{display:grid;grid-template-columns:150px 1fr 1fr;gap:16px;padding-top:12px;border-top:1px solid var(--line);font-size:13px;color:var(--fg2)}
+.decide .row.h{border-top:0;padding-top:0}
+.decide .row.h span{font-size:11px;line-height:14px;font-weight:500;letter-spacing:.06em;text-transform:uppercase;color:var(--fg3)}
+.decide .row>span:first-child{color:var(--fg3)}
+.decide .row>*{min-width:0}
+.rec{display:flex;gap:12px;align-items:flex-start;background:var(--accent-soft);border-radius:12px;padding:12px 16px;color:var(--fg)}
+.rec b{font-weight:600}
+.same{display:flex;flex-wrap:wrap;gap:8px}
+.chip{height:24px;display:inline-flex;align-items:center;padding:0 8px;border-radius:8px;background:var(--selected);font-size:12px;font-weight:500;color:var(--fg2)}
+@media(max-width:640px){.decide .row{grid-template-columns:1fr;gap:4px}.decide .row.h{display:none}
+  .decide .row>span:nth-child(2)::before{content:"A · ";color:var(--fg3)}.decide .row>span:nth-child(3)::before{content:"B · ";color:var(--fg3)}}
+
+/* a direction */
+.dir{display:grid;grid-template-columns:minmax(0,1fr);gap:12px}
+.dir .head{display:flex;gap:12px;align-items:baseline;flex-wrap:wrap}
+.tag{font:600 12px/16px var(--mono);color:var(--accent);background:var(--accent-soft);border-radius:6px;padding:2px 6px}
+.how{display:flex;flex-wrap:wrap;gap:8px 20px;font-size:12px;color:var(--fg3)}
+.how b{color:var(--fg2);font-weight:500}
+
+/* the mock: the grey Shell holding the thread card's head and its panes */
+.shell{background:var(--shell);border-radius:22px;padding:6px;display:flex;flex-direction:column;gap:6px;height:460px;user-select:none;-webkit-user-select:none}
+.ch{height:36px;flex:none;display:flex;align-items:center;gap:8px;padding:0 6px 0 12px;min-width:0}
+.ch .t{font-weight:600;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ch .t span{color:var(--fg3);font-weight:400}
+.count{font-size:12px;color:var(--fg3)}
+.stage{position:relative;flex:1;min-height:0}
+.pane{position:absolute;background:var(--panel);border-radius:12px;box-shadow:0 0 0 1px var(--line);display:flex;flex-direction:column;overflow:hidden;min-width:0}
+.pane.on{box-shadow:0 0 0 1px var(--line2)}
+.ph{height:32px;flex:none;display:flex;align-items:center;gap:6px;padding:0 4px 0 10px;border-bottom:1px solid var(--line);font-size:12px;font-weight:500;color:var(--fg2)}
+.ph .n{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ph .sz{font:500 11px/14px var(--mono);color:var(--fg4)}
+.ib{width:24px;height:24px;border:0;background:none;border-radius:8px;display:inline-grid;place-items:center;color:var(--fg3);cursor:pointer;flex:none}
+.ib:hover{background:var(--hover);color:var(--fg)}
+.ib[disabled]{opacity:.35;cursor:not-allowed}
+.ib svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.pb{flex:1;min-height:0;overflow:hidden;padding:10px 12px;display:grid;align-content:start;gap:6px;font-size:12px;color:var(--fg3)}
+.pb.code{font:12px/18px var(--mono)}
+.pb .you{justify-self:end;background:var(--raised);color:var(--fg);border-radius:10px;padding:6px 10px;max-width:90%}
+.pb .say{color:var(--fg2)}
+.pb .ok{color:var(--ok)}.pb .bad{color:var(--bad)}
+/* gutters: 4px drawn, 12px to grab */
+.gut{position:absolute;z-index:2;display:grid;place-items:center;touch-action:none;border:0;background:none;padding:0}
+.gut.v{cursor:col-resize}.gut.h{cursor:row-resize}
+.gut::after{content:"";border-radius:2px;background:transparent;transition:background .12s}
+.gut.v::after{width:2px;height:28px}.gut.h::after{height:2px;width:28px}
+.gut:hover::after,.gut.drag::after{background:var(--accent)}
+.lays{display:flex;gap:4px;padding:2px;border:1px solid var(--line2);border-radius:10px}
+.lay{width:30px;height:24px;border:0;border-radius:8px;background:none;display:grid;place-items:center;cursor:pointer;color:var(--fg3)}
+.lay:hover{background:var(--hover)}
+.lay[aria-pressed="true"]{background:var(--selected);color:var(--fg)}
+.lay svg{width:18px;height:14px}
+.lay svg rect{fill:none;stroke:currentColor;stroke-width:1.4}
+.note{font-size:12px;color:var(--fg3)}
+.note.max{color:var(--accent)}
+@media(max-width:640px){.shell{height:420px}.ph .sz,.ch .note{display:none}.lay{width:24px}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<div class="page">
+  <div class="top">
+    <div>
+      <div class="label">Cauldron · split panes · prototype for a decision</div>
+      <h1>Split panes, two directions</h1>
+      <p>This is how the thread card could split, so you can see the idea before it is built. Both directions narrow the gap between panes to 4px, let you drag the line between two panes, and allow up to four panes. Today the app opens one fixed 292px half with an 8px gap. Try both mocks below: drag a gutter, add a pane, close one.</p>
+    </div>
+    <button class="btn" id="theme" type="button">Light / dark</button>
+  </div>
+
+  <section class="decide" aria-labelledby="dtitle">
+    <h2 id="dtitle">Pick one</h2>
+    <div>
+      <div class="row h"><span></span><span>A · Split anywhere</span><span>B · Layouts</span></div>
+      <div class="row"><span>Add a pane</span><span>Split any pane right or down from its header. Panes nest, as in a code editor.</span><span>+ in the card head moves to the next layout: one, two side by side, one beside two, a 2×2 grid. Or pick a layout directly.</span></div>
+      <div class="row"><span>Resize</span><span>Drag any gutter. Each gutter only moves the two panes it sits between.</span><span>Drag the one vertical gutter and the one horizontal gutter. In the grid, the gutters line up across all four panes.</span></div>
+      <div class="row"><span>Four panes</span><span>Any shape: four across, a column of three beside one, and so on.</span><span>Only the five shapes in the picker, so a pane never gets narrower than its minimum width.</span></div>
+      <div class="row"><span>Close a pane</span><span>Its neighbour takes the space.</span><span>The layout steps back one shape.</span></div>
+      <div class="row"><span>Risk</span><span>Four across can get too narrow on a laptop next to the drawer. It needs a narrowing rule, like the minimum width that closes Split today.</span><span>Less freedom. For example, you cannot have three panes stacked in one column.</span></div>
+      <div class="row"><span>Build</span><span>A tree of splits in the layout solver, with a test for every shape.</span><span>Five fixed shapes and two fractions in the solver. Each shape can be tested on its own.</span></div>
+    </div>
+    <div class="rec"><span class="tag">B</span><span><b>My pick is B, Layouts.</b> With four panes at most, five shapes cover what you described, and the layout solver can keep each pane at a usable width. Choose A if you want any arrangement of panes, for example three stacked in a column beside a preview.</span></div>
+    <div class="same"><span class="label" style="align-self:center">Both directions</span><span class="chip">4px gap</span><span class="chip">12px grab area</span><span class="chip">double-click resets to even</span><span class="chip">min 200 × 120</span><span class="chip">4 panes at most</span><span class="chip">inside the thread card</span></div>
+  </section>
+
+  <section class="dir" aria-labelledby="atitle">
+    <div class="head"><span class="tag">A</span><h2 id="atitle">Split anywhere</h2></div>
+    <p>Each pane's header has Split right and Split down. A split is always into halves, and you can drag the line from there.</p>
+    <div class="shell" id="A"></div>
+    <div class="how"><span><b>Drag</b> a gutter to resize</span><span><b>Double-click</b> a gutter to make it even</span><span><b>Arrow keys</b> move a focused gutter</span></div>
+  </section>
+
+  <section class="dir" aria-labelledby="btitle">
+    <div class="head"><span class="tag">B</span><h2 id="btitle">Layouts</h2></div>
+    <p>The card head holds a layout picker and +. Each pane can be closed or replaced, but never split on its own.</p>
+    <div class="shell" id="B"></div>
+    <div class="how"><span><b>+</b> moves to the next layout</span><span><b>Drag</b> either gutter</span><span><b>Double-click</b> a gutter to make it even</span></div>
+  </section>
+</div>
+
+<script>
+(function(){
+  var MAX=4, GAP=4, MINW=200, MINH=120;
+  var I={
+    right:'<svg viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M12 3v18"/></svg>',
+    down:'<svg viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 12h18"/></svg>',
+    x:'<svg viewBox="0 0 24 24"><path d="M17 7 7 17"/><path d="m7 7 10 10"/></svg>',
+    plus:'<svg viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></svg>'
+  };
+  // Pane contents, in the order panes are added. Sample content, not real threads.
+  var KINDS=[
+    {n:'Thread · Get M3 through review',b:'<div class="you">Run the tests, and tell me what you need before M4.</div><div>✓ Read 12 files · ✓ Ran 4 commands</div><div class="say">All 591 tests pass. Rampart is still hardening the mutation score.</div>'},
+    {n:'Terminal · zsh',c:1,b:'<div>$ cargo test -p backspace</div><div class="ok">test result: ok. 39 passed</div><div>$ git log --oneline -1</div><div>0660749 NL3e: the card is a Panel</div>'},
+    {n:'Files · crates/app/src',c:1,b:'<div>shell.rs</div><div>shell/thread.rs</div><div>shell/newthread.rs</div><div>threads.rs</div>'},
+    {n:'Preview · localhost:5173',b:'<div style="height:10px;width:60%;border-radius:3px;background:var(--line2)"></div><div style="height:10px;width:40%;border-radius:3px;background:var(--line2)"></div><div style="height:48px;border-radius:8px;background:var(--hover)"></div>'}
+  ];
+  function el(tag,cls,html){var e=document.createElement(tag);if(cls)e.className=cls;if(html!=null)e.innerHTML=html;return e}
+  function pane(k,w,h,btns){
+    var p=el('div','pane'),kind=KINDS[k%KINDS.length];
+    var ph=el('div','ph');ph.appendChild(el('span','n',kind.n));
+    var sz=el('span','sz',Math.round(w)+'×'+Math.round(h));ph.appendChild(sz);
+    btns.forEach(function(b){var x=el('button','ib',I[b.i]);x.type='button';x.title=b.t;x.setAttribute('aria-label',b.t);if(b.off)x.disabled=true;x.onclick=b.f;ph.appendChild(x)});
+    p.appendChild(ph);p.appendChild(el('div','pb'+(kind.c?' code':''),kind.b));return p}
+  function place(e,r){e.style.left=r.x+'px';e.style.top=r.y+'px';e.style.width=Math.max(0,r.w)+'px';e.style.height=Math.max(0,r.h)+'px'}
+  // A gutter over the GAP between two rects; drag reports the pointer's position inside the stage.
+  function gutter(stage,dir,r,onMove,onReset){
+    var g=el('button','gut '+dir);g.type='button';g.setAttribute('aria-label',dir=='v'?'Resize panes left and right':'Resize panes above and below');
+    place(g,dir=='v'?{x:r.x-4,y:r.y,w:12,h:r.h}:{x:r.x,y:r.y-4,w:r.w,h:12});
+    // Every move re-renders the stage (and this gutter), so the drag listens on the window.
+    g.addEventListener('pointerdown',function(ev){ev.preventDefault();g.classList.add('drag');
+      var box=stage.getBoundingClientRect();
+      function mv(e){onMove(dir=='v'?e.clientX-box.left:e.clientY-box.top)}
+      function up(){window.removeEventListener('pointermove',mv);window.removeEventListener('pointerup',up)}
+      window.addEventListener('pointermove',mv);window.addEventListener('pointerup',up)});
+    g.addEventListener('dblclick',onReset);
+    g.addEventListener('keydown',function(e){var d={ArrowLeft:-16,ArrowUp:-16,ArrowRight:16,ArrowDown:16}[e.key];if(d!=null){e.preventDefault();onMove(null,d)}});
+    stage.appendChild(g);return g}
+  function frame(root,title,extra){
+    root.innerHTML='';var ch=el('div','ch');ch.appendChild(el('div','t','<span>Cauldron / </span>'+title));
+    var note=el('span','note');ch.appendChild(note);if(extra)ch.appendChild(extra);
+    var stage=el('div','stage');root.appendChild(ch);root.appendChild(stage);return {stage:stage,note:note}}
+  function clamp(v,a,b){return Math.max(a,Math.min(b,v))}
+
+  // ---------- A: a tree of splits ----------
+  var A={next:1,root:{leaf:0}};
+  function leaves(n){return n.leaf!=null?1:leaves(n.a)+leaves(n.b)}
+  function minSize(n,dir){ // smallest size the node can take along dir
+    if(n.leaf!=null)return dir=='v'?MINW:MINH;
+    var a=minSize(n.a,dir),b=minSize(n.b,dir);
+    return (n.dir==dir)?a+b+GAP:Math.max(a,b)}
+  function renderA(){
+    var root=document.getElementById('A'),n=leaves(A.root),f=frame(root,'Get M3 through review');
+    f.note.textContent=n>=MAX?'Four panes is the most':n+' of 4 panes';f.note.className='note'+(n>=MAX?' max':'');
+    var s=f.stage,W=s.clientWidth,H=s.clientHeight;
+    function lay(node,r,parent,side){
+      if(node.leaf!=null){
+        var full=n>=MAX;
+        var p=pane(node.leaf,r.w,r.h,[
+          {i:'right',t:full?'Four panes is the most':'Split right',off:full||r.w<2*MINW+GAP,f:function(){split(node,'v')}},
+          {i:'down',t:full?'Four panes is the most':'Split down',off:full||r.h<2*MINH+GAP,f:function(){split(node,'h')}},
+          {i:'x',t:'Close pane',off:n==1,f:function(){close(node)}}]);
+        place(p,r);s.appendChild(p);return}
+      var v=node.dir=='v',size=v?r.w:r.h,ma=minSize(node.a,node.dir),mb=minSize(node.b,node.dir);
+      var a=clamp(Math.round((size-GAP)*node.ratio),ma,size-GAP-mb);
+      var ra=v?{x:r.x,y:r.y,w:a,h:r.h}:{x:r.x,y:r.y,w:r.w,h:a};
+      var rb=v?{x:r.x+a+GAP,y:r.y,w:r.w-a-GAP,h:r.h}:{x:r.x,y:r.y+a+GAP,w:r.w,h:r.h-a-GAP};
+      lay(node.a,ra);lay(node.b,rb);
+      gutter(s,node.dir,v?{x:rb.x-GAP,y:r.y,w:GAP,h:r.h}:{x:r.x,y:rb.y-GAP,w:r.w,h:GAP},function(pos,step){
+        var cur=(size-GAP)*node.ratio,want=step!=null?cur+step:pos-(v?r.x:r.y)-GAP/2;
+        node.ratio=clamp(want,ma,size-GAP-mb)/(size-GAP);renderA();refocus('A',node)},
+        function(){node.ratio=.5;renderA()})._node=node}
+    lay(A.root,{x:0,y:0,w:W,h:H})}
+  function swap(target,repl){(function walk(n,set){if(n===target){set(repl);return true}
+    if(n.leaf!=null)return false;return walk(n.a,function(x){n.a=x})||walk(n.b,function(x){n.b=x})})(A.root,function(x){A.root=x})}
+  function split(node,dir){if(leaves(A.root)>=MAX)return;swap(node,{dir:dir,ratio:.5,a:{leaf:node.leaf},b:{leaf:A.next++}});renderA()}
+  function close(node){(function walk(n,set){if(n.leaf!=null)return false;
+    if(n.a===node){set(n.b);return true}if(n.b===node){set(n.a);return true}
+    return walk(n.a,function(x){n.a=x})||walk(n.b,function(x){n.b=x})})(A.root,function(x){A.root=x});renderA()}
+  function refocus(id,node){var gs=document.querySelectorAll('#'+id+' .gut');for(var i=0;i<gs.length;i++)if(gs[i]._node===node){gs[i].focus({preventScroll:true});gs[i].classList.add('drag')}}
+
+  // ---------- B: five shapes, two fractions ----------
+  var SHAPES=[
+    {id:'1',n:1,t:'One pane',svg:'<rect x="1" y="1" width="16" height="12" rx="2"/>'},
+    {id:'2c',n:2,t:'Two side by side',svg:'<rect x="1" y="1" width="7.5" height="12" rx="2"/><rect x="9.5" y="1" width="7.5" height="12" rx="2"/>'},
+    {id:'2r',n:2,t:'Two stacked',svg:'<rect x="1" y="1" width="16" height="5.5" rx="2"/><rect x="1" y="7.5" width="16" height="5.5" rx="2"/>'},
+    {id:'3',n:3,t:'One beside two',svg:'<rect x="1" y="1" width="7.5" height="12" rx="2"/><rect x="9.5" y="1" width="7.5" height="5.5" rx="2"/><rect x="9.5" y="7.5" width="7.5" height="5.5" rx="2"/>'},
+    {id:'4',n:4,t:'Grid of four',svg:'<rect x="1" y="1" width="7.5" height="5.5" rx="2"/><rect x="9.5" y="1" width="7.5" height="5.5" rx="2"/><rect x="1" y="7.5" width="7.5" height="5.5" rx="2"/><rect x="9.5" y="7.5" width="7.5" height="5.5" rx="2"/>'}];
+  var B={shape:'2c',cx:.62,ry:.5};
+  var STEP={'1':'2c','2c':'3','2r':'3','3':'4'},BACK={'4':'3','3':'2c','2c':'1','2r':'1'};
+  function renderB(){
+    var sh=SHAPES.filter(function(x){return x.id==B.shape})[0];
+    var tools=el('div','');tools.style.cssText='display:flex;gap:6px;align-items:center';
+    var lays=el('div','lays');SHAPES.forEach(function(x){var b=el('button','lay','<svg viewBox="0 0 18 14">'+x.svg+'</svg>');b.type='button';b.title=x.t;b.setAttribute('aria-label',x.t);b.setAttribute('aria-pressed',x.id==B.shape);b.onclick=function(){B.shape=x.id;renderB()};lays.appendChild(b)});
+    var add=el('button','ib',I.plus);add.type='button';var full=!STEP[B.shape];add.disabled=full;add.title=full?'Four panes is the most':'Add a pane';add.setAttribute('aria-label',add.title);add.onclick=function(){B.shape=STEP[B.shape];renderB()};
+    tools.appendChild(lays);tools.appendChild(add);
+    var f=frame(document.getElementById('B'),'Get M3 through review',tools);
+    f.note.textContent=sh.n>=MAX?'Four panes is the most':sh.n+' of 4 panes';f.note.className='note'+(sh.n>=MAX?' max':'');
+    var s=f.stage,W=s.clientWidth,H=s.clientHeight;
+    var hasV=/^(2c|3|4)$/.test(B.shape),hasH=/^(2r|3|4)$/.test(B.shape);
+    var a=hasV?clamp(Math.round((W-GAP)*B.cx),MINW,W-GAP-MINW):W;
+    var b=hasH?clamp(Math.round((H-GAP)*B.ry),MINH,H-GAP-MINH):H;
+    var L={x:0,w:a},R={x:a+GAP,w:W-a-GAP},T={y:0,h:b},D={y:b+GAP,h:H-b-GAP},ALL={x:0,w:W},TALL={y:0,h:H};
+    var rects={'1':[[ALL,TALL]],'2c':[[L,TALL],[R,TALL]],'2r':[[ALL,T],[ALL,D]],'3':[[L,TALL],[R,T],[R,D]],'4':[[L,T],[R,T],[L,D],[R,D]]}[B.shape];
+    rects.forEach(function(q,i){var r={x:q[0].x,w:q[0].w,y:q[1].y,h:q[1].h};
+      var p=pane(i,r.w,r.h,[{i:'x',t:'Close pane',off:sh.n==1,f:function(){B.shape=BACK[B.shape];renderB()}}]);place(p,r);s.appendChild(p)});
+    if(hasV)gutter(s,'v',{x:a,y:0,w:GAP,h:H},function(pos,step){var cur=(W-GAP)*B.cx;B.cx=clamp(step!=null?cur+step:pos-GAP/2,MINW,W-GAP-MINW)/(W-GAP);renderB();focusG('v')},function(){B.cx=.5;renderB()});
+    // In One beside two the horizontal gutter only spans the right column.
+    if(hasH){var gx=B.shape=='3'?R:ALL;gutter(s,'h',{x:gx.x,y:b,w:gx.w,h:GAP},function(pos,step){var cur=(H-GAP)*B.ry;B.ry=clamp(step!=null?cur+step:pos-GAP/2,MINH,H-GAP-MINH)/(H-GAP);renderB();focusG('h')},function(){B.ry=.5;renderB()})}
+  }
+  function focusG(d){var g=document.querySelector('#B .gut.'+d);if(g){g.focus({preventScroll:true});g.classList.add('drag')}}
+
+  function all(){renderA();renderB()}
+  // Seed A with a thread and a terminal side by side, as Split opens today.
+  A.root={dir:'v',ratio:.62,a:{leaf:0},b:{leaf:1}};A.next=2;
+  all();
+  var t;window.addEventListener('resize',function(){clearTimeout(t);t=setTimeout(all,60)});
+  // A drag ends with the pointer released anywhere: drop the drag look.
+  document.addEventListener('pointerup',function(){setTimeout(function(){document.querySelectorAll('.gut.drag').forEach(function(g){if(document.activeElement!==g)g.classList.remove('drag')})},0)});
+  document.addEventListener('focusout',function(e){if(e.target.classList&&e.target.classList.contains('gut'))e.target.classList.remove('drag')});
+  document.getElementById('theme').onclick=function(){var r=document.documentElement,cur=r.getAttribute('data-theme')||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');r.setAttribute('data-theme',cur=='dark'?'light':'dark')};
+})();
+</script>
