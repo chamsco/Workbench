@@ -137,8 +137,17 @@ pub(crate) struct Cauldron {
     panes: Split,
     /// The layout button's morph: the shape it drew before, and since when.
     layout_since: Option<(Shape, std::time::Instant)>,
-    /// A line held down: vertical or not, and the panes' area when it was grabbed.
-    pane_drag: Option<(bool, Rect)>,
+    /// A line held down, and the panes' area when it was grabbed.
+    pane_drag: Option<(cauldron_chrome::panes::Line, Rect)>,
+    /// What each pane shows, in pane order; the thread is always one of them.
+    pane_content: [panes::Content; cauldron_chrome::panes::MAX],
+    /// Each pane's focus, so a new pane's keys (B, T, F, ...) open its surfaces.
+    pane_focus: Vec<FocusHandle>,
+    /// The thread's room (width, height), so the thread view can drop what does not fit.
+    thread_box: std::cell::Cell<(f32, f32)>,
+    /// The transcript's scroll, kept at the newest message when a thread opens or grows.
+    transcript_scroll: ScrollHandle,
+    transcript_seen: std::cell::RefCell<Option<(String, usize)>>,
     /// The thread's coordinator, pinned as the first tab; None on the New thread screen.
     coordinator: Option<SharedString>,
     /// Agents with an open 1:1 tab, in tab order, and the thread's other agents (the + menu).
@@ -255,7 +264,7 @@ impl Cauldron {
     }
 
     pub(crate) fn new() -> Self {
-        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: None, sidebar_open: true, drawer: Some(Panel::Highlights), panes: Split::default(), layout_since: None, pane_drag: None, coordinator: None, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
+        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: None, sidebar_open: true, drawer: Some(Panel::Highlights), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
     }
 
     /// Opens core off the main thread (the sidebar shows Loading meanwhile), then keeps the thread
@@ -1292,8 +1301,13 @@ impl Render for Cauldron {
         let area = Rect::new(s.main.x, s.main.y + 44.0, s.main.w, card_h - 44.0);
         let shape = cauldron_chrome::panes::effective(area, self.panes.shape);
         let split = shape != Shape::One;
+        // The thread view drops what does not fit its pane, so it needs that pane's size first.
+        let sp = Split { shape, ..self.panes };
+        let at = self.pane_content.iter().position(|p| *p == panes::Content::Thread).unwrap_or(0).min(shape.count() - 1);
+        let tb = cauldron_chrome::panes::rects(area, sp)[at];
+        self.thread_box.set(if split { (tb.w, tb.h - 32.0) } else { (tb.w, tb.h) });
         let body = self.card_body(pal, window, cx);
-        let inside = if split { self.pane_stage(pal, area, shape, body, cx).into_any_element() } else { body };
+        let inside = if split { self.pane_stage(pal, area, shape, body, window, cx).into_any_element() } else { body };
         let card_el = div()
             .id("card")
             .absolute()

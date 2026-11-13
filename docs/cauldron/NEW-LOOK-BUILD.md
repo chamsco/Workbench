@@ -74,30 +74,46 @@ Not verified:
 
 The v3 board draws the drawer and the bottom bar on the window frame. This build follows the brief instead and puts both on the Shell grey (`card`), inside a rounded Shell that holds the card. The card is now the `panel` token, so it stands apart from the Shell in both themes: darker in dark, white in light.
 
-## Split panes, direction B (13 Nov)
+## Split panes, direction B, three at most (13 Nov)
 
-The board is `design/cauldron-split-panes.html` (published at https://claude.ai/artifact/EAWJMVG33f8ue1f8guXhf1). It keeps both directions, so Charles can still overrule B with A.
-Charles, through the coordinator: "go for B, make a pane button that has an animation that shows the different options (add also 2 side by side on top & long vertical at the bottom)".
+The board is `design/cauldron-split-panes.html` (published at https://claude.ai/artifact/EAWJMVG33f8ue1f8guXhf1). It still shows both directions, so Charles can overrule B with A. Its four-pane B mock is out of date: the app now stops at three.
 
-What is built:
-- **Six shapes**, in the layout button's order: one pane, two side by side, two stacked, one beside two, two on top with one long pane below (new), and a 2×2 grid. The geometry is `cauldron_chrome::panes`: pure, tested in `crates/chrome/tests/panes.rs`.
-- **Layout button** in the card head, at the right, 28px. It draws a small sketch of the shape a click switches to, and its tooltip and name say it ("Layout: One beside two"). Each click steps to the next shape, and the grid goes back to one pane. On a click the sketch morphs from the old shape to the new one in 200ms on the settle curve; with reduced motion it switches at once. The Split button in the top bar goes from one pane to two side by side, and back to one.
-- **Two lines**: a vertical one and a horizontal one, each over its 4px gap with a 12px grab area. The accent mark shows on hover and while dragging. Dragging moves the split with the pointer, and double-clicking makes it even. In One beside two the horizontal line spans the right column; in Two on top, one below the vertical line spans the top row.
-- **Limits**: 4px between panes (Split was 8px). No pane gets smaller than 200 × 120, so a line stops there. A shape that no longer fits the card (a narrow window, or the drawer open) is drawn as the nearest earlier shape that fits, as the shell already closes Split when the window narrows. Four panes at most, since no shape has more.
-- **Close**: every pane after the first has an ×. Closing one steps back one pane: the grid goes to one beside two, either three-pane shape goes to two side by side, and a two-pane shape goes to one pane.
-- **Panes**: pane 0 holds the thread, or the new-thread screen. The others say "Open in this pane", with the old half's tiles as placeholders (Highlights, Files, Changes, Terminal, Browser, Add an app); none of them opens anything yet. Split, the panes are the Panels and the card head sits on the Shell's grey, as on the board.
-- **Removed**: the solver's half pane is no longer drawn (`split_open` is always false). Split lives inside the card now.
-- **Thread in a narrow pane**: the route chip ("Answered by …") now shrinks first, so Send stays in view.
+Charles, 01:38Z: "go for B, make a pane button that has an animation that shows the different options (add also 2 side by side on top & long vertical at the bottom)".
+Charles, 01:49Z: "ok let's go instead with a 3 MAX and make each pane draggable (either 3 vertical or 2 side by side and 1 vertical, or 2 stacked on one side and 1 tall pane), make the elements inside adapt / resize because the text gets jumbled, and when you open a pane, make it look like this" (his screenshot: an empty pane with a centred "Open a surface" list).
 
-Interpretation to check: "long vertical at the bottom" is built as one full-width pane under two side by side (the coordinator's reading). If Charles meant a tall pane instead, it is one shape in `panes.rs`.
+What is built (it replaces the four-pane build of ee3d9ba):
+- **Six shapes, three panes at most**, in the layout button's order: one pane, two side by side, two stacked, three side by side, two on top with one long pane below, and one tall pane with two stacked beside it. The 2×2 grid is gone. The geometry is `cauldron_chrome::panes` (pure, `crates/chrome/tests/panes.rs`).
+- **Layout button** in the card head: a sketch of the shape a click switches to, which morphs to the next shape in 200ms on the settle curve (at once with reduced motion). Each click steps on, and the last shape goes back to one pane. The Split button in the top bar goes from one pane to two side by side, and back.
+- **Every divider has a line**: one vertical line, a second one in three side by side, and one horizontal line. Dragging a line resizes only the two panes on its sides, and double-clicking makes them even (all three columns in three side by side). Each line is 4px, with a 12px grab area and an accent mark on hover or drag.
+- **Dragging panes**: a pane's name in its header is a handle. Drop it on another pane to swap the two, so the tall pane, or the thread, can sit on either side. The drop target outlines in the accent colour.
+- **Limits**: 4px gap and no pane under 200 × 120. A shape that does not fit the card is drawn as the nearest earlier shape that does.
+- **Pane header** (from Charles's screenshot, as the coordinator described it): + on the left adds a pane (two side by side → three, two stacked → one tall beside two; nothing once there are three). Next comes the pane's name, which is the drag handle. On the right: Expand (this pane alone), Split bottom (one pane → two stacked, two side by side → two on top with one below), the drawer toggle, and × to close. The thread's pane has no ×.
+- **A new pane** is the "Open a surface" list: Browser (with a chevron), Terminal, Files, Diff, Pull request, Linked pull requests and Device, each with its key (B, T, F, D, P, L, M). Diff and both pull-request rows are dimmed because core has nothing behind them yet. Clicking a row, or pressing its key with the pane focused, opens that surface. The surfaces are placeholders ("The terminal surface arrives in a later milestone."). This list replaces the old tiles.
+- **Content fits its pane**:
+  - The transcript keeps the newest message in view when a thread opens or grows. Before, a short pane showed the oldest messages, cut off by the composer, which is likely the "jumbled" text.
+  - Under 360px wide: less padding, and your bubbles may use 90% of the width.
+  - Under 260px tall: no cost line.
+  - Under 160px tall: the composer becomes one row, the editor and Send, without its chips.
+  - The route chip gives way before Send, and pane names and surface labels truncate.
+- **Removed**: the solver's half pane. Split lives inside the card.
+
+Interpretations to check:
+- "2 side by side and 1 vertical" is built as two on top with one long pane across the bottom, the shape Charles described at 01:38Z.
+- "make each pane draggable" is built as both: the lines resize, and a pane's header drags it onto another pane to swap.
+- One- and two-pane shapes are kept so you can step down.
 
 Tests:
-- Geometry, test-first: `docs/cauldron/NL4-panes-red.txt` (the module did not exist yet) and `NL4-panes-green.txt` (8 pass). They cover six shapes holding 1 to 4 panes, the stepping order and wrap, close stepping back, the 4px gaps, panes filling the area, 200 × 120 under any drag, lines lining up, reset, and shapes that do not fit.
-- App: `docs/cauldron/NL4-app-green.txt`, 42 of 42 (three new). The new tests check that the button sits in the card head and steps through all six shapes; that panes are 4px apart, keep 200 × 120, and closing steps back; and that a real pointer drag moves the line, stops at 200, and a double-click makes it even. The sixth shape changed tests and code together, so there is no separate red run for it.
-- The solver-match test now covers four states (sidebar and drawer), since Split no longer uses the solver.
+- Geometry, test-first: `docs/cauldron/NL5-panes-red.txt` (the three-pane API did not exist), `NL5-panes-green.txt` (11 pass). They cover six shapes and three at most, the stepping order, close, +, Split bottom, the 4px gaps, panes filling the card, every divider having a line, 200 × 120 under any drag, a line moving only its two panes, the lines sitting in the gaps, reset, and shapes that do not fit.
+- App: `docs/cauldron/NL5-app-green.txt`, 45 of 45. Pane tests cover the button stepping through six shapes; the surface list (seven rows, dimmed rows inert, a click opening one); 4px, 200 × 120, close and +; dragging a header to swap panes; and a real pointer drag of the second line, its 200px stop and its double-click reset.
+- New smallest-pane test (`the_thread_fits_the_smallest_pane`): the thread at 200 wide and at 120 tall keeps its composer and Send inside the pane, with the transcript ending above the composer and messages wrapping inside the pane.
+- These tests and the code changed together after Charles's 01:49Z message, so the app has no separate red run.
 
-Shots (real window captures, 1200x720 at 1x, a thread open, drawer open): `docs/screenshots/new-look/nl4-panes-<n>-<shape>-<dark|light>.png` for all six shapes.
-Not captured: the morph itself (a still shows one frame), hover on the lines, and a drag in the live window. The tests cover the drag.
+Shots (real window captures, 1200x720 at 1x, a thread open, drawer open), in `docs/screenshots/new-look/`:
+- `nl5-panes-1-cols-*`: the thread beside a new pane ("Open a surface").
+- `nl5-panes-2-rows-*`, `nl5-panes-3-three-*`, `nl5-panes-4-twoone-*` and `nl5-panes-5-onetwo-*`: the other shapes, each in dark and light.
+- Not captured: the morph, a header drag in progress, and a line drag in the live window. The tests cover the drags.
+
+Disk: the Mac's startup volume ran out of space during this build (258 MB free; the link failed with "No space left on device"). I deleted only this worktree's incremental build cache and its old test binaries, which freed about 1.2 GB. This worktree's `target/` is still about 5 GB. Charles may want to free space; `cargo clean` in `~/Documents/code/Workbench-newlook` frees all of it.
 
 ## Not done (as asked)
 

@@ -297,8 +297,20 @@ impl Cauldron {
         let now = std::time::Instant::now();
         let open_k = self.open_since.map_or(1.0, |t0| cauldron_chrome::motion::fade_in(crate::motion::run(now, t0, cauldron_chrome::motion::time::CARRY)));
         let bubble_k = self.bubble_since.map_or(1.0, |t0| crate::motion::run(now, t0, cauldron_chrome::motion::time::CARRY));
-        let mut msgs = div().id("transcript").flex_1().min_h_0().overflow_y_scroll().flex().flex_col().gap(px(12.)).opacity(open_k);
+        let mut msgs = div().id("transcript").flex_1().min_h_0().overflow_y_scroll().track_scroll(&self.transcript_scroll).flex().flex_col().gap(px(12.)).opacity(open_k);
         let ls = lines(t);
+        // Keep the newest message in view when a thread opens or grows, in a short pane too.
+        let seen = Some((t.id.clone(), ls.len()));
+        if *self.transcript_seen.borrow() != seen {
+            self.transcript_scroll.scroll_to_bottom();
+            *self.transcript_seen.borrow_mut() = seen;
+        }
+        // In a narrow or short pane the view tightens and drops what is secondary, so nothing
+        // overlaps: less padding under 360px, no cost line under 260px, no composer chips under 160px (Send stays).
+        let (bw, bh) = self.thread_box.get();
+        let narrow = bw > 0.0 && bw < 360.0;
+        let short = bh > 0.0 && bh < 260.0;
+        let tiny = bh > 0.0 && bh < 160.0;
         // The newest of the user's bubbles rises into place (a rise and fade, not a carry from
         // the composer box).
         let fresh_mine = ls.iter().rposition(|l| l.mine);
@@ -328,7 +340,7 @@ impl Cauldron {
                         .relative()
                         .top(px(8. * (1. - k)))
                         .opacity(k)
-                        .max_w(relative(0.72))
+                        .max_w(relative(if narrow { 0.9 } else { 0.72 }))
                         .px(px(12.))
                         .py(px(9.))
                         .rounded(px(radius::PANEL))
@@ -484,28 +496,30 @@ impl Cauldron {
             p.save();
             cx.notify();
         }));
+        let editor = div()
+            .id("composer-input")
+            // The multi-line editor pads itself by Size::Medium's 10/8px and ignores style
+            // padding; pull it back so the text lines up with the chips under it.
+            .mx(px(-10.))
+            .when_live(!tiny, |d| d.mt(px(-8.)))
+            .when_live(tiny, |d| d.my(px(-8.)).flex_1().min_w_0())
+            .text_size(px(13.))
+            .child(Textarea::new(&input).appearance(false))
+            .test_support();
         let mut composer = div()
             .id("composer")
             .flex_none()
             .flex()
-            .flex_col()
-            .gap(px(8.))
-            .px(px(12.))
-            .py(px(10.))
             .rounded(px(radius::PANEL))
             .border_1()
             .border_color(c(pal.line))
             .bg(c(pal.raised))
-            .aria_label("Message the coordinator")
-            .child(div()
-                    .id("composer-input")
-                    // The multi-line editor pads itself by Size::Medium's 10/8px and ignores style
-                    // padding; pull it back so the text lines up with the chips under it.
-                    .mx(px(-10.))
-                    .mt(px(-8.))
-                    .text_size(px(13.))
-                    .child(Textarea::new(&input).appearance(false)).test_support())
-            .child(
+            .aria_label("Message the coordinator");
+        composer = if tiny {
+            // A very short pane: one row, the editor and Send, no chips.
+            composer.items_center().gap(px(6.)).pl(px(12.)).pr(px(6.)).py(px(6.)).child(editor).child(action)
+        } else {
+            composer.flex_col().gap(px(8.)).px(px(12.)).py(px(10.)).child(editor).child(
                 div()
                     .flex()
                     .items_center()
@@ -514,7 +528,8 @@ impl Cauldron {
                     .child(chip_btn("route", format!("Answered by {}", t.route.provider)).min_w_0().truncate().test_support())
                     .child(effort_chip.flex_none().test_support())
                     .child(action),
-            );
+            )
+        };
         if let Some(e) = &self.send_error {
             composer = composer.child(div().id("send-error").text_size(px(12.)).text_color(c(pal.bad)).aria_label(e.clone()).child(e.clone()).test_support());
         }
@@ -541,12 +556,12 @@ impl Cauldron {
             .size_full()
             .flex()
             .flex_col()
-            .gap(px(10.))
-            .px(px(18.))
-            .py(px(14.))
-            .child(msgs)
+            .gap(px(if short { 6. } else { 10. }))
+            .px(px(if narrow { 10. } else { 18. }))
+            .py(px(if short { 8. } else { 14. }))
+            .child(msgs.test_support())
             .child(composer.test_support())
-            .child(usage)
+            .when_live(!short, |d| d.child(usage))
             .into_any_element()
     }
 }
@@ -676,6 +691,55 @@ pub(super) mod tests {
         assert_eq!(super::cost(&t), 0.4);
         let empty = backspace_core::chat::Thread { messages: Vec::new(), ..t };
         assert_eq!(format!("{:.2}", super::cost(&empty)), "0.00", "no minus zero");
+    }
+
+    /// At the smallest pane (200 wide, 120 tall under its 32px header) the thread still reads: its
+    /// parts stay inside the pane, the transcript ends above the composer, Send stays in view, and
+    /// the cost line and the composer's chips make way when there is no room for them.
+    #[gpui_kit::test]
+    fn the_thread_fits_the_smallest_pane(cx: &mut TestAppContext) {
+        use cauldron_chrome::panes::{Line, Shape};
+        let (handle, _chats) = open(cx);
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            window.click(("thread", 0usize), cx);
+        })
+        .unwrap();
+        let rect = |w: &gpui_kit::Window, id: (&'static str, usize)| super::super::tests::rect(w, id);
+        let rect1 = |w: &gpui_kit::Window, id: &'static str| super::super::tests::rect(w, id);
+        let inside = |p: cauldron_chrome::layout::Rect, r: cauldron_chrome::layout::Rect| r.x >= p.x - 0.5 && r.right() <= p.right() + 0.5 && r.y >= p.y - 0.5 && r.bottom() <= p.bottom() + 0.5;
+        for (shape, line, to_x) in [(Shape::Cols, Line::V, true), (Shape::Rows, Line::H, false)] {
+            handle.update(cx, |c, _, _| {
+                c.panes.shape = shape;
+                c.panes.drag(line, cauldron_chrome::layout::Rect::new(0.0, 0.0, 10_000.0, 10_000.0), 0.0);
+            })
+            .unwrap();
+            cx.update_window(handle.into(), |_, window, cx| {
+                window.render_frame(cx);
+                window.render_frame(cx);
+                let pane = rect(window, ("pane", 0usize));
+                if to_x {
+                    assert_eq!(pane.w, 200.0, "{shape:?}: the thread pane at its narrowest");
+                } else {
+                    assert_eq!(pane.h, 120.0, "{shape:?}: the thread pane at its shortest");
+                }
+                let composer = rect1(window, "composer");
+                assert!(inside(pane, composer), "{shape:?}: composer {composer:?} inside {pane:?}");
+                assert!(inside(pane, rect1(window, "send")), "{shape:?}: Send in view");
+                let tr = rect1(window, "transcript");
+                assert!(tr.bottom() <= composer.y + 0.5, "{shape:?}: the transcript ends above the composer");
+                for i in 0..4usize {
+                    if let Some(m) = window.try_find(("msg", i)) {
+                        let b = m.bounds();
+                        assert!(f32::from(b.origin.x + b.size.width) <= pane.right() + 0.5, "{shape:?}: message {i} wraps inside the pane");
+                    }
+                }
+                if !to_x {
+                    assert!(window.try_find("usage").is_none(), "no room for the cost line");
+                }
+            })
+            .unwrap();
+        }
     }
 
     /// Clicking a row opens its thread: the title on the pinned tab and above the transcript,

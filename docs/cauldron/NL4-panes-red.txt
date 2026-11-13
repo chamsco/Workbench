@@ -1,8 +1,0 @@
-error[E0432]: unresolved import `cauldron_chrome::panes`
- --> crates/chrome/tests/panes.rs:5:22
-  |
-5 | use cauldron_chrome::panes::{self, Shape, Split, GAP, MIN_H, MIN_W};
-  |                      ^^^^^ could not find `panes` in `cauldron_chrome`
-
-For more information about this error, try `rustc --explain E0432`.
-error: could not compile `cauldron-chrome` (test "panes") due to 1 previous error
