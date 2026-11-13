@@ -165,6 +165,8 @@ pub(crate) struct Cauldron {
     page: pages::AppPage,
     /// Core's agents, read when Agents opens.
     page_agents: Vec<pages::AgentCard>,
+    /// The Agents demo's selection: an agent in the roster, or None for the first room.
+    agent_sel: Option<usize>,
     /// Settings is open on this page (v3 frame 7): its pages take the sidebar's list, the page the card.
     settings: Option<usize>,
     /// Where Settings reads the subscriptions; None is core's `accounts.json` (tests use their own).
@@ -279,7 +281,8 @@ impl Cauldron {
         {
             match std::env::var("CAULDRON_PAGE").as_deref() {
                 Ok("agents") => c.open_page(pages::AppPage::Agents),
-                Ok("memory") => c.open_page(pages::AppPage::Memory),
+                Ok("library") => c.open_page(pages::AppPage::Library),
+                Ok("usage") => c.open_page(pages::AppPage::Usage),
                 _ => {}
             }
             if std::env::var("CAULDRON_PLATFORM").as_deref() == Ok("windows") {
@@ -314,7 +317,7 @@ impl Cauldron {
     }
 
     pub(crate) fn new() -> Self {
-        Cauldron { motion: ShellMotion::default(), swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: None, sidebar_open: true, drawer: Some(Panel::Highlights), backdrop: Default::default(), glass_at: Default::default(), glass_card: std::cell::Cell::new(None), appearance_sub: None, prefs_file: None, plat: platform(), folder_open: Default::default(), page: Default::default(), page_agents: Vec::new(), settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_menu: false, tab_slide: Default::default(), tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
+        Cauldron { motion: ShellMotion::default(), swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: None, sidebar_open: true, drawer: Some(Panel::Highlights), backdrop: Default::default(), glass_at: Default::default(), glass_card: std::cell::Cell::new(None), appearance_sub: None, prefs_file: None, plat: platform(), folder_open: Default::default(), page: Default::default(), page_agents: Vec::new(), agent_sel: None, settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_menu: false, tab_slide: Default::default(), tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
     }
 
     /// Opens core off the main thread (the sidebar shows Loading meanwhile), then keeps the thread
@@ -721,18 +724,6 @@ impl Cauldron {
         let fg3 = c(pal.fg3);
         let sep = || div().w(px(20.)).h(px(1.)).my(px(4.)).bg(c(pal.line_strong));
         let mut col = pane("rail", r).opacity(alpha).flex().flex_col().items_center().gap(px(4.)).pt(px(4.)).pb(px(8.));
-        // Usage: an empty ring until core reports it.
-        col = col.child(
-            self.tipped(
-                "rail-usage",
-                div().id("rail-usage").size(px(20.)).my(px(4.)).rounded_full().border_2().border_color(c(pal.line_strong)).aria_label("No usage data yet"),
-                "No usage data yet",
-                Side::Right,
-                pal,
-                cx,
-            )
-            .test_support(),
-        );
         for (i, p) in pages::AppPage::ALL.into_iter().enumerate() {
             let on = self.page == p && self.settings.is_none();
             col = col.child(
@@ -800,6 +791,8 @@ impl Cauldron {
         let user = std::env::var("USER").or_else(|_| std::env::var("USERNAME")).unwrap_or_else(|_| "You".into());
         let initial = user.chars().next().map(|ch| ch.to_uppercase().to_string()).unwrap_or_else(|| "Y".into());
         col.child(div().flex_1())
+            // Usage at the foot (Charles, 13 Nov 15:54Z): the ring, its card on hover, the page on click.
+            .child(self.usage_ring("rail-usage", pal, cx).test_support())
             .child(
                 self.tipped("rail-version", icon_button("rail-version", "circle-arrow-up", "Version and updates", pal, false), format!("Version {}", env!("CARGO_PKG_VERSION")), Side::Right, pal, cx)
                     .on_click(cx.listener(|this, _, _, cx| {
@@ -818,6 +811,30 @@ impl Cauldron {
             )
             .child(div().id("rail-avatar").mt(px(4.)).size(px(24.)).flex().items_center().justify_center().rounded_full().bg(c(pal.accent)).text_size(px(11.)).text_color(c(pal.on_accent)).aria_label(user.clone()).child(initial).test_support())
             .text_color(fg3)
+    }
+
+    /// Usage: a ring and its number where core reports usage, "No data yet" until then; hovering
+    /// shows the card, a click opens the Usage page. Core has no per-subscription usage yet.
+    fn usage_ring(&self, id: &'static str, pal: &'static Palette, cx: &mut Context<Self>) -> Stateful<Div> {
+        let rail = id == "rail-usage";
+        let el = div()
+            .id(id)
+            .flex_none()
+            .flex()
+            .items_center()
+            .gap(px(5.))
+            .px(px(if rail { 0. } else { 4. }))
+            .rounded(px(radius::TAG))
+            .cursor_pointer()
+            .hover(|d| d.bg(c(pal.hover)))
+            .aria_label("No data yet")
+            .child(div().size(px(if rail { 20. } else { 12. })).my(px(if rail { 4. } else { 0. })).rounded_full().border_2().border_color(c(pal.line_strong)))
+            .when_live(!rail, |d| d.child(div().text_size(px(11.)).text_color(c(pal.fg3)).child("No data yet")))
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.open_page(pages::AppPage::Usage);
+                cx.notify();
+            }));
+        self.tipped((id, 1usize), el, "Usage: no data yet. Core does not report it per subscription.", if rail { Side::Right } else { Side::Right }, pal, cx)
     }
 
     /// The version, as a small button by the cog: it opens Settings > General, where the version
@@ -1009,7 +1026,7 @@ impl Render for Cauldron {
         let vs = window.viewport_size();
         let (w, h) = (f32::from(vs.width), f32::from(vs.height));
         let plat = self.plat;
-        let want = ShellState { sidebar_open: self.sidebar_open, drawer_open: self.drawer.is_some(), split_open: false, terminal_open: self.terminal, plugins: self.settings.is_none() && self.page != pages::AppPage::Memory };
+        let want = ShellState { sidebar_open: self.sidebar_open, drawer_open: self.drawer.is_some(), split_open: false, terminal_open: self.terminal, plugins: self.settings.is_none() && self.page.has_drawer() };
         let now = std::time::Instant::now();
         let reduce = cx.reduce_motion();
         let (s, mut moving) = self.motion.frame(want, Frame::at_rest(&layout::solve(w, h, want, plat)), now, reduce);
@@ -1231,7 +1248,7 @@ impl Render for Cauldron {
                                 .items_center()
                                 .gap(px(6.))
                                 .child(div().min_w_0().truncate().text_size(px(12.5)).child(user))
-                                .child(div().id("usage-left").flex_none().text_size(px(11.)).text_color(fg3).aria_label("No data yet").child("No data yet").test_support()),
+                                .child(self.usage_ring("usage-left", pal, cx).test_support()),
                         )
                         .child(self.version_button(pal, cx).test_support())
                         .child(self.tipped("settings", icon_button("settings", "settings", "Settings", pal, self.settings.is_some()), "Settings", Side::Right, pal, cx).on_click(cx.listener(|this, _, _, cx| {
@@ -1438,7 +1455,7 @@ impl Render for Cauldron {
             // On Agents the drawer is Agents' own (a mockup until the page is designed).
             let mut bodies = div().relative().flex_1().min_h_0();
             if self.page == pages::AppPage::Agents {
-                bodies = bodies.child(self.agents_drawer(pal));
+                bodies = bodies.child(self.agents_drawer(pal).test_support());
             } else {
                 bodies = bodies.child(body(p, swap.map_or(1.0, |(_, k)| k)));
                 if let Some((a, k)) = swap {
@@ -1959,7 +1976,7 @@ mod tests {
         .unwrap();
     }
 
-    /// Folded, the rail (the pages board): usage on top, the three apps, search and New stream, a
+    /// Folded, the rail (the destinations board): the six apps, search and New stream, a
     /// square per folder (a dot on the one with a stream that needs you), then the version, the cog
     /// and the avatar stacked at the foot. Unfolded, usage sits beside the name, then the version
     /// and the cog.
@@ -1980,12 +1997,13 @@ mod tests {
         .unwrap();
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
-            let order = ["rail-usage", "rail-search", "rail-new"].map(|id| rect(window, id).y);
-            assert!(order[0] < rect(window, ("rail-page", 0usize)).y && rect(window, ("rail-page", 2usize)).y < order[1] && order[1] < order[2], "usage, the apps, search, New stream");
+            let order = ["rail-search", "rail-new"].map(|id| rect(window, id).y);
+            let pages: Vec<f32> = (0..6usize).map(|i| rect(window, ("rail-page", i)).y).collect();
+            assert!(pages.windows(2).all(|w| w[1] > w[0]) && pages[5] < order[0] && order[0] < order[1], "the six apps stacked, search, New stream");
             let folders: Vec<String> = (0..3usize).filter_map(|i| window.try_find(("rail-folder", i)).and_then(|e| e.label().map(str::to_string))).collect();
             assert_eq!(folders, ["Cauldron, 2", "Ocean, 2", "Unfiled, 1"]);
-            let (v, g, a) = (rect(window, "rail-version"), rect(window, "rail-settings"), rect(window, "rail-avatar"));
-            assert!(v.y < g.y && g.y < a.y, "version, cog, avatar stacked at the foot");
+            let (u, v, g, a) = (rect(window, "rail-usage"), rect(window, "rail-version"), rect(window, "rail-settings"), rect(window, "rail-avatar"));
+            assert!(u.y < v.y && v.y < g.y && g.y < a.y, "usage, version, cog, avatar stacked at the foot (Charles, 13 Nov 15:54Z)");
             assert!(a.bottom() >= rect(window, "rail").bottom() - 12.0, "at the foot");
             window.click(("rail-folder", 1usize), cx);
         })
