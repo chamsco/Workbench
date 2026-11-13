@@ -153,6 +153,18 @@ pub(crate) struct Cauldron {
     glass_card: std::cell::Cell<Option<(f32, f32, bool)>>,
     /// Re-renders when the OS switches light and dark, so System follows it live.
     appearance_sub: Option<Subscription>,
+    /// Re-renders when the window comes to the front or leaves it, so Flow pauses and resumes.
+    active_sub: Option<Subscription>,
+    /// Flow's clock (when it last resumed, and its time then), its loop, and what the loop draws:
+    /// the window's size, the card's rect and the theme, as last rendered while it moves.
+    flow_clock: Option<(std::time::Instant, f32)>,
+    flow_task: Option<Task<()>>,
+    flow_running: bool,
+    flow_at: Option<((f32, f32), (i32, i32, u32, u32), bool)>,
+    /// Pictures retired last frame, freed from the GPU this frame.
+    retired: Vec<Arc<RenderImage>>,
+    /// `CAULDRON_FLOW_STATS`: frames made and their total time, for the numbers in the PR.
+    flow_stats: (u32, std::time::Duration),
     /// Where the theme and the painting are read from; None is core's prefs file (tests use their own).
     prefs_file: Option<std::path::PathBuf>,
     /// Which window controls the shell draws: the OS's, or Windows' drawn on a Mac for a preview
@@ -319,7 +331,7 @@ impl Cauldron {
     }
 
     pub(crate) fn new() -> Self {
-        Cauldron { motion: ShellMotion::default(), swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: None, sidebar_open: true, drawer: Some(Panel::Highlights), backdrop: Default::default(), glass_at: Default::default(), glass_card: std::cell::Cell::new(None), appearance_sub: None, prefs_file: None, plat: platform(), folder_open: Default::default(), page: Default::default(), page_agents: Vec::new(), agent_sel: None, agent_tab: 0, settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_menu: false, tab_slide: Default::default(), tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
+        Cauldron { motion: ShellMotion::default(), swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: None, sidebar_open: true, drawer: Some(Panel::Highlights), backdrop: Default::default(), glass_at: Default::default(), glass_card: std::cell::Cell::new(None), appearance_sub: None, active_sub: None, flow_clock: None, flow_task: None, flow_running: false, flow_at: None, retired: Vec::new(), flow_stats: (0, std::time::Duration::ZERO), prefs_file: None, plat: platform(), folder_open: Default::default(), page: Default::default(), page_agents: Vec::new(), agent_sel: None, agent_tab: 0, settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_menu: false, tab_slide: Default::default(), tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
     }
 
     /// Opens core off the main thread (the sidebar shows Loading meanwhile), then keeps the thread
@@ -815,6 +827,53 @@ impl Cauldron {
             .text_color(fg3)
     }
 
+    /// Flow's loop: 10 frames a second while it moves, each made off the main thread; it stops by
+    /// itself when Flow should hold still (the next render starts it again).
+    fn start_flow(&mut self, cx: &mut Context<Self>) {
+        // 10 a second, not 15: measured on the Mac (NEW-LOOK-BUILD.md, "The moving background"),
+        // a new picture each frame costs more than the 2ms the board allowed.
+        let every = std::time::Duration::from_millis(100);
+        self.flow_running = true;
+        let stats = std::env::var_os("CAULDRON_FLOW_STATS").is_some();
+        self.flow_task = Some(cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| loop {
+            cx.background_executor().timer(every).await;
+            let job = this
+                .update(cx, |this, _| {
+                    let at = this.flow_at?;
+                    let now = std::time::Instant::now();
+                    let (t0, from) = *this.flow_clock.get_or_insert((now, this.backdrop.borrow().flow_t));
+                    Some((at, from + (now - t0).as_secs_f32()))
+                })
+                .ok()
+                .flatten();
+            let Some(((win, r, dark), t)) = job else {
+                let _ = this.update(cx, |this, _| this.flow_running = false);
+                break;
+            };
+            let made = std::time::Instant::now();
+            let img = cx.background_executor().spawn(async move { backdrop::bgra_render(backdrop::flow_image(win, r, t, dark)) }).await;
+            let took = made.elapsed();
+            let ok = this.update(cx, |this, cx| {
+                {
+                    let mut b = this.backdrop.borrow_mut();
+                    b.flow_to(t);
+                    b.set_flow_frame(r, t, img);
+                }
+                if stats {
+                    this.flow_stats.0 += 1;
+                    this.flow_stats.1 += took;
+                    if this.flow_stats.0 % 75 == 0 {
+                        eprintln!("flow: {} frames, {:.2} ms each to make ({}x{} points)", this.flow_stats.0, this.flow_stats.1.as_secs_f64() * 1000.0 / this.flow_stats.0 as f64, r.2, r.3);
+                    }
+                }
+                cx.notify();
+            });
+            if ok.is_err() {
+                break;
+            }
+        }));
+    }
+
     /// Usage: a ring (with its number where core reports usage; with none, "No data yet" is in its
     /// name and tip, so the user's name keeps its room); a click opens the Usage page. Core has no per-subscription usage yet.
     fn usage_ring(&self, id: &'static str, pal: &'static Palette, cx: &mut Context<Self>) -> Stateful<Div> {
@@ -1016,6 +1075,9 @@ impl Render for Cauldron {
         if self.appearance_sub.is_none() {
             self.appearance_sub = Some(cx.observe_window_appearance(window, |_, _, cx| cx.notify()));
         }
+        if self.active_sub.is_none() {
+            self.active_sub = Some(cx.observe_window_activation(window, |_, _, cx| cx.notify()));
+        }
         let look = appearance::load(self.prefs_file.as_deref());
         let os_dark = !matches!(window.appearance(), WindowAppearance::Light | WindowAppearance::VibrantLight);
         let dark = forced_dark().unwrap_or(match look.theme {
@@ -1129,6 +1191,12 @@ impl Render for Cauldron {
                     }));
             }
         }
+
+        // Pictures retired last frame leave the GPU now (the frame that showed them is out).
+        for img in std::mem::take(&mut self.retired) {
+            let _ = window.drop_image(img);
+        }
+        self.retired = self.backdrop.borrow_mut().take_retired();
 
         // Window drag strip, under every control.
         root = root.child(
@@ -1332,6 +1400,16 @@ impl Render for Cauldron {
         // The painting behind the whole window (painting X, the board e0fd268): frosted under every
         // surface, sharp only through the new thread's clear card.
         let sh = s.shell;
+        // Flow moves only behind the new stream, with the window in front and motion allowed; any
+        // stream, page or Settings, or a split, holds the last frame still.
+        let flowing = look.motion() == appearance::Motion::Moving && new_screen && !split && !reduce && window.is_window_active();
+        self.flow_at = flowing.then_some(((w, h), (s.main.x as i32, s.main.y as i32, s.main.w as u32, card_h as u32), dark));
+        if flowing && !self.flow_running {
+            self.start_flow(cx);
+        }
+        if !flowing {
+            self.flow_clock = None;
+        }
         let (frost, art, card_frost, card_tint) = match wall {
             Some(_) => {
                 let mut b = self.backdrop.borrow_mut();

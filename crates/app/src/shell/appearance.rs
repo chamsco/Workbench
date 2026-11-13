@@ -3,7 +3,10 @@
 //! field, a value of the wrong type) still gives these two their saved values or sane defaults, and
 //! never a half state. Old Tauri values carry over only where they map cleanly: "plain" is None,
 //! the Tauri paintings are themselves; the ASCII sea, the koi and the aurora are gone, so they fall
-//! back to the default painting.
+//! back to the default, the Flow held still (Moving is a choice: it costs about 10% of a core).
+//!
+//! The background's motion lives in the same saved id, so core's prefs need no new field: "flow" is
+//! Moving, "flow-still" or a painting is Still (that picture), "plain" is Off.
 
 use std::path::Path;
 
@@ -47,9 +50,46 @@ pub(crate) struct Look {
     pub backdrop: &'static str,
 }
 
+/// Settings > Appearance > Background.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Motion {
+    Moving,
+    Still,
+    Off,
+}
+
+impl Motion {
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Motion::Moving => "Moving",
+            Motion::Still => "Still",
+            Motion::Off => "Off",
+        }
+    }
+}
+
+impl Look {
+    pub(crate) fn motion(&self) -> Motion {
+        match self.backdrop {
+            "flow" => Motion::Moving,
+            "plain" => Motion::Off,
+            _ => Motion::Still,
+        }
+    }
+}
+
+/// The saved id for the next Background choice: Moving, Still (Flow held still), Off.
+pub(crate) fn next_motion(m: Motion) -> &'static str {
+    match m {
+        Motion::Moving => "flow-still",
+        Motion::Still => "plain",
+        Motion::Off => "flow",
+    }
+}
+
 impl Default for Look {
     fn default() -> Look {
-        Look { theme: Theme::System, backdrop: "harbour" }
+        Look { theme: Theme::System, backdrop: "flow-still" }
     }
 }
 
@@ -64,7 +104,7 @@ pub(crate) fn theme(id: &str) -> Theme {
 /// A saved backdrop id as one Settings offers: the paintings are themselves, "plain" (or "none")
 /// is None, anything else (an old Tauri backdrop, a typo) is the default painting.
 pub(crate) fn backdrop(id: &str) -> &'static str {
-    super::backdrop::BACKDROPS.iter().map(|b| b.0).find(|b| *b == id).unwrap_or(if id.eq_ignore_ascii_case("none") { "plain" } else { "harbour" })
+    super::backdrop::BACKDROPS.iter().map(|b| b.0).find(|b| *b == id).unwrap_or(if id.eq_ignore_ascii_case("none") { "plain" } else { "flow-still" })
 }
 
 /// The look in a prefs file's text, or the defaults; never fails.
@@ -73,7 +113,7 @@ pub(crate) fn from_json(text: Option<&str>) -> Look {
     let field = |k: &str| v.as_ref().and_then(|v| v.get(k)).and_then(|x| x.as_str()).map(str::to_string);
     Look {
         theme: field("theme").map_or(Theme::System, |t| theme(&t)),
-        backdrop: field("backdrop").map_or("harbour", |b| backdrop(&b)),
+        backdrop: field("backdrop").map_or("flow-still", |b| backdrop(&b)),
     }
 }
 
@@ -92,7 +132,8 @@ mod tests {
         assert_eq!(from_json(None), Look::default());
         assert_eq!(from_json(Some("not json {")), Look::default());
         assert_eq!(load(Some(Path::new("/nonexistent/cauldron/prefs.json"))), Look::default());
-        assert_eq!(Look::default().backdrop, "harbour");
+        assert_eq!(Look::default().backdrop, "flow-still");
+        assert_eq!(Look::default().motion(), Motion::Still, "Background is Still by default: moving costs more than the board allowed");
     }
 
     #[test]
@@ -101,7 +142,7 @@ mod tests {
         assert_eq!(backdrop("none"), "plain");
         assert_eq!(backdrop("harbour"), "harbour");
         for gone in ["aurora", "sharks-white", "sharks-black", "koi", "", "Harbour!"] {
-            assert_eq!(backdrop(gone), "harbour", "{gone:?} falls back to the default painting");
+            assert_eq!(backdrop(gone), "flow-still", "{gone:?} falls back to the default, Flow held still");
         }
         assert_eq!(theme("dark"), Theme::Dark);
         assert_eq!(theme("auto"), Theme::System, "an unknown theme follows the OS");
@@ -114,9 +155,17 @@ mod tests {
         let retired = r#"{"tabs":"floating","tab_place":"pane","theme":"light","backdrop":"fog"}"#;
         assert_eq!(from_json(Some(retired)), Look { theme: Theme::Light, backdrop: "fog" });
         let tauri = r#"{"theme":"dark","backdrop":"sharks-white","glass":true,"vivid":false,"tabs":[{"name":"Home","panes":[]}],"active_tab":3}"#;
-        assert_eq!(from_json(Some(tauri)), Look { theme: Theme::Dark, backdrop: "harbour" });
+        assert_eq!(from_json(Some(tauri)), Look { theme: Theme::Dark, backdrop: "flow-still" });
         let wrong_types = r#"{"theme":7,"backdrop":null}"#;
         assert_eq!(from_json(Some(wrong_types)), Look::default());
+    }
+
+    /// A saved painting is Still with that picture; the Background cycles Moving, Still, Off.
+    #[test]
+    fn the_background_reads_from_the_saved_id() {
+        let m = |b: &str| from_json(Some(&format!(r#"{{"backdrop":"{b}"}}"#))).motion();
+        assert_eq!([m("flow"), m("flow-still"), m("harbour"), m("plain")], [Motion::Moving, Motion::Still, Motion::Still, Motion::Off]);
+        assert_eq!([next_motion(Motion::Moving), next_motion(Motion::Still), next_motion(Motion::Off)], ["flow-still", "plain", "flow"]);
     }
 
     #[test]

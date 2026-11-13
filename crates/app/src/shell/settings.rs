@@ -151,17 +151,30 @@ impl Cauldron {
                     cx.notify();
                 }))
                 .test_support();
-            let name = super::backdrop::BACKDROPS.iter().find(|b| b.0 == look.backdrop).map_or("Harbour", |b| b.1);
+            // Background: Moving (Flow), Still (a picture: Flow held still, or a painting), Off.
+            let motion = look.motion();
             let bg = div()
+                .id("set-motion")
+                .cursor_pointer()
+                .hover(|d| d.opacity(0.85))
+                .aria_label("Change background")
+                .child(value(motion.label().into()))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.save_look(|p| p.backdrop = super::appearance::next_motion(motion).into());
+                    cx.notify();
+                }))
+                .test_support();
+            let name = super::backdrop::BACKDROPS.iter().find(|b| b.0 == look.backdrop).map_or("Flow", |b| b.1);
+            let pic = div()
                 .id("set-backdrop")
                 .cursor_pointer()
                 .hover(|d| d.opacity(0.85))
-                .aria_label("Change painting")
+                .aria_label("Change picture")
                 .child(value(name.into()))
                 .on_click(cx.listener(move |this, _, _, cx| {
-                    let all = super::backdrop::BACKDROPS;
-                    let at = all.iter().position(|b| b.0 == look.backdrop).unwrap_or(0);
-                    this.save_look(|p| p.backdrop = all[(at + 1) % all.len()].0.to_string());
+                    let all = super::backdrop::STILLS;
+                    let at = all.iter().position(|b| *b == look.backdrop).unwrap_or(0);
+                    this.save_look(|p| p.backdrop = all[(at + 1) % all.len()].to_string());
                     cx.notify();
                 }))
                 .test_support();
@@ -169,7 +182,10 @@ impl Cauldron {
             col = col.child(section("Theme"));
             col = col.child(row(("look", 0), "Theme".into(), "Light, dark, or System, which follows your computer as it changes.".into(), theme.into_any_element()));
             col = col.child(section("Background"));
-            col = col.child(row(("look", 1), "Painting".into(), "Behind the whole window, in the old dither; the new stream shows it clear, every other surface frosted. None keeps the plain frame.".into(), bg.into_any_element()));
+            col = col.child(row(("look", 1), "Background".into(), "Moving: the Flow moves behind the new stream, and only there, while the window is in front. Still: a picture that does not move. Off: the plain frame.".into(), bg.into_any_element()));
+            if motion == super::appearance::Motion::Still {
+                col = col.child(row(("look", 2), "Picture".into(), "Behind the whole window, in the old dither; the new stream shows it clear, every other surface frosted.".into(), pic.into_any_element()));
+            }
             return div().id("settings-body").size_full().overflow_y_scroll().flex().justify_center().child(col).test_support().into_any_element();
         }
         if page == 5 {
@@ -343,7 +359,7 @@ mod tests {
             assert!(window.find(("general", 0usize)).label().is_some_and(|l| l.starts_with("Cauldron ")), "General: the version");
             window.click(("settings-page", 2usize), cx);
             assert_eq!(window.find(("look", 0usize)).label(), Some("Theme"), "Appearance: the theme");
-            assert_eq!(window.find(("look", 1usize)).label(), Some("Painting"), "and the painting");
+            assert_eq!(window.find(("look", 1usize)).label(), Some("Background"), "and the background");
             window.click("settings-back", cx);
             window.render_frame(cx);
             assert!(window.try_find("settings-body").is_none(), "the card is back");

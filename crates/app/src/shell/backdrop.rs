@@ -12,13 +12,29 @@ use image::{imageops, RgbaImage};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 
-/// The backdrops Settings offers, as the Tauri app named them: (prefs id, name). "plain" is none.
-pub(crate) const BACKDROPS: [(&str, &str); 6] =
-    [("harbour", "Harbour"), ("dawn", "Lighthouse at dawn"), ("night", "Moorings at night"), ("open-sea", "Open sea"), ("fog", "Fog"), ("plain", "None")];
+/// The backdrops, as saved in prefs: (id, name). "flow" is the moving Flow (S1), "flow-still" the
+/// same held still; the paintings are the Tauri app's; "plain" is none.
+pub(crate) const BACKDROPS: [(&str, &str); 8] = [
+    ("flow", "Flow"),
+    ("flow-still", "Flow"),
+    ("harbour", "Harbour"),
+    ("dawn", "Lighthouse at dawn"),
+    ("night", "Moorings at night"),
+    ("open-sea", "Open sea"),
+    ("fog", "Fog"),
+    ("plain", "None"),
+];
+
+/// The picture for a still background, Flow first.
+pub(crate) const STILLS: [&str; 6] = ["flow-still", "harbour", "dawn", "night", "open-sea", "fog"];
+
+/// The Flow's "picture" name, for `Backdrop::window`.
+pub(crate) const FLOW: &str = "flow";
 
 /// The painting for a backdrop in a theme: the harbour is the night in dark and the dawn in light.
 pub(crate) fn painting(id: &str, dark: bool) -> Option<&'static str> {
     match id {
+        "flow" | "flow-still" => Some(FLOW),
         "harbour" => Some(if dark { "harbour-night" } else { "harbour-dawn" }),
         "dawn" => Some("dawn"),
         "night" => Some("night"),
@@ -131,6 +147,60 @@ pub(crate) struct Backdrop {
     alphas: HashMap<(Surface, i32, i32, u32, u32), f32>,
     /// How many times the painting was made; tests read it to see the cache work.
     pub(crate) made: usize,
+    /// Flow: the time shown, in seconds of the flow, and the time its frost was made at.
+    pub(crate) flow_t: f32,
+    frost_t: f32,
+    /// Flow: the card's frame (its rect, the time, the picture), live or still.
+    flow_frame: Option<((i32, i32, u32, u32), f32, Arc<RenderImage>)>,
+    /// Pictures no longer shown, for the window to free from the GPU a frame later.
+    retired: Vec<Arc<RenderImage>>,
+}
+
+/// Flow at the window's start: a calm frame, the glow already up.
+pub(crate) const FLOW_START: f32 = 8.0;
+
+/// The frost refresh while Flow moves: twice a second.
+const FROST_EVERY: f32 = 0.5;
+
+/// Flow's cells under a rect, scaled up with hard pixels to one texel per window point: the card's
+/// picture, straight alpha, already in GPUI's BGRA. Pure, so it runs off the main thread. Each row
+/// of cells is scaled once and copied down its cell's rows.
+pub(crate) fn flow_image(win: (f32, f32), r: (i32, i32, u32, u32), t: f32, dark: bool) -> RgbaImage {
+    use cauldron_chrome::flow::{self, CELL};
+    let (x, y, w, h) = r;
+    let (gw, gh, cells) = flow::cells(win.0, win.1, x as f32, y as f32, w + CELL, h + CELL, t, dark);
+    // The rect's offset into its first cell, so the cells sit where the window's do.
+    let (ox, oy) = (x.rem_euclid(CELL as i32) as u32, y.rem_euclid(CELL as i32) as u32);
+    let stride = (w * 4) as usize;
+    let mut buf = vec![0u8; stride * h as usize];
+    let mut line = vec![0u8; stride];
+    for j in 0..gh {
+        let (top, bottom) = ((j * CELL).saturating_sub(oy), ((j + 1) * CELL).saturating_sub(oy).min(h));
+        if top >= bottom {
+            continue;
+        }
+        for px in 0..w {
+            let s = ((j * gw + (px + ox) / CELL) * 4) as usize;
+            let d = (px * 4) as usize;
+            line[d..d + 4].copy_from_slice(&[cells[s + 2], cells[s + 1], cells[s], cells[s + 3]]);
+        }
+        for py in top..bottom {
+            buf[py as usize * stride..(py as usize + 1) * stride].copy_from_slice(&line);
+        }
+    }
+    RgbaImage::from_raw(w, h, buf).expect("flow frame size")
+}
+
+/// A frame already in BGRA, as GPUI takes it.
+pub(crate) fn bgra_render(img: RgbaImage) -> Arc<RenderImage> {
+    Arc::new(RenderImage::new(vec![image::Frame::new(img)]))
+}
+
+/// Flow's frosted copy at a window size: the 100x60 field stretched smooth, opaque.
+fn flow_frost(t: f32, dark: bool, w: u32, h: u32) -> RgbaImage {
+    use cauldron_chrome::flow::{frost, FROST_H, FROST_W};
+    let small = RgbaImage::from_raw(FROST_W, FROST_H, frost(t, dark)).expect("frost size");
+    imageops::resize(&small, w, h, imageops::FilterType::Triangle)
 }
 
 impl Backdrop {
@@ -138,6 +208,19 @@ impl Backdrop {
     /// `bg` is the colour it is muted toward and lies over.
     pub(crate) fn window(&mut self, name: &'static str, dark: bool, w: u32, h: u32, bg: [u8; 3]) {
         let key = Key { name, dark, w, h };
+        if self.key.as_ref() != Some(&key) && name == FLOW {
+            if self.key.is_none() {
+                self.flow_t = FLOW_START;
+            }
+            self.blurred = Some(flow_frost(self.flow_t, dark, w, h));
+            self.frost_t = self.flow_t;
+            self.art = None;
+            self.retire_all();
+            self.alphas.clear();
+            self.key = Some(key);
+            self.made += 1;
+            return;
+        }
         if self.key.as_ref() != Some(&key) {
             let band = Band::board(dark);
             let art = render(&decoded(name), w, h, &band, bg);
@@ -146,8 +229,7 @@ impl Backdrop {
             imageops::overlay(&mut flat, &art, 0, 0);
             self.blurred = Some(imageops::fast_blur(&flat, BLUR_SIGMA));
             self.art = Some(art);
-            self.crops.clear();
-            self.sharp_crops.clear();
+            self.retire_all();
             self.alphas.clear();
             self.key = Some(key);
             self.made += 1;
@@ -162,7 +244,7 @@ impl Backdrop {
             return None;
         }
         if self.crops.len() > 64 {
-            self.crops.clear();
+            self.retired.extend(self.crops.drain().map(|(_, v)| v));
         }
         Some(
             self.crops
@@ -214,7 +296,45 @@ impl Backdrop {
     /// Forgets the painting, its blurred copy and every cut: the painting is None now.
     pub(crate) fn drop_all(&mut self) {
         if self.key.is_some() {
-            *self = Backdrop { made: self.made, ..Default::default() };
+            self.retire_all();
+            let retired = std::mem::take(&mut self.retired);
+            *self = Backdrop { made: self.made, retired, ..Default::default() };
+        }
+    }
+
+    fn retire_all(&mut self) {
+        self.retired.extend(self.crops.drain().map(|(_, v)| v));
+        self.retired.extend(self.sharp_crops.drain().map(|(_, v)| v));
+        self.retired.extend(self.flow_frame.take().map(|f| f.2));
+    }
+
+    /// The pictures no longer shown, for the window to free (`Window::drop_image`).
+    pub(crate) fn take_retired(&mut self) -> Vec<Arc<RenderImage>> {
+        std::mem::take(&mut self.retired)
+    }
+
+    /// Whether the backdrop is Flow.
+    pub(crate) fn is_flow(&self) -> bool {
+        self.key.as_ref().is_some_and(|k| k.name == FLOW)
+    }
+
+    /// Flow moved on to `t`: the frost follows twice a second (not every frame; the frosted
+    /// surfaces drift a little behind the card). The tints are kept: the frost is dimmed so text
+    /// never meets the glow's brightest part.
+    pub(crate) fn flow_to(&mut self, t: f32) {
+        self.flow_t = t;
+        let Some(k) = self.key.clone().filter(|k| k.name == FLOW) else { return };
+        if (t - self.frost_t).abs() >= FROST_EVERY {
+            self.blurred = Some(flow_frost(t, k.dark, k.w, k.h));
+            self.frost_t = t;
+            self.retired.extend(self.crops.drain().map(|(_, v)| v));
+        }
+    }
+
+    /// A frame made off the main thread for the card's rect at time `t`.
+    pub(crate) fn set_flow_frame(&mut self, r: (i32, i32, u32, u32), t: f32, img: Arc<RenderImage>) {
+        if let Some(old) = self.flow_frame.replace((r, t, img)) {
+            self.retired.push(old.2);
         }
     }
 
@@ -226,6 +346,21 @@ impl Backdrop {
 
     /// The painting itself cut at `r`, for the new thread's card: a clear window onto it.
     pub(crate) fn sharp(&mut self, x: i32, y: i32, w: u32, h: u32) -> Option<Arc<RenderImage>> {
+        if let Some(k) = self.key.clone().filter(|k| k.name == FLOW) {
+            // Flow: the latest frame if it is this rect's, else the still frame at the time shown.
+            if w == 0 || h == 0 {
+                return None;
+            }
+            let r = (x, y, w, h);
+            match &self.flow_frame {
+                Some((fr, _, img)) if *fr == r => return Some(img.clone()),
+                _ => {
+                    let img = bgra_render(flow_image((k.w as f32, k.h as f32), r, self.flow_t, k.dark));
+                    self.set_flow_frame(r, self.flow_t, img.clone());
+                    return Some(img);
+                }
+            }
+        }
         let a = self.art.as_ref()?;
         if w == 0 || h == 0 {
             return None;
@@ -349,7 +484,7 @@ mod tests {
                 }
             }
         }
-        assert_eq!(cases.len(), 10, "five paintings, two themes");
+        assert_eq!(cases.len(), 14, "Flow moving and still, five paintings, two themes");
         for (dark, pal, name) in cases {
             let mut b = Backdrop::default();
             b.window(name, dark, 1200, 720, rgb(pal.panel));
@@ -381,6 +516,56 @@ mod tests {
             assert!(window.try_find("window-art").is_some(), "and the window still shows the painting");
         })
         .unwrap();
+    }
+
+    /// Flow moves only behind the new stream: a stream, Settings or reduced motion hold it still,
+    /// and Still never moves. The card shows Flow either way.
+    #[gpui_kit::test]
+    fn flow_moves_only_behind_the_new_stream(cx: &mut gpui_kit::TestAppContext) {
+        use gpui_kit::test::TestWindowExt;
+        use gpui_kit::AppContext;
+        let (handle, _chats) = super::super::thread::tests::open(cx);
+        let path = std::env::temp_dir().join(format!("cauldron-flow-{}.json", std::process::id()));
+        std::fs::write(&path, r#"{"theme":"dark","backdrop":"flow"}"#).unwrap();
+        handle.update(cx, |c, _, _| c.prefs_file = Some(path.clone())).unwrap();
+        cx.update(|cx| cx.set_reduce_motion(false));
+        let moving = |cx: &mut gpui_kit::TestAppContext| handle.update(cx, |c, _, _| c.flow_at.is_some()).unwrap();
+        cx.update_window(handle.into(), |_, window, _| window.activate_window()).unwrap();
+        cx.run_until_parked();
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            assert!(window.is_window_active(), "the window is in front");
+            assert!(window.try_find("card-art").is_some(), "the new stream shows Flow");
+        })
+        .unwrap();
+        assert!(moving(cx), "and it moves there");
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.click(("thread", 0usize), cx);
+            window.render_frame(cx);
+        })
+        .unwrap();
+        assert!(!moving(cx), "a stream holds it still");
+        handle.update(cx, |c, _, _| c.settings = Some(2)).unwrap();
+        cx.update_window(handle.into(), |_, window, cx| window.render_frame(cx)).unwrap();
+        assert!(!moving(cx), "so does Settings");
+        handle.update(cx, |c, _, _| {
+            c.settings = None;
+            c.open = None;
+            c.thread = None;
+        })
+        .unwrap();
+        cx.update(|cx| cx.set_reduce_motion(true));
+        cx.update_window(handle.into(), |_, window, cx| window.render_frame(cx)).unwrap();
+        assert!(!moving(cx), "reduced motion holds it still");
+        cx.update(|cx| cx.set_reduce_motion(false));
+        std::fs::write(&path, r#"{"theme":"dark","backdrop":"flow-still"}"#).unwrap();
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            assert!(window.try_find("card-art").is_some(), "Still shows Flow too");
+        })
+        .unwrap();
+        assert!(!moving(cx), "and never moves");
+        let _ = std::fs::remove_file(path);
     }
 
     /// Every theme x every painting (and None) x every view renders, and None falls back to the

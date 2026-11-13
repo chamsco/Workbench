@@ -7,6 +7,7 @@
 
 pub mod avatar;
 pub mod dither;
+pub mod flow;
 pub mod layout;
 pub mod motion;
 pub mod panes;
