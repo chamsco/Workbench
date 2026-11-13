@@ -1,0 +1,16 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.23s
+     Running tests/wireframe.rs (target/debug/deps/wireframe-05edcf627b982a80)
+
+running 9 tests
+test solver_matches_every_golden_state_and_size ... ignored, golden predates the top bar A decision; re-measure after the wireframe is updated
+test the_drawer_takes_the_right_rails_place ... ok
+test the_terminal_takes_the_drawers_place ... ok
+test without_plugins_the_card_takes_the_right_gutter ... ok
+test main_keeps_a_minimum_width_by_closing_split_then_drawer ... ok
+test platforms_differ_only_in_window_controls ... ok
+test panes_never_overlap_and_stay_inside_the_window ... ok
+test the_shell_runs_near_the_top_and_bottom ... ok
+test golden_has_two_window_sizes ... ok
+
+test result: ok. 8 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

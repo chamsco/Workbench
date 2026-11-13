@@ -12,8 +12,6 @@ const SKETCH_W: f32 = 18.0;
 const SKETCH_H: f32 = 14.0;
 /// A line's grab area across the 4px gap.
 const GRAB: f32 = 12.0;
-/// A pane's header.
-const HEAD_H: f32 = 32.0;
 
 /// What a pane shows.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -58,7 +56,7 @@ impl Surface {
 }
 
 impl Content {
-    fn title(self) -> &'static str {
+    pub(super) fn title(self) -> &'static str {
         match self {
             Content::Thread => "Thread",
             Content::Empty => "New pane",
@@ -126,7 +124,7 @@ fn head_button(id: impl Into<ElementId>, icon: &str, label: &'static str, on: bo
 impl Cauldron {
     /// The layout button for the card head: it draws the shape a click switches to, and morphs
     /// from the last one over 200ms (none with reduced motion).
-    pub(super) fn layout_button(&self, pal: &'static Palette, now: std::time::Instant, reduce: bool, cx: &mut Context<Self>) -> Stateful<Div> {
+    pub(super) fn layout_button(&self, id: ElementId, pal: &'static Palette, now: std::time::Instant, reduce: bool, cx: &mut Context<Self>) -> Stateful<Div> {
         let to = self.panes.shape.next();
         let k = match self.layout_since {
             Some((_, t0)) if !reduce => cauldron_chrome::motion::SETTLE.at(crate::motion::run(now, t0, cauldron_chrome::motion::time::LAYOUT)),
@@ -141,7 +139,7 @@ impl Cauldron {
         }
         let label: SharedString = format!("Layout: {}", to.label()).into();
         let el = div()
-            .id("layout")
+            .id(id.clone())
             .w(px(28.))
             .h(px(28.))
             .flex_none()
@@ -157,7 +155,7 @@ impl Cauldron {
                 this.set_shape(to);
                 cx.notify();
             }));
-        self.tipped("layout-tip", el, label, Side::Below, pal, cx)
+        self.tipped(id, el, label, Side::Below, pal, cx)
     }
 
     /// Switches the card to `shape`, starting the layout button's morph from what it drew. Panes
@@ -203,14 +201,21 @@ impl Cauldron {
             self.pane_focus.push(cx.focus_handle());
         }
         let can_add = shape.add();
-        let can_down = shape.split_down();
-        let drawer_open = self.drawer.is_some();
+        let now = std::time::Instant::now();
+        let reduce = cx.reduce_motion();
         for (slot, r) in panes::rects(area, sp).into_iter().enumerate() {
             let content = self.pane_content[slot];
             let title = content.title();
+            // The thread's pane carries the thread's tabs; the others their own name.
+            let tabbed = content == Content::Thread && self.coordinator.is_some();
+            // Windows keeps the tabs in the strip above the pane and the breadcrumb here (the board's B).
+            let strip = tabbed.then(|| if self.plat == Platform::Windows { self.crumb(pal) } else { self.tab_strip(pal, r.w, cx) });
+            // Under 320px only the Code pill stays on the right (the coordinator's board b427b05).
+            let narrow = r.w < super::ptabs::NARROW;
+            let controls = self.head_controls(Some(slot), pal, now, reduce, narrow, cx);
             let head = div()
                 .id(("pane-head", slot))
-                .h(px(HEAD_H))
+                .h(px(super::HEAD_H))
                 .flex_none()
                 .flex()
                 .items_center()
@@ -226,11 +231,13 @@ impl Cauldron {
                         cx.notify();
                     }))
                 }).test_support())
+                .children(strip.map(|s| s.test_support()))
                 // The name is the handle: drag it onto another pane to swap the two.
                 .child(
                     div()
                         .id(("pane-grip", slot))
-                        .flex_1()
+                        .when_live(tabbed, |d| d.flex_none().w(px(12.)).child(glyph("grip-vertical", 12., fg3)))
+                        .when_live(!tabbed, |d| d.flex_1())
                         .min_w_0()
                         .h_full()
                         .flex()
@@ -241,29 +248,11 @@ impl Cauldron {
                         .font_weight(FontWeight::MEDIUM)
                         .text_color(fg2)
                         .aria_label(title)
-                        .child(div().min_w_0().truncate().child(title))
+                        .when_live(!tabbed, |d| d.child(div().min_w_0().truncate().child(title)))
                         .on_drag(PaneDrag(slot), move |_, _, _, cx| cx.new(|_| DragChip(title, pal)))
                         .test_support(),
                 )
-                .child(head_button(("pane-expand", slot), "maximize-2", "Expand", true, pal).on_click(cx.listener(move |this, _, _, cx| {
-                    // This pane alone: it moves first and the card goes back to one pane.
-                    this.pane_content.swap(0, slot);
-                    this.set_shape(Shape::One);
-                    cx.notify();
-                })).test_support())
-                .child(head_button(("pane-down", slot), "panel-bottom", "Split bottom", can_down.is_some(), pal).when_live(can_down.is_some(), |d| {
-                    d.on_click(cx.listener(move |this, _, _, cx| {
-                        if let Some(s) = this.panes.shape.split_down() {
-                            this.set_shape(s);
-                        }
-                        cx.notify();
-                    }))
-                }).test_support())
-                .child(head_button(("pane-drawer", slot), "panel-right", if drawer_open { "Hide the drawer" } else { "Show the drawer" }, true, pal).on_click(cx.listener(|this, _, _, cx| {
-                    let p = this.drawer.or(this.drawer_last).unwrap_or(Panel::Highlights);
-                    this.toggle_panel(p);
-                    cx.notify();
-                })).test_support())
+                .child(controls)
                 .when_live(content != Content::Thread, |d| {
                     d.child(head_button(("pane-close", slot), "x", "Close pane", true, pal).on_click(cx.listener(move |this, _, _, cx| {
                         this.close_pane(slot);
@@ -357,13 +346,29 @@ impl Cauldron {
                     .test_support()
                     .into_any_element(),
             };
+            // Over the painting a pane is frosted glass (the board e0fd268); without it, the panel.
+            let frost = self.glass_card.get().and_then(|(_, _, dark)| {
+                let mut b = self.backdrop.borrow_mut();
+                let cut = (r.x as i32, r.y as i32, r.w as u32, r.h as u32);
+                let tint = b.hsla_for(super::backdrop::Surface::Card, dark, cut, pal);
+                b.glass(cut.0, cut.1, cut.2, cut.3).map(|f| (f, tint))
+            });
             let p = abs(local(r))
                 .id(("pane", slot))
                 .flex()
                 .flex_col()
                 .overflow_hidden()
                 .rounded(px(radius::INSET))
-                .bg(c(pal.panel))
+                .when_live(frost.is_none(), |d| d.bg(c(pal.panel)))
+                .children(frost.map(|(f, tint)| {
+                    div()
+                        .absolute()
+                        .top_0()
+                        .left_0()
+                        .size_full()
+                        .child(img(f).absolute().top_0().left_0().size_full().rounded(px(radius::INSET)))
+                        .child(div().absolute().top_0().left_0().size_full().rounded(px(radius::INSET)).bg(tint))
+                }))
                 .border_1()
                 .border_color(ring)
                 .aria_label(title)
@@ -372,7 +377,7 @@ impl Cauldron {
                     this.pane_content.swap(d.0, slot);
                     cx.notify();
                 }))
-                .child(head)
+                .child(head.test_support())
                 .child(div().flex_1().min_h_0().overflow_hidden().child(inner));
             stage = stage.child(p.test_support());
         }
@@ -465,8 +470,11 @@ mod tests {
             assert_eq!(count(window), 0, "one pane: the card as it was, no pane frames");
             let mut seen = Vec::new();
             for _ in 0..6 {
-                let label = window.find("layout").label().unwrap().to_string();
-                window.click("layout", cx);
+                // One pane: the card head's button; split: the first pane's.
+                let id: gpui_kit::ElementId = if window.try_find("layout").is_some() { "layout".into() } else { ("layout", 0usize).into() };
+                let label = window.find(id.clone()).label().unwrap().to_string();
+                window.click(id, cx);
+                window.render_frame(cx);
                 seen.push((label, count(window)));
             }
             let want = [

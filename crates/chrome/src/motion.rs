@@ -120,10 +120,8 @@ pub struct Frame {
     pub lights: Option<Pane>,
     pub shell: Rect,
     pub main: Rect,
-    pub tabs: Rect,
     pub rrail: Option<Pane>,
     pub sidebar_button: Rect,
-    pub topr: Rect,
     pub bar: Rect,
 }
 
@@ -152,10 +150,8 @@ impl Frame {
             lights: at_rest(s.lights),
             shell: s.shell,
             main: s.main,
-            tabs: s.tabs,
             rrail: at_rest(s.rrail),
             sidebar_button: s.sidebar_button,
-            topr: s.topr,
             bar: s.bar,
         }
     }
@@ -203,10 +199,8 @@ impl Frame {
             lights: pane(from.lights, to.lights, 0.0),
             shell: rect(from.shell, to.shell),
             main: rect(from.main, to.main),
-            tabs: rect(from.tabs, to.tabs),
             rrail: pane(from.rrail, to.rrail, 0.0),
             sidebar_button: rect(from.sidebar_button, to.sidebar_button),
-            topr: rect(from.topr, to.topr),
             bar: rect(from.bar, to.bar),
         }
     }
@@ -221,7 +215,7 @@ mod tests {
     const H: f32 = 702.0;
 
     fn shell(sidebar: bool, drawer: bool, split: bool) -> Shell {
-        solve(W, H, ShellState { sidebar_open: sidebar, drawer_open: drawer, split_open: split, terminal_open: false }, Platform::Windows)
+        solve(W, H, ShellState { sidebar_open: sidebar, drawer_open: drawer, split_open: split, terminal_open: false, plugins: true }, Platform::Windows)
     }
 
     fn close(a: Rect, b: Rect) -> bool {

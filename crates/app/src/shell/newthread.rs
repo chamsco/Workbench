@@ -239,6 +239,44 @@ impl Cauldron {
         .detach();
     }
 
+    /// Frosted glass under a new-thread element, while the card shows a painting: the blurred
+    /// painting cut at where the element was laid out last frame, a tint over it, and a probe that
+    /// records where it is now (a move asks for one more frame). Nothing without a painting.
+    pub(super) fn glass(&self, key: &'static str, r: f32) -> Vec<AnyElement> {
+        let Some((cx0, cy0, dark)) = self.glass_card.get() else { return Vec::new() };
+        let at = self.glass_at.clone();
+        let probe = canvas(
+            move |b, window, _| {
+                let mut m = at.borrow_mut();
+                if m.get(key) != Some(&b) {
+                    m.insert(key, b);
+                    window.refresh();
+                }
+            },
+            |_, _, _, _| {},
+        )
+        .absolute()
+        .top_0()
+        .left_0()
+        .size_full()
+        .into_any_element();
+        let mut out = vec![probe];
+        // Until it has been laid out once, the board's tint; then the tint this painting needs there.
+        let mut tint = super::backdrop::hsla(super::backdrop::Surface::Glass, dark);
+        if let Some(b) = self.glass_at.borrow().get(key) {
+            let (x, y) = ((f32::from(b.origin.x) - cx0).round() as i32, (f32::from(b.origin.y) - cy0).round() as i32);
+            let (w, h) = (f32::from(b.size.width).round() as u32, f32::from(b.size.height).round() as u32);
+            let pal = if dark { &tokens::DARK } else { &tokens::LIGHT };
+            let mut bd = self.backdrop.borrow_mut();
+            tint = bd.hsla_for(super::backdrop::Surface::Glass, dark, (x, y, w, h), pal);
+            if let Some(crop) = bd.glass(x, y, w, h) {
+                out.push(img(crop).absolute().top_0().left_0().size_full().rounded(px(r)).into_any_element());
+            }
+        }
+        out.push(div().absolute().top_0().left_0().size_full().rounded(px(r)).bg(tint).into_any_element());
+        out
+    }
+
     pub(super) fn new_thread_view(&self, pal: &'static Palette, window: &Window, cx: &mut Context<Self>) -> AnyElement {
         let (fg, fg2, fg3) = (c(pal.fg), c(pal.fg2), c(pal.fg3));
         let blocked = self.start_blocked();
@@ -316,16 +354,20 @@ impl Cauldron {
             )
             .child(start_btn);
 
+        // On a painting the box is glass, with the composer's 22 radius (the board); else the panel.
+        let glass = self.glass_card.get().is_some();
         let mut nt_box = div()
             .id("nt-box")
+            .relative()
             .flex()
             .flex_col()
             .min_h(px(BOX_H))
             .pt(px(4.))
             .px(px(15.))
             .pb(px(10.))
-            .bg(c(pal.panel))
-            .rounded(px(radius::CONTROL))
+            .when(!glass, |d| d.bg(c(pal.panel)))
+            .rounded(px(if glass { radius::SHELL } else { radius::CONTROL }))
+            .children(self.glass("nt-box", radius::SHELL))
             .border_1()
             .border_color(if focused { body_line(pal, true) } else { c(pal.line_strong) })
             .shadow(vec![drop(tokens::shadow::BOX)])
@@ -375,6 +417,9 @@ impl Cauldron {
             .items_center()
             .child(
                 dd("machine")
+                    .relative()
+                    .children(self.glass("machine", radius::CONTROL))
+                    .when(glass, |d| d.rounded(px(radius::CONTROL)).border_1().border_color(c(pal.line_strong)))
                     .px(px(6.))
                     .text_color(fg3)
                     .aria_label(machine_name.clone())
@@ -573,7 +618,7 @@ mod tests {
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
             assert!(window.try_find("nt-box").is_none(), "the thread replaced the screen");
-            assert!(window.try_find("thread-title").is_some(), "the thread view replaced it");
+            assert!(window.try_find(("ptab", 0usize)).is_some(), "the thread view replaced it");
             window.click("new-thread", cx);
             window.render_frame(cx);
             assert!(window.try_find("nt-box").is_some(), "New thread brings it back");

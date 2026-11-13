@@ -22,7 +22,10 @@ use std::sync::Arc;
 
 mod motion;
 mod newthread;
+mod appearance;
+mod backdrop;
 mod panes;
+mod ptabs;
 mod settings;
 mod terminal;
 mod thread;
@@ -42,7 +45,7 @@ pub(crate) fn platform() -> Platform {
 pub(crate) use motion::os_reduces_motion;
 
 pub(crate) fn lights_origin() -> (f32, f32) {
-    let s = layout::layout(1240.0, 702.0, ShellState { sidebar_open: true, drawer_open: false, split_open: false, terminal_open: false }, Platform::Mac);
+    let s = layout::layout(1240.0, 702.0, ShellState { sidebar_open: true, drawer_open: false, split_open: false, terminal_open: false, plugins: true }, Platform::Mac);
     let l = s.lights.expect("mac layout has lights");
     (l.x, l.y)
 }
@@ -63,6 +66,11 @@ fn ca(v: Rgb, a: f32) -> Hsla {
 
 fn abs(r: Rect) -> Div {
     div().absolute().left(px(r.x)).top(px(r.y)).w(px(r.w)).h(px(r.h))
+}
+
+/// Windows' tab strip over pane `slot`.
+fn pane_strip(slot: usize, r: Rect) -> Stateful<Div> {
+    abs(r).id(("pane-strip", slot)).flex().items_center().overflow_hidden()
 }
 
 /// A pane the layout tests find by `id` and compare with `layout::solve`.
@@ -110,16 +118,18 @@ impl Panel {
 }
 
 const FUNCTIONS: [(&str, &str); 7] = [
-    ("inbox", "Threads"),
+    ("message-square", "Threads"),
     ("folder", "Projects"),
     ("calendar", "Schedule"),
     ("bot", "Agents"),
     ("gauge", "Usage"),
-    ("brain", "Memory"),
+    ("database", "Memory"),
     ("layout-grid", "Apps"),
 ];
 
 const NEW_TAB: &str = "New thread";
+/// A pane's header, and the card's head: tabs on the left, the controls on the right.
+pub(super) const HEAD_H: f32 = 40.0;
 
 const TOP_PANELS: [Panel; 4] = [Panel::Highlights, Panel::Usage, Panel::Koi, Panel::Review];
 /// The drawer's strip: the rail's panels in order, Patches last.
@@ -135,6 +145,19 @@ pub(crate) enum Threads {
 pub(crate) struct Cauldron {
     sidebar_open: bool,
     drawer: Option<Panel>,
+    /// Background A: the new thread card's painting and the glass cut from it, cached by size and rect.
+    backdrop: std::cell::RefCell<backdrop::Backdrop>,
+    /// Where the glass elements were laid out last frame (window coordinates), and the painted card's
+    /// top-left; the glass is cut at those rects.
+    glass_at: std::rc::Rc<std::cell::RefCell<std::collections::HashMap<&'static str, Bounds<Pixels>>>>,
+    glass_card: std::cell::Cell<Option<(f32, f32, bool)>>,
+    /// Re-renders when the OS switches light and dark, so System follows it live.
+    appearance_sub: Option<Subscription>,
+    /// Where the theme and the painting are read from; None is core's prefs file (tests use their own).
+    prefs_file: Option<std::path::PathBuf>,
+    /// Which window controls the shell draws: the OS's, or Windows' drawn on a Mac for a preview
+    /// (debug `CAULDRON_PLATFORM=windows`).
+    plat: Platform,
     /// Settings is open on this page (v3 frame 7): its pages take the sidebar's list, the page the card.
     settings: Option<usize>,
     /// Where Settings reads the subscriptions; None is core's `accounts.json` (tests use their own).
@@ -171,9 +194,6 @@ pub(crate) struct Cauldron {
     active: usize,
     /// Scroll the open tab into view at the next render (set when it changes).
     reveal: bool,
-    /// Agent tabs in view at the last render, and unspent wheel travel in pixels.
-    tab_window: usize,
-    wheel: f32,
     tab_menu: bool,
     tab_slide: motion::Slide,
     /// The shell's motion clock, the drawer's panel crossfade (from, when), the drawer's last
@@ -196,15 +216,12 @@ pub(crate) struct Cauldron {
     mine_for: Option<String>,
     mine_n_shown: usize,
     drawer_last: Option<Panel>,
-    tab_focus: Option<FocusHandle>,
     /// The icon button under the pointer, whether its tip is showing yet, and until when a
     /// neighbour's tip may show at once (the wireframe's `.rail.warm`).
     tip: Option<ElementId>,
     tip_shown: bool,
     tip_warm_until: Option<std::time::Instant>,
     tip_wait: Option<Task<()>>,
-    /// First agent tab in view once the row scrolls.
-    tab_first: usize,
     /// The sidebar: core's threads, the selected row (selecting does not open or mark read), the
     /// search text and box, and the list's keyboard focus.
     threads: Threads,
@@ -258,11 +275,17 @@ impl Cauldron {
         // `CAULDRON_PANES=n` with the card split into `Shape::ALL[n]`, for screenshots of the live window.
         #[cfg(debug_assertions)]
         {
+            if std::env::var("CAULDRON_PLATFORM").as_deref() == Ok("windows") {
+                c.plat = Platform::Windows;
+            }
+            if std::env::var("CAULDRON_SIDEBAR").as_deref() == Ok("folded") {
+                c.sidebar_open = false;
+            }
             if std::env::var("CAULDRON_DRAWER").as_deref() == Ok("folded") {
                 c.drawer_last = c.drawer.take();
             }
-            if std::env::var_os("CAULDRON_SETTINGS").is_some() {
-                c.settings = Some(0);
+            if let Ok(v) = std::env::var("CAULDRON_SETTINGS") {
+                c.settings = Some(v.parse::<usize>().unwrap_or(0).min(settings::PAGES.len() - 1));
             }
             if std::env::var_os("CAULDRON_TERMINAL").is_some() {
                 c.terminal = true;
@@ -284,7 +307,7 @@ impl Cauldron {
     }
 
     pub(crate) fn new() -> Self {
-        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: None, sidebar_open: true, drawer: Some(Panel::Highlights), settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
+        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: None, sidebar_open: true, drawer: Some(Panel::Highlights), backdrop: Default::default(), glass_at: Default::default(), glass_card: std::cell::Cell::new(None), appearance_sub: None, prefs_file: None, plat: platform(), settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_menu: false, tab_slide: Default::default(), tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
     }
 
     /// Opens core off the main thread (the sidebar shows Loading meanwhile), then keeps the thread
@@ -556,30 +579,6 @@ impl Cauldron {
         self.tab_menu = false;
     }
 
-    /// One agent tab per wheel line; trackpads add up pixels, one tab per 74px.
-    fn wheel_tabs(&mut self, ev: &ScrollWheelEvent, cx: &mut Context<Self>) {
-        let steps = match ev.delta {
-            ScrollDelta::Lines(p) => -(p.y + p.x),
-            ScrollDelta::Pixels(p) => {
-                self.wheel -= f32::from(p.y + p.x);
-                let st = (self.wheel / (TAB_MIN + TAB_GAP)).trunc();
-                self.wheel -= st * (TAB_MIN + TAB_GAP);
-                st
-            }
-        };
-        if steps != 0.0 {
-            let max = self.agents.len().saturating_sub(self.tab_window) as f32;
-            self.tab_first = (self.tab_first as f32 + steps).clamp(0.0, max) as usize;
-            cx.notify();
-        }
-    }
-
-    fn focus_tabs(&self, window: &mut Window, cx: &mut App) {
-        if let Some(f) = &self.tab_focus {
-            window.focus(f, cx);
-        }
-    }
-
     /// The + menu: spawn a subagent (wired to core in UI4), or open a 1:1 with an agent not open yet.
     fn tab_menu_el(&self, pal: &'static Palette, cx: &mut Context<Self>) -> impl IntoElement {
         let item = |id: ElementId| {
@@ -695,6 +694,18 @@ impl Cauldron {
         cx.notify();
     }
 
+    /// The drawer's own button (the right rail's top, and the drawer strip's first): folds the open
+    /// drawer, or opens it on the last panel, closing the terminal that took its place.
+    fn toggle_drawer(&mut self) {
+        if self.drawer.is_some() && !self.terminal {
+            self.drawer = None;
+        } else {
+            self.terminal = false;
+            self.drawer = Some(self.drawer_last.unwrap_or(Panel::Highlights));
+            self.drawer_last = self.drawer;
+        }
+    }
+
     fn toggle_panel(&mut self, p: Panel) {
         // With the terminal open the drawer is folded to its rail: a rail button brings it back.
         if self.terminal {
@@ -753,20 +764,8 @@ fn fn_slot_x(row_w: f32, pos: f32) -> f32 {
 /// The sidebar's right padding: its content ends at the board's x 240.
 const SIDE_PR: f32 = 9.0;
 
-/// Agent tabs share the room between these widths; below TAB_MIN the row scrolls.
-const TAB_MIN: f32 = 72.0;
-const TAB_MAX: f32 = 200.0;
-/// A floating tab, on the design-system scale (Charles, 13 Nov): 4px between tabs, 8px padding,
-/// 6px from the name to the close. No figure: agent figures belong to the Agents page.
-const TAB_GAP: f32 = 4.0;
-const TAB_PAD: f32 = 8.0;
-const CLOSE_GAP: f32 = 6.0;
-/// The + after the tabs, as tall as a tab.
-const ADD_W: f32 = metric::TAB_H;
 /// The new thread's bar under the card: usage and the stages.
 const STAGE_H: f32 = 32.0;
-/// The pinned coordinator tab is at most this wide.
-const ANCHOR_MAX: f32 = 190.0;
 const ADD_LABEL: &str = "Spawn a subagent or open a 1:1";
 
 /// An agent of the thread: its name and its identity dot (an index into `tokens::AGENT_DOTS`).
@@ -862,12 +861,23 @@ fn forced_dark() -> Option<bool> {
 
 impl Render for Cauldron {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let dark = forced_dark().unwrap_or_else(|| !matches!(window.appearance(), WindowAppearance::Light | WindowAppearance::VibrantLight));
+        // The theme: Settings' choice, or the OS's while it is System (followed live: the window's
+        // appearance changing re-renders, painting included).
+        if self.appearance_sub.is_none() {
+            self.appearance_sub = Some(cx.observe_window_appearance(window, |_, _, cx| cx.notify()));
+        }
+        let look = appearance::load(self.prefs_file.as_deref());
+        let os_dark = !matches!(window.appearance(), WindowAppearance::Light | WindowAppearance::VibrantLight);
+        let dark = forced_dark().unwrap_or(match look.theme {
+            appearance::Theme::System => os_dark,
+            appearance::Theme::Light => false,
+            appearance::Theme::Dark => true,
+        });
         let pal: &'static Palette = if dark { &tokens::DARK } else { &tokens::LIGHT };
         let vs = window.viewport_size();
         let (w, h) = (f32::from(vs.width), f32::from(vs.height));
-        let plat = platform();
-        let want = ShellState { sidebar_open: self.sidebar_open, drawer_open: self.drawer.is_some(), split_open: false, terminal_open: self.terminal };
+        let plat = self.plat;
+        let want = ShellState { sidebar_open: self.sidebar_open, drawer_open: self.drawer.is_some(), split_open: false, terminal_open: self.terminal, plugins: self.settings.is_none() };
         let now = std::time::Instant::now();
         let reduce = cx.reduce_motion();
         let (s, mut moving) = self.motion.frame(want, Frame::at_rest(&layout::solve(w, h, want, plat)), now, reduce);
@@ -956,10 +966,36 @@ impl Render for Cauldron {
                 }
             }));
 
+        // The painting behind the whole window: made once per window size, painting and theme, then
+        // its blurred copy under the sidebar's tint is the window itself (None: the plain frame).
+        let wall = backdrop::painting(look.backdrop, dark);
+        if wall.is_none() {
+            // None: the plain frame, and no old painting kept (or shown) from before.
+            self.backdrop.borrow_mut().drop_all();
+        }
+        if let Some(name) = wall {
+            let mut b = self.backdrop.borrow_mut();
+            b.window(name, dark, w.max(1.0) as u32, h.max(1.0) as u32, [pal.panel.0, pal.panel.1, pal.panel.2]);
+            if let Some(f) = b.glass(0, 0, w as u32, h as u32) {
+                root = root
+                    .child(img(f).id("window-art").absolute().top_0().left_0().size_full().test_support())
+                    .child(div().absolute().top_0().left_0().size_full().bg({
+                        // The sidebar's text reads over this: its tint holds 4.5:1 there.
+                        let r = s.sidebar.or(s.rail).map_or(Rect::new(0.0, 0.0, w, h), |p| p.rect);
+                        b.hsla_for(backdrop::Surface::Sidebar, dark, (r.x as i32, r.y as i32, r.w as u32, r.h as u32), pal)
+                    }));
+            }
+        }
+
         // Window drag strip, under every control.
         root = root.child(
-            abs(Rect::new(1.0, 1.0, w - 2.0, metric::BAR_H)).window_control_area(WindowControlArea::Drag),
+            abs(s.bar).window_control_area(WindowControlArea::Drag),
         );
+        if let Some(cp) = s.caps {
+            // Windows: the caption band left of the buttons drags the window too.
+            let band = Rect::new(s.shell.x + 22.0, s.shell.y, (cp.rect.x - s.shell.x - 22.0).max(0.0), metric::CAPS_BAND);
+            root = root.child(abs(band).window_control_area(WindowControlArea::Drag));
+        }
 
         // ---- rail (only while the sidebar is hidden)
         if let Some(rp) = s.rail {
@@ -973,7 +1009,8 @@ impl Render for Cauldron {
 
         // ---- sidebar with the function row, on the window
         if let Some(sp) = s.sidebar {
-            let mut fnrow = div().relative().flex().justify_between().pt(px(4.)).pb(px(16.));
+            // The app row (the v3 board's icons), a hairline under it, then New thread.
+            let mut fnrow = div().relative().flex().justify_between().pt(px(4.)).pb(px(8.)).mb(px(8.)).border_b_1().border_color(c(pal.line));
             // The indicator sits under the buttons and slides to the selected one (INDICATOR ms).
             let pos = crate::motion::ease_between(self.section_from, self.section as f32, self.section_since, now, cauldron_chrome::motion::time::INDICATOR);
             fnrow = fnrow.child(
@@ -1100,246 +1137,84 @@ impl Render for Cauldron {
             root = root.child(card_el.test_support());
         }
 
-        // ---- the thread's tabs, floating in the top bar (the board's `.ftab`). Only an open thread
-        // has them: the coordinator pinned at the left, then its agents, each sized to its name
-        // within an equal share of the room (TAB_MIN to TAB_MAX); when TAB_MIN no longer fits, arrows appear beside +
-        // and the row shows a window of 72px tabs. No figures (Charles, 13 Nov).
-        let mut tab_row = None;
-        if let Some(anchor_label) = self.coordinator.clone() {
-            let focus = self.tab_focus.get_or_insert_with(|| cx.focus_handle()).clone();
-            let label_w = {
-                let run = TextRun { len: anchor_label.len(), font: Font { weight: FontWeight::MEDIUM, features: sans_features(), ..font(SANS) }, color: fg, background_color: None, underline: None, strikethrough: None };
-                f32::from(window.text_system().shape_line(anchor_label.clone(), px(12.), &[run], None).width)
-            };
-            let anchor_w = (TAB_PAD + label_w + TAB_PAD).ceil().min(ANCHOR_MAX);
-            let n = self.agents.len();
-            let room = s.tabs.w - anchor_w - (TAB_GAP + ADD_W);
-            let scrolls = n as f32 * (TAB_MIN + TAB_GAP) + TAB_GAP > room;
-            let (k, tab_w) = if scrolls {
-                (((room - 54.0) / (TAB_MIN + TAB_GAP)).floor().max(1.0) as usize, Some(TAB_MIN))
-            } else if n > 0 {
-                let per = ((room - TAB_GAP * (n as f32 + 1.0)) / n as f32).floor();
-                (n, Some(per.min(TAB_MAX)))
-            } else {
-                (0, None)
-            };
-            // Keep the open tab in view when it changed; the arrows and wheel may move it away after.
-            let mut first = self.tab_first.min(n.saturating_sub(k));
-            // A resize changes how many fit, which can push the open tab out too.
-            let reveal = std::mem::take(&mut self.reveal) || k != self.tab_window;
-            if reveal && self.active > 0 {
-                let a = self.active - 1;
-                if a < first {
-                    first = a;
-                } else if a >= first + k {
-                    first = a + 1 - k;
-                }
-            }
-            self.tab_first = first;
-            self.tab_window = k;
 
-            let mut row = abs(s.tabs)
-                .id("tabs")
-                .flex()
-                .items_center()
-                .gap(px(TAB_GAP))
-                .track_focus(&focus)
-                .on_key_down(cx.listener(|this, ev: &KeyDownEvent, _, cx| {
-                    let last = this.agents.len();
-                    match ev.keystroke.key.as_str() {
-                        "left" => this.active = this.active.saturating_sub(1),
-                        "right" => this.active = (this.active + 1).min(last),
-                        "home" => this.active = 0,
-                        "end" => this.active = last,
-                        "delete" if this.active > 0 => this.close_agent(this.active - 1),
-                        _ => return,
-                    }
-                    this.reveal = true;
-                    cx.stop_propagation();
-                    cx.notify();
-                }))
-                .on_scroll_wheel(cx.listener(|this, ev: &ScrollWheelEvent, _, cx| this.wheel_tabs(ev, cx)));
-            // Tabs occlude (or Windows would drag the window from them), which also hides the wheel
-            // from the row, so each tab carries the row's wheel handler too. The open tab is the
-            // `selected` fill with no ring or shadow (tabs take none); the rest are fg3 on the frame.
-            let ftab = |id: (&'static str, usize), on: bool, cx: &mut Context<Self>| {
-                div()
-                    .id(id)
-                    .relative()
-                    .flex()
-                    .items_center()
-                    .gap(px(CLOSE_GAP))
-                    .h(px(metric::TAB_H))
-                    .rounded(px(radius::INNER))
-                    .when_live(on, |d| d.bg(c(pal.selected)))
-                    .when_live(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
-                    .occlude()
-                    .cursor_pointer()
-                    .aria_selected(on)
-                    .text_size(px(12.))
-                    .line_height(px(16.))
-                    .font_weight(FontWeight::MEDIUM)
-                    .text_color(if on { fg } else { fg3 })
-                    .on_scroll_wheel(cx.listener(|this, ev: &ScrollWheelEvent, _, cx| this.wheel_tabs(ev, cx)))
-            };
-
-            // The pinned tab.
-            let on = self.active == 0;
-            let anchor = ftab(("tab", 0), on, cx)
-                .flex_none()
-                .w(px(anchor_w))
-                .px(px(TAB_PAD))
-                .aria_label(anchor_label.clone())
-                .child(div().min_w_0().truncate().child(anchor_label.clone()))
-                .on_click(cx.listener(|this, _, window, cx| {
-                    this.active = 0;
-                    this.focus_tabs(window, cx);
-                    cx.notify();
-                }));
-            row = row.child(anchor.test_support());
-
-            for (j, agent) in self.agents.iter().enumerate().skip(first).take(k) {
-                let i = j + 1;
-                let on = i == self.active;
-                let group: SharedString = format!("tab{i}").into();
-                let close = div()
-                    .id(("tab-close", i))
-                    .size(px(18.))
-                    .ml_auto()
-                    .flex_none()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .rounded(px(radius::TAG))
-                    // Inactive tabs show their close on hover, over the end of the name, so a 72px tab
-                    // still has room for a few letters.
-                    .when_live(!on, |d| d.absolute().right(px(4.)).top(px((metric::TAB_H - 18.0) / 2.0)).bg(frame).opacity(0.).group_hover(group.clone(), |s| s.opacity(1.)))
-                    .hover(|d| d.bg(ca(pal.fg, 0.08)))
-                    .aria_label("Close tab")
-                    .child(glyph("x", 13., fg3))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        cx.stop_propagation();
-                        this.close_agent(j);
-                        this.reveal = true;
-                        cx.notify();
-                    }))
-                    .test_support();
-                let mut tab = ftab(("tab", i), on, cx)
-                    .group(group)
-                    .px(px(TAB_PAD))
-                    .aria_label(agent.name.clone())
-                    .child(div().min_w_0().truncate().child(agent.name.clone()))
-                    .child(close)
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.active = i;
-                        this.reveal = true;
-                        this.focus_tabs(window, cx);
-                        cx.notify();
-                    }));
-                // Sized to the name, as the board, within the tab's share of the room; 72px while scrolling.
-                let share = tab_w.unwrap_or(TAB_MAX);
-                tab = if scrolls { tab.flex_none().w(px(TAB_MIN)) } else { tab.flex_none().min_w(px(TAB_MIN)).max_w(px(share)) };
-                // The full name as a tip once the tab may be narrower than the widest it gets.
-                let tab = if share < TAB_MAX { self.tipped(("tab", i), tab, agent.name.clone(), Side::Below, pal, cx) } else { tab };
-                row = row.child(tab.test_support());
-            }
-
-            let small_btn = |id: &'static str, icon: &'static str, label: &'static str, live: bool| {
-                div()
-                    .id(id)
-                    .w(px(24.))
-                    .h(px(metric::TAB_H))
-                    .flex_none()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .rounded(px(radius::TAG))
-                    .occlude()
-                    .when_live(live, |d| d.cursor_pointer().hover(|d| d.bg(ca(pal.fg, 0.08))))
-                    .aria_label(label)
-                    .child(glyph(icon, 15., if live { fg2 } else { ca(pal.fg3, 0.45) }))
-            };
-            if scrolls {
-                let prev = small_btn("tab-prev", "chevron-left", "Scroll tabs left", first > 0).ml_auto().on_click(cx.listener(|this, _, _, cx| {
-                    this.tab_first = this.tab_first.saturating_sub(1);
-                    cx.notify();
-                }));
-                let next = small_btn("tab-next", "chevron-right", "Scroll tabs right", first + k < n).on_click(cx.listener(move |this, _, _, cx| {
-                    this.tab_first = (this.tab_first + 1).min(n.saturating_sub(k));
-                    cx.notify();
-                }));
-                row = row.child(prev.test_support()).child(next.test_support());
-            }
-            let mut add = div()
-                .id("tab-add")
-                .relative()
-                .size(px(ADD_W))
-                .flex_none()
-                .flex()
-                .items_center()
-                .justify_center()
-                .rounded(px(radius::TAG))
-                .occlude()
-                .cursor_pointer()
-                .hover(|d| d.bg(ca(pal.fg, 0.08)))
-                .aria_label(ADD_LABEL)
-                .child(glyph("plus", 13., fg3))
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.tab_menu = !this.tab_menu;
-                    this.tab_slide.reset();
-                    cx.notify();
-                }));
-            if self.tab_menu {
-                add = add.child(self.tab_menu_el(pal, cx));
-            }
-            let add = if self.tab_menu { add } else { self.tipped("tab-add", add, ADD_LABEL, Side::Below, pal, cx) };
-            tab_row = Some(row.child(add.test_support()));
-        }
-
-        // The card right under the bar; its 44px head names the thread (the board's `.ch`).
-        let head_title: SharedString = if self.settings.is_some() { "Settings".into() } else { self.coordinator.clone().unwrap_or_else(|| NEW_TAB.into()) };
+        // The card's head is its pane's header (Charles, 13 Nov 06:52Z: tabs in each pane, no
+        // breadcrumb): the thread's tabs, or the screen's name, then split, the terminal and the
+        // Code pill. Settings has its name only.
+        let head_title: SharedString = if self.settings.is_some() { "Settings".into() } else { NEW_TAB.into() };
         let mut head = div()
             .id("card-head")
-            .h(px(44.))
+            .h(px(HEAD_H))
             .flex_none()
             .flex()
             .items_center()
             .gap(px(4.))
-            .pl(px(13.))
-            .pr(px(14.))
+            .pl(px(8.))
+            .pr(px(8.))
             .text_size(px(13.))
             .text_color(fg3);
-        if let Some(p) = self.thread.as_ref().filter(|_| self.settings.is_none()).and_then(|t| t.project.as_ref()) {
-            let folder = p.rsplit(['/', '\\']).find(|s| !s.is_empty()).unwrap_or(p).to_string();
-            head = head.child(div().id("card-crumb").flex_none().aria_label(folder.clone()).child(format!("{folder} /")).test_support());
+        let tabbed = self.coordinator.is_some() && self.settings.is_none();
+        if tabbed && plat == Platform::Windows {
+            head = head.child(self.crumb(pal).test_support());
+        } else if tabbed {
+            head = head.child(self.tab_strip(pal, s.main.w, cx).test_support());
+        } else {
+            head = head.child(
+                div()
+                    .id("card-title")
+                    .relative()
+                    .h(px(metric::TAB_H))
+                    .flex()
+                    .items_center()
+                    .px(px(8.))
+                    .rounded(px(radius::INNER))
+                    .children(self.glass("head-title", radius::INNER))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(fg)
+                    .aria_label(head_title.clone())
+                    .child(div().relative().child(head_title))
+                    .test_support(),
+            );
         }
-        head = head.child(
-            div()
-                .id(if self.thread.is_some() { "thread-title" } else { "card-title" })
-                .min_w_0()
-                .truncate()
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(fg)
-                .aria_label(head_title.clone())
-                .child(head_title)
-                .test_support(),
-        );
         if self.settings.is_none() {
-            head = head.child(div().flex_1()).child(self.layout_button(pal, now, reduce, cx).test_support());
+            head = head
+                .child(div().id("head-drag").flex_1().h_full().window_control_area(WindowControlArea::Drag))
+                .child(self.head_controls(None, pal, now, reduce, false, cx).test_support());
         }
         // A new thread keeps a 32px bar under its card, in the Shell's grey (Charles 13 Nov).
         let new_screen = self.open.is_none() && self.active == 0 && self.settings.is_none();
         let card_h = s.main.h - if new_screen { STAGE_H } else { 0.0 };
         // Split (direction B): under the head the card holds up to four panes on the Shell's grey;
         // a shape that no longer fits steps back, as the shell closes Split when the window narrows.
-        let area = Rect::new(s.main.x, s.main.y + 44.0, s.main.w, card_h - 44.0);
-        let shape = if self.settings.is_some() { Shape::One } else { cauldron_chrome::panes::effective(area, self.panes.shape) };
+        // Split with the tabs in the panes, the card head goes: each pane's header carries its tabs.
+        let full = Rect::new(s.main.x, s.main.y, s.main.w, card_h);
+        let headed = Rect::new(s.main.x, s.main.y + HEAD_H, s.main.w, card_h - HEAD_H);
+        let shape = if self.settings.is_some() { Shape::One } else { cauldron_chrome::panes::effective(full, self.panes.shape) };
+        // Split, the card head goes: each pane's header carries its own tabs and controls.
+        let headless = shape != Shape::One;
+        let area = if headless { full } else { headed };
         let split = shape != Shape::One;
         // The thread view drops what does not fit its pane, so it needs that pane's size first.
         let sp = Split { shape, ..self.panes };
         let at = self.pane_content.iter().position(|p| *p == panes::Content::Thread).unwrap_or(0).min(shape.count() - 1);
         let tb = cauldron_chrome::panes::rects(area, sp)[at];
-        self.thread_box.set(if split { (tb.w, tb.h - 32.0) } else { (tb.w, tb.h) });
+        self.thread_box.set(if split { (tb.w, tb.h - HEAD_H) } else { (tb.w, tb.h) });
+        // The painting behind the whole window (painting X, the board e0fd268): frosted under every
+        // surface, sharp only through the new thread's clear card.
+        let sh = s.shell;
+        let (frost, art, card_frost, card_tint) = match wall {
+            Some(_) => {
+                let mut b = self.backdrop.borrow_mut();
+                let frost = b.glass(sh.x as i32, sh.y as i32, sh.w as u32, sh.h as u32);
+                let cut = (s.main.x as i32, s.main.y as i32, s.main.w as u32, card_h as u32);
+                let art = (new_screen && !split).then(|| b.sharp(cut.0, cut.1, cut.2, cut.3)).flatten();
+                let card_frost = (!(new_screen && !split) && !split).then(|| b.glass(cut.0, cut.1, cut.2, cut.3)).flatten();
+                let tint = b.hsla_for(backdrop::Surface::Card, dark, cut, pal);
+                (frost, art, card_frost, tint)
+            }
+            None => (None, None, None, c(pal.panel)),
+        };
+        self.glass_card.set(wall.map(|_| (0.0, 0.0, dark)));
         let body = match self.settings {
             Some(page) => self.settings_page(page, pal, cx),
             None => self.card_body(pal, window, cx),
@@ -1358,13 +1233,25 @@ impl Render for Cauldron {
             .rounded(px(radius::PANEL))
             // A Panel in its Shell: darker than the Shell in dark, white on it in light. Split, the
             // panes are the Panels and the head sits on the Shell.
-            .when_live(!split, |d| d.bg(c(pal.panel)).border_1().border_color(ring))
+            .when_live(!split && wall.is_none(), |d| d.bg(c(pal.panel)))
+            .when_live(!split, |d| d.border_1().border_color(ring))
             .text_color(fg3)
-            .child(head.test_support())
+            .children(art.map(|art| img(art).id("card-art").absolute().top_0().left_0().size_full().rounded(px(radius::PANEL)).test_support()))
+            .children(card_frost.clone().map(|f| img(f).id("card-frost").absolute().top_0().left_0().size_full().rounded(px(radius::PANEL)).test_support()))
+            .when_live(card_frost.is_some(), |d| d.child(div().absolute().top_0().left_0().size_full().rounded(px(radius::PANEL)).bg(card_tint)))
+            .when_live(!headless, |d| d.child(head.test_support()))
             .child(div().flex_1().min_h_0().child(inside));
         // The grey Shell behind the card, Split and the drawer: the drawer stands in its right
         // gutter and the new thread's bar in its bottom one (the coordinator's brief, 13 Nov).
-        root = root.child(pane("shell", s.shell).rounded(px(radius::SHELL)).bg(card).test_support());
+        let mut shell_el = pane("shell", s.shell).rounded(px(radius::SHELL)).bg(card);
+        if let Some(f) = frost {
+            // The frame is frosted painting: the blurred copy under the Shell colour at 77% / 83%.
+            let t = self.backdrop.borrow_mut().hsla_for(backdrop::Surface::Shell, dark, (sh.x as i32, sh.y as i32, sh.w as u32, sh.h as u32), pal);
+            shell_el = shell_el
+                .child(img(f).id("shell-art").absolute().top_0().left_0().size_full().rounded(px(radius::SHELL)).test_support())
+                .child(div().absolute().top_0().left_0().size_full().rounded(px(radius::SHELL)).bg(t));
+        }
+        root = root.child(shell_el.test_support());
         let mut main_el = pane("main", s.main).child(card_el.test_support());
         if new_screen {
             // ponytail: core has no stages or per-subscription usage yet (UI-PLAN decision 5), so the
@@ -1396,6 +1283,25 @@ impl Render for Cauldron {
         }
         root = root.child(main_el.test_support());
 
+        // ---- Windows: each pane's tabs float in a strip above it, in the Shell's top band (the
+        // board e0fd268, B); the rightmost leaves the caption buttons their room.
+        if plat == Platform::Windows && self.settings.is_none() {
+            let cards: Vec<Rect> = if split { cauldron_chrome::panes::rects(area, sp) } else { vec![Rect::new(s.main.x, s.main.y, s.main.w, card_h)] };
+            let top = s.shell.y + (metric::CAPS_BAND - 26.0) / 2.0;
+            for (slot, r) in cards.into_iter().enumerate() {
+                let content = if split { self.pane_content[slot] } else { panes::Content::Thread };
+                let right = s.caps.map_or(r.right(), |cp| if cp.rect.x < r.right() { cp.rect.x - 8.0 } else { r.right() });
+                let strip_r = Rect::new(r.x, top, (right - r.x).max(0.0), 26.0);
+                let inner = if content == panes::Content::Thread {
+                    if self.coordinator.is_none() { continue; }
+                    self.tab_strip(pal, strip_r.w, cx)
+                } else {
+                    div().id(("strip-name", slot)).flex().items_center().h(px(metric::TAB_H)).px(px(8.)).rounded(px(radius::INNER)).bg(c(pal.selected)).text_size(px(12.)).font_weight(FontWeight::MEDIUM).text_color(fg).child(content.title())
+                };
+                root = root.child(pane_strip(slot, strip_r).child(inner).test_support());
+            }
+        }
+
         // ---- drawer (on the Shell's grey, no border of its own)
         if let (Some(dp), Some(p)) = (s.drawer, self.drawer.or(self.drawer_last)) {
             // A panel's body: absolute so two bodies can cross-fade in the same pane.
@@ -1415,6 +1321,15 @@ impl Render for Cauldron {
             // The panels as a strip on top (the v3 board's `.dtabs`): the open one selected, its
             // button folds the drawer back to the rail.
             let mut strip = div().id("drawer-strip").flex().gap(px(4.)).pb(px(8.)).border_b_1().border_color(c(pal.line));
+            strip = strip.child(
+                self.tipped("strip-drawer", icon_button("strip-drawer", "panel-right", "Hide the drawer", pal, true), "Hide the drawer", Side::Below, pal, cx)
+                    .flex_none()
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.toggle_drawer();
+                        cx.notify();
+                    }))
+                    .test_support(),
+            );
             for (i, q) in ALL_PANELS.iter().enumerate() {
                 let q = *q;
                 let on = self.drawer == Some(q);
@@ -1464,6 +1379,17 @@ impl Render for Cauldron {
         // ---- right rail, only while the drawer is folded
         if let Some(rp) = s.rrail {
         let mut rr = pane("rrail", rp.rect).opacity(rp.alpha).flex().flex_col().items_center().gap(px(4.)).pt(px(4.));
+        // The drawer's button on top (Charles, 13 Nov 06:52Z), a hairline, then the panels.
+        rr = rr
+            .child(
+                self.tipped("rail-drawer", icon_button("rail-drawer", "panel-right", "Show the drawer", pal, false), "Show the drawer", Side::Left, pal, cx)
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.toggle_drawer();
+                        cx.notify();
+                    }))
+                    .test_support(),
+            )
+            .child(div().w(px(20.)).h(px(1.)).my(px(2.)).bg(c(pal.line_strong)));
         for (i, p) in TOP_PANELS.iter().enumerate() {
             let p = *p;
             rr = rr.child(
@@ -1498,9 +1424,6 @@ impl Render for Cauldron {
                 .text_color(fg)
                 .child("Cauldron"),
         );
-        if let Some(row) = tab_row {
-            root = root.child(row.test_support());
-        }
 
         // ---- sidebar button (top bar, left)
         root = root.child(
@@ -1518,28 +1441,6 @@ impl Render for Cauldron {
                     .test_support(),
             )
             .test_support(),
-        );
-
-        // ---- Terminal and Split, left of the caption buttons
-        root = root.child(
-            pane("topr", s.topr)
-                .flex()
-                .items_center()
-                .gap(px(2.))
-                .child(self.tipped("top-term", icon_button("top-term", "terminal", "Terminal", pal, self.terminal), "Terminal", Side::Below, pal, cx).occlude().on_click(cx.listener(|this, _, _, cx| {
-                    this.terminal = !this.terminal;
-                    this.term_scroll.scroll_to_bottom();
-                    cx.notify();
-                })).test_support())
-                .child(
-                    self.tipped("top-split", icon_button("top-split", "columns-2", "Split", pal, self.panes.shape != Shape::One), "Split", Side::Below, pal, cx).occlude().on_click(cx.listener(|this, _, _, cx| {
-                        // Split opens two side by side, or goes back to one pane.
-                        this.set_shape(if this.panes.shape == Shape::One { Shape::Cols } else { Shape::One });
-                        cx.notify();
-                    }))
-                    .test_support(),
-                )
-                .test_support(),
         );
 
         // ---- Windows caption buttons (macOS uses the native lights)
@@ -1623,7 +1524,7 @@ mod tests {
     fn panes_match_the_layout_solver_in_every_state(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         for bits in 0..4u8 {
-            let state = ShellState { sidebar_open: bits & 1 != 0, drawer_open: bits & 2 != 0, split_open: false, terminal_open: false };
+            let state = ShellState { sidebar_open: bits & 1 != 0, drawer_open: bits & 2 != 0, split_open: false, terminal_open: false, plugins: true };
             cx.update(|cx| cx.set_reduce_motion(true));
             let handle = cx.add_window(move |_, _| Cauldron {
                 sidebar_open: state.sidebar_open,
@@ -1637,7 +1538,6 @@ mod tests {
                 assert_rect(window, "main", s.main, state);
                 assert_rect(window, "shell", s.shell, state);
                 assert_rect(window, "sbtn-slot", s.sidebar_button, state);
-                assert_rect(window, "topr", s.topr, state);
                 for (id, r) in [("sidebar", s.sidebar), ("rail", s.rail), ("rrail", s.rrail), ("drawer", s.drawer), ("half", s.half), ("caps", s.caps)] {
                     let r = r.map(|p| p.rect);
                     match r {
@@ -1710,8 +1610,8 @@ mod tests {
                 (("rb", 0usize).into(), "Highlights"),
                 ("rb-patches".into(), "Patches"),
                 ("sbtn".into(), "Hide sidebar"),
-                ("top-term".into(), "Terminal"),
-                ("top-split".into(), "Split"),
+                ("term-btn".into(), "Terminal"),
+                ("rail-drawer".into(), "Show the drawer"),
                 ("settings".into(), "Settings"),
             ];
             for (id, label) in named {
@@ -1772,31 +1672,29 @@ mod tests {
         handle
     }
 
-    fn visible(window: &Window, n: usize) -> Vec<usize> {
-        (1..=n).filter(|&i| window.try_find(("tab", i)).is_some()).collect()
-    }
-
     fn dt_on(window: &Window, i: usize) -> bool {
         window.find(("dt", i)).selected() == Some(true)
     }
 
     fn on(window: &Window, i: usize) -> bool {
-        window.find(("tab", i)).selected() == Some(true)
+        window.find(("ptab", i)).selected() == Some(true)
     }
 
-    /// The New thread screen has no tabs; the card starts right under the bar and its 44px head
-    /// says New thread at the board's x (card + 14).
+    /// The New thread screen has no tabs; the card starts 12px from the window's top and its 40px
+    /// head says New thread, then split, the terminal and Code.
     #[gpui_kit::test]
     fn new_thread_screen_has_no_tabs_and_a_card_head(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let handle = open(cx, Cauldron::new());
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
-            let s = layout::solve(W, H, ShellState { sidebar_open: true, drawer_open: true, split_open: false, terminal_open: false }, platform());
-            assert!(window.try_find("tabs").is_none() && window.try_find(("tab", 0usize)).is_none(), "no tab before the thread exists");
+            let s = layout::solve(W, H, ShellState { sidebar_open: true, drawer_open: true, split_open: false, terminal_open: false, plugins: true }, platform());
+            assert!(window.try_find(("ptab", 0usize)).is_none(), "no tab before the thread exists");
             assert!(window.try_find("tab-add").is_none(), "no +");
+            assert!(window.try_find("bar-crumb").is_none(), "no breadcrumb");
             let card = rect(window, "card");
-            assert_eq!((card.x, card.y, card.w, card.h), (s.main.x, s.main.y, s.main.w, s.main.h - 32.0), "card right under the bar, the stage bar under it");
+            assert_eq!((card.x, card.y, card.w, card.h), (s.main.x, s.main.y, s.main.w, s.main.h - 32.0), "the card, the stage bar under it");
+            assert_eq!(card.y, 1.0 + 6.0 + 6.0, "12px under the window's top edge");
             // The v3 bottom bar (Charles, 13 Nov): in the Shell's grey under the card, card-wide, 32 high,
             // usage at the left and the four stages at the right. Core has neither yet, so usage is
             // an empty state and no stage is current: plain fg3 labels, nothing to click.
@@ -1817,38 +1715,36 @@ mod tests {
             }
             assert!(bar.right() - last <= 13.0, "the stages end at the bar's right padding");
             let head = rect(window, "card-head");
-            assert_eq!((head.x, head.y, head.w, head.h), (card.x + 1.0, card.y + 1.0, card.w - 2.0, 44.0), "head");
+            assert_eq!((head.x, head.y, head.w, head.h), (card.x + 1.0, card.y + 1.0, card.w - 2.0, 40.0), "head");
             assert_eq!(window.find("card-title").label(), Some("New thread"));
-            assert_eq!(rect(window, "card-title").x, card.x + 14.0, "title at the board's x");
+            assert_eq!(rect(window, "card-title").x, card.x + 9.0, "title 8px in");
+            assert!(rect(window, "code-pill").right() <= head.right() - 8.0, "the Code pill at the head's right");
         })
         .unwrap();
     }
 
-    /// A thread's tabs float in the top bar (the v3 board's `.ftab`): control-sm 24, the open one
-    /// selected, + the same height.
+    /// A thread's tabs sit in its card head (Charles, 13 Nov 06:52Z): control-sm 24, 4px apart, the
+    /// open one selected, + the same height.
     #[gpui_kit::test]
-    fn thread_tabs_float_in_the_bar(cx: &mut TestAppContext) {
+    fn thread_tabs_sit_in_the_card_head(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let handle = open(cx, with_agents(3, &[]));
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
-            let s = layout::solve(W, H, ShellState { sidebar_open: true, drawer_open: true, split_open: false, terminal_open: false }, platform());
-            let row = rect(window, "tabs");
-            assert_eq!((row.x, row.y, row.w, row.h), (s.tabs.x, s.tabs.y, s.tabs.w, s.tabs.h), "tab row");
-            assert!(row.bottom() <= s.bar.bottom(), "in the bar");
+            let head = rect(window, "card-head");
             for i in 0..=3usize {
-                let t = rect(window, ("tab", i));
-                assert_eq!((t.y, t.h), (row.y, 24.0), "tab {i}");
+                let t = rect(window, ("ptab", i));
+                assert_eq!((t.y, t.h), (head.y + 8.0, 24.0), "tab {i} centred in the 40px head");
                 assert_eq!(on(window, i), i == 0, "tab {i}: only the coordinator is open");
             }
             for i in 1..=3usize {
-                assert_eq!(rect(window, ("tab", i)).x - rect(window, ("tab", i - 1)).right(), 4.0, "4px between tabs {} and {i}", i - 1);
+                assert_eq!(rect(window, ("ptab", i)).x - rect(window, ("ptab", i - 1)).right(), 4.0, "4px between tabs {} and {i}", i - 1);
             }
             let add = rect(window, "tab-add");
-            assert_eq!((add.y, add.h), (row.y, 24.0), "+ as tall as the tabs");
-            window.click(("tab", 2usize), cx);
+            assert_eq!((add.y, add.h), (head.y + 8.0, 24.0), "+ as tall as the tabs");
+            window.click(("ptab", 2usize), cx);
+            window.render_frame(cx);
             assert!(on(window, 2) && !on(window, 0), "a click opens the tab");
-            assert_eq!(rect(window, "card").y, s.main.y, "the card stays under the bar");
         })
         .unwrap();
     }
@@ -1862,14 +1758,14 @@ mod tests {
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
             for i in 0..=2usize {
-                assert!(window.try_find(("tab-fig", i)).is_none(), "tab {i} has no figure");
+                assert!(window.try_find(("ptab", i)).is_some() && window.try_find(("tab-fig", i)).is_none(), "tab {i} has no figure");
             }
         })
         .unwrap();
         let handle = open(cx, Cauldron { coordinator: Some("Plain thread".into()), ..Cauldron::new() });
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
-            assert_eq!(window.find(("tab", 0usize)).label(), Some("Plain thread"));
+            assert_eq!(window.find(("ptab", 0usize)).label(), Some("Plain thread"));
             assert!(window.try_find(("tab-fig", 0usize)).is_none(), "a normal thread's tab has no figure");
         })
         .unwrap();
@@ -1890,107 +1786,6 @@ mod tests {
         .unwrap();
     }
 
-    /// Agent tabs fit their names within an equal share, 72 to 200px; the arrows appear exactly when 72px
-    /// tabs no longer fit; the coordinator is pinned at the left, never scrolls and has no close.
-    #[gpui_kit::test]
-    fn agent_tabs_clamp_then_scroll_with_the_coordinator_pinned(cx: &mut TestAppContext) {
-        cx.update(gpui_kit::init);
-        for n in [1usize, 3, 5, 6, 8, 14] {
-            let handle = open(cx, with_agents(n, &[]));
-            cx.update_window(handle.into(), |_, window, cx| {
-                window.render_frame(cx);
-                let row = rect(window, "tabs");
-                let anchor = rect(window, ("tab", 0usize));
-                assert_eq!(anchor.x, row.x, "{n}: coordinator pinned at the left");
-                assert!(anchor.w <= 190.0, "{n}: coordinator at most 190: {anchor:?}");
-                assert_eq!(window.find(("tab", 0usize)).label(), Some("Cauldron · coordinator"));
-                assert!(window.try_find(("tab-close", 0usize)).is_none(), "{n}: coordinator has no close");
-                let room = row.w - anchor.w - 28.0;
-                let need = n as f32 * 76.0 + 4.0;
-                let arrows = window.try_find("tab-prev").is_some();
-                assert_eq!(arrows, need > room, "{n}: arrows iff 72px tabs do not fit (need {need}, room {room})");
-                let seen = visible(window, n);
-                if arrows {
-                    assert!(seen.len() < n, "{n}: scrolling hides some tabs");
-                    for id in ["tab-prev", "tab-next"] {
-                        let r = rect(window, id);
-                        assert_eq!((r.w, r.h), (24.0, 24.0), "{id}: as tall as the tabs");
-                        assert!(r.x < rect(window, "tab-add").x, "{id} left of +");
-                    }
-                } else {
-                    assert_eq!(seen.len(), n, "{n}: all tabs in view");
-                }
-                for &i in &seen {
-                    let t = rect(window, ("tab", i));
-                    assert!(t.w >= 71.5 && t.w <= 210.5, "{n}: tab {i} width {t:?}");
-                    if arrows {
-                        assert!((t.w - 72.0).abs() < 0.5, "{n}: scrolling tabs are 72px");
-                    }
-                    assert!(t.x > anchor.right() && t.right() <= row.right() + 0.5, "{n}: tab {i} in the row after the coordinator");
-                }
-                let add = rect(window, "tab-add");
-                assert!(add.right() <= row.right() + 0.5, "{n}: + in the row");
-                if arrows {
-                    for _ in 0..20 {
-                        window.click("tab-next", cx);
-                    }
-                    assert_eq!(rect(window, ("tab", 0usize)).x, row.x, "{n}: coordinator never scrolls");
-                    assert!(visible(window, n).contains(&n), "{n}: > reaches the last tab");
-                    window.click("tab-prev", cx);
-                    assert!(!visible(window, n).contains(&n), "{n}: < scrolls back by one");
-                }
-            })
-            .unwrap();
-        }
-    }
-
-    /// The open tab is scrolled into view whenever it changes: keyboard, wheel and close.
-    #[gpui_kit::test]
-    fn the_open_tab_is_kept_in_view(cx: &mut TestAppContext) {
-        cx.update(gpui_kit::init);
-        let n = 14;
-        let handle = open(cx, with_agents(n, &[]));
-        cx.update_window(handle.into(), |_, window, cx| {
-            window.render_frame(cx);
-            window.click(("tab", 1usize), cx);
-            window.press("end", cx);
-            assert!(visible(window, n).contains(&n), "End opens and shows the last tab");
-            assert!(on(window, n), "and it is the open one");
-            for _ in 0..20 {
-                window.click("tab-prev", cx);
-            }
-            assert!(!visible(window, n).contains(&n), "the arrows may scroll the open tab away");
-            window.press("left", cx);
-            assert!(visible(window, n).contains(&(n - 1)), "Left opens the tab before and shows it");
-            window.press("home", cx);
-            assert!(on(window, 0), "Home opens the coordinator");
-            window.press("delete", cx);
-            assert!(window.try_find(("tab", 0usize)).is_some(), "Delete never closes the coordinator");
-            window.press("right", cx);
-            window.press("delete", cx);
-            assert_eq!(window.find(("tab", 1usize)).label(), Some("Builder"), "Delete closes the open agent tab");
-            window.press("end", cx);
-        })
-        .unwrap();
-        cx.simulate_window_resize(handle.into(), size(px(W - 200.0), px(H)));
-        cx.update_window(handle.into(), |_, window, cx| {
-            window.render_frame(cx);
-            assert!(visible(window, n - 1).contains(&(n - 1)), "a resize keeps the open tab in view");
-        })
-        .unwrap();
-        cx.simulate_window_resize(handle.into(), size(px(W), px(H)));
-        cx.update_window(handle.into(), |_, window, cx| {
-            window.render_frame(cx);
-            window.press("home", cx);
-            let before = visible(window, n - 1)[0];
-            window.scroll("tabs", gpui_kit::ScrollDelta::Lines(gpui_kit::point(0.0, 3.0)), cx);
-            assert!(visible(window, n - 1)[0] < before, "the wheel scrolls the row back");
-            window.scroll("tabs", gpui_kit::ScrollDelta::Lines(gpui_kit::point(0.0, -2.0)), cx);
-            assert!(visible(window, n - 1)[0] > before - 3, "and forward");
-        })
-        .unwrap();
-    }
-
     /// The + menu opens a 1:1 with an agent of the thread that is not open yet.
     #[gpui_kit::test]
     fn plus_opens_a_one_to_one(cx: &mut TestAppContext) {
@@ -2006,7 +1801,7 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(cauldron_chrome::motion::time::MENU + 50));
             window.render_frame(cx);
             assert!(window.try_find("tab-menu").is_none(), "the menu closes");
-            assert_eq!(window.find(("tab", 3usize)).label(), Some("Tester"));
+            assert_eq!(window.find(("ptab", 3usize)).label(), Some("Tester"));
             assert!(on(window, 3), "the new tab is open");
         })
         .unwrap();

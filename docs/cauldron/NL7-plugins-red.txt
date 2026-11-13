@@ -1,0 +1,90 @@
+error[E0560]: struct `ShellState` has no field named `plugins`
+  --> crates/chrome/tests/wireframe.rs:19:79
+   |
+19 |     ShellState { sidebar_open, drawer_open, split_open, terminal_open: false, plugins: true }
+   |                                                                               ^^^^^^^ `ShellState` does not have this field
+   |
+   = note: all struct fields are already assigned
+
+error[E0560]: struct `ShellState` has no field named `plugins`
+   --> crates/chrome/tests/wireframe.rs:112:145
+    |
+112 | ...en: bits & 4 != 0, terminal_open: false, plugins: true };
+    |                                             ^^^^^^^ `ShellState` does not have this field
+    |
+    = note: all struct fields are already assigned
+
+error[E0560]: struct `ShellState` has no field named `plugins`
+   --> crates/chrome/tests/wireframe.rs:135:145
+    |
+135 | ...en: bits & 4 != 0, terminal_open: false, plugins: true };
+    |                                             ^^^^^^^ `ShellState` does not have this field
+    |
+    = note: all struct fields are already assigned
+
+error[E0560]: struct `ShellState` has no field named `plugins`
+   --> crates/chrome/tests/wireframe.rs:154:127
+    |
+154 | ...split_open: false, terminal_open: false, plugins: true }, Platform::Windows);
+    |                                             ^^^^^^^ `ShellState` does not have this field
+    |
+    = note: all struct fields are already assigned
+
+error[E0560]: struct `ShellState` has no field named `plugins`
+   --> crates/chrome/tests/wireframe.rs:164:134
+    |
+164 | ...split_open: false, terminal_open: false, plugins: true }, platform);
+    |                                             ^^^^^^^ `ShellState` does not have this field
+    |
+    = note: all struct fields are already assigned
+
+error[E0560]: struct `ShellState` has no field named `plugins`
+   --> crates/chrome/tests/wireframe.rs:172:135
+    |
+172 | ...split_open: false, terminal_open: false, plugins: true }, platform);
+    |                                             ^^^^^^^ `ShellState` does not have this field
+    |
+    = note: all struct fields are already assigned
+
+error[E0560]: struct `ShellState` has no field named `plugins`
+   --> crates/chrome/tests/wireframe.rs:183:107
+    |
+183 |     let all = ShellState { sidebar_open: true, drawer_open: true, split_open: true, terminal_open: false, plugins: true };
+    |                                                                                                           ^^^^^^^ `ShellState` does not have this field
+    |
+    = note: all struct fields are already assigned
+
+error[E0560]: struct `ShellState` has no field named `plugins`
+   --> crates/chrome/tests/wireframe.rs:195:107
+    |
+195 |     let st = ShellState { sidebar_open: true, drawer_open: true, split_open: false, terminal_open: false, plugins: true };
+    |                                                                                                           ^^^^^^^ `ShellState` does not have this field
+    |
+    = note: all struct fields are already assigned
+
+error[E0560]: struct `ShellState` has no field named `plugins`
+   --> crates/chrome/tests/wireframe.rs:219:110
+    |
+219 |         let st = ShellState { sidebar_open: true, drawer_open: true, split_open: false, terminal_open: true, plugins: true };
+    |                                                                                                              ^^^^^^^ `ShellState` does not have this field
+    |
+    = note: all struct fields are already assigned
+
+error[E0560]: struct `ShellState` has no field named `plugins`
+   --> crates/chrome/tests/wireframe.rs:232:126
+    |
+232 | ... split_open: false, terminal_open: true, plugins: true }, Platform::Mac);
+    |                                             ^^^^^^^ `ShellState` does not have this field
+    |
+    = note: all struct fields are already assigned
+
+error[E0560]: struct `ShellState` has no field named `plugins`
+   --> crates/chrome/tests/wireframe.rs:242:110
+    |
+242 |         let st = ShellState { sidebar_open: true, drawer_open: true, split_open: false, terminal_open: true, plugins: false };
+    |                                                                                                              ^^^^^^^ `ShellState` does not have this field
+    |
+    = note: all struct fields are already assigned
+
+For more information about this error, try `rustc --explain E0560`.
+error: could not compile `cauldron-chrome` (test "wireframe") due to 11 previous errors

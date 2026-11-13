@@ -221,13 +221,29 @@ impl Cauldron {
                     }))
                     .test_support(),
             );
+        // Over the painting the terminal is frosted glass; without it, the panel.
+        let frost = self.glass_card.get().and_then(|(_, _, dark)| {
+            let mut b = self.backdrop.borrow_mut();
+            let cut = (r.x as i32, r.y as i32, r.w as u32, r.h as u32);
+            let tint = b.hsla_for(super::backdrop::Surface::Card, dark, cut, pal);
+            b.glass(cut.0, cut.1, cut.2, cut.3).map(|f| (f, tint))
+        });
         pane("terminal", r)
             .opacity(alpha)
             .flex()
             .flex_col()
             .overflow_hidden()
             .rounded(px(radius::PANEL))
-            .bg(c(pal.panel))
+            .when_live(frost.is_none(), |d| d.bg(c(pal.panel)))
+            .children(frost.map(|(f, tint)| {
+                div()
+                    .absolute()
+                    .top_0()
+                    .left_0()
+                    .size_full()
+                    .child(img(f).absolute().top_0().left_0().size_full().rounded(px(radius::PANEL)))
+                    .child(div().absolute().top_0().left_0().size_full().rounded(px(radius::PANEL)).bg(tint))
+            }))
             .border_1()
             .border_color(c(pal.line))
             .child(head.test_support())
@@ -267,7 +283,7 @@ mod tests {
             window.render_frame(cx);
             window.click(("thread", 0usize), cx);
             assert!(window.try_find("terminal").is_none());
-            window.click("top-term", cx);
+            window.click("term-btn", cx);
         })
         .unwrap();
         rest(cx);

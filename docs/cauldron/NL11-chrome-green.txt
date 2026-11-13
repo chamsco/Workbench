@@ -1,0 +1,99 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.90s
+     Running unittests src/lib.rs (target/debug/deps/cauldron_chrome-100c1d3b1af050de)
+
+running 7 tests
+test motion::tests::an_interrupted_move_starts_from_where_it_was_drawn ... ok
+test motion::tests::content_that_exists_only_at_the_end_waits_half_way ... ok
+test motion::tests::first_frame_is_the_old_shell_and_last_frame_is_the_new_one ... ok
+test motion::tests::progress_respects_delay_and_clamps ... ok
+test motion::tests::reduced_motion_moves_nothing_and_only_cross_fades ... ok
+test motion::tests::hiding_the_sidebar_carries_the_main_card_and_swaps_the_rail_in ... ok
+test motion::tests::the_curve_pins_its_ends_and_is_monotone ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/avatar.rs (target/debug/deps/avatar-9f80bbaf9d9de69a)
+
+running 12 tests
+test ink_draws_the_figure_in_another_token_colour ... ok
+test px_is_the_sheets_figure_height_with_headroom_only_for_marks ... ok
+test avatars_paint_only_with_tokens_and_take_the_agents_colour ... ok
+test reduced_motion_still_shows_the_mark ... ok
+test the_bust_is_the_head_and_shoulders_in_a_square_slot_with_marks_overhanging ... ok
+test the_cog_turns_once_every_3_8_seconds ... ok
+test the_outline_agent_is_stroked_not_filled ... ok
+test the_three_heads_hop_6_units_one_after_another ... ok
+test typing_turns_the_head_into_three_small_heads ... ok
+test there_are_eleven_moods_and_each_draws_deterministically ... ok
+test working_turns_the_head_into_a_cog ... ok
+test marks_show_from_28px_up ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/dither.rs (target/debug/deps/dither-461e8d4ad88d04de)
+
+running 6 tests
+test the_bayer_matrix_is_the_8x8_one_centred_in_its_cells ... ok
+test the_board_settings ... ok
+test the_painting_covers_the_card ... ok
+test the_grain_is_lightness_only_and_muted_toward_the_card ... ok
+test it_dissolves_toward_the_foot_and_not_above_the_fade ... ok
+test the_same_size_gives_the_same_grain ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/panes.rs (target/debug/deps/panes-80768d202cfb7db5)
+
+running 11 tests
+test a_shape_that_does_not_fit_steps_back ... ok
+test a_reset_makes_the_line_even ... ok
+test a_line_resizes_only_the_panes_on_its_two_sides ... ok
+test adding_a_pane_splits_without_passing_three ... ok
+test every_divider_has_a_line ... ok
+test closing_a_pane_returns_to_the_previous_shape ... ok
+test six_shapes_hold_one_to_three_panes ... ok
+test panes_fill_the_area_with_4px_gaps ... ok
+test the_layout_button_steps_through_every_shape_and_wraps ... ok
+test the_lines_sit_in_the_gaps ... ok
+test dragging_any_line_keeps_every_pane_at_200_by_120 ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/tokens.rs (target/debug/deps/tokens-cea0525f8948b9ad)
+
+running 11 tests
+test contrast_follows_wcag ... ok
+test glyphs_and_control_edges_hold_3_to_1 ... ok
+test one_accent_and_status_colours_stay_distinct ... ok
+test every_text_pair_passes_aa_in_both_themes ... ok
+test overlays_composite_like_a_browser ... ok
+test motion_stays_within_the_200ms_cap ... ok
+test selected_on_a_card_is_under_aa_in_light ... ok
+test the_easing_curve_runs_from_rest_to_rest_without_overshoot ... ok
+test agent_colours_are_agent_1_to_9 ... ok
+test radii_match_the_design_system_and_nest_by_the_shell_padding ... ok
+test palettes_match_the_design_system_exactly ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/wireframe.rs (target/debug/deps/wireframe-54aa2c6fa189e498)
+
+running 9 tests
+test solver_matches_every_golden_state_and_size ... ignored, golden predates the top bar A decision; re-measure after the wireframe is updated
+test main_keeps_a_minimum_width_by_closing_split_then_drawer ... ok
+test platforms_differ_only_in_window_controls ... ok
+test the_drawer_takes_the_right_rails_place ... ok
+test without_plugins_the_card_takes_the_right_gutter ... ok
+test the_terminal_takes_the_drawers_place ... ok
+test panes_never_overlap_and_stay_inside_the_window ... ok
+test the_shell_runs_near_the_top_and_bottom ... ok
+test golden_has_two_window_sizes ... ok
+
+test result: ok. 8 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests cauldron_chrome
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

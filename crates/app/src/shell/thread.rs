@@ -754,8 +754,7 @@ pub(super) mod tests {
             window.render_frame(cx);
             assert!(window.try_find("nt-box").is_some(), "no thread open: the New thread screen");
             window.click(("thread", 0usize), cx);
-            assert_eq!(window.find("thread-title").label(), Some("Get M3 through review"));
-            assert_eq!(window.find(("tab", 0usize)).label(), Some("Get M3 through review"));
+            assert_eq!(window.find(("ptab", 0usize)).label(), Some("Get M3 through review"), "the open tab is the title");
             assert_eq!(window.find(("msg", 0usize)).label(), Some("Run the tests"));
             assert_eq!(window.find(("msg", 1usize)).label(), Some("All 591 pass."));
             assert_eq!(window.find(("steps", 1usize)).label(), Some("Thought, Read 1 file, Ran 1 command"), "how the reply was made, from its trace");
