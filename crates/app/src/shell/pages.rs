@@ -393,7 +393,7 @@ impl Cauldron {
         for (k, (name, share, dot)) in [("Files", 0.45f32, 0usize), ("Chat", 0.25, 1), ("Tools", 0.2, 2), ("Memory", 0.1, 3)].into_iter().enumerate() {
             let mut col: Hsla = c(tokens::AGENT_DOTS[dot]);
             col.a = 0.35;
-            tree = tree.child(div().id(("ctx", k)).h_full().w(relative(share)).rounded(px(4.)).bg(col).p(px(4.)).text_size(px(10.)).text_color(fg).aria_label(name).child(name).test_support());
+            tree = tree.child(div().id(("ctx", k)).h_full().w(relative(share)).rounded(px(4.)).bg(col).p(px(4.)).overflow_hidden().text_size(px(10.)).text_color(fg).aria_label(name).child(div().truncate().child(name)).test_support());
         }
         let line = |t: &'static str| div().flex().gap(px(6.)).child(div().mt(px(6.)).size(px(4.)).flex_none().rounded_full().bg(c(pal.fg4))).child(div().text_size(px(12.)).text_color(fg2).child(t));
         let setting = |t: &'static str| div().id(t).h(px(28.)).flex().items_center().justify_between().text_size(px(12.)).text_color(c(pal.fg4)).aria_label(format!("{t} (demo: not built yet)")).child(t).child(glyph("chevron-right", 12., c(pal.fg4)));

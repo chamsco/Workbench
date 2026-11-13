@@ -322,6 +322,46 @@ These are Charles's 07:34Z list and 13:40Z note ("not as tabs, they need to repl
 
 The sample data's streams were given recent times for the ages.
 
+## The destinations and the Agents demo (13 Nov, 15:54Z and 16:05Z)
+
+Charles, 15:54Z: go back to the buttons, and bring Automations back. Usage goes at the bottom of the collapsed sidebar, with a tracker on hover and a page on click. He also asked to reuse the premade agents designs and keep the Librarian, in the order Agents, Folders, Library.
+
+16:05Z: he accepted M3 (`docs/cauldron/M3-SIGNOFF.md`) and said: "Continue the Agents demo next. Follow UI-PLAN decision 5: don't present missing engine behaviour as functional."
+
+The coordinator's board is `design/cauldron-destinations.html` (ac5ef7a on gg3ogp).
+
+**Six buttons**, under the sidebar's top row:
+- Streams, Folders, Automations, Agents, Usage and Library, with tooltips. They are the old icon row, back in place of the switch.
+- Each replaces the card; the sidebar's streams, search, New stream and footer stay. Apps stay in Settings.
+- Folded, the same six stack on the rail.
+
+**Usage:**
+- An empty ring and "No data yet" sit beside the name; core has no usage per subscription. Hovering shows its tip, and a click opens the Usage page.
+- On the folded rail the ring sits at the foot, above version, cog and avatar.
+
+**The Agents demo:**
+- It uses the approved Cauldron figure from `crates/chrome` (flat colour, moods, a bust in the room), not the old brain mascot.
+- On the left: the roster (core's own agents first and unmarked, then four examples), and group chats.
+  - The four examples are Claude Code (asking), Codex (working), Cursor (watching) and the Librarian (amber, reading, "Filing 2 notes").
+- On the right, the open room: a figure stack, its name, an example conversation in busts in which the Librarian files a note, and the composer.
+- Agents' own drawer, beside the standing rail: the agent with weekly and 5-hour rings, its current task, a Context treemap, Traces, Routines and Settings rows.
+
+**Demo marking (UI-PLAN decision 5):**
+- The header says "Demo".
+- Every example agent, room and message, and the drawer, say "Example".
+- The composer is disabled and says "Not connected: messages to … are not sent yet".
+- Room info, New group and the drawer's settings rows look disabled and say "Demo: not built yet".
+- Real core agents would show without a mark.
+
+**Folders, Automations, Usage and Library** are placeholder pages marked Demo, each saying what it will hold and that it is not built yet.
+
+**Tests:** `docs/cauldron/NL13-app-green.txt`, 68 of 68. New ones check:
+- the six buttons replace the card, keep the sidebar and return to Streams;
+- the Agents demo is marked throughout (Demo, Example on each example, "Not connected", the drawer marked), and the Librarian opens its own lines;
+- the folded rail's order, with the usage ring at the foot.
+
+**Shots** (real captures, dark and light): `nl13-agents-*`, `nl13-thread-*`, `nl13-library-*`, `nl13-folded-*`.
+
 ## Not done (as asked)
 
 - Top bar A: untouched.

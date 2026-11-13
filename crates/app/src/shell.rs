@@ -829,7 +829,7 @@ impl Cauldron {
             .hover(|d| d.bg(c(pal.hover)))
             .aria_label("No data yet")
             .child(div().size(px(if rail { 20. } else { 12. })).my(px(if rail { 4. } else { 0. })).rounded_full().border_2().border_color(c(pal.line_strong)))
-            .when_live(!rail, |d| d.child(div().text_size(px(11.)).text_color(c(pal.fg3)).child("No data yet")))
+            .when_live(!rail, |d| d.child(div().text_size(px(10.5)).text_color(c(pal.fg3)).child("No data yet")))
             .on_click(cx.listener(|this, _, _, cx| {
                 this.open_page(pages::AppPage::Usage);
                 cx.notify();
@@ -842,7 +842,7 @@ impl Cauldron {
     fn version_button(&self, pal: &'static Palette, cx: &mut Context<Self>) -> Stateful<Div> {
         // An icon, so the name keeps its room; the version is in its name and tip.
         let label = format!("Version {}", env!("CARGO_PKG_VERSION"));
-        let el = icon_button("version", "circle-arrow-up", "Version and updates", pal, false).aria_label(label.clone()).on_click(cx.listener(|this, _, _, cx| {
+        let el = icon_button("version", "circle-arrow-up", "Version and updates", pal, false).w(px(24.)).h(px(24.)).aria_label(label.clone()).on_click(cx.listener(|this, _, _, cx| {
             this.settings = Some(1);
             cx.notify();
         }));
@@ -1222,7 +1222,7 @@ impl Render for Cauldron {
                         .flex_none()
                         .flex()
                         .items_center()
-                        .gap(px(9.))
+                        .gap(px(6.))
                         .pl(px(3.))
                         .pt(px(8.))
                         .child(
@@ -1251,7 +1251,7 @@ impl Render for Cauldron {
                                 .child(self.usage_ring("usage-left", pal, cx).test_support()),
                         )
                         .child(self.version_button(pal, cx).test_support())
-                        .child(self.tipped("settings", icon_button("settings", "settings", "Settings", pal, self.settings.is_some()), "Settings", Side::Right, pal, cx).on_click(cx.listener(|this, _, _, cx| {
+                        .child(self.tipped("settings", icon_button("settings", "settings", "Settings", pal, self.settings.is_some()).w(px(24.)).h(px(24.)), "Settings", Side::Right, pal, cx).on_click(cx.listener(|this, _, _, cx| {
                             this.settings = if this.settings.is_some() { None } else { Some(0) };
                             cx.notify();
                         })).test_support()),
