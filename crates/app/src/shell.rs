@@ -1260,7 +1260,8 @@ impl Render for Cauldron {
             .flex_col()
             .overflow_hidden()
             .rounded(px(radius::PANEL))
-            .bg(card)
+            // A Panel in its Shell: darker than the Shell in dark, white on it in light.
+            .bg(c(pal.panel))
             .border_1()
             .border_color(ring)
             .text_color(fg3)

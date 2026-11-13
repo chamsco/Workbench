@@ -18,18 +18,18 @@ warning: constant `SANS_MONO` is never used
    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
 
 warning: `backspace` (bin "backspace" test) generated 1 warning
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.98s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.46s
 warning: the following packages contain code that will be rejected by a future version of Rust: block v0.1.6
 note: to see what the problems were, use the option `--future-incompat-report`, or run `cargo report future-incompatibilities --id 1`
      Running unittests src/main.rs (target/debug/deps/backspace-18319d285e49e671)
 
 running 39 tests
 test motion::tests::a_slide_starts_at_from_ends_at_to_and_eases_between ... ok
+test motion::tests::a_change_starts_at_the_frame_drawn_and_ends_at_the_new_rest ... ok
+test motion::tests::the_first_render_is_at_rest_and_asks_for_no_frame ... ok
 test motion::tests::an_interrupted_run_continues_from_the_drawn_frame ... ok
 test motion::tests::reduced_motion_is_quick_and_moves_nothing ... ok
-test motion::tests::the_first_render_is_at_rest_and_asks_for_no_frame ... ok
 test motion::tests::a_resize_moves_the_target_without_restarting_the_run ... ok
-test motion::tests::a_change_starts_at_the_frame_drawn_and_ends_at_the_new_rest ... ok
 test shell::tests::function_slots_span_the_row_with_equal_gaps ... ok
 test shell::newthread::tests::the_body_line_turns_accent_with_focus ... ok
 test icons::tests::every_shell_icon_loads ... ok
@@ -40,8 +40,8 @@ test shell::tests::sidebar_lists_threads_in_groups_with_counts ... ok
 test shell::tests::icon_buttons_have_names_and_tooltips ... ok
 test shell::tests::sidebar_draws_loading_empty_no_match_and_error ... ok
 test shell::tests::tabs_carry_no_agent_figures ... ok
-test shell::tests::thread_rows_are_the_boards ... ok
 test shell::tests::panes_match_the_layout_solver_in_every_state ... ok
+test shell::tests::thread_rows_are_the_boards ... ok
 test shell::tests::thread_tabs_float_in_the_bar ... ok
 test shell::tests::the_drawer_switches_panels_from_its_own_strip ... ok
 test shell::thread::tests::lines_carry_who_answered_and_the_cost ... ok
@@ -52,17 +52,17 @@ test threads::tests::each_thread_lands_in_one_group_by_precedence ... ok
 test threads::tests::groups_come_in_order_keep_list_order_and_skip_empty_ones ... ok
 test threads::tests::meta_is_the_project_folder_else_no_repo ... ok
 test threads::tests::search_matches_title_or_preview_ignoring_case ... ok
-test shell::newthread::tests::an_unreadable_file_leaves_no_thread_behind ... ok
 test shell::tests::plus_opens_a_one_to_one ... ok
+test shell::newthread::tests::an_unreadable_file_leaves_no_thread_behind ... ok
 test shell::newthread::tests::start_waits_for_a_subscription ... ok
-test shell::thread::tests::a_row_opens_its_thread ... ok
 test shell::newthread::tests::start_creates_sends_and_opens_the_thread ... ok
+test shell::thread::tests::a_row_opens_its_thread ... ok
 test shell::thread::tests::a_running_reply_shows_a_status_line ... ok
 test shell::tests::agent_tabs_clamp_then_scroll_with_the_coordinator_pinned ... ok
-test shell::thread::tests::the_effort_chip_cycles_and_saves ... ok
 test shell::tests::the_open_tab_is_kept_in_view ... ok
+test shell::thread::tests::the_effort_chip_cycles_and_saves ... ok
 test shell::thread::tests::the_composer_sends_through_core ... ok
 test shell::newthread::tests::start_on_a_connected_machine_sends_a_task ... ok
 
-test result: ok. 39 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.59s
+test result: ok. 39 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.63s
 
