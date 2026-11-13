@@ -269,6 +269,59 @@ Settings follows the same rules: it is frosted, with no drawer and no rail.
 - The blurred copy is static: a pane resize or a drag cuts new rects, and the cache holds 64 of them.
 - `backspace-core`'s two `policy_integrity` failures on this Mac are as before and unrelated.
 
+## Round 3: flush corners, apps, streams, folders, the rails, pages (13 Nov, 07:34Z and 13:40Z)
+
+These are Charles's 07:34Z list and 13:40Z note ("not as tabs, they need to replace the main content area... streams should belong to a folder"). The coordinator's boards are `design/cauldron-pages-switch.html` (5b7662c on gg3ogp). The work is on `claude/new-look-round3`, in PR #44 on top of #43.
+
+**The corner gap.** The window-wide frost was already under everything, but at the Shell's rounded left corners it showed the sidebar's frost, a different shade, so the corners still read as a notch. The Shell now meets the sidebar (and the folded rail) flush, with square left corners and rounded right ones. Solver test red first: `NL12-flush-red.txt` / `NL12-flush-green.txt`.
+
+**Apps.** The 7-icon row and its hairline are out of the sidebar and the folded rail. Settings > Apps lists them; Streams opens, and the others say they arrive later.
+
+**Streams.** UI text only: New stream, Search streams, This stream, and the empty and error texts. Core's ids, types and files are unchanged.
+
+**Streams, Agents and Memory.**
+- A three-way switch at the top of the sidebar replaces only the card. Memory also drops the drawer; Agents gets its own drawer mockup (Context, Traces, Routines, Settings).
+- The sidebar's streams stay put. Opening a stream returns to Streams.
+- Agents and Memory are labelled mockups:
+  - Agents: a roster with figures (they belong here) and a detail (Route, Computer, Memory, Switched off, Routines). It shows core's real agents when there are any, otherwise examples marked "Example content".
+  - Memory: Proposals, Notes, Dreams and Skills, scope chips, and proposal cards with Reject and Accept, the global one marked "Needs your approval". All example content, marked as such.
+
+**Folders (direction B).**
+- The sidebar shows Needs you (flat, each row with its folder chip, not repeated under the folder), then Folders with a +, then each folder: chevron, icon, name, count, and an accent dot when it is closed over a stream that needs you. Unfiled comes last.
+- A folder is open when it holds a running, waiting or open stream; a click toggles it for the session.
+- Rows are a state dot (needs you filled accent, running a ring, failed bad, done grey), the title and the age.
+- Search lists hits flat, each with its folder chip.
+- The "+" for a new folder is shown but arrives later.
+- Move to folder is not built. A stream's project is where its CLI runs (`chat.rs`: "the project folder a CLI works in"), so moving one would change where it runs.
+
+**User row and folded rail.**
+- Unfolded: the name with usage beside it ("No data yet": core has no per-subscription usage), the version button (an icon; it opens Settings > General, which shows the version and says updates come from the release workflow), and the cog.
+- Folded rail, top to bottom: a usage ring (empty), the three apps, search (opens the sidebar), New stream, a square per folder (its letter, a dot over a waiting stream; it opens the sidebar on that folder), then the version, the cog and the avatar at the foot.
+
+**The right rail.** It always stands at the Shell's right edge, its icons stacked: the drawer's toggle (lit while open), a hairline, then the panels (the open one lit). The open drawer sits beside it; there is no horizontal strip. The card is about 50px narrower with the drawer open, and the minimum-width rule closes Split and then the drawer a little sooner. Solver test red first: `NL12-rail-red.txt` / `NL12-rail-green.txt`.
+
+**New stream.**
+- The composer sits about 40px under the card's middle.
+- Under it are the folder chip, the machine, and Worktree, which is dimmed because core has nothing behind it.
+- The folder chip suggests the working directory when it is a known folder. Its popover lists your streams' folders (the working directory's tagged "current directory"), No folder, and New folder (arrives later).
+- The chosen folder becomes the new stream's project, the folder it runs in. A test checks the created stream's project.
+
+**Tests.**
+- `docs/cauldron/NL12-app-green.txt`: 66 of 66.
+- `NL12-chrome-green.txt`: all suites.
+- New tests cover the sidebar model (Needs you, folders, toggles, search, the open stream's folder) and ages, the folding UI and its dot, the folded rail's order, the rail beside the drawer, the switch keeping the sidebar and a stream bringing Streams back, the Memory mockup, the folder chip and Settings > General.
+
+**Shots.** Real window captures at 1200x720, dark and light, in `docs/screenshots/new-look/`:
+- New stream: `nl12-new-*`
+- Stream: `nl12-thread-*`
+- Two panes: `nl12-2panes-*`
+- Agents: `nl12-agents-*`
+- Memory: `nl12-memory-*`
+- Settings > Apps: `nl12-settings-apps-*`
+- Folded sidebar: `nl12-sidebar-folded-*`
+
+The sample data's streams were given recent times for the ages.
+
 ## Not done (as asked)
 
 - Top bar A: untouched.
