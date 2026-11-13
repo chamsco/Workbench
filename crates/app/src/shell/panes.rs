@@ -16,7 +16,7 @@ const GRAB: f32 = 12.0;
 /// What a pane shows.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Content {
-    /// The thread (or the New thread screen): always in some pane.
+    /// The thread (or the New stream screen): always in some pane.
     Thread,
     /// A new pane: the "Open a surface" list.
     Empty,
@@ -58,7 +58,7 @@ impl Surface {
 impl Content {
     pub(super) fn title(self) -> &'static str {
         match self {
-            Content::Thread => "Thread",
+            Content::Thread => "Stream",
             Content::Empty => "New pane",
             Content::Surface(s) => s.name(),
         }
@@ -541,10 +541,10 @@ mod tests {
         handle.update(cx, |c, _, _| c.panes.shape = Shape::OneTwo).unwrap();
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
-            assert_eq!(window.find(("pane", 0usize)).label(), Some("Thread"));
+            assert_eq!(window.find(("pane", 0usize)).label(), Some("Stream"));
             window.drag_to(("pane-grip", 0usize), ("pane", 2usize), cx);
             window.render_frame(cx);
-            assert_eq!(window.find(("pane", 2usize)).label(), Some("Thread"), "the thread moved to the bottom right");
+            assert_eq!(window.find(("pane", 2usize)).label(), Some("Stream"), "the stream moved to the bottom right");
             assert_eq!(window.find(("pane", 0usize)).label(), Some("New pane"));
         })
         .unwrap();

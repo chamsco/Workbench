@@ -64,7 +64,7 @@ impl Cauldron {
                 .text_size(px(13.))
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(fg)
-                .aria_label("Back to threads")
+                .aria_label("Back to streams")
                 .child(glyph("chevron-left", 15., fg))
                 .child("Settings")
                 .on_click(cx.listener(|this, _, _, cx| {
@@ -169,7 +169,7 @@ impl Cauldron {
             col = col.child(section("Theme"));
             col = col.child(row(("look", 0), "Theme".into(), "Light, dark, or System, which follows your computer as it changes.".into(), theme.into_any_element()));
             col = col.child(section("Background"));
-            col = col.child(row(("look", 1), "Painting".into(), "Behind the whole window, in the old dither; the new thread shows it clear, every other surface frosted. None keeps the plain frame.".into(), bg.into_any_element()));
+            col = col.child(row(("look", 1), "Painting".into(), "Behind the whole window, in the old dither; the new stream shows it clear, every other surface frosted. None keeps the plain frame.".into(), bg.into_any_element()));
             return div().id("settings-body").size_full().overflow_y_scroll().flex().justify_center().child(col).test_support().into_any_element();
         }
         if page == 5 {
@@ -224,7 +224,7 @@ impl Cauldron {
             );
             return div().id("settings-body").size_full().overflow_y_scroll().flex().justify_center().child(col).test_support().into_any_element();
         }
-        col = col.child(div().text_size(px(13.)).text_color(fg3).mb(px(6.)).child("Who answers in your threads, and the subscriptions they run on."));
+        col = col.child(div().text_size(px(13.)).text_color(fg3).mb(px(6.)).child("Who answers in your streams, and the subscriptions they run on."));
 
         // Subscriptions: one row per login core knows (accounts.json). Usage only where the CLI reported it.
         let accounts = Accounts::load(&self.accounts_path());
@@ -318,7 +318,7 @@ mod tests {
             window.render_frame(cx);
             assert!(window.try_find(("thread", 0usize)).is_none() && window.try_find("new-thread").is_none(), "the thread list gives way");
             assert_eq!(window.find(("sub", 0usize)).label(), Some("No subscriptions on this machine yet"));
-            assert_eq!(window.find("settings-back").label(), Some("Back to threads"));
+            assert_eq!(window.find("settings-back").label(), Some("Back to streams"));
             assert_eq!(window.find(("settings-page", 0usize)).label(), Some("Agents and subscriptions"));
             assert_eq!(window.find(("settings-page", 0usize)).selected(), Some(true));
             let card = super::super::tests::rect(window, "card");

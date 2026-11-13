@@ -91,7 +91,7 @@ impl Cauldron {
         if let Some(ask) = line.strip_prefix('#') {
             let ask = ask.trim();
             let (Some(id), Some((_, chats))) = (self.open.clone(), self.core.as_ref()) else {
-                self.term_note = Some("Open a thread first: # asks that thread's agent.".into());
+                self.term_note = Some("Open a stream first: # asks that stream's agent.".into());
                 return;
             };
             self.term_note = match chats.send(&id, ask, Vec::new(), None, thread::ctx()) {
@@ -111,9 +111,9 @@ impl Cauldron {
         let mut list = div().id(id).flex_1().min_h_0().overflow_y_scroll().track_scroll(&self.term_scroll).flex().flex_col();
         if self.term_blocks.is_empty() {
             let (title, body) = if self.open.is_some() {
-                ("No commands yet", "Commands this thread's agents run show up here, one block each.")
+                ("No commands yet", "Commands this stream's agents run show up here, one block each.")
             } else {
-                ("No thread open", "Open a thread to see the commands its agents ran.")
+                ("No stream open", "Open a stream to see the commands its agents ran.")
             };
             list = list.child(
                 div()

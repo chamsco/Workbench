@@ -11,7 +11,7 @@ use gpui_kit::{px, size, AppContext, HeadlessAppContext};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-/// The states each gate is checked in: New thread, a thread with the drawer, the drawer folded,
+/// The states each gate is checked in: New stream, a thread with the drawer, the drawer folded,
 /// an agentic thread's tabs.
 const STATES: [&str; 4] = ["new", "thread", "folded", "tabs"];
 

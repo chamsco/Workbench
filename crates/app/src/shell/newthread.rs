@@ -1,4 +1,4 @@
-//! The New thread screen, as the new-look board's frame 1: the machine above a box centred in
+//! The New stream screen, as the new-look board's frame 1: the machine above a box centred in
 //! the card, and in the box the editor, files, effort and Start. Start creates the thread in
 //! core, attaches the files, sends the text and opens it. On a connected machine Start sends the
 //! text as a task to that machine's harness (`/v1/task`); it does not open a local thread.
@@ -70,7 +70,7 @@ fn mime(name: &str) -> &'static str {
 }
 
 impl Cauldron {
-    /// Back to the New thread screen with an empty box.
+    /// Back to the New stream screen with an empty box.
     pub(super) fn new_thread(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.open = None;
         self.thread = None;
@@ -116,9 +116,9 @@ impl Cauldron {
             };
         }
         match (&self.threads, &self.core) {
-            (Threads::Error(e), _) => Some(format!("Can't open your threads: {e}")),
-            (_, None) => Some("Opening your threads".into()),
-            _ if self.start.route.is_none() => Some("Connect a subscription to start a thread.".into()),
+            (Threads::Error(e), _) => Some(format!("Can't open your streams: {e}")),
+            (_, None) => Some("Opening your streams".into()),
+            _ if self.start.route.is_none() => Some("Connect a subscription to start a stream.".into()),
             _ => None,
         }
     }
@@ -554,7 +554,7 @@ mod tests {
         (f32::from(b.origin.x), f32::from(b.origin.y), f32::from(b.size.width), f32::from(b.size.height))
     }
 
-    /// With no thread open the card is the New thread screen, as the new-look board's frame 1:
+    /// With no thread open the card is the New stream screen, as the new-look board's frame 1:
     /// the machine above a 780px box centred in the card, the box's controls inside it, and
     /// nothing else (no brand, no Code/Design tabs, no cards).
     #[gpui_kit::test]
@@ -586,7 +586,7 @@ mod tests {
         .unwrap();
     }
 
-    /// Start makes the thread in core, attaches the file, sends the text and opens it; New thread
+    /// Start makes the thread in core, attaches the file, sends the text and opens it; New stream
     /// brings the empty box back with the editor focused.
     #[gpui_kit::test]
     fn start_creates_sends_and_opens_the_thread(cx: &mut TestAppContext) {
@@ -621,7 +621,7 @@ mod tests {
             assert!(window.try_find(("ptab", 0usize)).is_some(), "the thread view replaced it");
             window.click("new-thread", cx);
             window.render_frame(cx);
-            assert!(window.try_find("nt-box").is_some(), "New thread brings it back");
+            assert!(window.try_find("nt-box").is_some(), "New stream brings it back");
             assert!(window.try_find(("file", 0usize)).is_none(), "files went with the thread");
         })
         .unwrap();
@@ -655,7 +655,7 @@ mod tests {
         let (handle, chats) = open(cx);
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
-            assert_eq!(window.find("start-why").label(), Some("Connect a subscription to start a thread."));
+            assert_eq!(window.find("start-why").label(), Some("Connect a subscription to start a stream."));
             window.click("nt-input", cx);
             window.input("Anything", cx);
             window.click("start", cx);
@@ -669,7 +669,7 @@ mod tests {
     #[gpui_kit::test]
     fn start_waits_while_core_opens_and_says_when_it_failed(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
-        for (threads, why) in [(super::super::Threads::Loading, "Opening your threads"), (super::super::Threads::Error("disk full".into()), "Can't open your threads: disk full")] {
+        for (threads, why) in [(super::super::Threads::Loading, "Opening your streams"), (super::super::Threads::Error("disk full".into()), "Can't open your streams: disk full")] {
             cx.update(|cx| cx.set_reduce_motion(true));
             let handle = cx.add_window(|_, _| Cauldron { threads, ..Cauldron::new() });
             cx.simulate_window_resize(handle.into(), gpui_kit::size(gpui_kit::px(1240.), gpui_kit::px(702.)));

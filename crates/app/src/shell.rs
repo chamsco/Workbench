@@ -128,7 +128,7 @@ pub(super) const FUNCTIONS: [(&str, &str); 7] = [
     ("layout-grid", "Apps"),
 ];
 
-const NEW_TAB: &str = "New thread";
+const NEW_TAB: &str = "New stream";
 /// A pane's header, and the card's head: tabs on the left, the controls on the right.
 pub(super) const HEAD_H: f32 = 40.0;
 
@@ -186,7 +186,7 @@ pub(crate) struct Cauldron {
     /// The transcript's scroll, kept at the newest message when a thread opens or grows.
     transcript_scroll: ScrollHandle,
     transcript_seen: std::cell::RefCell<Option<(String, usize)>>,
-    /// The thread's coordinator, pinned as the first tab; None on the New thread screen.
+    /// The thread's coordinator, pinned as the first tab; None on the New stream screen.
     coordinator: Option<SharedString>,
     /// Agents with an open 1:1 tab, in tab order, and the thread's other agents (the + menu).
     agents: Vec<AgentTab>,
@@ -237,7 +237,7 @@ pub(crate) struct Cauldron {
     steps: std::collections::HashMap<String, Vec<String>>,
     composer: Option<(Entity<TextareaState>, Subscription)>,
     send_error: Option<String>,
-    /// The New thread screen (UI5).
+    /// The New stream screen (UI5).
     start: newthread::Start,
 }
 
@@ -416,7 +416,7 @@ impl Cauldron {
             Threads::Loading => {
                 // Skeleton rows shaped like the real ones, static (no shimmer to turn off for reduced motion).
                 let bar = |w: f32| div().h(px(8.)).w(relative(w)).rounded(px(radius::INNER)).bg(c(pal.inset));
-                let mut sk = div().id("threads-loading").flex().flex_col().pt(px(14.)).aria_label("Loading threads");
+                let mut sk = div().id("threads-loading").flex().flex_col().pt(px(14.)).aria_label("Loading streams");
                 for w in [0.72, 0.56, 0.8, 0.48, 0.64] {
                     sk = sk.child(
                         div()
@@ -434,19 +434,19 @@ impl Cauldron {
             }
             Threads::Error(e) => list.child(note(
                 "threads-error",
-                format!("Threads could not load: {e}"),
+                format!("Streams could not load: {e}"),
                 Some(("circle-alert", c(pal.bad))),
-                "Threads could not load".into(),
+                "Streams could not load".into(),
                 Some(e.to_string()),
             )),
             Threads::Ready(v) if v.is_empty() => {
-                list.child(note("threads-empty", "No threads yet".into(), None, "No threads yet".into(), Some("Start one with New thread.".into())))
+                list.child(note("threads-empty", "No streams yet".into(), None, "No streams yet".into(), Some("Start one with New stream.".into())))
             }
             Threads::Ready(v) => {
                 let groups = threads::grouped(v, &self.query);
                 if groups.is_empty() {
                     let q = self.query.trim().to_string();
-                    return list.child(note("threads-no-match", format!("No threads match {q}"), None, format!("No threads match \u{201c}{q}\u{201d}"), None));
+                    return list.child(note("threads-no-match", format!("No streams match {q}"), None, format!("No streams match \u{201c}{q}\u{201d}"), None));
                 }
                 // Core has no Needs you yet, so the group is its head alone, without a count
                 // (Charles chose empty states, 12 Nov).
@@ -986,7 +986,7 @@ impl Render for Cauldron {
                 t.caret = accent;
                 t.selection = ca(pal.accent, 0.25);
                 t.font_family = SANS.into();
-                let st = cx.new(|cx| InputState::new(window, cx).placeholder("Search threads"));
+                let st = cx.new(|cx| InputState::new(window, cx).placeholder("Search streams"));
                 let sub = cx.subscribe(&st, |this, st, ev: &InputEvent, cx| {
                     if let InputEvent::Change = ev {
                         this.query = st.read(cx).value().to_string();
@@ -1014,10 +1014,10 @@ impl Render for Cauldron {
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(fg)
                 .child(glyph("square-pen", 15., fg))
-                .child("New thread")
+                .child("New stream")
                 .on_click(cx.listener(|this, _, window, cx| this.new_thread(window, cx)))
                 .test_support();
-            // The board's `.side`: on the window, no card; the apps row, New thread, Search, the list.
+            // The board's `.side`: on the window, no card; the apps row, New stream, Search, the list.
             // ponytail: the layout keeps the card era's 12px margin, so the content starts at x 13,
             // the board's at 10; the right edge is the board's 240 (9px in from the pane's 249).
             let card_el = pane("sidebar", sp.rect)
@@ -1040,7 +1040,7 @@ impl Render for Cauldron {
                             .rounded(px(radius::TAG))
                             .hover(|d| d.bg(c(pal.hover)))
                             .text_color(fg2)
-                            .aria_label("Search threads")
+                            .aria_label("Search streams")
                             .child(glyph("search", 15., fg2))
                             .child(div().flex_1().min_w_0().child(Input::new(&search).appearance(false).text_size(px(13.)).p_0()))
                             .test_support(),
@@ -1622,8 +1622,8 @@ mod tests {
         window.find(("ptab", i)).selected() == Some(true)
     }
 
-    /// The New thread screen has no tabs; the card starts 12px from the window's top and its 40px
-    /// head says New thread, then split, the terminal and Code.
+    /// The New stream screen has no tabs; the card starts 12px from the window's top and its 40px
+    /// head says New stream, then split, the terminal and Code.
     #[gpui_kit::test]
     fn new_thread_screen_has_no_tabs_and_a_card_head(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
@@ -1658,7 +1658,7 @@ mod tests {
             assert!(bar.right() - last <= 13.0, "the stages end at the bar's right padding");
             let head = rect(window, "card-head");
             assert_eq!((head.x, head.y, head.w, head.h), (card.x + 1.0, card.y + 1.0, card.w - 2.0, 40.0), "head");
-            assert_eq!(window.find("card-title").label(), Some("New thread"));
+            assert_eq!(window.find("card-title").label(), Some("New stream"));
             assert_eq!(rect(window, "card-title").x, card.x + 9.0, "title 8px in");
             assert!(rect(window, "code-pill").right() <= head.right() - 8.0, "the Code pill at the head's right");
         })
@@ -1786,7 +1786,7 @@ mod tests {
                 let r = rect(window, ("thread", i));
                 assert!(r.x >= side.x && r.right() <= side.right(), "row {i} inside the sidebar");
             }
-            assert!(rect(window, ("thread", 0usize)).y > rect(window, "new-thread").bottom(), "rows under New thread");
+            assert!(rect(window, ("thread", 0usize)).y > rect(window, "new-thread").bottom(), "rows under New stream");
         })
         .unwrap();
     }
@@ -1794,7 +1794,7 @@ mod tests {
     /// The rows are the new-look board's `.th`: 30 high, the title, the repo in 11px, and a 6px ping
     /// on an unread row only. Every row shows a state dot in its 18x22 slot, an agentic thread too:
     /// agent figures belong to the Agents page (Charles, 13 Nov). Group heads are the board's 36px
-    /// `.sect`; New thread is a 32px row, not a button.
+    /// `.sect`; New stream is a 32px row, not a button.
     #[gpui_kit::test]
     fn thread_rows_are_the_boards(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
@@ -1833,10 +1833,10 @@ mod tests {
     fn sidebar_draws_loading_empty_no_match_and_error(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let states = [
-            (Cauldron { threads: Threads::Loading, ..Cauldron::new() }, "threads-loading", "Loading threads"),
-            (Cauldron { threads: Threads::Ready(Vec::new()), ..Cauldron::new() }, "threads-empty", "No threads yet"),
-            (Cauldron { query: "zzz".into(), ..with_threads() }, "threads-no-match", "No threads match zzz"),
-            (Cauldron { threads: Threads::Error("disk full".into()), ..Cauldron::new() }, "threads-error", "Threads could not load: disk full"),
+            (Cauldron { threads: Threads::Loading, ..Cauldron::new() }, "threads-loading", "Loading streams"),
+            (Cauldron { threads: Threads::Ready(Vec::new()), ..Cauldron::new() }, "threads-empty", "No streams yet"),
+            (Cauldron { query: "zzz".into(), ..with_threads() }, "threads-no-match", "No streams match zzz"),
+            (Cauldron { threads: Threads::Error("disk full".into()), ..Cauldron::new() }, "threads-error", "Streams could not load: disk full"),
         ];
         for (c, id, label) in states {
             let handle = open(cx, c);
@@ -1858,7 +1858,7 @@ mod tests {
         let handle = open(cx, with_threads());
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
-            assert_eq!(window.find("search").label(), Some("Search threads"));
+            assert_eq!(window.find("search").label(), Some("Search streams"));
             window.click(("thread", 1usize), cx);
             window.press("down", cx);
             window.press("down", cx);

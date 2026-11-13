@@ -185,7 +185,7 @@ impl Cauldron {
         fill_steps(chats, self.thread.as_ref(), &mut self.steps);
         self.term_blocks = super::terminal::blocks(chats, self.thread.as_ref());
         self.term_scroll.scroll_to_bottom();
-        self.coordinator = Some(self.thread.as_ref().map_or_else(|| "Thread".into(), |t| t.title.clone().into()));
+        self.coordinator = Some(self.thread.as_ref().map_or_else(|| "Stream".into(), |t| t.title.clone().into()));
         self.agents.clear();
         self.idle.clear();
         self.active = 0;
@@ -549,8 +549,8 @@ impl Cauldron {
             .text_size(px(11.))
             .text_color(fg3)
             .font_features(tnum())
-            .aria_label(format!("This thread has cost ${spent:.2}"))
-            .child("This thread")
+            .aria_label(format!("This stream has cost ${spent:.2}"))
+            .child("This stream")
             .child(div().font_weight(FontWeight::SEMIBOLD).text_color(fg2).child(format!("${spent:.2}")))
             .test_support();
 
@@ -752,14 +752,14 @@ pub(super) mod tests {
         let (handle, _chats) = open(cx);
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
-            assert!(window.try_find("nt-box").is_some(), "no thread open: the New thread screen");
+            assert!(window.try_find("nt-box").is_some(), "no thread open: the New stream screen");
             window.click(("thread", 0usize), cx);
             assert_eq!(window.find(("ptab", 0usize)).label(), Some("Get M3 through review"), "the open tab is the title");
             assert_eq!(window.find(("msg", 0usize)).label(), Some("Run the tests"));
             assert_eq!(window.find(("msg", 1usize)).label(), Some("All 591 pass."));
             assert_eq!(window.find(("steps", 1usize)).label(), Some("Thought, Read 1 file, Ran 1 command"), "how the reply was made, from its trace");
             assert!(window.find(("msg", 0usize)).bounds().origin.x > window.find(("msg", 1usize)).bounds().origin.x, "your message sits right");
-            assert_eq!(window.find("usage").label(), Some("This thread has cost $0.42"));
+            assert_eq!(window.find("usage").label(), Some("This stream has cost $0.42"));
             assert_eq!(window.find("composer").label(), Some("Message the coordinator"));
             assert_eq!(window.find("send").label(), Some("Send"));
             window.click(("thread", 1usize), cx);
