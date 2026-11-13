@@ -1,0 +1,10 @@
+      1 error: could not compile `cauldron-chrome` (test "tokens") due to 28 previous errors
+      1 error[E0425]: cannot find value `CONTROL` in module `radius`
+      1 error[E0425]: cannot find value `INNER` in module `radius`
+      1 error[E0425]: cannot find value `INSET` in module `radius`
+      2 error[E0425]: cannot find value `PANEL` in module `radius`
+      1 error[E0425]: cannot find value `SHELL_PAD` in module `radius`
+      2 error[E0425]: cannot find value `SHELL` in module `radius`
+      1 error[E0425]: cannot find value `TAG` in module `radius`
+      1 error[E0432]: unresolved import `cauldron_chrome::tokens::Rgba`
+      1 error[E0609]: no field `accent_hover` on type `&Palette`

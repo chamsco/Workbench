@@ -1,0 +1,121 @@
+ Downloading crates ...
+  Downloaded itoa v1.0.18
+  Downloaded zmij v1.0.23
+  Downloaded serde_core v1.0.229
+  Downloaded serde_json v1.0.151
+  Downloaded memchr v2.8.3
+error[E0560]: struct `ShellState` has no field named `terminal_open`
+   --> crates/chrome/tests/wireframe.rs:112:123
+    |
+112 | ... & 2 != 0, split_open: bits & 4 != 0, terminal_open: false };
+    |                                          ^^^^^^^^^^^^^ `ShellState` does not have this field
+    |
+    = note: all struct fields are already assigned
+
+error[E0560]: struct `ShellState` has no field named `terminal_open`
+   --> crates/chrome/tests/wireframe.rs:135:123
+    |
+135 | ... & 2 != 0, split_open: bits & 4 != 0, terminal_open: false };
+    |                                          ^^^^^^^^^^^^^ `ShellState` does not have this field
+    |
+    = note: all struct fields are already assigned
+
+error[E0560]: struct `ShellState` has no field named `terminal_open`
+   --> crates/chrome/tests/wireframe.rs:154:105
+    |
+154 | ...drawer_open: true, split_open: false, terminal_open: false }, Platform::Windows);
+    |                                          ^^^^^^^^^^^^^ `ShellState` does not have this field
+    |
+    = note: all struct fields are already assigned
+
+error[E0560]: struct `ShellState` has no field named `terminal_open`
+   --> crates/chrome/tests/wireframe.rs:164:112
+    |
+164 | ...drawer_open: true, split_open: false, terminal_open: false }, platform);
+    |                                          ^^^^^^^^^^^^^ `ShellState` does not have this field
+    |
+    = note: all struct fields are already assigned
+
+error[E0560]: struct `ShellState` has no field named `terminal_open`
+   --> crates/chrome/tests/wireframe.rs:172:113
+    |
+172 | ...rawer_open: false, split_open: false, terminal_open: false }, platform);
+    |                                          ^^^^^^^^^^^^^ `ShellState` does not have this field
+    |
+    = note: all struct fields are already assigned
+
+error[E0560]: struct `ShellState` has no field named `terminal_open`
+   --> crates/chrome/tests/wireframe.rs:183:85
+    |
+183 |     let all = ShellState { sidebar_open: true, drawer_open: true, split_open: true, terminal_open: false };
+    |                                                                                     ^^^^^^^^^^^^^ `ShellState` does not have this field
+    |
+    = note: all struct fields are already assigned
+
+error[E0560]: struct `ShellState` has no field named `terminal_open`
+   --> crates/chrome/tests/wireframe.rs:195:85
+    |
+195 |     let st = ShellState { sidebar_open: true, drawer_open: true, split_open: false, terminal_open: false };
+    |                                                                                     ^^^^^^^^^^^^^ `ShellState` does not have this field
+    |
+    = note: all struct fields are already assigned
+
+error[E0560]: struct `ShellState` has no field named `terminal_open`
+   --> crates/chrome/tests/wireframe.rs:219:89
+    |
+219 |         let st = ShellState { sidebar_open: true, drawer_open: true, split_open: false, terminal_open: true };
+    |                                                                                         ^^^^^^^^^^^^^ `ShellState` does not have this field
+    |
+    = note: all struct fields are already assigned
+
+error[E0609]: no field `terminal` on type `Shell`
+   --> crates/chrome/tests/wireframe.rs:221:19
+    |
+221 |         let t = s.terminal.expect("terminal open");
+    |                   ^^^^^^^^ unknown field
+    |
+    = note: available fields are: `effective`, `rail`, `sidebar`, `bar`, `shell` ... and 9 others
+
+error[E0560]: struct `ShellState` has no field named `terminal_open`
+   --> crates/chrome/tests/wireframe.rs:228:56
+    |
+228 |         let closed = solve(1200.0, 720.0, ShellState { terminal_open: false, ..st }, platform);
+    |                                                        ^^^^^^^^^^^^^ `ShellState` does not have this field
+    |
+    = note: available fields are: `sidebar_open`, `drawer_open`, `split_open`
+
+error[E0609]: no field `terminal` on type `Shell`
+   --> crates/chrome/tests/wireframe.rs:229:24
+    |
+229 |         assert!(closed.terminal.is_none() && closed.drawer.is_some(), "{platform:?}: closing it brings the drawer back");
+    |                        ^^^^^^^^ unknown field
+    |
+    = note: available fields are: `effective`, `rail`, `sidebar`, `bar`, `shell` ... and 9 others
+
+error[E0560]: struct `ShellState` has no field named `terminal_open`
+   --> crates/chrome/tests/wireframe.rs:232:105
+    |
+232 | ...rawer_open: false, split_open: false, terminal_open: true }, Platform::Mac);
+    |                                          ^^^^^^^^^^^^^ `ShellState` does not have this field
+    |
+    = note: all struct fields are already assigned
+
+error[E0609]: no field `terminal` on type `Shell`
+   --> crates/chrome/tests/wireframe.rs:233:36
+    |
+233 |     assert!(s.main.w >= 360.0 && s.terminal.is_none() && !s.effective.terminal_open);
+    |                                    ^^^^^^^^ unknown field
+    |
+    = note: available fields are: `effective`, `rail`, `sidebar`, `bar`, `shell` ... and 9 others
+
+error[E0609]: no field `terminal_open` on type `ShellState`
+   --> crates/chrome/tests/wireframe.rs:233:71
+    |
+233 |     assert!(s.main.w >= 360.0 && s.terminal.is_none() && !s.effective.terminal_open);
+    |                                                                       ^^^^^^^^^^^^^ unknown field
+    |
+    = note: available fields are: `sidebar_open`, `drawer_open`, `split_open`
+
+Some errors have detailed explanations: E0560, E0609.
+For more information about an error, try `rustc --explain E0560`.
+error: could not compile `cauldron-chrome` (test "wireframe") due to 14 previous errors

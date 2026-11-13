@@ -1,0 +1,18 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.80s
+     Running tests/panes.rs (target/debug/deps/panes-80768d202cfb7db5)
+
+running 11 tests
+test adding_a_pane_splits_without_passing_three ... ok
+test a_shape_that_does_not_fit_steps_back ... ok
+test a_line_resizes_only_the_panes_on_its_two_sides ... ok
+test every_divider_has_a_line ... ok
+test a_reset_makes_the_line_even ... ok
+test closing_a_pane_returns_to_the_previous_shape ... ok
+test panes_fill_the_area_with_4px_gaps ... ok
+test six_shapes_hold_one_to_three_panes ... ok
+test the_layout_button_steps_through_every_shape_and_wraps ... ok
+test the_lines_sit_in_the_gaps ... ok
+test dragging_any_line_keeps_every_pane_at_200_by_120 ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

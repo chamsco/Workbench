@@ -13,17 +13,17 @@ pub const SETTLE: Bezier = Bezier::new(0.32, 0.72, 0.0, 1.0);
 /// Durations in milliseconds.
 pub mod time {
     /// A pane moves, opens or closes (sidebar, drawer, split).
-    pub const LAYOUT: u64 = 300;
+    pub const LAYOUT: u64 = 200;
     /// The open panel's content changes (drawer panel switch).
-    pub const PANEL: u64 = 240;
+    pub const PANEL: u64 = 200;
     /// The selected function icon's indicator travels.
-    pub const INDICATOR: u64 = 220;
+    pub const INDICATOR: u64 = 180;
     /// A menu grows in or out.
     pub const MENU: u64 = 160;
     /// Each menu item starts this much after the one above.
     pub const STAGGER: u64 = 25;
     /// The sent text lands in its bubble.
-    pub const CARRY: u64 = 300;
+    pub const CARRY: u64 = 200;
     /// Send and Stop swap.
     pub const SWAP: u64 = 120;
     /// The cross-fade used when the system asks for less motion.
@@ -114,16 +114,17 @@ pub struct Frame {
     pub sidebar: Option<Pane>,
     pub rail: Option<Pane>,
     pub drawer: Option<Pane>,
+    pub terminal: Option<Pane>,
     pub half: Option<Pane>,
     pub caps: Option<Pane>,
     pub lights: Option<Pane>,
+    pub shell: Rect,
     pub main: Rect,
     pub tabs: Rect,
-    pub rrail: Rect,
+    pub rrail: Option<Pane>,
     pub sidebar_button: Rect,
     pub topr: Rect,
     pub bar: Rect,
-    pub crumbs: Rect,
 }
 
 fn at_rest(r: Option<Rect>) -> Option<Pane> {
@@ -145,16 +146,17 @@ impl Frame {
             sidebar: at_rest(s.sidebar),
             rail: at_rest(s.rail),
             drawer: at_rest(s.drawer),
+            terminal: at_rest(s.terminal),
             half: at_rest(s.half),
             caps: at_rest(s.caps),
             lights: at_rest(s.lights),
+            shell: s.shell,
             main: s.main,
             tabs: s.tabs,
-            rrail: s.rrail,
+            rrail: at_rest(s.rrail),
             sidebar_button: s.sidebar_button,
             topr: s.topr,
             bar: s.bar,
-            crumbs: s.crumbs,
         }
     }
 
@@ -195,16 +197,17 @@ impl Frame {
             sidebar: pane(from.sidebar, to.sidebar, 0.0),
             rail: pane(from.rail, to.rail, 0.0),
             drawer: pane(from.drawer, to.drawer, DRAWER_SLIDE),
+            terminal: pane(from.terminal, to.terminal, DRAWER_SLIDE),
             half: pane(from.half, to.half, 0.0),
             caps: pane(from.caps, to.caps, 0.0),
             lights: pane(from.lights, to.lights, 0.0),
+            shell: rect(from.shell, to.shell),
             main: rect(from.main, to.main),
             tabs: rect(from.tabs, to.tabs),
-            rrail: rect(from.rrail, to.rrail),
+            rrail: pane(from.rrail, to.rrail, 0.0),
             sidebar_button: rect(from.sidebar_button, to.sidebar_button),
             topr: rect(from.topr, to.topr),
             bar: rect(from.bar, to.bar),
-            crumbs: rect(from.crumbs, to.crumbs),
         }
     }
 }
@@ -218,7 +221,7 @@ mod tests {
     const H: f32 = 702.0;
 
     fn shell(sidebar: bool, drawer: bool, split: bool) -> Shell {
-        solve(W, H, ShellState { sidebar_open: sidebar, drawer_open: drawer, split_open: split }, Platform::Windows)
+        solve(W, H, ShellState { sidebar_open: sidebar, drawer_open: drawer, split_open: split, terminal_open: false }, Platform::Windows)
     }
 
     fn close(a: Rect, b: Rect) -> bool {
@@ -254,13 +257,14 @@ mod tests {
         let (fa, fb) = (Frame::at_rest(&a), Frame::at_rest(&b));
         let f0 = Frame::between(&fa, &fb, 0.0, false);
         assert!(close(f0.main, a.main), "main starts where it was");
-        assert!(close(f0.rrail, a.rrail));
+        assert!(close(f0.rrail.expect("the rail fades out").rect, a.rrail.unwrap()));
         assert_eq!(f0.drawer, None, "a drawer that is opening is not drawn at its first frame");
         let f1 = Frame::between(&fa, &fb, 1.0, false);
         assert!(close(f1.main, b.main), "main ends where the new shell says");
         let d = f1.drawer.expect("drawer is drawn at the end");
         assert!(close(d.rect, b.drawer.unwrap()));
         assert_eq!(d.alpha, 1.0);
+        assert_eq!(f1.rrail, None, "the rail is gone once the drawer is open");
     }
 
     #[test]

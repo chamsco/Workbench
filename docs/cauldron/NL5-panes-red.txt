@@ -1,0 +1,260 @@
+error[E0432]: unresolved imports `cauldron_chrome::panes::Line`, `cauldron_chrome::panes::MAX`
+ --> crates/chrome/tests/panes.rs:7:36
+  |
+7 | use cauldron_chrome::panes::{self, Line, Shape, Split, GAP, MAX, MIN_H, MIN_W};
+  |                                    ^^^^                     ^^^ no `MAX` in `panes`
+  |                                    |
+  |                                    no `Line` in `panes`
+
+error[E0599]: no variant, associated function, or constant named `Three` found for enum `Shape` in the current scope
+  --> crates/chrome/tests/panes.rs:33:68
+   |
+33 |     assert_eq!(seen, [Shape::One, Shape::Cols, Shape::Rows, Shape::Three, Shape::TwoOne, Shape::OneTwo, Shape::One]);
+   |                                                                    ^^^^^ variant, associated function, or constant not found in `Shape`
+
+error[E0599]: no variant, associated function, or constant named `Three` found for enum `Shape` in the current scope
+  --> crates/chrome/tests/panes.rs:38:23
+   |
+38 |     assert_eq!(Shape::Three.prev(), Some(Shape::Cols));
+   |                       ^^^^^ variant, associated function, or constant not found in `Shape`
+
+error[E0599]: no method named `add` found for enum `Shape` in the current scope
+  --> crates/chrome/tests/panes.rs:48:27
+   |
+48 |     assert_eq!(Shape::One.add(), Some(Shape::Cols));
+   |                           ^^^ method not found in `Shape`
+
+error[E0599]: no method named `add` found for enum `Shape` in the current scope
+  --> crates/chrome/tests/panes.rs:49:28
+   |
+49 |     assert_eq!(Shape::Cols.add(), Some(Shape::Three));
+   |                            ^^^ method not found in `Shape`
+
+error[E0599]: no variant, associated function, or constant named `Three` found for enum `Shape` in the current scope
+  --> crates/chrome/tests/panes.rs:49:47
+   |
+49 |     assert_eq!(Shape::Cols.add(), Some(Shape::Three));
+   |                                               ^^^^^ variant, associated function, or constant not found in `Shape`
+
+error[E0599]: no method named `add` found for enum `Shape` in the current scope
+  --> crates/chrome/tests/panes.rs:50:28
+   |
+50 |     assert_eq!(Shape::Rows.add(), Some(Shape::OneTwo));
+   |                            ^^^ method not found in `Shape`
+
+error[E0599]: no variant, associated function, or constant named `Three` found for enum `Shape` in the current scope
+  --> crates/chrome/tests/panes.rs:51:22
+   |
+51 |     for s in [Shape::Three, Shape::TwoOne, Shape::OneTwo] {
+   |                      ^^^^^ variant, associated function, or constant not found in `Shape`
+
+error[E0599]: no method named `split_down` found for enum `Shape` in the current scope
+  --> crates/chrome/tests/panes.rs:54:27
+   |
+54 |     assert_eq!(Shape::One.split_down(), Some(Shape::Rows));
+   |                           ^^^^^^^^^^ method not found in `Shape`
+
+error[E0599]: no method named `split_down` found for enum `Shape` in the current scope
+  --> crates/chrome/tests/panes.rs:55:28
+   |
+55 |     assert_eq!(Shape::Cols.split_down(), Some(Shape::TwoOne));
+   |                            ^^^^^^^^^^ method not found in `Shape`
+
+error[E0599]: no method named `iter` found for tuple `(Option<Rect>, Option<Rect>)` in the current scope
+  --> crates/chrome/tests/panes.rs:81:54
+   |
+81 |         let gaps: f32 = panes::lines(AREA, split(s)).iter().map(|(_, r)| r.w * r.h).sum();
+   |                                                      ^^^^ method not found in `(Option<Rect>, Option<Rect>)`
+   |
+help: some of the expressions' fields have a method of the same name
+   |
+81 |         let gaps: f32 = panes::lines(AREA, split(s)).0.iter().map(|(_, r)| r.w * r.h).sum();
+   |                                                      ++
+81 |         let gaps: f32 = panes::lines(AREA, split(s)).1.iter().map(|(_, r)| r.w * r.h).sum();
+   |                                                      ++
+
+error[E0599]: `(Option<Rect>, Option<Rect>)` is not an iterator
+  --> crates/chrome/tests/panes.rs:91:57
+   |
+91 |     let kinds = |s: Shape| panes::lines(AREA, split(s)).into_iter().map(|(l, _)| l).collect::<Vec<_>>();
+   |                                                         ^^^^^^^^^ `(Option<Rect>, Option<Rect>)` is not an iterator
+   |
+   = note: the following trait bounds were not satisfied:
+           `(Option<Rect>, Option<Rect>): Iterator`
+           which is required by `(Option<Rect>, Option<Rect>): IntoIterator`
+           `&(Option<Rect>, Option<Rect>): Iterator`
+           which is required by `&(Option<Rect>, Option<Rect>): IntoIterator`
+           `&mut (Option<Rect>, Option<Rect>): Iterator`
+           which is required by `&mut (Option<Rect>, Option<Rect>): IntoIterator`
+
+error[E0599]: no variant, associated function, or constant named `Three` found for enum `Shape` in the current scope
+  --> crates/chrome/tests/panes.rs:95:29
+   |
+95 |     assert_eq!(kinds(Shape::Three), [Line::V, Line::V2]);
+   |                             ^^^^^ variant, associated function, or constant not found in `Shape`
+
+error[E0277]: `(Option<Rect>, Option<Rect>)` is not an iterator
+   --> crates/chrome/tests/panes.rs:106:31
+    |
+106 |                 for (l, _) in panes::lines(AREA, sp) {
+    |                               ^^^^^^^^^^^^^^^^^^^^^^ `(Option<Rect>, Option<Rect>)` is not an iterator
+    |
+    = help: the trait `Iterator` is not implemented for `(Option<Rect>, Option<Rect>)`
+    = note: required for `(Option<Rect>, Option<Rect>)` to implement `IntoIterator`
+
+error[E0599]: no method named `drag` found for struct `cauldron_chrome::panes::Split` in the current scope
+   --> crates/chrome/tests/panes.rs:107:24
+    |
+107 |                     sp.drag(l, AREA, if l == Line::H { y } else { x });
+    |                        ^^^^
+    |
+help: there is a method `drag_h` with a similar name, but with different arguments
+   --> crates/chrome/src/panes.rs:115:5
+    |
+115 |     pub fn drag_h(&mut self, area: Rect, y: f32) {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0599]: no method named `drag` found for struct `cauldron_chrome::panes::Split` in the current scope
+   --> crates/chrome/tests/panes.rs:117:8
+    |
+117 |     sp.drag(Line::V, AREA, AREA.x + 300.0);
+    |        ^^^^
+    |
+help: there is a method `drag_h` with a similar name, but with different arguments
+   --> crates/chrome/src/panes.rs:115:5
+    |
+115 |     pub fn drag_h(&mut self, area: Rect, y: f32) {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0599]: no variant, associated function, or constant named `Three` found for enum `Shape` in the current scope
+   --> crates/chrome/tests/panes.rs:123:31
+    |
+123 |     let mut sp = split(Shape::Three);
+    |                               ^^^^^ variant, associated function, or constant not found in `Shape`
+
+error[E0599]: no method named `drag` found for struct `cauldron_chrome::panes::Split` in the current scope
+   --> crates/chrome/tests/panes.rs:125:8
+    |
+125 |     sp.drag(Line::V2, AREA, before[1].right() + GAP / 2.0 + 60.0);
+    |        ^^^^
+    |
+help: there is a method `drag_h` with a similar name, but with different arguments
+   --> crates/chrome/src/panes.rs:115:5
+    |
+115 |     pub fn drag_h(&mut self, area: Rect, y: f32) {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0599]: no method named `drag` found for struct `cauldron_chrome::panes::Split` in the current scope
+   --> crates/chrome/tests/panes.rs:130:8
+    |
+130 |     sp.drag(Line::V, AREA, before[0].right() + GAP / 2.0 - 40.0);
+    |        ^^^^
+    |
+help: there is a method `drag_h` with a similar name, but with different arguments
+   --> crates/chrome/src/panes.rs:115:5
+    |
+115 |     pub fn drag_h(&mut self, area: Rect, y: f32) {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0277]: `(Option<Rect>, Option<Rect>)` is not an iterator
+   --> crates/chrome/tests/panes.rs:141:23
+    |
+141 |         for (l, r) in panes::lines(AREA, sp) {
+    |                       ^^^^^^^^^^^^^^^^^^^^^^ `(Option<Rect>, Option<Rect>)` is not an iterator
+    |
+    = help: the trait `Iterator` is not implemented for `(Option<Rect>, Option<Rect>)`
+    = note: required for `(Option<Rect>, Option<Rect>)` to implement `IntoIterator`
+
+error[E0608]: cannot index into a value of type `(Option<Rect>, Option<Rect>)`
+   --> crates/chrome/tests/panes.rs:150:18
+    |
+150 |     assert_eq!(ls[0].1.h, rs[0].h, "its vertical line spans the top row only");
+    |                  ^^^ help: to access tuple element `0`, use: `.0`
+    |
+    = help: tuples are indexed with a dot and a literal index: `tuple.0`, `tuple.1`, etc.
+
+error[E0608]: cannot index into a value of type `(Option<Rect>, Option<Rect>)`
+   --> crates/chrome/tests/panes.rs:153:19
+    |
+153 |     assert_eq!((ls[1].1.x, ls[1].1.w), (rs[1].x, rs[1].w), "the stacked side's line spans that side only");
+    |                   ^^^ help: to access tuple element `1`, use: `.1`
+    |
+    = help: tuples are indexed with a dot and a literal index: `tuple.0`, `tuple.1`, etc.
+
+error[E0608]: cannot index into a value of type `(Option<Rect>, Option<Rect>)`
+   --> crates/chrome/tests/panes.rs:153:30
+    |
+153 |     assert_eq!((ls[1].1.x, ls[1].1.w), (rs[1].x, rs[1].w), "the stacked side's line spans that side only");
+    |                              ^^^ help: to access tuple element `1`, use: `.1`
+    |
+    = help: tuples are indexed with a dot and a literal index: `tuple.0`, `tuple.1`, etc.
+
+error[E0599]: no variant, associated function, or constant named `Three` found for enum `Shape` in the current scope
+   --> crates/chrome/tests/panes.rs:158:31
+    |
+158 |     let mut sp = split(Shape::Three);
+    |                               ^^^^^ variant, associated function, or constant not found in `Shape`
+
+error[E0599]: no method named `drag` found for struct `cauldron_chrome::panes::Split` in the current scope
+   --> crates/chrome/tests/panes.rs:159:8
+    |
+159 |     sp.drag(Line::V, AREA, AREA.x + 250.0);
+    |        ^^^^
+    |
+help: there is a method `drag_h` with a similar name, but with different arguments
+   --> crates/chrome/src/panes.rs:115:5
+    |
+115 |     pub fn drag_h(&mut self, area: Rect, y: f32) {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0599]: no method named `reset` found for struct `cauldron_chrome::panes::Split` in the current scope
+   --> crates/chrome/tests/panes.rs:160:8
+    |
+160 |     sp.reset(Line::V);
+    |        ^^^^^
+    |
+help: there is a method `reset_h` with a similar name, but with different arguments
+   --> crates/chrome/src/panes.rs:124:5
+    |
+124 |     pub fn reset_h(&mut self) {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0599]: no method named `reset` found for struct `cauldron_chrome::panes::Split` in the current scope
+   --> crates/chrome/tests/panes.rs:161:8
+    |
+161 |     sp.reset(Line::V2);
+    |        ^^^^^
+    |
+help: there is a method `reset_h` with a similar name, but with different arguments
+   --> crates/chrome/src/panes.rs:124:5
+    |
+124 |     pub fn reset_h(&mut self) {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0599]: no variant, associated function, or constant named `Three` found for enum `Shape` in the current scope
+   --> crates/chrome/tests/panes.rs:169:77
+    |
+169 |     assert!(panes::fits(narrow, Shape::Cols) && !panes::fits(narrow, Shape::Three));
+    |                                                                             ^^^^^ variant, associated function, or constant not found in `Shape`
+
+error[E0599]: no variant, associated function, or constant named `Three` found for enum `Shape` in the current scope
+   --> crates/chrome/tests/panes.rs:170:48
+    |
+170 |     assert_eq!(panes::effective(narrow, Shape::Three), Shape::Cols);
+    |                                                ^^^^^ variant, associated function, or constant not found in `Shape`
+
+error[E0599]: no variant, associated function, or constant named `Three` found for enum `Shape` in the current scope
+   --> crates/chrome/tests/panes.rs:175:46
+    |
+175 |     assert_eq!(panes::effective(AREA, Shape::Three), Shape::Three);
+    |                                              ^^^^^ variant, associated function, or constant not found in `Shape`
+
+error[E0599]: no variant, associated function, or constant named `Three` found for enum `Shape` in the current scope
+   --> crates/chrome/tests/panes.rs:175:61
+    |
+175 |     assert_eq!(panes::effective(AREA, Shape::Three), Shape::Three);
+    |                                                             ^^^^^ variant, associated function, or constant not found in `Shape`
+
+Some errors have detailed explanations: E0277, E0432, E0599, E0608.
+For more information about an error, try `rustc --explain E0277`.
+error: could not compile `cauldron-chrome` (test "panes") due to 31 previous errors

@@ -1,0 +1,8 @@
+
+
+failures:
+    the_bust_is_the_head_and_shoulders_in_a_square_slot_with_marks_overhanging
+
+test result: FAILED. 11 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p cauldron-chrome --test avatar`

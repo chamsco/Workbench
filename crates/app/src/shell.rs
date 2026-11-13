@@ -1,4 +1,4 @@
-//! The Cauldron shell (UI1): the frame, top bar, sidebar card, main card with tabs,
+//! The Cauldron shell (UI1): the frame, top bar, sidebar, main card with tabs,
 //! right rail, drawer and split. Every rectangle comes from `cauldron_chrome::layout::solve`,
 //! which is tested against numbers measured from the wireframe; nothing here picks a position.
 //!
@@ -7,20 +7,27 @@
 
 use cauldron_chrome::layout::{self, metric, Platform, Rect, ShellState};
 use cauldron_chrome::motion::Frame;
-use cauldron_chrome::tokens::{self, radius, Palette, Rgb};
+use cauldron_chrome::panes::{Shape, Split};
+use cauldron_chrome::tokens::{self, motion as mt, radius, Palette, Rgb, Rgba};
 use gpui_kit::*;
 
 use crate::motion::ShellMotion;
 use crate::threads::{self, Group};
-use crate::ui::UI;
+use crate::ui::{sans_features, SANS};
 use backspace_core::chat::{Chats, Thread, ThreadInfo};
 use backspace_core::prefs::Prefs;
 use gpui_kit::component::input::{Input, InputEvent, InputState, TextareaState};
 use gpui_kit::component::Theme;
 use std::sync::Arc;
 
+mod motion;
 mod newthread;
+mod panes;
+mod settings;
+mod terminal;
 mod thread;
+#[cfg(all(feature = "shots", target_os = "macos"))]
+pub(crate) mod shots;
 
 /// Where the shell draws window controls: lights on macOS, caption buttons elsewhere.
 pub(crate) fn platform() -> Platform {
@@ -32,14 +39,20 @@ pub(crate) fn platform() -> Platform {
 }
 
 /// Top-left of the traffic lights, from the wireframe (`layout::layout` Reference lights rect).
+pub(crate) use motion::os_reduces_motion;
+
 pub(crate) fn lights_origin() -> (f32, f32) {
-    let s = layout::layout(1240.0, 702.0, ShellState { sidebar_open: true, drawer_open: false, split_open: false }, Platform::Mac);
+    let s = layout::layout(1240.0, 702.0, ShellState { sidebar_open: true, drawer_open: false, split_open: false, terminal_open: false }, Platform::Mac);
     let l = s.lights.expect("mac layout has lights");
     (l.x, l.y)
 }
 
-fn c(v: Rgb) -> Hsla {
-    gpui_kit::rgb(((v.0 as u32) << 16) | ((v.1 as u32) << 8) | v.2 as u32).into()
+/// A token colour for GPUI; overlays keep their alpha and composite over what is beneath.
+fn c(v: impl Into<Rgba>) -> Hsla {
+    let Rgba(v, a) = v.into();
+    let mut h: Hsla = gpui_kit::rgb(((v.0 as u32) << 16) | ((v.1 as u32) << 8) | v.2 as u32).into();
+    h.a = a;
+    h
 }
 
 fn ca(v: Rgb, a: f32) -> Hsla {
@@ -50,53 +63,6 @@ fn ca(v: Rgb, a: f32) -> Hsla {
 
 fn abs(r: Rect) -> Div {
     div().absolute().left(px(r.x)).top(px(r.y)).w(px(r.w)).h(px(r.h))
-}
-
-#[derive(Clone, Copy)]
-enum Foot {
-    Left,
-    Right,
-}
-
-/// The flare's radius: 10px, the approved top bar board.
-const FOOT: f32 = 10.0;
-
-/// The concave corner where the open tab flares into the card, the wireframe's `.tab.on::before/::after`.
-fn foot(side: Foot, fill: Hsla) -> impl IntoElement {
-    let r = FOOT;
-    let el = canvas(
-        |_, _, _| (),
-        move |b, _, window, _| {
-            let p = |x: f32, y: f32| point(b.origin.x + px(x), b.origin.y + px(y));
-            let mut f = PathBuilder::fill();
-            // The square's corner away from the tab stays empty: a quarter circle centred there is cut out.
-            match side {
-                Foot::Left => {
-                    f.move_to(p(r, 0.));
-                    f.line_to(p(r, r));
-                    f.line_to(p(0., r));
-                    f.arc_to(point(px(r), px(r)), px(0.), false, false, p(r, 0.));
-                }
-                Foot::Right => {
-                    f.move_to(p(0., 0.));
-                    f.line_to(p(0., r));
-                    f.line_to(p(r, r));
-                    f.arc_to(point(px(r), px(r)), px(0.), false, true, p(0., 0.));
-                }
-            }
-            f.close();
-            if let Ok(path) = f.build() {
-                window.paint_path(path, fill);
-            }
-        },
-    )
-    .absolute()
-    .bottom_0()
-    .size(px(r));
-    match side {
-        Foot::Left => el.left(px(-r)),
-        Foot::Right => el.right(px(-r)),
-    }
 }
 
 /// A pane the layout tests find by `id` and compare with `layout::solve`.
@@ -156,6 +122,8 @@ const FUNCTIONS: [(&str, &str); 7] = [
 const NEW_TAB: &str = "New thread";
 
 const TOP_PANELS: [Panel; 4] = [Panel::Highlights, Panel::Usage, Panel::Koi, Panel::Review];
+/// The drawer's strip: the rail's panels in order, Patches last.
+const ALL_PANELS: [Panel; 5] = [Panel::Highlights, Panel::Usage, Panel::Koi, Panel::Review, Panel::Patches];
 
 /// The sidebar's threads from core: still opening, opened, or core failed to open.
 pub(crate) enum Threads {
@@ -167,7 +135,33 @@ pub(crate) enum Threads {
 pub(crate) struct Cauldron {
     sidebar_open: bool,
     drawer: Option<Panel>,
-    split: bool,
+    /// Settings is open on this page (v3 frame 7): its pages take the sidebar's list, the page the card.
+    settings: Option<usize>,
+    /// Where Settings reads the subscriptions; None is core's `accounts.json` (tests use their own).
+    accounts_file: Option<std::path::PathBuf>,
+    /// The terminal card is open, in the drawer's place (v3 frame 5).
+    terminal: bool,
+    /// Its blocks: the open thread's commands, from core's traces.
+    term_blocks: Vec<terminal::Block>,
+    term_input: Option<(Entity<InputState>, Subscription)>,
+    /// What the input line answered last (no shell yet, or a send error).
+    term_note: Option<String>,
+    term_scroll: ScrollHandle,
+    /// The thread card's panes (direction B): the shape and where its two lines sit.
+    panes: Split,
+    /// The layout button's morph: the shape it drew before, and since when.
+    layout_since: Option<(Shape, std::time::Instant)>,
+    /// A line held down, and the panes' area when it was grabbed.
+    pane_drag: Option<(cauldron_chrome::panes::Line, Rect)>,
+    /// What each pane shows, in pane order; the thread is always one of them.
+    pane_content: [panes::Content; cauldron_chrome::panes::MAX],
+    /// Each pane's focus, so a new pane's keys (B, T, F, ...) open its surfaces.
+    pane_focus: Vec<FocusHandle>,
+    /// The thread's room (width, height), so the thread view can drop what does not fit.
+    thread_box: std::cell::Cell<(f32, f32)>,
+    /// The transcript's scroll, kept at the newest message when a thread opens or grows.
+    transcript_scroll: ScrollHandle,
+    transcript_seen: std::cell::RefCell<Option<(String, usize)>>,
     /// The thread's coordinator, pinned as the first tab; None on the New thread screen.
     coordinator: Option<SharedString>,
     /// Agents with an open 1:1 tab, in tab order, and the thread's other agents (the + menu).
@@ -181,8 +175,9 @@ pub(crate) struct Cauldron {
     tab_window: usize,
     wheel: f32,
     tab_menu: bool,
+    tab_slide: motion::Slide,
     /// The shell's motion clock, the drawer's panel crossfade (from, when), the drawer's last
-    /// panel (kept while it closes), and when the + menu last opened or closed.
+    /// panel (kept while it closes).
     motion: ShellMotion,
     swap: Option<(Panel, std::time::Instant)>,
     /// The selected function (an index into FUNCTIONS), and the indicator's slide: where it was
@@ -201,8 +196,6 @@ pub(crate) struct Cauldron {
     mine_for: Option<String>,
     mine_n_shown: usize,
     drawer_last: Option<Panel>,
-    menu_since: Option<std::time::Instant>,
-    menu_shown: bool,
     tab_focus: Option<FocusHandle>,
     /// The icon button under the pointer, whether its tip is showing yet, and until when a
     /// neighbour's tip may show at once (the wireframe's `.rail.warm`).
@@ -227,6 +220,8 @@ pub(crate) struct Cauldron {
     /// last send was refused.
     open: Option<String>,
     thread: Option<Thread>,
+    /// How each finished reply of the open thread was made (thread.rs `steps`).
+    steps: std::collections::HashMap<String, Vec<String>>,
     composer: Option<(Entity<TextareaState>, Subscription)>,
     send_error: Option<String>,
     /// The New thread screen (UI5).
@@ -259,6 +254,23 @@ impl Cauldron {
             }
             _ => c.connect(cx),
         }
+        // Debug builds only: `CAULDRON_DRAWER=folded` starts with the drawer folded to its rail and
+        // `CAULDRON_PANES=n` with the card split into `Shape::ALL[n]`, for screenshots of the live window.
+        #[cfg(debug_assertions)]
+        {
+            if std::env::var("CAULDRON_DRAWER").as_deref() == Ok("folded") {
+                c.drawer_last = c.drawer.take();
+            }
+            if std::env::var_os("CAULDRON_SETTINGS").is_some() {
+                c.settings = Some(0);
+            }
+            if std::env::var_os("CAULDRON_TERMINAL").is_some() {
+                c.terminal = true;
+            }
+            if let Some(i) = std::env::var("CAULDRON_PANES").ok().and_then(|v| v.parse::<usize>().ok()) {
+                c.panes.shape = Shape::ALL[i % Shape::ALL.len()];
+            }
+        }
         #[cfg(debug_assertions)]
         if let Some(n) = std::env::var("CAULDRON_FIXTURE_AGENTS").ok().and_then(|v| v.parse::<usize>().ok()) {
             let names = ["Rampart", "Builder", "Reviewer", "Tester", "Docs", "Planner", "Linter", "Router", "Fixer", "Scout", "Indexer", "Mapper", "Pusher", "Watcher", "Herald", "Keeper"];
@@ -272,7 +284,7 @@ impl Cauldron {
     }
 
     pub(crate) fn new() -> Self {
-        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: None, menu_since: None, menu_shown: false, sidebar_open: true, drawer: Some(Panel::Highlights), split: false, coordinator: None, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, composer: None, send_error: None, start: Default::default() }
+        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: None, sidebar_open: true, drawer: Some(Panel::Highlights), settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
     }
 
     /// Opens core off the main thread (the sidebar shows Loading meanwhile), then keeps the thread
@@ -305,6 +317,12 @@ impl Cauldron {
                 c.start.route = route;
                 c.start.machines = machines;
                 c.refresh();
+                // Debug builds only: `CAULDRON_OPEN=<thread id>` opens that thread once core is up, for
+                // screenshots of the live window.
+                #[cfg(debug_assertions)]
+                if let Ok(id) = std::env::var("CAULDRON_OPEN") {
+                    c.open_thread(id);
+                }
                 c.watch(changes, cx);
                 cx.notify();
             });
@@ -343,7 +361,6 @@ impl Cauldron {
             .overflow_y_scroll()
             .flex()
             .flex_col()
-            .px(px(4.))
             .pb(px(8.))
             .track_focus(&focus)
             .on_key_down(cx.listener(|this, ev: &KeyDownEvent, _, cx| {
@@ -379,19 +396,19 @@ impl Cauldron {
         match &self.threads {
             Threads::Loading => {
                 // Skeleton rows shaped like the real ones, static (no shimmer to turn off for reduced motion).
-                let bar = |w: f32| div().h(px(8.)).w(relative(w)).rounded(px(radius::R2)).bg(c(pal.well));
-                let mut sk = div().id("threads-loading").flex().flex_col().pt(px(8.)).aria_label("Loading threads");
+                let bar = |w: f32| div().h(px(8.)).w(relative(w)).rounded(px(radius::INNER)).bg(c(pal.inset));
+                let mut sk = div().id("threads-loading").flex().flex_col().pt(px(14.)).aria_label("Loading threads");
                 for w in [0.72, 0.56, 0.8, 0.48, 0.64] {
                     sk = sk.child(
                         div()
                             .flex()
                             .items_center()
-                            .gap(px(7.))
-                            .px(px(6.))
-                            .py(px(6.))
-                            .child(div().w(px(8.)).flex_none())
-                            .child(div().size(px(22.)).flex_none().rounded(px(radius::R2)).bg(c(pal.well)))
-                            .child(div().flex_1().flex().flex_col().gap(px(6.)).child(bar(w)).child(bar(w * 0.6))),
+                            .gap(px(8.))
+                            .h(px(30.))
+                            .pl(px(11.))
+                            .pr(px(8.))
+                            .child(div().w(px(18.)).h(px(22.)).flex_none().rounded(px(radius::TAG)).bg(c(pal.inset)))
+                            .child(div().flex_1().child(bar(w))),
                     );
                 }
                 list.child(sk.test_support())
@@ -412,7 +429,27 @@ impl Cauldron {
                     let q = self.query.trim().to_string();
                     return list.child(note("threads-no-match", format!("No threads match {q}"), None, format!("No threads match \u{201c}{q}\u{201d}"), None));
                 }
-                let now = now_ms();
+                // Core has no Needs you yet, so the group is its head alone, without a count
+                // (Charles chose empty states, 12 Nov).
+                if self.query.trim().is_empty() {
+                    list = list.child(
+                        div()
+                            .id("group-needs")
+                            .flex()
+                            .items_center()
+                            .h(px(36.))
+                            .flex_none()
+                            .px(px(8.))
+                            .pt(px(14.))
+                            .pb(px(4.))
+                            .text_size(px(12.))
+                            .line_height(px(18.))
+                            .text_color(fg3)
+                            .aria_label("Needs you")
+                            .child("Needs you")
+                            .test_support(),
+                    );
+                }
                 let mut i = 0usize;
                 for (gi, (g, ts)) in groups.into_iter().enumerate() {
                     let n = ts.len();
@@ -422,12 +459,13 @@ impl Cauldron {
                             .flex()
                             .items_center()
                             .gap(px(6.))
+                            .h(px(36.))
+                            .flex_none()
                             .px(px(8.))
-                            .pt(px(if gi == 0 { 2. } else { 8. }))
-                            .pb(px(2.))
-                            .text_size(px(11.5))
-                            .line_height(px(16.))
-                            .font_weight(FontWeight::SEMIBOLD)
+                            .pt(px(14.))
+                            .pb(px(4.))
+                            .text_size(px(12.))
+                            .line_height(px(18.))
                             .text_color(if g == Group::Failed { c(pal.bad) } else { fg3 })
                             .aria_label(format!("{}, {n}", g.label()))
                             .child(g.label())
@@ -437,60 +475,48 @@ impl Cauldron {
                     for t in ts {
                         let on = self.selected.as_deref() == Some(t.id.as_str());
                         let id = t.id.clone();
-                        let mut title_line = div()
+                        // A state dot, agent or not: figures belong to the Agents page (Charles, 13 Nov).
+                        let (state, dot) = match g {
+                            Group::Running => ("Working", c(pal.accent)),
+                            Group::Failed => ("Failed", c(pal.bad)),
+                            Group::Unread => ("Unread", fg3),
+                            Group::Done => ("Done", fg3),
+                        };
+                        let slot = div()
+                            .id(("thread-av", i))
+                            .w(px(18.))
+                            .h(px(22.))
+                            .flex_none()
                             .flex()
                             .items_center()
-                            .gap(px(6.))
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .truncate()
-                                    .text_size(px(12.5))
-                                    .line_height(px(17.))
-                                    .font_weight(if t.unread { FontWeight::SEMIBOLD } else { FontWeight(450.) })
-                                    .text_color(if t.unread { fg } else { fg2 })
-                                    .child(t.title.clone()),
-                            );
-                        if t.pinned {
-                            title_line = title_line.child(glyph("pin", 11., fg3));
-                        }
-                        // ponytail: no spinner on Running rows; the group says it, and nothing moves for reduced motion.
-                        title_line = title_line.child(div().flex_none().text_size(px(11.)).text_color(fg3).font_features(tnum()).child(threads::age(now, t.updated)));
+                            .justify_center()
+                            .aria_label(state)
+                            .child(div().id(("thread-dot", i)).size(px(6.)).rounded_full().bg(dot).test_support());
                         list = list.child(
                             div()
                                 .id(("thread", i))
+                                .h(px(30.))
+                                .flex_none()
                                 .flex()
                                 .items_center()
-                                .gap(px(7.))
-                                .px(px(6.))
-                                .py(px(4.))
-                                .rounded(px(radius::R1))
-                                .border_1()
-                                .border_color(if on { c(pal.line) } else { gpui_kit::transparent_black() })
-                                .when_live(on, |d| d.bg(c(pal.raised)))
-                                .when_live(!on, |d| d.hover(|d| d.bg(ca(pal.fg, 0.05))))
+                                .gap(px(8.))
+                                .pl(px(11.))
+                                .pr(px(8.))
+                                .rounded(px(radius::TAG))
+                                .text_size(px(13.))
+                                .text_color(if on || t.unread { fg } else { fg2 })
+                                .when_live(on, |d| d.bg(c(pal.hover)))
+                                .when_live(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
                                 .cursor_pointer()
                                 .aria_label(t.title.clone())
-                                .child(
-                                    div()
-                                        .w(px(8.))
-                                        .flex_none()
-                                        .flex()
-                                        .justify_center()
-                                        .when_live(t.unread, |d| d.child(div().size(px(7.)).rounded_full().bg(c(pal.accent)))),
-                                )
-                                // ponytail: every row is Code; core does not mark a thread as design work yet.
-                                .child(div().size(px(22.)).flex_none().flex().items_center().justify_center().rounded(px(radius::R2)).bg(c(pal.well)).child(glyph("code", 13., c(pal.info))))
-                                .child(
-                                    div()
-                                        .flex_1()
-                                        .min_w_0()
-                                        .flex()
-                                        .flex_col()
-                                        .child(title_line)
-                                        .child(div().truncate().text_size(px(11.5)).line_height(px(15.)).text_color(fg3).child(threads::subtitle(t))),
-                                )
+                                .child(slot.test_support())
+                                .child(div().flex_1().min_w_0().truncate().font_weight(if t.unread { FontWeight::SEMIBOLD } else { FontWeight::NORMAL }).child(t.title.clone()))
+                                .when_live(t.pinned, |d| d.child(glyph("pin", 11., fg3)))
+                                .child({
+                                    let m = threads::meta(t);
+                                    div().id(("thread-meta", i)).flex_none().max_w(px(54.)).truncate().text_size(px(11.)).text_color(fg3).aria_label(m.clone()).child(m).test_support()
+                                })
+                                .when_live(t.unread, |d| d.child(div().id(("ping", i)).size(px(6.)).flex_none().rounded_full().bg(c(pal.accent)).test_support()))
                                 .on_click(cx.listener(move |this, _, window, cx| {
                                     this.selected = Some(id.clone());
                                     this.open_thread(id.clone());
@@ -536,8 +562,8 @@ impl Cauldron {
             ScrollDelta::Lines(p) => -(p.y + p.x),
             ScrollDelta::Pixels(p) => {
                 self.wheel -= f32::from(p.y + p.x);
-                let st = (self.wheel / (TAB_MIN + 2.0)).trunc();
-                self.wheel -= st * (TAB_MIN + 2.0);
+                let st = (self.wheel / (TAB_MIN + TAB_GAP)).trunc();
+                self.wheel -= st * (TAB_MIN + TAB_GAP);
                 st
             }
         };
@@ -555,30 +581,24 @@ impl Cauldron {
     }
 
     /// The + menu: spawn a subagent (wired to core in UI4), or open a 1:1 with an agent not open yet.
-    /// The + menu. `k` is how far open it is (0 to 1): it fades and rises into place, and on
-    /// close it fades out where it stands.
-    fn tab_menu_el(&self, pal: &'static Palette, cx: &mut Context<Self>, k: f32) -> impl IntoElement {
+    fn tab_menu_el(&self, pal: &'static Palette, cx: &mut Context<Self>) -> impl IntoElement {
         let item = |id: ElementId| {
-            div().id(id).flex().items_center().gap(px(8.)).px(px(8.)).py(px(6.)).rounded(px(radius::R1))
+            div().id(id).flex().items_center().gap(px(8.)).px(px(8.)).py(px(6.)).rounded(px(radius::CONTROL))
         };
         let mut menu = div()
             .id("tab-menu")
-            .absolute()
-            .top_full()
-            .mt(px(2. + 4. * k))
-            .opacity(k)
-            .right_0()
+            .relative()
             .w(px(236.))
             .p(px(4.))
             .flex()
             .flex_col()
             .gap(px(1.))
-            .rounded(px(radius::R))
+            .rounded(px(radius::PANEL))
             .bg(c(pal.raised))
             .border_1()
             .border_color(c(pal.line))
             .shadow(vec![drop(tokens::shadow::MENU)])
-            .font_family(UI)
+            .font_family(SANS).font_features(sans_features())
             .text_size(px(12.5))
             .font_weight(FontWeight::MEDIUM)
             .text_color(c(pal.fg2))
@@ -587,16 +607,25 @@ impl Cauldron {
                 this.tab_menu = false;
                 cx.notify();
             }))
+            .child(self.tab_slide.measure(None))
+            .children(self.tab_slide.highlight(ca(pal.fg, 0.06), radius::CONTROL))
             // ponytail: spawning needs the thread view's core wiring (UI4); shown, not live.
-            .child(item("menu-spawn".into()).text_color(c(pal.fg3)).aria_label("Spawn a subagent").child(glyph("plus", 14., c(pal.fg3))).child("Spawn a subagent…").test_support());
+            .child(item("menu-spawn".into()).text_color(c(pal.fg3)).aria_label("Spawn a subagent").child(glyph("plus", 14., c(pal.fg3))).child("Spawn a subagent…").test_support().with_animation("in", motion::staggered(0), |d, t| d.opacity(t)));
         if !self.idle.is_empty() {
-            menu = menu.child(div().px(px(8.)).pt(px(6.)).pb(px(2.)).text_size(px(11.)).font_weight(FontWeight::SEMIBOLD).text_color(c(pal.fg3)).child("Open 1:1 with"));
+            menu = menu.child(div().px(px(8.)).pt(px(6.)).pb(px(2.)).text_size(px(11.)).font_weight(FontWeight::SEMIBOLD).text_color(c(pal.fg3)).child("Open 1:1 with").with_animation("in", motion::staggered(1), |d, t| d.opacity(t)));
         }
         for (j, a) in self.idle.iter().enumerate() {
             menu = menu.child(
                 item(("menu-agent", j).into())
+                    .relative()
                     .cursor_pointer()
-                    .hover(|d| d.bg(ca(pal.fg, 0.06)).text_color(c(pal.fg)))
+                    .hover(|d| d.text_color(c(pal.fg)))
+                    .child(self.tab_slide.measure(Some(j)))
+                    .on_hover(cx.listener(move |this, h: &bool, _, cx| {
+                        if this.tab_slide.hover(j, *h) {
+                            cx.notify();
+                        }
+                    }))
                     .aria_label(a.name.clone())
                     .child(div().flex_none().size(px(8.)).rounded_full().bg(c(tokens::AGENT_DOTS[a.dot % tokens::AGENT_DOTS.len()])))
                     .child(a.name.clone())
@@ -604,10 +633,11 @@ impl Cauldron {
                         this.open_agent(j);
                         cx.notify();
                     }))
-                    .test_support(),
+                    .test_support()
+                    .with_animation(("in", j + 2), motion::staggered(j + 2), |d, t| d.opacity(t)),
             );
         }
-        deferred(menu.test_support()).with_priority(2)
+        deferred(motion::pop_in(div().absolute().top_full().right_0(), menu.test_support(), "menu-in", 6.)).with_priority(2)
     }
 
     fn hover_tip(&mut self, key: ElementId, hovered: bool, cx: &mut Context<Self>) {
@@ -666,6 +696,13 @@ impl Cauldron {
     }
 
     fn toggle_panel(&mut self, p: Panel) {
+        // With the terminal open the drawer is folded to its rail: a rail button brings it back.
+        if self.terminal {
+            self.terminal = false;
+            self.drawer = Some(p);
+            self.drawer_last = Some(p);
+            return;
+        }
         let was = self.drawer;
         self.drawer = if was == Some(p) { None } else { Some(p) };
         // Switching panels while one is open crossfades the body; closing keeps the last panel.
@@ -697,7 +734,7 @@ fn icon_button_in(id: impl Into<ElementId>, name: &str, label: &'static str, pal
         .flex()
         .items_center()
         .justify_center()
-        .rounded(px(radius::R1))
+        .rounded(px(radius::CONTROL))
         .cursor_pointer()
         .bg(if fill { sel } else { gpui_kit::transparent_black() })
         .hover(move |d| d.bg(if fill { sel } else { hover }))
@@ -706,18 +743,28 @@ fn icon_button_in(id: impl Into<ElementId>, name: &str, label: &'static str, pal
 }
 
 /// The left edge of function slot `pos` (fractional while the indicator slides) in the sidebar's
-/// row. The row spreads its buttons across the card with equal gaps (justify_between), inside the
-/// card's 1px border and the row's 2px side padding.
-fn fn_slot_x(card_w: f32, pos: f32) -> f32 {
+/// apps row, `row_w` wide. The row spreads its buttons edge to edge with equal gaps (justify_between).
+fn fn_slot_x(row_w: f32, pos: f32) -> f32 {
     let n = FUNCTIONS.len() as f32;
-    let inner = card_w - 2.0 - 4.0;
-    let gap = (inner - n * metric::SBTN) / (n - 1.0);
-    3.0 + pos * (metric::SBTN + gap)
+    let gap = (row_w - n * metric::SBTN) / (n - 1.0);
+    pos * (metric::SBTN + gap)
 }
+
+/// The sidebar's right padding: its content ends at the board's x 240.
+const SIDE_PR: f32 = 9.0;
 
 /// Agent tabs share the room between these widths; below TAB_MIN the row scrolls.
 const TAB_MIN: f32 = 72.0;
-const TAB_MAX: f32 = 210.0;
+const TAB_MAX: f32 = 200.0;
+/// A floating tab, on the design-system scale (Charles, 13 Nov): 4px between tabs, 8px padding,
+/// 6px from the name to the close. No figure: agent figures belong to the Agents page.
+const TAB_GAP: f32 = 4.0;
+const TAB_PAD: f32 = 8.0;
+const CLOSE_GAP: f32 = 6.0;
+/// The + after the tabs, as tall as a tab.
+const ADD_W: f32 = metric::TAB_H;
+/// The new thread's bar under the card: usage and the stages.
+const STAGE_H: f32 = 32.0;
 /// The pinned coordinator tab is at most this wide.
 const ANCHOR_MAX: f32 = 190.0;
 const ADD_LABEL: &str = "Spawn a subagent or open a 1:1";
@@ -756,7 +803,7 @@ fn now_ms() -> u64 {
 
 /// Tabular figures, so counts and ages line up.
 fn tnum() -> FontFeatures {
-    FontFeatures(Arc::new(vec![("tnum".into(), 1)]))
+    crate::ui::sans_features()
 }
 
 fn drop(s: tokens::shadow::Shadow) -> BoxShadow {
@@ -773,12 +820,12 @@ fn tip(label: SharedString, side: Side, pal: &'static Palette) -> impl IntoEleme
         .px(px(8.))
         .flex()
         .items_center()
-        .rounded(px(radius::R2))
+        .rounded(px(radius::INNER))
         .bg(c(pal.raised))
         .border_1()
         .border_color(c(pal.line))
         .shadow(vec![drop(tokens::shadow::TIP)])
-        .font_family(UI)
+        .font_family(SANS).font_features(sans_features())
         .text_size(px(12.))
         .line_height(px(16.))
         .font_weight(FontWeight::MEDIUM)
@@ -786,21 +833,41 @@ fn tip(label: SharedString, side: Side, pal: &'static Palette) -> impl IntoEleme
         .aria_label(label.clone())
         .child(label);
     let d = match side {
-        Side::Right => d.left_full().ml(px(8.)).top(px(mid)),
-        Side::Left => d.right_full().mr(px(8.)).top(px(mid)),
-        Side::Below => d.top_full().mt(px(8.)).right_0(),
+        Side::Right => d.left_full().top(px(mid)),
+        Side::Left => d.right_full().top(px(mid)),
+        Side::Below => d.top_full().right_0(),
     };
-    deferred(d.test_support()).with_priority(1)
+    // Fades in and settles the last RISE px away from its button.
+    let d = d.test_support().with_animation("tip-in", motion::anim(mt::TIP), move |d, t| {
+        let gap = px(8. - tokens::motion::RISE * (1. - t));
+        let d = d.opacity(t);
+        match side {
+            Side::Right => d.ml(gap),
+            Side::Left => d.mr(gap),
+            Side::Below => d.mt(gap),
+        }
+    });
+    deferred(d).with_priority(1)
+}
+
+/// Debug builds only: `CAULDRON_THEME=light|dark` overrides the OS theme, so screenshots of both
+/// come from one build.
+fn forced_dark() -> Option<bool> {
+    #[cfg(debug_assertions)]
+    if let Ok(t) = std::env::var("CAULDRON_THEME") {
+        return Some(t != "light");
+    }
+    None
 }
 
 impl Render for Cauldron {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let dark = !matches!(window.appearance(), WindowAppearance::Light | WindowAppearance::VibrantLight);
+        let dark = forced_dark().unwrap_or_else(|| !matches!(window.appearance(), WindowAppearance::Light | WindowAppearance::VibrantLight));
         let pal: &'static Palette = if dark { &tokens::DARK } else { &tokens::LIGHT };
         let vs = window.viewport_size();
         let (w, h) = (f32::from(vs.width), f32::from(vs.height));
         let plat = platform();
-        let want = ShellState { sidebar_open: self.sidebar_open, drawer_open: self.drawer.is_some(), split_open: self.split };
+        let want = ShellState { sidebar_open: self.sidebar_open, drawer_open: self.drawer.is_some(), split_open: false, terminal_open: self.terminal };
         let now = std::time::Instant::now();
         let reduce = cx.reduce_motion();
         let (s, mut moving) = self.motion.frame(want, Frame::at_rest(&layout::solve(w, h, want, plat)), now, reduce);
@@ -851,30 +918,19 @@ impl Render for Cauldron {
         } else {
             moving = true;
         }
-        if self.tab_menu != self.menu_shown {
-            self.menu_shown = self.tab_menu;
-            self.menu_since = Some(now);
-        }
-        let menu_k = match self.menu_since {
-            Some(t0) => {
-                let k = crate::motion::run(now, t0, cauldron_chrome::motion::time::MENU);
-                if k >= 1.0 {
-                    self.menu_since = None;
-                    if self.tab_menu { 1.0 } else { 0.0 }
-                } else {
-                    moving = true;
-                    if self.tab_menu { k } else { 1.0 - k }
-                }
+        if let Some((_, t0)) = self.layout_since {
+            if reduce || crate::motion::run(now, t0, cauldron_chrome::motion::time::LAYOUT) >= 1.0 {
+                self.layout_since = None;
+            } else {
+                moving = true;
             }
-            None => if self.tab_menu { 1.0 } else { 0.0 },
-        };
+        }
         if moving {
             window.request_animation_frame();
         }
 
         let frame = c(pal.frame);
         let card = c(pal.card);
-        let line = c(pal.line);
         let ring = ca(pal.fg, if dark { 0.08 } else { 0.09 });
         let fg = c(pal.fg);
         let fg2 = c(pal.fg2);
@@ -882,6 +938,7 @@ impl Render for Cauldron {
         let accent = c(pal.accent);
 
         self.ensure_composer(window, cx);
+        self.ensure_term_input(window, cx);
         self.ensure_start(window, cx);
         let mut root = div()
             .id("cauldron")
@@ -889,9 +946,15 @@ impl Render for Cauldron {
             .relative()
             .overflow_hidden()
             .bg(frame)
-            .font_family(UI)
+            .font_family(SANS).font_features(sans_features())
             .text_size(px(13.))
-            .text_color(fg);
+            .text_color(fg)
+            .on_mouse_move(cx.listener(|this, ev: &MouseMoveEvent, _, cx| this.drag_line(ev, cx)))
+            .on_mouse_up(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                if this.pane_drag.take().is_some() {
+                    cx.notify();
+                }
+            }));
 
         // Window drag strip, under every control.
         root = root.child(
@@ -900,7 +963,7 @@ impl Render for Cauldron {
 
         // ---- rail (only while the sidebar is hidden)
         if let Some(rp) = s.rail {
-            let mut col = pane("rail", rp.rect).opacity(rp.alpha).flex().flex_col().items_center().gap(px(4.)).pt(px(8.));
+            let mut col = pane("rail", rp.rect).opacity(rp.alpha).flex().flex_col().items_center().gap(px(4.)).pt(px(4.));
             for (i, (name, label)) in FUNCTIONS.iter().enumerate() {
                 let b = icon_button(("rail", i), name, label, pal, i == self.section).on_click(cx.listener(move |this, _, _, cx| this.select_section(i, cx)));
                 col = col.child(self.tipped(("rail", i), b, *label, Side::Right, pal, cx).test_support());
@@ -908,18 +971,18 @@ impl Render for Cauldron {
             root = root.child(col.test_support());
         }
 
-        // ---- sidebar card with the function row
+        // ---- sidebar with the function row, on the window
         if let Some(sp) = s.sidebar {
-            let mut fnrow = div().relative().flex().justify_between().px(px(2.)).pt(px(12.)).pb(px(8.));
+            let mut fnrow = div().relative().flex().justify_between().pt(px(4.)).pb(px(16.));
             // The indicator sits under the buttons and slides to the selected one (INDICATOR ms).
             let pos = crate::motion::ease_between(self.section_from, self.section as f32, self.section_since, now, cauldron_chrome::motion::time::INDICATOR);
             fnrow = fnrow.child(
                 div()
                     .absolute()
-                    .left(px(fn_slot_x(sp.rect.w, pos)))
-                    .top(px(12.))
+                    .left(px(fn_slot_x(sp.rect.w - SIDE_PR, pos)))
+                    .top(px(4.))
                     .size(px(metric::SBTN))
-                    .rounded(px(radius::R1))
+                    .rounded(px(radius::CONTROL))
                     .bg(ca(pal.fg, 0.09)),
             );
             for (i, (name, label)) in FUNCTIONS.iter().enumerate() {
@@ -933,7 +996,7 @@ impl Render for Cauldron {
                 t.muted_foreground = fg3;
                 t.caret = accent;
                 t.selection = ca(pal.accent, 0.25);
-                t.font_family = UI.into();
+                t.font_family = SANS.into();
                 let st = cx.new(|cx| InputState::new(window, cx).placeholder("Search threads"));
                 let sub = cx.subscribe(&st, |this, st, ev: &InputEvent, cx| {
                     if let InputEvent::Change = ev {
@@ -953,70 +1016,58 @@ impl Render for Cauldron {
                 .h(px(32.))
                 .flex()
                 .items_center()
-                .gap(px(8.))
-                .px(px(10.))
-                .rounded(px(radius::R1))
+                .gap(px(9.))
+                .px(px(8.))
+                .rounded(px(radius::TAG))
                 .cursor_pointer()
-                .bg(ca(pal.accent, 0.15))
-                .border_1()
-                .border_color(ca(pal.accent, 0.65))
-                .shadow(vec![BoxShadow { color: ca(pal.accent, 0.30), offset: point(px(0.), px(0.)), blur_radius: px(16.), spread_radius: px(-2.), inset: false }])
-                .child(glyph("plus", 14., accent))
-                .child(div().text_size(px(13.)).text_color(fg).child("New thread"))
+                .hover(|d| d.bg(c(pal.hover)))
+                .text_size(px(13.))
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(fg)
+                .child(glyph("square-pen", 15., fg))
+                .child("New thread")
                 .on_click(cx.listener(|this, _, window, cx| this.new_thread(window, cx)))
                 .test_support();
+            // The board's `.side`: on the window, no card; the apps row, New thread, Search, the list.
+            // ponytail: the layout keeps the card era's 12px margin, so the content starts at x 13,
+            // the board's at 10; the right edge is the board's 240 (9px in from the pane's 249).
             let card_el = pane("sidebar", sp.rect)
                 .opacity(sp.alpha)
                 .flex()
                 .flex_col()
-                .rounded(px(radius::R))
-                .bg(card)
-                .border_1()
-                .border_color(ring)
+                .pr(px(SIDE_PR))
                 .overflow_hidden()
-                .child(
-                    div()
-                        .h(px(metric::TAB_H))
-                        .flex_none()
-                        .flex()
-                        .items_center()
-                        .pl(px(10.))
-                        .text_size(px(13.))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .child("Threads"),
-                )
-                .child(div().px(px(5.)).child(fnrow))
-                .child(
-                    div().px(px(5.)).pb(px(6.)).child(
+                .child(fnrow)
+                .when_live(self.settings.is_some(), |d| d.child(self.settings_nav(self.settings.unwrap_or(0), pal, cx).test_support()))
+                .when_live(self.settings.is_none(), |d| d.child(new_thread))
+                .when_live(self.settings.is_none(), |d| d.child(
+                    div().child(
                         div()
                             .id("search")
-                            .h(px(30.))
+                            .h(px(32.))
                             .flex()
                             .items_center()
-                            .gap(px(8.))
-                            .px(px(9.))
-                            .rounded(px(radius::R1))
-                            .border_1()
-                            .border_color(line)
-                            .text_color(fg3)
+                            .gap(px(9.))
+                            .px(px(8.))
+                            .rounded(px(radius::TAG))
+                            .hover(|d| d.bg(c(pal.hover)))
+                            .text_color(fg2)
                             .aria_label("Search threads")
-                            .child(glyph("search", 14., fg3))
-                            .child(div().flex_1().min_w_0().child(Input::new(&search).appearance(false).text_size(px(12.5)).p_0()))
+                            .child(glyph("search", 15., fg2))
+                            .child(div().flex_1().min_w_0().child(Input::new(&search).appearance(false).text_size(px(13.)).p_0()))
                             .test_support(),
                     ),
-                )
-                .child(div().px(px(5.)).pb(px(8.)).child(new_thread))
-                .child(list)
+                ))
+                .when_live(self.settings.is_none(), |d| d.child(list))
                 .child(
                     div()
-                        .h(px(44.))
+                        .h(px(37.))
                         .flex_none()
                         .flex()
                         .items_center()
-                        .gap(px(8.))
-                        .px(px(10.))
-                        .border_t_1()
-                        .border_color(line)
+                        .gap(px(9.))
+                        .pl(px(3.))
+                        .pt(px(8.))
                         .child(
                             div()
                                 .size(px(24.))
@@ -1025,195 +1076,184 @@ impl Render for Cauldron {
                                 .items_center()
                                 .justify_center()
                                 .rounded_full()
-                                .bg(gpui_kit::rgb(0xb5532e))
+                                .bg(accent)
                                 .text_size(px(11.))
-                                .text_color(gpui_kit::rgb(0xffffff))
+                                .text_color(c(pal.on_accent))
                                 .child(initial),
                         )
-                        .child(div().flex_1().text_size(px(12.5)).child(user))
-                        .child(self.tipped("settings", icon_button("settings", "settings", "Settings", pal, false), "Settings", Side::Right, pal, cx).test_support()),
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .flex()
+                                .flex_col()
+                                .line_height(px(15.))
+                                .child(div().truncate().text_size(px(12.5)).child(user))
+                                // Core has no usage per subscription yet: an empty state, no number.
+                                .child(div().id("usage-left").text_size(px(11.)).text_color(fg3).aria_label("No data yet").child("No data yet").test_support()),
+                        )
+                        .child(self.tipped("settings", icon_button("settings", "settings", "Settings", pal, self.settings.is_some()), "Settings", Side::Right, pal, cx).on_click(cx.listener(|this, _, _, cx| {
+                            this.settings = if this.settings.is_some() { None } else { Some(0) };
+                            cx.notify();
+                        })).test_support()),
                 );
             root = root.child(card_el.test_support());
         }
 
-        // ---- main column: one thread's agents as folder tabs on the frame, the card under them.
-        // The coordinator (or "New thread" before the thread exists) is pinned at the left. Agent
-        // tabs share the room equally between TAB_MIN and TAB_MAX; when TAB_MIN no longer fits,
-        // arrows appear beside + and the row shows a window of 72px tabs.
-        let focus = self.tab_focus.get_or_insert_with(|| cx.focus_handle()).clone();
-        let thread = self.coordinator.is_some();
-        let anchor_label: SharedString = self.coordinator.clone().unwrap_or_else(|| NEW_TAB.into());
-        let label_w = {
-            let run = TextRun { len: anchor_label.len(), font: Font { weight: FontWeight::MEDIUM, ..font(UI) }, color: fg, background_color: None, underline: None, strikethrough: None };
-            f32::from(window.text_system().shape_line(anchor_label.clone(), px(12.), &[run], None).width)
-        };
-        // padding 12 + icon 14 + gap 7 + label + padding 12, as the wireframe's `.tab`
-        let anchor_w = (45.0 + label_w).ceil().min(ANCHOR_MAX);
-        let n = self.agents.len();
-        let room = s.tabs.w - anchor_w - if thread { 24.0 } else { 0.0 };
-        let scrolls = n as f32 * (TAB_MIN + 2.0) + 2.0 > room;
-        let (k, tab_w) = if scrolls {
-            (((room - 54.0) / (TAB_MIN + 2.0)).floor().max(1.0) as usize, Some(TAB_MIN))
-        } else if n > 0 {
-            let per = ((room - 2.0 * (n as f32 + 1.0)) / n as f32).floor();
-            (n, (per < TAB_MAX).then_some(per))
-        } else {
-            (0, None)
-        };
-        // Keep the open tab in view when it changed; the arrows and wheel may move it away after.
-        let mut first = self.tab_first.min(n.saturating_sub(k));
-        // A resize changes how many fit, which can push the open tab out too.
-        let reveal = std::mem::take(&mut self.reveal) || k != self.tab_window;
-        if reveal && self.active > 0 {
-            let a = self.active - 1;
-            if a < first {
-                first = a;
-            } else if a >= first + k {
-                first = a + 1 - k;
-            }
-        }
-        self.tab_first = first;
-        self.tab_window = k;
-
-        let mut row = div()
-            .id("tabs")
-            .absolute()
-            .left_0()
-            .top_0()
-            .w(px(s.tabs.w))
-            .h(px(s.tabs.h))
-            .flex()
-            .items_start()
-            .gap(px(2.))
-            .track_focus(&focus)
-            .on_key_down(cx.listener(|this, ev: &KeyDownEvent, _, cx| {
-                let last = this.agents.len();
-                match ev.keystroke.key.as_str() {
-                    "left" => this.active = this.active.saturating_sub(1),
-                    "right" => this.active = (this.active + 1).min(last),
-                    "home" => this.active = 0,
-                    "end" => this.active = last,
-                    "delete" if this.active > 0 => this.close_agent(this.active - 1),
-                    _ => return,
+        // ---- the thread's tabs, floating in the top bar (the board's `.ftab`). Only an open thread
+        // has them: the coordinator pinned at the left, then its agents, each sized to its name
+        // within an equal share of the room (TAB_MIN to TAB_MAX); when TAB_MIN no longer fits, arrows appear beside +
+        // and the row shows a window of 72px tabs. No figures (Charles, 13 Nov).
+        let mut tab_row = None;
+        if let Some(anchor_label) = self.coordinator.clone() {
+            let focus = self.tab_focus.get_or_insert_with(|| cx.focus_handle()).clone();
+            let label_w = {
+                let run = TextRun { len: anchor_label.len(), font: Font { weight: FontWeight::MEDIUM, features: sans_features(), ..font(SANS) }, color: fg, background_color: None, underline: None, strikethrough: None };
+                f32::from(window.text_system().shape_line(anchor_label.clone(), px(12.), &[run], None).width)
+            };
+            let anchor_w = (TAB_PAD + label_w + TAB_PAD).ceil().min(ANCHOR_MAX);
+            let n = self.agents.len();
+            let room = s.tabs.w - anchor_w - (TAB_GAP + ADD_W);
+            let scrolls = n as f32 * (TAB_MIN + TAB_GAP) + TAB_GAP > room;
+            let (k, tab_w) = if scrolls {
+                (((room - 54.0) / (TAB_MIN + TAB_GAP)).floor().max(1.0) as usize, Some(TAB_MIN))
+            } else if n > 0 {
+                let per = ((room - TAB_GAP * (n as f32 + 1.0)) / n as f32).floor();
+                (n, Some(per.min(TAB_MAX)))
+            } else {
+                (0, None)
+            };
+            // Keep the open tab in view when it changed; the arrows and wheel may move it away after.
+            let mut first = self.tab_first.min(n.saturating_sub(k));
+            // A resize changes how many fit, which can push the open tab out too.
+            let reveal = std::mem::take(&mut self.reveal) || k != self.tab_window;
+            if reveal && self.active > 0 {
+                let a = self.active - 1;
+                if a < first {
+                    first = a;
+                } else if a >= first + k {
+                    first = a + 1 - k;
                 }
-                this.reveal = true;
-                cx.stop_propagation();
-                cx.notify();
-            }))
-            .on_scroll_wheel(cx.listener(|this, ev: &ScrollWheelEvent, _, cx| this.wheel_tabs(ev, cx)));
-        // Tabs occlude (or Windows would drag the window from them), which also hides the wheel
-        // from the row, so each tab carries the row's wheel handler too.
+            }
+            self.tab_first = first;
+            self.tab_window = k;
 
-        // The pinned tab.
-        let on = self.active == 0;
-        let mut anchor = div()
-            .id(("tab", 0usize))
-            .relative()
-            .flex_none()
-            .flex()
-            .items_center()
-            .gap(px(7.))
-            .w(px(anchor_w))
-            .h(px(metric::TAB_H + if on { 1.0 } else { 0.0 }))
-            .px(px(12.))
-            .rounded_t(px(radius::R))
-            .occlude()
-            .cursor_pointer()
-            .aria_label(anchor_label.clone())
-            .text_size(px(12.))
-            .font_weight(FontWeight::MEDIUM)
-            .text_color(if on { fg } else { fg3 })
-            .child(if thread { glyph("code", 14., c(pal.info)) } else { glyph("square-pen", 14., if on { fg2 } else { fg3 }) })
-            .child(div().min_w_0().truncate().child(anchor_label.clone()))
-            .on_scroll_wheel(cx.listener(|this, ev: &ScrollWheelEvent, _, cx| this.wheel_tabs(ev, cx)))
-            .on_click(cx.listener(|this, _, window, cx| {
-                this.active = 0;
-                this.focus_tabs(window, cx);
-                cx.notify();
-            }));
-        if on {
-            // The first tab sits on the card's corner: no left foot, and the card's corner is square.
-            anchor = anchor.bg(card).child(foot(Foot::Right, card));
-        }
-        row = row.child(anchor.test_support());
-
-        for (j, agent) in self.agents.iter().enumerate().skip(first).take(k) {
-            let i = j + 1;
-            let on = i == self.active;
-            let group: SharedString = format!("tab{i}").into();
-            let close = div()
-                .id(("tab-close", i))
-                .size(px(18.))
-                .ml_auto()
-                .flex_none()
+            let mut row = abs(s.tabs)
+                .id("tabs")
                 .flex()
                 .items_center()
-                .justify_center()
-                .rounded(px(radius::R2))
-                // Inactive tabs show their close on hover, over the end of the name, so a 72px tab
-                // still has room for a few letters.
-                .when_live(!on, |d| d.absolute().right(px(6.)).top(px(8.)).bg(frame).opacity(0.).group_hover(group.clone(), |s| s.opacity(1.)))
-                .hover(|d| d.bg(ca(pal.fg, 0.08)))
-                .aria_label("Close tab")
-                .child(glyph("x", 12., fg3))
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    cx.stop_propagation();
-                    this.close_agent(j);
+                .gap(px(TAB_GAP))
+                .track_focus(&focus)
+                .on_key_down(cx.listener(|this, ev: &KeyDownEvent, _, cx| {
+                    let last = this.agents.len();
+                    match ev.keystroke.key.as_str() {
+                        "left" => this.active = this.active.saturating_sub(1),
+                        "right" => this.active = (this.active + 1).min(last),
+                        "home" => this.active = 0,
+                        "end" => this.active = last,
+                        "delete" if this.active > 0 => this.close_agent(this.active - 1),
+                        _ => return,
+                    }
                     this.reveal = true;
+                    cx.stop_propagation();
                     cx.notify();
                 }))
-                .test_support();
-            let mut tab = div()
-                .id(("tab", i))
-                .group(group)
-                .relative()
-                .flex()
-                .items_center()
-                .gap(px(6.))
-                .h(px(metric::TAB_H + if on { 1.0 } else { 0.0 }))
-                .pl(px(10.))
-                .pr(px(6.))
-                .rounded_t(px(radius::R))
-                .occlude()
-                .cursor_pointer()
-                .aria_label(agent.name.clone())
-                .text_size(px(12.))
-                .font_weight(FontWeight::MEDIUM)
-                .text_color(if on { fg } else { fg3 })
-                .child(div().flex_none().size(px(8.)).rounded_full().bg(c(tokens::AGENT_DOTS[agent.dot % tokens::AGENT_DOTS.len()])))
-                .child(div().min_w_0().truncate().child(agent.name.clone()))
-                .child(close)
-                .on_scroll_wheel(cx.listener(|this, ev: &ScrollWheelEvent, _, cx| this.wheel_tabs(ev, cx)))
-                .on_click(cx.listener(move |this, _, window, cx| {
-                    this.active = i;
-                    this.reveal = true;
+                .on_scroll_wheel(cx.listener(|this, ev: &ScrollWheelEvent, _, cx| this.wheel_tabs(ev, cx)));
+            // Tabs occlude (or Windows would drag the window from them), which also hides the wheel
+            // from the row, so each tab carries the row's wheel handler too. The open tab is the
+            // `selected` fill with no ring or shadow (tabs take none); the rest are fg3 on the frame.
+            let ftab = |id: (&'static str, usize), on: bool, cx: &mut Context<Self>| {
+                div()
+                    .id(id)
+                    .relative()
+                    .flex()
+                    .items_center()
+                    .gap(px(CLOSE_GAP))
+                    .h(px(metric::TAB_H))
+                    .rounded(px(radius::INNER))
+                    .when_live(on, |d| d.bg(c(pal.selected)))
+                    .when_live(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
+                    .occlude()
+                    .cursor_pointer()
+                    .aria_selected(on)
+                    .text_size(px(12.))
+                    .line_height(px(16.))
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(if on { fg } else { fg3 })
+                    .on_scroll_wheel(cx.listener(|this, ev: &ScrollWheelEvent, _, cx| this.wheel_tabs(ev, cx)))
+            };
+
+            // The pinned tab.
+            let on = self.active == 0;
+            let anchor = ftab(("tab", 0), on, cx)
+                .flex_none()
+                .w(px(anchor_w))
+                .px(px(TAB_PAD))
+                .aria_label(anchor_label.clone())
+                .child(div().min_w_0().truncate().child(anchor_label.clone()))
+                .on_click(cx.listener(|this, _, window, cx| {
+                    this.active = 0;
                     this.focus_tabs(window, cx);
                     cx.notify();
                 }));
-            tab = match tab_w {
-                Some(w) => tab.flex_none().w(px(w)),
-                None => tab.flex_none().max_w(px(TAB_MAX)),
-            };
-            if on {
-                tab = tab.bg(card).child(foot(Foot::Right, card)).child(foot(Foot::Left, card));
-            }
-            // The full name as a tip once the tab is narrower than the widest it gets.
-            let tab = if tab_w.is_some() { self.tipped(("tab", i), tab, agent.name.clone(), Side::Below, pal, cx) } else { tab };
-            row = row.child(tab.test_support());
-        }
+            row = row.child(anchor.test_support());
 
-        if thread {
-            let small_btn = |id: &'static str, icon: &'static str, label: &'static str, live: bool| {
-                div()
-                    .id(id)
-                    .w(px(24.))
-                    .h(px(28.))
-                    .mt(px(3.))
+            for (j, agent) in self.agents.iter().enumerate().skip(first).take(k) {
+                let i = j + 1;
+                let on = i == self.active;
+                let group: SharedString = format!("tab{i}").into();
+                let close = div()
+                    .id(("tab-close", i))
+                    .size(px(18.))
+                    .ml_auto()
                     .flex_none()
                     .flex()
                     .items_center()
                     .justify_center()
-                    .rounded(px(radius::R1))
+                    .rounded(px(radius::TAG))
+                    // Inactive tabs show their close on hover, over the end of the name, so a 72px tab
+                    // still has room for a few letters.
+                    .when_live(!on, |d| d.absolute().right(px(4.)).top(px((metric::TAB_H - 18.0) / 2.0)).bg(frame).opacity(0.).group_hover(group.clone(), |s| s.opacity(1.)))
+                    .hover(|d| d.bg(ca(pal.fg, 0.08)))
+                    .aria_label("Close tab")
+                    .child(glyph("x", 13., fg3))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        cx.stop_propagation();
+                        this.close_agent(j);
+                        this.reveal = true;
+                        cx.notify();
+                    }))
+                    .test_support();
+                let mut tab = ftab(("tab", i), on, cx)
+                    .group(group)
+                    .px(px(TAB_PAD))
+                    .aria_label(agent.name.clone())
+                    .child(div().min_w_0().truncate().child(agent.name.clone()))
+                    .child(close)
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.active = i;
+                        this.reveal = true;
+                        this.focus_tabs(window, cx);
+                        cx.notify();
+                    }));
+                // Sized to the name, as the board, within the tab's share of the room; 72px while scrolling.
+                let share = tab_w.unwrap_or(TAB_MAX);
+                tab = if scrolls { tab.flex_none().w(px(TAB_MIN)) } else { tab.flex_none().min_w(px(TAB_MIN)).max_w(px(share)) };
+                // The full name as a tip once the tab may be narrower than the widest it gets.
+                let tab = if share < TAB_MAX { self.tipped(("tab", i), tab, agent.name.clone(), Side::Below, pal, cx) } else { tab };
+                row = row.child(tab.test_support());
+            }
+
+            let small_btn = |id: &'static str, icon: &'static str, label: &'static str, live: bool| {
+                div()
+                    .id(id)
+                    .w(px(24.))
+                    .h(px(metric::TAB_H))
+                    .flex_none()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(px(radius::TAG))
                     .occlude()
                     .when_live(live, |d| d.cursor_pointer().hover(|d| d.bg(ca(pal.fg, 0.08))))
                     .aria_label(label)
@@ -1233,84 +1273,130 @@ impl Render for Cauldron {
             let mut add = div()
                 .id("tab-add")
                 .relative()
-                .mt(px(5.))
-                .size(px(24.))
+                .size(px(ADD_W))
                 .flex_none()
                 .flex()
                 .items_center()
                 .justify_center()
-                .rounded(px(radius::R1))
+                .rounded(px(radius::TAG))
                 .occlude()
                 .cursor_pointer()
                 .hover(|d| d.bg(ca(pal.fg, 0.08)))
                 .aria_label(ADD_LABEL)
-                .child(glyph("plus", 14., fg3))
+                .child(glyph("plus", 13., fg3))
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.tab_menu = !this.tab_menu;
+                    this.tab_slide.reset();
                     cx.notify();
                 }));
-            if self.tab_menu || menu_k > 0.0 {
-                add = add.child(self.tab_menu_el(pal, cx, menu_k));
+            if self.tab_menu {
+                add = add.child(self.tab_menu_el(pal, cx));
             }
             let add = if self.tab_menu { add } else { self.tipped("tab-add", add, ADD_LABEL, Side::Below, pal, cx) };
-            row = row.child(add.test_support());
+            tab_row = Some(row.child(add.test_support()));
         }
 
-        let mut card_el = div()
+        // The card right under the bar; its 44px head names the thread (the board's `.ch`).
+        let head_title: SharedString = if self.settings.is_some() { "Settings".into() } else { self.coordinator.clone().unwrap_or_else(|| NEW_TAB.into()) };
+        let mut head = div()
+            .id("card-head")
+            .h(px(44.))
+            .flex_none()
+            .flex()
+            .items_center()
+            .gap(px(4.))
+            .pl(px(13.))
+            .pr(px(14.))
+            .text_size(px(13.))
+            .text_color(fg3);
+        if let Some(p) = self.thread.as_ref().filter(|_| self.settings.is_none()).and_then(|t| t.project.as_ref()) {
+            let folder = p.rsplit(['/', '\\']).find(|s| !s.is_empty()).unwrap_or(p).to_string();
+            head = head.child(div().id("card-crumb").flex_none().aria_label(folder.clone()).child(format!("{folder} /")).test_support());
+        }
+        head = head.child(
+            div()
+                .id(if self.thread.is_some() { "thread-title" } else { "card-title" })
+                .min_w_0()
+                .truncate()
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(fg)
+                .aria_label(head_title.clone())
+                .child(head_title)
+                .test_support(),
+        );
+        if self.settings.is_none() {
+            head = head.child(div().flex_1()).child(self.layout_button(pal, now, reduce, cx).test_support());
+        }
+        // A new thread keeps a 32px bar under its card, in the Shell's grey (Charles 13 Nov).
+        let new_screen = self.open.is_none() && self.active == 0 && self.settings.is_none();
+        let card_h = s.main.h - if new_screen { STAGE_H } else { 0.0 };
+        // Split (direction B): under the head the card holds up to four panes on the Shell's grey;
+        // a shape that no longer fits steps back, as the shell closes Split when the window narrows.
+        let area = Rect::new(s.main.x, s.main.y + 44.0, s.main.w, card_h - 44.0);
+        let shape = if self.settings.is_some() { Shape::One } else { cauldron_chrome::panes::effective(area, self.panes.shape) };
+        let split = shape != Shape::One;
+        // The thread view drops what does not fit its pane, so it needs that pane's size first.
+        let sp = Split { shape, ..self.panes };
+        let at = self.pane_content.iter().position(|p| *p == panes::Content::Thread).unwrap_or(0).min(shape.count() - 1);
+        let tb = cauldron_chrome::panes::rects(area, sp)[at];
+        self.thread_box.set(if split { (tb.w, tb.h - 32.0) } else { (tb.w, tb.h) });
+        let body = match self.settings {
+            Some(page) => self.settings_page(page, pal, cx),
+            None => self.card_body(pal, window, cx),
+        };
+        let inside = if split { self.pane_stage(pal, area, shape, body, window, cx).into_any_element() } else { body };
+        let card_el = div()
             .id("card")
             .absolute()
             .left_0()
-            .top(px(s.tabs.h))
-            .w(px(s.main.w))
-            .h(px(s.main.h - s.tabs.h))
+            .top_0()
+            .w_full()
+            .h(px(card_h))
             .flex()
             .flex_col()
             .overflow_hidden()
-            .rounded(px(radius::R))
-            .bg(card)
-            .border_1()
-            .border_color(ring)
+            .rounded(px(radius::PANEL))
+            // A Panel in its Shell: darker than the Shell in dark, white on it in light. Split, the
+            // panes are the Panels and the head sits on the Shell.
+            .when_live(!split, |d| d.bg(c(pal.panel)).border_1().border_color(ring))
             .text_color(fg3)
-            .child(self.card_body(pal, window, cx));
-        if self.active == 0 {
-            // The first tab sits on the card's corner, so the corner is square.
-            card_el = card_el.rounded_tl(px(0.));
-        }
-        root = root.child(pane("main", s.main).child(card_el.test_support()).child(row.test_support()).test_support());
-
-        // ---- split card
-        if let Some(hp) = s.half {
-            let r = hp.rect;
-            let tiles = ["Highlights", "Files", "Changes", "Terminal", "Browser", "Add an app"];
-            let mut grid = div().flex().flex_wrap().gap(px(8.)).p(px(12.));
-            for t in tiles {
-                grid = grid.child(
-                    div()
-                        .w(px(122.))
-                        .p(px(10.))
-                        .rounded(px(radius::R1))
-                        .bg(c(pal.raised))
-                        .border_1()
-                        .border_color(ring)
-                        .text_size(px(12.5))
-                        .child(t),
-                );
+            .child(head.test_support())
+            .child(div().flex_1().min_h_0().child(inside));
+        // The grey Shell behind the card, Split and the drawer: the drawer stands in its right
+        // gutter and the new thread's bar in its bottom one (the coordinator's brief, 13 Nov).
+        root = root.child(pane("shell", s.shell).rounded(px(radius::SHELL)).bg(card).test_support());
+        let mut main_el = pane("main", s.main).child(card_el.test_support());
+        if new_screen {
+            // ponytail: core has no stages or per-subscription usage yet (UI-PLAN decision 5), so the
+            // bar is static: usage as an empty state, the stages as plain labels with none current.
+            let mut stages = div().flex().gap(px(12.));
+            for (i, name) in ["Plan", "Execute", "Ship", "Commit"].into_iter().enumerate() {
+                stages = stages.child(div().id(("stage", i)).aria_label(name).child(name).test_support());
             }
-            root = root.child(
-                pane("half", r)
-                    .opacity(hp.alpha)
-                    .rounded(px(radius::R))
-                    .bg(card)
-                    .border_1()
-                    .border_color(ring)
-                    .overflow_hidden()
-                    .child(div().px(px(12.)).pt(px(10.)).text_color(fg3).text_size(px(12.)).child("Open in this half"))
-                    .child(grid)
+            main_el = main_el.child(
+                div()
+                    .id("stage-bar")
+                    .absolute()
+                    .left_0()
+                    .top(px(card_h))
+                    .w_full()
+                    .h(px(STAGE_H))
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .px(px(12.))
+                    .text_size(px(11.))
+                    .line_height(px(14.))
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(fg3)
+                    .child(div().id("stage-usage").aria_label("No usage data yet").child("No usage data yet").test_support())
+                    .child(stages)
                     .test_support(),
             );
         }
+        root = root.child(main_el.test_support());
 
-        // ---- drawer (frame colour, no border on the shared edge)
+        // ---- drawer (on the Shell's grey, no border of its own)
         if let (Some(dp), Some(p)) = (s.drawer, self.drawer.or(self.drawer_last)) {
             // A panel's body: absolute so two bodies can cross-fade in the same pane.
             let body = |p: Panel, a: f32| {
@@ -1326,15 +1412,58 @@ impl Render for Cauldron {
                     .child(div().font_weight(FontWeight::SEMIBOLD).child(p.title()))
                     .child(div().text_size(px(12.)).text_color(fg3).child(format!("This panel arrives in {}.", p.milestone())))
             };
-            let mut d = pane("drawer", dp.rect).opacity(dp.alpha).child(body(p, swap.map_or(1.0, |(_, k)| k)));
-            if let Some((a, k)) = swap {
-                d = d.child(body(a, 1.0 - k));
+            // The panels as a strip on top (the v3 board's `.dtabs`): the open one selected, its
+            // button folds the drawer back to the rail.
+            let mut strip = div().id("drawer-strip").flex().gap(px(4.)).pb(px(8.)).border_b_1().border_color(c(pal.line));
+            for (i, q) in ALL_PANELS.iter().enumerate() {
+                let q = *q;
+                let on = self.drawer == Some(q);
+                strip = strip.child(
+                    self.tipped(
+                        ("dt", i),
+                        div()
+                            .id(("dt", i))
+                            .flex_1()
+                            .h(px(28.))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .rounded(px(radius::INNER))
+                            .when_live(on, |d| d.bg(c(pal.selected)))
+                            .when_live(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
+                            .cursor_pointer()
+                            .aria_selected(on)
+                            .aria_label(q.title())
+                            .child(glyph(q.icon(), 16., if on { fg } else { fg3 })),
+                        q.title(),
+                        Side::Below,
+                        pal,
+                        cx,
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.toggle_panel(q);
+                        cx.notify();
+                    }))
+                    .test_support(),
+                );
             }
+            // Both bodies share one box under the strip, so the outgoing one cross-fades in place.
+            let mut bodies = div().relative().flex_1().min_h_0().child(body(p, swap.map_or(1.0, |(_, k)| k)));
+            if let Some((a, k)) = swap {
+                bodies = bodies.child(body(a, 1.0 - k));
+            }
+            let d = pane("drawer", dp.rect).opacity(dp.alpha).flex().flex_col().child(strip.test_support()).child(bodies);
             root = root.child(d.test_support());
         }
 
-        // ---- right rail
-        let mut rr = pane("rrail", s.rrail).flex().flex_col().items_center().gap(px(4.)).pt(px(metric::TAB_H + 4.0));
+        // ---- terminal card, in the drawer's place
+        if let Some(tp) = s.terminal {
+            root = root.child(self.terminal_card(pal, tp.rect, tp.alpha, cx).test_support());
+        }
+
+        // ---- right rail, only while the drawer is folded
+        if let Some(rp) = s.rrail {
+        let mut rr = pane("rrail", rp.rect).opacity(rp.alpha).flex().flex_col().items_center().gap(px(4.)).pt(px(4.));
         for (i, p) in TOP_PANELS.iter().enumerate() {
             let p = *p;
             rr = rr.child(
@@ -1355,8 +1484,9 @@ impl Render for Cauldron {
                 .test_support(),
         );
         root = root.child(rr.pb(px(8.)).test_support());
+        }
 
-        // ---- top bar: the logo and name after the sidebar button, breadcrumbs in the middle
+        // ---- top bar: the logo and name after the sidebar button
         let logo_x = s.sidebar_button.right() + metric::GAP;
         root = root.child(abs(Rect::new(logo_x, s.bar.y + (metric::BAR_H - 18.0) / 2.0, 18.0, 18.0)).rounded(px(9.)).bg(accent));
         root = root.child(
@@ -1368,18 +1498,9 @@ impl Render for Cauldron {
                 .text_color(fg)
                 .child("Cauldron"),
         );
-        let crumb: SharedString = self.thread.as_ref().map_or_else(|| "New thread".into(), |t| t.title.clone().into());
-        root = root.child(
-            abs(s.crumbs)
-                .flex()
-                .items_center()
-                .gap(px(6.))
-                .text_size(px(12.5))
-                .text_color(fg3)
-                .child(div().flex_none().child("Threads"))
-                .child(div().flex_none().child("/"))
-                .child(div().min_w_0().truncate().font_weight(FontWeight::MEDIUM).text_color(fg2).child(crumb)),
-        );
+        if let Some(row) = tab_row {
+            root = root.child(row.test_support());
+        }
 
         // ---- sidebar button (top bar, left)
         root = root.child(
@@ -1405,10 +1526,15 @@ impl Render for Cauldron {
                 .flex()
                 .items_center()
                 .gap(px(2.))
-                .child(self.tipped("top-term", icon_button("top-term", "terminal", "Terminal", pal, false), "Terminal", Side::Below, pal, cx).occlude().test_support())
+                .child(self.tipped("top-term", icon_button("top-term", "terminal", "Terminal", pal, self.terminal), "Terminal", Side::Below, pal, cx).occlude().on_click(cx.listener(|this, _, _, cx| {
+                    this.terminal = !this.terminal;
+                    this.term_scroll.scroll_to_bottom();
+                    cx.notify();
+                })).test_support())
                 .child(
-                    self.tipped("top-split", icon_button("top-split", "columns-2", "Split", pal, self.split), "Split", Side::Below, pal, cx).occlude().on_click(cx.listener(|this, _, _, cx| {
-                        this.split = !this.split;
+                    self.tipped("top-split", icon_button("top-split", "columns-2", "Split", pal, self.panes.shape != Shape::One), "Split", Side::Below, pal, cx).occlude().on_click(cx.listener(|this, _, _, cx| {
+                        // Split opens two side by side, or goes back to one pane.
+                        this.set_shape(if this.panes.shape == Shape::One { Shape::Cols } else { Shape::One });
                         cx.notify();
                     }))
                     .test_support(),
@@ -1464,10 +1590,11 @@ mod tests {
     use crate::threads::sample;
 
     #[test]
-    fn function_slots_span_the_card_with_equal_gaps() {
-        let w = 180.0;
-        assert_eq!(fn_slot_x(w, 0.0), 3.0);
-        assert!((fn_slot_x(w, 6.0) + metric::SBTN - (w - 3.0)).abs() < 1e-3, "last button ends at the padding");
+    fn function_slots_span_the_row_with_equal_gaps() {
+        // The row has no card border or padding now: the board's `.apps` runs edge to edge.
+        let w = 227.0;
+        assert_eq!(fn_slot_x(w, 0.0), 0.0);
+        assert!((fn_slot_x(w, 6.0) + metric::SBTN - w).abs() < 1e-3, "last button ends at the row's edge");
         let step = fn_slot_x(w, 1.0) - fn_slot_x(w, 0.0);
         assert!((fn_slot_x(w, 6.0) - fn_slot_x(w, 0.0) - 6.0 * step).abs() < 1e-3, "equal steps");
     }
@@ -1476,8 +1603,8 @@ mod tests {
     use gpui_kit::test::TestWindowExt;
     use gpui_kit::{px, size, AppContext, ElementId, TestAppContext, Window};
 
-    const W: f32 = 1240.0;
-    const H: f32 = 702.0;
+    pub(super) const W: f32 = 1240.0;
+    pub(super) const H: f32 = 702.0;
 
     fn assert_rect(window: &Window, id: &'static str, want: Rect, state: ShellState) {
         let b = window.find(id).bounds();
@@ -1490,16 +1617,17 @@ mod tests {
     }
 
     /// Every pane the shell draws sits exactly where `cauldron_chrome::layout::solve` puts it,
-    /// in all eight combinations of sidebar, drawer and split.
+    /// in all four combinations of sidebar and drawer. Split lives inside the card now (direction B),
+    /// so the solver's half pane is never drawn.
     #[gpui_kit::test]
     fn panes_match_the_layout_solver_in_every_state(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
-        for bits in 0..8u8 {
-            let state = ShellState { sidebar_open: bits & 1 != 0, drawer_open: bits & 2 != 0, split_open: bits & 4 != 0 };
+        for bits in 0..4u8 {
+            let state = ShellState { sidebar_open: bits & 1 != 0, drawer_open: bits & 2 != 0, split_open: false, terminal_open: false };
+            cx.update(|cx| cx.set_reduce_motion(true));
             let handle = cx.add_window(move |_, _| Cauldron {
                 sidebar_open: state.sidebar_open,
                 drawer: state.drawer_open.then_some(Panel::Highlights),
-                split: state.split_open,
                 ..Cauldron::new()
             });
             cx.simulate_window_resize(handle.into(), size(px(W), px(H)));
@@ -1507,10 +1635,10 @@ mod tests {
                 window.render_frame(cx);
                 let s = Frame::at_rest(&layout::solve(W, H, state, platform()));
                 assert_rect(window, "main", s.main, state);
-                assert_rect(window, "rrail", s.rrail, state);
+                assert_rect(window, "shell", s.shell, state);
                 assert_rect(window, "sbtn-slot", s.sidebar_button, state);
                 assert_rect(window, "topr", s.topr, state);
-                for (id, r) in [("sidebar", s.sidebar), ("rail", s.rail), ("drawer", s.drawer), ("half", s.half), ("caps", s.caps)] {
+                for (id, r) in [("sidebar", s.sidebar), ("rail", s.rail), ("rrail", s.rrail), ("drawer", s.drawer), ("half", s.half), ("caps", s.caps)] {
                     let r = r.map(|p| p.rect);
                     match r {
                         Some(r) => assert_rect(window, id, r, state),
@@ -1522,12 +1650,56 @@ mod tests {
         }
     }
 
+    /// The open drawer carries its panels as a strip on top (the v3 board's `.dtabs`): one 28px
+    /// button per panel sharing the width, the open one selected. Its button folds the drawer back to
+    /// the rail; a rail button opens it again on that panel.
+    #[gpui_kit::test]
+    fn the_drawer_switches_panels_from_its_own_strip(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        cx.update(|cx| cx.set_reduce_motion(true));
+        let handle = cx.add_window(|_, _| Cauldron::new());
+        cx.simulate_window_resize(handle.into(), size(px(W), px(H)));
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            let d = rect(window, "drawer");
+            assert!(window.try_find("rrail").is_none(), "no rail beside the open drawer");
+            for i in 0..5usize {
+                let b = rect(window, ("dt", i));
+                assert_eq!((b.y, b.h), (d.y, 28.0), "strip button {i} at the drawer's top");
+                assert!(b.x >= d.x && b.right() <= d.right(), "strip button {i} inside the drawer");
+                assert_eq!(dt_on(window, i), i == 0, "strip button {i}: Highlights is open");
+            }
+            assert_eq!(window.find(("dt", 4usize)).label(), Some("Patches"));
+            window.click(("dt", 4usize), cx);
+            assert!(dt_on(window, 4usize) && !dt_on(window, 0usize), "a strip button switches the panel");
+            window.click(("dt", 4usize), cx);
+        })
+        .unwrap();
+        // The shell moves on the wall clock, so start each check from rest.
+        let rest = |cx: &mut TestAppContext| handle.update(cx, |c, _, _| c.motion = Default::default()).unwrap();
+        rest(cx);
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            assert!(window.try_find("drawer").is_none() && window.try_find("rrail").is_some(), "the open panel's button folds the drawer to the rail");
+            window.click(("rb", 1usize), cx);
+        })
+        .unwrap();
+        rest(cx);
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            assert!(window.try_find("drawer").is_some() && dt_on(window, 1usize), "a rail button opens the drawer on its panel");
+            assert!(window.try_find("rrail").is_none(), "and the rail gives way");
+        })
+        .unwrap();
+    }
+
     /// Icon-only buttons carry their name for screen readers. Hovering one shows the name beside
     /// it, as the wireframe's `.fn[data-tip]`: 8px away, centred, after 450ms, and at once while
     /// the pointer moves between neighbours.
     #[gpui_kit::test]
     fn icon_buttons_have_names_and_tooltips(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
+        cx.update(|cx| cx.set_reduce_motion(true));
         let handle = cx.add_window(|_, _| Cauldron { drawer: None, ..Cauldron::new() });
         cx.simulate_window_resize(handle.into(), size(px(W), px(H)));
         let ms = std::time::Duration::from_millis;
@@ -1577,7 +1749,7 @@ mod tests {
         .unwrap();
     }
 
-    fn rect(window: &Window, id: impl Into<ElementId>) -> Rect {
+    pub(super) fn rect(window: &Window, id: impl Into<ElementId>) -> Rect {
         let b = window.find(id).bounds();
         Rect::new(f32::from(b.origin.x), f32::from(b.origin.y), f32::from(b.size.width), f32::from(b.size.height))
     }
@@ -1594,6 +1766,7 @@ mod tests {
     }
 
     fn open(cx: &mut TestAppContext, c: Cauldron) -> gpui_kit::WindowHandle<Cauldron> {
+        cx.update(|cx| cx.set_reduce_motion(true));
         let handle = cx.add_window(move |_, _| c);
         cx.simulate_window_resize(handle.into(), size(px(W), px(H)));
         handle
@@ -1603,27 +1776,121 @@ mod tests {
         (1..=n).filter(|&i| window.try_find(("tab", i)).is_some()).collect()
     }
 
-    /// The New thread screen: one tab that cannot be closed and no +, sitting on the card's corner.
+    fn dt_on(window: &Window, i: usize) -> bool {
+        window.find(("dt", i)).selected() == Some(true)
+    }
+
+    fn on(window: &Window, i: usize) -> bool {
+        window.find(("tab", i)).selected() == Some(true)
+    }
+
+    /// The New thread screen has no tabs; the card starts right under the bar and its 44px head
+    /// says New thread at the board's x (card + 14).
     #[gpui_kit::test]
-    fn new_thread_screen_has_one_fixed_tab_joined_to_the_card(cx: &mut TestAppContext) {
+    fn new_thread_screen_has_no_tabs_and_a_card_head(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let handle = open(cx, Cauldron::new());
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
-            let s = layout::solve(W, H, ShellState { sidebar_open: true, drawer_open: true, split_open: false }, platform());
-            let row = rect(window, "tabs");
-            assert_eq!((row.x, row.y, row.w, row.h), (s.tabs.x, s.tabs.y, s.tabs.w, s.tabs.h), "tab row");
+            let s = layout::solve(W, H, ShellState { sidebar_open: true, drawer_open: true, split_open: false, terminal_open: false }, platform());
+            assert!(window.try_find("tabs").is_none() && window.try_find(("tab", 0usize)).is_none(), "no tab before the thread exists");
+            assert!(window.try_find("tab-add").is_none(), "no +");
             let card = rect(window, "card");
-            assert_eq!((card.x, card.y, card.w, card.h), (s.main.x, s.main.y + s.tabs.h, s.main.w, s.main.h - s.tabs.h), "card");
-            assert_eq!(window.find(("tab", 0usize)).label(), Some("New thread"));
-            assert_eq!(rect(window, ("tab", 0usize)).bottom(), card.y + 1.0, "the open tab covers the card's top edge");
-            assert!(window.try_find(("tab-close", 0usize)).is_none(), "not closable");
-            assert!(window.try_find("tab-add").is_none(), "no + before the thread exists");
+            assert_eq!((card.x, card.y, card.w, card.h), (s.main.x, s.main.y, s.main.w, s.main.h - 32.0), "card right under the bar, the stage bar under it");
+            // The v3 bottom bar (Charles, 13 Nov): in the Shell's grey under the card, card-wide, 32 high,
+            // usage at the left and the four stages at the right. Core has neither yet, so usage is
+            // an empty state and no stage is current: plain fg3 labels, nothing to click.
+            let bar = rect(window, "stage-bar");
+            assert_eq!((bar.x, bar.y, bar.w, bar.h), (card.x, card.bottom(), card.w, 32.0), "stage bar");
+            let shell = rect(window, "shell");
+            assert_eq!((shell.x, shell.y, shell.right(), shell.bottom()), (s.shell.x, s.shell.y, s.shell.right(), s.shell.bottom()), "the Shell");
+            assert_eq!(bar.bottom() + 6.0, shell.bottom(), "the bar in the Shell's bottom gutter, not on the frame");
+            assert!(rect(window, "drawer").right() + 6.0 == shell.right(), "the drawer in the Shell's right gutter");
+            assert_eq!(window.find("stage-usage").label(), Some("No usage data yet"));
+            let mut last = rect(window, "stage-usage").right();
+            for (i, name) in ["Plan", "Execute", "Ship", "Commit"].into_iter().enumerate() {
+                let st = rect(window, ("stage", i));
+                assert_eq!(window.find(("stage", i)).label(), Some(name));
+                assert!(st.x > last && st.y >= bar.y && st.bottom() <= bar.bottom(), "stage {i} in order inside the bar");
+                assert_ne!(window.find(("stage", i)).selected(), Some(true), "stage {i}: none current before a thread exists");
+                last = st.right();
+            }
+            assert!(bar.right() - last <= 13.0, "the stages end at the bar's right padding");
+            let head = rect(window, "card-head");
+            assert_eq!((head.x, head.y, head.w, head.h), (card.x + 1.0, card.y + 1.0, card.w - 2.0, 44.0), "head");
+            assert_eq!(window.find("card-title").label(), Some("New thread"));
+            assert_eq!(rect(window, "card-title").x, card.x + 14.0, "title at the board's x");
         })
         .unwrap();
     }
 
-    /// Agent tabs share the room equally between 72 and 210px; the arrows appear exactly when 72px
+    /// A thread's tabs float in the top bar (the v3 board's `.ftab`): control-sm 24, the open one
+    /// selected, + the same height.
+    #[gpui_kit::test]
+    fn thread_tabs_float_in_the_bar(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = open(cx, with_agents(3, &[]));
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            let s = layout::solve(W, H, ShellState { sidebar_open: true, drawer_open: true, split_open: false, terminal_open: false }, platform());
+            let row = rect(window, "tabs");
+            assert_eq!((row.x, row.y, row.w, row.h), (s.tabs.x, s.tabs.y, s.tabs.w, s.tabs.h), "tab row");
+            assert!(row.bottom() <= s.bar.bottom(), "in the bar");
+            for i in 0..=3usize {
+                let t = rect(window, ("tab", i));
+                assert_eq!((t.y, t.h), (row.y, 24.0), "tab {i}");
+                assert_eq!(on(window, i), i == 0, "tab {i}: only the coordinator is open");
+            }
+            for i in 1..=3usize {
+                assert_eq!(rect(window, ("tab", i)).x - rect(window, ("tab", i - 1)).right(), 4.0, "4px between tabs {} and {i}", i - 1);
+            }
+            let add = rect(window, "tab-add");
+            assert_eq!((add.y, add.h), (row.y, 24.0), "+ as tall as the tabs");
+            window.click(("tab", 2usize), cx);
+            assert!(on(window, 2) && !on(window, 0), "a click opens the tab");
+            assert_eq!(rect(window, "card").y, s.main.y, "the card stays under the bar");
+        })
+        .unwrap();
+    }
+
+    /// No agent figures in threads (Charles, 13 Nov): they belong to the Agents page. A tab is its
+    /// label after the 8px padding, with agents on the thread or not.
+    #[gpui_kit::test]
+    fn tabs_carry_no_agent_figures(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = open(cx, with_agents(2, &[]));
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            for i in 0..=2usize {
+                assert!(window.try_find(("tab-fig", i)).is_none(), "tab {i} has no figure");
+            }
+        })
+        .unwrap();
+        let handle = open(cx, Cauldron { coordinator: Some("Plain thread".into()), ..Cauldron::new() });
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            assert_eq!(window.find(("tab", 0usize)).label(), Some("Plain thread"));
+            assert!(window.try_find(("tab-fig", 0usize)).is_none(), "a normal thread's tab has no figure");
+        })
+        .unwrap();
+    }
+
+    /// Core has no Needs you or usage yet, so both draw as empty states (Charles, 12 Nov): the
+    /// group's head with no rows and no count, and "No data yet" under the name.
+    #[gpui_kit::test]
+    fn needs_you_and_usage_are_empty_states(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = open(cx, with_threads());
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            assert_eq!(window.find("group-needs").label(), Some("Needs you"), "no count");
+            assert!(rect(window, "group-needs").bottom() <= rect(window, ("group", 0usize)).y, "first, with no rows under it");
+            assert_eq!(window.find("usage-left").label(), Some("No data yet"));
+        })
+        .unwrap();
+    }
+
+    /// Agent tabs fit their names within an equal share, 72 to 200px; the arrows appear exactly when 72px
     /// tabs no longer fit; the coordinator is pinned at the left, never scrolls and has no close.
     #[gpui_kit::test]
     fn agent_tabs_clamp_then_scroll_with_the_coordinator_pinned(cx: &mut TestAppContext) {
@@ -1638,8 +1905,8 @@ mod tests {
                 assert!(anchor.w <= 190.0, "{n}: coordinator at most 190: {anchor:?}");
                 assert_eq!(window.find(("tab", 0usize)).label(), Some("Cauldron · coordinator"));
                 assert!(window.try_find(("tab-close", 0usize)).is_none(), "{n}: coordinator has no close");
-                let room = row.w - anchor.w - 24.0;
-                let need = n as f32 * 74.0 + 2.0;
+                let room = row.w - anchor.w - 28.0;
+                let need = n as f32 * 76.0 + 4.0;
                 let arrows = window.try_find("tab-prev").is_some();
                 assert_eq!(arrows, need > room, "{n}: arrows iff 72px tabs do not fit (need {need}, room {room})");
                 let seen = visible(window, n);
@@ -1647,7 +1914,7 @@ mod tests {
                     assert!(seen.len() < n, "{n}: scrolling hides some tabs");
                     for id in ["tab-prev", "tab-next"] {
                         let r = rect(window, id);
-                        assert_eq!((r.w, r.h), (24.0, 28.0), "{id}");
+                        assert_eq!((r.w, r.h), (24.0, 24.0), "{id}: as tall as the tabs");
                         assert!(r.x < rect(window, "tab-add").x, "{id} left of +");
                     }
                 } else {
@@ -1688,7 +1955,7 @@ mod tests {
             window.click(("tab", 1usize), cx);
             window.press("end", cx);
             assert!(visible(window, n).contains(&n), "End opens and shows the last tab");
-            assert_eq!(rect(window, ("tab", n)).bottom(), rect(window, "card").y + 1.0, "and it is the open one");
+            assert!(on(window, n), "and it is the open one");
             for _ in 0..20 {
                 window.click("tab-prev", cx);
             }
@@ -1696,7 +1963,7 @@ mod tests {
             window.press("left", cx);
             assert!(visible(window, n).contains(&(n - 1)), "Left opens the tab before and shows it");
             window.press("home", cx);
-            assert_eq!(rect(window, ("tab", 0usize)).bottom(), rect(window, "card").y + 1.0, "Home opens the coordinator");
+            assert!(on(window, 0), "Home opens the coordinator");
             window.press("delete", cx);
             assert!(window.try_find(("tab", 0usize)).is_some(), "Delete never closes the coordinator");
             window.press("right", cx);
@@ -1740,7 +2007,7 @@ mod tests {
             window.render_frame(cx);
             assert!(window.try_find("tab-menu").is_none(), "the menu closes");
             assert_eq!(window.find(("tab", 3usize)).label(), Some("Tester"));
-            assert_eq!(rect(window, ("tab", 3usize)).bottom(), rect(window, "card").y + 1.0, "the new tab is open");
+            assert!(on(window, 3), "the new tab is open");
         })
         .unwrap();
     }
@@ -1753,6 +2020,7 @@ mod tests {
             .collect();
         v[0].pinned = true;
         v[1].busy = true;
+        v[1].agent = Some("Rampart".into());
         v[2].unread = true;
         v[3].failed = Some("usage limit".into());
         Cauldron { threads: Threads::Ready(v), ..Cauldron::new() }
@@ -1763,7 +2031,7 @@ mod tests {
     }
 
     /// The sidebar lists core's threads as Unread, Running, Failed, Done, each with its count,
-    /// top to bottom, inside the sidebar card.
+    /// top to bottom, inside the sidebar.
     #[gpui_kit::test]
     fn sidebar_lists_threads_in_groups_with_counts(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
@@ -1782,6 +2050,43 @@ mod tests {
                 assert!(r.x >= side.x && r.right() <= side.right(), "row {i} inside the sidebar");
             }
             assert!(rect(window, ("thread", 0usize)).y > rect(window, "new-thread").bottom(), "rows under New thread");
+        })
+        .unwrap();
+    }
+
+    /// The rows are the new-look board's `.th`: 30 high, the title, the repo in 11px, and a 6px ping
+    /// on an unread row only. Every row shows a state dot in its 18x22 slot, an agentic thread too:
+    /// agent figures belong to the Agents page (Charles, 13 Nov). Group heads are the board's 36px
+    /// `.sect`; New thread is a 32px row, not a button.
+    #[gpui_kit::test]
+    fn thread_rows_are_the_boards(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = open(cx, with_threads());
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            assert_eq!(rect(window, "new-thread").h, 32.0);
+            for g in 0..4usize {
+                assert_eq!(rect(window, ("group", g)).h, 36.0, "group {g}");
+            }
+            // Row 1 (Rampart mutation score) has an agent; it still shows a dot.
+            for (i, state) in [(0usize, "Unread"), (1, "Working"), (2, "Failed"), (3, "Done"), (4, "Done")] {
+                let r = rect(window, ("thread", i));
+                assert_eq!(r.h, 30.0, "row {i}");
+                let a = rect(window, ("thread-av", i));
+                assert_eq!((a.w, a.h), (18.0, 22.0), "row {i}'s slot");
+                assert!((a.y + a.h / 2.0 - (r.y + r.h / 2.0)).abs() <= 1.0, "row {i}'s slot is centred");
+                assert!((10.0..=13.0).contains(&(a.x - r.x)), "row {i}'s slot is 11px in, as the board's");
+                assert_eq!(window.find(("thread-av", i)).label(), Some(state), "row {i}");
+                assert!(window.try_find(("thread-fig", i)).is_none(), "row {i}: no figure");
+                assert!(window.try_find(("thread-dot", i)).is_some(), "row {i}: a state dot");
+                assert_eq!(window.find(("thread-meta", i)).label(), Some("no repo"), "row {i}");
+            }
+            let (row, ping) = (rect(window, ("thread", 0usize)), rect(window, ("ping", 0usize)));
+            assert_eq!((ping.w, ping.h), (6.0, 6.0));
+            assert!(row.right() - ping.right() <= 10.0, "the ping is at the row's right");
+            for i in 1..5usize {
+                assert!(window.try_find(("ping", i)).is_none(), "row {i} is read");
+            }
         })
         .unwrap();
     }

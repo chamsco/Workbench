@@ -1,0 +1,117 @@
+   Compiling cauldron-chrome v0.1.0 (C:\Users\chamy\Documents\code\Workbench\crates\chrome)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.68s
+     Running tests\wireframe.rs (target\debug\deps\wireframe-4a2ea1ab5932d3d0.exe)
+
+running 6 tests
+test solver_matches_every_golden_state_and_size ... ignored, golden predates the top bar A decision; re-measure after the wireframe is updated
+test main_keeps_a_minimum_width_by_closing_split_then_drawer ... ok
+test platforms_differ_only_in_window_controls ... ok
+test panes_never_overlap_and_stay_inside_the_window ... ok
+test tabs_float_in_the_bar_and_the_panes_start_under_it ... FAILED
+test golden_has_two_window_sizes ... ok
+
+failures:
+
+---- tabs_float_in_the_bar_and_the_panes_start_under_it stdout ----
+
+thread 'tabs_float_in_the_bar_and_the_panes_start_under_it' (18620) panicked at crates\chrome\tests\wireframe.rs:137:17:
+assertion `left == right` failed: 1200x720 Mac ShellState { sidebar_open: false, drawer_open: false, split_open: false }: tabs Rect { x: 211.0, y: 8.0, w: 902.0, h: 30.0 }: the board's 44px bar, its card head's height
+  left: (30.0, 44.0)
+ right: (24.0, 44.0)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    tabs_float_in_the_bar_and_the_panes_start_under_it
+
+test result: FAILED. 4 passed; 1 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p cauldron-chrome --test wireframe`
+   Compiling backspace v0.1.0 (C:\Users\chamy\Documents\code\Workbench\crates\app)
+warning: variable does not need to be mutable
+   --> crates\core\src\usage.rs:339:9
+    |
+339 |     let mut sess = |id: &str, t: u64, by: &mut BTreeMap<String, Session>| {
+    |         ----^^^^
+    |         |
+    |         help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `backspace-core` (lib) generated 1 warning (run `cargo fix --lib -p backspace-core` to apply 1 suggestion)
+warning: constant `SANS_MONO` is never used
+  --> crates\app\src\ui.rs:37:18
+   |
+37 | pub(crate) const SANS_MONO: &str = "Geist Mono";
+   |                  ^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `backspace` (bin "backspace" test) generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 47.86s
+     Running unittests src\main.rs (target\debug\deps\backspace-73e89efb1a68a498.exe)
+
+running 27 tests
+test shell::newthread::tests::the_body_line_turns_accent_with_focus ... ok
+test shell::tests::function_slots_span_the_row_with_equal_gaps ... ok
+test shell::tests::new_thread_screen_has_no_tabs_and_a_card_head ... ok
+test shell::tests::tabs_carry_no_agent_figures ... FAILED
+test shell::tests::needs_you_and_usage_are_empty_states ... ok
+test shell::tests::sidebar_lists_threads_in_groups_with_counts ... ok
+test shell::newthread::tests::start_waits_while_core_opens_and_says_when_it_failed ... ok
+test shell::newthread::tests::the_new_thread_screen_is_the_boards_centred_box ... ok
+test shell::thread::tests::lines_carry_who_answered_and_the_cost ... ok
+test shell::thread::tests::steps_group_a_replys_tool_calls ... ok
+test shell::tests::sidebar_draws_loading_empty_no_match_and_error ... ok
+test shell::tests::thread_rows_are_the_boards ... FAILED
+test shell::tests::thread_tabs_float_in_the_bar ... FAILED
+test shell::tests::icon_buttons_have_names_and_tooltips ... ok
+test shell::thread::tests::a_running_reply_shows_a_status_line ... FAILED
+test shell::tests::panes_match_the_layout_solver_in_every_state ... ok
+test shell::thread::tests::a_row_opens_its_thread ... ok
+test shell::newthread::tests::an_unreadable_file_leaves_no_thread_behind ... ok
+test shell::newthread::tests::start_waits_for_a_subscription ... ok
+test shell::thread::tests::the_effort_chip_cycles_and_saves ... ok
+test shell::tests::plus_opens_a_one_to_one ... ok
+test shell::newthread::tests::start_creates_sends_and_opens_the_thread ... ok
+test shell::thread::tests::the_composer_sends_through_core ... ok
+test shell::tests::search_filters_and_arrows_move_the_selection ... ok
+test shell::tests::the_open_tab_is_kept_in_view ... ok
+test shell::tests::agent_tabs_clamp_then_scroll_with_the_coordinator_pinned ... ok
+test shell::newthread::tests::start_on_a_connected_machine_sends_a_task ... ok
+
+failures:
+
+---- shell::tests::tabs_carry_no_agent_figures stdout ----
+
+thread 'shell::tests::tabs_carry_no_agent_figures' (32780) panicked at crates\app\src\shell.rs:1652:17:
+tab 0 has no figure
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- shell::tests::thread_rows_are_the_boards stdout ----
+
+thread 'shell::tests::thread_rows_are_the_boards' (12116) panicked at crates\app\src\shell.rs:1866:17:
+row 1: no figure
+
+---- shell::tests::thread_tabs_float_in_the_bar stdout ----
+
+thread 'shell::tests::thread_tabs_float_in_the_bar' (30680) panicked at crates\app\src\shell.rs:1628:17:
+assertion `left == right` failed: tab 0
+  left: (8.0, 30.0)
+ right: (8.0, 24.0)
+
+---- shell::thread::tests::a_running_reply_shows_a_status_line stdout ----
+
+thread 'shell::thread::tests::a_running_reply_shows_a_status_line' (14536) panicked at crates\app\src\shell\thread.rs:735:17:
+no agent bust
+
+
+failures:
+    shell::tests::tabs_carry_no_agent_figures
+    shell::tests::thread_rows_are_the_boards
+    shell::tests::thread_tabs_float_in_the_bar
+    shell::thread::tests::a_running_reply_shows_a_status_line
+
+test result: FAILED. 23 passed; 4 failed; 0 ignored; 0 measured; 11 filtered out; finished in 2.49s
+
+error: test failed, to rerun pass `-p backspace --bin backspace`

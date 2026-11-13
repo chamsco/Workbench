@@ -1,0 +1,5 @@
+error[E0425]: cannot find function `bust_size` in module `cauldron_chrome::avatar`
+error[E0560]: struct `Look` has no field named `bust`
+error[E0560]: struct `Look` has no field named `ink`
+error[E0560]: struct `Look` has no field named `bust`
+error[E0560]: struct `Look` has no field named `ink`

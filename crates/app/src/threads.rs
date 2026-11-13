@@ -1,5 +1,5 @@
-//! The sidebar's thread list (UI3): which group a thread is in, the search filter and the age
-//! label. Pure functions over `Chats::list()`, so the view only draws.
+//! The sidebar's thread list (UI3): which group a thread is in, the search filter and the meta
+//! after the title. Pure functions over `Chats::list()`, so the view only draws.
 //!
 //! Groups are the ones core can back today (docs/cauldron/UI3-CORE-MAP.md): Needs you per
 //! thread, Hibernating and Archived wait for core and are left out rather than faked.
@@ -55,23 +55,11 @@ pub(crate) fn grouped<'a>(list: &'a [ThreadInfo], query: &str) -> Vec<(Group, Ve
         .collect()
 }
 
-/// "now", "4m", "2h", "3d", "5w" since `updated`, both in ms.
-pub(crate) fn age(now: u64, updated: u64) -> String {
-    let m = now.saturating_sub(updated) / 60_000;
-    match m {
-        0 => "now".into(),
-        1..=59 => format!("{m}m"),
-        60..=1439 => format!("{}h", m / 60),
-        1440..=10079 => format!("{}d", m / 1440),
-        _ => format!("{}w", m / 10080),
-    }
-}
-
-/// The row's second line: the project's folder name, else the last message.
-pub(crate) fn subtitle(t: &ThreadInfo) -> String {
+/// The row's meta after the title, as the board's `.m`: the project's folder name, else "no repo".
+pub(crate) fn meta(t: &ThreadInfo) -> String {
     match &t.project {
         Some(p) => p.rsplit(['/', '\\']).find(|s| !s.is_empty()).unwrap_or(p).to_string(),
-        None => t.preview.clone(),
+        None => "no repo".into(),
     }
 }
 
@@ -121,6 +109,8 @@ pub(crate) fn fixture(now: u64) -> Vec<ThreadInfo> {
             unread,
             project: Some(project.into()),
             failed: failed.then(|| "usage limit".into()),
+            // One thread with an agent; it still shows a state dot.
+            agent: (id == "r1").then(|| "Rampart".into()),
             ..sample(id, title)
         })
         .collect();
@@ -130,7 +120,7 @@ pub(crate) fn fixture(now: u64) -> Vec<ThreadInfo> {
 
 #[cfg(test)]
 mod tests {
-    use super::{age, grouped, sample, subtitle, Group};
+    use super::{grouped, meta, sample, Group};
 
     #[test]
     fn each_thread_lands_in_one_group_by_precedence() {
@@ -168,26 +158,13 @@ mod tests {
     }
 
     #[test]
-    fn ages_read_short() {
-        let m = 60_000;
-        assert_eq!(age(10 * m, 10 * m), "now");
-        assert_eq!(age(5 * m, 10 * m), "now", "a clock behind the thread is not negative");
-        assert_eq!(age(4 * m, 0), "4m");
-        assert_eq!(age(59 * m, 0), "59m");
-        assert_eq!(age(60 * m, 0), "1h");
-        assert_eq!(age(1439 * m, 0), "23h");
-        assert_eq!(age(1440 * m, 0), "1d");
-        assert_eq!(age(10080 * m, 0), "1w");
-    }
-
-    #[test]
-    fn subtitle_is_the_project_folder_else_the_preview() {
+    fn meta_is_the_project_folder_else_no_repo() {
         let mut t = sample("a", "A");
         t.preview = "last words".into();
-        assert_eq!(subtitle(&t), "last words");
+        assert_eq!(meta(&t), "no repo");
         t.project = Some("C:\\code\\Cauldron\\".into());
-        assert_eq!(subtitle(&t), "Cauldron");
+        assert_eq!(meta(&t), "Cauldron");
         t.project = Some("/home/x/brainwave".into());
-        assert_eq!(subtitle(&t), "brainwave");
+        assert_eq!(meta(&t), "brainwave");
     }
 }

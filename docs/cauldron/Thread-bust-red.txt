@@ -1,0 +1,4 @@
+test shell::thread::tests::a_running_reply_shows_the_bust_on_its_status_line ... FAILED
+thread 'shell::thread::tests::a_running_reply_shows_the_bust_on_its_status_line' (65236) panicked at C:\Users\chamy\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gpui-kit-0.6.6\src\test.rs:54:9:
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 27 filtered out; finished in 0.09s
+error: test failed, to rerun pass `-p backspace --bin backspace`

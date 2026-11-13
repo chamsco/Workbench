@@ -1,0 +1,108 @@
+   Compiling cauldron-chrome v0.1.0 (C:\Users\chamy\Documents\code\Workbench\crates\chrome)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 21.10s
+     Running tests\wireframe.rs (target\debug\deps\wireframe-4a2ea1ab5932d3d0.exe)
+
+running 6 tests
+test solver_matches_every_golden_state_and_size ... ignored, golden predates the top bar A decision; re-measure after the wireframe is updated
+test main_keeps_a_minimum_width_by_closing_split_then_drawer ... ok
+test platforms_differ_only_in_window_controls ... ok
+test panes_never_overlap_and_stay_inside_the_window ... ok
+test golden_has_two_window_sizes ... ok
+test tabs_float_in_the_bar_and_the_panes_start_under_it ... FAILED
+
+failures:
+
+---- tabs_float_in_the_bar_and_the_panes_start_under_it stdout ----
+
+thread 'tabs_float_in_the_bar_and_the_panes_start_under_it' (26296) panicked at crates\chrome\tests\wireframe.rs:138:17:
+assertion `left == right` failed: 1200x720 Mac ShellState { sidebar_open: false, drawer_open: false, split_open: false }: tabs Rect { x: 53.0, y: 45.0, w: 1090.0, h: 26.0 }
+  left: 26.0
+ right: 30.0
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    tabs_float_in_the_bar_and_the_panes_start_under_it
+
+test result: FAILED. 4 passed; 1 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p cauldron-chrome --test wireframe`
+   Compiling backspace v0.1.0 (C:\Users\chamy\Documents\code\Workbench\crates\app)
+warning: variable does not need to be mutable
+   --> crates\core\src\usage.rs:339:9
+    |
+339 |     let mut sess = |id: &str, t: u64, by: &mut BTreeMap<String, Session>| {
+    |         ----^^^^
+    |         |
+    |         help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `backspace-core` (lib) generated 1 warning (run `cargo fix --lib -p backspace-core` to apply 1 suggestion)
+warning: constant `SANS_MONO` is never used
+  --> crates\app\src\ui.rs:37:18
+   |
+37 | pub(crate) const SANS_MONO: &str = "Geist Mono";
+   |                  ^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `backspace` (bin "backspace" test) generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 29.40s
+     Running unittests src\main.rs (target\debug\deps\backspace-73e89efb1a68a498.exe)
+
+running 8 tests
+test shell::tests::new_thread_screen_has_no_tabs_and_a_card_head ... FAILED
+test shell::tests::tab_figures_only_for_agentic_threads ... FAILED
+test shell::tests::thread_tabs_float_in_the_bar ... FAILED
+test shell::tests::needs_you_and_usage_are_empty_states ... FAILED
+test shell::newthread::tests::the_new_thread_screen_is_the_boards_centred_box ... ok
+test shell::tests::the_open_tab_is_kept_in_view ... FAILED
+test shell::tests::plus_opens_a_one_to_one ... FAILED
+test shell::tests::agent_tabs_clamp_then_scroll_with_the_coordinator_pinned ... ok
+
+failures:
+
+---- shell::tests::new_thread_screen_has_no_tabs_and_a_card_head stdout ----
+
+thread 'shell::tests::new_thread_screen_has_no_tabs_and_a_card_head' (46480) panicked at crates\app\src\shell.rs:1604:13:
+no tab before the thread exists
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- shell::tests::tab_figures_only_for_agentic_threads stdout ----
+
+thread 'shell::tests::tab_figures_only_for_agentic_threads' (27576) panicked at C:\Users\chamy\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gpui-kit-0.6.6\src\test.rs:54:9:
+missing ElementId NamedInteger("tab-fig", 0) in scope []. Registered paths: [View(EntityId(1v1)), Name("cauldron"), Name("caps")], [View(EntityId(1v1)), Name("cauldron"), Name("drawer")], [View(EntityId(1v1)), Name("cauldron"), Name("main"), Name("card"), Name("new-thread-screen"), Name("nt-box"), Name("add-file")], [View(EntityId(1v1)), Name("cauldron"), Name("main"), Name("card"), Name("new-thread-screen"), Name("nt-box"), Name("nt-effort")], [View(EntityId(1v1)), Name("cauldron"), Name("main"), Name("card"), Name("new-thread-screen"), Name("nt-box"), Name("nt-input"), Name("gpui_component::input::textarea::Textarea"), Name("gpui_component::input::input::Input"), NamedInteger("input", 4294967300)], [View(EntityId(1v1)), Name("cauldron"), Name("main"), Name("card"), Name("new-thread-screen"), Name("nt-box"), Name("nt-input")], [View(EntityId(1v1)), Name("cauldron"), Name("main"), Name("card"), Name("new-thread-screen"), Name("nt-box"), Name("start")], [View(EntityId(1v1)), Name("cauldron"), Name("main"), Name("card"), Name("new-thread-screen"), Name("nt-box")], [View(EntityId(1v1)), Name("cauldron"), Name("main"), Name("card"), Name("new-thread-screen"), Name("nt-ctx"), Name("machine")], [View(EntityId(1v1)), Name("cauldron"), Name("main"), Name("card"), Name("new-thread-screen"), Name("nt-ctx")], [View(EntityId(1v1)), Name("cauldron"), Name("main"), Name("card"), Name("new-thread-screen"), Name("start-why")], [View(EntityId(1v1)), Name("cauldron"), Name("main"), Name("card"), Name("new-thread-screen")], [View(EntityId(1v1)), Name("cauldron"), Name("main"), Name("card")], [View(EntityId(1v1)), Name("cauldron"), Name("main"), Name("tabs"), Name("tab-add")], [View(EntityId(1v1)), Name("cauldron"), Name("main"), Name("tabs"), NamedInteger("tab", 0)], [View(EntityId(1v1)), Name("cauldron"), Name("main"), Name("tabs"), NamedInteger("tab", 1), NamedInteger("tab-close", 1)], [View(EntityId(1v1)), Name("cauldron"), Name("main"), Name("tabs"), NamedInteger("tab", 1)], [View(EntityId(1v1)), Name("cauldron"), Name("main"), Name("tabs"), NamedInteger("tab", 2), NamedInteger("tab-close", 2)], [View(EntityId(1v1)), Name("cauldron"), Name("main"), Name("tabs"), NamedInteger("tab", 2)], [View(EntityId(1v1)), Name("cauldron"), Name("main"), Name("tabs")], [View(EntityId(1v1)), Name("cauldron"), Name("main")], [View(EntityId(1v1)), Name("cauldron"), Name("rrail"), Name("rb-patches")], [View(EntityId(1v1)), Name("cauldron"), Name("rrail"), NamedInteger("rb", 0)], [View(EntityId(1v1)), Name("cauldron"), Name("rrail"), NamedInteger("rb", 1)], [View(EntityId(1v1)), Name("cauldron"), Name("rrail"), NamedInteger("rb", 2)], [View(EntityId(1v1)), Name("cauldron"), Name("rrail"), NamedInteger("rb", 3)], [View(EntityId(1v1)), Name("cauldron"), Name("rrail")], [View(EntityId(1v1)), Name("cauldron"), Name("sbtn-slot"), Name("sbtn")], [View(EntityId(1v1)), Name("cauldron"), Name("sbtn-slot")], [View(EntityId(1v1)), Name("cauldron"), Name("sidebar"), Name("new-thread")], [View(EntityId(1v1)), Name("cauldron"), Name("sidebar"), Name("search"), Name("gpui_component::input::input::Input"), NamedInteger("input", 4294967302)], [View(EntityId(1v1)), Name("cauldron"), Name("sidebar"), Name("search")], [View(EntityId(1v1)), Name("cauldron"), Name("sidebar"), Name("settings")], [View(EntityId(1v1)), Name("cauldron"), Name("sidebar"), Name("thread-list"), Name("threads-empty")], [View(EntityId(1v1)), Name("cauldron"), Name("sidebar"), NamedInteger("fn", 0)], [View(EntityId(1v1)), Name("cauldron"), Name("sidebar"), NamedInteger("fn", 1)], [View(EntityId(1v1)), Name("cauldron"), Name("sidebar"), NamedInteger("fn", 2)], [View(EntityId(1v1)), Name("cauldron"), Name("sidebar"), NamedInteger("fn", 3)], [View(EntityId(1v1)), Name("cauldron"), Name("sidebar"), NamedInteger("fn", 4)], [View(EntityId(1v1)), Name("cauldron"), Name("sidebar"), NamedInteger("fn", 5)], [View(EntityId(1v1)), Name("cauldron"), Name("sidebar"), NamedInteger("fn", 6)], [View(EntityId(1v1)), Name("cauldron"), Name("sidebar")], [View(EntityId(1v1)), Name("cauldron"), Name("topr"), Name("top-split")], [View(EntityId(1v1)), Name("cauldron"), Name("topr"), Name("top-term")], [View(EntityId(1v1)), Name("cauldron"), Name("topr")]. Check the ID, observation, and completed frame.
+
+---- shell::tests::thread_tabs_float_in_the_bar stdout ----
+
+thread 'shell::tests::thread_tabs_float_in_the_bar' (6204) panicked at crates\app\src\shell.rs:1626:13:
+in the bar
+
+---- shell::tests::needs_you_and_usage_are_empty_states stdout ----
+
+thread 'shell::tests::needs_you_and_usage_are_empty_states' (52968) panicked at C:\Users\chamy\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gpui-kit-0.6.6\src\test.rs:54:9:
+missing ElementId Name("group-needs") in scope []. Registered paths: [View(EntityId(1v1)), Name("cauldron"), Name("caps")], [View(EntityId(1v1)), Name("cauldron"), Name("drawer")], [View(EntityId(1v1)), Name("cauldron"), Name("main"), Name("card"), Name("new-thread-screen"), Name("nt-box"), Name("add-file")], [View(EntityId(1v1)), Name("cauldron"), Name("main"), Name("card"), Name("new-thread-screen"), Name("nt-box"), Name("nt-effort")], [View(EntityId(1v1)), Name("cauldron"), Name("main"), Name("card"), Name("new-thread-screen"), Name("nt-box"), Name("nt-input"), Name("gpui_component::input::textarea::Textarea"), Name("gpui_component::input::input::Input"), NamedInteger("input", 4294967300)], [View(EntityId(1v1)), Name("cauldron"), Name("main"), Name("card"), Name("new-thread-screen"), Name("nt-box"), Name("nt-input")], [View(EntityId(1v1)), Name("cauldron"), Name("main"), Name("card"), Name("new-thread-screen"), Name("nt-box"), Name("start")], [View(EntityId(1v1)), Name("cauldron"), Name("main"), Name("card"), Name("new-thread-screen"), Name("nt-box")], [View(EntityId(1v1)), Name("cauldron"), Name("main"), Name("card"), Name("new-thread-screen"), Name("nt-ctx"), Name("machine")], [View(EntityId(1v1)), Name("cauldron"), Name("main"), Name("card"), Name("new-thread-screen"), Name("nt-ctx")], [View(EntityId(1v1)), Name("cauldron"), Name("main"), Name("card"), Name("new-thread-screen"), Name("start-why")], [View(EntityId(1v1)), Name("cauldron"), Name("main"), Name("card"), Name("new-thread-screen")], [View(EntityId(1v1)), Name("cauldron"), Name("main"), Name("card")], [View(EntityId(1v1)), Name("cauldron"), Name("main"), Name("tabs"), NamedInteger("tab", 0)], [View(EntityId(1v1)), Name("cauldron"), Name("main"), Name("tabs")], [View(EntityId(1v1)), Name("cauldron"), Name("main")], [View(EntityId(1v1)), Name("cauldron"), Name("rrail"), Name("rb-patches")], [View(EntityId(1v1)), Name("cauldron"), Name("rrail"), NamedInteger("rb", 0)], [View(EntityId(1v1)), Name("cauldron"), Name("rrail"), NamedInteger("rb", 1)], [View(EntityId(1v1)), Name("cauldron"), Name("rrail"), NamedInteger("rb", 2)], [View(EntityId(1v1)), Name("cauldron"), Name("rrail"), NamedInteger("rb", 3)], [View(EntityId(1v1)), Name("cauldron"), Name("rrail")], [View(EntityId(1v1)), Name("cauldron"), Name("sbtn-slot"), Name("sbtn")], [View(EntityId(1v1)), Name("cauldron"), Name("sbtn-slot")], [View(EntityId(1v1)), Name("cauldron"), Name("sidebar"), Name("new-thread")], [View(EntityId(1v1)), Name("cauldron"), Name("sidebar"), Name("search"), Name("gpui_component::input::input::Input"), NamedInteger("input", 4294967302)], [View(EntityId(1v1)), Name("cauldron"), Name("sidebar"), Name("search")], [View(EntityId(1v1)), Name("cauldron"), Name("sidebar"), Name("settings")], [View(EntityId(1v1)), Name("cauldron"), Name("sidebar"), Name("thread-list"), NamedInteger("group", 0)], [View(EntityId(1v1)), Name("cauldron"), Name("sidebar"), Name("thread-list"), NamedInteger("group", 1)], [View(EntityId(1v1)), Name("cauldron"), Name("sidebar"), Name("thread-list"), NamedInteger("group", 2)], [View(EntityId(1v1)), Name("cauldron"), Name("sidebar"), Name("thread-list"), NamedInteger("group", 3)], [View(EntityId(1v1)), Name("cauldron"), Name("sidebar"), Name("thread-list"), NamedInteger("thread", 0), NamedInteger("ping", 0)], [View(EntityId(1v1)), Name("cauldron"), Name("sidebar"), Name("thread-list"), NamedInteger("thread", 0), NamedInteger("thread-av", 0), NamedInteger("thread-dot", 0)], [View(EntityId(1v1)), Name("cauldron"), Name("sidebar"), Name("thread-list"), NamedInteger("thread", 0), NamedInteger("thread-av", 0)], [View(EntityId(1v1)), Name("cauldron"), Name("sidebar"), Name("thread-list"), NamedInteger("thread", 0), NamedInteger("thread-meta", 0)], [View(EntityId(1v1)), Name("cauldron"), Name("sidebar"), Name("thread-list"), NamedInteger("thread", 0)], [View(EntityId(1v1)), Name("cauldron"), Name("sidebar"), Name("thread-list"), NamedInteger("thread", 1), NamedInteger("thread-av", 1), NamedInteger("thread-fig", 1)], [View(EntityId(1v1)), Name("cauldron"), Name("sidebar"), Name("thread-list"), NamedInteger("thread", 1), NamedInteger("thread-av", 1)], [View(EntityId(1v1)), Name("cauldron"), Name("sidebar"), Name("thread-list"), NamedInteger("thread", 1), NamedInteger("thread-meta", 1)], [View(EntityId(1v1)), Name("cauldron"), Name("sidebar"), Name("thread-list"), NamedInteger("thread", 1)], [View(EntityId(1v1)), Name("cauldron"), Name("sidebar"), Name("thread-list"), NamedInteger("thread", 2), NamedInteger("thread-av", 2), NamedInteger("thread-dot", 2)], [View(EntityId(1v1)), Name("cauldron"), Name("sidebar"), Name("thread-list"), NamedInteger("thread", 2), NamedInteger("thread-av", 2)], [View(EntityId(1v1)), Name("cauldron"), Name("sidebar"), Name("thread-list"), NamedInteger("thread", 2), NamedInteger("thread-meta", 2)], [View(EntityId(1v1)), Name("cauldron"), Name("sidebar"), Name("thread-list"), NamedInteger("thread", 2)], [View(EntityId(1v1)), Name("cauldron"), Name("sidebar"), Name("thread-list"), NamedInteger("thread", 3), NamedInteger("thread-av", 3), NamedInteger("thread-dot", 3)], [View(EntityId(1v1)), Name("cauldron"), Name("sidebar"), Name("thread-list"), NamedInteger("thread", 3), NamedInteger("thread-av", 3)], [View(EntityId(1v1)), Name("cauldron"), Name("sidebar"), Name("thread-list"), NamedInteger("thread", 3), NamedInteger("thread-meta", 3)], [View(EntityId(1v1)), Name("cauldron"), Name("sidebar"), Name("thread-list"), NamedInteger("thread", 3)], [View(EntityId(1v1)), Name("cauldron"), Name("sidebar"), Name("thread-list"), NamedInteger("thread", 4), NamedInteger("thread-av", 4), NamedInteger("thread-dot", 4)], [View(EntityId(1v1)), Name("cauldron"), Name("sidebar"), Name("thread-list"), NamedInteger("thread", 4), NamedInteger("thread-av", 4)], [View(EntityId(1v1)), Name("cauldron"), Name("sidebar"), Name("thread-list"), NamedInteger("thread", 4), NamedInteger("thread-meta", 4)], [View(EntityId(1v1)), Name("cauldron"), Name("sidebar"), Name("thread-list"), NamedInteger("thread", 4)], [View(EntityId(1v1)), Name("cauldron"), Name("sidebar"), NamedInteger("fn", 0)], [View(EntityId(1v1)), Name("cauldron"), Name("sidebar"), NamedInteger("fn", 1)], [View(EntityId(1v1)), Name("cauldron"), Name("sidebar"), NamedInteger("fn", 2)], [View(EntityId(1v1)), Name("cauldron"), Name("sidebar"), NamedInteger("fn", 3)], [View(EntityId(1v1)), Name("cauldron"), Name("sidebar"), NamedInteger("fn", 4)], [View(EntityId(1v1)), Name("cauldron"), Name("sidebar"), NamedInteger("fn", 5)], [View(EntityId(1v1)), Name("cauldron"), Name("sidebar"), NamedInteger("fn", 6)], [View(EntityId(1v1)), Name("cauldron"), Name("sidebar")], [View(EntityId(1v1)), Name("cauldron"), Name("topr"), Name("top-split")], [View(EntityId(1v1)), Name("cauldron"), Name("topr"), Name("top-term")], [View(EntityId(1v1)), Name("cauldron"), Name("topr")]. Check the ID, observation, and completed frame.
+
+---- shell::tests::the_open_tab_is_kept_in_view stdout ----
+
+thread 'shell::tests::the_open_tab_is_kept_in_view' (62520) panicked at crates\app\src\shell.rs:1744:13:
+and it is the open one
+
+---- shell::tests::plus_opens_a_one_to_one stdout ----
+
+thread 'shell::tests::plus_opens_a_one_to_one' (14792) panicked at crates\app\src\shell.rs:1796:13:
+the new tab is open
+
+
+failures:
+    shell::tests::needs_you_and_usage_are_empty_states
+    shell::tests::new_thread_screen_has_no_tabs_and_a_card_head
+    shell::tests::plus_opens_a_one_to_one
+    shell::tests::tab_figures_only_for_agentic_threads
+    shell::tests::the_open_tab_is_kept_in_view
+    shell::tests::thread_tabs_float_in_the_bar
+
+test result: FAILED. 2 passed; 6 failed; 0 ignored; 0 measured; 30 filtered out; finished in 1.33s
+
+error: test failed, to rerun pass `-p backspace --bin backspace`

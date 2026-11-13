@@ -1,0 +1,13 @@
+test shell::newthread::tests::the_body_line_turns_accent_with_focus ... ok
+test shell::newthread::tests::start_waits_while_core_opens_and_says_when_it_failed ... ok
+test shell::newthread::tests::the_new_thread_screen_is_the_boards_centred_box ... FAILED
+test shell::newthread::tests::start_waits_for_a_subscription ... ok
+test shell::newthread::tests::an_unreadable_file_leaves_no_thread_behind ... ok
+test shell::newthread::tests::start_creates_sends_and_opens_the_thread ... ok
+test shell::newthread::tests::start_on_a_connected_machine_sends_a_task ... ok
+
+thread 'shell::newthread::tests::the_new_thread_screen_is_the_boards_centred_box' (48244) panicked at crates\app\src\shell\newthread.rs:714:17:
+nt-brand is not on the board
+test result: FAILED. 6 passed; 1 failed; 0 ignored; 0 measured; 21 filtered out; finished in 2.68s
+
+error: test failed, to rerun pass `-p backspace --bin backspace`

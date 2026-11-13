@@ -1,8 +1,9 @@
 //! Shell layout solver. Pure geometry: no drawing, no GPUI.
 //!
 //! Coordinates are logical pixels from the window's top-left corner, the 1px window border
-//! included, exactly as `tests/golden/wireframe.json` was measured. [`layout`] is the literal
-//! wireframe; [`solve`] first applies the minimum-width rule, which the wireframe does not draw.
+//! included, as `tests/golden/wireframe.json` was measured. [`layout`] started as the wireframe and
+//! now follows the v3 board (design/cauldron-new-look-v3.html): the top bar, floating tabs and the
+//! drawer in the right gutter. [`solve`] first applies the minimum-width rule.
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Rect {
@@ -39,6 +40,8 @@ pub struct ShellState {
     pub sidebar_open: bool,
     pub drawer_open: bool,
     pub split_open: bool,
+    /// The terminal card in the right gutter, in the drawer's place.
+    pub terminal_open: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -49,12 +52,19 @@ pub struct Shell {
     pub rail: Option<Rect>,
     pub sidebar: Option<Rect>,
     pub bar: Rect,
-    pub crumbs: Rect,
+    /// The grey Shell (`card`, radius SHELL) right of the sidebar: the main card, Split and the
+    /// drawer or its rail sit inside it, SHELL_PAD in, so the drawer stands in its right gutter
+    /// and the new thread's bar in its bottom one.
+    pub shell: Rect,
     pub main: Rect,
     pub tabs: Rect,
     pub half: Option<Rect>,
     pub drawer: Option<Rect>,
-    pub rrail: Rect,
+    /// The terminal card (v3 frame 5): in the right gutter, the drawer folded to its rail beside it.
+    pub terminal: Option<Rect>,
+    /// The 44px panel rail, shown only while the drawer is folded (the open drawer carries the
+    /// panels as a strip on top).
+    pub rrail: Option<Rect>,
     pub sidebar_button: Rect,
     pub lights: Option<Rect>,
     /// Terminal and Split.
@@ -71,15 +81,18 @@ pub mod metric {
     pub const RAIL_W: f32 = 44.0;
     pub const SIDEBAR_W: f32 = 236.0;
     pub const RRAIL_W: f32 = 44.0;
-    pub const DRAWER_W: f32 = 200.0;
+    /// The drawer in the right gutter: as wide as the sidebar (v3 board, Charles 13 Nov).
+    pub const DRAWER_W: f32 = SIDEBAR_W;
     pub const SPLIT_W: f32 = 292.0;
-    /// The top bar, full width. Its height and the gap under it.
-    pub const BAR_H: f32 = 40.0;
-    pub const BAR_GAP: f32 = 4.0;
-    /// The tab row above the main card (34 in the old wireframe, 26 from the top bar decision).
-    pub const TAB_H: f32 = 26.0;
-    /// The logo and the name after the sidebar button, before the breadcrumbs.
-    pub const TITLE_W: f32 = 184.0;
+    /// The terminal card, the v3 board's `.term`.
+    pub const TERM_W: f32 = 430.0;
+    /// The top bar, full width: the board's 44, the height of the card's head, so the two lines
+    /// match. The card and the side panes start right under it.
+    pub const BAR_H: f32 = 44.0;
+    /// A floating tab in the top bar: control-sm, a little smaller than v2's (Charles, 13 Nov).
+    pub const TAB_H: f32 = 24.0;
+    /// The logo and the name after the sidebar button; the tabs never start before its end.
+    pub const TITLE_W: f32 = 96.0;
     pub const SBTN: f32 = 28.0;
     pub const TOPR_W: f32 = 58.0;
     pub const TOPR_H: f32 = 28.0;
@@ -88,6 +101,8 @@ pub mod metric {
     pub const CAPS_MARGIN_RIGHT: f32 = 20.0;
     /// Proposed, not drawn in the wireframe.
     pub const MAIN_MIN_W: f32 = 360.0;
+    /// The Shell's inside padding: the card's radius nests in the Shell's (22 = 16 + 6).
+    pub const PAD: f32 = crate::tokens::radius::SHELL_PAD;
 }
 
 /// The window's geometry for exactly the state asked for. The top bar runs the full width; the
@@ -96,7 +111,7 @@ pub fn layout(w: f32, h: f32, state: ShellState, platform: Platform) -> Shell {
     use metric::*;
     let inner = Rect::new(BORDER, BORDER, w - 2.0 * BORDER, h - 2.0 * BORDER);
     let bar = Rect::new(inner.x, inner.y, inner.w, BAR_H);
-    let top = inner.y + BAR_H + BAR_GAP;
+    let top = inner.y + BAR_H;
     let height = inner.bottom() - top - MARGIN_BOTTOM;
 
     let (rail, sidebar, main_x) = if state.sidebar_open {
@@ -106,26 +121,31 @@ pub fn layout(w: f32, h: f32, state: ShellState, platform: Platform) -> Shell {
         (Some(Rect::new(inner.x, top, RAIL_W, height)), None, inner.x + RAIL_W + GAP)
     };
 
-    let rrail = Rect::new(inner.right() - MARGIN_SIDE - RRAIL_W, top, RRAIL_W, height);
-    let below_tabs = |x: f32, w: f32| Rect::new(x, top + TAB_H, w, height - TAB_H);
-
-    let mut main_right = rrail.x;
-    let drawer = state.drawer_open.then(|| {
-        let d = below_tabs(rrail.x - DRAWER_W, DRAWER_W);
-        main_right = d.x - GAP;
-        d
+    // The Shell from the sidebar to the side margin; everything in it sits SHELL_PAD in, and its
+    // right gutter holds the open drawer, or the rail while it is folded.
+    let shell = Rect::new(main_x, top, inner.right() - MARGIN_SIDE - main_x, height);
+    let (in_top, in_h, right) = (top + PAD, height - 2.0 * PAD, shell.right() - PAD);
+    let (drawer, rrail) = if state.drawer_open && !state.terminal_open {
+        (Some(Rect::new(right - DRAWER_W, in_top, DRAWER_W, in_h)), None)
+    } else {
+        (None, Some(Rect::new(right - RRAIL_W, in_top, RRAIL_W, in_h)))
+    };
+    let mut main_right = drawer.or(rrail).map_or(right, |r| r.x) - PAD;
+    let terminal = state.terminal_open.then(|| {
+        let t = Rect::new(main_right - TERM_W, in_top, TERM_W, in_h);
+        main_right = t.x - PAD;
+        t
     });
     let half = state.split_open.then(|| {
-        let hf = below_tabs(main_right - SPLIT_W, SPLIT_W);
-        main_right = hf.x - GAP;
+        let hf = Rect::new(main_right - SPLIT_W, in_top, SPLIT_W, in_h);
+        main_right = hf.x - PAD;
         hf
     });
-    let main = Rect::new(main_x, top, main_right - main_x, height);
-    let tabs = Rect::new(main.x, top, main.w, TAB_H);
+    let main = Rect::new(shell.x + PAD, in_top, main_right - shell.x - PAD, in_h);
 
     let has_lights = platform != Platform::Windows;
     let has_caps = platform != Platform::Mac;
-    let lights = has_lights.then(|| Rect::new(inner.x + 14.0, inner.y + 14.0, 52.0, 12.0));
+    let lights = has_lights.then(|| Rect::new(inner.x + 14.0, inner.y + (BAR_H - 12.0) / 2.0, 52.0, 12.0));
     let sbtn_x = if has_lights { inner.x + 78.0 } else { inner.x + 14.0 };
     let sidebar_button = Rect::new(sbtn_x, inner.y + (BAR_H - SBTN) / 2.0, SBTN, SBTN);
 
@@ -133,19 +153,22 @@ pub fn layout(w: f32, h: f32, state: ShellState, platform: Platform) -> Shell {
     let topr_right = caps.map_or(inner.right() - CAPS_MARGIN_RIGHT, |c| c.x - GAP);
     let topr = Rect::new(topr_right - TOPR_W, inner.y + (BAR_H - TOPR_H) / 2.0, TOPR_W, TOPR_H);
 
-    // Breadcrumbs take what is left between the logo and name and the bar's right group.
-    let crumbs_x = sidebar_button.right() + GAP + TITLE_W;
-    let crumbs = Rect::new(crumbs_x, inner.y, topr.x - GAP - crumbs_x, BAR_H);
+    // The tabs float in the bar from the card's left edge, clear of the logo and name, up to
+    // Terminal and Split.
+    let tabs_x = main.x.max(sidebar_button.right() + GAP + TITLE_W);
+    let tabs = Rect::new(tabs_x, inner.y + (BAR_H - TAB_H) / 2.0, (topr.x - GAP - tabs_x).max(0.0), TAB_H);
 
-    Shell { effective: state, rail, sidebar, bar, crumbs, main, tabs, half, drawer, rrail, sidebar_button, lights, topr, caps }
+    Shell { effective: state, rail, sidebar, bar, shell, main, tabs, half, drawer, terminal, rrail, sidebar_button, lights, topr, caps }
 }
 
 /// The state that actually fits: the thread column keeps [`metric::MAIN_MIN_W`], so Split closes
-/// first, then the drawer. The sidebar is the user's choice and stays.
+/// first, then the terminal, then the drawer. The sidebar is the user's choice and stays.
 pub fn resolve(w: f32, h: f32, mut state: ShellState, platform: Platform) -> ShellState {
     while layout(w, h, state, platform).main.w < metric::MAIN_MIN_W {
         if state.split_open {
             state.split_open = false;
+        } else if state.terminal_open {
+            state.terminal_open = false;
         } else if state.drawer_open {
             state.drawer_open = false;
         } else {

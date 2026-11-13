@@ -1,0 +1,37 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running tests/wireframe.rs (target/debug/deps/wireframe-05edcf627b982a80)
+
+running 7 tests
+test solver_matches_every_golden_state_and_size ... ignored, golden predates the top bar A decision; re-measure after the wireframe is updated
+test main_keeps_a_minimum_width_by_closing_split_then_drawer ... ok
+test platforms_differ_only_in_window_controls ... ok
+test panes_never_overlap_and_stay_inside_the_window ... ok
+test tabs_float_in_the_bar_and_the_panes_start_under_it ... FAILED
+test the_drawer_takes_the_right_rails_place ... FAILED
+test golden_has_two_window_sizes ... ok
+
+failures:
+
+---- tabs_float_in_the_bar_and_the_panes_start_under_it stdout ----
+
+thread 'tabs_float_in_the_bar_and_the_panes_start_under_it' (14203457) panicked at crates/chrome/tests/wireframe.rs:145:21:
+assertion `left == right` failed: 1200x720 Mac ShellState { sidebar_open: false, drawer_open: false, split_open: false }: tabs Rect { x: 211.0, y: 11.0, w: 902.0, h: 24.0 } pane Rect { x: 59.0, y: 51.0, w: 1072.0, h: 650.0 } right under the bar, as the board
+  left: 51.0
+ right: 45.0
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- the_drawer_takes_the_right_rails_place stdout ----
+
+thread 'the_drawer_takes_the_right_rails_place' (14203458) panicked at crates/chrome/tests/wireframe.rs:163:9:
+assertion `left == right` failed: Mac: the drawer ends at the side margin, sidebar-wide
+  left: (1181.0, 236.0)
+ right: (1187.0, 236.0)
+
+
+failures:
+    tabs_float_in_the_bar_and_the_panes_start_under_it
+    the_drawer_takes_the_right_rails_place
+
+test result: FAILED. 4 passed; 2 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p cauldron-chrome --test wireframe`

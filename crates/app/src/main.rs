@@ -2888,6 +2888,11 @@ fn main() -> anyhow::Result<()> {
     }
     // The Cauldron shell (docs/cauldron/UI-PLAN.md, UI1) is the app. The older coding workbench
     // stays reachable with CAULDRON_LEGACY=1 until UI2 moves it into the new shell.
+    #[cfg(all(feature = "shots", target_os = "macos"))]
+    if let Some(dir) = std::env::var_os("CAULDRON_SHOTS") {
+        shell::shots::run(dir.into());
+        return Ok(());
+    }
     if std::env::var_os("CAULDRON_LEGACY").is_none() {
         return run_shell();
     }
@@ -2907,6 +2912,7 @@ fn main() -> anyhow::Result<()> {
         .with_assets(icons::Assets)
         .run(move |cx: &mut App| {
             gpui_kit::init(cx);
+            cx.set_reduce_motion(shell::os_reduces_motion());
             if let Err(e) = cx.text_system().add_fonts(bundled_fonts()) {
                 eprintln!("bundled fonts: {e}");
             }
@@ -2948,7 +2954,13 @@ fn run_shell() -> anyhow::Result<()> {
             if let Err(e) = cx.text_system().add_fonts(bundled_fonts()) {
                 eprintln!("bundled fonts: {e}");
             }
-            let bounds = Bounds::centered(None, size(px(1440.), px(900.)), cx);
+            // Debug builds only: `CAULDRON_SIZE=1200x720` opens the window at that size, for screenshots.
+            let (ww, wh) = std::env::var("CAULDRON_SIZE")
+                .ok()
+                .filter(|_| cfg!(debug_assertions))
+                .and_then(|v| v.split_once('x').and_then(|(a, b)| Some((a.parse::<f32>().ok()?, b.parse::<f32>().ok()?))))
+                .unwrap_or((1440., 900.));
+            let bounds = Bounds::centered(None, size(px(ww), px(wh)), cx);
             let (lx, ly) = shell::lights_origin();
             cx.open_window(
                 WindowOptions {
