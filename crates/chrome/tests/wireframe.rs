@@ -125,7 +125,8 @@ fn panes_never_overlap_and_stay_inside_the_window() {
 }
 
 /// The floating tabs: 30px tall, centred in the top bar, starting at the card's left edge, never over the lights, the sidebar button or the name, and ending before
-/// Terminal and Split. The card, the drawer and Split start right under the bar.
+/// Terminal and Split. The Shell starts right under the bar; the card, the drawer and Split sit 6px
+/// inside it.
 #[test]
 fn tabs_float_in_the_bar_and_the_panes_start_under_it() {
     for &(w, h) in &[(1200.0, 720.0), (1000.0, 640.0), (1920.0, 1080.0)] {
@@ -141,8 +142,10 @@ fn tabs_float_in_the_bar_and_the_panes_start_under_it() {
                 assert!(t.x >= s.main.x, "{at} starts at or after the card's edge");
                 assert!(t.x >= s.sidebar_button.right() + 8.0 + 96.0, "{at} clears the button, logo and name");
                 assert!(t.right() <= s.topr.x - 8.0 + 0.01, "{at} ends before Terminal and Split");
-                for r in [Some(s.main), s.drawer, s.half].into_iter().flatten() {
-                    assert_eq!(r.y, s.bar.bottom(), "{at} pane {r:?} right under the bar, as the board");
+                assert_eq!(s.shell.y, s.bar.bottom(), "{at}: the Shell right under the bar");
+                for r in [Some(s.main), s.drawer, s.rrail, s.half].into_iter().flatten() {
+                    assert_eq!((r.y, r.bottom()), (s.shell.y + 6.0, s.shell.bottom() - 6.0), "{at} pane {r:?} 6px inside the Shell");
+                    assert!(r.x >= s.shell.x + 6.0 && r.right() <= s.shell.right() - 6.0, "{at} pane {r:?} inside the Shell");
                 }
             }
         }
@@ -152,21 +155,24 @@ fn tabs_float_in_the_bar_and_the_panes_start_under_it() {
     assert_eq!(s.tabs.x, s.main.x);
 }
 
-/// The v3 drawer (Charles, 13 Nov): on the frame, in the right gutter, as wide as the sidebar,
-/// with its panel strip on top, so the right rail only stands while the drawer is folded.
+/// The v3 drawer (Charles, 13 Nov): in the grey Shell's right gutter (the coordinator's brief,
+/// 13 Nov: the Shell grey, not the window frame), as wide as the sidebar, with its panel strip on
+/// top, so the right rail only stands while the drawer is folded.
 #[test]
 fn the_drawer_takes_the_right_rails_place() {
     for platform in [Platform::Mac, Platform::Windows] {
         let open = solve(1200.0, 720.0, ShellState { sidebar_open: true, drawer_open: true, split_open: false }, platform);
         let d = open.drawer.expect("drawer open");
         assert!(open.rrail.is_none(), "{platform:?}: no right rail beside an open drawer");
-        assert_eq!((d.right(), d.w), (1200.0 - 1.0 - 12.0, 236.0), "{platform:?}: the drawer ends at the side margin, sidebar-wide");
+        let sh = open.shell;
+        assert_eq!((sh.x, sh.right()), (open.sidebar.unwrap().right() + 8.0, 1200.0 - 1.0 - 12.0), "{platform:?}: the Shell from the sidebar to the side margin");
+        assert_eq!((d.right(), d.w), (sh.right() - 6.0, 236.0), "{platform:?}: the drawer 6px inside the Shell's right edge, sidebar-wide");
         assert_eq!((d.y, d.bottom()), (open.main.y, open.main.bottom()), "{platform:?}: as tall as the card");
-        assert_eq!(open.main.right() + 8.0, d.x, "{platform:?}: 8px from the card");
+        assert_eq!(open.main.right() + 6.0, d.x, "{platform:?}: 6px from the card");
         let shut = solve(1200.0, 720.0, ShellState { sidebar_open: true, drawer_open: false, split_open: false }, platform);
         let r = shut.rrail.expect("rail while folded");
-        assert_eq!((r.right(), r.w), (1200.0 - 1.0 - 12.0, 44.0), "{platform:?}: the folded rail");
-        assert_eq!(shut.main.right() + 8.0, r.x, "{platform:?}: 8px from the card");
+        assert_eq!((r.right(), r.w), (shut.shell.right() - 6.0, 44.0), "{platform:?}: the folded rail in the same gutter");
+        assert_eq!(shut.main.right() + 6.0, r.x, "{platform:?}: 6px from the card");
     }
 }
 

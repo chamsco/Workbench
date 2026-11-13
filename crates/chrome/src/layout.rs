@@ -50,6 +50,10 @@ pub struct Shell {
     pub rail: Option<Rect>,
     pub sidebar: Option<Rect>,
     pub bar: Rect,
+    /// The grey Shell (`card`, radius SHELL) right of the sidebar: the main card, Split and the
+    /// drawer or its rail sit inside it, SHELL_PAD in, so the drawer stands in its right gutter
+    /// and the new thread's bar in its bottom one.
+    pub shell: Rect,
     pub main: Rect,
     pub tabs: Rect,
     pub half: Option<Rect>,
@@ -91,6 +95,8 @@ pub mod metric {
     pub const CAPS_MARGIN_RIGHT: f32 = 20.0;
     /// Proposed, not drawn in the wireframe.
     pub const MAIN_MIN_W: f32 = 360.0;
+    /// The Shell's inside padding: the card's radius nests in the Shell's (22 = 16 + 6).
+    pub const PAD: f32 = crate::tokens::radius::SHELL_PAD;
 }
 
 /// The window's geometry for exactly the state asked for. The top bar runs the full width; the
@@ -109,20 +115,22 @@ pub fn layout(w: f32, h: f32, state: ShellState, platform: Platform) -> Shell {
         (Some(Rect::new(inner.x, top, RAIL_W, height)), None, inner.x + RAIL_W + GAP)
     };
 
-    // The right gutter holds the open drawer, or the rail while it is folded.
-    let right = inner.right() - MARGIN_SIDE;
+    // The Shell from the sidebar to the side margin; everything in it sits SHELL_PAD in, and its
+    // right gutter holds the open drawer, or the rail while it is folded.
+    let shell = Rect::new(main_x, top, inner.right() - MARGIN_SIDE - main_x, height);
+    let (in_top, in_h, right) = (top + PAD, height - 2.0 * PAD, shell.right() - PAD);
     let (drawer, rrail) = if state.drawer_open {
-        (Some(Rect::new(right - DRAWER_W, top, DRAWER_W, height)), None)
+        (Some(Rect::new(right - DRAWER_W, in_top, DRAWER_W, in_h)), None)
     } else {
-        (None, Some(Rect::new(right - RRAIL_W, top, RRAIL_W, height)))
+        (None, Some(Rect::new(right - RRAIL_W, in_top, RRAIL_W, in_h)))
     };
-    let mut main_right = drawer.or(rrail).map_or(right, |r| r.x) - GAP;
+    let mut main_right = drawer.or(rrail).map_or(right, |r| r.x) - PAD;
     let half = state.split_open.then(|| {
-        let hf = Rect::new(main_right - SPLIT_W, top, SPLIT_W, height);
-        main_right = hf.x - GAP;
+        let hf = Rect::new(main_right - SPLIT_W, in_top, SPLIT_W, in_h);
+        main_right = hf.x - PAD;
         hf
     });
-    let main = Rect::new(main_x, top, main_right - main_x, height);
+    let main = Rect::new(shell.x + PAD, in_top, main_right - shell.x - PAD, in_h);
 
     let has_lights = platform != Platform::Windows;
     let has_caps = platform != Platform::Mac;
@@ -139,7 +147,7 @@ pub fn layout(w: f32, h: f32, state: ShellState, platform: Platform) -> Shell {
     let tabs_x = main.x.max(sidebar_button.right() + GAP + TITLE_W);
     let tabs = Rect::new(tabs_x, inner.y + (BAR_H - TAB_H) / 2.0, (topr.x - GAP - tabs_x).max(0.0), TAB_H);
 
-    Shell { effective: state, rail, sidebar, bar, main, tabs, half, drawer, rrail, sidebar_button, lights, topr, caps }
+    Shell { effective: state, rail, sidebar, bar, shell, main, tabs, half, drawer, rrail, sidebar_button, lights, topr, caps }
 }
 
 /// The state that actually fits: the thread column keeps [`metric::MAIN_MIN_W`], so Split closes

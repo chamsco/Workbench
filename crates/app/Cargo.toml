@@ -20,6 +20,10 @@ gpui-kit = "0.6.6"
 tokio.workspace = true
 serde_json.workspace = true
 
+[features]
+# `CAULDRON_SHOTS=<dir>` renders the shell headless and writes PNGs (macOS, src/shell/shots.rs).
+shots = ["gpui-kit/test-support"]
+
 [dev-dependencies]
 # Headless windows, element bounds and accessible names for the shell's layout tests.
 gpui-kit = { version = "0.6.6", features = ["test-support"] }

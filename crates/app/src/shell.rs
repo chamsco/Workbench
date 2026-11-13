@@ -22,6 +22,8 @@ use std::sync::Arc;
 mod motion;
 mod newthread;
 mod thread;
+#[cfg(all(feature = "shots", target_os = "macos"))]
+pub(crate) mod shots;
 
 /// Where the shell draws window controls: lights on macOS, caption buttons elsewhere.
 pub(crate) fn platform() -> Platform {
@@ -788,9 +790,19 @@ fn tip(label: SharedString, side: Side, pal: &'static Palette) -> impl IntoEleme
     deferred(d).with_priority(1)
 }
 
+/// Debug builds only: `CAULDRON_THEME=light|dark` overrides the OS theme, so screenshots of both
+/// come from one build.
+fn forced_dark() -> Option<bool> {
+    #[cfg(debug_assertions)]
+    if let Ok(t) = std::env::var("CAULDRON_THEME") {
+        return Some(t != "light");
+    }
+    None
+}
+
 impl Render for Cauldron {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let dark = !matches!(window.appearance(), WindowAppearance::Light | WindowAppearance::VibrantLight);
+        let dark = forced_dark().unwrap_or_else(|| !matches!(window.appearance(), WindowAppearance::Light | WindowAppearance::VibrantLight));
         let pal: &'static Palette = if dark { &tokens::DARK } else { &tokens::LIGHT };
         let vs = window.viewport_size();
         let (w, h) = (f32::from(vs.width), f32::from(vs.height));
@@ -1234,7 +1246,7 @@ impl Render for Cauldron {
                 .child(head_title)
                 .test_support(),
         );
-        // A new thread keeps a 32px bar on the frame under its card (the v3 board, Charles 13 Nov).
+        // A new thread keeps a 32px bar under its card, in the Shell's grey (Charles 13 Nov).
         let new_screen = self.open.is_none() && self.active == 0;
         let card_h = s.main.h - if new_screen { STAGE_H } else { 0.0 };
         let card_el = div()
@@ -1254,6 +1266,9 @@ impl Render for Cauldron {
             .text_color(fg3)
             .child(head.test_support())
             .child(div().flex_1().min_h_0().child(self.card_body(pal, window, cx)));
+        // The grey Shell behind the card, Split and the drawer: the drawer stands in its right
+        // gutter and the new thread's bar in its bottom one (the coordinator's brief, 13 Nov).
+        root = root.child(pane("shell", s.shell).rounded(px(radius::SHELL)).bg(card).test_support());
         let mut main_el = pane("main", s.main).child(card_el.test_support());
         if new_screen {
             // ponytail: core has no stages or per-subscription usage yet (UI-PLAN decision 5), so the
@@ -1317,7 +1332,7 @@ impl Render for Cauldron {
             );
         }
 
-        // ---- drawer (frame colour, no border on the shared edge)
+        // ---- drawer (on the Shell's grey, no border of its own)
         if let (Some(dp), Some(p)) = (s.drawer, self.drawer.or(self.drawer_last)) {
             // A panel's body: absolute so two bodies can cross-fade in the same pane.
             let body = |p: Panel, a: f32| {
@@ -1546,6 +1561,7 @@ mod tests {
                 window.render_frame(cx);
                 let s = Frame::at_rest(&layout::solve(W, H, state, platform()));
                 assert_rect(window, "main", s.main, state);
+                assert_rect(window, "shell", s.shell, state);
                 assert_rect(window, "sbtn-slot", s.sidebar_button, state);
                 assert_rect(window, "topr", s.topr, state);
                 for (id, r) in [("sidebar", s.sidebar), ("rail", s.rail), ("rrail", s.rrail), ("drawer", s.drawer), ("half", s.half), ("caps", s.caps)] {
@@ -1707,11 +1723,15 @@ mod tests {
             assert!(window.try_find("tab-add").is_none(), "no +");
             let card = rect(window, "card");
             assert_eq!((card.x, card.y, card.w, card.h), (s.main.x, s.main.y, s.main.w, s.main.h - 32.0), "card right under the bar, the stage bar under it");
-            // The v3 bottom bar (Charles, 13 Nov): on the frame under the card, card-wide, 32 high,
+            // The v3 bottom bar (Charles, 13 Nov): in the Shell's grey under the card, card-wide, 32 high,
             // usage at the left and the four stages at the right. Core has neither yet, so usage is
             // an empty state and no stage is current: plain fg3 labels, nothing to click.
             let bar = rect(window, "stage-bar");
             assert_eq!((bar.x, bar.y, bar.w, bar.h), (card.x, card.bottom(), card.w, 32.0), "stage bar");
+            let shell = rect(window, "shell");
+            assert_eq!((shell.x, shell.y, shell.right(), shell.bottom()), (s.shell.x, s.shell.y, s.shell.right(), s.shell.bottom()), "the Shell");
+            assert_eq!(bar.bottom() + 6.0, shell.bottom(), "the bar in the Shell's bottom gutter, not on the frame");
+            assert!(rect(window, "drawer").right() + 6.0 == shell.right(), "the drawer in the Shell's right gutter");
             assert_eq!(window.find("stage-usage").label(), Some("No usage data yet"));
             let mut last = rect(window, "stage-usage").right();
             for (i, name) in ["Plan", "Execute", "Ship", "Commit"].into_iter().enumerate() {
