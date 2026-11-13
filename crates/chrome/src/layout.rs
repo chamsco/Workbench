@@ -1,8 +1,9 @@
 //! Shell layout solver. Pure geometry: no drawing, no GPUI.
 //!
 //! Coordinates are logical pixels from the window's top-left corner, the 1px window border
-//! included, exactly as `tests/golden/wireframe.json` was measured. [`layout`] is the literal
-//! wireframe; [`solve`] first applies the minimum-width rule, which the wireframe does not draw.
+//! included, as `tests/golden/wireframe.json` was measured. [`layout`] started as the wireframe and
+//! now follows the v3 board (design/cauldron-new-look-v3.html): the top bar, floating tabs and the
+//! drawer in the right gutter. [`solve`] first applies the minimum-width rule.
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Rect {
@@ -53,7 +54,9 @@ pub struct Shell {
     pub tabs: Rect,
     pub half: Option<Rect>,
     pub drawer: Option<Rect>,
-    pub rrail: Rect,
+    /// The 44px panel rail, shown only while the drawer is folded (the open drawer carries the
+    /// panels as a strip on top).
+    pub rrail: Option<Rect>,
     pub sidebar_button: Rect,
     pub lights: Option<Rect>,
     /// Terminal and Split.
@@ -70,13 +73,14 @@ pub mod metric {
     pub const RAIL_W: f32 = 44.0;
     pub const SIDEBAR_W: f32 = 236.0;
     pub const RRAIL_W: f32 = 44.0;
-    pub const DRAWER_W: f32 = 200.0;
+    /// The drawer in the right gutter: as wide as the sidebar (v3 board, Charles 13 Nov).
+    pub const DRAWER_W: f32 = SIDEBAR_W;
     pub const SPLIT_W: f32 = 292.0;
     /// The top bar, full width: the board's 44, the height of the card's head, so the two lines
     /// match. The card and the side panes start right under it.
     pub const BAR_H: f32 = 44.0;
-    /// A floating tab in the top bar (the new-look board's `.ftab`).
-    pub const TAB_H: f32 = 30.0;
+    /// A floating tab in the top bar: control-sm, a little smaller than v2's (Charles, 13 Nov).
+    pub const TAB_H: f32 = 24.0;
     /// The logo and the name after the sidebar button; the tabs never start before its end.
     pub const TITLE_W: f32 = 96.0;
     pub const SBTN: f32 = 28.0;
@@ -105,14 +109,14 @@ pub fn layout(w: f32, h: f32, state: ShellState, platform: Platform) -> Shell {
         (Some(Rect::new(inner.x, top, RAIL_W, height)), None, inner.x + RAIL_W + GAP)
     };
 
-    let rrail = Rect::new(inner.right() - MARGIN_SIDE - RRAIL_W, top, RRAIL_W, height);
-
-    let mut main_right = rrail.x;
-    let drawer = state.drawer_open.then(|| {
-        let d = Rect::new(rrail.x - DRAWER_W, top, DRAWER_W, height);
-        main_right = d.x - GAP;
-        d
-    });
+    // The right gutter holds the open drawer, or the rail while it is folded.
+    let right = inner.right() - MARGIN_SIDE;
+    let (drawer, rrail) = if state.drawer_open {
+        (Some(Rect::new(right - DRAWER_W, top, DRAWER_W, height)), None)
+    } else {
+        (None, Some(Rect::new(right - RRAIL_W, top, RRAIL_W, height)))
+    };
+    let mut main_right = drawer.or(rrail).map_or(right, |r| r.x) - GAP;
     let half = state.split_open.then(|| {
         let hf = Rect::new(main_right - SPLIT_W, top, SPLIT_W, height);
         main_right = hf.x - GAP;

@@ -63,12 +63,6 @@ pub(crate) fn meta(t: &ThreadInfo) -> String {
     }
 }
 
-/// A thread with one of your agents, or a group of them: only these show agent figures, in the
-/// sidebar and in the tabs (Charles, 12 Nov).
-pub(crate) fn agentic(agent: &Option<String>, members: &[String]) -> bool {
-    agent.is_some() || !members.is_empty()
-}
-
 #[cfg(any(test, debug_assertions))]
 pub(crate) fn sample(id: &str, title: &str) -> ThreadInfo {
     use backspace_core::chat::{Route, RouteKind};
@@ -115,7 +109,7 @@ pub(crate) fn fixture(now: u64) -> Vec<ThreadInfo> {
             unread,
             project: Some(project.into()),
             failed: failed.then(|| "usage limit".into()),
-            // One agentic thread, so the sidebar shows a figure beside the state dots.
+            // One thread with an agent; it still shows a state dot.
             agent: (id == "r1").then(|| "Rampart".into()),
             ..sample(id, title)
         })

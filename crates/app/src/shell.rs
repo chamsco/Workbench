@@ -5,7 +5,6 @@
 //! Content inside the panes is a labelled placeholder until the milestone that owns it
 //! (docs/cauldron/UI-PLAN.md): the thread list is UI3, the thread view UI4, the drawer UI6.
 
-use cauldron_chrome::avatar::{self, Look, Mood};
 use cauldron_chrome::layout::{self, metric, Platform, Rect, ShellState};
 use cauldron_chrome::motion::Frame;
 use cauldron_chrome::tokens::{self, motion as mt, radius, Palette, Rgb, Rgba};
@@ -117,6 +116,8 @@ const FUNCTIONS: [(&str, &str); 7] = [
 const NEW_TAB: &str = "New thread";
 
 const TOP_PANELS: [Panel; 4] = [Panel::Highlights, Panel::Usage, Panel::Koi, Panel::Review];
+/// The drawer's strip: the rail's panels in order, Patches last.
+const ALL_PANELS: [Panel; 5] = [Panel::Highlights, Panel::Usage, Panel::Koi, Panel::Review, Panel::Patches];
 
 /// The sidebar's threads from core: still opening, opened, or core failed to open.
 pub(crate) enum Threads {
@@ -419,23 +420,23 @@ impl Cauldron {
                     for t in ts {
                         let on = self.selected.as_deref() == Some(t.id.as_str());
                         let id = t.id.clone();
-                        // An agentic thread shows its agent in the state's mood (the board's 18x22
-                        // figure, still: ms None); a normal thread a state dot (Charles, 12 Nov).
-                        let agentic = threads::agentic(&t.agent, &t.members);
-                        let (mood, state, dot) = match g {
-                            Group::Running => (Mood::Working, "Working", c(pal.accent)),
-                            Group::Failed => (Mood::Error, "Failed", c(pal.bad)),
-                            Group::Unread => (Mood::Idle, "Unread", fg3),
-                            Group::Done => (Mood::Idle, "Done", fg3),
+                        // A state dot, agent or not: figures belong to the Agents page (Charles, 13 Nov).
+                        let (state, dot) = match g {
+                            Group::Running => ("Working", c(pal.accent)),
+                            Group::Failed => ("Failed", c(pal.bad)),
+                            Group::Unread => ("Unread", fg3),
+                            Group::Done => ("Done", fg3),
                         };
-                        let slot = div().id(("thread-av", i)).w(px(18.)).h(px(22.)).flex_none().flex().items_center().justify_center().aria_label(state);
-                        let slot = if agentic {
-                            let (fw, fh) = avatar::size(22.);
-                            let fig = img(Arc::new(Image::from_bytes(ImageFormat::Svg, avatar::svg(0, mood, Look { px: 22., outline: false, ms: None, bust: false, ink: None }).into_bytes())));
-                            slot.child(div().id(("thread-fig", i)).flex_none().child(fig.w(px(fw)).h(px(fh))).test_support())
-                        } else {
-                            slot.child(div().id(("thread-dot", i)).size(px(6.)).rounded_full().bg(dot).test_support())
-                        };
+                        let slot = div()
+                            .id(("thread-av", i))
+                            .w(px(18.))
+                            .h(px(22.))
+                            .flex_none()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .aria_label(state)
+                            .child(div().id(("thread-dot", i)).size(px(6.)).rounded_full().bg(dot).test_support());
                         list = list.child(
                             div()
                                 .id(("thread", i))
@@ -693,14 +694,15 @@ const SIDE_PR: f32 = 9.0;
 /// Agent tabs share the room between these widths; below TAB_MIN the row scrolls.
 const TAB_MIN: f32 = 72.0;
 const TAB_MAX: f32 = 200.0;
-/// A floating tab, on the design-system scale rather than the board's raw `.ftab` (Charles, 13 Nov):
-/// 4px between tabs, 8px padding, 6px from the figure to the name, a 14px figure.
+/// A floating tab, on the design-system scale (Charles, 13 Nov): 4px between tabs, 8px padding,
+/// 6px from the name to the close. No figure: agent figures belong to the Agents page.
 const TAB_GAP: f32 = 4.0;
 const TAB_PAD: f32 = 8.0;
-const FIG_GAP: f32 = 6.0;
-const FIG_H: f32 = 14.0;
-/// The + after the tabs (the board's `.ib`).
-const ADD_W: f32 = 28.0;
+const CLOSE_GAP: f32 = 6.0;
+/// The + after the tabs, as tall as a tab.
+const ADD_W: f32 = metric::TAB_H;
+/// The new thread's bar under the card: usage and the stages.
+const STAGE_H: f32 = 32.0;
 /// The pinned coordinator tab is at most this wide.
 const ANCHOR_MAX: f32 = 190.0;
 const ADD_LABEL: &str = "Spawn a subagent or open a 1:1";
@@ -1011,18 +1013,15 @@ impl Render for Cauldron {
         // ---- the thread's tabs, floating in the top bar (the board's `.ftab`). Only an open thread
         // has them: the coordinator pinned at the left, then its agents, each sized to its name
         // within an equal share of the room (TAB_MIN to TAB_MAX); when TAB_MIN no longer fits, arrows appear beside +
-        // and the row shows a window of 72px tabs. Figures only for an agentic thread (Charles, 12 Nov).
+        // and the row shows a window of 72px tabs. No figures (Charles, 13 Nov).
         let mut tab_row = None;
         if let Some(anchor_label) = self.coordinator.clone() {
             let focus = self.tab_focus.get_or_insert_with(|| cx.focus_handle()).clone();
-            let agentic = !self.agents.is_empty() || self.thread.as_ref().is_some_and(|t| threads::agentic(&t.agent, &t.members));
             let label_w = {
                 let run = TextRun { len: anchor_label.len(), font: Font { weight: FontWeight::MEDIUM, features: sans_features(), ..font(SANS) }, color: fg, background_color: None, underline: None, strikethrough: None };
                 f32::from(window.text_system().shape_line(anchor_label.clone(), px(12.), &[run], None).width)
             };
-            // padding, the figure and its gap, the label, padding
-            let fig_w = if agentic { avatar::size(FIG_H).0 + FIG_GAP } else { 0.0 };
-            let anchor_w = (TAB_PAD + fig_w + label_w + TAB_PAD).ceil().min(ANCHOR_MAX);
+            let anchor_w = (TAB_PAD + label_w + TAB_PAD).ceil().min(ANCHOR_MAX);
             let n = self.agents.len();
             let room = s.tabs.w - anchor_w - (TAB_GAP + ADD_W);
             let scrolls = n as f32 * (TAB_MIN + TAB_GAP) + TAB_GAP > room;
@@ -1079,7 +1078,7 @@ impl Render for Cauldron {
                     .relative()
                     .flex()
                     .items_center()
-                    .gap(px(FIG_GAP))
+                    .gap(px(CLOSE_GAP))
                     .h(px(metric::TAB_H))
                     .rounded(px(radius::INNER))
                     .when_live(on, |d| d.bg(c(pal.selected)))
@@ -1093,17 +1092,6 @@ impl Render for Cauldron {
                     .text_color(if on { fg } else { fg3 })
                     .on_scroll_wheel(cx.listener(|this, ev: &ScrollWheelEvent, _, cx| this.wheel_tabs(ev, cx)))
             };
-            // The agent's 14px figure, still (ms None), idle until core reports an agent's state.
-            let fig = |id: usize, dot: usize| {
-                let (fw, fh) = avatar::size(FIG_H);
-                div()
-                    .id(("tab-fig", id))
-                    .flex_none()
-                    .w(px(fw))
-                    .h(px(fh))
-                    .child(img(Arc::new(Image::from_bytes(ImageFormat::Svg, avatar::svg(dot, Mood::Idle, Look { px: FIG_H, outline: false, ms: None, bust: false, ink: None }).into_bytes()))).size_full())
-                    .test_support()
-            };
 
             // The pinned tab.
             let on = self.active == 0;
@@ -1112,7 +1100,6 @@ impl Render for Cauldron {
                 .w(px(anchor_w))
                 .px(px(TAB_PAD))
                 .aria_label(anchor_label.clone())
-                .when_live(agentic, |d| d.child(fig(0, 0)))
                 .child(div().min_w_0().truncate().child(anchor_label.clone()))
                 .on_click(cx.listener(|this, _, window, cx| {
                     this.active = 0;
@@ -1136,7 +1123,7 @@ impl Render for Cauldron {
                     .rounded(px(radius::TAG))
                     // Inactive tabs show their close on hover, over the end of the name, so a 72px tab
                     // still has room for a few letters.
-                    .when_live(!on, |d| d.absolute().right(px(4.)).top(px(6.)).bg(frame).opacity(0.).group_hover(group.clone(), |s| s.opacity(1.)))
+                    .when_live(!on, |d| d.absolute().right(px(4.)).top(px((metric::TAB_H - 18.0) / 2.0)).bg(frame).opacity(0.).group_hover(group.clone(), |s| s.opacity(1.)))
                     .hover(|d| d.bg(ca(pal.fg, 0.08)))
                     .aria_label("Close tab")
                     .child(glyph("x", 13., fg3))
@@ -1151,7 +1138,6 @@ impl Render for Cauldron {
                     .group(group)
                     .px(px(TAB_PAD))
                     .aria_label(agent.name.clone())
-                    .child(fig(i, agent.dot))
                     .child(div().min_w_0().truncate().child(agent.name.clone()))
                     .child(close)
                     .on_click(cx.listener(move |this, _, window, cx| {
@@ -1172,7 +1158,7 @@ impl Render for Cauldron {
                 div()
                     .id(id)
                     .w(px(24.))
-                    .h(px(28.))
+                    .h(px(metric::TAB_H))
                     .flex_none()
                     .flex()
                     .items_center()
@@ -1248,12 +1234,16 @@ impl Render for Cauldron {
                 .child(head_title)
                 .test_support(),
         );
+        // A new thread keeps a 32px bar on the frame under its card (the v3 board, Charles 13 Nov).
+        let new_screen = self.open.is_none() && self.active == 0;
+        let card_h = s.main.h - if new_screen { STAGE_H } else { 0.0 };
         let card_el = div()
             .id("card")
             .absolute()
             .left_0()
             .top_0()
-            .size_full()
+            .w_full()
+            .h(px(card_h))
             .flex()
             .flex_col()
             .overflow_hidden()
@@ -1264,7 +1254,36 @@ impl Render for Cauldron {
             .text_color(fg3)
             .child(head.test_support())
             .child(div().flex_1().min_h_0().child(self.card_body(pal, window, cx)));
-        root = root.child(pane("main", s.main).child(card_el.test_support()).test_support());
+        let mut main_el = pane("main", s.main).child(card_el.test_support());
+        if new_screen {
+            // ponytail: core has no stages or per-subscription usage yet (UI-PLAN decision 5), so the
+            // bar is static: usage as an empty state, the stages as plain labels with none current.
+            let mut stages = div().flex().gap(px(12.));
+            for (i, name) in ["Plan", "Execute", "Ship", "Commit"].into_iter().enumerate() {
+                stages = stages.child(div().id(("stage", i)).aria_label(name).child(name).test_support());
+            }
+            main_el = main_el.child(
+                div()
+                    .id("stage-bar")
+                    .absolute()
+                    .left_0()
+                    .top(px(card_h))
+                    .w_full()
+                    .h(px(STAGE_H))
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .px(px(12.))
+                    .text_size(px(11.))
+                    .line_height(px(14.))
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(fg3)
+                    .child(div().id("stage-usage").aria_label("No usage data yet").child("No usage data yet").test_support())
+                    .child(stages)
+                    .test_support(),
+            );
+        }
+        root = root.child(main_el.test_support());
 
         // ---- split card
         if let Some(hp) = s.half {
@@ -1314,15 +1333,53 @@ impl Render for Cauldron {
                     .child(div().font_weight(FontWeight::SEMIBOLD).child(p.title()))
                     .child(div().text_size(px(12.)).text_color(fg3).child(format!("This panel arrives in {}.", p.milestone())))
             };
-            let mut d = pane("drawer", dp.rect).opacity(dp.alpha).child(body(p, swap.map_or(1.0, |(_, k)| k)));
-            if let Some((a, k)) = swap {
-                d = d.child(body(a, 1.0 - k));
+            // The panels as a strip on top (the v3 board's `.dtabs`): the open one selected, its
+            // button folds the drawer back to the rail.
+            let mut strip = div().id("drawer-strip").flex().gap(px(4.)).pb(px(8.)).border_b_1().border_color(c(pal.line));
+            for (i, q) in ALL_PANELS.iter().enumerate() {
+                let q = *q;
+                let on = self.drawer == Some(q);
+                strip = strip.child(
+                    self.tipped(
+                        ("dt", i),
+                        div()
+                            .id(("dt", i))
+                            .flex_1()
+                            .h(px(28.))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .rounded(px(radius::INNER))
+                            .when_live(on, |d| d.bg(c(pal.selected)))
+                            .when_live(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
+                            .cursor_pointer()
+                            .aria_selected(on)
+                            .aria_label(q.title())
+                            .child(glyph(q.icon(), 16., if on { fg } else { fg3 })),
+                        q.title(),
+                        Side::Below,
+                        pal,
+                        cx,
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.toggle_panel(q);
+                        cx.notify();
+                    }))
+                    .test_support(),
+                );
             }
+            // Both bodies share one box under the strip, so the outgoing one cross-fades in place.
+            let mut bodies = div().relative().flex_1().min_h_0().child(body(p, swap.map_or(1.0, |(_, k)| k)));
+            if let Some((a, k)) = swap {
+                bodies = bodies.child(body(a, 1.0 - k));
+            }
+            let d = pane("drawer", dp.rect).opacity(dp.alpha).flex().flex_col().child(strip.test_support()).child(bodies);
             root = root.child(d.test_support());
         }
 
-        // ---- right rail
-        let mut rr = pane("rrail", s.rrail).flex().flex_col().items_center().gap(px(4.)).pt(px(4.));
+        // ---- right rail, only while the drawer is folded
+        if let Some(rp) = s.rrail {
+        let mut rr = pane("rrail", rp.rect).opacity(rp.alpha).flex().flex_col().items_center().gap(px(4.)).pt(px(4.));
         for (i, p) in TOP_PANELS.iter().enumerate() {
             let p = *p;
             rr = rr.child(
@@ -1343,6 +1400,7 @@ impl Render for Cauldron {
                 .test_support(),
         );
         root = root.child(rr.pb(px(8.)).test_support());
+        }
 
         // ---- top bar: the logo and name after the sidebar button
         let logo_x = s.sidebar_button.right() + metric::GAP;
@@ -1488,10 +1546,9 @@ mod tests {
                 window.render_frame(cx);
                 let s = Frame::at_rest(&layout::solve(W, H, state, platform()));
                 assert_rect(window, "main", s.main, state);
-                assert_rect(window, "rrail", s.rrail, state);
                 assert_rect(window, "sbtn-slot", s.sidebar_button, state);
                 assert_rect(window, "topr", s.topr, state);
-                for (id, r) in [("sidebar", s.sidebar), ("rail", s.rail), ("drawer", s.drawer), ("half", s.half), ("caps", s.caps)] {
+                for (id, r) in [("sidebar", s.sidebar), ("rail", s.rail), ("rrail", s.rrail), ("drawer", s.drawer), ("half", s.half), ("caps", s.caps)] {
                     let r = r.map(|p| p.rect);
                     match r {
                         Some(r) => assert_rect(window, id, r, state),
@@ -1501,6 +1558,49 @@ mod tests {
             })
             .unwrap();
         }
+    }
+
+    /// The open drawer carries its panels as a strip on top (the v3 board's `.dtabs`): one 28px
+    /// button per panel sharing the width, the open one selected. Its button folds the drawer back to
+    /// the rail; a rail button opens it again on that panel.
+    #[gpui_kit::test]
+    fn the_drawer_switches_panels_from_its_own_strip(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        cx.update(|cx| cx.set_reduce_motion(true));
+        let handle = cx.add_window(|_, _| Cauldron::new());
+        cx.simulate_window_resize(handle.into(), size(px(W), px(H)));
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            let d = rect(window, "drawer");
+            assert!(window.try_find("rrail").is_none(), "no rail beside the open drawer");
+            for i in 0..5usize {
+                let b = rect(window, ("dt", i));
+                assert_eq!((b.y, b.h), (d.y, 28.0), "strip button {i} at the drawer's top");
+                assert!(b.x >= d.x && b.right() <= d.right(), "strip button {i} inside the drawer");
+                assert_eq!(dt_on(window, i), i == 0, "strip button {i}: Highlights is open");
+            }
+            assert_eq!(window.find(("dt", 4usize)).label(), Some("Patches"));
+            window.click(("dt", 4usize), cx);
+            assert!(dt_on(window, 4usize) && !dt_on(window, 0usize), "a strip button switches the panel");
+            window.click(("dt", 4usize), cx);
+        })
+        .unwrap();
+        // The shell moves on the wall clock, so start each check from rest.
+        let rest = |cx: &mut TestAppContext| handle.update(cx, |c, _, _| c.motion = Default::default()).unwrap();
+        rest(cx);
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            assert!(window.try_find("drawer").is_none() && window.try_find("rrail").is_some(), "the open panel's button folds the drawer to the rail");
+            window.click(("rb", 1usize), cx);
+        })
+        .unwrap();
+        rest(cx);
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            assert!(window.try_find("drawer").is_some() && dt_on(window, 1usize), "a rail button opens the drawer on its panel");
+            assert!(window.try_find("rrail").is_none(), "and the rail gives way");
+        })
+        .unwrap();
     }
 
     /// Icon-only buttons carry their name for screen readers. Hovering one shows the name beside
@@ -1586,6 +1686,10 @@ mod tests {
         (1..=n).filter(|&i| window.try_find(("tab", i)).is_some()).collect()
     }
 
+    fn dt_on(window: &Window, i: usize) -> bool {
+        window.find(("dt", i)).selected() == Some(true)
+    }
+
     fn on(window: &Window, i: usize) -> bool {
         window.find(("tab", i)).selected() == Some(true)
     }
@@ -1602,7 +1706,22 @@ mod tests {
             assert!(window.try_find("tabs").is_none() && window.try_find(("tab", 0usize)).is_none(), "no tab before the thread exists");
             assert!(window.try_find("tab-add").is_none(), "no +");
             let card = rect(window, "card");
-            assert_eq!((card.x, card.y, card.w, card.h), (s.main.x, s.main.y, s.main.w, s.main.h), "card right under the bar");
+            assert_eq!((card.x, card.y, card.w, card.h), (s.main.x, s.main.y, s.main.w, s.main.h - 32.0), "card right under the bar, the stage bar under it");
+            // The v3 bottom bar (Charles, 13 Nov): on the frame under the card, card-wide, 32 high,
+            // usage at the left and the four stages at the right. Core has neither yet, so usage is
+            // an empty state and no stage is current: plain fg3 labels, nothing to click.
+            let bar = rect(window, "stage-bar");
+            assert_eq!((bar.x, bar.y, bar.w, bar.h), (card.x, card.bottom(), card.w, 32.0), "stage bar");
+            assert_eq!(window.find("stage-usage").label(), Some("No usage data yet"));
+            let mut last = rect(window, "stage-usage").right();
+            for (i, name) in ["Plan", "Execute", "Ship", "Commit"].into_iter().enumerate() {
+                let st = rect(window, ("stage", i));
+                assert_eq!(window.find(("stage", i)).label(), Some(name));
+                assert!(st.x > last && st.y >= bar.y && st.bottom() <= bar.bottom(), "stage {i} in order inside the bar");
+                assert_ne!(window.find(("stage", i)).selected(), Some(true), "stage {i}: none current before a thread exists");
+                last = st.right();
+            }
+            assert!(bar.right() - last <= 13.0, "the stages end at the bar's right padding");
             let head = rect(window, "card-head");
             assert_eq!((head.x, head.y, head.w, head.h), (card.x + 1.0, card.y + 1.0, card.w - 2.0, 44.0), "head");
             assert_eq!(window.find("card-title").label(), Some("New thread"));
@@ -1611,7 +1730,8 @@ mod tests {
         .unwrap();
     }
 
-    /// A thread's tabs float in the top bar (the board's `.ftab`): 30px, the open one selected.
+    /// A thread's tabs float in the top bar (the v3 board's `.ftab`): control-sm 24, the open one
+    /// selected, + the same height.
     #[gpui_kit::test]
     fn thread_tabs_float_in_the_bar(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
@@ -1624,14 +1744,14 @@ mod tests {
             assert!(row.bottom() <= s.bar.bottom(), "in the bar");
             for i in 0..=3usize {
                 let t = rect(window, ("tab", i));
-                assert_eq!((t.y, t.h), (row.y, 30.0), "tab {i}");
+                assert_eq!((t.y, t.h), (row.y, 24.0), "tab {i}");
                 assert_eq!(on(window, i), i == 0, "tab {i}: only the coordinator is open");
             }
             for i in 1..=3usize {
                 assert_eq!(rect(window, ("tab", i)).x - rect(window, ("tab", i - 1)).right(), 4.0, "4px between tabs {} and {i}", i - 1);
             }
             let add = rect(window, "tab-add");
-            assert_eq!(add.y + add.h / 2.0, row.y + 15.0, "+ centred on the row");
+            assert_eq!((add.y, add.h), (row.y, 24.0), "+ as tall as the tabs");
             window.click(("tab", 2usize), cx);
             assert!(on(window, 2) && !on(window, 0), "a click opens the tab");
             assert_eq!(rect(window, "card").y, s.main.y, "the card stays under the bar");
@@ -1639,18 +1759,16 @@ mod tests {
         .unwrap();
     }
 
-    /// Figures only on an agentic thread's tabs (Charles, 12 Nov): the 14px figure, else none.
+    /// No agent figures in threads (Charles, 13 Nov): they belong to the Agents page. A tab is its
+    /// label after the 8px padding, with agents on the thread or not.
     #[gpui_kit::test]
-    fn tab_figures_only_for_agentic_threads(cx: &mut TestAppContext) {
+    fn tabs_carry_no_agent_figures(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let handle = open(cx, with_agents(2, &[]));
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
             for i in 0..=2usize {
-                let f = rect(window, ("tab-fig", i));
-                let (w, h) = cauldron_chrome::avatar::size(14.0);
-                assert!((f.w - w).abs() < 0.5 && f.h == h, "figure {i}: {f:?}, the 14px figure is {w}x{h}");
-                assert_eq!(f.x, rect(window, ("tab", i)).x + 8.0, "figure {i} after the 8px padding");
+                assert!(window.try_find(("tab-fig", i)).is_none(), "tab {i} has no figure");
             }
         })
         .unwrap();
@@ -1693,7 +1811,7 @@ mod tests {
                 assert!(anchor.w <= 190.0, "{n}: coordinator at most 190: {anchor:?}");
                 assert_eq!(window.find(("tab", 0usize)).label(), Some("Cauldron · coordinator"));
                 assert!(window.try_find(("tab-close", 0usize)).is_none(), "{n}: coordinator has no close");
-                let room = row.w - anchor.w - 32.0;
+                let room = row.w - anchor.w - 28.0;
                 let need = n as f32 * 76.0 + 4.0;
                 let arrows = window.try_find("tab-prev").is_some();
                 assert_eq!(arrows, need > room, "{n}: arrows iff 72px tabs do not fit (need {need}, room {room})");
@@ -1702,7 +1820,7 @@ mod tests {
                     assert!(seen.len() < n, "{n}: scrolling hides some tabs");
                     for id in ["tab-prev", "tab-next"] {
                         let r = rect(window, id);
-                        assert_eq!((r.w, r.h), (24.0, 28.0), "{id}");
+                        assert_eq!((r.w, r.h), (24.0, 24.0), "{id}: as tall as the tabs");
                         assert!(r.x < rect(window, "tab-add").x, "{id} left of +");
                     }
                 } else {
@@ -1843,9 +1961,9 @@ mod tests {
     }
 
     /// The rows are the new-look board's `.th`: 30 high, the title, the repo in 11px, and a 6px ping
-    /// on an unread row only. An agentic thread (one with an agent or members) shows its agent as an
-    /// 18x22 figure in its state's mood; a normal thread shows a state dot in the same slot (Charles,
-    /// 12 Nov). Group heads are the board's 36px `.sect`; New thread is a 32px row, not a button.
+    /// on an unread row only. Every row shows a state dot in its 18x22 slot, an agentic thread too:
+    /// agent figures belong to the Agents page (Charles, 13 Nov). Group heads are the board's 36px
+    /// `.sect`; New thread is a 32px row, not a button.
     #[gpui_kit::test]
     fn thread_rows_are_the_boards(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
@@ -1856,7 +1974,7 @@ mod tests {
             for g in 0..4usize {
                 assert_eq!(rect(window, ("group", g)).h, 36.0, "group {g}");
             }
-            // Row 1 (Rampart mutation score) is agentic; the rest are normal threads.
+            // Row 1 (Rampart mutation score) has an agent; it still shows a dot.
             for (i, state) in [(0usize, "Unread"), (1, "Working"), (2, "Failed"), (3, "Done"), (4, "Done")] {
                 let r = rect(window, ("thread", i));
                 assert_eq!(r.h, 30.0, "row {i}");
@@ -1865,8 +1983,8 @@ mod tests {
                 assert!((a.y + a.h / 2.0 - (r.y + r.h / 2.0)).abs() <= 1.0, "row {i}'s slot is centred");
                 assert!((10.0..=13.0).contains(&(a.x - r.x)), "row {i}'s slot is 11px in, as the board's");
                 assert_eq!(window.find(("thread-av", i)).label(), Some(state), "row {i}");
-                assert_eq!(window.try_find(("thread-fig", i)).is_some(), i == 1, "row {i}: a figure only on the agentic thread");
-                assert_eq!(window.try_find(("thread-dot", i)).is_some(), i != 1, "row {i}: a state dot on a normal thread");
+                assert!(window.try_find(("thread-fig", i)).is_none(), "row {i}: no figure");
+                assert!(window.try_find(("thread-dot", i)).is_some(), "row {i}: a state dot");
                 assert_eq!(window.find(("thread-meta", i)).label(), Some("no repo"), "row {i}");
             }
             let (row, ping) = (rect(window, ("thread", 0usize)), rect(window, ("ping", 0usize)));

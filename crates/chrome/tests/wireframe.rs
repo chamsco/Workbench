@@ -39,7 +39,7 @@ fn pick(s: &Shell, key: &str) -> Option<Rect> {
         "main" => Some(s.main),
         "half" => s.half,
         "drawer" => s.drawer,
-        "rrail" => Some(s.rrail),
+        "rrail" => s.rrail,
         "notch" => None,
         "sbtn" => Some(s.sidebar_button),
         "tabs" => Some(s.tabs),
@@ -95,7 +95,8 @@ fn overlaps(a: Rect, b: Rect) -> bool {
 }
 
 fn panes(s: &Shell) -> Vec<Rect> {
-    let mut v = vec![s.main, s.rrail];
+    let mut v = vec![s.main];
+    v.extend(s.rrail);
     v.extend(s.sidebar);
     v.extend(s.half);
     v.extend(s.drawer);
@@ -134,7 +135,7 @@ fn tabs_float_in_the_bar_and_the_panes_start_under_it() {
                 let s = solve(w, h, st, platform);
                 let t = s.tabs;
                 let at = format!("{w}x{h} {platform:?} {st:?}: tabs {t:?}");
-                assert_eq!((t.h, s.bar.h), (30.0, 44.0), "{at}: the board's 44px bar, its card head's height");
+                assert_eq!((t.h, s.bar.h), (24.0, 44.0), "{at}: the board's 44px bar, its card head's height");
                 assert!(inside(s.bar, t), "{at} inside the bar {:?}", s.bar);
                 assert_eq!(t.y - s.bar.y, s.bar.bottom() - t.bottom(), "{at} centred in the bar");
                 assert!(t.x >= s.main.x, "{at} starts at or after the card's edge");
@@ -149,6 +150,24 @@ fn tabs_float_in_the_bar_and_the_panes_start_under_it() {
     // Sidebar open: at the card's left edge.
     let s = solve(1200.0, 720.0, ShellState { sidebar_open: true, drawer_open: true, split_open: false }, Platform::Windows);
     assert_eq!(s.tabs.x, s.main.x);
+}
+
+/// The v3 drawer (Charles, 13 Nov): on the frame, in the right gutter, as wide as the sidebar,
+/// with its panel strip on top, so the right rail only stands while the drawer is folded.
+#[test]
+fn the_drawer_takes_the_right_rails_place() {
+    for platform in [Platform::Mac, Platform::Windows] {
+        let open = solve(1200.0, 720.0, ShellState { sidebar_open: true, drawer_open: true, split_open: false }, platform);
+        let d = open.drawer.expect("drawer open");
+        assert!(open.rrail.is_none(), "{platform:?}: no right rail beside an open drawer");
+        assert_eq!((d.right(), d.w), (1200.0 - 1.0 - 12.0, 236.0), "{platform:?}: the drawer ends at the side margin, sidebar-wide");
+        assert_eq!((d.y, d.bottom()), (open.main.y, open.main.bottom()), "{platform:?}: as tall as the card");
+        assert_eq!(open.main.right() + 8.0, d.x, "{platform:?}: 8px from the card");
+        let shut = solve(1200.0, 720.0, ShellState { sidebar_open: true, drawer_open: false, split_open: false }, platform);
+        let r = shut.rrail.expect("rail while folded");
+        assert_eq!((r.right(), r.w), (1200.0 - 1.0 - 12.0, 44.0), "{platform:?}: the folded rail");
+        assert_eq!(shut.main.right() + 8.0, r.x, "{platform:?}: 8px from the card");
+    }
 }
 
 // Proposed rule, not drawn in the wireframe: the thread column never gets narrower than 360px.

@@ -119,7 +119,7 @@ pub struct Frame {
     pub lights: Option<Pane>,
     pub main: Rect,
     pub tabs: Rect,
-    pub rrail: Rect,
+    pub rrail: Option<Pane>,
     pub sidebar_button: Rect,
     pub topr: Rect,
     pub bar: Rect,
@@ -149,7 +149,7 @@ impl Frame {
             lights: at_rest(s.lights),
             main: s.main,
             tabs: s.tabs,
-            rrail: s.rrail,
+            rrail: at_rest(s.rrail),
             sidebar_button: s.sidebar_button,
             topr: s.topr,
             bar: s.bar,
@@ -198,7 +198,7 @@ impl Frame {
             lights: pane(from.lights, to.lights, 0.0),
             main: rect(from.main, to.main),
             tabs: rect(from.tabs, to.tabs),
-            rrail: rect(from.rrail, to.rrail),
+            rrail: pane(from.rrail, to.rrail, 0.0),
             sidebar_button: rect(from.sidebar_button, to.sidebar_button),
             topr: rect(from.topr, to.topr),
             bar: rect(from.bar, to.bar),
@@ -251,13 +251,14 @@ mod tests {
         let (fa, fb) = (Frame::at_rest(&a), Frame::at_rest(&b));
         let f0 = Frame::between(&fa, &fb, 0.0, false);
         assert!(close(f0.main, a.main), "main starts where it was");
-        assert!(close(f0.rrail, a.rrail));
+        assert!(close(f0.rrail.expect("the rail fades out").rect, a.rrail.unwrap()));
         assert_eq!(f0.drawer, None, "a drawer that is opening is not drawn at its first frame");
         let f1 = Frame::between(&fa, &fb, 1.0, false);
         assert!(close(f1.main, b.main), "main ends where the new shell says");
         let d = f1.drawer.expect("drawer is drawn at the end");
         assert!(close(d.rect, b.drawer.unwrap()));
         assert_eq!(d.alpha, 1.0);
+        assert_eq!(f1.rrail, None, "the rail is gone once the drawer is open");
     }
 
     #[test]
