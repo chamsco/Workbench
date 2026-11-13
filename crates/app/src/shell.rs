@@ -331,7 +331,7 @@ impl Cauldron {
     }
 
     pub(crate) fn new() -> Self {
-        Cauldron { motion: ShellMotion::default(), swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: None, sidebar_open: true, drawer: Some(Panel::Highlights), backdrop: Default::default(), glass_at: Default::default(), glass_card: std::cell::Cell::new(None), appearance_sub: None, active_sub: None, flow_clock: None, flow_task: None, flow_running: false, flow_at: None, retired: Vec::new(), flow_stats: (0, std::time::Duration::ZERO), prefs_file: None, plat: platform(), folder_open: Default::default(), page: Default::default(), page_agents: Vec::new(), agent_sel: None, agent_tab: 0, settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_menu: false, tab_slide: Default::default(), tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
+        Cauldron { motion: ShellMotion::default(), swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: None, sidebar_open: true, drawer: None, backdrop: Default::default(), glass_at: Default::default(), glass_card: std::cell::Cell::new(None), appearance_sub: None, active_sub: None, flow_clock: None, flow_task: None, flow_running: false, flow_at: None, retired: Vec::new(), flow_stats: (0, std::time::Duration::ZERO), prefs_file: None, plat: platform(), folder_open: Default::default(), page: Default::default(), page_agents: Vec::new(), agent_sel: None, agent_tab: 0, settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_menu: false, tab_slide: Default::default(), tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
     }
 
     /// Opens core off the main thread (the sidebar shows Loading meanwhile), then keeps the thread
@@ -827,6 +827,15 @@ impl Cauldron {
             .text_color(fg3)
     }
 
+    /// The right rail and its drawer (Charles, 13 Nov 19:29Z): only on a stream already started, and
+    /// on Agents (its own drawer). Not on the new stream, the other pages or Settings.
+    pub(super) fn has_rail(&self) -> bool {
+        self.settings.is_none() && match self.page {
+            pages::AppPage::Streams => self.open.is_some(),
+            p => p.has_drawer(),
+        }
+    }
+
     /// Flow's loop: 10 frames a second while it moves, each made off the main thread; it stops by
     /// itself when Flow should hold still (the next render starts it again).
     fn start_flow(&mut self, cx: &mut Context<Self>) {
@@ -1089,7 +1098,7 @@ impl Render for Cauldron {
         let vs = window.viewport_size();
         let (w, h) = (f32::from(vs.width), f32::from(vs.height));
         let plat = self.plat;
-        let want = ShellState { sidebar_open: self.sidebar_open, drawer_open: self.drawer.is_some(), split_open: false, terminal_open: self.terminal, plugins: self.settings.is_none() && self.page.has_drawer() };
+        let want = ShellState { sidebar_open: self.sidebar_open, drawer_open: self.drawer.is_some(), split_open: false, terminal_open: self.terminal, plugins: self.has_rail() };
         let now = std::time::Instant::now();
         let reduce = cx.reduce_motion();
         let (s, mut moving) = self.motion.frame(want, Frame::at_rest(&layout::solve(w, h, want, plat)), now, reduce);
@@ -1185,8 +1194,9 @@ impl Render for Cauldron {
                 root = root
                     .child(img(f).id("window-art").absolute().top_0().left_0().size_full().test_support())
                     .child(div().absolute().top_0().left_0().size_full().bg({
-                        // The sidebar's text reads over this: its tint holds 4.5:1 there.
-                        let r = s.sidebar.or(s.rail).map_or(Rect::new(0.0, 0.0, w, h), |p| p.rect);
+                        // The sidebar, the drawer and the rail all read over this: its tint holds
+                        // 4.5:1 over the whole window.
+                        let r = Rect::new(0.0, 0.0, w, h);
                         b.hsla_for(backdrop::Surface::Sidebar, dark, (r.x as i32, r.y as i32, r.w as u32, r.h as u32), pal)
                     }));
             }
@@ -1450,23 +1460,16 @@ impl Render for Cauldron {
             .when_live(card_frost.is_some(), |d| d.child(div().absolute().top_0().left_0().size_full().rounded(px(radius::PANEL)).bg(card_tint)))
             .when_live(!headless, |d| d.child(head.test_support()))
             .child(div().flex_1().min_h_0().child(inside));
-        // The grey Shell behind the card, Split and the drawer: the drawer stands in its right
-        // gutter and the new thread's bar in its bottom one (the coordinator's brief, 13 Nov).
-        // The Shell meets the sidebar flush, square on its left (Charles, 13 Nov 07:34Z: no gap at
-        // the corners), rounded on its right.
-        let mut shell_el = pane("shell", s.shell).rounded_tr(px(radius::SHELL)).rounded_br(px(radius::SHELL)).bg(card);
-        if let Some(f) = frost {
-            // The frame is frosted painting: the blurred copy under the Shell colour at 77% / 83%.
-            let t = self.backdrop.borrow_mut().hsla_for(backdrop::Surface::Shell, dark, (sh.x as i32, sh.y as i32, sh.w as u32, sh.h as u32), pal);
-            shell_el = shell_el
-                .child(img(f).id("shell-art").absolute().top_0().left_0().size_full().rounded_tr(px(radius::SHELL)).rounded_br(px(radius::SHELL)).test_support())
-                .child(div().absolute().top_0().left_0().size_full().rounded_tr(px(radius::SHELL)).rounded_br(px(radius::SHELL)).bg(t));
-        }
+        // The Shell behind the card, Split and the drawer is the frame itself (Charles, 13 Nov
+        // 19:29Z: one frame colour behind the sidebar and the card, no second slab, no edge between
+        // them; the card is the only rounded surface). It keeps its rect for what sits in it.
+        let _ = frost;
+        let shell_el = pane("shell", s.shell);
         root = root.child(shell_el.test_support());
         let mut main_el = pane("main", s.main).child(card_el.test_support());
         if new_screen {
-            // ponytail: core has no stages or per-subscription usage yet (UI-PLAN decision 5), so the
-            // bar is static: usage as an empty state, the stages as plain labels with none current.
+            // ponytail: core has no stages yet (UI-PLAN decision 5), so the bar is static: the stages
+            // as plain labels with none current. Usage is in the sidebar's footer, not here.
             let mut stages = div().flex().gap(px(12.));
             for (i, name) in ["Plan", "Execute", "Ship", "Commit"].into_iter().enumerate() {
                 stages = stages.child(div().id(("stage", i)).aria_label(name).child(name).test_support());
@@ -1487,7 +1490,7 @@ impl Render for Cauldron {
                     .line_height(px(14.))
                     .font_weight(FontWeight::MEDIUM)
                     .text_color(fg3)
-                    .child(div().id("stage-usage").aria_label("No usage data yet").child("No usage data yet").test_support())
+                    .child(div())
                     .child(stages)
                     .test_support(),
             );
@@ -1693,6 +1696,8 @@ mod tests {
             let handle = cx.add_window(move |_, _| Cauldron {
                 sidebar_open: state.sidebar_open,
                 drawer: state.drawer_open.then_some(Panel::Highlights),
+                // A started stream, where the right rail stands.
+                open: Some("t".into()),
                 ..Cauldron::new()
             });
             cx.simulate_window_resize(handle.into(), size(px(W), px(H)));
@@ -1721,7 +1726,7 @@ mod tests {
     fn the_rail_stands_beside_the_drawer_and_switches_it(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         cx.update(|cx| cx.set_reduce_motion(true));
-        let handle = cx.add_window(|_, _| Cauldron::new());
+        let handle = cx.add_window(|_, _| Cauldron { drawer: Some(Panel::Highlights), open: Some("t".into()), ..Cauldron::new() });
         cx.simulate_window_resize(handle.into(), size(px(W), px(H)));
         let rest = |cx: &mut TestAppContext| handle.update(cx, |c, _, _| c.motion = Default::default()).unwrap();
         cx.update_window(handle.into(), |_, window, cx| {
@@ -1767,7 +1772,8 @@ mod tests {
     fn icon_buttons_have_names_and_tooltips(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         cx.update(|cx| cx.set_reduce_motion(true));
-        let handle = cx.add_window(|_, _| Cauldron { drawer: None, ..Cauldron::new() });
+        // A started stream: the right rail is only there.
+        let handle = cx.add_window(|_, _| Cauldron { drawer: None, open: Some("t".into()), ..Cauldron::new() });
         cx.simulate_window_resize(handle.into(), size(px(W), px(H)));
         let ms = std::time::Duration::from_millis;
         cx.update_window(handle.into(), |_, window, cx| {
@@ -1850,24 +1856,25 @@ mod tests {
         let handle = open(cx, Cauldron::new());
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
-            let s = layout::solve(W, H, ShellState { sidebar_open: true, drawer_open: true, split_open: false, terminal_open: false, plugins: true }, platform());
+            // No right side on the new stream (Charles, 13 Nov 19:29Z): no rail, no drawer.
+            let s = layout::solve(W, H, ShellState { sidebar_open: true, drawer_open: false, split_open: false, terminal_open: false, plugins: false }, platform());
+            assert!(window.try_find("rrail").is_none() && window.try_find("drawer").is_none(), "no right rail or drawer on the new stream");
             assert!(window.try_find(("ptab", 0usize)).is_none(), "no tab before the thread exists");
             assert!(window.try_find("tab-add").is_none(), "no +");
             assert!(window.try_find("bar-crumb").is_none(), "no breadcrumb");
             let card = rect(window, "card");
             assert_eq!((card.x, card.y, card.w, card.h), (s.main.x, s.main.y, s.main.w, s.main.h - 32.0), "the card, the stage bar under it");
             assert_eq!(card.y, 1.0 + 6.0 + 6.0, "12px under the window's top edge");
-            // The v3 bottom bar (Charles, 13 Nov): in the Shell's grey under the card, card-wide, 32 high,
-            // usage at the left and the four stages at the right. Core has neither yet, so usage is
-            // an empty state and no stage is current: plain fg3 labels, nothing to click.
+            // The v3 bottom bar (Charles, 13 Nov): under the card, card-wide, 32 high, the four stages at
+            // the right. Core has no stages yet, so none is current: plain fg3 labels, nothing to click.
             let bar = rect(window, "stage-bar");
             assert_eq!((bar.x, bar.y, bar.w, bar.h), (card.x, card.bottom(), card.w, 32.0), "stage bar");
             let shell = rect(window, "shell");
             assert_eq!((shell.x, shell.y, shell.right(), shell.bottom()), (s.shell.x, s.shell.y, s.shell.right(), s.shell.bottom()), "the Shell");
             assert_eq!(bar.bottom() + 6.0, shell.bottom(), "the bar in the Shell's bottom gutter, not on the frame");
-            assert!(rect(window, "rrail").right() + 6.0 == shell.right() && rect(window, "drawer").right() + 6.0 == rect(window, "rrail").x, "the drawer and the rail in the Shell's right gutter");
-            assert_eq!(window.find("stage-usage").label(), Some("No usage data yet"));
-            let mut last = rect(window, "stage-usage").right();
+            assert_eq!(card.right() + 6.0, shell.right(), "the card runs to the Shell's padding");
+            assert!(window.try_find("stage-usage").is_none(), "usage is in the sidebar's footer, not under the card");
+            let mut last = bar.x;
             for (i, name) in ["Plan", "Execute", "Ship", "Commit"].into_iter().enumerate() {
                 let st = rect(window, ("stage", i));
                 assert_eq!(window.find(("stage", i)).label(), Some(name));

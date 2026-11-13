@@ -374,3 +374,34 @@ The coordinator's board is `design/cauldron-destinations.html` (ac5ef7a on gg3og
 - Agents' drawer follows the destinations board: the agent, the two rings with their captions under them, the current task, then tabs Context, Traces, Routines and a cog for Settings (its name in the tip). Tabs have 5px padding and the drawer 6px sides, so the row fits the 188 inside; in a wider font the text tabs end in "…" rather than run into the rail. The drawer scrolls if the window is short.
 - Test: `the_agents_demo_is_marked_as_a_demo` checks the tab row ends inside the drawer and that Traces replaces Context.
 - **Shots:** before `nl13-agents-*`; after `nl14-agents-*`, `nl14-agents-folded-*`, `nl14-stream-*` (dark and light).
+
+## The moving background, S1 Flow (13 Nov, Charles 18:49Z)
+
+- **What:** the shader board's S1 (b2328bb), ported from its JavaScript to `cauldron_chrome::flow`: 3D value noise in three octaves, warped by itself, under a glow from the bottom right, six levels of the theme's violet ramp (dark #0e0e12 to #e6e0ff, light #f7f7f8 to #6236d6; the accents #a08cff and #6236d6 sit on it), the 8x8 Bayer pattern, 3px cells fixed to the window. The noise is worked out every 4th cell and blended between (its finest wave is about 100px across), which cut the cost about 6 times with no visible change.
+- **Where it moves:** only behind the new stream's card, with the window in front, and motion allowed by the system. Any stream, page, Settings, a split or an inactive or minimised window holds the last frame still. Every other surface shows the frosted copy: the same field on a 100x60 grid, dimmed, stretched smooth, remade twice a second while it moves (no blur pass).
+- **Settings > Appearance > Background:** Moving / Still / Off, and under Still a Picture: Flow or one of the paintings. All in the saved `backdrop` id, so core's prefs have no new field: `flow` is Moving, `flow-still` or a painting is Still, `plain` is Off. Old values carry over: a saved painting is Still with that painting.
+- **Frames:** made off the main thread (GPUI's background executor), handed to the card as a BGRA picture one texel per point; the picture it replaces is freed from the GPU a frame later (`Window::drop_image`), so memory stays flat (150 MB over a minute of motion, no growth).
+- **Measured on this Mac** (release build, display 1920x1080 at 1x, so a 2560x1600 window cannot open here; median of 30 one-second samples, window in front):
+
+| Window | Background | App CPU | Making a frame |
+|---|---|---|---|
+| 1280x800 | Still | 1.2% | none |
+| 1280x800 | Moving, 15 fps | 12.9% | 2.1 ms (750x743 card) |
+| 1280x800 | Moving, 10 fps | 10.0% | 2.1 ms |
+| 1920x1055 | Still | 0.9% | none |
+| 1920x1055 | Moving, 15 fps | 16.2% | 4.1 ms (1390x934 card) |
+| 1920x1055 | Moving, 10 fps | 13.4% | 3.5 ms |
+| 2560x1600 | (bench only) | | 1.4 ms for the cells, `cargo run --release -p cauldron-chrome --example flow_bench` |
+
+- **The upload, measured:** the same run with the picture not replaced (the window still redrawn 15 times a second) used 9.1% (1280) and 10.4% (1920). So handing GPUI a new picture costs about 3.8% and 5.8% of a core: **about 2.5 ms and 3.9 ms a frame**, over the 2 ms the board allowed. Redrawing the whole view costs about 3 ms a frame (GPUI redraws the window, not just the card).
+- **So, as the brief said:** Moving runs at 10 fps, and the default is **Still** (Flow held still). Moving stays a choice in Settings. GPUI samples pictures smoothly (its Metal sampler is linear), so a smaller picture would blur the grain: no saving there. What would bring Moving under 5%: draw Flow as its own cached layer so a frame does not redraw the window (about 3 ms saved), at 10 fps. Not done in this pass.
+- **Tests:** `flow::tests` (range, the ramp's levels only, glow at the bottom right, a rect matches the window under it, it moves, the frost never reaches the brightest level); `flow_moves_only_behind_the_new_stream`; `the_background_reads_from_the_saved_id`; the contrast test now covers Flow too (14 cases).
+- **Shots:** `nl15-flow-*` (Moving, new stream), `nl15-flow-stream-*`, `nl15-flow-settings-light`.
+
+## Three layout fixes (13 Nov, Charles 19:29Z)
+
+- **The right side starts folded:** at launch no drawer is open, whatever it was last time.
+- **No right side on a new stream:** the rail and drawer stand only on a started stream, and on Agents (its own 200 drawer, opened with the page). Not on the new stream, Folders, Automations, Usage, Library or Settings (`Cauldron::has_rail`). Nothing else depended on the rail: the terminal still opens on a started stream, in the drawer's place.
+- **One frame colour:** the separately tinted Shell behind the card is gone, so there is no second slab with square corners and no edge between the sidebar and the content. The window's frosted tint now holds 4.5:1 over the whole window, since the drawer and rail sit on it. The card is the only rounded surface.
+- **No usage strip under the card:** usage is in the sidebar's footer; the bar under the new stream keeps only the stages.
+- **Shots:** before `nl15-flow-dark` (drawer open, the slab, the strip); after `nl16-launch-*` (Flow still), `nl16-launch-harbour-*`, `nl16-stream-*`.

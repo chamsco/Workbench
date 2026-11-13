@@ -135,6 +135,8 @@ impl Cauldron {
         self.page = p;
         self.settings = None;
         if p == AppPage::Agents {
+            // Agents keeps its own drawer open: the agent's panel is part of the page.
+            self.drawer.get_or_insert(super::Panel::Highlights);
             // Core's agents, read only; they show unmarked, the examples after them.
             self.page_agents = backspace_core::agents::Agents::open(Prefs::data_dir().join("agents"))
                 .list()
@@ -499,7 +501,12 @@ mod tests {
     #[gpui_kit::test]
     fn the_agents_demo_is_marked_as_a_demo(cx: &mut TestAppContext) {
         let (handle, _chats) = open(cx);
-        handle.update(cx, |c, _, _| c.page = super::AppPage::Agents).unwrap();
+        handle
+            .update(cx, |c, _, _| {
+                c.open_page(super::AppPage::Agents);
+                c.motion = Default::default();
+            })
+            .unwrap();
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
             assert!(window.try_find("demo-tag").is_some(), "Demo in the header");

@@ -508,7 +508,7 @@ mod tests {
         let (handle, _chats) = super::super::thread::tests::open(cx);
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
-            assert!(window.try_find("window-art").is_some() && window.try_find("shell-art").is_some(), "window and frame frosted");
+            assert!(window.try_find("window-art").is_some() && window.try_find("shell-art").is_none(), "the window frosted, one frame colour: no second slab");
             assert!(window.try_find("card-art").is_some(), "the new thread is a clear window");
             window.click(("thread", 0usize), cx);
             window.render_frame(cx);

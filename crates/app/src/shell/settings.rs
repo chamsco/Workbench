@@ -378,6 +378,9 @@ mod tests {
         handle.update(cx, |c, _, _| c.terminal = true).unwrap();
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
+            // A started stream: the new stream has no right side at all.
+            window.click(("thread", 0usize), cx);
+            window.render_frame(cx);
             window.click("settings", cx);
         })
         .unwrap();

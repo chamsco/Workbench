@@ -279,6 +279,7 @@ mod tests {
         let (handle, _chats) = open(cx);
         // The shell moves on the wall clock, so each check starts from rest.
         let rest = |cx: &mut TestAppContext| handle.update(cx, |c, _, _| c.motion = Default::default()).unwrap();
+        handle.update(cx, |c, _, _| c.drawer = Some(super::super::Panel::Highlights)).unwrap();
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
             window.click(("thread", 0usize), cx);
