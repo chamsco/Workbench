@@ -711,6 +711,139 @@ impl Cauldron {
 
     /// Selects a function. The sidebar indicator slides to it from wherever it is now.
 
+    /// The sidebar folded to its rail (the pages board 5b7662c): usage on top, the three apps,
+    /// search and New stream, a square per folder (its letter, a dot when it holds a stream that
+    /// needs you), then the version, the cog and the avatar stacked at the foot.
+    fn folded_rail(&self, pal: &'static Palette, r: Rect, alpha: f32, cx: &mut Context<Self>) -> Stateful<Div> {
+        let fg3 = c(pal.fg3);
+        let sep = || div().w(px(20.)).h(px(1.)).my(px(4.)).bg(c(pal.line_strong));
+        let mut col = pane("rail", r).opacity(alpha).flex().flex_col().items_center().gap(px(4.)).pt(px(4.)).pb(px(8.));
+        // Usage: an empty ring until core reports it.
+        col = col.child(
+            self.tipped(
+                "rail-usage",
+                div().id("rail-usage").size(px(20.)).my(px(4.)).rounded_full().border_2().border_color(c(pal.line_strong)).aria_label("No usage data yet"),
+                "No usage data yet",
+                Side::Right,
+                pal,
+                cx,
+            )
+            .test_support(),
+        );
+        for (i, p) in pages::AppPage::ALL.into_iter().enumerate() {
+            let on = self.page == p && self.settings.is_none();
+            col = col.child(
+                self.tipped(("rail-page", i), icon_button(("rail-page", i), p.icon(), p.label(), pal, on), p.label(), Side::Right, pal, cx)
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.open_page(p);
+                        cx.notify();
+                    }))
+                    .test_support(),
+            );
+        }
+        col = col
+            .child(sep())
+            .child(
+                self.tipped("rail-search", icon_button("rail-search", "search", "Search streams", pal, false), "Search streams", Side::Right, pal, cx)
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.sidebar_open = true;
+                        cx.notify();
+                    }))
+                    .test_support(),
+            )
+            .child(
+                self.tipped("rail-new", icon_button("rail-new", "plus", "New stream", pal, false), "New stream", Side::Right, pal, cx)
+                    .on_click(cx.listener(|this, _, window, cx| this.new_thread(window, cx)))
+                    .test_support(),
+            );
+        if let Threads::Ready(v) = &self.threads {
+            let folders = threads::by_folder(v, "");
+            if !folders.is_empty() {
+                col = col.child(sep());
+            }
+            for (i, (name, ts)) in folders.into_iter().enumerate() {
+                let waiting = ts.iter().any(|t| threads::needs_you(t));
+                let letter = name.chars().next().map(|ch| ch.to_uppercase().to_string()).unwrap_or_default();
+                let key = name.clone();
+                let sq = div()
+                    .id(("rail-folder", i))
+                    .relative()
+                    .size(px(28.))
+                    .flex_none()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(px(radius::INNER))
+                    .bg(c(pal.inset))
+                    .border_1()
+                    .border_color(c(pal.line))
+                    .cursor_pointer()
+                    .hover(|d| d.bg(c(pal.hover)))
+                    .text_size(px(12.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(c(pal.fg2))
+                    .aria_label(format!("{name}, {}", ts.len()))
+                    .child(letter)
+                    .when_live(waiting, |d| d.child(div().absolute().top(px(-2.)).right(px(-2.)).size(px(7.)).rounded_full().bg(c(pal.accent))))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        // The sidebar opens on that folder.
+                        this.sidebar_open = true;
+                        this.folder_open.insert(key.clone(), true);
+                        cx.notify();
+                    }));
+                col = col.child(self.tipped(("rail-folder", i), sq, name, Side::Right, pal, cx).test_support());
+            }
+        }
+        let user = std::env::var("USER").or_else(|_| std::env::var("USERNAME")).unwrap_or_else(|_| "You".into());
+        let initial = user.chars().next().map(|ch| ch.to_uppercase().to_string()).unwrap_or_else(|| "Y".into());
+        col.child(div().flex_1())
+            .child(
+                self.tipped("rail-version", icon_button("rail-version", "circle-arrow-up", "Version and updates", pal, false), format!("Version {}", env!("CARGO_PKG_VERSION")), Side::Right, pal, cx)
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.settings = Some(1);
+                        cx.notify();
+                    }))
+                    .test_support(),
+            )
+            .child(
+                self.tipped("rail-settings", icon_button("rail-settings", "settings", "Settings", pal, self.settings.is_some()), "Settings", Side::Right, pal, cx)
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.settings = if this.settings.is_some() { None } else { Some(0) };
+                        cx.notify();
+                    }))
+                    .test_support(),
+            )
+            .child(div().id("rail-avatar").mt(px(4.)).size(px(24.)).flex().items_center().justify_center().rounded_full().bg(c(pal.accent)).text_size(px(11.)).text_color(c(pal.on_accent)).aria_label(user.clone()).child(initial).test_support())
+            .text_color(fg3)
+    }
+
+    /// The version, as a small button by the cog: it opens Settings > General, where the version
+    /// and how updates come are said. Core has no update check wired to the window yet.
+    fn version_button(&self, pal: &'static Palette, cx: &mut Context<Self>) -> Stateful<Div> {
+        let label = format!("v{}", env!("CARGO_PKG_VERSION"));
+        let el = div()
+            .id("version")
+            .h(px(22.))
+            .flex_none()
+            .flex()
+            .items_center()
+            .px(px(6.))
+            .rounded(px(radius::TAG))
+            .border_1()
+            .border_color(c(pal.line_strong))
+            .cursor_pointer()
+            .hover(|d| d.bg(c(pal.hover)))
+            .text_size(px(11.))
+            .text_color(c(pal.fg3))
+            .aria_label(format!("Version {}", env!("CARGO_PKG_VERSION")))
+            .child(label)
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.settings = Some(1);
+                cx.notify();
+            }));
+        self.tipped("version-tip", el, "Version and updates", Side::Right, pal, cx)
+    }
+
     /// The drawer's own button (the right rail's top, and the drawer strip's first): folds the open
     /// drawer, or opens it on the last panel, closing the terminal that took its place.
     fn toggle_drawer(&mut self) {
@@ -1002,8 +1135,7 @@ impl Render for Cauldron {
 
         // ---- rail (only while the sidebar is hidden)
         if let Some(rp) = s.rail {
-            let col = pane("rail", rp.rect).opacity(rp.alpha).flex().flex_col().items_center().gap(px(4.)).pt(px(4.));
-            root = root.child(col.test_support());
+            root = root.child(self.folded_rail(pal, rp.rect, rp.alpha, cx).test_support());
         }
 
         // ---- sidebar with the function row, on the window
@@ -1100,17 +1232,19 @@ impl Render for Cauldron {
                                 .text_color(c(pal.on_accent))
                                 .child(initial),
                         )
+                        // The name with usage beside it (Charles, 13 Nov 07:34Z), then the version and
+                        // the cog. Core has no usage per subscription yet: an empty state, no number.
                         .child(
                             div()
                                 .flex_1()
                                 .min_w_0()
                                 .flex()
-                                .flex_col()
-                                .line_height(px(15.))
-                                .child(div().truncate().text_size(px(12.5)).child(user))
-                                // Core has no usage per subscription yet: an empty state, no number.
-                                .child(div().id("usage-left").text_size(px(11.)).text_color(fg3).aria_label("No data yet").child("No data yet").test_support()),
+                                .items_center()
+                                .gap(px(6.))
+                                .child(div().min_w_0().truncate().text_size(px(12.5)).child(user))
+                                .child(div().id("usage-left").flex_none().text_size(px(11.)).text_color(fg3).aria_label("No data yet").child("No data yet").test_support()),
                         )
+                        .child(self.version_button(pal, cx).test_support())
                         .child(self.tipped("settings", icon_button("settings", "settings", "Settings", pal, self.settings.is_some()), "Settings", Side::Right, pal, cx).on_click(cx.listener(|this, _, _, cx| {
                             this.settings = if this.settings.is_some() { None } else { Some(0) };
                             cx.notify();
@@ -1871,6 +2005,40 @@ mod tests {
             assert!(window.try_find(("folder-dot", ocean)).is_some(), "closed over a waiting stream: the dot");
         })
         .unwrap();
+    }
+
+    /// Folded, the rail (the pages board): usage on top, the three apps, search and New stream, a
+    /// square per folder (a dot on the one with a stream that needs you), then the version, the cog
+    /// and the avatar stacked at the foot. Unfolded, usage sits beside the name, then the version
+    /// and the cog.
+    #[gpui_kit::test]
+    fn the_folded_rail_stacks_usage_apps_folders_and_the_foot(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = open(cx, with_threads());
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            let (name_row, usage, version, cog) = (rect(window, "usage-left"), rect(window, "usage-left"), rect(window, "version"), rect(window, "settings"));
+            assert!((usage.y + usage.h / 2.0 - (version.y + version.h / 2.0)).abs() <= 2.0 && version.x > name_row.x && cog.x > version.x, "usage, then version, then the cog, on one row");
+        })
+        .unwrap();
+        handle.update(cx, |c, _, _| {
+            c.sidebar_open = false;
+            c.motion = Default::default();
+        })
+        .unwrap();
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            let order = ["rail-usage", "rail-search", "rail-new"].map(|id| rect(window, id).y);
+            assert!(order[0] < rect(window, ("rail-page", 0usize)).y && rect(window, ("rail-page", 2usize)).y < order[1] && order[1] < order[2], "usage, the apps, search, New stream");
+            let folders: Vec<String> = (0..3usize).filter_map(|i| window.try_find(("rail-folder", i)).and_then(|e| e.label().map(str::to_string))).collect();
+            assert_eq!(folders, ["Cauldron, 2", "Ocean, 2", "Unfiled, 1"]);
+            let (v, g, a) = (rect(window, "rail-version"), rect(window, "rail-settings"), rect(window, "rail-avatar"));
+            assert!(v.y < g.y && g.y < a.y, "version, cog, avatar stacked at the foot");
+            assert!(a.bottom() >= rect(window, "rail").bottom() - 12.0, "at the foot");
+            window.click(("rail-folder", 1usize), cx);
+        })
+        .unwrap();
+        assert!(handle.update(cx, |c, _, _| c.sidebar_open).unwrap(), "a folder square opens the sidebar on it");
     }
 
     /// Rows are 30 high: the state dot in its 18x22 slot (needs you, working, done; no figures),

@@ -23,7 +23,7 @@ impl AppPage {
             AppPage::Memory => "Memory",
         }
     }
-    fn icon(self) -> &'static str {
+    pub(super) fn icon(self) -> &'static str {
         match self {
             AppPage::Streams => "message-square",
             AppPage::Agents => "bot",

@@ -211,6 +211,18 @@ impl Cauldron {
             }
             return div().id("settings-body").size_full().overflow_y_scroll().flex().justify_center().child(col).test_support().into_any_element();
         }
+        if page == 1 {
+            // General: the version, and how a new one arrives.
+            col = col.child(div().text_size(px(13.)).text_color(fg3).mb(px(6.)).child("This copy of Cauldron."));
+            col = col.child(section("Version"));
+            col = col.child(row(
+                ("general", 0),
+                format!("Cauldron {}", env!("CARGO_PKG_VERSION")),
+                "New builds come from the release workflow (mac-latest, windows-latest). Checking from here comes later.".into(),
+                div().into_any_element(),
+            ));
+            return div().id("settings-body").size_full().overflow_y_scroll().flex().justify_center().child(col).test_support().into_any_element();
+        }
         if page != 0 {
             col = col.child(
                 div()
@@ -325,8 +337,10 @@ mod tests {
             let page = super::super::tests::rect(window, "settings-body");
             assert!(page.x >= card.x && page.right() <= card.right(), "the page is in the card");
             assert_eq!(window.find(("agent", 2usize)).label(), Some("Effort"));
+            window.click(("settings-page", 3usize), cx);
+            assert_eq!(window.find("settings-empty").label(), Some("Machines settings arrive in a later milestone."));
             window.click(("settings-page", 1usize), cx);
-            assert_eq!(window.find("settings-empty").label(), Some("General settings arrive in a later milestone."));
+            assert!(window.find(("general", 0usize)).label().is_some_and(|l| l.starts_with("Cauldron ")), "General: the version");
             window.click(("settings-page", 2usize), cx);
             assert_eq!(window.find(("look", 0usize)).label(), Some("Theme"), "Appearance: the theme");
             assert_eq!(window.find(("look", 1usize)).label(), Some("Painting"), "and the painting");
