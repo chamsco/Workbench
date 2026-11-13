@@ -153,6 +153,26 @@ impl PhaseState {
         self.gates.last().unwrap()
     }
 
+    /// The long path's checklist (planning.rs), judged by rules. It is kept
+    /// either way but never opens the gate by itself: the user's yes does
+    /// ([`record_checklist_yes`]). A refusal sends the project back to Specify.
+    pub fn record_checklist(&mut self, passed: bool, at: u64, artifact: &str, note: &str) {
+        self.gates.push(Gate { phase: Phase::Specify, passed, by: GateBy::Rules, at, artifact: artifact.to_string(), note: note.to_string() });
+        if !passed && self.phase > Phase::Specify {
+            self.phase = Phase::Specify;
+        }
+    }
+
+    /// The user said yes to the spec whose checklist passed: a person opens
+    /// the Specify gate.
+    pub fn record_checklist_yes(&mut self, at: u64, artifact: &str) {
+        if self.phase == Phase::Specify {
+            self.record(true, GateBy::Human, at, artifact, "the user said yes to this spec");
+        } else {
+            self.gates.push(Gate { phase: Phase::Specify, passed: true, by: GateBy::Human, at, artifact: artifact.to_string(), note: "the user said yes to this spec".into() });
+        }
+    }
+
     /// A decision model refused a gate the rules had already opened: the
     /// project goes back to the phase that gate closes. Models may block,
     /// never open.

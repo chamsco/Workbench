@@ -163,11 +163,11 @@ pub fn serve() -> Result<()> {
                     tools.push(json!({"name": t.name, "description": t.description, "inputSchema": t.schema}));
                 }
                 if b.as_ref().is_ok_and(crate::board::is_planner) {
-                    for t in [crate::harness::create_tickets_tool(), crate::harness::work_tickets_tool()] {
-                        let d = if t.name == "work_tickets" {
-                            "Dispatch agents for your ready-for-agent tickets (all of them if `keys` is omitted). Returns at once: end your turn after calling it; each ticket's result comes back as your next message."
-                        } else {
-                            "Turn a plan into tickets: tracer-bullet vertical slices. Each becomes one agent's work on its own git branch. If the plan needs the user's approval, end your turn after calling it; the verdict comes back as your next message."
+                    for t in [crate::harness::create_tickets_tool(), crate::harness::work_tickets_tool(), crate::planning::submit_spec_tool()] {
+                        let d = match t.name {
+                            "work_tickets" => "Dispatch agents for your ready-for-agent tickets (all of them if `keys` is omitted). Returns at once: end your turn after calling it; each ticket's result comes back as your next message.",
+                            "create_tickets" => "Turn a plan into tickets: tracer-bullet vertical slices. Each becomes one agent's work on its own git branch. If the plan needs the user's approval, end your turn after calling it; the verdict comes back as your next message.",
+                            _ => t.description,
                         };
                         tools.push(json!({"name": t.name, "description": d, "inputSchema": t.schema}));
                     }
@@ -234,6 +234,7 @@ pub fn serve() -> Result<()> {
                     "show_options" => board().and_then(|b| crate::board::do_options(b, a.clone())),
                     "create_tickets" => board().and_then(|b| crate::board::do_plan(b, "/v1/plan/create", a.clone())),
                     "work_tickets" => board().and_then(|b| crate::board::do_plan(b, "/v1/plan/dispatch", a.clone())),
+                    "submit_spec" => board().and_then(|b| crate::board::do_plan(b, "/v1/plan/spec", a.clone())),
                     "computer_run" | "computer_read" | "computer_write" => match computer_env() {
                         None => Err(anyhow!("you have no computer of your own")),
                         Some(env) => match name {
