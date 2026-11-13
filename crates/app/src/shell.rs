@@ -117,8 +117,9 @@ impl Panel {
     }
 }
 
-const FUNCTIONS: [(&str, &str); 7] = [
-    ("message-square", "Threads"),
+/// The apps, listed in Settings > Apps (Charles, 13 Nov 07:34Z: out of the sidebar, into Settings).
+pub(super) const FUNCTIONS: [(&str, &str); 7] = [
+    ("message-square", "Streams"),
     ("folder", "Projects"),
     ("calendar", "Schedule"),
     ("bot", "Agents"),
@@ -200,11 +201,6 @@ pub(crate) struct Cauldron {
     /// panel (kept while it closes).
     motion: ShellMotion,
     swap: Option<(Panel, std::time::Instant)>,
-    /// The selected function (an index into FUNCTIONS), and the indicator's slide: where it was
-    /// from, in slots, and when the slide began.
-    section: usize,
-    section_from: f32,
-    section_since: Option<std::time::Instant>,
     /// When the reply last started or stopped (the Send and Stop glyphs cross-fade from then), and
     /// whether the last render saw one running.
     action_since: Option<std::time::Instant>,
@@ -307,7 +303,7 @@ impl Cauldron {
     }
 
     pub(crate) fn new() -> Self {
-        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: None, sidebar_open: true, drawer: Some(Panel::Highlights), backdrop: Default::default(), glass_at: Default::default(), glass_card: std::cell::Cell::new(None), appearance_sub: None, prefs_file: None, plat: platform(), settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_menu: false, tab_slide: Default::default(), tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
+        Cauldron { motion: ShellMotion::default(), swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: None, sidebar_open: true, drawer: Some(Panel::Highlights), backdrop: Default::default(), glass_at: Default::default(), glass_card: std::cell::Cell::new(None), appearance_sub: None, prefs_file: None, plat: platform(), settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_menu: false, tab_slide: Default::default(), tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
     }
 
     /// Opens core off the main thread (the sidebar shows Loading meanwhile), then keeps the thread
@@ -684,15 +680,6 @@ impl Cauldron {
     }
 
     /// Selects a function. The sidebar indicator slides to it from wherever it is now.
-    fn select_section(&mut self, i: usize, cx: &mut Context<Self>) {
-        if i != self.section {
-            let now = std::time::Instant::now();
-            self.section_from = crate::motion::ease_between(self.section_from, self.section as f32, self.section_since, now, cauldron_chrome::motion::time::INDICATOR);
-            self.section = i;
-            self.section_since = Some(now);
-        }
-        cx.notify();
-    }
 
     /// The drawer's own button (the right rail's top, and the drawer strip's first): folds the open
     /// drawer, or opens it on the last panel, closing the terminal that took its place.
@@ -753,13 +740,6 @@ fn icon_button_in(id: impl Into<ElementId>, name: &str, label: &'static str, pal
         .aria_label(label)
 }
 
-/// The left edge of function slot `pos` (fractional while the indicator slides) in the sidebar's
-/// apps row, `row_w` wide. The row spreads its buttons edge to edge with equal gaps (justify_between).
-fn fn_slot_x(row_w: f32, pos: f32) -> f32 {
-    let n = FUNCTIONS.len() as f32;
-    let gap = (row_w - n * metric::SBTN) / (n - 1.0);
-    pos * (metric::SBTN + gap)
-}
 
 /// The sidebar's right padding: its content ends at the board's x 240.
 const SIDE_PR: f32 = 9.0;
@@ -905,13 +885,6 @@ impl Render for Cauldron {
         if !running(self.bubble_since) {
             self.bubble_since = None;
         }
-        if let Some(t0) = self.section_since {
-            if crate::motion::run(now, t0, cauldron_chrome::motion::time::INDICATOR) >= 1.0 {
-                self.section_since = None;
-            } else {
-                moving = true;
-            }
-        }
         if let Some(t0) = self.action_since {
             if crate::motion::run(now, t0, cauldron_chrome::motion::time::SWAP) >= 1.0 {
                 self.action_since = None;
@@ -999,33 +972,12 @@ impl Render for Cauldron {
 
         // ---- rail (only while the sidebar is hidden)
         if let Some(rp) = s.rail {
-            let mut col = pane("rail", rp.rect).opacity(rp.alpha).flex().flex_col().items_center().gap(px(4.)).pt(px(4.));
-            for (i, (name, label)) in FUNCTIONS.iter().enumerate() {
-                let b = icon_button(("rail", i), name, label, pal, i == self.section).on_click(cx.listener(move |this, _, _, cx| this.select_section(i, cx)));
-                col = col.child(self.tipped(("rail", i), b, *label, Side::Right, pal, cx).test_support());
-            }
+            let col = pane("rail", rp.rect).opacity(rp.alpha).flex().flex_col().items_center().gap(px(4.)).pt(px(4.));
             root = root.child(col.test_support());
         }
 
         // ---- sidebar with the function row, on the window
         if let Some(sp) = s.sidebar {
-            // The app row (the v3 board's icons), a hairline under it, then New thread.
-            let mut fnrow = div().relative().flex().justify_between().pt(px(4.)).pb(px(8.)).mb(px(8.)).border_b_1().border_color(c(pal.line));
-            // The indicator sits under the buttons and slides to the selected one (INDICATOR ms).
-            let pos = crate::motion::ease_between(self.section_from, self.section as f32, self.section_since, now, cauldron_chrome::motion::time::INDICATOR);
-            fnrow = fnrow.child(
-                div()
-                    .absolute()
-                    .left(px(fn_slot_x(sp.rect.w - SIDE_PR, pos)))
-                    .top(px(4.))
-                    .size(px(metric::SBTN))
-                    .rounded(px(radius::CONTROL))
-                    .bg(ca(pal.fg, 0.09)),
-            );
-            for (i, (name, label)) in FUNCTIONS.iter().enumerate() {
-                let b = icon_button_in(("fn", i), name, label, pal, i == self.section, false).on_click(cx.listener(move |this, _, _, cx| this.select_section(i, cx)));
-                fnrow = fnrow.child(self.tipped(("fn", i), b, *label, Side::Right, pal, cx).test_support());
-            }
             if self.search.is_none() {
                 // The input's caret, selection and text come from the tokens, not the component theme.
                 let t = Theme::global_mut(cx);
@@ -1074,7 +1026,6 @@ impl Render for Cauldron {
                 .flex_col()
                 .pr(px(SIDE_PR))
                 .overflow_hidden()
-                .child(fnrow)
                 .when_live(self.settings.is_some(), |d| d.child(self.settings_nav(self.settings.unwrap_or(0), pal, cx).test_support()))
                 .when_live(self.settings.is_none(), |d| d.child(new_thread))
                 .when_live(self.settings.is_none(), |d| d.child(
@@ -1488,19 +1439,9 @@ impl Render for Cauldron {
 #[cfg(test)]
 mod tests {
     // Explicit imports: a glob of gpui_kit brings GPUI's `test` macro, which shadows Rust's.
-    use super::{fn_slot_x, platform, AgentTab, Cauldron, Panel, Threads};
-    use cauldron_chrome::layout::metric;
+    use super::{platform, AgentTab, Cauldron, Panel, Threads};
     use crate::threads::sample;
 
-    #[test]
-    fn function_slots_span_the_row_with_equal_gaps() {
-        // The row has no card border or padding now: the board's `.apps` runs edge to edge.
-        let w = 227.0;
-        assert_eq!(fn_slot_x(w, 0.0), 0.0);
-        assert!((fn_slot_x(w, 6.0) + metric::SBTN - w).abs() < 1e-3, "last button ends at the row's edge");
-        let step = fn_slot_x(w, 1.0) - fn_slot_x(w, 0.0);
-        assert!((fn_slot_x(w, 6.0) - fn_slot_x(w, 0.0) - 6.0 * step).abs() < 1e-3, "equal steps");
-    }
     use cauldron_chrome::layout::{self, Rect, ShellState};
     use cauldron_chrome::motion::Frame;
     use gpui_kit::test::TestWindowExt;
@@ -1607,8 +1548,7 @@ mod tests {
         let ms = std::time::Duration::from_millis;
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
-            let named: [(ElementId, &str); 7] = [
-                (("fn", 4usize).into(), "Usage"),
+            let named: [(ElementId, &str); 6] = [
                 (("rb", 0usize).into(), "Highlights"),
                 ("rb-patches".into(), "Patches"),
                 ("sbtn".into(), "Hide sidebar"),
@@ -1642,10 +1582,10 @@ mod tests {
         .unwrap();
         cx.executor().advance_clock(ms(1000));
         cx.update_window(handle.into(), |_, window, cx| {
-            window.hover(("fn", 4usize), cx);
+            window.hover("settings", cx);
             window.render_frame(cx);
-            assert_eq!(window.find("tooltip").label(), Some("Usage"));
-            let (tip, btn) = (rect(window, "tooltip"), rect(window, ("fn", 4usize)));
+            assert_eq!(window.find("tooltip").label(), Some("Settings"));
+            let (tip, btn) = (rect(window, "tooltip"), rect(window, "settings"));
             assert!((tip.x - (btn.right() + 8.0)).abs() < 0.5, "left-side tip sits 8px right of its button: {tip:?} {btn:?}");
         })
         .unwrap();

@@ -7,12 +7,13 @@ use super::*;
 use backspace_core::accounts::{Accounts, FailoverPolicy};
 
 /// Settings' pages, in the sidebar's order: (name, icon).
-pub(crate) const PAGES: [(&str, &str); 5] = [
+pub(crate) const PAGES: [(&str, &str); 6] = [
     ("Agents and subscriptions", "bot"),
     ("General", "settings"),
     ("Appearance", "palette"),
     ("Machines", "monitor"),
     ("Shortcuts", "keyboard"),
+    ("Apps", "layout-grid"),
 ];
 
 fn policy_label(p: FailoverPolicy) -> &'static str {
@@ -169,6 +170,45 @@ impl Cauldron {
             col = col.child(row(("look", 0), "Theme".into(), "Light, dark, or System, which follows your computer as it changes.".into(), theme.into_any_element()));
             col = col.child(section("Background"));
             col = col.child(row(("look", 1), "Painting".into(), "Behind the whole window, in the old dither; the new thread shows it clear, every other surface frosted. None keeps the plain frame.".into(), bg.into_any_element()));
+            return div().id("settings-body").size_full().overflow_y_scroll().flex().justify_center().child(col).test_support().into_any_element();
+        }
+        if page == 5 {
+            // Apps (Charles, 13 Nov 07:34Z: out of the sidebar, into Settings). A plain list for
+            // now: the pages behind them are being designed, and only Streams exists.
+            col = col.child(div().text_size(px(13.)).text_color(fg3).mb(px(6.)).child("The parts of Cauldron. Streams is the one built so far."));
+            for (i, (icon, name)) in super::FUNCTIONS.iter().enumerate() {
+                let control = if i == 0 {
+                    div()
+                        .id(("app-open", i))
+                        .cursor_pointer()
+                        .hover(|d| d.opacity(0.85))
+                        .aria_label(format!("Open {name}"))
+                        .child(value("Open".into()))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.settings = None;
+                            cx.notify();
+                        }))
+                        .test_support()
+                        .into_any_element()
+                } else {
+                    div().id(("app-later", i)).text_size(px(12.)).text_color(fg3).aria_label("Arrives later").child("Arrives later").test_support().into_any_element()
+                };
+                col = col.child(
+                    div()
+                        .id(("app", i))
+                        .flex()
+                        .items_center()
+                        .gap(px(12.))
+                        .py(px(8.))
+                        .border_t_1()
+                        .border_color(line)
+                        .aria_label(*name)
+                        .child(glyph(icon, 16., fg2))
+                        .child(div().flex_1().min_w_0().text_size(px(13.)).text_color(fg).child(*name))
+                        .child(control)
+                        .test_support(),
+                );
+            }
             return div().id("settings-body").size_full().overflow_y_scroll().flex().justify_center().child(col).test_support().into_any_element();
         }
         if page != 0 {
