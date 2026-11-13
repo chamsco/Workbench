@@ -49,22 +49,25 @@ Core still has no stages and no per-subscription usage, so the bar is static: no
 
 Verified:
 - The build and both test suites on the Mac (macOS 27, Apple toolchain, cargo 1.99.1).
-- The real app window opens on the display at 1200x720 (`CAULDRON_SIZE`), on sample data in a scratch folder rather than Charles's own threads.
-- Screenshots: all eight shots (four states, dark and light) are real GPUI Metal renders of the shell at 1200x720, saved at 2x (2400x1440). I measured the tab and the drawer edges in them pixel by pixel.
+- The real app window on the display at 1200x720 (`CAULDRON_SIZE`), on sample data in a scratch folder rather than Charles's own threads.
 
-Which shots are real window captures: **none.** Every `nl3d-*.png` is a headless Metal render (see below).
-After Charles granted Screen Recording (13 Nov 01:30Z) I retried, and both commands still fail. `screencapture -x full.png` gives `could not create image from display`, and `screencapture -x -o -l<window id>` on the open Cauldron window gives `could not create image from window`. The capture is started from the Claude Code process (`~/.local/share/claude/versions/2.1.312`), so the permission likely has to cover that process or the terminal app hosting it. macOS also only applies a new Screen Recording grant after the granted app restarts. I stopped there, as asked. The thread-beside-terminal state and hover states are not shot.
+Which shots are real window captures (13 Nov, after Charles granted Screen Recording; the first retry at 01:31Z still failed with `could not create image from display`, the next one worked):
+- **Real captures** (`screencapture -l` of the live window, native traffic lights and window corners included): `nl3d-new-*`, `nl3d-thread-*`, `nl3d-folded-*`, `nl3d-split-*`, dark and light.
+- **Headless Metal renders**: `nl3d-tabs-*-render.png` (the agent-tab fixture has no live start-up option) and `nl3d-before-new-*` (the state before the Shell).
+- The real captures are 1200x720 at 1x. This Mac's display is 1920x1080 at scale 1, so a capture of the live window cannot be 2x. The headless renders are 2x.
+- "Thread beside terminal" is shot as Split (`nl3d-split-*`): the Terminal button in the top bar does nothing yet, and Split opens the "Open in this half" placeholder.
+- Hover states are not in the shots. I moved the pointer with a posted CGEvent, but no hover showed. Posting events most likely needs Accessibility permission for the Claude Code process, which it does not have.
 
 Not verified:
-- **No screenshot of the live window.** macOS refused to capture the screen ("could not create image from display") because the terminal does not have Screen Recording permission. The shots come from GPUI's headless Metal renderer, which draws the same view. They do not include the native traffic lights, the window shadow, or real hover and click states.
-- I did not look at the live window by eye, and I did not drag it, resize it, or click through the open and fold animations. Only the tests cover those.
-- I did not check the narrow width or a Retina display at other sizes.
+- I did not drag or resize the live window, or click through the open and fold animations. Only the tests cover those.
+- I did not check the narrow width or a Retina display.
 - Light shots use `CAULDRON_THEME=light` rather than a system theme switch.
 
 ## Tools added (debug and feature-gated, not in a release build)
 
 - `CAULDRON_THEME=light|dark` (debug builds) forces the theme.
 - `CAULDRON_SIZE=1200x720` (debug builds) sets the window's starting size.
+- `CAULDRON_OPEN=<thread id>`, `CAULDRON_DRAWER=folded` and `CAULDRON_SPLIT=1` (debug builds) start the live window in a given state, for real captures.
 - `cargo run -p backspace --features shots` with `CAULDRON_SHOTS=<dir> BACKSPACE_DATA=<sample data>` renders New thread, a thread, the drawer folded, and agent tabs in dark and light to PNG, then exits (`crates/app/src/shell/shots.rs`, macOS only). It runs on the main thread because AppKit requires it, so it cannot be a test.
 
 ## Note for Charles

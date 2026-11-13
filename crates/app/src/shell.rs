@@ -224,6 +224,17 @@ impl Cauldron {
             }
             _ => c.connect(cx),
         }
+        // Debug builds only: `CAULDRON_DRAWER=folded` starts with the drawer folded to its rail and
+        // `CAULDRON_SPLIT=1` with Split open, for screenshots of the live window.
+        #[cfg(debug_assertions)]
+        {
+            if std::env::var("CAULDRON_DRAWER").as_deref() == Ok("folded") {
+                c.drawer_last = c.drawer.take();
+            }
+            if std::env::var_os("CAULDRON_SPLIT").is_some() {
+                c.split = true;
+            }
+        }
         #[cfg(debug_assertions)]
         if let Some(n) = std::env::var("CAULDRON_FIXTURE_AGENTS").ok().and_then(|v| v.parse::<usize>().ok()) {
             let names = ["Rampart", "Builder", "Reviewer", "Tester", "Docs", "Planner", "Linter", "Router", "Fixer", "Scout", "Indexer", "Mapper", "Pusher", "Watcher", "Herald", "Keeper"];
@@ -270,6 +281,12 @@ impl Cauldron {
                 c.start.route = route;
                 c.start.machines = machines;
                 c.refresh();
+                // Debug builds only: `CAULDRON_OPEN=<thread id>` opens that thread once core is up, for
+                // screenshots of the live window.
+                #[cfg(debug_assertions)]
+                if let Ok(id) = std::env::var("CAULDRON_OPEN") {
+                    c.open_thread(id);
+                }
                 c.watch(changes, cx);
                 cx.notify();
             });
