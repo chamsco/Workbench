@@ -176,7 +176,7 @@ fn the_drawer_takes_the_right_rails_place() {
         let shut = solve(1200.0, 720.0, ShellState { sidebar_open: false, ..ShellState { sidebar_open: true, drawer_open: true, split_open: false, terminal_open: false, plugins: true } }, platform);
         assert_eq!(shut.shell.x, shut.rail.unwrap().right(), "{platform:?}: flush against the folded rail too");
         assert_eq!((rail.right(), rail.w), (sh.right() - 6.0, 44.0), "{platform:?}: the rail at the Shell's right edge");
-        assert_eq!((d.right() + 6.0, d.w), (rail.x, 236.0), "{platform:?}: the drawer left of the rail, sidebar-wide");
+        assert_eq!((d.right() + 6.0, d.w), (rail.x, 200.0), "{platform:?}: the drawer left of the rail, a little narrower than the sidebar (Charles, 13 Nov 18:49Z)");
         assert_eq!((rail.y, rail.bottom()), (d.y, d.bottom()), "{platform:?}: as tall as the drawer");
         assert_eq!((d.y, d.bottom()), (open.main.y, open.main.bottom()), "{platform:?}: as tall as the card");
         assert_eq!(open.main.right() + 6.0, d.x, "{platform:?}: 6px from the card");

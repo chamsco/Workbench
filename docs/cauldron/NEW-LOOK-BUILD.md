@@ -367,3 +367,10 @@ The coordinator's board is `design/cauldron-destinations.html` (ac5ef7a on gg3og
 
 - Top bar A: untouched.
 - Nothing merged or pushed anywhere except this branch.
+
+## The drawer at 200 (13 Nov, Charles 18:49Z)
+
+- The right drawer is 200 wide, UI-PLAN's width, down from the sidebar's 236 (`layout::DRAWER_W`). The 44 rail beside it is unchanged.
+- Agents' drawer follows the destinations board: the agent, the two rings with their captions under them, the current task, then tabs Context, Traces, Routines and a cog for Settings (its name in the tip). Tabs have 5px padding and the drawer 6px sides, so the row fits the 188 inside; in a wider font the text tabs end in "…" rather than run into the rail. The drawer scrolls if the window is short.
+- Test: `the_agents_demo_is_marked_as_a_demo` checks the tab row ends inside the drawer and that Traces replaces Context.
+- **Shots:** before `nl13-agents-*`; after `nl14-agents-*`, `nl14-agents-folded-*`, `nl14-stream-*` (dark and light).

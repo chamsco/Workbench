@@ -372,23 +372,25 @@ impl Cauldron {
 
     /// Agents' own drawer: the selected agent (or the room's lead) with its rings, current task,
     /// Context, Traces, Routines and Settings. All example content, marked.
-    pub(super) fn agents_drawer(&self, pal: &'static Palette) -> Stateful<Div> {
+    pub(super) fn agents_drawer(&self, pal: &'static Palette, cx: &mut Context<Self>) -> Stateful<Div> {
         let (fg, fg2, fg3) = (c(pal.fg), c(pal.fg2), c(pal.fg3));
         let roster = self.roster();
         let a = self.agent_sel.and_then(|i| roster.get(i).cloned()).unwrap_or_else(|| example_agents()[0].clone());
         let head = |t: &'static str| div().pt(px(6.)).text_size(px(11.)).font_weight(FontWeight::MEDIUM).text_color(fg3).child(t);
-        // A ring as a circle: its edge in accent past 80% (warn), its share inside.
+        // A ring as a circle: its edge in accent past 80% (warn), its share inside, its caption
+        // under it so two fit the drawer's 200.
         let ring = |id: &'static str, pct: u32, label: &'static str, sub: &'static str| {
             div()
                 .id(id)
                 .flex()
+                .flex_col()
                 .items_center()
-                .gap(px(8.))
+                .gap(px(4.))
                 .flex_1()
                 .min_w_0()
                 .aria_label(format!("{label} {pct}% (example)"))
                 .child(div().size(px(36.)).flex_none().rounded_full().border_2().border_color(if pct >= 80 { c(pal.warn) } else { c(pal.line_strong) }).flex().items_center().justify_center().text_size(px(10.)).font_weight(FontWeight::SEMIBOLD).text_color(fg).child(format!("{pct}%")))
-                .child(div().flex_1().min_w_0().flex().flex_col().child(div().truncate().text_size(px(11.)).text_color(fg2).child(label)).child(div().truncate().text_size(px(10.)).text_color(fg3).child(sub)))
+                .child(div().max_w_full().flex().flex_col().items_center().child(div().max_w_full().truncate().text_size(px(11.)).text_color(fg2).child(label)).child(div().max_w_full().truncate().text_size(px(10.)).text_color(fg3).child(sub)))
                 .test_support()
         };
         let mut tree = div().id("context-treemap").h(px(64.)).flex().gap(px(2.));
@@ -397,33 +399,60 @@ impl Cauldron {
             col.a = 0.35;
             tree = tree.child(div().id(("ctx", k)).h_full().w(relative(share)).rounded(px(4.)).bg(col).p(px(4.)).overflow_hidden().text_size(px(10.)).text_color(fg).aria_label(name).child(div().truncate().child(name)).test_support());
         }
-        let line = |t: &'static str| div().flex().gap(px(6.)).child(div().mt(px(6.)).size(px(4.)).flex_none().rounded_full().bg(c(pal.fg4))).child(div().text_size(px(12.)).text_color(fg2).child(t));
+        let line = |t: &'static str| div().flex().gap(px(6.)).child(div().mt(px(6.)).size(px(4.)).flex_none().rounded_full().bg(c(pal.fg4))).child(div().flex_1().min_w_0().text_size(px(12.)).text_color(fg2).child(t));
         let setting = |t: &'static str| div().id(t).h(px(28.)).flex().items_center().justify_between().text_size(px(12.)).text_color(c(pal.fg4)).aria_label(format!("{t} (demo: not built yet)")).child(t).child(glyph("chevron-right", 12., c(pal.fg4)));
+        // The board's tabs (destinations board, Agents): tight padding, Settings as a cog with its
+        // tip, so the row fits the 188 inside the drawer's 200.
+        let mut tabs = div().id("agent-tabs").flex().py(px(4.));
+        for (i, t) in ["Context", "Traces", "Routines", "Settings"].into_iter().enumerate() {
+            let on = self.agent_tab == i;
+            let el = div()
+                .id(("agent-tab", i))
+                .h(px(24.))
+                .px(px(5.))
+                .when_live(i == 3, |d| d.flex_none())
+                .when_live(i != 3, |d| d.flex_shrink_1().min_w_0())
+                .flex()
+                .items_center()
+                .rounded(px(8.))
+                .text_size(px(12.))
+                .cursor_pointer()
+                .text_color(if on { fg } else { fg3 })
+                .when_live(on, |d| d.bg(c(pal.selected)))
+                .when_live(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
+                .aria_label(t)
+                .aria_selected(on)
+                .when_live(i == 3, |d| d.child(glyph("settings", 14., if on { fg } else { fg3 })))
+                .when_live(i != 3, |d| d.child(div().truncate().child(t)))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.agent_tab = i;
+                    cx.notify();
+                }));
+            tabs = tabs.child(if i == 3 { self.tipped(("agent-tab-tip", i), el, "Settings", Side::Below, pal, cx).test_support() } else { el.test_support() });
+        }
+        let body = match self.agent_tab {
+            0 => div().flex().flex_col().gap(px(6.)).child(tree.test_support()).child(div().text_size(px(11.)).text_color(fg3).child("34k of 200k tokens")),
+            1 => div().flex().flex_col().gap(px(6.)).child(line("Split the work into three tasks")).child(line("Posted tasks to the shared board")).child(line("Waiting on Codex and Cursor")),
+            2 => div().flex().flex_col().gap(px(6.)).child(line("Nightly: check the open streams")),
+            _ => div().flex().flex_col().child(setting("Model and fallbacks")).child(setting("Computer")).child(setting("Switched off")),
+        };
         div()
             .id("agents-drawer")
             .absolute()
-            .left(px(10.))
-            .right(px(10.))
+            .left(px(6.))
+            .right(px(6.))
             .top(px(8.))
+            .bottom(px(8.))
+            .overflow_y_scroll()
             .flex()
             .flex_col()
             .gap(px(8.))
-            .child(div().flex().items_center().gap(px(8.)).child(figure(a.dot, a.mood, 30., false)).child(div().flex_1().min_w_0().flex().flex_col().child(div().text_size(px(14.)).font_weight(FontWeight::SEMIBOLD).text_color(fg).child(a.name.clone())).child(div().truncate().text_size(px(11.)).text_color(fg3).child(a.job.clone()))).child(tag("drawer-example", "Example", pal).test_support()))
-            .child(div().flex().gap(px(10.)).child(ring("ring-week", 91, "Weekly", "Resets Mon")).child(ring("ring-5h", 12, "5-hour", "12% used")))
+            .child(div().flex().items_center().gap(px(8.)).child(figure(a.dot, a.mood, 30., false)).child(div().flex_1().min_w_0().flex().flex_col().child(div().truncate().text_size(px(14.)).font_weight(FontWeight::SEMIBOLD).text_color(fg).child(a.name.clone())).child(div().truncate().text_size(px(11.)).text_color(fg3).child(a.job.clone()))).child(tag("drawer-example", "Example", pal).test_support()))
+            .child(div().flex().gap(px(10.)).child(ring("ring-week", 91, "Weekly", "Resets Mon 09:00")).child(ring("ring-5h", 12, "5-hour", "12% used")))
             .child(head("Current task"))
             .child(div().p(px(8.)).rounded(px(radius::INNER)).bg(c(pal.inset)).text_size(px(12.)).text_color(fg2).child(if a.name == "Librarian" { "Reading the room and filing two notes to the Friday demo folder." } else { "Reading the receipt flow and splitting the work." }))
-            .child(head("Context"))
-            .child(tree.test_support())
-            .child(head("Traces"))
-            .child(line("Split the work into three tasks"))
-            .child(line("Posted tasks to the shared board"))
-            .child(line("Waiting on Codex and Cursor"))
-            .child(head("Routines"))
-            .child(line("Nightly: check the open streams"))
-            .child(head("Settings"))
-            .child(setting("Model and fallbacks"))
-            .child(setting("Computer"))
-            .child(setting("Switched off"))
+            .child(tabs)
+            .child(body)
     }
 }
 
@@ -484,6 +513,14 @@ mod tests {
             }
             assert_eq!(window.find("agent-composer").label(), Some("Not connected"));
             assert!(window.try_find("agents-drawer").is_some() && window.try_find("drawer-example").is_some(), "Agents' own drawer, marked");
+            // The drawer's tabs fit its 200 (Charles, 13 Nov 18:49Z), Settings as a cog with its name.
+            let (d, last) = (super::super::tests::rect(window, "agents-drawer"), super::super::tests::rect(window, ("agent-tab", 3usize)));
+            assert!(last.right() <= d.right(), "the tab row ends inside the drawer: {last:?} in {d:?}");
+            assert_eq!(window.find(("agent-tab", 3usize)).label(), Some("Settings"));
+            assert!(window.try_find("context-treemap").is_some(), "Context first");
+            window.click(("agent-tab", 1usize), cx);
+            window.render_frame(cx);
+            assert!(window.try_find("context-treemap").is_none() && window.find(("agent-tab", 1usize)).selected() == Some(true), "Traces replaces it");
             window.click(("agent-row", 3usize), cx);
             window.render_frame(cx);
             assert_eq!(window.find(("agent-row", 3usize)).selected(), Some(true));

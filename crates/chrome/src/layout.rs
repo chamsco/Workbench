@@ -84,8 +84,9 @@ pub mod metric {
     pub const RAIL_W: f32 = 44.0;
     pub const SIDEBAR_W: f32 = 236.0;
     pub const RRAIL_W: f32 = 44.0;
-    /// The drawer in the right gutter: as wide as the sidebar (v3 board, Charles 13 Nov).
-    pub const DRAWER_W: f32 = SIDEBAR_W;
+    /// The drawer in the right gutter: 200, UI-PLAN's width (Charles, 13 Nov 18:49Z: at the
+    /// sidebar's width it read too big).
+    pub const DRAWER_W: f32 = 200.0;
     pub const SPLIT_W: f32 = 292.0;
     /// The terminal card, the v3 board's `.term`.
     pub const TERM_W: f32 = 430.0;
