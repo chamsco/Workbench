@@ -35,6 +35,8 @@ The halftone painting renderer (`legacy/tauri-app/ui/art.js`, ported from
 Berth's `DitherBand`), the paintings in `legacy/tauri-app/ui/art/`, and the
 layout of Home (`legacy/tauri-app/ui/home.js`) come from
 [Berth](https://github.com/sean-brydon/berthd).
+The GPUI app carries the same dither, ported again to Rust (`crates/chrome/src/dither.rs`), and the
+same paintings (`crates/app/assets/art/`).
 
 > MIT License
 >

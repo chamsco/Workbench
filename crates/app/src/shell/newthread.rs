@@ -239,6 +239,42 @@ impl Cauldron {
         .detach();
     }
 
+    /// Frosted glass under a new-thread element, while the card shows a painting: the blurred
+    /// painting cut at where the element was laid out last frame, a tint over it, and a probe that
+    /// records where it is now (a move asks for one more frame). Nothing without a painting.
+    fn glass(&self, key: &'static str, r: f32) -> Vec<AnyElement> {
+        let Some((cx0, cy0, dark)) = self.glass_card.get() else { return Vec::new() };
+        let at = self.glass_at.clone();
+        let probe = canvas(
+            move |b, window, _| {
+                let mut m = at.borrow_mut();
+                if m.get(key) != Some(&b) {
+                    m.insert(key, b);
+                    window.refresh();
+                }
+            },
+            |_, _, _, _| {},
+        )
+        .absolute()
+        .top_0()
+        .left_0()
+        .size_full()
+        .into_any_element();
+        let mut out = vec![probe];
+        if let Some(b) = self.glass_at.borrow().get(key) {
+            let (x, y) = ((f32::from(b.origin.x) - cx0).round() as i32, (f32::from(b.origin.y) - cy0).round() as i32);
+            let (w, h) = (f32::from(b.size.width).round() as u32, f32::from(b.size.height).round() as u32);
+            if let Some(crop) = self.backdrop.borrow_mut().glass(x, y, w, h) {
+                out.push(img(crop).absolute().top_0().left_0().size_full().rounded(px(r)).into_any_element());
+            }
+        }
+        let t = super::backdrop::tint(dark);
+        let mut tint = gpui_kit::rgb(((t[0] as u32) << 16) | ((t[1] as u32) << 8) | t[2] as u32);
+        tint.a = t[3];
+        out.push(div().absolute().top_0().left_0().size_full().rounded(px(r)).bg(tint).into_any_element());
+        out
+    }
+
     pub(super) fn new_thread_view(&self, pal: &'static Palette, window: &Window, cx: &mut Context<Self>) -> AnyElement {
         let (fg, fg2, fg3) = (c(pal.fg), c(pal.fg2), c(pal.fg3));
         let blocked = self.start_blocked();
@@ -316,16 +352,20 @@ impl Cauldron {
             )
             .child(start_btn);
 
+        // On a painting the box is glass, with the composer's 22 radius (the board); else the panel.
+        let glass = self.glass_card.get().is_some();
         let mut nt_box = div()
             .id("nt-box")
+            .relative()
             .flex()
             .flex_col()
             .min_h(px(BOX_H))
             .pt(px(4.))
             .px(px(15.))
             .pb(px(10.))
-            .bg(c(pal.panel))
-            .rounded(px(radius::CONTROL))
+            .when(!glass, |d| d.bg(c(pal.panel)))
+            .rounded(px(if glass { radius::SHELL } else { radius::CONTROL }))
+            .children(self.glass("nt-box", radius::SHELL))
             .border_1()
             .border_color(if focused { body_line(pal, true) } else { c(pal.line_strong) })
             .shadow(vec![drop(tokens::shadow::BOX)])
@@ -375,6 +415,9 @@ impl Cauldron {
             .items_center()
             .child(
                 dd("machine")
+                    .relative()
+                    .children(self.glass("machine", radius::CONTROL))
+                    .when(glass, |d| d.rounded(px(radius::CONTROL)).border_1().border_color(c(pal.line_strong)))
                     .px(px(6.))
                     .text_color(fg3)
                     .aria_label(machine_name.clone())

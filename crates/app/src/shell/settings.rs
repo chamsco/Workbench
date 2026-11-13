@@ -119,6 +119,30 @@ impl Cauldron {
         };
         let section = |title: &'static str| div().mt(px(24.)).mb(px(4.)).text_size(px(11.)).line_height(px(14.)).font_weight(FontWeight::MEDIUM).text_color(fg3).child(title);
         let value = |text: String| div().h(px(28.)).px(px(8.)).flex().items_center().rounded(px(radius::CONTROL)).border_1().border_color(c(pal.line_strong)).text_size(px(12.)).font_weight(FontWeight::MEDIUM).text_color(fg2).child(text);
+        if page == 2 {
+            // Appearance: the new thread's painting (background A), as the Tauri app offered them.
+            let p = Prefs::load();
+            let name = super::backdrop::BACKDROPS.iter().find(|b| b.0 == p.backdrop).map_or("Harbour", |b| b.1);
+            let bg = div()
+                .id("set-backdrop")
+                .cursor_pointer()
+                .hover(|d| d.opacity(0.85))
+                .aria_label("Change background")
+                .child(value(name.into()))
+                .on_click(cx.listener(|_, _, _, cx| {
+                    let mut p = Prefs::load();
+                    let all = super::backdrop::BACKDROPS;
+                    let at = all.iter().position(|b| b.0 == p.backdrop).unwrap_or(0);
+                    p.backdrop = all[(at + 1) % all.len()].0.to_string();
+                    p.save();
+                    cx.notify();
+                }))
+                .test_support();
+            col = col.child(div().text_size(px(13.)).text_color(fg3).mb(px(6.)).child("How Cauldron looks around your work."));
+            col = col.child(section("Background"));
+            col = col.child(row(("look", 0), "Painting".into(), "Shown on the new thread, in the old dither, with the composer on frosted glass. Never behind a thread.".into(), bg.into_any_element()));
+            return div().id("settings-body").size_full().overflow_y_scroll().flex().justify_center().child(col).test_support().into_any_element();
+        }
         if page != 0 {
             col = col.child(
                 div()
@@ -233,8 +257,10 @@ mod tests {
             let page = super::super::tests::rect(window, "settings-body");
             assert!(page.x >= card.x && page.right() <= card.right(), "the page is in the card");
             assert_eq!(window.find(("agent", 2usize)).label(), Some("Effort"));
+            window.click(("settings-page", 1usize), cx);
+            assert_eq!(window.find("settings-empty").label(), Some("General settings arrive in a later milestone."));
             window.click(("settings-page", 2usize), cx);
-            assert_eq!(window.find("settings-empty").label(), Some("Appearance settings arrive in a later milestone."));
+            assert_eq!(window.find(("look", 0usize)).label(), Some("Painting"), "Appearance: the background choice");
             window.click("settings-back", cx);
             window.render_frame(cx);
             assert!(window.try_find("settings-body").is_none(), "the card is back");

@@ -22,6 +22,7 @@ use std::sync::Arc;
 
 mod motion;
 mod newthread;
+mod backdrop;
 mod panes;
 mod settings;
 mod terminal;
@@ -135,6 +136,12 @@ pub(crate) enum Threads {
 pub(crate) struct Cauldron {
     sidebar_open: bool,
     drawer: Option<Panel>,
+    /// Background A: the new thread card's painting and the glass cut from it, cached by size and rect.
+    backdrop: std::cell::RefCell<backdrop::Backdrop>,
+    /// Where the glass elements were laid out last frame (window coordinates), and the painted card's
+    /// top-left; the glass is cut at those rects.
+    glass_at: std::rc::Rc<std::cell::RefCell<std::collections::HashMap<&'static str, Bounds<Pixels>>>>,
+    glass_card: std::cell::Cell<Option<(f32, f32, bool)>>,
     /// Settings is open on this page (v3 frame 7): its pages take the sidebar's list, the page the card.
     settings: Option<usize>,
     /// Where Settings reads the subscriptions; None is core's `accounts.json` (tests use their own).
@@ -284,7 +291,7 @@ impl Cauldron {
     }
 
     pub(crate) fn new() -> Self {
-        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: None, sidebar_open: true, drawer: Some(Panel::Highlights), settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
+        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: None, sidebar_open: true, drawer: Some(Panel::Highlights), backdrop: Default::default(), glass_at: Default::default(), glass_card: std::cell::Cell::new(None), settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
     }
 
     /// Opens core off the main thread (the sidebar shows Loading meanwhile), then keeps the thread
@@ -1340,6 +1347,14 @@ impl Render for Cauldron {
         let at = self.pane_content.iter().position(|p| *p == panes::Content::Thread).unwrap_or(0).min(shape.count() - 1);
         let tb = cauldron_chrome::panes::rects(area, sp)[at];
         self.thread_box.set(if split { (tb.w, tb.h - 32.0) } else { (tb.w, tb.h) });
+        // Background A: a painting on the new thread's card only, never behind a thread.
+        let painting = if new_screen && !split { backdrop::painting(&Prefs::load().backdrop, dark) } else { None };
+        let art = painting.map(|name| {
+            let (iw, ih) = ((s.main.w - 2.0).max(1.0) as u32, (card_h - 2.0).max(1.0) as u32);
+            let bg = [pal.panel.0, pal.panel.1, pal.panel.2];
+            self.backdrop.borrow_mut().card(name, dark, iw, ih, bg)
+        });
+        self.glass_card.set(art.as_ref().map(|_| (s.main.x + 1.0, s.main.y + 1.0, dark)));
         let body = match self.settings {
             Some(page) => self.settings_page(page, pal, cx),
             None => self.card_body(pal, window, cx),
@@ -1360,6 +1375,7 @@ impl Render for Cauldron {
             // panes are the Panels and the head sits on the Shell.
             .when_live(!split, |d| d.bg(c(pal.panel)).border_1().border_color(ring))
             .text_color(fg3)
+            .children(art.map(|art| img(art).id("card-art").absolute().top_0().left_0().size_full().rounded(px(radius::PANEL - 1.)).test_support()))
             .child(head.test_support())
             .child(div().flex_1().min_h_0().child(inside));
         // The grey Shell behind the card, Split and the drawer: the drawer stands in its right
