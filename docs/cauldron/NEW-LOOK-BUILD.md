@@ -449,3 +449,15 @@ From the context-sidebar board (direction A, sections 1 to 5).
 - **Real now:** the folders (a stream's folder is the folder it works in, `threads::folder`), their streams, running and needs-you counts, last update, notes per place. **Waiting on core's `folder` field** (being written in parallel): folders separate from the working directory, New folder and filing; then this page and the sidebar list switch to it.
 - **Tests:** `folders_count_streams_and_notes_by_folder`, `the_art_is_a_glass_folder`.
 - **Shots:** `nl20-folders-*` (A), `nl20-folder-detail-*` (B), light and dark.
+
+## Folders on core's folder field (14 Nov; core 9732acc, 3c26462, 578a2cd cherry-picked from claude/project-thread-gg3ogp)
+
+- **The field:** a stream's folder is core's `Thread.folder`, read through `folders::Folders` (`list`, `threads_in`, `unfiled`); where it runs is `Thread.project` and filing never touches it. The app keeps a `threads::Filing` (folders in creation order, each filed stream's folder), read again when the streams or the folders change. Every list goes through it: the Streams sidebar, the Folders sidebar and page, search, the folded rail. `threads::folder` is now only the working directory's name.
+- **Existing streams start Unfiled.** Empty folders list (count 0).
+- **Actions, all real now:** New folder (you name it: the Folders page header, its tile, the sidebar's New folder and the + by Folders in Streams, and the New stream chip's menu); Rename and Delete in a folder's detail (Delete asks once; its streams become Unfiled); filing a stream: right-click its row in the sidebar, or "File in…" on a row in a folder's detail, into any folder or Unfiled, or a new one.
+- **"File by working directory":** one explicit button on the Folders page header and its empty state: a folder per working-directory name (made if missing) and each stream filed in its own. It runs only when clicked, and says what it does; it is not a Librarian suggestion.
+- **The New stream chip files the new stream:** its menu lists core's folders, No folder and New folder (which names one and chooses it). The stream still runs where it would have (the working directory, when that is a known one); after it starts it is filed in the chosen folder.
+- **Still Example:** the Librarian's proposals and agents per folder (milestone 10).
+- **The tests' folders registry is their own** (the fixture passes its data folder); nothing writes to the user's data folder from a test.
+- **Tests:** `folders_file_streams_without_moving_them` (empty state, File by working directory, the menu, rename, delete to Unfiled, `project` unchanged throughout), `the_folder_chip_files_the_new_stream` (New folder from the chip, filed, working directory untouched), `folders_come_from_filing_not_the_working_directory` (filing over working directory, empty folders, a folder that is gone is Unfiled).
+- **Shots:** `nl21-folders-*`, `nl21-folder-detail-*`, `nl21-streams-*`, `nl21-folders-empty-*`.

@@ -276,18 +276,39 @@ impl Cauldron {
     /// Folders: New folder, All folders, the folders the streams are in, the Librarian's proposal.
     fn folders_side(&self, mut z: Stateful<Div>, pal: &'static Palette, cx: &mut Context<Self>) -> Stateful<Div> {
         let list = match &self.threads {
-            Threads::Ready(v) => threads::by_folder(v, "").into_iter().map(|(n, ts)| (n, ts.len())).collect::<Vec<_>>(),
+            Threads::Ready(v) => threads::by_folder(v, "", &self.filing).into_iter().map(|(n, ts)| (n, ts.len())).collect::<Vec<_>>(),
             _ => Vec::new(),
         };
-        z = z.child(self.side_action("new-folder", "plus", "New folder", pal, cx).test_support());
+        // New folder works now (core's folders): you name it.
+        z = z.child(
+            div()
+                .id("new-folder")
+                .h(px(30.))
+                .flex_none()
+                .flex()
+                .items_center()
+                .gap(px(9.))
+                .px(px(8.))
+                .rounded(px(radius::TAG))
+                .cursor_pointer()
+                .hover(|d| d.bg(c(pal.hover)))
+                .text_size(px(13.))
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(c(pal.fg))
+                .aria_label("New folder")
+                .child(glyph("plus", 15., c(pal.fg)))
+                .child("New folder")
+                .on_click(cx.listener(|this, _, window, cx| this.ask_folder_name(None, false, window, cx)))
+                .test_support(),
+        );
         z = z.child(self.side_row(("all-folders", 0), glyph("layers", 15., c(pal.fg2)).into_any_element(), "All folders".into(), None, Some(self.count(list.len().to_string(), pal)), pal, cx).test_support());
         z = z.child(self.side_head("Folders", None, pal));
         for (i, (name, n)) in list.iter().enumerate() {
-            let col: Hsla = c(Rgb::hex(folder_colour(name)));
+            let col: Hsla = c(Rgb::hex(self.filing.colour(name)));
             z = z.child(self.side_row(("folder-row", i), glyph("folder", 15., col).into_any_element(), name.clone(), None, Some(self.count(n.to_string(), pal)), pal, cx).test_support());
         }
         if list.is_empty() {
-            z = z.child(div().px(px(8.)).text_size(px(12.)).text_color(c(pal.fg3)).child("No folders yet: a stream's folder is where it works."));
+            z = z.child(div().px(px(8.)).text_size(px(12.)).text_color(c(pal.fg3)).child("No folders yet."));
         }
         z = z.child(self.side_head("Proposed by the Librarian", None, pal));
         z.child(self.side_row(("proposed-folder", 0), glyph("folder-plus", 15., c(pal.fg3)).into_any_element(), "Site copy".into(), None, Some(tag("proposed-example", "Example", pal).test_support().into_any_element()), pal, cx).test_support())
@@ -352,7 +373,7 @@ impl Cauldron {
             }
         }
         for (i, (p, n)) in places.iter().enumerate() {
-            let col: Hsla = c(Rgb::hex(folder_colour(p)));
+            let col: Hsla = c(Rgb::hex(if p == "Global" { folder_colour(p) } else { self.filing.colour(p) }));
             z = z.child(self.side_row(("note-folder", i), glyph("folder", 15., col).into_any_element(), p.clone(), None, Some(self.count(n.to_string(), pal)), pal, cx).test_support());
         }
         if places.is_empty() {

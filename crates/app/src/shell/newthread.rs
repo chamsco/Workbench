@@ -39,8 +39,8 @@ pub(crate) struct Start {
     /// What a connected machine answered, e.g. "Sent to Studio as T-7".
     pub(crate) note: Option<String>,
     pub(crate) sending: bool,
-    /// The folder the new stream runs in: chosen (a path, or None for no folder), or not chosen
-    /// yet, which means the suggestion (the working directory, when it is a known folder).
+    /// The folder the new stream is filed in (a folder id, or None for no folder); not chosen yet
+    /// is no folder. Filing only: the stream runs in the working directory, as before.
     pub(crate) folder: Option<Option<String>>,
     pub(crate) folder_menu: bool,
 }
@@ -180,8 +180,9 @@ impl Cauldron {
                 }
             }
         }
-        // The stream runs in its folder: a thread's project is the folder its CLI works in.
-        let t = chats.create_in(route, Scope { project: self.new_folder(), ..Scope::default() });
+        // It runs where it is started (the working directory when that is a known one); the folder
+        // chip only files it.
+        let t = chats.create_in(route, Scope { project: self.suggested_folder(), ..Scope::default() });
         let sent = (|| {
             use base64::Engine;
             let atts = files.iter().map(|(name, b)| chats.attach(&t.id, name, mime(name), &base64::engine::general_purpose::STANDARD.encode(b))).collect::<anyhow::Result<Vec<_>>>()?;
@@ -196,6 +197,9 @@ impl Cauldron {
         }
         self.start.files.clear();
         st.update(cx, |s, cx| s.set_value("", window, cx));
+        if let Some(f) = self.new_folder() {
+            self.file_stream(&t.id, Some(&f), cx);
+        }
         self.open_thread(t.id);
         cx.notify();
     }
@@ -306,16 +310,14 @@ impl Cauldron {
         self.known_folders().into_iter().map(|(_, p)| p).find(|p| std::path::Path::new(p).canonicalize().ok().as_ref() == Some(&cwd))
     }
 
-    /// The new stream's folder: the one chosen, or the suggestion.
+    /// The folder the new stream is filed in: the one chosen, if it still exists.
     pub(super) fn new_folder(&self) -> Option<String> {
-        self.start.folder.clone().unwrap_or_else(|| self.suggested_folder())
+        self.start.folder.clone().flatten().filter(|id| self.filing.folders.iter().any(|f| &f.id == id))
     }
 
-    /// The folder chip's popover: the known folders (the working directory's tagged), No folder,
-    /// and New folder, which comes later.
+    /// The folder chip's popover: the folders (core's), No folder, and New folder.
     fn folder_menu(&self, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
         let (fg2, fg3) = (c(pal.fg2), c(pal.fg3));
-        let here = self.suggested_folder();
         let chosen = self.new_folder();
         let item = |id: ElementId| div().id(id).h(px(28.)).flex().items_center().gap(px(8.)).px(px(8.)).rounded(px(radius::INNER)).text_size(px(12.)).text_color(fg2);
         let mut menu = div()
@@ -334,21 +336,19 @@ impl Cauldron {
                 this.start.folder_menu = false;
                 cx.notify();
             }));
-        for (i, (name, path)) in self.known_folders().into_iter().enumerate() {
-            let on = chosen.as_deref() == Some(path.as_str());
-            let tag = here.as_deref() == Some(path.as_str());
-            let p2 = path.clone();
+        for (i, f) in self.filing.folders.iter().enumerate() {
+            let on = chosen.as_deref() == Some(f.id.as_str());
+            let id = f.id.clone();
             menu = menu.child(
                 item(("folder-opt", i).into())
                     .cursor_pointer()
                     .hover(|d| d.bg(c(pal.hover)))
                     .when(on, |d| d.bg(c(pal.selected)))
-                    .aria_label(name.clone())
-                    .child(glyph("folder", 13., fg3))
-                    .child(div().flex_1().min_w_0().truncate().child(name))
-                    .when(tag, |d| d.child(div().px(px(5.)).rounded(px(radius::TAG)).bg(c(pal.inset)).text_size(px(10.)).text_color(fg3).child("current directory")))
+                    .aria_label(f.name.clone())
+                    .child(glyph("folder", 13., c(Rgb::hex(f.colour))))
+                    .child(div().flex_1().min_w_0().truncate().child(f.name.clone()))
                     .on_click(cx.listener(move |this, _, _, cx| {
-                        this.start.folder = Some(Some(p2.clone()));
+                        this.start.folder = Some(Some(id.clone()));
                         this.start.folder_menu = false;
                         cx.notify();
                     }))
@@ -371,7 +371,19 @@ impl Cauldron {
                     }))
                     .test_support(),
             )
-            .child(item("folder-new".into()).text_color(c(pal.fg4)).aria_label("New folder (arrives later)").child(glyph("plus", 13., c(pal.fg4))).child("New folder").child(div().ml_auto().text_size(px(10.)).child("later")).test_support());
+            .child(
+                item("folder-new".into())
+                    .cursor_pointer()
+                    .hover(|d| d.bg(c(pal.hover)))
+                    .aria_label("New folder")
+                    .child(glyph("plus", 13., fg3))
+                    .child("New folder")
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.start.folder_menu = false;
+                        this.ask_folder_name(None, true, window, cx);
+                    }))
+                    .test_support(),
+            );
         menu.into_any_element()
     }
 
@@ -509,7 +521,7 @@ impl Cauldron {
 
         // Under the box (the pages board): the folder, the machine, then where it runs.
         let folder = self.new_folder();
-        let folder_name = folder.as_deref().map_or_else(|| "No folder".to_string(), |p| p.rsplit(['/', '\\']).find(|s| !s.is_empty()).unwrap_or(p).to_string());
+        let folder_name = folder.as_deref().and_then(|id| self.filing.folders.iter().find(|f| f.id == id)).map_or_else(|| "No folder".to_string(), |f| f.name.clone());
         let ctx = div()
             .id("nt-ctx")
             .relative()
@@ -717,11 +729,12 @@ mod tests {
 
     /// Start makes the thread in core, attaches the file, sends the text and opens it; New stream
     /// brings the empty box back with the editor focused.
-    /// The folder chip: no folder until one is chosen (the tests' working directory is no known
-    /// folder); its popover lists the streams' folders, No folder and New folder (later); the chosen
-    /// folder becomes where the new stream runs.
+    /// The folder chip files the new stream (Charles, 13 Nov: a stream's folder is set apart from
+    /// where it runs): no folder until one is chosen; its popover lists core's folders, No folder
+    /// and New folder, which names one and chooses it; the stream is filed there and its working
+    /// directory is the one it would have had anyway.
     #[gpui_kit::test]
-    fn the_folder_chip_picks_where_the_stream_runs(cx: &mut TestAppContext) {
+    fn the_folder_chip_files_the_new_stream(cx: &mut TestAppContext) {
         let (handle, chats) = open(cx);
         handle.update(cx, |c, _, _| c.start.route = missing()).unwrap();
         cx.update_window(handle.into(), |_, window, cx| {
@@ -729,11 +742,16 @@ mod tests {
             assert_eq!(window.find("folder-chip").label(), Some("No folder"));
             window.click("folder-chip", cx);
             window.render_frame(cx);
-            assert_eq!(window.find(("folder-opt", 0usize)).label(), Some("Cauldron"));
-            assert_eq!(window.find("folder-new").label(), Some("New folder (arrives later)"));
-            window.click(("folder-opt", 0usize), cx);
+            assert!(window.try_find(("folder-opt", 0usize)).is_none(), "no folders yet: everything starts Unfiled");
+            assert_eq!(window.find("folder-new").label(), Some("New folder"));
+            window.click("folder-new", cx);
             window.render_frame(cx);
-            assert_eq!(window.find("folder-chip").label(), Some("Cauldron"));
+            assert!(window.try_find("folder-prompt").is_some(), "New folder asks for its name");
+            window.input("Launch", cx);
+            window.click("folder-prompt-ok", cx);
+            window.render_frame(cx);
+            assert!(window.try_find("folder-prompt").is_none());
+            assert_eq!(window.find("folder-chip").label(), Some("Launch"), "the new folder is chosen");
             window.click("nt-input", cx);
             window.input("Tidy the build", cx);
             window.click("start", cx);
@@ -741,7 +759,10 @@ mod tests {
         .unwrap();
         cx.run_until_parked();
         let id = handle.update(cx, |c, _, _| c.open.clone()).unwrap().expect("opened");
-        assert_eq!(chats.peek(&id).unwrap().project.as_deref(), Some("C:\\code\\Cauldron"), "it runs in the chosen folder");
+        let t = chats.peek(&id).unwrap();
+        assert_eq!(t.project, None, "it runs where it would have: the chip does not set a working directory");
+        let fid = handle.update(cx, |c, _, _| c.filing.folders.first().map(|f| f.id.clone())).unwrap().expect("Launch exists");
+        assert_eq!(t.folder.as_deref(), Some(fid.as_str()), "filed in Launch");
     }
 
     #[gpui_kit::test]

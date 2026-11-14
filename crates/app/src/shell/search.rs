@@ -118,7 +118,7 @@ impl Cauldron {
         let mut streams: Vec<&backspace_core::chat::ThreadInfo> = ready.iter().collect();
         streams.sort_by_key(|t| std::cmp::Reverse(t.updated));
         for t in streams {
-            let f = threads::folder(t).unwrap_or_else(|| threads::NO_FOLDER.into());
+            let f = self.filing.name_of(t).unwrap_or_else(|| threads::NO_FOLDER.into());
             v.push(Entry { title: t.title.clone(), sub: format!("Stream · {f}"), text: t.preview.clone(), home: Some(AppPage::Streams), icon: "message-square", example: false, action: false, target: Target::Stream(t.id.clone()) });
         }
         v.push(Entry { title: "New stream".into(), sub: "Action".into(), text: String::new(), home: Some(AppPage::Streams), icon: "square-pen", example: false, action: true, target: Target::NewStream });
@@ -128,7 +128,7 @@ impl Cauldron {
         for (r, (name, members, _)) in pages::ROOMS.iter().enumerate() {
             v.push(Entry { title: (*name).into(), sub: format!("Crew · {} agents", members.len()), text: String::new(), home: Some(AppPage::Agents), icon: "bot", example: true, action: false, target: Target::Crew(r) });
         }
-        for (name, ts) in threads::by_folder(ready, "") {
+        for (name, ts) in threads::by_folder(ready, "", &self.filing) {
             v.push(Entry { title: name.clone(), sub: format!("Folder · {} streams", ts.len()), text: String::new(), home: Some(AppPage::Folders), icon: "folder", example: false, action: false, target: Target::Folder(name) });
         }
         for (text, place) in &self.search_notes {
@@ -214,7 +214,7 @@ impl Cauldron {
             Target::Folder(name) => {
                 self.open_page(AppPage::Folders);
                 let at = match &self.threads {
-                    Threads::Ready(v) => threads::by_folder(v, "").iter().position(|(n, _)| *n == name),
+                    Threads::Ready(v) => threads::by_folder(v, "", &self.filing).iter().position(|(n, _)| *n == name),
                     _ => None,
                 };
                 self.side_sel[AppPage::Folders as usize] = at.map(|i| i + 1000);

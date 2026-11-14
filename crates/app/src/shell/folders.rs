@@ -12,9 +12,9 @@
 //! for each. Not yet in core, so marked: agents per folder, the Librarian's proposals (Example);
 //! New folder and filing (Demo: not built yet) until core's folder field lands.
 
-use super::context::folder_colour;
 use super::pages::{tag, AppPage};
 use super::*;
+use std::collections::HashMap;
 
 fn hex(v: u32) -> String {
     format!("#{v:06x}")
@@ -123,8 +123,8 @@ impl Folder {
 }
 
 /// The folders, in the sidebar's order, with their notes counted by place.
-pub(super) fn folders(list: &[backspace_core::chat::ThreadInfo], notes: &[(String, String)]) -> Vec<Folder> {
-    threads::by_folder(list, "")
+pub(super) fn folders(list: &[backspace_core::chat::ThreadInfo], notes: &[(String, String)], filing: &threads::Filing) -> Vec<Folder> {
+    threads::by_folder(list, "", filing)
         .into_iter()
         .map(|(name, ts)| Folder { notes: notes.iter().filter(|(_, p)| *p == name).count(), streams: ts.into_iter().cloned().collect(), name })
         .collect()
@@ -137,7 +137,7 @@ fn plural(n: usize, one: &str) -> String {
 impl Cauldron {
     fn folder_list(&self) -> Vec<Folder> {
         match &self.threads {
-            Threads::Ready(v) => folders(v, &self.side_data.notes),
+            Threads::Ready(v) => folders(v, &self.side_data.notes, &self.filing),
             _ => Vec::new(),
         }
     }
@@ -179,7 +179,7 @@ impl Cauldron {
         let mut grid = div().id("folder-grid").flex().flex_wrap().gap(px(8.));
         for (i, f) in list.iter().enumerate() {
             let lift = self.folder_hover == Some(i);
-            let fc = folder_colour(&f.name);
+            let fc = self.filing.colour(&f.name);
             let mut shade = gpui_kit::black();
             shade.a = 0.24;
             let pill = |t: String| div().h(px(18.)).px(px(7.)).flex().items_center().rounded(px(9.)).bg(shade).text_size(px(10.)).font_weight(FontWeight::MEDIUM).text_color(gpui_kit::white()).child(t);
@@ -257,15 +257,15 @@ impl Cauldron {
             .gap(px(2.))
             .pt(px(6.))
             .pb(px(12.))
-            .opacity(0.8)
-            .aria_label("New folder (demo: not built yet)")
+            .rounded(px(16.))
+            .cursor_pointer()
+            .hover(|d| d.bg(c(pal.hover)))
+            .aria_label("New folder")
             .child(art_img(0, Art::New, false, dark, 1.0))
             .child(div().mt(px(4.)).text_size(px(13.5)).font_weight(FontWeight::SEMIBOLD).text_color(fg3).child("New folder"))
-            .child(div().text_size(px(12.)).text_color(fg3).child("Name it yourself"));
-        grid = grid.child(self.tipped("folder-new-tip", new_tile, "Demo: not built yet", Side::Below, pal, cx).test_support());
-        if list.is_empty() {
-            grid = grid.child(div().id("folders-empty").w_full().text_size(px(13.)).text_color(fg3).child("No folders yet. A stream's folder is where it works; start one from New stream.").test_support());
-        }
+            .child(div().text_size(px(12.)).text_color(fg3).child("Name it yourself"))
+            .on_click(cx.listener(|this, _, window, cx| this.ask_folder_name(None, false, window, cx)));
+        grid = grid.child(new_tile.test_support());
         let stripe = div()
             .id("librarian-stripe")
             .flex()
@@ -288,10 +288,59 @@ impl Cauldron {
             .gap(px(14.))
             .px(px(24.))
             .py(px(18.))
-            .child(div().flex().flex_col().gap(px(4.)).child(div().text_size(px(20.)).font_weight(FontWeight::SEMIBOLD).text_color(fg).child("Folders")).child(div().text_size(px(13.)).text_color(fg3).child("Where streams are filed. Each folder holds streams, notes and agents.")))
+            .child(
+                div()
+                    .flex()
+                    .items_start()
+                    .gap(px(12.))
+                    .child(div().flex_1().min_w_0().flex().flex_col().gap(px(4.)).child(div().text_size(px(20.)).font_weight(FontWeight::SEMIBOLD).text_color(fg).child("Folders")).child(div().text_size(px(13.)).text_color(fg3).child("Where streams are filed. Each folder holds streams, notes and agents.")))
+                    .child(self.workdir_button("file-by-workdir", pal, cx))
+                    .child(self.page_button("folders-new", "New folder", true, pal).on_click(cx.listener(|this, _, window, cx| this.ask_folder_name(None, false, window, cx))).test_support()),
+            )
             .child(stripe.test_support())
+            .when_live(self.filing.folders.is_empty(), |d| {
+                d.child(
+                    div()
+                        .id("folders-empty")
+                        .flex()
+                        .items_center()
+                        .gap(px(12.))
+                        .p(px(14.))
+                        .rounded(px(14.))
+                        .border_1()
+                        .border_color(c(pal.line))
+                        .child(div().flex_1().min_w_0().text_size(px(13.)).text_color(c(pal.fg2)).child("No folders yet: every stream is Unfiled. Name a folder, or make one per working directory and file each stream in its own."))
+                        .child(self.workdir_button("file-by-workdir-empty", pal, cx))
+                        .test_support(),
+                )
+            })
             .child(grid.test_support())
-            .child(div().text_size(px(11.5)).text_color(fg3).child("A stream's folder is the folder it works in, until Cauldron has a folder of its own for each stream. The dots count what runs, what needs you, and the notes memory holds there."))
+            .child(div().text_size(px(11.5)).text_color(fg3).child("A folder files streams; it never changes where a stream runs. Right-click a stream to file it. The dots count what runs, what needs you, and the notes memory holds there."))
+    }
+
+    fn page_button(&self, id: &'static str, label: &'static str, primary: bool, pal: &'static Palette) -> Stateful<Div> {
+        div()
+            .id(id)
+            .flex_none()
+            .h(px(28.))
+            .px(px(10.))
+            .flex()
+            .items_center()
+            .gap(px(6.))
+            .rounded(px(radius::CONTROL))
+            .cursor_pointer()
+            .text_size(px(12.5))
+            .font_weight(FontWeight::MEDIUM)
+            .when_live(primary, |d| d.bg(c(pal.accent)).text_color(c(pal.on_accent)).hover(|d| d.opacity(0.9)))
+            .when_live(!primary, |d| d.border_1().border_color(c(pal.line_strong)).text_color(c(pal.fg2)).hover(|d| d.bg(c(pal.hover))))
+            .aria_label(label)
+            .child(label)
+    }
+
+    /// "File by working directory": one explicit action, named for what it does.
+    fn workdir_button(&self, id: &'static str, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
+        let el = self.page_button(id, "File by working directory", false, pal).on_click(cx.listener(|this, _, _, cx| this.file_by_workdir(cx)));
+        self.tipped((id, 1usize), el, "Makes a folder for each working directory and files each stream in its own. Runs only when you click it.", Side::Below, pal, cx).test_support().into_any_element()
     }
 
     /// B: one folder, its glass header, its streams, its agents (example) and its notes.
@@ -319,6 +368,29 @@ impl Cauldron {
                     .child(div().size(px(7.)).flex_none().rounded_full().when_live(t.busy, |d| d.border_1().border_color(state)).when_live(!t.busy, |d| d.bg(state)))
                     .child(div().flex_1().min_w_0().truncate().text_size(px(13.)).text_color(fg).child(t.title.clone()))
                     .child(div().flex_none().text_size(px(11.5)).text_color(fg3).child(threads::age(t.updated, now)))
+                    .child({
+                        let id = t.id.clone();
+                        div()
+                            .id(("folder-stream-file", k))
+                            .h(px(22.))
+                            .px(px(7.))
+                            .flex()
+                            .items_center()
+                            .rounded(px(radius::TAG))
+                            .border_1()
+                            .border_color(c(pal.line))
+                            .text_size(px(11.5))
+                            .text_color(fg2)
+                            .hover(|d| d.bg(c(pal.hover)))
+                            .aria_label("File in…")
+                            .child("File in…")
+                            .on_mouse_down(MouseButton::Left, cx.listener(move |this, ev: &MouseDownEvent, _, cx| {
+                                this.file_menu = Some((id.clone(), (f32::from(ev.position.x) - 200.0, f32::from(ev.position.y) + 12.0)));
+                                cx.stop_propagation();
+                                cx.notify();
+                            }))
+                            .test_support()
+                    })
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.open_page(AppPage::Streams);
                         this.selected = Some(id.clone());
@@ -329,6 +401,8 @@ impl Cauldron {
             );
         }
         let meta = format!("{} · {} · a stream's working directory is set on the stream, not on the folder", plural(f.streams.len(), "stream"), plural(f.notes, "note"));
+        // Unfiled is not a folder: nothing to rename or delete.
+        let fid = self.filing.folders.iter().find(|x| x.name == f.name).map(|x| x.id.clone());
         let mut agents = div().flex().items_center().gap(px(6.));
         for d in [0usize, 1, 2] {
             agents = agents.child(pages::figure(d, cauldron_chrome::avatar::Mood::Idle, 22., false));
@@ -347,8 +421,24 @@ impl Cauldron {
                     .flex()
                     .items_center()
                     .gap(px(14.))
-                    .child(art_img(folder_colour(&f.name), Art::Folder, false, dark, 0.72))
+                    .child(art_img(self.filing.colour(&f.name), Art::Folder, false, dark, 0.72))
                     .child(div().flex_1().min_w_0().flex().flex_col().gap(px(4.)).child(div().text_size(px(18.)).font_weight(FontWeight::SEMIBOLD).text_color(fg).child(f.name.clone())).child(div().text_size(px(12.)).text_color(fg3).child(meta)))
+                    .when_opt(fid.clone(), |d, id| {
+                        let (id2, confirm) = (id.clone(), self.folder_delete.as_deref() == Some(id.as_str()));
+                        d.child(self.page_button("folder-rename", "Rename", false, pal).on_click(cx.listener(move |this, _, window, cx| this.ask_folder_name(Some(id.clone()), false, window, cx))).test_support())
+                            .child(
+                                self.page_button("folder-delete", if confirm { "Delete: its streams become Unfiled" } else { "Delete" }, false, pal)
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        if this.folder_delete.as_deref() == Some(id2.as_str()) {
+                                            this.delete_folder(&id2, cx);
+                                        } else {
+                                            this.folder_delete = Some(id2.clone());
+                                            cx.notify();
+                                        }
+                                    }))
+                                    .test_support(),
+                            )
+                    })
                     .test_support(),
             )
             .child(
@@ -370,7 +460,7 @@ impl Cauldron {
             .child(head("Streams"))
             .child(streams.test_support())
             .child(head("Agents"))
-            .child(div().flex().items_center().gap(px(8.)).child(agents).child(div().text_size(px(12.)).text_color(fg3).child("Agents per folder arrive with folders in core")).child(tag("folder-agents-example", "Example", pal).test_support()))
+            .child(div().flex().items_center().gap(px(8.)).child(agents).child(div().text_size(px(12.)).text_color(fg3).child("Agents per folder arrive with the Librarian (milestone 10)")).child(tag("folder-agents-example", "Example", pal).test_support()))
             .child(head("Library"))
             .child(
                 div()
@@ -401,11 +491,77 @@ mod tests {
     use super::{art_svg, folders, Art};
     use crate::threads;
 
+    /// Folders on core's API: everything starts Unfiled; "File by working directory" makes one per
+    /// working directory and files each stream there; the menu files a stream elsewhere; rename
+    /// and delete work, and a deleted folder's streams are Unfiled. Where a stream runs never moves.
+    #[gpui_kit::test]
+    fn folders_file_streams_without_moving_them(cx: &mut gpui_kit::TestAppContext) {
+        use gpui_kit::test::TestWindowExt;
+        use gpui_kit::AppContext;
+        let (handle, chats) = super::super::thread::tests::open(cx);
+        let projects = |chats: &backspace_core::chat::Chats| {
+            let mut v: Vec<(String, Option<String>)> = chats.list().into_iter().map(|t| (t.id.clone(), chats.peek(&t.id).unwrap().project)).collect();
+            v.sort();
+            v
+        };
+        let before = projects(&chats);
+        handle.update(cx, |c, _, _| c.open_page(super::AppPage::Folders)).unwrap();
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            assert!(window.try_find("folders-empty").is_some(), "no folders: the empty state");
+            window.click("file-by-workdir", cx);
+            window.render_frame(cx);
+        })
+        .unwrap();
+        let (names, filed) = handle.update(cx, |c, _, _| (c.filing.folders.iter().map(|f| f.name.clone()).collect::<Vec<_>>(), c.filing.of.len())).unwrap();
+        assert!(names.contains(&"Cauldron".to_string()), "a folder per working directory: {names:?}");
+        assert!(filed > 0);
+        assert_eq!(projects(&chats), before, "filing never touches where a stream runs");
+        // File one stream in another folder through the menu.
+        let (sid, other) = handle
+            .update(cx, |c, _, cx| {
+                let t = match &c.threads {
+                    super::Threads::Ready(v) => v[0].id.clone(),
+                    _ => unreachable!(),
+                };
+                c.folders_api().unwrap().create("Launch").unwrap();
+                c.filing_changed(cx);
+                (t, c.filing.folders.iter().position(|f| f.name == "Launch").unwrap())
+            })
+            .unwrap();
+        handle.update(cx, |c, _, _| c.file_menu = Some((sid.clone(), (100.0, 100.0)))).unwrap();
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            window.click(("file-opt", other), cx);
+            window.render_frame(cx);
+        })
+        .unwrap();
+        let launch = handle.update(cx, |c, _, _| c.filing.folders[other].id.clone()).unwrap();
+        assert_eq!(chats.peek(&sid).unwrap().folder.as_deref(), Some(launch.as_str()));
+        assert_eq!(projects(&chats), before);
+        // Rename, then delete: its stream is Unfiled again.
+        handle
+            .update(cx, |c, _, cx| {
+                c.folders_api().unwrap().rename(&launch, "Launch week").unwrap();
+                c.filing_changed(cx);
+                assert!(c.filing.folders.iter().any(|f| f.name == "Launch week"));
+                c.delete_folder(&launch, cx);
+                assert!(!c.filing.folders.iter().any(|f| f.id == launch));
+                let t = match &c.threads {
+                    super::Threads::Ready(v) => v.iter().find(|t| t.id == sid).cloned().unwrap(),
+                    _ => unreachable!(),
+                };
+                assert!(c.filing.folder_of(&t).is_none(), "a deleted folder's stream is Unfiled");
+            })
+            .unwrap();
+        assert_eq!(projects(&chats), before);
+    }
+
     #[test]
     fn folders_count_streams_and_notes_by_folder() {
         let list = threads::fixture(1_700_000_000_000);
         let notes = vec![("a".to_string(), "Cauldron".to_string()), ("b".into(), "Cauldron".into()), ("c".into(), "Global".into())];
-        let fs = folders(&list, &notes);
+        let fs = folders(&list, &notes, &threads::Filing::by_workdir(&list));
         assert!(!fs.is_empty());
         let total: usize = fs.iter().map(|f| f.streams.len()).sum();
         assert_eq!(total, list.len(), "every stream in one folder");
@@ -424,5 +580,284 @@ mod tests {
         assert!(a.contains("feGaussianBlur") && a.contains("#8b5cf6") && a.contains("url(#glass)"), "a frosted front over the sheets");
         assert_ne!(a, art_svg(0x8b5cf6, Art::Folder, true, true), "the sheets lift on hover");
         assert!(art_svg(0x5b8cf0, Art::Proposal, false, true).contains("stroke=\"#5b8cf0\""), "a proposal is outlined");
+    }
+}
+
+/// The small dialog that names a folder: a new one (for the chip too), or a rename.
+pub(crate) struct FolderPrompt {
+    pub input: Entity<InputState>,
+    _sub: Subscription,
+    /// None: a new folder; Some(id): renaming that one.
+    pub rename: Option<String>,
+    /// A new folder made from the New stream chip is chosen there.
+    pub for_chip: bool,
+    pub error: Option<String>,
+}
+
+impl Cauldron {
+    /// Core's folders, on the data folder core was opened on; None before core opens.
+    pub(super) fn folders_api(&self) -> Option<backspace_core::folders::Folders> {
+        let (_, chats) = self.core.as_ref()?;
+        Some(backspace_core::folders::Folders::open(self.data_dir.clone().unwrap_or_else(Prefs::data_dir), chats.clone()))
+    }
+
+    /// Reads where each stream is filed again when the streams or the folders changed. Without
+    /// core (the screenshot fixtures) the filing stays as it was set.
+    pub(super) fn refresh_filing(&mut self) {
+        let Threads::Ready(v) = &self.threads else { return };
+        let key = (v.len(), v.iter().map(|t| t.updated).fold(0u64, |a, u| a.wrapping_add(u)), self.filing_rev);
+        if self.filing_key == Some(key) {
+            return;
+        }
+        self.filing_key = Some(key);
+        let Some(api) = self.folders_api() else { return };
+        let mut f = threads::Filing::default();
+        for x in api.list() {
+            for t in api.threads_in(&x.id) {
+                f.of.insert(t.id, x.id.clone());
+            }
+            let colour = u32::from_str_radix(x.color.trim_start_matches('#'), 16).unwrap_or(0x8b5cf6);
+            f.folders.push(threads::FolderRef { id: x.id, name: x.name, colour });
+        }
+        self.filing = f;
+    }
+
+    fn filing_changed(&mut self, cx: &mut Context<Self>) {
+        self.filing_rev += 1;
+        self.refresh_filing();
+        cx.notify();
+    }
+
+    /// Opens the name dialog.
+    pub(super) fn ask_folder_name(&mut self, rename: Option<String>, for_chip: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let current = rename.as_ref().and_then(|id| self.filing.folders.iter().find(|f| &f.id == id)).map(|f| f.name.clone()).unwrap_or_default();
+        let st = cx.new(|cx| InputState::new(window, cx).placeholder("Folder name"));
+        st.update(cx, |s, cx| s.set_value(current, window, cx));
+        let sub = cx.subscribe(&st, |this, _, ev: &InputEvent, cx| {
+            if let InputEvent::PressEnter { .. } = ev {
+                this.folder_prompt_ok = true;
+                cx.notify();
+            }
+        });
+        st.read(cx).focus_handle(cx).focus(window, cx);
+        self.folder_prompt = Some(FolderPrompt { input: st, _sub: sub, rename, for_chip, error: None });
+        cx.notify();
+    }
+
+    /// Creates or renames from the dialog; a bad name keeps it open with core's reason.
+    pub(super) fn submit_folder_name(&mut self, cx: &mut Context<Self>) {
+        let Some(p) = &self.folder_prompt else { return };
+        let name = p.input.read(cx).value().to_string();
+        let Some(api) = self.folders_api() else {
+            if let Some(p) = self.folder_prompt.as_mut() {
+                p.error = Some("Core is not open yet.".into());
+            }
+            return;
+        };
+        let done = match &p.rename {
+            Some(id) => api.rename(id, &name).map(|f| f.id),
+            None => api.create(&name).map(|f| f.id),
+        };
+        match done {
+            Ok(id) => {
+                if p.for_chip {
+                    self.start.folder = Some(Some(id));
+                }
+                self.folder_prompt = None;
+                self.filing_changed(cx);
+            }
+            Err(e) => {
+                if let Some(p) = self.folder_prompt.as_mut() {
+                    p.error = Some(e.to_string());
+                }
+                cx.notify();
+            }
+        }
+    }
+
+    /// Deletes a folder; its streams become Unfiled (core takes them out).
+    pub(super) fn delete_folder(&mut self, id: &str, cx: &mut Context<Self>) {
+        if let Some(api) = self.folders_api() {
+            let _ = api.delete(id);
+            self.side_sel[AppPage::Folders as usize] = None;
+            self.folder_delete = None;
+            self.filing_changed(cx);
+        }
+    }
+
+    /// Files a stream in a folder, or takes it out with None. Where it runs is not touched.
+    pub(super) fn file_stream(&mut self, thread: &str, folder: Option<&str>, cx: &mut Context<Self>) {
+        if let Some(api) = self.folders_api() {
+            if let Err(e) = api.set_thread_folder(thread, folder) {
+                self.send_error = Some(format!("Couldn't file it: {e}"));
+            }
+            self.file_menu = None;
+            self.filing_changed(cx);
+        }
+    }
+
+    /// "File by working directory": a folder per working-directory name (made if missing), each
+    /// stream with one filed there. Only when asked; it is what it says, not a suggestion.
+    pub(super) fn file_by_workdir(&mut self, cx: &mut Context<Self>) {
+        let (Some(api), Threads::Ready(v)) = (self.folders_api(), &self.threads) else { return };
+        let plan = threads::Filing::by_workdir(v);
+        let mut ids: HashMap<String, String> = api.list().into_iter().map(|f| (f.name.to_lowercase(), f.id)).collect();
+        for f in &plan.folders {
+            if !ids.contains_key(&f.name.to_lowercase()) {
+                if let Ok(made) = api.create(&f.name) {
+                    ids.insert(f.name.to_lowercase(), made.id);
+                }
+            }
+        }
+        for t in v {
+            if let Some(name) = plan.name_of(t) {
+                if let Some(id) = ids.get(&name.to_lowercase()) {
+                    let _ = api.set_thread_folder(&t.id, Some(id));
+                }
+            }
+        }
+        self.filing_changed(cx);
+    }
+
+    /// The name dialog over a scrim.
+    pub(super) fn folder_prompt_overlay(&self, w: f32, pal: &'static Palette, cx: &mut Context<Self>) -> Option<Stateful<Div>> {
+        let p = self.folder_prompt.as_ref()?;
+        let title = if p.rename.is_some() { "Rename folder" } else { "New folder" };
+        let button = |id: &'static str, t: &'static str, primary: bool| {
+            div()
+                .id(id)
+                .h(px(28.))
+                .px(px(12.))
+                .flex()
+                .items_center()
+                .rounded(px(radius::CONTROL))
+                .cursor_pointer()
+                .text_size(px(12.5))
+                .font_weight(FontWeight::MEDIUM)
+                .when_live(primary, |d| d.bg(c(pal.accent)).text_color(c(pal.on_accent)))
+                .when_live(!primary, |d| d.border_1().border_color(c(pal.line_strong)).text_color(c(pal.fg2)))
+                .aria_label(t)
+                .child(t)
+        };
+        let bw = 380f32.min(w - 32.0);
+        let mut scrim = gpui_kit::black();
+        scrim.a = 0.3;
+        Some(
+            div()
+                .id("folder-prompt-scrim")
+                .absolute()
+                .top_0()
+                .left_0()
+                .size_full()
+                .bg(scrim)
+                .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                    this.folder_prompt = None;
+                    cx.notify();
+                }))
+                .child(
+                    div()
+                        .id("folder-prompt")
+                        .absolute()
+                        .left(px((w - bw) / 2.0))
+                        .top(px(140.))
+                        .w(px(bw))
+                        .p(px(16.))
+                        .flex()
+                        .flex_col()
+                        .gap(px(10.))
+                        .rounded(px(14.))
+                        .bg(c(pal.raised))
+                        .border_1()
+                        .border_color(c(pal.line_strong))
+                        .shadow_lg()
+                        .aria_label(title)
+                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                        .on_key_down(cx.listener(|this, ev: &KeyDownEvent, _, cx| {
+                            if ev.keystroke.key == "escape" {
+                                this.folder_prompt = None;
+                                cx.notify();
+                            }
+                        }))
+                        .child(div().text_size(px(14.)).font_weight(FontWeight::SEMIBOLD).text_color(c(pal.fg)).child(title))
+                        .child(div().h(px(32.)).px(px(10.)).flex().items_center().rounded(px(radius::CONTROL)).border_1().border_color(c(pal.line_strong)).child(Input::new(&p.input).appearance(false).text_size(px(13.)).p_0()))
+                        .when_opt(p.error.clone(), |d, e| d.child(div().id("folder-prompt-error").text_size(px(12.)).text_color(c(pal.bad)).child(e).test_support()))
+                        .child(div().text_size(px(11.5)).text_color(c(pal.fg3)).child("A folder files streams. It never changes where a stream runs."))
+                        .child(
+                            div()
+                                .flex()
+                                .justify_end()
+                                .gap(px(8.))
+                                .child(button("folder-prompt-cancel", "Cancel", false).on_click(cx.listener(|this, _, _, cx| {
+                                    this.folder_prompt = None;
+                                    cx.notify();
+                                })).test_support())
+                                .child(button("folder-prompt-ok", if p.rename.is_some() { "Rename" } else { "Create" }, true).on_click(cx.listener(|this, _, _, cx| this.submit_folder_name(cx))).test_support()),
+                        )
+                        .test_support(),
+                ),
+        )
+    }
+
+    /// The filing menu for one stream: each folder, Unfiled, New folder.
+    pub(super) fn file_menu_overlay(&self, pal: &'static Palette, cx: &mut Context<Self>) -> Option<Stateful<Div>> {
+        let (thread, (x, y)) = self.file_menu.clone()?;
+        let current = match &self.threads {
+            Threads::Ready(v) => v.iter().find(|t| t.id == thread).and_then(|t| self.filing.folder_of(t)).map(|f| f.id.clone()),
+            _ => None,
+        };
+        let item = |id: ElementId, label: String| div().id(id).h(px(28.)).flex().items_center().gap(px(8.)).px(px(8.)).rounded(px(radius::INNER)).cursor_pointer().hover(|d| d.bg(c(pal.hover))).text_size(px(12.5)).text_color(c(pal.fg2)).aria_label(label.clone());
+        let mut menu = div()
+            .id("file-menu")
+            .absolute()
+            .left(px(x))
+            .top(px(y))
+            .w(px(220.))
+            .p(px(4.))
+            .flex()
+            .flex_col()
+            .rounded(px(radius::CONTROL))
+            .bg(c(pal.raised))
+            .border_1()
+            .border_color(c(pal.line))
+            .shadow_lg()
+            .occlude()
+            .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                this.file_menu = None;
+                cx.notify();
+            }))
+            .child(div().px(px(8.)).py(px(4.)).text_size(px(11.)).font_weight(FontWeight::MEDIUM).text_color(c(pal.fg3)).child("File in"));
+        for (i, f) in self.filing.folders.iter().enumerate() {
+            let (t, fid) = (thread.clone(), f.id.clone());
+            let on = current.as_deref() == Some(f.id.as_str());
+            menu = menu.child(
+                item(("file-opt", i).into(), f.name.clone())
+                    .when_live(on, |d| d.bg(c(pal.selected)))
+                    .child(glyph("folder", 13., c(Rgb::hex(f.colour))))
+                    .child(div().flex_1().min_w_0().truncate().child(f.name.clone()))
+                    .on_click(cx.listener(move |this, _, _, cx| this.file_stream(&t, Some(&fid), cx)))
+                    .test_support(),
+            );
+        }
+        let t2 = thread.clone();
+        menu = menu
+            .child(
+                item("file-none".into(), threads::NO_FOLDER.into())
+                    .when_live(current.is_none(), |d| d.bg(c(pal.selected)))
+                    .child(glyph("x", 13., c(pal.fg3)))
+                    .child(threads::NO_FOLDER)
+                    .on_click(cx.listener(move |this, _, _, cx| this.file_stream(&t2, None, cx)))
+                    .test_support(),
+            )
+            .child(
+                item("file-new".into(), "New folder".into())
+                    .child(glyph("plus", 13., c(pal.fg3)))
+                    .child("New folder")
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.file_menu = None;
+                        this.ask_folder_name(None, false, window, cx);
+                    }))
+                    .test_support(),
+            );
+        Some(menu)
     }
 }

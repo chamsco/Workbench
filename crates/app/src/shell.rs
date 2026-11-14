@@ -195,6 +195,19 @@ pub(crate) struct Cauldron {
     side_data: context::SideData,
     /// The glass folder under the mouse, whose sheets lift.
     folder_hover: Option<usize>,
+    /// Where each stream is filed (core's folders), read again when the streams or the folders
+    /// change; `filing_key` is what it was read for.
+    filing: threads::Filing,
+    filing_key: Option<(usize, u64, u64)>,
+    filing_rev: u64,
+    /// The folder name dialog, Enter pressed in it, a folder waiting for its delete confirmed,
+    /// and the filing menu (the stream, where it opens).
+    folder_prompt: Option<folders::FolderPrompt>,
+    folder_prompt_ok: bool,
+    folder_delete: Option<String>,
+    file_menu: Option<(String, (f32, f32))>,
+    /// The data folder core was opened on (tests use their own); None is core's own.
+    data_dir: Option<std::path::PathBuf>,
     /// Global search, when open, and the notes it searches.
     search_ui: Option<search::SearchState>,
     search_notes: Vec<(String, String)>,
@@ -311,7 +324,11 @@ impl Cauldron {
                     "loading" => Threads::Loading,
                     "empty" => Threads::Ready(Vec::new()),
                     "error" => Threads::Error("the data folder is not readable".into()),
-                    _ => Threads::Ready(threads::fixture(now_ms())),
+                    _ => {
+                        let v = threads::fixture(now_ms());
+                        c.filing = threads::Filing::by_workdir(&v);
+                        Threads::Ready(v)
+                    }
                 };
                 if f == "list" {
                     c.selected = Some("f2".into());
@@ -367,7 +384,7 @@ impl Cauldron {
     }
 
     pub(crate) fn new() -> Self {
-        Cauldron { motion: ShellMotion::default(), swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: None, sidebar_open: true, drawer: None, backdrop: Default::default(), glass_at: Default::default(), glass_card: std::cell::Cell::new(None), appearance_sub: None, active_sub: None, flow_clock: None, flow_task: None, flow_running: false, flow_burst: Default::default(), flow_at: None, retired: Vec::new(), flow_stats: (0, std::time::Duration::ZERO), prefs_file: None, plat: platform(), folder_open: Default::default(), page: Default::default(), page_agents: Vec::new(), agent_sel: None, agent_tab: 0, room_sel: 0, side_sel: [None; 6], side_data: Default::default(), folder_hover: None, search_ui: None, search_notes: Vec::new(), root_focus: None, debug_search: None, debug_drag: None, panels: panels::Panels::load(None), panel_drag: None, panel_focus: Default::default(), panel_key_gen: 0, panel_key_task: None, settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_menu: false, tab_slide: Default::default(), tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
+        Cauldron { motion: ShellMotion::default(), swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: None, sidebar_open: true, drawer: None, backdrop: Default::default(), glass_at: Default::default(), glass_card: std::cell::Cell::new(None), appearance_sub: None, active_sub: None, flow_clock: None, flow_task: None, flow_running: false, flow_burst: Default::default(), flow_at: None, retired: Vec::new(), flow_stats: (0, std::time::Duration::ZERO), prefs_file: None, plat: platform(), folder_open: Default::default(), page: Default::default(), page_agents: Vec::new(), agent_sel: None, agent_tab: 0, room_sel: 0, side_sel: [None; 6], side_data: Default::default(), folder_hover: None, filing: Default::default(), filing_key: None, filing_rev: 0, folder_prompt: None, folder_prompt_ok: false, folder_delete: None, file_menu: None, data_dir: None, search_ui: None, search_notes: Vec::new(), root_focus: None, debug_search: None, debug_drag: None, panels: panels::Panels::load(None), panel_drag: None, panel_focus: Default::default(), panel_key_gen: 0, panel_key_task: None, settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_menu: false, tab_slide: Default::default(), tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
     }
 
     /// Opens core off the main thread (the sidebar shows Loading meanwhile), then keeps the thread
@@ -415,7 +432,7 @@ impl Cauldron {
     /// Thread ids in the order the sidebar draws them.
     fn visible_ids(&self) -> Vec<String> {
         match &self.threads {
-            Threads::Ready(v) => threads::sidebar(v, &self.query, &self.folder_open, self.selected.as_deref())
+            Threads::Ready(v) => threads::sidebar(v, &self.query, &self.folder_open, self.selected.as_deref(), &self.filing)
                 .into_iter()
                 .filter_map(|i| match i {
                     threads::Item::Row { t, .. } => Some(t.id.clone()),
@@ -513,7 +530,7 @@ impl Cauldron {
                 list.child(note("threads-empty", "No streams yet".into(), None, "No streams yet".into(), Some("Start one with New stream.".into())))
             }
             Threads::Ready(v) => {
-                let items = threads::sidebar(v, &self.query, &self.folder_open, self.selected.as_deref());
+                let items = threads::sidebar(v, &self.query, &self.folder_open, self.selected.as_deref(), &self.filing);
                 if items.is_empty() {
                     let q = self.query.trim().to_string();
                     return list.child(note("threads-no-match", format!("No streams match {q}"), None, format!("No streams match \u{201c}{q}\u{201d}"), None));
@@ -543,8 +560,11 @@ impl Cauldron {
                                             .items_center()
                                             .justify_center()
                                             .rounded(px(radius::TAG))
-                                            .aria_label("New folder (arrives later)")
-                                            .child(glyph("plus", 12., c(pal.fg4)))
+                                            .cursor_pointer()
+                                            .hover(|d| d.bg(c(pal.hover)))
+                                            .aria_label("New folder")
+                                            .child(glyph("plus", 12., c(pal.fg3)))
+                                            .on_click(cx.listener(|this, _, window, cx| this.ask_folder_name(None, false, window, cx)))
                                             .test_support(),
                                     )
                                     .test_support(),
@@ -621,6 +641,15 @@ impl Cauldron {
                                     .when_live(t.pinned, |d| d.child(glyph("pin", 11., fg3)))
                                     .children(chip.map(|f| div().id(("thread-chip", i)).flex_none().max_w(px(72.)).truncate().px(px(5.)).rounded(px(radius::TAG)).bg(c(pal.inset)).text_size(px(11.)).text_color(fg3).aria_label(f.clone()).child(f).test_support()))
                                     .child(div().id(("thread-age", i)).flex_none().text_size(px(11.)).text_color(fg3).font_features(tnum()).child(threads::age(t.updated, now)).test_support())
+                                    .on_mouse_down(MouseButton::Right, cx.listener({
+                                        let id = id.clone();
+                                        move |this, ev: &MouseDownEvent, _, cx| {
+                                            // File it: a menu of the folders (filing never moves where it runs).
+                                            this.file_menu = Some((id.clone(), (f32::from(ev.position.x), f32::from(ev.position.y))));
+                                            cx.stop_propagation();
+                                            cx.notify();
+                                        }
+                                    }))
                                     .on_click(cx.listener(move |this, _, window, cx| {
                                         this.selected = Some(id.clone());
                                         this.open_thread(id.clone());
@@ -799,7 +828,7 @@ impl Cauldron {
                     .test_support(),
             );
         if let Threads::Ready(v) = &self.threads {
-            let folders = threads::by_folder(v, "");
+            let folders = threads::by_folder(v, "", &self.filing);
             if !folders.is_empty() {
                 col = col.child(sep());
             }
@@ -1203,6 +1232,10 @@ impl Render for Cauldron {
         self.ensure_composer(window, cx);
         self.ensure_term_input(window, cx);
         self.ensure_start(window, cx);
+        self.refresh_filing();
+        if std::mem::take(&mut self.folder_prompt_ok) {
+            self.submit_folder_name(cx);
+        }
         if let Some(q) = self.debug_search.take() {
             self.toggle_search(window, cx);
             if let Some(st) = self.search_ui.as_ref().map(|s| s.input.clone()) {
@@ -1774,6 +1807,8 @@ impl Render for Cauldron {
 
         // ---- window ring, drawn last so it sits on top of every pane edge; search above all
         let overlay = self.search_overlay(w, h, dark, pal, cx);
+        let file_menu = self.file_menu_overlay(pal, cx);
+        let prompt = self.folder_prompt_overlay(w, pal, cx);
         root.child(
             div()
                 .absolute()
@@ -1782,7 +1817,9 @@ impl Render for Cauldron {
                 .border_color(ring)
                 .rounded(px(if cfg!(target_os = "macos") { 0.0 } else { 0.0 })),
         )
+        .when_opt(file_menu, |d, m| d.child(m.test_support()))
         .when_opt(overlay, |d, o| d.child(o.test_support()))
+        .when_opt(prompt, |d, o| d.child(o.test_support()))
     }
 }
 
@@ -2126,7 +2163,8 @@ mod tests {
             v[i].project = Some(f.into());
         }
         let folder_open = [("Unfiled".to_string(), true)].into_iter().collect();
-        Cauldron { threads: Threads::Ready(v), folder_open, ..Cauldron::new() }
+        // No core here: streams filed by working directory, as the expectations below read.
+        Cauldron { filing: crate::threads::Filing::by_workdir(&v), threads: Threads::Ready(v), folder_open, ..Cauldron::new() }
     }
 
     /// The sidebar's headings in order, with their labels.

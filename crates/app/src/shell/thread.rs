@@ -638,12 +638,13 @@ pub(super) mod tests {
         // No change channel: a wake from core's tokio thread into the test scheduler makes the run
         // non-deterministic (and panics). Tests call `refresh` where the app would be poked.
         let (tx, _) = async_channel::bounded(1);
-        let chats = Chats::open(d, rt.handle().clone(), tx);
+        let chats = Chats::open(d.clone(), rt.handle().clone(), tx);
         let ch = chats.clone();
         cx.update(|cx| cx.set_reduce_motion(true));
         // Folders open, so the tests see every stream's row (a closed folder hides its rows).
         let folder_open = [("Cauldron".to_string(), true), ("Unfiled".to_string(), true)].into_iter().collect();
-        let handle = cx.add_window(move |_, _| Cauldron { threads: Threads::Ready(ch.list()), core: Some((rt, ch)), folder_open, ..Cauldron::new() });
+        // The folders registry is the test's own, never the user's data folder.
+        let handle = cx.add_window(move |_, _| Cauldron { threads: Threads::Ready(ch.list()), core: Some((rt, ch)), folder_open, data_dir: Some(d), ..Cauldron::new() });
         cx.simulate_window_resize(handle.into(), size(px(1240.), px(702.)));
         (handle, chats)
     }

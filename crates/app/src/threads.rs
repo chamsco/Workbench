@@ -5,6 +5,7 @@
 //! thread, Hibernating and Archived wait for core and are left out rather than faked.
 
 use backspace_core::chat::ThreadInfo;
+use std::collections::HashMap;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Group {
@@ -43,23 +44,79 @@ impl Group {
     }
 }
 
+/// One folder streams can be filed in (core's `folders::Folder`): its id, name and colour.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct FolderRef {
+    pub id: String,
+    pub name: String,
+    pub colour: u32,
+}
+
+/// Where each stream is filed (core's `Thread.folder`, which is not where it runs): the folders in
+/// the order they were made, and each filed stream's folder id. A stream in none is Unfiled.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct Filing {
+    pub folders: Vec<FolderRef>,
+    pub of: HashMap<String, String>,
+}
+
+impl Filing {
+    /// The folder a stream is filed in, if any (a folder that is gone counts as none).
+    pub(crate) fn folder_of(&self, t: &ThreadInfo) -> Option<&FolderRef> {
+        let id = self.of.get(&t.id)?;
+        self.folders.iter().find(|f| &f.id == id)
+    }
+
+    pub(crate) fn name_of(&self, t: &ThreadInfo) -> Option<String> {
+        self.folder_of(t).map(|f| f.name.clone())
+    }
+
+    /// A folder's colour by name; Unfiled grey.
+    pub(crate) fn colour(&self, name: &str) -> u32 {
+        self.folders.iter().find(|f| f.name == name).map_or(0x8a8a93, |f| f.colour)
+    }
+
+    /// What "File by working directory" would make: a folder per working-directory name, in the
+    /// order the list first meets it, each stream filed in its own. The tests use it as a filing.
+    pub(crate) fn by_workdir(list: &[ThreadInfo]) -> Filing {
+        const PALETTE: [u32; 6] = [0x8b5cf6, 0x3fb27f, 0xe0a32a, 0x5b8cf0, 0xd9669a, 0x38c0e8];
+        let mut f = Filing::default();
+        for t in list {
+            if let Some(name) = folder(t) {
+                let id = format!("wd-{name}");
+                if !f.folders.iter().any(|x| x.id == id) {
+                    let colour = PALETTE[f.folders.len() % PALETTE.len()];
+                    f.folders.push(FolderRef { id: id.clone(), name, colour });
+                }
+                f.of.insert(t.id.clone(), id);
+            }
+        }
+        f
+    }
+}
+
 /// Streams by folder (Charles, 13 Nov 13:40Z: streams belong to a folder, for tidying up and
-/// search): each folder in the order its newest stream comes in the list, the streams in list order
-/// under it, and the ones with no folder last. A query matches the title, the last words or the
-/// folder's name, ignoring case; folders with no match are left out.
-pub(crate) fn by_folder<'a>(list: &'a [ThreadInfo], query: &str) -> Vec<(String, Vec<&'a ThreadInfo>)> {
+/// search): each folder in the order it was made, empty ones too, the streams in list order under
+/// it, and Unfiled last. A query matches the title, the last words or the folder's name, ignoring
+/// case; folders with no match are left out.
+pub(crate) fn by_folder<'a>(list: &'a [ThreadInfo], query: &str, filing: &Filing) -> Vec<(String, Vec<&'a ThreadInfo>)> {
     let q = query.trim().to_lowercase();
-    let hit = |t: &ThreadInfo| q.is_empty() || t.title.to_lowercase().contains(&q) || t.preview.to_lowercase().contains(&q) || folder(t).is_some_and(|f| f.to_lowercase().contains(&q));
-    let mut out: Vec<(Option<String>, Vec<&ThreadInfo>)> = Vec::new();
+    let hit = |t: &ThreadInfo| q.is_empty() || t.title.to_lowercase().contains(&q) || t.preview.to_lowercase().contains(&q) || filing.name_of(t).is_some_and(|f| f.to_lowercase().contains(&q));
+    let mut out: Vec<(String, Vec<&ThreadInfo>)> = filing.folders.iter().map(|f| (f.name.clone(), Vec::new())).collect();
+    let mut unfiled = Vec::new();
     for t in list.iter().filter(|t| hit(t)) {
-        let f = folder(t);
-        match out.iter_mut().find(|(k, _)| *k == f) {
-            Some((_, v)) => v.push(t),
-            None => out.push((f, vec![t])),
+        match filing.folder_of(t).and_then(|f| filing.folders.iter().position(|x| x.id == f.id)) {
+            Some(i) => out[i].1.push(t),
+            None => unfiled.push(t),
         }
     }
-    out.sort_by_key(|(k, _)| k.is_none());
-    out.into_iter().map(|(k, v)| (k.unwrap_or_else(|| NO_FOLDER.into()), v)).collect()
+    if !q.is_empty() {
+        out.retain(|(_, ts)| !ts.is_empty());
+    }
+    if !unfiled.is_empty() {
+        out.push((NO_FOLDER.into(), unfiled));
+    }
+    out
 }
 
 /// The heading for streams with no folder.
@@ -87,10 +144,10 @@ pub(crate) enum Item<'a> {
 /// (flat, those streams not repeated under their folder), Folders, then each folder, open when it
 /// holds a running or waiting stream, or the selected one, unless `toggles` says otherwise, and
 /// Unfiled last.
-pub(crate) fn sidebar<'a>(list: &'a [ThreadInfo], query: &str, toggles: &std::collections::HashMap<String, bool>, selected: Option<&str>) -> Vec<Item<'a>> {
-    let chip = |t: &ThreadInfo| Some(folder(t).unwrap_or_else(|| NO_FOLDER.into()));
+pub(crate) fn sidebar<'a>(list: &'a [ThreadInfo], query: &str, toggles: &HashMap<String, bool>, selected: Option<&str>, filing: &Filing) -> Vec<Item<'a>> {
+    let chip = |t: &ThreadInfo| Some(filing.name_of(t).unwrap_or_else(|| NO_FOLDER.into()));
     if !query.trim().is_empty() {
-        return by_folder(list, query).into_iter().flat_map(|(_, ts)| ts).map(|t| Item::Row { t, chip: chip(t) }).collect();
+        return by_folder(list, query, filing).into_iter().flat_map(|(_, ts)| ts).map(|t| Item::Row { t, chip: chip(t) }).collect();
     }
     let needs: Vec<&ThreadInfo> = list.iter().filter(|t| needs_you(t)).collect();
     // Needs you only when something does: an empty heading reads as a missing list.
@@ -100,7 +157,7 @@ pub(crate) fn sidebar<'a>(list: &'a [ThreadInfo], query: &str, toggles: &std::co
         out.extend(needs.iter().map(|t| Item::Row { t, chip: chip(t) }));
     }
     out.push(Item::Folders);
-    for (name, ts) in by_folder(list, "") {
+    for (name, ts) in by_folder(list, "", filing) {
         let waiting = ts.iter().any(|t| needs_you(t));
         let open = toggles.get(&name).copied().unwrap_or(waiting || ts.iter().any(|t| t.busy || Some(t.id.as_str()) == selected));
         out.push(Item::Folder { name: name.clone(), count: ts.len(), open, dot: !open && waiting });
@@ -123,7 +180,8 @@ pub(crate) fn age(updated: u64, now: u64) -> String {
     }
 }
 
-/// A stream's folder: its project's last path part.
+/// A stream's working directory's name (its project's last path part). Not its folder: filing is
+/// `Filing`, and never changes where a stream runs.
 pub(crate) fn folder(t: &ThreadInfo) -> Option<String> {
     t.project.as_ref().map(|p| p.rsplit(['/', '\\']).find(|s| !s.is_empty()).unwrap_or(p).to_string())
 }
@@ -193,7 +251,7 @@ pub(crate) fn fixture(now: u64) -> Vec<ThreadInfo> {
 
 #[cfg(test)]
 mod tests {
-    use super::{age, by_folder, meta, sample, sidebar, Group, Item, NO_FOLDER};
+    use super::{age, by_folder, meta, sample, sidebar, Filing, Group, Item, NO_FOLDER};
     use std::collections::HashMap;
 
     #[test]
@@ -216,7 +274,7 @@ mod tests {
         v[2].project = Some("C:\\code\\Ocean\\".into());
         v[3].project = Some("/code/Cauldron/".into());
         v[4].project = Some("/elsewhere/Cauldron".into());
-        let g: Vec<(String, Vec<&str>)> = by_folder(&v, "").iter().map(|(f, ts)| (f.clone(), ts.iter().map(|t| t.id.as_str()).collect())).collect();
+        let g: Vec<(String, Vec<&str>)> = by_folder(&v, "", &Filing::by_workdir(&v)).iter().map(|(f, ts)| (f.clone(), ts.iter().map(|t| t.id.as_str()).collect())).collect();
         assert_eq!(g, vec![("Cauldron".to_string(), vec!["p", "s", "t"]), ("Ocean".into(), vec!["r"]), (NO_FOLDER.into(), vec!["q"])]);
     }
 
@@ -245,18 +303,18 @@ mod tests {
                 .collect()
         };
         assert_eq!(
-            names(&sidebar(&v, "", &toggles, None)),
+            names(&sidebar(&v, "", &toggles, None, &Filing::by_workdir(&v))),
             ["needs 1", "a Cauldron", "folders", "Cauldron 2 open -", "b ", "Ocean 2 open -", "c ", "d ", "Unfiled 1 shut -"]
         );
         toggles.insert("Cauldron".to_string(), false);
         toggles.insert("Unfiled".to_string(), true);
         assert_eq!(
-            names(&sidebar(&v, "", &toggles, None)),
+            names(&sidebar(&v, "", &toggles, None, &Filing::by_workdir(&v))),
             ["needs 1", "a Cauldron", "folders", "Cauldron 2 shut dot", "Ocean 2 open -", "c ", "d ", "Unfiled 1 open -", "e "]
         );
-        assert_eq!(names(&sidebar(&v, "ocean", &toggles, None)), ["c Ocean", "d Ocean"], "a search lists its hits flat, each with its folder");
+        assert_eq!(names(&sidebar(&v, "ocean", &toggles, None, &Filing::by_workdir(&v))), ["c Ocean", "d Ocean"], "a search lists its hits flat, each with its folder");
         toggles.clear();
-        assert!(names(&sidebar(&v, "", &toggles, Some("e"))).contains(&"Unfiled 1 open -".to_string()), "a folder opens over the selected stream");
+        assert!(names(&sidebar(&v, "", &toggles, Some("e"), &Filing::by_workdir(&v))).contains(&"Unfiled 1 open -".to_string()), "a folder opens over the selected stream");
     }
 
     /// With nothing waiting, there is no Needs you heading: the list starts at Folders.
@@ -264,11 +322,29 @@ mod tests {
     fn no_needs_you_heading_without_a_waiting_stream() {
         let mut v: Vec<_> = ["a", "b"].iter().map(|id| sample(id, id)).collect();
         v[0].project = Some("/code/Cauldron".into());
-        let items = sidebar(&v, "", &HashMap::new(), None);
+        let items = sidebar(&v, "", &HashMap::new(), None, &Filing::by_workdir(&v));
         assert!(matches!(items.first(), Some(Item::Folders)), "Folders first");
         assert!(!items.iter().any(|i| matches!(i, Item::Needs(_))));
         v[1].unread = true;
-        assert!(matches!(sidebar(&v, "", &HashMap::new(), None).first(), Some(Item::Needs(1))), "and back when one waits");
+        assert!(matches!(sidebar(&v, "", &HashMap::new(), None, &Filing::by_workdir(&v)).first(), Some(Item::Needs(1))), "and back when one waits");
+    }
+
+    /// Filing is its own field: a stream filed in a folder shows there whatever its working
+    /// directory; an empty folder still lists; a stream in a folder that is gone is Unfiled.
+    #[test]
+    fn folders_come_from_filing_not_the_working_directory() {
+        use super::FolderRef;
+        let mut v: Vec<_> = ["a", "b", "c"].iter().map(|id| sample(id, id)).collect();
+        v[0].project = Some("/code/Cauldron".into());
+        v[1].project = Some("/code/Cauldron".into());
+        let mut f = Filing::default();
+        f.folders.push(FolderRef { id: "f1".into(), name: "Launch".into(), colour: 0 });
+        f.folders.push(FolderRef { id: "f2".into(), name: "Empty".into(), colour: 0 });
+        f.of.insert("b".into(), "f1".into());
+        f.of.insert("c".into(), "gone".into());
+        let g: Vec<(String, Vec<&str>)> = by_folder(&v, "", &f).iter().map(|(n, ts)| (n.clone(), ts.iter().map(|t| t.id.as_str()).collect())).collect();
+        assert_eq!(g, vec![("Launch".to_string(), vec!["b"]), ("Empty".into(), vec![]), (NO_FOLDER.into(), vec!["a", "c"])]);
+        assert!(by_folder(&v, "b", &f).iter().all(|(n, _)| n != "Empty"), "a search drops empty folders");
     }
 
     #[test]
@@ -283,7 +359,8 @@ mod tests {
         let mut v = vec![sample("a", "Rampart mutation score"), sample("b", "Koi palette"), sample("c", "Build")];
         v[1].preview = "Light MODE colours".into();
         v[2].project = Some("/code/Brainwave".into());
-        let ids = |q: &str| by_folder(&v, q).into_iter().flat_map(|(_, ts)| ts.into_iter().map(|t| t.id.clone())).collect::<Vec<_>>();
+        let f = Filing::by_workdir(&v);
+        let ids = |q: &str| by_folder(&v, q, &f).into_iter().flat_map(|(_, ts)| ts.into_iter().map(|t| t.id.clone())).collect::<Vec<_>>();
         assert_eq!(ids("  ramPART "), ["a"]);
         assert_eq!(ids("mode"), ["b"]);
         assert_eq!(ids("brainWAVE"), ["c"], "the folder's name finds its streams");
