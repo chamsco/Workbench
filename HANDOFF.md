@@ -1,5 +1,18 @@
 # Handoff: Backspace (ohMyHarness → Workbench), v0
 
+**Session, 13 Nov 2026: Cauldron M4, the planning stage.**
+
+- **A long task plans before it builds.** With intake on and a task on the long
+  path, Main's tickets are refused until it calls `submit_spec` with a typed
+  checklist (goal, criteria, a test per criterion, non-goals, constraints,
+  dependencies, task type). Code checks it, captures the "before" baseline
+  per task type, writes `.backspace/planning/spec.md` and asks you for a yes.
+  The yes is bound to the file's SHA-256 (`crates/core/src/planning.rs`).
+- **CLI planners** reach it through the MCP tool `submit_spec` (`/v1/plan/spec`).
+- **Not done:** the decision-model scoring (`planning::score`) is unwired until
+  the §10 eval; there is no UI button for the yes; `tests.md` waits for M5. Details:
+  `docs/cauldron/M4-NOTES.md`.
+
 **Session, 24 Oct 2026 — Plan, Execute, Ship, Commit, and the note chain.**
 
 - **The stages were planned (docs/PLAN-PHASES-2026-10-17.md) and half built in

@@ -98,6 +98,27 @@ pub fn is_tool(name: &str) -> bool {
     name.starts_with("browser_") || name.starts_with("desktop_")
 }
 
+/// The models a decider calls: Jev and, when it types, its text model; or
+/// the one local model.
+pub fn decider_models(d: &Decider) -> Vec<String> {
+    match d {
+        Decider::Local(ep) => vec![ep.model.clone()],
+        Decider::Jev { model, text, .. } => std::iter::once(model.clone()).chain(text.as_ref().map(|e| e.model.clone())).collect(),
+    }
+}
+
+/// Inside a project (an agent Backspace started, so the bridge is set), the
+/// decider's models are checked against the project's model policy at the
+/// agent's role before anything runs. Outside one (a chat agent) there is no
+/// project policy to ask: that path is listed as not covered.
+fn check_policy(d: &Decider) -> Result<()> {
+    if std::env::var_os(crate::board::ENV_URL).is_none() {
+        return Ok(());
+    }
+    let b = crate::board::bridge()?;
+    crate::board::check_models(&b, &decider_models(d)).map_err(|e| anyhow!("browser_task refused: {e}"))
+}
+
 /// The fast loop's model, from prefs: None when none is chosen, an error
 /// when one is chosen but can't be used.
 pub fn decider(prefs: &Prefs) -> Option<Result<Decider>> {
@@ -155,6 +176,15 @@ pub fn call(h: &Env, name: &str, a: &Value) -> Result<Vec<Value>> {
         bail!("you weren't given browser use; the user turns it on in your Settings");
     }
     let prefs = Prefs::load();
+    // browser_task's decision model is a model call: the project's policy is
+    // asked before a browser or a model is touched.
+    let decider_for_task = if name == "browser_task" {
+        let d = decider(&prefs).ok_or_else(|| anyhow!("no fast model is set for browser tasks; use browser_act"))??;
+        check_policy(&d)?;
+        Some(d)
+    } else {
+        None
+    };
     let ws = cdp::ensure(&Prefs::data_dir(), &prefs.hands.chrome, prefs.hands.headless)?;
     let tab = std::fs::read_to_string(dir.join("tab")).ok();
     let mut b = Browser::open(&ws, tab.as_deref().map(str::trim))?;
@@ -209,7 +239,7 @@ pub fn call(h: &Env, name: &str, a: &Value) -> Result<Vec<Value>> {
             Ok(vec![text(table(&page, 250, 4000))])
         }
         "browser_task" => {
-            let d = decider(&prefs).ok_or_else(|| anyhow!("no fast model is set for browser tasks; use browser_act"))??;
+            let d = decider_for_task.ok_or_else(|| anyhow!("no fast model is set for browser tasks; use browser_act"))?;
             let goal = s("goal");
             if goal.trim().is_empty() {
                 bail!("say what the goal is");
