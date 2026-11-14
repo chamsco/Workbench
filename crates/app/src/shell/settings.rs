@@ -186,6 +186,20 @@ impl Cauldron {
             if motion == super::appearance::Motion::Still {
                 col = col.child(row(("look", 2), "Picture".into(), "Behind the whole window, in the old dither; the new stream shows it clear, every other surface frosted.".into(), pic.into_any_element()));
             }
+            // Panels: the widths they learned (Charles chose the learned peak, 13 Nov 19:29Z).
+            let reset = div()
+                .id("set-panels-reset")
+                .cursor_pointer()
+                .hover(|d| d.opacity(0.85))
+                .aria_label("Reset learned widths")
+                .child(value("Reset learned widths".into()))
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.panels.reset();
+                    cx.notify();
+                }))
+                .test_support();
+            col = col.child(section("Panels"));
+            col = col.child(row(("look", 3), "Panel widths".into(), "The sidebar and the drawers learn the width you keep choosing and snap to it. Hold Alt or Shift while dragging for an exact width.".into(), reset.into_any_element()));
             return div().id("settings-body").size_full().overflow_y_scroll().flex().justify_center().child(col).test_support().into_any_element();
         }
         if page == 5 {

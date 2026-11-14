@@ -121,13 +121,33 @@ pub mod metric {
 /// while the sidebar is folded, so it never meets the name). On Windows the caption buttons sit in a
 /// 30px band at the Shell's top right, and the panes start under it.
 pub fn layout(w: f32, h: f32, state: ShellState, platform: Platform) -> Shell {
+    layout_with(w, h, state, platform, Widths::default())
+}
+
+/// The widths the user resized the sidebar and the drawer to (`crate::snap`); the defaults are
+/// `metric::SIDEBAR_W` and `metric::DRAWER_W`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Widths {
+    pub sidebar: f32,
+    pub drawer: f32,
+}
+
+impl Default for Widths {
+    fn default() -> Widths {
+        Widths { sidebar: metric::SIDEBAR_W, drawer: metric::DRAWER_W }
+    }
+}
+
+/// [`layout`] with the panels at `widths`.
+pub fn layout_with(w: f32, h: f32, state: ShellState, platform: Platform, widths: Widths) -> Shell {
     use metric::*;
+    let (sidebar_w, drawer_w) = (widths.sidebar, widths.drawer);
     let inner = Rect::new(BORDER, BORDER, w - 2.0 * BORDER, h - 2.0 * BORDER);
     let foot = inner.bottom() - MARGIN_BOTTOM;
     let side_top = inner.y + BAR_H;
 
     let (rail, sidebar, main_x) = if state.sidebar_open {
-        let sb = Rect::new(inner.x + MARGIN_SIDE, side_top, SIDEBAR_W, foot - side_top);
+        let sb = Rect::new(inner.x + MARGIN_SIDE, side_top, sidebar_w, foot - side_top);
         (None, Some(sb), sb.right())
     } else {
         (Some(Rect::new(inner.x, side_top, RAIL_W, foot - side_top)), None, inner.x + RAIL_W)
@@ -147,7 +167,7 @@ pub fn layout(w: f32, h: f32, state: ShellState, platform: Platform) -> Shell {
         (None, None)
     } else {
         let rail = Rect::new(right - RRAIL_W, in_top, RRAIL_W, in_h);
-        let drawer = (state.drawer_open && !state.terminal_open).then(|| Rect::new(rail.x - PAD - DRAWER_W, in_top, DRAWER_W, in_h));
+        let drawer = (state.drawer_open && !state.terminal_open).then(|| Rect::new(rail.x - PAD - drawer_w, in_top, drawer_w, in_h));
         (drawer, Some(rail))
     };
     let mut main_right = drawer.or(rrail).map_or(right, |r| r.x - PAD);
@@ -174,8 +194,13 @@ pub fn layout(w: f32, h: f32, state: ShellState, platform: Platform) -> Shell {
 
 /// The state that actually fits: the thread column keeps [`metric::MAIN_MIN_W`], so Split closes
 /// first, then the terminal, then the drawer. The sidebar is the user's choice and stays.
-pub fn resolve(w: f32, h: f32, mut state: ShellState, platform: Platform) -> ShellState {
-    while layout(w, h, state, platform).main.w < metric::MAIN_MIN_W {
+pub fn resolve(w: f32, h: f32, state: ShellState, platform: Platform) -> ShellState {
+    resolve_with(w, h, state, platform, Widths::default())
+}
+
+/// [`resolve`] with the panels at `widths`.
+pub fn resolve_with(w: f32, h: f32, mut state: ShellState, platform: Platform, widths: Widths) -> ShellState {
+    while layout_with(w, h, state, platform, widths).main.w < metric::MAIN_MIN_W {
         if state.split_open {
             state.split_open = false;
         } else if state.terminal_open {
@@ -190,5 +215,10 @@ pub fn resolve(w: f32, h: f32, mut state: ShellState, platform: Platform) -> She
 }
 
 pub fn solve(w: f32, h: f32, state: ShellState, platform: Platform) -> Shell {
-    layout(w, h, resolve(w, h, state, platform), platform)
+    solve_with(w, h, state, platform, Widths::default())
+}
+
+/// [`solve`] with the panels at `widths`.
+pub fn solve_with(w: f32, h: f32, state: ShellState, platform: Platform, widths: Widths) -> Shell {
+    layout_with(w, h, resolve_with(w, h, state, platform, widths), platform, widths)
 }

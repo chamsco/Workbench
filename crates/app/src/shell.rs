@@ -27,6 +27,7 @@ mod backdrop;
 mod context;
 mod search;
 mod pages;
+mod panels;
 mod panes;
 mod ptabs;
 mod settings;
@@ -198,6 +199,15 @@ pub(crate) struct Cauldron {
     root_focus: Option<FocusHandle>,
     /// Debug builds: `CAULDRON_SEARCH=<query>` opens search with that query, for screenshots.
     debug_search: Option<String>,
+    /// Debug builds: `CAULDRON_DRAG=dx[,exact]` holds the sidebar's handle mid-drag, for screenshots.
+    debug_drag: Option<String>,
+    /// The resizable panels: their learned widths, the drag in progress, the handles' focus and
+    /// the pending keyboard record.
+    panels: panels::Panels,
+    panel_drag: Option<panels::PanelDrag>,
+    panel_focus: std::collections::HashMap<panels::Panel, FocusHandle>,
+    panel_key_gen: u64,
+    panel_key_task: Option<Task<()>>,
     /// Settings is open on this page (v3 frame 7): its pages take the sidebar's list, the page the card.
     settings: Option<usize>,
     /// Where Settings reads the subscriptions; None is core's `accounts.json` (tests use their own).
@@ -317,6 +327,7 @@ impl Cauldron {
                 _ => {}
             }
             c.debug_search = std::env::var("CAULDRON_SEARCH").ok();
+            c.debug_drag = std::env::var("CAULDRON_DRAG").ok();
             if std::env::var("CAULDRON_PLATFORM").as_deref() == Ok("windows") {
                 c.plat = Platform::Windows;
             }
@@ -349,7 +360,7 @@ impl Cauldron {
     }
 
     pub(crate) fn new() -> Self {
-        Cauldron { motion: ShellMotion::default(), swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: None, sidebar_open: true, drawer: None, backdrop: Default::default(), glass_at: Default::default(), glass_card: std::cell::Cell::new(None), appearance_sub: None, active_sub: None, flow_clock: None, flow_task: None, flow_running: false, flow_burst: Default::default(), flow_at: None, retired: Vec::new(), flow_stats: (0, std::time::Duration::ZERO), prefs_file: None, plat: platform(), folder_open: Default::default(), page: Default::default(), page_agents: Vec::new(), agent_sel: None, agent_tab: 0, room_sel: 0, side_sel: [None; 6], side_data: Default::default(), search_ui: None, search_notes: Vec::new(), root_focus: None, debug_search: None, settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_menu: false, tab_slide: Default::default(), tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
+        Cauldron { motion: ShellMotion::default(), swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: None, sidebar_open: true, drawer: None, backdrop: Default::default(), glass_at: Default::default(), glass_card: std::cell::Cell::new(None), appearance_sub: None, active_sub: None, flow_clock: None, flow_task: None, flow_running: false, flow_burst: Default::default(), flow_at: None, retired: Vec::new(), flow_stats: (0, std::time::Duration::ZERO), prefs_file: None, plat: platform(), folder_open: Default::default(), page: Default::default(), page_agents: Vec::new(), agent_sel: None, agent_tab: 0, room_sel: 0, side_sel: [None; 6], side_data: Default::default(), search_ui: None, search_notes: Vec::new(), root_focus: None, debug_search: None, debug_drag: None, panels: panels::Panels::load(None), panel_drag: None, panel_focus: Default::default(), panel_key_gen: 0, panel_key_task: None, settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_menu: false, tab_slide: Default::default(), tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
     }
 
     /// Opens core off the main thread (the sidebar shows Loading meanwhile), then keeps the thread
@@ -1123,7 +1134,7 @@ impl Render for Cauldron {
         let want = ShellState { sidebar_open: self.sidebar_open, drawer_open: self.drawer.is_some(), split_open: false, terminal_open: self.terminal, plugins: self.has_rail() };
         let now = std::time::Instant::now();
         let reduce = cx.reduce_motion();
-        let (s, mut moving) = self.motion.frame(want, Frame::at_rest(&layout::solve(w, h, want, plat)), now, reduce);
+        let (s, mut moving) = self.motion.frame(want, Frame::at_rest(&layout::solve_with(w, h, want, plat, self.widths())), now, reduce);
         // The drawer body's crossfade, the + menu's open and close, and the Send/Stop glyphs.
         let busy_now = self.busy();
         if busy_now != self.busy_shown {
@@ -1191,6 +1202,13 @@ impl Render for Cauldron {
                 st.update(cx, |st, cx| st.set_value(q, window, cx));
             }
         }
+        if let Some(d) = self.debug_drag.take() {
+            // The same path as a real drag: start, then follow the handle, held.
+            let (dx, free) = d.split_once(',').map_or((d.as_str(), false), |(a, b)| (a, b == "exact"));
+            self.start_panel_drag(panels::Panel::Sidebar, 0.0);
+            let vs = window.viewport_size();
+            self.drag_panel_to(dx.parse().unwrap_or(0.0), free, (f32::from(vs.width), f32::from(vs.height)));
+        }
         let root_focus = self.root_focus.get_or_insert_with(|| cx.focus_handle()).clone();
         if window.focused(cx).is_none() {
             root_focus.focus(window, cx);
@@ -1216,8 +1234,25 @@ impl Render for Cauldron {
             .font_family(SANS).font_features(sans_features())
             .text_size(px(13.))
             .text_color(fg)
-            .on_mouse_move(cx.listener(|this, ev: &MouseMoveEvent, _, cx| this.drag_line(ev, cx)))
+            .on_mouse_move(cx.listener(move |this, ev: &MouseMoveEvent, _, cx| {
+                if this.panel_drag.is_some() {
+                    // A release outside the window comes back as a move with no button.
+                    if ev.pressed_button != Some(MouseButton::Left) {
+                        this.end_panel_drag();
+                    } else {
+                        let free = ev.modifiers.alt || ev.modifiers.shift;
+                        this.drag_panel_to(f32::from(ev.position.x), free, (w, h));
+                    }
+                    cx.notify();
+                    return;
+                }
+                this.drag_line(ev, cx)
+            }))
             .on_mouse_up(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                if this.panel_drag.is_some() {
+                    this.end_panel_drag();
+                    cx.notify();
+                }
                 if this.pane_drag.take().is_some() {
                     cx.notify();
                 }
@@ -1726,6 +1761,10 @@ impl Render for Cauldron {
             );
         }
 
+        // ---- the panels' resize handles, over the edges they move
+        let handles = self.panel_handles(&s, pal, cx);
+        root = root.children(handles);
+
         // ---- window ring, drawn last so it sits on top of every pane edge; search above all
         let overlay = self.search_overlay(w, h, dark, pal, cx);
         root.child(
@@ -1786,9 +1825,11 @@ mod tests {
                 ..Cauldron::new()
             });
             cx.simulate_window_resize(handle.into(), size(px(W), px(H)));
+            // The panels' widths (the user's, or the defaults) go into the solver too.
+            let ws = handle.update(cx, |c, _, _| c.widths()).unwrap();
             cx.update_window(handle.into(), |_, window, cx| {
                 window.render_frame(cx);
-                let s = Frame::at_rest(&layout::solve(W, H, state, platform()));
+                let s = Frame::at_rest(&layout::solve_with(W, H, state, platform(), ws));
                 assert_rect(window, "main", s.main, state);
                 assert_rect(window, "shell", s.shell, state);
                 assert_rect(window, "sbtn-slot", s.sidebar_button, state);
