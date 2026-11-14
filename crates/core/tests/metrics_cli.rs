@@ -1,6 +1,7 @@
 //! M2 acceptance: a turn in a coding CLI is a call of its model's class. The
-//! CLI worker is billed to a plan ($0 here) and is tier 3, so it is a
-//! frontier call all the same. Its own process: the fake `claude` is found
+//! CLI worker is billed to a plan ($0 here) and is tier 3 with an explicit
+//! `model_class = "frontier"` (tier 3 alone is mid since the 2026-11-14
+//! policy), so it is a frontier call all the same: price does not decide it. Its own process: the fake `claude` is found
 //! through an environment variable that tests in one process would share.
 #![cfg(unix)]
 
@@ -128,6 +129,7 @@ max_output_tokens = 1000
 id = "claude-code"
 provider = "claude-code"
 tier = 3
+model_class = "frontier"
 description = "Claude Code"
 input_usd_per_mtok = 0.0
 output_usd_per_mtok = 0.0

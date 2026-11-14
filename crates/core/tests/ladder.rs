@@ -164,7 +164,7 @@ fn within_caps_the_candidates_and_never_empties_them() {
 
 #[test]
 fn cheapest_on_prefers_the_class_then_the_nearest_below_then_above() {
-    let (m1, m2, f1, f2) = (spec("m1", 1, 5.0), spec("m2", 2, 10.0), spec("f1", 3, 20.0), spec("f2", 4, 50.0));
+    let (m1, m2, f1, f2) = (spec("m1", 1, 5.0), spec("m2", 2, 10.0), spec("f1", 4, 20.0), spec("f2", 4, 50.0));
     let all = [&m1, &m2, &f1, &f2];
     assert_eq!(cheapest_on(&all, ModelClass::Mid).unwrap().id, "m1");
     assert_eq!(cheapest_on(&all, ModelClass::Frontier).unwrap().id, "f1");

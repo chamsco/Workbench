@@ -29,12 +29,14 @@ impl ModelClass {
     }
 }
 
-/// The model's `class` when the config sets one, otherwise by tier:
-/// 0 local, 1–2 mid, 3–4 frontier.
+/// The model's `model_class` (or older `class`) when the config sets one,
+/// otherwise by tier: 0 local, 1–3 mid, 4 frontier. Only tier 4 is frontier by
+/// default. Class is separate from tier and from effort: a tier-3 model that
+/// takes high effort is still mid unless its config says `model_class = "frontier"`.
 pub fn class_of(spec: &ModelSpec) -> ModelClass {
     spec.class.unwrap_or(match spec.tier {
         0 => ModelClass::Local,
-        1 | 2 => ModelClass::Mid,
+        1..=3 => ModelClass::Mid,
         _ => ModelClass::Frontier,
     })
 }
