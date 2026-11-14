@@ -220,6 +220,11 @@ pub struct Thread {
     /// Pair: the project folder a CLI works in, with leave to edit it.
     #[serde(default)]
     pub project: Option<String>,
+    /// The folder this stream is filed in (a `folders::Folder` id); None is
+    /// unfiled. Only a way to organise the list: it says nothing about where
+    /// the CLI runs, which is `project`. Absent in older files: unfiled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folder: Option<String>,
     /// The installed app this thread belongs to (its agent's chat).
     #[serde(default)]
     pub app: Option<String>,
@@ -801,6 +806,7 @@ impl Chats {
             cli_session: None,
             branched_from: None,
             project: scope.project.filter(|p| !p.is_empty()),
+            folder: None,
             app: scope.app,
             system: scope.system,
             agent: scope.agent,
@@ -847,6 +853,62 @@ impl Chats {
 
     pub fn pin(&self, id: &str, pinned: bool) -> Result<()> {
         self.edit_thread(id, |t| t.pinned = pinned)
+    }
+
+    /// File a thread in a folder, or take it out. Only the folder changes: not
+    /// `project` (where a CLI runs), and not `updated` either, since filing is
+    /// not activity and must not reorder the list (pin and rename leave it too).
+    /// Whether the folder exists is for `folders::Folders` to check; that is
+    /// why this is not public.
+    pub(crate) fn set_folder(&self, id: &str, folder: Option<String>) -> Result<()> {
+        {
+            let mut ts = self.threads.lock().unwrap();
+            let t = ts.get_mut(id).ok_or_else(|| anyhow!("no such chat"))?;
+            if t.hidden || !t.life.saves() {
+                bail!("a ghost chat is never saved, so it cannot be filed");
+            }
+            if t.folder == folder {
+                return Ok(());
+            }
+            t.folder = folder;
+        }
+        self.save(id);
+        self.poke();
+        Ok(())
+    }
+
+    /// Is there a saved thread with this id that can be filed?
+    pub(crate) fn can_file(&self, id: &str) -> bool {
+        self.threads.lock().unwrap().get(id).is_some_and(|t| !t.hidden && t.life.saves())
+    }
+
+    /// Take every thread out of `folder` (it was deleted). The threads stay.
+    pub(crate) fn unfile_all(&self, folder: &str) {
+        let filed: Vec<String> = self
+            .threads
+            .lock()
+            .unwrap()
+            .values()
+            .filter(|t| t.folder.as_deref() == Some(folder))
+            .map(|t| t.id.clone())
+            .collect();
+        for id in filed {
+            let _ = self.edit_thread(&id, |t| t.folder = None);
+        }
+    }
+
+    /// `list()` with each thread's folder id beside it, for `folders.rs`
+    /// (`ThreadInfo` is what the shells build rows from, and stays as it is).
+    pub(crate) fn list_with_folder(&self) -> Vec<(ThreadInfo, Option<String>)> {
+        let infos = self.list();
+        let ts = self.threads.lock().unwrap();
+        infos
+            .into_iter()
+            .map(|i| {
+                let folder = ts.get(&i.id).and_then(|t| t.folder.clone());
+                (i, folder)
+            })
+            .collect()
     }
 
     /// Switch who answers from the next message on. A CLI session does not
@@ -905,6 +967,8 @@ impl Chats {
             cli_session: None,
             branched_from: Some(src.id.clone()),
             project: src.project.clone(),
+            // A branch is the same work, so it stays where its source is filed.
+            folder: src.folder.clone(),
             app: src.app.clone(),
             system: src.system.clone(),
             agent: src.agent.clone(),
@@ -1245,6 +1309,7 @@ impl Chats {
             cli_session: None,
             branched_from: None,
             project: None,
+            folder: None,
             app: None,
             system: Some(system.to_string()),
             agent: None,

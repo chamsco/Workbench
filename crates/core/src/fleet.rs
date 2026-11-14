@@ -12,6 +12,7 @@ use crate::agents::{Agent, Routine};
 use crate::chat::{now_ms, Chats, Ctx, Scope};
 use crate::cloud::{Account, Overage, Plan};
 use crate::files::FileEntry;
+use crate::folders::Folders;
 use crate::harness::Harness;
 use crate::harnesses::HarnessInfo;
 use crate::prefs::{MachineCfg, Prefs};
@@ -196,6 +197,7 @@ pub struct Fleet {
     apps: Arc<crate::apps::Apps>,
     agents: Arc<crate::agents::Agents>,
     projects: Arc<Projects>,
+    folders: Arc<Folders>,
     harnesses: Mutex<Vec<HarnessInfo>>,
     http: reqwest::Client,
     remotes: Mutex<Vec<Arc<Remote>>>,
@@ -238,6 +240,7 @@ impl Fleet {
                 )
             })
             .collect();
+        let folders = Arc::new(Folders::open(Prefs::data_dir(), chats.clone()));
         let fleet = Arc::new(Fleet {
             local: Mutex::new(local),
             chats,
@@ -245,6 +248,7 @@ impl Fleet {
             apps: Arc::new(crate::apps::Apps::open(Prefs::data_dir().join("apps"))),
             agents: Arc::new(crate::agents::Agents::open(Prefs::data_dir().join("agents"))),
             projects: Arc::new(Projects::open(Prefs::data_dir())),
+            folders,
             harnesses: Mutex::new(Vec::new()),
             http: reqwest::Client::new(),
             remotes: Mutex::new(remotes),
@@ -292,6 +296,11 @@ impl Fleet {
 
     pub fn projects(&self) -> &Arc<Projects> {
         &self.projects
+    }
+
+    /// The folders streams are filed in, and the proposals to file them.
+    pub fn folders(&self) -> &Arc<Folders> {
+        &self.folders
     }
 
     pub fn apps(&self) -> &Arc<crate::apps::Apps> {
