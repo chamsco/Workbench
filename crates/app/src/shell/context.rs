@@ -49,7 +49,7 @@ impl SideData {
                 let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_default();
                 d.tools = backspace_core::usage::sources(std::path::Path::new(&home)).into_iter().filter(|s| s.found && s.supported).map(|s| s.name).collect();
             }
-            AppPage::Library => d.notes = notes(),
+            AppPage::Library | AppPage::Folders => d.notes = notes(),
             _ => {}
         }
         d
@@ -374,12 +374,12 @@ fn slot(list: &str) -> usize {
     }
 }
 
-/// A folder's colour, the old folders' palette (`legacy/tauri-app/ui/dash.js`, `FOLDER`), the same
-/// each time for the same name; Unfiled and Global grey.
+/// A folder's colour, the destinations board's palette for the glass folders (violet, green,
+/// amber, blue, orange), the same each time for the same name; Unfiled and Global grey.
 pub(crate) fn folder_colour(name: &str) -> u32 {
-    const COLOURS: [u32; 5] = [0x3f5f5c, 0xe8743b, 0x5b6cf0, 0x2a9a72, 0xb0569a];
+    const COLOURS: [u32; 5] = [0x8b5cf6, 0x3fb27f, 0xe0a32a, 0x5b8cf0, 0xe8743b];
     if name == threads::NO_FOLDER || name == "Global" {
-        return 0xa7adb4;
+        return 0x8a8a93;
     }
     let h = name.bytes().fold(0u32, |h, b| h.wrapping_mul(31).wrapping_add(b as u32));
     COLOURS[h as usize % COLOURS.len()]

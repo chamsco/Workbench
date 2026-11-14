@@ -167,6 +167,7 @@ impl Cauldron {
     pub(super) fn page_body(&self, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
         match self.page {
             AppPage::Agents => self.agents_page(pal, cx),
+            AppPage::Folders => self.folders_page(pal, cx),
             p => self.placeholder_page(p, pal),
         }
     }

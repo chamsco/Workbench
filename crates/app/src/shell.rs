@@ -25,6 +25,7 @@ mod newthread;
 mod appearance;
 mod backdrop;
 mod context;
+mod folders;
 mod search;
 mod pages;
 mod panels;
@@ -192,6 +193,8 @@ pub(crate) struct Cauldron {
     side_sel: [Option<usize>; 6],
     /// What the open destination's sidebar list reads from core.
     side_data: context::SideData,
+    /// The glass folder under the mouse, whose sheets lift.
+    folder_hover: Option<usize>,
     /// Global search, when open, and the notes it searches.
     search_ui: Option<search::SearchState>,
     search_notes: Vec<(String, String)>,
@@ -324,9 +327,13 @@ impl Cauldron {
                 Ok("agents") => c.open_page(pages::AppPage::Agents),
                 Ok("library") => c.open_page(pages::AppPage::Library),
                 Ok("usage") => c.open_page(pages::AppPage::Usage),
+                Ok("folders") => c.open_page(pages::AppPage::Folders),
                 _ => {}
             }
             c.debug_search = std::env::var("CAULDRON_SEARCH").ok();
+            if let Some(n) = std::env::var("CAULDRON_FOLDER").ok().and_then(|v| v.parse::<usize>().ok()) {
+                c.side_sel[pages::AppPage::Folders as usize] = Some(1000 + n);
+            }
             c.debug_drag = std::env::var("CAULDRON_DRAG").ok();
             if std::env::var("CAULDRON_PLATFORM").as_deref() == Ok("windows") {
                 c.plat = Platform::Windows;
@@ -360,7 +367,7 @@ impl Cauldron {
     }
 
     pub(crate) fn new() -> Self {
-        Cauldron { motion: ShellMotion::default(), swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: None, sidebar_open: true, drawer: None, backdrop: Default::default(), glass_at: Default::default(), glass_card: std::cell::Cell::new(None), appearance_sub: None, active_sub: None, flow_clock: None, flow_task: None, flow_running: false, flow_burst: Default::default(), flow_at: None, retired: Vec::new(), flow_stats: (0, std::time::Duration::ZERO), prefs_file: None, plat: platform(), folder_open: Default::default(), page: Default::default(), page_agents: Vec::new(), agent_sel: None, agent_tab: 0, room_sel: 0, side_sel: [None; 6], side_data: Default::default(), search_ui: None, search_notes: Vec::new(), root_focus: None, debug_search: None, debug_drag: None, panels: panels::Panels::load(None), panel_drag: None, panel_focus: Default::default(), panel_key_gen: 0, panel_key_task: None, settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_menu: false, tab_slide: Default::default(), tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
+        Cauldron { motion: ShellMotion::default(), swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: None, sidebar_open: true, drawer: None, backdrop: Default::default(), glass_at: Default::default(), glass_card: std::cell::Cell::new(None), appearance_sub: None, active_sub: None, flow_clock: None, flow_task: None, flow_running: false, flow_burst: Default::default(), flow_at: None, retired: Vec::new(), flow_stats: (0, std::time::Duration::ZERO), prefs_file: None, plat: platform(), folder_open: Default::default(), page: Default::default(), page_agents: Vec::new(), agent_sel: None, agent_tab: 0, room_sel: 0, side_sel: [None; 6], side_data: Default::default(), folder_hover: None, search_ui: None, search_notes: Vec::new(), root_focus: None, debug_search: None, debug_drag: None, panels: panels::Panels::load(None), panel_drag: None, panel_focus: Default::default(), panel_key_gen: 0, panel_key_task: None, settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_menu: false, tab_slide: Default::default(), tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
     }
 
     /// Opens core off the main thread (the sidebar shows Loading meanwhile), then keeps the thread
