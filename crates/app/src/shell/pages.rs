@@ -135,6 +135,11 @@ impl Cauldron {
         self.page = p;
         self.settings = None;
         self.side_data = super::context::SideData::load(p, &self.data_dir());
+        if p == AppPage::Usage {
+            // Read the logs again on each visit (the render starts it).
+            self.usage = None;
+            self.usage_task = None;
+        }
         if p == AppPage::Agents {
             // Agents keeps its own drawer open: the agent's panel is part of the page.
             self.drawer.get_or_insert(super::Panel::Highlights);
@@ -169,6 +174,7 @@ impl Cauldron {
             AppPage::Agents => self.agents_page(pal, cx),
             AppPage::Folders => self.folders_page(pal, cx),
             AppPage::Library => self.library_page(pal, cx),
+            AppPage::Usage => self.usage_page(pal),
             p => self.placeholder_page(p, pal),
         }
     }

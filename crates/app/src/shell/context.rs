@@ -354,11 +354,15 @@ impl Cauldron {
     /// alerts (example).
     fn usage_side(&self, mut z: Stateful<Div>, pal: &'static Palette, cx: &mut Context<Self>) -> Stateful<Div> {
         z = z.child(self.side_row(("usage-overview", 0), glyph("layers", 15., c(pal.fg2)).into_any_element(), "Overview".into(), None, None, pal, cx).test_support());
-        let tools = &self.side_data.tools;
+        // The tools core read logs for, with today's sessions; before the read, the ones found.
+        let tools: Vec<(String, String)> = match &self.usage {
+            Some(u) => u.iter().map(|t| (super::usage::tool_name(&t.tool).to_string(), format!("{} today", t.today.sessions))).collect(),
+            None => self.side_data.tools.iter().map(|n| (n.to_string(), "Reading…".to_string())).collect(),
+        };
         z = z.child(self.side_head("Tools", Some(tools.len()), pal));
-        for (i, name) in tools.iter().enumerate() {
+        for (i, (name, n)) in tools.iter().enumerate() {
             let ring = div().size(px(14.)).flex_none().rounded_full().border_2().border_color(c(pal.line_strong)).into_any_element();
-            z = z.child(self.side_row(("tool-row", i), ring, (*name).into(), None, Some(self.count("No data yet".into(), pal)), pal, cx).test_support());
+            z = z.child(self.side_row(("tool-row", i), ring, name.clone(), None, Some(self.count(n.clone(), pal)), pal, cx).test_support());
         }
         if tools.is_empty() {
             z = z.child(div().id("tools-empty").px(px(8.)).text_size(px(12.)).text_color(c(pal.fg3)).child("No coding tools found on this machine.").test_support());

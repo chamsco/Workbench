@@ -470,3 +470,10 @@ From the context-sidebar board (direction A, sections 1 to 5).
 - **Example (milestone 10):** Proposals (Accept and Reject disabled) and the Librarian's receipts.
 - **Tests:** `the_library_reads_memory` (notes listed, the graph's hubs and notes, a `[[link]]` edge, picking a note, Proposals marked), `graph_layout` (deterministic, inside the box, Global in the middle; nodes apart, notes nearer their hub).
 - **Shots:** `nl22-library-notes-*`, `nl22-library-graph-*` (a note picked).
+
+## Usage (14 Nov; core `usage::tool_usage_summary`, docs/cauldron/USAGE-DATA.md)
+
+- **Real:** per coding tool on this machine (Claude Code, Codex, OpenCode, the ones with logs), the last 24 hours and the last 7 days: sessions, prompts, tool calls, tokens; the overview adds them up. Read off the main thread each time the page opens ("Reading the tools' logs…"). The sidebar's tools list today's sessions; picking one shows that tool alone, with where its numbers came from.
+- **Never invented:** the limit left, the reset time and cost. No local file holds them, so each card says "Not available" next to an empty ring; Limit alerts stay Example.
+- **Tests:** `usage_shows_core_numbers_and_no_limits` (core's fixture home, never the real one), `numbers_read_short`.
+- **Shots:** `nl23-usage-*` read core's fixture logs with the windows ending on 1 Nov (`CAULDRON_USAGE_HOME`, `CAULDRON_USAGE_NOW`, debug builds only), so no real usage from this machine is in the repo.
