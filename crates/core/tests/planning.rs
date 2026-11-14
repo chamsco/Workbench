@@ -569,33 +569,51 @@ fn ticket() -> Value {
     json!({"key": "greet", "title": "Write the greeting", "what_to_build": "Write hello.txt", "acceptance": ["hello.txt says hello"]})
 }
 
-/// The lead on the long path, by how many tool results it has seen and
-/// whether the user just spoke.
-fn lead(req: &Value) -> Value {
-    if !system(req).starts_with("You are the lead agent") {
-        return say("not the lead");
-    }
-    let n = results(req).len();
-    let user_spoke = last_role(req) == "user";
-    let mut incomplete = complete(json!({"kind": "feature"}));
-    incomplete["constraints"] = json!([]);
-    incomplete["dependencies"] = json!([]);
-    match (n, user_spoke) {
-        (0, _) => call("create_tickets", json!({"tickets": [ticket()]})),
-        (1, _) => call("submit_spec", incomplete),
-        (2, _) => call("submit_spec", complete(json!({"kind": "feature"}))),
-        (3, _) => call("create_tickets", json!({"tickets": [ticket()]})),
-        (4, false) => say("I asked for your yes."),
-        (_, true) => call("create_tickets", json!({"tickets": [ticket()]})),
-        _ => say("planned"),
+/// The lead on the long path. It answers what the code last said to it:
+/// it plans before the stage (refused), submits an incomplete checklist, then
+/// `plan`; after the user approves the baseline commands it submits `plan`
+/// again, and once the checklist passed it tries to make tickets.
+fn lead_with(plan: Value) -> impl Fn(&Value) -> Value + Send + Sync + 'static {
+    move |req: &Value| {
+        if !system(req).starts_with("You are the lead agent") {
+            return say("not the lead");
+        }
+        let rs = results(req);
+        if last_role(req) == "user" {
+            if last_user(req).contains("approved the baseline commands") {
+                return call("submit_spec", plan.clone());
+            }
+            return call("create_tickets", json!({"tickets": [ticket()]}));
+        }
+        let last = rs.last().map(String::as_str).unwrap_or("");
+        let mut incomplete = plan.clone();
+        incomplete["constraints"] = json!([]);
+        incomplete["dependencies"] = json!([]);
+        if rs.len() == 1 && last.contains("plans first") {
+            call("submit_spec", incomplete)
+        } else if last.contains("checklist refused") {
+            call("submit_spec", plan.clone())
+        } else if last.contains("checklist passed") {
+            call("create_tickets", json!({"tickets": [ticket()]}))
+        } else {
+            say("waiting for you")
+        }
     }
 }
 
+fn lead(req: &Value) -> Value {
+    lead_with(complete(json!({"kind": "feature"})))(req)
+}
+
+/// Up to the spec waiting for a yes: the task, the baseline commands put to
+/// the user and approved, the capture, spec.md.
 fn spec_turn(tag: &str) -> (Mock, Harness, PathBuf) {
     let m = mock(lead);
     let (h, ws) = open(tag, m.port, ON);
     h.send(LONG_TASK);
-    wait(&h, "the planning turn", |s| s.agents[0].status == AgentStatus::Idle && m.calls.load(Ordering::SeqCst) >= 5);
+    wait(&h, "the baseline commands to be put to the user", |s| s.planning.awaiting_commands && s.agents[0].status == AgentStatus::Idle);
+    h.send("yes");
+    wait(&h, "the spec to be put to the user", |s| s.planning.awaiting_yes && s.agents[0].status == AgentStatus::Idle);
     (m, h, ws)
 }
 
@@ -614,10 +632,12 @@ fn the_long_path_plans_until_the_checklist_passes_then_waits_for_a_yes() {
     assert!(r[1].to_lowercase().contains("refused"), "{}", r[1]);
     assert!(r[1].contains("Constraints") && r[1].contains("Dependencies"), "{}", r[1]);
     assert!(!r[1].contains("Goal:"), "items that are met are not listed as gaps: {}", r[1]);
-    // A complete one passes, and spec.md is written by code.
-    assert!(r[2].to_lowercase().contains("checklist passed") && r[2].contains(planning::SPEC), "{}", r[2]);
-    // Still no ticket: the user has not said yes.
-    assert!(r[3].to_lowercase().contains("yes"), "{}", r[3]);
+    // A complete one first puts its baseline commands to the user; after
+    // their yes it passes, and spec.md is written by code.
+    assert!(r[2].to_lowercase().contains("have not run"), "{}", r[2]);
+    assert!(r[3].to_lowercase().contains("checklist passed") && r[3].contains(planning::SPEC), "{}", r[3]);
+    // Still no ticket: the user has not said yes to the spec.
+    assert!(r[4].to_lowercase().contains("yes"), "{}", r[4]);
 
     let s = h.snapshot();
     assert!(s.tickets.is_empty(), "{:?}", s.tickets);
@@ -686,15 +706,18 @@ fn a_changed_spec_after_the_yes_closes_the_gate_again() {
         if !system(req).starts_with("You are the lead agent") {
             return say("x");
         }
-        match (results(req).len(), last_role(req) == "user") {
+        let user = last_role(req) == "user";
+        match (results(req).len(), user) {
             (0, _) => call("submit_spec", complete(json!({"kind": "feature"}))),
-            (1, false) => say("asked"),
+            (1, true) => call("submit_spec", complete(json!({"kind": "feature"}))),
             (_, true) => call("create_tickets", json!({"tickets": [ticket()]})),
             _ => say("ok"),
         }
     });
     let (h, ws) = open("after-yes", m.port, ON);
     h.send(LONG_TASK);
+    wait(&h, "the commands", |s| s.planning.awaiting_commands && s.agents[0].status == AgentStatus::Idle);
+    h.send("yes");
     wait(&h, "the spec", |s| s.planning.awaiting_yes && s.agents[0].status == AgentStatus::Idle);
     // Approve, then tamper before the planner's create_tickets lands: the
     // yes was for the file as it was.
@@ -768,4 +791,118 @@ fn a_research_task_cannot_submit_a_spec() {
     let last = seen.iter().filter(|r| system(r).starts_with("You are the research agent")).last().unwrap();
     assert!(results(last)[0].contains("submit_spec") && results(last)[0].contains("research"), "{}", results(last)[0]);
     assert!(!ws.join(planning::SPEC).exists());
+}
+
+// ------------------------------------- baseline commands wait for the user
+
+/// A feature whose acceptance tests leave a mark when they run (and still
+/// fail today, so the baseline holds).
+fn marked(a2: &str) -> Value {
+    let mut v = complete(json!({"kind": "feature"}));
+    v["acceptance"][0]["test"] = json!("touch a1.ran; test -f hello.txt");
+    v["acceptance"][1]["test"] = json!(a2);
+    v
+}
+
+const A2: &str = "touch a2.ran; grep -q hello hello.txt";
+
+fn ran(ws: &Path, f: &str) -> bool {
+    ws.join(".backspace/worktrees/_run").join(f).exists()
+}
+
+#[test]
+fn the_commands_a_baseline_would_run_are_listed_per_task_type() {
+    let p = |b: Value| plan(complete(b));
+    assert_eq!(planning::commands(&p(json!({"kind": "bug_fix", "repro": "cargo test repro"}))), ["cargo test repro"]);
+    assert_eq!(planning::commands(&p(json!({"kind": "feature"}))), ["test -f hello.txt", "grep -q hello hello.txt"]);
+    assert_eq!(planning::commands(&p(json!({"kind": "ui_change", "capture": "node shot.js", "screenshots": ["a.png"]}))), ["node shot.js"]);
+    assert!(planning::commands(&p(json!({"kind": "ui_change", "screenshots": ["a.png"]}))).is_empty(), "reading screenshots runs nothing");
+    assert_eq!(planning::commands(&p(json!({"kind": "refactor", "suite": "cargo test", "perf": "cargo bench"}))), ["cargo test", "cargo bench"]);
+    assert!(planning::commands(&p(json!({"kind": "research"}))).is_empty());
+    let a = planning::commands_sha256(&p(json!({"kind": "feature"})));
+    assert_eq!(a, planning::commands_sha256(&p(json!({"kind": "feature"}))));
+    let mut other = complete(json!({"kind": "feature"}));
+    other["acceptance"][1]["test"] = json!("grep -q hi hello.txt");
+    assert_ne!(a, planning::commands_sha256(&plan(other)), "one changed command is a different list");
+}
+
+#[test]
+fn baseline_commands_do_not_run_before_the_user_approves_them() {
+    let m = mock(lead_with(marked(A2)));
+    let (h, ws) = open("cmd-wait", m.port, ON);
+    h.send(LONG_TASK);
+    let s = wait(&h, "the commands", |s| s.planning.awaiting_commands && s.agents[0].status == AgentStatus::Idle);
+    assert!(!ran(&ws, "a1.ran") && !ran(&ws, "a2.ran"), "a baseline command ran before the user approved it");
+    assert!(!ws.join(planning::BASELINE).exists() && !ws.join(planning::SPEC).exists());
+    // The user sees exactly what would run, and is asked.
+    let ask = s.agents[0].log.iter().rev().find(|l| l.kind == LogKind::Assistant && l.text.contains("touch a1.ran")).expect("the commands are shown");
+    assert!(ask.text.contains(A2) && ask.text.to_lowercase().contains("yes"), "{}", ask.text);
+    let r = lead_results(&m);
+    assert!(r.last().unwrap().to_lowercase().contains("have not run"), "{}", r.last().unwrap());
+    assert_eq!(s.planning.commands_sha256.as_deref(), Some(planning::commands_sha256(&plan(marked(A2))).as_str()));
+    assert!(s.planning.commands_approved_sha256.is_none() && !s.planning.passed && s.tickets.is_empty());
+
+    // Anything but a yes runs nothing, and a yes after that approves nothing.
+    let calls = m.calls.load(Ordering::SeqCst);
+    h.send("no, check A2 another way");
+    let s = idle_after(&h, &m, calls);
+    assert!(!s.planning.awaiting_commands && s.planning.commands_approved_sha256.is_none(), "{:?}", s.planning);
+    let calls = m.calls.load(Ordering::SeqCst);
+    h.send("yes");
+    let s = idle_after(&h, &m, calls);
+    assert!(s.planning.commands_approved_sha256.is_none(), "{:?}", s.planning);
+    assert!(!ran(&ws, "a1.ran") && !ran(&ws, "a2.ran"));
+}
+
+#[test]
+fn approved_baseline_commands_run_and_the_spec_goes_to_the_user() {
+    let m = mock(lead_with(marked(A2)));
+    let (h, ws) = open("cmd-yes", m.port, ON);
+    h.send(LONG_TASK);
+    wait(&h, "the commands", |s| s.planning.awaiting_commands && s.agents[0].status == AgentStatus::Idle);
+    h.send("yes");
+    let s = wait(&h, "the spec", |s| s.planning.awaiting_yes && s.agents[0].status == AgentStatus::Idle);
+    assert!(ran(&ws, "a1.ran") && ran(&ws, "a2.ran"), "approved commands run");
+    assert_eq!(s.planning.commands_approved_sha256, s.planning.commands_sha256);
+    assert!(s.planning.passed && ws.join(planning::SPEC).is_file());
+    assert!(s.agents[0].log.iter().any(|l| l.kind == LogKind::System && l.text.to_lowercase().contains("approved the baseline commands")));
+}
+
+#[test]
+fn a_changed_command_needs_its_own_approval() {
+    // After the yes the planner submits a plan whose A2 test changed.
+    let m = mock(move |req| {
+        if !system(req).starts_with("You are the lead agent") {
+            return say("x");
+        }
+        match (results(req).len(), last_role(req) == "user") {
+            (0, _) => call("submit_spec", marked(A2)),
+            (1, true) => call("submit_spec", marked("touch other.ran; false")),
+            _ => say("waiting"),
+        }
+    });
+    let (h, ws) = open("cmd-changed", m.port, ON);
+    h.send(LONG_TASK);
+    wait(&h, "the commands", |s| s.planning.awaiting_commands && s.agents[0].status == AgentStatus::Idle);
+    let first = h.snapshot().planning.commands_sha256.clone();
+    h.send("yes");
+    let s = wait(&h, "the new commands", |s| s.planning.awaiting_commands && s.planning.commands_sha256 != first && s.agents[0].status == AgentStatus::Idle);
+    assert!(!ran(&ws, "a1.ran") && !ran(&ws, "other.ran"), "a list the user did not approve runs nothing, not even its unchanged lines");
+    assert!(!s.planning.passed && !ws.join(planning::SPEC).exists());
+    let asks = s.agents[0].log.iter().filter(|l| l.kind == LogKind::Assistant && l.text.contains("touch a1.ran")).count();
+    assert_eq!(asks, 2, "the changed list is put to the user again");
+}
+
+// --------------------------------------------------- the contract M5 reads
+
+#[test]
+fn the_planning_contract_names_the_one_spec_m5_consumes() {
+    let doc = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/cauldron/PLANNING-CONTRACT.md")).expect("docs/cauldron/PLANNING-CONTRACT.md");
+    for part in [planning::SPEC, planning::BASELINE, planning::BASELINE_DIR, "spec_sha256", "approved_sha256"] {
+        assert!(doc.contains(part), "`{part}` is not in the contract");
+    }
+    let lower = doc.to_lowercase();
+    assert!(lower.contains("canonical"), "the contract says which spec is canonical");
+    assert!(doc.contains("`SPEC.md`") && lower.contains("not an input to m5"), "Plan mode's root SPEC.md is named and ruled out");
+    assert!(lower.contains("intake") && lower.contains("off by default") && lower.contains("§10"), "the intake default and why are stated");
 }

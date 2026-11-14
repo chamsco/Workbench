@@ -265,6 +265,20 @@ pub struct PlanningState {
     /// The spec the user said yes to.
     #[serde(default)]
     pub approved_sha256: Option<String>,
+    #[serde(default)]
+    pub awaiting_commands: bool,
+    #[serde(default)]
+    pub commands_sha256: Option<String>,
+    #[serde(default)]
+    pub commands_approved_sha256: Option<String>,
+}
+
+pub fn commands(_plan: &PlanSpec) -> Vec<String> {
+    todo!("M4 closure")
+}
+
+pub fn commands_sha256(_plan: &PlanSpec) -> String {
+    todo!("M4 closure")
 }
 
 fn blank(s: &str) -> bool {

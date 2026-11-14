@@ -1,7 +1,8 @@
 //! M4 acceptance for a long-path planner that lives in a coding CLI. It
 //! reaches the planning stage through the bridge (`/v1/plan/spec`, the MCP
 //! tool `submit_spec`), and `/v1/plan/create` is held to the same gate as the
-//! API planner: no ticket until the checklist passed and the user said yes.
+//! API planner: its baseline commands wait for the user's approval, and no
+//! ticket is made until the checklist passed and the user said yes.
 //!
 //! Unix only: the fake `claude` is a shell script that calls the bridge with
 //! curl, the way the MCP server would.
@@ -39,6 +40,8 @@ cat > /dev/null
 post() { curl -s -o "$d/$2.body" -w '%{http_code}' -H "Authorization: Bearer $BACKSPACE_BRIDGE_TOKEN" -H 'Content-Type: application/json' --data-binary @"$d/$3" "$BACKSPACE_BRIDGE$1" > "$d/$2.code"; }
 if [ $n -eq 1 ]; then
   post /v1/plan/create early tickets.json
+  post /v1/plan/spec ask spec.json
+elif [ $n -eq 2 ]; then
   post /v1/plan/spec spec spec.json
 else
   post /v1/plan/create after tickets.json
@@ -114,11 +117,17 @@ max_output_tokens = 0
     .unwrap();
     let h = Harness::open_with(ws.clone(), Overrides { planner: Some("claude-code".into()), ..Default::default() }).unwrap();
     h.send("build a dashboard system platform across several services");
-    let s = wait(&h, "the spec", |s| s.planning.awaiting_yes && s.agents[0].status == AgentStatus::Idle);
-
+    wait(&h, "the commands", |s| s.planning.awaiting_commands && s.agents[0].status == AgentStatus::Idle);
     let (code, body) = said("early");
     assert_eq!(code, "400", "{body}");
     assert!(body.contains("submit_spec"), "{body}");
+    let (code, body) = said("ask");
+    assert_eq!(code, "200", "{body}");
+    assert!(body.to_lowercase().contains("have not run"), "{body}");
+    assert!(!ws.join(planning::BASELINE).exists(), "nothing ran before the yes");
+
+    h.send("yes");
+    let s = wait(&h, "the spec", |s| s.planning.awaiting_yes && s.agents[0].status == AgentStatus::Idle);
     let (code, body) = said("spec");
     assert_eq!(code, "200", "{body}");
     assert!(body.to_lowercase().contains("checklist passed"), "{body}");

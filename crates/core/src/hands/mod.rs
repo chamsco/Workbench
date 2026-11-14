@@ -98,6 +98,11 @@ pub fn is_tool(name: &str) -> bool {
     name.starts_with("browser_") || name.starts_with("desktop_")
 }
 
+/// The models a decider calls. M4 closure stub.
+pub fn decider_models(_d: &Decider) -> Vec<String> {
+    todo!("M4 closure")
+}
+
 /// The fast loop's model, from prefs: None when none is chosen, an error
 /// when one is chosen but can't be used.
 pub fn decider(prefs: &Prefs) -> Option<Result<Decider>> {

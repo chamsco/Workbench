@@ -117,6 +117,7 @@ fn every_path_has_a_row() {
         "AgentChat",
         "remote machine",
         "Plugins",
+        "browser_task's decision model",
     ] {
         row(&rows, key);
     }
@@ -247,13 +248,14 @@ fn posts() -> BTreeMap<String, usize> {
 
 /// Every file that sends an HTTP request, and what it sends. A new one has to be added here, in
 /// review, with a row in the boundaries document if it is a model call.
-const POSTS: [(&str, &str); 9] = [
+const POSTS: [(&str, &str); 10] = [
     ("core/provider.rs", "a model call: API agent turns, reserved by the gateway (row: API agent turn)"),
     ("core/router.rs", "a model call: the Jev router (row: JevRouter's own model)"),
     ("core/chat.rs", "a model call: AgentChat's Backspace Cloud route (row: AgentChat)"),
     ("core/cloud.rs", "the Backspace Cloud account API (sign-up, plan); the chat server is row: CloudChatServer"),
     ("core/trace.rs", "trace export; not a model call"),
     ("core/remote.rs", "the protocol to a remote machine's harness; not a model call here (row: remote machine)"),
+    ("core/decide.rs", "a model call: browser_task's fast loop, Jev or a local model (row: browser_task's decision model)"),
     ("core/board.rs", "the local bridge a CLI agent's `backspace msg` posts to; not a model call"),
     ("runner/lib.rs", "Ollama and OpenAI-compatible targets, reached only through provider::run_target and backspace_runner::run, which unmetered.rs scans"),
     ("runner/a2a.rs", "an A2A agent target, the same way"),

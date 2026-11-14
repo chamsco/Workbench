@@ -3559,7 +3559,7 @@ async fn submit_spec(inner: &Arc<Inner>, input: &Value) -> Result<String> {
     std::fs::write(&tmp, &md)?;
     std::fs::rename(&tmp, &path)?;
     let hash = planning::sha256_hex(md.as_bytes());
-    inner.update(|s| s.planning = planning::PlanningState { spec_sha256: Some(hash.clone()), passed: true, awaiting_yes: true, approved_sha256: None });
+    inner.update(|s| s.planning = planning::PlanningState { spec_sha256: Some(hash.clone()), passed: true, awaiting_yes: true, approved_sha256: None, ..Default::default() });
     inner.save();
     phase.record_checklist(true, at, planning::SPEC, &format!("every item met; sha256 {hash}"));
     let _ = phase.save(&inner.root);
