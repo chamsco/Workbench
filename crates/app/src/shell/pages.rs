@@ -134,7 +134,7 @@ impl Cauldron {
     pub(super) fn open_page(&mut self, p: AppPage) {
         self.page = p;
         self.settings = None;
-        self.side_data = super::context::SideData::load(p);
+        self.side_data = super::context::SideData::load(p, &self.data_dir());
         if p == AppPage::Agents {
             // Agents keeps its own drawer open: the agent's panel is part of the page.
             self.drawer.get_or_insert(super::Panel::Highlights);
@@ -168,6 +168,7 @@ impl Cauldron {
         match self.page {
             AppPage::Agents => self.agents_page(pal, cx),
             AppPage::Folders => self.folders_page(pal, cx),
+            AppPage::Library => self.library_page(pal, cx),
             p => self.placeholder_page(p, pal),
         }
     }
@@ -425,7 +426,7 @@ mod tests {
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
             assert_eq!(window.find("card-title").label(), Some("Library"));
-            assert!(window.try_find("demo-tag").is_some(), "a placeholder says it is a demo");
+            assert!(window.try_find("page-body").is_some(), "Library's page fills the card");
             // The sidebar follows the destination (the context-sidebar board): Library's own list.
             assert!(window.try_find(("thread", 0usize)).is_none() && window.try_find("side-zone").is_some(), "the sidebar shows Library's list");
             assert_eq!(window.find(("lib-notes", 0usize)).label(), Some("Notes"));

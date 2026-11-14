@@ -25,6 +25,7 @@ mod motion;
 mod pal;
 mod shell;
 mod threads;
+mod graph_layout;
 mod stage;
 mod ui;
 

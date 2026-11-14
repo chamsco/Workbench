@@ -461,3 +461,12 @@ From the context-sidebar board (direction A, sections 1 to 5).
 - **The tests' folders registry is their own** (the fixture passes its data folder); nothing writes to the user's data folder from a test.
 - **Tests:** `folders_file_streams_without_moving_them` (empty state, File by working directory, the menu, rename, delete to Unfiled, `project` unchanged throughout), `the_folder_chip_files_the_new_stream` (New folder from the chip, filed, working directory untouched), `folders_come_from_filing_not_the_working_directory` (filing over working directory, empty folders, a folder that is gone is Unfiled).
 - **Shots:** `nl21-folders-*`, `nl21-folder-detail-*`, `nl21-streams-*`, `nl21-folders-empty-*`.
+
+## Library (14 Nov, the destinations board section 5)
+
+- **The views are the sidebar's rows:** Proposals, Notes (first), Graph, Librarian, then Notes by folder (Notes filtered to one place). `shell/library.rs`.
+- **Notes, real:** every note in core's memory, with its place and who wrote it, and "Off" when it is not given to chats or agents. Memory is read only if it already exists (opening it would create it), from the data folder the shell runs on (tests use their own).
+- **Graph, real data:** core's `memory_graph::build_graph` (Global, a hub per folder the notes are in and per agent, a node per note; edges to the place and for explicit `[[title]]` links), laid out here by `graph_layout` (deterministic force layout: hubs start on an inner ring and are pulled to the middle, notes ring their hub; cached until the graph or the box changes). Edges are one SVG (links and the picked node's edges in the accent); nodes and labels are GPUI elements, so they click: hubs bigger and named, a picked note named and shown in the panel on the right with its place, its source and what it links with. Counts read notes and `[[links]]`.
+- **Example (milestone 10):** Proposals (Accept and Reject disabled) and the Librarian's receipts.
+- **Tests:** `the_library_reads_memory` (notes listed, the graph's hubs and notes, a `[[link]]` edge, picking a note, Proposals marked), `graph_layout` (deterministic, inside the box, Global in the middle; nodes apart, notes nearer their hub).
+- **Shots:** `nl22-library-notes-*`, `nl22-library-graph-*` (a note picked).

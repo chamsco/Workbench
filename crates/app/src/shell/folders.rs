@@ -598,7 +598,12 @@ impl Cauldron {
     /// Core's folders, on the data folder core was opened on; None before core opens.
     pub(super) fn folders_api(&self) -> Option<backspace_core::folders::Folders> {
         let (_, chats) = self.core.as_ref()?;
-        Some(backspace_core::folders::Folders::open(self.data_dir.clone().unwrap_or_else(Prefs::data_dir), chats.clone()))
+        Some(backspace_core::folders::Folders::open(self.data_dir(), chats.clone()))
+    }
+
+    /// The data folder core reads: the one it was opened on, else core's own.
+    pub(super) fn data_dir(&self) -> std::path::PathBuf {
+        self.data_dir.clone().unwrap_or_else(Prefs::data_dir)
     }
 
     /// Reads where each stream is filed again when the streams or the folders changed. Without

@@ -155,7 +155,7 @@ impl Cauldron {
             self.close_search(window, cx);
             return;
         }
-        self.search_notes = super::context::notes();
+        self.search_notes = super::context::notes(&self.data_dir());
         let st = cx.new(|cx| InputState::new(window, cx).placeholder("Search streams, agents, folders, notes"));
         let sub = cx.subscribe(&st, |this, _, ev: &InputEvent, cx| {
             if let InputEvent::Change = ev {

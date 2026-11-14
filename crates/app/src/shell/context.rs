@@ -21,10 +21,13 @@ pub(crate) struct SideData {
     pub tools: Vec<&'static str>,
     /// The notes in memory: (text, place).
     pub notes: Vec<(String, String)>,
+    /// Library: the notes themselves, and the agents (id, name) for the graph's hubs.
+    pub lib: Vec<backspace_core::memory::Note>,
+    pub agents: Vec<(String, String)>,
 }
 
 /// A note's place, as the Library groups them: Global, a folder, or the agent's own.
-fn place(project: &Option<String>) -> String {
+pub(crate) fn place(project: &Option<String>) -> String {
     match project {
         None => "Global".into(),
         Some(p) if p.starts_with("agent:") => "Agents".into(),
@@ -33,9 +36,8 @@ fn place(project: &Option<String>) -> String {
 }
 
 impl SideData {
-    /// Reads core, without creating anything: no memory folder, no notes.
-    pub(crate) fn load(page: AppPage) -> SideData {
-        let dir = Prefs::data_dir();
+    /// Reads core in `dir`, without creating anything: no memory folder, no notes.
+    pub(crate) fn load(page: AppPage, dir: &std::path::Path) -> SideData {
         let mut d = SideData::default();
         match page {
             AppPage::Automations => {
@@ -49,20 +51,29 @@ impl SideData {
                 let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_default();
                 d.tools = backspace_core::usage::sources(std::path::Path::new(&home)).into_iter().filter(|s| s.found && s.supported).map(|s| s.name).collect();
             }
-            AppPage::Library | AppPage::Folders => d.notes = notes(),
+            AppPage::Folders => d.notes = notes(dir),
+            AppPage::Library => {
+                d.lib = full_notes(dir);
+                d.notes = d.lib.iter().map(|n| (n.text.clone(), place(&n.project))).collect();
+                d.agents = backspace_core::agents::Agents::open(dir.join("agents")).list().into_iter().map(|a| (a.id, a.name)).collect();
+            }
             _ => {}
         }
         d
     }
 }
 
-/// The notes in memory, if memory exists (opening it would create it).
-pub(crate) fn notes() -> Vec<(String, String)> {
-    let dir = Prefs::data_dir();
+/// The notes in memory in `dir`, if memory exists there (opening it would create it).
+pub(crate) fn full_notes(dir: &std::path::Path) -> Vec<backspace_core::memory::Note> {
     if !dir.join("memory").exists() {
         return Vec::new();
     }
-    backspace_core::memory::Memory::open(dir).list().into_iter().map(|n| (n.text, place(&n.project))).collect()
+    backspace_core::memory::Memory::open(dir.to_path_buf()).list()
+}
+
+/// The same as (text, place).
+pub(crate) fn notes(dir: &std::path::Path) -> Vec<(String, String)> {
+    full_notes(dir).into_iter().map(|n| (n.text, place(&n.project))).collect()
 }
 
 /// How many streams need you, for the pill.
