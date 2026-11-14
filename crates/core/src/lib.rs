@@ -27,6 +27,7 @@ pub mod intake;
 pub mod ladder;
 pub mod layout;
 pub mod memory;
+pub mod memory_graph;
 pub mod memory_learn;
 pub mod memory_dream;
 pub mod mcp;
