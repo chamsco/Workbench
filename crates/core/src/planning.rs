@@ -13,6 +13,11 @@
 //! current state (copied and hashed), a refactor needs the existing suite
 //! passing plus performance numbers. Research has none: it is a report.
 //!
+//! No baseline command runs before the user has approved that exact list
+//! ([`commands`], bound to [`commands_sha256`]): the planner submits, the
+//! commands are put to the user, and only after their yes does a second
+//! submission run them.
+//!
 //! When every item is met, code writes `spec.md` from the checklist and asks
 //! the user for a yes. The yes is bound to the file's SHA-256: tickets on the
 //! long path are refused until the spec on disk is the one the user approved
@@ -265,20 +270,59 @@ pub struct PlanningState {
     /// The spec the user said yes to.
     #[serde(default)]
     pub approved_sha256: Option<String>,
+    /// The baseline commands were put to the user and they have not answered.
     #[serde(default)]
     pub awaiting_commands: bool,
+    /// The hash of the command list last put to the user ([`commands_sha256`]).
     #[serde(default)]
     pub commands_sha256: Option<String>,
+    /// The command list the user said yes to: only this list may run.
     #[serde(default)]
     pub commands_approved_sha256: Option<String>,
 }
 
-pub fn commands(_plan: &PlanSpec) -> Vec<String> {
-    todo!("M4 closure")
+/// Every command capturing this plan's baseline would run, in order. Empty
+/// when it runs none (screenshots only, or no baseline). These are put to
+/// the user before any of them runs.
+pub fn commands(plan: &PlanSpec) -> Vec<String> {
+    let some = |c: &str| (!blank(c)).then(|| c.trim().to_string());
+    match &plan.baseline {
+        None | Some(BaselineSpec::Research) => vec![],
+        Some(BaselineSpec::BugFix { repro }) => some(repro).into_iter().collect(),
+        Some(BaselineSpec::Feature) => plan.acceptance.iter().filter_map(|c| some(&c.test)).collect(),
+        Some(BaselineSpec::UiChange { capture, .. }) => capture.as_deref().and_then(some).into_iter().collect(),
+        Some(BaselineSpec::Refactor { suite, perf }) => some(suite).into_iter().chain(perf.as_deref().and_then(some)).collect(),
+    }
 }
 
-pub fn commands_sha256(_plan: &PlanSpec) -> String {
-    todo!("M4 closure")
+/// The hash a user's approval of the commands is bound to: the task type and
+/// the exact list, so one changed command is a new list.
+pub fn commands_sha256(plan: &PlanSpec) -> String {
+    let kind = plan.baseline.as_ref().map_or("", |b| b.kind());
+    sha256_hex(serde_json::json!({"kind": kind, "commands": commands(plan)}).to_string().as_bytes())
+}
+
+/// The message asking the user to approve the commands before they run.
+pub fn commands_ask(plan: &PlanSpec) -> String {
+    let list = commands(plan).iter().map(|c| format!("```sh\n{c}\n```")).collect::<Vec<_>>().join("\n");
+    format!(
+        "Every other checklist item is met. To capture the {} baseline I need to run these commands in the planning worktree. Nothing has run yet:\n\n{list}\n\nReply **yes** to run exactly these, or tell me what to change.",
+        plan.baseline.as_ref().map_or("", |b| b.kind())
+    )
+}
+
+/// The user's reply to the commands put to them: a plain yes approves that
+/// exact list. Returns the text for the planner and what to log.
+pub fn answer_commands(state: &mut PlanningState, text: &str) -> (String, String) {
+    state.awaiting_commands = false;
+    if !parse_yes(text) {
+        return (text.to_string(), "That is not a yes, so the baseline commands did not run: the planner revises them and asks again.".into());
+    }
+    state.commands_approved_sha256 = state.commands_sha256.clone();
+    (
+        format!("{text}\n\n(Backspace: the user approved the baseline commands. Call submit_spec again with the same plan to run them.)"),
+        "You approved the baseline commands; they run when the planner submits the plan again.".into(),
+    )
 }
 
 fn blank(s: &str) -> bool {

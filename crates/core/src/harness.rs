@@ -1615,8 +1615,16 @@ async fn main_loop(inner: Arc<Inner>, mut inbox: mpsc::UnboundedReceiver<String>
             let path = inner.state.lock().unwrap().intake.path;
             // The planning stage (M4): the message after a spec was put to the
             // user is their answer, read in code before the planner sees it.
-            if path == Some(TaskType::Long) && inner.state.lock().unwrap().planning.awaiting_yes {
-                text = spec_answer(&inner, &text);
+            if path == Some(TaskType::Long) {
+                let (cmds, spec) = {
+                    let p = &inner.state.lock().unwrap().planning;
+                    (p.awaiting_commands, p.awaiting_yes)
+                };
+                if cmds {
+                    text = commands_answer(&inner, &text);
+                } else if spec {
+                    text = spec_answer(&inner, &text);
+                }
             }
             if let (Some(p @ (TaskType::Research | TaskType::OneShot)), true) = (path, inner.planner.is_some()) {
                 // Neither restricted path can be kept to its rules in a coding
@@ -3515,6 +3523,25 @@ fn create_batch(inner: &Inner, caller: AgentId, input: &Value, planned: bool) ->
     Ok((batch.iter().map(|t| t.key.clone()).collect(), needs_approval))
 }
 
+/// May agent `me` call these models? Its role decides the list (an agent
+/// that may create tickets is orchestration); an unknown agent is refused.
+fn policy_model(inner: &Inner, body: &Value) -> Result<String> {
+    let me = body["me"].as_str().unwrap_or("");
+    let role = {
+        let s = inner.state.lock().unwrap();
+        let a = s.agents.iter().find(|a| a.key == me).ok_or_else(|| anyhow!("no agent `{me}` in this project"))?;
+        GateRole::of(a.kind, a.kind == AgentKind::Main)
+    };
+    let models: Vec<&str> = body["models"].as_array().map(|a| a.iter().filter_map(Value::as_str).collect()).unwrap_or_default();
+    if models.is_empty() {
+        bail!("no models named");
+    }
+    for m in &models {
+        inner.gateway.check_model(role, m).map_err(|r| anyhow!("the project's model policy does not allow `{m}`: {r}"))?;
+    }
+    Ok(format!("allowed: {}", models.join(", ")))
+}
+
 /// `submit_spec`: the long path's planning stage (planning.rs). The typed
 /// checklist is judged by rules; once every other item is met the baseline is
 /// captured in the planner's workspace; a full pass writes spec.md and asks
@@ -3531,6 +3558,26 @@ async fn submit_spec(inner: &Arc<Inner>, input: &Value) -> Result<String> {
     if checklist.ready_to_capture()
         && !matches!(plan.baseline, None | Some(planning::BaselineSpec::Research))
     {
+        // No command runs before the user approved that exact list.
+        let cmds = planning::commands(&plan);
+        let hash = planning::commands_sha256(&plan);
+        let approved = inner.state.lock().unwrap().planning.commands_approved_sha256.clone();
+        if !cmds.is_empty() && approved.as_deref() != Some(hash.as_str()) {
+            inner.update(|s| {
+                s.planning = planning::PlanningState {
+                    awaiting_commands: true,
+                    commands_sha256: Some(hash.clone()),
+                    commands_approved_sha256: approved.clone(),
+                    ..Default::default()
+                }
+            });
+            inner.save();
+            inner.log(MAIN, LogKind::Assistant, planning::commands_ask(&plan));
+            return Ok(format!(
+                "Every other checklist item is met, but the baseline commands have not run: the user has been asked to approve these {} command(s) first. End your turn now; after their yes, call submit_spec again with the same plan. A changed command needs a new approval.",
+                cmds.len()
+            ));
+        }
         let b = planning::capture(&plan, &inner.workspace(&inner.run_dir), &inner.root).await;
         let path = inner.root.join(planning::BASELINE);
         std::fs::create_dir_all(path.parent().unwrap())?;
@@ -3542,7 +3589,7 @@ async fn submit_spec(inner: &Arc<Inner>, input: &Value) -> Result<String> {
     let mut phase = crate::phase::PhaseState::load(&inner.root);
     if !checklist.passed() {
         let gaps = checklist.gaps();
-        inner.update(|s| s.planning = planning::PlanningState::default());
+        inner.update(|s| s.planning = planning::PlanningState { commands_approved_sha256: s.planning.commands_approved_sha256.clone(), ..Default::default() });
         inner.save();
         phase.record_checklist(false, at, planning::SPEC, &gaps.join("; "));
         let _ = phase.save(&inner.root);
@@ -3559,7 +3606,16 @@ async fn submit_spec(inner: &Arc<Inner>, input: &Value) -> Result<String> {
     std::fs::write(&tmp, &md)?;
     std::fs::rename(&tmp, &path)?;
     let hash = planning::sha256_hex(md.as_bytes());
-    inner.update(|s| s.planning = planning::PlanningState { spec_sha256: Some(hash.clone()), passed: true, awaiting_yes: true, approved_sha256: None, ..Default::default() });
+    inner.update(|s| {
+        s.planning = planning::PlanningState {
+            spec_sha256: Some(hash.clone()),
+            passed: true,
+            awaiting_yes: true,
+            commands_sha256: s.planning.commands_sha256.clone(),
+            commands_approved_sha256: s.planning.commands_approved_sha256.clone(),
+            ..Default::default()
+        }
+    });
     inner.save();
     phase.record_checklist(true, at, planning::SPEC, &format!("every item met; sha256 {hash}"));
     let _ = phase.save(&inner.root);
@@ -3577,6 +3633,17 @@ async fn submit_spec(inner: &Arc<Inner>, input: &Value) -> Result<String> {
         "The checklist passed and {} is written (sha256 {hash}). The user has been asked for a yes: end your turn now. create_tickets is refused until they say yes.",
         planning::SPEC
     ))
+}
+
+/// The user's answer to the baseline commands put to them: a plain yes
+/// approves that exact list; nothing runs until the planner submits again.
+fn commands_answer(inner: &Inner, text: &str) -> String {
+    let mut st = inner.state.lock().unwrap().planning.clone();
+    let (pass_on, note) = crate::planning::answer_commands(&mut st, text);
+    inner.update(|s| s.planning = st);
+    inner.save();
+    inner.log(MAIN, LogKind::System, note);
+    pass_on
 }
 
 /// The user's answer to a spec put to them: a plain yes approves that exact
@@ -4678,6 +4745,10 @@ async fn bridge_handle(
             }
         }),
         "/v1/plan/spec" => submit_spec(&inner, &body).await.map(|t| json!({"text": t})),
+        // `browser_task`'s decision model (hands/decide.rs), asked by an
+        // agent's `backspace mcp` before it runs: the project's lists, at the
+        // agent's role.
+        "/v1/policy/model" => policy_model(&inner, &body).map(|t| json!({"text": t})),
         "/v1/plan/dispatch" if inner.state.lock().unwrap().intake.path == Some(TaskType::Research) => {
             Err(anyhow!("{}", intake::refusal(TaskType::Research, "work_tickets")))
         }

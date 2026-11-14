@@ -8,5 +8,6 @@ This is a long task, so it is planned before anything is built. create_tickets i
    - ui_change: screenshots of the current state (paths, and optionally the command that takes them);
    - refactor: the existing suite command, which must pass today, and optionally a command that prints performance numbers.
    Write "None" for a list that is truly empty. Leave no TBD, TODO or ??? anywhere.
-2. Call `submit_spec` with that checklist. Code checks every item, runs the baseline commands, writes spec.md and asks the user for a yes. If it refuses, it names what is missing: ask the user what only they can answer, fix the rest, and submit again.
-3. When it passes, end your turn. The user's answer comes back as your next message. Only after their yes, plan the tickets from spec.md with create_tickets.
+2. Call `submit_spec` with that checklist. Code checks every item. If it refuses, it names what is missing: ask the user what only they can answer, fix the rest, and submit again.
+3. Before any baseline command runs, the user is shown the exact commands and asked to approve them: end your turn. After their yes, call `submit_spec` again with the same plan; code runs the approved commands, writes spec.md and asks the user for a yes on it. A changed command needs a new approval.
+4. When it passes, end your turn. The user's answer comes back as your next message. Only after their yes, plan the tickets from spec.md with create_tickets.
