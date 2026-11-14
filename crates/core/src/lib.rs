@@ -17,6 +17,7 @@ pub mod effort;
 pub mod eval;
 pub mod files;
 pub mod fleet;
+pub mod folders;
 pub mod gateway;
 pub mod git;
 pub mod hands;
