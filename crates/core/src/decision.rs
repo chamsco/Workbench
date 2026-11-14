@@ -182,7 +182,7 @@ const RESEARCH_WORDS: &[&str] = &[
 ];
 const NO_CODE: &[&str] = &["no code", "without changing code", "without code"];
 
-fn keyword_scores(text: &str) -> [f64; 3] {
+fn keyword_scores(text: &str, length_bonus: bool) -> [f64; 3] {
     let t = text.to_lowercase();
     let hits = |words: &[&str]| words.iter().filter(|w| t.contains(**w)).count() as f64;
     let mut s = [1.0; 3];
@@ -192,14 +192,38 @@ fn keyword_scores(text: &str) -> [f64; 3] {
     if hits(NO_CODE) > 0.0 {
         s[2] += 3.0;
     }
-    let chars = t.chars().count();
-    if chars > 400 {
-        s[1] += 2.0;
-    }
-    if chars > 1500 {
-        s[1] += 3.0;
+    if length_bonus {
+        let chars = t.chars().count();
+        if chars > 400 {
+            s[1] += 2.0;
+        }
+        if chars > 1500 {
+            s[1] += 3.0;
+        }
     }
     s
+}
+
+fn keyword_decide(state: &str, questions: &[Question], length_bonus: bool) -> Result<Vec<Answer>> {
+    let scores = keyword_scores(state, length_bonus);
+    let total: f64 = scores.iter().sum();
+    questions
+        .iter()
+        .map(|q| {
+            if q.id != TASK_TYPE {
+                bail!("the keyword decider only answers `{TASK_TYPE}`, not `{}`", q.id);
+            }
+            let probs = q
+                .options
+                .iter()
+                .map(|o| {
+                    let i = TaskType::parse(o).ok_or_else(|| anyhow!("`{o}` is not a task type"))? as usize;
+                    Ok((o.clone(), scores[i] / total))
+                })
+                .collect::<Result<Vec<_>>>()?;
+            Ok(Answer { question: q.id.clone(), probs })
+        })
+        .collect()
 }
 
 impl DecisionModel for KeywordDecider {
@@ -208,24 +232,21 @@ impl DecisionModel for KeywordDecider {
     }
 
     fn decide(&self, state: &str, questions: &[Question]) -> Result<Vec<Answer>> {
-        let scores = keyword_scores(state);
-        let total: f64 = scores.iter().sum();
-        questions
-            .iter()
-            .map(|q| {
-                if q.id != TASK_TYPE {
-                    bail!("the keyword decider only answers `{TASK_TYPE}`, not `{}`", q.id);
-                }
-                let probs = q
-                    .options
-                    .iter()
-                    .map(|o| {
-                        let i = TaskType::parse(o).ok_or_else(|| anyhow!("`{o}` is not a task type"))? as usize;
-                        Ok((o.clone(), scores[i] / total))
-                    })
-                    .collect::<Result<Vec<_>>>()?;
-                Ok(Answer { question: q.id.clone(), probs })
-            })
-            .collect()
+        keyword_decide(state, questions, true)
+    }
+}
+
+/// The keyword baseline with only its length rule removed (texts over 400 and
+/// 1500 characters no longer add to `long`). For evaluation only: it measures
+/// how much of a result is the length rule. The router uses `KeywordDecider`.
+pub struct KeywordDeciderNoLength;
+
+impl DecisionModel for KeywordDeciderNoLength {
+    fn name(&self) -> &str {
+        "keyword-no-length"
+    }
+
+    fn decide(&self, state: &str, questions: &[Question]) -> Result<Vec<Answer>> {
+        keyword_decide(state, questions, false)
     }
 }
