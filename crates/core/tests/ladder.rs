@@ -19,15 +19,24 @@ fn class_in_default(id: &str) -> ModelClass {
 fn by_default_the_class_follows_the_tier() {
     assert_eq!(class_in_default("claude-haiku-4-5"), ModelClass::Mid);
     assert_eq!(class_in_default("claude-sonnet-5-5"), ModelClass::Mid);
-    assert_eq!(class_in_default("claude-opus-5-5"), ModelClass::Frontier);
+    // Only tier 4 is frontier by default (§10 follow-up, 2026-11-14): Opus is tier 3, so mid.
+    assert_eq!(class_in_default("claude-opus-5-5"), ModelClass::Mid);
     assert_eq!(class_in_default("claude-fable-5-1"), ModelClass::Frontier);
 }
 
 #[test]
 fn a_free_model_can_still_be_a_frontier_call() {
-    // The coding CLIs are billed to a subscription (price 0) but are tier 3.
-    assert_eq!(class_in_default("claude-code"), ModelClass::Frontier);
-    assert_eq!(class_in_default("codex"), ModelClass::Frontier);
+    // Price does not decide the class. The coding CLIs are billed to a
+    // subscription (price 0) and are tier 3, so mid by default; a price-0
+    // tier-4 model is still frontier.
+    assert_eq!(class_in_default("claude-code"), ModelClass::Mid);
+    assert_eq!(class_in_default("codex"), ModelClass::Mid);
+    let cfg = default_cfg();
+    let mut m: ModelSpec = cfg.model("claude-code").unwrap().clone();
+    m.tier = 4;
+    m.class = None;
+    assert_eq!((m.input_usd_per_mtok, m.output_usd_per_mtok), (0.0, 0.0));
+    assert_eq!(class_of(&m), ModelClass::Frontier);
 }
 
 #[test]
