@@ -1,4 +1,4 @@
-//! Agent avatars, the figure Charles picked as A (design/cauldron-avatars-and-thread.html on
+//! Agent avatars, the figure Charles picked as A (design/legacy-ui/cauldron-avatars-and-thread.html on
 //! claude/project-thread-gg3ogp): a flat head circle over a body, in the agent's dot colour, at
 //! every size. Only the face carries the mood; working turns the head into a cog and typing into
 //! three small heads. Moods and the cog outline follow orbling (github.com/kochjar/orbling, MIT).

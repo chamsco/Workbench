@@ -3,7 +3,7 @@
 //! core, attaches the files, sends the text and opens it. On a connected machine Start sends the
 //! text as a task to that machine's harness (`/v1/task`); it does not open a local thread.
 //!
-//! Sizes are measured from design/cauldron-new-look.html (2096c8f) at 1200x720.
+//! Sizes are measured from design/legacy-ui/cauldron-new-look.html (2096c8f) at 1200x720.
 
 use super::thread::{mix, EFFORTS};
 use super::*;

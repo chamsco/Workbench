@@ -2,7 +2,7 @@
 //!
 //! Coordinates are logical pixels from the window's top-left corner, the 1px window border
 //! included, as `tests/golden/wireframe.json` was measured. [`layout`] started as the wireframe and
-//! now follows the v3 board (design/cauldron-new-look-v3.html): the top bar, floating tabs and the
+//! now follows the v3 board (design/legacy-ui/cauldron-new-look-v3.html): the top bar, floating tabs and the
 //! drawer in the right gutter. [`solve`] first applies the minimum-width rule.
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
