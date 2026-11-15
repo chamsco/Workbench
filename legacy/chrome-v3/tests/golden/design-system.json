@@ -1,0 +1,662 @@
+{
+ "name": "Cauldron",
+ "version": 1,
+ "color": {
+  "themes": [
+   {
+    "id": "light",
+    "name": "Light"
+   },
+   {
+    "id": "dark",
+    "name": "Dark"
+   }
+  ],
+  "tokens": [
+   {
+    "name": "bg",
+    "value": {
+     "light": "#f7f7f8",
+     "dark": "#111111"
+    },
+    "usage": "The window background behind everything (Tuff `background`). The top bar and sidebar sit directly on it."
+   },
+   {
+    "name": "frame",
+    "value": {
+     "light": "#f7f7f8",
+     "dark": "#111111"
+    },
+    "usage": "Same value as bg: the surface the sidebar and top bar text sit on. Checked for fg, fg-2, fg-3."
+   },
+   {
+    "name": "card",
+    "value": {
+     "light": "#eeeef0",
+     "dark": "#1d1d1d"
+    },
+    "usage": "The Shell: a tray one step off the window that holds a Panel. In light it is grey, in dark it is lighter than the window (Tuff `surface`)."
+   },
+   {
+    "name": "panel",
+    "value": {
+     "light": "#ffffff",
+     "dark": "#151515"
+    },
+    "usage": "The Panel: the content surface inside a Shell. Whiter than the shell in light, darker (recessed) in dark (Tuff `surface-inset`). Thread messages, cards and forms sit here."
+   },
+   {
+    "name": "raised",
+    "value": {
+     "light": "#e4e4e7",
+     "dark": "#282828"
+    },
+    "usage": "Menus, popovers, tooltips: one step above the shell (Tuff `surface-raised`). Always with shadow-menu or shadow-tip."
+   },
+   {
+    "name": "inset",
+    "value": {
+     "light": "rgba(28,28,31,0.04)",
+     "dark": "rgba(245,245,245,0.05)"
+    },
+    "usage": "The Inset well: foreground at 4-5%. Tool rows, code, payloads, tags, switch tracks. Sits on a panel or a shell."
+   },
+   {
+    "name": "hover",
+    "value": {
+     "light": "rgba(28,28,31,0.05)",
+     "dark": "rgba(245,245,245,0.05)"
+    },
+    "usage": "Hover fill on rows and quiet buttons, laid over any surface."
+   },
+   {
+    "name": "selected",
+    "value": {
+     "light": "rgba(28,28,31,0.09)",
+     "dark": "rgba(245,245,245,0.09)"
+    },
+    "usage": "The selected sidebar row and the pressed state of a quiet button."
+   },
+   {
+    "name": "line",
+    "value": {
+     "light": "rgba(28,28,31,0.07)",
+     "dark": "rgba(255,255,255,0.06)"
+    },
+    "usage": "Hairline: foreground at 7% (light) and white at 6% (dark), as in Tuff `border`. Row dividers and card rings. Decorative, not a control edge."
+   },
+   {
+    "name": "line-strong",
+    "value": {
+     "light": "rgba(28,28,31,0.14)",
+     "dark": "rgba(255,255,255,0.12)"
+    },
+    "usage": "Composer edge at rest, Kbd outline, approval card ring."
+   },
+   {
+    "name": "line-control",
+    "value": {
+     "light": "#7e7e86",
+     "dark": "#7c7c82"
+    },
+    "usage": "Edges that carry meaning: an off toggle, a checkbox. Holds 3:1 on bg, card and panel."
+   },
+   {
+    "name": "fg",
+    "value": {
+     "light": "#1c1c1f",
+     "dark": "#f5f5f5"
+    },
+    "usage": "Primary text and icons on every surface."
+   },
+   {
+    "name": "fg-2",
+    "value": {
+     "light": "#45454c",
+     "dark": "#c9c9cd"
+    },
+    "usage": "Secondary text: descriptions, menu icons, agent notes."
+   },
+   {
+    "name": "fg-3",
+    "value": {
+     "light": "#62626a",
+     "dark": "#9e9ea3"
+    },
+    "usage": "Metadata: times, counts, the step ledger, placeholders. 4.5:1 on bg, card, panel, raised and hover in both themes (Tuff `muted-foreground` darkened a step in light mode to pass)."
+   },
+   {
+    "name": "fg-4",
+    "value": {
+     "light": "#a6a6ad",
+     "dark": "#5e5e64"
+    },
+    "usage": "Disabled labels and the idle thread dot only. Fails 4.5:1 by design; never for text someone must read."
+   },
+   {
+    "name": "accent",
+    "value": {
+     "light": "#6236d6",
+     "dark": "#a08cff"
+    },
+    "usage": "The one accent: purple (Tuff's own is blue #0071e3 / #0a84ff). Primary button, focus ring, needs-you dot, current stage. One primary per view. 4.5:1 or better as text on bg, card, panel, raised and selected in both themes."
+   },
+   {
+    "name": "accent-hover",
+    "value": {
+     "light": "#5229bd",
+     "dark": "#b4a4ff"
+    },
+    "usage": "Primary button on hover."
+   },
+   {
+    "name": "on-accent",
+    "value": {
+     "light": "#ffffff",
+     "dark": "#12082e"
+    },
+    "usage": "Text and icons on an accent fill."
+   },
+   {
+    "name": "accent-soft",
+    "value": {
+     "light": "rgba(98,54,214,0.08)",
+     "dark": "rgba(160,140,255,0.14)"
+    },
+    "usage": "Tint behind the needs-you row. Never a fill for buttons."
+   },
+   {
+    "name": "focus",
+    "value": {
+     "light": "{accent}",
+     "dark": "{accent}"
+    },
+    "usage": "2px focus ring at 2px offset (Tuff: brand at 55-60%; here solid for 3:1)."
+   },
+   {
+    "name": "ok",
+    "value": {
+     "light": "#23784f",
+     "dark": "#30d158"
+    },
+    "usage": "Passed checks and the + side of a diff. Done states use fg and a check, not ok. Dark value is Tuff positive."
+   },
+   {
+    "name": "warn",
+    "value": {
+     "light": "#8a5a00",
+     "dark": "#ff9f0a"
+    },
+    "usage": "Context over 80%, budget near its cap, an expiring approval. Dark value is Tuff warning."
+   },
+   {
+    "name": "bad",
+    "value": {
+     "light": "#b83232",
+     "dark": "#ff453a"
+    },
+    "usage": "Failed runs and tool calls, destructive actions, the - side of a diff. Always with a word or an x glyph. Dark value is Tuff negative."
+   },
+   {
+    "name": "bad-soft",
+    "value": {
+     "light": "rgba(184,50,50,0.08)",
+     "dark": "rgba(255,69,58,0.12)"
+    },
+    "usage": "Danger button rest fill and the failed tool row's band."
+   },
+   {
+    "name": "warn-soft",
+    "value": {
+     "light": "rgba(138,90,0,0.10)",
+     "dark": "rgba(255,159,10,0.12)"
+    },
+    "usage": "Behind a warn label in a meter or approval."
+   },
+   {
+    "name": "diff-add",
+    "value": {
+     "light": "rgba(35,120,79,0.10)",
+     "dark": "rgba(48,209,88,0.14)"
+    },
+    "usage": "Added lines in a diff."
+   },
+   {
+    "name": "diff-del",
+    "value": {
+     "light": "rgba(184,50,50,0.08)",
+     "dark": "rgba(255,69,58,0.12)"
+    },
+    "usage": "Removed lines in a diff."
+   },
+   {
+    "name": "agent-1",
+    "value": {
+     "light": "#8b5cf6",
+     "dark": "#8b5cf6"
+    },
+    "usage": "Agent identity colour 1: the flat avatar figure and the agent's tab dot. People keep colour; never use for UI state."
+   },
+   {
+    "name": "agent-2",
+    "value": {
+     "light": "#38c0e8",
+     "dark": "#38c0e8"
+    },
+    "usage": "Agent identity colour 2: the flat avatar figure and the agent's tab dot. People keep colour; never use for UI state."
+   },
+   {
+    "name": "agent-3",
+    "value": {
+     "light": "#3fb27f",
+     "dark": "#3fb27f"
+    },
+    "usage": "Agent identity colour 3: the flat avatar figure and the agent's tab dot. People keep colour; never use for UI state."
+   },
+   {
+    "name": "agent-4",
+    "value": {
+     "light": "#e0a32a",
+     "dark": "#e0a32a"
+    },
+    "usage": "Agent identity colour 4: the flat avatar figure and the agent's tab dot. People keep colour; never use for UI state."
+   },
+   {
+    "name": "agent-5",
+    "value": {
+     "light": "#d9669a",
+     "dark": "#d9669a"
+    },
+    "usage": "Agent identity colour 5: the flat avatar figure and the agent's tab dot. People keep colour; never use for UI state."
+   },
+   {
+    "name": "agent-6",
+    "value": {
+     "light": "#5b8cf0",
+     "dark": "#5b8cf0"
+    },
+    "usage": "Agent identity colour 6: the flat avatar figure and the agent's tab dot. People keep colour; never use for UI state."
+   },
+   {
+    "name": "agent-7",
+    "value": {
+     "light": "#e05656",
+     "dark": "#e05656"
+    },
+    "usage": "Agent identity colour 7: the flat avatar figure and the agent's tab dot. People keep colour; never use for UI state."
+   },
+   {
+    "name": "agent-8",
+    "value": {
+     "light": "#9a82f5",
+     "dark": "#9a82f5"
+    },
+    "usage": "Agent identity colour 8: the flat avatar figure and the agent's tab dot. People keep colour; never use for UI state."
+   },
+   {
+    "name": "agent-9",
+    "value": {
+     "light": "#e0703a",
+     "dark": "#e0703a"
+    },
+    "usage": "Agent identity colour 9: the flat avatar figure and the agent's tab dot. People keep colour; never use for UI state."
+   }
+  ]
+ },
+ "type": {
+  "fonts": [
+   {
+    "family": "Geist",
+    "file": "fonts/Geist-Regular.ttf",
+    "weight": "400"
+   },
+   {
+    "family": "Geist",
+    "file": "fonts/Geist-Medium.ttf",
+    "weight": "500"
+   },
+   {
+    "family": "Geist",
+    "file": "fonts/Geist-SemiBold.ttf",
+    "weight": "600"
+   },
+   {
+    "family": "Geist Mono",
+    "file": "fonts/GeistMono-Regular.ttf",
+    "weight": "400"
+   },
+   {
+    "family": "Geist Mono",
+    "file": "fonts/GeistMono-Medium.ttf",
+    "weight": "500"
+   }
+  ],
+  "families": {
+   "sans": "Geist, \"Segoe UI Variable Text\", \"Segoe UI\", -apple-system, system-ui, sans-serif",
+   "display": "Geist, \"Segoe UI Variable Display\", \"Segoe UI\", -apple-system, system-ui, sans-serif",
+   "mono": "\"Geist Mono\", \"Cascadia Mono\", \"SF Mono\", ui-monospace, Menlo, Consolas, monospace"
+  },
+  "groups": [
+   {
+    "name": "Interface",
+    "family": "sans",
+    "styles": [
+     {
+      "name": "caption",
+      "fontSize": "11px",
+      "lineHeight": "14px",
+      "fontWeight": 500,
+      "letterSpacing": "0.01em",
+      "sample": "REPOSITORIES",
+      "usage": "Section labels in the sidebar and menus. Sentence case by default; never uppercase body text."
+     },
+     {
+      "name": "meta",
+      "fontSize": "12px",
+      "lineHeight": "16px",
+      "fontWeight": 400,
+      "sample": "21m \u00b7 main \u00b7 Execute",
+      "usage": "Times, counts, second lines of rows, the step ledger. Tabular numerals on."
+     },
+     {
+      "name": "label",
+      "fontSize": "12px",
+      "lineHeight": "16px",
+      "fontWeight": 500,
+      "sample": "Ask first",
+      "usage": "Control labels inside the composer foot, tags in sans, tooltips."
+     },
+     {
+      "name": "body",
+      "fontSize": "13px",
+      "lineHeight": "18px",
+      "fontWeight": 400,
+      "sample": "Plan a change, ask a question or hand a task to an agent.",
+      "usage": "Default UI text: rows, menus, buttons, messages."
+     },
+     {
+      "name": "body-strong",
+      "fontSize": "13px",
+      "lineHeight": "18px",
+      "fontWeight": 600,
+      "sample": "Approve M3 start_task",
+      "usage": "Unread thread titles, card titles, the selected tab."
+     },
+     {
+      "name": "reading",
+      "fontSize": "14px",
+      "lineHeight": "22px",
+      "fontWeight": 400,
+      "sample": "The gateway now refuses a write outside the worktree.",
+      "usage": "Agent prose in the thread column. Max 72ch."
+     },
+     {
+      "name": "title",
+      "fontSize": "15px",
+      "lineHeight": "20px",
+      "fontWeight": 600,
+      "sample": "New thread",
+      "usage": "Card and dialog titles. One per card."
+     }
+    ]
+   },
+   {
+    "name": "Display",
+    "family": "display",
+    "styles": [
+     {
+      "name": "heading",
+      "fontSize": "20px",
+      "lineHeight": "26px",
+      "fontWeight": 600,
+      "letterSpacing": "-0.01em",
+      "sample": "Settings",
+      "usage": "Page headings in Settings and empty states."
+     },
+     {
+      "name": "display",
+      "fontSize": "28px",
+      "lineHeight": "32px",
+      "fontWeight": 600,
+      "letterSpacing": "-0.02em",
+      "sample": "Start a thread",
+      "usage": "First-run and zero-state only. Never more than once on screen."
+     }
+    ]
+   },
+   {
+    "name": "Code",
+    "family": "mono",
+    "styles": [
+     {
+      "name": "mono",
+      "fontSize": "12px",
+      "lineHeight": "18px",
+      "fontWeight": 400,
+      "sample": "cargo test -p cauldron-chrome",
+      "usage": "Code, payloads, terminal blocks, diff lines."
+     },
+     {
+      "name": "mono-tag",
+      "fontSize": "11px",
+      "lineHeight": "18px",
+      "fontWeight": 500,
+      "sample": "opus-5.5",
+      "usage": "Identifiers in tags: models, branches, file names, tool names."
+     }
+    ]
+   }
+  ]
+ },
+ "spacing": {
+  "tokens": [
+   {
+    "name": "space-2",
+    "value": "2px",
+    "usage": "Hairline gaps: segmented switch padding."
+   },
+   {
+    "name": "space-4",
+    "value": "4px",
+    "usage": "Icon to label inside small controls; menu padding."
+   },
+   {
+    "name": "space-6",
+    "value": "6px",
+    "usage": "Gap between buttons; tag padding."
+   },
+   {
+    "name": "space-8",
+    "value": "8px",
+    "usage": "Row padding, icon to label in rows, card-to-card gap in the frame."
+   },
+   {
+    "name": "space-12",
+    "value": "12px",
+    "usage": "Card padding, window margins, gap between stacked cards in a thread."
+   },
+   {
+    "name": "space-16",
+    "value": "16px",
+    "usage": "Section padding in Settings and dialogs."
+   },
+   {
+    "name": "space-20",
+    "value": "20px",
+    "usage": "Thread column side padding."
+   },
+   {
+    "name": "space-24",
+    "value": "24px",
+    "usage": "Gap between message groups."
+   },
+   {
+    "name": "space-32",
+    "value": "32px",
+    "usage": "Empty-state block spacing."
+   },
+   {
+    "name": "space-48",
+    "value": "48px",
+    "usage": "First-run top offset."
+   }
+  ]
+ },
+ "radius": {
+  "tokens": [
+   {
+    "name": "radius-shell",
+    "value": "22px",
+    "usage": "The Shell, the window and the composer shell (Tuff 1.375rem). Outer radius = panel radius + 6px padding."
+   },
+   {
+    "name": "radius-panel",
+    "value": "16px",
+    "usage": "The Panel inside a shell; cards, menus, dialogs (Tuff 2xl)."
+   },
+   {
+    "name": "radius-inset",
+    "value": "12px",
+    "usage": "The Inset well, tool rows, the segmented track (Tuff xl)."
+   },
+   {
+    "name": "radius-control",
+    "value": "10px",
+    "usage": "Buttons, inputs, thread rows (Tuff md)."
+   },
+   {
+    "name": "radius-inner",
+    "value": "8px",
+    "usage": "Segments, icon tiles, anything inside a padded inset (Tuff sm)."
+   },
+   {
+    "name": "radius-tag",
+    "value": "6px",
+    "usage": "Tags and Kbd."
+   },
+   {
+    "name": "radius-round",
+    "value": "999px",
+    "usage": "Circles only: avatars, status dots, the send button."
+   }
+  ]
+ },
+ "shadow": {
+  "tokens": [
+   {
+    "name": "shadow-menu",
+    "value": {
+     "light": "0 12px 32px -12px rgba(20,18,24,0.28), 0 0 0 1px rgba(20,18,24,0.08)",
+     "dark": "0 12px 32px -12px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.08)"
+    },
+    "usage": "Menus and popovers. The ring is part of the shadow; add no border."
+   },
+   {
+    "name": "shadow-tip",
+    "value": {
+     "light": "0 6px 16px rgba(20,18,24,0.14), 0 0 0 1px rgba(20,18,24,0.06)",
+     "dark": "0 6px 16px rgba(0,0,0,0.3), 0 0 0 1px rgba(255,255,255,0.06)"
+    },
+    "usage": "Tooltips and the selected segment of a segmented switch."
+   },
+   {
+    "name": "shadow-box",
+    "value": {
+     "light": "0 16px 32px -18px rgba(20,18,24,0.30)",
+     "dark": "0 16px 32px -18px rgba(0,0,0,0.65)"
+    },
+    "usage": "The composer only. Cards never take a shadow: depth comes from frame, card, inset."
+   }
+  ]
+ },
+ "size": {
+  "note": "Control and row heights in px.",
+  "tokens": [
+   {
+    "name": "size-tag",
+    "value": "18px",
+    "usage": "Tag and Kbd height."
+   },
+   {
+    "name": "size-control-sm",
+    "value": "24px",
+    "usage": "Small buttons, icon buttons in dense rows, switch segments."
+   },
+   {
+    "name": "size-control",
+    "value": "28px",
+    "usage": "Default button, icon button, sidebar row, menu item."
+   },
+   {
+    "name": "size-control-lg",
+    "value": "32px",
+    "usage": "Agent tabs, tool rows, composer foot controls."
+   },
+   {
+    "name": "size-row-2",
+    "value": "44px",
+    "usage": "Two-line thread row."
+   },
+   {
+    "name": "size-icon",
+    "value": "16px",
+    "usage": "Lucide icons in controls, stroke 1.75."
+   },
+   {
+    "name": "size-icon-sm",
+    "value": "14px",
+    "usage": "Icons inside tool rows and status labels, stroke 2."
+   }
+  ]
+ },
+ "duration": {
+  "note": "Motion durations. Exits are faster than entrances; nothing bounces.",
+  "tokens": [
+   {
+    "name": "dur-swap",
+    "value": "120ms",
+    "usage": "Send and Stop swap, hover colour changes."
+   },
+   {
+    "name": "dur-exit",
+    "value": "140ms",
+    "usage": "Menus and tooltips leaving."
+   },
+   {
+    "name": "dur-menu",
+    "value": "160ms",
+    "usage": "Menus and tooltips arriving; 25ms stagger per item."
+   },
+   {
+    "name": "dur-panel",
+    "value": "240ms",
+    "usage": "Drawer panel content switch, card expand."
+   },
+   {
+    "name": "dur-layout",
+    "value": "300ms",
+    "usage": "Sidebar, drawer and split opening or closing."
+   },
+   {
+    "name": "dur-reduced",
+    "value": "150ms",
+    "usage": "The single cross-fade used when the OS asks for less motion."
+   }
+  ]
+ },
+ "easing": {
+  "note": "Cubic Bezier curves.",
+  "tokens": [
+   {
+    "name": "ease-settle",
+    "value": "cubic-bezier(0.32, 0.72, 0, 1)",
+    "usage": "Every layout move: fast start, long settle."
+   },
+   {
+    "name": "ease-out",
+    "value": "cubic-bezier(0.23, 1, 0.32, 1)",
+    "usage": "Fades and menus."
+   }
+  ]
+ }
+}

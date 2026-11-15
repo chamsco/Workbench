@@ -1,0 +1,986 @@
+{
+ "source": "design/cauldron-master-layout.html",
+ "unit": "css px, relative to the window top-left (the 1px window border included)",
+ "sizes": [
+  {
+   "window": {
+    "w": 1240,
+    "h": 702
+   },
+   "states": {
+    "default": {
+     "window": {
+      "w": 1240,
+      "h": 702
+     },
+     "rects": {
+      "rail": {
+       "x": 1,
+       "y": 1,
+       "w": 0,
+       "h": 700,
+       "visible": false
+      },
+      "sidebar": {
+       "x": 13,
+       "y": 9,
+       "w": 236,
+       "h": 680,
+       "visible": true
+      },
+      "main": {
+       "x": 257,
+       "y": 9,
+       "w": 718,
+       "h": 680,
+       "visible": true
+      },
+      "half": {
+       "x": 983,
+       "y": 43,
+       "w": 0,
+       "h": 646,
+       "visible": false
+      },
+      "drawer": {
+       "x": 983,
+       "y": 43,
+       "w": 200,
+       "h": 646,
+       "visible": true
+      },
+      "rrail": {
+       "x": 1183,
+       "y": 9,
+       "w": 44,
+       "h": 680,
+       "visible": true
+      },
+      "notch": {
+       "x": 1,
+       "y": 1,
+       "w": 126,
+       "h": 52,
+       "visible": true
+      },
+      "sbtn": {
+       "x": 79,
+       "y": 13,
+       "w": 28,
+       "h": 28,
+       "visible": true
+      },
+      "tabs": {
+       "x": 257,
+       "y": 9,
+       "w": 718,
+       "h": 34,
+       "visible": true
+      },
+      "topr": {
+       "x": 1045,
+       "y": 13,
+       "w": 58,
+       "h": 28,
+       "visible": true
+      },
+      "wcaps": {
+       "x": 1111,
+       "y": 11,
+       "w": 108,
+       "h": 32,
+       "visible": true
+      },
+      "lights": {
+       "x": 15,
+       "y": 20,
+       "w": 52,
+       "h": 12,
+       "visible": true
+      }
+     }
+    },
+    "drawer_closed": {
+     "window": {
+      "w": 1240,
+      "h": 702
+     },
+     "rects": {
+      "rail": {
+       "x": 1,
+       "y": 1,
+       "w": 0,
+       "h": 700,
+       "visible": false
+      },
+      "sidebar": {
+       "x": 13,
+       "y": 9,
+       "w": 236,
+       "h": 680,
+       "visible": true
+      },
+      "main": {
+       "x": 257,
+       "y": 9,
+       "w": 926,
+       "h": 680,
+       "visible": true
+      },
+      "half": {
+       "x": 1183,
+       "y": 43,
+       "w": 0,
+       "h": 646,
+       "visible": false
+      },
+      "drawer": {
+       "x": 1183,
+       "y": 43,
+       "w": 0,
+       "h": 646,
+       "visible": false
+      },
+      "rrail": {
+       "x": 1183,
+       "y": 9,
+       "w": 44,
+       "h": 680,
+       "visible": true
+      },
+      "notch": {
+       "x": 1,
+       "y": 1,
+       "w": 126,
+       "h": 52,
+       "visible": true
+      },
+      "sbtn": {
+       "x": 79,
+       "y": 13,
+       "w": 28,
+       "h": 28,
+       "visible": true
+      },
+      "tabs": {
+       "x": 257,
+       "y": 9,
+       "w": 926,
+       "h": 34,
+       "visible": true
+      },
+      "topr": {
+       "x": 1045,
+       "y": 13,
+       "w": 58,
+       "h": 28,
+       "visible": true
+      },
+      "wcaps": {
+       "x": 1111,
+       "y": 11,
+       "w": 108,
+       "h": 32,
+       "visible": true
+      },
+      "lights": {
+       "x": 15,
+       "y": 20,
+       "w": 52,
+       "h": 12,
+       "visible": true
+      }
+     }
+    },
+    "split_drawer_open": {
+     "window": {
+      "w": 1240,
+      "h": 702
+     },
+     "rects": {
+      "rail": {
+       "x": 1,
+       "y": 1,
+       "w": 0,
+       "h": 700,
+       "visible": false
+      },
+      "sidebar": {
+       "x": 13,
+       "y": 9,
+       "w": 236,
+       "h": 680,
+       "visible": true
+      },
+      "main": {
+       "x": 257,
+       "y": 9,
+       "w": 418,
+       "h": 680,
+       "visible": true
+      },
+      "half": {
+       "x": 683,
+       "y": 43,
+       "w": 292,
+       "h": 646,
+       "visible": true
+      },
+      "drawer": {
+       "x": 983,
+       "y": 43,
+       "w": 200,
+       "h": 646,
+       "visible": true
+      },
+      "rrail": {
+       "x": 1183,
+       "y": 9,
+       "w": 44,
+       "h": 680,
+       "visible": true
+      },
+      "notch": {
+       "x": 1,
+       "y": 1,
+       "w": 126,
+       "h": 52,
+       "visible": true
+      },
+      "sbtn": {
+       "x": 79,
+       "y": 13,
+       "w": 28,
+       "h": 28,
+       "visible": true
+      },
+      "tabs": {
+       "x": 257,
+       "y": 9,
+       "w": 418,
+       "h": 34,
+       "visible": true
+      },
+      "topr": {
+       "x": 1045,
+       "y": 13,
+       "w": 58,
+       "h": 28,
+       "visible": true
+      },
+      "wcaps": {
+       "x": 1111,
+       "y": 11,
+       "w": 108,
+       "h": 32,
+       "visible": true
+      },
+      "lights": {
+       "x": 15,
+       "y": 20,
+       "w": 52,
+       "h": 12,
+       "visible": true
+      }
+     }
+    },
+    "sidebar_hidden": {
+     "window": {
+      "w": 1240,
+      "h": 702
+     },
+     "rects": {
+      "rail": {
+       "x": 1,
+       "y": 1,
+       "w": 44,
+       "h": 700,
+       "visible": true
+      },
+      "sidebar": {
+       "x": 45,
+       "y": 1,
+       "w": 10,
+       "h": 700,
+       "visible": false
+      },
+      "main": {
+       "x": 53,
+       "y": 9,
+       "w": 922,
+       "h": 680,
+       "visible": true
+      },
+      "half": {
+       "x": 983,
+       "y": 43,
+       "w": 0,
+       "h": 646,
+       "visible": false
+      },
+      "drawer": {
+       "x": 983,
+       "y": 43,
+       "w": 200,
+       "h": 646,
+       "visible": true
+      },
+      "rrail": {
+       "x": 1183,
+       "y": 9,
+       "w": 44,
+       "h": 680,
+       "visible": true
+      },
+      "notch": {
+       "x": 1,
+       "y": 1,
+       "w": 126,
+       "h": 52,
+       "visible": false
+      },
+      "sbtn": {
+       "x": 79,
+       "y": 13,
+       "w": 28,
+       "h": 28,
+       "visible": true
+      },
+      "tabs": {
+       "x": 53,
+       "y": 9,
+       "w": 922,
+       "h": 34,
+       "visible": true
+      },
+      "topr": {
+       "x": 1045,
+       "y": 13,
+       "w": 58,
+       "h": 28,
+       "visible": true
+      },
+      "wcaps": {
+       "x": 1111,
+       "y": 11,
+       "w": 108,
+       "h": 32,
+       "visible": true
+      },
+      "lights": {
+       "x": 15,
+       "y": 20,
+       "w": 52,
+       "h": 12,
+       "visible": true
+      }
+     }
+    },
+    "sidebar_hidden_drawer_closed": {
+     "window": {
+      "w": 1240,
+      "h": 702
+     },
+     "rects": {
+      "rail": {
+       "x": 1,
+       "y": 1,
+       "w": 44,
+       "h": 700,
+       "visible": true
+      },
+      "sidebar": {
+       "x": 45,
+       "y": 1,
+       "w": 10,
+       "h": 700,
+       "visible": false
+      },
+      "main": {
+       "x": 53,
+       "y": 9,
+       "w": 1130,
+       "h": 680,
+       "visible": true
+      },
+      "half": {
+       "x": 1183,
+       "y": 43,
+       "w": 0,
+       "h": 646,
+       "visible": false
+      },
+      "drawer": {
+       "x": 1183,
+       "y": 43,
+       "w": 0,
+       "h": 646,
+       "visible": false
+      },
+      "rrail": {
+       "x": 1183,
+       "y": 9,
+       "w": 44,
+       "h": 680,
+       "visible": true
+      },
+      "notch": {
+       "x": 1,
+       "y": 1,
+       "w": 126,
+       "h": 52,
+       "visible": false
+      },
+      "sbtn": {
+       "x": 79,
+       "y": 13,
+       "w": 28,
+       "h": 28,
+       "visible": true
+      },
+      "tabs": {
+       "x": 53,
+       "y": 9,
+       "w": 1130,
+       "h": 34,
+       "visible": true
+      },
+      "topr": {
+       "x": 1045,
+       "y": 13,
+       "w": 58,
+       "h": 28,
+       "visible": true
+      },
+      "wcaps": {
+       "x": 1111,
+       "y": 11,
+       "w": 108,
+       "h": 32,
+       "visible": true
+      },
+      "lights": {
+       "x": 15,
+       "y": 20,
+       "w": 52,
+       "h": 12,
+       "visible": true
+      }
+     }
+    }
+   }
+  },
+  {
+   "window": {
+    "w": 1002,
+    "h": 642
+   },
+   "states": {
+    "default": {
+     "window": {
+      "w": 1002,
+      "h": 642
+     },
+     "rects": {
+      "rail": {
+       "x": 1,
+       "y": 1,
+       "w": 0,
+       "h": 640,
+       "visible": false
+      },
+      "sidebar": {
+       "x": 13,
+       "y": 9,
+       "w": 236,
+       "h": 620,
+       "visible": true
+      },
+      "main": {
+       "x": 257,
+       "y": 9,
+       "w": 480,
+       "h": 620,
+       "visible": true
+      },
+      "half": {
+       "x": 745,
+       "y": 43,
+       "w": 0,
+       "h": 586,
+       "visible": false
+      },
+      "drawer": {
+       "x": 745,
+       "y": 43,
+       "w": 200,
+       "h": 586,
+       "visible": true
+      },
+      "rrail": {
+       "x": 945,
+       "y": 9,
+       "w": 44,
+       "h": 620,
+       "visible": true
+      },
+      "notch": {
+       "x": 1,
+       "y": 1,
+       "w": 126,
+       "h": 52,
+       "visible": true
+      },
+      "sbtn": {
+       "x": 79,
+       "y": 13,
+       "w": 28,
+       "h": 28,
+       "visible": true
+      },
+      "tabs": {
+       "x": 257,
+       "y": 9,
+       "w": 480,
+       "h": 34,
+       "visible": true
+      },
+      "topr": {
+       "x": 807,
+       "y": 13,
+       "w": 58,
+       "h": 28,
+       "visible": true
+      },
+      "wcaps": {
+       "x": 873,
+       "y": 11,
+       "w": 108,
+       "h": 32,
+       "visible": true
+      },
+      "lights": {
+       "x": 15,
+       "y": 20,
+       "w": 52,
+       "h": 12,
+       "visible": true
+      }
+     }
+    },
+    "drawer_closed": {
+     "window": {
+      "w": 1002,
+      "h": 642
+     },
+     "rects": {
+      "rail": {
+       "x": 1,
+       "y": 1,
+       "w": 0,
+       "h": 640,
+       "visible": false
+      },
+      "sidebar": {
+       "x": 13,
+       "y": 9,
+       "w": 236,
+       "h": 620,
+       "visible": true
+      },
+      "main": {
+       "x": 257,
+       "y": 9,
+       "w": 688,
+       "h": 620,
+       "visible": true
+      },
+      "half": {
+       "x": 945,
+       "y": 43,
+       "w": 0,
+       "h": 586,
+       "visible": false
+      },
+      "drawer": {
+       "x": 945,
+       "y": 43,
+       "w": 0,
+       "h": 586,
+       "visible": false
+      },
+      "rrail": {
+       "x": 945,
+       "y": 9,
+       "w": 44,
+       "h": 620,
+       "visible": true
+      },
+      "notch": {
+       "x": 1,
+       "y": 1,
+       "w": 126,
+       "h": 52,
+       "visible": true
+      },
+      "sbtn": {
+       "x": 79,
+       "y": 13,
+       "w": 28,
+       "h": 28,
+       "visible": true
+      },
+      "tabs": {
+       "x": 257,
+       "y": 9,
+       "w": 688,
+       "h": 34,
+       "visible": true
+      },
+      "topr": {
+       "x": 807,
+       "y": 13,
+       "w": 58,
+       "h": 28,
+       "visible": true
+      },
+      "wcaps": {
+       "x": 873,
+       "y": 11,
+       "w": 108,
+       "h": 32,
+       "visible": true
+      },
+      "lights": {
+       "x": 15,
+       "y": 20,
+       "w": 52,
+       "h": 12,
+       "visible": true
+      }
+     }
+    },
+    "split_drawer_open": {
+     "window": {
+      "w": 1002,
+      "h": 642
+     },
+     "rects": {
+      "rail": {
+       "x": 1,
+       "y": 1,
+       "w": 0,
+       "h": 640,
+       "visible": false
+      },
+      "sidebar": {
+       "x": 13,
+       "y": 9,
+       "w": 236,
+       "h": 620,
+       "visible": true
+      },
+      "main": {
+       "x": 257,
+       "y": 9,
+       "w": 180,
+       "h": 620,
+       "visible": true
+      },
+      "half": {
+       "x": 445,
+       "y": 43,
+       "w": 292,
+       "h": 586,
+       "visible": true
+      },
+      "drawer": {
+       "x": 745,
+       "y": 43,
+       "w": 200,
+       "h": 586,
+       "visible": true
+      },
+      "rrail": {
+       "x": 945,
+       "y": 9,
+       "w": 44,
+       "h": 620,
+       "visible": true
+      },
+      "notch": {
+       "x": 1,
+       "y": 1,
+       "w": 126,
+       "h": 52,
+       "visible": true
+      },
+      "sbtn": {
+       "x": 79,
+       "y": 13,
+       "w": 28,
+       "h": 28,
+       "visible": true
+      },
+      "tabs": {
+       "x": 257,
+       "y": 9,
+       "w": 180,
+       "h": 34,
+       "visible": true
+      },
+      "topr": {
+       "x": 807,
+       "y": 13,
+       "w": 58,
+       "h": 28,
+       "visible": true
+      },
+      "wcaps": {
+       "x": 873,
+       "y": 11,
+       "w": 108,
+       "h": 32,
+       "visible": true
+      },
+      "lights": {
+       "x": 15,
+       "y": 20,
+       "w": 52,
+       "h": 12,
+       "visible": true
+      }
+     }
+    },
+    "sidebar_hidden": {
+     "window": {
+      "w": 1002,
+      "h": 642
+     },
+     "rects": {
+      "rail": {
+       "x": 1,
+       "y": 1,
+       "w": 44,
+       "h": 640,
+       "visible": true
+      },
+      "sidebar": {
+       "x": 45,
+       "y": 1,
+       "w": 10,
+       "h": 640,
+       "visible": false
+      },
+      "main": {
+       "x": 53,
+       "y": 9,
+       "w": 684,
+       "h": 620,
+       "visible": true
+      },
+      "half": {
+       "x": 745,
+       "y": 43,
+       "w": 0,
+       "h": 586,
+       "visible": false
+      },
+      "drawer": {
+       "x": 745,
+       "y": 43,
+       "w": 200,
+       "h": 586,
+       "visible": true
+      },
+      "rrail": {
+       "x": 945,
+       "y": 9,
+       "w": 44,
+       "h": 620,
+       "visible": true
+      },
+      "notch": {
+       "x": 1,
+       "y": 1,
+       "w": 126,
+       "h": 52,
+       "visible": false
+      },
+      "sbtn": {
+       "x": 79,
+       "y": 13,
+       "w": 28,
+       "h": 28,
+       "visible": true
+      },
+      "tabs": {
+       "x": 53,
+       "y": 9,
+       "w": 684,
+       "h": 34,
+       "visible": true
+      },
+      "topr": {
+       "x": 807,
+       "y": 13,
+       "w": 58,
+       "h": 28,
+       "visible": true
+      },
+      "wcaps": {
+       "x": 873,
+       "y": 11,
+       "w": 108,
+       "h": 32,
+       "visible": true
+      },
+      "lights": {
+       "x": 15,
+       "y": 20,
+       "w": 52,
+       "h": 12,
+       "visible": true
+      }
+     }
+    },
+    "sidebar_hidden_drawer_closed": {
+     "window": {
+      "w": 1002,
+      "h": 642
+     },
+     "rects": {
+      "rail": {
+       "x": 1,
+       "y": 1,
+       "w": 44,
+       "h": 640,
+       "visible": true
+      },
+      "sidebar": {
+       "x": 45,
+       "y": 1,
+       "w": 10,
+       "h": 640,
+       "visible": false
+      },
+      "main": {
+       "x": 53,
+       "y": 9,
+       "w": 892,
+       "h": 620,
+       "visible": true
+      },
+      "half": {
+       "x": 945,
+       "y": 43,
+       "w": 0,
+       "h": 586,
+       "visible": false
+      },
+      "drawer": {
+       "x": 945,
+       "y": 43,
+       "w": 0,
+       "h": 586,
+       "visible": false
+      },
+      "rrail": {
+       "x": 945,
+       "y": 9,
+       "w": 44,
+       "h": 620,
+       "visible": true
+      },
+      "notch": {
+       "x": 1,
+       "y": 1,
+       "w": 126,
+       "h": 52,
+       "visible": false
+      },
+      "sbtn": {
+       "x": 79,
+       "y": 13,
+       "w": 28,
+       "h": 28,
+       "visible": true
+      },
+      "tabs": {
+       "x": 53,
+       "y": 9,
+       "w": 892,
+       "h": 34,
+       "visible": true
+      },
+      "topr": {
+       "x": 807,
+       "y": 13,
+       "w": 58,
+       "h": 28,
+       "visible": true
+      },
+      "wcaps": {
+       "x": 873,
+       "y": 11,
+       "w": 108,
+       "h": 32,
+       "visible": true
+      },
+      "lights": {
+       "x": 15,
+       "y": 20,
+       "w": 52,
+       "h": 12,
+       "visible": true
+      }
+     }
+    }
+   }
+  }
+ ],
+ "tokens": {
+  "dark": {
+   "bg": "#09090a",
+   "frame": "#0c0c0d",
+   "card": "#161618",
+   "raised": "#1f1f22",
+   "well": "#252528",
+   "line": "#2e2e32",
+   "strip": "#0f0f10",
+   "fg": "#f4f3f6",
+   "fg-2": "#c9c4cf",
+   "fg-3": "#8d8794",
+   "accent": "#ff4d2d",
+   "on-accent": "#1a0400",
+   "run": "#38c0e8",
+   "ok": "#3fb27f",
+   "warn": "#e0a32a",
+   "bad": "#e05656",
+   "r": "6px",
+   "r1": "4px",
+   "r2": "3px"
+  },
+  "light": {
+   "bg": "#e9e8e5",
+   "frame": "#e4e3df",
+   "card": "#f7f7f5",
+   "raised": "#ffffff",
+   "well": "#efeeec",
+   "line": "#dcdbd7",
+   "strip": "#ecebe8",
+   "fg": "#1c1a1f",
+   "fg-2": "#55505b",
+   "fg-3": "#68626f",
+   "accent": "#c9330f",
+   "on-accent": "#ffffff",
+   "run": "#0f7f9f",
+   "ok": "#2f9e6e",
+   "warn": "#c98a12",
+   "bad": "#d64545",
+   "r": "6px",
+   "r1": "4px",
+   "r2": "3px"
+  }
+ }
+}

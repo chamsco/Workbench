@@ -96,8 +96,8 @@ pub struct Palette {
 }
 
 pub const DARK: Palette = Palette {
-    bg: Rgb::hex(0x111111),
-    frame: Rgb::hex(0x111111),
+    bg: Rgb::hex(0x0a0a0a),
+    frame: Rgb::hex(0x0a0a0a),
     card: Rgb::hex(0x1d1d1d),
     panel: Rgb::hex(0x151515),
     raised: Rgb::hex(0x282828),
