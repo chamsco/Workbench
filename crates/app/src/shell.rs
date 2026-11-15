@@ -31,6 +31,10 @@ pub(crate) mod shots;
 
 /// Where the shell draws window controls: lights on macOS, caption buttons elsewhere.
 pub(crate) fn platform() -> Platform {
+    // Debug builds only: `CAULDRON_PLATFORM=windows` draws the Windows chrome on a Mac, for screenshots.
+    if cfg!(debug_assertions) && std::env::var("CAULDRON_PLATFORM").is_ok_and(|v| v == "windows") {
+        return Platform::Windows;
+    }
     if cfg!(target_os = "macos") {
         Platform::Mac
     } else {

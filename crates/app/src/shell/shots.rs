@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 /// The states each gate is checked in: New thread, a thread with the drawer, the drawer folded,
 /// an agentic thread's tabs.
-const STATES: [&str; 4] = ["new", "thread", "folded", "tabs"];
+const STATES: [&str; 6] = ["new", "thread", "folded", "tabs", "win-sidebar-open", "win-sidebar-folded"];
 
 fn shot(dir: &PathBuf, data: &PathBuf, state: &str, theme: &str) {
     std::env::set_var("CAULDRON_THEME", theme);
@@ -36,6 +36,12 @@ fn shot(dir: &PathBuf, data: &PathBuf, state: &str, theme: &str) {
                 if state == "folded" {
                     c.drawer = None;
                     c.drawer_last = Some(Panel::Highlights);
+                }
+                if state.starts_with("win-") {
+                    std::env::set_var("CAULDRON_PLATFORM", "windows");
+                    c.sidebar_open = state == "win-sidebar-open";
+                } else {
+                    std::env::remove_var("CAULDRON_PLATFORM");
                 }
                 if state == "tabs" {
                     c.coordinator = Some("Cauldron · coordinator".into());
