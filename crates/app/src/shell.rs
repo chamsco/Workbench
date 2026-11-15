@@ -1489,7 +1489,7 @@ impl Render for Cauldron {
         // ---- top bar: the logo and name after the sidebar button
         // The line under the logo cell: the app frame above (logo, sidebar button), the sidebar's elements below.
         if let Some(sb) = s.sidebar {
-            root = root.child(abs(Rect::new(sb.rect.x + 8.0, s.bar.bottom() - 1.0, sb.rect.w - 16.0, 1.0)).bg(c(pal.line)));
+            root = root.child(abs(Rect::new(sb.rect.x, s.bar.bottom() - 1.0, sb.rect.w, 1.0)).bg(c(pal.line_strong)));
         }
         let logo_x = s.sidebar_button.right() + metric::GAP;
         root = root.child(abs(Rect::new(logo_x, s.bar.y + (metric::BAR_H - 18.0) / 2.0, 18.0, 18.0)).rounded(px(9.)).bg(accent));
