@@ -140,7 +140,8 @@ fn tabs_float_in_the_bar_and_the_panes_start_under_it() {
                 assert!(inside(s.bar, t), "{at} inside the bar {:?}", s.bar);
                 assert_eq!(t.y - s.bar.y, s.bar.bottom() - t.bottom(), "{at} centred in the bar");
                 assert!(t.x >= s.main.x, "{at} starts at or after the card's edge");
-                assert!(t.x >= s.sidebar_button.right() + 8.0 + 96.0, "{at} clears the button, logo and name");
+                assert!(t.x >= s.title.right() && t.x >= s.sidebar_button.right() + 8.0, "{at} clears the button, logo and name");
+                assert!(!overlaps(s.title, s.sidebar_button), "{at} logo cell and button apart");
                 assert!(t.right() <= s.topr.x - 8.0 + 0.01, "{at} ends before Terminal and Split");
                 assert_eq!(s.shell.y, s.bar.bottom(), "{at}: the Shell right under the bar");
                 for r in [Some(s.main), s.drawer, s.rrail, s.half].into_iter().flatten() {
@@ -153,6 +154,21 @@ fn tabs_float_in_the_bar_and_the_panes_start_under_it() {
     // Sidebar open: at the card's left edge.
     let s = solve(1200.0, 720.0, ShellState { sidebar_open: true, drawer_open: true, split_open: false, terminal_open: false }, Platform::Windows);
     assert_eq!(s.tabs.x, s.main.x);
+}
+
+/// Windows with the sidebar folded (Charles, 15 Nov): the logo takes the top-left cell and the
+/// sidebar button sits in the main content, directly left of the tabs. Mac keeps it by the lights.
+#[test]
+fn windows_folded_puts_the_sidebar_button_left_of_the_tabs() {
+    let st = ShellState { sidebar_open: false, drawer_open: true, split_open: false, terminal_open: false };
+    let win = solve(1200.0, 720.0, st, Platform::Windows);
+    assert_eq!(win.title.x, 15.0, "logo in the top-left cell");
+    assert!(win.sidebar_button.x >= win.main.x && win.sidebar_button.x >= win.title.right(), "button in the main content, after the name");
+    assert_eq!(win.tabs.x, win.sidebar_button.right() + 8.0, "tabs right after the button");
+    let open = solve(1200.0, 720.0, ShellState { sidebar_open: true, ..st }, Platform::Windows);
+    assert_eq!(open.sidebar_button.x, 15.0, "open: the button stays top left");
+    let mac = solve(1200.0, 720.0, st, Platform::Mac);
+    assert!(mac.sidebar_button.right() < mac.title.x, "Mac: button before the logo");
 }
 
 /// The v3 drawer (Charles, 13 Nov): in the grey Shell's right gutter (the coordinator's brief,

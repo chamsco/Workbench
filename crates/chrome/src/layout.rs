@@ -66,6 +66,8 @@ pub struct Shell {
     /// panels as a strip on top).
     pub rrail: Option<Rect>,
     pub sidebar_button: Rect,
+    /// The logo and the name, in the bar's top-left cell.
+    pub title: Rect,
     pub lights: Option<Rect>,
     /// Terminal and Split.
     pub topr: Rect,
@@ -146,19 +148,25 @@ pub fn layout(w: f32, h: f32, state: ShellState, platform: Platform) -> Shell {
     let has_lights = platform != Platform::Windows;
     let has_caps = platform != Platform::Mac;
     let lights = has_lights.then(|| Rect::new(inner.x + 14.0, inner.y + (BAR_H - 12.0) / 2.0, 52.0, 12.0));
-    let sbtn_x = if has_lights { inner.x + 78.0 } else { inner.x + 14.0 };
+    let lead_x = if has_lights { inner.x + 78.0 } else { inner.x + 14.0 };
+    // Windows with the sidebar folded (Charles, 15 Nov): the logo takes the bar's top-left cell and
+    // the sidebar button moves into the main content, left of the tabs.
+    let button_in_main = platform == Platform::Windows && !state.sidebar_open;
+    let title_x = if button_in_main { lead_x } else { lead_x + SBTN + GAP };
+    let title = Rect::new(title_x, inner.y, TITLE_W, BAR_H);
+    let sbtn_x = if button_in_main { main.x.max(title.right() + GAP) } else { lead_x };
     let sidebar_button = Rect::new(sbtn_x, inner.y + (BAR_H - SBTN) / 2.0, SBTN, SBTN);
 
     let caps = has_caps.then(|| Rect::new(inner.right() - CAPS_MARGIN_RIGHT - CAPS_W, inner.y + (BAR_H - CAPS_H) / 2.0, CAPS_W, CAPS_H));
     let topr_right = caps.map_or(inner.right() - CAPS_MARGIN_RIGHT, |c| c.x - GAP);
     let topr = Rect::new(topr_right - TOPR_W, inner.y + (BAR_H - TOPR_H) / 2.0, TOPR_W, TOPR_H);
 
-    // The tabs float in the bar from the card's left edge, clear of the logo and name, up to
-    // Terminal and Split.
-    let tabs_x = main.x.max(sidebar_button.right() + GAP + TITLE_W);
+    // The tabs float in the bar from the card's left edge, clear of the logo, the name and the
+    // button, up to Terminal and Split.
+    let tabs_x = main.x.max(title.right()).max(sidebar_button.right() + GAP);
     let tabs = Rect::new(tabs_x, inner.y + (BAR_H - TAB_H) / 2.0, (topr.x - GAP - tabs_x).max(0.0), TAB_H);
 
-    Shell { effective: state, rail, sidebar, bar, shell, main, tabs, half, drawer, terminal, rrail, sidebar_button, lights, topr, caps }
+    Shell { effective: state, rail, sidebar, bar, shell, main, tabs, half, drawer, terminal, rrail, sidebar_button, title, lights, topr, caps }
 }
 
 /// The state that actually fits: the thread column keeps [`metric::MAIN_MIN_W`], so Split closes

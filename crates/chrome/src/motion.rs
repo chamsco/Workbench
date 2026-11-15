@@ -123,6 +123,7 @@ pub struct Frame {
     pub tabs: Rect,
     pub rrail: Option<Pane>,
     pub sidebar_button: Rect,
+    pub title: Rect,
     pub topr: Rect,
     pub bar: Rect,
 }
@@ -155,6 +156,7 @@ impl Frame {
             tabs: s.tabs,
             rrail: at_rest(s.rrail),
             sidebar_button: s.sidebar_button,
+            title: s.title,
             topr: s.topr,
             bar: s.bar,
         }
@@ -206,6 +208,7 @@ impl Frame {
             tabs: rect(from.tabs, to.tabs),
             rrail: pane(from.rrail, to.rrail, 0.0),
             sidebar_button: rect(from.sidebar_button, to.sidebar_button),
+            title: rect(from.title, to.title),
             topr: rect(from.topr, to.topr),
             bar: rect(from.bar, to.bar),
         }
