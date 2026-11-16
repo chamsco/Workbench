@@ -129,7 +129,7 @@ details.earlier summary:focus-visible{outline:2px solid var(--accent);outline-of
 /* cards */
 .cols{flex:1;min-width:0;display:flex;gap:4px}
 .col{display:flex;flex-direction:column;gap:4px;min-width:0}
-.card{background:var(--w-card);border:1px solid var(--w-line);border-radius:8px;display:flex;flex-direction:column;min-height:0;overflow:hidden;position:relative}
+.card{background:var(--w-card);border:1px solid var(--w-line);border-radius:6px;display:flex;flex-direction:column;min-height:0;overflow:hidden;position:relative}
 .ch{height:38px;flex:none;display:flex;align-items:center;gap:2px;padding:0 8px 0 5px}
 .tab{height:28px;display:inline-flex;align-items:center;gap:7px;padding:0 10px;border-radius:6px;color:var(--w-fg3);font-size:12.5px;white-space:nowrap;max-width:210px;overflow:hidden}
 .tab.on{background:var(--w-raise);color:var(--w-fg);box-shadow:inset 0 0 0 1px var(--w-line)}
@@ -194,7 +194,7 @@ details.earlier summary:focus-visible{outline:2px solid var(--accent);outline-of
 .trace .bar2{height:8px;border-radius:2px;background:var(--w-acc-soft);position:relative}
 .trace .bar2 i{position:absolute;top:0;bottom:0;border-radius:2px;background:var(--w-acc)}
 .trace .ind1{padding-left:14px} .trace .ind2{padding-left:28px}
-.menu{position:absolute;top:36px;right:150px;width:220px;background:var(--w-card);border:1px solid var(--w-line);border-radius:8px;padding:4px;box-shadow:0 12px 30px -10px rgba(0,0,0,.35);z-index:4;font-size:12.5px}
+.menu{position:absolute;top:36px;right:150px;width:220px;background:var(--w-card);border:1px solid var(--w-line);border-radius:6px;padding:4px;box-shadow:0 12px 30px -10px rgba(0,0,0,.35);z-index:4;font-size:12.5px}
 .menu div{height:28px;display:flex;align-items:center;gap:8px;padding:0 8px;border-radius:6px;color:var(--w-fg2)}
 .menu .k{margin-left:auto;font:11px var(--m);color:var(--w-fg4)}
 .menu hr{border:0;border-top:1px solid var(--w-line);margin:4px 2px}
@@ -235,7 +235,7 @@ details.earlier summary:focus-visible{outline:2px solid var(--accent);outline-of
 .dgal{display:flex;gap:16px;flex-wrap:wrap}
 .dcell{width:228px;height:540px;background:var(--w-frame);border-radius:10px;border:1px solid var(--rule);position:relative;overflow:hidden}
 .notch2{display:none}
-.nout{display:none;position:absolute;right:4px;top:4px;width:100px;height:40px;border-left:1px solid var(--w-line);border-bottom:1px solid var(--w-line);border-bottom-left-radius:8px;z-index:2;pointer-events:none}
+.nout{display:none;position:absolute;right:4px;top:4px;width:100px;height:40px;border-left:1px solid var(--w-line);border-bottom:1px solid var(--w-line);border-bottom-left-radius:6px;z-index:2;pointer-events:none}
 .win:has(.notch2) .nout{display:block}
 .irail{width:44px;flex:none;border-left:1px solid var(--w-line);display:flex;flex-direction:column;align-items:center;gap:4px;padding:6px 0 8px;position:relative}
 .irail .ib{position:relative}
@@ -271,18 +271,18 @@ details.earlier summary:focus-visible{outline:2px solid var(--accent);outline-of
 .hband .row0{height:38px;display:flex;align-items:center;flex:none}
 .hband .lights{height:38px;padding:0;margin-left:2px}
 .hband hr{width:22px;border:0;border-top:1px solid var(--w-line);margin:4px 0}
-.hedge{position:absolute;left:72px;top:4px;bottom:4px;width:9px;border:1px solid var(--w-line);border-right:0;border-radius:8px 0 0 8px;z-index:5;pointer-events:none}
+.hedge{position:absolute;left:72px;top:4px;bottom:4px;width:9px;border:1px solid var(--w-line);border-right:0;border-radius:6px 0 0 6px;z-index:5;pointer-events:none}
 .hedge.w{left:48px}
-.fil{position:absolute;left:76px;width:8px;height:8px;z-index:5}
-.fil.t{top:4px;background:radial-gradient(circle at 100% 100%,transparent 7.5px,var(--w-line) 7.5px,var(--w-line) 8.5px,var(--w-frame) 8.5px)}
-.fil.b{bottom:4px;background:radial-gradient(circle at 100% 0%,transparent 7.5px,var(--w-line) 7.5px,var(--w-line) 8.5px,var(--w-frame) 8.5px)}
+.fil{position:absolute;left:76px;width:6px;height:6px;z-index:5}
+.fil.t{top:4px;background:radial-gradient(circle at 100% 100%,transparent 5.5px,var(--w-line) 5.5px,var(--w-line) 6.5px,var(--w-frame) 6.5px)}
+.fil.b{bottom:4px;background:radial-gradient(circle at 100% 0%,transparent 5.5px,var(--w-line) 5.5px,var(--w-line) 6.5px,var(--w-frame) 6.5px)}
 .hrail{position:absolute;left:8px;top:40px;bottom:8px;width:52px;background:var(--w-raise);border:1px solid var(--w-line);border-radius:8px;box-shadow:0 18px 40px -12px rgba(0,0,0,.45);z-index:5;display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 0 8px}
 .hrail hr{width:22px;border:0;border-top:1px solid var(--w-line);margin:4px 0}
 .hzone{position:absolute;left:0;top:0;bottom:0;width:8px;z-index:4;background:linear-gradient(90deg,var(--w-acc-soft),transparent)}
 .cursor{position:absolute;z-index:6;width:14px;height:20px}
 .win.strip{padding-top:36px}
 .win.strip .rrail{padding-top:0}
-.notch{position:absolute;top:-1px;right:-1px;width:73px;height:39px;background:var(--w-frame);border-left:1px solid var(--w-line);border-bottom:1px solid var(--w-line);border-bottom-left-radius:8px;z-index:2}
+.notch{position:absolute;top:-1px;right:-1px;width:73px;height:39px;background:var(--w-frame);border-left:1px solid var(--w-line);border-bottom:1px solid var(--w-line);border-bottom-left-radius:6px;z-index:2}
 .dsep{width:1px;height:16px;background:var(--w-line);margin:0 5px 0 3px;flex:none}
 .dcell .drawer{padding-top:12px;width:100%;height:100%}
 
@@ -358,13 +358,13 @@ details.earlier summary:focus-visible{outline:2px solid var(--accent);outline-of
 .win.glass .term{background:color-mix(in srgb,var(--w-term) 70%,transparent)}
 .win.glass .diff,.win.glass .vp,.win.glass .url{background:color-mix(in srgb,var(--w-card) 70%,transparent)}
 .win.glass .hband{background:transparent}
-.win.glass .fil.t{background:radial-gradient(circle at 100% 100%,transparent 7.5px,var(--w-line) 7.5px,var(--w-line) 8.5px,color-mix(in srgb,var(--w-frame) var(--w-fa),transparent) 8.5px)}
-.win.glass .fil.b{background:radial-gradient(circle at 100% 0%,transparent 7.5px,var(--w-line) 7.5px,var(--w-line) 8.5px,color-mix(in srgb,var(--w-frame) var(--w-fa),transparent) 8.5px)}
+.win.glass .fil.t{background:radial-gradient(circle at 100% 100%,transparent 5.5px,var(--w-line) 5.5px,var(--w-line) 6.5px,color-mix(in srgb,var(--w-frame) var(--w-fa),transparent) 6.5px)}
+.win.glass .fil.b{background:radial-gradient(circle at 100% 0%,transparent 5.5px,var(--w-line) 5.5px,var(--w-line) 6.5px,color-mix(in srgb,var(--w-frame) var(--w-fa),transparent) 6.5px)}
 .win.glass .sb .r,.win.glass .sb .k,.win.glass .sb .grp .n{color:var(--w-fg3)}
 .win.glass .sb .r{border-color:color-mix(in srgb,var(--w-fg3) 45%,transparent)}
 .win.glass .phone{background:color-mix(in srgb,var(--w-card) 80%,transparent)}
 /* the notch is a real cut in the card, so the frame shows through it */
-.card:has(>.notch2){-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='40'%3E%3Cpath d='M0 0H100V40H8A8 8 0 0 1 0 32Z'/%3E%3C/svg%3E") right top/100px 40px no-repeat,linear-gradient(#000,#000);-webkit-mask-composite:xor;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='40'%3E%3Cpath d='M0 0H100V40H8A8 8 0 0 1 0 32Z'/%3E%3C/svg%3E") right top/100px 40px no-repeat,linear-gradient(#000,#000);mask-composite:exclude}
+.card:has(>.notch2){-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='40'%3E%3Cpath d='M0 0H100V40H6A6 6 0 0 1 0 34Z'/%3E%3C/svg%3E") right top/100px 40px no-repeat,linear-gradient(#000,#000);-webkit-mask-composite:xor;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='40'%3E%3Cpath d='M0 0H100V40H6A6 6 0 0 1 0 34Z'/%3E%3C/svg%3E") right top/100px 40px no-repeat,linear-gradient(#000,#000);mask-composite:exclude}
 </style>
 
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">

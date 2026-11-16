@@ -191,9 +191,9 @@ pub mod shadow {
 pub mod radius {
     /// The composer box, and any box holding a card-radius element 4px in. The window corner is
     /// the OS's (Tight tiles, 15 Nov).
-    pub const SHELL: f32 = 12.0;
-    /// Cards (stream, support, terminal dock), menus, dialogs.
-    pub const PANEL: f32 = 8.0;
+    pub const SHELL: f32 = 10.0;
+    /// Cards (stream, support, terminal dock), menus, dialogs: 6 (Charles, 16 Nov).
+    pub const PANEL: f32 = 6.0;
     /// The Inset well, tool rows, the segmented track.
     pub const INSET: f32 = 12.0;
     /// Buttons, inputs, tabs, stream rows.

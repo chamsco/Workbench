@@ -506,13 +506,13 @@
   "tokens": [
    {
     "name": "radius-shell",
-    "value": "12px",
-    "usage": "The composer box and other boxes that hold a card-radius element 4px in. Outer radius = card radius + 4px. The window corner is the OS's (Tight tiles, 15 Nov)."
+    "value": "10px",
+    "usage": "The composer box and other boxes that hold a card-radius element 4px in. Outer radius = card radius + 4px. The window corner is the OS's (Tight tiles)."
    },
    {
     "name": "radius-panel",
-    "value": "8px",
-    "usage": "Cards: the stream card, the support card, the terminal dock; menus and dialogs (Tight tiles)."
+    "value": "6px",
+    "usage": "Cards: the stream card, the support card, the terminal dock; menus and dialogs (Tight tiles; 6, Charles 16 Nov)."
    },
    {
     "name": "radius-inset",

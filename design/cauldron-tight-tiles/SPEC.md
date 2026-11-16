@@ -12,7 +12,7 @@ Wording: the UI says **stream**, not thread. The board and older docs still say 
 4. Window buttons live in a notch cut into the top-right of the card (Windows, 100x40, one svg mask, outline drawn once at window level). macOS has no notch; lights sit top-left. Never half on the frame and half on a card.
 5. Terminal docks under the stream (Ctrl+J). It lives in one place only.
 6. Folded left sidebar shows a hover indent, not a floating card: the same frosted frame layer with the card clipped back (72px Mac, 48px Windows), full height, rounded-end hairline, no shadow, drawn over the card with no reflow.
-7. Theme: Harbour painting behind the whole window (dusk dark, day light, from `legacy/tauri-app/ui/art`). One frosted frame layer (28px blur, tint 52% light, 70% dark). Cards are glass (10px blur, about 58% tint). Reading surfaces are more opaque (composer 82%, terminal and diff 70%). Motion (shader or GIF) only on the new-stream screen.
+7. Theme: Harbour painting behind the whole window (dusk dark, day light, from `legacy/tauri-app/ui/art`). One frosted frame layer (28px blur, tint 52% light, 70% dark). Cards are glass (10px blur, about 58% tint). Reading surfaces are more opaque (composer 82%, terminal and diff 70%). Motion (shader or GIF) only on the new-stream screen. Plain (the solid frame) is the default; Painting is a choice in Settings > Appearance (Charles, 16 Nov).
 8. GPUI has no backdrop blur: use pre-blurred, cached crops of the painting per region.
 
 ## Screens
@@ -23,11 +23,11 @@ Wording: the UI says **stream**, not thread. The board and older docs still say 
 - **Onboarding** (6 steps): Welcome, Agents, Machines (instead of sign-in), Import, Make it yours (theme and Ask first / Approve routine / Full access), Ready.
 - **Loader**: Cauldron outline mark with a thin light-thread travelling around it (white in dark, ink in light); reduced motion shows the static mark. The mark is a placeholder until Charles confirms a logo.
 
-## Token deltas to apply (not yet applied in `tokens.json` / `crates/chrome`)
+## Token deltas (applied in `tokens.json`, `tokens.css` and `crates/chrome`)
 
 | Token | Now | New |
 |---|---|---|
-| Card radius | 16 (panel), 22 (shell) | 8 (open question: Zuse measures 6) |
+| Card radius | 16 (panel), 22 (shell) | 6 (Charles, 16 Nov) |
 | Control radius | 10 | 6 |
 | Tag radius | 6 | 4 |
 | Gap between cards | 6 | 4 |
@@ -43,4 +43,4 @@ Logo, space-invaders backdrop, dithered green buttons, copy.
 
 ## Open questions
 
-Card corner 8 or 6. Whether the mark is a placeholder. What "GitHub" in the new-stream bar must do. The rest of the cut-off message ("And for the...").
+Whether the mark is a placeholder. What "GitHub" in the new-stream bar must do. The rest of the cut-off message ("And for the...").
