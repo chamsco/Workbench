@@ -259,7 +259,7 @@ impl Cauldron {
                         cx.notify();
                     }))
                 }).test_support())
-                .child(head_button(("pane-drawer", slot), "panel-right", if drawer_open { "Hide the drawer" } else { "Show the drawer" }, true, pal).on_click(cx.listener(|this, _, _, cx| {
+                .child(head_button(("pane-drawer", slot), "panel-right", if drawer_open { "Hide support" } else { "Show support" }, true, pal).on_click(cx.listener(|this, _, _, cx| {
                     let p = this.drawer.or(this.drawer_last).unwrap_or(Panel::Highlights);
                     this.toggle_panel(p);
                     cx.notify();

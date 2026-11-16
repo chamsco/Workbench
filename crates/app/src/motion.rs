@@ -74,11 +74,11 @@ mod tests {
     }
 
     fn open() -> ShellState {
-        ShellState { sidebar_open: true, drawer_open: false, split_open: false, terminal_open: false }
+        ShellState { sidebar_open: true, support_open: false, dock_open: false }
     }
 
     fn closed() -> ShellState {
-        ShellState { sidebar_open: false, drawer_open: false, split_open: false, terminal_open: false }
+        ShellState { sidebar_open: false, support_open: false, dock_open: false }
     }
 
     #[test]

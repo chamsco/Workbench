@@ -25,7 +25,7 @@ fn policy_label(p: FailoverPolicy) -> &'static str {
 
 impl Cauldron {
     /// Where the subscriptions are read from: core's `accounts.json`, or a test's own file.
-    fn accounts_path(&self) -> std::path::PathBuf {
+    pub(super) fn accounts_path(&self) -> std::path::PathBuf {
         self.accounts_file.clone().unwrap_or_else(Accounts::path)
     }
 
@@ -119,6 +119,42 @@ impl Cauldron {
         };
         let section = |title: &'static str| div().mt(px(24.)).mb(px(4.)).text_size(px(11.)).line_height(px(14.)).font_weight(FontWeight::MEDIUM).text_color(fg3).child(title);
         let value = |text: String| div().h(px(28.)).px(px(8.)).flex().items_center().rounded(px(radius::CONTROL)).border_1().border_color(c(pal.line_strong)).text_size(px(12.)).font_weight(FontWeight::MEDIUM).text_color(fg2).child(text);
+        if page == 2 {
+            // Appearance: the backdrop (Tight tiles rule 7) or the plain frame, saved to the shared
+            // `backdrop` pref the old app reads too.
+            col = col.child(section("Window"));
+            let mut seg = div().id("set-backdrop").flex().gap(px(2.)).p(px(2.)).rounded(px(radius::CONTROL)).border_1().border_color(c(pal.line_strong));
+            for (i, (label, on)) in [("Painting", self.painting), ("Plain", !self.painting)].into_iter().enumerate() {
+                seg = seg.child(
+                    div()
+                        .id(("backdrop-opt", i))
+                        .h(px(24.))
+                        .px(px(10.))
+                        .flex()
+                        .items_center()
+                        .rounded(px(radius::TAG))
+                        .cursor_pointer()
+                        .when_live(on, |d| d.bg(c(pal.selected)))
+                        .when_live(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
+                        .aria_selected(on)
+                        .aria_label(label)
+                        .text_size(px(12.))
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(if on { fg } else { fg2 })
+                        .child(label)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.painting = i == 0;
+                            let mut p = Prefs::load();
+                            p.backdrop = if this.painting { super::backdrop::PAINTING.into() } else { super::backdrop::PLAIN.into() };
+                            p.save();
+                            cx.notify();
+                        }))
+                        .test_support(),
+                );
+            }
+            col = col.child(row(("appearance", 0), "Backdrop".into(), "The Harbour painting behind a frosted frame, or the plain frame.".into(), seg.test_support().into_any_element()));
+            return div().id("settings-body").size_full().overflow_y_scroll().flex().justify_center().child(col).test_support().into_any_element();
+        }
         if page != 0 {
             col = col.child(
                 div()
@@ -233,8 +269,20 @@ mod tests {
             let page = super::super::tests::rect(window, "settings-body");
             assert!(page.x >= card.x && page.right() <= card.right(), "the page is in the card");
             assert_eq!(window.find(("agent", 2usize)).label(), Some("Effort"));
+            window.click(("settings-page", 3usize), cx);
+            assert_eq!(window.find("settings-empty").label(), Some("Machines settings arrive in a later milestone."));
             window.click(("settings-page", 2usize), cx);
-            assert_eq!(window.find("settings-empty").label(), Some("Appearance settings arrive in a later milestone."));
+            assert_eq!(window.find(("appearance", 0usize)).label(), Some("Backdrop"));
+            assert_eq!(window.find(("backdrop-opt", 1usize)).selected(), Some(true), "plain by default");
+            window.click(("backdrop-opt", 0usize), cx);
+            window.render_frame(cx);
+            assert_eq!(window.find(("backdrop-opt", 0usize)).selected(), Some(true), "Painting picked");
+            assert!(window.try_find("backdrop").is_some(), "the painting is drawn");
+            assert_eq!(backspace_core::prefs::Prefs::load().backdrop, "painting", "and saved");
+            window.click(("backdrop-opt", 1usize), cx);
+            window.render_frame(cx);
+            assert!(window.try_find("backdrop").is_none(), "Plain: no painting");
+            assert_eq!(backspace_core::prefs::Prefs::load().backdrop, "plain");
             window.click("settings-back", cx);
             window.render_frame(cx);
             assert!(window.try_find("settings-body").is_none(), "the card is back");

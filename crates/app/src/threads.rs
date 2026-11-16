@@ -1,42 +1,37 @@
 //! The sidebar's thread list (UI3): which group a thread is in, the search filter and the meta
 //! after the title. Pure functions over `Chats::list()`, so the view only draws.
 //!
-//! Groups are the ones core can back today (docs/cauldron/UI3-CORE-MAP.md): Needs you per
-//! thread, Hibernating and Archived wait for core and are left out rather than faked.
+//! Groups are the Tight tiles board's: Needs you (an unread or failed last reply), Running and
+//! Done. Hibernating and Archived wait for core and are left out rather than faked.
 
 use backspace_core::chat::ThreadInfo;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Group {
-    /// An unopened reply, where the wireframe's "Needs you" sits.
-    Unread,
+    /// A reply you have not read, or one that failed: either way it waits on you.
+    NeedsYou,
     Running,
-    Failed,
     Done,
 }
 
 impl Group {
     /// Drawing order, top to bottom.
-    pub(crate) const ALL: [Group; 4] = [Group::Unread, Group::Running, Group::Failed, Group::Done];
+    pub(crate) const ALL: [Group; 3] = [Group::NeedsYou, Group::Running, Group::Done];
 
     pub(crate) fn label(self) -> &'static str {
         match self {
-            Group::Unread => "Unread",
+            Group::NeedsYou => "Needs you",
             Group::Running => "Running",
-            Group::Failed => "Failed",
             Group::Done => "Done",
         }
     }
 
-    /// A thread in two states goes to the first that applies: working beats a failed last reply,
-    /// which beats an unread one.
+    /// A stream in two states goes to the first that applies: working beats a reply that needs you.
     pub(crate) fn of(t: &ThreadInfo) -> Group {
         if t.busy {
             Group::Running
-        } else if t.failed.is_some() {
-            Group::Failed
-        } else if t.unread {
-            Group::Unread
+        } else if t.failed.is_some() || t.unread {
+            Group::NeedsYou
         } else {
             Group::Done
         }
@@ -127,11 +122,12 @@ mod tests {
         let mut t = sample("a", "A");
         assert_eq!(Group::of(&t), Group::Done);
         t.unread = true;
-        assert_eq!(Group::of(&t), Group::Unread);
+        assert_eq!(Group::of(&t), Group::NeedsYou, "an unread reply needs you");
+        t.unread = false;
         t.failed = Some("usage limit".into());
-        assert_eq!(Group::of(&t), Group::Failed, "failed beats unread");
+        assert_eq!(Group::of(&t), Group::NeedsYou, "so does a failed one");
         t.busy = true;
-        assert_eq!(Group::of(&t), Group::Running, "running beats failed");
+        assert_eq!(Group::of(&t), Group::Running, "running beats needs you");
     }
 
     #[test]
@@ -143,7 +139,7 @@ mod tests {
         v[4].unread = true;
         let g = grouped(&v, "");
         let ids: Vec<(Group, Vec<&str>)> = g.iter().map(|(g, ts)| (*g, ts.iter().map(|t| t.id.as_str()).collect())).collect();
-        assert_eq!(ids, vec![(Group::Unread, vec!["r", "t"]), (Group::Running, vec!["q"]), (Group::Done, vec!["p", "s"])]);
+        assert_eq!(ids, vec![(Group::NeedsYou, vec!["r", "t"]), (Group::Running, vec!["q"]), (Group::Done, vec!["p", "s"])]);
     }
 
     #[test]

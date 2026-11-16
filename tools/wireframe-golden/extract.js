@@ -1,59 +1,85 @@
-// Regenerates crates/chrome/tests/golden/wireframe.json from design/cauldron-master-layout.html.
-// Run after the wireframe changes, then review the diff: a changed number is a design change.
+// Regenerates crates/chrome/tests/golden/wireframe.json from the approved Tight tiles board,
+// design/cauldron-tight-tiles/index.html. Run after the board changes, then review the diff: a
+// changed number is a design change.
 //   NODE_PATH=$(npm root -g) node tools/wireframe-golden/extract.js
-const { chromium } = require('playwright');
+// PW_CHROME=<path to Chrome> uses an installed Chrome instead of Playwright's own.
+const { chromium } = require(process.env.PW_MODULE || 'playwright');
 const fs = require('fs');
 const path = require('path');
 const root = path.resolve(__dirname, '..', '..');
-const page_url = 'file://' + path.join(root, 'design', 'cauldron-master-layout.html');
+const page_url = 'file://' + path.join(root, 'design', 'cauldron-tight-tiles', 'index.html');
 const OUT = path.join(root, 'crates', 'chrome', 'tests', 'golden', 'wireframe.json');
-const SEL = { rail: 'nav.rail', sidebar: '.col', main: '.main', half: '.half', drawer: '.drawer', rrail: '.rrail', notch: '.notch', sbtn: '.sbtn', tabs: '.tabs', topr: '.topr', wcaps: '.wcaps', lights: '.mlights' };
-const TOKENS = ['bg', 'frame', 'card', 'raised', 'well', 'line', 'strip', 'fg', 'fg-2', 'fg-3', 'accent', 'on-accent', 'run', 'ok', 'warn', 'bad', 'r', 'r1', 'r2'];
-const out = { source: 'design/cauldron-master-layout.html', unit: 'css px, relative to the window top-left (the 1px window border included)', sizes: [], tokens: {} };
+
+// The board's frames that show each shell state, by their index among the page's figures. The
+// extractor checks each frame's platform and panes, so a reordered board fails loudly.
+const STATES = {
+  win_all_open: { fig: 2, platform: 'windows', sidebar: true, support: true, dock: true },
+  win_sidebar_open: { fig: 0, platform: 'windows', sidebar: true, support: false, dock: false },
+  win_folded: { fig: 15, platform: 'windows', sidebar: false, support: false, dock: false },
+  mac_folded: { fig: 21, platform: 'mac', sidebar: false, support: false, dock: false },
+  mac_support_open: { fig: 24, platform: 'mac', sidebar: false, support: true, dock: false },
+  mac_sidebar_open: { fig: 25, platform: 'mac', sidebar: true, support: false, dock: false },
+};
+// The board draws every frame at 1200x760; the second size checks the solver is not tuned to one.
+const SIZES = [[1200, 760], [1440, 900]];
 
 (async () => {
-  const b = await chromium.launch();
-  for (const [ow, oh] of [[0, 0], [1000, 640]]) {
-    const p = await b.newPage({ viewport: { width: 1500, height: 950 }, colorScheme: 'dark' });
+  const b = await chromium.launch(process.env.PW_CHROME ? { executablePath: process.env.PW_CHROME } : {});
+  const out = { source: 'design/cauldron-tight-tiles/index.html', unit: 'css px from the window top-left', sizes: [] };
+  for (const [ww, wh] of SIZES) {
+    const p = await b.newPage({ viewport: { width: 1600, height: 1000 }, colorScheme: 'dark' });
     await p.goto(page_url);
-    if (ow) await p.addStyleTag({ content: `section:nth-of-type(2) .window{width:${ow}px!important;max-width:none!important;height:${oh}px!important;min-height:0!important}` });
-    await p.waitForTimeout(300);
-    const W = await p.$('section:nth-of-type(2) .window');
-    const snap = () => W.evaluate((w, SEL) => {
-      const wr = w.getBoundingClientRect();
-      const o = { window: { w: Math.round(wr.width), h: Math.round(wr.height) }, rects: {} };
-      for (const [k, s] of Object.entries(SEL)) {
-        const e = w.querySelector(s); if (!e) continue;
-        const cs = getComputedStyle(e), r = e.getBoundingClientRect();
-        const vis = cs.visibility !== 'hidden' && cs.display !== 'none' && r.width > 0 && parseFloat(cs.opacity || '1') > 0.01;
-        o.rects[k] = { x: Math.round((r.left - wr.left) * 2) / 2, y: Math.round((r.top - wr.top) * 2) / 2, w: Math.round(r.width * 2) / 2, h: Math.round(r.height * 2) / 2, visible: vis };
-      }
-      return o;
-    }, SEL);
-    const click = async (fn) => { await W.evaluate(fn); await p.waitForTimeout(450); };
+    await p.addStyleTag({ content: `.fit>.win{transform:none!important;width:${ww}px!important;height:${wh}px!important}.fit{overflow:visible!important;height:auto!important}` });
+    await p.waitForTimeout(500);
     const states = {};
-    states.default = await snap();
-    await click(w => w.querySelector('.rrail .rb.on').click());
-    states.drawer_closed = await snap();
-    await click(w => w.querySelector('.rrail .rb').click());
-    await click(w => w.querySelector('button[aria-label=Split]').click());
-    states.split_drawer_open = await snap();
-    await click(w => w.querySelector('button[aria-label=Split]').click());
-    await click(w => w.querySelector('.sbtn').click());
-    states.sidebar_hidden = await snap();
-    await click(w => w.querySelector('.rrail .rb.on').click());
-    states.sidebar_hidden_drawer_closed = await snap();
-    out.sizes.push({ window: states.default.window, states });
-    await p.close();
-  }
-  for (const scheme of ['dark', 'light']) {
-    const p = await b.newPage({ viewport: { width: 1500, height: 950 }, colorScheme: scheme });
-    await p.goto(page_url);
-    out.tokens[scheme] = await p.evaluate(names => { const cs = getComputedStyle(document.documentElement); const o = {}; for (const n of names) o[n] = cs.getPropertyValue('--' + n).trim(); return o; }, TOKENS);
+    for (const [name, want] of Object.entries(STATES)) {
+      const got = await p.evaluate(({ fig }) => {
+        const w = document.querySelectorAll('figure')[fig].querySelector('.win');
+        const wr = w.getBoundingClientRect();
+        const rr = e => { if (!e) return null; const q = e.getBoundingClientRect(); if (q.width <= 0) return null; return { x: q.left - wr.left, y: q.top - wr.top, w: q.width, h: q.height }; };
+        const sb = w.querySelector('.sb');
+        const cards = [...w.querySelectorAll('.cols .card')];
+        const main = cards.find(c => !c.classList.contains('sup') && !c.classList.contains('dock'));
+        const ch = main.querySelector('.ch');
+        const tab = rr(ch.querySelector('.tab'));
+        const oi = rr(ch.querySelector('.oi'));
+        const notched = !!w.querySelector('.notch2');
+        const brandIbs = sb ? [...sb.querySelectorAll('.brand .ib')] : [];
+        const sbtn = sb ? brandIbs[brandIbs.length - 1] : ch.querySelector(':scope > .ib');
+        const lights = w.querySelector('.lights');
+        const firstIbs = [...ch.querySelectorAll(':scope > .ib')];
+        return {
+          platform: notched ? 'windows' : lights ? 'mac' : 'unknown',
+          rects: {
+            sidebar: rr(sb),
+            main: rr(main),
+            dock: rr(w.querySelector('.cols .card.dock')),
+            support: rr(w.querySelector('.cols .card.sup')),
+            rail: rr(w.querySelector('.irail')),
+            notch: notched ? rr(w.querySelector('.nout')) : null,
+            caps: notched ? rr(w.querySelector('.caps')) : null,
+            lights: rr(lights),
+            sbtn: rr(sbtn),
+            newb: !sb && lights ? rr(firstIbs[1]) : null,
+            tabs: { x: tab.x, y: tab.y, w: oi.x - 2 - tab.x, h: tab.h },
+          },
+        };
+      }, want);
+      if (got.platform !== want.platform) throw new Error(`${name}: figure ${want.fig} is ${got.platform}, want ${want.platform}`);
+      for (const [k, on] of [['sidebar', want.sidebar], ['support', want.support], ['dock', want.dock]]) {
+        if (!!got.rects[k] !== on) throw new Error(`${name}: figure ${want.fig} ${k} ${got.rects[k] ? 'shown' : 'hidden'}`);
+      }
+      const rects = {};
+      for (const [k, r] of Object.entries(got.rects)) {
+        rects[k] = r ? { x: Math.round(r.x * 2) / 2, y: Math.round(r.y * 2) / 2, w: Math.round(r.w * 2) / 2, h: Math.round(r.h * 2) / 2, visible: true } : { visible: false };
+      }
+      states[name] = { platform: want.platform, sidebar_open: want.sidebar, support_open: want.support, dock_open: want.dock, rects };
+    }
+    out.sizes.push({ window: { w: ww, h: wh }, states });
     await p.close();
   }
   fs.mkdirSync(path.dirname(OUT), { recursive: true });
-  fs.writeFileSync(OUT, JSON.stringify(out, null, 1));
+  fs.writeFileSync(OUT, JSON.stringify(out, null, 1) + '\n');
   console.log('wrote', OUT);
   await b.close();
 })();

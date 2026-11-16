@@ -557,7 +557,9 @@ dependencies = [
  "cauldron-chrome",
  "chrono",
  "gpui-kit",
+ "image",
  "serde_json",
+ "smallvec",
  "tokio",
 ]
 

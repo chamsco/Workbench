@@ -61,7 +61,7 @@ fn radii_match_the_design_system_and_nest_by_the_shell_padding() {
     assert_eq!(radius::CONTROL, px("radius-control"));
     assert_eq!(radius::INNER, px("radius-inner"));
     assert_eq!(radius::TAG, px("radius-tag"));
-    assert_eq!(radius::nested(radius::SHELL, radius::SHELL_PAD), radius::PANEL, "a Shell's 6px around its Panel");
+    assert_eq!(radius::nested(radius::SHELL, radius::SHELL_PAD), radius::PANEL, "a Shell's 4px around its Panel");
     assert_eq!(radius::nested(6.0, 8.0), 0.0, "never negative");
 }
 

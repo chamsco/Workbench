@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 /// The states each gate is checked in: New thread, a thread with the drawer, the drawer folded,
 /// an agentic thread's tabs.
-const STATES: [&str; 4] = ["new", "thread", "folded", "tabs"];
+const STATES: [&str; 12] = ["new", "thread", "folded", "tabs", "win-sidebar-open", "win-sidebar-folded", "changes", "git", "files", "indent", "familiar", "familiar-sub"];
 
 fn shot(dir: &PathBuf, data: &PathBuf, state: &str, theme: &str) {
     std::env::set_var("CAULDRON_THEME", theme);
@@ -37,6 +37,39 @@ fn shot(dir: &PathBuf, data: &PathBuf, state: &str, theme: &str) {
                     c.drawer = None;
                     c.drawer_last = Some(Panel::Highlights);
                 }
+                if state.starts_with("win-") {
+                    std::env::set_var("CAULDRON_PLATFORM", "windows");
+                    c.sidebar_open = state == "win-sidebar-open";
+                } else {
+                    std::env::remove_var("CAULDRON_PLATFORM");
+                }
+                // The support card on the thread's own folder (Tight tiles piece 5).
+                let panel = match state {
+                    "changes" => Some(Panel::Changes),
+                    "git" => Some(Panel::Git),
+                    "files" => Some(Panel::Files),
+                    _ => None,
+                };
+                if let Some(p) = panel {
+                    c.support_tabs = vec![Panel::Changes, Panel::Git, Panel::Files];
+                    c.drawer = Some(p);
+                }
+                // The folded sidebar's hover band over the first stream (no rows to click while folded).
+                if state == "indent" {
+                    c.sidebar_open = false;
+                    c.indent = true;
+                    if let Threads::Ready(v) = &c.threads {
+                        if let Some(id) = v.first().map(|t| t.id.clone()) {
+                            c.open_thread(id);
+                        }
+                    }
+                }
+                if state == "familiar" || state == "familiar-sub" {
+                    c.open_familiar(0);
+                    if state == "familiar-sub" {
+                        c.active = 4;
+                    }
+                }
                 if state == "tabs" {
                     c.coordinator = Some("Cauldron · coordinator".into());
                     c.agents = ["Rampart", "Builder", "Reviewer"].iter().enumerate().map(|(i, n)| AgentTab { name: (*n).into(), dot: i }).collect();
@@ -48,7 +81,7 @@ fn shot(dir: &PathBuf, data: &PathBuf, state: &str, theme: &str) {
         .unwrap();
     cx.update_window(handle.into(), |_, window, cx| {
         window.render_frame(cx);
-        if state == "thread" || state == "folded" {
+        if matches!(state, "thread" | "folded" | "changes" | "git" | "files") {
             window.click(("thread", 0usize), cx);
         }
         window.render_frame(cx);
@@ -58,6 +91,8 @@ fn shot(dir: &PathBuf, data: &PathBuf, state: &str, theme: &str) {
     // wall clock) has run.
     cx.run_until_parked();
     std::thread::sleep(std::time::Duration::from_millis(400));
+    // The support panels read git off the main thread; let their answers land.
+    cx.run_until_parked();
     cx.update_window(handle.into(), |_, window, cx| window.render_frame(cx)).unwrap();
     let img = cx.capture_screenshot(handle.into()).expect("Metal rendering");
     img.save(dir.join(format!("{state}-{theme}.png"))).unwrap();
