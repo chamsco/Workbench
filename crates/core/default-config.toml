@@ -205,3 +205,13 @@ description = "OpenCode CLI as a full worker, through the providers you connecte
 input_usd_per_mtok = 0.0
 output_usd_per_mtok = 0.0
 max_output_tokens = 0
+
+# Builder and Rampart (PLAN §7). On the long path an independent Rampart
+# writes the tests from the approved spec; they must fail on the baseline
+# every run, and are sealed and hash-locked before any worker starts.
+[rampart]
+runs = 3                    # runs per test on the baseline and on Builder's code (flake check)
+spot_checks = 3             # the first suites wait for your yes before they are sealed
+max_failures = 3            # sealed-test failures on cheap rungs before the one frontier call
+# cheap_budget_usd = 1.0    # per ticket on cheap rungs before the one frontier call
+max_mutants = 12            # mutants of the changed lines for the rampart score

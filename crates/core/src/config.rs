@@ -25,6 +25,9 @@ pub struct Config {
     /// What happens to a first message before any planning (intake.rs).
     #[serde(default)]
     pub intake: IntakeConfig,
+    /// Builder and Rampart (rampart.rs): runs per test, spot-checks, limits.
+    #[serde(default)]
+    pub rampart: crate::rampart::RampartConfig,
     pub providers: BTreeMap<String, ProviderConfig>,
     pub models: Vec<ModelSpec>,
 }

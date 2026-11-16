@@ -1,0 +1,2156 @@
+warning: variable does not need to be mutable
+   --> crates/core/src/usage.rs:342:9
+    |
+342 |     let mut sess = |id: &str, t: u64, by: &mut BTreeMap<String, Session>| {
+    |         ----^^^^
+    |         |
+    |         help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `backspace-core` (lib) generated 1 warning (run `cargo fix --lib -p backspace-core` to apply 1 suggestion)
+warning: `backspace-core` (lib test) generated 1 warning (1 duplicate)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.31s
+     Running unittests src/main.rs (target/debug/deps/backspace_cli-6d8deb2220d1a5a5)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/eval_cli.rs (target/debug/deps/eval_cli-950ad2a9df57c6a9)
+
+running 4 tests
+test the_threshold_can_be_given ... ok
+test it_prints_the_report_for_labeled_traces ... ok
+test a_missing_file_is_an_error ... ok
+test unlabeled_traces_are_an_error ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
+
+     Running tests/policy_cli.rs (target/debug/deps/policy_cli-9f849ff8a7afd9e0)
+
+running 3 tests
+test init_config_writes_a_config_with_an_explicit_enforced_policy ... ok
+test policy_init_prints_a_block_that_keeps_what_the_project_allows_today ... ok
+test policy_adopt_records_a_loosening_a_person_has_reviewed ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running unittests src/lib.rs (target/debug/deps/backspace_colony-6a8dff96dc4b39de)
+
+running 25 tests
+test backend::tests::cli_workspace_json_maps_to_ours ... ok
+test backend::tests::cli_states_fold_into_five ... ok
+test backend::tests::create_args_are_the_cli_flags ... ok
+test backend::tests::capabilities_print_providers ... ok
+test backend::tests::exec_output_reads_the_cli_exit_code ... ok
+test backend::tests::error_message_comes_out_verbatim ... ok
+test backend::tests::a_missing_cli_is_an_error_not_a_panic ... ok
+test backend::tests::parse_error_ignores_noise_and_junk ... ok
+test colony::tests::a_missing_state_file_is_an_empty_colony ... ok
+test colony::tests::a_corrupt_state_file_is_an_error ... ok
+test colony::tests::colony_json_round_trips ... ok
+test colony::tests::exec_records_argv_and_returns_the_output ... ok
+test colony::tests::duplicate_name_is_refused_before_the_backend ... ok
+test colony::tests::list_adopts_what_the_backend_reports ... ok
+test colony::tests::unknown_workspace_is_an_error_not_a_panic ... ok
+test fake::tests::the_fake_refuses_a_duplicate_like_the_cli ... ok
+test fake::tests::the_fake_reports_running_then_stopped ... ok
+test colony::tests::task_and_created_survive_a_backend_round_trip ... ok
+test colony::tests::stop_force_reaches_the_backend ... ok
+test prompt::tests::chat_prompt_copes_without_a_task ... ok
+test prompt::tests::chat_prompt_names_the_workspace ... ok
+test tools::tests::five_tools_with_the_right_names ... ok
+test tools::tests::required_arguments_are_the_ones_the_registry_needs ... ok
+test tools::tests::every_tool_carries_a_description_and_an_object_schema ... ok
+test colony::tests::lifecycle_create_list_status_stop_start_delete ... ok
+
+test result: ok. 25 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/backspace_core-044dc87913dfd20e)
+
+running 185 tests
+test accounts::tests::default_profile_dir_sits_under_the_data_accounts_folder ... ok
+test accounts::tests::best_prefers_healthy_over_warning_at_equal_failures ... ok
+test accounts::tests::env_for_uses_the_providers_own_variable ... ok
+test accounts::tests::fails_decay_after_a_day_and_the_ring_stays_small ... ok
+test accounts::tests::order_ranks_state_then_failures_then_priority_then_last_ok ... ok
+test accounts::tests::order_drops_disabled_and_cooled_down_accounts ... ok
+test accounts::tests::policies_decide_who_switches ... ok
+test accounts::tests::note_limit_cools_down_and_note_fail_does_not ... ok
+test accounts::tests::round_trips_through_json_and_decays_on_load ... ok
+test agents::tests::next_run_round_trips_a_negative_offset ... ok
+test agents::tests::next_run_maths ... ok
+test agents::tests::quoting ... ok
+test agents::tests::routine_summaries ... ok
+test agents::tests::rules_become_denied_tools ... ok
+test agents::tests::brief_in_names_the_project_personality_and_routines ... ok
+test agents::tests::save_cleans_routines_and_refreshes_a_passed_wake ... ok
+test agents::tests::routine_save_validates_and_persists ... ok
+test apps::tests::manifest_rules ... ok
+test artifact::tests::a_body_cannot_be_unbounded_and_a_summary_says_what_it_is ... ok
+test artifact::tests::a_table_row_must_match_the_header ... ok
+test artifact::tests::an_old_state_file_without_artifacts_still_loads ... ok
+test artifact::tests::each_kind_is_validated_on_its_own_field ... ok
+test artifact::tests::ids_are_unique_and_addressable ... ok
+test artifact::tests::kinds_this_build_does_not_know_are_kept_not_dropped ... ok
+test agents::tests::save_list_brief_delete ... ok
+test artifact::tests::options_must_refer_to_a_set_that_exists ... ok
+test board::tests::a_thread_is_the_pair_whichever_way_it_went ... ok
+test board::tests::conversations_group_replies_and_broadcasts_separately ... ok
+test artifact::tests::the_list_is_bounded_and_drops_the_oldest ... ok
+test board::tests::post_and_read ... ok
+test apps::tests::install_serve_store_remove ... ok
+test chat::tests::a_chain_of_hand_offs_stops ... ok
+test chat::tests::a_busy_tile_gets_its_letter_after_the_turn ... ok
+test agents::tests::docker_computer ... ok
+test chat::tests::a_forwarded_letter_carries_the_first_senders_words ... ok
+test chat::tests::a_ghost_thread_is_never_written_and_never_listed ... ok
+test chat::tests::a_thread_file_without_a_life_loads_as_a_normal_chat ... ok
+test chat::tests::a_resumed_session_reads_what_it_missed ... ok
+test chat::tests::ansi_is_stripped ... ok
+test chat::tests::a_letter_is_a_turn_and_its_answer_goes_back ... ok
+test chat::tests::base64_roundtrip ... ok
+test chat::tests::activity_counts_prompts_hours_and_sessions ... ok
+test chat::tests::link_meta ... ok
+test chat::tests::a_temporal_thread_forgets_itself_after_its_deadline ... ok
+test chat::tests::mentions_pick_a_cli ... ok
+test chat::tests::context_map_counts_the_brief_and_each_message ... ok
+test chat::tests::at_a_tile_hands_over_and_posts_the_answer_here ... ok
+test chat::tests::making_a_thread_a_ghost_deletes_the_file_it_had ... ok
+test chat::tests::talking_to_a_temporal_thread_moves_its_deadline ... ok
+test chat::tests::purging_ghosts_removes_only_ghosts ... ok
+test chat::tests::titles_are_short ... ok
+test cloud::tests::plan_table ... ok
+test companion::tests::pair_link_escapes ... ok
+test config::tests::default_config_parses ... ok
+test delegate::tests::a_task_whose_bot_is_gone_comes_back_unassigned ... ok
+test delegate::tests::adds_assigns_and_survives_a_reopen ... ok
+test delegate::tests::an_empty_title_is_refused ... ok
+test delegate::tests::auto_off_leaves_work_unassigned ... ok
+test delegate::tests::auto_picks_the_shortest_queue_then_the_cheaper_minute ... ok
+test delegate::tests::importing_tickets_twice_keeps_one_task_each ... ok
+test delegate::tests::the_snapshot_prices_a_queue_and_a_cli_is_free ... ok
+test diagram::tests::plan_layers_by_blockers_and_flags_missing_checks ... ok
+test effort::tests::clamps_up_then_down ... ok
+test git::tests::a_new_repo_lists_folders_and_says_so ... ok
+test chat::tests::the_second_hop_is_the_last ... ok
+test git::tests::day_numbers ... ok
+test git::tests::parse_changes_reads_status_and_counts ... ok
+test hands::browser::tests::table_lists_actions_and_cuts_text ... ok
+test hands::decide::tests::jev_heads_match_its_action_space ... ok
+test hands::decide::tests::local_answer_is_held_to_the_page ... ok
+test hands::desktop::tests::clicks_land_in_display_coordinates ... ok
+test hands::tests::browser_and_desktop_keep_their_own_view ... ok
+test hands::tests::take_control_stops_the_tools ... ok
+test hands::tests::tools_follow_what_the_agent_was_given ... ok
+test harness::delivery_record_tests::a_cli_reply_splits_into_prose_and_its_record ... ok
+test harness::delivery_record_tests::a_cli_reply_without_a_record_is_all_prose ... ok
+test harness::delivery_record_tests::a_partial_or_malformed_record_is_refused ... ok
+test harnesses::tests::codex_plan_from_id_token ... ok
+test harnesses::tests::toggles_override_scan ... ok
+test harnesses::tests::versions ... ok
+test intake::tests::a_non_answer_is_kept_and_asked_again_until_the_limit ... ok
+test intake::tests::an_answer_is_confident_by_definition ... ok
+test intake::tests::first_asks_when_the_classifier_is_unsure_or_fails ... ok
+test intake::tests::first_goes_when_the_classifier_is_sure ... ok
+test layout::tests::a_card_can_come_out_and_a_split_still_works ... ok
+test layout::tests::a_full_stack_never_loses_a_canvas ... ok
+test layout::tests::a_stack_survives_json_and_older_shapes_still_load ... ok
+test layout::tests::centre_swaps_and_self_is_a_no_op ... ok
+test layout::tests::closing_a_card_keeps_the_stack_valid_and_renumbers_it ... ok
+test layout::tests::defaults_and_presets_cover_every_pane ... ok
+test layout::tests::drag_to_an_edge_splits_there_and_the_old_spot_closes ... ok
+test layout::tests::dropping_on_a_cards_middle_stacks_instead_of_swapping ... ok
+test layout::tests::json_shape ... ok
+test layout::tests::one_over_two_is_a_long_top_and_two_squares ... ok
+test layout::tests::remove_and_renumber_keep_it_valid ... ok
+test layout::tests::stacking_two_keeps_both_and_raising_swaps_which_is_in_front ... ok
+test layout::tests::zones ... ok
+test mcp::tests::rules_keep_tools_away ... ok
+test memory::tests::dates_and_meta ... ok
+test chat::tests::threads_persist_react_branch_delete ... ok
+test memory::tests::moves_old_json_in ... ok
+test cloud::tests::dev_server_end_to_end ... ok
+test memory::tests::repo_format_hand_edits_and_history ... ok
+test memory_dream::tests::plan_applies_conservatively ... ok
+test memory_dream::tests::prompt_lists_notes_and_messages ... ok
+test memory_learn::tests::learns_from_rejections ... ok
+test memory_learn::tests::proposes_and_skips ... ok
+test memory_learn::tests::third_person_rewrites ... ok
+test model_server::tests::human_size_reads_in_decimal_units ... ok
+test model_server::tests::is_loopback_only_for_this_machine ... ok
+test model_server::tests::openai_base_adds_v1_for_ollama ... ok
+test model_server::tests::order_breaks_ties_by_size_then_id ... ok
+test model_server::tests::order_puts_the_smallest_tiny_first ... ok
+test model_server::tests::parse_ollama_tags_fixture ... ok
+test model_server::tests::parse_openai_models_fixture ... ok
+test model_server::tests::pick_falls_back_and_handles_empty ... ok
+test model_server::tests::pick_maps_the_task_kind ... ok
+test model_server::tests::pick_prefers_the_named_family ... ok
+test model_server::tests::recommend_needs_a_running_runtime ... ok
+test model_server::tests::recommend_prefers_the_tiny_model_and_stays_stable ... ok
+test model_server::tests::tiny_by_parameter_count ... ok
+test model_server::tests::tiny_from_the_file_size_only_when_nothing_else_says ... ok
+test model_server::tests::tiny_from_the_name_when_the_count_is_missing ... ok
+test options::tests::add_names_variants_and_pick_records_the_choice ... ok
+test options::tests::bad_sets_are_refused ... ok
+test phase::tests::a_model_can_block_but_never_open ... ok
+test phase::tests::a_refusal_is_kept_and_a_pass_moves_on ... ok
+test phase::tests::a_refused_respec_reopens_specify_and_a_pass_does_not_skip_ahead ... ok
+test phase::tests::a_veto_closes_the_gate_again ... ok
+test phase::tests::four_stages_over_seven_phases ... ok
+test phase::tests::loads_and_saves_beside_the_project ... ok
+test phase::tests::round_trips_and_old_state_loads_without_it ... ok
+test phase::tests::spend_lands_on_the_stage_it_happened_in ... ok
+test projects::tests::save_list_rename_assign_delete ... ok
+test provider::tests::anthropic_body_sets_effort_only_when_supported ... ok
+test provider::tests::openai_roundtrips_tool_calls ... ok
+test relay::tests::a_mention_names_another_tile_only ... ok
+test relay::tests::labels_are_unique_and_one_tile_coordinates ... ok
+test relay::tests::letters_go_through_the_outbox_once_in_order ... ok
+test relay::tests::the_brief_names_the_others_and_the_coordinator ... ok
+test request::tests::keeps_every_word_and_order ... ok
+test router::liveness_tests::a_listening_port_is_up_and_a_closed_one_is_not ... ok
+test memory::tests::scopes_and_persistence ... ok
+test memory::tests::the_librarian_files_a_batch_as_one_commit ... ok
+test router::tests::heuristic_scales_with_task ... ok
+test skills::tests::a_workspace_folder_overrides_a_default_and_shows_as_ours ... ok
+test skills::tests::defaults_load_with_descriptions ... ok
+test skills::tests::description_reads_plain_folded_and_literal ... ok
+test skills::tests::found_says_where_a_skill_came_from ... ok
+test skills::tests::search_ranks_a_name_hit_above_a_body_hit ... ok
+test spec::tests::a_complete_spec_passes ... ok
+test spec::tests::coverage_names_every_hole ... ok
+test spec::tests::each_rule_names_what_is_missing ... ok
+test spec::tests::extract_takes_the_last_spec_block_only ... ok
+test spec::tests::the_prompt_carries_the_grilling_skill_the_rules_and_the_last_refusal ... ok
+test spec::tests::the_skeleton_alone_is_refused_for_every_empty_part ... ok
+test stages::tests::a_review_only_blocks_when_it_says_so ... ok
+test stages::tests::evidence_is_fenced_as_data ... ok
+test stages::tests::execute_waits_for_every_ticket ... ok
+test router::tests::cli_pin_routes_workers_not_the_planner ... ok
+test stages::tests::the_librarian_drops_only_what_it_names ... ok
+test ticket::tests::parses_and_renders ... ok
+test tools::tests::resolve_blocks_escape ... ok
+test stages::tests::notes_reach_memory_as_one_commit_with_the_drops_on_the_receipt ... ok
+test tools::tests::write_edit_read_bash ... ok
+test trace::tests::records_tools_and_exports_otlp ... ok
+test update::tests::a_merged_pull_request_reads_as_its_title ... ok
+test update::tests::another_commit_is_newer_but_the_same_one_is_not ... ok
+test update::tests::falls_back_to_the_notes ... ok
+test update::tests::notes_without_a_stamp_say_nothing ... ok
+test update::tests::only_a_hash_counts_as_a_commit ... ok
+test update::tests::reads_the_commit_the_workflow_passed ... ok
+test update::tests::the_changelog_is_pull_requests_newest_first ... ok
+test update::tests::the_stamp_is_the_commit_the_build_was_given ... ok
+test usage::tests::claude_counts_once_per_message_and_call ... ok
+test usage::tests::codex_sums_records_not_cumulative ... ok
+test usage::tests::opencode_reads_tokens_and_tools ... ok
+test usage::tests::parses_iso_times ... ok
+test usage::tests::propose_cites_numbers ... ok
+test usage::tests::real_logs ... ignored
+test usage::tests::sources_report_what_exists ... ok
+test usage::tests::window_uses_record_time ... ok
+test router::tests::excluded_models_never_get_a_worker ... ok
+test trace::tests::exports_to_a_collector ... ok
+test git::tests::branch_merge_and_conflict ... ok
+
+test result: ok. 184 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/advisor_policy.rs (target/debug/deps/advisor_policy-4f4025dc11f201ca)
+
+running 3 tests
+test it_is_checked_at_the_role_of_the_agent_that_calls_it ... ok
+test the_same_advisor_is_attached_once_the_lists_name_it ... ok
+test an_advisor_the_lists_do_not_name_is_left_off_and_the_call_still_goes_ahead ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.29s
+
+     Running tests/agents.rs (target/debug/deps/agents-877db631e1290b28)
+
+running 1 test
+test groups_take_turns_and_agents_work_in_their_folder ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.22s
+
+     Running tests/budget_bound.rs (target/debug/deps/budget_bound-4b03f3b0385876e3)
+
+running 9 tests
+test only_anthropic_input_is_priced_above_its_listed_rate ... ok
+test the_allowances_grow_with_messages_and_tools_and_are_not_zero ... ok
+test a_call_that_fits_at_the_listed_price_can_be_refused_at_the_cache_write_price ... ok
+test counting_characters_was_not_enough_for_text_that_is_not_english ... ok
+test the_prepared_bytes_are_the_body ... ok
+test the_system_prompt_counts_as_a_message_for_both_wire_formats ... ok
+test the_default_config_still_parses_and_prices_anthropic_models ... ok
+test the_bound_is_never_below_the_bytes_of_the_body_that_is_sent ... ok
+test long_tool_schemas_are_counted_from_the_wire_body ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+     Running tests/budget_e2e.rs (target/debug/deps/budget_e2e-04f556805612b437)
+
+running 8 tests
+test a_call_that_costs_more_than_it_reserved_is_logged_and_stops_the_next_one ... ok
+test the_advisor_is_left_off_when_its_reserve_does_not_fit ... ok
+test a_unicode_prompt_is_bounded_by_its_bytes ... ok
+test source_code_in_the_prompt_is_bounded_by_its_bytes ... ok
+test token_budgets_count_the_providers_tokens_not_the_billing_weighted_ones ... ok
+test the_anthropic_prompt_is_reserved_at_the_cache_write_price ... ok
+test the_input_bound_is_read_from_the_request_that_was_sent ... ok
+test concurrent_agents_cannot_jointly_pass_the_project_budget ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.67s
+
+     Running tests/budget_reservation.rs (target/debug/deps/budget_reservation-99dc64368b8bdc48)
+
+running 8 tests
+test a_call_that_cost_more_than_its_reservation_is_reported_with_by_how_much ... ok
+test a_stopped_call_releases_its_reservation ... ok
+test a_reservation_is_the_worst_case_with_input_priced_at_the_factor ... ok
+test a_fixed_reservation_for_the_advisor_fits_or_is_refused_and_is_released ... ok
+test every_scope_a_call_belongs_to_is_held_and_others_are_not ... ok
+test what_is_held_never_passes_the_limit_while_calls_are_in_flight ... ok
+test parallel_calls_cannot_jointly_exceed_a_token_budget ... ok
+test parallel_calls_cannot_jointly_exceed_a_dollar_budget ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s
+
+     Running tests/budget_wording.rs (target/debug/deps/budget_wording-3aebe142f4fdb79a)
+
+running 5 tests
+test the_router_is_described_as_budgeted_where_it_is_and_unmetered_where_it_is_not ... ok
+test a_strict_budget_section_names_the_paths_to_switch_off ... ok
+test the_three_classes_are_kept_and_unmetered_paths_do_not_claim_a_guarantee ... ok
+test the_boundaries_state_every_assumption_a_reservation_rests_on ... ok
+test the_notes_do_not_oversell_policy_integrity ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/bya.rs (target/debug/deps/bya-e9a1658e58d1d7bc)
+
+running 1 test
+test chat_with_a_remote_a2a_agent ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
+
+     Running tests/cli_budget.rs (target/debug/deps/cli_budget-ef6d4d533118a1d0)
+
+running 4 tests
+test a_dollar_budget_with_an_unpriced_cli_model_fails_closed ... ok
+test a_running_cli_turn_is_stopped_when_it_crosses_the_limit ... ok
+test a_cli_turn_is_refused_when_the_task_budget_is_spent ... ok
+test a_cli_worker_without_any_budget_runs_as_before ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.24s
+
+     Running tests/cli_concurrency.rs (target/debug/deps/cli_concurrency-575809f51f81e021)
+
+running 7 tests
+test a_dollar_limit_never_binds_a_cli_turn_even_when_its_model_has_a_price ... ok
+test the_allowance_comes_back_when_the_turn_ends_less_what_it_used ... ok
+test the_hold_is_taken_in_every_scope_the_turn_counts_toward ... ok
+test two_turns_on_one_budget_are_not_both_given_the_remaining_tokens ... ok
+test a_dollar_project_limit_refuses_a_priced_cli_worker_before_it_starts ... ok
+test parallel_admissions_on_one_budget_hand_out_it_at_most_once ... ok
+test cli_workers_on_one_project_token_budget_run_one_at_a_time_and_stop_when_it_is_spent ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.17s
+
+     Running tests/cli_model_policy.rs (target/debug/deps/cli_model_policy-52c75f943964242e)
+
+running 36 tests
+test a_claude_code_entry_that_pins_an_alias_is_flagged_when_the_project_opens ... ok
+test a_codex_model_the_orchestration_list_does_not_name_is_refused_for_the_planner ... ok
+test a_codex_model_the_execution_list_does_not_name_is_refused_before_the_cli_starts ... ok
+test a_generated_policy_names_the_cli_entries_that_run_unpinned_and_the_models_it_pins ... ok
+test a_list_the_person_wrote_is_not_widened_by_the_generated_exception ... ok
+test a_new_project_lets_its_own_cli_entries_run ... ok
+test a_codex_pin_with_no_policy_is_not_passed ... ok
+test a_full_model_id_is_not_flagged_as_an_alias ... ok
+test a_pin_on_a_cli_whose_command_line_precedence_is_not_verified_counts_as_unpinned ... ok
+test a_pinned_claude_code_entry_is_started_on_its_model ... ok
+test a_pinned_codex_entry_is_started_on_its_model ... ok
+test a_codex_planner_and_worker_are_checked_against_their_own_lists ... ok
+test a_pinned_model_the_execution_list_does_not_name_is_refused_before_the_cli_starts ... ok
+test adding_an_unpinned_exception_is_a_loosening_that_waits_for_a_person ... ok
+test a_pinned_model_the_orchestration_list_does_not_name_is_refused_for_the_planner ... ok
+test an_enforced_policy_without_the_list_or_with_an_empty_one_accepts_no_unpinned_cli ... ok
+test a_planner_is_checked_as_the_entry_it_was_pinned_to_not_the_first_one_on_that_cli ... ok
+test an_enforced_project_with_an_unpinned_cli_entry_it_does_not_name_says_so_when_it_opens ... ok
+test an_empty_model_is_not_a_pin ... ok
+test an_excepted_unpinned_claude_code_given_a_scout_does_not_get_the_variable_either ... ok
+test a_project_with_no_policy_runs_as_it_always_did ... ok
+test an_excepted_unpinned_claude_code_with_no_scout_keeps_its_own_environment ... ok
+test an_entry_the_policy_names_as_unpinned_runs_without_a_model_argument_and_says_so ... ok
+test codex_is_given_no_other_way_to_pick_a_model ... ok
+test editing_backspace_toml_after_the_project_opened_does_not_change_the_codex_model ... ok
+test editing_backspace_toml_after_the_project_opened_does_not_change_the_model ... ok
+test legacy_open_runs_unpinned_too ... ok
+test the_environment_cannot_change_a_pinned_codex_model ... ok
+test the_environment_cannot_change_a_pinned_model ... ok
+test planner_and_worker_are_checked_against_their_own_lists ... ok
+test under_an_enforced_policy_a_cli_entry_runs_unpinned_only_if_the_policy_says_so ... ok
+test the_exception_is_per_entry ... ok
+test without_an_enforced_policy_unpinned_is_open_unless_a_list_says_otherwise ... ok
+test an_unpinned_entry_under_an_enforced_policy_is_refused_unless_named ... ok
+test the_subagent_model_variable_is_taken_from_a_pinned_claude_code_under_an_enforced_policy ... ok
+test without_an_enforced_policy_the_environment_is_left_alone ... ok
+
+test result: ok. 36 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.74s
+
+     Running tests/cli_policy.rs (target/debug/deps/cli_policy-f3589913ed454417)
+
+running 12 tests
+test a_list_the_person_wrote_is_not_widened_by_the_aliases ... ok
+test a_generated_policy_names_the_advisor_and_scouts_the_config_already_uses ... ok
+test a_planner_in_claude_code_gets_its_advisor_when_the_orchestration_list_names_it ... ok
+test a_planner_in_claude_code_loses_what_the_policy_does_not_name ... ok
+test a_planner_cli_entry_the_orchestration_list_does_not_name_is_refused_before_its_turn ... ok
+test a_project_with_no_policy_keeps_what_it_always_got ... ok
+test a_worker_cli_entry_the_execution_list_does_not_name_is_refused_before_its_turn ... ok
+test a_worker_that_may_create_tickets_is_an_orchestrator_and_is_checked_as_one ... ok
+test claude_codes_advisor_and_scouts_are_left_off_when_the_policy_does_not_name_their_models ... ok
+test a_workers_advisor_is_checked_at_the_workers_role_not_the_planners ... ok
+test each_is_decided_on_its_own ... ok
+test they_are_attached_when_the_policy_names_both_models ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.28s
+
+     Running tests/decision.rs (target/debug/deps/decision-2e3a87036a90a530)
+
+running 9 tests
+test a_decider_that_fails_is_an_error_not_a_guess ... ok
+test below_the_threshold_the_user_is_asked_and_at_it_the_answer_stands ... ok
+test a_different_decider_can_be_swapped_in_and_decides_instead ... ok
+test a_malformed_answer_is_rejected ... ok
+test nothing_to_go_on_is_never_a_confident_answer ... ok
+test the_baseline_answers_each_question_with_a_distribution_that_sums_to_one ... ok
+test ties_resolve_the_same_way_every_time ... ok
+test task_types_round_trip_through_their_names ... ok
+test the_baseline_separates_clear_cases ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/e2e.rs (target/debug/deps/e2e-0024694070554202)
+
+running 8 tests
+test a_plan_must_cover_the_spec ... ok
+test filed_tickets_get_triaged ... ok
+test a_remote_machine_is_followed_and_driven ... ok
+test a_ticket_runs_on_a_cli_worker ... ok
+test visual_options_wait_for_the_users_pick ... ok
+test a_whole_project_reports_the_section_3_4_metrics ... ok
+test flat_project_with_gates_escalation_and_merges ... ok
+test nested_leads_review_and_revise_their_reports ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.23s
+
+     Running tests/eval.rs (target/debug/deps/eval-4b21f851a3295fdb)
+
+running 10 tests
+test an_unlabeled_or_mislabeled_trace_is_an_error_naming_its_line ... ok
+test an_empty_trace_set_cannot_be_evaluated ... ok
+test a_decider_that_fails_on_a_trace_fails_the_eval ... ok
+test accuracy_is_reported_per_task_type ... ok
+test calibration_bins_ece_and_brier_match_the_hand_calculation ... ok
+test cost_is_compared_with_always_frontier_when_traces_carry_token_counts ... ok
+test traces_load_from_json_lines_and_blank_lines_are_skipped ... ok
+test below_the_threshold_is_counted_as_asking_and_confident_mistakes_are_counted_apart ... ok
+test without_token_counts_cost_is_not_computed_rather_than_guessed ... ok
+test the_report_renders_every_section_the_plan_asks_for ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/features.rs (target/debug/deps/features-7eff521c7c127130)
+
+running 17 tests
+test a_limit_is_recognised_from_the_clis_own_words_only ... ok
+test a_direct_message_between_two_agents_is_its_own_conversation ... ok
+test a_chosen_local_model_becomes_the_scout_model ... ok
+test a_reply_to_a_message_that_is_not_there_is_refused ... ok
+test a_local_model_on_a_custom_router_is_found_by_id ... ok
+test accounts_round_trip_and_keep_their_env ... ok
+test each_project_remembers_its_own_canvases ... ok
+test local_jobs_defaults_to_scouts_and_refuses_unknown_words ... ok
+test no_choice_or_an_unknown_runtime_leaves_the_config_alone ... ok
+test one_limited_login_does_not_stop_the_project ... ok
+test read_messages_hands_back_the_id_a_reply_can_name ... ok
+test the_board_message_shape_survives_a_round_trip ... ok
+test the_tick_gates_the_local_model_and_scouts_only_follow_their_own ... ok
+test a_worker_routes_to_the_local_model_only_while_it_is_listening ... ok
+test a_produced_artifact_reaches_the_snapshot_and_is_addressable ... ok
+test a_delegated_lookup_reaches_the_chosen_local_model ... ok
+test triage_can_run_on_the_local_model_with_no_api_key ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.66s
+
+     Running tests/files_listing.rs (target/debug/deps/files_listing-4a6c880e2be8320d)
+
+running 9 tests
+test a_root_reached_through_a_symlink_lists_normally ... ok
+test a_dangling_symlink_is_shown_and_not_followed ... ok
+test a_second_route_to_a_folder_inside_the_workspace_is_still_listed_as_before ... ok
+test a_loop_back_into_an_ancestor_is_not_walked ... ok
+test an_external_symlinked_file_is_shown_and_not_followed ... ok
+test an_internal_symlink_keeps_its_existing_behaviour ... ok
+test a_symlink_below_the_top_cannot_reveal_an_external_folder ... ok
+test an_external_symlinked_folder_is_shown_and_not_entered ... ok
+test ordinary_folders_list_as_before ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/folders.rs (target/debug/deps/folders-3b7cf38ebdef399d)
+
+running 22 tests
+test a_new_folder_proposal_whose_name_now_exists_files_into_that_folder ... ok
+test a_name_is_capped_at_sixty_characters ... ok
+test a_ghost_chat_cannot_be_filed ... ok
+test a_branch_stays_in_its_sources_folder ... ok
+test a_newer_proposal_for_a_stream_replaces_the_older_one ... ok
+test a_proposal_that_cannot_be_applied_changes_nothing ... ok
+test accepting_a_proposal_for_a_new_folder_creates_it_then_files_the_stream ... ok
+test accepting_a_proposal_for_an_existing_folder_files_the_stream ... ok
+test create_trims_and_refuses_empty_and_case_duplicates ... ok
+test a_thread_file_from_before_folders_loads_unfiled_and_round_trips ... ok
+test colours_follow_the_palette_in_creation_order_and_wrap ... ok
+test a_stream_filed_in_a_folder_that_is_not_in_the_registry_counts_as_unfiled ... ok
+test filing_a_stream_changes_only_its_folder ... ok
+test filing_into_an_unknown_folder_errors_and_changes_nothing ... ok
+test proposals_do_not_outlive_the_folder_or_the_stream_they_name ... ok
+test deleting_a_folder_unfiles_its_streams_and_keeps_every_stream ... ok
+test rejecting_a_proposal_changes_nothing_but_the_proposal ... ok
+test list_is_creation_order_and_stable_across_a_reload ... ok
+test rename_keeps_identity_and_obeys_the_same_rules ... ok
+test proposals_survive_a_reload_and_stay_actionable ... ok
+test threads_in_unfiled_and_counts_agree ... ok
+test the_registry_survives_a_reload ... ok
+
+test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.35s
+
+     Running tests/gateway.rs (target/debug/deps/gateway-5e61396cdf1d58ab)
+
+running 20 tests
+test a_call_that_fits_gets_the_models_full_output ... ok
+test a_call_whose_input_alone_does_not_fit_is_refused_before_it_is_made ... ok
+test a_model_outside_the_execution_list_is_refused_for_execution_only ... ok
+test a_model_outside_the_orchestration_list_is_refused_for_orchestration_only ... ok
+test a_model_that_costs_nothing_is_not_stopped_by_a_dollar_budget_but_is_by_a_token_one ... ok
+test a_role_follows_what_the_agent_does ... ok
+test a_spent_budget_refuses_every_further_call ... ok
+test a_token_budget_clamps_and_refuses_the_same_way ... ok
+test a_plugin_outside_the_list_is_refused_in_both_roles ... ok
+test a_skill_outside_the_list_is_refused_in_both_roles ... ok
+test a_refusal_names_the_policy_the_thing_and_the_role ... ok
+test input_is_estimated_high_never_low ... ok
+test output_is_clamped_so_the_worst_case_cost_stays_inside_the_budget ... ok
+test an_empty_list_refuses_everything_in_that_role ... ok
+test text_dressed_as_an_instruction_cannot_widen_a_list ... ok
+test the_tightest_budget_wins_and_is_named ... ok
+test the_per_task_line_comes_from_the_policy_and_carries_the_tasks_own_spend ... ok
+test with_no_policy_every_model_skill_and_plugin_is_open ... ok
+test the_two_lists_are_separate ... ok
+test the_policy_is_read_from_the_project_config ... ok
+
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/gateway_e2e.rs (target/debug/deps/gateway_e2e-606b55020d924393)
+
+running 13 tests
+test a_skill_outside_the_list_is_refused_and_not_offered_to_an_orchestration_agent ... ok
+test a_task_budget_spent_by_one_call_stops_the_next_before_it_is_made ... ok
+test a_task_budget_smaller_than_the_first_call_stops_it_before_any_request ... ok
+test a_skill_outside_the_list_is_refused_for_an_execution_agent_too ... ok
+test an_agent_cannot_rewrite_the_policy_file_with_the_file_tools ... ok
+test an_execution_model_outside_the_list_never_reaches_the_provider ... ok
+test an_allowed_skill_still_loads ... ok
+test an_orchestration_model_outside_the_list_never_reaches_the_provider ... ok
+test the_policy_is_fixed_when_the_project_opens ... ok
+test the_output_limit_sent_to_the_provider_is_clamped_to_what_the_budget_can_pay ... ok
+test without_a_budget_the_output_limit_is_the_models_own ... ok
+test the_project_budget_is_enforced_before_the_call_not_after_it ... ok
+test an_allowed_orchestration_model_is_called_normally ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.48s
+
+     Running tests/handoff.rs (target/debug/deps/handoff-569e24059cf411fb)
+
+running 2 tests
+test a_record_left_unreported_reads_as_unknown_not_as_none ... ok
+test workers_start_from_the_persons_words_and_get_structured_records ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.60s
+
+     Running tests/hands_policy.rs (target/debug/deps/hands_policy-41033d665c7bfc50)
+
+running 2 tests
+test the_models_a_decider_calls_are_named ... ok
+test a_browser_task_in_a_project_asks_the_policy_first_and_a_refusal_runs_nothing ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/hands_policy_bridge.rs (target/debug/deps/hands_policy_bridge-8ed0af3c5524d529)
+
+running 1 test
+test the_bridge_checks_a_browser_decider_against_the_project_policy ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+
+     Running tests/intake.rs (target/debug/deps/intake-b426eb082589a738)
+
+running 46 tests
+test a_confident_long_task_keeps_the_full_planner ... ok
+test a_long_task_does_not_stop_a_side_task_from_starting ... ok
+test a_one_shot_spec_is_one_ticket_with_a_goal_and_an_acceptance_line ... ok
+test a_one_shot_spec_that_is_not_light_is_refused_with_the_reason ... ok
+test a_failed_one_shot_is_retried_in_the_same_turn_on_its_one_ticket ... ok
+test a_failed_one_shot_stays_open_for_a_retry_and_keeps_to_its_one_ticket ... ok
+test a_one_shot_files_one_ticket_and_a_second_is_refused_while_the_first_still_runs ... ok
+test a_one_shot_whose_ticket_is_gone_can_file_its_spec_again ... ok
+test a_report_is_written_under_the_reports_folder_and_never_overwrites ... ok
+test a_report_needs_a_title_and_a_body ... ok
+test a_spec_is_handed_off_as_a_file ... ok
+test a_started_task_is_held_to_the_agent_cap ... ok
+test a_one_shot_whose_ticket_was_dropped_as_wontfix_can_file_its_spec_again ... ok
+test a_one_shot_worker_the_user_stops_fails_its_ticket_and_can_be_dispatched_again ... ok
+test a_started_task_is_not_a_task_for_the_planner_or_the_question ... ok
+test a_rejected_one_shot_deliverable_goes_back_to_its_worker_and_the_path_ends_with_the_delivery ... ok
+test a_task_after_a_report_is_classified_afresh ... ok
+test a_started_task_runs_under_the_project_policy_and_budget ... ok
+test a_started_task_never_starts_or_approves_a_ticket_that_already_exists ... ok
+test a_task_is_not_started_in_a_project_folder_that_has_gone ... ok
+test a_task_cannot_be_started_while_a_research_task_is_open ... ok
+test an_answer_is_a_label_a_number_or_nothing ... ok
+test an_answer_starts_the_path_the_user_chose_on_the_original_task ... ok
+test a_task_cannot_be_started_while_a_one_shot_is_open_and_does_not_take_its_ticket ... ok
+test intake_asks_and_asks_again_with_the_paths_that_can_run ... ok
+test intake_is_off_by_default_and_must_be_allowed_to_ask ... ok
+test a_started_task_skips_the_plan_gate_but_its_delivery_still_waits_for_the_user ... ok
+test nothing_can_be_started_from_nothing ... ok
+test no_agent_is_offered_a_way_to_start_a_task ... ok
+test research_cannot_read_through_a_symlink_that_leaves_the_project ... ok
+test an_unsure_task_asks_the_user_and_calls_no_model ... ok
+test research_returns_a_report_and_no_pr ... ok
+test one_shot_reaches_a_worker_with_a_lightweight_spec_and_no_plan_gate ... ok
+test the_long_path_is_not_restricted ... ok
+test the_one_shot_path_specifies_and_dispatches_but_never_builds_itself ... ok
+test stop_releases_a_failed_one_shot_even_though_the_main_agent_is_idle ... ok
+test the_question_names_all_three_kinds_and_a_guess_when_there_is_one ... ok
+test the_question_offers_only_the_paths_that_can_run ... ok
+test the_research_path_can_read_and_report_and_nothing_else ... ok
+test stopping_a_restricted_task_releases_its_path ... ok
+test two_unclear_answers_fall_to_the_long_path_and_keep_what_was_said ... ok
+test the_pending_question_survives_a_restart ... ok
+test a_valid_token_for_one_project_starts_nothing_in_another ... ok
+test with_an_api_planner_the_question_still_offers_all_three_paths ... ok
+test with_intake_off_nothing_is_asked_and_the_model_gets_the_text ... ok
+test the_task_endpoint_wants_the_token_and_starts_nothing_without_it ... ok
+
+test result: ok. 46 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.48s
+
+     Running tests/intake_cli.rs (target/debug/deps/intake_cli-b00d8fb461bb6a82)
+
+running 11 tests
+test a_cli_long_task_still_launches_the_planner_as_before ... ok
+test a_cli_one_shot_the_classifier_chooses_is_refused_before_the_cli_runs ... ok
+test a_cli_research_task_is_refused_before_the_cli_runs ... ok
+test a_cli_task_the_user_answers_as_one_shot_is_refused_too ... ok
+test a_cli_task_the_user_answers_as_research_is_refused_too ... ok
+test an_unclear_answer_under_a_cli_planner_is_asked_again_with_the_same_options ... ok
+test a_saved_research_task_is_refused_after_a_restart_with_a_cli_planner ... ok
+test an_answer_for_a_path_that_cannot_run_is_still_refused_after_the_question_that_left_it_out ... ok
+test a_saved_one_shot_is_refused_after_a_restart_with_a_cli_planner ... ok
+test the_question_under_a_cli_planner_offers_only_the_path_that_can_run ... ok
+test an_unsure_task_is_asked_about_before_the_cli_is_launched ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.10s
+
+     Running tests/interrupted.rs (target/debug/deps/interrupted-4a7c70b9e23ae3e1)
+
+running 2 tests
+test only_an_interrupted_agent_can_carry_on ... ok
+test a_restart_carries_a_cli_worker_on_in_its_own_session ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.66s
+
+     Running tests/jev_settlement.rs (target/debug/deps/jev_settlement-0ac1d56dd20ab473)
+
+running 11 tests
+test a_billed_answer_the_router_cannot_use_is_recorded_once_and_the_fallback_is_not_charged_again ... ok
+test a_model_jev_names_that_it_was_not_offered_is_not_used ... ok
+test a_pinned_model_does_not_stop_the_jev_call ... ok
+test a_cost_above_the_estimate_is_on_the_books_before_the_room_is_given_back ... ok
+test jev_is_only_offered_models_the_project_policy_allows_for_the_role ... ok
+test a_jev_decision_reaches_the_projects_spend_exactly_once ... ok
+test jev_calls_completing_among_api_reservations_never_leave_more_spent_than_the_limit ... ok
+test a_jev_call_must_fit_the_project_token_limit_and_its_tokens_are_not_counted_afterwards ... ok
+test the_heuristic_backend_is_the_supported_way_to_keep_jev_off_a_project ... ok
+test nobody_sees_the_hold_gone_and_the_spend_not_yet_recorded ... ok
+test simultaneous_jev_calls_cannot_jointly_pass_the_project_budget ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.97s
+
+     Running tests/jev_unknown_cost.rs (target/debug/deps/jev_unknown_cost-de41654a9c81d7c1)
+
+running 15 tests
+test a_known_cost_above_the_hold_is_recorded_in_full_when_the_call_failed_too ... ok
+test a_connection_cut_after_dispatch_is_counted_at_the_reserved_amount ... ok
+test a_failure_that_reports_its_cost_is_recorded_at_that_cost ... ok
+test a_body_that_is_not_json_is_counted_at_the_reserved_amount ... ok
+test a_later_request_cannot_use_the_room_an_unknown_cost_call_held ... ok
+test a_project_that_got_a_failure_before_dispatch_has_nothing_to_count ... ok
+test a_request_that_never_left_releases_its_hold_and_records_nothing ... ok
+test a_mixture_of_outcomes_run_concurrently_adds_up_and_never_passes_the_limit ... ok
+test a_project_counts_an_unknown_cost_in_its_spend_once_and_marks_it ... ok
+test a_usable_answer_with_no_usage_is_used_and_counted_at_the_reserved_amount ... ok
+test a_timeout_after_dispatch_is_counted_at_the_reserved_amount ... ok
+test a_retry_neither_frees_nor_double_counts_the_failed_attempt ... ok
+test an_error_status_without_usage_is_counted_at_the_reserved_amount ... ok
+test nobody_sees_an_unknown_cost_call_with_no_hold_and_no_spend ... ok
+test the_heuristic_still_decides_whatever_happens_to_the_jev_call ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.12s
+
+     Running tests/keyword_length_ablation.rs (target/debug/deps/keyword_length_ablation-9b97508fa449e181)
+
+running 4 tests
+test keyword_evidence_is_unchanged_by_the_ablation ... ok
+test past_400_characters_only_long_moves_and_only_the_ablation_is_neutral ... ok
+test the_shipped_baseline_still_has_its_length_rule ... ok
+test up_to_400_characters_the_two_are_identical ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/ladder.rs (target/debug/deps/ladder-d3973068e04aa626)
+
+running 16 tests
+test a_cheap_rung_that_keeps_failing_is_skipped_for_the_frontier ... ok
+test a_cheap_rung_that_mostly_works_is_kept ... ok
+test an_unknown_class_is_a_config_error ... ok
+test an_unsure_or_missing_classification_does_not_start_on_the_frontier ... ok
+test an_unmeasured_rung_is_a_coin_flip_and_no_rung_is_certain ... ok
+test an_explicit_class_beats_the_tier ... ok
+test classes_are_ordered_from_local_to_frontier ... ok
+test a_free_model_can_still_be_a_frontier_call ... ok
+test nothing_is_above_the_frontier ... ok
+test moving_up_needs_a_measured_failure ... ok
+test the_planner_starts_on_the_frontier_only_for_a_long_task ... ok
+test tier_zero_is_local ... ok
+test without_measurements_price_decides_and_the_cheap_rung_goes_first ... ok
+test by_default_the_class_follows_the_tier ... ok
+test cheapest_on_prefers_the_class_then_the_nearest_below_then_above ... ok
+test within_caps_the_candidates_and_never_empties_them ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/max_project_tokens.rs (target/debug/deps/max_project_tokens-8974588c4462b6f1)
+
+running 12 tests
+test a_cli_turn_is_given_what_the_api_calls_in_flight_have_not_reserved ... ok
+test a_config_without_it_loads_as_before_with_no_project_token_limit ... ok
+test a_negative_or_fractional_limit_is_not_a_limit ... ok
+test an_api_call_is_refused_and_not_queued_while_a_cli_turn_holds_the_project_tokens ... ok
+test the_setting_is_read_from_the_orchestrator_table ... ok
+test the_setting_survives_being_written_back ... ok
+test the_shipped_default_config_names_it_and_loads_without_it ... ok
+test the_tokens_one_call_used_are_counted_against_the_next_one ... ok
+test what_the_project_has_already_spent_comes_off_every_new_hold ... ok
+test a_call_that_cannot_fit_the_project_token_limit_is_refused_before_it_is_sent ... ok
+test api_calls_and_cli_turns_started_together_never_hold_more_than_the_project_limit ... ok
+test agents_started_together_cannot_jointly_pass_the_project_token_limit ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.71s
+
+     Running tests/memory_graph.rs (target/debug/deps/memory_graph-d3454d20715f3653)
+
+running 20 tests
+test a_duplicated_note_id_makes_one_node_whatever_the_order ... ok
+test a_note_whose_place_is_gone_attaches_to_global ... ok
+test a_title_is_the_whole_first_line ... ok
+test a_note_that_links_itself_gets_no_self_edge ... ok
+test empty_input_has_only_the_global_hub ... ok
+test every_note_attaches_to_its_place ... ok
+test links_both_ways_stay_two_edges ... ok
+test hubs_exist_only_for_folders_and_agents_that_exist ... ok
+test links_resolve_case_insensitively ... ok
+test malformed_brackets_are_ignored ... ok
+test no_edge_comes_from_similar_wording_or_partial_titles ... ok
+test note_nodes_carry_id_short_title_and_source ... ok
+test neighbours_are_hub_and_linked_notes_both_directions ... ok
+test repeated_links_collapse_to_one_edge ... ok
+test stats_count_nodes_and_edges ... ok
+test output_is_deterministic_whatever_the_input_order ... ok
+test titles_are_cut_to_sixty_characters_without_splitting_one ... ok
+test two_notes_with_one_title_are_both_linked ... ok
+test unknown_links_make_no_edge_and_no_node ... ok
+test three_hundred_notes_build_well_under_a_second ... ok
+
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/metrics.rs (target/debug/deps/metrics-63df50d0b36005dc)
+
+running 11 tests
+test a_task_that_never_goes_green_does_not_make_cost_to_green ... ok
+test an_empty_ledger_reports_zeros_and_no_ratios ... ok
+test cost_to_green_includes_every_retry_up_to_the_green_result ... ok
+test decision_model_spend_counts_toward_cost_but_is_not_a_model_call ... ok
+test escalation_rate_and_success_rate_count_tasks_not_events ... ok
+test finishing_a_task_that_was_never_started_still_counts_it ... ok
+test frontier_calls_are_counted_by_class_not_by_price ... ok
+test human_tokens_are_estimated_from_characters_and_split_into_typed_and_read ... ok
+test per_merged_figures_divide_by_merged_tickets ... ok
+test the_json_form_carries_every_metric_and_round_trips ... ok
+test no_escalations_means_no_success_rate_rather_than_zero ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/metrics_cli.rs (target/debug/deps/metrics_cli-4bddc8351c24bc79)
+
+running 1 test
+test a_cli_workers_turn_is_a_frontier_call_even_though_it_costs_nothing ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.45s
+
+     Running tests/metrics_e2e.rs (target/debug/deps/metrics_e2e-d4c0a29a24646724)
+
+running 4 tests
+test a_mid_model_turn_is_not_a_frontier_call ... ok
+test a_frontier_planner_turn_is_one_frontier_call_with_its_tokens_and_cost ... ok
+test the_file_only_ever_grows_by_whole_json_lines ... ok
+test the_harness_reports_the_same_numbers_it_wrote ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+
+     Running tests/model_class_policy.rs (target/debug/deps/model_class_policy-4dcf5000ce64a7cd)
+
+running 7 tests
+test selection_and_metrics_use_the_resolved_class ... ok
+test setting_both_class_keys_is_a_config_error ... ok
+test model_class_overrides_the_tier ... ok
+test shipped_default_models_follow_the_policy ... ok
+test the_older_class_key_still_overrides_the_tier ... ok
+test the_default_class_follows_the_tier_and_only_tier_4_is_frontier ... ok
+test an_invalid_model_class_is_a_config_error_not_a_tier_fallback ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/planning.rs (target/debug/deps/planning-c2a238cc2e4d1c52)
+
+running 31 tests
+test a_complete_plan_with_a_captured_baseline_passes ... ok
+test a_decision_model_can_refuse_a_passing_checklist_but_never_open_a_failing_one ... ok
+test a_bug_fix_baseline_is_a_repro_that_fails_today ... ok
+test a_plan_that_is_not_typed_right_is_refused_with_the_field ... ok
+test a_feature_baseline_is_every_acceptance_test_failing_today ... ok
+test a_refactor_baseline_is_the_suite_passing_with_its_numbers ... ok
+test a_ui_baseline_cannot_read_through_a_symlink_that_leaves_the_workspace ... ok
+test a_ui_baseline_is_screenshots_of_the_current_state_kept_with_their_hashes ... ok
+test a_changed_command_needs_its_own_approval ... ok
+test an_empty_section_is_refused_but_an_explicit_none_is_a_statement ... ok
+test a_research_task_cannot_submit_a_spec ... ok
+test a_changed_spec_after_the_yes_closes_the_gate_again ... ok
+test a_yes_is_for_one_exact_spec ... ok
+test approved_baseline_commands_run_and_the_spec_goes_to_the_user ... ok
+test only_a_plain_yes_is_a_yes ... ok
+test every_criterion_needs_its_own_test ... ok
+test placeholders_are_refused_wherever_they_are ... ok
+test research_has_no_baseline_and_no_spec ... ok
+test spec_md_is_generated_from_the_checklist_and_carries_the_baseline ... ok
+test the_checklist_has_the_seven_items_of_section_6_in_order ... ok
+test the_checklist_questions_are_typed_one_per_item ... ok
+test the_baseline_item_is_not_met_until_it_is_captured_and_holds ... ok
+test the_long_path_has_the_planning_tool_and_the_others_do_not ... ok
+test the_commands_a_baseline_would_run_are_listed_per_task_type ... ok
+test anything_but_a_yes_leaves_the_spec_unapproved ... ok
+test the_planning_contract_names_the_one_spec_m5_consumes ... ok
+test baseline_commands_do_not_run_before_the_user_approves_them ... ok
+test with_intake_off_the_planner_is_as_it_was ... ok
+test the_long_path_planner_is_offered_submit_spec_and_told_about_the_stage ... ok
+test the_long_path_plans_until_the_checklist_passes_then_waits_for_a_yes ... ok
+test the_question_waits_across_a_restart ... ok
+
+test result: ok. 31 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.67s
+
+     Running tests/planning_cli.rs (target/debug/deps/planning_cli-9097d2b6b3095b57)
+
+running 1 test
+test a_cli_planner_reaches_the_planning_stage_through_the_bridge ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+
+     Running tests/policy_integrity.rs (target/debug/deps/policy_integrity-514c8e040d485261)
+
+running 13 tests
+test a_file_that_tightens_one_thing_and_loosens_another_is_not_adopted_in_part ... ok
+test a_lock_that_cannot_be_read_stops_the_project_opening_rather_than_loosening_it ... ok
+test a_person_adopting_a_loosening_makes_it_take_effect_and_stay ... ok
+test a_command_that_leaves_the_policy_alone_is_not_reported ... ok
+test each_workspace_has_its_own_lock ... ok
+test every_way_of_loosening_is_ignored ... ok
+test ignoring_a_loosening_does_not_wear_off ... ok
+test the_first_open_adopts_the_file_and_keeps_the_lock_outside_the_workspace ... ok
+test a_person_editing_the_file_between_agent_actions_is_not_undone ... ok
+test tightening_is_adopted_and_loosening_is_ignored_with_a_warning ... ok
+test a_loosened_file_found_when_the_project_opens_is_not_in_force ... ok
+test the_lock_is_restored_after_a_command_that_rewrites_it ... ok
+test bash_cannot_weaken_the_policy_for_the_next_session ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.53s
+
+     Running tests/policy_integrity_cli.rs (target/debug/deps/policy_integrity_cli-c65d0ec9e91ef207)
+
+running 4 tests
+test a_delivery_that_leaves_the_policy_alone_is_still_auto_approved ... ok
+test a_cli_planner_cannot_weaken_the_policy_either ... ok
+test a_cli_worker_cannot_weaken_the_policy ... ok
+test a_merged_branch_that_edits_the_policy_is_held_even_under_auto_approve ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.66s
+
+     Running tests/policy_matrix.rs (target/debug/deps/policy_matrix-9b2ea6783abc14fd)
+
+running 17 tests
+test every_path_has_a_row ... ok
+test each_path_gets_the_phrase_it_has_earned_and_names_the_policy_it_is_checked_at ... ok
+test chats_direct_post_to_backspace_cloud_is_the_one_the_unmetered_scan_cannot_see ... ok
+test the_cli_model_section_keeps_five_kinds_of_statement_apart_in_order ... ok
+test every_policy_cell_uses_an_agreed_phrase ... ok
+test the_cli_model_section_matches_what_the_code_pins_and_what_it_calls_an_alias ... ok
+test the_document_states_what_max_project_tokens_costs ... ok
+test the_notes_keep_controls_recommendations_assumptions_limitations_and_future_work_apart ... ok
+test the_documents_never_promise_a_hard_budget_guarantee ... ok
+test the_paths_table_keeps_budget_and_policy_in_separate_columns ... ok
+test the_page_says_it_answers_two_questions_and_that_neither_is_read_from_the_other ... ok
+test the_remaining_limitation_column_names_what_each_path_still_cannot_do ... ok
+test the_strict_budget_section_separates_a_recommendation_from_an_enforced_setting_from_a_limit ... ok
+test every_place_that_posts_over_http_is_a_model_call_with_a_row_or_is_listed_as_not_one ... ok
+test what_is_not_verified_about_the_clis_is_named_one_by_one ... ok
+test the_strict_budget_section_and_the_jev_rows_say_the_same_things ... ok
+test every_assumption_and_limitation_the_review_named_is_written_down ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/policy_modes.rs (target/debug/deps/policy_modes-3b6e5fc972245b26)
+
+running 11 tests
+test an_empty_list_still_denies_everything ... ok
+test enforced_mode_needs_every_list ... ok
+test legacy_open_mode_is_a_note_not_a_warning ... ok
+test no_policy_opens_with_a_visible_warning ... ok
+test policy_init_reproduces_the_effective_permissions ... ok
+test a_policy_with_every_list_has_nothing_to_warn_about ... ok
+test the_shipped_default_file_is_not_a_policy ... ok
+test new_project_default_is_enforced_with_explicit_lists ... ok
+test skills_present_but_not_allowed_are_named ... ok
+test partial_policy_warns_for_each_open_list ... ok
+test user_enabled_local_models_stay_usable_under_an_execution_list ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s
+
+     Running tests/rampart.rs (target/debug/deps/rampart-c3e20b27ffb2618a)
+
+running 28 tests
+test a_signature_ignores_what_changes_between_identical_failures ... FAILED
+test a_suite_is_typed_and_its_shape_is_checked_before_anything_runs ... FAILED
+test a_suite_that_did_not_pass_vetting_cannot_be_sealed ... FAILED
+test a_test_that_does_not_fail_every_time_is_flaky_and_refused ... FAILED
+test a_vetted_suite_is_sealed_with_a_hash_per_file ... FAILED
+test a_test_that_passes_on_the_baseline_proves_nothing_and_is_refused ... FAILED
+test builder_waits_for_the_seal_and_the_first_suites_wait_for_a_person ... FAILED
+test builder_cannot_change_a_sealed_test ... FAILED
+test changed_lines_come_from_a_zero_context_diff ... FAILED
+test escalation_comes_sooner_when_a_frontier_call_is_expected_to_be_cheaper ... FAILED
+test every_test_runs_three_times_on_the_baseline_and_must_fail_every_time ... FAILED
+test mutants_change_one_operator_or_literal_on_a_changed_line ... FAILED
+test n_failures_on_cheap_rungs_escalate_once_then_a_human ... FAILED
+test after_the_spot_checks_a_suite_is_sealed_without_asking_and_the_lead_is_told ... FAILED
+test rampart_is_given_the_approved_spec_and_the_baseline_and_nothing_else ... FAILED
+test after_a_yes_the_suite_is_sealed_and_builder_works_against_it has been running for over 60 seconds
+test builder_waits_while_a_separate_rampart_writes_the_tests_from_the_spec_alone has been running for over 60 seconds
+test after_a_yes_the_suite_is_sealed_and_builder_works_against_it ... FAILED
+test sealed_tests_are_hash_locked ... FAILED
+test the_cheap_budget_spent_escalates ... FAILED
+test the_criteria_are_read_from_spec_md ... FAILED
+test the_digest_carries_what_the_frontier_and_the_human_need ... FAILED
+test the_mutation_score_is_the_share_of_mutants_the_sealed_tests_catch ... FAILED
+test the_rampart_settings_have_their_defaults_in_the_shipped_config ... ok
+test builder_waits_while_a_separate_rampart_writes_the_tests_from_the_spec_alone ... FAILED
+test the_same_failure_twice_in_a_row_is_stagnation ... FAILED
+test the_suite_hash_covers_paths_contents_and_commands ... FAILED
+test n_sealed_failures_escalate_once_to_the_frontier_with_a_digest_then_a_human has been running for over 60 seconds
+test rampart_may_only_read_its_checkout_and_submit_in_code has been running for over 60 seconds
+test the_same_failure_twice_escalates_at_once_and_the_frontier_can_finish ... FAILED
+test n_sealed_failures_escalate_once_to_the_frontier_with_a_digest_then_a_human ... FAILED
+test rampart_may_only_read_its_checkout_and_submit_in_code ... FAILED
+
+failures:
+
+---- a_signature_ignores_what_changes_between_identical_failures stdout ----
+
+thread 'a_signature_ignores_what_changes_between_identical_failures' (32399) panicked at crates/core/src/rampart.rs:271:5:
+not yet implemented
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: core::panicking::panic
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:150:5
+   3: backspace_core::rampart::signature
+             at ./src/rampart.rs:271:5
+   4: rampart::a_signature_ignores_what_changes_between_identical_failures
+             at ./tests/rampart.rs:306:13
+   5: rampart::a_signature_ignores_what_changes_between_identical_failures::{closure#0}
+             at ./tests/rampart.rs:305:65
+   6: <rampart::a_signature_ignores_what_changes_between_identical_failures::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   7: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- a_suite_is_typed_and_its_shape_is_checked_before_anything_runs stdout ----
+
+thread 'a_suite_is_typed_and_its_shape_is_checked_before_anything_runs' (32400) panicked at crates/core/src/rampart.rs:83:9:
+not yet implemented
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: core::panicking::panic
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:150:5
+   3: <backspace_core::rampart::Suite>::from_json
+             at ./src/rampart.rs:83:9
+   4: rampart::a_suite_is_typed_and_its_shape_is_checked_before_anything_runs
+             at ./tests/rampart.rs:93:13
+   5: rampart::a_suite_is_typed_and_its_shape_is_checked_before_anything_runs::{closure#0}
+             at ./tests/rampart.rs:92:68
+   6: <rampart::a_suite_is_typed_and_its_shape_is_checked_before_anything_runs::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   7: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- a_suite_that_did_not_pass_vetting_cannot_be_sealed stdout ----
+
+thread 'a_suite_that_did_not_pass_vetting_cannot_be_sealed' (32401) panicked at crates/core/src/rampart.rs:83:9:
+not yet implemented
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: core::panicking::panic
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:150:5
+   3: <backspace_core::rampart::Suite>::from_json
+             at ./src/rampart.rs:83:9
+   4: rampart::suite
+             at ./tests/rampart.rs:81:5
+   5: rampart::a_suite_that_did_not_pass_vetting_cannot_be_sealed
+             at ./tests/rampart.rs:248:13
+   6: rampart::a_suite_that_did_not_pass_vetting_cannot_be_sealed::{closure#0}
+             at ./tests/rampart.rs:244:56
+   7: <rampart::a_suite_that_did_not_pass_vetting_cannot_be_sealed::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   8: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- a_test_that_does_not_fail_every_time_is_flaky_and_refused stdout ----
+
+thread 'a_test_that_does_not_fail_every_time_is_flaky_and_refused' (32402) panicked at crates/core/src/rampart.rs:83:9:
+not yet implemented
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: core::panicking::panic
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:150:5
+   3: <backspace_core::rampart::Suite>::from_json
+             at ./src/rampart.rs:83:9
+   4: rampart::suite
+             at ./tests/rampart.rs:81:5
+   5: rampart::a_test_that_does_not_fail_every_time_is_flaky_and_refused
+             at ./tests/rampart.rs:202:41
+   6: rampart::a_test_that_does_not_fail_every_time_is_flaky_and_refused::{closure#0}
+             at ./tests/rampart.rs:197:63
+   7: <rampart::a_test_that_does_not_fail_every_time_is_flaky_and_refused::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   8: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- a_vetted_suite_is_sealed_with_a_hash_per_file stdout ----
+
+thread 'a_vetted_suite_is_sealed_with_a_hash_per_file' (32404) panicked at crates/core/src/rampart.rs:83:9:
+not yet implemented
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: core::panicking::panic
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:150:5
+   3: <backspace_core::rampart::Suite>::from_json
+             at ./src/rampart.rs:83:9
+   4: rampart::suite
+             at ./tests/rampart.rs:81:5
+   5: rampart::sealed
+             at ./tests/rampart.rs:214:13
+   6: rampart::a_vetted_suite_is_sealed_with_a_hash_per_file
+             at ./tests/rampart.rs:223:27
+   7: rampart::a_vetted_suite_is_sealed_with_a_hash_per_file::{closure#0}
+             at ./tests/rampart.rs:222:51
+   8: <rampart::a_vetted_suite_is_sealed_with_a_hash_per_file::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   9: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- a_test_that_passes_on_the_baseline_proves_nothing_and_is_refused stdout ----
+
+thread 'a_test_that_passes_on_the_baseline_proves_nothing_and_is_refused' (32403) panicked at crates/core/src/rampart.rs:83:9:
+not yet implemented
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: core::panicking::panic
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:150:5
+   3: <backspace_core::rampart::Suite>::from_json
+             at ./src/rampart.rs:83:9
+   4: rampart::suite
+             at ./tests/rampart.rs:81:5
+   5: rampart::a_test_that_passes_on_the_baseline_proves_nothing_and_is_refused
+             at ./tests/rampart.rs:188:41
+   6: rampart::a_test_that_passes_on_the_baseline_proves_nothing_and_is_refused::{closure#0}
+             at ./tests/rampart.rs:184:70
+   7: <rampart::a_test_that_passes_on_the_baseline_proves_nothing_and_is_refused::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   8: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- builder_waits_for_the_seal_and_the_first_suites_wait_for_a_person stdout ----
+
+thread 'builder_waits_for_the_seal_and_the_first_suites_wait_for_a_person' (32410) panicked at crates/core/src/rampart.rs:239:5:
+not yet implemented
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: core::panicking::panic
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:150:5
+   3: backspace_core::rampart::work_refusal
+             at ./src/rampart.rs:239:5
+   4: rampart::builder_waits_for_the_seal_and_the_first_suites_wait_for_a_person
+             at ./tests/rampart.rs:274:15
+   5: rampart::builder_waits_for_the_seal_and_the_first_suites_wait_for_a_person::{closure#0}
+             at ./tests/rampart.rs:272:71
+   6: <rampart::builder_waits_for_the_seal_and_the_first_suites_wait_for_a_person::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   7: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- builder_cannot_change_a_sealed_test stdout ----
+
+thread 'builder_cannot_change_a_sealed_test' (32409) panicked at crates/core/tests/rampart.rs:869:5:
+the write is refused: wrote 7 bytes to tests/a1.sh
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: rampart::builder_cannot_change_a_sealed_test
+             at ./tests/rampart.rs:869:5
+   3: rampart::builder_cannot_change_a_sealed_test::{closure#0}
+             at ./tests/rampart.rs:853:41
+   4: <rampart::builder_cannot_change_a_sealed_test::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   5: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- changed_lines_come_from_a_zero_context_diff stdout ----
+
+thread 'changed_lines_come_from_a_zero_context_diff' (32728) panicked at crates/core/src/rampart.rs:348:5:
+not yet implemented
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: core::panicking::panic
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:150:5
+   3: backspace_core::rampart::changed_lines
+             at ./src/rampart.rs:348:5
+   4: rampart::changed_lines_come_from_a_zero_context_diff
+             at ./tests/rampart.rs:414:16
+   5: rampart::changed_lines_come_from_a_zero_context_diff::{closure#0}
+             at ./tests/rampart.rs:412:49
+   6: <rampart::changed_lines_come_from_a_zero_context_diff::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   7: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- escalation_comes_sooner_when_a_frontier_call_is_expected_to_be_cheaper stdout ----
+
+thread 'escalation_comes_sooner_when_a_frontier_call_is_expected_to_be_cheaper' (32729) panicked at crates/core/src/rampart.rs:265:5:
+not yet implemented
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: core::panicking::panic
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:150:5
+   3: backspace_core::rampart::attempt
+             at ./src/rampart.rs:265:5
+   4: rampart::fail
+             at ./tests/rampart.rs:301:5
+   5: rampart::escalation_comes_sooner_when_a_frontier_call_is_expected_to_be_cheaper
+             at ./tests/rampart.rs:362:20
+   6: rampart::escalation_comes_sooner_when_a_frontier_call_is_expected_to_be_cheaper::{closure#0}
+             at ./tests/rampart.rs:358:76
+   7: <rampart::escalation_comes_sooner_when_a_frontier_call_is_expected_to_be_cheaper::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   8: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- every_test_runs_three_times_on_the_baseline_and_must_fail_every_time stdout ----
+
+thread 'every_test_runs_three_times_on_the_baseline_and_must_fail_every_time' (32730) panicked at crates/core/src/rampart.rs:83:9:
+not yet implemented
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: core::panicking::panic
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:150:5
+   3: <backspace_core::rampart::Suite>::from_json
+             at ./src/rampart.rs:83:9
+   4: rampart::suite
+             at ./tests/rampart.rs:81:5
+   5: rampart::every_test_runs_three_times_on_the_baseline_and_must_fail_every_time
+             at ./tests/rampart.rs:170:41
+   6: rampart::every_test_runs_three_times_on_the_baseline_and_must_fail_every_time::{closure#0}
+             at ./tests/rampart.rs:168:74
+   7: <rampart::every_test_runs_three_times_on_the_baseline_and_must_fail_every_time::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   8: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- mutants_change_one_operator_or_literal_on_a_changed_line stdout ----
+
+thread 'mutants_change_one_operator_or_literal_on_a_changed_line' (32731) panicked at crates/core/src/rampart.rs:343:5:
+not yet implemented
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: core::panicking::panic
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:150:5
+   3: backspace_core::rampart::mutants
+             at ./src/rampart.rs:343:5
+   4: rampart::mutants_change_one_operator_or_literal_on_a_changed_line
+             at ./tests/rampart.rs:394:15
+   5: rampart::mutants_change_one_operator_or_literal_on_a_changed_line::{closure#0}
+             at ./tests/rampart.rs:392:62
+   6: <rampart::mutants_change_one_operator_or_literal_on_a_changed_line::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   7: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- n_failures_on_cheap_rungs_escalate_once_then_a_human stdout ----
+
+thread 'n_failures_on_cheap_rungs_escalate_once_then_a_human' (32732) panicked at crates/core/src/rampart.rs:265:5:
+not yet implemented
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: core::panicking::panic
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:150:5
+   3: backspace_core::rampart::attempt
+             at ./src/rampart.rs:265:5
+   4: rampart::fail
+             at ./tests/rampart.rs:301:5
+   5: rampart::n_failures_on_cheap_rungs_escalate_once_then_a_human
+             at ./tests/rampart.rs:317:25
+   6: rampart::n_failures_on_cheap_rungs_escalate_once_then_a_human::{closure#0}
+             at ./tests/rampart.rs:314:58
+   7: <rampart::n_failures_on_cheap_rungs_escalate_once_then_a_human::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   8: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- after_the_spot_checks_a_suite_is_sealed_without_asking_and_the_lead_is_told stdout ----
+
+thread 'after_the_spot_checks_a_suite_is_sealed_without_asking_and_the_lead_is_told' (32407) panicked at crates/core/tests/rampart.rs:812:39:
+sealed
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: core::panicking::panic_display::<&str>
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:259:5
+   3: core::option::expect_failed
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/option.rs:2257:5
+   4: <core::option::Option<backspace_core::rampart::Seal>>::expect
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/option.rs:968:21
+   5: rampart::after_the_spot_checks_a_suite_is_sealed_without_asking_and_the_lead_is_told
+             at ./tests/rampart.rs:812:39
+   6: rampart::after_the_spot_checks_a_suite_is_sealed_without_asking_and_the_lead_is_told::{closure#0}
+             at ./tests/rampart.rs:809:81
+   7: <rampart::after_the_spot_checks_a_suite_is_sealed_without_asking_and_the_lead_is_told::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   8: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- rampart_is_given_the_approved_spec_and_the_baseline_and_nothing_else stdout ----
+
+thread 'rampart_is_given_the_approved_spec_and_the_baseline_and_nothing_else' (32747) panicked at crates/core/src/rampart.rs:113:5:
+not yet implemented
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: core::panicking::panic
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:150:5
+   3: backspace_core::rampart::brief
+             at ./src/rampart.rs:113:5
+   4: rampart::rampart_is_given_the_approved_spec_and_the_baseline_and_nothing_else
+             at ./tests/rampart.rs:144:13
+   5: rampart::rampart_is_given_the_approved_spec_and_the_baseline_and_nothing_else::{closure#0}
+             at ./tests/rampart.rs:141:74
+   6: <rampart::rampart_is_given_the_approved_spec_and_the_baseline_and_nothing_else::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   7: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- after_a_yes_the_suite_is_sealed_and_builder_works_against_it stdout ----
+
+thread 'after_a_yes_the_suite_is_sealed_and_builder_works_against_it' (32405) panicked at crates/core/tests/rampart.rs:685:9:
+timed out waiting for the suite: [
+    (
+        "main",
+        Idle,
+        [
+            LogEntry {
+                kind: Assistant,
+                text: "waiting",
+            },
+            LogEntry {
+                kind: ToolResult,
+                text: "## `greet` Write app.sh: APPROVED by the user and merged ($0.000)\nwrote app.sh\nFiles: app.sh\napp.sh | 2 ++\n 1 file changed, 2 insertions(+)",
+            },
+            LogEntry {
+                kind: ToolCall,
+                text: "work_tickets {}",
+            },
+            LogEntry {
+                kind: ToolResult,
+                text: "Created greet. Dispatch them with work_tickets.",
+            },
+            LogEntry {
+                kind: ToolCall,
+                text: "create_tickets {\"tickets\":[{\"acceptance\":[\"app.sh prints hello\"],\"key\":\"greet\",\"title\":\"Write app.sh\",\"what_to_build\":\"app.sh prints hello\"}]}",
+            },
+            LogEntry {
+                kind: System,
+                text: "You approved .backspace/planning/spec.md; the planner may make tickets from it.",
+            },
+        ],
+    ),
+    (
+        "greet#1",
+        Approved,
+        [
+            LogEntry {
+                kind: ToolResult,
+                text: "Auto-approved.",
+            },
+            LogEntry {
+                kind: ToolCall,
+                text: "submit_deliverable {\"assumptions\":[],\"checks_run\":[],\"files\":[\"app.sh\"],\"open_questions\":[],\"summary\":\"wrote app.sh\"}",
+            },
+            LogEntry {
+                kind: ToolResult,
+                text: "wrote 43 bytes to app.sh",
+            },
+            LogEntry {
+                kind: ToolCall,
+                text: "write {\"content\":\"x=1\\nif [ \\\"$x\\\" = \\\"1\\\" ]; then echo hello; fi\\n\",\"path\":\"app.sh\"}",
+            },
+            LogEntry {
+                kind: User,
+                text: "# greet: Write app.sh\n\n**Category:** Task\n\n**What to build:**\napp.sh prints hello\n\n**Acceptance criteria:**\n- [ ] app.sh prints hello\n\n\n# Your handoff: read these before you start\n\nIn your directory, under `.backspace/handoff/greet/`:\n- `request.md`: the person's own words, verbatim: the original request and 2 later message(s) or decision(s). It says what they want.\n- `ticket-greet.md`: your ticket\n\nThe request and the spec are not the same thing: one is what the person wants, the other what was agreed. Where they disagree, ask `main` instead of choosing.\n\n# The original request, verbatim\n\n```text\nbuild a dashboard system platform across several services\n```\n",
+            },
+            LogEntry {
+                kind: System,
+                text: "working on branch `backspace/greet` from `backspace/run`",
+            },
+        ],
+    ),
+]
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: rampart::wait::<rampart::after_a_yes_the_suite_is_sealed_and_builder_works_against_it::{closure#0}>
+             at ./tests/rampart.rs:685:9
+   3: rampart::after_a_yes_the_suite_is_sealed_and_builder_works_against_it
+             at ./tests/rampart.rs:774:5
+   4: rampart::after_a_yes_the_suite_is_sealed_and_builder_works_against_it::{closure#0}
+             at ./tests/rampart.rs:772:66
+   5: <rampart::after_a_yes_the_suite_is_sealed_and_builder_works_against_it::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   6: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- sealed_tests_are_hash_locked stdout ----
+
+thread 'sealed_tests_are_hash_locked' (405) panicked at crates/core/src/rampart.rs:83:9:
+not yet implemented
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: core::panicking::panic
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:150:5
+   3: <backspace_core::rampart::Suite>::from_json
+             at ./src/rampart.rs:83:9
+   4: rampart::suite
+             at ./tests/rampart.rs:81:5
+   5: rampart::sealed
+             at ./tests/rampart.rs:214:13
+   6: rampart::sealed_tests_are_hash_locked
+             at ./tests/rampart.rs:256:27
+   7: rampart::sealed_tests_are_hash_locked::{closure#0}
+             at ./tests/rampart.rs:255:34
+   8: <rampart::sealed_tests_are_hash_locked::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   9: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- the_cheap_budget_spent_escalates stdout ----
+
+thread 'the_cheap_budget_spent_escalates' (406) panicked at crates/core/src/rampart.rs:265:5:
+not yet implemented
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: core::panicking::panic
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:150:5
+   3: backspace_core::rampart::attempt
+             at ./src/rampart.rs:265:5
+   4: rampart::fail
+             at ./tests/rampart.rs:301:5
+   5: rampart::the_cheap_budget_spent_escalates
+             at ./tests/rampart.rs:347:25
+   6: rampart::the_cheap_budget_spent_escalates::{closure#0}
+             at ./tests/rampart.rs:344:38
+   7: <rampart::the_cheap_budget_spent_escalates::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   8: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- the_criteria_are_read_from_spec_md stdout ----
+
+thread 'the_criteria_are_read_from_spec_md' (407) panicked at crates/core/src/rampart.rs:94:5:
+not yet implemented
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: core::panicking::panic
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:150:5
+   3: backspace_core::rampart::criteria
+             at ./src/rampart.rs:94:5
+   4: rampart::the_criteria_are_read_from_spec_md
+             at ./tests/rampart.rs:88:16
+   5: rampart::the_criteria_are_read_from_spec_md::{closure#0}
+             at ./tests/rampart.rs:87:40
+   6: <rampart::the_criteria_are_read_from_spec_md::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   7: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- the_digest_carries_what_the_frontier_and_the_human_need stdout ----
+
+thread 'the_digest_carries_what_the_frontier_and_the_human_need' (408) panicked at crates/core/src/rampart.rs:83:9:
+not yet implemented
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: core::panicking::panic
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:150:5
+   3: <backspace_core::rampart::Suite>::from_json
+             at ./src/rampart.rs:83:9
+   4: rampart::suite
+             at ./tests/rampart.rs:81:5
+   5: rampart::sealed
+             at ./tests/rampart.rs:214:13
+   6: rampart::the_digest_carries_what_the_frontier_and_the_human_need
+             at ./tests/rampart.rs:373:24
+   7: rampart::the_digest_carries_what_the_frontier_and_the_human_need::{closure#0}
+             at ./tests/rampart.rs:372:61
+   8: <rampart::the_digest_carries_what_the_frontier_and_the_human_need::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   9: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- the_mutation_score_is_the_share_of_mutants_the_sealed_tests_catch stdout ----
+
+thread 'the_mutation_score_is_the_share_of_mutants_the_sealed_tests_catch' (409) panicked at crates/core/src/rampart.rs:83:9:
+not yet implemented
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: core::panicking::panic
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:150:5
+   3: <backspace_core::rampart::Suite>::from_json
+             at ./src/rampart.rs:83:9
+   4: rampart::suite
+             at ./tests/rampart.rs:81:5
+   5: rampart::sealed
+             at ./tests/rampart.rs:214:13
+   6: rampart::the_mutation_score_is_the_share_of_mutants_the_sealed_tests_catch
+             at ./tests/rampart.rs:419:27
+   7: rampart::the_mutation_score_is_the_share_of_mutants_the_sealed_tests_catch::{closure#0}
+             at ./tests/rampart.rs:418:71
+   8: <rampart::the_mutation_score_is_the_share_of_mutants_the_sealed_tests_catch::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   9: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- builder_waits_while_a_separate_rampart_writes_the_tests_from_the_spec_alone stdout ----
+
+thread 'builder_waits_while_a_separate_rampart_writes_the_tests_from_the_spec_alone' (32412) panicked at crates/core/tests/rampart.rs:685:9:
+timed out waiting for the suite to be put to the user: [
+    (
+        "main",
+        Idle,
+        [
+            LogEntry {
+                kind: Assistant,
+                text: "waiting",
+            },
+            LogEntry {
+                kind: ToolResult,
+                text: "## `greet` Write app.sh: APPROVED by the user and merged ($0.000)\nwrote app.sh\nFiles: app.sh\napp.sh | 2 ++\n 1 file changed, 2 insertions(+)",
+            },
+            LogEntry {
+                kind: ToolCall,
+                text: "work_tickets {}",
+            },
+            LogEntry {
+                kind: ToolResult,
+                text: "Created greet. Dispatch them with work_tickets.",
+            },
+            LogEntry {
+                kind: ToolCall,
+                text: "create_tickets {\"tickets\":[{\"acceptance\":[\"app.sh prints hello\"],\"key\":\"greet\",\"title\":\"Write app.sh\",\"what_to_build\":\"app.sh prints hello\"}]}",
+            },
+            LogEntry {
+                kind: System,
+                text: "You approved .backspace/planning/spec.md; the planner may make tickets from it.",
+            },
+        ],
+    ),
+    (
+        "greet#1",
+        Approved,
+        [
+            LogEntry {
+                kind: ToolResult,
+                text: "Auto-approved.",
+            },
+            LogEntry {
+                kind: ToolCall,
+                text: "submit_deliverable {\"assumptions\":[],\"checks_run\":[],\"files\":[\"app.sh\"],\"open_questions\":[],\"summary\":\"wrote app.sh\"}",
+            },
+            LogEntry {
+                kind: ToolResult,
+                text: "wrote 43 bytes to app.sh",
+            },
+            LogEntry {
+                kind: ToolCall,
+                text: "write {\"content\":\"x=1\\nif [ \\\"$x\\\" = \\\"1\\\" ]; then echo hello; fi\\n\",\"path\":\"app.sh\"}",
+            },
+            LogEntry {
+                kind: User,
+                text: "# greet: Write app.sh\n\n**Category:** Task\n\n**What to build:**\napp.sh prints hello\n\n**Acceptance criteria:**\n- [ ] app.sh prints hello\n\n\n# Your handoff: read these before you start\n\nIn your directory, under `.backspace/handoff/greet/`:\n- `request.md`: the person's own words, verbatim: the original request and 2 later message(s) or decision(s). It says what they want.\n- `ticket-greet.md`: your ticket\n\nThe request and the spec are not the same thing: one is what the person wants, the other what was agreed. Where they disagree, ask `main` instead of choosing.\n\n# The original request, verbatim\n\n```text\nbuild a dashboard system platform across several services\n```\n",
+            },
+            LogEntry {
+                kind: System,
+                text: "working on branch `backspace/greet` from `backspace/run`",
+            },
+        ],
+    ),
+]
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: rampart::wait::<rampart::builder_waits_while_a_separate_rampart_writes_the_tests_from_the_spec_alone::{closure#0}>
+             at ./tests/rampart.rs:685:9
+   3: rampart::builder_waits_while_a_separate_rampart_writes_the_tests_from_the_spec_alone
+             at ./tests/rampart.rs:731:13
+   4: rampart::builder_waits_while_a_separate_rampart_writes_the_tests_from_the_spec_alone::{closure#0}
+             at ./tests/rampart.rs:729:81
+   5: <rampart::builder_waits_while_a_separate_rampart_writes_the_tests_from_the_spec_alone::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   6: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- the_same_failure_twice_in_a_row_is_stagnation stdout ----
+
+thread 'the_same_failure_twice_in_a_row_is_stagnation' (422) panicked at crates/core/src/rampart.rs:265:5:
+not yet implemented
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: core::panicking::panic
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:150:5
+   3: backspace_core::rampart::attempt
+             at ./src/rampart.rs:265:5
+   4: rampart::fail
+             at ./tests/rampart.rs:301:5
+   5: rampart::the_same_failure_twice_in_a_row_is_stagnation
+             at ./tests/rampart.rs:332:25
+   6: rampart::the_same_failure_twice_in_a_row_is_stagnation::{closure#0}
+             at ./tests/rampart.rs:329:51
+   7: <rampart::the_same_failure_twice_in_a_row_is_stagnation::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   8: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- the_suite_hash_covers_paths_contents_and_commands stdout ----
+
+thread 'the_suite_hash_covers_paths_contents_and_commands' (423) panicked at crates/core/src/rampart.rs:83:9:
+not yet implemented
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: core::panicking::panic
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:150:5
+   3: <backspace_core::rampart::Suite>::from_json
+             at ./src/rampart.rs:83:9
+   4: rampart::suite
+             at ./tests/rampart.rs:81:5
+   5: rampart::the_suite_hash_covers_paths_contents_and_commands
+             at ./tests/rampart.rs:121:13
+   6: rampart::the_suite_hash_covers_paths_contents_and_commands::{closure#0}
+             at ./tests/rampart.rs:120:55
+   7: <rampart::the_suite_hash_covers_paths_contents_and_commands::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   8: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- the_same_failure_twice_escalates_at_once_and_the_frontier_can_finish stdout ----
+
+thread 'the_same_failure_twice_escalates_at_once_and_the_frontier_can_finish' (411) panicked at crates/core/tests/rampart.rs:906:30:
+no entry found for key
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: core::panicking::panic_display::<&str>
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:259:5
+   3: core::option::expect_failed
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/option.rs:2257:5
+   4: <core::option::Option<&backspace_core::rampart::Limit>>::expect
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/option.rs:968:21
+   5: <alloc::collections::btree::map::BTreeMap<alloc::string::String, backspace_core::rampart::Limit> as core::ops::index::Index<&str>>::index
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/alloc/src/collections/btree/map.rs:2652:23
+   6: rampart::the_same_failure_twice_escalates_at_once_and_the_frontier_can_finish
+             at ./tests/rampart.rs:906:30
+   7: rampart::the_same_failure_twice_escalates_at_once_and_the_frontier_can_finish::{closure#0}
+             at ./tests/rampart.rs:903:74
+   8: <rampart::the_same_failure_twice_escalates_at_once_and_the_frontier_can_finish::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   9: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- n_sealed_failures_escalate_once_to_the_frontier_with_a_digest_then_a_human stdout ----
+
+thread 'n_sealed_failures_escalate_once_to_the_frontier_with_a_digest_then_a_human' (32733) panicked at crates/core/tests/rampart.rs:685:9:
+timed out waiting for the hand-off: [
+    (
+        "main",
+        Idle,
+        [
+            LogEntry {
+                kind: Assistant,
+                text: "waiting",
+            },
+            LogEntry {
+                kind: ToolResult,
+                text: "## `greet` Write app.sh: APPROVED by the user and merged ($0.000)\nwrote app.sh\nFiles: app.sh\napp.sh | 2 ++\n 1 file changed, 2 insertions(+)",
+            },
+            LogEntry {
+                kind: ToolCall,
+                text: "work_tickets {}",
+            },
+            LogEntry {
+                kind: ToolResult,
+                text: "Created greet. Dispatch them with work_tickets.",
+            },
+            LogEntry {
+                kind: ToolCall,
+                text: "create_tickets {\"tickets\":[{\"acceptance\":[\"app.sh prints hello\"],\"key\":\"greet\",\"title\":\"Write app.sh\",\"what_to_build\":\"app.sh prints hello\"}]}",
+            },
+            LogEntry {
+                kind: System,
+                text: "You approved .backspace/planning/spec.md; the planner may make tickets from it.",
+            },
+        ],
+    ),
+    (
+        "greet#1",
+        Approved,
+        [
+            LogEntry {
+                kind: ToolResult,
+                text: "Auto-approved.",
+            },
+            LogEntry {
+                kind: ToolCall,
+                text: "submit_deliverable {\"assumptions\":[],\"checks_run\":[],\"files\":[\"app.sh\"],\"open_questions\":[],\"summary\":\"wrote app.sh\"}",
+            },
+            LogEntry {
+                kind: ToolResult,
+                text: "wrote 43 bytes to app.sh",
+            },
+            LogEntry {
+                kind: ToolCall,
+                text: "write {\"content\":\"x=1\\nif [ \\\"$x\\\" = \\\"1\\\" ]; then echo apple; fi\\n\",\"path\":\"app.sh\"}",
+            },
+            LogEntry {
+                kind: User,
+                text: "# greet: Write app.sh\n\n**Category:** Task\n\n**What to build:**\napp.sh prints hello\n\n**Acceptance criteria:**\n- [ ] app.sh prints hello\n\n\n# Your handoff: read these before you start\n\nIn your directory, under `.backspace/handoff/greet/`:\n- `request.md`: the person's own words, verbatim: the original request and 2 later message(s) or decision(s). It says what they want.\n- `ticket-greet.md`: your ticket\n\nThe request and the spec are not the same thing: one is what the person wants, the other what was agreed. Where they disagree, ask `main` instead of choosing.\n\n# The original request, verbatim\n\n```text\nbuild a dashboard system platform across several services\n```\n",
+            },
+            LogEntry {
+                kind: System,
+                text: "working on branch `backspace/greet` from `backspace/run`",
+            },
+        ],
+    ),
+]
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: rampart::wait::<rampart::n_sealed_failures_escalate_once_to_the_frontier_with_a_digest_then_a_human::{closure#0}>
+             at ./tests/rampart.rs:685:9
+   3: rampart::n_sealed_failures_escalate_once_to_the_frontier_with_a_digest_then_a_human
+             at ./tests/rampart.rs:877:13
+   4: rampart::n_sealed_failures_escalate_once_to_the_frontier_with_a_digest_then_a_human::{closure#0}
+             at ./tests/rampart.rs:875:80
+   5: <rampart::n_sealed_failures_escalate_once_to_the_frontier_with_a_digest_then_a_human::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   6: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- rampart_may_only_read_its_checkout_and_submit_in_code stdout ----
+
+thread 'rampart_may_only_read_its_checkout_and_submit_in_code' (32749) panicked at crates/core/tests/rampart.rs:685:9:
+timed out waiting for the suite: [
+    (
+        "main",
+        Idle,
+        [
+            LogEntry {
+                kind: Assistant,
+                text: "waiting",
+            },
+            LogEntry {
+                kind: ToolResult,
+                text: "## `greet` Write app.sh: FAILED ($0.000)\nagent stopped without calling submit_deliverable",
+            },
+            LogEntry {
+                kind: ToolCall,
+                text: "work_tickets {}",
+            },
+            LogEntry {
+                kind: ToolResult,
+                text: "Created greet. Dispatch them with work_tickets.",
+            },
+            LogEntry {
+                kind: ToolCall,
+                text: "create_tickets {\"tickets\":[{\"acceptance\":[\"app.sh prints hello\"],\"key\":\"greet\",\"title\":\"Write app.sh\",\"what_to_build\":\"app.sh prints hello\"}]}",
+            },
+            LogEntry {
+                kind: System,
+                text: "You approved .backspace/planning/spec.md; the planner may make tickets from it.",
+            },
+        ],
+    ),
+    (
+        "greet#1",
+        Failed,
+        [
+            LogEntry {
+                kind: Error,
+                text: "agent stopped without calling submit_deliverable",
+            },
+            LogEntry {
+                kind: System,
+                text: "You ended your turn without calling submit_deliverable. Finish, then call submit_deliverable.",
+            },
+            LogEntry {
+                kind: Assistant,
+                text: "?",
+            },
+            LogEntry {
+                kind: System,
+                text: "You ended your turn without calling submit_deliverable. Finish, then call submit_deliverable.",
+            },
+            LogEntry {
+                kind: Assistant,
+                text: "?",
+            },
+            LogEntry {
+                kind: User,
+                text: "# greet: Write app.sh\n\n**Category:** Task\n\n**What to build:**\napp.sh prints hello\n\n**Acceptance criteria:**\n- [ ] app.sh prints hello\n\n\n# Your handoff: read these before you start\n\nIn your directory, under `.backspace/handoff/greet/`:\n- `request.md`: the person's own words, verbatim: the original request and 2 later message(s) or decision(s). It says what they want.\n- `ticket-greet.md`: your ticket\n\nThe request and the spec are not the same thing: one is what the person wants, the other what was agreed. Where they disagree, ask `main` instead of choosing.\n\n# The original request, verbatim\n\n```text\nbuild a dashboard system platform across several services\n```\n",
+            },
+        ],
+    ),
+]
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: rampart::wait::<rampart::rampart_may_only_read_its_checkout_and_submit_in_code::{closure#3}>
+             at ./tests/rampart.rs:685:9
+   3: rampart::rampart_may_only_read_its_checkout_and_submit_in_code
+             at ./tests/rampart.rs:842:5
+   4: rampart::rampart_may_only_read_its_checkout_and_submit_in_code::{closure#0}
+             at ./tests/rampart.rs:820:59
+   5: <rampart::rampart_may_only_read_its_checkout_and_submit_in_code::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   6: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+
+failures:
+    a_signature_ignores_what_changes_between_identical_failures
+    a_suite_is_typed_and_its_shape_is_checked_before_anything_runs
+    a_suite_that_did_not_pass_vetting_cannot_be_sealed
+    a_test_that_does_not_fail_every_time_is_flaky_and_refused
+    a_test_that_passes_on_the_baseline_proves_nothing_and_is_refused
+    a_vetted_suite_is_sealed_with_a_hash_per_file
+    after_a_yes_the_suite_is_sealed_and_builder_works_against_it
+    after_the_spot_checks_a_suite_is_sealed_without_asking_and_the_lead_is_told
+    builder_cannot_change_a_sealed_test
+    builder_waits_for_the_seal_and_the_first_suites_wait_for_a_person
+    builder_waits_while_a_separate_rampart_writes_the_tests_from_the_spec_alone
+    changed_lines_come_from_a_zero_context_diff
+    escalation_comes_sooner_when_a_frontier_call_is_expected_to_be_cheaper
+    every_test_runs_three_times_on_the_baseline_and_must_fail_every_time
+    mutants_change_one_operator_or_literal_on_a_changed_line
+    n_failures_on_cheap_rungs_escalate_once_then_a_human
+    n_sealed_failures_escalate_once_to_the_frontier_with_a_digest_then_a_human
+    rampart_is_given_the_approved_spec_and_the_baseline_and_nothing_else
+    rampart_may_only_read_its_checkout_and_submit_in_code
+    sealed_tests_are_hash_locked
+    the_cheap_budget_spent_escalates
+    the_criteria_are_read_from_spec_md
+    the_digest_carries_what_the_frontier_and_the_human_need
+    the_mutation_score_is_the_share_of_mutants_the_sealed_tests_catch
+    the_same_failure_twice_escalates_at_once_and_the_frontier_can_finish
+    the_same_failure_twice_in_a_row_is_stagnation
+    the_suite_hash_covers_paths_contents_and_commands
+
+test result: FAILED. 1 passed; 27 failed; 0 ignored; 0 measured; 0 filtered out; finished in 60.78s
+
+error: test failed, to rerun pass `-p backspace-core --test rampart`
+     Running tests/resume.rs (target/debug/deps/resume-d68984b33efb0679)
+
+running 1 test
+test interrupted_replies_resume ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.15s
+
+     Running tests/router_budget.rs (target/debug/deps/router_budget-7ce79b057925f1bf)
+
+running 5 tests
+test a_refused_reservation_means_jev_is_never_called ... ok
+test only_a_router_without_a_budget_is_unmetered ... ok
+test the_reservation_covers_the_request_that_is_sent_and_is_released_after ... ok
+test a_project_with_room_calls_jev_and_its_cost_counts_toward_the_limit ... ok
+test a_project_too_close_to_its_limit_does_not_call_jev ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+     Running tests/router_policy.rs (target/debug/deps/router_policy-6213f0a0377a5479)
+
+running 9 tests
+test a_project_with_only_frontier_models_still_routes ... ok
+test a_long_task_is_planned_on_a_frontier_model_at_high_effort ... ok
+test a_one_shot_task_is_planned_on_a_mid_model_not_a_frontier_one ... ok
+test a_pinned_planner_model_still_wins ... ok
+test an_unclear_task_starts_mid_and_is_marked_for_asking ... ok
+test a_research_task_is_planned_on_a_mid_model ... ok
+test workers_are_not_classified_by_the_planner_policy ... ok
+test swapping_the_decider_changes_where_the_planner_starts ... ok
+test the_threshold_in_the_config_decides_what_counts_as_unsure ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+     Running tests/routing_policy.rs (target/debug/deps/routing_policy-e7c28285647b533a)
+
+running 18 tests
+test a_generated_policy_names_the_configured_routing_model ... ok
+test a_list_the_person_wrote_is_not_widened ... ok
+test a_new_project_is_enforced_and_lets_its_configured_router_run ... ok
+test adding_a_routing_model_is_a_loosening_that_waits_for_a_person ... ok
+test an_enforced_policy_allows_only_the_routing_models_it_names ... ok
+test a_named_routing_model_is_called ... ok
+test dropping_enforcement_while_the_list_is_absent_is_a_loosening ... ok
+test leaving_the_list_out_of_an_enforced_file_is_not_a_loosening ... ok
+test a_project_that_does_not_name_its_routing_model_says_so_when_it_opens_and_never_calls_jev ... ok
+test a_project_that_names_it_routes_through_jev ... ok
+test removing_a_routing_model_tightens_and_is_adopted_by_itself ... ok
+test an_enforced_policy_that_does_not_name_it_never_calls_jev_and_the_heuristic_decides ... ok
+test the_routing_model_is_matched_exactly ... ok
+test under_an_enforced_policy_no_list_and_an_empty_list_both_allow_nothing ... ok
+test without_an_enforced_policy_the_routing_model_is_open_unless_a_list_says_otherwise ... ok
+test the_routing_list_does_not_widen_what_jev_may_choose ... ok
+test naming_jev_in_the_ordinary_role_lists_does_not_permit_it ... ok
+test legacy_and_open_configurations_still_call_jev ... ok
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s
+
+     Running tests/spec_gate.rs (target/debug/deps/spec_gate-70a68ced013a5d55)
+
+running 1 test
+test the_gate_refuses_twice_then_opens ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s
+
+     Running tests/unmetered.rs (target/debug/deps/unmetered-2539bcc1049955cb)
+
+running 4 tests
+test every_declared_boundary_is_written_down ... ok
+test the_list_of_reasons_is_closed ... ok
+test unmetered_is_only_used_where_declared ... ok
+test every_place_that_sends_a_model_call_carries_an_authorization ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/usage_tools.rs (target/debug/deps/usage_tools-5e583bc8ba6e60c5)
+
+running 8 tests
+test a_home_with_no_logs_has_no_tools ... ok
+test a_tool_whose_folder_is_missing_is_left_out_not_zeroed ... ok
+test logs_older_than_the_week_count_for_neither_window ... ok
+test codex_today_and_week_come_from_its_rollouts ... ok
+test the_summary_holds_no_prompt_text_and_no_limit_cost_or_reset ... ok
+test claude_code_today_and_week_come_from_its_logs ... ok
+test tools_are_listed_in_a_fixed_order ... ok
+test opencode_reads_its_database_read_only ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/webhook.rs (target/debug/deps/webhook-d266a9e525d7330a)
+
+running 2 tests
+test a_webhook_wakes_only_its_bot ... ok
+test the_phone_cannot_read_agent_or_group_threads ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.24s
+
+     Running tests/workspace_boundary.rs (target/debug/deps/workspace_boundary-ce5cc398150dee45)
+
+running 9 tests
+test a_chain_of_symlinks_is_followed_to_its_end ... ok
+test a_symlink_to_a_file_outside_cannot_be_read ... ok
+test a_symlinked_folder_outside_cannot_be_read_through_listed_or_written_into ... ok
+test an_absolute_path_through_a_symlink_is_refused_too ... ok
+test a_workspace_that_is_itself_reached_through_a_symlink_works ... ok
+test the_lexical_rules_still_hold ... ok
+test listing_shows_a_symlink_by_name_and_never_its_target_contents ... ok
+test a_symlink_that_stays_inside_the_workspace_still_works ... ok
+test writing_through_a_dangling_symlink_cannot_create_a_file_outside ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/backspace_runner-3702875b9217a2e3)
+
+running 10 tests
+test tests::a_resumed_codex_turn_names_the_model_ahead_of_the_subcommand ... ok
+test tests::a_variable_listed_for_removal_is_not_given_to_the_cli ... ok
+test tests::claude_code_is_given_its_model_by_the_long_flag_and_no_model_means_no_flag ... ok
+test tests::claude_stream_with_a_tool_call ... ok
+test tests::claude_thinking_deltas_are_kept_apart_from_the_answer ... ok
+test tests::codex_is_given_its_model_by_the_long_flag ... ok
+test tests::codex_names_its_model_once_and_config_overrides_never_name_one ... ok
+test tests::codex_stream ... ok
+test tests::opencode_gets_the_backspace_server_as_inline_config ... ok
+test tests::transcripts_and_base64 ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/http.rs (target/debug/deps/http-34adf31d1fc078ba)
+
+running 3 tests
+test openai_compatible_stream ... ok
+test bad_agent_addresses_say_so ... ok
+test a2a_card_and_task ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.64s
+
+     Running unittests src/lib.rs (target/debug/deps/cauldron_chrome-07c1e58a228e13ec)
+
+running 7 tests
+test motion::tests::content_that_exists_only_at_the_end_waits_half_way ... ok
+test motion::tests::first_frame_is_the_old_shell_and_last_frame_is_the_new_one ... ok
+test motion::tests::an_interrupted_move_starts_from_where_it_was_drawn ... ok
+test motion::tests::hiding_the_sidebar_carries_the_main_card_and_swaps_the_rail_in ... ok
+test motion::tests::progress_respects_delay_and_clamps ... ok
+test motion::tests::reduced_motion_moves_nothing_and_only_cross_fades ... ok
+test motion::tests::the_curve_pins_its_ends_and_is_monotone ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/avatar.rs (target/debug/deps/avatar-bc47c7e5de088201)
+
+running 12 tests
+test ink_draws_the_figure_in_another_token_colour ... ok
+test px_is_the_sheets_figure_height_with_headroom_only_for_marks ... ok
+test marks_show_from_28px_up ... ok
+test reduced_motion_still_shows_the_mark ... ok
+test the_bust_is_the_head_and_shoulders_in_a_square_slot_with_marks_overhanging ... ok
+test the_cog_turns_once_every_3_8_seconds ... ok
+test avatars_paint_only_with_tokens_and_take_the_agents_colour ... ok
+test the_outline_agent_is_stroked_not_filled ... ok
+test the_three_heads_hop_6_units_one_after_another ... ok
+test typing_turns_the_head_into_three_small_heads ... ok
+test working_turns_the_head_into_a_cog ... ok
+test there_are_eleven_moods_and_each_draws_deterministically ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/panes.rs (target/debug/deps/panes-6df707a1c4874afe)
+
+running 11 tests
+test a_shape_that_does_not_fit_steps_back ... ok
+test adding_a_pane_splits_without_passing_three ... ok
+test a_reset_makes_the_line_even ... ok
+test a_line_resizes_only_the_panes_on_its_two_sides ... ok
+test closing_a_pane_returns_to_the_previous_shape ... ok
+test every_divider_has_a_line ... ok
+test dragging_any_line_keeps_every_pane_at_200_by_120 ... ok
+test panes_fill_the_area_with_4px_gaps ... ok
+test six_shapes_hold_one_to_three_panes ... ok
+test the_layout_button_steps_through_every_shape_and_wraps ... ok
+test the_lines_sit_in_the_gaps ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/tokens.rs (target/debug/deps/tokens-814710d879a4fb5b)
+
+running 11 tests
+test contrast_follows_wcag ... ok
+test every_text_pair_passes_aa_in_both_themes ... ok
+test glyphs_and_control_edges_hold_3_to_1 ... ok
+test motion_stays_within_the_200ms_cap ... ok
+test one_accent_and_status_colours_stay_distinct ... ok
+test overlays_composite_like_a_browser ... ok
+test agent_colours_are_agent_1_to_9 ... ok
+test radii_match_the_design_system_and_nest_by_the_shell_padding ... ok
+test palettes_match_the_design_system_exactly ... ok
+test selected_on_a_card_is_under_aa_in_light ... ok
+test the_easing_curve_runs_from_rest_to_rest_without_overshoot ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/wireframe.rs (target/debug/deps/wireframe-f70a998f56f21690)
+
+running 8 tests
+test platforms_differ_only_in_window_controls ... ok
+test main_keeps_a_minimum_width_by_closing_split_then_drawer ... ok
+test panes_never_overlap_and_stay_inside_the_window ... ok
+test solver_matches_every_golden_state_and_size ... ignored, golden predates the top bar A decision; re-measure after the wireframe is updated
+test the_drawer_takes_the_right_rails_place ... ok
+test the_terminal_takes_the_drawers_place ... ok
+test tabs_float_in_the_bar_and_the_panes_start_under_it ... ok
+test golden_has_two_window_sizes ... ok
+
+test result: ok. 7 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests backspace_colony
+
+running 1 test
+test crates/colony/src/lib.rs - (line 15) - compile ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+   Doc-tests backspace_core
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests backspace_runner
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests cauldron_chrome
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: 1 target failed:
+    `-p backspace-core --test rampart`

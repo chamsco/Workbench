@@ -475,6 +475,7 @@ impl Harness {
             phase: Default::default(),
             intake: Default::default(),
             planning: Default::default(),
+            rampart: Default::default(),
         };
         // A project opened before carries on: tickets, approvals, spend and
         // the board come back; what was running is marked interrupted.
@@ -1196,6 +1197,7 @@ impl Inner {
             AgentKind::Worker => include_str!("prompts/worker.md").to_string(),
             AgentKind::Triage => include_str!("prompts/triage.md").to_string(),
             AgentKind::Scout => SCOUT_PROMPT.to_string(),
+            AgentKind::Rampart => crate::rampart::PROMPT.to_string(),
         };
         if matches!(kind, AgentKind::Main | AgentKind::Worker) {
             s.push_str(&self.team_notes());
@@ -1220,6 +1222,7 @@ impl Inner {
             AgentKind::Worker => &wf.worker_skills,
             AgentKind::Triage => &wf.triage_skills,
             AgentKind::Scout => &wf.triage_skills,
+            AgentKind::Rampart => &wf.triage_skills,
         };
         for name in injected {
             if name == "grilling" && !wf.grill {
