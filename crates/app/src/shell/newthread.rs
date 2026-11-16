@@ -14,12 +14,6 @@ use gpui_kit::component::input::{Textarea, TextareaState};
 use gpui_kit::prelude::FluentBuilder;
 use std::path::PathBuf;
 
-/// The board's column (`.w`): the ctx row and the box.
-const WRAP_W: f32 = 780.0;
-/// The box with one line of text (`.box`).
-const BOX_H: f32 = 84.0;
-/// The ctx row above the box (`.ctx`): the machine on the left.
-const CTX_H: f32 = 34.0;
 
 #[derive(Default)]
 pub(crate) struct Start {

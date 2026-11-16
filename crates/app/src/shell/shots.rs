@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 /// The states each gate is checked in: New thread, a thread with the drawer, the drawer folded,
 /// an agentic thread's tabs.
-const STATES: [&str; 6] = ["new", "thread", "folded", "tabs", "win-sidebar-open", "win-sidebar-folded"];
+const STATES: [&str; 9] = ["new", "thread", "folded", "tabs", "win-sidebar-open", "win-sidebar-folded", "changes", "git", "files"];
 
 fn shot(dir: &PathBuf, data: &PathBuf, state: &str, theme: &str) {
     std::env::set_var("CAULDRON_THEME", theme);
@@ -43,6 +43,17 @@ fn shot(dir: &PathBuf, data: &PathBuf, state: &str, theme: &str) {
                 } else {
                     std::env::remove_var("CAULDRON_PLATFORM");
                 }
+                // The support card on the thread's own folder (Tight tiles piece 5).
+                let panel = match state {
+                    "changes" => Some(Panel::Changes),
+                    "git" => Some(Panel::Git),
+                    "files" => Some(Panel::Files),
+                    _ => None,
+                };
+                if let Some(p) = panel {
+                    c.support_tabs = vec![Panel::Changes, Panel::Git, Panel::Files];
+                    c.drawer = Some(p);
+                }
                 if state == "tabs" {
                     c.coordinator = Some("Cauldron · coordinator".into());
                     c.agents = ["Rampart", "Builder", "Reviewer"].iter().enumerate().map(|(i, n)| AgentTab { name: (*n).into(), dot: i }).collect();
@@ -54,7 +65,7 @@ fn shot(dir: &PathBuf, data: &PathBuf, state: &str, theme: &str) {
         .unwrap();
     cx.update_window(handle.into(), |_, window, cx| {
         window.render_frame(cx);
-        if state == "thread" || state == "folded" {
+        if matches!(state, "thread" | "folded" | "changes" | "git" | "files") {
             window.click(("thread", 0usize), cx);
         }
         window.render_frame(cx);
@@ -64,6 +75,8 @@ fn shot(dir: &PathBuf, data: &PathBuf, state: &str, theme: &str) {
     // wall clock) has run.
     cx.run_until_parked();
     std::thread::sleep(std::time::Duration::from_millis(400));
+    // The support panels read git off the main thread; let their answers land.
+    cx.run_until_parked();
     cx.update_window(handle.into(), |_, window, cx| window.render_frame(cx)).unwrap();
     let img = cx.capture_screenshot(handle.into()).expect("Metal rendering");
     img.save(dir.join(format!("{state}-{theme}.png"))).unwrap();

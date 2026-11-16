@@ -25,6 +25,7 @@ mod motion;
 mod newthread;
 mod panes;
 mod settings;
+mod support;
 mod terminal;
 mod thread;
 #[cfg(all(feature = "shots", target_os = "macos"))]
@@ -81,7 +82,7 @@ fn glyph(name: &str, size: f32, color: Hsla) -> Svg {
 }
 
 /// What the support card shows for the current stream (Tight tiles rule 1): never a second stream.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum Panel {
     Highlights,
     Changes,
@@ -118,10 +119,14 @@ impl Panel {
             Panel::History => "clock-fading",
         }
     }
-    /// The support card's content is wired in a later piece of the Tight tiles build.
-    fn milestone(self) -> &'static str {
-        let _ = self;
-        "a later piece of the Tight tiles build"
+    /// Panels with no source yet: drawn as clearly marked placeholders.
+    fn placeholder(self) -> Option<&'static str> {
+        match self {
+            Panel::Trace => Some("Tool calls and sub-agents, nested, arrive in a later build."),
+            Panel::Simulator => Some("The app on a device arrives in a later build."),
+            Panel::History => Some("Earlier runs of this stream arrive in a later build."),
+            _ => None,
+        }
     }
 }
 
@@ -163,6 +168,10 @@ pub(crate) struct Cauldron {
     /// The support card's tabs, in order, and whether its + menu is open.
     support_tabs: Vec<Panel>,
     support_menu: bool,
+    /// What the Changes, Git and Files panels read from the stream's folder, by panel and folder;
+    /// and the folders open in the Files tree.
+    support_data: std::collections::HashMap<(Panel, String), support::Data>,
+    files_open: std::collections::BTreeSet<std::path::PathBuf>,
     /// The Harbour painting behind the window (Tight tiles), or the plain frame.
     painting: bool,
     /// Plan mode for the next send, from the new-stream box or the composer (Tight tiles): the
@@ -341,7 +350,7 @@ impl Cauldron {
     }
 
     pub(crate) fn new() -> Self {
-        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, painting: false, plan: false, open_in_menu: false, open_in: thread::OpenIn::Folder, search_open: false, indent: false, usage: Default::default(), settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
+        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, support_data: Default::default(), files_open: Default::default(), painting: false, plan: false, open_in_menu: false, open_in: thread::OpenIn::Folder, search_open: false, indent: false, usage: Default::default(), settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
     }
 
     /// Opens core off the main thread (the sidebar shows Loading meanwhile), then keeps the thread
@@ -1728,20 +1737,9 @@ impl Render for Cauldron {
         // under "+N") and a + menu; the rail sits inside its right edge.
         if let (Some(dp), Some(p)) = (s.support, self.drawer.or(self.drawer_last)) {
             let r = dp.rect;
+            self.load_panel(p, cx);
             // A panel's body: absolute so two bodies can cross-fade in the same place.
-            let body = |p: Panel, a: f32| {
-                div()
-                    .absolute()
-                    .left(px(14.))
-                    .right(px(14.))
-                    .top(px(16.))
-                    .flex()
-                    .flex_col()
-                    .gap(px(6.))
-                    .opacity(a)
-                    .child(div().font_weight(FontWeight::SEMIBOLD).text_color(fg).child(p.title()))
-                    .child(div().text_size(px(12.)).text_color(fg3).child(format!("This panel arrives in {}.", p.milestone())))
-            };
+            let body = |this: &Self, p: Panel, a: f32, cx: &mut Context<Self>| div().absolute().inset_0().opacity(a).child(this.support_body(p, pal, cx));
             let mut shead = div()
                 .id("support-head")
                 .h(px(metric::HEAD_H))
@@ -1919,9 +1917,9 @@ impl Render for Cauldron {
             }
             shead = shead.child(add.test_support());
             // Both bodies share one box under the header, so the outgoing one cross-fades in place.
-            let mut bodies = div().relative().w(px(r.w - 2.0 - metric::RAIL_W)).flex_1().min_h_0().child(body(p, swap.map_or(1.0, |(_, k)| k)));
+            let mut bodies = div().relative().w(px(r.w - 2.0 - metric::RAIL_W)).flex_1().min_h_0().child(body(self, p, swap.map_or(1.0, |(_, k)| k), cx));
             if let Some((a, k)) = swap {
-                bodies = bodies.child(body(a, 1.0 - k));
+                bodies = bodies.child(body(self, a, 1.0 - k, cx));
             }
             let d = pane("support", r)
                 .opacity(dp.alpha)
