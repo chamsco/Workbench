@@ -269,6 +269,15 @@ fn sealed_tests_are_hash_locked() {
 }
 
 #[test]
+fn a_ticket_that_covers_some_criteria_runs_their_tests_and_every_file_stays_locked() {
+    let (_, _, seal) = sealed("scoped");
+    let a2 = rampart::scoped(&seal, &["a2".into()]);
+    assert_eq!(a2.files.iter().map(|f| f.path.as_str()).collect::<Vec<_>>(), ["tests/a2.sh"]);
+    assert_eq!(rampart::scoped(&seal, &[]), seal, "a ticket that names nothing is held to the whole suite");
+    assert_eq!(rampart::scoped(&seal, &["A9".into()]), seal, "nor is one that names nothing sealed let off");
+}
+
+#[test]
 fn builder_waits_for_the_seal_and_the_first_suites_wait_for_a_person() {
     let mut st = RampartState::default();
     let why = rampart::work_refusal(&st).expect("no seal, no work");
@@ -545,9 +554,17 @@ fn is_worker(req: &Value) -> bool {
     system(req).starts_with("You are a Backspace ticket agent")
 }
 
+fn ticket() -> Value {
+    json!({"key": "greet", "title": "Write app.sh", "what_to_build": "app.sh prints hello", "acceptance": ["app.sh prints hello"]})
+}
+
 /// The lead: plan, wait for the yes, make the one ticket, dispatch it, and
 /// dispatch again when told the tests are sealed.
 fn lead(req: &Value) -> Value {
+    lead_with(req, ticket())
+}
+
+fn lead_with(req: &Value, ticket: Value) -> Value {
     if last_role(req) == "user" {
         let u = users(req).pop().unwrap_or_default();
         if u.contains("approved the baseline commands") {
@@ -557,7 +574,7 @@ fn lead(req: &Value) -> Value {
             return call("work_tickets", json!({}));
         }
         if u.contains("approved") {
-            return call("create_tickets", json!({"tickets": [{"key": "greet", "title": "Write app.sh", "what_to_build": "app.sh prints hello", "acceptance": ["app.sh prints hello"]}]}));
+            return call("create_tickets", json!({"tickets": [ticket]}));
         }
         return call("submit_spec", plan_json());
     }
@@ -599,7 +616,7 @@ fn worker_writes(words: &'static [&'static str], frontier: &'static [&'static st
         let msgs = req["messages"].as_array().unwrap();
         let mut n = 0;
         for m in msgs {
-            if m["role"] == "user" && m["content"].as_str().is_some_and(|c| c.contains("ESCALATED")) {
+            if m["role"] == "user" && m["content"].to_string().contains("ESCALATED") {
                 n = 0;
             }
             if m["role"] == "assistant" && m["tool_calls"][0]["function"]["name"] == "submit_deliverable" {
@@ -697,9 +714,13 @@ fn idle(s: &ProjectState) -> bool {
 
 /// Through planning to the Rampart suite put to the user.
 fn to_suite(tag: &str, worker: impl Fn(&Value) -> Value + Send + Sync + 'static, extra: &str) -> (Mock, Harness, PathBuf) {
+    to_suite_with(tag, ticket(), worker, extra)
+}
+
+fn to_suite_with(tag: &str, ticket: Value, worker: impl Fn(&Value) -> Value + Send + Sync + 'static, extra: &str) -> (Mock, Harness, PathBuf) {
     let m = mock(move |req| {
         if is_lead(req) {
-            lead(req)
+            lead_with(req, ticket.clone())
         } else if is_rampart(req) {
             rampart_mock(req)
         } else if is_worker(req) {
@@ -811,6 +832,7 @@ fn after_the_spot_checks_a_suite_is_sealed_without_asking_and_the_lead_is_told()
     let s = wait(&h, "the ticket", |s| s.tickets.iter().any(|t| t.state == TicketState::Done) && idle(s));
     let seal = s.rampart.seal.clone().expect("sealed");
     assert!(!seal.human_checked);
+    assert_eq!(s.rampart.tickets, ["greet"], "the long task's planned tickets are the ones held to the seal");
     assert!(!s.agents[0].log.iter().any(|l| l.kind == LogKind::Assistant && l.text.contains("Rampart") && l.text.to_lowercase().contains("reply yes")));
     let lead_users: Vec<String> = m.seen.lock().unwrap().iter().filter(|r| is_lead(r)).flat_map(users).collect();
     assert!(lead_users.iter().any(|u| u.contains("sealed")), "{lead_users:?}");
@@ -915,4 +937,23 @@ fn the_rampart_settings_have_their_defaults_in_the_shipped_config() {
     let cfg: backspace_core::config::Config = toml::from_str(backspace_core::config::DEFAULT_CONFIG).unwrap();
     assert_eq!(cfg.rampart, RampartConfig::default());
     assert!(backspace_core::config::DEFAULT_CONFIG.contains("[rampart]"));
+}
+
+#[test]
+fn a_ticket_is_held_to_the_sealed_tests_of_the_criteria_it_covers() {
+    // The ticket delivers A2 only (app.sh exits 0); A1's test would fail on
+    // this code, and is not this ticket's.
+    let mut t = ticket();
+    t["covers"] = json!(["A2"]);
+    let worker = |req: &Value| -> Value {
+        match last_call(req).as_str() {
+            "write" => call("submit_deliverable", record("wrote app.sh")),
+            "submit_deliverable" => say("done"),
+            _ => call("write", json!({"path": "app.sh", "content": "echo bye\n"})),
+        }
+    };
+    let (_m, h, _ws) = to_suite_with("covers", t, worker, "[rampart]\nspot_checks = 0\n");
+    let s = wait(&h, "the ticket", |s| s.tickets.iter().any(|t| t.state == TicketState::Done) && idle(s));
+    let w = s.agents.iter().find(|a| a.kind == AgentKind::Worker).unwrap();
+    assert!(w.log.iter().any(|l| l.text.contains("sealed tests passed: 1 test(s)") && l.text.contains("A2")), "{:?}", w.log);
 }
