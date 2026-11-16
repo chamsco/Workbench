@@ -13,7 +13,7 @@
 | primary benchmark candidate | `router-eval-v2.jsonl` | 31 | 31 (8 one_shot, 17 long, 6 research) |
 | owner-review pool | `router-eval-v2-owner-review-pool.jsonl` | 13 | 17 (8 context-dependent, 2 ambiguous, 6 low-confidence, 1 control-disputed) |
 | negative controls | `router-eval-v2-excluded.jsonl` | 10 | 6 |
-| supplemental stress | `router-eval-v2-stress.jsonl` | 1 | 1 (unchanged text, same hash as v1) |
+| supplemental stress | `router-eval-v2-stress.jsonl` | 1 | 1 (same message and text hash as v1; the file differs only by the added v2 metadata fields) |
 
 Majority-class baseline on the corrected primary set: always `long` = 17/31 = 54.8%. Small sample (31 items from one author): one item moves a class by 4–17 points. Treat all numbers as indicative.
 
