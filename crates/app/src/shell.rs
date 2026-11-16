@@ -125,15 +125,18 @@ impl Panel {
     }
 }
 
-const FUNCTIONS: [(&str, &str); 7] = [
-    ("inbox", "Streams"),
-    ("folder", "Projects"),
-    ("calendar", "Schedule"),
+/// The apps row (Tight tiles): what the sidebar and the hover indent switch between.
+const FUNCTIONS: [(&str, &str); 6] = [
+    ("message-square", "Streams"),
+    ("folder", "Folders"),
+    ("calendar", "Automations"),
     ("bot", "Agents"),
     ("gauge", "Usage"),
-    ("brain", "Memory"),
-    ("layout-grid", "Apps"),
+    ("database", "Library"),
 ];
+
+/// New stream's shortcut, as the platform writes it.
+const NEW_KEY: &str = if cfg!(target_os = "macos") { "\u{2318}N" } else { "Ctrl+N" };
 
 const NEW_TAB: &str = "New stream";
 
@@ -162,6 +165,12 @@ pub(crate) struct Cauldron {
     support_menu: bool,
     /// The Harbour painting behind the window (Tight tiles), or the plain frame.
     painting: bool,
+    /// The search row is open (the top row's search button), and the folded sidebar's hover
+    /// indent is showing.
+    search_open: bool,
+    indent: bool,
+    /// The subscriptions' usage left, read from accounts.json at most every `USAGE_EVERY`.
+    usage: std::cell::RefCell<Option<(std::time::Instant, Vec<(String, u64)>)>>,
     /// Settings is open on this page (v3 frame 7): its pages take the sidebar's list, the page the card.
     settings: Option<usize>,
     /// Where Settings reads the subscriptions; None is core's `accounts.json` (tests use their own).
@@ -296,6 +305,8 @@ impl Cauldron {
             }
             if std::env::var("CAULDRON_SIDEBAR").as_deref() == Ok("folded") {
                 c.sidebar_open = false;
+                // `CAULDRON_SIDEBAR=folded CAULDRON_INDENT=1`: the hover indent showing.
+                c.indent = std::env::var_os("CAULDRON_INDENT").is_some();
             }
             if std::env::var("CAULDRON_SUPPORT").as_deref() == Ok("open") {
                 c.support_tabs = vec![Panel::Changes, Panel::Browser, Panel::Highlights];
@@ -324,7 +335,7 @@ impl Cauldron {
     }
 
     pub(crate) fn new() -> Self {
-        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, painting: false, settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
+        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, painting: false, search_open: false, indent: false, usage: Default::default(), settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
     }
 
     /// Opens core off the main thread (the sidebar shows Loading meanwhile), then keeps the thread
@@ -469,69 +480,59 @@ impl Cauldron {
                     let q = self.query.trim().to_string();
                     return list.child(note("threads-no-match", format!("No threads match {q}"), None, format!("No threads match \u{201c}{q}\u{201d}"), None));
                 }
-                // Core has no Needs you yet, so the group is its head alone, without a count
-                // (Charles chose empty states, 12 Nov).
-                if self.query.trim().is_empty() {
-                    list = list.child(
-                        div()
-                            .id("group-needs")
-                            .flex()
-                            .items_center()
-                            .h(px(36.))
-                            .flex_none()
-                            .px(px(8.))
-                            .pt(px(14.))
-                            .pb(px(4.))
-                            .text_size(px(12.))
-                            .line_height(px(18.))
-                            .text_color(fg3)
-                            .aria_label("Needs you")
-                            .child("Needs you")
-                            .test_support(),
-                    );
-                }
                 let mut i = 0usize;
                 for (gi, (g, ts)) in groups.into_iter().enumerate() {
                     let n = ts.len();
+                    // The board's `.grp`: the name, then its count in a quieter grey.
                     list = list.child(
                         div()
                             .id(("group", gi))
                             .flex()
                             .items_center()
                             .gap(px(6.))
-                            .h(px(36.))
+                            .h(px(34.))
                             .flex_none()
                             .px(px(8.))
                             .pt(px(14.))
                             .pb(px(4.))
-                            .text_size(px(12.))
-                            .line_height(px(18.))
-                            .text_color(if g == Group::Failed { c(pal.bad) } else { fg3 })
+                            .text_size(px(11.5))
+                            .line_height(px(16.))
+                            .text_color(fg3)
                             .aria_label(format!("{}, {n}", g.label()))
                             .child(g.label())
-                            .child(div().ml_auto().font_features(tnum()).child(n.to_string()))
+                            .child(div().font_features(tnum()).text_color(c(pal.fg4)).child(n.to_string()))
                             .test_support(),
                     );
                     for t in ts {
                         let on = self.selected.as_deref() == Some(t.id.as_str());
                         let id = t.id.clone();
-                        // A state dot, agent or not: figures belong to the Agents page (Charles, 13 Nov).
-                        let (state, dot) = match g {
-                            Group::Running => ("Working", c(pal.accent)),
-                            Group::Failed => ("Failed", c(pal.bad)),
-                            Group::Unread => ("Unread", fg3),
-                            Group::Done => ("Done", fg3),
+                        // A state dot, agent or not (figures belong to the Agents page): amber when it
+                        // needs you (red when the reply failed), the accent with a halo while it runs,
+                        // a hollow ring when done (the board's `.dot`).
+                        let state = match g {
+                            Group::Running => "Working",
+                            Group::NeedsYou if t.failed.is_some() => "Failed",
+                            Group::NeedsYou => "Needs you",
+                            Group::Done => "Done",
+                        };
+                        let dot = div().id(("thread-dot", i)).size(px(7.)).rounded_full();
+                        let dot = match state {
+                            // The halo is the board's `box-shadow: 0 0 0 3px`, so the dot keeps its 7px.
+                            "Working" => dot.bg(c(pal.accent)).shadow(vec![BoxShadow { color: ca(pal.accent, 0.18), offset: point(px(0.), px(0.)), blur_radius: px(0.), spread_radius: px(3.), inset: false }]),
+                            "Failed" => dot.bg(c(pal.bad)),
+                            "Needs you" => dot.bg(c(pal.warn)),
+                            _ => dot.border_1().border_color(c(pal.fg4)),
                         };
                         let slot = div()
                             .id(("thread-av", i))
-                            .w(px(18.))
+                            .w(px(7.))
                             .h(px(22.))
                             .flex_none()
                             .flex()
                             .items_center()
                             .justify_center()
                             .aria_label(state)
-                            .child(div().id(("thread-dot", i)).size(px(6.)).rounded_full().bg(dot).test_support());
+                            .child(dot.test_support());
                         list = list.child(
                             div()
                                 .id(("thread", i))
@@ -540,9 +541,8 @@ impl Cauldron {
                                 .flex()
                                 .items_center()
                                 .gap(px(8.))
-                                .pl(px(11.))
-                                .pr(px(8.))
-                                .rounded(px(radius::TAG))
+                                .px(px(8.))
+                                .rounded(px(radius::CONTROL))
                                 .text_size(px(13.))
                                 .text_color(if on || t.unread { fg } else { fg2 })
                                 .when_live(on, |d| d.bg(c(pal.hover)))
@@ -552,9 +552,26 @@ impl Cauldron {
                                 .child(slot.test_support())
                                 .child(div().flex_1().min_w_0().truncate().font_weight(if t.unread { FontWeight::SEMIBOLD } else { FontWeight::NORMAL }).child(t.title.clone()))
                                 .when_live(t.pinned, |d| d.child(glyph("pin", 11., fg3)))
+                                // The repo as a tag (the board's `.r`).
                                 .child({
                                     let m = threads::meta(t);
-                                    div().id(("thread-meta", i)).flex_none().max_w(px(54.)).truncate().text_size(px(11.)).text_color(fg3).aria_label(m.clone()).child(m).test_support()
+                                    div()
+                                        .id(("thread-meta", i))
+                                        .flex_none()
+                                        .max_w(px(64.))
+                                        .truncate()
+                                        .h(px(17.))
+                                        .px(px(4.))
+                                        .flex()
+                                        .items_center()
+                                        .rounded(px(radius::TAG))
+                                        .border_1()
+                                        .border_color(c(pal.line))
+                                        .text_size(px(10.5))
+                                        .text_color(c(pal.fg4))
+                                        .aria_label(m.clone())
+                                        .child(m)
+                                        .test_support()
                                 })
                                 .when_live(t.unread, |d| d.child(div().id(("ping", i)).size(px(6.)).flex_none().rounded_full().bg(c(pal.accent)).test_support()))
                                 .on_click(cx.listener(move |this, _, window, cx| {
@@ -765,6 +782,64 @@ impl Cauldron {
         }
     }
 
+    /// Each enabled subscription with a known limit and the share of it left, from accounts.json
+    /// (the board's usage badges); empty while core has no usage.
+    fn usage_left(&self) -> Vec<(String, u64)> {
+        let mut cache = self.usage.borrow_mut();
+        if let Some((at, v)) = cache.as_ref().filter(|(at, _)| at.elapsed() < USAGE_EVERY) {
+            let _ = at;
+            return v.clone();
+        }
+        let a = backspace_core::accounts::Accounts::load(&self.accounts_path());
+        let v: Vec<(String, u64)> = a
+            .list
+            .iter()
+            .filter(|a| a.enabled)
+            .filter_map(|a| {
+                let u = a.usage.as_ref()?;
+                let (used, limit) = (u.used?, u.limit?);
+                (limit > 0).then(|| (a.name.clone(), 100u64.saturating_sub(used * 100 / limit)))
+            })
+            .collect();
+        *cache = Some((std::time::Instant::now(), v.clone()));
+        v
+    }
+
+    /// The usage badges under the composer box (the board's `.ubar`): one per subscription, the
+    /// low ones in the accent. None when there is nothing to show.
+    pub(super) fn usage_badges(&self, pal: &'static Palette) -> Option<Stateful<Div>> {
+        let left = self.usage_left();
+        if left.is_empty() {
+            return None;
+        }
+        let mut bar = div().id("usage-badges").flex().gap(px(6.)).pt(px(8.));
+        for (i, (name, pct)) in left.into_iter().enumerate() {
+            let low = pct < 20;
+            let col = if low { c(pal.accent) } else { c(pal.fg2) };
+            let label = format!("{name} {pct}%");
+            bar = bar.child(
+                div()
+                    .id(("usage-badge", i))
+                    .h(px(22.))
+                    .px(px(7.))
+                    .flex()
+                    .items_center()
+                    .gap(px(5.))
+                    .rounded(px(radius::CONTROL))
+                    .border_1()
+                    .border_color(if low { c(pal.accent) } else { c(pal.line) })
+                    .text_size(px(11.))
+                    .font_features(tnum())
+                    .text_color(col)
+                    .aria_label(label.clone())
+                    .child(div().size(px(5.)).rounded_full().bg(if low { c(pal.accent) } else { c(pal.fg3) }))
+                    .child(label)
+                    .test_support(),
+            );
+        }
+        Some(bar)
+    }
+
     /// Closes a support tab; closing the last one folds the card.
     fn close_support_tab(&mut self, p: Panel) {
         let Some(i) = self.support_tabs.iter().position(|q| *q == p) else { return };
@@ -814,6 +889,13 @@ fn fn_slot_x(row_w: f32, pos: f32) -> f32 {
 /// The sidebar's padding (the board's `.sb`: 8 8 6 10).
 const SIDE_PL: f32 = 10.0;
 const SIDE_PR: f32 = 8.0;
+
+/// How long the usage badges trust accounts.json before reading it again.
+const USAGE_EVERY: std::time::Duration = std::time::Duration::from_secs(30);
+/// The folded sidebar's hover indent: wide enough for the lights on macOS, one button on Windows.
+fn indent_w(plat: Platform) -> f32 {
+    if plat == Platform::Mac { 72.0 } else { 48.0 }
+}
 
 /// Agent tabs share the room between these widths; below TAB_MIN the row scrolls.
 const TAB_MIN: f32 = 72.0;
@@ -1073,23 +1155,30 @@ impl Render for Cauldron {
             let list = self.thread_list(pal, cx);
             let user = std::env::var("USER").or_else(|_| std::env::var("USERNAME")).unwrap_or_else(|_| "You".into());
             let initial = user.chars().next().map(|ch| ch.to_uppercase().to_string()).unwrap_or_else(|| "Y".into());
+            // The board's `.nav`: New stream with its shortcut.
             let new_thread = div()
                 .id("new-thread")
-                .h(px(32.))
+                .h(px(30.))
                 .flex()
                 .items_center()
                 .gap(px(9.))
                 .px(px(8.))
-                .rounded(px(radius::TAG))
+                .rounded(px(radius::CONTROL))
                 .cursor_pointer()
                 .hover(|d| d.bg(c(pal.hover)))
                 .text_size(px(13.))
-                .font_weight(FontWeight::MEDIUM)
-                .text_color(fg)
-                .child(glyph("square-pen", 15., fg))
-                .child("New stream")
+                .text_color(fg2)
+                .aria_label(NEW_TAB)
+                .child(glyph("square-pen", 15., fg2))
+                .child(NEW_TAB)
+                .child(div().ml_auto().text_size(px(11.)).text_color(c(pal.fg4)).child(NEW_KEY))
                 .on_click(cx.listener(|this, _, window, cx| this.new_thread(window, cx)))
                 .test_support();
+            // The user row (the board's `.foot`): you, what is left of your first subscription, the
+            // version, and Settings.
+            let left = self.usage_left();
+            let usage_line = left.first().map_or_else(|| "No data yet".to_string(), |(_, pct)| format!("{pct}% left"));
+            let version: SharedString = env!("CARGO_PKG_VERSION").into();
             // The top row is 30 high under 8px of padding; the window draws its contents.
             let card_el = pane("sidebar", sp.rect)
                 .opacity(sp.alpha)
@@ -1104,17 +1193,18 @@ impl Render for Cauldron {
                 .child(fnrow)
                 .when_live(self.settings.is_some(), |d| d.child(self.settings_nav(self.settings.unwrap_or(0), pal, cx).test_support()))
                 .when_live(self.settings.is_none(), |d| d.child(new_thread))
-                .when_live(self.settings.is_none(), |d| d.child(
+                // The search row opens from the top row's search button and stays while it has text.
+                .when_live(self.settings.is_none() && (self.search_open || !self.query.is_empty()), |d| d.child(
                     div().child(
                         div()
                             .id("search")
-                            .h(px(32.))
+                            .h(px(30.))
                             .flex()
                             .items_center()
                             .gap(px(9.))
                             .px(px(8.))
-                            .rounded(px(radius::TAG))
-                            .hover(|d| d.bg(c(pal.hover)))
+                            .rounded(px(radius::CONTROL))
+                            .bg(c(pal.hover))
                             .text_color(fg2)
                             .aria_label("Search streams")
                             .child(glyph("search", 15., fg2))
@@ -1125,13 +1215,13 @@ impl Render for Cauldron {
                 .when_live(self.settings.is_none(), |d| d.child(list))
                 .child(
                     div()
-                        .h(px(37.))
+                        .h(px(36.))
                         .flex_none()
                         .flex()
                         .items_center()
-                        .gap(px(9.))
-                        .pl(px(3.))
-                        .pt(px(8.))
+                        .gap(px(6.))
+                        .pl(px(4.))
+                        .pt(px(6.))
                         .child(
                             div()
                                 .size(px(24.))
@@ -1153,8 +1243,27 @@ impl Render for Cauldron {
                                 .flex_col()
                                 .line_height(px(15.))
                                 .child(div().truncate().text_size(px(12.5)).child(user))
-                                // Core has no usage per subscription yet: an empty state, no number.
-                                .child(div().id("usage-left").text_size(px(11.)).text_color(fg3).aria_label("No data yet").child("No data yet").test_support()),
+                                .child(div().id("usage-left").truncate().text_size(px(11.)).text_color(fg3).aria_label(usage_line.clone()).child(usage_line).test_support()),
+                        )
+                        .child(
+                            div()
+                                .id("version")
+                                .h(px(22.))
+                                .px(px(7.))
+                                .flex_none()
+                                .flex()
+                                .items_center()
+                                .gap(px(4.))
+                                .rounded(px(radius::CONTROL))
+                                .border_1()
+                                .border_color(c(pal.line))
+                                .text_size(px(11.))
+                                .font_features(tnum())
+                                .text_color(fg2)
+                                .aria_label(version.clone())
+                                .child(div().size(px(5.)).rounded_full().bg(accent))
+                                .child(version)
+                                .test_support(),
                         )
                         .child(self.tipped("settings", icon_button("settings", "settings", "Settings", pal, self.settings.is_some()), "Settings", Side::Right, pal, cx).on_click(cx.listener(|this, _, _, cx| {
                             this.settings = if this.settings.is_some() { None } else { Some(0) };
@@ -1414,6 +1523,14 @@ impl Render for Cauldron {
         };
         let inside = if split { self.pane_stage(pal, area, shape, body, window, cx).into_any_element() } else { body };
         let mut card_el = pane("main", s.main)
+            // The hover indent sits over this card's left edge: any move over the card itself means
+            // the pointer left the band, even in one jump.
+            .on_mouse_move(cx.listener(|this, _: &MouseMoveEvent, _, cx| {
+                if this.indent {
+                    this.indent = false;
+                    cx.notify();
+                }
+            }))
             .child(
                 div()
                     .id("card")
@@ -1763,6 +1880,28 @@ impl Render for Cauldron {
             root = root.child(abs(Rect::new(sb.rect.x, sb.rect.y + 41.0, sb.rect.w, 1.0)).opacity(sb.alpha).bg(c(pal.line_strong)));
         }
 
+        // ---- search, in the sidebar's top row beside the sidebar button (the board's `.brand`)
+        if let Some(sb) = s.sidebar {
+            let b = s.sidebar_button;
+            root = root.child(
+                pane("search-slot", Rect::new(b.x - 36.0, b.y, metric::SBTN, metric::SBTN))
+                    .opacity(sb.alpha)
+                    .child(
+                        self.tipped("search-btn", icon_button("search-btn", "search", "Search streams", pal, self.search_open), "Search streams", Side::Below, pal, cx)
+                            .occlude()
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.search_open = !this.search_open;
+                                if let (true, Some((st, _))) = (this.search_open, this.search.as_ref()) {
+                                    st.update(cx, |s, cx| s.focus(window, cx));
+                                }
+                                cx.notify();
+                            }))
+                            .test_support(),
+                    )
+                    .test_support(),
+            );
+        }
+
         // ---- sidebar button: the sidebar's top row when open; the stream header when folded
         root = root.child(
             pane("sbtn-slot", s.sidebar_button).child(
@@ -1804,7 +1943,7 @@ impl Render for Cauldron {
         if let Some(n) = s.notch {
             // A cut, not a pane: over the painting it shows the same frame layer, cropped to it.
             let mut notch = pane("notch", n).bg(frame).overflow_hidden().rounded_bl(px(radius::PANEL));
-            if let Some(img_src) = layer {
+            if let Some(img_src) = layer.clone() {
                 notch = notch
                     .child(img(img_src).absolute().left(px(-n.x)).top(px(-n.y)).w(px(w)).h(px(h)).object_fit(ObjectFit::Cover))
                     .child(div().absolute().size_full().bg(backdrop::tint(pal, dark)));
@@ -1844,6 +1983,116 @@ impl Render for Cauldron {
             );
         }
 
+        // ---- the folded sidebar's hover indent (Tight tiles rule 6): the pointer at the window's
+        // left edge shows a band of the frame layer over the card, with no reflow: search, New
+        // stream, the apps, Settings and you. A rounded hairline is the card's edge beside it.
+        if s.sidebar.is_none() && self.settings.is_none() {
+            let bw = indent_w(plat);
+            root = root.child(
+                div()
+                    .id("indent-zone")
+                    .absolute()
+                    .left_0()
+                    .top_0()
+                    .w(px(8.))
+                    .h(px(h))
+                    // It overlaps the card's first 4px; the card must not see the pointer here.
+                    .occlude()
+                    .on_hover(cx.listener(|this, on: &bool, _, cx| {
+                        if *on && !this.indent {
+                            this.indent = true;
+                            cx.notify();
+                        }
+                    }))
+                    .test_support(),
+            );
+            if self.indent {
+                let x0 = (bw - metric::SBTN) / 2.0;
+                let mut band = div()
+                    .id("indent")
+                    .absolute()
+                    .left_0()
+                    .top_0()
+                    .w(px(bw))
+                    .h(px(h))
+                    .overflow_hidden()
+                    .bg(frame)
+                    .occlude()
+                    .on_hover(cx.listener(|this, on: &bool, _, cx| {
+                        if !*on && this.indent {
+                            this.indent = false;
+                            cx.notify();
+                        }
+                    }));
+                if let Some(img_src) = layer.clone() {
+                    band = band
+                        .child(img(img_src).absolute().left_0().top_0().w(px(w)).h(px(h)).object_fit(ObjectFit::Cover))
+                        .child(div().absolute().size_full().bg(backdrop::tint(pal, dark)));
+                }
+                let at = |y: f32, el: AnyElement| div().absolute().left(px(x0)).top(px(y)).child(el);
+                // Below the lights on macOS, in their place on Windows.
+                let top = if plat == Platform::Mac { 47.0 } else { 10.0 };
+                band = band.child(at(top, self.tipped("indent-search", icon_button("indent-search", "search", "Search streams", pal, false), "Search streams", Side::Right, pal, cx).on_click(cx.listener(|this, _, _, cx| {
+                    this.sidebar_open = true;
+                    this.search_open = true;
+                    this.indent = false;
+                    cx.notify();
+                })).test_support().into_any_element()));
+                band = band.child(at(top + 32.0 + if plat == Platform::Mac { 0.0 } else { 5.0 }, self.tipped("indent-new", icon_button("indent-new", "square-pen", NEW_TAB, pal, false), NEW_TAB, Side::Right, pal, cx).on_click(cx.listener(|this, _, window, cx| {
+                    this.indent = false;
+                    this.new_thread(window, cx);
+                })).test_support().into_any_element()));
+                let rule_y = top + if plat == Platform::Mac { 68.0 } else { 73.0 };
+                band = band.child(div().absolute().left(px(x0 + 3.0)).top(px(rule_y)).w(px(22.)).h(px(1.)).bg(c(pal.line)));
+                for (i, (name, label)) in FUNCTIONS.iter().enumerate() {
+                    let b = icon_button(("indent-fn", i), name, label, pal, i == self.section).on_click(cx.listener(move |this, _, _, cx| this.select_section(i, cx)));
+                    band = band.child(at(rule_y + 9.0 + 32.0 * i as f32, self.tipped(("indent-fn", i), b, *label, Side::Right, pal, cx).test_support().into_any_element()));
+                }
+                band = band.child(at(h - 70.0, self.tipped("indent-settings", icon_button("indent-settings", "settings", "Settings", pal, false), "Settings", Side::Right, pal, cx).on_click(cx.listener(|this, _, _, cx| {
+                    this.settings = Some(0);
+                    this.sidebar_open = true;
+                    this.indent = false;
+                    cx.notify();
+                })).test_support().into_any_element()));
+                let user = std::env::var("USER").or_else(|_| std::env::var("USERNAME")).unwrap_or_else(|_| "You".into());
+                let initial = user.chars().next().map(|ch| ch.to_uppercase().to_string()).unwrap_or_else(|| "Y".into());
+                band = band.child(
+                    div()
+                        .absolute()
+                        .left(px((bw - 24.0) / 2.0))
+                        .top(px(h - 34.0))
+                        .size(px(24.))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded_full()
+                        .bg(accent)
+                        .text_size(px(11.))
+                        .text_color(c(pal.on_accent))
+                        .child(initial),
+                );
+                root = root.child(band.test_support());
+                // The card's edge beside the band: a hairline with rounded ends, no shadow.
+                root = root.child(
+                    div()
+                        .id("indent-edge")
+                        .absolute()
+                        .left(px(bw))
+                        .top(px(s.main.y))
+                        .w(px(9.))
+                        .h(px(s.main.h))
+                        .border_l_1()
+                        .border_t_1()
+                        .border_b_1()
+                        .border_color(c(pal.line))
+                        .rounded_l(px(radius::PANEL))
+                        .test_support(),
+                );
+            }
+        } else if self.indent {
+            self.indent = false;
+        }
+
         // ---- window ring, drawn last so it sits on top of every pane edge
         root.child(
             div()
@@ -1868,9 +2117,9 @@ mod tests {
         // The board's `.apps` runs edge to edge inside the sidebar's padding: 236 - 10 - 8.
         let w = 218.0;
         assert_eq!(fn_slot_x(w, 0.0), 0.0);
-        assert!((fn_slot_x(w, 6.0) + metric::SBTN - w).abs() < 1e-3, "last button ends at the row's edge");
+        assert!((fn_slot_x(w, 5.0) + metric::SBTN - w).abs() < 1e-3, "the sixth app ends at the row's edge");
         let step = fn_slot_x(w, 1.0) - fn_slot_x(w, 0.0);
-        assert!((fn_slot_x(w, 6.0) - fn_slot_x(w, 0.0) - 6.0 * step).abs() < 1e-3, "equal steps");
+        assert!((fn_slot_x(w, 5.0) - fn_slot_x(w, 0.0) - 5.0 * step).abs() < 1e-3, "equal steps");
     }
     use cauldron_chrome::layout::{self, Rect, ShellState};
     use cauldron_chrome::motion::Frame;
@@ -2067,8 +2316,14 @@ mod tests {
         }
     }
 
-    fn open(cx: &mut TestAppContext, c: Cauldron) -> gpui_kit::WindowHandle<Cauldron> {
+    /// A test's own accounts.json path, absent unless the test writes it: never the user's.
+    pub(super) fn no_accounts() -> std::path::PathBuf {
+        std::env::temp_dir().join(format!("cauldron-accounts-none-{}.json", std::process::id()))
+    }
+
+    fn open(cx: &mut TestAppContext, mut c: Cauldron) -> gpui_kit::WindowHandle<Cauldron> {
         cx.update(|cx| cx.set_reduce_motion(true));
+        c.accounts_file.get_or_insert_with(no_accounts);
         let handle = cx.add_window(move |_, _| c);
         cx.simulate_window_resize(handle.into(), size(px(W), px(H)));
         handle
@@ -2174,17 +2429,79 @@ mod tests {
         .unwrap();
     }
 
-    /// Core has no Needs you or usage yet, so both draw as empty states (Charles, 12 Nov): the
-    /// group's head with no rows and no count, and "No data yet" under the name.
+    /// With no usage in accounts.json the user row says "No data yet" and no badge is drawn; with
+    /// usage, the row says what is left of the first subscription and each one gets a badge under
+    /// the composer box, the low ones (under 20%) in the accent. The version sits beside you.
     #[gpui_kit::test]
-    fn needs_you_and_usage_are_empty_states(cx: &mut TestAppContext) {
+    fn usage_badges_and_the_user_row_come_from_accounts(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let handle = open(cx, with_threads());
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
-            assert_eq!(window.find("group-needs").label(), Some("Needs you"), "no count");
-            assert!(rect(window, "group-needs").bottom() <= rect(window, ("group", 0usize)).y, "first, with no rows under it");
             assert_eq!(window.find("usage-left").label(), Some("No data yet"));
+            assert!(window.try_find(("usage-badge", 0usize)).is_none(), "no usage, no badge");
+            assert_eq!(window.find("version").label(), Some(env!("CARGO_PKG_VERSION")));
+        })
+        .unwrap();
+        use backspace_core::accounts::{Account, Accounts, Usage};
+        let path = std::env::temp_dir().join(format!("cauldron-accounts-usage-{}.json", std::process::id()));
+        let acct = |id: &str, name: &str, used: u64| Account { id: id.into(), name: name.into(), provider: "claude".into(), enabled: true, usage: Some(Usage { used: Some(used), limit: Some(100), ..Default::default() }), ..Default::default() };
+        let a = Accounts { list: vec![acct("a", "Claude", 38), acct("b", "Codex", 86)], ..Default::default() };
+        a.save(&path).unwrap();
+        let handle = open(cx, Cauldron { accounts_file: Some(path.clone()), ..with_threads() });
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            assert_eq!(window.find("usage-left").label(), Some("62% left"));
+            assert_eq!(window.find(("usage-badge", 0usize)).label(), Some("Claude 62%"));
+            assert_eq!(window.find(("usage-badge", 1usize)).label(), Some("Codex 14%"));
+            let (b, nt) = (rect(window, ("usage-badge", 0usize)), rect(window, "nt-box"));
+            assert!(b.y >= nt.bottom(), "under the box");
+        })
+        .unwrap();
+        let _ = std::fs::remove_file(path);
+    }
+
+    /// The top row's search button opens the search row; the folded sidebar's hover indent (Tight
+    /// tiles rule 6) appears when the pointer reaches the window's left edge, over the card with no
+    /// reflow: search, New stream, the six apps, Settings. Leaving it hides it.
+    #[gpui_kit::test]
+    fn search_button_and_the_hover_indent(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = open(cx, with_threads());
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            assert!(window.try_find("search").is_none(), "search waits behind its button");
+            let (b, sb) = (rect(window, "search-btn"), rect(window, "sbtn"));
+            assert_eq!((b.y, sb.x - b.x), (sb.y, 36.0), "beside the sidebar button, as the board's 160 and 196");
+            window.click("search-btn", cx);
+            window.render_frame(cx);
+            assert!(window.try_find("search").is_some(), "the button opens the search row");
+        })
+        .unwrap();
+        let handle = open(cx, Cauldron { sidebar_open: false, ..with_threads() });
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            let main = rect(window, "main");
+            // The test pointer starts at the window's corner, inside the edge zone: move it away first.
+            window.hover("card", cx);
+            window.render_frame(cx);
+            assert!(window.try_find("indent").is_none(), "hidden until the pointer comes");
+            window.hover("indent-zone", cx);
+            window.render_frame(cx);
+            let band = rect(window, "indent");
+            assert_eq!((band.x, band.w), (0.0, if platform() == layout::Platform::Mac { 72.0 } else { 48.0 }), "72 on macOS, 48 on Windows");
+            assert_eq!(rect(window, "main"), main, "no reflow: the card stays where it was");
+            for i in 0..6usize {
+                assert!(window.try_find(("indent-fn", i)).is_some(), "app {i} in the band");
+            }
+            for id in ["indent-search", "indent-new", "indent-settings"] {
+                let r = rect(window, id);
+                assert!(r.x >= band.x && r.right() <= band.right(), "{id} inside the band");
+            }
+            assert_eq!(rect(window, "indent-edge").x, band.right(), "the card's edge beside it");
+            window.hover("card", cx);
+            window.render_frame(cx);
+            assert!(window.try_find("indent").is_none(), "leaving the band hides it");
         })
         .unwrap();
     }
@@ -2337,44 +2654,45 @@ mod tests {
         let handle = open(cx, with_threads());
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
-            let heads: Vec<String> = (0..4usize).map(|g| window.find(("group", g)).label().unwrap().to_string()).collect();
-            assert_eq!(heads, ["Unread, 1", "Running, 1", "Failed, 1", "Done, 2"]);
-            for g in 1..4usize {
+            let heads: Vec<String> = (0..3usize).map(|g| window.find(("group", g)).label().unwrap().to_string()).collect();
+            assert_eq!(heads, ["Needs you, 2", "Running, 1", "Done, 2"]);
+            for g in 1..3usize {
                 assert!(rect(window, ("group", g - 1)).y < rect(window, ("group", g)).y, "group {g} below the one before");
             }
-            assert_eq!(row_labels(window), ["Koi palette", "Rampart mutation score", "M2 eval task texts", "Pinned notes", "Agent delegation"]);
+            assert_eq!(row_labels(window), ["Koi palette", "M2 eval task texts", "Rampart mutation score", "Pinned notes", "Agent delegation"]);
             let side = rect(window, "sidebar");
             for i in 0..5usize {
                 let r = rect(window, ("thread", i));
                 assert!(r.x >= side.x && r.right() <= side.right(), "row {i} inside the sidebar");
             }
-            assert!(rect(window, ("thread", 0usize)).y > rect(window, "new-thread").bottom(), "rows under New thread");
+            assert!(rect(window, ("thread", 0usize)).y > rect(window, "new-thread").bottom(), "rows under New stream");
         })
         .unwrap();
     }
 
-    /// The rows are the new-look board's `.th`: 30 high, the title, the repo in 11px, and a 6px ping
-    /// on an unread row only. Every row shows a state dot in its 18x22 slot, an agentic thread too:
-    /// agent figures belong to the Agents page (Charles, 13 Nov). Group heads are the board's 36px
-    /// `.sect`; New thread is a 32px row, not a button.
+    /// The rows are the Tight tiles board's `.th`: 30 high, a 7px state dot 8px in, the title, the
+    /// repo as a tag, and a 6px ping on an unread row only. Every row shows its dot, an agentic
+    /// stream too: agent figures belong to the Agents page (Charles, 13 Nov). Group heads are the
+    /// board's 34px `.grp`; New stream is a 30px row with its shortcut.
     #[gpui_kit::test]
     fn thread_rows_are_the_boards(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let handle = open(cx, with_threads());
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
-            assert_eq!(rect(window, "new-thread").h, 32.0);
-            for g in 0..4usize {
-                assert_eq!(rect(window, ("group", g)).h, 36.0, "group {g}");
+            assert_eq!(rect(window, "new-thread").h, 30.0);
+            assert_eq!(window.find("new-thread").label(), Some("New stream"));
+            for g in 0..3usize {
+                assert_eq!(rect(window, ("group", g)).h, 34.0, "group {g}");
             }
-            // Row 1 (Rampart mutation score) has an agent; it still shows a dot.
-            for (i, state) in [(0usize, "Unread"), (1, "Working"), (2, "Failed"), (3, "Done"), (4, "Done")] {
+            // Row 2 (Rampart mutation score) has an agent; it still shows a dot.
+            for (i, state) in [(0usize, "Needs you"), (1, "Failed"), (2, "Working"), (3, "Done"), (4, "Done")] {
                 let r = rect(window, ("thread", i));
                 assert_eq!(r.h, 30.0, "row {i}");
                 let a = rect(window, ("thread-av", i));
-                assert_eq!((a.w, a.h), (18.0, 22.0), "row {i}'s slot");
+                assert_eq!((a.w, a.h), (7.0, 22.0), "row {i}'s slot");
                 assert!((a.y + a.h / 2.0 - (r.y + r.h / 2.0)).abs() <= 1.0, "row {i}'s slot is centred");
-                assert!((10.0..=13.0).contains(&(a.x - r.x)), "row {i}'s slot is 11px in, as the board's");
+                assert_eq!(a.x - r.x, 8.0, "row {i}'s dot is 8px in, as the board's");
                 assert_eq!(window.find(("thread-av", i)).label(), Some(state), "row {i}");
                 assert!(window.try_find(("thread-fig", i)).is_none(), "row {i}: no figure");
                 assert!(window.try_find(("thread-dot", i)).is_some(), "row {i}: a state dot");
@@ -2420,14 +2738,15 @@ mod tests {
         let handle = open(cx, with_threads());
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
+            window.click("search-btn", cx);
             assert_eq!(window.find("search").label(), Some("Search streams"));
-            window.click(("thread", 1usize), cx);
+            window.click(("thread", 2usize), cx);
             window.press("down", cx);
             window.press("down", cx);
         })
         .unwrap();
         let sel = |cx: &mut TestAppContext| handle.update(cx, |c, _, _| c.selected.clone()).unwrap();
-        assert_eq!(sel(cx).as_deref(), Some("p"), "click Running row, then two down: Failed, then Done's first");
+        assert_eq!(sel(cx).as_deref(), Some("s"), "click the Running row, then two down: Done's first, then its second");
         cx.update_window(handle.into(), |_, window, cx| {
             for _ in 0..9 {
                 window.press("up", cx);
@@ -2444,7 +2763,7 @@ mod tests {
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
             assert_eq!(row_labels(window), ["Koi palette"]);
-            assert_eq!(window.find(("group", 0usize)).label(), Some("Unread, 1"));
+            assert_eq!(window.find(("group", 0usize)).label(), Some("Needs you, 1"));
             assert!(window.try_find(("group", 1usize)).is_none(), "groups with no match are left out");
         })
         .unwrap();

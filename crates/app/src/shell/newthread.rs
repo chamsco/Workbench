@@ -404,6 +404,10 @@ impl Cauldron {
             let bad = why.starts_with("Can't");
             wrap = wrap.child(line("start-why", why, if bad { c(pal.bad) } else { fg3 }));
         }
+        // The board's usage badges under the box; nothing while core has no usage.
+        if let Some(b) = self.usage_badges(pal) {
+            wrap = wrap.child(b.px(px(2.)));
+        }
 
         // ponytail: the board's trust, Coordinator, mic, Worktree/Isolated, usage and stage
         // controls need core (UI-PLAN decision 5); they come when core has them, not as fakes.

@@ -564,7 +564,7 @@ impl Cauldron {
             .py(px(if short { 8. } else { 14. }))
             .child(msgs.test_support())
             .child(composer.test_support())
-            .when_live(!short, |d| d.child(usage))
+            .when_live(!short, |d| d.child(div().flex().items_end().justify_between().gap(px(8.)).child(usage).children(self.usage_badges(pal))))
             .into_any_element()
     }
 }
@@ -639,7 +639,7 @@ pub(super) mod tests {
         let chats = Chats::open(d, rt.handle().clone(), tx);
         let ch = chats.clone();
         cx.update(|cx| cx.set_reduce_motion(true));
-        let handle = cx.add_window(move |_, _| Cauldron { threads: Threads::Ready(ch.list()), core: Some((rt, ch)), ..Cauldron::new() });
+        let handle = cx.add_window(move |_, _| Cauldron { threads: Threads::Ready(ch.list()), core: Some((rt, ch)), accounts_file: Some(super::super::tests::no_accounts()), ..Cauldron::new() });
         cx.simulate_window_resize(handle.into(), size(px(1240.), px(702.)));
         (handle, chats)
     }

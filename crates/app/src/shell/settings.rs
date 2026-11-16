@@ -25,7 +25,7 @@ fn policy_label(p: FailoverPolicy) -> &'static str {
 
 impl Cauldron {
     /// Where the subscriptions are read from: core's `accounts.json`, or a test's own file.
-    fn accounts_path(&self) -> std::path::PathBuf {
+    pub(super) fn accounts_path(&self) -> std::path::PathBuf {
         self.accounts_file.clone().unwrap_or_else(Accounts::path)
     }
 
