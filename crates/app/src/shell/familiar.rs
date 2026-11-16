@@ -93,7 +93,9 @@ pub(crate) const MAIN_ICON_W: f32 = 13.0 + 6.0;
 pub(crate) fn dot(id: impl Into<ElementId>, state: State, pal: &'static Palette) -> Stateful<Div> {
     let d = div().id(id).size(px(7.)).flex_none().rounded_full().aria_label(state.label());
     match state {
-        State::Running => d.bg(c(pal.accent)).shadow(vec![BoxShadow { color: ca(pal.accent, 0.18), offset: point(px(0.), px(0.)), blur_radius: px(0.), spread_radius: px(3.), inset: false }]),
+        // The halo is an absolute 13px disc of tint around the 7px dot (a box shadow draws square), so it
+        // takes no room in the row; the tint over the dot itself leaves it the accent.
+        State::Running => d.relative().bg(c(pal.accent)).child(div().absolute().left(px(-3.)).top(px(-3.)).size(px(13.)).rounded_full().bg(ca(pal.accent, 0.18))),
         State::NeedsYou => d.bg(c(pal.warn)),
         State::Done => d.border_1().border_color(c(pal.fg4)),
     }

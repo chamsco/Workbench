@@ -1046,6 +1046,8 @@ const TAB_MAX: f32 = 200.0;
 const TAB_GAP: f32 = 2.0;
 const TAB_PAD: f32 = 10.0;
 const CLOSE_GAP: f32 = 6.0;
+/// What the open agent tab needs beyond the others: its close button, the gap before it and its 1px ring.
+const CLOSE_W: f32 = 18.0 + CLOSE_GAP + 2.0;
 /// The + after the tabs, as tall as a tab.
 const ADD_W: f32 = metric::TAB_H;
 /// The new stream's bar at the bottom of its card: usage and the stages.
@@ -1433,17 +1435,17 @@ impl Render for Cauldron {
             let focus = self.tab_focus.get_or_insert_with(|| cx.focus_handle()).clone();
             let label_w = {
                 let run = TextRun { len: anchor_label.len(), font: Font { weight: FontWeight::MEDIUM, features: sans_features(), ..font(SANS) }, color: fg, background_color: None, underline: None, strikethrough: None };
-                f32::from(window.text_system().shape_line(anchor_label.clone(), px(12.), &[run], None).width)
+                f32::from(window.text_system().shape_line(anchor_label.clone(), px(12.5), &[run], None).width)
             };
             let fam = self.familiar.is_some();
-            let anchor_w = (TAB_PAD + label_w + TAB_PAD + if fam { familiar::MAIN_ICON_W } else { 0.0 }).ceil().min(ANCHOR_MAX + if fam { familiar::MAIN_ICON_W } else { 0.0 });
+            let anchor_w = (TAB_PAD + label_w + TAB_PAD + 2.0 + if fam { familiar::MAIN_ICON_W } else { 0.0 }).ceil().min(ANCHOR_MAX + if fam { familiar::MAIN_ICON_W } else { 0.0 });
             let n = self.agents.len();
             let room = s.tabs.w - anchor_w - (TAB_GAP + ADD_W) - if fam { 9.0 } else { 0.0 };
             let scrolls = n as f32 * (TAB_MIN + TAB_GAP) + TAB_GAP > room;
             let (k, tab_w) = if scrolls {
                 (((room - 54.0) / (TAB_MIN + TAB_GAP)).floor().max(1.0) as usize, Some(TAB_MIN))
             } else if n > 0 {
-                let per = ((room - TAB_GAP * (n as f32 + 1.0)) / n as f32).floor();
+                let per = ((room - TAB_GAP * (n as f32 + 1.0) - CLOSE_W) / n as f32).floor();
                 (n, Some(per.min(TAB_MAX)))
             } else {
                 (0, None)
@@ -1573,6 +1575,8 @@ impl Render for Cauldron {
                     }));
                 // Sized to the name, as the board, within the tab's share of the room; 72px while scrolling.
                 let share = tab_w.unwrap_or(TAB_MAX);
+                // The open tab also holds its close button, so it gets that much more than the others.
+                let share = if on && !scrolls { share + CLOSE_W } else { share };
                 tab = if scrolls { tab.flex_none().w(px(TAB_MIN)) } else { tab.flex_none().min_w(px(TAB_MIN)).max_w(px(share)) };
                 // The full name as a tip once the tab may be narrower than the widest it gets.
                 let tab = if share < TAB_MAX { self.tipped(("tab", i), tab, agent.name.clone(), Side::Below, pal, cx) } else { tab };
