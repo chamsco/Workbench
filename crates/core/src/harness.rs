@@ -854,6 +854,17 @@ fn stop(inner: &Arc<Inner>, agent: Option<AgentId>) {
         }
     }
     for id in ids.into_iter().filter(|&id| id != MAIN) {
+        // Mark the agent and its ticket failed before the task is aborted: the
+        // abort wakes whoever dispatched it at once, and a lead that dispatches
+        // again must find the ticket already failed (and so retryable).
+        let key = inner.state.lock().unwrap().agents[id].ticket.clone();
+        inner.set_status(id, AgentStatus::Failed);
+        if let Some(k) = &key {
+            inner.ticket(k, |t| {
+                t.state = TicketState::Failed;
+                t.notes.push("stopped by the user".into());
+            });
+        }
         if let Some(h) = inner.tasks.lock().unwrap().remove(&id) {
             h.abort();
         }
@@ -864,15 +875,7 @@ fn stop(inner: &Arc<Inner>, agent: Option<AgentId>) {
             inner.verdicts.lock().unwrap().remove(&ap);
             inner.update(|s| s.approvals[ap].state = ApprovalState::Rejected { feedback: "stopped".into() });
         }
-        let key = inner.state.lock().unwrap().agents[id].ticket.clone();
         inner.log(id, LogKind::System, "stopped by you");
-        inner.set_status(id, AgentStatus::Failed);
-        if let Some(k) = key {
-            inner.ticket(&k, |t| {
-                t.state = TicketState::Failed;
-                t.notes.push("stopped by the user".into());
-            });
-        }
         inner.trace_finish(id, Some("stopped".into()));
     }
     inner.save();
