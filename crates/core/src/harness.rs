@@ -1684,6 +1684,7 @@ async fn main_loop(inner: Arc<Inner>, mut inbox: mpsc::UnboundedReceiver<String>
         };
         // Stop drops the turn where it is (and any agents it was waiting on
         // are stopped by `stop`).
+        let next;
         let res = tokio::select! {
             r = turn => Some(r),
             _ = inner.stop_main.notified() => None,
@@ -1697,16 +1698,16 @@ async fn main_loop(inner: Arc<Inner>, mut inbox: mpsc::UnboundedReceiver<String>
                 if end_restricted_path(&inner) {
                     convo = None;
                 }
-                inner.set_status(MAIN, AgentStatus::Approved);
+                next = AgentStatus::Approved;
                 inner.trace_finish(MAIN, None);
             }
             Some(Ok(TurnEnd::Replied)) => {
-                inner.set_status(MAIN, AgentStatus::Idle);
+                next = AgentStatus::Idle;
                 inner.trace_finish(MAIN, None);
             }
             Some(Err(e)) => {
                 inner.log(MAIN, LogKind::Error, format!("{e:#}"));
-                inner.set_status(MAIN, AgentStatus::Idle);
+                next = AgentStatus::Idle;
                 inner.trace_finish(MAIN, Some(format!("{e:#}")));
             }
             None => {
@@ -1720,13 +1721,17 @@ async fn main_loop(inner: Arc<Inner>, mut inbox: mpsc::UnboundedReceiver<String>
                 if end_restricted_path(&inner) {
                     convo = None;
                 }
-                inner.set_status(MAIN, AgentStatus::Idle);
+                next = AgentStatus::Idle;
                 inner.trace_finish(MAIN, Some("stopped".into()));
             }
         }
+        // Saved before the status changes: whoever sees the lead idle (and may
+        // Stop it, which deletes a restricted task's saved conversation) must
+        // not have this save land after them.
         if let Some(c) = &convo {
             save_main(&inner, c);
         }
+        inner.set_status(MAIN, next);
         emit_metrics(&inner);
     }
 }
