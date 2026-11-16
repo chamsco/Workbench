@@ -145,7 +145,7 @@ impl Cauldron {
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.painting = i == 0;
                             let mut p = Prefs::load();
-                            p.backdrop = if this.painting { "harbour".into() } else { "plain".into() };
+                            p.backdrop = if this.painting { super::backdrop::PAINTING.into() } else { super::backdrop::PLAIN.into() };
                             p.save();
                             cx.notify();
                         }))
@@ -273,12 +273,12 @@ mod tests {
             assert_eq!(window.find("settings-empty").label(), Some("Machines settings arrive in a later milestone."));
             window.click(("settings-page", 2usize), cx);
             assert_eq!(window.find(("appearance", 0usize)).label(), Some("Backdrop"));
-            assert_eq!(window.find(("backdrop-opt", 1usize)).selected(), Some(true), "plain by default in tests");
+            assert_eq!(window.find(("backdrop-opt", 1usize)).selected(), Some(true), "plain by default");
             window.click(("backdrop-opt", 0usize), cx);
             window.render_frame(cx);
             assert_eq!(window.find(("backdrop-opt", 0usize)).selected(), Some(true), "Painting picked");
             assert!(window.try_find("backdrop").is_some(), "the painting is drawn");
-            assert_eq!(backspace_core::prefs::Prefs::load().backdrop, "harbour", "and saved");
+            assert_eq!(backspace_core::prefs::Prefs::load().backdrop, "painting", "and saved");
             window.click(("backdrop-opt", 1usize), cx);
             window.render_frame(cx);
             assert!(window.try_find("backdrop").is_none(), "Plain: no painting");

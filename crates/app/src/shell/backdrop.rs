@@ -22,10 +22,14 @@ const WORK_W: u32 = 420;
 /// Bump when the recipe changes, so an old cached file is not reused.
 const VERSION: u32 = 1;
 
-/// Whether the prefs ask for the painting: the shared `backdrop` pref, where "plain" is the solid
-/// frame and anything else (the old app's paintings) is the Harbour painting here.
+/// The shared `backdrop` pref's values Cauldron writes from Settings > Appearance.
+pub(crate) const PAINTING: &str = "painting";
+pub(crate) const PLAIN: &str = "plain";
+
+/// Whether the prefs ask for the painting. Plain is the default (Charles, 16 Nov): only
+/// Cauldron's own "painting" draws it; the old app's values ("harbour", ...) stay plain.
 pub(crate) fn wants_painting(p: &Prefs) -> bool {
-    p.backdrop != "plain"
+    p.backdrop == PAINTING
 }
 
 /// The frame tint over the painting: the frame colour at 70% in dark, 52% in light.
@@ -158,6 +162,21 @@ mod tests {
         assert_eq!(saturate([200, 100, 50], 1.0), [200, 100, 50], "1 is identity");
         let [r, g, b] = saturate([200, 100, 50], 1.15);
         assert!(r > 200 && g < 100 && b < 50, "more saturated: {r} {g} {b}");
+    }
+
+    /// Plain is the default (Charles, 16 Nov): only Cauldron's own Settings choice, "painting",
+    /// draws the painting; the old app's values ("harbour", "dawn", ...) and a fresh prefs file
+    /// stay plain.
+    #[test]
+    fn plain_is_the_default_and_painting_is_a_choice() {
+        let mut p = Prefs::default();
+        assert!(!wants_painting(&p), "fresh prefs: plain");
+        p.backdrop = "harbour".into();
+        assert!(!wants_painting(&p), "the old app's backdrop: plain here");
+        p.backdrop = PAINTING.into();
+        assert!(wants_painting(&p));
+        p.backdrop = PLAIN.into();
+        assert!(!wants_painting(&p));
     }
 
     /// Glass only over the painting; on the plain frame every surface is solid.
