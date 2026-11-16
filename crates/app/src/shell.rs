@@ -165,6 +165,12 @@ pub(crate) struct Cauldron {
     support_menu: bool,
     /// The Harbour painting behind the window (Tight tiles), or the plain frame.
     painting: bool,
+    /// Plan mode for the next send, from the new-stream box or the composer (Tight tiles): the
+    /// agent proposes first and edits nothing until the plan is approved. Core's `Ctx::plan`.
+    plan: bool,
+    /// The open-in split button's menu, and the last choice its left half repeats.
+    open_in_menu: bool,
+    open_in: thread::OpenIn,
     /// The search row is open (the top row's search button), and the folded sidebar's hover
     /// indent is showing.
     search_open: bool,
@@ -335,7 +341,7 @@ impl Cauldron {
     }
 
     pub(crate) fn new() -> Self {
-        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, painting: false, search_open: false, indent: false, usage: Default::default(), settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
+        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, painting: false, plan: false, open_in_menu: false, open_in: thread::OpenIn::Folder, search_open: false, indent: false, usage: Default::default(), settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
     }
 
     /// Opens core off the main thread (the sidebar shows Loading meanwhile), then keeps the thread
@@ -838,6 +844,120 @@ impl Cauldron {
             );
         }
         Some(bar)
+    }
+
+    /// Opens the stream's folder in `how`, and remembers it for the split button's left half.
+    fn open_folder(&mut self, how: thread::OpenIn, cx: &mut Context<Self>) {
+        self.open_in = how;
+        self.open_in_menu = false;
+        let Some(dir) = self.thread.as_ref().and_then(|t| t.project.clone()) else { return };
+        match how {
+            thread::OpenIn::Folder => cx.reveal_path(std::path::Path::new(&dir)),
+            thread::OpenIn::Editor => {
+                if let Err(e) = std::process::Command::new("code").arg(&dir).spawn() {
+                    self.send_error = Some(format!("Couldn't start VS Code: {e}"));
+                }
+            }
+        }
+    }
+
+    /// The board's open-in split button (`.oi`): the left half opens the stream's folder the way
+    /// it was opened last, the arrow picks another way. Dim without a folder.
+    fn open_in_button(&self, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
+        let has = self.thread.as_ref().is_some_and(|t| t.project.is_some());
+        let how = self.open_in;
+        let mut menu = None;
+        if self.open_in_menu && has {
+            let mut m = div()
+                .id("open-in-menu")
+                .absolute()
+                .top(px(32.))
+                .right_0()
+                .w(px(200.))
+                .p(px(4.))
+                .rounded(px(radius::PANEL))
+                .bg(c(pal.raised))
+                .border_1()
+                .border_color(c(pal.line))
+                .shadow(vec![drop(tokens::shadow::MENU)])
+                .text_size(px(12.5))
+                .occlude()
+                .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                    this.open_in_menu = false;
+                    cx.notify();
+                }));
+            for (i, o) in thread::OpenIn::ALL.into_iter().enumerate() {
+                m = m.child(
+                    div()
+                        .id(("open-in-item", i))
+                        .h(px(28.))
+                        .flex()
+                        .items_center()
+                        .px(px(8.))
+                        .rounded(px(radius::CONTROL))
+                        .cursor_pointer()
+                        .hover(|d| d.bg(c(pal.hover)))
+                        .text_color(if o == how { c(pal.fg) } else { c(pal.fg2) })
+                        .aria_label(o.label())
+                        .child(o.label())
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            cx.stop_propagation();
+                            this.open_folder(o, cx);
+                            cx.notify();
+                        }))
+                        .test_support(),
+                );
+            }
+            menu = Some(deferred(m.test_support()).with_priority(2));
+        }
+        div()
+            .id("open-in-wrap")
+            .relative()
+            .h(px(28.))
+            .flex_none()
+            .flex()
+            .rounded(px(7.))
+            .border_1()
+            .border_color(c(pal.line))
+            .when_live(!has, |d| d.opacity(0.45))
+            .occlude()
+            .child(
+                div()
+                    .id("open-in")
+                    .w(px(30.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .when_live(has, |d| d.cursor_pointer().hover(|d| d.bg(c(pal.hover))))
+                    .aria_label(how.label())
+                    .child(glyph("folder", 14., c(pal.accent)))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.open_folder(how, cx);
+                        cx.notify();
+                    }))
+                    .test_support(),
+            )
+            .child(
+                div()
+                    .id("open-in-more")
+                    .w(px(22.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .border_l_1()
+                    .border_color(c(pal.line))
+                    .when_live(has, |d| d.cursor_pointer().hover(|d| d.bg(c(pal.hover))))
+                    .aria_label("Open in")
+                    .child(glyph("chevron-down", 12., c(pal.fg3)))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.open_in_menu = has && !this.open_in_menu;
+                        cx.notify();
+                    }))
+                    .test_support(),
+            )
+            .children(menu)
+            .test_support()
+            .into_any_element()
     }
 
     /// Closes a support tab; closing the last one folds the card.
@@ -1588,6 +1708,7 @@ impl Render for Cauldron {
                     .items_center()
                     .justify_end()
                     .gap(px(4.))
+                    .child(self.open_in_button(pal, cx))
                     .child(self.layout_button(pal, now, reduce, cx).occlude().test_support())
                     .child(self.tipped("top-term", icon_button("top-term", "panel-bottom", "Terminal", pal, self.terminal), "Terminal", Side::Below, pal, cx).occlude().on_click(cx.listener(|this, _, _, cx| {
                         this.terminal = !this.terminal;

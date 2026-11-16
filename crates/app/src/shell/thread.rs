@@ -146,9 +146,45 @@ fn status_line(i: usize, label: &'static str, grey: Rgb) -> impl IntoElement {
         .test_support()
 }
 
-/// The settings a send carries: the saved prefs, nothing else wired yet.
-pub(super) fn ctx() -> Ctx {
-    Ctx { prefs: Prefs::load(), memory: None, agents: None, plan: false }
+/// The settings a send carries: the saved prefs, and Plan mode when it is on.
+pub(super) fn ctx(plan: bool) -> Ctx {
+    Ctx { prefs: Prefs::load(), memory: None, agents: None, plan }
+}
+
+/// What the coding CLIs may do without asking (the `cli_permission` pref), as the board's trust
+/// chip names it: "edits" is Ask first, "auto" Approve routine, "full" Full access.
+pub(super) const TRUST: [(&str, &str); 3] = [("edits", "Ask first"), ("auto", "Approve routine"), ("full", "Full access")];
+
+pub(super) fn trust_label(p: &Prefs) -> &'static str {
+    TRUST.iter().find(|(k, _)| *k == p.cli_permission).map_or("Ask first", |(_, l)| l)
+}
+
+/// The open-in split button's targets; its left half repeats the last one.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum OpenIn {
+    Folder,
+    Editor,
+}
+
+impl OpenIn {
+    pub(super) const ALL: [OpenIn; 2] = [OpenIn::Folder, OpenIn::Editor];
+    pub(super) fn label(self) -> &'static str {
+        match self {
+            OpenIn::Folder => if cfg!(target_os = "macos") { "Show in Finder" } else { "Show in Explorer" },
+            OpenIn::Editor => "Open in VS Code",
+        }
+    }
+}
+
+/// Which scroll tick is current: the last response at or above the transcript's top row.
+pub(super) fn current_tick(replies: &[usize], top: usize) -> usize {
+    replies.iter().rposition(|&r| r <= top).unwrap_or(0)
+}
+
+/// The branch checked out in `dir`, from `.git/HEAD`; None outside a repo or on a detached HEAD.
+pub(super) fn branch(dir: &str) -> Option<String> {
+    let head = std::fs::read_to_string(std::path::Path::new(dir).join(".git").join("HEAD")).ok()?;
+    head.trim().strip_prefix("ref: refs/heads/").map(str::to_string)
 }
 
 /// Efforts the chip cycles through; None is Auto, the CLI's own default.
@@ -239,7 +275,7 @@ impl Cauldron {
         if text.is_empty() {
             return;
         }
-        match chats.send(&id, &text, Vec::new(), None, ctx()) {
+        match chats.send(&id, &text, Vec::new(), None, ctx(self.plan)) {
             Ok(()) => {
                 self.send_error = None;
                 st.update(cx, |s, cx| s.set_value("", window, cx));
@@ -255,7 +291,7 @@ impl Cauldron {
         if self.composer.is_some() {
             return;
         }
-        let st = cx.new(|cx| TextareaState::new(window, cx).auto_grow(1, 8).submit_on_enter(true).placeholder("Message the coordinator…"));
+        let st = cx.new(|cx| TextareaState::new(window, cx).auto_grow(1, 8).submit_on_enter(true).placeholder(super::newthread::REPLY_PLACEHOLDER));
         let sub = cx.subscribe_in(&st, window, |this, _, ev: &InputEvent, window, cx| {
             if let InputEvent::PressEnter { shift: false, .. } = ev {
                 this.send_composer(window, cx);
@@ -332,6 +368,8 @@ impl Cauldron {
             );
         }
         let last = ls.len().saturating_sub(1);
+        // The scroll ticks' targets: one per response, by its row in the transcript.
+        let replies: Vec<usize> = ls.iter().enumerate().filter(|(_, l)| !l.mine).map(|(i, _)| i).collect();
         for (i, l) in ls.into_iter().enumerate() {
             let shown = if l.text.is_empty() { pending(l.status).unwrap_or("").to_string() } else { l.text.clone() };
             if l.mine {
@@ -403,7 +441,8 @@ impl Cauldron {
                             .child("Retry")
                             .on_click(cx.listener(|this, _, _, cx| {
                                 if let (Some(id), Some((_, chats))) = (this.open.clone(), this.core.as_ref()) {
-                                    if let Err(e) = chats.retry(&id, ctx()) {
+                                    // A retry of a Plan reply stays a plan in core; nothing to add here.
+                                    if let Err(e) = chats.retry(&id, ctx(false)) {
                                         this.send_error = Some(e.to_string());
                                     }
                                 }
@@ -435,8 +474,9 @@ impl Cauldron {
         // The Send and Stop glyphs cross-fade when a reply starts or stops. Only the current one
         // takes a click, so the one fading out cannot send or stop anything.
         let k = self.action_since.map_or(1.0, |t0| crate::motion::run(std::time::Instant::now(), t0, cauldron_chrome::motion::time::SWAP));
+        let ink = c(pal.panel);
         let layer = |name: &'static str, size: f32, a: f32| {
-            div().absolute().inset_0().flex().items_center().justify_center().opacity(a).child(glyph(name, size, fg))
+            div().absolute().inset_0().flex().items_center().justify_center().opacity(a).child(glyph(name, size, ink))
         };
         let ((now_name, now_size), (was_name, was_size)) = if busy { (("square", 13.), ("arrow-up", 16.)) } else { (("arrow-up", 16.), ("square", 13.)) };
         let mut action = div()
@@ -460,15 +500,13 @@ impl Cauldron {
         };
         let action = action
             .ml_auto()
-            .size(px(30.))
+            .size(px(28.))
             .flex_none()
             .flex()
             .items_center()
             .justify_center()
-            .rounded(px(radius::INNER))
-            .bg(c(pal.inset))
-            .border_1()
-            .border_color(c(pal.line))
+            .rounded(px(radius::CONTROL))
+            .bg(fg)
             .cursor_pointer()
             .test_support();
         let input = self.composer.as_ref().expect("made in render").0.clone();
@@ -513,7 +551,7 @@ impl Cauldron {
             .id("composer")
             .flex_none()
             .flex()
-            .rounded(px(radius::PANEL))
+            .rounded(px(radius::SHELL))
             .border_1()
             .border_color(c(pal.line))
             .bg(super::backdrop::surface(self.painting, pal.raised, super::backdrop::GLASS_COMPOSER))
@@ -527,6 +565,9 @@ impl Cauldron {
                     .flex()
                     .items_center()
                     .gap(px(6.))
+                    // In a narrow pane the trust and Plan chips give way first, so Send stays in view.
+                    .when_live(!narrow, |d| d.child(self.trust_chip("trust", pal, cx)).child(self.plan_chip("plan", pal, cx)))
+                    .child(div().flex_1())
                     // In a narrow pane the route chip gives way first, so Send stays in view.
                     .child(chip_btn("route", format!("Answered by {}", t.route.provider)).min_w_0().truncate().test_support())
                     .child(effort_chip.flex_none().test_support())
@@ -549,13 +590,54 @@ impl Cauldron {
             .text_size(px(11.))
             .text_color(fg3)
             .font_features(tnum())
-            .aria_label(format!("This thread has cost ${spent:.2}"))
-            .child("This thread")
+            .aria_label(format!("This stream has cost ${spent:.2}"))
+            .child("This stream")
             .child(div().font_weight(FontWeight::SEMIBOLD).text_color(fg2).child(format!("${spent:.2}")))
             .test_support();
 
+        // The context bar over the box (the board's `.ctx`): where it runs, the branch, the worktree.
+        let ctx_bar = (!short).then(|| {
+            let item = |id: &'static str, icon: &'static str, text: String| div().id(id).flex().items_center().gap(px(5.)).aria_label(text.clone()).child(glyph(icon, 13., fg3)).child(text).test_support();
+            let mut bar = div().id("ctx-bar").flex().items_center().gap(px(14.)).px(px(12.)).text_size(px(11.5)).text_color(fg3).child(item("ctx-machine", "laptop", "This machine".into()));
+            if let Some(b) = t.project.as_deref().and_then(branch) {
+                bar = bar.child(item("ctx-branch", "git-branch", b));
+            }
+            // ponytail: core has no worktrees yet; shown dimmed, as on the new-stream bar.
+            bar.child(div().opacity(0.5).child(item("ctx-worktree", "git-fork", "Worktree".into()))).test_support()
+        });
+        // Scroll ticks on the right edge (the board's `.mm`): one per response, the one at the
+        // top of the view in the accent; a click jumps to it.
+        let ticks = (replies.len() > 1).then(|| {
+            let cur = current_tick(&replies, self.transcript_scroll.top_item());
+            let mut col = div().id("ticks").absolute().right(px(6.)).top(px(16.)).flex().flex_col().items_end().aria_label("Jump to a response");
+            for (k, &row) in replies.iter().enumerate() {
+                let on = k == cur;
+                col = col.child(
+                    div()
+                        .id(("tick", k))
+                        .h(px(7.))
+                        .w(px(24.))
+                        .flex()
+                        .items_center()
+                        .justify_end()
+                        .cursor_pointer()
+                        .aria_label(format!("Response {}", k + 1))
+                        .aria_selected(on)
+                        .child(div().h(px(2.)).w(px(if on { 20. } else { 14. })).rounded(px(1.)).bg(if on { c(pal.accent) } else { ca(pal.fg4, 0.75) }))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.transcript_scroll.scroll_to_item(row);
+                            cx.notify();
+                        }))
+                        .test_support(),
+                );
+            }
+            col.test_support()
+        });
+        // Room on the right for the ticks, so they never sit over a bubble.
+        let msgs = msgs.when_live(ticks.is_some(), |d| d.pr(px(28.))).on_scroll_wheel(cx.listener(|_, _, _, cx| cx.notify()));
         div()
             .id("thread")
+            .relative()
             .size_full()
             .flex()
             .flex_col()
@@ -563,7 +645,8 @@ impl Cauldron {
             .px(px(if narrow { 10. } else { 18. }))
             .py(px(if short { 8. } else { 14. }))
             .child(msgs.test_support())
-            .child(composer.test_support())
+            .children(ticks)
+            .child(div().flex().flex_col().gap(px(6.)).children(ctx_bar).child(composer.test_support()))
             .when_live(!short, |d| d.child(div().flex().items_end().justify_between().gap(px(8.)).child(usage).children(self.usage_badges(pal))))
             .into_any_element()
     }
@@ -613,6 +696,48 @@ pub(super) mod tests {
             std::fs::write(d.join("threads").join(format!("{}.json", t["id"].as_str().unwrap())), t.to_string()).unwrap();
         }
         d
+    }
+
+    /// The current tick is the last response at or above the top row in view.
+    #[test]
+    fn the_current_tick_follows_the_top_row() {
+        let replies = [1, 3, 5];
+        assert_eq!(super::current_tick(&replies, 0), 0, "above the first response: the first");
+        assert_eq!(super::current_tick(&replies, 3), 1);
+        assert_eq!(super::current_tick(&replies, 4), 1);
+        assert_eq!(super::current_tick(&replies, 9), 2);
+    }
+
+    /// The stream view (Tight tiles): the context bar over the composer names where it runs, the
+    /// composer has the trust chip and the Plan toggle, and a send in Plan mode reaches core as a
+    /// plan. One response draws no ticks. Without a git folder there is no branch.
+    #[gpui_kit::test]
+    fn the_stream_view_has_the_boards_composer_and_sends_plans(cx: &mut TestAppContext) {
+        let (handle, chats) = open(cx);
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            window.click(("thread", 0usize), cx);
+            window.render_frame(cx);
+            assert_eq!(window.find("ctx-machine").label(), Some("This machine"));
+            assert!(window.try_find("ctx-branch").is_none(), "no .git in the test folder, no branch");
+            let (bar, comp) = (super::super::tests::rect(window, "ctx-bar"), super::super::tests::rect(window, "composer"));
+            assert!(bar.bottom() <= comp.y, "the context bar sits over the box");
+            assert!(window.try_find("ticks").is_none(), "one response: no ticks");
+            assert_eq!(window.find("plan").label(), Some("Plan"));
+            window.click("plan", cx);
+            window.render_frame(cx);
+            assert_eq!(window.find("plan").label(), Some("Plan · on"));
+            assert_eq!(window.find("plan").selected(), Some(true));
+            window.click(("thread", 1usize), cx);
+            window.click("composer-input", cx);
+            window.input("What would you change?", cx);
+            window.press("enter", cx);
+        })
+        .unwrap();
+        cx.run_until_parked();
+        let t = chats.peek("t2").unwrap();
+        assert_eq!(t.messages[0].text, "What would you change?");
+        assert!(t.messages[0].plan, "sent as a plan");
     }
 
     /// One temp prefs file for the whole test process, set once and never unset: env vars are
@@ -762,7 +887,7 @@ pub(super) mod tests {
             assert_eq!(window.find(("msg", 1usize)).label(), Some("All 591 pass."));
             assert_eq!(window.find(("steps", 1usize)).label(), Some("Thought, Read 1 file, Ran 1 command"), "how the reply was made, from its trace");
             assert!(window.find(("msg", 0usize)).bounds().origin.x > window.find(("msg", 1usize)).bounds().origin.x, "your message sits right");
-            assert_eq!(window.find("usage").label(), Some("This thread has cost $0.42"));
+            assert_eq!(window.find("usage").label(), Some("This stream has cost $0.42"));
             assert_eq!(window.find("composer").label(), Some("Message the coordinator"));
             assert_eq!(window.find("send").label(), Some("Send"));
             window.click(("thread", 1usize), cx);
