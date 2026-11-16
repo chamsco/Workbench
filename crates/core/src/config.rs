@@ -259,9 +259,11 @@ pub struct ModelSpec {
     /// Effort levels the provider accepts for this model. Empty = no knob.
     #[serde(default)]
     pub efforts: Vec<Effort>,
-    /// Where this model sits on the cost ladder (`local`, `mid`, `frontier`).
-    /// Unset: by tier, 0 local, 1–2 mid, 3–4 frontier.
-    #[serde(default)]
+    /// Where this model sits on the cost ladder (`local`, `mid`, `frontier`),
+    /// set as `model_class` (the older key `class` still works; setting both is
+    /// an error). Unset: by tier, 0 local, 1–3 mid, 4 frontier. An unknown
+    /// value is a config error, never a fall back to the tier.
+    #[serde(default, alias = "model_class")]
     pub class: Option<crate::ladder::ModelClass>,
 }
 
