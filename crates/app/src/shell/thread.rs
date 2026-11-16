@@ -698,6 +698,30 @@ pub(super) mod tests {
         d
     }
 
+    /// ⌘N on macOS, Ctrl+N elsewhere, starts a New stream from anywhere in the window: from an
+    /// open stream with the composer focused, and with nothing focused at all.
+    #[gpui_kit::test]
+    fn the_new_stream_shortcut_works_from_anywhere(cx: &mut TestAppContext) {
+        let (handle, _chats) = open(cx);
+        cx.update(super::super::bind_keys);
+        let key = if cfg!(target_os = "macos") { "cmd-n" } else { "ctrl-n" };
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            window.click(("thread", 0usize), cx);
+            window.click("composer-input", cx);
+            assert!(window.try_find("nt-box").is_none(), "a stream is open");
+            window.press(key, cx);
+            window.render_frame(cx);
+            assert!(window.try_find("nt-box").is_some(), "the shortcut from the composer opens New stream");
+            window.click(("thread", 0usize), cx);
+            window.blur(cx);
+            window.press(key, cx);
+            window.render_frame(cx);
+            assert!(window.try_find("nt-box").is_some(), "and with nothing focused");
+        })
+        .unwrap();
+    }
+
     /// The current tick is the last response at or above the top row in view.
     #[test]
     fn the_current_tick_follows_the_top_row() {
