@@ -78,6 +78,7 @@ impl Cauldron {
         self.open = None;
         self.thread = None;
         self.selected = None;
+        self.familiar = None;
         self.coordinator = None;
         self.agents.clear();
         self.idle.clear();

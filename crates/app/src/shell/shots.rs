@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 /// The states each gate is checked in: New thread, a thread with the drawer, the drawer folded,
 /// an agentic thread's tabs.
-const STATES: [&str; 10] = ["new", "thread", "folded", "tabs", "win-sidebar-open", "win-sidebar-folded", "changes", "git", "files", "indent"];
+const STATES: [&str; 12] = ["new", "thread", "folded", "tabs", "win-sidebar-open", "win-sidebar-folded", "changes", "git", "files", "indent", "familiar", "familiar-sub"];
 
 fn shot(dir: &PathBuf, data: &PathBuf, state: &str, theme: &str) {
     std::env::set_var("CAULDRON_THEME", theme);
@@ -62,6 +62,12 @@ fn shot(dir: &PathBuf, data: &PathBuf, state: &str, theme: &str) {
                         if let Some(id) = v.first().map(|t| t.id.clone()) {
                             c.open_thread(id);
                         }
+                    }
+                }
+                if state == "familiar" || state == "familiar-sub" {
+                    c.open_familiar(0);
+                    if state == "familiar-sub" {
+                        c.active = 4;
                     }
                 }
                 if state == "tabs" {

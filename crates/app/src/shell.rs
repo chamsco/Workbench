@@ -21,6 +21,7 @@ use gpui_kit::component::Theme;
 use std::sync::Arc;
 
 mod backdrop;
+mod familiar;
 mod motion;
 mod newthread;
 mod panes;
@@ -224,6 +225,8 @@ pub(crate) struct Cauldron {
     transcript_seen: std::cell::RefCell<Option<(String, usize)>>,
     /// The thread's coordinator, pinned as the first tab; None on the New thread screen.
     coordinator: Option<SharedString>,
+    /// The open familiar (an index into `familiar::EXAMPLES`): the card shows its view and the tabs are its crew.
+    familiar: Option<usize>,
     /// Agents with an open 1:1 tab, in tab order, and the thread's other agents (the + menu).
     agents: Vec<AgentTab>,
     idle: Vec<AgentTab>,
@@ -359,7 +362,7 @@ impl Cauldron {
     }
 
     pub(crate) fn new() -> Self {
-        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, support_data: Default::default(), files_open: Default::default(), painting: false, root_focus: None, plan: false, open_in_menu: false, open_in: thread::OpenIn::Folder, search_open: false, indent: false, usage: Default::default(), settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
+        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, support_data: Default::default(), files_open: Default::default(), painting: false, root_focus: None, plan: false, open_in_menu: false, open_in: thread::OpenIn::Folder, search_open: false, indent: false, usage: Default::default(), settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, familiar: None, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
     }
 
     /// Opens core off the main thread (the sidebar shows Loading meanwhile), then keeps the thread
@@ -1300,6 +1303,7 @@ impl Render for Cauldron {
             let search = self.search.as_ref().expect("just created").0.clone();
             self.list_focus.get_or_insert_with(|| cx.focus_handle());
             let list = self.thread_list(pal, cx);
+            let familiars = self.familiar_group(pal, cx);
             let user = std::env::var("USER").or_else(|_| std::env::var("USERNAME")).unwrap_or_else(|_| "You".into());
             let initial = user.chars().next().map(|ch| ch.to_uppercase().to_string()).unwrap_or_else(|| "Y".into());
             // The board's `.nav`: New stream with its shortcut.
@@ -1359,7 +1363,7 @@ impl Render for Cauldron {
                             .test_support(),
                     ),
                 ))
-                .when_live(self.settings.is_none(), |d| d.child(list))
+                .when_live(self.settings.is_none(), |d| d.child(familiars).child(list))
                 .child(
                     div()
                         .h(px(36.))
@@ -1431,9 +1435,10 @@ impl Render for Cauldron {
                 let run = TextRun { len: anchor_label.len(), font: Font { weight: FontWeight::MEDIUM, features: sans_features(), ..font(SANS) }, color: fg, background_color: None, underline: None, strikethrough: None };
                 f32::from(window.text_system().shape_line(anchor_label.clone(), px(12.), &[run], None).width)
             };
-            let anchor_w = (TAB_PAD + label_w + TAB_PAD).ceil().min(ANCHOR_MAX);
+            let fam = self.familiar.is_some();
+            let anchor_w = (TAB_PAD + label_w + TAB_PAD + if fam { familiar::MAIN_ICON_W } else { 0.0 }).ceil().min(ANCHOR_MAX + if fam { familiar::MAIN_ICON_W } else { 0.0 });
             let n = self.agents.len();
-            let room = s.tabs.w - anchor_w - (TAB_GAP + ADD_W);
+            let room = s.tabs.w - anchor_w - (TAB_GAP + ADD_W) - if fam { 9.0 } else { 0.0 };
             let scrolls = n as f32 * (TAB_MIN + TAB_GAP) + TAB_GAP > room;
             let (k, tab_w) = if scrolls {
                 (((room - 54.0) / (TAB_MIN + TAB_GAP)).floor().max(1.0) as usize, Some(TAB_MIN))
@@ -1510,6 +1515,8 @@ impl Render for Cauldron {
                 .w(px(anchor_w))
                 .px(px(TAB_PAD))
                 .aria_label(anchor_label.clone())
+                // A familiar's own tab is set apart: accent tint and the wheel; subagents stay neutral.
+                .when_live(fam, |d| d.bg(ca(pal.accent, if on { 0.2 } else { 0.12 })).text_color(c(pal.accent)).child(glyph("ship-wheel", 13., c(pal.accent))))
                 .child(div().min_w_0().truncate().child(anchor_label.clone()))
                 .on_click(cx.listener(|this, _, window, cx| {
                     this.active = 0;
@@ -1517,6 +1524,9 @@ impl Render for Cauldron {
                     cx.notify();
                 }));
             row = row.child(anchor.test_support());
+            if fam {
+                row = row.child(div().id("tab-divider").w(px(1.)).h(px(18.)).mx(px(4.)).flex_none().bg(c(pal.line_strong)).test_support());
+            }
 
             for (j, agent) in self.agents.iter().enumerate().skip(first).take(k) {
                 let i = j + 1;
@@ -1548,7 +1558,12 @@ impl Render for Cauldron {
                     .group(group)
                     .px(px(TAB_PAD))
                     .aria_label(agent.name.clone())
+                    .when_live(fam, |d| d.child(glyph("bot", 13., fg3)))
                     .child(div().min_w_0().truncate().child(agent.name.clone()))
+                    .when_live(fam, |d| match self.familiar_sub(&agent.name) {
+                        Some(sub) => d.child(familiar::dot(("tab-state", i), sub.state, pal).test_support()),
+                        None => d,
+                    })
                     .child(close)
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.active = i;
@@ -1649,7 +1664,7 @@ impl Render for Cauldron {
                     .test_support(),
             );
         }
-        let new_screen = self.open.is_none() && self.active == 0 && self.settings.is_none();
+        let new_screen = self.open.is_none() && self.active == 0 && self.settings.is_none() && self.familiar.is_none();
         let rail_here = s.support.is_none();
         // The body under the header, clear of the rail when it is in this card.
         let body_w = s.main.w - 2.0 - if rail_here { metric::RAIL_W } else { 0.0 };
@@ -1666,6 +1681,7 @@ impl Render for Cauldron {
         self.thread_box.set(if split { (tb.w, tb.h - 32.0) } else { (tb.w, tb.h) });
         let body = match self.settings {
             Some(page) => self.settings_page(page, pal, cx),
+            None if self.familiar.is_some() => self.familiar_body(pal),
             None => self.card_body(pal, window, cx),
         };
         let inside = if split { self.pane_stage(pal, area, shape, body, window, cx).into_any_element() } else { body };
@@ -2540,6 +2556,33 @@ mod tests {
             window.click(("tab", 2usize), cx);
             assert!(on(window, 2) && !on(window, 0), "a click opens the tab");
             assert_eq!(rect(window, "card").y, s.main.y, "the card stays put");
+        })
+        .unwrap();
+    }
+
+    /// A familiar's tab row: its own tab first, a divider, then one neutral tab per subagent; its
+    /// view replaces the stream card's body and the sidebar lists it under Familiars.
+    #[gpui_kit::test]
+    fn a_familiar_pins_its_tab_first_and_shows_its_crew(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let mut c = Cauldron::new();
+        c.open_familiar(0);
+        let n = c.agents.len();
+        let handle = open(cx, c);
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            assert_eq!(window.find(("familiar", 0usize)).label(), Some("Ship onboarding v2"));
+            assert!(window.try_find("familiar").is_some(), "the familiar's view is the card body");
+            assert!(window.try_find("stage-bar").is_none(), "no New stream bar");
+            let main = rect(window, ("tab", 0usize));
+            let div = rect(window, "tab-divider");
+            assert!(div.x >= main.right(), "divider after the familiar's tab");
+            assert!(rect(window, ("tab", 1usize)).x > div.x, "subagents after the divider");
+            assert!(window.try_find(("tab-close", 0usize)).is_none(), "the familiar has no close");
+            assert_eq!(visible(window, n).len(), n, "every subagent has a tab");
+            assert!(window.try_find("familiar-ask").is_some(), "the ask shows on the familiar's own stream");
+            window.click(("tab", 4usize), cx);
+            assert!(window.try_find("familiar-ask").is_none() && window.try_find("sub-ticket").is_some(), "a subagent tab shows that subagent's stream");
         })
         .unwrap();
     }
