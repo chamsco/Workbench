@@ -12,7 +12,7 @@ pub const SETTLE: Bezier = Bezier::new(0.32, 0.72, 0.0, 1.0);
 
 /// Durations in milliseconds.
 pub mod time {
-    /// A pane moves, opens or closes (sidebar, drawer, split).
+    /// A pane moves, opens or closes (sidebar, support card, dock).
     pub const LAYOUT: u64 = 200;
     /// The open panel's content changes (drawer panel switch).
     pub const PANEL: u64 = 200;
@@ -30,7 +30,7 @@ pub mod time {
     pub const REDUCED: u64 = 150;
 }
 
-/// The drawer's slide-in distance, from the wireframe's `.drawer .dc` translate.
+/// The support card's slide-in distance, from the wireframe's `.drawer .dc` translate.
 pub const DRAWER_SLIDE: f32 = 12.0;
 
 /// A cubic Bezier easing with its endpoints fixed at (0,0) and (1,1), as CSS defines them.
@@ -112,20 +112,18 @@ pub struct Pane {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Frame {
     pub sidebar: Option<Pane>,
-    pub rail: Option<Pane>,
-    pub drawer: Option<Pane>,
-    pub terminal: Option<Pane>,
-    pub half: Option<Pane>,
+    pub support: Option<Pane>,
+    pub dock: Option<Pane>,
+    pub main: Rect,
+    pub rail: Rect,
+    pub notch: Option<Rect>,
     pub caps: Option<Pane>,
     pub lights: Option<Pane>,
-    pub shell: Rect,
-    pub main: Rect,
-    pub tabs: Rect,
-    pub rrail: Option<Pane>,
     pub sidebar_button: Rect,
-    pub title: Rect,
-    pub topr: Rect,
-    pub bar: Rect,
+    pub new_button: Option<Pane>,
+    pub title: Option<Pane>,
+    pub tabs: Rect,
+    pub tools: Rect,
 }
 
 fn at_rest(r: Option<Rect>) -> Option<Pane> {
@@ -145,20 +143,18 @@ impl Frame {
     pub fn at_rest(s: &Shell) -> Frame {
         Frame {
             sidebar: at_rest(s.sidebar),
-            rail: at_rest(s.rail),
-            drawer: at_rest(s.drawer),
-            terminal: at_rest(s.terminal),
-            half: at_rest(s.half),
+            support: at_rest(s.support),
+            dock: at_rest(s.dock),
+            main: s.main,
+            rail: s.rail,
+            notch: s.notch,
             caps: at_rest(s.caps),
             lights: at_rest(s.lights),
-            shell: s.shell,
-            main: s.main,
-            tabs: s.tabs,
-            rrail: at_rest(s.rrail),
             sidebar_button: s.sidebar_button,
-            title: s.title,
-            topr: s.topr,
-            bar: s.bar,
+            new_button: at_rest(s.new_button),
+            title: at_rest(s.title),
+            tabs: s.tabs,
+            tools: s.tools,
         }
     }
 
@@ -166,9 +162,9 @@ impl Frame {
     ///
     /// Panes present in both move in a straight line along the settle curve. A pane only in
     /// `to` slides in from its rest place and fades in over the second half; a pane only in
-    /// `from` stays where it was and fades out over the first third. A drawer that appears
+    /// `from` stays where it was and fades out over the first third. A support card that appears
     /// slides in from `DRAWER_SLIDE` to the right. With `reduce`, nothing moves and the panes
-    /// cross-fade on linear progress.
+    /// cross-fade on linear progress. The notch is a cut, not a pane: it jumps with its card's end.
     pub fn between(from: &Frame, to: &Frame, p: f32, reduce: bool) -> Frame {
         let p = p.clamp(0.0, 1.0);
         let e = if reduce { p } else { SETTLE.at(p) };
@@ -197,20 +193,18 @@ impl Frame {
         let rect = |a: Rect, b: Rect| if reduce { b } else { lerp_rect(a, b, e) };
         Frame {
             sidebar: pane(from.sidebar, to.sidebar, 0.0),
-            rail: pane(from.rail, to.rail, 0.0),
-            drawer: pane(from.drawer, to.drawer, DRAWER_SLIDE),
-            terminal: pane(from.terminal, to.terminal, DRAWER_SLIDE),
-            half: pane(from.half, to.half, 0.0),
+            support: pane(from.support, to.support, DRAWER_SLIDE),
+            dock: pane(from.dock, to.dock, 0.0),
+            main: rect(from.main, to.main),
+            rail: rect(from.rail, to.rail),
+            notch: to.notch.map(|n| from.notch.map_or(n, |m| rect(m, n))),
             caps: pane(from.caps, to.caps, 0.0),
             lights: pane(from.lights, to.lights, 0.0),
-            shell: rect(from.shell, to.shell),
-            main: rect(from.main, to.main),
-            tabs: rect(from.tabs, to.tabs),
-            rrail: pane(from.rrail, to.rrail, 0.0),
             sidebar_button: rect(from.sidebar_button, to.sidebar_button),
-            title: rect(from.title, to.title),
-            topr: rect(from.topr, to.topr),
-            bar: rect(from.bar, to.bar),
+            new_button: pane(from.new_button, to.new_button, 0.0),
+            title: pane(from.title, to.title, 0.0),
+            tabs: rect(from.tabs, to.tabs),
+            tools: rect(from.tools, to.tools),
         }
     }
 }
@@ -223,8 +217,8 @@ mod tests {
     const W: f32 = 1240.0;
     const H: f32 = 702.0;
 
-    fn shell(sidebar: bool, drawer: bool, split: bool) -> Shell {
-        solve(W, H, ShellState { sidebar_open: sidebar, drawer_open: drawer, split_open: split, terminal_open: false }, Platform::Windows)
+    fn shell(sidebar: bool, support: bool, dock: bool) -> Shell {
+        solve(W, H, ShellState { sidebar_open: sidebar, support_open: support, dock_open: dock }, Platform::Mac)
     }
 
     fn close(a: Rect, b: Rect) -> bool {
@@ -260,18 +254,18 @@ mod tests {
         let (fa, fb) = (Frame::at_rest(&a), Frame::at_rest(&b));
         let f0 = Frame::between(&fa, &fb, 0.0, false);
         assert!(close(f0.main, a.main), "main starts where it was");
-        assert!(close(f0.rrail.expect("the rail fades out").rect, a.rrail.unwrap()));
-        assert_eq!(f0.drawer, None, "a drawer that is opening is not drawn at its first frame");
+        assert!(close(f0.rail, a.rail), "the rail starts in the stream card");
+        assert_eq!(f0.support, None, "a support card that is opening is not drawn at its first frame");
         let f1 = Frame::between(&fa, &fb, 1.0, false);
         assert!(close(f1.main, b.main), "main ends where the new shell says");
-        let d = f1.drawer.expect("drawer is drawn at the end");
-        assert!(close(d.rect, b.drawer.unwrap()));
+        let d = f1.support.expect("support card is drawn at the end");
+        assert!(close(d.rect, b.support.unwrap()));
         assert_eq!(d.alpha, 1.0);
-        assert_eq!(f1.rrail, None, "the rail is gone once the drawer is open");
+        assert!(close(f1.rail, b.rail), "the rail ends in the support card");
     }
 
     #[test]
-    fn hiding_the_sidebar_carries_the_main_card_and_swaps_the_rail_in() {
+    fn hiding_the_sidebar_carries_the_main_card_and_brings_new_stream_in() {
         let (a, b) = (shell(true, true, false), shell(false, true, false));
         let (fa, fb) = (Frame::at_rest(&a), Frame::at_rest(&b));
         let mut last_x = fa.main.x;
@@ -280,13 +274,13 @@ mod tests {
             assert!(f.main.x <= last_x + 1e-3, "main card moves left, never jumps back");
             last_x = f.main.x;
         }
-        // The sidebar leaves first; the rail's icons only arrive once the move is half done.
+        // The sidebar leaves first; the header's New stream only arrives once the move is half done.
         let early = Frame::between(&fa, &fb, 0.15, false);
         assert!(early.sidebar.is_some_and(|p| p.alpha > 0.0 && p.alpha < 1.0), "the sidebar fades out early");
-        assert!(early.rail.is_none(), "the rail is not in yet");
+        assert!(early.new_button.is_none(), "New stream is not in yet");
         let late = Frame::between(&fa, &fb, 0.75, false);
         assert!(late.sidebar.is_none(), "the sidebar is gone by three quarters");
-        assert!(late.rail.is_some_and(|p| p.alpha > 0.0 && p.alpha < 1.0), "the rail is fading in");
+        assert!(late.new_button.is_some_and(|p| p.alpha > 0.0 && p.alpha < 1.0), "New stream is fading in");
     }
 
     #[test]
@@ -304,9 +298,9 @@ mod tests {
         let (fa, fb) = (Frame::at_rest(&a), Frame::at_rest(&b));
         let mid = Frame::between(&fa, &fb, 0.5, true);
         assert!(close(mid.main, b.main), "the card snaps to its end size");
-        let d = mid.drawer.expect("drawer cross-fades in");
+        let d = mid.support.expect("support card cross-fades in");
         assert!((d.alpha - 0.5).abs() < 1e-3, "linear cross-fade, got {}", d.alpha);
-        assert!(close(d.rect, b.drawer.unwrap()), "no slide");
+        assert!(close(d.rect, b.support.unwrap()), "no slide");
     }
 
     #[test]

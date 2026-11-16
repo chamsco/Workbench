@@ -13,7 +13,7 @@ use gpui_kit::*;
 
 use crate::motion::ShellMotion;
 use crate::threads::{self, Group};
-use crate::ui::{sans_features, SANS};
+use crate::ui::{sans_features, MONO, SANS};
 use backspace_core::chat::{Chats, Thread, ThreadInfo};
 use backspace_core::prefs::Prefs;
 use gpui_kit::component::input::{Input, InputEvent, InputState, TextareaState};
@@ -42,11 +42,12 @@ pub(crate) fn platform() -> Platform {
     }
 }
 
-/// Top-left of the traffic lights, from the wireframe (`layout::layout` Reference lights rect).
 pub(crate) use motion::os_reduces_motion;
 
+/// Top-left of the traffic lights at launch (sidebar open, in its top row). The shell moves them
+/// to the stream header when the sidebar folds (`Window::set_traffic_light_position`).
 pub(crate) fn lights_origin() -> (f32, f32) {
-    let s = layout::layout(1240.0, 702.0, ShellState { sidebar_open: true, drawer_open: false, split_open: false, terminal_open: false }, Platform::Mac);
+    let s = layout::layout(1440.0, 900.0, ShellState { sidebar_open: true, support_open: false, dock_open: false }, Platform::Mac);
     let l = s.lights.expect("mac layout has lights");
     (l.x, l.y)
 }
@@ -78,43 +79,53 @@ fn glyph(name: &str, size: f32, color: Hsla) -> Svg {
     svg().path(format!("icons/{name}.svg")).size(px(size)).flex_none().text_color(color)
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+/// What the support card shows for the current stream (Tight tiles rule 1): never a second stream.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Panel {
     Highlights,
-    Usage,
-    Koi,
-    Review,
-    Patches,
+    Changes,
+    Git,
+    Trace,
+    Browser,
+    Files,
+    Simulator,
+    History,
 }
 
 impl Panel {
     fn title(self) -> &'static str {
         match self {
             Panel::Highlights => "Highlights",
-            Panel::Usage => "Usage",
-            Panel::Koi => "Koi preview",
-            Panel::Review => "Code review",
-            Panel::Patches => "Patches",
+            Panel::Changes => "Changes",
+            Panel::Git => "Git",
+            Panel::Trace => "Trace",
+            Panel::Browser => "Browser",
+            Panel::Files => "Files",
+            Panel::Simulator => "Simulator",
+            Panel::History => "History",
         }
     }
     fn icon(self) -> &'static str {
         match self {
             Panel::Highlights => "pin",
-            Panel::Usage => "gauge",
-            Panel::Koi => "palette",
-            Panel::Review => "diff",
-            Panel::Patches => "layout-grid",
+            Panel::Changes => "diff",
+            Panel::Git => "git-branch",
+            Panel::Trace => "activity",
+            Panel::Browser => "globe",
+            Panel::Files => "files",
+            Panel::Simulator => "smartphone",
+            Panel::History => "clock-fading",
         }
     }
-    /// Every drawer panel is UI6.
+    /// The support card's content is wired in a later piece of the Tight tiles build.
     fn milestone(self) -> &'static str {
         let _ = self;
-        "UI6"
+        "a later piece of the Tight tiles build"
     }
 }
 
 const FUNCTIONS: [(&str, &str); 7] = [
-    ("inbox", "Threads"),
+    ("inbox", "Streams"),
     ("folder", "Projects"),
     ("calendar", "Schedule"),
     ("bot", "Agents"),
@@ -123,11 +134,16 @@ const FUNCTIONS: [(&str, &str); 7] = [
     ("layout-grid", "Apps"),
 ];
 
-const NEW_TAB: &str = "New thread";
+const NEW_TAB: &str = "New stream";
 
-const TOP_PANELS: [Panel; 4] = [Panel::Highlights, Panel::Usage, Panel::Koi, Panel::Review];
-/// The drawer's strip: the rail's panels in order, Patches last.
-const ALL_PANELS: [Panel; 5] = [Panel::Highlights, Panel::Usage, Panel::Koi, Panel::Review, Panel::Patches];
+/// The rail's quick buttons (the board's `.irail`): four, a rule, three, then the terminal, which
+/// docks under the stream rather than opening in the support card.
+const RAIL_TOP: [Panel; 4] = [Panel::Highlights, Panel::Changes, Panel::Git, Panel::Trace];
+const RAIL_MID: [Panel; 3] = [Panel::Browser, Panel::Files, Panel::Simulator];
+/// The support card's + menu; `None` is the terminal (Ctrl+J).
+const SUPPORT_MENU: [Option<Panel>; 6] = [Some(Panel::Browser), None, Some(Panel::Files), Some(Panel::Changes), Some(Panel::Simulator), Some(Panel::History)];
+/// Support tabs in view; the rest collapse into "+N".
+const SUPPORT_TABS_SHOWN: usize = 3;
 
 /// The sidebar's threads from core: still opening, opened, or core failed to open.
 pub(crate) enum Threads {
@@ -138,12 +154,16 @@ pub(crate) enum Threads {
 
 pub(crate) struct Cauldron {
     sidebar_open: bool,
+    /// The support card's open tab; None while it is folded (its tabs stay).
     drawer: Option<Panel>,
+    /// The support card's tabs, in order, and whether its + menu is open.
+    support_tabs: Vec<Panel>,
+    support_menu: bool,
     /// Settings is open on this page (v3 frame 7): its pages take the sidebar's list, the page the card.
     settings: Option<usize>,
     /// Where Settings reads the subscriptions; None is core's `accounts.json` (tests use their own).
     accounts_file: Option<std::path::PathBuf>,
-    /// The terminal card is open, in the drawer's place (v3 frame 5).
+    /// The terminal is docked under the stream (Tight tiles rule 5).
     terminal: bool,
     /// Its blocks: the open thread's commands, from core's traces.
     term_blocks: Vec<terminal::Block>,
@@ -258,12 +278,17 @@ impl Cauldron {
             }
             _ => c.connect(cx),
         }
-        // Debug builds only: `CAULDRON_DRAWER=folded` starts with the drawer folded to its rail and
-        // `CAULDRON_PANES=n` with the card split into `Shape::ALL[n]`, for screenshots of the live window.
+        // Debug builds only, for screenshots of the live window: `CAULDRON_SIDEBAR=folded` starts with
+        // the sidebar folded, `CAULDRON_SUPPORT=open` with the support card open on the board's three
+        // tabs, and `CAULDRON_PANES=n` with the card split into `Shape::ALL[n]`.
         #[cfg(debug_assertions)]
         {
-            if std::env::var("CAULDRON_DRAWER").as_deref() == Ok("folded") {
-                c.drawer_last = c.drawer.take();
+            if std::env::var("CAULDRON_SIDEBAR").as_deref() == Ok("folded") {
+                c.sidebar_open = false;
+            }
+            if std::env::var("CAULDRON_SUPPORT").as_deref() == Ok("open") {
+                c.support_tabs = vec![Panel::Changes, Panel::Browser, Panel::Highlights];
+                c.drawer = Some(Panel::Changes);
             }
             if std::env::var_os("CAULDRON_SETTINGS").is_some() {
                 c.settings = Some(0);
@@ -288,7 +313,7 @@ impl Cauldron {
     }
 
     pub(crate) fn new() -> Self {
-        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: None, sidebar_open: true, drawer: Some(Panel::Highlights), settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
+        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
     }
 
     /// Opens core off the main thread (the sidebar shows Loading meanwhile), then keeps the thread
@@ -699,22 +724,43 @@ impl Cauldron {
         cx.notify();
     }
 
+    /// A rail button or menu item: shows `p` in the support card, adding its tab; the open tab's
+    /// own button folds the card (its tabs stay).
     fn toggle_panel(&mut self, p: Panel) {
-        // With the terminal open the drawer is folded to its rail: a rail button brings it back.
-        if self.terminal {
-            self.terminal = false;
-            self.drawer = Some(p);
+        let was = self.drawer;
+        if was == Some(p) {
+            self.drawer = None;
             self.drawer_last = Some(p);
             return;
         }
-        let was = self.drawer;
-        self.drawer = if was == Some(p) { None } else { Some(p) };
-        // Switching panels while one is open crossfades the body; closing keeps the last panel.
-        if let Some(a) = was.filter(|a| *a != p && self.drawer.is_some()) {
+        if !self.support_tabs.contains(&p) {
+            self.support_tabs.push(p);
+        }
+        self.drawer = Some(p);
+        self.drawer_last = Some(p);
+        // Switching tabs while the card is open crossfades the body.
+        if let Some(a) = was {
             self.swap = Some((a, std::time::Instant::now()));
         }
-        if self.drawer.is_some() {
-            self.drawer_last = self.drawer;
+    }
+
+    /// The rail's fold button: folds the support card, or opens it on its last tab.
+    fn fold_support(&mut self) {
+        if let Some(p) = self.drawer.take() {
+            self.drawer_last = Some(p);
+        } else {
+            let p = self.drawer_last.filter(|p| self.support_tabs.contains(p)).or(self.support_tabs.first().copied()).unwrap_or(Panel::Highlights);
+            self.toggle_panel(p);
+        }
+    }
+
+    /// Closes a support tab; closing the last one folds the card.
+    fn close_support_tab(&mut self, p: Panel) {
+        let Some(i) = self.support_tabs.iter().position(|q| *q == p) else { return };
+        self.support_tabs.remove(i);
+        if self.drawer == Some(p) {
+            self.drawer = self.support_tabs.get(i.min(self.support_tabs.len().saturating_sub(1))).copied();
+            self.drawer_last = self.drawer.or(self.support_tabs.first().copied());
         }
     }
 }
@@ -754,20 +800,21 @@ fn fn_slot_x(row_w: f32, pos: f32) -> f32 {
     pos * (metric::SBTN + gap)
 }
 
-/// The sidebar's right padding: its content ends at the board's x 240.
-const SIDE_PR: f32 = 9.0;
+/// The sidebar's padding (the board's `.sb`: 8 8 6 10).
+const SIDE_PL: f32 = 10.0;
+const SIDE_PR: f32 = 8.0;
 
 /// Agent tabs share the room between these widths; below TAB_MIN the row scrolls.
 const TAB_MIN: f32 = 72.0;
 const TAB_MAX: f32 = 200.0;
-/// A floating tab, on the design-system scale (Charles, 13 Nov): 4px between tabs, 8px padding,
-/// 6px from the name to the close. No figure: agent figures belong to the Agents page.
-const TAB_GAP: f32 = 4.0;
-const TAB_PAD: f32 = 8.0;
+/// A header tab (the board's `.tab`): 2px between tabs, 10px padding, 6px from the name to the
+/// close. No figure: agent figures belong to the Agents page.
+const TAB_GAP: f32 = 2.0;
+const TAB_PAD: f32 = 10.0;
 const CLOSE_GAP: f32 = 6.0;
 /// The + after the tabs, as tall as a tab.
 const ADD_W: f32 = metric::TAB_H;
-/// The new thread's bar under the card: usage and the stages.
+/// The new stream's bar at the bottom of its card: usage and the stages.
 const STAGE_H: f32 = 32.0;
 /// The pinned coordinator tab is at most this wide.
 const ANCHOR_MAX: f32 = 190.0;
@@ -871,7 +918,7 @@ impl Render for Cauldron {
         let vs = window.viewport_size();
         let (w, h) = (f32::from(vs.width), f32::from(vs.height));
         let plat = platform();
-        let want = ShellState { sidebar_open: self.sidebar_open, drawer_open: self.drawer.is_some(), split_open: false, terminal_open: self.terminal };
+        let want = ShellState { sidebar_open: self.sidebar_open, support_open: self.drawer.is_some(), dock_open: self.terminal };
         let now = std::time::Instant::now();
         let reduce = cx.reduce_motion();
         let (s, mut moving) = self.motion.frame(want, Frame::at_rest(&layout::solve(w, h, want, plat)), now, reduce);
@@ -934,7 +981,6 @@ impl Render for Cauldron {
         }
 
         let frame = c(pal.frame);
-        let card = c(pal.card);
         let ring = ca(pal.fg, if dark { 0.08 } else { 0.09 });
         let fg = c(pal.fg);
         let fg2 = c(pal.fg2);
@@ -960,30 +1006,22 @@ impl Render for Cauldron {
                 }
             }));
 
-        // Window drag strip, under every control.
-        root = root.child(
-            abs(Rect::new(1.0, 1.0, w - 2.0, metric::BAR_H)).window_control_area(WindowControlArea::Drag),
-        );
-
-        // ---- rail (only while the sidebar is hidden)
-        if let Some(rp) = s.rail {
-            let mut col = pane("rail", rp.rect).opacity(rp.alpha).flex().flex_col().items_center().gap(px(4.)).pt(px(4.));
-            for (i, (name, label)) in FUNCTIONS.iter().enumerate() {
-                let b = icon_button(("rail", i), name, label, pal, i == self.section).on_click(cx.listener(move |this, _, _, cx| this.select_section(i, cx)));
-                col = col.child(self.tipped(("rail", i), b, *label, Side::Right, pal, cx).test_support());
-            }
-            root = root.child(col.test_support());
+        // ---- Mac: the native lights follow the board (sidebar's top row, or the stream header).
+        #[cfg(target_os = "macos")]
+        if let Some(l) = s.lights {
+            window.set_traffic_light_position(gpui_kit::point(px(l.rect.x), px(l.rect.y)));
         }
 
-        // ---- sidebar with the function row, on the window
+        // ---- sidebar, flat on the frame (the board's `.sb`): the top row (lights or logo, and the
+        // sidebar button, drawn on the window), a line, the apps row, New stream, Search, the list
         if let Some(sp) = s.sidebar {
-            let mut fnrow = div().relative().flex().justify_between().pt(px(4.)).pb(px(16.));
+            let mut fnrow = div().relative().flex().justify_between().mt(px(6.)).pt(px(4.)).pb(px(8.)).mb(px(6.)).border_b_1().border_color(c(pal.line));
             // The indicator sits under the buttons and slides to the selected one (INDICATOR ms).
             let pos = crate::motion::ease_between(self.section_from, self.section as f32, self.section_since, now, cauldron_chrome::motion::time::INDICATOR);
             fnrow = fnrow.child(
                 div()
                     .absolute()
-                    .left(px(fn_slot_x(sp.rect.w - SIDE_PR, pos)))
+                    .left(px(fn_slot_x(sp.rect.w - SIDE_PL - SIDE_PR, pos)))
                     .top(px(4.))
                     .size(px(metric::SBTN))
                     .rounded(px(radius::CONTROL))
@@ -1001,7 +1039,7 @@ impl Render for Cauldron {
                 t.caret = accent;
                 t.selection = ca(pal.accent, 0.25);
                 t.font_family = SANS.into();
-                let st = cx.new(|cx| InputState::new(window, cx).placeholder("Search threads"));
+                let st = cx.new(|cx| InputState::new(window, cx).placeholder("Search streams"));
                 let sub = cx.subscribe(&st, |this, st, ev: &InputEvent, cx| {
                     if let InputEvent::Change = ev {
                         this.query = st.read(cx).value().to_string();
@@ -1029,17 +1067,19 @@ impl Render for Cauldron {
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(fg)
                 .child(glyph("square-pen", 15., fg))
-                .child("New thread")
+                .child("New stream")
                 .on_click(cx.listener(|this, _, window, cx| this.new_thread(window, cx)))
                 .test_support();
-            // The board's `.side`: on the window, no card; the apps row, New thread, Search, the list.
-            // ponytail: the layout keeps the card era's 12px margin, so the content starts at x 13,
-            // the board's at 10; the right edge is the board's 240 (9px in from the pane's 249).
+            // The top row is 30 high under 8px of padding; the window draws its contents.
             let card_el = pane("sidebar", sp.rect)
                 .opacity(sp.alpha)
                 .flex()
                 .flex_col()
+                .pl(px(SIDE_PL))
                 .pr(px(SIDE_PR))
+                .pt(px(8.))
+                .pb(px(6.))
+                .child(div().id("side-top").h(px(30.)).flex_none().window_control_area(WindowControlArea::Drag).test_support())
                 .overflow_hidden()
                 .child(fnrow)
                 .when_live(self.settings.is_some(), |d| d.child(self.settings_nav(self.settings.unwrap_or(0), pal, cx).test_support()))
@@ -1056,7 +1096,7 @@ impl Render for Cauldron {
                             .rounded(px(radius::TAG))
                             .hover(|d| d.bg(c(pal.hover)))
                             .text_color(fg2)
-                            .aria_label("Search threads")
+                            .aria_label("Search streams")
                             .child(glyph("search", 15., fg2))
                             .child(div().flex_1().min_w_0().child(Input::new(&search).appearance(false).text_size(px(13.)).p_0()))
                             .test_support(),
@@ -1104,7 +1144,7 @@ impl Render for Cauldron {
             root = root.child(card_el.test_support());
         }
 
-        // ---- the thread's tabs, floating in the top bar (the board's `.ftab`). Only an open thread
+        // ---- the stream's tabs, in the stream card's 38px header (the board's `.tab`). Only an open stream
         // has them: the coordinator pinned at the left, then its agents, each sized to its name
         // within an equal share of the room (TAB_MIN to TAB_MAX); when TAB_MIN no longer fits, arrows appear beside +
         // and the row shows a window of 72px tabs. No figures (Charles, 13 Nov).
@@ -1165,7 +1205,7 @@ impl Render for Cauldron {
                 .on_scroll_wheel(cx.listener(|this, ev: &ScrollWheelEvent, _, cx| this.wheel_tabs(ev, cx)));
             // Tabs occlude (or Windows would drag the window from them), which also hides the wheel
             // from the row, so each tab carries the row's wheel handler too. The open tab is the
-            // `selected` fill with no ring or shadow (tabs take none); the rest are fg3 on the frame.
+            // `selected` fill with a hairline ring and no shadow; the rest are fg3 on the card.
             let ftab = |id: (&'static str, usize), on: bool, cx: &mut Context<Self>| {
                 div()
                     .id(id)
@@ -1174,13 +1214,13 @@ impl Render for Cauldron {
                     .items_center()
                     .gap(px(CLOSE_GAP))
                     .h(px(metric::TAB_H))
-                    .rounded(px(radius::INNER))
-                    .when_live(on, |d| d.bg(c(pal.selected)))
+                    .rounded(px(radius::CONTROL))
+                    .when_live(on, |d| d.bg(c(pal.selected)).border_1().border_color(c(pal.line)))
                     .when_live(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
                     .occlude()
                     .cursor_pointer()
                     .aria_selected(on)
-                    .text_size(px(12.))
+                    .text_size(px(12.5))
                     .line_height(px(16.))
                     .font_weight(FontWeight::MEDIUM)
                     .text_color(if on { fg } else { fg3 })
@@ -1217,7 +1257,7 @@ impl Render for Cauldron {
                     .rounded(px(radius::TAG))
                     // Inactive tabs show their close on hover, over the end of the name, so a 72px tab
                     // still has room for a few letters.
-                    .when_live(!on, |d| d.absolute().right(px(4.)).top(px((metric::TAB_H - 18.0) / 2.0)).bg(frame).opacity(0.).group_hover(group.clone(), |s| s.opacity(1.)))
+                    .when_live(!on, |d| d.absolute().right(px(4.)).top(px((metric::TAB_H - 18.0) / 2.0)).bg(c(pal.panel)).opacity(0.).group_hover(group.clone(), |s| s.opacity(1.)))
                     .hover(|d| d.bg(ca(pal.fg, 0.08)))
                     .aria_label("Close tab")
                     .child(glyph("x", 13., fg3))
@@ -1300,43 +1340,47 @@ impl Render for Cauldron {
             tab_row = Some(row.child(add.test_support()));
         }
 
-        // The card right under the bar; its 44px head names the thread (the board's `.ch`).
+        // ---- the stream card (the board's `.card`): its 38px header holds the tabs, its body the
+        // stream or the New stream screen. The rail sits inside its right edge while the support
+        // card is folded.
         let head_title: SharedString = if self.settings.is_some() { "Settings".into() } else { self.coordinator.clone().unwrap_or_else(|| NEW_TAB.into()) };
         let mut head = div()
             .id("card-head")
-            .h(px(44.))
+            .h(px(metric::HEAD_H))
             .flex_none()
             .flex()
             .items_center()
             .gap(px(4.))
-            .pl(px(13.))
+            .pl(px(s.tabs.x - s.main.x - 1.0 + TAB_PAD))
             .pr(px(14.))
-            .text_size(px(13.))
-            .text_color(fg3);
-        if let Some(p) = self.thread.as_ref().filter(|_| self.settings.is_none()).and_then(|t| t.project.as_ref()) {
-            let folder = p.rsplit(['/', '\\']).find(|s| !s.is_empty()).unwrap_or(p).to_string();
-            head = head.child(div().id("card-crumb").flex_none().aria_label(folder.clone()).child(format!("{folder} /")).test_support());
+            .text_size(px(12.5))
+            .text_color(fg3)
+            .window_control_area(WindowControlArea::Drag);
+        if tab_row.is_none() {
+            if let Some(p) = self.thread.as_ref().filter(|_| self.settings.is_none()).and_then(|t| t.project.as_ref()) {
+                let folder = p.rsplit(['/', '\\']).find(|s| !s.is_empty()).unwrap_or(p).to_string();
+                head = head.child(div().id("card-crumb").flex_none().aria_label(folder.clone()).child(format!("{folder} /")).test_support());
+            }
+            head = head.child(
+                div()
+                    .id(if self.thread.is_some() { "thread-title" } else { "card-title" })
+                    .min_w_0()
+                    .truncate()
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(fg)
+                    .aria_label(head_title.clone())
+                    .child(head_title)
+                    .test_support(),
+            );
         }
-        head = head.child(
-            div()
-                .id(if self.thread.is_some() { "thread-title" } else { "card-title" })
-                .min_w_0()
-                .truncate()
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(fg)
-                .aria_label(head_title.clone())
-                .child(head_title)
-                .test_support(),
-        );
-        if self.settings.is_none() {
-            head = head.child(div().flex_1()).child(self.layout_button(pal, now, reduce, cx).test_support());
-        }
-        // A new thread keeps a 32px bar under its card, in the Shell's grey (Charles 13 Nov).
         let new_screen = self.open.is_none() && self.active == 0 && self.settings.is_none();
-        let card_h = s.main.h - if new_screen { STAGE_H } else { 0.0 };
-        // Split (direction B): under the head the card holds up to four panes on the Shell's grey;
-        // a shape that no longer fits steps back, as the shell closes Split when the window narrows.
-        let area = Rect::new(s.main.x, s.main.y + 44.0, s.main.w, card_h - 44.0);
+        let rail_here = s.support.is_none();
+        // The body under the header, clear of the rail when it is in this card.
+        let body_w = s.main.w - 2.0 - if rail_here { metric::RAIL_W } else { 0.0 };
+        let body_h = s.main.h - 2.0 - metric::HEAD_H - if new_screen { STAGE_H } else { 0.0 };
+        // Split (direction B): under the head the card holds up to four panes;
+        // a shape that no longer fits steps back.
+        let area = Rect::new(s.main.x + 1.0, s.main.y + 1.0 + metric::HEAD_H, body_w, body_h);
         let shape = if self.settings.is_some() { Shape::One } else { cauldron_chrome::panes::effective(area, self.panes.shape) };
         let split = shape != Shape::One;
         // The thread view drops what does not fit its pane, so it needs that pane's size first.
@@ -1349,27 +1393,23 @@ impl Render for Cauldron {
             None => self.card_body(pal, window, cx),
         };
         let inside = if split { self.pane_stage(pal, area, shape, body, window, cx).into_any_element() } else { body };
-        let card_el = div()
-            .id("card")
-            .absolute()
-            .left_0()
-            .top_0()
-            .w_full()
-            .h(px(card_h))
-            .flex()
-            .flex_col()
-            .overflow_hidden()
-            .rounded(px(radius::PANEL))
-            // A Panel in its Shell: darker than the Shell in dark, white on it in light. Split, the
-            // panes are the Panels and the head sits on the Shell.
-            .when_live(!split, |d| d.bg(c(pal.panel)).border_1().border_color(ring))
-            .text_color(fg3)
-            .child(head.test_support())
-            .child(div().flex_1().min_h_0().child(inside));
-        // The grey Shell behind the card, Split and the drawer: the drawer stands in its right
-        // gutter and the new thread's bar in its bottom one (the coordinator's brief, 13 Nov).
-        root = root.child(pane("shell", s.shell).rounded(px(radius::SHELL)).bg(card).test_support());
-        let mut main_el = pane("main", s.main).child(card_el.test_support());
+        let mut card_el = pane("main", s.main)
+            .child(
+                div()
+                    .id("card")
+                    .size_full()
+                    .flex()
+                    .flex_col()
+                    .overflow_hidden()
+                    .rounded(px(radius::PANEL))
+                    .bg(c(pal.panel))
+                    .border_1()
+                    .border_color(c(pal.line))
+                    .text_color(fg3)
+                    .child(head.test_support())
+                    .child(div().w(px(body_w)).h(px(body_h)).flex_none().child(inside))
+                    .test_support(),
+            );
         if new_screen {
             // ponytail: core has no stages or per-subscription usage yet (UI-PLAN decision 5), so the
             // bar is static: usage as an empty state, the stages as plain labels with none current.
@@ -1377,13 +1417,13 @@ impl Render for Cauldron {
             for (i, name) in ["Plan", "Execute", "Ship", "Commit"].into_iter().enumerate() {
                 stages = stages.child(div().id(("stage", i)).aria_label(name).child(name).test_support());
             }
-            main_el = main_el.child(
+            card_el = card_el.child(
                 div()
                     .id("stage-bar")
                     .absolute()
-                    .left_0()
-                    .top(px(card_h))
-                    .w_full()
+                    .left(px(1.))
+                    .top(px(1.0 + metric::HEAD_H + body_h))
+                    .w(px(body_w))
                     .h(px(STAGE_H))
                     .flex()
                     .items_center()
@@ -1398,123 +1438,315 @@ impl Render for Cauldron {
                     .test_support(),
             );
         }
-        root = root.child(main_el.test_support());
-
-        // ---- drawer (on the Shell's grey, no border of its own)
-        if let (Some(dp), Some(p)) = (s.drawer, self.drawer.or(self.drawer_last)) {
-            // A panel's body: absolute so two bodies can cross-fade in the same pane.
-            let body = |p: Panel, a: f32| {
-                div()
-                    .absolute()
-                    .left(px(10.))
-                    .right(px(10.))
-                    .top(px(8.))
-                    .flex()
-                    .flex_col()
-                    .gap(px(6.))
-                    .opacity(a)
-                    .child(div().font_weight(FontWeight::SEMIBOLD).child(p.title()))
-                    .child(div().text_size(px(12.)).text_color(fg3).child(format!("This panel arrives in {}.", p.milestone())))
-            };
-            // The panels as a strip on top (the v3 board's `.dtabs`): the open one selected, its
-            // button folds the drawer back to the rail.
-            let mut strip = div().id("drawer-strip").flex().gap(px(4.)).pb(px(8.)).border_b_1().border_color(c(pal.line));
-            for (i, q) in ALL_PANELS.iter().enumerate() {
-                let q = *q;
-                let on = self.drawer == Some(q);
-                strip = strip.child(
-                    self.tipped(
-                        ("dt", i),
-                        div()
-                            .id(("dt", i))
-                            .flex_1()
-                            .h(px(28.))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .rounded(px(radius::INNER))
-                            .when_live(on, |d| d.bg(c(pal.selected)))
-                            .when_live(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
-                            .cursor_pointer()
-                            .aria_selected(on)
-                            .aria_label(q.title())
-                            .child(glyph(q.icon(), 16., if on { fg } else { fg3 })),
-                        q.title(),
-                        Side::Below,
-                        pal,
-                        cx,
-                    )
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.toggle_panel(q);
-                        cx.notify();
-                    }))
-                    .test_support(),
-                );
-            }
-            // Both bodies share one box under the strip, so the outgoing one cross-fades in place.
-            let mut bodies = div().relative().flex_1().min_h_0().child(body(p, swap.map_or(1.0, |(_, k)| k)));
-            if let Some((a, k)) = swap {
-                bodies = bodies.child(body(a, 1.0 - k));
-            }
-            let d = pane("drawer", dp.rect).opacity(dp.alpha).flex().flex_col().child(strip.test_support()).child(bodies);
-            root = root.child(d.test_support());
-        }
-
-        // ---- terminal card, in the drawer's place
-        if let Some(tp) = s.terminal {
-            root = root.child(self.terminal_card(pal, tp.rect, tp.alpha, cx).test_support());
-        }
-
-        // ---- right rail, only while the drawer is folded
-        if let Some(rp) = s.rrail {
-        let mut rr = pane("rrail", rp.rect).opacity(rp.alpha).flex().flex_col().items_center().gap(px(4.)).pt(px(4.));
-        for (i, p) in TOP_PANELS.iter().enumerate() {
-            let p = *p;
-            rr = rr.child(
-                self.tipped(("rb", i), icon_button(("rb", i), p.icon(), p.title(), pal, self.drawer == Some(p)), p.title(), Side::Left, pal, cx)
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.toggle_panel(p);
-                        cx.notify();
-                    }))
-                    .test_support(),
-            );
-        }
-        rr = rr.child(div().flex_1()).child(
-            self.tipped("rb-patches", icon_button("rb-patches", Panel::Patches.icon(), Panel::Patches.title(), pal, self.drawer == Some(Panel::Patches)), Panel::Patches.title(), Side::Left, pal, cx)
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.toggle_panel(Panel::Patches);
-                    cx.notify();
-                }))
-                .test_support(),
-        );
-        root = root.child(rr.pb(px(8.)).test_support());
-        }
-
-        // ---- top bar: the logo and name in their cell (after the sidebar button, but before it on
-        // Windows with the sidebar folded)
-        // The line under the logo cell: the app frame above (logo, sidebar button), the sidebar's elements below.
-        if let Some(sb) = s.sidebar {
-            root = root.child(abs(Rect::new(sb.rect.x, s.bar.bottom() - 1.0, sb.rect.w, 1.0)).bg(c(pal.line_strong)));
-        }
-        let logo_x = s.title.x;
-        root = root.child(abs(Rect::new(logo_x, s.bar.y + (metric::BAR_H - 18.0) / 2.0, 18.0, 18.0)).rounded(px(9.)).bg(accent));
-        root = root.child(
-            abs(Rect::new(logo_x + 26.0, s.bar.y, metric::TITLE_W - 26.0, metric::BAR_H))
-                .flex()
-                .items_center()
-                .text_size(px(13.))
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(fg)
-                .child("Cauldron"),
-        );
+        root = root.child(card_el.test_support());
         if let Some(row) = tab_row {
             root = root.child(row.test_support());
         }
 
-        // ---- sidebar button (top bar, left)
+        // ---- the header's tools on the right: the layout and the dock toggle (Ctrl+J)
+        if self.settings.is_none() {
+            root = root.child(
+                pane("tools", s.tools)
+                    .flex()
+                    .items_center()
+                    .justify_end()
+                    .gap(px(4.))
+                    .child(self.layout_button(pal, now, reduce, cx).occlude().test_support())
+                    .child(self.tipped("top-term", icon_button("top-term", "panel-bottom", "Terminal", pal, self.terminal), "Terminal", Side::Below, pal, cx).occlude().on_click(cx.listener(|this, _, _, cx| {
+                        this.terminal = !this.terminal;
+                        this.term_scroll.scroll_to_bottom();
+                        cx.notify();
+                    })).test_support())
+                    .test_support(),
+            );
+        }
+
+        // ---- the terminal, docked under the stream
+        if let Some(tp) = s.dock {
+            root = root.child(self.terminal_card(pal, tp.rect, tp.alpha, cx).test_support());
+        }
+
+        // ---- the support card (the board's `.card.sup`): its own tabs (three in view, the rest
+        // under "+N") and a + menu; the rail sits inside its right edge.
+        if let (Some(dp), Some(p)) = (s.support, self.drawer.or(self.drawer_last)) {
+            let r = dp.rect;
+            // A panel's body: absolute so two bodies can cross-fade in the same place.
+            let body = |p: Panel, a: f32| {
+                div()
+                    .absolute()
+                    .left(px(14.))
+                    .right(px(14.))
+                    .top(px(16.))
+                    .flex()
+                    .flex_col()
+                    .gap(px(6.))
+                    .opacity(a)
+                    .child(div().font_weight(FontWeight::SEMIBOLD).text_color(fg).child(p.title()))
+                    .child(div().text_size(px(12.)).text_color(fg3).child(format!("This panel arrives in {}.", p.milestone())))
+            };
+            let mut shead = div()
+                .id("support-head")
+                .h(px(metric::HEAD_H))
+                .flex_none()
+                .flex()
+                .items_center()
+                .gap(px(TAB_GAP))
+                .pl(px(metric::HEAD_IN - 1.0))
+                .pr(px(metric::HEAD_PR + s.notch.map_or(0.0, |n| n.w)))
+                .window_control_area(WindowControlArea::Drag);
+            // The open tab stays in view: when it is past the first three it takes the third place.
+            let open_at = self.support_tabs.iter().position(|q| Some(*q) == self.drawer);
+            let mut shown: Vec<Panel> = self.support_tabs.iter().copied().take(SUPPORT_TABS_SHOWN).collect();
+            if let Some(i) = open_at.filter(|i| *i >= SUPPORT_TABS_SHOWN) {
+                shown[SUPPORT_TABS_SHOWN - 1] = self.support_tabs[i];
+            }
+            for q in shown.iter().copied() {
+                let i = self.support_tabs.iter().position(|t| *t == q).unwrap_or(0);
+                let on = self.drawer == Some(q);
+                shead = shead.child(
+                    div()
+                        .id(("st", i))
+                        .h(px(metric::TAB_H))
+                        .flex_none()
+                        .flex()
+                        .items_center()
+                        .gap(px(CLOSE_GAP))
+                        .px(px(TAB_PAD))
+                        .rounded(px(radius::CONTROL))
+                        .when_live(on, |d| d.bg(c(pal.selected)).border_1().border_color(c(pal.line)))
+                        .when_live(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
+                        .occlude()
+                        .cursor_pointer()
+                        .aria_selected(on)
+                        .aria_label(q.title())
+                        .text_size(px(12.5))
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(if on { fg } else { fg3 })
+                        .child(glyph(q.icon(), 13., if on { fg2 } else { fg3 }))
+                        .child(q.title())
+                        .when_live(on, |d| {
+                            d.child(
+                                div()
+                                    .id(("st-close", i))
+                                    .size(px(16.))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .rounded(px(radius::TAG))
+                                    .hover(|d| d.bg(ca(pal.fg, 0.08)))
+                                    .aria_label("Close tab")
+                                    .child(glyph("x", 12., fg3))
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        cx.stop_propagation();
+                                        this.close_support_tab(q);
+                                        cx.notify();
+                                    }))
+                                    .test_support(),
+                            )
+                        })
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            if this.drawer != Some(q) {
+                                this.toggle_panel(q);
+                            }
+                            cx.notify();
+                        }))
+                        .test_support(),
+                );
+            }
+            let hidden: Vec<Panel> = self.support_tabs.iter().copied().filter(|q| !shown.contains(q)).collect();
+            if let Some(next) = hidden.first().copied() {
+                let label: SharedString = format!("+{}", hidden.len()).into();
+                shead = shead.child(
+                    div()
+                        .id("support-more")
+                        .h(px(metric::TAB_H))
+                        .flex_none()
+                        .flex()
+                        .items_center()
+                        .px(px(8.))
+                        .rounded(px(radius::CONTROL))
+                        .occlude()
+                        .cursor_pointer()
+                        .hover(|d| d.bg(c(pal.hover)))
+                        .text_size(px(12.5))
+                        .text_color(fg3)
+                        .aria_label(label.clone())
+                        .child(label)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.toggle_panel(next);
+                            cx.notify();
+                        }))
+                        .test_support(),
+                );
+            }
+            let mut add = div()
+                .id("support-add")
+                .relative()
+                .size(px(metric::TAB_H))
+                .flex_none()
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(px(radius::CONTROL))
+                .occlude()
+                .cursor_pointer()
+                .hover(|d| d.bg(c(pal.hover)))
+                .aria_label("Add to the support card")
+                .child(glyph("plus", 14., fg3))
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.support_menu = !this.support_menu;
+                    cx.notify();
+                }));
+            if self.support_menu {
+                // Opens under +, its right edge on the button's, so it stays inside the card.
+                let mut menu = div()
+                    .id("support-menu")
+                    .absolute()
+                    .top(px(metric::TAB_H + 4.0))
+                    .right_0()
+                    .w(px(220.))
+                    .p(px(4.))
+                    .flex()
+                    .flex_col()
+                    .rounded(px(radius::PANEL))
+                    .bg(c(pal.raised))
+                    .border_1()
+                    .border_color(c(pal.line))
+                    .shadow(vec![drop(tokens::shadow::MENU)])
+                    .text_size(px(12.5))
+                    .occlude()
+                    .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                        this.support_menu = false;
+                        cx.notify();
+                    }));
+                for (i, item) in SUPPORT_MENU.into_iter().enumerate() {
+                    let (icon, name, key) = match item {
+                        Some(q) => (q.icon(), q.title(), ""),
+                        None => ("terminal", "Terminal", "Ctrl+J"),
+                    };
+                    menu = menu.child(
+                        div()
+                            .id(("support-menu-item", i))
+                            .h(px(28.))
+                            .flex()
+                            .items_center()
+                            .gap(px(8.))
+                            .px(px(8.))
+                            .rounded(px(radius::CONTROL))
+                            .cursor_pointer()
+                            .hover(|d| d.bg(c(pal.hover)))
+                            .text_color(fg2)
+                            .aria_label(name)
+                            .child(glyph(icon, 14., fg3))
+                            .child(div().flex_1().child(name))
+                            .child(div().text_size(px(11.)).font_family(MONO).text_color(c(pal.fg4)).child(key))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                // The menu sits inside +, which would open it again.
+                                cx.stop_propagation();
+                                this.support_menu = false;
+                                match item {
+                                    Some(q) => {
+                                        if this.drawer != Some(q) {
+                                            this.toggle_panel(q);
+                                        }
+                                    }
+                                    None => this.terminal = true,
+                                }
+                                cx.notify();
+                            }))
+                            .test_support(),
+                    );
+                }
+                add = add.child(deferred(menu.test_support()).with_priority(2));
+            }
+            shead = shead.child(add.test_support());
+            // Both bodies share one box under the header, so the outgoing one cross-fades in place.
+            let mut bodies = div().relative().w(px(r.w - 2.0 - metric::RAIL_W)).flex_1().min_h_0().child(body(p, swap.map_or(1.0, |(_, k)| k)));
+            if let Some((a, k)) = swap {
+                bodies = bodies.child(body(a, 1.0 - k));
+            }
+            let d = pane("support", r)
+                .opacity(dp.alpha)
+                .flex()
+                .flex_col()
+                .overflow_hidden()
+                .rounded(px(radius::PANEL))
+                .bg(c(pal.panel))
+                .border_1()
+                .border_color(c(pal.line))
+                .child(shead.test_support())
+                .child(bodies);
+            root = root.child(d.test_support());
+        }
+
+        // ---- the quick-button rail, inside the rightmost card's right edge (the board's `.irail`):
+        // Highlights, Changes, Git, Trace, a rule, Browser, Files, Simulator, Terminal; the fold
+        // toggle at the bottom. A short accent mark shows a panel that has a tab.
+        {
+            let rail_button = |this: &Self, id: (&'static str, usize), p: Panel, cx: &mut Context<Self>| {
+                let has_tab = this.support_tabs.contains(&p);
+                this.tipped(id, icon_button(id, p.icon(), p.title(), pal, this.drawer == Some(p)), p.title(), Side::Left, pal, cx)
+                    .when_live(has_tab, |d| d.child(div().absolute().left(px(-8.)).top(px(9.)).w(px(3.)).h(px(10.)).rounded(px(2.)).bg(accent)))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.toggle_panel(p);
+                        cx.notify();
+                    }))
+                    .test_support()
+            };
+            let mut rr = pane("rail", s.rail).flex().flex_col().items_center().gap(px(4.)).pt(px(6.)).pb(px(8.)).border_l_1().border_color(c(pal.line));
+            for (i, p) in RAIL_TOP.iter().enumerate() {
+                rr = rr.child(rail_button(self, ("rb", i), *p, cx));
+            }
+            rr = rr.child(div().w(px(20.)).h(px(1.)).my(px(4.)).bg(c(pal.line)));
+            for (i, p) in RAIL_MID.iter().enumerate() {
+                rr = rr.child(rail_button(self, ("rb", RAIL_TOP.len() + i), *p, cx));
+            }
+            rr = rr.child(
+                self.tipped("rb-term", icon_button("rb-term", "terminal", "Terminal", pal, self.terminal), "Terminal", Side::Left, pal, cx)
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.terminal = !this.terminal;
+                        this.term_scroll.scroll_to_bottom();
+                        cx.notify();
+                    }))
+                    .test_support(),
+            );
+            let fold = if self.drawer.is_some() { "Hide support" } else { "Show support" };
+            rr = rr.child(div().flex_1()).child(
+                self.tipped("rb-fold", icon_button("rb-fold", "panel-right", fold, pal, false), fold, Side::Left, pal, cx)
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.fold_support();
+                        cx.notify();
+                    }))
+                    .test_support(),
+            );
+            root = root.child(rr.test_support());
+        }
+
+        // ---- Windows: the logo and name in the sidebar's top row
+        if let Some(tp) = s.title {
+            let t = tp.rect;
+            root = root.child(abs(Rect::new(t.x, t.y + 5.0, 18.0, 18.0)).opacity(tp.alpha).rounded(px(9.)).bg(accent));
+            root = root.child(
+                abs(Rect::new(t.x + 26.0, t.y, t.w - 26.0, t.h))
+                    .opacity(tp.alpha)
+                    .flex()
+                    .items_center()
+                    .text_size(px(13.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(fg)
+                    .child("Cauldron"),
+            );
+        }
+        // The line under the sidebar's top row: the app frame above (lights or logo, the sidebar
+        // button), the sidebar's elements below (Charles, 15 Nov).
+        if let Some(sb) = s.sidebar {
+            root = root.child(abs(Rect::new(sb.rect.x, sb.rect.y + 41.0, sb.rect.w, 1.0)).opacity(sb.alpha).bg(c(pal.line_strong)));
+        }
+
+        // ---- sidebar button: the sidebar's top row when open; the stream header when folded
         root = root.child(
             pane("sbtn-slot", s.sidebar_button).child(
-                // occlude: buttons over the drag strip stop the hit test, or Windows drags instead of clicking.
+                // occlude: buttons over a drag area stop the hit test, or Windows drags instead of clicking.
                 {
                     let label = if self.sidebar_open { "Hide sidebar" } else { "Show sidebar" };
                     self.tipped("sbtn", icon_button("sbtn", "panel-left", label, pal, false), label, Side::Right, pal, cx)
@@ -1528,30 +1760,39 @@ impl Render for Cauldron {
             )
             .test_support(),
         );
-
-        // ---- Terminal and Split, left of the caption buttons
-        root = root.child(
-            pane("topr", s.topr)
-                .flex()
-                .items_center()
-                .gap(px(2.))
-                .child(self.tipped("top-term", icon_button("top-term", "terminal", "Terminal", pal, self.terminal), "Terminal", Side::Below, pal, cx).occlude().on_click(cx.listener(|this, _, _, cx| {
-                    this.terminal = !this.terminal;
-                    this.term_scroll.scroll_to_bottom();
-                    cx.notify();
-                })).test_support())
-                .child(
-                    self.tipped("top-split", icon_button("top-split", "columns-2", "Split", pal, self.panes.shape != Shape::One), "Split", Side::Below, pal, cx).occlude().on_click(cx.listener(|this, _, _, cx| {
-                        // Split opens two side by side, or goes back to one pane.
-                        this.set_shape(if this.panes.shape == Shape::One { Shape::Cols } else { Shape::One });
-                        cx.notify();
-                    }))
+        // Windows folded: a short rule between the button and the tabs.
+        if s.sidebar.is_none() && s.lights.is_none() {
+            let b = s.sidebar_button;
+            root = root.child(abs(Rect::new(b.right() + 7.0, b.y + 6.0, 1.0, 16.0)).bg(c(pal.line)));
+        }
+        // ---- macOS folded: New stream after the sidebar button
+        if let Some(np) = s.new_button {
+            root = root.child(
+                pane("newb-slot", np.rect)
+                    .opacity(np.alpha)
+                    .child(
+                        self.tipped("newb", icon_button("newb", "square-pen", NEW_TAB, pal, false), NEW_TAB, Side::Below, pal, cx)
+                            .occlude()
+                            .on_click(cx.listener(|this, _, window, cx| this.new_thread(window, cx)))
+                            .test_support(),
+                    )
                     .test_support(),
-                )
-                .test_support(),
-        );
+            );
+        }
 
-        // ---- Windows caption buttons (macOS uses the native lights)
+        // ---- Windows: the notch cut into the rightmost card's top-right, with the caption buttons
+        if let Some(n) = s.notch {
+            root = root.child(
+                pane("notch", n)
+                    .bg(frame)
+                    .border_l_1()
+                    .border_b_1()
+                    .border_color(c(pal.line))
+                    .rounded_bl(px(radius::PANEL))
+                    .window_control_area(WindowControlArea::Drag)
+                    .test_support(),
+            );
+        }
         if let Some(cp) = s.caps {
             let r = cp.rect;
             let bad = c(pal.bad);
@@ -1563,6 +1804,7 @@ impl Render for Cauldron {
                     .flex()
                     .items_center()
                     .justify_center()
+                    .rounded(px(radius::CONTROL))
                     .window_control_area(area)
                     .occlude()
                     .hover(move |d| d.bg(if danger { bad } else { ca(pal.fg, 0.08) }))
@@ -1600,8 +1842,8 @@ mod tests {
 
     #[test]
     fn function_slots_span_the_row_with_equal_gaps() {
-        // The row has no card border or padding now: the board's `.apps` runs edge to edge.
-        let w = 227.0;
+        // The board's `.apps` runs edge to edge inside the sidebar's padding: 236 - 10 - 8.
+        let w = 218.0;
         assert_eq!(fn_slot_x(w, 0.0), 0.0);
         assert!((fn_slot_x(w, 6.0) + metric::SBTN - w).abs() < 1e-3, "last button ends at the row's edge");
         let step = fn_slot_x(w, 1.0) - fn_slot_x(w, 0.0);
@@ -1625,18 +1867,18 @@ mod tests {
         );
     }
 
-    /// Every pane the shell draws sits exactly where `cauldron_chrome::layout::solve` puts it,
-    /// in all four combinations of sidebar and drawer. Split lives inside the card now (direction B),
-    /// so the solver's half pane is never drawn.
+    /// Every pane the shell draws sits exactly where `cauldron_chrome::layout::solve` puts it, in
+    /// all eight combinations of sidebar, support card and dock.
     #[gpui_kit::test]
     fn panes_match_the_layout_solver_in_every_state(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
-        for bits in 0..4u8 {
-            let state = ShellState { sidebar_open: bits & 1 != 0, drawer_open: bits & 2 != 0, split_open: false, terminal_open: false };
+        for bits in 0..8u8 {
+            let state = ShellState { sidebar_open: bits & 1 != 0, support_open: bits & 2 != 0, dock_open: bits & 4 != 0 };
             cx.update(|cx| cx.set_reduce_motion(true));
             let handle = cx.add_window(move |_, _| Cauldron {
                 sidebar_open: state.sidebar_open,
-                drawer: state.drawer_open.then_some(Panel::Highlights),
+                drawer: state.support_open.then_some(Panel::Highlights),
+                terminal: state.dock_open,
                 ..Cauldron::new()
             });
             cx.simulate_window_resize(handle.into(), size(px(W), px(H)));
@@ -1644,62 +1886,89 @@ mod tests {
                 window.render_frame(cx);
                 let s = Frame::at_rest(&layout::solve(W, H, state, platform()));
                 assert_rect(window, "main", s.main, state);
-                assert_rect(window, "shell", s.shell, state);
                 assert_rect(window, "sbtn-slot", s.sidebar_button, state);
-                assert_rect(window, "topr", s.topr, state);
-                for (id, r) in [("sidebar", s.sidebar), ("rail", s.rail), ("rrail", s.rrail), ("drawer", s.drawer), ("half", s.half), ("caps", s.caps)] {
-                    let r = r.map(|p| p.rect);
-                    match r {
+                assert_rect(window, "tools", s.tools, state);
+                assert_rect(window, "rail", s.rail, state);
+                for (id, r) in [("sidebar", s.sidebar), ("support", s.support), ("terminal", s.dock), ("caps", s.caps), ("newb-slot", s.new_button)] {
+                    match r.map(|p| p.rect) {
                         Some(r) => assert_rect(window, id, r, state),
                         None => assert!(window.try_find(id).is_none(), "{id} drawn in {state:?} but solve() has none"),
                     }
+                }
+                match s.notch {
+                    Some(n) => assert_rect(window, "notch", n, state),
+                    None => assert!(window.try_find("notch").is_none(), "no notch on this platform"),
                 }
             })
             .unwrap();
         }
     }
 
-    /// The open drawer carries its panels as a strip on top (the v3 board's `.dtabs`): one 28px
-    /// button per panel sharing the width, the open one selected. Its button folds the drawer back to
-    /// the rail; a rail button opens it again on that panel.
+    /// The support card (Tight tiles rule 2): a rail button opens it on that panel and adds its tab;
+    /// three tabs show, the rest collapse into "+N"; the open tab's rail button folds it, its tabs
+    /// kept; the + menu adds History; closing the last tab folds it.
     #[gpui_kit::test]
-    fn the_drawer_switches_panels_from_its_own_strip(cx: &mut TestAppContext) {
+    fn the_support_card_has_its_own_tabs_and_a_plus_menu(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         cx.update(|cx| cx.set_reduce_motion(true));
         let handle = cx.add_window(|_, _| Cauldron::new());
         cx.simulate_window_resize(handle.into(), size(px(W), px(H)));
-        cx.update_window(handle.into(), |_, window, cx| {
-            window.render_frame(cx);
-            let d = rect(window, "drawer");
-            assert!(window.try_find("rrail").is_none(), "no rail beside the open drawer");
-            for i in 0..5usize {
-                let b = rect(window, ("dt", i));
-                assert_eq!((b.y, b.h), (d.y, 28.0), "strip button {i} at the drawer's top");
-                assert!(b.x >= d.x && b.right() <= d.right(), "strip button {i} inside the drawer");
-                assert_eq!(dt_on(window, i), i == 0, "strip button {i}: Highlights is open");
-            }
-            assert_eq!(window.find(("dt", 4usize)).label(), Some("Patches"));
-            window.click(("dt", 4usize), cx);
-            assert!(dt_on(window, 4usize) && !dt_on(window, 0usize), "a strip button switches the panel");
-            window.click(("dt", 4usize), cx);
-        })
-        .unwrap();
         // The shell moves on the wall clock, so start each check from rest.
         let rest = |cx: &mut TestAppContext| handle.update(cx, |c, _, _| c.motion = Default::default()).unwrap();
-        rest(cx);
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
-            assert!(window.try_find("drawer").is_none() && window.try_find("rrail").is_some(), "the open panel's button folds the drawer to the rail");
+            assert!(window.try_find("support").is_none(), "folded by default (the board's first frame)");
+            let (rail, main) = (rect(window, "rail"), rect(window, "main"));
+            assert!(rail.right() < main.right() && rail.x > main.x, "folded: the rail is in the stream card");
             window.click(("rb", 1usize), cx);
         })
         .unwrap();
         rest(cx);
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
-            assert!(window.try_find("drawer").is_some() && dt_on(window, 1usize), "a rail button opens the drawer on its panel");
-            assert!(window.try_find("rrail").is_none(), "and the rail gives way");
+            let sup = rect(window, "support");
+            let rail = rect(window, "rail");
+            assert!(rail.x > sup.x && rail.right() < sup.right(), "open: the rail is in the support card");
+            assert_eq!(window.find(("st", 1usize)).label(), Some("Changes"), "the rail added a Changes tab");
+            assert_eq!(window.find(("st", 1usize)).selected(), Some(true), "and opened it");
+            assert_eq!(window.find(("st", 0usize)).selected(), Some(false), "Highlights stays as a tab");
+            for i in [2usize, 3, 4] {
+                window.click(("rb", i), cx);
+            }
+            assert_eq!(window.find("support-more").label(), Some("+2"), "five tabs: three in view, +2");
+            assert_eq!(window.find(("st", 4usize)).selected(), Some(true), "the open tab stays in view");
+            window.click("support-add", cx);
+            assert_eq!(window.find(("support-menu-item", 5usize)).label(), Some("History"));
+            assert_eq!(window.find(("support-menu-item", 1usize)).label(), Some("Terminal"));
+            window.click(("support-menu-item", 5usize), cx);
+            window.render_frame(cx);
+            assert!(window.try_find("support-menu").is_none(), "the menu closes");
+            assert_eq!(window.find(("st", 5usize)).label(), Some("History"));
+            window.click(("rb", 1usize), cx);
+            window.click(("rb", 1usize), cx);
         })
         .unwrap();
+        rest(cx);
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            assert!(window.try_find("support").is_none(), "the open tab's rail button folds the card");
+            window.click("rb-fold", cx);
+        })
+        .unwrap();
+        rest(cx);
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            assert_eq!(window.find(("st", 1usize)).selected(), Some(true), "the fold button opens it on its last tab");
+        })
+        .unwrap();
+        handle
+            .update(cx, |c, _, _| {
+                for p in c.support_tabs.clone() {
+                    c.close_support_tab(p);
+                }
+                assert!(c.drawer.is_none() && c.support_tabs.is_empty(), "closing the last tab folds the card");
+            })
+            .unwrap();
     }
 
     /// Icon-only buttons carry their name for screen readers. Hovering one shows the name beside
@@ -1709,18 +1978,19 @@ mod tests {
     fn icon_buttons_have_names_and_tooltips(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         cx.update(|cx| cx.set_reduce_motion(true));
-        let handle = cx.add_window(|_, _| Cauldron { drawer: None, ..Cauldron::new() });
+        let handle = cx.add_window(|_, _| Cauldron::new());
         cx.simulate_window_resize(handle.into(), size(px(W), px(H)));
         let ms = std::time::Duration::from_millis;
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
-            let named: [(ElementId, &str); 7] = [
+            let named: [(ElementId, &str); 8] = [
                 (("fn", 4usize).into(), "Usage"),
                 (("rb", 0usize).into(), "Highlights"),
-                ("rb-patches".into(), "Patches"),
+                (("rb", 1usize).into(), "Changes"),
+                ("rb-term".into(), "Terminal"),
+                ("rb-fold".into(), "Show support"),
                 ("sbtn".into(), "Hide sidebar"),
                 ("top-term".into(), "Terminal"),
-                ("top-split".into(), "Split"),
                 ("settings".into(), "Settings"),
             ];
             for (id, label) in named {
@@ -1738,7 +2008,7 @@ mod tests {
         cx.executor().advance_clock(ms(300));
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
-            assert_eq!(window.find("tooltip").label(), Some("Usage"));
+            assert_eq!(window.find("tooltip").label(), Some("Changes"));
             let (tip, btn) = (rect(window, "tooltip"), rect(window, ("rb", 1usize)));
             assert!((tip.right() - (btn.x - 8.0)).abs() < 0.5, "right-rail tip sits 8px left of its button: {tip:?} {btn:?}");
             assert!((tip.y + tip.h / 2.0 - (btn.y + btn.h / 2.0)).abs() < 0.5, "and centred on it: {tip:?} {btn:?}");
@@ -1793,71 +2063,68 @@ mod tests {
         window.find(("tab", i)).selected() == Some(true)
     }
 
-    /// The New thread screen has no tabs; the card starts right under the bar and its 44px head
-    /// says New thread at the board's x (card + 14).
+    /// The New stream screen has no tabs; the card is a tight tile with no top bar above it, its 38px
+    /// header says New stream where the tabs start, and the stage bar sits at the card's bottom.
     #[gpui_kit::test]
     fn new_thread_screen_has_no_tabs_and_a_card_head(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let handle = open(cx, Cauldron::new());
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
-            let s = layout::solve(W, H, ShellState { sidebar_open: true, drawer_open: true, split_open: false, terminal_open: false }, platform());
-            assert!(window.try_find("tabs").is_none() && window.try_find(("tab", 0usize)).is_none(), "no tab before the thread exists");
+            let s = layout::solve(W, H, ShellState { sidebar_open: true, support_open: false, dock_open: false }, platform());
+            assert!(window.try_find("tabs").is_none() && window.try_find(("tab", 0usize)).is_none(), "no tab before the stream exists");
             assert!(window.try_find("tab-add").is_none(), "no +");
             let card = rect(window, "card");
-            assert_eq!((card.x, card.y, card.w, card.h), (s.main.x, s.main.y, s.main.w, s.main.h - 32.0), "card right under the bar, the stage bar under it");
-            // The v3 bottom bar (Charles, 13 Nov): in the Shell's grey under the card, card-wide, 32 high,
-            // usage at the left and the four stages at the right. Core has neither yet, so usage is
-            // an empty state and no stage is current: plain fg3 labels, nothing to click.
+            assert_eq!((card.x, card.y, card.w, card.h), (s.main.x, s.main.y, s.main.w, s.main.h), "the card is the solver's main, 4px from the top");
+            // Core has no stages or usage yet, so usage is an empty state and no stage is current:
+            // plain fg3 labels, nothing to click.
             let bar = rect(window, "stage-bar");
-            assert_eq!((bar.x, bar.y, bar.w, bar.h), (card.x, card.bottom(), card.w, 32.0), "stage bar");
-            let shell = rect(window, "shell");
-            assert_eq!((shell.x, shell.y, shell.right(), shell.bottom()), (s.shell.x, s.shell.y, s.shell.right(), s.shell.bottom()), "the Shell");
-            assert_eq!(bar.bottom() + 6.0, shell.bottom(), "the bar in the Shell's bottom gutter, not on the frame");
-            assert!(rect(window, "drawer").right() + 6.0 == shell.right(), "the drawer in the Shell's right gutter");
+            assert_eq!((bar.x, bar.w, bar.h), (card.x + 1.0, s.rail.x - card.x - 1.0, 32.0), "stage bar card-wide, clear of the rail");
+            assert_eq!(bar.bottom(), card.bottom() - 1.0, "at the card's bottom, inside its border");
             assert_eq!(window.find("stage-usage").label(), Some("No usage data yet"));
             let mut last = rect(window, "stage-usage").right();
             for (i, name) in ["Plan", "Execute", "Ship", "Commit"].into_iter().enumerate() {
                 let st = rect(window, ("stage", i));
                 assert_eq!(window.find(("stage", i)).label(), Some(name));
                 assert!(st.x > last && st.y >= bar.y && st.bottom() <= bar.bottom(), "stage {i} in order inside the bar");
-                assert_ne!(window.find(("stage", i)).selected(), Some(true), "stage {i}: none current before a thread exists");
+                assert_ne!(window.find(("stage", i)).selected(), Some(true), "stage {i}: none current before a stream exists");
                 last = st.right();
             }
             assert!(bar.right() - last <= 13.0, "the stages end at the bar's right padding");
             let head = rect(window, "card-head");
-            assert_eq!((head.x, head.y, head.w, head.h), (card.x + 1.0, card.y + 1.0, card.w - 2.0, 44.0), "head");
-            assert_eq!(window.find("card-title").label(), Some("New thread"));
-            assert_eq!(rect(window, "card-title").x, card.x + 14.0, "title at the board's x");
+            assert_eq!((head.x, head.y, head.w, head.h), (card.x + 1.0, card.y + 1.0, card.w - 2.0, 38.0), "head");
+            assert_eq!(window.find("card-title").label(), Some("New stream"));
+            assert_eq!(rect(window, "card-title").x, s.tabs.x + 10.0, "the title where a tab's label would start");
         })
         .unwrap();
     }
 
-    /// A thread's tabs float in the top bar (the v3 board's `.ftab`): control-sm 24, the open one
-    /// selected, + the same height.
+    /// A stream's tabs live in the stream card's 38px header (the board's `.tab`): 28 high, 2px
+    /// apart, the open one selected, + the same height.
     #[gpui_kit::test]
     fn thread_tabs_float_in_the_bar(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let handle = open(cx, with_agents(3, &[]));
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
-            let s = layout::solve(W, H, ShellState { sidebar_open: true, drawer_open: true, split_open: false, terminal_open: false }, platform());
+            let s = layout::solve(W, H, ShellState { sidebar_open: true, support_open: false, dock_open: false }, platform());
             let row = rect(window, "tabs");
             assert_eq!((row.x, row.y, row.w, row.h), (s.tabs.x, s.tabs.y, s.tabs.w, s.tabs.h), "tab row");
-            assert!(row.bottom() <= s.bar.bottom(), "in the bar");
+            let head = rect(window, "card-head");
+            assert!(row.y >= head.y && row.bottom() <= head.bottom(), "in the card's header");
             for i in 0..=3usize {
                 let t = rect(window, ("tab", i));
-                assert_eq!((t.y, t.h), (row.y, 24.0), "tab {i}");
+                assert_eq!((t.y, t.h), (row.y, 28.0), "tab {i}");
                 assert_eq!(on(window, i), i == 0, "tab {i}: only the coordinator is open");
             }
             for i in 1..=3usize {
-                assert_eq!(rect(window, ("tab", i)).x - rect(window, ("tab", i - 1)).right(), 4.0, "4px between tabs {} and {i}", i - 1);
+                assert_eq!(rect(window, ("tab", i)).x - rect(window, ("tab", i - 1)).right(), 2.0, "2px between tabs {} and {i}", i - 1);
             }
             let add = rect(window, "tab-add");
-            assert_eq!((add.y, add.h), (row.y, 24.0), "+ as tall as the tabs");
+            assert_eq!((add.y, add.h), (row.y, 28.0), "+ as tall as the tabs");
             window.click(("tab", 2usize), cx);
             assert!(on(window, 2) && !on(window, 0), "a click opens the tab");
-            assert_eq!(rect(window, "card").y, s.main.y, "the card stays under the bar");
+            assert_eq!(rect(window, "card").y, s.main.y, "the card stays put");
         })
         .unwrap();
     }
@@ -1914,8 +2181,8 @@ mod tests {
                 assert!(anchor.w <= 190.0, "{n}: coordinator at most 190: {anchor:?}");
                 assert_eq!(window.find(("tab", 0usize)).label(), Some("Cauldron · coordinator"));
                 assert!(window.try_find(("tab-close", 0usize)).is_none(), "{n}: coordinator has no close");
-                let room = row.w - anchor.w - 28.0;
-                let need = n as f32 * 76.0 + 4.0;
+                let room = row.w - anchor.w - 30.0;
+                let need = n as f32 * 74.0 + 2.0;
                 let arrows = window.try_find("tab-prev").is_some();
                 assert_eq!(arrows, need > room, "{n}: arrows iff 72px tabs do not fit (need {need}, room {room})");
                 let seen = visible(window, n);
@@ -1923,7 +2190,7 @@ mod tests {
                     assert!(seen.len() < n, "{n}: scrolling hides some tabs");
                     for id in ["tab-prev", "tab-next"] {
                         let r = rect(window, id);
-                        assert_eq!((r.w, r.h), (24.0, 24.0), "{id}: as tall as the tabs");
+                        assert_eq!((r.w, r.h), (24.0, 28.0), "{id}: as tall as the tabs");
                         assert!(r.x < rect(window, "tab-add").x, "{id} left of +");
                     }
                 } else {
@@ -2130,7 +2397,7 @@ mod tests {
         let handle = open(cx, with_threads());
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
-            assert_eq!(window.find("search").label(), Some("Search threads"));
+            assert_eq!(window.find("search").label(), Some("Search streams"));
             window.click(("thread", 1usize), cx);
             window.press("down", cx);
             window.press("down", cx);

@@ -189,19 +189,20 @@ pub mod shadow {
 /// Tuff radii from tokens.json. A box nests by its padding: outer = inner + padding (a Shell's
 /// 6px around a Panel). Circles are drawn as circles, not as a radius.
 pub mod radius {
-    /// The Shell, the window, the composer shell.
-    pub const SHELL: f32 = 22.0;
-    /// The Panel in a shell; cards, menus, dialogs.
-    pub const PANEL: f32 = 16.0;
+    /// The composer box, and any box holding a card-radius element 4px in. The window corner is
+    /// the OS's (Tight tiles, 15 Nov).
+    pub const SHELL: f32 = 12.0;
+    /// Cards (stream, support, terminal dock), menus, dialogs.
+    pub const PANEL: f32 = 8.0;
     /// The Inset well, tool rows, the segmented track.
     pub const INSET: f32 = 12.0;
-    /// Buttons, inputs, thread rows.
-    pub const CONTROL: f32 = 10.0;
+    /// Buttons, inputs, tabs, stream rows.
+    pub const CONTROL: f32 = 6.0;
     /// Segments, icon tiles, anything inside a padded inset.
     pub const INNER: f32 = 8.0;
     /// Tags and Kbd.
-    pub const TAG: f32 = 6.0;
-    /// A Shell's padding around its Panel.
+    pub const TAG: f32 = 4.0;
+    /// A Shell's padding around its Panel: the 4px gap between cards and the window margin.
     pub const SHELL_PAD: f32 = SHELL - PANEL;
 
     /// Inner radius of a box with `padding` inside an `outer` radius, never negative.

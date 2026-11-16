@@ -573,7 +573,7 @@ mod tests {
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
             assert!(window.try_find("nt-box").is_none(), "the thread replaced the screen");
-            assert!(window.try_find("thread-title").is_some(), "the thread view replaced it");
+            assert!(window.try_find(("tab", 0usize)).is_some(), "the stream view replaced it, titled in its tab");
             window.click("new-thread", cx);
             window.render_frame(cx);
             assert!(window.try_find("nt-box").is_some(), "New thread brings it back");

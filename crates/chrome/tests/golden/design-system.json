@@ -355,7 +355,7 @@
       "fontSize": "12px",
       "lineHeight": "16px",
       "fontWeight": 400,
-      "sample": "21m \u00b7 main \u00b7 Execute",
+      "sample": "21m · main · Execute",
       "usage": "Times, counts, second lines of rows, the step ledger. Tabular numerals on."
      },
      {
@@ -458,7 +458,7 @@
    {
     "name": "space-4",
     "value": "4px",
-    "usage": "Icon to label inside small controls; menu padding."
+    "usage": "Icon to label inside small controls; menu padding; the gap between cards and the window margin (Tight tiles)."
    },
    {
     "name": "space-6",
@@ -468,7 +468,7 @@
    {
     "name": "space-8",
     "value": "8px",
-    "usage": "Row padding, icon to label in rows, card-to-card gap in the frame."
+    "usage": "Row padding, icon to label in rows."
    },
    {
     "name": "space-12",
@@ -506,13 +506,13 @@
   "tokens": [
    {
     "name": "radius-shell",
-    "value": "22px",
-    "usage": "The Shell, the window and the composer shell (Tuff 1.375rem). Outer radius = panel radius + 6px padding."
+    "value": "12px",
+    "usage": "The composer box and other boxes that hold a card-radius element 4px in. Outer radius = card radius + 4px. The window corner is the OS's (Tight tiles, 15 Nov)."
    },
    {
     "name": "radius-panel",
-    "value": "16px",
-    "usage": "The Panel inside a shell; cards, menus, dialogs (Tuff 2xl)."
+    "value": "8px",
+    "usage": "Cards: the stream card, the support card, the terminal dock; menus and dialogs (Tight tiles)."
    },
    {
     "name": "radius-inset",
@@ -521,8 +521,8 @@
    },
    {
     "name": "radius-control",
-    "value": "10px",
-    "usage": "Buttons, inputs, thread rows (Tuff md)."
+    "value": "6px",
+    "usage": "Buttons, inputs, tabs, stream rows (Tight tiles)."
    },
    {
     "name": "radius-inner",
@@ -531,8 +531,8 @@
    },
    {
     "name": "radius-tag",
-    "value": "6px",
-    "usage": "Tags and Kbd."
+    "value": "4px",
+    "usage": "Tags and Kbd (Tight tiles)."
    },
    {
     "name": "radius-round",

@@ -156,6 +156,7 @@ mod tests {
             "inbox", "folder", "calendar", "bot", "gauge", "brain", "layout-grid", "pin", "palette", "diff",
             "search", "plus", "settings", "panel-left", "terminal", "columns-2", "minus", "square", "x", "square-pen", "chevron-left", "chevron-right", "code", "circle-alert", "arrow-up", "flask-conical", "chevron-down", "monitor",
             "globe", "files", "git-pull-request", "link", "smartphone", "maximize-2", "panel-bottom", "panel-right",
+            "git-branch", "activity", "clock-fading",
         ];
         let missing: Vec<_> = used
             .iter()
