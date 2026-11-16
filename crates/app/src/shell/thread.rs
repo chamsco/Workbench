@@ -516,7 +516,7 @@ impl Cauldron {
             .rounded(px(radius::PANEL))
             .border_1()
             .border_color(c(pal.line))
-            .bg(c(pal.raised))
+            .bg(super::backdrop::surface(self.painting, pal.raised, super::backdrop::GLASS_COMPOSER))
             .aria_label("Message the coordinator");
         composer = if tiny {
             // A very short pane: one row, the editor and Send, no chips.

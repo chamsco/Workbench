@@ -227,7 +227,7 @@ impl Cauldron {
             .flex_col()
             .overflow_hidden()
             .rounded(px(radius::PANEL))
-            .bg(c(pal.panel))
+            .bg(super::backdrop::surface(self.painting, pal.panel, super::backdrop::GLASS_TERM))
             .border_1()
             .border_color(c(pal.line))
             .child(head.test_support())

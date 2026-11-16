@@ -20,6 +20,7 @@ use gpui_kit::component::input::{Input, InputEvent, InputState, TextareaState};
 use gpui_kit::component::Theme;
 use std::sync::Arc;
 
+mod backdrop;
 mod motion;
 mod newthread;
 mod panes;
@@ -159,6 +160,8 @@ pub(crate) struct Cauldron {
     /// The support card's tabs, in order, and whether its + menu is open.
     support_tabs: Vec<Panel>,
     support_menu: bool,
+    /// The Harbour painting behind the window (Tight tiles), or the plain frame.
+    painting: bool,
     /// Settings is open on this page (v3 frame 7): its pages take the sidebar's list, the page the card.
     settings: Option<usize>,
     /// Where Settings reads the subscriptions; None is core's `accounts.json` (tests use their own).
@@ -257,6 +260,10 @@ impl Cauldron {
     /// n agent tabs, for screenshots until UI4 brings real agents from core.
     pub(crate) fn launch(cx: &mut Context<Self>) -> Self {
         let mut c = Self::new();
+        c.painting = backdrop::wants_painting(&Prefs::load());
+        if c.painting {
+            backdrop::warm();
+        }
         // Debug builds only: `CAULDRON_FIXTURE_THREADS=list|loading|empty|error` draws the sidebar
         // from made-up threads instead of core, for screenshots that hold no real thread titles.
         #[cfg(debug_assertions)]
@@ -278,11 +285,15 @@ impl Cauldron {
             }
             _ => c.connect(cx),
         }
-        // Debug builds only, for screenshots of the live window: `CAULDRON_SIDEBAR=folded` starts with
+        // Debug builds only, for screenshots of the live window: `CAULDRON_BACKDROP=plain|painting`
+        // overrides the pref, `CAULDRON_SIDEBAR=folded` starts with
         // the sidebar folded, `CAULDRON_SUPPORT=open` with the support card open on the board's three
         // tabs, and `CAULDRON_PANES=n` with the card split into `Shape::ALL[n]`.
         #[cfg(debug_assertions)]
         {
+            if let Ok(b) = std::env::var("CAULDRON_BACKDROP") {
+                c.painting = b != "plain";
+            }
             if std::env::var("CAULDRON_SIDEBAR").as_deref() == Ok("folded") {
                 c.sidebar_open = false;
             }
@@ -313,7 +324,7 @@ impl Cauldron {
     }
 
     pub(crate) fn new() -> Self {
-        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
+        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, painting: false, settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
     }
 
     /// Opens core off the main thread (the sidebar shows Loading meanwhile), then keeps the thread
@@ -1006,6 +1017,15 @@ impl Render for Cauldron {
                 }
             }));
 
+        // ---- the frame layer: the Harbour painting, baked frosted, under the frame tint
+        // (Tight tiles rule 7). The plain frame is the root's own colour.
+        let layer = self.painting.then(|| backdrop::frame_layer(dark));
+        if let Some(img_src) = layer.clone() {
+            root = root
+                .child(img(img_src).id("backdrop").absolute().size_full().object_fit(ObjectFit::Cover).test_support())
+                .child(div().absolute().size_full().bg(backdrop::tint(pal, dark)));
+        }
+
         // ---- Mac: the native lights follow the board (sidebar's top row, or the stream header).
         #[cfg(target_os = "macos")]
         if let Some(l) = s.lights {
@@ -1402,7 +1422,7 @@ impl Render for Cauldron {
                     .flex_col()
                     .overflow_hidden()
                     .rounded(px(radius::PANEL))
-                    .bg(c(pal.panel))
+                    .bg(backdrop::surface(self.painting, pal.panel, backdrop::GLASS_CARD))
                     .border_1()
                     .border_color(c(pal.line))
                     .text_color(fg3)
@@ -1671,7 +1691,7 @@ impl Render for Cauldron {
                 .flex_col()
                 .overflow_hidden()
                 .rounded(px(radius::PANEL))
-                .bg(c(pal.panel))
+                .bg(backdrop::surface(self.painting, pal.panel, backdrop::GLASS_CARD))
                 .border_1()
                 .border_color(c(pal.line))
                 .child(shead.test_support())
@@ -1782,13 +1802,16 @@ impl Render for Cauldron {
 
         // ---- Windows: the notch cut into the rightmost card's top-right, with the caption buttons
         if let Some(n) = s.notch {
+            // A cut, not a pane: over the painting it shows the same frame layer, cropped to it.
+            let mut notch = pane("notch", n).bg(frame).overflow_hidden().rounded_bl(px(radius::PANEL));
+            if let Some(img_src) = layer {
+                notch = notch
+                    .child(img(img_src).absolute().left(px(-n.x)).top(px(-n.y)).w(px(w)).h(px(h)).object_fit(ObjectFit::Cover))
+                    .child(div().absolute().size_full().bg(backdrop::tint(pal, dark)));
+            }
             root = root.child(
-                pane("notch", n)
-                    .bg(frame)
-                    .border_l_1()
-                    .border_b_1()
-                    .border_color(c(pal.line))
-                    .rounded_bl(px(radius::PANEL))
+                notch
+                    .child(div().absolute().size_full().border_l_1().border_b_1().border_color(c(pal.line)).rounded_bl(px(radius::PANEL)))
                     .window_control_area(WindowControlArea::Drag)
                     .test_support(),
             );

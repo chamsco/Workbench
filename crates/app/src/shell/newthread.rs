@@ -324,7 +324,7 @@ impl Cauldron {
             .pt(px(4.))
             .px(px(15.))
             .pb(px(10.))
-            .bg(c(pal.panel))
+            .bg(super::backdrop::surface(self.painting, pal.raised, super::backdrop::GLASS_COMPOSER))
             .rounded(px(radius::CONTROL))
             .border_1()
             .border_color(if focused { body_line(pal, true) } else { c(pal.line_strong) })
