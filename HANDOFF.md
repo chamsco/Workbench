@@ -1,5 +1,20 @@
 # Handoff: Backspace (ohMyHarness → Workbench), v0
 
+**Session, 16 Nov 2026: Cauldron M5, Builder and Rampart.**
+
+- **On the long path, an independent Rampart writes the tests first.** The lead's
+  first `work_tickets` starts it (`AgentKind::Rampart`). It sees only the approved
+  spec.md and baseline.json, and may only `read`/`list` its baseline checkout
+  (`.backspace/rampart/tree`) and call `submit_ramparts`.
+- **Every test must fail on the baseline in all 3 runs**, and every criterion needs a
+  test. The first 3 suites wait for your yes. Then they are sealed
+  (`.backspace/rampart/seal.json`, hash per file) and committed to the lead's branch.
+- **Workers are held to the seal.** A changed sealed file refuses the delivery. The
+  tests for the ticket's `covers` run 3 times. A pass is mutated for a rampart score.
+- **§7.4:** 3 failures, the same failure twice, the cheap budget, or a cheaper frontier
+  leads to ONE frontier call with a digest, then you.
+- **Code:** `crates/core/src/rampart.rs`. Details and limits: `docs/cauldron/M5-NOTES.md`.
+
 **Session, 13 Nov 2026: Cauldron M4, the planning stage.**
 
 - **A long task plans before it builds.** With intake on and a task on the long
