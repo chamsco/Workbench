@@ -221,6 +221,7 @@ impl Cauldron {
         fill_steps(chats, self.thread.as_ref(), &mut self.steps);
         self.term_blocks = super::terminal::blocks(chats, self.thread.as_ref());
         self.term_scroll.scroll_to_bottom();
+        self.familiar = None;
         self.coordinator = Some(self.thread.as_ref().map_or_else(|| "Thread".into(), |t| t.title.clone().into()));
         self.agents.clear();
         self.idle.clear();
