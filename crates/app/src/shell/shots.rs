@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 /// The states each gate is checked in: New thread, a thread with the drawer, the drawer folded,
 /// an agentic thread's tabs.
-const STATES: [&str; 9] = ["new", "thread", "folded", "tabs", "win-sidebar-open", "win-sidebar-folded", "changes", "git", "files"];
+const STATES: [&str; 10] = ["new", "thread", "folded", "tabs", "win-sidebar-open", "win-sidebar-folded", "changes", "git", "files", "indent"];
 
 fn shot(dir: &PathBuf, data: &PathBuf, state: &str, theme: &str) {
     std::env::set_var("CAULDRON_THEME", theme);
@@ -53,6 +53,16 @@ fn shot(dir: &PathBuf, data: &PathBuf, state: &str, theme: &str) {
                 if let Some(p) = panel {
                     c.support_tabs = vec![Panel::Changes, Panel::Git, Panel::Files];
                     c.drawer = Some(p);
+                }
+                // The folded sidebar's hover band over the first stream (no rows to click while folded).
+                if state == "indent" {
+                    c.sidebar_open = false;
+                    c.indent = true;
+                    if let Threads::Ready(v) = &c.threads {
+                        if let Some(id) = v.first().map(|t| t.id.clone()) {
+                            c.open_thread(id);
+                        }
+                    }
                 }
                 if state == "tabs" {
                     c.coordinator = Some("Cauldron · coordinator".into());
