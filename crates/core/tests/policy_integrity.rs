@@ -240,6 +240,12 @@ main_min_effort = "high"
 pin_main = "mock-big"
 pin_sub = "mock-small"
 
+[sandbox]
+# These tests are about the policy guard, which undoes an edit the shell made.
+# The M6 sandbox stops that edit in the first place (tests/sandbox.rs); off here
+# so the guard behind it is still tested.
+mode = "off"
+
 [orchestrator]
 max_parallel_calls = 2
 max_subagents = 4

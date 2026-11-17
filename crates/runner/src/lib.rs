@@ -105,6 +105,9 @@ pub struct Request {
     pub advisor: Option<String>,
     /// Extra subagents for CLIs that take them (Claude Code's `--agents`).
     pub agents: Option<Value>,
+    /// A command line the CLI runs inside (Backspace's sandbox, M6): the
+    /// CLI and its arguments follow it. Empty: the CLI runs as it is.
+    pub wrap: Vec<String>,
 }
 
 impl Request {
@@ -128,6 +131,7 @@ impl Request {
             effort: None,
             advisor: None,
             agents: None,
+            wrap: vec![],
         }
     }
 }
@@ -358,7 +362,15 @@ fn toml_inline(v: &Value) -> String {
 /// The command line, environment and stdin text of one CLI turn. Nothing is started here, so a test
 /// can read exactly what a CLI would be given.
 fn build_cli(req: &Request, provider: &str, bin: &PathBuf) -> Result<(tokio::process::Command, Option<String>)> {
-    let mut cmd = tokio::process::Command::new(bin);
+    // In Backspace's sandbox (M6) the sandbox's command comes first and runs the CLI.
+    let mut cmd = match req.wrap.split_first() {
+        Some((first, rest)) => {
+            let mut c = tokio::process::Command::new(first);
+            c.args(rest).arg(bin);
+            c
+        }
+        None => tokio::process::Command::new(bin),
+    };
     cmd.current_dir(&req.cwd)
         .env("NO_COLOR", "1")
         .stdin(Stdio::piped())
@@ -943,6 +955,22 @@ mod tests {
 
     fn pairs(args: &[String], flag: &str) -> Vec<String> {
         args.windows(2).filter(|w| w[0] == flag).map(|w| w[1].clone()).collect()
+    }
+
+    /// M6: a CLI executor is started inside the sandbox: the sandbox's command
+    /// line comes first and the CLI, with all its own arguments, after it.
+    #[test]
+    fn a_wrapped_cli_runs_inside_the_sandbox_command() {
+        let mut r = cli_request("claude", Some("pin-1"), None);
+        r.wrap = vec!["/usr/bin/bwrap".into(), "--ro-bind".into(), "/".into(), "/".into(), "--".into()];
+        let (cmd, _) = build_cli(&r, "claude", &PathBuf::from("/opt/claude")).unwrap();
+        assert_eq!(cmd.as_std().get_program().to_string_lossy(), "/usr/bin/bwrap");
+        let args: Vec<String> = cmd.as_std().get_args().map(|a| a.to_string_lossy().into_owned()).collect();
+        assert_eq!(&args[..5], ["--ro-bind", "/", "/", "--", "/opt/claude"], "{args:?}");
+        assert_eq!(pairs(&args, "--model"), ["pin-1"], "the CLI keeps its own arguments: {args:?}");
+        let plain = cli_request("claude", Some("pin-1"), None);
+        let (cmd, _) = build_cli(&plain, "claude", &PathBuf::from("/opt/claude")).unwrap();
+        assert_eq!(cmd.as_std().get_program().to_string_lossy(), "/opt/claude", "unwrapped by default");
     }
 
     #[test]

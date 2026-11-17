@@ -35,3 +35,5 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 # The Mac takes its screenshots with `screencapture`; Linux with grim/import.
 [target.'cfg(windows)'.dependencies]
 xcap = "0.9"
+# The sandbox on Windows (sandbox.rs): low-integrity tokens, mandatory labels, job objects.
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_System_Threading", "Win32_System_JobObjects", "Win32_System_Console", "Win32_System_Environment", "Win32_System_SystemServices"] }

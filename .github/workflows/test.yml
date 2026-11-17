@@ -26,8 +26,49 @@ jobs:
       # four-minute way to find out it does not. Writing the same file here, and
       # asking the test at the end of crates/core/src/update.rs to agree with it,
       # says so in a minute. See crates/core/src/build_stamp.rs.
+      # M6: agents' commands run in bubblewrap. Ubuntu 24.04 restricts
+      # unprivileged user namespaces through AppArmor, which bubblewrap needs.
+      # The sandbox tests fail, rather than skip, when it cannot run.
+      - name: Install bubblewrap
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q bubblewrap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          bwrap --ro-bind / / --dev /dev --proc /proc --unshare-pid --unshare-net true
       - name: cargo test
+        env:
+          BACKSPACE_SANDBOX_TESTS: require
         run: |
           printf 'pub const BUILD: &str = "%s";\n' "$GITHUB_SHA" \
             > crates/core/src/build_stamp.rs
           cargo test --no-fail-fast
+
+  # M6: the Seatbelt sandbox and the herdr adapter, on a Mac.
+  sandbox-macos:
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: tests-macos-sandbox
+      - name: Sandbox and herdr tests
+        env:
+          BACKSPACE_SANDBOX_TESTS: require
+        run: cargo test -p backspace-core --test sandbox --test herdr --test workspace_boundary
+
+  # M6: the Windows sandbox (low integrity, mandatory labels, job object).
+  sandbox-windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: tests-windows-sandbox
+      - name: Sandbox and herdr tests
+        env:
+          BACKSPACE_SANDBOX_TESTS: require
+        run: cargo test -p backspace-core --test sandbox --test herdr --test workspace_boundary

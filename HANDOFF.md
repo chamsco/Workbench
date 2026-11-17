@@ -1,5 +1,25 @@
 # Handoff: Backspace (ohMyHarness → Workbench), v0
 
+**Session, 17 Nov 2026: Cauldron M6, the execution engine (sandbox and herdr).**
+
+- **Agents' commands run in a sandbox.** That covers bash, checks, Rampart's vetting
+  and the sealed and mutation runs. It is bubblewrap on Linux and Seatbelt on macOS
+  (`crates/core/src/sandbox.rs`). Agents write only to their worktree, git's store
+  and a private /tmp. `.backspace/`, Backspace's data and your SSH, cloud and CLI
+  credentials are hidden. The policy, git hooks and config, and sealed tests are
+  read-only. Secrets are taken out of the environment.
+- **Coding-CLI workers run in it too** (runner `Request.wrap`). They keep only their
+  own login.
+- **Config.** `[sandbox] mode = "auto" | "required" | "off"`, `network`, `pass_env`,
+  `hide`. **On Windows** commands run at low integrity with mandatory labels
+  (`backspace-jail`, or `__backspace_jail` on any Backspace binary). The network
+  stays on there, and agents cannot commit.
+- **herdr.** It sits behind `herdr::Supervisor`, pinned to 0.9.5 and off by default.
+  Any other version falls back to native. Its states are signals, never gates.
+- **Rampart.** It prefers a model other than the lead's. In the sandbox it gets a
+  read-only, offline shell.
+- **Details:** `docs/cauldron/M6-NOTES.md`, `M6-REPORT.md`.
+
 **Session, 17 Nov 2026: Verify, Ship and Learn (Platform PRD §4.4-4.6).**
 
 - **Stages are now Plan, Execute, Verify, Ship, Learn.** `Phase::Test` is the Verify
