@@ -148,6 +148,13 @@ impl Backend {
         matches!(self, Backend::Bwrap(_) | Backend::Seatbelt(_))
     }
 
+    /// A read-only file cannot be deleted or replaced either. Windows'
+    /// integrity levels stop writes to the file, not its removal from a
+    /// folder the agent may write.
+    pub fn protects_deletes(&self) -> bool {
+        matches!(self, Backend::Bwrap(_) | Backend::Seatbelt(_))
+    }
+
     /// Agents may write git's store (commit) from inside it.
     pub fn agents_commit(&self) -> bool {
         matches!(self, Backend::Bwrap(_) | Backend::Seatbelt(_))

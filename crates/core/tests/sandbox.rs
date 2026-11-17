@@ -226,7 +226,15 @@ fn the_policy_file_is_read_only_inside_the_sandbox() {
     }
     let f = fixture("policy");
     let ws = jailed(&f, &SandboxConfig::default());
-    let (_, out) = sh(&ws, "echo evil >> backspace.toml; sed -i s/policy/open/ backspace.toml; rm -f backspace.toml; cat backspace.toml");
+    // Windows' integrity levels stop writing a file but not deleting or
+    // replacing it from a folder the agent may write: there, the policy
+    // guard and the merge hold catch that (M6-NOTES, limits).
+    let cmd = if Backend::probe().protects_deletes() {
+        "echo evil >> backspace.toml; sed -i s/policy/open/ backspace.toml; rm -f backspace.toml; cat backspace.toml"
+    } else {
+        "echo evil >> backspace.toml; printf open > backspace.toml; cat backspace.toml"
+    };
+    let (_, out) = sh(&ws, cmd);
     assert_eq!(std::fs::read_to_string(f.work.join("backspace.toml")).unwrap(), "# policy\n", "{out}");
     assert_eq!(std::fs::read_to_string(f.root.join("backspace.toml")).unwrap(), "# policy\n");
 }
@@ -243,7 +251,9 @@ fn sealed_tests_are_read_only_inside_the_sandbox() {
     let mut profile = Profile::agent(&f.root, &f.work, &cfg);
     profile.read_only.push(f.work.join("tests/a1.sh"));
     let ws = Workspace::new(f.work.clone(), Duration::from_secs(20)).jailed(Arc::new(Jail { sandbox: Sandbox::new(&cfg), profile }));
-    sh(&ws, "echo 'exit 0' > tests/a1.sh; rm -f tests/a1.sh");
+    // On Windows a delete is caught by the hash lock on delivery instead.
+    let cmd = if Backend::probe().protects_deletes() { "echo 'exit 0' > tests/a1.sh; rm -f tests/a1.sh" } else { "echo 'exit 0' > tests/a1.sh; echo 'exit 0' >> tests/a1.sh" };
+    sh(&ws, cmd);
     assert_eq!(std::fs::read_to_string(f.work.join("tests/a1.sh")).unwrap(), "exit 1\n");
 }
 

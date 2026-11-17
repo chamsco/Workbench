@@ -93,6 +93,7 @@ Older tests changed:
 1. **Windows is weaker than Linux and macOS.**
    - It cannot take the network away. Rampart therefore gets no shell on Windows, and `network = false` is not enforced there.
    - git's store stays read-only to agents, so they cannot commit. Backspace commits their work, as it already did.
+   - A read-only file (the policy, a sealed test) cannot be edited in place, but it can be deleted or replaced, because the folder it sits in is writable. The policy guard restores the policy file, a merge that edits it is held, and the hash lock refuses a delivery whose sealed tests changed. CI showed this.
    - The labels are written to disk and stay there:
      - Credential folders and Backspace's files keep a no-read-up label. That only affects low-integrity processes (browser sandboxes and the like). Your own programs, at Medium, are unaffected.
      - A file Backspace writes into `.backspace/` afresh after a command (rather than rewriting in place) is readable until the next command relabels it.
