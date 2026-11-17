@@ -79,3 +79,11 @@ The end-to-end tests use a mock OpenAI-compatible server playing the lead, Rampa
 10. The §7.3 dispute path (third-model arbitration) is not built. It is not in M5's acceptance line.
 11. The spot-check yes is a chat reply. There is no button.
 12. Mock models only. Tokens: not measured. Real frontier calls: 0.
+
+## Decisions on the open choices (17 Nov 2026)
+
+Charles waived per-milestone review (17 Nov, 08:02Z) and asked for a finished app to test. These are Claude's picks, made so later milestones can build on them. Any of them can be overturned at his test.
+
+1. **Rampart's model: prefer a different model id, don't require it.** When the project allows more than one model at Rampart's rung, Rampart takes one that differs from the lead's. With only one allowed, it runs the same id as a separate agent, as now. Requiring a different id would stall one-model and local-only projects, and the independence that matters most (no shared context) already holds. To build in M6.
+2. **Rampart gets a sandboxed shell in M6.** Read-only on its own tree, no network, and only for running build and test commands. Today it guesses commands from reading, and each wrong guess costs a full vetting round. It comes with the M6 sandbox, not before, so it never runs unsandboxed.
+3. **Mutation score: no threshold until Gate A (M7), then a soft one.** Gate A flags a delivery whose score is below 0.5 with at least 4 mutants, and lists the survivors for the lead to answer. It does not block. Textual mutants that fail to compile count as killed, so the score runs high and is not reliable enough to block on. Blocking is reconsidered at Gate B (M8) if mutants become syntax-aware.
