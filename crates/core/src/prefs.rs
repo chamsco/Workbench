@@ -70,10 +70,15 @@ pub struct Prefs {
     pub worker: Option<String>,
     /// When the router decides: models it may not give a worker.
     pub worker_exclude: Vec<String>,
-    /// The decision model per stage ("plan", "execute", "ship", "commit"; the
-    /// Commit one is the Librarian). It may refuse a gate the rules passed,
-    /// never open one. A stage with none runs on rules alone, which cost nothing.
+    /// The decision model per stage ("plan", "execute", "verify", "ship",
+    /// "learn"; the Learn one is the Librarian, and an older "commit" entry
+    /// still counts for it). It may refuse a gate the rules passed, never open
+    /// one. A stage with none runs on rules alone, which cost nothing.
     pub stage_models: BTreeMap<String, crate::chat::Route>,
+    /// Where Ship delivers a verified run: "local" (the run branch, for you to
+    /// merge), "branch" (pushed to origin) or "pr" (a pull request via gh).
+    /// Ship never merges.
+    pub ship_target: String,
     /// Model id the Workbench planner runs on; a CLI one ("claude-code",
     /// "codex") runs it on your subscription. None: an API model if a key
     /// is set, else the workers' CLI.
@@ -150,6 +155,7 @@ impl Default for Prefs {
             worker: None,
             worker_exclude: vec![],
             stage_models: BTreeMap::new(),
+            ship_target: "local".into(),
             api_keys: BTreeMap::new(),
             appearance: Appearance::default(),
             subagent_model: None,
@@ -508,6 +514,11 @@ impl PaneSpec {
 }
 
 impl Prefs {
+    /// The decision model a stage reads, with Learn's older "commit" key.
+    pub fn stage_model(&self, stage: crate::phase::Stage) -> Option<crate::chat::Route> {
+        self.stage_models.get(stage.key()).or_else(|| (stage == crate::phase::Stage::Learn).then(|| self.stage_models.get("commit")).flatten()).cloned()
+    }
+
     /// `BACKSPACE_PREFS` overrides the location (tests, benches, profiles).
     pub fn path() -> Option<PathBuf> {
         if let Some(p) = std::env::var_os("BACKSPACE_PREFS") {

@@ -636,7 +636,7 @@ impl Fleet {
         Ok((h, snap))
     }
 
-    /// Where the open project stands in Plan → Execute → Ship → Commit: the
+    /// Where the open project stands in Plan → Execute → Verify → Ship → Learn: the
     /// stage, each stage's decision model and spend, the last gate answers,
     /// what stops the next gate, and the Librarian's last receipt.
     pub fn stage_status(&self) -> Result<serde_json::Value> {
@@ -669,9 +669,10 @@ impl Fleet {
         let (gaps, how): (Vec<String>, &str) = match p.phase {
             Phase::Specify => (vec![format!("{} hasn't passed its gate: finish the spec in Plan mode", crate::spec::FILE)], "plan"),
             Phase::Plan => (vec!["the plan isn't approved yet: the main agent proposes tickets, you approve them".into()], "plan"),
-            Phase::Execute | Phase::Test => (crate::stages::execute_gaps(&tickets), "rules"),
-            Phase::Ship => (vec![], "human"),
-            Phase::Commit => (vec![], "librarian"),
+            Phase::Execute => (crate::stages::execute_gaps(&tickets), "rules"),
+            Phase::Test => (crate::deliver::last_verify(&root).filter(|r| !r.passed).map(|r| r.issues.into_iter().chain(r.weakened).collect()).unwrap_or_default(), "verify"),
+            Phase::Ship => (vec![], "ship"),
+            Phase::Learn => (vec![], "librarian"),
             Phase::Done => (vec!["done".into()], "none"),
         };
         Ok(serde_json::json!({
@@ -683,12 +684,15 @@ impl Fleet {
             "advance": how,
             "notes": snap.agents.first().map_or(0, |a| a.notes.len()),
             "receipt": self.memory.receipts().last(),
+            "verify": crate::deliver::last_verify(&root),
+            "delivery": crate::deliver::last_delivery(&root),
             "total": snap.total_cost_usd,
         }))
     }
 
     /// Open the current stage's gate, from the stage strip. Rules decide
-    /// Execute; you decide Ship; the Librarian files at Commit. A decision
+    /// Execute and Verify; Ship delivers the verified run (deliver.rs, never a
+    /// merge) and Learn follows at once, where the Librarian files the notes. A decision
     /// model assigned to the stage is asked first and may refuse (the answer
     /// is kept, and the project stays where it is), never open anything.
     pub async fn advance_stage(self: &Arc<Self>) -> Result<serde_json::Value> {
@@ -705,7 +709,7 @@ impl Fleet {
         let mut model_note: Option<String> = None;
         // The stage's model reads the evidence and may refuse.
         let ask = |evidence: String| {
-            let route = prefs.stage_models.get(stage.key()).cloned();
+            let route = prefs.stage_model(stage);
             let chats = self.chats.clone();
             let ctx = ctx.clone();
             async move {
@@ -724,7 +728,7 @@ impl Fleet {
         match p.phase {
             Phase::Specify | Phase::Plan => bail!("Plan finishes in Plan mode: write the spec, then approve the plan"),
             Phase::Done => bail!("this project is done"),
-            Phase::Execute | Phase::Test => {
+            Phase::Execute => {
                 let gaps = crate::stages::execute_gaps(&tickets.iter().map(|(k, _, s)| (k.clone(), *s)).collect::<Vec<_>>());
                 if !gaps.is_empty() {
                     bail!("Execute isn't finished: {}", gaps.join("; "));
@@ -737,10 +741,24 @@ impl Fleet {
                     Ok(_) => {}
                     Err(e) => model_note = Some(format!("the Execute model couldn't be reached ({e:#}); the rules stood")),
                 }
-                if p.phase == Phase::Execute {
-                    crate::stages::passed(&root, GateBy::Rules, ".backspace/tickets", "every ticket finished", at)?;
+                crate::stages::passed(&root, GateBy::Rules, ".backspace/tickets", "every ticket finished", at)?;
+            }
+            Phase::Test => {
+                // Rules first (deliver.rs records the gate); a model may only
+                // send a passing run back.
+                let facts: Vec<crate::deliver::TicketFacts> = snap.tickets.iter().map(crate::deliver::TicketFacts::of).collect();
+                let report = crate::deliver::verify(&root, &facts)?;
+                if !report.passed {
+                    bail!("Verify isn't passed: {}", report.issues.iter().chain(&report.weakened).cloned().collect::<Vec<_>>().join("; "));
                 }
-                crate::stages::passed(&root, GateBy::Rules, ".backspace/tickets", "no ticket failed", at)?;
+                match ask(crate::deliver::verify_markdown(&report, crate::deliver::load_plan(&root).as_ref())).await {
+                    Ok(Some(crate::stages::Review::Block(why))) => {
+                        crate::stages::vetoed(&root, Phase::Test, crate::deliver::VERIFY_MD, &why, at)?;
+                        bail!("The Verify model refused: {why}");
+                    }
+                    Ok(_) => {}
+                    Err(e) => model_note = Some(format!("the Verify model couldn't be reached ({e:#}); the rules stood")),
+                }
             }
             Phase::Ship => {
                 match ask(crate::stages::execute_evidence(&tickets, &summaries)).await {
@@ -749,15 +767,20 @@ impl Fleet {
                         bail!("The Ship model says not yet: {why}");
                     }
                     Ok(_) => {}
-                    Err(e) => model_note = Some(format!("the Ship model couldn't be reached ({e:#}); you decide")),
+                    Err(e) => model_note = Some(format!("the Ship model couldn't be reached ({e:#}); the rules stood")),
                 }
-                // Publishing is yours to decide: pressing the button is the approval.
-                crate::stages::passed(&root, GateBy::Human, "RELEASE", "approved by you", at)?;
+                // Delivers the verified commit (never merges), then Learn runs
+                // at once without holding the delivery back.
+                let target = crate::deliver::Target::parse(&prefs.ship_target).unwrap_or_default();
+                crate::deliver::ship(&root, &crate::deliver::ShipOpts { target, gh: None })?;
+                if let Err(e) = Box::pin(self.advance_stage()).await {
+                    model_note = Some(format!("delivered; Learn didn't finish ({e:#}): the notes are kept for the next try"));
+                }
             }
-            Phase::Commit => {
+            Phase::Learn => {
                 let notes = h.take_notes();
                 let project = root.display().to_string();
-                let fates = match prefs.stage_models.get(stage.key()).cloned().filter(|_| !notes.is_empty()) {
+                let fates = match prefs.stage_model(stage).filter(|_| !notes.is_empty()) {
                     None => crate::stages::rule_fates(&notes),
                     Some(r) => {
                         let (sys, prompt) = crate::stages::librarian_prompt(&notes);

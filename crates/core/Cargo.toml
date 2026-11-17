@@ -6,6 +6,8 @@ license.workspace = true
 
 [dependencies]
 backspace-runner = { path = "../runner" }
+# The decision engine (decision.rs, ladder.rs re-export it).
+cauldron-decision = { path = "../decision" }
 # Durable workspaces (the `colony_*` tools); docs/COLONY.md.
 backspace-colony = { path = "../colony" }
 anyhow.workspace = true
