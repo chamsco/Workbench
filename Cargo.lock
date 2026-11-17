@@ -596,6 +596,7 @@ dependencies = [
  "base64 0.22.1",
  "brainpowr-engine",
  "cauldron-decision",
+ "cauldron-platform",
  "dunce",
  "enigo",
  "futures",
@@ -948,6 +949,15 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "serde",
+]
+
+[[package]]
+name = "cauldron-platform"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

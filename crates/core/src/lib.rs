@@ -17,6 +17,8 @@ pub mod diagram;
 pub mod effort;
 pub mod eval;
 pub mod familiar;
+/// Platform services (event bus, notification inbox), for the shells.
+pub use cauldron_platform as platform;
 pub mod files;
 pub mod fleet;
 pub mod folders;

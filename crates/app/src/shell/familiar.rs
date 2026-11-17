@@ -504,7 +504,7 @@ impl Cauldron {
             while changes.recv().await.is_ok() {
                 if this
                     .update(cx, |c, cx| {
-                        c.refresh_familiar(&id);
+                        c.refresh_familiar(&id, cx);
                         c.drive_familiar(&id, cx);
                         cx.notify();
                     })
@@ -517,10 +517,23 @@ impl Cauldron {
         self.fam_watch.push(task);
     }
 
-    fn refresh_familiar(&mut self, id: &str) {
+    /// The view again from the harness; what is news to a person (a new ask, a delivery, a failure)
+    /// goes to the platform's notification inbox, off the UI thread.
+    fn refresh_familiar(&mut self, id: &str, cx: &mut Context<Self>) {
         let Some(k) = self.fam_live.iter().position(|f| f.rec.id == id) else { return };
         let f = &self.fam_live[k];
         let v = core_fam::view(&f.rec, &f.h.snapshot(), f.h.root());
+        let before = self.fam_views.iter().find(|x| x.id == id);
+        if let Some(e) = core_fam::event_for(before, &v) {
+            cx.background_executor()
+                .spawn(async move {
+                    // Quiet hours are not a setting yet: every note alerts.
+                    if let Err(err) = backspace_core::platform::notify::Inbox::open(&Prefs::data_dir()).push(e, None, 12) {
+                        eprintln!("notification inbox: {err:#}");
+                    }
+                })
+                .detach();
+        }
         if let Some(slot) = self.fam_views.iter_mut().find(|x| x.id == id) {
             *slot = v;
         }
@@ -557,7 +570,7 @@ impl Cauldron {
                 if let Err(e) = res {
                     c.fam_error = Some(format!("{e:#}"));
                 }
-                c.refresh_familiar(&id);
+                c.refresh_familiar(&id, cx);
                 cx.notify();
             });
         })

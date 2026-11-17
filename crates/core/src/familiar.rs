@@ -293,3 +293,24 @@ pub fn learn_with_rules(h: &crate::Harness, memory: &crate::memory::Memory, data
         }
     }
 }
+
+/// What changed between two looks at a familiar that a person should hear
+/// about, as a platform event: it asks something new, it delivered, it
+/// failed. None when nothing new happened.
+pub fn event_for(before: Option<&View>, now: &View) -> Option<cauldron_platform::events::Event> {
+    use cauldron_platform::events::{Event, Kind};
+    let ev = |kind, title: String, body: String| Some(Event { app: "code".into(), source: now.id.clone(), kind, title, body, at: crate::chat::now_ms() });
+    if now.delivery.is_some() && before.is_none_or(|b| b.delivery.is_none()) {
+        let d = now.delivery.as_ref().unwrap();
+        return ev(Kind::Delivered, format!("{} delivered", now.name), d.pr_url.clone().unwrap_or_else(|| format!("on {}", d.branch)));
+    }
+    if now.state == State::Failed && before.is_none_or(|b| b.state != State::Failed) {
+        return ev(Kind::Failed, format!("{} stopped", now.name), now.events.last().map(|e| e.text.clone()).unwrap_or_default());
+    }
+    if let Some(ask) = now.ask.as_ref().filter(|_| now.state == State::NeedsYou) {
+        if before.is_none_or(|b| b.ask.as_ref() != Some(ask)) {
+            return ev(Kind::NeedsYou, format!("{} needs you", now.name), ask.clone());
+        }
+    }
+    None
+}
