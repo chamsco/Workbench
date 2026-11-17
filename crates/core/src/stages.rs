@@ -1,4 +1,4 @@
-//! The project's four stages: Plan, Execute, Ship, Commit.
+//! The project's five stages: Plan, Execute, Verify, Ship, Learn (PRD §4).
 //!
 //! Each stage ends in a gate (phase.rs keeps the answers). A gate is opened by
 //! a rule or a person, never by a model; a decision model assigned to the
@@ -7,10 +7,14 @@
 //!
 //! - Plan: SPEC.md and the plan's coverage (spec.rs, harness.rs).
 //! - Execute: every ticket finished, none failed.
-//! - Ship: only a person.
-//! - Commit: the Librarian files what the agents learned. Workers leave notes
+//! - Verify: the plan's acceptance commands pass, every criterion has a
+//!   ticket, no sealed test changed and no test was weakened (deliver.rs).
+//! - Ship: delivers the verified run (local, branch or pull request) and
+//!   writes the delivery record (deliver.rs). It never merges.
+//! - Learn: after Ship, without holding the delivery back, the Librarian
+//!   files what the agents learned. Workers leave notes
 //!   (`leave_note`), notes go up to their parent as work is accepted, so the
-//!   main agent holds the compiled list. At Commit a decision model (or fixed
+//!   main agent holds the compiled list. At Learn a decision model (or fixed
 //!   rules without one) says which are worth keeping; the survivors go through
 //!   `memory::propose` and one `drain`, which makes one memory commit with a
 //!   receipt.
@@ -37,8 +41,9 @@ pub fn review_prompt(stage: Stage, evidence: &str) -> (String, String) {
     let what = match stage {
         Stage::Plan => "whether the spec and plan can be built without guessing",
         Stage::Execute => "whether the finished work covers what the plan promised",
+        Stage::Verify => "whether the verification evidence shows the plan was delivered",
         Stage::Ship => "whether anything in the evidence says this should not ship yet",
-        Stage::Commit => "whether anything in these notes should not be remembered",
+        Stage::Learn => "whether anything in these notes should not be remembered",
     };
     let system = format!(
         "You are the {} decision model of a coding project. Decide {what}. \

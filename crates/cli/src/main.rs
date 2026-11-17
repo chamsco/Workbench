@@ -6,7 +6,16 @@
 //!                                        this project allows today
 //!   backspace-cli policy adopt           accept ./backspace.toml's policy as the one
 //!                                        to run under (a person's step)
-//!   backspace-cli <workspace> "<goal>"   run a project
+//!   backspace-cli <workspace> "<goal>" [--ship local|branch|pr]
+//!                                        run a project; once its tickets are
+//!                                        done, Verify, Ship and Learn follow
+//!                                        on rules alone (default: local, the
+//!                                        run branch for you to merge)
+//!   backspace-cli status <workspace>     where the project stands, the last
+//!                                        verification and delivery
+//!   backspace-cli deliver <workspace> [--ship local|branch|pr]
+//!                                        carry on from Execute (retry Verify,
+//!                                        Ship, Learn) without running agents
 //!   backspace-cli serve <workspace> [addr]
 //!                                        share a harness so other machines
 //!                                        can follow it (default 127.0.0.1:7420;
@@ -58,9 +67,15 @@ fn main() -> Result<()> {
         [cmd, rest @ ..] if cmd == "cloud" && rest.len() <= 1 => cloud(
             rest.first().map_or("127.0.0.1:7430", |s| s.as_str()),
         ),
-        [ws, goal @ ..] if !goal.is_empty() => run(PathBuf::from(ws), goal.join(" ")),
+        // After Execute: Verify, Ship and Learn on rules alone (deliver.rs).
+        [cmd, ws, rest @ ..] if cmd == "status" && rest.is_empty() => status(PathBuf::from(ws)),
+        [cmd, ws, rest @ ..] if cmd == "deliver" => deliver(PathBuf::from(ws), ship_flag(rest)?),
+        [ws, goal @ ..] if !goal.is_empty() => {
+            let (goal, target) = split_ship(goal)?;
+            run(PathBuf::from(ws), goal.join(" "), target)
+        }
         _ => bail!(
-            "usage: backspace-cli init-config | <workspace> <goal> | serve <workspace> [addr] | scan | models | cloud [addr] | eval <traces.jsonl> [--threshold N] | policy init | policy adopt"
+            "usage: backspace-cli init-config | <workspace> <goal> [--ship local|branch|pr] | status <workspace> | deliver <workspace> [--ship local|branch|pr] | serve <workspace> [addr] | scan | models | cloud [addr] | eval <traces.jsonl> [--threshold N] | policy init | policy adopt"
         ),
     }
 }
@@ -220,7 +235,106 @@ fn serve(ws: PathBuf, addr: &str) -> Result<()> {
     }
 }
 
-fn run(ws: PathBuf, goal: String) -> Result<()> {
+fn ship_flag(rest: &[String]) -> Result<backspace_core::deliver::Target> {
+    match rest {
+        [] => Ok(backspace_core::deliver::Target::Local),
+        [f, t] if f == "--ship" => backspace_core::deliver::Target::parse(t),
+        other => bail!("expected --ship local|branch|pr, got {other:?}"),
+    }
+}
+
+/// A trailing `--ship <target>` off the goal's words.
+fn split_ship(goal: &[String]) -> Result<(&[String], backspace_core::deliver::Target)> {
+    if goal.len() >= 2 && goal[goal.len() - 2] == "--ship" {
+        let t = backspace_core::deliver::Target::parse(&goal[goal.len() - 1])?;
+        let words = &goal[..goal.len() - 2];
+        if words.is_empty() {
+            bail!("a goal is needed before --ship");
+        }
+        return Ok((words, t));
+    }
+    Ok((goal, backspace_core::deliver::Target::Local))
+}
+
+fn status(ws: PathBuf) -> Result<()> {
+    let root = dunce::canonicalize(&ws)?;
+    let p = backspace_core::phase::PhaseState::load(&root);
+    println!("phase: {:?} (stage {})", p.phase, p.phase.stage().key());
+    for g in p.gates.iter().rev().take(6).rev() {
+        println!("  {:?} {} by {:?}: {}", g.phase, if g.passed { "passed" } else { "refused" }, g.by, g.note);
+    }
+    if let Some(r) = backspace_core::deliver::last_verify(&root) {
+        println!("\nverify: {} on {}", if r.passed { "passed" } else { "not passed" }, &r.head[..r.head.len().min(10)]);
+        for c in &r.criteria {
+            println!("  {} {} `{}`", c.key, if c.passed { "pass" } else { "FAIL" }, c.command);
+        }
+        for i in r.issues.iter().chain(&r.weakened) {
+            println!("  issue: {i}");
+        }
+    }
+    if let Some(d) = backspace_core::deliver::last_delivery(&root) {
+        println!("\ndelivered: {:?} {} at {}{}", d.target, d.branch, &d.commit[..d.commit.len().min(10)], d.pr_url.map(|u| format!(" ({u})")).unwrap_or_default());
+        for l in &d.limitations {
+            println!("  open: {l}");
+        }
+    }
+    Ok(())
+}
+
+/// Verify, Ship and Learn for a harness whose agents have finished.
+fn after_execute(h: &Harness, target: backspace_core::deliver::Target) -> Result<bool> {
+    use backspace_core::deliver::{self, Step, TicketFacts};
+    let root = h.root().to_path_buf();
+    let snap = h.snapshot();
+    let facts: Vec<TicketFacts> = snap.tickets.iter().map(TicketFacts::of).collect();
+    let memory = backspace_core::memory::Memory::open(backspace_core::prefs::Prefs::data_dir());
+    let mut learn = || -> Result<String> {
+        let notes = h.take_notes();
+        let fates = backspace_core::stages::rule_fates(&notes);
+        match backspace_core::stages::file(&memory, &backspace_core::prefs::Prefs::data_dir(), &root.display().to_string(), &notes, &fates) {
+            Ok((dropped, Some(r))) => Ok(format!("Librarian: kept {}, merged {}, dropped {}", r.kept.len(), r.merged.len(), r.dropped.len().max(dropped.len()))),
+            Ok((dropped, None)) => Ok(format!("Librarian: nothing to file ({} dropped)", dropped.len())),
+            Err(e) => {
+                h.return_notes(notes);
+                Err(e)
+            }
+        }
+    };
+    let steps = deliver::advance_rules(&root, &facts, &deliver::ShipOpts { target, gh: None }, &mut learn)?;
+    let mut delivered = false;
+    for s in steps {
+        match s {
+            Step::Executed => println!("execute: every ticket finished"),
+            Step::Verified(r) => {
+                println!("verify: {} ({} criteria) — {}", if r.passed { "passed" } else { "NOT passed" }, r.criteria.len(), root.join(deliver::VERIFY_MD).display());
+                for i in r.issues.iter().chain(&r.weakened) {
+                    println!("  issue: {i}");
+                }
+            }
+            Step::Shipped(d) => {
+                delivered = true;
+                println!("ship: {:?} {} at {}{}", d.target, d.branch, &d.commit[..d.commit.len().min(10)], d.pr_url.as_ref().map(|u| format!(" — {u}")).unwrap_or_default());
+                for l in &d.limitations {
+                    println!("  open: {l}");
+                }
+            }
+            Step::Learned(Ok(n)) => println!("learn: {n}"),
+            Step::Learned(Err(e)) => println!("learn: didn't finish ({e}); the delivery stands"),
+        }
+    }
+    Ok(delivered || backspace_core::phase::PhaseState::load(&root).phase == backspace_core::phase::Phase::Done)
+}
+
+fn deliver(ws: PathBuf, target: backspace_core::deliver::Target) -> Result<()> {
+    let h = Harness::open(ws)?;
+    if !after_execute(&h, target)? {
+        // Not delivered: a refusing gate, said above. Scripts see it.
+        std::process::exit(2);
+    }
+    Ok(())
+}
+
+fn run(ws: PathBuf, goal: String, target: backspace_core::deliver::Target) -> Result<()> {
     let h = Harness::open(ws)?;
     for n in h.policy_notices() {
         let tag = if n.level == backspace_core::gateway::NoticeLevel::Warning { "policy warning" } else { "policy" };
@@ -287,6 +401,13 @@ fn run(ws: PathBuf, goal: String) -> Result<()> {
                 "\nproject {:?}. total ${:.4} (router ${:.4})",
                 main.status, s.total_cost_usd, s.router_cost_usd
             );
+            if main.status == AgentStatus::Approved {
+                // Specify/Plan means no planned run to verify (a short-path
+                // answer); the error says so.
+                if let Err(e) = after_execute(&h, target) {
+                    println!("delivery: {e:#}");
+                }
+            }
             return Ok(());
         }
         let just_sent = main.log.last().map(|e| e.kind) == Some(LogKind::User);

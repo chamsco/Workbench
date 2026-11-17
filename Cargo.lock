@@ -591,6 +591,7 @@ dependencies = [
  "backspace-colony",
  "backspace-runner",
  "base64 0.22.1",
+ "cauldron-decision",
  "dunce",
  "enigo",
  "futures",
@@ -919,6 +920,14 @@ name = "cauldron-chrome"
 version = "0.1.0"
 dependencies = [
  "serde_json",
+]
+
+[[package]]
+name = "cauldron-decision"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
 ]
 
 [[package]]

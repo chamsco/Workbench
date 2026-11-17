@@ -1,5 +1,25 @@
 # Handoff: Backspace (ohMyHarness → Workbench), v0
 
+**Session, 17 Nov 2026: Verify, Ship and Learn (Platform PRD §4.4-4.6).**
+
+- **Stages are now Plan, Execute, Verify, Ship, Learn.** `Phase::Test` is the Verify
+  stage; `Commit` is renamed `Learn` (an old `"commit"` in phase.json or prefs still reads).
+- **Verify** (`crates/core/src/deliver.rs`) judges the run against `plan.json` (now
+  written next to spec.md): each acceptance command runs in the run worktree, every
+  criterion needs a ticket, every ticket must be finished, sealed tests must match
+  their hash, and no test may be deleted, skipped or lose asserts since the run
+  started. Output: `.backspace/verify.json` + `VERIFY.md`, pinned to one commit.
+- **Ship** delivers exactly that commit: `local` (run branch), `branch` (pushed as
+  `cauldron/<slug>-<sha>`) or `pr` (via `gh`). Never merges. A later commit sends the
+  work back to Verify; a missing `gh`/remote is an error, not a delivery. Record:
+  `.backspace/delivery.json` + `DELIVERY.md`. Prefs `ship_target` picks the target.
+- **Learn** runs right after Ship; if it fails the delivery stands and notes are kept.
+- **CLI:** `backspace-cli <ws> "<goal>" [--ship local|branch|pr]` carries on through
+  Verify, Ship and Learn once the agents finish; `status <ws>`; `deliver <ws>` retries
+  from Execute without agents (exit 2 when nothing was delivered).
+- **`crates/decision`**: decision.rs and ladder.rs, no Cauldron dependency;
+  core re-exports them and adapts `ModelSpec` through `ladder::Rung`.
+
 **Session, 16 Nov 2026: Cauldron M5, Builder and Rampart.**
 
 - **On the long path, an independent Rampart writes the tests first.** The lead's

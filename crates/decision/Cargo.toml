@@ -1,0 +1,10 @@
+[package]
+name = "cauldron-decision"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Cauldron's decision engine: typed decisions with calibrated answers, and the cost ladder. Host-agnostic: no Cauldron, storage, model provider or event bus dependency; hosts adapt their model specs through `ladder::Rung`."
+
+[dependencies]
+anyhow.workspace = true
+serde.workspace = true

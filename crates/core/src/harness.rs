@@ -3686,6 +3686,8 @@ async fn submit_spec(inner: &Arc<Inner>, input: &Value) -> Result<String> {
     let tmp = path.with_extension("md.tmp");
     std::fs::write(&tmp, &md)?;
     std::fs::rename(&tmp, &path)?;
+    // The typed plan, for Verify to judge the finished run against.
+    std::fs::write(inner.root.join(crate::deliver::PLAN_JSON), serde_json::to_string_pretty(&plan)?)?;
     let hash = planning::sha256_hex(md.as_bytes());
     inner.update(|s| {
         s.planning = planning::PlanningState {
