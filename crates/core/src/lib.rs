@@ -16,6 +16,7 @@ pub mod deliver;
 pub mod diagram;
 pub mod effort;
 pub mod eval;
+pub mod familiar;
 pub mod files;
 pub mod fleet;
 pub mod folders;

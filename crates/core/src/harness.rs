@@ -623,6 +623,15 @@ impl Harness {
         let _ = self.to_main.send(text);
     }
 
+    /// Hand the main agent a goal on the long path, skipping intake's
+    /// classification: a familiar (familiar.rs) always plans, gets your yes
+    /// on the spec, seals tests, builds, then verifies and ships.
+    pub fn start_long(&self, goal: impl Into<String>) {
+        self.inner.update(|s| s.intake = crate::intake::IntakeState { path: Some(TaskType::Long), pending: None, spec_key: None });
+        self.inner.save();
+        self.send(goal);
+    }
+
     pub fn approve(&self, approval: usize) {
         self.resolve(approval, Verdict::Approved);
     }

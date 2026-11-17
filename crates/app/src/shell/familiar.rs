@@ -1,4 +1,4 @@
-//! Familiars (Copilots board round 2, Charles 16 Nov): agents you hand a goal to. A familiar
+//! Familiars (Copilots board rounds 2-4, Charles 16-17 Nov): agents you hand a goal to. A familiar
 //! plans, opens subagents and runs the stages itself, stopping only for you. Opening one swaps
 //! the stream card's body for the old shell's content area: a centred stream card with the
 //! Highlights panel beside it, both inside the one rounded card. Round 3 (T1): the tabs are folder
@@ -7,88 +7,94 @@
 //! tab joins the card (its fill, rounded top, concave shoulders) and slides between tabs.
 //! Highlights keeps its own tabs on the same line.
 //!
-//! ponytail: everything here is a labelled preview. Core has no familiar yet: nothing advances
-//! stages on its own (Captain plan), subagents get no worktrees of their own until M6, and asks
-//! do not notify. The rows, events and crew are a fixed example, marked "Preview" in the sidebar
-//! and in the view, never shown as running work.
+//! Round 4 (17 Nov): familiars run on core. Each is a harness on its folder, started on the long
+//! path (core `familiar.rs`); the view is `familiar::view` of its state, refreshed on every change,
+//! and every change also takes `familiar::drive` off the UI thread, which carries a finished run
+//! through Verify, Ship and Learn. The stream ends on the delivery card (D2), or on an ask card
+//! when it waits for you. A familiar starts from the New stream box with Familiar on (S1).
 
 use super::*;
+use backspace_core::deliver::Target;
+use backspace_core::familiar::{self as core_fam, EventKind, Record, View};
+pub(crate) use backspace_core::familiar::State;
+use backspace_core::phase::{Phase, Stage};
+use backspace_core::Harness;
 
-/// Where a familiar or one of its subagents stands; drawn as the sidebar's state dots.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum State {
-    Running,
-    NeedsYou,
-    Done,
-}
-
-impl State {
-    fn label(self) -> &'static str {
-        match self {
-            State::Running => "Working",
-            State::NeedsYou => "Needs you",
-            State::Done => "Done",
-        }
+fn state_label(s: State) -> &'static str {
+    match s {
+        State::Running => "Working",
+        State::NeedsYou => "Needs you",
+        State::Done => "Done",
+        State::Failed => "Failed",
     }
 }
 
-/// A subagent the familiar opened for a ticket.
-pub(crate) struct Sub {
-    pub(crate) name: &'static str,
-    pub(crate) ticket: &'static str,
-    pub(crate) state: State,
-    /// Its own stream, as event lines.
-    pub(crate) log: &'static [&'static str],
+/// A familiar this window runs: its record and its harness.
+pub(crate) struct FamLive {
+    pub(crate) rec: Record,
+    pub(crate) h: Arc<Harness>,
 }
 
-/// One familiar: its goal, its plan, the events it logged and its crew.
-pub(crate) struct Familiar {
-    pub(crate) name: &'static str,
-    pub(crate) goal: &'static str,
-    pub(crate) state: State,
-    pub(crate) plan: &'static str,
-    pub(crate) events: &'static [(&'static str, &'static str)],
-    pub(crate) ask: Option<&'static str>,
-    pub(crate) crew: &'static [Sub],
+/// Debug and test builds: two made-up familiars for screenshots and layout tests
+/// (`CAULDRON_FIXTURE_FAMILIARS=1`). Marked Preview wherever they show.
+pub(crate) fn fixtures() -> Vec<View> {
+    use backspace_core::familiar::{Crew, Event};
+    let ev = |k: EventKind, t: &str| Event { kind: k, text: t.into() };
+    let crew = |n: &str, t: &str, s: State, log: &[&str]| Crew { name: n.into(), ticket: t.into(), state: s, log: log.iter().map(|l| l.to_string()).collect() };
+    vec![
+        View {
+            id: "fx-1".into(),
+            name: "Ship onboarding v2".into(),
+            goal: "Build the 6-step onboarding from the Tight tiles board, behind a setting.".into(),
+            state: State::NeedsYou,
+            stage: Phase::Execute,
+            plan: Some("Onboarding v2".into()),
+            events: vec![ev(EventKind::Done, "Rampart sealed 14 tests for T1-T4"), ev(EventKind::Agent, "Opened 4 Builder tabs"), ev(EventKind::Done, "T1 Welcome + Agents passed 5/5"), ev(EventKind::Alert, "T3 Import failed 3 times, handed to you")],
+            ask: Some("T3 can't read the legacy chat export: the format is unknown. Skip import for now, or attach a sample file?".into()),
+            yes_reply: None,
+            approval: None,
+            crew: vec![
+                crew("Rampart", "Tests for T1-T4", State::Done, &["Read spec.md and baseline.json", "Wrote 14 tests", "Sealed"]),
+                crew("T1 Builder", "Welcome + Agents", State::Done, &["Covers R1-R5", "Try 1: 5/5 pass", "Delivered"]),
+                crew("T2 Builder", "Machines picker", State::Running, &["Covers R6", "Try 1: 3/4 pass"]),
+                crew("T3 Builder", "Import", State::NeedsYou, &["Covers R7-R9", "Try 1: R7 fails", "Handed to you"]),
+                crew("T4 Builder", "Make it yours", State::Running, &["Covers R10-R11"]),
+            ],
+            verify: None,
+            delivery: None,
+            cost_usd: 1.84,
+            tickets_done: 1,
+            tickets: 4,
+        },
+        View {
+            id: "fx-2".into(),
+            name: "Add CSV export".into(),
+            goal: "Export the report table as CSV from the CLI, with a header row and RFC 4180 quoting.".into(),
+            state: State::Done,
+            stage: Phase::Done,
+            plan: Some("Add CSV export".into()),
+            events: vec![ev(EventKind::Done, "Plan passed: approved by you"), ev(EventKind::Done, "Execute passed: every ticket finished")],
+            ask: None,
+            yes_reply: None,
+            approval: None,
+            crew: vec![crew("T1 Builder", "CSV writer", State::Done, &["Delivered"])],
+            verify: Some(backspace_core::deliver::VerifyReport {
+                passed: true,
+                head: "3f9a1c2d7e".into(),
+                base: "1b2c3d4e5f".into(),
+                criteria: vec![
+                    backspace_core::deliver::CriterionResult { key: "A1".into(), criterion: "Header row".into(), command: "cargo test csv_header".into(), passed: true, ..Default::default() },
+                    backspace_core::deliver::CriterionResult { key: "A2".into(), criterion: "Quoting".into(), command: "cargo test csv_quote".into(), passed: true, ..Default::default() },
+                ],
+                ..Default::default()
+            }),
+            delivery: Some(backspace_core::deliver::DeliveryRecord { title: "Add CSV export".into(), target: Target::PullRequest, commit: "3f9a1c2d7e".into(), branch: "cauldron/add-csv-export-3f9a1c2".into(), status: "delivered".into(), pr_url: Some("https://github.com/o/r/pull/52".into()), evidence: vec![], limitations: vec!["awaiting review and merge by a person".into()], at: 0 }),
+            cost_usd: 0.92,
+            tickets_done: 1,
+            tickets: 1,
+        },
+    ]
 }
-
-/// The preview's example familiars.
-pub(crate) const EXAMPLES: [Familiar; 2] = [
-    Familiar {
-        name: "Ship onboarding v2",
-        goal: "Build the 6-step onboarding from the Tight tiles board, behind a setting. Stop before Ship.",
-        state: State::NeedsYou,
-        plan: "Split into 4 tickets: Welcome + Agents, Machines, Import, Make it yours. Rampart writes the tests first; one Builder per ticket.",
-        events: &[
-            ("check", "Rampart sealed 14 tests for T1-T4"),
-            ("bot", "Opened 4 Builder tabs"),
-            ("check", "T1 Welcome + Agents passed 5/5"),
-            ("circle-alert", "T3 Import failed 3 times, handed to you"),
-        ],
-        ask: Some("T3 can't read the legacy chat export: the format is unknown. Skip import for now, or attach a sample file?"),
-        crew: &[
-            Sub { name: "Rampart", ticket: "Tests for T1-T4", state: State::Done, log: &["Read spec.md and baseline.json", "Wrote 14 tests", "Each failed 3 times on the baseline", "Sealed"] },
-            Sub { name: "T1 Builder", ticket: "Welcome + Agents", state: State::Done, log: &["Covers R1-R5", "Try 1: 5/5 pass", "Delivered"] },
-            Sub { name: "T2 Builder", ticket: "Machines picker", state: State::Running, log: &["Covers R6", "Try 1: 3/4 pass"] },
-            Sub { name: "T3 Builder", ticket: "Import", state: State::NeedsYou, log: &["Covers R7-R9", "Try 1: R7 fails, unknown JSON root", "Try 2: R7 fails, same error", "Try 3: no progress, escalated once", "Handed to you"] },
-            Sub { name: "T4 Builder", ticket: "Make it yours", state: State::Running, log: &["Covers R10-R11", "Try 1: 1/2 pass"] },
-        ],
-    },
-    Familiar {
-        name: "Cut router latency",
-        goal: "Bring the router's p95 under 40 ms on the eval set without losing accuracy.",
-        state: State::Running,
-        plan: "Profile first, then one ticket per hot spot. No ticket ships without the eval run.",
-        events: &[("bot", "Opened 2 Builder tabs"), ("check", "Profile: tokenizer is 61% of p95")],
-        ask: None,
-        crew: &[
-            Sub { name: "T1 Builder", ticket: "Cache the tokenizer", state: State::Running, log: &["Try 1: 2/3 pass"] },
-            Sub { name: "T2 Builder", ticket: "Batch keyword scans", state: State::Running, log: &["Reading the router"] },
-        ],
-    },
-];
-
-pub(crate) const PREVIEW_NOTE: &str = "Preview: familiars don't run yet";
 
 /// The folder tabs' strip: its height (the open tab's), an inactive tab's height under it, and the gap between tabs.
 const STRIP_H: f32 = 30.0;
@@ -125,17 +131,18 @@ pub(crate) fn stream_span(x: f32, body_w: f32) -> (f32, f32) {
 }
 
 pub(crate) fn dot(id: impl Into<ElementId>, state: State, pal: &'static Palette) -> Stateful<Div> {
-    let d = div().id(id).size(px(7.)).flex_none().rounded_full().aria_label(state.label());
+    let d = div().id(id).size(px(7.)).flex_none().rounded_full().aria_label(state_label(state));
     match state {
         // The halo is an absolute 13px disc of tint around the 7px dot (a box shadow draws square), so it
         // takes no room in the row; the tint over the dot itself leaves it the accent.
         State::Running => d.relative().bg(c(pal.accent)).child(div().absolute().left(px(-3.)).top(px(-3.)).size(px(13.)).rounded_full().bg(ca(pal.accent, 0.18))),
         State::NeedsYou => d.bg(c(pal.warn)),
         State::Done => d.border_1().border_color(c(pal.fg4)),
+        State::Failed => d.bg(c(pal.bad)),
     }
 }
 
-/// A small "Preview" tag in the warning colour.
+/// A small "Preview" tag in the warning colour: made-up familiars (screenshots, tests).
 fn preview_tag(id: &'static str, pal: &'static Palette) -> Stateful<Div> {
     div()
         .id(id)
@@ -149,21 +156,40 @@ fn preview_tag(id: &'static str, pal: &'static Palette) -> Stateful<Div> {
         .border_color(ca(pal.warn, 0.6))
         .text_size(px(10.5))
         .text_color(c(pal.warn))
-        .aria_label(PREVIEW_NOTE)
+        .aria_label("Preview: made-up familiars")
         .child("Preview")
+}
+
+/// The five stages on the foot, the current one in the accent.
+fn stage_line(stage: Phase, pal: &'static Palette) -> Stateful<Div> {
+    let now = stage.stage();
+    let done = stage == Phase::Done;
+    let mut d = div().id("fam-stages").flex().gap(px(12.)).aria_label(if done { "Stage: done".to_string() } else { format!("Stage: {}", now.key()) });
+    for st in Stage::ALL {
+        let label = match st {
+            Stage::Plan => "Plan",
+            Stage::Execute => "Execute",
+            Stage::Verify => "Verify",
+            Stage::Ship => "Ship",
+            Stage::Learn => "Learn",
+        };
+        let col = if done || st < now { c(pal.ok) } else if st == now { c(pal.accent) } else { c(pal.fg3) };
+        d = d.child(div().text_color(col).child(label));
+    }
+    d
 }
 
 impl Cauldron {
     /// Opens familiar `i`: its tab first, one tab per subagent, the support card folded.
     pub(crate) fn open_familiar(&mut self, i: usize) {
-        let Some(f) = EXAMPLES.get(i) else { return };
+        let Some(f) = self.fam_views.get(i) else { return };
         self.familiar = Some(i);
         self.open = None;
         self.thread = None;
         self.selected = None;
         self.settings = None;
-        self.coordinator = Some(f.name.into());
-        self.agents = f.crew.iter().enumerate().map(|(k, s)| AgentTab { name: s.name.into(), dot: k }).collect();
+        self.coordinator = Some(f.name.clone().into());
+        self.agents = f.crew.iter().enumerate().map(|(k, s)| AgentTab { name: s.name.clone().into(), dot: k }).collect();
         self.idle.clear();
         self.active = 0;
         self.tab_first = 0;
@@ -171,13 +197,25 @@ impl Cauldron {
         self.fam_to = None;
         self.fam_since = None;
         self.fam_hl = 0;
+        self.fam_error = None;
+    }
+
+    /// New subagents get a tab as they appear; the open tab stays where it is.
+    fn sync_familiar_tabs(&mut self) {
+        let Some(f) = self.familiar.and_then(|i| self.fam_views.get(i)) else { return };
+        for (k, s) in f.crew.iter().enumerate() {
+            let name: SharedString = s.name.clone().into();
+            if !self.agents.iter().chain(&self.idle).any(|a| a.name == name) {
+                self.agents.push(AgentTab { name, dot: k });
+            }
+        }
     }
 
     /// The familiar's folder tabs over its stream card and Highlights' tabs over its column, both
     /// on the line above the card body. `main` is the card, `rail_here` whether the rail is in it.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn familiar_strips(&mut self, main: Rect, rail_here: bool, pal: &'static Palette, now: std::time::Instant, reduce: bool, window: &mut Window, cx: &mut Context<Self>) -> FamStrips {
-        let f = &EXAMPLES[self.familiar.unwrap_or(0)];
+        let Some(f) = self.familiar.and_then(|i| self.fam_views.get(i)).cloned() else { return FamStrips { strip: div().id("fam-strip"), hl_tabs: div().id("fam-hl-tabs"), corner: radius::PANEL, fade: 1.0 } };
         let (fg, fg3, accent) = (c(pal.fg), c(pal.fg3), c(pal.accent));
         let body_w = main.w - 2.0 - if rail_here { metric::RAIL_W } else { 0.0 };
         let (sx, sw) = stream_span(main.x + 1.0, body_w);
@@ -309,7 +347,7 @@ impl Cauldron {
             .font_weight(FontWeight::SEMIBOLD)
             .text_color(accent)
             .when_live(!fam_on, |d| d.bg(ca(pal.accent, 0.12)))
-            .aria_label(f.name)
+            .aria_label(f.name.clone())
             .child(glyph("ship-wheel", 13., accent))
             .child("Familiar")
             .child(dot(("tab-state", 0usize), f.state, pal).test_support())
@@ -318,7 +356,7 @@ impl Cauldron {
                 this.focus_tabs(window, cx);
                 cx.notify();
             }));
-        strip = strip.child(slot(0.0).child(self.tipped(("tab", 0usize), fam_tab, f.name, Side::Below, pal, cx).test_support()));
+        strip = strip.child(slot(0.0).child(self.tipped(("tab", 0usize), fam_tab, f.name.clone(), Side::Below, pal, cx).test_support()));
         for (s, j) in (first..first + k).enumerate() {
             let i = j + 1;
             let on = i == self.active;
@@ -414,11 +452,192 @@ impl Cauldron {
     }
 
     /// The open familiar's subagent behind tab name `name`.
-    pub(crate) fn familiar_sub(&self, name: &str) -> Option<&'static Sub> {
-        EXAMPLES.get(self.familiar?)?.crew.iter().find(|s| s.name == name)
+    pub(crate) fn familiar_sub(&self, name: &str) -> Option<&backspace_core::familiar::Crew> {
+        self.fam_views.get(self.familiar?)?.crew.iter().find(|s| s.name == name)
     }
 
-    /// The sidebar's Familiars group, above the streams.
+    /// Opens the familiars saved in the data folder, each on its own harness, off the UI thread.
+    /// Debug builds with `CAULDRON_FIXTURE_FAMILIARS=1` show the made-up ones instead.
+    pub(crate) fn load_familiars(&mut self, cx: &mut Context<Self>) {
+        #[cfg(debug_assertions)]
+        if std::env::var_os("CAULDRON_FIXTURE_FAMILIARS").is_some() {
+            self.fam_views = fixtures();
+            self.fam_fixture = true;
+            return;
+        }
+        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            let opened = cx
+                .background_executor()
+                .spawn(async {
+                    core_fam::load(&Prefs::data_dir())
+                        .into_iter()
+                        .filter_map(|rec| match Harness::open(rec.folder.clone()) {
+                            Ok(h) => Some(FamLive { rec, h: Arc::new(h) }),
+                            Err(e) => {
+                                eprintln!("familiar {}: {e:#}", rec.name);
+                                None
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .await;
+            let _ = this.update(cx, |c, cx| {
+                for f in opened {
+                    c.adopt_familiar(f, cx);
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// Takes a running familiar into the window: its view now, and a watch that refreshes the view
+    /// and drives the run on every change.
+    pub(crate) fn adopt_familiar(&mut self, f: FamLive, cx: &mut Context<Self>) {
+        let changes = f.h.changes();
+        let v = core_fam::view(&f.rec, &f.h.snapshot(), f.h.root());
+        let id = f.rec.id.clone();
+        self.fam_views.push(v);
+        self.fam_live.push(f);
+        self.drive_familiar(&id, cx);
+        let task = cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            while changes.recv().await.is_ok() {
+                if this
+                    .update(cx, |c, cx| {
+                        c.refresh_familiar(&id);
+                        c.drive_familiar(&id, cx);
+                        cx.notify();
+                    })
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        });
+        self.fam_watch.push(task);
+    }
+
+    fn refresh_familiar(&mut self, id: &str) {
+        let Some(k) = self.fam_live.iter().position(|f| f.rec.id == id) else { return };
+        let f = &self.fam_live[k];
+        let v = core_fam::view(&f.rec, &f.h.snapshot(), f.h.root());
+        if let Some(slot) = self.fam_views.iter_mut().find(|x| x.id == id) {
+            *slot = v;
+        }
+        if self.familiar.and_then(|i| self.fam_views.get(i)).is_some_and(|x| x.id == id) {
+            self.sync_familiar_tabs();
+        }
+    }
+
+    /// Verify, Ship and Learn run git, the plan's commands and gh: never on the UI thread. One
+    /// drive at a time per familiar; the next change starts the next.
+    fn drive_familiar(&mut self, id: &str, cx: &mut Context<Self>) {
+        if self.fam_driving.contains(id) {
+            return;
+        }
+        let Some(f) = self.fam_live.iter().find(|f| f.rec.id == id) else { return };
+        let snap = f.h.snapshot();
+        let main = snap.agents.first().map(|a| a.status);
+        let Some(main) = main.filter(|s| *s == backspace_core::project::AgentStatus::Approved) else { return };
+        let (h, target, id) = (f.h.clone(), f.rec.target, id.to_string());
+        self.fam_driving.insert(id.clone());
+        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            let res = cx
+                .background_executor()
+                .spawn(async move {
+                    let facts: Vec<_> = snap.tickets.iter().map(backspace_core::deliver::TicketFacts::of).collect();
+                    let data = Prefs::data_dir();
+                    let memory = backspace_core::memory::Memory::open(data.clone());
+                    let mut learn = || core_fam::learn_with_rules(&h, &memory, &data);
+                    core_fam::drive(h.root(), main, &facts, target, &mut learn)
+                })
+                .await;
+            let _ = this.update(cx, |c, cx| {
+                c.fam_driving.remove(&id);
+                if let Err(e) = res {
+                    c.fam_error = Some(format!("{e:#}"));
+                }
+                c.refresh_familiar(&id);
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// Starts a familiar from the New stream box (S1): remembered in the data folder, its harness
+    /// opened on the folder off the UI thread, the goal handed over on the long path, then opened.
+    pub(crate) fn start_familiar(&mut self, goal: String, folder: String, cx: &mut Context<Self>) {
+        let target = Target::parse(&Prefs::load().ship_target).unwrap_or_default();
+        self.start.sending = true;
+        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            let res = cx
+                .background_executor()
+                .spawn(async move {
+                    let rec = core_fam::add(&Prefs::data_dir(), &goal, std::path::Path::new(&folder), target)?;
+                    let h = match Harness::open(rec.folder.clone()) {
+                        Ok(h) => h,
+                        Err(e) => {
+                            let _ = core_fam::remove(&Prefs::data_dir(), &rec.id);
+                            return Err(e);
+                        }
+                    };
+                    h.start_long(goal);
+                    anyhow::Ok(FamLive { rec, h: Arc::new(h) })
+                })
+                .await;
+            let _ = this.update(cx, |c, cx| {
+                c.start.sending = false;
+                match res {
+                    Ok(f) => {
+                        c.adopt_familiar(f, cx);
+                        c.start.familiar = false;
+                        c.open_familiar(c.fam_views.len() - 1);
+                    }
+                    Err(e) => c.start.error = Some(format!("{e:#}")),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// The open familiar's harness, if it is a live one.
+    fn open_live(&self) -> Option<&FamLive> {
+        let v = self.fam_views.get(self.familiar?)?;
+        self.fam_live.iter().find(|f| f.rec.id == v.id)
+    }
+
+    /// Sends the familiar's composer text to its main agent.
+    fn send_familiar(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some((st, _)) = self.fam_composer.as_ref() else { return };
+        let text = st.read(cx).value().trim().to_string();
+        if text.is_empty() {
+            return;
+        }
+        match self.open_live() {
+            Some(f) => {
+                f.h.send(text);
+                self.fam_error = None;
+                st.update(cx, |s, cx| s.set_value("", window, cx));
+            }
+            None => self.fam_error = Some("This is a made-up familiar: nothing to send to.".into()),
+        }
+        cx.notify();
+    }
+
+    pub(crate) fn ensure_fam_composer(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.fam_composer.is_some() {
+            return;
+        }
+        let st = cx.new(|cx| TextareaState::new(window, cx).auto_grow(1, 6).submit_on_enter(true).placeholder("Message the familiar…"));
+        let sub = cx.subscribe_in(&st, window, |this, _, ev: &InputEvent, window, cx| {
+            if let InputEvent::PressEnter { shift: false, .. } = ev {
+                this.send_familiar(window, cx);
+            }
+        });
+        self.fam_composer = Some((st, sub));
+    }
+
     pub(crate) fn familiar_group(&self, pal: &'static Palette, cx: &mut Context<Self>) -> Div {
         let (fg, fg2, fg3) = (c(pal.fg), c(pal.fg2), c(pal.fg3));
         let mut g = div().flex().flex_col().child(
@@ -437,10 +656,24 @@ impl Cauldron {
                 .text_color(fg3)
                 .aria_label("Familiars")
                 .child("Familiars")
-                .child(div().ml_auto().child(preview_tag("familiars-preview", pal).test_support()))
+                .when_live(self.fam_fixture, |d| d.child(div().ml_auto().child(preview_tag("familiars-preview", pal).test_support())))
                 .test_support(),
         );
-        for (i, f) in EXAMPLES.iter().enumerate() {
+        if self.fam_views.is_empty() {
+            g = g.child(
+                div()
+                    .id("familiars-empty")
+                    .px(px(8.))
+                    .pb(px(4.))
+                    .text_size(px(11.5))
+                    .line_height(px(16.))
+                    .text_color(fg3)
+                    .aria_label("No familiars yet")
+                    .child("Start one from New stream with Familiar on.")
+                    .test_support(),
+            );
+        }
+        for (i, f) in self.fam_views.iter().enumerate() {
             let on = self.familiar == Some(i);
             g = g.child(
                 div()
@@ -457,9 +690,9 @@ impl Cauldron {
                     .when_live(on, |d| d.bg(c(pal.hover)))
                     .when_live(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
                     .cursor_pointer()
-                    .aria_label(f.name)
+                    .aria_label(f.name.clone())
                     .child(glyph("ship-wheel", 14., c(pal.accent)))
-                    .child(div().flex_1().min_w_0().truncate().child(f.name))
+                    .child(div().flex_1().min_w_0().truncate().child(f.name.clone()))
                     .child(dot(("familiar-dot", i), f.state, pal).test_support())
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.open_familiar(i);
@@ -475,66 +708,146 @@ impl Cauldron {
     /// card (the familiar's own, or the open subagent's) right under its folder tabs, with no title
     /// row, and the Highlights panel beside it. `corner` is the card's top-left radius (square under
     /// the first tab) and `fade` the new tab's content fading in.
-    pub(crate) fn familiar_body(&self, pal: &'static Palette, (corner, fade): (f32, f32)) -> AnyElement {
-        let Some(f) = self.familiar.and_then(|i| EXAMPLES.get(i)) else { return div().into_any_element() };
+    pub(crate) fn familiar_body(&self, pal: &'static Palette, (corner, fade): (f32, f32), cx: &mut Context<Self>) -> AnyElement {
+        let Some(f) = self.familiar.and_then(|i| self.fam_views.get(i)) else { return div().into_any_element() };
         let (fg, fg2, fg3) = (c(pal.fg), c(pal.fg2), c(pal.fg3));
         let sub = (self.active > 0).then(|| self.agents.get(self.active - 1)).flatten().and_then(|a| self.familiar_sub(&a.name));
+        let live = self.open_live().is_some();
 
-        let event = |k: usize, icon: &'static str, text: &'static str| {
-            let col = if icon == "circle-alert" { c(pal.warn) } else { fg3 };
-            div().id(("familiar-event", k)).flex().items_center().gap(px(8.)).text_size(px(12.)).text_color(fg2).aria_label(text).child(glyph(icon, 13., col)).child(text).test_support()
+        let event = |k: usize, kind: EventKind, text: String| {
+            let (icon, col) = match kind {
+                EventKind::Done => ("check", fg3),
+                EventKind::Agent => ("bot", fg3),
+                EventKind::Alert => ("circle-alert", c(pal.warn)),
+                EventKind::Note => ("message-square", fg3),
+            };
+            div().id(("familiar-event", k)).flex().items_start().gap(px(8.)).text_size(px(12.)).line_height(px(17.)).text_color(fg2).aria_label(text.clone()).child(div().pt(px(2.)).child(glyph(icon, 13., col))).child(div().flex_1().min_w_0().child(text)).test_support()
         };
         let label = |t: String| div().text_size(px(10.5)).text_color(fg3).child(t);
         let boxed = |id: &'static str| div().id(id).flex().flex_col().gap(px(4.)).p(px(10.)).rounded(px(radius::CONTROL)).bg(c(pal.inset)).border_1().border_color(c(pal.line));
+        let button = |id: &'static str, text: &'static str, primary: bool| {
+            div()
+                .id(id)
+                .h(px(26.))
+                .px(px(10.))
+                .flex()
+                .items_center()
+                .rounded(px(radius::CONTROL))
+                .text_size(px(12.))
+                .cursor_pointer()
+                .aria_label(text)
+                .when_live(primary, |d| d.bg(c(pal.accent)).text_color(c(pal.on_accent)))
+                .when_live(!primary, |d| d.border_1().border_color(c(pal.line)).text_color(fg2).hover(|d| d.bg(ca(pal.fg, 0.05))))
+                .child(text)
+        };
 
         let (state, note, mut col) = match sub {
             None => {
-                let mut col = div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(12.))
-                    .child(boxed("familiar-goal").aria_label(f.goal).child(label(format!("Goal · {}", f.name))).child(div().text_size(px(13.)).text_color(fg).child(f.goal)).test_support())
-                    .child(div().id("familiar-plan").flex().flex_col().gap(px(2.)).aria_label(f.plan).child(label("Familiar · plan".into())).child(div().text_size(px(13.)).text_color(fg).child(f.plan)).test_support());
-                for (k, (icon, text)) in f.events.iter().enumerate() {
-                    col = col.child(event(k, icon, text));
+                let mut col = div().flex().flex_col().gap(px(12.)).child(boxed("familiar-goal").aria_label(f.goal.clone()).child(label(format!("Goal · {}", f.name))).child(div().text_size(px(13.)).text_color(fg).child(f.goal.clone())).test_support());
+                if let Some(p) = &f.plan {
+                    col = col.child(div().id("familiar-plan").flex().flex_col().gap(px(2.)).aria_label(p.clone()).child(label("Familiar · plan".into())).child(div().text_size(px(13.)).text_color(fg).child(p.clone())).test_support());
                 }
-                if let Some(ask) = f.ask {
-                    col = col.child(
-                        div()
-                            .id("familiar-ask")
-                            .flex()
-                            .flex_col()
-                            .gap(px(8.))
-                            .p(px(10.))
-                            .rounded(px(radius::CONTROL))
-                            .border_1()
-                            .border_color(ca(pal.warn, 0.7))
-                            .bg(ca(pal.warn, 0.08))
-                            .aria_label(ask)
-                            .child(div().text_size(px(12.5)).font_weight(FontWeight::SEMIBOLD).text_color(fg).child("Needs you"))
-                            .child(div().text_size(px(12.5)).text_color(fg2).child(ask))
-                            .test_support(),
-                    );
+                for (k, e) in f.events.iter().enumerate() {
+                    col = col.child(event(k, e.kind, e.text.clone()));
+                }
+                // D2: the run ends on the delivery card; Learn's line follows it.
+                if let Some(d) = &f.delivery {
+                    let mut card = div()
+                        .id("familiar-delivery")
+                        .flex()
+                        .flex_col()
+                        .gap(px(6.))
+                        .p(px(12.))
+                        .rounded(px(radius::CONTROL))
+                        .border_1()
+                        .border_color(c(pal.line))
+                        .bg(ca(pal.accent, 0.08))
+                        .aria_label(format!("Delivered: {}", d.pr_url.clone().unwrap_or_else(|| d.branch.clone())))
+                        .child(div().text_size(px(13.)).font_weight(FontWeight::SEMIBOLD).text_color(fg).child(match &d.pr_url {
+                            Some(u) => format!("Delivered: pull request {}", u.rsplit('/').next().map(|n| format!("#{n}")).unwrap_or_default()),
+                            None => format!("Delivered on {}", d.branch),
+                        }));
+                    if let Some(r) = &f.verify {
+                        for (k, cr) in r.criteria.iter().enumerate() {
+                            card = card.child(
+                                div()
+                                    .id(("delivery-criterion", k))
+                                    .flex()
+                                    .gap(px(8.))
+                                    .text_size(px(12.))
+                                    .text_color(fg2)
+                                    .aria_label(format!("{} {}: {}", cr.key, cr.criterion, if cr.passed { "passed" } else { "failed" }))
+                                    .child(glyph(if cr.passed { "check" } else { "x" }, 13., if cr.passed { c(pal.ok) } else { c(pal.warn) }))
+                                    .child(format!("{} {}", cr.key, cr.criterion))
+                                    .child(div().font_family(MONO).text_size(px(11.)).text_color(fg3).child(cr.command.clone()))
+                                    .test_support(),
+                            );
+                        }
+                    }
+                    let short = &d.commit[..d.commit.len().min(7)];
+                    let mut tail = format!("Verified on {short} · no test weakened");
+                    for l in &d.limitations {
+                        tail.push_str(" · ");
+                        tail.push_str(l);
+                    }
+                    card = card.child(div().text_size(px(11.5)).text_color(fg3).child(tail));
+                    if let Some(u) = d.pr_url.clone() {
+                        card = card.child(div().flex().gap(px(6.)).child(button("open-pr", "Open pull request", true).on_click(cx.listener(move |_, _, _, cx| cx.open_url(&u))).test_support()));
+                    }
+                    col = col.child(card.test_support());
+                }
+                if let Some(ask) = &f.ask {
+                    let mut card = div()
+                        .id("familiar-ask")
+                        .flex()
+                        .flex_col()
+                        .gap(px(8.))
+                        .p(px(10.))
+                        .rounded(px(radius::CONTROL))
+                        .border_1()
+                        .border_color(ca(pal.warn, 0.7))
+                        .bg(ca(pal.warn, 0.08))
+                        .aria_label(ask.clone())
+                        .child(div().text_size(px(12.5)).font_weight(FontWeight::SEMIBOLD).text_color(fg).child("Needs you"))
+                        .child(div().text_size(px(12.5)).text_color(fg2).child(ask.clone()));
+                    let mut btns = div().flex().gap(px(6.));
+                    if let (Some(yes), true) = (f.yes_reply.clone(), live) {
+                        btns = btns.child(button("fam-yes", "Yes", true).on_click(cx.listener(move |this, _, _, cx| {
+                            if let Some(l) = this.open_live() {
+                                l.h.send(yes.clone());
+                            }
+                            cx.notify();
+                        })).test_support());
+                    }
+                    if let (Some(id), true) = (f.approval, live) {
+                        btns = btns.child(button("fam-approve", "Approve", true).on_click(cx.listener(move |this, _, _, cx| {
+                            if let Some(l) = this.open_live() {
+                                l.h.approve(id);
+                            }
+                            cx.notify();
+                        })).test_support());
+                    }
+                    card = card.child(btns);
+                    col = col.child(card.test_support());
                 }
                 let n = f.crew.len();
                 (f.state, format!("coordinating {n} subagents"), col)
             }
             Some(s) => {
-                let mut col = div().flex().flex_col().gap(px(12.)).child(boxed("sub-ticket").aria_label(s.ticket).child(label(format!("Ticket from the familiar · {}", s.name))).child(div().text_size(px(13.)).text_color(fg).child(s.ticket)).test_support());
+                let mut col = div().flex().flex_col().gap(px(12.)).child(boxed("sub-ticket").aria_label(s.ticket.clone()).child(label(format!("Ticket from the familiar · {}", s.name))).child(div().text_size(px(13.)).text_color(fg).child(s.ticket.clone())).test_support());
                 for (k, text) in s.log.iter().enumerate() {
-                    col = col.child(event(k, "bot", text));
+                    col = col.child(event(k, EventKind::Agent, text.clone()));
                 }
                 (s.state, "reports to the familiar".to_string(), col)
             }
         };
         col = col.w_full().max_w(px(560.));
-
-        // The foot (the board's `.foot`): the state, what this agent does in the run, the Preview
-        // tag; the stages on the right, Execute current.
-        let mut stages = div().flex().gap(px(12.));
-        for name in ["Plan", "Execute", "Ship", "Commit"] {
-            stages = stages.child(div().text_color(if name == "Execute" { c(pal.accent) } else { fg3 }).child(name));
+        if let Some(e) = &self.fam_error {
+            col = col.child(div().id("fam-error").text_size(px(12.)).text_color(c(pal.bad)).aria_label(e.clone()).child(e.clone()).test_support());
         }
+
+        // The foot (the board's `.foot`): the state, what this agent does in the run, the spend;
+        // the five stages on the right, the current one in the accent.
         let foot = div()
             .id("familiar-foot")
             .h(px(30.))
@@ -548,26 +861,30 @@ impl Cauldron {
             .text_size(px(11.))
             .text_color(fg3)
             .child(dot("familiar-state", state, pal).test_support())
-            .child(state.label())
-            .child(div().child(format!("· {note}")))
-            .child(preview_tag("familiar-preview", pal).test_support())
-            .child(div().ml_auto().child(stages));
-        let composer_hint = if sub.is_some() { "Messaging a subagent comes with core's familiars" } else { "Steering a familiar comes with core's familiars" };
-        let composer = div()
-            .id("familiar-composer")
-            .w_full()
-            .max_w(px(560.))
-            .flex_none()
-            .p(px(10.))
-            .rounded(px(10.))
-            .border_1()
-            .border_color(c(pal.line))
-            .bg(c(pal.inset))
-            .text_size(px(12.5))
-            .text_color(fg3)
-            .aria_label(composer_hint)
-            .child(composer_hint)
-            .test_support();
+            .child(state_label(state))
+            .child(div().child(format!("· {note} · ${:.2}", f.cost_usd)))
+            .when_live(self.fam_fixture, |d| d.child(preview_tag("familiar-preview", pal).test_support()))
+            .child(div().ml_auto().child(stage_line(f.stage, pal).test_support()));
+        let composer = match (&self.fam_composer, sub.is_none() && live) {
+            (Some((st, _)), true) => div()
+                .id("familiar-composer")
+                .w_full()
+                .max_w(px(560.))
+                .flex_none()
+                .p(px(10.))
+                .rounded(px(10.))
+                .border_1()
+                .border_color(c(pal.line))
+                .bg(c(pal.inset))
+                .text_size(px(12.5))
+                .aria_label("Message the familiar")
+                .child(gpui_kit::component::input::Textarea::new(st).appearance(false))
+                .test_support(),
+            _ => {
+                let hint = if sub.is_some() { "Messages go to the familiar: open its tab to reply" } else { "Made-up familiar: nothing to message" };
+                div().id("familiar-composer").w_full().max_w(px(560.)).flex_none().p(px(10.)).rounded(px(10.)).border_1().border_color(c(pal.line)).bg(c(pal.inset)).text_size(px(12.5)).text_color(fg3).aria_label(hint).child(hint).test_support()
+            }
+        };
         let stream = div()
             .id("familiar-stream")
             .flex_1()
@@ -586,21 +903,32 @@ impl Cauldron {
             .child(foot.test_support())
             .test_support();
 
-        // Highlights (the old shell's right panel): what this run is waiting on and what it spent.
-        let done = f.crew.iter().filter(|s| s.state == State::Done && s.name != "Rampart").count();
-        let tickets = f.crew.iter().filter(|s| s.name != "Rampart").count();
+        // Highlights: what each gate said, what changed, what it spent.
         let kv = |k: &'static str, v: String| div().flex().justify_between().gap(px(8.)).text_size(px(12.)).text_color(fg2).child(k).child(div().text_color(fg).font_features(tnum()).child(v));
-        let note = |t: &'static str| div().text_size(px(11.5)).line_height(px(16.)).text_color(fg3).child(t);
+        let note = |t: String| div().text_size(px(11.5)).line_height(px(16.)).text_color(fg3).child(t);
         let mut hl = div().id("familiar-highlights").w(px(HL_W)).flex_none().h_full().flex().flex_col().gap(px(10.)).px(px(8.)).py(px(10.)).aria_label(HL_TABS[self.fam_hl.min(2)]);
+        let past = |p: Phase| f.stage > p;
         hl = match self.fam_hl {
             0 => hl
-                .child(kv("Plan", "approved".into()))
-                .child(kv("Execute", format!("{done} of {tickets} tickets")))
-                .child(div().h(px(5.)).rounded(px(3.)).bg(c(pal.inset)).child(div().h_full().rounded(px(3.)).bg(c(pal.accent)).w(relative(if tickets == 0 { 0.0 } else { done as f32 / tickets as f32 }))))
-                .child(kv("Ship", "waits for you".into()))
-                .child(div().mt(px(6.)).child(note("A preview: nothing here runs yet. Familiars need stages that advance on their own and a sandbox per subagent (M6)."))),
-            1 => hl.child(note("Each subagent's changes show here once it has a worktree of its own (M6).")),
-            _ => hl.child(note("Spend and time per subagent show here once core runs familiars.")),
+                .child(kv("Plan", if past(Phase::Plan) { "approved".into() } else { "in progress".into() }))
+                .child(kv("Execute", format!("{} of {} tickets", f.tickets_done, f.tickets)))
+                .child(div().h(px(5.)).rounded(px(3.)).bg(c(pal.inset)).child(div().h_full().rounded(px(3.)).bg(c(pal.accent)).w(relative(if f.tickets == 0 { 0.0 } else { f.tickets_done as f32 / f.tickets as f32 }))))
+                .child(kv(
+                    "Verify",
+                    match &f.verify {
+                        Some(r) if r.passed => format!("{} of {}", r.criteria.len(), r.criteria.len()),
+                        Some(r) => format!("{} issues", r.issues.len() + r.weakened.len()),
+                        None => "not yet".into(),
+                    },
+                ))
+                .child(kv("Ship", f.delivery.as_ref().map_or("not yet".into(), |d| d.pr_url.as_ref().and_then(|u| u.rsplit('/').next()).map_or(d.branch.clone(), |n| format!("PR #{n}")))))
+                .child(kv("Learn", if f.stage == Phase::Done { "filed".into() } else { "after Ship".into() }))
+                .child(div().mt(px(6.)).child(note("Merging stays yours: Ship stops at a branch or a pull request.".into()))),
+            1 => match &f.verify {
+                Some(r) => hl.child(kv("Run", format!("{}..{}", &r.base[..r.base.len().min(7)], &r.head[..r.head.len().min(7)]))).children(r.weakened.iter().map(|w| note(w.clone()))).child(note(".backspace/VERIFY.md has the full report.".into())),
+                None => hl.child(note("The run's changes show here once Verify has looked at them.".into())),
+            },
+            _ => hl.child(kv("Total", format!("${:.2}", f.cost_usd))).children(f.crew.iter().map(|c| note(format!("{} · {}", c.name, state_label(c.state))))),
         };
 
         div().id("familiar").size_full().flex().gap(px(BODY_PAD)).px(px(BODY_PAD)).pb(px(BODY_PAD)).bg(c(pal.card)).child(stream).child(hl.test_support()).test_support().into_any_element()

@@ -225,8 +225,18 @@ pub(crate) struct Cauldron {
     transcript_seen: std::cell::RefCell<Option<(String, usize)>>,
     /// The thread's coordinator, pinned as the first tab; None on the New thread screen.
     coordinator: Option<SharedString>,
-    /// The open familiar (an index into `familiar::EXAMPLES`): the card shows its view and the tabs are its crew.
+    /// The open familiar (an index into `fam_views`): the card shows its view and the tabs are its crew.
     familiar: Option<usize>,
+    /// Every familiar as the sidebar and card draw it; the live ones' harnesses, their change
+    /// watches, the ones whose drive is running now, the last drive or send error, the
+    /// familiar's composer, and whether the views are made-up fixtures.
+    fam_views: Vec<backspace_core::familiar::View>,
+    fam_live: Vec<familiar::FamLive>,
+    fam_watch: Vec<Task<()>>,
+    fam_driving: std::collections::HashSet<String>,
+    fam_error: Option<String>,
+    fam_composer: Option<(Entity<TextareaState>, Subscription)>,
+    fam_fixture: bool,
     /// A familiar's joined tab: where it slides from (x, width), where it was last headed, since
     /// when; and the open Highlights tab.
     fam_from: (f32, f32),
@@ -368,7 +378,7 @@ impl Cauldron {
     }
 
     pub(crate) fn new() -> Self {
-        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, support_data: Default::default(), files_open: Default::default(), painting: false, root_focus: None, plan: false, open_in_menu: false, open_in: thread::OpenIn::Folder, search_open: false, indent: false, usage: Default::default(), settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, familiar: None, fam_from: (0.0, 0.0), fam_to: None, fam_since: None, fam_hl: 0, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
+        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, support_data: Default::default(), files_open: Default::default(), painting: false, root_focus: None, plan: false, open_in_menu: false, open_in: thread::OpenIn::Folder, search_open: false, indent: false, usage: Default::default(), settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, familiar: None, fam_views: Vec::new(), fam_live: Vec::new(), fam_watch: Vec::new(), fam_driving: Default::default(), fam_error: None, fam_composer: None, fam_fixture: false, fam_from: (0.0, 0.0), fam_to: None, fam_since: None, fam_hl: 0, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
     }
 
     /// Opens core off the main thread (the sidebar shows Loading meanwhile), then keeps the thread
@@ -408,6 +418,7 @@ impl Cauldron {
                     c.open_thread(id);
                 }
                 c.watch(changes, cx);
+                c.load_familiars(cx);
                 cx.notify();
             });
         }));
@@ -1230,6 +1241,9 @@ impl Render for Cauldron {
         let accent = c(pal.accent);
 
         self.ensure_composer(window, cx);
+        if self.familiar.is_some() {
+            self.ensure_fam_composer(window, cx);
+        }
         self.ensure_term_input(window, cx);
         self.ensure_start(window, cx);
         // Keys reach the shell's actions from any focused element inside it; with nothing focused
@@ -1684,7 +1698,7 @@ impl Render for Cauldron {
         self.thread_box.set(if split { (tb.w, tb.h - 32.0) } else { (tb.w, tb.h) });
         let body = match self.settings {
             Some(page) => self.settings_page(page, pal, cx),
-            None if self.familiar.is_some() => self.familiar_body(pal, fam.as_ref().map_or((radius::PANEL, 1.0), |f| (f.corner, f.fade))),
+            None if self.familiar.is_some() => self.familiar_body(pal, fam.as_ref().map_or((radius::PANEL, 1.0), |f| (f.corner, f.fade)), cx),
             None => self.card_body(pal, window, cx),
         };
         let inside = if split { self.pane_stage(pal, area, shape, body, window, cx).into_any_element() } else { body };
@@ -2573,6 +2587,8 @@ mod tests {
     fn a_familiar_pins_its_tab_first_and_shows_its_crew(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let mut c = Cauldron::new();
+        c.fam_views = super::familiar::fixtures();
+        c.fam_fixture = true;
         c.open_familiar(0);
         let n = c.agents.len();
         let handle = open(cx, c);
@@ -2596,10 +2612,65 @@ mod tests {
     /// card's left and right, never over Highlights, which has its own tabs on the same line; no
     /// title row between the tabs and the stream. The open tab is the joined shape, and the card's
     /// top-left corner is square under the first tab.
+    /// D2 (Charles, 17 Nov): a delivered familiar's stream ends on the delivery card, its
+    /// Highlights say where it shipped, and the foot names all five stages; merge is never offered.
+    #[gpui_kit::test]
+    fn a_delivered_familiar_ends_on_its_delivery_card(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let mut c = Cauldron::new();
+        c.fam_views = super::familiar::fixtures();
+        c.fam_fixture = true;
+        c.open_familiar(1);
+        let handle = open(cx, c);
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            assert!(window.find("familiar-delivery").label().unwrap().contains("pull/52"));
+            assert!(window.try_find(("delivery-criterion", 1usize)).is_some(), "each acceptance criterion on the card");
+            assert!(window.try_find("familiar-ask").is_none(), "nothing asked of you once delivered");
+            assert!(window.try_find("open-pr").is_some() && window.try_find("merge").is_none(), "open the PR, never merge it");
+            assert_eq!(window.find("fam-stages").label(), Some("Stage: done"));
+            assert_eq!(window.find(("familiar-dot", 1usize)).label(), Some("Done"));
+        })
+        .unwrap();
+    }
+
+    /// S1: with Familiar on, the New stream box shows where it ships, and Start without a folder
+    /// says a familiar needs one instead of opening a stream.
+    #[gpui_kit::test]
+    fn the_new_stream_box_starts_a_familiar_only_in_a_folder(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = open(cx, Cauldron::new());
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            assert!(window.try_find("nt-ship").is_none(), "Ship as shows only with Familiar on");
+            assert!(window.try_find("familiars-empty").is_some(), "the sidebar says how to start one");
+            window.click("nt-familiar", cx);
+            window.render_frame(cx);
+            assert_eq!(window.find("nt-familiar").label(), Some("Familiar · on"));
+            assert!(window.try_find("nt-ship").is_some());
+            assert!(window.find("start-familiar-warn").label().unwrap().contains("folder"), "says it needs a folder first");
+        })
+        .unwrap();
+        handle
+            .update(cx, |c, window, cx| {
+                c.start.folder = None;
+                if let Some((st, _)) = &c.start.input {
+                    st.update(cx, |s, cx| s.set_value("Add CSV export", window, cx));
+                }
+                c.start.route = Some(backspace_core::chat::Route { kind: backspace_core::chat::RouteKind::Cli, provider: "claude".into(), model: None });
+                c.start_thread(window, cx);
+                assert!(c.start.error.as_deref().is_some_and(|e| e.contains("folder")), "{:?}", c.start.error);
+                assert!(c.fam_views.is_empty() && c.open.is_none());
+            })
+            .unwrap();
+    }
+
     #[gpui_kit::test]
     fn a_familiars_tabs_sit_on_its_stream_card(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let mut c = Cauldron::new();
+        c.fam_views = super::familiar::fixtures();
+        c.fam_fixture = true;
         c.open_familiar(0);
         let handle = open(cx, c);
         cx.update_window(handle.into(), |_, window, cx| {
