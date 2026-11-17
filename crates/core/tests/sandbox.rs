@@ -235,7 +235,8 @@ fn the_policy_file_is_read_only_inside_the_sandbox() {
         "echo evil >> backspace.toml; printf open > backspace.toml; cat backspace.toml"
     };
     let (_, out) = sh(&ws, cmd);
-    assert_eq!(std::fs::read_to_string(f.work.join("backspace.toml")).unwrap(), "# policy\n", "{out}");
+    // git on Windows may check the worktree's copy out with CRLF.
+    assert_eq!(std::fs::read_to_string(f.work.join("backspace.toml")).unwrap().replace("\r\n", "\n"), "# policy\n", "{out}");
     assert_eq!(std::fs::read_to_string(f.root.join("backspace.toml")).unwrap(), "# policy\n");
 }
 
