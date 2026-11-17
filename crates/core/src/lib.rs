@@ -12,6 +12,7 @@ pub mod companion;
 pub mod config;
 pub mod decision;
 pub mod delegate;
+pub mod deliver;
 pub mod diagram;
 pub mod effort;
 pub mod eval;

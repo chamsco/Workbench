@@ -671,7 +671,7 @@ impl Fleet {
             Phase::Plan => (vec!["the plan isn't approved yet: the main agent proposes tickets, you approve them".into()], "plan"),
             Phase::Execute | Phase::Test => (crate::stages::execute_gaps(&tickets), "rules"),
             Phase::Ship => (vec![], "human"),
-            Phase::Commit => (vec![], "librarian"),
+            Phase::Learn => (vec![], "librarian"),
             Phase::Done => (vec!["done".into()], "none"),
         };
         Ok(serde_json::json!({
@@ -754,7 +754,7 @@ impl Fleet {
                 // Publishing is yours to decide: pressing the button is the approval.
                 crate::stages::passed(&root, GateBy::Human, "RELEASE", "approved by you", at)?;
             }
-            Phase::Commit => {
+            Phase::Learn => {
                 let notes = h.take_notes();
                 let project = root.display().to_string();
                 let fates = match prefs.stage_models.get(stage.key()).cloned().filter(|_| !notes.is_empty()) {
