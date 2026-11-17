@@ -287,19 +287,9 @@ fn after_execute(h: &Harness, target: backspace_core::deliver::Target) -> Result
     let root = h.root().to_path_buf();
     let snap = h.snapshot();
     let facts: Vec<TicketFacts> = snap.tickets.iter().map(TicketFacts::of).collect();
-    let memory = backspace_core::memory::Memory::open(backspace_core::prefs::Prefs::data_dir());
-    let mut learn = || -> Result<String> {
-        let notes = h.take_notes();
-        let fates = backspace_core::stages::rule_fates(&notes);
-        match backspace_core::stages::file(&memory, &backspace_core::prefs::Prefs::data_dir(), &root.display().to_string(), &notes, &fates) {
-            Ok((dropped, Some(r))) => Ok(format!("Librarian: kept {}, merged {}, dropped {}", r.kept.len(), r.merged.len(), r.dropped.len().max(dropped.len()))),
-            Ok((dropped, None)) => Ok(format!("Librarian: nothing to file ({} dropped)", dropped.len())),
-            Err(e) => {
-                h.return_notes(notes);
-                Err(e)
-            }
-        }
-    };
+    let data = backspace_core::prefs::Prefs::data_dir();
+    let memory = backspace_core::memory::Memory::open(data.clone());
+    let mut learn = || backspace_core::familiar::learn_with_rules(h, &memory, &data);
     let steps = deliver::advance_rules(&root, &facts, &deliver::ShipOpts { target, gh: None }, &mut learn)?;
     let mut delivered = false;
     for s in steps {

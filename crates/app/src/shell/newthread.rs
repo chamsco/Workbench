@@ -36,6 +36,9 @@ pub(crate) struct Start {
     /// What a connected machine answered, e.g. "Sent to Studio as T-7".
     pub(crate) note: Option<String>,
     pub(crate) sending: bool,
+    /// Familiar on (S1): Start hands the goal to a familiar in the chosen folder instead of
+    /// opening a stream.
+    pub(crate) familiar: bool,
 }
 
 /// The route a new thread gets: the default chat model, else Claude Code if it is installed.
@@ -129,6 +132,29 @@ impl Cauldron {
 
     /// Start: a new thread here (create, attach, send, open), or a task on the chosen machine.
     pub(super) fn start_thread(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // A familiar needs a folder, not core's chats or a route: it runs its own harness.
+        if self.start.familiar {
+            if self.start.sending {
+                return;
+            }
+            let Some((st, _)) = &self.start.input else { return };
+            let st = st.clone();
+            let text = st.read(cx).value().trim().to_string();
+            self.start.note = None;
+            let Some(folder) = self.start.folder.clone() else {
+                self.start.error = Some("A familiar works in a folder: pick one first.".into());
+                cx.notify();
+                return;
+            };
+            if text.is_empty() {
+                return;
+            }
+            self.start.error = None;
+            st.update(cx, |s, cx| s.set_value("", window, cx));
+            self.start_familiar(text, folder, cx);
+            cx.notify();
+            return;
+        }
         if self.start_blocked().is_some() {
             return;
         }
@@ -307,8 +333,11 @@ impl Cauldron {
             )
             .child(self.trust_chip("nt-trust", pal, cx))
             .child(self.plan_chip("nt-plan", pal, cx))
+            .child(self.familiar_chip(pal, cx))
+            .when(self.start.familiar, |d| d.child(self.ship_chip(pal, cx)))
             .child(div().flex_1())
-            .child(div().id("nt-model").h(px(24.)).px(px(8.)).flex().items_center().gap(px(5.)).text_size(px(12.)).text_color(fg2).aria_label(model.clone()).child(model).test_support())
+            // A familiar runs its own harness, whose models come from the project, not this route.
+            .when(!self.start.familiar, |d| d.child(div().id("nt-model").h(px(24.)).min_w_0().flex_shrink(1.).px(px(8.)).flex().items_center().gap(px(5.)).text_size(px(12.)).text_color(fg2).aria_label(model.clone()).child(div().min_w_0().truncate().child(model)).test_support()))
             .child(
                 dd("nt-effort")
                     .h(px(24.))
@@ -464,6 +493,10 @@ impl Cauldron {
             wrap = wrap.child(line("start-error", e.clone(), c(pal.bad)));
         } else if let Some(n) = &self.start.note {
             wrap = wrap.child(line("start-note", n.clone(), c(pal.ok)));
+        } else if self.start.familiar {
+            // S1: say plainly what a familiar does on this machine before it does it.
+            let warn = if self.start.folder.is_none() { "A familiar works in a folder: pick one below." } else { "A familiar runs its agents and the plan's test commands in this folder, without a sandbox for now. It never merges." };
+            wrap = wrap.child(line("start-familiar-warn", warn.to_string(), c(pal.warn)));
         } else if let Some(why) = blocked.filter(|w| w != "Sending") {
             let bad = why.starts_with("Can't");
             wrap = wrap.child(line("start-why", why, if bad { c(pal.bad) } else { fg3 }));
@@ -544,6 +577,78 @@ impl Cauldron {
             .child(glyph("clipboard-list", 13., if on { c(pal.accent) } else { c(pal.fg3) }))
             .child(label)
             .on_click(cx.listener(|this, _, window, cx| this.set_plan(!this.plan, window, cx)))
+            .test_support()
+            .into_any_element()
+    }
+
+    /// The Familiar toggle (S1): on, Start hands the goal to a familiar that plans, builds,
+    /// verifies and ships on its own, stopping only for you.
+    fn familiar_chip(&self, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
+        let on = self.start.familiar;
+        let label = if on { "Familiar · on" } else { "Familiar" };
+        div()
+            .id("nt-familiar")
+            .h(px(24.))
+            .flex()
+            .items_center()
+            .gap(px(5.))
+            .px(px(8.))
+            .rounded(px(radius::CONTROL))
+            .border_1()
+            .border_color(if on { c(pal.accent) } else { c(pal.line) })
+            .when(on, |d| d.bg(ca(pal.accent, 0.12)))
+            .text_size(px(12.))
+            .text_color(if on { c(pal.fg) } else { c(pal.fg2) })
+            .cursor_pointer()
+            .aria_label(label)
+            .aria_selected(on)
+            .aria_description("Familiar: hand over the goal; it plans, builds, verifies and ships, and stops only for you")
+            .child(glyph("ship-wheel", 13., if on { c(pal.accent) } else { c(pal.fg3) }))
+            .child(label)
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.start.familiar = !this.start.familiar;
+                this.start.error = None;
+                cx.notify();
+            }))
+            .test_support()
+            .into_any_element()
+    }
+
+    /// Ship as (S1): where a familiar delivers, cycled and saved in prefs. Never a merge.
+    fn ship_chip(&self, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
+        let t = backspace_core::deliver::Target::parse(&Prefs::load().ship_target).unwrap_or_default();
+        let label = match t {
+            backspace_core::deliver::Target::Local => "Ship as: local branch",
+            backspace_core::deliver::Target::Branch => "Ship as: pushed branch",
+            backspace_core::deliver::Target::PullRequest => "Ship as: pull request",
+        };
+        div()
+            .id("nt-ship")
+            .h(px(24.))
+            .flex()
+            .items_center()
+            .gap(px(5.))
+            .px(px(8.))
+            .rounded(px(radius::CONTROL))
+            .border_1()
+            .border_color(c(pal.line))
+            .text_size(px(12.))
+            .text_color(c(pal.fg2))
+            .cursor_pointer()
+            .aria_label(label)
+            .child(label)
+            .child(glyph("chevron-down", 13., c(pal.fg3)))
+            .on_click(cx.listener(|_, _, _, cx| {
+                let mut p = Prefs::load();
+                p.ship_target = match backspace_core::deliver::Target::parse(&p.ship_target).unwrap_or_default() {
+                    backspace_core::deliver::Target::Local => "branch",
+                    backspace_core::deliver::Target::Branch => "pr",
+                    backspace_core::deliver::Target::PullRequest => "local",
+                }
+                .into();
+                p.save();
+                cx.notify();
+            }))
             .test_support()
             .into_any_element()
     }
