@@ -1167,6 +1167,7 @@ impl Inner {
         Workspace {
             root: dir.to_path_buf(),
             bash_timeout: Duration::from_secs(self.cfg.orchestrator.bash_timeout_secs),
+            jail: None,
         }
     }
 

@@ -215,3 +215,26 @@ spot_checks = 3             # the first suites wait for your yes before they are
 max_failures = 3            # sealed-test failures on cheap rungs before the one frontier call
 # cheap_budget_usd = 1.0    # per ticket on cheap rungs before the one frontier call
 max_mutants = 12            # mutants of the changed lines for the rampart score
+
+# Where agents' commands run (PLAN §5.5, M6). "auto" uses the strongest
+# sandbox this machine has (bubblewrap on Linux, Seatbelt on macOS) and, where
+# there is none, runs with secrets taken out of the environment; "required"
+# refuses a command when no sandbox isolates it; "off" runs it as it is.
+# In the sandbox an agent writes only to its own worktree (plus git's object
+# store and a private /tmp); Backspace's folder and data, and your SSH, cloud
+# and CLI credentials, are hidden; the policy, git's hooks and config and the
+# sealed tests are read-only.
+[sandbox]
+mode = "auto"
+network = true              # false: agents' commands reach nothing, not even localhost
+pass_env = []               # secret-looking variables to hand on anyway, e.g. ["NPM_TOKEN"]
+hide = []                   # more paths agents may not read
+
+# herdr, the terminal agent multiplexer (PLAN §9.2), behind a swappable
+# adapter. Only the pinned release is used; anything else falls back to the
+# native supervisor. Its agent states are signals, never gates.
+[herdr]
+enabled = false
+version = "0.9.5"
+bin = "herdr"
+# socket = "~/.config/herdr/herdr.sock"

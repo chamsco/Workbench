@@ -912,3 +912,9 @@ pub fn copy_tree(from: &Path, to: &Path) -> Result<()> {
     }
     Ok(())
 }
+
+/// The tools Rampart may call: a shell only inside a sandbox that isolates. (stub)
+pub fn tools(_shell: bool) -> Vec<&'static str> { todo!() }
+
+/// The cheap model Rampart starts on. (stub)
+pub fn pick_cheap<'a>(_candidates: &[&'a crate::config::ModelSpec], _lead: &str) -> Option<&'a crate::config::ModelSpec> { todo!() }

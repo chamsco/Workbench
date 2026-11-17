@@ -1,0 +1,37 @@
+# M6 red: new tests before implementation (BACKSPACE_SANDBOX_TESTS=require, bwrap installed)
+     Running tests/herdr.rs (target/debug/deps/herdr-4c45db621c1e6206)
+test herdr_is_off_by_default_and_pinned_to_one_release ... ok
+test a_missing_herdr_falls_back_to_native_and_says_so ... FAILED
+test a_dead_socket_falls_back_to_native ... FAILED
+test any_release_but_the_pinned_one_is_refused ... FAILED
+test switched_off_the_native_supervisor_runs ... FAILED
+test versions_are_read_from_herdrs_own_output ... FAILED
+test the_native_supervisor_reports_no_signals ... FAILED
+test the_pinned_release_is_used_and_its_states_are_signals ... FAILED
+test result: FAILED. 1 passed; 7 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s
+     Running tests/sandbox.rs (target/debug/deps/sandbox-3950ca8be2a96e40)
+test a_cli_executor_keeps_its_login_but_not_backspaces_state ... FAILED
+test a_hidden_path_from_the_config_is_unreadable ... FAILED
+test an_agent_cannot_read_backspaces_own_folder ... FAILED
+test a_variable_the_project_passes_on_is_kept ... FAILED
+test git_works_in_the_worktree_but_its_hooks_and_config_cannot_be_planted ... FAILED
+test rampart_gets_a_shell_only_inside_a_real_sandbox ... FAILED
+test rampart_prefers_a_model_other_than_the_leads ... FAILED
+test an_agents_profile_hides_backspace_data_and_credentials ... FAILED
+test an_agents_shell_gets_no_secrets_from_the_environment ... FAILED
+test sealed_tests_are_read_only_inside_the_sandbox ... FAILED
+test secret_looking_variables_are_named_by_pattern ... FAILED
+test the_policy_file_is_read_only_inside_the_sandbox ... FAILED
+test mode_off_runs_the_shell_as_before ... FAILED
+test with_the_network_off_nothing_can_be_reached ... FAILED
+test writes_stay_in_the_agents_worktree ... FAILED
+test required_with_no_sandbox_refuses_the_command ... FAILED
+test the_shipped_config_sandboxes_in_auto_mode_with_the_network_on ... ok
+test the_harness_runs_an_agents_bash_in_the_sandbox ... FAILED
+test result: FAILED. 1 passed; 17 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.29s
+     Running unittests src/lib.rs (target/debug/deps/backspace_runner-2f26dc7cce49cabd)
+test tests::a_wrapped_cli_runs_inside_the_sandbox_command ... FAILED
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 10 filtered out; finished in 0.08s
+
+# Full suite at red
+total: 814 passed, 25 failed (all failures are the new M6 tests)

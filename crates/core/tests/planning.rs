@@ -308,7 +308,7 @@ fn scratch(tag: &str) -> PathBuf {
 }
 
 fn ws(root: &Path) -> Workspace {
-    Workspace { root: root.to_path_buf(), bash_timeout: Duration::from_secs(10) }
+    Workspace { root: root.to_path_buf(), bash_timeout: Duration::from_secs(10), jail: None }
 }
 
 fn capture(tag: &str, baseline: Value, setup: impl Fn(&Path)) -> (Baseline, PathBuf) {

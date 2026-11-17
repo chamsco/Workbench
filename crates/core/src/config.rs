@@ -28,6 +28,12 @@ pub struct Config {
     /// Builder and Rampart (rampart.rs): runs per test, spot-checks, limits.
     #[serde(default)]
     pub rampart: crate::rampart::RampartConfig,
+    /// Where agents' commands run (sandbox.rs).
+    #[serde(default)]
+    pub sandbox: crate::sandbox::SandboxConfig,
+    /// herdr, the terminal agent multiplexer, behind its adapter (herdr.rs).
+    #[serde(default)]
+    pub herdr: crate::herdr::HerdrConfig,
     pub providers: BTreeMap<String, ProviderConfig>,
     pub models: Vec<ModelSpec>,
 }

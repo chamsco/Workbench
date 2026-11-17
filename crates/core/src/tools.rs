@@ -53,6 +53,8 @@ pub fn file_tools() -> Vec<ToolDef> {
 pub struct Workspace {
     pub root: PathBuf,
     pub bash_timeout: Duration,
+    /// The sandbox its commands run in (M6); None runs them as they are.
+    pub jail: Option<std::sync::Arc<crate::sandbox::Jail>>,
 }
 
 /// The bash agents run. On Windows a bare `bash` resolves to System32's WSL
@@ -84,6 +86,15 @@ fn bash() -> &'static std::path::Path {
 }
 
 impl Workspace {
+    pub fn new(root: PathBuf, bash_timeout: Duration) -> Self {
+        Workspace { root, bash_timeout, jail: None }
+    }
+
+    pub fn jailed(mut self, jail: std::sync::Arc<crate::sandbox::Jail>) -> Self {
+        self.jail = Some(jail);
+        self
+    }
+
     /// Resolve `p` under the root and refuse anything that escapes, by name
     /// (`..`, an absolute path elsewhere) or through a symlink that leaves the
     /// workspace. Bash can still leave the workspace; this guards the file
@@ -283,6 +294,7 @@ mod tests {
         Workspace {
             root: PathBuf::from("/tmp/ws"),
             bash_timeout: Duration::from_secs(5),
+            jail: None,
         }
     }
 
@@ -305,6 +317,7 @@ mod tests {
         let w = Workspace {
             root: dir.clone(),
             bash_timeout: Duration::from_secs(5),
+            jail: None,
         };
         w.run(
             "write",
