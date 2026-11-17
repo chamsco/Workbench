@@ -1731,7 +1731,7 @@ impl Render for Cauldron {
             // ponytail: core has no stages or per-subscription usage yet (UI-PLAN decision 5), so the
             // bar is static: usage as an empty state, the stages as plain labels with none current.
             let mut stages = div().flex().gap(px(12.));
-            for (i, name) in ["Plan", "Execute", "Ship", "Commit"].into_iter().enumerate() {
+            for (i, name) in ["Plan", "Execute", "Verify", "Ship", "Learn"].into_iter().enumerate() {
                 stages = stages.child(div().id(("stage", i)).aria_label(name).child(name).test_support());
             }
             card_el = card_el.child(
@@ -2535,7 +2535,7 @@ mod tests {
             assert_eq!(bar.bottom(), card.bottom() - 1.0, "at the card's bottom, inside its border");
             assert_eq!(window.find("stage-usage").label(), Some("No usage data yet"));
             let mut last = rect(window, "stage-usage").right();
-            for (i, name) in ["Plan", "Execute", "Ship", "Commit"].into_iter().enumerate() {
+            for (i, name) in ["Plan", "Execute", "Verify", "Ship", "Learn"].into_iter().enumerate() {
                 let st = rect(window, ("stage", i));
                 assert_eq!(window.find(("stage", i)).label(), Some(name));
                 assert!(st.x > last && st.y >= bar.y && st.bottom() <= bar.bottom(), "stage {i} in order inside the bar");

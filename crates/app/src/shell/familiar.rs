@@ -831,7 +831,7 @@ impl Cauldron {
                     col = col.child(card.test_support());
                 }
                 let n = f.crew.len();
-                (f.state, format!("coordinating {n} subagents"), col)
+                (f.state, format!("coordinating {n} subagent{}", if n == 1 { "" } else { "s" }), col)
             }
             Some(s) => {
                 let mut col = div().flex().flex_col().gap(px(12.)).child(boxed("sub-ticket").aria_label(s.ticket.clone()).child(label(format!("Ticket from the familiar · {}", s.name))).child(div().text_size(px(13.)).text_color(fg).child(s.ticket.clone())).test_support());

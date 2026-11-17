@@ -336,7 +336,8 @@ impl Cauldron {
             .child(self.familiar_chip(pal, cx))
             .when(self.start.familiar, |d| d.child(self.ship_chip(pal, cx)))
             .child(div().flex_1())
-            .child(div().id("nt-model").h(px(24.)).min_w_0().flex_shrink(1.).px(px(8.)).flex().items_center().gap(px(5.)).text_size(px(12.)).text_color(fg2).aria_label(model.clone()).child(div().min_w_0().truncate().child(model)).test_support())
+            // A familiar runs its own harness, whose models come from the project, not this route.
+            .when(!self.start.familiar, |d| d.child(div().id("nt-model").h(px(24.)).min_w_0().flex_shrink(1.).px(px(8.)).flex().items_center().gap(px(5.)).text_size(px(12.)).text_color(fg2).aria_label(model.clone()).child(div().min_w_0().truncate().child(model)).test_support()))
             .child(
                 dd("nt-effort")
                     .h(px(24.))
