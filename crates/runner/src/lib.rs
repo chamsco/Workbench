@@ -362,7 +362,15 @@ fn toml_inline(v: &Value) -> String {
 /// The command line, environment and stdin text of one CLI turn. Nothing is started here, so a test
 /// can read exactly what a CLI would be given.
 fn build_cli(req: &Request, provider: &str, bin: &PathBuf) -> Result<(tokio::process::Command, Option<String>)> {
-    let mut cmd = tokio::process::Command::new(bin);
+    // In Backspace's sandbox (M6) the sandbox's command comes first and runs the CLI.
+    let mut cmd = match req.wrap.split_first() {
+        Some((first, rest)) => {
+            let mut c = tokio::process::Command::new(first);
+            c.args(rest).arg(bin);
+            c
+        }
+        None => tokio::process::Command::new(bin),
+    };
     cmd.current_dir(&req.cwd)
         .env("NO_COLOR", "1")
         .stdin(Stdio::piped())

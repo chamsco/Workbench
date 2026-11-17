@@ -776,9 +776,12 @@ fn builder_waits_while_a_separate_rampart_writes_the_tests_from_the_spec_alone()
         assert!(!reqs.iter().any(|r| r.to_string().contains(builder)), "Rampart saw Builder's `{builder}`");
     }
     // Its tools are reading its baseline checkout and submitting a suite.
+    // With a sandbox that isolates it, also a shell (M5 decision 2, built in M6).
     let mut tools = tool_names(&reqs[0]);
     tools.sort();
-    assert_eq!(tools, ["list", "read", "submit_ramparts"]);
+    let mut want = rampart::tools(backspace_core::sandbox::Backend::probe().isolates());
+    want.sort();
+    assert_eq!(tools, want);
 
     // A test that passes on the baseline was sent back; the good suite waits
     // for a person's spot-check, with what was run.
@@ -864,6 +867,11 @@ fn rampart_may_only_read_its_checkout_and_submit_in_code() {
     wait(&h, "the suite", |s| s.rampart.awaiting_yes && idle(s));
     let r = results(rampart_reqs(&m).last().unwrap());
     for (i, what) in ["bash", "write", "create_tickets"].iter().enumerate() {
+        if i == 0 && backspace_core::sandbox::Backend::probe().isolates() {
+            // In the sandbox Rampart has a shell, and its checkout is read-only.
+            assert!(r[0].to_lowercase().contains("read-only"), "{what}: {}", r[0]);
+            continue;
+        }
         assert!(r[i].contains("not available"), "{what}: {}", r[i]);
     }
     assert!(r[3].to_lowercase().contains("outside") || r[3].to_lowercase().contains("escape"), "{}", r[3]);
@@ -884,7 +892,9 @@ fn builder_cannot_change_a_sealed_test() {
             _ => say("I give up"),
         }
     };
-    let (m, h, _ws) = to_suite("tamper", worker, "[rampart]\nspot_checks = 0\n");
+    // The sandbox already stops bash from rewriting a sealed test (sandbox.rs
+    // tests that); with it off, the hash lock on delivery is what catches it.
+    let (m, h, _ws) = to_suite("tamper", worker, "[rampart]\nspot_checks = 0\n\n[sandbox]\nmode = \"off\"\n");
     let s = wait(&h, "the worker to finish", |s| s.agents.iter().any(|a| a.kind == AgentKind::Worker && matches!(a.status, AgentStatus::Failed | AgentStatus::Approved)) && idle(s));
     let w = worker_reqs(&m).into_iter().max_by_key(|r| results(r).len()).unwrap();
     let r = results(&w);

@@ -77,6 +77,11 @@ jev_usd_per_mtok = 0.0
 main_min_effort = "high"
 pin_sub = "claude-code"
 
+[sandbox]
+# The fake CLIs here keep their records next to themselves or in the project,
+# which the M6 sandbox makes read-only; the sandbox is tested in tests/sandbox.rs.
+mode = "off"
+
 [orchestrator]
 max_parallel_calls = 1
 max_subagents = 2

@@ -1,5 +1,24 @@
 # Handoff: Backspace (ohMyHarness → Workbench), v0
 
+**Session, 17 Nov 2026: Cauldron M6, the execution engine (sandbox and herdr).**
+
+- **Agents' commands run in a sandbox.** That covers bash, checks, Rampart's vetting
+  and the sealed and mutation runs. It is bubblewrap on Linux and Seatbelt on macOS
+  (`crates/core/src/sandbox.rs`). Agents write only to their worktree, git's store
+  and a private /tmp. `.backspace/`, Backspace's data and your SSH, cloud and CLI
+  credentials are hidden. The policy, git hooks and config, and sealed tests are
+  read-only. Secrets are taken out of the environment.
+- **Coding-CLI workers run in it too** (runner `Request.wrap`). They keep only their
+  own login.
+- **Config.** `[sandbox] mode = "auto" | "required" | "off"`, `network`, `pass_env`,
+  `hide`. **Windows has no isolation yet**: it gets only the env scrub and the
+  policy guard.
+- **herdr.** It sits behind `herdr::Supervisor`, pinned to 0.9.5 and off by default.
+  Any other version falls back to native. Its states are signals, never gates.
+- **Rampart.** It prefers a model other than the lead's. In the sandbox it gets a
+  read-only, offline shell.
+- **Details:** `docs/cauldron/M6-NOTES.md`, `M6-REPORT.md`.
+
 **Session, 16 Nov 2026: Cauldron M5, Builder and Rampart.**
 
 - **On the long path, an independent Rampart writes the tests first.** The lead's

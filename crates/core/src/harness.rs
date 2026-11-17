@@ -52,6 +52,11 @@ struct Inner {
     reservations: Arc<crate::gateway::Reservations>,
     /// Undoes a change to the policy files made while an agent was acting.
     guard: Arc<crate::policy_guard::PolicyGuard>,
+    /// Where agents' commands run (M6, sandbox.rs).
+    sandbox: crate::sandbox::Sandbox,
+    /// Who supervises the agents' panes: native, or herdr behind its adapter
+    /// (M6, herdr.rs). Its states are signals, never gates.
+    supervisor: Box<dyn crate::herdr::Supervisor>,
     /// What the user should know about the policy, as found when the project opened.
     notices: Vec<crate::gateway::PolicyNotice>,
     /// Every model call and task outcome so far, for the §3.4 metrics.
@@ -453,6 +458,14 @@ impl Harness {
         for n in git_notes {
             main.log.push(LogEntry { kind: LogKind::System, text: n });
         }
+        // Where the agents' commands run, and who supervises their panes (M6).
+        let sandbox = crate::sandbox::Sandbox::new(&cfg.sandbox);
+        let supervisor = crate::herdr::select(&cfg.herdr);
+        main.log.push(LogEntry { kind: LogKind::System, text: sandbox.describe() });
+        main.log.push(LogEntry { kind: LogKind::System, text: format!("supervisor: {}", supervisor.0.name()) });
+        if let Some(n) = &supervisor.1 {
+            main.log.push(LogEntry { kind: LogKind::System, text: n.clone() });
+        }
         for n in &notices {
             let text = match n.level {
                 crate::gateway::NoticeLevel::Warning => format!("policy warning: {}", n.text),
@@ -538,6 +551,8 @@ impl Harness {
                 (crate::gateway::lock_path(&root), "the policy lock"),
             ]),
             notices,
+            sandbox,
+            supervisor: supervisor.0,
             ledger: Mutex::new(Default::default()),
             agents_md: std::fs::read_to_string(root.join("AGENTS.md")).ok(),
             memory: over.memory.clone(),
@@ -667,6 +682,15 @@ impl Harness {
     /// The PLAN §3.4 metrics for this run so far.
     pub fn metrics(&self) -> crate::metrics::RunMetrics {
         self.inner.ledger.lock().unwrap().metrics()
+    }
+
+    /// Who supervises the agents' panes ("native", or "herdr 0.9.5") and
+    /// what it reports about each: signals for a person to look at, never
+    /// gates (M6, PLAN §9.2).
+    pub fn supervisor_signals(&self) -> (String, Vec<(String, crate::herdr::Signal)>) {
+        let name = self.inner.supervisor.name();
+        let signals = self.rt.block_on(self.inner.supervisor.signals()).unwrap_or_default();
+        (name, signals)
     }
 
     pub fn snapshot(&self) -> ProjectState {
@@ -1163,12 +1187,43 @@ impl Inner {
         depth < self.cfg.orchestrator.max_depth
     }
 
+    /// An agent's directory, its commands run in the sandbox (M6): writes
+    /// only there, Backspace's folder and credentials hidden, the policy and
+    /// the sealed tests read-only.
     fn workspace(&self, dir: &Path) -> Workspace {
-        Workspace {
-            root: dir.to_path_buf(),
-            bash_timeout: Duration::from_secs(self.cfg.orchestrator.bash_timeout_secs),
-            jail: None,
+        let mut profile = crate::sandbox::Profile::agent(&self.root, dir, &self.cfg.sandbox);
+        self.lock_sealed(&mut profile, dir);
+        self.jailed(dir, profile)
+    }
+
+    /// Rampart's own shell: its baseline checkout read-only, no network.
+    fn rampart_workspace(&self, dir: &Path) -> Workspace {
+        let mut profile = crate::sandbox::Profile::rampart(&self.root, dir, &self.cfg.sandbox);
+        profile.read_only.push(dir.to_path_buf());
+        self.jailed(dir, profile)
+    }
+
+    /// Where a submitted suite is vetted on the baseline: the checkout
+    /// writable (tests may build), still no network.
+    fn vetting_workspace(&self, dir: &Path) -> Workspace {
+        self.jailed(dir, crate::sandbox::Profile::rampart(&self.root, dir, &self.cfg.sandbox))
+    }
+
+    fn jailed(&self, dir: &Path, profile: crate::sandbox::Profile) -> Workspace {
+        let jail = crate::sandbox::Jail { sandbox: self.sandbox.clone(), profile };
+        Workspace::new(dir.to_path_buf(), Duration::from_secs(self.cfg.orchestrator.bash_timeout_secs)).jailed(Arc::new(jail))
+    }
+
+    /// Sealed tests are read-only inside the sandbox too.
+    fn lock_sealed(&self, profile: &mut crate::sandbox::Profile, dir: &Path) {
+        if let Some(seal) = &self.state.lock().unwrap().rampart.seal {
+            profile.read_only.extend(seal.files.iter().map(|f| dir.join(&f.path)));
         }
+    }
+
+    /// Rampart gets a shell only where the sandbox isolates it (M5 decision 2).
+    fn rampart_shell(&self) -> bool {
+        self.sandbox.mode != crate::sandbox::SandboxMode::Off && self.sandbox.backend.isolates()
     }
 
     /// Where an agent's work lives, and the branch it is on.
@@ -2344,6 +2399,15 @@ async fn run_cli_turn(
     }
     req.env.push(("PATH".into(), crate::harnesses::path_env().to_string_lossy().into_owned()));
     req.env.extend(acc.iter().cloned());
+    // The CLI runs in the sandbox (M6): its own login and network, but writes
+    // only to its worktree, and Backspace's folder, the policy and its lock
+    // are out of reach. Under mode "required" with no sandbox, it does not run.
+    {
+        let mut profile = crate::sandbox::Profile::cli(&inner.root, dir, bin, &inner.cfg.sandbox);
+        inner.lock_sealed(&mut profile, dir);
+        req.wrap = inner.sandbox.wrap(&profile, &[])?.argv;
+        req.env.push((crate::sandbox::ENV_LEVEL.into(), inner.sandbox.label().into()));
+    }
     if cli == "claude" && inner.gateway.enforced() && (pin.is_some() || req.agents.is_some()) {
         // Backspace has named the models: `--model` for the agent, the definition for the scout. A subagent
         // with no model of its own takes this variable's before the main model, and before Claude Code
@@ -3045,7 +3109,7 @@ async fn run_tool(
     let text = ToolOutcome::Text;
     // Rampart reads its baseline checkout and submits a suite. Anything else
     // is refused here, whatever it was offered or told (PLAN §7.1).
-    if c.kind == AgentKind::Rampart && !RAMPART_TOOLS.contains(&name) {
+    if c.kind == AgentKind::Rampart && !crate::rampart::tools(inner.rampart_shell()).contains(&name) {
         bail!("tool `{name}` is not available to you");
     }
     // A sealed test is hash-locked: no agent's file tools may change it.
@@ -4681,7 +4745,6 @@ fn triage(inner: &Arc<Inner>, c: &Conversation, input: &Value) -> Result<ToolOut
 // ------------------------------------------------------- Builder and Rampart
 
 /// What Rampart may call, enforced in `run_tool` (PLAN §7.1).
-const RAMPART_TOOLS: [&str; 3] = ["read", "list", "submit_ramparts"];
 
 fn submit_ramparts_tool() -> ToolDef {
     ToolDef {
@@ -4719,12 +4782,11 @@ fn cheap_rung(inner: &Inner, d: &mut Decision, role: GateRole) {
     if class_of(spec) < ModelClass::Frontier {
         return;
     }
-    let cheap = inner
-        .cfg
-        .usable_models()
-        .into_iter()
-        .filter(|m| class_of(m) < ModelClass::Frontier && inner.gateway.check_model(role, &m.id).is_ok())
-        .max_by(|a, b| a.tier.cmp(&b.tier).then(b.output_usd_per_mtok.total_cmp(&a.output_usd_per_mtok)));
+    let allowed = inner.cfg.usable_models();
+    let allowed: Vec<&crate::config::ModelSpec> = allowed.into_iter().filter(|m| class_of(m) < ModelClass::Frontier && inner.gateway.check_model(role, &m.id).is_ok()).collect();
+    // Another model than the lead's where one is allowed (M5 decision 1).
+    let lead = inner.state.lock().unwrap().agents[0].decision.as_ref().map(|d| d.model.clone()).unwrap_or_default();
+    let cheap = crate::rampart::pick_cheap(&allowed, &lead);
     let note = match cheap {
         Some(m) => {
             let n = format!("{} is a frontier model; Rampart starts on a cheap rung: {}", d.model, m.id);
@@ -4831,12 +4893,18 @@ async fn run_rampart(inner: &Arc<Inner>, id: AgentId, feedback: Option<String>) 
         path: None,
         ticket: None,
         can_spawn: false,
-        ws: inner.workspace(&tree),
+        ws: inner.rampart_workspace(&tree),
         initial: d.clone(),
         system: inner.system_prompt(AgentKind::Rampart, 1, &d),
         decision: d,
         messages: vec![Message::user_text(first)],
-        tools: tools_for(AgentKind::Rampart, false),
+        tools: {
+            let mut t = tools_for(AgentKind::Rampart, false);
+            if inner.rampart_shell() {
+                t.extend(crate::tools::file_tools().into_iter().filter(|t| t.name == "bash"));
+            }
+            t
+        },
         budget_warned_at: None,
         turns_total: 0,
         recent_calls: vec![],
@@ -4870,7 +4938,7 @@ async fn submit_ramparts(inner: &Arc<Inner>, c: &Conversation, input: &Value) ->
         ));
     }
     let runs = inner.cfg.rampart.runs.max(1);
-    let vetting = crate::rampart::vet(&suite, &c.ws, runs).await?;
+    let vetting = crate::rampart::vet(&suite, &inner.vetting_workspace(&c.ws.root), runs).await?;
     if !vetting.passed() {
         return Ok(ToolOutcome::Failure(
             format!("The suite was refused after {runs} runs of each test on the baseline:\n{}\nFix these tests and call submit_ramparts again.", bullets(&vetting.gaps())),

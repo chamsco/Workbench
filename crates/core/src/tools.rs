@@ -250,14 +250,27 @@ impl Workspace {
     }
 
     /// Run a shell command in the workspace: (exit code, capped output).
+    /// With a jail, it runs inside the sandbox (M6); a sandbox that cannot
+    /// run it under `mode = "required"` is an error, and nothing runs.
     pub async fn sh(&self, cmd: &str) -> Result<(i32, String)> {
-        let child = tokio::process::Command::new(bash())
-            .arg("-lc")
-            .arg(cmd)
+        let argv = vec![bash().to_string_lossy().into_owned(), "-lc".to_string(), cmd.to_string()];
+        let (argv, env) = match &self.jail {
+            Some(j) => {
+                let w = j.sandbox.wrap(&j.profile, &argv)?;
+                (w.argv, w.env)
+            }
+            None => (argv, None),
+        };
+        let mut command = tokio::process::Command::new(&argv[0]);
+        command
+            .args(&argv[1..])
             .current_dir(&self.root)
             .stdin(std::process::Stdio::null())
-            .kill_on_drop(true)
-            .output();
+            .kill_on_drop(true);
+        if let Some(env) = env {
+            command.env_clear().envs(env);
+        }
+        let child = command.output();
         let out = tokio::time::timeout(self.bash_timeout, child)
             .await
             .map_err(|_| anyhow!("timed out after {}s", self.bash_timeout.as_secs()))??;

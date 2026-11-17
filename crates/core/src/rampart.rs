@@ -913,8 +913,24 @@ pub fn copy_tree(from: &Path, to: &Path) -> Result<()> {
     Ok(())
 }
 
-/// The tools Rampart may call: a shell only inside a sandbox that isolates. (stub)
-pub fn tools(_shell: bool) -> Vec<&'static str> { todo!() }
+/// The tools Rampart may call. A shell only inside a sandbox that isolates
+/// (M5 decision 2): read-only on the project, writes only to its own baseline
+/// checkout, no network, no secrets.
+pub fn tools(shell: bool) -> Vec<&'static str> {
+    if shell {
+        vec!["read", "list", "bash", "submit_ramparts"]
+    } else {
+        vec!["read", "list", "submit_ramparts"]
+    }
+}
 
-/// The cheap model Rampart starts on. (stub)
-pub fn pick_cheap<'a>(_candidates: &[&'a crate::config::ModelSpec], _lead: &str) -> Option<&'a crate::config::ModelSpec> { todo!() }
+/// The cheap model Rampart starts on, from the allowed ones below the
+/// frontier: the strongest, then the cheapest, preferring one that is not the
+/// lead's model (M5 decision 1). With only the lead's, Rampart runs on it as a
+/// separate agent.
+pub fn pick_cheap<'a>(candidates: &[&'a crate::config::ModelSpec], lead: &str) -> Option<&'a crate::config::ModelSpec> {
+    let best = |list: Vec<&'a crate::config::ModelSpec>| {
+        list.into_iter().max_by(|a, b| a.tier.cmp(&b.tier).then(b.output_usd_per_mtok.total_cmp(&a.output_usd_per_mtok)))
+    };
+    best(candidates.iter().copied().filter(|m| m.id != lead).collect()).or_else(|| best(candidates.to_vec()))
+}

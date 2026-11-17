@@ -240,7 +240,7 @@ fn git_works_in_the_worktree_but_its_hooks_and_config_cannot_be_planted() {
     }
     let f = fixture("git");
     let ws = jailed(&f, &SandboxConfig::default());
-    let (code, out) = sh(&ws, "echo more >> app.txt && git add app.txt && git -c user.email=a@b -c user.name=a commit -qm work && git log --oneline | head -1");
+    let (code, out) = sh(&ws, "echo more >> app.txt && git add app.txt && git -c user.email=a@b -c user.name=a -c commit.gpgsign=false commit -qm work && git log --oneline | head -1");
     assert_eq!(code, 0, "git commit in the worktree works: {out}");
     assert!(out.contains("work"), "{out}");
     let hooks = f.root.join(".git/hooks");
