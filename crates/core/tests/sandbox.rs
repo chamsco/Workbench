@@ -31,7 +31,15 @@ use serde_json::{json, Value};
 
 // ------------------------------------------------------------------ helpers
 
+/// Point the sandbox at this package's launcher (Windows) before anything
+/// probes for a backend: test binaries do not live beside it.
+fn init() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| std::env::set_var("BACKSPACE_JAIL", env!("CARGO_BIN_EXE_backspace-jail")));
+}
+
 fn isolating() -> bool {
+    init();
     let ok = Backend::probe().isolates();
     if !ok && std::env::var("BACKSPACE_SANDBOX_TESTS").as_deref() == Ok("require") {
         panic!("BACKSPACE_SANDBOX_TESTS=require but no sandbox backend works here ({})", Backend::probe().label());
@@ -57,6 +65,7 @@ struct Fixture {
 }
 
 fn fixture(tag: &str) -> Fixture {
+    init();
     let base = std::env::temp_dir().join(format!("bs-sbx-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&base);
     let root = base.join("project");
@@ -445,6 +454,7 @@ fn wait(h: &Harness, what: &str, done: impl Fn(&ProjectState) -> bool) -> Projec
 /// secrets from the environment and cannot read Backspace's state.
 #[test]
 fn the_harness_runs_an_agents_bash_in_the_sandbox() {
+    init();
     std::env::set_var("BS_M6_E2E_API_KEY", "e2e-key-6");
     let m = mock(|req| {
         let msgs = req["messages"].as_array().unwrap();
