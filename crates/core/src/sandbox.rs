@@ -12,9 +12,17 @@
 //! * **macOS: Seatbelt** (`sandbox-exec`), with the same rules written as a
 //!   profile: writes only to the worktree, git's store, a private temp
 //!   folder and the home folder; reads and writes of the hidden paths denied.
-//! * **Anywhere else** (Windows, or Linux without bubblewrap): nothing
-//!   isolates. `mode = "auto"` still runs the command, with secrets taken out
-//!   of the environment, and the agent's log says so; `"required"` refuses it.
+//! * **Windows: low integrity.** The command runs from a token lowered to
+//!   the Low mandatory level, in a job object that dies with it. Windows'
+//!   mandatory integrity control then stops every write to anything not
+//!   labelled Low: the worktree and a private temp folder are labelled Low,
+//!   the policy and sealed tests are labelled Medium again, and Backspace's
+//!   files and the credentials are labelled no-read-up. It cannot switch the
+//!   network off, and git's store stays read-only to agents (Backspace
+//!   commits for them).
+//! * **Anywhere else** (Linux without bubblewrap): nothing isolates.
+//!   `mode = "auto"` still runs the command, with secrets taken out of the
+//!   environment, and the agent's log says so; `"required"` refuses it.
 //!
 //! What it does not do, stated in docs/cauldron/M6-NOTES.md: the home folder
 //! stays writable (caches, a CLI's own state); other files in the system are
@@ -30,6 +38,9 @@ use serde::{Deserialize, Serialize};
 
 /// The variable a sandboxed command finds its sandbox's name in.
 pub const ENV_LEVEL: &str = "BACKSPACE_SANDBOX";
+
+/// The first argument that makes any Backspace binary the Windows launcher.
+pub const JAIL_ARG: &str = "__backspace_jail";
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
 #[serde(rename_all = "lowercase")]
@@ -67,6 +78,9 @@ impl Default for SandboxConfig {
 pub enum Backend {
     Bwrap(PathBuf),
     Seatbelt(PathBuf),
+    /// Windows: the launcher's command line (a helper binary, or a Backspace
+    /// binary and [`JAIL_ARG`]), which runs the command at low integrity.
+    LowIntegrity(Vec<String>),
     /// Nothing isolates: only the environment is scrubbed.
     Plain,
 }
@@ -96,6 +110,15 @@ impl Backend {
                         }
                     }
                 }
+                if cfg!(windows) {
+                    if let Some(prefix) = jail_launcher() {
+                        let mut c = Command::new(&prefix[0]);
+                        c.args(&prefix[1..]).args(["--", "cmd.exe", "/c", "exit 0"]);
+                        if quiet(&mut c) {
+                            return Backend::LowIntegrity(prefix);
+                        }
+                    }
+                }
                 if cfg!(target_os = "macos") {
                     let b = PathBuf::from("/usr/bin/sandbox-exec");
                     if b.is_file() && quiet(Command::new(&b).args(["-p", "(version 1)(allow default)", "/usr/bin/true"])) {
@@ -115,8 +138,19 @@ impl Backend {
         match self {
             Backend::Bwrap(_) => "bwrap",
             Backend::Seatbelt(_) => "seatbelt",
+            Backend::LowIntegrity(_) => "lowil",
             Backend::Plain => "none",
         }
+    }
+
+    /// It can take the network away (`network = false`).
+    pub fn blocks_network(&self) -> bool {
+        matches!(self, Backend::Bwrap(_) | Backend::Seatbelt(_))
+    }
+
+    /// Agents may write git's store (commit) from inside it.
+    pub fn agents_commit(&self) -> bool {
+        matches!(self, Backend::Bwrap(_) | Backend::Seatbelt(_))
     }
 }
 
@@ -334,6 +368,7 @@ impl Sandbox {
                 "sandbox: none on this machine; commands run with secrets taken out of the environment but are not isolated{}",
                 if self.mode == SandboxMode::Required { " (mode \"required\": they are refused)" } else { "" }
             ),
+            (_, b @ Backend::LowIntegrity(_)) => format!("sandbox: {} (Windows low integrity); agents write only to their worktree, Backspace's folder and credentials are hidden; the network stays on and Backspace makes the commits", b.label()),
             (_, b) => format!("sandbox: {}; agents write only to their worktree, Backspace's folder and credentials are hidden", b.label()),
         }
     }
@@ -353,6 +388,13 @@ impl Sandbox {
         }
         let argv = match &self.backend {
             Backend::Plain => argv.to_vec(),
+            Backend::LowIntegrity(prefix) => {
+                let tmp = win_prepare(p)?;
+                let mut a = prefix.clone();
+                a.extend(["--tmp".to_string(), s(&tmp), "--".to_string()]);
+                a.extend(argv.iter().cloned());
+                a
+            }
             Backend::Bwrap(bin) => bwrap(bin, p, argv),
             Backend::Seatbelt(bin) => {
                 let (tmp, profile) = seatbelt(p);
@@ -474,6 +516,330 @@ fn seatbelt(p: &Profile) -> (PathBuf, String) {
         r.push_str("(deny network*)\n");
     }
     (tmp, r)
+}
+
+/// How to start the Windows launcher: `BACKSPACE_JAIL`, a `backspace-jail`
+/// beside this binary (or beside the folder a test binary is in), or this
+/// binary itself when it is one of Backspace's (they all take [`JAIL_ARG`]).
+fn jail_launcher() -> Option<Vec<String>> {
+    if let Some(p) = std::env::var_os("BACKSPACE_JAIL") {
+        return Some(vec![PathBuf::from(p).to_string_lossy().into_owned()]);
+    }
+    let exe = std::env::current_exe().ok()?;
+    let name = format!("backspace-jail{}", std::env::consts::EXE_SUFFIX);
+    let dir = exe.parent()?;
+    for d in [Some(dir), dir.parent()].into_iter().flatten() {
+        let p = d.join(&name);
+        if p.is_file() {
+            return Some(vec![s(&p)]);
+        }
+    }
+    let stem = exe.file_stem()?.to_string_lossy().to_ascii_lowercase();
+    (stem.starts_with("backspace") || stem.starts_with("cauldron")).then(|| vec![s(&exe), JAIL_ARG.to_string()])
+}
+
+/// The launcher itself: `[--tmp <dir>] -- <program> <args…>`. Runs the
+/// program at low integrity in a job object, with this process's standard
+/// handles and environment, and returns its exit code.
+pub fn jail_run(args: &[String]) -> i32 {
+    let mut tmp = None;
+    let mut i = 0;
+    while i < args.len() && args[i] != "--" {
+        if args[i] == "--tmp" && i + 1 < args.len() {
+            tmp = Some(args[i + 1].clone());
+            i += 1;
+        }
+        i += 1;
+    }
+    let cmd = &args[(i + 1).min(args.len())..];
+    if cmd.is_empty() {
+        eprintln!("backspace jail: usage: [--tmp <dir>] -- <program> <args…>");
+        return 2;
+    }
+    match win::run_low(cmd, tmp.as_deref()) {
+        Ok(code) => code,
+        Err(e) => {
+            eprintln!("backspace jail: {e:#}");
+            126
+        }
+    }
+}
+
+/// Labels for one Windows command: the worktree and a private temp folder
+/// writable at low integrity, the read-only files back at Medium, the hidden
+/// ones no-read-up. Returns the temp folder.
+fn win_prepare(p: &Profile) -> Result<PathBuf> {
+    use win::Label;
+    let tmp = std::env::temp_dir().join("bs-sandbox-low");
+    std::fs::create_dir_all(&tmp)?;
+    win::label(&tmp, Label::LowWritable, true)?;
+    // Hidden first, so the worktree's own label is set after.
+    let own = p.project.join(".backspace");
+    for h in &p.hidden {
+        if h == &own {
+            win_hide_backspace(&own)?;
+        } else if h.exists() && !p.work.starts_with(h) {
+            win::label(h, Label::NoReadUp, h.is_dir())?;
+        }
+    }
+    win::label(&p.work, Label::LowWritable, true)?;
+    for r in p.read_only.iter().filter(|r| r.exists()) {
+        win::label(r, Label::Medium, r.is_dir())?;
+    }
+    if let Some(g) = git_common(&p.work) {
+        for f in ["hooks", "config", "info"] {
+            let f = g.join(f);
+            if f.exists() {
+                win::label(&f, Label::Medium, f.is_dir())?;
+            }
+        }
+    }
+    Ok(tmp)
+}
+
+/// Backspace's folder holds the worktrees, so it cannot be hidden whole:
+/// every file in it is labelled no-read-up, except under the worktrees and
+/// Rampart's checkout, which have labels of their own.
+fn win_hide_backspace(own: &Path) -> Result<()> {
+    if !own.exists() {
+        return Ok(());
+    }
+    let skip = [own.join("worktrees"), own.join("rampart").join("tree")];
+    let mut stack = vec![own.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        for e in std::fs::read_dir(&d)?.flatten() {
+            let path = e.path();
+            if skip.contains(&path) {
+                continue;
+            }
+            if path.is_dir() {
+                stack.push(path);
+            } else {
+                win::label(&path, win::Label::NoReadUp, false)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+mod win {
+    //! Windows: low-integrity tokens, mandatory labels, job objects.
+    use std::os::windows::ffi::OsStrExt;
+    use std::path::Path;
+
+    use anyhow::{bail, Result};
+    use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, LocalFree, HANDLE};
+    use windows_sys::Win32::Security::Authorization::{ConvertStringSidToSidW, SetNamedSecurityInfoW, SE_FILE_OBJECT};
+    use windows_sys::Win32::Security::{
+        AddMandatoryAce, DuplicateTokenEx, InitializeAcl, SecurityImpersonation, SetTokenInformation, TokenIntegrityLevel, TokenPrimary, ACL,
+        ACL_REVISION, CONTAINER_INHERIT_ACE, LABEL_SECURITY_INFORMATION, OBJECT_INHERIT_ACE, PSID, SID_AND_ATTRIBUTES, TOKEN_ADJUST_DEFAULT,
+        TOKEN_ASSIGN_PRIMARY, TOKEN_DUPLICATE, TOKEN_MANDATORY_LABEL, TOKEN_QUERY,
+    };
+    use windows_sys::Win32::System::Console::{GetStdHandle, STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE};
+    use windows_sys::Win32::System::Environment::SetEnvironmentVariableW;
+    use windows_sys::Win32::System::JobObjects::{
+        AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation, SetInformationJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+        JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+    };
+    use windows_sys::Win32::System::SystemServices::{SE_GROUP_INTEGRITY, SYSTEM_MANDATORY_LABEL_NO_READ_UP, SYSTEM_MANDATORY_LABEL_NO_WRITE_UP};
+    use windows_sys::Win32::System::Threading::{
+        CreateProcessAsUserW, GetCurrentProcess, GetExitCodeProcess, OpenProcessToken, ResumeThread, WaitForSingleObject, CREATE_SUSPENDED,
+        INFINITE, PROCESS_INFORMATION, STARTF_USESTDHANDLES, STARTUPINFOW,
+    };
+
+    #[derive(Clone, Copy)]
+    pub enum Label {
+        /// Low, no-write-up: a low-integrity process may write it.
+        LowWritable,
+        /// Medium, no-write-up: read-only to low integrity.
+        Medium,
+        /// Medium, no-read-up and no-write-up: hidden from low integrity.
+        NoReadUp,
+    }
+
+    fn wide(s: &std::ffi::OsStr) -> Vec<u16> {
+        s.encode_wide().chain(std::iter::once(0)).collect()
+    }
+
+    struct Sid(PSID);
+    impl Drop for Sid {
+        fn drop(&mut self) {
+            unsafe { LocalFree(self.0 as _) };
+        }
+    }
+
+    fn sid(text: &str) -> Result<Sid> {
+        let mut p: PSID = std::ptr::null_mut();
+        let w = wide(std::ffi::OsStr::new(text));
+        if unsafe { ConvertStringSidToSidW(w.as_ptr(), &mut p) } == 0 {
+            bail!("ConvertStringSidToSidW({text}) failed: {}", unsafe { GetLastError() });
+        }
+        Ok(Sid(p))
+    }
+
+    /// Set `path`'s mandatory label; `inherit` for a folder's contents too.
+    pub fn label(path: &Path, l: Label, inherit: bool) -> Result<()> {
+        let (level, mask) = match l {
+            Label::LowWritable => ("S-1-16-4096", SYSTEM_MANDATORY_LABEL_NO_WRITE_UP),
+            Label::Medium => ("S-1-16-8192", SYSTEM_MANDATORY_LABEL_NO_WRITE_UP),
+            Label::NoReadUp => ("S-1-16-8192", SYSTEM_MANDATORY_LABEL_NO_WRITE_UP | SYSTEM_MANDATORY_LABEL_NO_READ_UP),
+        };
+        let sid = sid(level)?;
+        let mut buf = [0u64; 32];
+        let acl = buf.as_mut_ptr() as *mut ACL;
+        let flags = if inherit { OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE } else { 0 };
+        unsafe {
+            if InitializeAcl(acl, std::mem::size_of_val(&buf) as u32, ACL_REVISION) == 0 {
+                bail!("InitializeAcl failed: {}", GetLastError());
+            }
+            if AddMandatoryAce(acl, ACL_REVISION, flags as _, mask, sid.0) == 0 {
+                bail!("AddMandatoryAce failed: {}", GetLastError());
+            }
+            let w = wide(path.as_os_str());
+            let r = SetNamedSecurityInfoW(
+                w.as_ptr(),
+                SE_FILE_OBJECT,
+                LABEL_SECURITY_INFORMATION,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null(),
+                acl,
+            );
+            if r != 0 {
+                bail!("labelling {} failed: error {r}", path.display());
+            }
+        }
+        Ok(())
+    }
+
+    /// One argument as CreateProcess's command-line parser reads it back.
+    fn quote(a: &str) -> String {
+        if !a.is_empty() && !a.chars().any(|c| matches!(c, ' ' | '\t' | '\n' | '"')) {
+            return a.to_string();
+        }
+        let mut out = String::from("\"");
+        let mut slashes = 0;
+        for c in a.chars() {
+            match c {
+                '\\' => slashes += 1,
+                '"' => {
+                    out.push_str(&"\\".repeat(slashes * 2 + 1));
+                    out.push('"');
+                    slashes = 0;
+                    continue;
+                }
+                _ => {}
+            }
+            if c != '\\' {
+                out.push_str(&"\\".repeat(slashes));
+                slashes = 0;
+                out.push(c);
+            }
+        }
+        out.push_str(&"\\".repeat(slashes * 2));
+        out.push('"');
+        out
+    }
+
+    pub fn run_low(cmd: &[String], tmp: Option<&str>) -> Result<i32> {
+        unsafe {
+            if let Some(t) = tmp {
+                for k in ["TMP", "TEMP", "TMPDIR"] {
+                    let (k, v) = (wide(std::ffi::OsStr::new(k)), wide(std::ffi::OsStr::new(t)));
+                    SetEnvironmentVariableW(k.as_ptr(), v.as_ptr());
+                }
+            }
+            let mut token: HANDLE = std::ptr::null_mut();
+            if OpenProcessToken(GetCurrentProcess(), TOKEN_DUPLICATE | TOKEN_QUERY | TOKEN_ADJUST_DEFAULT | TOKEN_ASSIGN_PRIMARY, &mut token) == 0 {
+                bail!("OpenProcessToken failed: {}", GetLastError());
+            }
+            let mut low: HANDLE = std::ptr::null_mut();
+            let ok = DuplicateTokenEx(
+                token,
+                TOKEN_DUPLICATE | TOKEN_QUERY | TOKEN_ADJUST_DEFAULT | TOKEN_ASSIGN_PRIMARY,
+                std::ptr::null(),
+                SecurityImpersonation,
+                TokenPrimary,
+                &mut low,
+            );
+            CloseHandle(token);
+            if ok == 0 {
+                bail!("DuplicateTokenEx failed: {}", GetLastError());
+            }
+            let level = sid("S-1-16-4096")?;
+            let tml = TOKEN_MANDATORY_LABEL { Label: SID_AND_ATTRIBUTES { Sid: level.0, Attributes: SE_GROUP_INTEGRITY as u32 } };
+            if SetTokenInformation(low, TokenIntegrityLevel, &tml as *const _ as *const _, std::mem::size_of::<TOKEN_MANDATORY_LABEL>() as u32) == 0 {
+                CloseHandle(low);
+                bail!("lowering the token's integrity failed: {}", GetLastError());
+            }
+            // A job that ends the command (and what it starts) with us.
+            let job = CreateJobObjectW(std::ptr::null(), std::ptr::null());
+            if !job.is_null() {
+                let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
+                info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+                SetInformationJobObject(job, JobObjectExtendedLimitInformation, &info as *const _ as *const _, std::mem::size_of_val(&info) as u32);
+            }
+            let line: String = cmd.iter().map(|a| quote(a)).collect::<Vec<_>>().join(" ");
+            let mut line_w = wide(std::ffi::OsStr::new(&line));
+            let mut si: STARTUPINFOW = std::mem::zeroed();
+            si.cb = std::mem::size_of::<STARTUPINFOW>() as u32;
+            si.dwFlags = STARTF_USESTDHANDLES;
+            si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+            si.hStdOutput = GetStdHandle(STD_OUTPUT_HANDLE);
+            si.hStdError = GetStdHandle(STD_ERROR_HANDLE);
+            let mut pi: PROCESS_INFORMATION = std::mem::zeroed();
+            let ok = CreateProcessAsUserW(
+                low,
+                std::ptr::null(),
+                line_w.as_mut_ptr(),
+                std::ptr::null(),
+                std::ptr::null(),
+                1,
+                CREATE_SUSPENDED,
+                std::ptr::null(),
+                std::ptr::null(),
+                &si,
+                &mut pi,
+            );
+            CloseHandle(low);
+            if ok == 0 {
+                bail!("starting {} at low integrity failed: {}", cmd[0], GetLastError());
+            }
+            if !job.is_null() {
+                AssignProcessToJobObject(job, pi.hProcess);
+            }
+            ResumeThread(pi.hThread);
+            CloseHandle(pi.hThread);
+            WaitForSingleObject(pi.hProcess, INFINITE);
+            let mut code = 1u32;
+            GetExitCodeProcess(pi.hProcess, &mut code);
+            CloseHandle(pi.hProcess);
+            Ok(code as i32)
+        }
+    }
+}
+
+#[cfg(not(windows))]
+mod win {
+    use std::path::Path;
+
+    use anyhow::{bail, Result};
+
+    #[derive(Clone, Copy)]
+    pub enum Label {
+        LowWritable,
+        Medium,
+        NoReadUp,
+    }
+
+    pub fn label(_path: &Path, _l: Label, _inherit: bool) -> Result<()> {
+        bail!("mandatory labels are a Windows feature")
+    }
+
+    pub fn run_low(_cmd: &[String], _tmp: Option<&str>) -> Result<i32> {
+        bail!("the low-integrity launcher runs on Windows only")
+    }
 }
 
 #[cfg(test)]

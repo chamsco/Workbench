@@ -779,7 +779,8 @@ fn builder_waits_while_a_separate_rampart_writes_the_tests_from_the_spec_alone()
     // With a sandbox that isolates it, also a shell (M5 decision 2, built in M6).
     let mut tools = tool_names(&reqs[0]);
     tools.sort();
-    let mut want = rampart::tools(backspace_core::sandbox::Backend::probe().isolates());
+    let b = backspace_core::sandbox::Backend::probe();
+    let mut want = rampart::tools(b.isolates() && b.blocks_network());
     want.sort();
     assert_eq!(tools, want);
 
@@ -867,7 +868,7 @@ fn rampart_may_only_read_its_checkout_and_submit_in_code() {
     wait(&h, "the suite", |s| s.rampart.awaiting_yes && idle(s));
     let r = results(rampart_reqs(&m).last().unwrap());
     for (i, what) in ["bash", "write", "create_tickets"].iter().enumerate() {
-        if i == 0 && backspace_core::sandbox::Backend::probe().isolates() {
+        if i == 0 && backspace_core::sandbox::Backend::probe().isolates() && backspace_core::sandbox::Backend::probe().blocks_network() {
             // In the sandbox Rampart has a shell, and its checkout is read-only.
             assert!(r[0].to_lowercase().contains("read-only"), "{what}: {}", r[0]);
             continue;

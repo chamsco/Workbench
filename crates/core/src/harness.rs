@@ -1223,7 +1223,7 @@ impl Inner {
 
     /// Rampart gets a shell only where the sandbox isolates it (M5 decision 2).
     fn rampart_shell(&self) -> bool {
-        self.sandbox.mode != crate::sandbox::SandboxMode::Off && self.sandbox.backend.isolates()
+        self.sandbox.mode != crate::sandbox::SandboxMode::Off && self.sandbox.backend.isolates() && self.sandbox.backend.blocks_network()
     }
 
     /// Where an agent's work lives, and the branch it is on.

@@ -350,6 +350,9 @@ pub(crate) fn do_note(b: &Bridge, text: &str) -> Result<String> {
 /// the program name) are not one of these, so the binary carries on.
 pub fn client_main(args: &[String]) -> Option<i32> {
     match args.first().map(String::as_str) {
+        // The sandbox's launcher on Windows (sandbox.rs): any Backspace
+        // binary can start an agent's command at low integrity.
+        Some(crate::sandbox::JAIL_ARG) => Some(crate::sandbox::jail_run(&args[1..])),
         Some("msg") => Some(match msg(&args[1..]) {
             Ok(out) => {
                 println!("{out}");

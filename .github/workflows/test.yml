@@ -57,3 +57,18 @@ jobs:
         env:
           BACKSPACE_SANDBOX_TESTS: require
         run: cargo test -p backspace-core --test sandbox --test herdr --test workspace_boundary
+
+  # M6: the Windows sandbox (low integrity, mandatory labels, job object).
+  sandbox-windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: tests-windows-sandbox
+      - name: Sandbox and herdr tests
+        env:
+          BACKSPACE_SANDBOX_TESTS: require
+        run: cargo test -p backspace-core --test sandbox --test herdr --test workspace_boundary

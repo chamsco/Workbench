@@ -14,10 +14,14 @@
 //! the documented protocol: `herdr --version`, and newline-delimited JSON
 //! over the Unix socket with `ping` and `agent.list`.
 
+#[cfg(unix)]
 use std::path::{Path, PathBuf};
 
-use backspace_core::herdr::{self, HerdrConfig, Signal, Supervisor};
+#[cfg(unix)]
+use backspace_core::herdr::Signal;
+use backspace_core::herdr::{self, HerdrConfig, Supervisor};
 
+#[cfg(unix)]
 fn scratch(tag: &str) -> PathBuf {
     let d = std::env::temp_dir().join(format!("bs-herdr-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&d);

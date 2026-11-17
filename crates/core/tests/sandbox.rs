@@ -84,6 +84,11 @@ fn jailed(f: &Fixture, cfg: &SandboxConfig) -> Workspace {
     Workspace::new(f.work.clone(), Duration::from_secs(20)).jailed(Arc::new(Jail { sandbox, profile }))
 }
 
+/// A path as bash wants it (Git's bash on Windows reads C:/x, not C:\x).
+fn u(p: &Path) -> String {
+    p.display().to_string().replace('\\', "/")
+}
+
 fn rt() -> tokio::runtime::Runtime {
     tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap()
 }
@@ -183,7 +188,7 @@ fn an_agent_cannot_read_backspaces_own_folder() {
     }
     let f = fixture("state");
     let ws = jailed(&f, &SandboxConfig::default());
-    let (_, out) = sh(&ws, &format!("cat {}/.backspace/state.json; cat ../../state.json; ls ..", f.root.display()));
+    let (_, out) = sh(&ws, &format!("cat {}/.backspace/state.json; cat ../../state.json; ls ..", u(&f.root)));
     assert!(!out.contains("state-7731"), "Backspace's state leaked: {out}");
     let (code, out) = sh(&ws, "cat app.txt");
     assert_eq!((code, out.trim()), (0, "hello"), "its own files are readable");
@@ -196,7 +201,7 @@ fn writes_stay_in_the_agents_worktree() {
     }
     let f = fixture("writes");
     let ws = jailed(&f, &SandboxConfig::default());
-    sh(&ws, &format!("echo x > {}/main.txt; echo x > {}/f.txt; echo y > new.txt; mkdir -p d && echo z > d/e.txt", f.root.display(), f.outside.display()));
+    sh(&ws, &format!("echo x > {}/main.txt; echo x > {}/f.txt; echo y > new.txt; mkdir -p d && echo z > d/e.txt", u(&f.root), u(&f.outside)));
     assert!(!f.root.join("main.txt").exists(), "wrote into the main checkout");
     assert!(!f.outside.join("f.txt").exists(), "wrote outside the project");
     assert_eq!(std::fs::read_to_string(f.work.join("new.txt")).unwrap(), "y\n");
@@ -241,10 +246,17 @@ fn git_works_in_the_worktree_but_its_hooks_and_config_cannot_be_planted() {
     let f = fixture("git");
     let ws = jailed(&f, &SandboxConfig::default());
     let (code, out) = sh(&ws, "echo more >> app.txt && git add app.txt && git -c user.email=a@b -c user.name=a -c commit.gpgsign=false commit -qm work && git log --oneline | head -1");
-    assert_eq!(code, 0, "git commit in the worktree works: {out}");
-    assert!(out.contains("work"), "{out}");
+    if Backend::probe().agents_commit() {
+        assert_eq!(code, 0, "git commit in the worktree works: {out}");
+        assert!(out.contains("work"), "{out}");
+    } else {
+        // Windows: git's store stays read-only to agents; Backspace commits.
+        let (code, out) = sh(&ws, "git status --short && git diff --stat");
+        assert_eq!(code, 0, "git reads the worktree: {out}");
+        assert!(out.contains("app.txt"), "{out}");
+    }
     let hooks = f.root.join(".git/hooks");
-    sh(&ws, &format!("echo 'touch /tmp/pwned' > {0}/post-commit; chmod +x {0}/post-commit; git config core.hooksPath /tmp; git config --worktree core.fsmonitor 'touch /tmp/pwned'", hooks.display()));
+    sh(&ws, &format!("echo 'touch /tmp/pwned' > {0}/post-commit; chmod +x {0}/post-commit; git config core.hooksPath /tmp; git config --worktree core.fsmonitor 'touch /tmp/pwned'", u(&hooks)));
     assert!(!hooks.join("post-commit").exists(), "a hook was planted where Backspace's own git would run it");
     let config = std::fs::read_to_string(f.root.join(".git/config")).unwrap();
     assert!(!config.contains("hooksPath") && !config.contains("fsmonitor"), "{config}");
@@ -258,7 +270,7 @@ fn a_hidden_path_from_the_config_is_unreadable() {
     let f = fixture("hide");
     std::fs::write(f.outside.join("token.txt"), "tok-5521").unwrap();
     let cfg = SandboxConfig { hide: vec![f.outside.display().to_string()], ..SandboxConfig::default() };
-    let (_, out) = sh(&jailed(&f, &cfg), &format!("cat {}/token.txt", f.outside.display()));
+    let (_, out) = sh(&jailed(&f, &cfg), &format!("cat {}/token.txt", u(&f.outside)));
     assert!(!out.contains("tok-5521"), "{out}");
 }
 
@@ -288,6 +300,10 @@ fn with_the_network_off_nothing_can_be_reached() {
     let probe = format!("(exec 3<>/dev/tcp/127.0.0.1/{port}) 2>/dev/null && echo connected || echo refused");
     let (_, on) = sh(&jailed(&f, &SandboxConfig::default()), &probe);
     assert!(on.contains("connected"), "network on: {on}");
+    if !Backend::probe().blocks_network() {
+        eprintln!("{} cannot switch the network off", Backend::probe().label());
+        return;
+    }
     let off = SandboxConfig { network: false, ..SandboxConfig::default() };
     let (_, out) = sh(&jailed(&f, &off), &probe);
     assert!(out.contains("refused") && !out.contains("connected"), "network off: {out}");
@@ -304,9 +320,10 @@ fn a_cli_executor_keeps_its_login_but_not_backspaces_state() {
     let f = fixture("cli");
     let cfg = SandboxConfig::default();
     let sandbox = Sandbox::new(&cfg);
-    let profile = Profile::cli(&f.root, &f.work, Path::new("/bin/sh"), &cfg);
-    let script = format!("echo \"[$BS_M6_CLI_API_KEY]\"; cat {}/.backspace/state.json; echo x > {}/main.txt; echo ok > mine.txt", f.root.display(), f.root.display());
-    let w = sandbox.wrap(&profile, &["/bin/sh".into(), "-c".into(), script]).unwrap();
+    let shell = if cfg!(windows) { r"C:\Program Files\Git\bin\bash.exe" } else { "/bin/sh" };
+    let profile = Profile::cli(&f.root, &f.work, Path::new(shell), &cfg);
+    let script = format!("echo \"[$BS_M6_CLI_API_KEY]\"; cat {}/.backspace/state.json; echo x > {}/main.txt; echo ok > mine.txt", u(&f.root), u(&f.root));
+    let w = sandbox.wrap(&profile, &[shell.into(), "-c".into(), script]).unwrap();
     let mut cmd = Command::new(&w.argv[0]);
     cmd.args(&w.argv[1..]).current_dir(&f.work);
     if let Some(env) = &w.env {
