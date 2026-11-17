@@ -11,8 +11,9 @@
 - **Coding-CLI workers run in it too** (runner `Request.wrap`). They keep only their
   own login.
 - **Config.** `[sandbox] mode = "auto" | "required" | "off"`, `network`, `pass_env`,
-  `hide`. **Windows has no isolation yet**: it gets only the env scrub and the
-  policy guard.
+  `hide`. **On Windows** commands run at low integrity with mandatory labels
+  (`backspace-jail`, or `__backspace_jail` on any Backspace binary). The network
+  stays on there, and agents cannot commit.
 - **herdr.** It sits behind `herdr::Supervisor`, pinned to 0.9.5 and off by default.
   Any other version falls back to native. Its states are signals, never gates.
 - **Rampart.** It prefers a model other than the lead's. In the sandbox it gets a

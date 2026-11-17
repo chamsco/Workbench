@@ -6,7 +6,7 @@ Branch `claude/project-thread-4kv2kv`, starting from `claude/project-thread-gg3o
 2. **Red:** 25 of the 27 new tests failed against stubs. The other 2 were config guards and passed. The full suite at red was 814 passed, 25 failed.
 3. **Sandboxed worktrees.**
    - Each agent's commands run in a sandbox: its bash, its checks, Rampart's vetting, and the sealed-test and mutation runs.
-   - The backend is bubblewrap on Linux and Seatbelt on macOS.
+   - The backend is bubblewrap on Linux, Seatbelt on macOS, and a low-integrity process with mandatory labels on Windows.
    - Inside it, an agent writes only to its worktree, git's store and a private /tmp.
    - Backspace's folder, its data, and your SSH, cloud and CLI credentials are hidden.
    - The policy, git's hooks and config, and sealed tests are read-only.
@@ -25,9 +25,9 @@ Branch `claude/project-thread-4kv2kv`, starting from `claude/project-thread-gg3o
 7. **M5 decisions built.**
    - Rampart prefers a model other than the lead's.
    - Rampart gets a shell inside the sandbox, with no network and its checkout read-only.
-8. **CI.** The Linux job now installs bubblewrap and fails, rather than skips, the sandbox tests if bubblewrap can't run. A new macOS job runs the sandbox tests under Seatbelt.
+8. **CI.** The Linux job now installs bubblewrap and fails, rather than skips, the sandbox tests if bubblewrap can't run. New macOS and Windows jobs run the sandbox tests with the sandbox required.
 9. **Limits.**
-   - **Windows has no isolation.** It gets only the scrubbed environment and the policy guard.
+   - **Windows is weaker:** the network stays on, agents cannot commit there (Backspace commits for them), Rampart gets no shell, and the labels stay on disk.
    - The home folder stays writable.
    - The network is on by default.
    - herdr was tested against a stand-in, because its download is blocked here.

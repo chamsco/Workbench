@@ -21,7 +21,8 @@ A coding-CLI worker's whole process is also started inside the sandbox (`Request
 |---|---|---|
 | bubblewrap | Linux, when `bwrap` runs (user namespaces on) | New mount and PID namespaces. The system is read-only and `/tmp` is private. The project is read-only. The agent's worktree, git's shared directory and the home folder are writable. `.backspace/` is replaced by an empty folder, with the agent's worktree bound back in. Hidden paths are covered. Read-only files are bound over themselves. With `network = false` there is an empty network namespace. |
 | Seatbelt | macOS (`sandbox-exec`) | The same rules as a profile. Writes are denied everywhere except the worktree, git's directory, the home folder, `/dev` and a private temp folder (`TMPDIR`). Reads and writes of hidden paths are denied. `(deny network*)` applies when the network is off. |
-| none | Windows, or Linux without bubblewrap | Nothing isolates. Secrets are still taken out of the environment. |
+| low integrity | Windows | The command starts from a token lowered to the Low mandatory level, in a job object that is killed with it. A launcher does this: `backspace-jail`, or any Backspace binary given `__backspace_jail` first (Cauldron.exe included). Windows' mandatory integrity control then refuses every write to anything not labelled Low. Before each command, the worktree and a private temp folder are labelled Low. The policy, git's hooks, config and info, and the sealed tests are labelled Medium (read-only). Backspace's files (everything in `.backspace/` except the worktrees and Rampart's checkout), its data and the credential folders are labelled Medium no-read-up (hidden). |
+| none | Linux without bubblewrap | Nothing isolates. Secrets are still taken out of the environment. |
 
 The probe runs once per process, and it really starts the sandbox: being installed is not enough.
 
@@ -71,7 +72,7 @@ M1 already checks every model in code before a call or a CLI launch. M6 closes t
 
 ## Tests
 
-- `crates/core/tests/sandbox.rs`: 20 tests.
+- `crates/core/tests/sandbox.rs`: 20 tests. They run on Linux (bubblewrap), macOS (Seatbelt) and Windows (low integrity) in CI, with the sandbox required. Where a backend cannot do something (Windows: switch the network off, let agents commit), the test checks what it does instead.
 - `crates/core/tests/herdr.rs`: 8 tests.
 - A runner unit test: a wrapped CLI runs inside the sandbox command.
 - A unit test of git's common directory.
@@ -89,7 +90,14 @@ Older tests changed:
 
 ## Limits
 
-1. **Windows has no isolation.** It gets the scrubbed environment and the policy guard only. Charles tests on Windows, so this matters: a Windows sandbox (AppContainer or a restricted token plus a job object) is follow-up work.
+1. **Windows is weaker than Linux and macOS.**
+   - It cannot take the network away. Rampart therefore gets no shell on Windows, and `network = false` is not enforced there.
+   - git's store stays read-only to agents, so they cannot commit. Backspace commits their work, as it already did.
+   - The labels are written to disk and stay there:
+     - Credential folders and Backspace's files keep a no-read-up label. That only affects low-integrity processes (browser sandboxes and the like). Your own programs, at Medium, are unaffected.
+     - A file Backspace writes into `.backspace/` afresh after a command (rather than rewriting in place) is readable until the next command relabels it.
+   - Git for Windows' bash is an MSYS program. At low integrity it may fail to share state with a Git Bash that you have open at the same time.
+   - The Windows sandbox has been tested only by CI on windows-latest, not on Charles's machine.
 2. The home folder stays writable (caches, a CLI's own state). The rest of the system is readable. Only the listed credential paths are hidden.
 3. The network is on by default. What keeps executors to the approved model is that no other credentials reach them, not a network allowlist. `network = false` blocks everything, the board bridge included. Rampart always runs with the network off.
 4. The seatbelt profile was written for macOS and runs in CI on macos-14. It was not run on a Mac by hand.
