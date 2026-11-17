@@ -231,3 +231,33 @@ fn an_old_commit_phase_reads_as_learn() {
     std::fs::write(root.join(".backspace/phase.json"), r#"{"phase":"commit","gates":[]}"#).unwrap();
     assert_eq!(PhaseState::load(&root).phase, Phase::Learn);
 }
+
+#[test]
+fn the_rules_take_a_finished_run_from_execute_to_done_and_learn_never_blocks() {
+    let root = project("loop", &["test -f feature.txt"]);
+    let mut p = PhaseState::load(&root);
+    p.phase = Phase::Execute;
+    p.save(&root).unwrap();
+    let mut learn = || -> anyhow::Result<String> { anyhow::bail!("the memory store is offline") };
+    let steps = deliver::advance_rules(&root, &done(&[("T-1", &["A1"])]), &ShipOpts::default(), &mut learn).unwrap();
+    assert!(matches!(steps[0], deliver::Step::Executed));
+    assert!(matches!(&steps[1], deliver::Step::Verified(r) if r.passed));
+    assert!(matches!(&steps[2], deliver::Step::Shipped(d) if d.status == "delivered"));
+    assert!(matches!(&steps[3], deliver::Step::Learned(Err(_))));
+    let p = PhaseState::load(&root);
+    assert_eq!(p.phase, Phase::Done);
+    assert!(deliver::last_delivery(&root).is_some(), "a failed Learn leaves the delivery in place");
+}
+
+#[test]
+fn the_rules_stop_at_a_refusing_verify() {
+    let root = project("loopfail", &["false"]);
+    let mut p = PhaseState::load(&root);
+    p.phase = Phase::Execute;
+    p.save(&root).unwrap();
+    let mut learn = || -> anyhow::Result<String> { Ok(String::new()) };
+    let steps = deliver::advance_rules(&root, &done(&[("T-1", &["A1"])]), &ShipOpts::default(), &mut learn).unwrap();
+    assert_eq!(steps.len(), 2);
+    assert_eq!(PhaseState::load(&root).phase, Phase::Test);
+    assert!(deliver::last_delivery(&root).is_none());
+}
