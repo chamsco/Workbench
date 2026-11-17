@@ -36,6 +36,7 @@ pub mod model_server;
 pub mod options;
 pub mod phase;
 pub mod planning;
+pub mod rampart;
 pub mod policy_guard;
 pub mod trace;
 pub mod prefs;

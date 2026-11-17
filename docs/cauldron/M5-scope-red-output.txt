@@ -1,0 +1,3 @@
+test a_ticket_is_held_to_the_sealed_tests_of_the_criteria_it_covers has been running for over 60 seconds
+test a_ticket_is_held_to_the_sealed_tests_of_the_criteria_it_covers ... FAILED
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 29 filtered out; finished in 60.30s

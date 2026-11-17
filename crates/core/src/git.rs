@@ -146,6 +146,21 @@ pub async fn commit_all(dir: &Path, msg: &str) -> Result<bool> {
     Ok(true)
 }
 
+/// Commit only `paths` in `dir` (Rampart's sealed tests), leaving anything
+/// else uncommitted as it was. Returns false when they were already committed.
+pub async fn commit_paths(dir: &Path, paths: &[String], msg: &str) -> Result<bool> {
+    let mut add = vec!["add", "--"];
+    add.extend(paths.iter().map(String::as_str));
+    git(dir, &add).await?;
+    if git(dir, &["diff", "--cached", "--quiet"]).await.is_ok() {
+        return Ok(false);
+    }
+    let mut commit = vec!["commit", "-q", "-m", msg, "--"];
+    commit.extend(paths.iter().map(String::as_str));
+    git(dir, &commit).await?;
+    Ok(true)
+}
+
 /// `git diff --stat` of `branch` against where it forked from `base`.
 pub async fn diff_stat(dir: &Path, base: &str, branch: &str) -> Result<String> {
     git(dir, &["diff", "--stat", &format!("{base}...{branch}")]).await
@@ -353,6 +368,24 @@ fn day_number(d: &str) -> Option<u64> {
     let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) + 2) / 5 + day - 1;
     let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
     u64::try_from(era * 146_097 + doe - 719_468).ok()
+}
+
+/// The commit checked out in `dir`.
+pub async fn head(dir: &Path) -> Result<String> {
+    git(dir, &["rev-parse", "HEAD"]).await
+}
+
+/// Check out `commit` at `path` with no branch (Rampart's baseline tree). An
+/// old checkout there is removed first.
+pub async fn add_detached(root: &Path, path: &Path, commit: &str) -> Result<()> {
+    let p = path.to_string_lossy();
+    if path.exists() {
+        let _ = git(root, &["worktree", "remove", "--force", &p]).await;
+        let _ = std::fs::remove_dir_all(path);
+        let _ = git(root, &["worktree", "prune"]).await;
+    }
+    git(root, &["worktree", "add", "-q", "--detach", &p, commit]).await?;
+    Ok(())
 }
 
 pub fn worktree_path(root: &Path, key: &str) -> PathBuf {

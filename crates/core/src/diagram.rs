@@ -427,6 +427,7 @@ mod tests {
             phase: Default::default(),
             intake: Default::default(),
             planning: Default::default(),
+            rampart: Default::default(),
         }
     }
 

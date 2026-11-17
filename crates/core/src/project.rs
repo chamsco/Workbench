@@ -66,6 +66,9 @@ pub enum AgentKind {
     Triage,
     /// Looks something up for another agent on a small fast model; read-only.
     Scout,
+    /// Writes and seals the tests Builder must pass (PLAN §7); sees only the
+    /// approved spec and the baseline.
+    Rampart,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -95,6 +98,10 @@ pub struct Deliverable {
     /// did not end with one): the lists above are then unknown, not empty.
     #[serde(default)]
     pub reported: bool,
+    /// How strong the sealed tests were on this change: mutants of the
+    /// changed lines that the sealed tests caught (rampart.rs).
+    #[serde(default)]
+    pub mutation: Option<crate::rampart::MutationScore>,
 }
 
 /// One check a worker ran, as it reported it.
@@ -295,6 +302,10 @@ pub struct ProjectState {
     /// user, whether its checklist passed, and the hash they said yes to.
     #[serde(default)]
     pub planning: crate::planning::PlanningState,
+    /// Builder and Rampart (rampart.rs): Rampart's agent, the suite waiting
+    /// for a yes, the seal, and Builder's sealed-test attempts per ticket.
+    #[serde(default)]
+    pub rampart: crate::rampart::RampartState,
 }
 
 /// An agent opening or closing a canvas: a browser on its dev server, its
@@ -339,6 +350,7 @@ impl ProjectState {
             phase: Default::default(),
             intake: Default::default(),
             planning: Default::default(),
+            rampart: Default::default(),
         }
     }
 

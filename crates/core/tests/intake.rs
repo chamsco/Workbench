@@ -1170,12 +1170,26 @@ fn free_port() -> u16 {
     TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port()
 }
 
+/// Serve on a free port. The probe in `free_port` lets the port go before
+/// `serve` binds it, and a test running in parallel can take it in between,
+/// so a port that is taken by then is replaced by another.
+fn serve_free(h: &Harness, token: &str) -> (u16, tokio::task::AbortHandle) {
+    let mut last = None;
+    for _ in 0..8 {
+        let port = free_port();
+        match h.serve(&format!("127.0.0.1:{port}"), token) {
+            Ok(handle) => return (port, handle),
+            Err(e) => last = Some(e),
+        }
+    }
+    panic!("no free port to serve on: {:#}", last.unwrap());
+}
+
 #[test]
 fn the_task_endpoint_wants_the_token_and_starts_nothing_without_it() {
     let m = side_task_mock();
     let (h, ws) = open("st-token", m.port, ON, &[("README.md", "Say teh word.\n")]);
-    let port = free_port();
-    let _serving = h.serve(&format!("127.0.0.1:{port}"), "s3cret").unwrap();
+    let (port, _serving) = serve_free(&h, "s3cret");
     let body = json!({"text": SIDE_TASK}).to_string();
     for (what, auth) in [
         ("no header", None),
@@ -1264,8 +1278,7 @@ fn a_task_cannot_be_started_while_a_research_task_is_open() {
     nothing_was_started(&s, &ws);
     assert_eq!(s.intake.path, Some(TaskType::Research), "the research task is undisturbed");
     // Over the API it is a refusal too, and the same one.
-    let port = free_port();
-    let _serving = h.serve(&format!("127.0.0.1:{port}"), "s3cret").unwrap();
+    let (port, _serving) = serve_free(&h, "s3cret");
     let (code, text) = http_post(port, "/v1/task", Some("Bearer s3cret"), &json!({"text": SIDE_TASK}).to_string());
     assert_eq!(code, 400, "{text}");
     assert!(text.to_lowercase().contains("research task is open"), "{text}");
@@ -1346,8 +1359,7 @@ fn no_agent_is_offered_a_way_to_start_a_task() {
 // start nor approve a ticket that already exists.
 
 fn serve_on(h: &Harness, token: &str) -> (u16, tokio_abort::Handle) {
-    let port = free_port();
-    let handle = h.serve(&format!("127.0.0.1:{port}"), token).unwrap();
+    let (port, handle) = serve_free(h, token);
     (port, tokio_abort::Handle(handle))
 }
 
