@@ -35,6 +35,10 @@ pub mod memory_learn;
 pub mod memory_dream;
 pub mod mcp;
 pub mod metrics;
+pub mod model_engine;
+// The engine crate, for the shells that drive it.
+pub use brainpowr_engine;
+pub mod model_gateway;
 pub mod model_server;
 pub mod options;
 pub mod phase;
