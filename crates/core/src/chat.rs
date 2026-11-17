@@ -1218,13 +1218,18 @@ impl Chats {
         let mut m = Msg::new(Role::User, inb.text.clone(), Status::Done);
         m.author = Some(format!("tile:{}", inb.from));
         m.author_name = Some(self.tile_label(&inb.from));
-        self.edit_thread(to, |t| {
+        // The tile is answering from before its letter shows until its turn is
+        // running, so it never looks idle in between.
+        self.hops.lock().unwrap().insert(to.to_string(), inb.hops);
+        self.answering.lock().unwrap().insert(to.to_string(), inb);
+        if let Err(e) = self.edit_thread(to, |t| {
             t.updated = m.at;
             Chats::touched(t);
             t.messages.push(m);
-        })?;
-        self.hops.lock().unwrap().insert(to.to_string(), inb.hops);
-        self.answering.lock().unwrap().insert(to.to_string(), inb);
+        }) {
+            self.answering.lock().unwrap().remove(to);
+            return Err(e);
+        }
         let res = self.reply(to, ctx, None);
         if res.is_err() {
             self.answering.lock().unwrap().remove(to);
@@ -1250,7 +1255,9 @@ impl Chats {
     /// A tile finished a turn: its answer goes back to whoever asked, and the
     /// next letter waiting for it starts.
     fn after_turn(self: &Arc<Self>, tid: &str, mid: &str, ctx: &Ctx) {
-        let inb = self.answering.lock().unwrap().remove(tid);
+        // Still answering until the answer is on its way: the asker's turn
+        // starts (or its letter waits) before this tile lets go.
+        let inb = self.answering.lock().unwrap().get(tid).cloned();
         if let Some(inb) = inb.filter(|i| i.reply) {
             let label = self.tile_label(tid);
             let m = self.peek(tid).and_then(|t| t.messages.into_iter().find(|m| m.id == mid));
@@ -1266,6 +1273,7 @@ impl Chats {
                 let _ = self.take_letter(&inb.from, back, ctx.clone());
             }
         }
+        self.answering.lock().unwrap().remove(tid);
         let next = self.inbox.lock().unwrap().get_mut(tid).and_then(|q| q.pop_front());
         if let Some(n) = next {
             let _ = self.start_letter(tid, n, ctx.clone());

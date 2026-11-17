@@ -1,188 +1,3 @@
-   Compiling proc-macro2 v1.0.107
-   Compiling unicode-ident v1.0.26
-   Compiling quote v1.0.47
-   Compiling libc v0.2.189
-   Compiling serde_core v1.0.229
-   Compiling cfg-if v1.0.5
-   Compiling memchr v2.8.3
-   Compiling itoa v1.0.18
-   Compiling syn v3.0.6
-   Compiling serde v1.0.229
-   Compiling zmij v1.0.23
-   Compiling pin-project-lite v0.2.17
-   Compiling serde_json v1.0.151
-   Compiling stable_deref_trait v1.2.1
-   Compiling shlex v2.0.1
-   Compiling find-msvc-tools v0.1.14
-   Compiling futures-core v0.3.34
-   Compiling anyhow v1.0.104
-   Compiling cc v1.5.1
-   Compiling bytes v1.12.1
-   Compiling bitflags v2.13.2
-   Compiling once_cell v1.21.4
-   Compiling smallvec v1.16.2
-   Compiling version_check v0.9.5
-   Compiling futures-sink v0.3.34
-   Compiling futures-channel v0.3.34
-   Compiling errno v0.3.14
-   Compiling litemap v0.8.3
-   Compiling writeable v0.6.4
-   Compiling signal-hook-registry v1.4.8
-   Compiling ring v0.17.14
-   Compiling http v1.5.0
-   Compiling socket2 v0.6.5
-   Compiling synstructure v0.14.0
-   Compiling mio v1.2.3
-   Compiling slab v0.4.12
-   Compiling icu_properties_data v2.3.0
-   Compiling utf8_iter v1.0.4
-   Compiling zeroize v1.9.0
-   Compiling futures-task v0.3.34
-   Compiling futures-io v0.3.34
-   Compiling icu_normalizer_data v2.3.0
-   Compiling rustls-pki-types v1.15.1
-   Compiling percent-encoding v2.3.2
-   Compiling httparse v1.10.1
-   Compiling serde_derive v1.0.229
-   Compiling zerofrom-derive v0.1.8
-   Compiling yoke-derive v0.8.3
-   Compiling zerofrom v0.1.8
-   Compiling zerovec-derive v0.11.6
-   Compiling yoke v0.8.3
-   Compiling displaydoc v0.2.7
-   Compiling zerotrie v0.2.5
-   Compiling zerovec v0.11.8
-   Compiling tokio-macros v2.7.2
-   Compiling tinystr v0.8.4
-   Compiling potential_utf v0.1.6
-   Compiling icu_locale_core v2.3.0
-   Compiling futures-macro v0.3.34
-   Compiling icu_collections v2.3.0
-   Compiling futures-util v0.3.34
-   Compiling icu_provider v2.3.1
-   Compiling tokio v1.53.1
-   Compiling http-body v1.1.0
-   Compiling getrandom v0.2.17
-   Compiling untrusted v0.9.0
-   Compiling icu_properties v2.3.0
-   Compiling icu_normalizer v2.3.0
-   Compiling try-lock v0.2.5
-   Compiling log v0.4.34
-   Compiling rustls v0.23.45
-   Compiling tower-service v0.3.3
-   Compiling want v0.3.1
-   Compiling idna_adapter v1.2.2
-   Compiling form_urlencoded v1.2.2
-   Compiling tracing-core v0.1.36
-   Compiling rustls-webpki v0.103.15
-   Compiling atomic-waker v1.1.2
-   Compiling subtle v2.6.1
-   Compiling tracing v0.1.44
-   Compiling idna v1.1.0
-   Compiling generic-array v0.14.7
-   Compiling sync_wrapper v1.0.2
-   Compiling ipnet v2.12.2
-   Compiling openssl-probe v0.2.1
-   Compiling tower-layer v0.3.3
-   Compiling simd-adler32 v0.3.10
-   Compiling base64 v0.23.1
-   Compiling rustls-native-certs v0.8.4
-   Compiling url v2.5.8
-   Compiling webpki-roots v1.0.9
-   Compiling rustix v1.1.5
-   Compiling hyper v1.11.1
-   Compiling tower v0.5.3
-   Compiling hyper-util v0.1.21
-   Compiling ryu v1.0.23
-   Compiling tokio-rustls v0.26.5
-   Compiling typenum v1.20.1
-   Compiling zerocopy v0.8.59
-   Compiling crc32fast v1.5.2
-   Compiling serde_urlencoded v0.7.1
-   Compiling hyper-rustls v0.27.10
-   Compiling tower-http v0.6.11
-   Compiling http-body-util v0.1.5
-   Compiling linux-raw-sys v0.12.1
-   Compiling base64 v0.22.1
-   Compiling adler2 v2.0.1
-   Compiling reqwest v0.12.28
-   Compiling miniz_oxide v0.9.1
-   Compiling block-buffer v0.10.4
-   Compiling crypto-common v0.1.7
-   Compiling equivalent v1.0.2
-   Compiling hashbrown v0.17.1
-   Compiling indexmap v2.14.2
-   Compiling digest v0.10.7
-   Compiling flate2 v1.1.10
-   Compiling getrandom v0.3.4
-   Compiling cpufeatures v0.2.17
-   Compiling ahash v0.8.12
-   Compiling zip v2.6.1
-   Compiling autocfg v1.5.1
-   Compiling bumpalo v3.20.3
-   Compiling zopfli v0.8.4
-   Compiling num-traits v0.2.19
-   Compiling filetime v0.2.29
-   Compiling pkg-config v0.3.34
-   Compiling vcpkg v0.2.15
-   Compiling xattr v1.6.1
-   Compiling crossbeam-utils v0.8.23
-   Compiling tar v0.4.46
-   Compiling rand_core v0.9.5
-   Compiling libsqlite3-sys v0.30.1
-   Compiling ppv-lite86 v0.2.21
-   Compiling sha2 v0.10.9
-   Compiling backspace-runner v0.1.0 (/home/user/workbench/crates/runner)
-   Compiling parking v2.2.1
-   Compiling thiserror v2.0.21
-   Compiling event-listener v5.4.2
-   Compiling rand_chacha v0.9.0
-   Compiling hashbrown v0.14.5
-   Compiling gethostname v1.1.0
-   Compiling miniz_oxide v0.8.9
-   Compiling fdeflate v0.3.7
-   Compiling toml_datetime v0.6.11
-   Compiling serde_spanned v0.6.9
-   Compiling cauldron-decision v0.1.0 (/home/user/workbench/crates/decision)
-   Compiling cauldron-platform v0.1.0 (/home/user/workbench/crates/platform)
-   Compiling thiserror-impl v2.0.21
-   Compiling memmap2 v0.9.11
-   Compiling x11rb-protocol v0.13.2
-   Compiling winnow v0.7.15
-   Compiling toml_write v0.1.2
-   Compiling pxfm v0.1.30
-   Compiling zune-core v0.5.3
-   Compiling xkeysym v0.2.1
-   Compiling xkbcommon v0.9.0
-   Compiling zune-jpeg v0.5.15
-   Compiling moxcms v0.8.1
-   Compiling toml_edit v0.22.27
-   Compiling png v0.18.1
-   Compiling concurrent-queue v2.5.0
-   Compiling hashlink v0.9.1
-   Compiling rand v0.9.5
-   Compiling event-listener-strategy v0.5.4
-   Compiling brainpowr-engine v0.1.0 (/home/user/workbench/crates/engine)
-   Compiling x11rb v0.13.2
-   Compiling sha1 v0.10.7
-   Compiling futures-executor v0.3.34
-   Compiling backspace-colony v0.1.0 (/home/user/workbench/crates/colony)
-   Compiling nom v8.0.0
-   Compiling byteorder-lite v0.1.0
-   Compiling fallible-streaming-iterator v0.1.9
-   Compiling utf-8 v0.7.6
-   Compiling bytemuck v1.25.2
-   Compiling fallible-iterator v0.3.0
-   Compiling data-encoding v2.11.1
-   Compiling image v0.25.10
-   Compiling rusqlite v0.32.1
-   Compiling tungstenite v0.26.2
-   Compiling futures v0.3.34
-   Compiling async-channel v2.5.0
-   Compiling toml v0.8.23
-   Compiling dunce v1.0.5
-   Compiling cauldron-chrome v0.1.0 (/home/user/workbench/crates/chrome)
-   Compiling enigo v0.6.1
    Compiling backspace-core v0.1.0 (/home/user/workbench/crates/core)
 warning: variable does not need to be mutable
    --> crates/core/src/usage.rs:342:9
@@ -194,10 +9,10 @@ warning: variable does not need to be mutable
     |
     = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
 
-warning: `backspace-core` (lib test) generated 1 warning (1 duplicate)
-warning: `backspace-core` (lib) generated 1 warning (run `cargo fix --lib -p backspace-core` to apply 1 suggestion)
+warning: `backspace-core` (lib test) generated 1 warning (run `cargo fix --lib -p backspace-core --tests` to apply 1 suggestion)
+warning: `backspace-core` (lib) generated 1 warning (1 duplicate)
    Compiling backspace-cli v0.1.0 (/home/user/workbench/crates/cli)
-    Finished `test` profile [unoptimized] target(s) in 58.39s
+    Finished `test` profile [unoptimized] target(s) in 27.58s
      Running unittests src/main.rs (target/debug/deps/backspace_cli-04eca940747f7c84)
 
 running 0 tests
@@ -210,17 +25,17 @@ running 2 tests
 test an_unknown_ship_target_is_refused ... ok
 test deliver_refuses_a_run_without_finished_tickets_and_exits_nonzero ... ok
 
-test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
 
      Running tests/eval_cli.rs (target/debug/deps/eval_cli-8bd4154803a94d6c)
 
 running 4 tests
-test the_threshold_can_be_given ... ok
 test it_prints_the_report_for_labeled_traces ... ok
+test the_threshold_can_be_given ... ok
 test a_missing_file_is_an_error ... ok
 test unlabeled_traces_are_an_error ... ok
 
-test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
 
      Running tests/policy_cli.rs (target/debug/deps/policy_cli-99a9a6bea6ab73e4)
 
@@ -235,112 +50,111 @@ test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 
 running 25 tests
 test backend::tests::cli_states_fold_into_five ... ok
-test backend::tests::cli_workspace_json_maps_to_ours ... ok
-test backend::tests::capabilities_print_providers ... ok
 test backend::tests::create_args_are_the_cli_flags ... ok
-test backend::tests::exec_output_reads_the_cli_exit_code ... ok
+test backend::tests::capabilities_print_providers ... ok
+test backend::tests::cli_workspace_json_maps_to_ours ... ok
 test backend::tests::error_message_comes_out_verbatim ... ok
+test backend::tests::exec_output_reads_the_cli_exit_code ... ok
+test colony::tests::a_missing_state_file_is_an_empty_colony ... ok
 test backend::tests::a_missing_cli_is_an_error_not_a_panic ... ok
 test backend::tests::parse_error_ignores_noise_and_junk ... ok
-test colony::tests::a_missing_state_file_is_an_empty_colony ... ok
 test colony::tests::a_corrupt_state_file_is_an_error ... ok
 test colony::tests::duplicate_name_is_refused_before_the_backend ... ok
+test colony::tests::exec_records_argv_and_returns_the_output ... ok
 test colony::tests::colony_json_round_trips ... ok
 test colony::tests::list_adopts_what_the_backend_reports ... ok
-test colony::tests::exec_records_argv_and_returns_the_output ... ok
 test colony::tests::unknown_workspace_is_an_error_not_a_panic ... ok
-test colony::tests::stop_force_reaches_the_backend ... ok
 test fake::tests::the_fake_refuses_a_duplicate_like_the_cli ... ok
 test fake::tests::the_fake_reports_running_then_stopped ... ok
 test prompt::tests::chat_prompt_copes_without_a_task ... ok
-test colony::tests::task_and_created_survive_a_backend_round_trip ... ok
 test prompt::tests::chat_prompt_names_the_workspace ... ok
 test tools::tests::every_tool_carries_a_description_and_an_object_schema ... ok
-test tools::tests::required_arguments_are_the_ones_the_registry_needs ... ok
+test colony::tests::stop_force_reaches_the_backend ... ok
 test tools::tests::five_tools_with_the_right_names ... ok
+test tools::tests::required_arguments_are_the_ones_the_registry_needs ... ok
+test colony::tests::task_and_created_survive_a_backend_round_trip ... ok
 test colony::tests::lifecycle_create_list_status_stop_start_delete ... ok
 
-test result: ok. 25 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 25 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
 
      Running unittests src/lib.rs (target/debug/deps/backspace_core-d733495e5860b7a3)
 
 running 195 tests
 test accounts::tests::default_profile_dir_sits_under_the_data_accounts_folder ... ok
 test accounts::tests::best_prefers_healthy_over_warning_at_equal_failures ... ok
+test accounts::tests::fails_decay_after_a_day_and_the_ring_stays_small ... ok
+test accounts::tests::note_limit_cools_down_and_note_fail_does_not ... ok
 test accounts::tests::env_for_uses_the_providers_own_variable ... ok
 test accounts::tests::order_drops_disabled_and_cooled_down_accounts ... ok
-test accounts::tests::note_limit_cools_down_and_note_fail_does_not ... ok
-test accounts::tests::fails_decay_after_a_day_and_the_ring_stays_small ... ok
 test accounts::tests::order_ranks_state_then_failures_then_priority_then_last_ok ... ok
 test accounts::tests::policies_decide_who_switches ... ok
-test agents::tests::next_run_maths ... ok
 test accounts::tests::round_trips_through_json_and_decays_on_load ... ok
 test agents::tests::next_run_round_trips_a_negative_offset ... ok
+test agents::tests::next_run_maths ... ok
 test agents::tests::quoting ... ok
 test agents::tests::routine_summaries ... ok
 test agents::tests::rules_become_denied_tools ... ok
-test agents::tests::brief_in_names_the_project_personality_and_routines ... ok
 test agents::tests::save_cleans_routines_and_refreshes_a_passed_wake ... ok
+test agents::tests::brief_in_names_the_project_personality_and_routines ... ok
 test agents::tests::routine_save_validates_and_persists ... ok
 test apps::tests::manifest_rules ... ok
 test artifact::tests::a_body_cannot_be_unbounded_and_a_summary_says_what_it_is ... ok
 test artifact::tests::a_table_row_must_match_the_header ... ok
 test artifact::tests::an_old_state_file_without_artifacts_still_loads ... ok
-test agents::tests::save_list_brief_delete ... ok
 test artifact::tests::each_kind_is_validated_on_its_own_field ... ok
 test artifact::tests::ids_are_unique_and_addressable ... ok
-test artifact::tests::options_must_refer_to_a_set_that_exists ... ok
 test artifact::tests::kinds_this_build_does_not_know_are_kept_not_dropped ... ok
+test artifact::tests::options_must_refer_to_a_set_that_exists ... ok
 test artifact::tests::the_list_is_bounded_and_drops_the_oldest ... ok
 test board::tests::a_thread_is_the_pair_whichever_way_it_went ... ok
 test board::tests::conversations_group_replies_and_broadcasts_separately ... ok
 test board::tests::post_and_read ... ok
+test agents::tests::save_list_brief_delete ... ok
 test apps::tests::install_serve_store_remove ... ok
 test chat::tests::a_chain_of_hand_offs_stops ... ok
 test chat::tests::a_busy_tile_gets_its_letter_after_the_turn ... ok
-test chat::tests::a_forwarded_letter_carries_the_first_senders_words ... ok
 test chat::tests::a_ghost_thread_is_never_written_and_never_listed ... ok
-test chat::tests::a_resumed_session_reads_what_it_missed ... ok
+test agents::tests::docker_computer ... ok
+test chat::tests::a_forwarded_letter_carries_the_first_senders_words ... ok
 test chat::tests::a_thread_file_without_a_life_loads_as_a_normal_chat ... ok
-test chat::tests::a_letter_is_a_turn_and_its_answer_goes_back ... ok
+test chat::tests::a_resumed_session_reads_what_it_missed ... ok
 test chat::tests::ansi_is_stripped ... ok
-test chat::tests::a_temporal_thread_forgets_itself_after_its_deadline ... ok
-test chat::tests::base64_roundtrip ... ok
 test chat::tests::activity_counts_prompts_hours_and_sessions ... ok
+test chat::tests::base64_roundtrip ... ok
+test chat::tests::a_letter_is_a_turn_and_its_answer_goes_back ... ok
 test chat::tests::link_meta ... ok
 test chat::tests::context_map_counts_the_brief_and_each_message ... ok
 test chat::tests::mentions_pick_a_cli ... ok
+test chat::tests::a_temporal_thread_forgets_itself_after_its_deadline ... ok
 test chat::tests::making_a_thread_a_ghost_deletes_the_file_it_had ... ok
-test chat::tests::talking_to_a_temporal_thread_moves_its_deadline ... ok
 test chat::tests::at_a_tile_hands_over_and_posts_the_answer_here ... ok
 test chat::tests::purging_ghosts_removes_only_ghosts ... ok
 test chat::tests::titles_are_short ... ok
 test chat::tests::the_second_hop_is_the_last ... ok
 test cloud::tests::plan_table ... ok
 test companion::tests::pair_link_escapes ... ok
+test chat::tests::talking_to_a_temporal_thread_moves_its_deadline ... ok
 test config::tests::default_config_parses ... ok
 test delegate::tests::a_task_whose_bot_is_gone_comes_back_unassigned ... ok
 test delegate::tests::adds_assigns_and_survives_a_reopen ... ok
 test delegate::tests::an_empty_title_is_refused ... ok
-test agents::tests::docker_computer ... ok
 test delegate::tests::auto_off_leaves_work_unassigned ... ok
 test delegate::tests::importing_tickets_twice_keeps_one_task_each ... ok
-test delegate::tests::auto_picks_the_shortest_queue_then_the_cheaper_minute ... ok
+test delegate::tests::the_snapshot_prices_a_queue_and_a_cli_is_free ... ok
 test diagram::tests::plan_layers_by_blockers_and_flags_missing_checks ... ok
 test effort::tests::clamps_up_then_down ... ok
-test delegate::tests::the_snapshot_prices_a_queue_and_a_cli_is_free ... ok
-test git::tests::a_new_repo_lists_folders_and_says_so ... ok
+test delegate::tests::auto_picks_the_shortest_queue_then_the_cheaper_minute ... ok
+test chat::tests::threads_persist_react_branch_delete ... ok
 test git::tests::day_numbers ... ok
 test git::tests::parse_changes_reads_status_and_counts ... ok
 test hands::browser::tests::table_lists_actions_and_cuts_text ... ok
 test hands::decide::tests::jev_heads_match_its_action_space ... ok
 test hands::decide::tests::local_answer_is_held_to_the_page ... ok
 test hands::desktop::tests::clicks_land_in_display_coordinates ... ok
-test chat::tests::threads_persist_react_branch_delete ... ok
-test hands::tests::take_control_stops_the_tools ... ok
 test hands::tests::browser_and_desktop_keep_their_own_view ... ok
-test harness::delivery_record_tests::a_cli_reply_splits_into_prose_and_its_record ... ok
+test hands::tests::take_control_stops_the_tools ... ok
 test hands::tests::tools_follow_what_the_agent_was_given ... ok
+test harness::delivery_record_tests::a_cli_reply_splits_into_prose_and_its_record ... ok
 test harness::delivery_record_tests::a_cli_reply_without_a_record_is_all_prose ... ok
 test harness::delivery_record_tests::a_partial_or_malformed_record_is_refused ... ok
 test harnesses::tests::codex_plan_from_id_token ... ok
@@ -352,11 +166,12 @@ test intake::tests::first_asks_when_the_classifier_is_unsure_or_fails ... ok
 test intake::tests::first_goes_when_the_classifier_is_sure ... ok
 test layout::tests::a_card_can_come_out_and_a_split_still_works ... ok
 test layout::tests::a_full_stack_never_loses_a_canvas ... ok
-test layout::tests::centre_swaps_and_self_is_a_no_op ... ok
 test layout::tests::a_stack_survives_json_and_older_shapes_still_load ... ok
+test layout::tests::centre_swaps_and_self_is_a_no_op ... ok
 test layout::tests::closing_a_card_keeps_the_stack_valid_and_renumbers_it ... ok
 test layout::tests::defaults_and_presets_cover_every_pane ... ok
 test layout::tests::drag_to_an_edge_splits_there_and_the_old_spot_closes ... ok
+test git::tests::a_new_repo_lists_folders_and_says_so ... ok
 test layout::tests::dropping_on_a_cards_middle_stacks_instead_of_swapping ... ok
 test layout::tests::json_shape ... ok
 test layout::tests::one_over_two_is_a_long_top_and_two_squares ... ok
@@ -366,8 +181,8 @@ test layout::tests::zones ... ok
 test mcp::tests::rules_keep_tools_away ... ok
 test memory::tests::dates_and_meta ... ok
 test memory::tests::moves_old_json_in ... ok
-test cloud::tests::dev_server_end_to_end ... ok
 test memory::tests::repo_format_hand_edits_and_history ... ok
+test cloud::tests::dev_server_end_to_end ... ok
 test memory_dream::tests::plan_applies_conservatively ... ok
 test memory_dream::tests::prompt_lists_notes_and_messages ... ok
 test memory_learn::tests::learns_from_rejections ... ok
@@ -379,14 +194,14 @@ test model_engine::tests::pick_file_matches_the_quant_and_takes_the_smallest ...
 test model_engine::tests::repos_and_paths_stay_inside_the_models_folder ... ok
 test model_engine::tests::size_labels_read_as_parameters ... ok
 test model_gateway::tests::find_by_id_then_by_runtime_name_and_never_past_this_machine_for_others ... ok
-test model_gateway::tests::forward_streams_the_answer_and_rewrites_the_model ... ok
+test memory::tests::scopes_and_persistence ... ok
 test model_gateway::tests::port_of_reads_the_authority ... ok
 test model_gateway::tests::served_prefixes_other_machines_and_keeps_the_first_of_a_clash ... ok
 test model_server::tests::human_size_reads_in_decimal_units ... ok
+test model_gateway::tests::forward_streams_the_answer_and_rewrites_the_model ... ok
 test model_server::tests::is_loopback_only_for_this_machine ... ok
 test model_server::tests::openai_base_adds_v1_for_ollama ... ok
 test model_server::tests::order_breaks_ties_by_size_then_id ... ok
-test memory::tests::scopes_and_persistence ... ok
 test model_server::tests::order_puts_the_smallest_tiny_first ... ok
 test model_server::tests::parse_ollama_tags_fixture ... ok
 test model_server::tests::parse_openai_models_fixture ... ok
@@ -403,8 +218,8 @@ test options::tests::bad_sets_are_refused ... ok
 test phase::tests::a_model_can_block_but_never_open ... ok
 test phase::tests::a_refusal_is_kept_and_a_pass_moves_on ... ok
 test phase::tests::a_refused_respec_reopens_specify_and_a_pass_does_not_skip_ahead ... ok
-test phase::tests::a_veto_closes_the_gate_again ... ok
 test phase::tests::four_stages_over_seven_phases ... ok
+test phase::tests::a_veto_closes_the_gate_again ... ok
 test phase::tests::round_trips_and_old_state_loads_without_it ... ok
 test phase::tests::spend_lands_on_the_stage_it_happened_in ... ok
 test phase::tests::loads_and_saves_beside_the_project ... ok
@@ -413,33 +228,33 @@ test provider::tests::openai_roundtrips_tool_calls ... ok
 test relay::tests::a_mention_names_another_tile_only ... ok
 test relay::tests::labels_are_unique_and_one_tile_coordinates ... ok
 test relay::tests::letters_go_through_the_outbox_once_in_order ... ok
-test relay::tests::the_brief_names_the_others_and_the_coordinator ... ok
-test request::tests::keeps_every_word_and_order ... ok
-test router::liveness_tests::a_listening_port_is_up_and_a_closed_one_is_not ... ok
 test projects::tests::save_list_rename_assign_delete ... ok
+test relay::tests::the_brief_names_the_others_and_the_coordinator ... ok
+test router::liveness_tests::a_listening_port_is_up_and_a_closed_one_is_not ... ok
+test request::tests::keeps_every_word_and_order ... ok
 test memory::tests::the_librarian_files_a_batch_as_one_commit ... ok
-test router::tests::heuristic_scales_with_task ... ok
+test router::tests::cli_pin_routes_workers_not_the_planner ... ok
 test sandbox::tests::git_common_dir_of_a_linked_worktree ... ok
-test skills::tests::a_workspace_folder_overrides_a_default_and_shows_as_ours ... ok
+test router::tests::heuristic_scales_with_task ... ok
 test skills::tests::defaults_load_with_descriptions ... ok
 test skills::tests::description_reads_plain_folded_and_literal ... ok
 test skills::tests::found_says_where_a_skill_came_from ... ok
-test skills::tests::search_ranks_a_name_hit_above_a_body_hit ... ok
+test skills::tests::a_workspace_folder_overrides_a_default_and_shows_as_ours ... ok
 test spec::tests::a_complete_spec_passes ... ok
 test spec::tests::coverage_names_every_hole ... ok
 test spec::tests::each_rule_names_what_is_missing ... ok
 test spec::tests::extract_takes_the_last_spec_block_only ... ok
-test spec::tests::the_prompt_carries_the_grilling_skill_the_rules_and_the_last_refusal ... ok
+test skills::tests::search_ranks_a_name_hit_above_a_body_hit ... ok
 test spec::tests::the_skeleton_alone_is_refused_for_every_empty_part ... ok
+test spec::tests::the_prompt_carries_the_grilling_skill_the_rules_and_the_last_refusal ... ok
 test stages::tests::a_review_only_blocks_when_it_says_so ... ok
 test stages::tests::evidence_is_fenced_as_data ... ok
 test stages::tests::execute_waits_for_every_ticket ... ok
-test router::tests::cli_pin_routes_workers_not_the_planner ... ok
 test stages::tests::the_librarian_drops_only_what_it_names ... ok
 test ticket::tests::parses_and_renders ... ok
 test tools::tests::resolve_blocks_escape ... ok
-test stages::tests::notes_reach_memory_as_one_commit_with_the_drops_on_the_receipt ... ok
 test tools::tests::write_edit_read_bash ... ok
+test stages::tests::notes_reach_memory_as_one_commit_with_the_drops_on_the_receipt ... ok
 test trace::tests::records_tools_and_exports_otlp ... ok
 test update::tests::a_merged_pull_request_reads_as_its_title ... ok
 test update::tests::another_commit_is_newer_but_the_same_one_is_not ... ok
@@ -451,17 +266,17 @@ test update::tests::the_changelog_is_pull_requests_newest_first ... ok
 test update::tests::the_stamp_is_the_commit_the_build_was_given ... ok
 test usage::tests::claude_counts_once_per_message_and_call ... ok
 test usage::tests::codex_sums_records_not_cumulative ... ok
-test usage::tests::opencode_reads_tokens_and_tools ... ok
+test router::tests::excluded_models_never_get_a_worker ... ok
+test trace::tests::exports_to_a_collector ... ok
 test usage::tests::parses_iso_times ... ok
-test usage::tests::propose_cites_numbers ... ok
 test usage::tests::real_logs ... ignored
+test usage::tests::propose_cites_numbers ... ok
 test usage::tests::sources_report_what_exists ... ok
 test usage::tests::window_uses_record_time ... ok
-test trace::tests::exports_to_a_collector ... ok
-test router::tests::excluded_models_never_get_a_worker ... ok
+test usage::tests::opencode_reads_tokens_and_tools ... ok
 test git::tests::branch_merge_and_conflict ... ok
 
-test result: ok. 194 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.47s
+test result: ok. 194 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.56s
 
      Running unittests src/bin/backspace-jail.rs (target/debug/deps/backspace_jail-16fe09bb64969153)
 
@@ -476,7 +291,7 @@ test the_same_advisor_is_attached_once_the_lists_name_it ... ok
 test it_is_checked_at_the_role_of_the_agent_that_calls_it ... ok
 test an_advisor_the_lists_do_not_name_is_left_off_and_the_call_still_goes_ahead ... ok
 
-test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.28s
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.27s
 
      Running tests/agents.rs (target/debug/deps/agents-856cc01022023e22)
 
@@ -504,24 +319,24 @@ test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 
 running 8 tests
 test a_call_that_costs_more_than_it_reserved_is_logged_and_stops_the_next_one ... ok
-test the_advisor_is_left_off_when_its_reserve_does_not_fit ... ok
 test source_code_in_the_prompt_is_bounded_by_its_bytes ... ok
+test the_advisor_is_left_off_when_its_reserve_does_not_fit ... ok
 test a_unicode_prompt_is_bounded_by_its_bytes ... ok
 test token_budgets_count_the_providers_tokens_not_the_billing_weighted_ones ... ok
 test the_anthropic_prompt_is_reserved_at_the_cache_write_price ... ok
 test the_input_bound_is_read_from_the_request_that_was_sent ... ok
 test concurrent_agents_cannot_jointly_pass_the_project_budget ... ok
 
-test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.64s
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.65s
 
      Running tests/budget_reservation.rs (target/debug/deps/budget_reservation-4c7a1356995f66e4)
 
 running 8 tests
-test a_reservation_is_the_worst_case_with_input_priced_at_the_factor ... ok
-test a_fixed_reservation_for_the_advisor_fits_or_is_refused_and_is_released ... ok
-test a_stopped_call_releases_its_reservation ... ok
-test every_scope_a_call_belongs_to_is_held_and_others_are_not ... ok
 test a_call_that_cost_more_than_its_reservation_is_reported_with_by_how_much ... ok
+test a_stopped_call_releases_its_reservation ... ok
+test a_fixed_reservation_for_the_advisor_fits_or_is_refused_and_is_released ... ok
+test a_reservation_is_the_worst_case_with_input_priced_at_the_factor ... ok
+test every_scope_a_call_belongs_to_is_held_and_others_are_not ... ok
 test what_is_held_never_passes_the_limit_while_calls_are_in_flight ... ok
 test parallel_calls_cannot_jointly_exceed_a_token_budget ... ok
 test parallel_calls_cannot_jointly_exceed_a_dollar_budget ... ok
@@ -532,10 +347,10 @@ test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 
 running 5 tests
 test the_router_is_described_as_budgeted_where_it_is_and_unmetered_where_it_is_not ... ok
-test a_strict_budget_section_names_the_paths_to_switch_off ... ok
-test the_three_classes_are_kept_and_unmetered_paths_do_not_claim_a_guarantee ... ok
-test the_notes_do_not_oversell_policy_integrity ... ok
 test the_boundaries_state_every_assumption_a_reservation_rests_on ... ok
+test the_three_classes_are_kept_and_unmetered_paths_do_not_claim_a_guarantee ... ok
+test a_strict_budget_section_names_the_paths_to_switch_off ... ok
+test the_notes_do_not_oversell_policy_integrity ... ok
 
 test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 
@@ -544,17 +359,17 @@ test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 running 1 test
 test chat_with_a_remote_a2a_agent ... ok
 
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.51s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
 
      Running tests/cli_budget.rs (target/debug/deps/cli_budget-cbef65db0003aa8e)
 
 running 4 tests
-test a_running_cli_turn_is_stopped_when_it_crosses_the_limit ... ok
-test a_dollar_budget_with_an_unpriced_cli_model_fails_closed ... ok
 test a_cli_turn_is_refused_when_the_task_budget_is_spent ... ok
+test a_dollar_budget_with_an_unpriced_cli_model_fails_closed ... ok
+test a_running_cli_turn_is_stopped_when_it_crosses_the_limit ... ok
 test a_cli_worker_without_any_budget_runs_as_before ... ok
 
-test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s
 
      Running tests/cli_concurrency.rs (target/debug/deps/cli_concurrency-6179d1f4ecebf035)
 
@@ -567,7 +382,7 @@ test a_dollar_project_limit_refuses_a_priced_cli_worker_before_it_starts ... ok
 test parallel_admissions_on_one_budget_hand_out_it_at_most_once ... ok
 test cli_workers_on_one_project_token_budget_run_one_at_a_time_and_stop_when_it_is_spent ... ok
 
-test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.12s
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.14s
 
      Running tests/cli_model_policy.rs (target/debug/deps/cli_model_policy-ed1fccfbb2a6abc1)
 
@@ -581,14 +396,14 @@ test a_new_project_lets_its_own_cli_entries_run ... ok
 test a_codex_model_the_orchestration_list_does_not_name_is_refused_for_the_planner ... ok
 test a_full_model_id_is_not_flagged_as_an_alias ... ok
 test a_pin_on_a_cli_whose_command_line_precedence_is_not_verified_counts_as_unpinned ... ok
-test a_pinned_claude_code_entry_is_started_on_its_model ... ok
 test a_codex_planner_and_worker_are_checked_against_their_own_lists ... ok
 test a_pinned_codex_entry_is_started_on_its_model ... ok
-test a_pinned_model_the_orchestration_list_does_not_name_is_refused_for_the_planner ... ok
-test adding_an_unpinned_exception_is_a_loosening_that_waits_for_a_person ... ok
+test a_pinned_claude_code_entry_is_started_on_its_model ... ok
 test a_pinned_model_the_execution_list_does_not_name_is_refused_before_the_cli_starts ... ok
-test an_enforced_policy_without_the_list_or_with_an_empty_one_accepts_no_unpinned_cli ... ok
+test adding_an_unpinned_exception_is_a_loosening_that_waits_for_a_person ... ok
 test a_planner_is_checked_as_the_entry_it_was_pinned_to_not_the_first_one_on_that_cli ... ok
+test an_enforced_policy_without_the_list_or_with_an_empty_one_accepts_no_unpinned_cli ... ok
+test a_pinned_model_the_orchestration_list_does_not_name_is_refused_for_the_planner ... ok
 test an_enforced_project_with_an_unpinned_cli_entry_it_does_not_name_says_so_when_it_opens ... ok
 test an_empty_model_is_not_a_pin ... ok
 test a_project_with_no_policy_runs_as_it_always_did ... ok
@@ -601,46 +416,46 @@ test editing_backspace_toml_after_the_project_opened_does_not_change_the_model .
 test legacy_open_runs_unpinned_too ... ok
 test the_environment_cannot_change_a_pinned_codex_model ... ok
 test the_environment_cannot_change_a_pinned_model ... ok
-test an_unpinned_entry_under_an_enforced_policy_is_refused_unless_named ... ok
-test under_an_enforced_policy_a_cli_entry_runs_unpinned_only_if_the_policy_says_so ... ok
 test planner_and_worker_are_checked_against_their_own_lists ... ok
+test under_an_enforced_policy_a_cli_entry_runs_unpinned_only_if_the_policy_says_so ... ok
+test an_unpinned_entry_under_an_enforced_policy_is_refused_unless_named ... ok
 test without_an_enforced_policy_unpinned_is_open_unless_a_list_says_otherwise ... ok
 test the_exception_is_per_entry ... ok
 test the_subagent_model_variable_is_taken_from_a_pinned_claude_code_under_an_enforced_policy ... ok
 test without_an_enforced_policy_the_environment_is_left_alone ... ok
 
-test result: ok. 36 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.48s
+test result: ok. 36 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.43s
 
      Running tests/cli_policy.rs (target/debug/deps/cli_policy-8b322b71cee8a715)
 
 running 12 tests
 test a_generated_policy_names_the_advisor_and_scouts_the_config_already_uses ... ok
 test a_list_the_person_wrote_is_not_widened_by_the_aliases ... ok
-test a_planner_in_claude_code_loses_what_the_policy_does_not_name ... ok
 test a_planner_cli_entry_the_orchestration_list_does_not_name_is_refused_before_its_turn ... ok
-test a_project_with_no_policy_keeps_what_it_always_got ... ok
+test a_planner_in_claude_code_loses_what_the_policy_does_not_name ... ok
 test a_planner_in_claude_code_gets_its_advisor_when_the_orchestration_list_names_it ... ok
-test a_worker_that_may_create_tickets_is_an_orchestrator_and_is_checked_as_one ... ok
+test a_project_with_no_policy_keeps_what_it_always_got ... ok
 test a_worker_cli_entry_the_execution_list_does_not_name_is_refused_before_its_turn ... ok
+test a_worker_that_may_create_tickets_is_an_orchestrator_and_is_checked_as_one ... ok
 test a_workers_advisor_is_checked_at_the_workers_role_not_the_planners ... ok
 test claude_codes_advisor_and_scouts_are_left_off_when_the_policy_does_not_name_their_models ... ok
-test they_are_attached_when_the_policy_names_both_models ... ok
 test each_is_decided_on_its_own ... ok
+test they_are_attached_when_the_policy_names_both_models ... ok
 
-test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.17s
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.19s
 
      Running tests/decision.rs (target/debug/deps/decision-801ff085a4a5b78b)
 
 running 9 tests
-test a_decider_that_fails_is_an_error_not_a_guess ... ok
-test below_the_threshold_the_user_is_asked_and_at_it_the_answer_stands ... ok
 test a_different_decider_can_be_swapped_in_and_decides_instead ... ok
+test below_the_threshold_the_user_is_asked_and_at_it_the_answer_stands ... ok
+test a_decider_that_fails_is_an_error_not_a_guess ... ok
 test nothing_to_go_on_is_never_a_confident_answer ... ok
 test task_types_round_trip_through_their_names ... ok
-test a_malformed_answer_is_rejected ... ok
-test ties_resolve_the_same_way_every_time ... ok
 test the_baseline_answers_each_question_with_a_distribution_that_sums_to_one ... ok
+test ties_resolve_the_same_way_every_time ... ok
 test the_baseline_separates_clear_cases ... ok
+test a_malformed_answer_is_rejected ... ok
 
 test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 
@@ -649,11 +464,11 @@ test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 running 19 tests
 test a_changed_sealed_test_fails_verify ... ok
 test a_criterion_no_ticket_covers_is_reported ... ok
-test a_deleted_test_file_is_a_weakened_suite ... ok
 test a_change_after_verify_sends_the_work_back_to_verify ... ok
+test a_deleted_test_file_is_a_weakened_suite ... ok
 test an_old_commit_phase_reads_as_learn ... ok
-test a_failing_criterion_keeps_the_project_in_verify ... ok
 test a_pull_request_without_gh_is_a_missing_credential_not_a_delivery ... ok
+test a_failing_criterion_keeps_the_project_in_verify ... ok
 test passing_tests_are_not_delivery_unfinished_tickets_fail_verify ... ok
 test an_added_ignore_or_removed_assert_is_a_weakened_suite ... ok
 test ship_is_refused_without_a_passing_verify ... ok
@@ -667,7 +482,7 @@ test verify_passes_when_every_criterion_passes_and_moves_to_ship ... ok
 test verify_with_an_unreadable_config_fails_closed ... ok
 test verify_runs_its_commands_in_the_sandbox ... ok
 
-test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.91s
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.92s
 
      Running tests/e2e.rs (target/debug/deps/e2e-3393b55a9d5df108)
 
@@ -681,7 +496,7 @@ test a_whole_project_reports_the_section_3_4_metrics ... ok
 test flat_project_with_gates_escalation_and_merges ... ok
 test nested_leads_review_and_revise_their_reports ... ok
 
-test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.92s
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.90s
 
      Running tests/eval.rs (target/debug/deps/eval-dde354b09a52a7fe)
 
@@ -691,11 +506,11 @@ test a_decider_that_fails_on_a_trace_fails_the_eval ... ok
 test an_empty_trace_set_cannot_be_evaluated ... ok
 test accuracy_is_reported_per_task_type ... ok
 test calibration_bins_ece_and_brier_match_the_hand_calculation ... ok
-test traces_load_from_json_lines_and_blank_lines_are_skipped ... ok
 test cost_is_compared_with_always_frontier_when_traces_carry_token_counts ... ok
-test the_report_renders_every_section_the_plan_asks_for ... ok
+test traces_load_from_json_lines_and_blank_lines_are_skipped ... ok
 test below_the_threshold_is_counted_as_asking_and_confident_mistakes_are_counted_apart ... ok
 test without_token_counts_cost_is_not_computed_rather_than_guessed ... ok
+test the_report_renders_every_section_the_plan_asks_for ... ok
 
 test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 
@@ -705,8 +520,8 @@ running 7 tests
 test a_new_ask_a_delivery_and_a_failure_are_platform_events_once ... ok
 test a_familiar_needs_a_folder_and_a_goal ... ok
 test records_round_trip_and_get_a_short_name_from_the_goal ... ok
-test the_view_says_needs_you_when_the_spec_waits_for_a_yes ... ok
 test the_view_carries_the_delivery_and_a_refused_verify ... ok
+test the_view_says_needs_you_when_the_spec_waits_for_a_yes ... ok
 test drive_waits_for_the_main_agent_then_ships_once ... ok
 test drive_does_not_rerun_a_refused_verify_on_the_same_commit ... ok
 
@@ -718,8 +533,8 @@ running 17 tests
 test a_limit_is_recognised_from_the_clis_own_words_only ... ok
 test a_direct_message_between_two_agents_is_its_own_conversation ... ok
 test a_chosen_local_model_becomes_the_scout_model ... ok
-test a_local_model_on_a_custom_router_is_found_by_id ... ok
 test a_reply_to_a_message_that_is_not_there_is_refused ... ok
+test a_local_model_on_a_custom_router_is_found_by_id ... ok
 test accounts_round_trip_and_keep_their_env ... ok
 test each_project_remembers_its_own_canvases ... ok
 test local_jobs_defaults_to_scouts_and_refuses_unknown_words ... ok
@@ -738,15 +553,15 @@ test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fin
      Running tests/files_listing.rs (target/debug/deps/files_listing-ea044de7983eee8b)
 
 running 9 tests
+test a_dangling_symlink_is_shown_and_not_followed ... ok
+test a_second_route_to_a_folder_inside_the_workspace_is_still_listed_as_before ... ok
 test a_loop_back_into_an_ancestor_is_not_walked ... ok
 test a_root_reached_through_a_symlink_lists_normally ... ok
-test a_second_route_to_a_folder_inside_the_workspace_is_still_listed_as_before ... ok
 test a_symlink_below_the_top_cannot_reveal_an_external_folder ... ok
-test a_dangling_symlink_is_shown_and_not_followed ... ok
 test an_external_symlinked_file_is_shown_and_not_followed ... ok
+test an_external_symlinked_folder_is_shown_and_not_entered ... ok
 test an_internal_symlink_keeps_its_existing_behaviour ... ok
 test ordinary_folders_list_as_before ... ok
-test an_external_symlinked_folder_is_shown_and_not_entered ... ok
 
 test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 
@@ -754,20 +569,20 @@ test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 
 running 22 tests
 test a_ghost_chat_cannot_be_filed ... ok
+test a_new_folder_proposal_whose_name_now_exists_files_into_that_folder ... ok
 test a_branch_stays_in_its_sources_folder ... ok
 test a_name_is_capped_at_sixty_characters ... ok
-test a_new_folder_proposal_whose_name_now_exists_files_into_that_folder ... ok
-test a_newer_proposal_for_a_stream_replaces_the_older_one ... ok
 test a_proposal_that_cannot_be_applied_changes_nothing ... ok
+test a_newer_proposal_for_a_stream_replaces_the_older_one ... ok
+test a_thread_file_from_before_folders_loads_unfiled_and_round_trips ... ok
 test accepting_a_proposal_for_an_existing_folder_files_the_stream ... ok
 test accepting_a_proposal_for_a_new_folder_creates_it_then_files_the_stream ... ok
-test a_thread_file_from_before_folders_loads_unfiled_and_round_trips ... ok
-test create_trims_and_refuses_empty_and_case_duplicates ... ok
 test a_stream_filed_in_a_folder_that_is_not_in_the_registry_counts_as_unfiled ... ok
-test colours_follow_the_palette_in_creation_order_and_wrap ... ok
+test create_trims_and_refuses_empty_and_case_duplicates ... ok
 test filing_a_stream_changes_only_its_folder ... ok
-test deleting_a_folder_unfiles_its_streams_and_keeps_every_stream ... ok
+test colours_follow_the_palette_in_creation_order_and_wrap ... ok
 test filing_into_an_unknown_folder_errors_and_changes_nothing ... ok
+test deleting_a_folder_unfiles_its_streams_and_keeps_every_stream ... ok
 test proposals_do_not_outlive_the_folder_or_the_stream_they_name ... ok
 test rejecting_a_proposal_changes_nothing_but_the_proposal ... ok
 test list_is_creation_order_and_stable_across_a_reload ... ok
@@ -776,27 +591,27 @@ test proposals_survive_a_reload_and_stay_actionable ... ok
 test threads_in_unfiled_and_counts_agree ... ok
 test the_registry_survives_a_reload ... ok
 
-test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.24s
+test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.22s
 
      Running tests/gateway.rs (target/debug/deps/gateway-18ea963d4309de6d)
 
 running 20 tests
 test a_call_that_fits_gets_the_models_full_output ... ok
 test a_call_whose_input_alone_does_not_fit_is_refused_before_it_is_made ... ok
-test a_model_outside_the_execution_list_is_refused_for_execution_only ... ok
 test a_model_outside_the_orchestration_list_is_refused_for_orchestration_only ... ok
+test a_model_outside_the_execution_list_is_refused_for_execution_only ... ok
 test a_model_that_costs_nothing_is_not_stopped_by_a_dollar_budget_but_is_by_a_token_one ... ok
-test a_role_follows_what_the_agent_does ... ok
 test a_plugin_outside_the_list_is_refused_in_both_roles ... ok
-test a_skill_outside_the_list_is_refused_in_both_roles ... ok
+test a_role_follows_what_the_agent_does ... ok
 test a_refusal_names_the_policy_the_thing_and_the_role ... ok
-test a_spent_budget_refuses_every_further_call ... ok
 test a_token_budget_clamps_and_refuses_the_same_way ... ok
-test output_is_clamped_so_the_worst_case_cost_stays_inside_the_budget ... ok
+test a_skill_outside_the_list_is_refused_in_both_roles ... ok
+test a_spent_budget_refuses_every_further_call ... ok
 test input_is_estimated_high_never_low ... ok
 test an_empty_list_refuses_everything_in_that_role ... ok
-test text_dressed_as_an_instruction_cannot_widen_a_list ... ok
+test output_is_clamped_so_the_worst_case_cost_stays_inside_the_budget ... ok
 test the_tightest_budget_wins_and_is_named ... ok
+test text_dressed_as_an_instruction_cannot_widen_a_list ... ok
 test the_per_task_line_comes_from_the_policy_and_carries_the_tasks_own_spend ... ok
 test with_no_policy_every_model_skill_and_plugin_is_open ... ok
 test the_two_lists_are_separate ... ok
@@ -807,21 +622,21 @@ test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fin
      Running tests/gateway_e2e.rs (target/debug/deps/gateway_e2e-83025ca1e123a4df)
 
 running 13 tests
-test a_skill_outside_the_list_is_refused_and_not_offered_to_an_orchestration_agent ... ok
-test a_task_budget_spent_by_one_call_stops_the_next_before_it_is_made ... ok
-test a_skill_outside_the_list_is_refused_for_an_execution_agent_too ... ok
 test a_task_budget_smaller_than_the_first_call_stops_it_before_any_request ... ok
+test a_skill_outside_the_list_is_refused_and_not_offered_to_an_orchestration_agent ... ok
+test a_skill_outside_the_list_is_refused_for_an_execution_agent_too ... ok
+test a_task_budget_spent_by_one_call_stops_the_next_before_it_is_made ... ok
 test an_allowed_skill_still_loads ... ok
-test an_agent_cannot_rewrite_the_policy_file_with_the_file_tools ... ok
 test an_execution_model_outside_the_list_never_reaches_the_provider ... ok
+test an_agent_cannot_rewrite_the_policy_file_with_the_file_tools ... ok
 test an_orchestration_model_outside_the_list_never_reaches_the_provider ... ok
 test the_output_limit_sent_to_the_provider_is_clamped_to_what_the_budget_can_pay ... ok
 test the_policy_is_fixed_when_the_project_opens ... ok
-test without_a_budget_the_output_limit_is_the_models_own ... ok
 test the_project_budget_is_enforced_before_the_call_not_after_it ... ok
+test without_a_budget_the_output_limit_is_the_models_own ... ok
 test an_allowed_orchestration_model_is_called_normally ... ok
 
-test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.46s
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.45s
 
      Running tests/handoff.rs (target/debug/deps/handoff-659c8f3963dee560)
 
@@ -829,7 +644,7 @@ running 2 tests
 test a_record_left_unreported_reads_as_unknown_not_as_none ... ok
 test workers_start_from_the_persons_words_and_get_structured_records ... ok
 
-test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.59s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.54s
 
      Running tests/hands_policy.rs (target/debug/deps/hands_policy-c73b4be1b3374194)
 
@@ -844,18 +659,18 @@ test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 running 1 test
 test the_bridge_checks_a_browser_decider_against_the_project_policy ... ok
 
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
 
      Running tests/herdr.rs (target/debug/deps/herdr-ce69aa1c7d81d9ba)
 
 running 8 tests
-test a_dead_socket_falls_back_to_native ... ok
-test switched_off_the_native_supervisor_runs ... ok
-test the_native_supervisor_reports_no_signals ... ok
-test herdr_is_off_by_default_and_pinned_to_one_release ... ok
-test versions_are_read_from_herdrs_own_output ... ok
 test a_missing_herdr_falls_back_to_native_and_says_so ... ok
 test any_release_but_the_pinned_one_is_refused ... ok
+test switched_off_the_native_supervisor_runs ... ok
+test a_dead_socket_falls_back_to_native ... ok
+test versions_are_read_from_herdrs_own_output ... ok
+test the_native_supervisor_reports_no_signals ... ok
+test herdr_is_off_by_default_and_pinned_to_one_release ... ok
 test the_pinned_release_is_used_and_its_states_are_signals ... ok
 
 test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
@@ -876,58 +691,58 @@ test a_report_needs_a_title_and_a_body ... ok
 test a_spec_is_handed_off_as_a_file ... ok
 test a_started_task_is_held_to_the_agent_cap ... ok
 test a_started_task_is_not_a_task_for_the_planner_or_the_question ... ok
-test a_one_shot_worker_the_user_stops_fails_its_ticket_and_can_be_dispatched_again ... ok
 test a_one_shot_whose_ticket_was_dropped_as_wontfix_can_file_its_spec_again ... ok
-test a_rejected_one_shot_deliverable_goes_back_to_its_worker_and_the_path_ends_with_the_delivery ... ok
+test a_one_shot_worker_the_user_stops_fails_its_ticket_and_can_be_dispatched_again ... ok
 test a_started_task_runs_under_the_project_policy_and_budget ... ok
+test a_rejected_one_shot_deliverable_goes_back_to_its_worker_and_the_path_ends_with_the_delivery ... ok
 test a_started_task_never_starts_or_approves_a_ticket_that_already_exists ... ok
 test a_task_after_a_report_is_classified_afresh ... ok
 test a_task_is_not_started_in_a_project_folder_that_has_gone ... ok
 test a_task_cannot_be_started_while_a_research_task_is_open ... ok
 test an_answer_is_a_label_a_number_or_nothing ... ok
 test an_answer_starts_the_path_the_user_chose_on_the_original_task ... ok
-test a_started_task_skips_the_plan_gate_but_its_delivery_still_waits_for_the_user ... ok
+test a_task_cannot_be_started_while_a_one_shot_is_open_and_does_not_take_its_ticket ... ok
 test intake_asks_and_asks_again_with_the_paths_that_can_run ... ok
 test intake_is_off_by_default_and_must_be_allowed_to_ask ... ok
-test a_task_cannot_be_started_while_a_one_shot_is_open_and_does_not_take_its_ticket ... ok
+test a_started_task_skips_the_plan_gate_but_its_delivery_still_waits_for_the_user ... ok
 test nothing_can_be_started_from_nothing ... ok
 test no_agent_is_offered_a_way_to_start_a_task ... ok
 test research_cannot_read_through_a_symlink_that_leaves_the_project ... ok
-test an_unsure_task_asks_the_user_and_calls_no_model ... ok
 test research_returns_a_report_and_no_pr ... ok
-test one_shot_reaches_a_worker_with_a_lightweight_spec_and_no_plan_gate ... ok
+test an_unsure_task_asks_the_user_and_calls_no_model ... ok
+test stop_releases_a_failed_one_shot_even_though_the_main_agent_is_idle ... ok
 test the_long_path_is_not_restricted ... ok
 test the_one_shot_path_specifies_and_dispatches_but_never_builds_itself ... ok
-test stop_releases_a_failed_one_shot_even_though_the_main_agent_is_idle ... ok
+test one_shot_reaches_a_worker_with_a_lightweight_spec_and_no_plan_gate ... ok
 test the_question_names_all_three_kinds_and_a_guess_when_there_is_one ... ok
 test the_question_offers_only_the_paths_that_can_run ... ok
 test the_research_path_can_read_and_report_and_nothing_else ... ok
 test stopping_a_restricted_task_releases_its_path ... ok
 test the_pending_question_survives_a_restart ... ok
+test with_an_api_planner_the_question_still_offers_all_three_paths ... ok
 test two_unclear_answers_fall_to_the_long_path_and_keep_what_was_said ... ok
 test a_valid_token_for_one_project_starts_nothing_in_another ... ok
-test with_an_api_planner_the_question_still_offers_all_three_paths ... ok
 test with_intake_off_nothing_is_asked_and_the_model_gets_the_text ... ok
 test the_task_endpoint_wants_the_token_and_starts_nothing_without_it ... ok
 
-test result: ok. 46 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.13s
+test result: ok. 46 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.05s
 
      Running tests/intake_cli.rs (target/debug/deps/intake_cli-821dc9f0d7639626)
 
 running 11 tests
 test a_cli_long_task_still_launches_the_planner_as_before ... ok
-test a_cli_one_shot_the_classifier_chooses_is_refused_before_the_cli_runs ... ok
 test a_cli_research_task_is_refused_before_the_cli_runs ... ok
+test a_cli_one_shot_the_classifier_chooses_is_refused_before_the_cli_runs ... ok
 test a_cli_task_the_user_answers_as_one_shot_is_refused_too ... ok
 test a_cli_task_the_user_answers_as_research_is_refused_too ... ok
 test an_unclear_answer_under_a_cli_planner_is_asked_again_with_the_same_options ... ok
-test an_answer_for_a_path_that_cannot_run_is_still_refused_after_the_question_that_left_it_out ... ok
 test a_saved_research_task_is_refused_after_a_restart_with_a_cli_planner ... ok
+test an_answer_for_a_path_that_cannot_run_is_still_refused_after_the_question_that_left_it_out ... ok
 test a_saved_one_shot_is_refused_after_a_restart_with_a_cli_planner ... ok
 test the_question_under_a_cli_planner_offers_only_the_path_that_can_run ... ok
 test an_unsure_task_is_asked_about_before_the_cli_is_launched ... ok
 
-test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.01s
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.99s
 
      Running tests/interrupted.rs (target/debug/deps/interrupted-3a1cd9fb80686e14)
 
@@ -935,7 +750,7 @@ running 2 tests
 test a_restart_carries_a_cli_worker_on_in_its_own_session ... ok
 test only_an_interrupted_agent_can_carry_on ... ok
 
-test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.54s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.53s
 
      Running tests/jev_settlement.rs (target/debug/deps/jev_settlement-5bb61d2ffbb79e63)
 
@@ -947,41 +762,41 @@ test a_cost_above_the_estimate_is_on_the_books_before_the_room_is_given_back ...
 test jev_is_only_offered_models_the_project_policy_allows_for_the_role ... ok
 test jev_calls_completing_among_api_reservations_never_leave_more_spent_than_the_limit ... ok
 test a_jev_decision_reaches_the_projects_spend_exactly_once ... ok
-test a_jev_call_must_fit_the_project_token_limit_and_its_tokens_are_not_counted_afterwards ... ok
 test the_heuristic_backend_is_the_supported_way_to_keep_jev_off_a_project ... ok
+test a_jev_call_must_fit_the_project_token_limit_and_its_tokens_are_not_counted_afterwards ... ok
 test nobody_sees_the_hold_gone_and_the_spend_not_yet_recorded ... ok
 test simultaneous_jev_calls_cannot_jointly_pass_the_project_budget ... ok
 
-test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.94s
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.93s
 
      Running tests/jev_unknown_cost.rs (target/debug/deps/jev_unknown_cost-8f90e58780f23835)
 
 running 15 tests
+test a_body_that_is_not_json_is_counted_at_the_reserved_amount ... ok
 test a_connection_cut_after_dispatch_is_counted_at_the_reserved_amount ... ok
 test a_known_cost_above_the_hold_is_recorded_in_full_when_the_call_failed_too ... ok
-test a_body_that_is_not_json_is_counted_at_the_reserved_amount ... ok
 test a_failure_that_reports_its_cost_is_recorded_at_that_cost ... ok
 test a_later_request_cannot_use_the_room_an_unknown_cost_call_held ... ok
-test a_request_that_never_left_releases_its_hold_and_records_nothing ... ok
 test a_project_that_got_a_failure_before_dispatch_has_nothing_to_count ... ok
-test a_project_counts_an_unknown_cost_in_its_spend_once_and_marks_it ... ok
+test a_request_that_never_left_releases_its_hold_and_records_nothing ... ok
 test a_mixture_of_outcomes_run_concurrently_adds_up_and_never_passes_the_limit ... ok
+test a_project_counts_an_unknown_cost_in_its_spend_once_and_marks_it ... ok
 test a_retry_neither_frees_nor_double_counts_the_failed_attempt ... ok
-test a_usable_answer_with_no_usage_is_used_and_counted_at_the_reserved_amount ... ok
-test a_timeout_after_dispatch_is_counted_at_the_reserved_amount ... ok
 test an_error_status_without_usage_is_counted_at_the_reserved_amount ... ok
+test a_timeout_after_dispatch_is_counted_at_the_reserved_amount ... ok
+test a_usable_answer_with_no_usage_is_used_and_counted_at_the_reserved_amount ... ok
 test nobody_sees_an_unknown_cost_call_with_no_hold_and_no_spend ... ok
 test the_heuristic_still_decides_whatever_happens_to_the_jev_call ... ok
 
-test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.97s
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.99s
 
      Running tests/keyword_length_ablation.rs (target/debug/deps/keyword_length_ablation-f8673d7af3ec82f2)
 
 running 4 tests
-test up_to_400_characters_the_two_are_identical ... ok
-test past_400_characters_only_long_moves_and_only_the_ablation_is_neutral ... ok
 test keyword_evidence_is_unchanged_by_the_ablation ... ok
+test past_400_characters_only_long_moves_and_only_the_ablation_is_neutral ... ok
 test the_shipped_baseline_still_has_its_length_rule ... ok
+test up_to_400_characters_the_two_are_identical ... ok
 
 test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 
@@ -990,10 +805,10 @@ test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 running 16 tests
 test a_cheap_rung_that_keeps_failing_is_skipped_for_the_frontier ... ok
 test a_cheap_rung_that_mostly_works_is_kept ... ok
-test an_unmeasured_rung_is_a_coin_flip_and_no_rung_is_certain ... ok
-test an_unsure_or_missing_classification_does_not_start_on_the_frontier ... ok
 test an_explicit_class_beats_the_tier ... ok
 test an_unknown_class_is_a_config_error ... ok
+test an_unmeasured_rung_is_a_coin_flip_and_no_rung_is_certain ... ok
+test an_unsure_or_missing_classification_does_not_start_on_the_frontier ... ok
 test classes_are_ordered_from_local_to_frontier ... ok
 test moving_up_needs_a_measured_failure ... ok
 test nothing_is_above_the_frontier ... ok
@@ -1023,26 +838,26 @@ test a_call_that_cannot_fit_the_project_token_limit_is_refused_before_it_is_sent
 test api_calls_and_cli_turns_started_together_never_hold_more_than_the_project_limit ... ok
 test agents_started_together_cannot_jointly_pass_the_project_token_limit ... ok
 
-test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.65s
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.64s
 
      Running tests/memory_graph.rs (target/debug/deps/memory_graph-8803d6e444955969)
 
 running 20 tests
-test a_title_is_the_whole_first_line ... ok
 test a_note_whose_place_is_gone_attaches_to_global ... ok
-test a_duplicated_note_id_makes_one_node_whatever_the_order ... ok
+test a_title_is_the_whole_first_line ... ok
 test a_note_that_links_itself_gets_no_self_edge ... ok
+test a_duplicated_note_id_makes_one_node_whatever_the_order ... ok
 test empty_input_has_only_the_global_hub ... ok
-test links_both_ways_stay_two_edges ... ok
 test every_note_attaches_to_its_place ... ok
 test hubs_exist_only_for_folders_and_agents_that_exist ... ok
+test links_both_ways_stay_two_edges ... ok
 test links_resolve_case_insensitively ... ok
 test malformed_brackets_are_ignored ... ok
 test neighbours_are_hub_and_linked_notes_both_directions ... ok
 test note_nodes_carry_id_short_title_and_source ... ok
 test no_edge_comes_from_similar_wording_or_partial_titles ... ok
-test repeated_links_collapse_to_one_edge ... ok
 test output_is_deterministic_whatever_the_input_order ... ok
+test repeated_links_collapse_to_one_edge ... ok
 test titles_are_cut_to_sixty_characters_without_splitting_one ... ok
 test stats_count_nodes_and_edges ... ok
 test two_notes_with_one_title_are_both_linked ... ok
@@ -1057,9 +872,9 @@ running 11 tests
 test a_task_that_never_goes_green_does_not_make_cost_to_green ... ok
 test an_empty_ledger_reports_zeros_and_no_ratios ... ok
 test cost_to_green_includes_every_retry_up_to_the_green_result ... ok
-test decision_model_spend_counts_toward_cost_but_is_not_a_model_call ... ok
 test escalation_rate_and_success_rate_count_tasks_not_events ... ok
 test finishing_a_task_that_was_never_started_still_counts_it ... ok
+test decision_model_spend_counts_toward_cost_but_is_not_a_model_call ... ok
 test frontier_calls_are_counted_by_class_not_by_price ... ok
 test human_tokens_are_estimated_from_characters_and_split_into_typed_and_read ... ok
 test no_escalations_means_no_success_rate_rather_than_zero ... ok
@@ -1073,25 +888,25 @@ test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fin
 running 1 test
 test a_cli_workers_turn_is_a_frontier_call_even_though_it_costs_nothing ... ok
 
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.31s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.32s
 
      Running tests/metrics_e2e.rs (target/debug/deps/metrics_e2e-90de03d69ce685bd)
 
 running 4 tests
-test the_harness_reports_the_same_numbers_it_wrote ... ok
 test a_mid_model_turn_is_not_a_frontier_call ... ok
 test a_frontier_planner_turn_is_one_frontier_call_with_its_tokens_and_cost ... ok
+test the_harness_reports_the_same_numbers_it_wrote ... ok
 test the_file_only_ever_grows_by_whole_json_lines ... ok
 
-test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
 
      Running tests/model_class_policy.rs (target/debug/deps/model_class_policy-bda990eba34aee85)
 
 running 7 tests
-test model_class_overrides_the_tier ... ok
 test setting_both_class_keys_is_a_config_error ... ok
-test shipped_default_models_follow_the_policy ... ok
+test model_class_overrides_the_tier ... ok
 test selection_and_metrics_use_the_resolved_class ... ok
+test shipped_default_models_follow_the_policy ... ok
 test the_default_class_follows_the_tier_and_only_tier_4_is_frontier ... ok
 test the_older_class_key_still_overrides_the_tier ... ok
 test an_invalid_model_class_is_a_config_error_not_a_tier_fallback ... ok
@@ -1114,33 +929,33 @@ test an_empty_section_is_refused_but_an_explicit_none_is_a_statement ... ok
 test a_research_task_cannot_submit_a_spec ... ok
 test a_changed_spec_after_the_yes_closes_the_gate_again ... ok
 test approved_baseline_commands_run_and_the_spec_goes_to_the_user ... ok
-test a_yes_is_for_one_exact_spec ... ok
-test only_a_plain_yes_is_a_yes ... ok
 test every_criterion_needs_its_own_test ... ok
+test only_a_plain_yes_is_a_yes ... ok
 test placeholders_are_refused_wherever_they_are ... ok
 test research_has_no_baseline_and_no_spec ... ok
 test spec_md_is_generated_from_the_checklist_and_carries_the_baseline ... ok
-test the_checklist_has_the_seven_items_of_section_6_in_order ... ok
 test the_baseline_item_is_not_met_until_it_is_captured_and_holds ... ok
+test the_checklist_has_the_seven_items_of_section_6_in_order ... ok
 test the_checklist_questions_are_typed_one_per_item ... ok
-test the_long_path_has_the_planning_tool_and_the_others_do_not ... ok
 test the_commands_a_baseline_would_run_are_listed_per_task_type ... ok
+test the_long_path_has_the_planning_tool_and_the_others_do_not ... ok
+test a_yes_is_for_one_exact_spec ... ok
 test anything_but_a_yes_leaves_the_spec_unapproved ... ok
 test the_planning_contract_names_the_one_spec_m5_consumes ... ok
 test baseline_commands_do_not_run_before_the_user_approves_them ... ok
 test with_intake_off_the_planner_is_as_it_was ... ok
 test the_long_path_planner_is_offered_submit_spec_and_told_about_the_stage ... ok
-test the_question_waits_across_a_restart ... ok
 test the_long_path_plans_until_the_checklist_passes_then_waits_for_a_yes ... ok
+test the_question_waits_across_a_restart ... ok
 
-test result: ok. 31 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.43s
+test result: ok. 31 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.46s
 
      Running tests/planning_cli.rs (target/debug/deps/planning_cli-c05d1edac5012ec8)
 
 running 1 test
 test a_cli_planner_reaches_the_planning_stage_through_the_bridge ... ok
 
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
 
      Running tests/policy_integrity.rs (target/debug/deps/policy_integrity-76c08c2b05c892f1)
 
@@ -1148,18 +963,18 @@ running 13 tests
 test a_lock_that_cannot_be_read_stops_the_project_opening_rather_than_loosening_it ... ok
 test a_file_that_tightens_one_thing_and_loosens_another_is_not_adopted_in_part ... ok
 test a_person_adopting_a_loosening_makes_it_take_effect_and_stay ... ok
-test a_command_that_leaves_the_policy_alone_is_not_reported ... ok
+test a_person_editing_the_file_between_agent_actions_is_not_undone ... ok
 test each_workspace_has_its_own_lock ... ok
 test every_way_of_loosening_is_ignored ... ok
 test ignoring_a_loosening_does_not_wear_off ... ok
 test the_first_open_adopts_the_file_and_keeps_the_lock_outside_the_workspace ... ok
-test a_person_editing_the_file_between_agent_actions_is_not_undone ... ok
+test a_command_that_leaves_the_policy_alone_is_not_reported ... ok
 test tightening_is_adopted_and_loosening_is_ignored_with_a_warning ... ok
 test a_loosened_file_found_when_the_project_opens_is_not_in_force ... ok
 test the_lock_is_restored_after_a_command_that_rewrites_it ... ok
 test bash_cannot_weaken_the_policy_for_the_next_session ... ok
 
-test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.37s
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.38s
 
      Running tests/policy_integrity_cli.rs (target/debug/deps/policy_integrity_cli-bb03d4c299f9d819)
 
@@ -1187,10 +1002,10 @@ test the_paths_table_keeps_budget_and_policy_in_separate_columns ... ok
 test the_remaining_limitation_column_names_what_each_path_still_cannot_do ... ok
 test the_page_says_it_answers_two_questions_and_that_neither_is_read_from_the_other ... ok
 test the_strict_budget_section_and_the_jev_rows_say_the_same_things ... ok
-test what_is_not_verified_about_the_clis_is_named_one_by_one ... ok
 test the_strict_budget_section_separates_a_recommendation_from_an_enforced_setting_from_a_limit ... ok
-test every_place_that_posts_over_http_is_a_model_call_with_a_row_or_is_listed_as_not_one ... ok
+test what_is_not_verified_about_the_clis_is_named_one_by_one ... ok
 test every_assumption_and_limitation_the_review_named_is_written_down ... ok
+test every_place_that_posts_over_http_is_a_model_call_with_a_row_or_is_listed_as_not_one ... ok
 
 test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
 
@@ -1200,16 +1015,16 @@ running 11 tests
 test an_empty_list_still_denies_everything ... ok
 test enforced_mode_needs_every_list ... ok
 test legacy_open_mode_is_a_note_not_a_warning ... ok
+test a_policy_with_every_list_has_nothing_to_warn_about ... ok
 test no_policy_opens_with_a_visible_warning ... ok
 test policy_init_reproduces_the_effective_permissions ... ok
-test a_policy_with_every_list_has_nothing_to_warn_about ... ok
-test new_project_default_is_enforced_with_explicit_lists ... ok
 test the_shipped_default_file_is_not_a_policy ... ok
-test partial_policy_warns_for_each_open_list ... ok
+test new_project_default_is_enforced_with_explicit_lists ... ok
 test skills_present_but_not_allowed_are_named ... ok
+test partial_policy_warns_for_each_open_list ... ok
 test user_enabled_local_models_stay_usable_under_an_execution_list ... ok
 
-test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.15s
 
      Running tests/rampart.rs (target/debug/deps/rampart-56171bd381f8dac7)
 
@@ -1245,7 +1060,7 @@ test rampart_may_only_read_its_checkout_and_submit_in_code ... ok
 test n_sealed_failures_escalate_once_to_the_frontier_with_a_digest_then_a_human ... ok
 test the_same_failure_twice_escalates_at_once_and_the_frontier_can_finish ... ok
 
-test result: ok. 30 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.75s
+test result: ok. 30 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.83s
 
      Running tests/resume.rs (target/debug/deps/resume-39fc87c0bc398a3c)
 
@@ -1258,58 +1073,58 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 
 running 5 tests
 test a_refused_reservation_means_jev_is_never_called ... ok
-test the_reservation_covers_the_request_that_is_sent_and_is_released_after ... ok
 test only_a_router_without_a_budget_is_unmetered ... ok
-test a_project_too_close_to_its_limit_does_not_call_jev ... ok
+test the_reservation_covers_the_request_that_is_sent_and_is_released_after ... ok
 test a_project_with_room_calls_jev_and_its_cost_counts_toward_the_limit ... ok
+test a_project_too_close_to_its_limit_does_not_call_jev ... ok
 
 test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
 
      Running tests/router_policy.rs (target/debug/deps/router_policy-9a8deda352fd9c40)
 
 running 9 tests
-test a_pinned_planner_model_still_wins ... ok
 test a_project_with_only_frontier_models_still_routes ... ok
 test a_long_task_is_planned_on_a_frontier_model_at_high_effort ... ok
+test a_pinned_planner_model_still_wins ... ok
 test a_one_shot_task_is_planned_on_a_mid_model_not_a_frontier_one ... ok
 test an_unclear_task_starts_mid_and_is_marked_for_asking ... ok
 test a_research_task_is_planned_on_a_mid_model ... ok
+test workers_are_not_classified_by_the_planner_policy ... ok
 test the_threshold_in_the_config_decides_what_counts_as_unsure ... ok
 test swapping_the_decider_changes_where_the_planner_starts ... ok
-test workers_are_not_classified_by_the_planner_policy ... ok
 
-test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
 
      Running tests/routing_policy.rs (target/debug/deps/routing_policy-1427a89a8db87df7)
 
 running 18 tests
-test a_new_project_is_enforced_and_lets_its_configured_router_run ... ok
 test a_generated_policy_names_the_configured_routing_model ... ok
+test a_new_project_is_enforced_and_lets_its_configured_router_run ... ok
 test a_list_the_person_wrote_is_not_widened ... ok
 test adding_a_routing_model_is_a_loosening_that_waits_for_a_person ... ok
 test an_enforced_policy_allows_only_the_routing_models_it_names ... ok
 test a_named_routing_model_is_called ... ok
 test dropping_enforcement_while_the_list_is_absent_is_a_loosening ... ok
 test leaving_the_list_out_of_an_enforced_file_is_not_a_loosening ... ok
-test a_project_that_does_not_name_its_routing_model_says_so_when_it_opens_and_never_calls_jev ... ok
+test an_enforced_policy_that_does_not_name_it_never_calls_jev_and_the_heuristic_decides ... ok
 test a_project_that_names_it_routes_through_jev ... ok
 test removing_a_routing_model_tightens_and_is_adopted_by_itself ... ok
-test an_enforced_policy_that_does_not_name_it_never_calls_jev_and_the_heuristic_decides ... ok
+test a_project_that_does_not_name_its_routing_model_says_so_when_it_opens_and_never_calls_jev ... ok
 test the_routing_model_is_matched_exactly ... ok
-test naming_jev_in_the_ordinary_role_lists_does_not_permit_it ... ok
 test under_an_enforced_policy_no_list_and_an_empty_list_both_allow_nothing ... ok
 test without_an_enforced_policy_the_routing_model_is_open_unless_a_list_says_otherwise ... ok
+test naming_jev_in_the_ordinary_role_lists_does_not_permit_it ... ok
 test the_routing_list_does_not_widen_what_jev_may_choose ... ok
 test legacy_and_open_configurations_still_call_jev ... ok
 
-test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.15s
 
      Running tests/sandbox.rs (target/debug/deps/sandbox-705ea22b3d951405)
 
 running 18 tests
 test a_cli_executor_keeps_its_login_but_not_backspaces_state ... ok
-test a_variable_the_project_passes_on_is_kept ... ok
 test a_hidden_path_from_the_config_is_unreadable ... ok
+test a_variable_the_project_passes_on_is_kept ... ok
 test an_agent_cannot_read_backspaces_own_folder ... ok
 test an_agents_profile_hides_backspace_data_and_credentials ... ok
 test an_agents_shell_gets_no_secrets_from_the_environment ... ok
@@ -1323,17 +1138,17 @@ test the_shipped_config_sandboxes_in_auto_mode_with_the_network_on ... ok
 test sealed_tests_are_read_only_inside_the_sandbox ... ok
 test the_harness_runs_an_agents_bash_in_the_sandbox ... ok
 test the_policy_file_is_read_only_inside_the_sandbox ... ok
-test writes_stay_in_the_agents_worktree ... ok
 test with_the_network_off_nothing_can_be_reached ... ok
+test writes_stay_in_the_agents_worktree ... ok
 
-test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.39s
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.43s
 
      Running tests/spec_gate.rs (target/debug/deps/spec_gate-5c0f0b57bf8fa304)
 
 running 1 test
 test the_gate_refuses_twice_then_opens ... ok
 
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
 
      Running tests/unmetered.rs (target/debug/deps/unmetered-e19672c77c4d1118)
 
@@ -1348,16 +1163,16 @@ test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
      Running tests/usage_tools.rs (target/debug/deps/usage_tools-b81d3f72888d18ed)
 
 running 8 tests
-test a_home_with_no_logs_has_no_tools ... ok
 test a_tool_whose_folder_is_missing_is_left_out_not_zeroed ... ok
+test a_home_with_no_logs_has_no_tools ... ok
+test logs_older_than_the_week_count_for_neither_window ... ok
 test codex_today_and_week_come_from_its_rollouts ... ok
 test claude_code_today_and_week_come_from_its_logs ... ok
-test logs_older_than_the_week_count_for_neither_window ... ok
 test the_summary_holds_no_prompt_text_and_no_limit_cost_or_reset ... ok
 test tools_are_listed_in_a_fixed_order ... ok
 test opencode_reads_its_database_read_only ... ok
 
-test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
 
      Running tests/webhook.rs (target/debug/deps/webhook-3f0dda70ee4dded6)
 
@@ -1365,20 +1180,20 @@ running 2 tests
 test a_webhook_wakes_only_its_bot ... ok
 test the_phone_cannot_read_agent_or_group_threads ... ok
 
-test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
 
      Running tests/workspace_boundary.rs (target/debug/deps/workspace_boundary-9178693d866aabfc)
 
 running 9 tests
 test a_chain_of_symlinks_is_followed_to_its_end ... ok
-test a_symlinked_folder_outside_cannot_be_read_through_listed_or_written_into ... ok
 test a_symlink_to_a_file_outside_cannot_be_read ... ok
+test a_symlinked_folder_outside_cannot_be_read_through_listed_or_written_into ... ok
+test a_symlink_that_stays_inside_the_workspace_still_works ... ok
 test an_absolute_path_through_a_symlink_is_refused_too ... ok
 test the_lexical_rules_still_hold ... ok
-test a_symlink_that_stays_inside_the_workspace_still_works ... ok
 test listing_shows_a_symlink_by_name_and_never_its_target_contents ... ok
-test a_workspace_that_is_itself_reached_through_a_symlink_works ... ok
 test writing_through_a_dangling_symlink_cannot_create_a_file_outside ... ok
+test a_workspace_that_is_itself_reached_through_a_symlink_works ... ok
 
 test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 
@@ -1386,16 +1201,16 @@ test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 
 running 11 tests
 test tests::a_resumed_codex_turn_names_the_model_ahead_of_the_subcommand ... ok
-test tests::a_variable_listed_for_removal_is_not_given_to_the_cli ... ok
 test tests::a_wrapped_cli_runs_inside_the_sandbox_command ... ok
 test tests::claude_code_is_given_its_model_by_the_long_flag_and_no_model_means_no_flag ... ok
+test tests::a_variable_listed_for_removal_is_not_given_to_the_cli ... ok
 test tests::claude_thinking_deltas_are_kept_apart_from_the_answer ... ok
 test tests::codex_is_given_its_model_by_the_long_flag ... ok
 test tests::claude_stream_with_a_tool_call ... ok
-test tests::codex_names_its_model_once_and_config_overrides_never_name_one ... ok
-test tests::opencode_gets_the_backspace_server_as_inline_config ... ok
 test tests::codex_stream ... ok
+test tests::opencode_gets_the_backspace_server_as_inline_config ... ok
 test tests::transcripts_and_base64 ... ok
+test tests::codex_names_its_model_once_and_config_overrides_never_name_one ... ok
 
 test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 
@@ -1423,14 +1238,14 @@ test backend::tests::unpacks_a_zip_and_finds_the_server_and_keeps_paths_inside .
 test tests::models_are_listed_with_their_metadata ... ok
 test session::tests::loads_on_demand_makes_room_and_reports_why_a_load_failed ... ok
 
-test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.81s
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.83s
 
      Running unittests src/lib.rs (target/debug/deps/cauldron_chrome-e99112ba095b741a)
 
 running 7 tests
 test motion::tests::an_interrupted_move_starts_from_where_it_was_drawn ... ok
-test motion::tests::first_frame_is_the_old_shell_and_last_frame_is_the_new_one ... ok
 test motion::tests::content_that_exists_only_at_the_end_waits_half_way ... ok
+test motion::tests::first_frame_is_the_old_shell_and_last_frame_is_the_new_one ... ok
 test motion::tests::hiding_the_sidebar_carries_the_main_card_and_brings_new_stream_in ... ok
 test motion::tests::progress_respects_delay_and_clamps ... ok
 test motion::tests::reduced_motion_moves_nothing_and_only_cross_fades ... ok
@@ -1441,13 +1256,13 @@ test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
      Running tests/avatar.rs (target/debug/deps/avatar-da51e46c04ec76b9)
 
 running 12 tests
-test ink_draws_the_figure_in_another_token_colour ... ok
-test avatars_paint_only_with_tokens_and_take_the_agents_colour ... ok
-test marks_show_from_28px_up ... ok
-test the_bust_is_the_head_and_shoulders_in_a_square_slot_with_marks_overhanging ... ok
-test the_cog_turns_once_every_3_8_seconds ... ok
-test reduced_motion_still_shows_the_mark ... ok
 test px_is_the_sheets_figure_height_with_headroom_only_for_marks ... ok
+test marks_show_from_28px_up ... ok
+test avatars_paint_only_with_tokens_and_take_the_agents_colour ... ok
+test ink_draws_the_figure_in_another_token_colour ... ok
+test reduced_motion_still_shows_the_mark ... ok
+test the_cog_turns_once_every_3_8_seconds ... ok
+test the_bust_is_the_head_and_shoulders_in_a_square_slot_with_marks_overhanging ... ok
 test the_outline_agent_is_stroked_not_filled ... ok
 test the_three_heads_hop_6_units_one_after_another ... ok
 test typing_turns_the_head_into_three_small_heads ... ok
@@ -1459,16 +1274,16 @@ test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fin
      Running tests/panes.rs (target/debug/deps/panes-95a43bf4efbd9d15)
 
 running 11 tests
+test a_reset_makes_the_line_even ... ok
+test a_shape_that_does_not_fit_steps_back ... ok
 test a_line_resizes_only_the_panes_on_its_two_sides ... ok
 test adding_a_pane_splits_without_passing_three ... ok
-test a_reset_makes_the_line_even ... ok
 test closing_a_pane_returns_to_the_previous_shape ... ok
-test panes_fill_the_area_with_4px_gaps ... ok
-test dragging_any_line_keeps_every_pane_at_200_by_120 ... ok
 test every_divider_has_a_line ... ok
-test a_shape_that_does_not_fit_steps_back ... ok
-test the_layout_button_steps_through_every_shape_and_wraps ... ok
+test panes_fill_the_area_with_4px_gaps ... ok
 test six_shapes_hold_one_to_three_panes ... ok
+test dragging_any_line_keeps_every_pane_at_200_by_120 ... ok
+test the_layout_button_steps_through_every_shape_and_wraps ... ok
 test the_lines_sit_in_the_gaps ... ok
 
 test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
@@ -1477,32 +1292,32 @@ test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fin
 
 running 11 tests
 test contrast_follows_wcag ... ok
-test every_text_pair_passes_aa_in_both_themes ... ok
 test glyphs_and_control_edges_hold_3_to_1 ... ok
+test every_text_pair_passes_aa_in_both_themes ... ok
 test motion_stays_within_the_200ms_cap ... ok
-test overlays_composite_like_a_browser ... ok
 test one_accent_and_status_colours_stay_distinct ... ok
+test overlays_composite_like_a_browser ... ok
 test selected_on_a_card_is_under_aa_in_light ... ok
+test the_easing_curve_runs_from_rest_to_rest_without_overshoot ... ok
 test agent_colours_are_agent_1_to_9 ... ok
 test radii_match_the_design_system_and_nest_by_the_shell_padding ... ok
 test palettes_match_the_design_system_exactly ... ok
-test the_easing_curve_runs_from_rest_to_rest_without_overshoot ... ok
 
 test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 
      Running tests/wireframe.rs (target/debug/deps/wireframe-3d6bdef2fadbe7d6)
 
 running 10 tests
-test cards_are_tight_tiles_4px_apart_with_no_top_bar ... ok
 test main_keeps_a_minimum_width_by_closing_the_support_card ... ok
-test platforms_differ_only_in_window_controls ... ok
 test panes_never_overlap_and_stay_inside_the_window ... ok
+test platforms_differ_only_in_window_controls ... ok
+test cards_are_tight_tiles_4px_apart_with_no_top_bar ... ok
 test support_card_is_470_within_360_and_half_the_window ... ok
-test tabs_live_in_the_stream_header ... ok
 test the_rail_is_inside_the_rightmost_card ... ok
 test windows_folded_puts_the_sidebar_button_left_of_the_tabs ... ok
-test golden_has_two_window_sizes ... ok
+test tabs_live_in_the_stream_header ... ok
 test solver_matches_every_golden_state_and_size ... ok
+test golden_has_two_window_sizes ... ok
 
 test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 
@@ -1515,8 +1330,8 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
      Running tests/standalone.rs (target/debug/deps/standalone-bc8a665231f8eacf)
 
 running 2 tests
-test a_foreign_host_routes_through_the_ladder ... ok
 test the_engine_has_no_path_dependencies ... ok
+test a_foreign_host_routes_through_the_ladder ... ok
 
 test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 
