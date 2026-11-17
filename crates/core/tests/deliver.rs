@@ -261,3 +261,53 @@ fn the_rules_stop_at_a_refusing_verify() {
     assert_eq!(PhaseState::load(&root).phase, Phase::Test);
     assert!(deliver::last_delivery(&root).is_none());
 }
+
+/// M6: Verify's acceptance commands run in the sandbox, like an agent's. With
+/// `mode = "required"` on a machine where nothing isolates they are refused, so
+/// nothing is met; where a sandbox runs, a command cannot write outside the run
+/// worktree. Either way the report names the sandbox it ran under.
+#[test]
+fn verify_runs_its_commands_in_the_sandbox() {
+    let root = project("sandboxed", &["test -f feature.txt", "echo out > \"$ESCAPE\"; test -f \"$ESCAPE\""]);
+    let cfg = backspace_core::config::DEFAULT_CONFIG.replace("[sandbox]\nmode = \"auto\"", "[sandbox]\nmode = \"required\"");
+    assert!(cfg.contains("mode = \"required\""));
+    std::fs::write(root.join("backspace.toml"), cfg).unwrap();
+    git(&root, &["add", "backspace.toml"]);
+    git(&root, &["commit", "-q", "-m", "cfg"]);
+    let escape = root.join("escaped.txt");
+    std::env::set_var("ESCAPE", &escape);
+    let r = deliver::verify(&root, &done(&[("T-1", &["A1", "A2"])])).unwrap();
+    assert!(!r.sandbox.is_empty(), "the report names its sandbox");
+    let backend = backspace_core::sandbox::Backend::probe();
+    if backend.isolates() {
+        assert!(r.criteria[0].passed, "{:?}", r.criteria[0]);
+        assert!(!escape.exists(), "a Verify command wrote outside the run worktree");
+        assert!(!r.criteria[1].passed);
+    } else {
+        assert!(!r.passed && r.criteria.iter().all(|c| !c.passed), "{:?}", r.criteria);
+        assert!(r.criteria[0].output.contains("sandbox"), "{:?}", r.criteria[0].output);
+        assert!(!escape.exists(), "a refused command still ran");
+    }
+}
+
+#[test]
+fn verify_md_says_which_sandbox_ran_the_commands() {
+    let root = project("sandbox-md", &["test -f feature.txt"]);
+    let r = deliver::verify(&root, &done(&[("T-1", &["A1"])])).unwrap();
+    let md = std::fs::read_to_string(root.join(deliver::VERIFY_MD)).unwrap();
+    assert!(md.contains(&format!("Sandbox: {}", r.sandbox)), "{md}");
+}
+
+/// A config Verify cannot read runs nothing loose: its commands get the
+/// strictest sandbox ("required"), never none.
+#[test]
+fn verify_with_an_unreadable_config_fails_closed() {
+    let root = project("bad-config", &["test -f feature.txt"]);
+    std::fs::write(root.join("backspace.toml"), "this is = not [valid toml").unwrap();
+    let r = deliver::verify(&root, &done(&[("T-1", &["A1"])])).unwrap();
+    if backspace_core::sandbox::Backend::probe().isolates() {
+        assert!(r.criteria[0].passed, "{:?}", r.criteria[0]);
+    } else {
+        assert!(!r.criteria[0].passed && r.criteria[0].output.contains("sandbox"), "{:?}", r.criteria[0]);
+    }
+}

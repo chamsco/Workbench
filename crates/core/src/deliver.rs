@@ -81,6 +81,9 @@ pub struct VerifyReport {
     /// Tests deleted, skipped or with fewer asserts than at the base.
     pub weakened: Vec<String>,
     pub at: u64,
+    /// The sandbox the acceptance commands ran under (M6), e.g. "bwrap".
+    #[serde(default)]
+    pub sandbox: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -178,17 +181,30 @@ pub fn load_plan(root: &Path) -> Option<PlanSpec> {
     Some(PlanSpec { title, acceptance, ..Default::default() })
 }
 
-fn shell(dir: &Path, cmd: &str) -> (Option<i32>, u64, String) {
+/// The sandbox Verify runs the plan's commands in (M6): an agent's, on the
+/// run worktree. Writes go only there, Backspace's folder and credentials
+/// are hidden, secrets are out of the environment, and the network is what
+/// the project's `[sandbox]` says. A config that does not read fails
+/// closed: mode "required", so where nothing isolates nothing runs.
+fn verify_jail(root: &Path, dir: &Path) -> crate::sandbox::Jail {
+    let cfg = crate::config::Config::load(root)
+        .map(|(c, _)| c.sandbox)
+        .unwrap_or_else(|_| crate::sandbox::SandboxConfig { mode: crate::sandbox::SandboxMode::Required, ..Default::default() });
+    crate::sandbox::Jail { sandbox: crate::sandbox::Sandbox::new(&cfg), profile: crate::sandbox::Profile::agent(root, dir, &cfg) }
+}
+
+fn shell(jail: &crate::sandbox::Jail, dir: &Path, cmd: &str) -> (Option<i32>, u64, String) {
     let t = std::time::Instant::now();
-    let mut c = if cfg!(windows) {
-        let mut c = Command::new("cmd");
-        c.args(["/C", cmd]);
-        c
-    } else {
-        let mut c = Command::new("sh");
-        c.args(["-c", cmd]);
-        c
+    let argv: Vec<String> = if cfg!(windows) { vec!["cmd".into(), "/C".into(), cmd.into()] } else { vec!["sh".into(), "-c".into(), cmd.into()] };
+    let wrapped = match jail.sandbox.wrap(&jail.profile, &argv) {
+        Ok(w) => w,
+        Err(e) => return (None, 0, format!("not run in the sandbox: {e:#}")),
     };
+    let mut c = Command::new(&wrapped.argv[0]);
+    c.args(&wrapped.argv[1..]);
+    if let Some(env) = wrapped.env {
+        c.env_clear().envs(env);
+    }
     let out = c.current_dir(dir).stdin(std::process::Stdio::null()).output();
     let ms = t.elapsed().as_millis() as u64;
     match out {
@@ -261,6 +277,7 @@ pub fn verify(root: &Path, tickets: &[TicketFacts]) -> Result<VerifyReport> {
     let mut issues = vec![];
 
     let plan = load_plan(root);
+    let jail = verify_jail(root, &dir);
     let mut criteria = vec![];
     match &plan {
         None => issues.push("there is no plan to verify against (no plan.json or spec.md)".to_string()),
@@ -274,7 +291,7 @@ pub fn verify(root: &Path, tickets: &[TicketFacts]) -> Result<VerifyReport> {
                     criteria.push(CriterionResult { key, criterion: c.criterion.clone(), ..Default::default() });
                     continue;
                 }
-                let (exit, ms, output) = shell(&dir, cmd);
+                let (exit, ms, output) = shell(&jail, &dir, cmd);
                 let passed = exit == Some(0);
                 if !passed {
                     issues.push(format!("{key} is not met: `{cmd}` exited {}", exit.map_or("without a code".into(), |e| e.to_string())));
@@ -315,7 +332,7 @@ pub fn verify(root: &Path, tickets: &[TicketFacts]) -> Result<VerifyReport> {
     }
 
     let weakened = if base.is_empty() { vec![] } else { weakened_tests(&dir, &base, &head) };
-    let report = VerifyReport { passed: issues.is_empty() && weakened.is_empty(), head, base, criteria, issues, weakened, at: now() };
+    let report = VerifyReport { passed: issues.is_empty() && weakened.is_empty(), head, base, criteria, issues, weakened, at: now(), sandbox: jail.sandbox.label().to_string() };
     save(root, VERIFY_JSON, &serde_json::to_string_pretty(&report)?)?;
     save(root, VERIFY_MD, &verify_markdown(&report, plan.as_ref()))?;
 
@@ -353,6 +370,9 @@ pub fn verify_markdown(r: &VerifyReport, plan: Option<&PlanSpec>) -> String {
         short(&r.head),
         short(&r.base)
     );
+    if !r.sandbox.is_empty() {
+        s.push_str(&format!("Sandbox: {}\n\n", r.sandbox));
+    }
     for c in &r.criteria {
         s.push_str(&format!(
             "| {} | {} | `{}` | {} |\n",

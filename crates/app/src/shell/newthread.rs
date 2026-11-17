@@ -495,8 +495,16 @@ impl Cauldron {
             wrap = wrap.child(line("start-note", n.clone(), c(pal.ok)));
         } else if self.start.familiar {
             // S1: say plainly what a familiar does on this machine before it does it.
-            let warn = if self.start.folder.is_none() { "A familiar works in a folder: pick one below." } else { "A familiar runs its agents and the plan's test commands in this folder, without a sandbox for now. It never merges." };
-            wrap = wrap.child(line("start-familiar-warn", warn.to_string(), c(pal.warn)));
+            // The probe runs once per process and is cached.
+            let backend = backspace_core::sandbox::Backend::probe();
+            let warn = if self.start.folder.is_none() {
+                "A familiar works in a folder: pick one below.".to_string()
+            } else if backend.isolates() {
+                format!("A familiar's agents and Verify run in the {} sandbox: they write only to their worktree. It never merges.", backend.label())
+            } else {
+                "No sandbox runs on this machine: a familiar's agents and the plan's test commands would run in this folder unconfined. It never merges.".to_string()
+            };
+            wrap = wrap.child(line("start-familiar-warn", warn, c(pal.warn)));
         } else if let Some(why) = blocked.filter(|w| w != "Sending") {
             let bad = why.starts_with("Can't");
             wrap = wrap.child(line("start-why", why, if bad { c(pal.bad) } else { fg3 }));
