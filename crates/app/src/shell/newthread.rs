@@ -862,6 +862,7 @@ mod tests {
     /// nothing else (no brand, no Code/Design tabs, no cards).
     #[gpui_kit::test]
     fn the_new_thread_screen_is_the_boards_centred_box(cx: &mut TestAppContext) {
+        let _prefs = super::super::thread::tests::prefs_guard();
         let (handle, _chats) = open(cx);
         handle.update(cx, |c, _, _| c.start.route = missing()).unwrap();
         cx.update_window(handle.into(), |_, window, cx| {
@@ -901,6 +902,7 @@ mod tests {
     /// not there yet) and Add a machine, which opens Settings on Machines.
     #[gpui_kit::test]
     fn the_box_has_trust_plan_folder_and_the_run_menu(cx: &mut TestAppContext) {
+        let _prefs = super::super::thread::tests::prefs_guard();
         let (handle, chats) = open(cx);
         let dir = std::env::temp_dir().join(format!("cauldron-tt4-alpha-{}", std::process::id())).to_string_lossy().to_string();
         let mut p = Prefs::load();
