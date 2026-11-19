@@ -38,11 +38,12 @@ impl Group {
     }
 }
 
-/// Threads matching `query` (case-insensitive, in the title or the preview), in groups, each
+/// Threads matching `query` (case-insensitive, in the title, the preview or the folder's name), in
+/// groups, each
 /// keeping `list()`'s order (pinned first, then newest). Empty groups are left out.
 pub(crate) fn grouped<'a>(list: &'a [ThreadInfo], query: &str) -> Vec<(Group, Vec<&'a ThreadInfo>)> {
     let q = query.trim().to_lowercase();
-    let hit = |t: &ThreadInfo| q.is_empty() || t.title.to_lowercase().contains(&q) || t.preview.to_lowercase().contains(&q);
+    let hit = |t: &ThreadInfo| q.is_empty() || t.title.to_lowercase().contains(&q) || t.preview.to_lowercase().contains(&q) || (t.project.is_some() && meta(t).to_lowercase().contains(&q));
     Group::ALL
         .iter()
         .map(|&g| (g, list.iter().filter(|t| Group::of(t) == g && hit(t)).collect::<Vec<_>>()))

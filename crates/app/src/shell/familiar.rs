@@ -29,6 +29,10 @@ pub(crate) fn fam_layers(painting: bool, pal: &Palette) -> (Hsla, Hsla) {
     if painting { (super::backdrop::surface(true, pal.panel, 0.5), gpui_kit::transparent_black()) } else { (c(pal.panel), c(pal.card)) }
 }
 
+pub(crate) fn state_text(s: State) -> &'static str {
+    state_label(s)
+}
+
 fn state_label(s: State) -> &'static str {
     match s {
         State::Running => "Working",

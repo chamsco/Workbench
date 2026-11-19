@@ -20,6 +20,7 @@ use gpui_kit::component::input::{Input, InputEvent, InputState, TextareaState};
 use gpui_kit::component::Theme;
 use std::sync::Arc;
 
+mod apps;
 mod backdrop;
 mod familiar;
 mod motion;
@@ -1085,14 +1086,6 @@ fn icon_button_in(id: impl Into<ElementId>, name: &str, label: &'static str, pal
         .aria_label(label)
 }
 
-/// The left edge of function slot `pos` (fractional while the indicator slides) in the sidebar's
-/// apps row, `row_w` wide. The row spreads its buttons edge to edge with equal gaps (justify_between).
-fn fn_slot_x(row_w: f32, pos: f32) -> f32 {
-    let n = FUNCTIONS.len() as f32;
-    let gap = (row_w - n * metric::SBTN) / (n - 1.0);
-    pos * (metric::SBTN + gap)
-}
-
 /// The sidebar's padding (the board's `.sb`: 8 8 6 10).
 const SIDE_PL: f32 = 10.0;
 const SIDE_PR: f32 = 8.0;
@@ -1338,20 +1331,50 @@ impl Render for Cauldron {
         // ---- sidebar, flat on the frame (the board's `.sb`): the top row (lights or logo, and the
         // sidebar button, drawn on the window), a line, the apps row, New stream, Search, the list
         if let Some(sp) = s.sidebar {
-            let mut fnrow = div().relative().flex().justify_between().mt(px(6.)).pt(px(4.)).pb(px(8.)).mb(px(6.)).border_b_1().border_color(c(pal.line));
-            // The indicator sits under the buttons and slides to the selected one (INDICATOR ms).
+            // The apps tray (19 Nov): left-packed in a sunken tray under New stream; the indicator is
+            // a raised key that slides to the selected app (INDICATOR ms); each app swaps the list.
+            let mut fnrow = div()
+                .id("apps-tray")
+                .relative()
+                .flex()
+                .gap(px(apps::TRAY_GAP))
+                .p(px(apps::TRAY_PAD))
+                .mt(px(6.))
+                .mb(px(2.))
+                .rounded(px(radius::CONTROL + 2.0))
+                .bg(ca(Rgb::hex(0x000000), if dark { 0.22 } else { 0.05 }))
+                .border_1()
+                .border_color(c(pal.line))
+                .aria_label("Apps");
             let pos = crate::motion::ease_between(self.section_from, self.section as f32, self.section_since, now, cauldron_chrome::motion::time::INDICATOR);
             fnrow = fnrow.child(
                 div()
                     .absolute()
-                    .left(px(fn_slot_x(sp.rect.w - SIDE_PL - SIDE_PR, pos)))
-                    .top(px(4.))
-                    .size(px(metric::SBTN))
+                    .left(px(apps::tray_x(pos) - 1.0))
+                    .top(px(apps::TRAY_PAD - 1.0))
+                    .w(px(apps::TRAY_BTN_W))
+                    .h(px(apps::TRAY_BTN_H))
                     .rounded(px(radius::CONTROL))
-                    .bg(ca(pal.fg, 0.09)),
+                    .bg(ca(pal.fg, if dark { 0.11 } else { 0.08 }))
+                    .border_1()
+                    .border_color(c(pal.line_strong)),
             );
             for (i, (name, label)) in FUNCTIONS.iter().enumerate() {
-                let b = icon_button_in(("fn", i), name, label, pal, i == self.section, false).on_click(cx.listener(move |this, _, _, cx| this.select_section(i, cx)));
+                let on = i == self.section;
+                let b = div()
+                    .id(("fn", i))
+                    .w(px(apps::TRAY_BTN_W))
+                    .h(px(apps::TRAY_BTN_H))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(px(radius::CONTROL))
+                    .cursor_pointer()
+                    .aria_label(*label)
+                    .aria_selected(on)
+                    .when_live(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
+                    .child(glyph(name, 15., if on { fg } else { fg3 }))
+                    .on_click(cx.listener(move |this, _, _, cx| this.select_section(i, cx)));
                 fnrow = fnrow.child(self.tipped(("fn", i), b, *label, Side::Right, pal, cx).test_support());
             }
             if self.search.is_none() {
@@ -1380,6 +1403,7 @@ impl Render for Cauldron {
             // The board's `.nav`: New stream with its shortcut.
             let new_thread = div()
                 .id("new-thread")
+                .mt(px(8.))
                 .h(px(30.))
                 .flex()
                 .items_center()
@@ -1412,9 +1436,9 @@ impl Render for Cauldron {
                 .pb(px(6.))
                 .child(div().id("side-top").h(px(30.)).flex_none().window_control_area(WindowControlArea::Drag).test_support())
                 .overflow_hidden()
-                .child(fnrow)
-                .when_live(self.settings.is_some(), |d| d.child(self.settings_nav(self.settings.unwrap_or(0), pal, cx).test_support()))
                 .when_live(self.settings.is_none(), |d| d.child(new_thread))
+                .child(fnrow.when_live(self.settings.is_some(), |d| d.mb(px(8.))).test_support())
+                .when_live(self.settings.is_some(), |d| d.child(self.settings_nav(self.settings.unwrap_or(0), pal, cx).test_support()))
                 // The search row opens from the top row's search button and stays while it has text.
                 .when_live(self.settings.is_none() && (self.search_open || !self.query.is_empty()), |d| d.child(
                     div().child(
@@ -1434,7 +1458,8 @@ impl Render for Cauldron {
                             .test_support(),
                     ),
                 ))
-                .when_live(self.settings.is_none(), |d| d.child(familiars).child(list))
+                .when_live(self.settings.is_none() && self.section == 0, |d| d.child(familiars).child(list))
+                .when_live(self.settings.is_none() && self.section != 0, |d| d.child(self.app_list(self.section, pal, cx)))
                 .child(
                     div()
                         .h(px(36.))
@@ -2393,19 +2418,10 @@ impl Render for Cauldron {
 #[cfg(test)]
 mod tests {
     // Explicit imports: a glob of gpui_kit brings GPUI's `test` macro, which shadows Rust's.
-    use super::{fn_slot_x, platform, AgentTab, Cauldron, Panel, Threads};
+    use super::{platform, AgentTab, Cauldron, Panel, Threads};
     use cauldron_chrome::layout::metric;
     use crate::threads::sample;
 
-    #[test]
-    fn function_slots_span_the_row_with_equal_gaps() {
-        // The board's `.apps` runs edge to edge inside the sidebar's padding: 236 - 10 - 8.
-        let w = 218.0;
-        assert_eq!(fn_slot_x(w, 0.0), 0.0);
-        assert!((fn_slot_x(w, 5.0) + metric::SBTN - w).abs() < 1e-3, "the sixth app ends at the row's edge");
-        let step = fn_slot_x(w, 1.0) - fn_slot_x(w, 0.0);
-        assert!((fn_slot_x(w, 5.0) - fn_slot_x(w, 0.0) - 5.0 * step).abs() < 1e-3, "equal steps");
-    }
     use cauldron_chrome::layout::{self, Rect, ShellState};
     use cauldron_chrome::motion::Frame;
     use gpui_kit::test::TestWindowExt;
