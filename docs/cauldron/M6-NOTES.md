@@ -97,7 +97,7 @@ Older tests changed:
    - The labels are written to disk and stay there:
      - Credential folders and Backspace's files keep a no-read-up label. That only affects low-integrity processes (browser sandboxes and the like). Your own programs, at Medium, are unaffected.
      - A file Backspace writes into `.backspace/` afresh after a command (rather than rewriting in place) is readable until the next command relabels it.
-   - Git for Windows' bash is an MSYS program. At low integrity it may fail to share state with a Git Bash that you have open at the same time.
+   - Git for Windows' bash is an MSYS program. While a normal-integrity MSYS process (a Git Bash window, or a test's own unjailed bash) is running, a low-integrity bash cannot open MSYS's shared objects and dies at start-up (`NtCreateDirectoryObject … 0xC0000022`, exit 0xC0000142). CI hit this intermittently (19 Nov). The launcher now retries for about 6 seconds, which is safe because nothing has run yet. If a Git Bash window stays open, the command still fails, with a message that says why.
    - The Windows sandbox has been tested only by CI on windows-latest, not on Charles's machine.
 2. The home folder stays writable (caches, a CLI's own state). The rest of the system is readable. Only the listed credential paths are hidden.
 3. The network is on by default. What keeps executors to the approved model is that no other credentials reach them, not a network allowlist. `network = false` blocks everything, the board bridge included. Rampart always runs with the network off.

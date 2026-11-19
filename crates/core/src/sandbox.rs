@@ -563,14 +563,38 @@ pub fn jail_run(args: &[String]) -> i32 {
         eprintln!("backspace jail: usage: [--tmp <dir>] -- <program> <args…>");
         return 2;
     }
-    match win::run_low(cmd, tmp.as_deref()) {
-        Ok(code) => code,
-        Err(e) => {
-            eprintln!("backspace jail: {e:#}");
-            126
+    // Git for Windows' bash is an MSYS program. MSYS keeps a shared object
+    // directory per installation; while a normal-integrity MSYS process (a Git
+    // Bash window, or one of Backspace's own unjailed commands) holds it, a
+    // low-integrity one cannot open it and dies in DLL start-up with
+    // STATUS_DLL_INIT_FAILED, before any of its own code runs. Retrying is
+    // therefore safe, and usually works once the other process has exited.
+    let mut wait = std::time::Duration::from_millis(100);
+    for attempt in 0..=MSYS_RETRIES {
+        match win::run_low(cmd, tmp.as_deref()) {
+            Ok(code) if code == DLL_INIT_FAILED && attempt < MSYS_RETRIES => {
+                std::thread::sleep(wait);
+                wait *= 2;
+            }
+            Ok(code) => {
+                if code == DLL_INIT_FAILED {
+                    eprintln!("backspace jail: {} could not start at low integrity. If it is Git Bash, another Git Bash running at normal integrity holds MSYS's shared objects; close it and retry.", cmd[0]);
+                }
+                return code;
+            }
+            Err(e) => {
+                eprintln!("backspace jail: {e:#}");
+                return 126;
+            }
         }
     }
+    unreachable!()
 }
+
+/// STATUS_DLL_INIT_FAILED (0xC0000142) as an exit code.
+const DLL_INIT_FAILED: i32 = 0xC000_0142_u32 as i32;
+/// Retries after it, waiting 0.1 s, doubling: about 6 s in all.
+const MSYS_RETRIES: u32 = 6;
 
 /// Labels for one Windows command: the worktree and a private temp folder
 /// writable at low integrity, the read-only files back at Medium, the hidden
