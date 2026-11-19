@@ -20,7 +20,9 @@ use gpui_kit::component::input::{Input, InputEvent, InputState, TextareaState};
 use gpui_kit::component::Theme;
 use std::sync::Arc;
 
+mod apps;
 mod backdrop;
+mod decide;
 mod familiar;
 mod motion;
 mod newthread;
@@ -182,6 +184,17 @@ pub(crate) struct Cauldron {
     files_open: std::collections::BTreeSet<std::path::PathBuf>,
     /// The Harbour painting behind the window (Tight tiles), or the plain frame.
     painting: bool,
+    /// The cards' crops of the light frost (two-depth glass), and the user's own picture or GIF
+    /// behind the stream card instead (Settings > Appearance), if they chose one.
+    glass: backdrop::GlassCache,
+    /// The decision card: grown under the pointer, the option open in Highlights, the sets already
+    /// answered here, and each live familiar's waiting set (refreshed with its view).
+    ask_hover: bool,
+    ask_open: Option<String>,
+    ask_answered: std::collections::HashSet<String>,
+    fam_questions: std::collections::HashMap<String, Option<backspace_core::options::OptionSet>>,
+    frost: backdrop::FrostLevel,
+    stream_bg: Option<std::path::PathBuf>,
     /// The shell's own focus: it takes the keys when nothing inside has them (⌘N, Ctrl+N).
     root_focus: Option<FocusHandle>,
     /// Plan mode for the next send, from the new-stream box or the composer (Tight tiles): the
@@ -317,9 +330,12 @@ impl Cauldron {
     /// n agent tabs, for screenshots until UI4 brings real agents from core.
     pub(crate) fn launch(cx: &mut Context<Self>) -> Self {
         let mut c = Self::new();
-        c.painting = backdrop::wants_painting(&Prefs::load());
+        let prefs = Prefs::load();
+        c.painting = backdrop::wants_painting(&prefs);
+        c.stream_bg = backdrop::stream_bg(&prefs);
+        c.frost = backdrop::FrostLevel::from_pref(&prefs);
         if c.painting {
-            backdrop::warm();
+            Self::warm_glass(cx);
         }
         // Debug builds only: `CAULDRON_FIXTURE_THREADS=list|loading|empty|error` draws the sidebar
         // from made-up threads instead of core, for screenshots that hold no real thread titles.
@@ -350,6 +366,10 @@ impl Cauldron {
         {
             if let Ok(b) = std::env::var("CAULDRON_BACKDROP") {
                 c.painting = b != "plain";
+            }
+            // `CAULDRON_FROST=light|medium|heavy` overrides the frost pref.
+            if let Ok(f) = std::env::var("CAULDRON_FROST") {
+                c.frost = backdrop::FrostLevel::from_pref(&Prefs { frost: Some(f), ..Prefs::default() });
             }
             if std::env::var("CAULDRON_SIDEBAR").as_deref() == Ok("folded") {
                 c.sidebar_open = false;
@@ -382,8 +402,46 @@ impl Cauldron {
         c
     }
 
+    /// Bakes the frost layers off the UI thread, then draws again so the cards pick up their light
+    /// layer (until then they use the single-depth glass).
+    pub(crate) fn warm_glass(cx: &mut Context<Self>) {
+        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            cx.background_executor().spawn(async { backdrop::warm() }).await;
+            let _ = this.update(cx, |_, cx| cx.notify());
+        })
+        .detach();
+    }
+
+    /// What goes under a card over the painting: the user's picture under its scrim (stream card
+    /// only), or this card's crop of the light frost under the tint. Empty on the plain frame or
+    /// before the frost is baked; then the card keeps its own glass colour.
+    fn glass_under(&mut self, id: &'static str, r: Rect, win: (f32, f32), dark: bool, pal: &'static Palette, moving: bool, window: &mut Window) -> Option<Vec<AnyElement>> {
+        if !self.painting {
+            return None;
+        }
+        let round = px(radius::PANEL);
+        if id == "main" {
+            if let Some(path) = self.stream_bg.clone() {
+                return Some(vec![
+                    img(path).id("stream-bg").absolute().left_0().top_0().size_full().rounded(round).object_fit(ObjectFit::Cover).test_support().into_any_element(),
+                    div().absolute().left_0().top_0().size_full().rounded(round).bg(backdrop::surface(true, pal.frame, backdrop::MEDIA_SCRIM)).into_any_element(),
+                ]);
+            }
+        }
+        let mut stale = Vec::new();
+        let crop = self.glass.get(id, dark, win, r, moving, &mut stale);
+        for old in stale {
+            let _ = window.drop_image(old);
+        }
+        let crop = crop?;
+        Some(vec![
+            img(crop).absolute().left_0().top_0().size_full().rounded(round).object_fit(ObjectFit::Fill).into_any_element(),
+            div().absolute().left_0().top_0().size_full().rounded(round).bg(backdrop::tint(pal, dark)).into_any_element(),
+        ])
+    }
+
     pub(crate) fn new() -> Self {
-        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, support_data: Default::default(), files_open: Default::default(), painting: false, root_focus: None, plan: false, open_in_menu: false, open_in: thread::OpenIn::Folder, search_open: false, indent: false, usage: Default::default(), settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, familiar: None, fam_views: Vec::new(), fam_live: Vec::new(), fam_watch: Vec::new(), fam_driving: Default::default(), fam_error: None, fam_composer: None, fam_fixture: false, inbox: Vec::new(), inbox_open: false, inbox_toast: None, fam_from: (0.0, 0.0), fam_to: None, fam_since: None, fam_hl: 0, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
+        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, support_data: Default::default(), files_open: Default::default(), painting: false, glass: Default::default(), ask_hover: false, ask_open: None, ask_answered: Default::default(), fam_questions: Default::default(), frost: backdrop::FrostLevel::Heavy, stream_bg: None, root_focus: None, plan: false, open_in_menu: false, open_in: thread::OpenIn::Folder, search_open: false, indent: false, usage: Default::default(), settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, familiar: None, fam_views: Vec::new(), fam_live: Vec::new(), fam_watch: Vec::new(), fam_driving: Default::default(), fam_error: None, fam_composer: None, fam_fixture: false, inbox: Vec::new(), inbox_open: false, inbox_toast: None, fam_from: (0.0, 0.0), fam_to: None, fam_since: None, fam_hl: 0, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
     }
 
     /// Opens core off the main thread (the sidebar shows Loading meanwhile), then keeps the thread
@@ -1041,14 +1099,6 @@ fn icon_button_in(id: impl Into<ElementId>, name: &str, label: &'static str, pal
         .aria_label(label)
 }
 
-/// The left edge of function slot `pos` (fractional while the indicator slides) in the sidebar's
-/// apps row, `row_w` wide. The row spreads its buttons edge to edge with equal gaps (justify_between).
-fn fn_slot_x(row_w: f32, pos: f32) -> f32 {
-    let n = FUNCTIONS.len() as f32;
-    let gap = (row_w - n * metric::SBTN) / (n - 1.0);
-    pos * (metric::SBTN + gap)
-}
-
 /// The sidebar's padding (the board's `.sb`: 8 8 6 10).
 const SIDE_PL: f32 = 10.0;
 const SIDE_PR: f32 = 8.0;
@@ -1282,7 +1332,7 @@ impl Render for Cauldron {
         if let Some(img_src) = layer.clone() {
             root = root
                 .child(img(img_src).id("backdrop").absolute().size_full().object_fit(ObjectFit::Cover).test_support())
-                .child(div().absolute().size_full().bg(backdrop::tint(pal, dark)));
+                .child(div().absolute().size_full().bg(backdrop::frame_tint_at(pal, dark, self.frost)));
         }
 
         // ---- Mac: the native lights follow the board (sidebar's top row, or the stream header).
@@ -1294,20 +1344,50 @@ impl Render for Cauldron {
         // ---- sidebar, flat on the frame (the board's `.sb`): the top row (lights or logo, and the
         // sidebar button, drawn on the window), a line, the apps row, New stream, Search, the list
         if let Some(sp) = s.sidebar {
-            let mut fnrow = div().relative().flex().justify_between().mt(px(6.)).pt(px(4.)).pb(px(8.)).mb(px(6.)).border_b_1().border_color(c(pal.line));
-            // The indicator sits under the buttons and slides to the selected one (INDICATOR ms).
+            // The apps tray (19 Nov): left-packed in a sunken tray under New stream; the indicator is
+            // a raised key that slides to the selected app (INDICATOR ms); each app swaps the list.
+            let mut fnrow = div()
+                .id("apps-tray")
+                .relative()
+                .flex()
+                .gap(px(apps::TRAY_GAP))
+                .p(px(apps::TRAY_PAD))
+                .mt(px(6.))
+                .mb(px(2.))
+                .rounded(px(radius::CONTROL + 2.0))
+                .bg(ca(Rgb::hex(0x000000), if dark { 0.22 } else { 0.05 }))
+                .border_1()
+                .border_color(c(pal.line))
+                .aria_label("Apps");
             let pos = crate::motion::ease_between(self.section_from, self.section as f32, self.section_since, now, cauldron_chrome::motion::time::INDICATOR);
             fnrow = fnrow.child(
                 div()
                     .absolute()
-                    .left(px(fn_slot_x(sp.rect.w - SIDE_PL - SIDE_PR, pos)))
-                    .top(px(4.))
-                    .size(px(metric::SBTN))
+                    .left(px(apps::tray_x(pos) - 1.0))
+                    .top(px(apps::TRAY_PAD - 1.0))
+                    .w(px(apps::TRAY_BTN_W))
+                    .h(px(apps::TRAY_BTN_H))
                     .rounded(px(radius::CONTROL))
-                    .bg(ca(pal.fg, 0.09)),
+                    .bg(ca(pal.fg, if dark { 0.11 } else { 0.08 }))
+                    .border_1()
+                    .border_color(c(pal.line_strong)),
             );
             for (i, (name, label)) in FUNCTIONS.iter().enumerate() {
-                let b = icon_button_in(("fn", i), name, label, pal, i == self.section, false).on_click(cx.listener(move |this, _, _, cx| this.select_section(i, cx)));
+                let on = i == self.section;
+                let b = div()
+                    .id(("fn", i))
+                    .w(px(apps::TRAY_BTN_W))
+                    .h(px(apps::TRAY_BTN_H))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(px(radius::CONTROL))
+                    .cursor_pointer()
+                    .aria_label(*label)
+                    .aria_selected(on)
+                    .when_live(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
+                    .child(glyph(name, 15., if on { fg } else { fg3 }))
+                    .on_click(cx.listener(move |this, _, _, cx| this.select_section(i, cx)));
                 fnrow = fnrow.child(self.tipped(("fn", i), b, *label, Side::Right, pal, cx).test_support());
             }
             if self.search.is_none() {
@@ -1336,6 +1416,7 @@ impl Render for Cauldron {
             // The board's `.nav`: New stream with its shortcut.
             let new_thread = div()
                 .id("new-thread")
+                .mt(px(8.))
                 .h(px(30.))
                 .flex()
                 .items_center()
@@ -1368,9 +1449,9 @@ impl Render for Cauldron {
                 .pb(px(6.))
                 .child(div().id("side-top").h(px(30.)).flex_none().window_control_area(WindowControlArea::Drag).test_support())
                 .overflow_hidden()
-                .child(fnrow)
-                .when_live(self.settings.is_some(), |d| d.child(self.settings_nav(self.settings.unwrap_or(0), pal, cx).test_support()))
                 .when_live(self.settings.is_none(), |d| d.child(new_thread))
+                .child(fnrow.when_live(self.settings.is_some(), |d| d.mb(px(8.))).test_support())
+                .when_live(self.settings.is_some(), |d| d.child(self.settings_nav(self.settings.unwrap_or(0), pal, cx).test_support()))
                 // The search row opens from the top row's search button and stays while it has text.
                 .when_live(self.settings.is_none() && (self.search_open || !self.query.is_empty()), |d| d.child(
                     div().child(
@@ -1390,7 +1471,8 @@ impl Render for Cauldron {
                             .test_support(),
                     ),
                 ))
-                .when_live(self.settings.is_none(), |d| d.child(familiars).child(list))
+                .when_live(self.settings.is_none() && self.section == 0, |d| d.child(familiars).child(list))
+                .when_live(self.settings.is_none() && self.section != 0, |d| d.child(self.app_list(self.section, pal, cx)))
                 .child(
                     div()
                         .h(px(36.))
@@ -1667,7 +1749,7 @@ impl Render for Cauldron {
             .text_size(px(12.5))
             .text_color(fg3)
             // Under a familiar's folder tabs the header is the frame they sit on.
-            .when_live(self.familiar.is_some(), |d| d.bg(c(pal.card)))
+            .when_live(self.familiar.is_some(), |d| d.bg(familiar::fam_layers(self.painting, pal).1))
             .window_control_area(WindowControlArea::Drag);
         if tab_row.is_none() && self.familiar.is_none() {
             if let Some(p) = self.thread.as_ref().filter(|_| self.settings.is_none()).and_then(|t| t.project.as_ref()) {
@@ -1716,22 +1798,26 @@ impl Render for Cauldron {
                     cx.notify();
                 }
             }))
-            .child(
+            .child({
+                let under = self.glass_under("main", s.main, (w, h), dark, pal, moving, window);
+                let glass = under.is_some();
                 div()
                     .id("card")
                     .size_full()
+                    .relative()
                     .flex()
                     .flex_col()
                     .overflow_hidden()
                     .rounded(px(radius::PANEL))
-                    .bg(backdrop::surface(self.painting, pal.panel, backdrop::GLASS_CARD))
+                    .when_live(!glass, |d| d.bg(backdrop::surface(self.painting, pal.panel, backdrop::GLASS_CARD)))
+                    .children(under.unwrap_or_default())
                     .border_1()
-                    .border_color(c(pal.line))
+                    .border_color(c(if glass { pal.line_strong } else { pal.line }))
                     .text_color(fg3)
                     .child(head.test_support())
                     .child(div().w(px(body_w)).h(px(body_h)).flex_none().child(inside))
-                    .test_support(),
-            );
+                    .test_support()
+            });
         if new_screen {
             // ponytail: core has no stages or per-subscription usage yet (UI-PLAN decision 5), so the
             // bar is static: usage as an empty state, the stages as plain labels with none current.
@@ -1986,15 +2072,18 @@ impl Render for Cauldron {
             if let Some((a, k)) = swap {
                 bodies = bodies.child(body(self, a, 1.0 - k, cx));
             }
+            let under = self.glass_under("support", r, (w, h), dark, pal, moving, window);
+            let glass = under.is_some();
             let d = pane("support", r)
                 .opacity(dp.alpha)
                 .flex()
                 .flex_col()
                 .overflow_hidden()
                 .rounded(px(radius::PANEL))
-                .bg(backdrop::surface(self.painting, pal.panel, backdrop::GLASS_CARD))
+                .when_live(!glass, |d| d.bg(backdrop::surface(self.painting, pal.panel, backdrop::GLASS_CARD)))
+                .children(under.unwrap_or_default())
                 .border_1()
-                .border_color(c(pal.line))
+                .border_color(c(if glass { pal.line_strong } else { pal.line }))
                 .child(shead.test_support())
                 .child(bodies);
             root = root.child(d.test_support());
@@ -2180,7 +2269,7 @@ impl Render for Cauldron {
             if let Some(img_src) = layer.clone() {
                 notch = notch
                     .child(img(img_src).absolute().left(px(-n.x)).top(px(-n.y)).w(px(w)).h(px(h)).object_fit(ObjectFit::Cover))
-                    .child(div().absolute().size_full().bg(backdrop::tint(pal, dark)));
+                    .child(div().absolute().size_full().bg(backdrop::frame_tint_at(pal, dark, self.frost)));
             }
             root = root.child(
                 notch
@@ -2261,7 +2350,7 @@ impl Render for Cauldron {
                 if let Some(img_src) = layer.clone() {
                     band = band
                         .child(img(img_src).absolute().left_0().top_0().w(px(w)).h(px(h)).object_fit(ObjectFit::Cover))
-                        .child(div().absolute().size_full().bg(backdrop::tint(pal, dark)));
+                        .child(div().absolute().size_full().bg(backdrop::frame_tint_at(pal, dark, self.frost)));
                 }
                 let at = |y: f32, el: AnyElement| div().absolute().left(px(x0)).top(px(y)).child(el);
                 // Below the lights on macOS, in their place on Windows.
@@ -2342,19 +2431,10 @@ impl Render for Cauldron {
 #[cfg(test)]
 mod tests {
     // Explicit imports: a glob of gpui_kit brings GPUI's `test` macro, which shadows Rust's.
-    use super::{fn_slot_x, platform, AgentTab, Cauldron, Panel, Threads};
+    use super::{platform, AgentTab, Cauldron, Panel, Threads};
     use cauldron_chrome::layout::metric;
     use crate::threads::sample;
 
-    #[test]
-    fn function_slots_span_the_row_with_equal_gaps() {
-        // The board's `.apps` runs edge to edge inside the sidebar's padding: 236 - 10 - 8.
-        let w = 218.0;
-        assert_eq!(fn_slot_x(w, 0.0), 0.0);
-        assert!((fn_slot_x(w, 5.0) + metric::SBTN - w).abs() < 1e-3, "the sixth app ends at the row's edge");
-        let step = fn_slot_x(w, 1.0) - fn_slot_x(w, 0.0);
-        assert!((fn_slot_x(w, 5.0) - fn_slot_x(w, 0.0) - 5.0 * step).abs() < 1e-3, "equal steps");
-    }
     use cauldron_chrome::layout::{self, Rect, ShellState};
     use cauldron_chrome::motion::Frame;
     use gpui_kit::test::TestWindowExt;

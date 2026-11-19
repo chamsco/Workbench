@@ -23,6 +23,16 @@ pub(crate) use backspace_core::familiar::State;
 use backspace_core::phase::{Phase, Stage};
 use backspace_core::Harness;
 
+/// A familiar's stream fill and the frame around it: solid on the plain frame, glass over the
+/// painting (the frame is then the card's own frost).
+pub(crate) fn fam_layers(painting: bool, pal: &Palette) -> (Hsla, Hsla) {
+    if painting { (super::backdrop::surface(true, pal.panel, 0.5), gpui_kit::transparent_black()) } else { (c(pal.panel), c(pal.card)) }
+}
+
+pub(crate) fn state_text(s: State) -> &'static str {
+    state_label(s)
+}
+
 fn state_label(s: State) -> &'static str {
     match s {
         State::Running => "Working",
@@ -201,6 +211,8 @@ impl Cauldron {
         self.fam_since = None;
         self.fam_hl = 0;
         self.fam_error = None;
+        self.ask_open = None;
+        self.ask_hover = false;
     }
 
     /// New subagents get a tab as they appear; the open tab stays where it is.
@@ -298,8 +310,10 @@ impl Cauldron {
         let r = radius::PANEL;
         let (l_sh, r_sh) = (jx.clamp(0.0, r), (sw - jx - jw).clamp(0.0, r));
         let line = c(pal.line);
-        let fill = c(pal.panel);
-        let frame = c(pal.card);
+        // Over the painting both layers are glass: the stream's fill translucent, the frame around
+        // it the card's own frost. Translucent layers cannot overpaint, so the concave shoulders
+        // are left out there; the plain frame keeps them.
+        let (fill, frame) = fam_layers(self.painting, pal);
         let mut strip = abs(Rect::new(sx, sy, sw, STRIP_H))
             .id("fam-strip")
             .track_focus(&self.tab_focus.get_or_insert_with(|| cx.focus_handle()).clone())
@@ -317,10 +331,10 @@ impl Cauldron {
                 cx.notify();
             }))
             .child(div().id("fam-joined").absolute().left(px(jx)).top_0().w(px(jw)).h(px(STRIP_H + 1.0)).bg(fill).border_t_1().border_l_1().border_r_1().border_color(line).rounded_t(px(r)).test_support());
-        if l_sh > 0.5 {
+        if l_sh > 0.5 && !self.painting {
             strip = strip.child(div().absolute().left(px(jx + 1.0 - l_sh)).top(px(STRIP_H + 1.0 - l_sh)).size(px(l_sh)).bg(fill).child(div().size_full().bg(frame).border_r_1().border_b_1().border_color(line).rounded_br(px(l_sh))));
         }
-        if r_sh > 0.5 {
+        if r_sh > 0.5 && !self.painting {
             strip = strip.child(div().absolute().left(px(jx + jw - 1.0)).top(px(STRIP_H + 1.0 - r_sh)).size(px(r_sh)).bg(fill).child(div().size_full().bg(frame).border_l_1().border_b_1().border_color(line).rounded_bl(px(r_sh))));
         }
 
@@ -422,6 +436,37 @@ impl Cauldron {
 
         // Highlights' tabs, over its column on the same line.
         let mut hl_tabs = abs(Rect::new(sx + sw + BODY_PAD, sy, HL_W, STRIP_H)).id("fam-hl-tabs").flex().items_end().gap(px(2.)).pb(px(2.)).px(px(4.));
+        // The option opened from the decision card gets its own tab here, first so it
+        // never sits under the window buttons, while its question waits.
+        if self.ask_open.is_some() && self.fam_question().is_some() {
+            let on = self.fam_hl == super::decide::OPTION_TAB;
+            hl_tabs = hl_tabs.child(
+                div()
+                    .id("fam-hl-option")
+                    .h(px(26.))
+                    .px(px(9.))
+                    .flex()
+                    .items_center()
+                    .gap(px(5.))
+                    .rounded(px(radius::CONTROL))
+                    .occlude()
+                    .cursor_pointer()
+                    .text_size(px(12.))
+                    .text_color(if on { fg } else { fg3 })
+                    .when_live(on, |d| d.bg(fill))
+                    .when_live(!on, |d| d.hover(|d| d.bg(ca(pal.fg, 0.05))))
+                    .aria_selected(on)
+                    .aria_label("Option")
+                    .child(div().size(px(6.)).rounded_full().bg(c(pal.warn)))
+                    .child("Option")
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.fam_hl = super::decide::OPTION_TAB;
+                        cx.notify();
+                    }))
+                    .test_support(),
+            );
+        }
+
         for (i, name) in HL_TABS.into_iter().enumerate() {
             let on = self.fam_hl == i;
             hl_tabs = hl_tabs.child(
@@ -499,7 +544,9 @@ impl Cauldron {
     /// and drives the run on every change.
     pub(crate) fn adopt_familiar(&mut self, f: FamLive, cx: &mut Context<Self>) {
         let changes = f.h.changes();
-        let v = core_fam::view(&f.rec, &f.h.snapshot(), f.h.root());
+        let snap = f.h.snapshot();
+        let v = core_fam::view(&f.rec, &snap, f.h.root());
+        self.fam_questions.insert(f.rec.id.clone(), super::decide::pending(&snap.options).cloned());
         let id = f.rec.id.clone();
         self.fam_views.push(v);
         self.fam_live.push(f);
@@ -526,7 +573,9 @@ impl Cauldron {
     fn refresh_familiar(&mut self, id: &str, cx: &mut Context<Self>) {
         let Some(k) = self.fam_live.iter().position(|f| f.rec.id == id) else { return };
         let f = &self.fam_live[k];
-        let v = core_fam::view(&f.rec, &f.h.snapshot(), f.h.root());
+        let snap = f.h.snapshot();
+        let v = core_fam::view(&f.rec, &snap, f.h.root());
+        self.fam_questions.insert(id.to_string(), super::decide::pending(&snap.options).cloned());
         let before = self.fam_views.iter().find(|x| x.id == id);
         if let Some(e) = core_fam::event_for(before, &v) {
             cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
@@ -623,7 +672,7 @@ impl Cauldron {
     }
 
     /// The open familiar's harness, if it is a live one.
-    fn open_live(&self) -> Option<&FamLive> {
+    pub(super) fn open_live(&self) -> Option<&FamLive> {
         let v = self.fam_views.get(self.familiar?)?;
         self.fam_live.iter().find(|f| f.rec.id == v.id)
     }
@@ -906,6 +955,7 @@ impl Cauldron {
                 div().id("familiar-composer").w_full().max_w(px(560.)).flex_none().p(px(10.)).rounded(px(10.)).border_1().border_color(c(pal.line)).bg(c(pal.inset)).text_size(px(12.5)).text_color(fg3).aria_label(hint).child(hint).test_support()
             }
         };
+        let question = sub.is_none().then(|| self.fam_question()).flatten();
         let stream = div()
             .id("familiar-stream")
             .flex_1()
@@ -916,21 +966,22 @@ impl Cauldron {
             .overflow_hidden()
             .rounded(px(radius::PANEL))
             .rounded_tl(px(corner))
-            .bg(c(pal.panel))
+            .bg(fam_layers(self.painting, pal).0)
             .border_1()
             .border_color(c(pal.line))
             .child(div().id("familiar-scroll").flex_1().min_h_0().overflow_y_scroll().flex().flex_col().items_center().px(px(16.)).pt(px(18.)).pb(px(16.)).opacity(fade).child(col))
-            .child(div().flex().justify_center().px(px(16.)).pb(px(12.)).child(composer))
+            .child(div().flex().flex_col().items_center().gap(px(8.)).px(px(16.)).pb(px(12.)).when_live(question.is_some(), |d| d.child(self.decision_card(question.as_ref().expect("checked"), pal, cx))).child(composer))
             .child(foot.test_support())
             .test_support();
 
         // Highlights: what each gate said, what changed, what it spent.
         let kv = |k: &'static str, v: String| div().flex().justify_between().gap(px(8.)).text_size(px(12.)).text_color(fg2).child(k).child(div().text_color(fg).font_features(tnum()).child(v));
         let note = |t: String| div().text_size(px(11.5)).line_height(px(16.)).text_color(fg3).child(t);
-        let mut hl = div().id("familiar-highlights").w(px(HL_W)).flex_none().h_full().flex().flex_col().gap(px(10.)).px(px(8.)).py(px(10.)).aria_label(HL_TABS[self.fam_hl.min(2)]);
+        let mut hl = div().id("familiar-highlights").w(px(HL_W)).flex_none().h_full().flex().flex_col().gap(px(10.)).px(px(8.)).py(px(10.)).aria_label(if self.fam_hl == super::decide::OPTION_TAB { "Option" } else { HL_TABS[self.fam_hl.min(2)] });
         let past = |p: Phase| f.stage > p;
         hl = match self.fam_hl {
-            0 => hl
+            super::decide::OPTION_TAB if question.is_some() => hl.child(self.option_pane(question.as_ref().expect("checked"), pal, cx)),
+            0 | super::decide::OPTION_TAB => hl
                 .child(kv("Plan", if past(Phase::Plan) { "approved".into() } else { "in progress".into() }))
                 .child(kv("Execute", format!("{} of {} tickets", f.tickets_done, f.tickets)))
                 .child(div().h(px(5.)).rounded(px(3.)).bg(c(pal.inset)).child(div().h_full().rounded(px(3.)).bg(c(pal.accent)).w(relative(if f.tickets == 0 { 0.0 } else { f.tickets_done as f32 / f.tickets as f32 }))))
@@ -952,7 +1003,7 @@ impl Cauldron {
             _ => hl.child(kv("Total", format!("${:.2}", f.cost_usd))).children(f.crew.iter().map(|c| note(format!("{} · {}", c.name, state_label(c.state))))),
         };
 
-        div().id("familiar").size_full().flex().gap(px(BODY_PAD)).px(px(BODY_PAD)).pb(px(BODY_PAD)).bg(c(pal.card)).child(stream).child(hl.test_support()).test_support().into_any_element()
+        div().id("familiar").size_full().flex().gap(px(BODY_PAD)).px(px(BODY_PAD)).pb(px(BODY_PAD)).bg(fam_layers(self.painting, pal).1).child(stream).child(hl.test_support()).test_support().into_any_element()
     }
 }
 
