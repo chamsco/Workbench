@@ -30,11 +30,12 @@ fn fake_claude() {
         let script = r#"#!/bin/sh
 # A CLI planner that only ever answers "ok" and keeps notes of what it was
 # asked. A refused task must leave these notes absent: the CLI never ran.
+# The count goes last: a test that sees it may read this turn's notes at once.
 n=$(( $(cat ./.n 2>/dev/null || echo 0) + 1 ))
-echo $n > ./.n
 input=$(cat)
 printf '%s' "$*" > "./.args-$n"
 printf '%s' "$input" > "./.in-$n"
+echo $n > ./.n
 printf '{"type":"result","result":"ok","session_id":"s1","total_cost_usd":0.01,"is_error":false}\n'
 "#;
         let p = bin.join("claude");
