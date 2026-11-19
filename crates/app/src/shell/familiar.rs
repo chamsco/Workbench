@@ -16,6 +16,9 @@
 use super::*;
 use backspace_core::deliver::Target;
 use backspace_core::familiar::{self as core_fam, EventKind, Record, View};
+use backspace_core::platform::events::Kind;
+use backspace_core::platform::notify::{Inbox, Note};
+use gpui_kit::prelude::FluentBuilder;
 pub(crate) use backspace_core::familiar::State;
 use backspace_core::phase::{Phase, Stage};
 use backspace_core::Harness;
@@ -459,6 +462,7 @@ impl Cauldron {
     /// Opens the familiars saved in the data folder, each on its own harness, off the UI thread.
     /// Debug builds with `CAULDRON_FIXTURE_FAMILIARS=1` show the made-up ones instead.
     pub(crate) fn load_familiars(&mut self, cx: &mut Context<Self>) {
+        self.load_inbox(cx);
         #[cfg(debug_assertions)]
         if std::env::var_os("CAULDRON_FIXTURE_FAMILIARS").is_some() {
             self.fam_views = fixtures();
@@ -525,14 +529,18 @@ impl Cauldron {
         let v = core_fam::view(&f.rec, &f.h.snapshot(), f.h.root());
         let before = self.fam_views.iter().find(|x| x.id == id);
         if let Some(e) = core_fam::event_for(before, &v) {
-            cx.background_executor()
-                .spawn(async move {
-                    // Quiet hours are not a setting yet: every note alerts.
-                    if let Err(err) = backspace_core::platform::notify::Inbox::open(&Prefs::data_dir()).push(e, None, 12) {
-                        eprintln!("notification inbox: {err:#}");
+            cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+                // Quiet hours are not a setting yet: every note alerts.
+                let filed = cx.background_executor().spawn(async move { Inbox::open(&Prefs::data_dir()).push(e, None, 12) }).await;
+                match filed {
+                    Ok(Some(n)) => {
+                        let _ = this.update(cx, |c, cx| c.take_note(n, cx));
                     }
-                })
-                .detach();
+                    Ok(None) => {}
+                    Err(err) => eprintln!("notification inbox: {err:#}"),
+                }
+            })
+            .detach();
         }
         if let Some(slot) = self.fam_views.iter_mut().find(|x| x.id == id) {
             *slot = v;
@@ -945,5 +953,218 @@ impl Cauldron {
         };
 
         div().id("familiar").size_full().flex().gap(px(BODY_PAD)).px(px(BODY_PAD)).pb(px(BODY_PAD)).bg(c(pal.card)).child(stream).child(hl.test_support()).test_support().into_any_element()
+    }
+}
+
+/// How long a toast stays up.
+const TOAST: std::time::Duration = std::time::Duration::from_secs(6);
+
+impl Cauldron {
+    /// A note the platform just filed: newest first in the inbox, and a toast if it alerts. The
+    /// toast goes after [`TOAST`] unless a newer one replaced it.
+    pub(crate) fn take_note(&mut self, n: Note, cx: &mut Context<Self>) {
+        self.inbox.retain(|x| x.id != n.id);
+        self.inbox.insert(0, n.clone());
+        if n.alert {
+            let id = n.id;
+            self.inbox_toast = Some((n, std::time::Instant::now()));
+            cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+                cx.background_executor().timer(TOAST).await;
+                let _ = this.update(cx, |c, cx| {
+                    if c.inbox_toast.as_ref().is_some_and(|(t, _)| t.id == id) {
+                        c.inbox_toast = None;
+                        cx.notify();
+                    }
+                });
+            })
+            .detach();
+        }
+        cx.notify();
+    }
+
+    /// The inbox's notes from the data folder, off the UI thread.
+    pub(crate) fn load_inbox(&mut self, cx: &mut Context<Self>) {
+        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            let mut notes = cx.background_executor().spawn(async { Inbox::open(&Prefs::data_dir()).list() }).await;
+            notes.reverse();
+            let _ = this.update(cx, |c, cx| {
+                // Screenshots only: replay the newest note as if it just came in, so it toasts.
+                #[cfg(debug_assertions)]
+                let replay = std::env::var_os("CAULDRON_FIXTURE_TOAST").and_then(|_| notes.first().cloned());
+                c.inbox = notes;
+                #[cfg(debug_assertions)]
+                if let Some(n) = replay {
+                    // Late enough that a slow software-rendered start has drawn its first frames.
+                    cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+                        cx.background_executor().timer(std::time::Duration::from_secs(20)).await;
+                        let _ = this.update(cx, |c, cx| c.take_note(n, cx));
+                    })
+                    .detach();
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// Opens what note `i` is about (its familiar, when it is one) and marks it read.
+    fn open_note(&mut self, i: usize, cx: &mut Context<Self>) {
+        let Some(n) = self.inbox.get_mut(i) else { return };
+        n.read = true;
+        let (id, source) = (n.id, n.event.source.clone());
+        self.inbox_open = false;
+        if self.inbox_toast.as_ref().is_some_and(|(t, _)| t.id == id) {
+            self.inbox_toast = None;
+        }
+        if let Some(k) = self.fam_views.iter().position(|f| f.id == source) {
+            self.open_familiar(k);
+        }
+        if !self.fam_fixture {
+            cx.background_executor().spawn(async move { Inbox::open(&Prefs::data_dir()).mark_read(id) }).detach();
+        }
+        cx.notify();
+    }
+
+    fn read_all(&mut self, cx: &mut Context<Self>) {
+        for n in &mut self.inbox {
+            n.read = true;
+        }
+        self.inbox_toast = None;
+        if !self.fam_fixture {
+            cx.background_executor().spawn(async move { Inbox::open(&Prefs::data_dir()).mark_all_read() }).detach();
+        }
+        cx.notify();
+    }
+
+    fn note_dot(kind: Kind, pal: &'static Palette) -> Div {
+        let d = div().size(px(7.)).flex_none().rounded_full().mt(px(5.));
+        match kind {
+            Kind::NeedsYou => d.bg(c(pal.warn)),
+            Kind::Delivered => d.bg(c(pal.accent)),
+            Kind::Failed => d.bg(c(pal.bad)),
+            Kind::Info => d.border_1().border_color(c(pal.fg3)),
+        }
+    }
+
+    /// The bell's label: "Inbox", or with the unread count.
+    pub(crate) fn inbox_label(&self) -> String {
+        match self.inbox.iter().filter(|n| !n.read).count() {
+            0 => "Inbox".into(),
+            n => format!("Inbox, {n} unread"),
+        }
+    }
+
+    /// The popover under the bell (Inbox board, direction A): newest first, unread tinted.
+    pub(crate) fn inbox_popover(&self, pal: &'static Palette, cx: &mut Context<Self>) -> Stateful<Div> {
+        let (fg, fg2, fg3) = (c(pal.fg), c(pal.fg2), c(pal.fg3));
+        let mut list = div().id("inbox-list").flex().flex_col().gap(px(2.)).max_h(px(360.)).overflow_y_scroll();
+        if self.inbox.is_empty() {
+            list = list.child(div().id("inbox-empty").px(px(8.)).py(px(10.)).text_size(px(12.)).text_color(fg3).aria_label("Nothing yet").child("Nothing yet. Familiars post here when they need you, deliver or stop.").test_support());
+        }
+        for (i, n) in self.inbox.iter().enumerate().take(50) {
+            let label = if n.read { n.event.title.clone() } else { format!("Unread: {}", n.event.title) };
+            list = list.child(
+                div()
+                    .id(("inbox-note", i))
+                    .flex()
+                    .gap(px(8.))
+                    .px(px(8.))
+                    .py(px(7.))
+                    .rounded(px(radius::CONTROL))
+                    .cursor_pointer()
+                    .when(!n.read, |d| d.bg(c(pal.hover)))
+                    .hover(|d| d.bg(ca(pal.fg, 0.07)))
+                    .aria_label(label)
+                    .child(Self::note_dot(n.event.kind, pal))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .flex()
+                            .flex_col()
+                            .gap(px(2.))
+                            .child(div().text_size(px(12.5)).text_color(fg).when(!n.read, |d| d.font_weight(FontWeight::MEDIUM)).child(n.event.title.clone()))
+                            .when(!n.event.body.is_empty(), |d| d.child(div().text_size(px(11.5)).line_height(px(15.)).text_color(fg2).line_clamp(2).child(n.event.body.clone()))),
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| this.open_note(i, cx)))
+                    .test_support(),
+            );
+        }
+        div()
+            .id("inbox")
+            .w(px(300.))
+            .p(px(6.))
+            .flex()
+            .flex_col()
+            .gap(px(2.))
+            .rounded(px(radius::PANEL))
+            .bg(c(pal.raised))
+            .border_1()
+            .border_color(c(pal.line))
+            .shadow(vec![drop(tokens::shadow::MENU)])
+            .occlude()
+            .aria_label("Inbox")
+            .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                this.inbox_open = false;
+                cx.notify();
+            }))
+            .child(
+                div()
+                    .flex()
+                    .justify_between()
+                    .items_center()
+                    .px(px(8.))
+                    .pt(px(4.))
+                    .pb(px(6.))
+                    .text_size(px(11.5))
+                    .child(div().text_color(fg).font_weight(FontWeight::SEMIBOLD).child("Inbox"))
+                    .child(
+                        div()
+                            .id("inbox-read-all")
+                            .text_color(fg2)
+                            .cursor_pointer()
+                            .hover(|d| d.text_color(fg))
+                            .aria_label("Mark all read")
+                            .child("Mark all read")
+                            .on_click(cx.listener(|this, _, _, cx| this.read_all(cx)))
+                            .test_support(),
+                    ),
+            )
+            .child(list)
+    }
+
+    /// The newest alerting note, for six seconds, at the window's bottom right. Clicking it opens
+    /// the note; it never takes focus.
+    pub(crate) fn inbox_toast(&self, pal: &'static Palette, cx: &mut Context<Self>) -> Option<Stateful<Div>> {
+        let (n, _) = self.inbox_toast.as_ref()?;
+        let i = self.inbox.iter().position(|x| x.id == n.id)?;
+        Some(
+            div()
+                .id("inbox-toast")
+                .w(px(280.))
+                .p(px(10.))
+                .flex()
+                .gap(px(8.))
+                .rounded(px(radius::PANEL))
+                .bg(c(pal.raised))
+                .border_1()
+                .border_color(c(pal.line))
+                .shadow(vec![drop(tokens::shadow::MENU)])
+                .cursor_pointer()
+                .occlude()
+                .aria_label(n.event.title.clone())
+                .child(Self::note_dot(n.event.kind, pal))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .flex()
+                        .flex_col()
+                        .gap(px(2.))
+                        .child(div().text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(c(pal.fg)).child(n.event.title.clone()))
+                        .when(!n.event.body.is_empty(), |d| d.child(div().text_size(px(11.5)).text_color(c(pal.fg2)).truncate().child(n.event.body.clone()))),
+                )
+                .on_click(cx.listener(move |this, _, _, cx| this.open_note(i, cx))),
+        )
     }
 }
