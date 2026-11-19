@@ -180,6 +180,38 @@ impl Cauldron {
                 );
             }
             col = col.child(row(("appearance", 0), "Backdrop".into(), "The Harbour painting behind a frosted frame, or the plain frame.".into(), seg.test_support().into_any_element()));
+            // How frosted the frame and sidebar are.
+            let mut seg = div().id("set-frost").flex().gap(px(2.)).p(px(2.)).rounded(px(radius::CONTROL)).border_1().border_color(c(pal.line_strong));
+            for (i, level) in super::backdrop::FrostLevel::ALL.into_iter().enumerate() {
+                let on = level == self.frost;
+                seg = seg.child(
+                    div()
+                        .id(("frost-opt", i))
+                        .h(px(24.))
+                        .px(px(10.))
+                        .flex()
+                        .items_center()
+                        .rounded(px(radius::TAG))
+                        .cursor_pointer()
+                        .when_live(on, |d| d.bg(c(pal.selected)))
+                        .when_live(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
+                        .aria_selected(on)
+                        .aria_label(level.name())
+                        .text_size(px(12.))
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(if on { fg } else { fg2 })
+                        .child(level.name())
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.frost = level;
+                            let mut p = Prefs::load();
+                            p.frost = Some(level.pref());
+                            p.save();
+                            cx.notify();
+                        }))
+                        .test_support(),
+                );
+            }
+            col = col.child(row(("appearance", 2), "Frost".into(), "How much of the painting shows through the frame and sidebar. The cards keep their light glass.".into(), seg.test_support().into_any_element()));
             // The stream card: the light frost of the painting, or the user's own picture or GIF.
             let mut seg = div().id("set-stream-bg").flex().gap(px(2.)).p(px(2.)).rounded(px(radius::CONTROL)).border_1().border_color(c(pal.line_strong));
             let pic = self.stream_bg.is_some();

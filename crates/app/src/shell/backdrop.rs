@@ -248,6 +248,53 @@ pub(crate) fn tint(pal: &Palette, dark: bool) -> gpui_kit::Hsla {
     surface(true, pal.frame, frame_tint(dark))
 }
 
+/// How frosted the frame and sidebar are (Settings > Appearance > Frost; Charles, 19 Nov: Heavy is
+/// the board's glass B). Only the tint over the heavy layer changes; the cards keep their light
+/// glass, and a heavier tint only raises the frame's contrast.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum FrostLevel {
+    Light,
+    Medium,
+    Heavy,
+}
+
+impl FrostLevel {
+    pub(crate) const ALL: [FrostLevel; 3] = [FrostLevel::Light, FrostLevel::Medium, FrostLevel::Heavy];
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            FrostLevel::Light => "Light",
+            FrostLevel::Medium => "Medium",
+            FrostLevel::Heavy => "Heavy",
+        }
+    }
+    /// The pref's value; anything else (or nothing) is Heavy.
+    pub(crate) fn from_pref(p: &Prefs) -> Self {
+        match p.frost.as_deref() {
+            Some("light") => FrostLevel::Light,
+            Some("medium") => FrostLevel::Medium,
+            _ => FrostLevel::Heavy,
+        }
+    }
+    pub(crate) fn pref(self) -> String {
+        self.name().to_ascii_lowercase()
+    }
+    /// The frame tint at this level, dark and light.
+    pub(crate) fn alpha(self, dark: bool) -> f32 {
+        match (self, dark) {
+            (FrostLevel::Light, d) => frame_tint(d),
+            (FrostLevel::Medium, true) => 0.42,
+            (FrostLevel::Medium, false) => 0.48,
+            (FrostLevel::Heavy, true) => 0.62,
+            (FrostLevel::Heavy, false) => 0.66,
+        }
+    }
+}
+
+/// The tint over the frame and sidebar at a frost level.
+pub(crate) fn frame_tint_at(pal: &Palette, dark: bool, level: FrostLevel) -> gpui_kit::Hsla {
+    surface(true, pal.frame, level.alpha(dark))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -373,5 +420,14 @@ mod tests {
         assert_eq!(surface(false, v, GLASS_CARD).a, 1.0);
         assert!(GLASS_COMPOSER > GLASS_TERM && GLASS_TERM > GLASS_CARD, "reading surfaces more opaque");
         assert_eq!((frame_tint(true), frame_tint(false)), (0.22, 0.30));
+        for dark in [true, false] {
+            let a: Vec<f32> = FrostLevel::ALL.iter().map(|l| l.alpha(dark)).collect();
+            assert!(a[0] < a[1] && a[1] < a[2], "each level frostier: {a:?}");
+            assert_eq!(a[0], frame_tint(dark), "Light is the tint the contrast test checks");
+        }
+        let mut p = Prefs::default();
+        assert_eq!(FrostLevel::from_pref(&p), FrostLevel::Heavy, "Heavy by default");
+        p.frost = Some(FrostLevel::Medium.pref());
+        assert_eq!(FrostLevel::from_pref(&p), FrostLevel::Medium);
     }
 }

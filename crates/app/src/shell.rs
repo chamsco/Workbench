@@ -186,6 +186,7 @@ pub(crate) struct Cauldron {
     /// The cards' crops of the light frost (two-depth glass), and the user's own picture or GIF
     /// behind the stream card instead (Settings > Appearance), if they chose one.
     glass: backdrop::GlassCache,
+    frost: backdrop::FrostLevel,
     stream_bg: Option<std::path::PathBuf>,
     /// The shell's own focus: it takes the keys when nothing inside has them (⌘N, Ctrl+N).
     root_focus: Option<FocusHandle>,
@@ -325,6 +326,7 @@ impl Cauldron {
         let prefs = Prefs::load();
         c.painting = backdrop::wants_painting(&prefs);
         c.stream_bg = backdrop::stream_bg(&prefs);
+        c.frost = backdrop::FrostLevel::from_pref(&prefs);
         if c.painting {
             Self::warm_glass(cx);
         }
@@ -357,6 +359,10 @@ impl Cauldron {
         {
             if let Ok(b) = std::env::var("CAULDRON_BACKDROP") {
                 c.painting = b != "plain";
+            }
+            // `CAULDRON_FROST=light|medium|heavy` overrides the frost pref.
+            if let Ok(f) = std::env::var("CAULDRON_FROST") {
+                c.frost = backdrop::FrostLevel::from_pref(&Prefs { frost: Some(f), ..Prefs::default() });
             }
             if std::env::var("CAULDRON_SIDEBAR").as_deref() == Ok("folded") {
                 c.sidebar_open = false;
@@ -428,7 +434,7 @@ impl Cauldron {
     }
 
     pub(crate) fn new() -> Self {
-        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, support_data: Default::default(), files_open: Default::default(), painting: false, glass: Default::default(), stream_bg: None, root_focus: None, plan: false, open_in_menu: false, open_in: thread::OpenIn::Folder, search_open: false, indent: false, usage: Default::default(), settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, familiar: None, fam_views: Vec::new(), fam_live: Vec::new(), fam_watch: Vec::new(), fam_driving: Default::default(), fam_error: None, fam_composer: None, fam_fixture: false, inbox: Vec::new(), inbox_open: false, inbox_toast: None, fam_from: (0.0, 0.0), fam_to: None, fam_since: None, fam_hl: 0, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
+        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, support_data: Default::default(), files_open: Default::default(), painting: false, glass: Default::default(), frost: backdrop::FrostLevel::Heavy, stream_bg: None, root_focus: None, plan: false, open_in_menu: false, open_in: thread::OpenIn::Folder, search_open: false, indent: false, usage: Default::default(), settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, familiar: None, fam_views: Vec::new(), fam_live: Vec::new(), fam_watch: Vec::new(), fam_driving: Default::default(), fam_error: None, fam_composer: None, fam_fixture: false, inbox: Vec::new(), inbox_open: false, inbox_toast: None, fam_from: (0.0, 0.0), fam_to: None, fam_since: None, fam_hl: 0, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
     }
 
     /// Opens core off the main thread (the sidebar shows Loading meanwhile), then keeps the thread
@@ -1319,7 +1325,7 @@ impl Render for Cauldron {
         if let Some(img_src) = layer.clone() {
             root = root
                 .child(img(img_src).id("backdrop").absolute().size_full().object_fit(ObjectFit::Cover).test_support())
-                .child(div().absolute().size_full().bg(backdrop::tint(pal, dark)));
+                .child(div().absolute().size_full().bg(backdrop::frame_tint_at(pal, dark, self.frost)));
         }
 
         // ---- Mac: the native lights follow the board (sidebar's top row, or the stream header).
@@ -2256,7 +2262,7 @@ impl Render for Cauldron {
             if let Some(img_src) = layer.clone() {
                 notch = notch
                     .child(img(img_src).absolute().left(px(-n.x)).top(px(-n.y)).w(px(w)).h(px(h)).object_fit(ObjectFit::Cover))
-                    .child(div().absolute().size_full().bg(backdrop::tint(pal, dark)));
+                    .child(div().absolute().size_full().bg(backdrop::frame_tint_at(pal, dark, self.frost)));
             }
             root = root.child(
                 notch
@@ -2337,7 +2343,7 @@ impl Render for Cauldron {
                 if let Some(img_src) = layer.clone() {
                     band = band
                         .child(img(img_src).absolute().left_0().top_0().w(px(w)).h(px(h)).object_fit(ObjectFit::Cover))
-                        .child(div().absolute().size_full().bg(backdrop::tint(pal, dark)));
+                        .child(div().absolute().size_full().bg(backdrop::frame_tint_at(pal, dark, self.frost)));
                 }
                 let at = |y: f32, el: AnyElement| div().absolute().left(px(x0)).top(px(y)).child(el);
                 // Below the lights on macOS, in their place on Windows.

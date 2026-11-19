@@ -1526,9 +1526,9 @@ pub(crate) fn produce_tool() -> ToolDef {
 pub(crate) fn show_options_tool() -> ToolDef {
     ToolDef {
         name: "show_options",
-        description: "Show the user a few visual variants to choose between — designs, layouts, or a before/after — as a row of thumbnails with a compare view. Give each variant a label, a one-line note, and either `image` (a screenshot you wrote in the project) or `url` (a live page). Opens a canvas and waits for the user: their pick comes back as this tool's result. Use it when the user asked for options or the choice is visual; not for routine steps.",
+        description: "Ask the user to choose between a few options and wait for the answer: a multiple-choice question (text-only variants), or visual variants — designs, layouts, a before/after — each with `image` (a screenshot you wrote in the project) or `url` (a live page) the user can open full size. Give each variant a label and a one-line note on what it costs or gives up; mark the one you recommend with `recommended: true` (at most one). The title is the question. Their pick comes back as this tool's result (empty if they dismissed it). Use it for a decision that changes the goal or blocks your work; not for routine steps.",
         schema: json!({"type": "object", "properties": {
-            "title": {"type": "string", "description": "What the set is, e.g. \"Context usage: 3 options\""},
+            "title": {"type": "string", "description": "The question, e.g. \"How should onboarding handle old chats?\""},
             "note": {"type": "string", "description": "One or two lines on the set as a whole"},
             "variants": {"type": "array", "minItems": 2, "maxItems": 6, "items": {
                 "type": "object",
@@ -1537,7 +1537,8 @@ pub(crate) fn show_options_tool() -> ToolDef {
                     "label": {"type": "string", "description": "what the user reads under the thumbnail"},
                     "note": {"type": "string", "description": "one line on what this variant does"},
                     "image": {"type": "string", "description": "a screenshot file in the project"},
-                    "url": {"type": "string", "description": "or a live page to show"}
+                    "url": {"type": "string", "description": "or a live page to show"},
+                    "recommended": {"type": "boolean", "description": "true on the one variant you recommend"}
                 },
                 "required": ["label"]
             }}
