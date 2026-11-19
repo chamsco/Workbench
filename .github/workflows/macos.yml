@@ -6,7 +6,7 @@ name: macOS app
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, claude/project-thread-gg3ogp]
     paths: ["crates/**", "Cargo.*", ".github/workflows/macos.yml"]
 
 permissions:
@@ -90,3 +90,15 @@ jobs:
           gh release create mac-latest out/Cauldron-mac.dmg out/Cauldron-mac.app.zip --prerelease --target "$GITHUB_SHA" \
             --title "Cauldron for Mac (latest main)" \
             --notes "Built from ${GITHUB_SHA::7}. Unsigned: right-click Cauldron.app, then Open, the first time, or run: xattr -dr com.apple.quarantine /Applications/Cauldron.app"
+
+      # The integration branch gets its own rolling pre-release, as Windows has
+      # windows-preview, so a Mac build of the newest app never needs main.
+      - name: Publish to the "mac-preview" pre-release
+        if: github.ref == 'refs/heads/claude/project-thread-gg3ogp'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete mac-preview --yes --cleanup-tag 2>/dev/null || true
+          gh release create mac-preview out/Cauldron-mac.dmg out/Cauldron-mac.app.zip --prerelease --target "$GITHUB_SHA" \
+            --title "Cauldron for Mac (preview, integration branch)" \
+            --notes "Built from ${GITHUB_SHA::7} on the integration branch, not main. Unsigned: right-click Cauldron.app, then Open, the first time, or run: xattr -dr com.apple.quarantine /Applications/Cauldron.app"
