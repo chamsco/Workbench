@@ -1820,10 +1820,14 @@ impl Render for Cauldron {
                 let i = self.support_tabs.iter().position(|t| *t == q).unwrap_or(0);
                 let on = self.drawer == Some(q);
                 shead = shead.child(
+                    // Tabs give way before the + does: with the Windows notch reserved on the
+                    // right, three long tabs and "+N" would push + under the caption buttons.
                     div()
                         .id(("st", i))
                         .h(px(metric::TAB_H))
-                        .flex_none()
+                        .flex_shrink_1()
+                        .min_w(px(TAB_PAD * 2.0 + 13.0))
+                        .overflow_hidden()
                         .flex()
                         .items_center()
                         .gap(px(CLOSE_GAP))
@@ -1839,12 +1843,13 @@ impl Render for Cauldron {
                         .font_weight(FontWeight::MEDIUM)
                         .text_color(if on { fg } else { fg3 })
                         .child(glyph(q.icon(), 13., if on { fg2 } else { fg3 }))
-                        .child(q.title())
+                        .child(div().min_w(px(0.)).truncate().child(q.title()))
                         .when_live(on, |d| {
                             d.child(
                                 div()
                                     .id(("st-close", i))
                                     .size(px(16.))
+                                    .flex_none()
                                     .flex()
                                     .items_center()
                                     .justify_center()

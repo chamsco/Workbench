@@ -778,6 +778,13 @@ pub(super) mod tests {
         })
     }
 
+    /// Held by tests that change a saved preference another test reads (prefs live in one file
+    /// for the whole test binary), so a reader never sees a value mid-cycle.
+    pub(in crate::shell) fn prefs_guard() -> std::sync::MutexGuard<'static, ()> {
+        static GUARD: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        GUARD.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     pub(in crate::shell) fn open(cx: &mut TestAppContext) -> (gpui_kit::WindowHandle<Cauldron>, Arc<Chats>) {
         cx.update(gpui_kit::init);
         prefs();

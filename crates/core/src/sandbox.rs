@@ -405,8 +405,10 @@ impl Sandbox {
             Backend::Bwrap(bin) => bwrap(bin, p, argv),
             Backend::Seatbelt(bin) => {
                 let (tmp, profile) = seatbelt(p);
-                let mut a = vec!["/usr/bin/env".to_string(), format!("TMPDIR={}/", s(&tmp)), format!("{ENV_LEVEL}={}", self.label())];
-                a.extend([s(bin), "-p".into(), profile]);
+                // TMPDIR is set inside the sandbox, right before the command,
+                // so nothing between here and there can put the shared one back.
+                let mut a = vec![s(bin), "-p".into(), profile];
+                a.extend(["/usr/bin/env".to_string(), format!("TMPDIR={}/", s(&tmp)), format!("{ENV_LEVEL}={}", self.label())]);
                 a.extend(argv.iter().cloned());
                 a
             }
@@ -472,6 +474,39 @@ fn bwrap(bin: &Path, p: &Profile, argv: &[String]) -> Vec<String> {
     a
 }
 
+/// The user's temp folders on macOS, real paths: TMPDIR and the one
+/// `confstr(_CS_DARWIN_USER_TEMP_DIR)` names, which mktemp prefers.
+fn user_temp_dirs() -> Vec<PathBuf> {
+    use std::sync::OnceLock;
+    static DIRS: OnceLock<Vec<PathBuf>> = OnceLock::new();
+    DIRS.get_or_init(|| {
+        let mut v = vec![real(&std::env::temp_dir())];
+        if cfg!(target_os = "macos") {
+            if let Ok(o) = std::process::Command::new("/usr/bin/getconf").arg("DARWIN_USER_TEMP_DIR").output() {
+                let d = String::from_utf8_lossy(&o.stdout).trim().trim_end_matches('/').to_string();
+                if o.status.success() && !d.is_empty() {
+                    v.push(real(Path::new(&d)));
+                }
+            }
+        }
+        v.dedup();
+        v
+    })
+    .clone()
+}
+
+/// A literal for a Seatbelt regex (POSIX extended).
+fn regex_escape(t: &str) -> String {
+    let mut o = String::new();
+    for c in t.trim_end_matches('/').chars() {
+        if "\\.^$|?*+()[]{}\"".contains(c) {
+            o.push('\\');
+        }
+        o.push(c);
+    }
+    o
+}
+
 /// The quoted form of a path in a Seatbelt profile.
 fn sb(p: &Path) -> String {
     format!("\"{}\"", s(p).replace('\\', "\\\\").replace('"', "\\\""))
@@ -491,6 +526,12 @@ fn seatbelt(p: &Profile) -> (PathBuf, String) {
         r.push_str(&format!(" (subpath {})", sb(&real(w))));
     }
     r.push_str(")\n");
+    // macOS's mktemp makes its default `tmp.XXXXXXXXXX` in the user's own
+    // temp folder whatever TMPDIR says; only names of that shape may be made
+    // there, so the rest of the shared folder stays read-only.
+    for d in user_temp_dirs() {
+        r.push_str(&format!("(allow file-write* (regex #\"^{}/tmp\\.[A-Za-z0-9]+(/|$)\"))\n", regex_escape(&s(&d))));
+    }
     r.push_str(&format!("(deny file-write* (subpath {}))\n", sb(&project)));
     let git = git_common(&work);
     r.push_str(&format!("(allow file-write* (subpath {})", sb(&work)));
@@ -507,6 +548,13 @@ fn seatbelt(p: &Profile) -> (PathBuf, String) {
     // The worktree lives under Backspace's folder: open it again.
     if work.starts_with(project.join(".backspace")) {
         r.push_str(&format!("(allow file-read* file-write* (subpath {}))\n", sb(&work)));
+        // git resolves the worktree's real path one folder at a time, so the
+        // folders on the way down must answer a stat (not a listing), as
+        // bubblewrap's empty tmpfs over Backspace's folder does.
+        let own = project.join(".backspace");
+        for a in work.ancestors().skip(1).take_while(|a| a.starts_with(&own)) {
+            r.push_str(&format!("(allow file-read-metadata (literal {}))\n", sb(a)));
+        }
         if let Some(g) = &git {
             r.push_str(&format!("(allow file-read* (subpath {}))\n", sb(&work)));
             let _ = g;
