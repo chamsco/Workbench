@@ -215,7 +215,7 @@ fn writes_stay_in_the_agents_worktree() {
     assert!(!f.outside.join("f.txt").exists(), "wrote outside the project");
     assert_eq!(std::fs::read_to_string(f.work.join("new.txt")).unwrap(), "y\n");
     assert_eq!(std::fs::read_to_string(f.work.join("d/e.txt")).unwrap(), "z\n");
-    let (code, out) = sh(&ws, "t=$(mktemp) && echo ok > $t && cat $t");
+    let (code, out) = sh(&ws, "t=$(mktemp) && echo ok > $t && cat $t || { echo \"TMPDIR=$TMPDIR\"; false; }");
     assert_eq!((code, out.trim()), (0, "ok"), "a private temp folder works");
 }
 

@@ -405,8 +405,10 @@ impl Sandbox {
             Backend::Bwrap(bin) => bwrap(bin, p, argv),
             Backend::Seatbelt(bin) => {
                 let (tmp, profile) = seatbelt(p);
-                let mut a = vec!["/usr/bin/env".to_string(), format!("TMPDIR={}/", s(&tmp)), format!("{ENV_LEVEL}={}", self.label())];
-                a.extend([s(bin), "-p".into(), profile]);
+                // TMPDIR is set inside the sandbox, right before the command,
+                // so nothing between here and there can put the shared one back.
+                let mut a = vec![s(bin), "-p".into(), profile];
+                a.extend(["/usr/bin/env".to_string(), format!("TMPDIR={}/", s(&tmp)), format!("{ENV_LEVEL}={}", self.label())]);
                 a.extend(argv.iter().cloned());
                 a
             }
@@ -507,6 +509,13 @@ fn seatbelt(p: &Profile) -> (PathBuf, String) {
     // The worktree lives under Backspace's folder: open it again.
     if work.starts_with(project.join(".backspace")) {
         r.push_str(&format!("(allow file-read* file-write* (subpath {}))\n", sb(&work)));
+        // git resolves the worktree's real path one folder at a time, so the
+        // folders on the way down must answer a stat (not a listing), as
+        // bubblewrap's empty tmpfs over Backspace's folder does.
+        let own = project.join(".backspace");
+        for a in work.ancestors().skip(1).take_while(|a| a.starts_with(&own)) {
+            r.push_str(&format!("(allow file-read-metadata (literal {}))\n", sb(a)));
+        }
         if let Some(g) = &git {
             r.push_str(&format!("(allow file-read* (subpath {}))\n", sb(&work)));
             let _ = g;
