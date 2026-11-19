@@ -149,7 +149,7 @@ mod tests {
     }
 
     /// Folders count streams by their folder's name, busiest first, "No folder" last.
-    #[test]
+    #[::core::prelude::v1::test]
     fn folders_count_streams_busiest_first_no_folder_last() {
         let v = vec![t("a", Some("/x/Cauldron")), t("b", None), t("c", Some("/y/Ocean")), t("d", Some("C:\\w\\Cauldron"))];
         assert_eq!(folders(&v), vec![("Cauldron".into(), 2), ("Ocean".into(), 1), (NO_FOLDER.into(), 1)]);
@@ -157,7 +157,7 @@ mod tests {
     }
 
     /// The tray packs its buttons from the left: the indicator for app i sits at its button.
-    #[test]
+    #[::core::prelude::v1::test]
     fn tray_slots_are_left_packed() {
         assert_eq!(tray_x(0.0), TRAY_PAD);
         assert_eq!(tray_x(2.0), TRAY_PAD + 2.0 * (TRAY_BTN_W + TRAY_GAP));
