@@ -1,0 +1,17 @@
+[package]
+name = "brainpowr-engine"
+description = "Brainpowr Engine: installs a pinned llama.cpp build for this machine, loads GGUF models on demand, unloads idle ones. App-agnostic."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+sha2 = "0.10"
+flate2 = "1"
+tar = "0.4"
+zip = { version = "2", default-features = false, features = ["deflate"] }

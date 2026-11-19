@@ -17,6 +17,8 @@ pub mod diagram;
 pub mod effort;
 pub mod eval;
 pub mod familiar;
+/// Platform services (event bus, notification inbox), for the shells.
+pub use cauldron_platform as platform;
 pub mod files;
 pub mod fleet;
 pub mod folders;
@@ -35,6 +37,10 @@ pub mod memory_learn;
 pub mod memory_dream;
 pub mod mcp;
 pub mod metrics;
+pub mod model_engine;
+// The engine crate, for the shells that drive it.
+pub use brainpowr_engine;
+pub mod model_gateway;
 pub mod model_server;
 pub mod options;
 pub mod phase;

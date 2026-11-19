@@ -8,6 +8,10 @@ license.workspace = true
 backspace-runner = { path = "../runner" }
 # The decision engine (decision.rs, ladder.rs re-export it).
 cauldron-decision = { path = "../decision" }
+# Platform services: the event bus and the notification inbox.
+cauldron-platform = { path = "../platform" }
+# Loads and runs downloaded models (crates/engine).
+brainpowr-engine = { path = "../engine" }
 # Durable workspaces (the `colony_*` tools); docs/COLONY.md.
 backspace-colony = { path = "../colony" }
 anyhow.workspace = true

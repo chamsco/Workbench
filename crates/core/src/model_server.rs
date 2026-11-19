@@ -80,6 +80,13 @@ pub struct LocalRuntime {
     /// What to tell the user when something is off.
     pub message: Option<String>,
     pub install: &'static str,
+    /// Another machine's name when the runtime is not this machine's: a
+    /// server on the local network, or a connected machine (model_gateway.rs).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host: Option<String>,
+    /// The bearer token that host wants. Never sent to the UI.
+    #[serde(skip)]
+    pub key: String,
 }
 
 /// What kind of small task is being delegated.
@@ -529,6 +536,8 @@ pub fn detect(prefs: &Prefs, extra_urls: &[String]) -> Vec<LocalRuntime> {
         .collect();
         // One panicking probe must not hide the others.
         v.extend(cs.into_iter().filter_map(|h| h.join().ok()));
+        // Downloaded files, loaded on demand by Brainpowr Engine (model_engine.rs).
+        v.extend(crate::model_engine::runtimes(prefs));
         v
     });
     // One runtime per address: a router pointed at a known runtime's own
@@ -543,6 +552,54 @@ pub fn detect(prefs: &Prefs, extra_urls: &[String]) -> Vec<LocalRuntime> {
         true
     });
     out
+}
+
+/// The models this machine reaches but does not run: the servers on the local
+/// network the user added, and every connected machine's own models through
+/// its share link (`/v1/llm`, remote.rs). Probed in parallel like [`detect`];
+/// a host that does not answer is still listed, with why.
+pub fn remote_runtimes(prefs: &Prefs) -> Vec<LocalRuntime> {
+    let mut hosts: Vec<(String, String, String, String)> = prefs
+        .lan_models
+        .iter()
+        .filter(|l| !l.base_url.trim().is_empty())
+        .map(|l| (format!("lan:{}", l.base_url.trim_end_matches('/')), l.name.clone(), l.base_url.clone(), l.token.clone()))
+        .collect();
+    hosts.extend(prefs.machines.iter().map(|m| {
+        (
+            format!("machine:{}", m.name),
+            m.name.clone(),
+            format!("{}/v1/llm", m.url.trim_end_matches('/')),
+            m.token.clone(),
+        )
+    }));
+    std::thread::scope(|s| {
+        let hs: Vec<_> = hosts
+            .into_iter()
+            .map(|(id, name, url, key)| {
+                s.spawn(move || {
+                    let label = if name.trim().is_empty() { host_of(&url) } else { name };
+                    let mut rt = endpoint(&id, &label, LocalKind::Custom, &url, "");
+                    fill_openai(&mut rt, Some(key.as_str()));
+                    rt.host = Some(label);
+                    rt.key = key;
+                    rt
+                })
+            })
+            .collect();
+        hs.into_iter().filter_map(|h| h.join().ok()).collect()
+    })
+}
+
+/// `192.168.1.20` out of `http://192.168.1.20:11434/v1`.
+pub fn host_of(url: &str) -> String {
+    let rest = url.split("://").nth(1).unwrap_or(url);
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    let authority = authority.rsplit('@').next().unwrap_or(authority);
+    if let Some(h) = authority.strip_prefix('[') {
+        return h.split(']').next().unwrap_or(h).to_string();
+    }
+    authority.split(':').next().unwrap_or(authority).to_string()
 }
 
 /// A runtime as configured, before anything is probed.
@@ -564,6 +621,8 @@ fn endpoint(
         version: None,
         message: None,
         install,
+        host: None,
+        key: String::new(),
     }
 }
 
@@ -628,7 +687,7 @@ fn probe_ollama(url: &str) -> LocalRuntime {
         });
     } else if rt.models.is_empty() {
         rt.message = Some(format!(
-            "Running, but no models are pulled. Pull one, e.g. `ollama pull lfm2.5:2.6b`."
+            "Running, but no models are pulled. Pull one, e.g. `ollama pull qwen3:1.7b`."
         ));
     }
     rt
@@ -693,7 +752,7 @@ fn version_of(bin: &std::path::Path) -> Option<String> {
 
 /// One GET, decoded. "not running" is the common answer and the one the UI
 /// prints, so it gets its own words.
-fn get_json(url: &str, key: Option<&str>) -> Result<Value, String> {
+pub(crate) fn get_json(url: &str, key: Option<&str>) -> Result<Value, String> {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()

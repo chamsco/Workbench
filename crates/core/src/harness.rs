@@ -269,6 +269,9 @@ pub fn runtime_base(prefs: &crate::prefs::Prefs, runtime: &str) -> Option<String
         "lmstudio" => "http://127.0.0.1:1234/v1".to_string(),
         "llamacpp" => "http://127.0.0.1:8080/v1".to_string(),
         "mlx" => "http://127.0.0.1:8081/v1".to_string(),
+        // The model server: a model on the network or a connected machine, and
+        // Brainpowr Engine's downloaded models behind it.
+        "backspace" | "brainpowr" => prefs.model_serve.local_url(),
         other => prefs.routers.iter().find(|r| r.id == other || r.name.eq_ignore_ascii_case(other))?.base_url.trim_end_matches('/').to_string(),
     })
 }

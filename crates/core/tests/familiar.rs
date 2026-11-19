@@ -141,3 +141,53 @@ fn drive_does_not_rerun_a_refused_verify_on_the_same_commit() {
     assert!(familiar::drive(&root, AgentStatus::Approved, &t, Target::Local, &mut learn).unwrap().is_none(), "same commit, same answer: not run again");
     assert_eq!(PhaseState::load(&root).gates.len(), gates);
 }
+
+fn plain_view() -> familiar::View {
+    familiar::View {
+        id: "f9".into(),
+        name: "CSV export".into(),
+        goal: "g".into(),
+        state: State::Running,
+        stage: Phase::Execute,
+        plan: None,
+        events: vec![],
+        ask: None,
+        yes_reply: None,
+        approval: None,
+        crew: vec![],
+        verify: None,
+        delivery: None,
+        cost_usd: 0.0,
+        tickets_done: 0,
+        tickets: 1,
+    }
+}
+
+#[test]
+fn a_new_ask_a_delivery_and_a_failure_are_platform_events_once() {
+    use cauldron_platform::events::Kind;
+    let running = plain_view();
+    assert!(familiar::event_for(None, &running).is_none(), "working quietly: nothing to say");
+
+    let mut asks = running.clone();
+    asks.state = State::NeedsYou;
+    asks.ask = Some("The spec is ready. Reply yes to approve it.".into());
+    let e = familiar::event_for(Some(&running), &asks).expect("a new ask");
+    assert_eq!((e.app.as_str(), e.source.as_str(), e.kind), ("code", "f9", Kind::NeedsYou));
+    assert!(e.title.contains("CSV export") && e.body.contains("spec"), "{e:?}");
+    assert!(familiar::event_for(Some(&asks), &asks).is_none(), "the same ask again is not news");
+    assert!(familiar::event_for(None, &asks).is_some(), "an ask seen for the first time (app start) is news");
+
+    let mut shipped = running.clone();
+    shipped.state = State::Done;
+    shipped.delivery = Some(deliver::DeliveryRecord { title: "CSV".into(), target: Target::PullRequest, commit: "abc".into(), branch: "cauldron/csv-abc".into(), status: "delivered".into(), pr_url: Some("https://github.com/o/r/pull/9".into()), evidence: vec![], limitations: vec![], at: 0 });
+    let d = familiar::event_for(Some(&running), &shipped).unwrap();
+    assert_eq!(d.kind, Kind::Delivered);
+    assert!(d.body.contains("pull/9"), "{d:?}");
+    assert!(familiar::event_for(Some(&shipped), &shipped).is_none());
+
+    let mut failed = running.clone();
+    failed.state = State::Failed;
+    assert_eq!(familiar::event_for(Some(&running), &failed).unwrap().kind, Kind::Failed);
+    assert!(familiar::event_for(Some(&failed), &failed).is_none());
+}
