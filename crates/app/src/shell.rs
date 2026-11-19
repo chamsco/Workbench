@@ -182,6 +182,10 @@ pub(crate) struct Cauldron {
     files_open: std::collections::BTreeSet<std::path::PathBuf>,
     /// The Harbour painting behind the window (Tight tiles), or the plain frame.
     painting: bool,
+    /// The cards' crops of the light frost (two-depth glass), and the user's own picture or GIF
+    /// behind the stream card instead (Settings > Appearance), if they chose one.
+    glass: backdrop::GlassCache,
+    stream_bg: Option<std::path::PathBuf>,
     /// The shell's own focus: it takes the keys when nothing inside has them (⌘N, Ctrl+N).
     root_focus: Option<FocusHandle>,
     /// Plan mode for the next send, from the new-stream box or the composer (Tight tiles): the
@@ -317,9 +321,11 @@ impl Cauldron {
     /// n agent tabs, for screenshots until UI4 brings real agents from core.
     pub(crate) fn launch(cx: &mut Context<Self>) -> Self {
         let mut c = Self::new();
-        c.painting = backdrop::wants_painting(&Prefs::load());
+        let prefs = Prefs::load();
+        c.painting = backdrop::wants_painting(&prefs);
+        c.stream_bg = backdrop::stream_bg(&prefs);
         if c.painting {
-            backdrop::warm();
+            Self::warm_glass(cx);
         }
         // Debug builds only: `CAULDRON_FIXTURE_THREADS=list|loading|empty|error` draws the sidebar
         // from made-up threads instead of core, for screenshots that hold no real thread titles.
@@ -382,8 +388,46 @@ impl Cauldron {
         c
     }
 
+    /// Bakes the frost layers off the UI thread, then draws again so the cards pick up their light
+    /// layer (until then they use the single-depth glass).
+    pub(crate) fn warm_glass(cx: &mut Context<Self>) {
+        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            cx.background_executor().spawn(async { backdrop::warm() }).await;
+            let _ = this.update(cx, |_, cx| cx.notify());
+        })
+        .detach();
+    }
+
+    /// What goes under a card over the painting: the user's picture under its scrim (stream card
+    /// only), or this card's crop of the light frost under the tint. Empty on the plain frame or
+    /// before the frost is baked; then the card keeps its own glass colour.
+    fn glass_under(&mut self, id: &'static str, r: Rect, win: (f32, f32), dark: bool, pal: &'static Palette, moving: bool, window: &mut Window) -> Option<Vec<AnyElement>> {
+        if !self.painting {
+            return None;
+        }
+        let round = px(radius::PANEL);
+        if id == "main" {
+            if let Some(path) = self.stream_bg.clone() {
+                return Some(vec![
+                    img(path).id("stream-bg").absolute().left_0().top_0().size_full().rounded(round).object_fit(ObjectFit::Cover).test_support().into_any_element(),
+                    div().absolute().left_0().top_0().size_full().rounded(round).bg(backdrop::surface(true, pal.frame, backdrop::MEDIA_SCRIM)).into_any_element(),
+                ]);
+            }
+        }
+        let mut stale = Vec::new();
+        let crop = self.glass.get(id, dark, win, r, moving, &mut stale);
+        for old in stale {
+            let _ = window.drop_image(old);
+        }
+        let crop = crop?;
+        Some(vec![
+            img(crop).absolute().left_0().top_0().size_full().rounded(round).object_fit(ObjectFit::Fill).into_any_element(),
+            div().absolute().left_0().top_0().size_full().rounded(round).bg(backdrop::tint(pal, dark)).into_any_element(),
+        ])
+    }
+
     pub(crate) fn new() -> Self {
-        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, support_data: Default::default(), files_open: Default::default(), painting: false, root_focus: None, plan: false, open_in_menu: false, open_in: thread::OpenIn::Folder, search_open: false, indent: false, usage: Default::default(), settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, familiar: None, fam_views: Vec::new(), fam_live: Vec::new(), fam_watch: Vec::new(), fam_driving: Default::default(), fam_error: None, fam_composer: None, fam_fixture: false, inbox: Vec::new(), inbox_open: false, inbox_toast: None, fam_from: (0.0, 0.0), fam_to: None, fam_since: None, fam_hl: 0, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
+        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, support_data: Default::default(), files_open: Default::default(), painting: false, glass: Default::default(), stream_bg: None, root_focus: None, plan: false, open_in_menu: false, open_in: thread::OpenIn::Folder, search_open: false, indent: false, usage: Default::default(), settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, familiar: None, fam_views: Vec::new(), fam_live: Vec::new(), fam_watch: Vec::new(), fam_driving: Default::default(), fam_error: None, fam_composer: None, fam_fixture: false, inbox: Vec::new(), inbox_open: false, inbox_toast: None, fam_from: (0.0, 0.0), fam_to: None, fam_since: None, fam_hl: 0, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
     }
 
     /// Opens core off the main thread (the sidebar shows Loading meanwhile), then keeps the thread
@@ -1667,7 +1711,7 @@ impl Render for Cauldron {
             .text_size(px(12.5))
             .text_color(fg3)
             // Under a familiar's folder tabs the header is the frame they sit on.
-            .when_live(self.familiar.is_some(), |d| d.bg(c(pal.card)))
+            .when_live(self.familiar.is_some(), |d| d.bg(familiar::fam_layers(self.painting, pal).1))
             .window_control_area(WindowControlArea::Drag);
         if tab_row.is_none() && self.familiar.is_none() {
             if let Some(p) = self.thread.as_ref().filter(|_| self.settings.is_none()).and_then(|t| t.project.as_ref()) {
@@ -1716,22 +1760,26 @@ impl Render for Cauldron {
                     cx.notify();
                 }
             }))
-            .child(
+            .child({
+                let under = self.glass_under("main", s.main, (w, h), dark, pal, moving, window);
+                let glass = under.is_some();
                 div()
                     .id("card")
                     .size_full()
+                    .relative()
                     .flex()
                     .flex_col()
                     .overflow_hidden()
                     .rounded(px(radius::PANEL))
-                    .bg(backdrop::surface(self.painting, pal.panel, backdrop::GLASS_CARD))
+                    .when_live(!glass, |d| d.bg(backdrop::surface(self.painting, pal.panel, backdrop::GLASS_CARD)))
+                    .children(under.unwrap_or_default())
                     .border_1()
-                    .border_color(c(pal.line))
+                    .border_color(c(if glass { pal.line_strong } else { pal.line }))
                     .text_color(fg3)
                     .child(head.test_support())
                     .child(div().w(px(body_w)).h(px(body_h)).flex_none().child(inside))
-                    .test_support(),
-            );
+                    .test_support()
+            });
         if new_screen {
             // ponytail: core has no stages or per-subscription usage yet (UI-PLAN decision 5), so the
             // bar is static: usage as an empty state, the stages as plain labels with none current.
@@ -1986,15 +2034,18 @@ impl Render for Cauldron {
             if let Some((a, k)) = swap {
                 bodies = bodies.child(body(self, a, 1.0 - k, cx));
             }
+            let under = self.glass_under("support", r, (w, h), dark, pal, moving, window);
+            let glass = under.is_some();
             let d = pane("support", r)
                 .opacity(dp.alpha)
                 .flex()
                 .flex_col()
                 .overflow_hidden()
                 .rounded(px(radius::PANEL))
-                .bg(backdrop::surface(self.painting, pal.panel, backdrop::GLASS_CARD))
+                .when_live(!glass, |d| d.bg(backdrop::surface(self.painting, pal.panel, backdrop::GLASS_CARD)))
+                .children(under.unwrap_or_default())
                 .border_1()
-                .border_color(c(pal.line))
+                .border_color(c(if glass { pal.line_strong } else { pal.line }))
                 .child(shead.test_support())
                 .child(bodies);
             root = root.child(d.test_support());

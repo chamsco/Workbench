@@ -23,6 +23,12 @@ pub(crate) use backspace_core::familiar::State;
 use backspace_core::phase::{Phase, Stage};
 use backspace_core::Harness;
 
+/// A familiar's stream fill and the frame around it: solid on the plain frame, glass over the
+/// painting (the frame is then the card's own frost).
+pub(crate) fn fam_layers(painting: bool, pal: &Palette) -> (Hsla, Hsla) {
+    if painting { (super::backdrop::surface(true, pal.panel, 0.5), gpui_kit::transparent_black()) } else { (c(pal.panel), c(pal.card)) }
+}
+
 fn state_label(s: State) -> &'static str {
     match s {
         State::Running => "Working",
@@ -298,8 +304,10 @@ impl Cauldron {
         let r = radius::PANEL;
         let (l_sh, r_sh) = (jx.clamp(0.0, r), (sw - jx - jw).clamp(0.0, r));
         let line = c(pal.line);
-        let fill = c(pal.panel);
-        let frame = c(pal.card);
+        // Over the painting both layers are glass: the stream's fill translucent, the frame around
+        // it the card's own frost. Translucent layers cannot overpaint, so the concave shoulders
+        // are left out there; the plain frame keeps them.
+        let (fill, frame) = fam_layers(self.painting, pal);
         let mut strip = abs(Rect::new(sx, sy, sw, STRIP_H))
             .id("fam-strip")
             .track_focus(&self.tab_focus.get_or_insert_with(|| cx.focus_handle()).clone())
@@ -317,10 +325,10 @@ impl Cauldron {
                 cx.notify();
             }))
             .child(div().id("fam-joined").absolute().left(px(jx)).top_0().w(px(jw)).h(px(STRIP_H + 1.0)).bg(fill).border_t_1().border_l_1().border_r_1().border_color(line).rounded_t(px(r)).test_support());
-        if l_sh > 0.5 {
+        if l_sh > 0.5 && !self.painting {
             strip = strip.child(div().absolute().left(px(jx + 1.0 - l_sh)).top(px(STRIP_H + 1.0 - l_sh)).size(px(l_sh)).bg(fill).child(div().size_full().bg(frame).border_r_1().border_b_1().border_color(line).rounded_br(px(l_sh))));
         }
-        if r_sh > 0.5 {
+        if r_sh > 0.5 && !self.painting {
             strip = strip.child(div().absolute().left(px(jx + jw - 1.0)).top(px(STRIP_H + 1.0 - r_sh)).size(px(r_sh)).bg(fill).child(div().size_full().bg(frame).border_l_1().border_b_1().border_color(line).rounded_bl(px(r_sh))));
         }
 
@@ -916,7 +924,7 @@ impl Cauldron {
             .overflow_hidden()
             .rounded(px(radius::PANEL))
             .rounded_tl(px(corner))
-            .bg(c(pal.panel))
+            .bg(fam_layers(self.painting, pal).0)
             .border_1()
             .border_color(c(pal.line))
             .child(div().id("familiar-scroll").flex_1().min_h_0().overflow_y_scroll().flex().flex_col().items_center().px(px(16.)).pt(px(18.)).pb(px(16.)).opacity(fade).child(col))
@@ -952,7 +960,7 @@ impl Cauldron {
             _ => hl.child(kv("Total", format!("${:.2}", f.cost_usd))).children(f.crew.iter().map(|c| note(format!("{} · {}", c.name, state_label(c.state))))),
         };
 
-        div().id("familiar").size_full().flex().gap(px(BODY_PAD)).px(px(BODY_PAD)).pb(px(BODY_PAD)).bg(c(pal.card)).child(stream).child(hl.test_support()).test_support().into_any_element()
+        div().id("familiar").size_full().flex().gap(px(BODY_PAD)).px(px(BODY_PAD)).pb(px(BODY_PAD)).bg(fam_layers(self.painting, pal).1).child(stream).child(hl.test_support()).test_support().into_any_element()
     }
 }
 

@@ -24,6 +24,30 @@ fn policy_label(p: FailoverPolicy) -> &'static str {
 }
 
 impl Cauldron {
+    /// Saves the stream card's background (None: the glass) to the shared prefs.
+    pub(super) fn set_stream_bg(&mut self, path: Option<std::path::PathBuf>, cx: &mut Context<Self>) {
+        let mut p = Prefs::load();
+        p.stream_bg = path.as_ref().map(|p| p.display().to_string());
+        p.save();
+        self.stream_bg = super::backdrop::stream_bg(&p);
+        cx.notify();
+    }
+
+    /// Asks for a picture or GIF for the stream card; anything that is not one is ignored.
+    pub(super) fn pick_stream_bg(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let paths = cx.prompt_for_paths(PathPromptOptions { files: true, directories: false, multiple: false, prompt: Some("Use as stream background".into()) });
+        cx.spawn_in(window, async move |this: WeakEntity<Self>, cx: &mut AsyncWindowContext| {
+            if let Ok(Ok(Some(ps))) = paths.await {
+                let Some(path) = ps.into_iter().next() else { return };
+                let ok = path.extension().and_then(|e| e.to_str()).is_some_and(|e| super::backdrop::MEDIA_EXT.contains(&e.to_ascii_lowercase().as_str()));
+                if ok {
+                    let _ = this.update(cx, |c, cx| c.set_stream_bg(Some(path), cx));
+                }
+            }
+        })
+        .detach();
+    }
+
     /// Where the subscriptions are read from: core's `accounts.json`, or a test's own file.
     pub(super) fn accounts_path(&self) -> std::path::PathBuf {
         self.accounts_file.clone().unwrap_or_else(Accounts::path)
@@ -144,6 +168,9 @@ impl Cauldron {
                         .child(label)
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.painting = i == 0;
+                            if this.painting {
+                                Self::warm_glass(cx);
+                            }
                             let mut p = Prefs::load();
                             p.backdrop = if this.painting { super::backdrop::PAINTING.into() } else { super::backdrop::PLAIN.into() };
                             p.save();
@@ -153,6 +180,42 @@ impl Cauldron {
                 );
             }
             col = col.child(row(("appearance", 0), "Backdrop".into(), "The Harbour painting behind a frosted frame, or the plain frame.".into(), seg.test_support().into_any_element()));
+            // The stream card: the light frost of the painting, or the user's own picture or GIF.
+            let mut seg = div().id("set-stream-bg").flex().gap(px(2.)).p(px(2.)).rounded(px(radius::CONTROL)).border_1().border_color(c(pal.line_strong));
+            let pic = self.stream_bg.is_some();
+            for (i, (label, on)) in [("Glass", !pic), ("Picture…", pic)].into_iter().enumerate() {
+                seg = seg.child(
+                    div()
+                        .id(("stream-bg-opt", i))
+                        .h(px(24.))
+                        .px(px(10.))
+                        .flex()
+                        .items_center()
+                        .rounded(px(radius::TAG))
+                        .cursor_pointer()
+                        .when_live(on, |d| d.bg(c(pal.selected)))
+                        .when_live(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
+                        .aria_selected(on)
+                        .aria_label(label)
+                        .text_size(px(12.))
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(if on { fg } else { fg2 })
+                        .child(label)
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            if i == 0 {
+                                this.set_stream_bg(None, cx);
+                            } else {
+                                this.pick_stream_bg(window, cx);
+                            }
+                        }))
+                        .test_support(),
+                );
+            }
+            let help: String = match &self.stream_bg {
+                Some(p) => format!("Showing {} under a dark scrim. Only over the painting.", p.file_name().map_or_else(|| p.display().to_string(), |n| n.to_string_lossy().into_owned())),
+                None => "The painting under a light frost, or your own picture or GIF (png, jpg, webp, gif).".into(),
+            };
+            col = col.child(row(("appearance", 1), "Stream background".into(), help, seg.test_support().into_any_element()));
             return div().id("settings-body").size_full().overflow_y_scroll().flex().justify_center().child(col).test_support().into_any_element();
         }
         if page != 0 {

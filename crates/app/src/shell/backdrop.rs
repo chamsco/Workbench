@@ -1,46 +1,77 @@
-//! The Harbour painting behind the whole window (Tight tiles rule 7): dusk in dark, day in light,
-//! under one frosted frame layer. GPUI has no backdrop blur (rule 8), so the frost is baked: the
-//! painting is shrunk, blurred and saturated once per theme, cached on disk and in memory, and the
-//! window draws that image under a tint. Cards are glass: their colour at `GLASS_CARD` over it.
+//! The Harbour painting behind the whole window (Tight tiles rule 7): night in dark, day in light.
+//! Two depths of glass (19 Nov, after Charles's Ghostex reference): the frame and the sidebar sit
+//! on a heavy frost, and the stream and support cards show the same painting under a light frost,
+//! lined up with the frame so the window reads as one pane of glass. GPUI has no backdrop blur
+//! (rule 8), so both layers are baked once per theme off the UI thread, cached on disk and in
+//! memory, and each card draws a crop of the light layer at its own rect.
+//!
+//! The painting is tone-mapped while it is baked: in dark every pixel is capped in luminance (in
+//! light, lifted to a floor) so small grey text keeps its contrast wherever the painting is bright,
+//! and the runtime tint over it can stay thin enough for the colours to show.
 
 use backspace_core::prefs::Prefs;
+use cauldron_chrome::layout::Rect;
 use cauldron_chrome::tokens::{Palette, Rgb};
 use gpui_kit::RenderImage;
 use image::{imageops, ImageFormat, RgbaImage};
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 
-const DUSK: &[u8] = include_bytes!("../../assets/art/harbour-dusk.webp");
+const NIGHT: &[u8] = include_bytes!("../../assets/art/harbour-night.webp");
 const DAY: &[u8] = include_bytes!("../../assets/art/harbour-day.webp");
 
-/// The board's frame layer: `blur(28px) saturate(1.15)`, at the board's 1200px window.
-const BLUR: f32 = 28.0;
-const SATURATE: f32 = 1.15;
+/// One frost: its blur at the board's 1200px window, the width it is baked at (GPUI scales it up;
+/// the blur hides that), its saturation, and the luminance cap (dark) or floor (light).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct Frost {
+    pub blur: f32,
+    pub work_w: u32,
+    pub saturate: f32,
+    pub cap_dark: f32,
+    pub floor_light: f32,
+}
+
+/// The frame and sidebar: heavy.
+pub(crate) const FRAME: Frost = Frost { blur: 40.0, work_w: 420, saturate: 1.15, cap_dark: 0.045, floor_light: 0.68 };
+/// The cards: light, so the painting reads through the content.
+pub(crate) const CARD: Frost = Frost { blur: 10.0, work_w: 960, saturate: 1.1, cap_dark: 0.085, floor_light: 0.55 };
 const REF_W: f32 = 1200.0;
-/// The width the painting is blurred at. GPUI scales it up to the window; the blur hides that.
-const WORK_W: u32 = 420;
 /// Bump when the recipe changes, so an old cached file is not reused.
-const VERSION: u32 = 1;
+const VERSION: u32 = 2;
 
 /// The shared `backdrop` pref's values Cauldron writes from Settings > Appearance.
 pub(crate) const PAINTING: &str = "painting";
 pub(crate) const PLAIN: &str = "plain";
 
-/// Whether the prefs ask for the painting. Plain is the default (Charles, 16 Nov): only
-/// Cauldron's own "painting" draws it; the old app's values ("harbour", ...) stay plain.
+/// Whether the prefs ask for the painting. Glass is the default again (Charles, 19 Nov, reversing
+/// 16 Nov): only "plain" draws the plain frame; the old app's paintings ("harbour", ...) count as
+/// the painting.
 pub(crate) fn wants_painting(p: &Prefs) -> bool {
-    p.backdrop == PAINTING
+    p.backdrop != PLAIN
 }
 
-/// The frame tint over the painting: the frame colour at 70% in dark, 52% in light.
+/// The tint over both frost layers. The bake already took the bright spots down, so it is thin.
 pub(crate) fn frame_tint(dark: bool) -> f32 {
-    if dark { 0.70 } else { 0.52 }
+    if dark { 0.22 } else { 0.30 }
 }
-/// Cards over the frame layer.
+/// Cards while their light layer is not baked yet, and the support card's fallback: the old
+/// single-depth glass.
 pub(crate) const GLASS_CARD: f32 = 0.58;
 /// Reading surfaces stay more opaque: the composer, the terminal and diffs.
 pub(crate) const GLASS_COMPOSER: f32 = 0.82;
 pub(crate) const GLASS_TERM: f32 = 0.70;
+/// Over the user's own picture or GIF, which is not tone-mapped: a heavier scrim.
+pub(crate) const MEDIA_SCRIM: f32 = 0.66;
+
+/// Pictures the stream card can show (GPUI decodes these; a GIF plays).
+pub(crate) const MEDIA_EXT: [&str; 5] = ["png", "jpg", "jpeg", "webp", "gif"];
+
+/// The user's picture or GIF behind the stream card, if the prefs name one that still exists.
+pub(crate) fn stream_bg(p: &Prefs) -> Option<PathBuf> {
+    let path = PathBuf::from(p.stream_bg.as_deref()?.trim());
+    let ext = path.extension()?.to_str()?.to_ascii_lowercase();
+    (MEDIA_EXT.contains(&ext.as_str()) && path.is_file()).then_some(path)
+}
 
 /// A surface colour: glass over the painting, solid on the plain frame.
 pub(crate) fn surface(painting: bool, v: Rgb, alpha: f32) -> gpui_kit::Hsla {
@@ -52,31 +83,43 @@ pub(crate) fn frame_layer(dark: bool) -> Arc<RenderImage> {
     static DARK: OnceLock<Arc<RenderImage>> = OnceLock::new();
     static LIGHT: OnceLock<Arc<RenderImage>> = OnceLock::new();
     let cell = if dark { &DARK } else { &LIGHT };
-    cell.get_or_init(|| Arc::new(to_render(blurred(dark)))).clone()
+    cell.get_or_init(|| Arc::new(to_render(baked(dark, FRAME)))).clone()
 }
 
-/// Builds both layers off the main thread so the first frame does not wait.
+fn card_cell(dark: bool) -> &'static OnceLock<Arc<RgbaImage>> {
+    static DARK: OnceLock<Arc<RgbaImage>> = OnceLock::new();
+    static LIGHT: OnceLock<Arc<RgbaImage>> = OnceLock::new();
+    if dark { &DARK } else { &LIGHT }
+}
+
+/// The cards' light layer, once `warm` has baked it; None until then (cards fall back to the
+/// single-depth glass), so the UI thread never waits on it.
+pub(crate) fn card_source(dark: bool) -> Option<Arc<RgbaImage>> {
+    card_cell(dark).get().cloned()
+}
+
+/// Bakes all four layers. Call it off the UI thread.
 pub(crate) fn warm() {
-    std::thread::spawn(|| {
-        frame_layer(true);
-        frame_layer(false);
-    });
+    for dark in [true, false] {
+        frame_layer(dark);
+        card_cell(dark).get_or_init(|| Arc::new(baked(dark, CARD)));
+    }
 }
 
-fn cache_path(dark: bool) -> PathBuf {
-    Prefs::data_dir().join("cache").join(format!("backdrop-{}-v{VERSION}.png", if dark { "dusk" } else { "day" }))
+fn cache_path(dark: bool, f: Frost) -> PathBuf {
+    Prefs::data_dir().join("cache").join(format!("backdrop-{}-{}-v{VERSION}.png", if dark { "night" } else { "day" }, f.work_w))
 }
 
-/// The blurred, saturated painting, from the cache when it is there. Tests never touch the
-/// user's data folder.
-pub(crate) fn blurred(dark: bool) -> RgbaImage {
-    let path = cache_path(dark);
+/// A frost of the painting, from the cache when it is there. Tests never touch the user's data
+/// folder.
+pub(crate) fn baked(dark: bool, f: Frost) -> RgbaImage {
+    let path = cache_path(dark, f);
     if !cfg!(test) {
         if let Ok(img) = image::open(&path) {
             return img.to_rgba8();
         }
     }
-    let img = bake(if dark { DUSK } else { DAY });
+    let img = bake(if dark { NIGHT } else { DAY }, f, dark);
     if !cfg!(test) {
         if let Some(dir) = path.parent() {
             let _ = std::fs::create_dir_all(dir);
@@ -86,21 +129,99 @@ pub(crate) fn blurred(dark: bool) -> RgbaImage {
     img
 }
 
-/// Shrinks the painting to `WORK_W`, blurs it by the board's 28px (scaled to that width) and
-/// saturates it by 1.15, as CSS's `saturate()` does.
-pub(crate) fn bake(webp: &[u8]) -> RgbaImage {
+/// Shrinks the painting to the frost's width, blurs it (its 1200px blur scaled to that width),
+/// saturates it as CSS's `saturate()` does, then caps (dark) or floors (light) each pixel's
+/// luminance, keeping its hue.
+pub(crate) fn bake(webp: &[u8], f: Frost, dark: bool) -> RgbaImage {
     let img = image::load_from_memory_with_format(webp, ImageFormat::WebP).expect("bundled painting decodes").to_rgba8();
-    let h = ((WORK_W as f32) * img.height() as f32 / img.width() as f32).round().max(1.0) as u32;
-    let small = imageops::resize(&img, WORK_W, h, imageops::FilterType::Triangle);
-    let mut out = imageops::blur(&small, BLUR * WORK_W as f32 / REF_W);
+    let h = ((f.work_w as f32) * img.height() as f32 / img.width() as f32).round().max(1.0) as u32;
+    let small = imageops::resize(&img, f.work_w, h, imageops::FilterType::Triangle);
+    let mut out = imageops::blur(&small, f.blur * f.work_w as f32 / REF_W);
     for p in out.pixels_mut() {
         let [r, g, b, _] = p.0;
-        let [r, g, b] = saturate([r, g, b], SATURATE);
+        let [r, g, b] = tone(saturate([r, g, b], f.saturate), dark, if dark { f.cap_dark } else { f.floor_light });
         p.0[0] = r;
         p.0[1] = g;
         p.0[2] = b;
     }
     out
+}
+
+fn to_lin(v: u8) -> f32 {
+    let c = v as f32 / 255.0;
+    if c <= 0.04045 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) }
+}
+fn to_srgb(l: f32) -> u8 {
+    let l = l.clamp(0.0, 1.0);
+    let c = if l <= 0.003_130_8 { l * 12.92 } else { 1.055 * l.powf(1.0 / 2.4) - 0.055 };
+    (c * 255.0).round() as u8
+}
+/// WCAG relative luminance of an sRGB colour.
+#[cfg(test)]
+pub(crate) fn luminance([r, g, b]: [u8; 3]) -> f32 {
+    0.2126 * to_lin(r) + 0.7152 * to_lin(g) + 0.0722 * to_lin(b)
+}
+
+/// Dark: scales the colour down (in linear light) until its luminance is at most `level`. Light:
+/// mixes it toward white until its luminance is at least `level`. Hue is kept either way.
+pub(crate) fn tone([r, g, b]: [u8; 3], dark: bool, level: f32) -> [u8; 3] {
+    let l = [to_lin(r), to_lin(g), to_lin(b)];
+    let y = 0.2126 * l[0] + 0.7152 * l[1] + 0.0722 * l[2];
+    let out = if dark {
+        if y <= level {
+            return [r, g, b];
+        }
+        let k = level / y;
+        [l[0] * k, l[1] * k, l[2] * k]
+    } else {
+        if y >= level {
+            return [r, g, b];
+        }
+        let k = (level - y) / (1.0 - y).max(1e-6);
+        [l[0] + (1.0 - l[0]) * k, l[1] + (1.0 - l[1]) * k, l[2] + (1.0 - l[2]) * k]
+    };
+    [to_srgb(out[0]), to_srgb(out[1]), to_srgb(out[2])]
+}
+
+/// The part of a layer under `r`, in a `win`-sized window where the layer is drawn like CSS
+/// `object-fit: cover` (scaled to cover, centred), at the layer's own resolution. Drawn stretched
+/// over `r`, it lines up with the full-window layer.
+pub(crate) fn crop(src: &RgbaImage, win: (f32, f32), r: Rect) -> RgbaImage {
+    let (iw, ih) = (src.width() as f32, src.height() as f32);
+    let scale = (win.0 / iw).max(win.1 / ih).max(1e-6);
+    let (ox, oy) = ((win.0 - iw * scale) / 2.0, (win.1 - ih * scale) / 2.0);
+    let x0 = ((r.x - ox) / scale).floor().clamp(0.0, iw - 1.0) as u32;
+    let y0 = ((r.y - oy) / scale).floor().clamp(0.0, ih - 1.0) as u32;
+    let x1 = ((r.x + r.w - ox) / scale).ceil().clamp(x0 as f32 + 1.0, iw) as u32;
+    let y1 = ((r.y + r.h - oy) / scale).ceil().clamp(y0 as f32 + 1.0, ih) as u32;
+    imageops::crop_imm(src, x0, y0, x1 - x0, y1 - y0).to_image()
+}
+
+/// The cards' crops of the light layer, by card: rebuilt only when a card's rect, the window or
+/// the theme changes. A replaced image is handed back so the caller frees it from GPUI's atlas.
+#[derive(Default)]
+pub(crate) struct GlassCache {
+    slots: Vec<(&'static str, (bool, [i32; 6]), Arc<RenderImage>)>,
+}
+
+impl GlassCache {
+    /// The crop for card `id` at `r`; `stale` gets the image it replaced, if any. While the layout
+    /// is `moving` a card keeps its last crop, stretched, so an animation does not upload a new
+    /// image every frame; the crop catches up when it settles.
+    pub(crate) fn get(&mut self, id: &'static str, dark: bool, win: (f32, f32), r: Rect, moving: bool, stale: &mut Vec<Arc<RenderImage>>) -> Option<Arc<RenderImage>> {
+        let src = card_source(dark)?;
+        let key = (dark, [r.x, r.y, r.w, r.h, win.0, win.1].map(|v| v.round() as i32));
+        if let Some(s) = self.slots.iter().find(|s| s.0 == id && (s.1 == key || (moving && s.1 .0 == dark))) {
+            return Some(s.2.clone());
+        }
+        let img = Arc::new(to_render(crop(&src, win, r)));
+        if let Some(k) = self.slots.iter().position(|s| s.0 == id) {
+            let (_, _, old) = self.slots.swap_remove(k);
+            stale.push(old);
+        }
+        self.slots.push((id, key, img.clone()));
+        Some(img)
+    }
 }
 
 /// CSS `saturate(s)`: the Filter Effects matrix on 0..255 channels.
@@ -131,27 +252,33 @@ pub(crate) fn tint(pal: &Palette, dark: bool) -> gpui_kit::Hsla {
 mod tests {
     use super::*;
 
-    /// The frame layer is the painting shrunk to 420 wide, its shape kept, and blurred: neighbouring
-    /// pixels differ far less than in the painting.
+    fn rough(im: &RgbaImage) -> f64 {
+        let mut sum = 0u64;
+        for y in 0..im.height() {
+            for x in 1..im.width() {
+                sum += (im.get_pixel(x, y).0[1] as i32 - im.get_pixel(x - 1, y).0[1] as i32).unsigned_abs() as u64;
+            }
+        }
+        sum as f64 / (im.width() * im.height()) as f64
+    }
+
+    /// Both frosts are the painting shrunk to their width, its shape kept, and blurred; the cards'
+    /// frost keeps more detail than the frame's (two depths of glass).
     #[test]
-    fn the_frame_layer_is_the_painting_shrunk_and_blurred() {
-        for webp in [DUSK, DAY] {
+    fn both_frosts_are_the_painting_shrunk_and_blurred_the_card_one_less() {
+        for (webp, dark) in [(NIGHT, true), (DAY, false)] {
             let raw = image::load_from_memory_with_format(webp, ImageFormat::WebP).unwrap().to_rgba8();
-            let out = bake(webp);
-            assert_eq!(out.width(), WORK_W);
+            let frame = bake(webp, FRAME, dark);
+            let card = bake(webp, CARD, dark);
+            assert_eq!((frame.width(), card.width()), (FRAME.work_w, CARD.work_w));
             let ratio = |w: u32, h: u32| w as f32 / h as f32;
-            assert!((ratio(out.width(), out.height()) - ratio(raw.width(), raw.height())).abs() < 0.01, "aspect kept");
-            let small = imageops::resize(&raw, out.width(), out.height(), imageops::FilterType::Triangle);
-            let rough = |im: &RgbaImage| {
-                let mut sum = 0u64;
-                for y in 0..im.height() {
-                    for x in 1..im.width() {
-                        sum += (im.get_pixel(x, y).0[1] as i32 - im.get_pixel(x - 1, y).0[1] as i32).unsigned_abs() as u64;
-                    }
-                }
-                sum
-            };
-            assert!(rough(&out) * 4 < rough(&small), "blurred: {} vs {}", rough(&out), rough(&small));
+            for out in [&frame, &card] {
+                assert!((ratio(out.width(), out.height()) - ratio(raw.width(), raw.height())).abs() < 0.01, "aspect kept");
+                let small = imageops::resize(&raw, out.width(), out.height(), imageops::FilterType::Triangle);
+                assert!(rough(out) * 2.0 < rough(&small), "blurred: {} vs {}", rough(out), rough(&small));
+            }
+            let card_small = imageops::resize(&card, frame.width(), frame.height(), imageops::FilterType::Triangle);
+            assert!(rough(&frame) < rough(&card_small), "the frame is frostier: {} vs {}", rough(&frame), rough(&card_small));
         }
     }
 
@@ -164,15 +291,74 @@ mod tests {
         assert!(r > 200 && g < 100 && b < 50, "more saturated: {r} {g} {b}");
     }
 
-    /// Plain is the default (Charles, 16 Nov): only Cauldron's own Settings choice, "painting",
-    /// draws the painting; the old app's values ("harbour", "dawn", ...) and a fresh prefs file
-    /// stay plain.
+    /// Dark caps a bright pixel's luminance, light lifts a dark one; dim (dark) or bright (light)
+    /// pixels pass through, and the channels keep their order (the hue).
     #[test]
-    fn plain_is_the_default_and_painting_is_a_choice() {
+    fn tone_caps_in_dark_and_floors_in_light() {
+        let sky = [240, 180, 90];
+        let d = tone(sky, true, 0.05);
+        assert!((luminance(d) - 0.05).abs() < 0.006, "capped: {}", luminance(d));
+        assert!(d[0] > d[1] && d[1] > d[2], "hue kept: {d:?}");
+        assert_eq!(tone([20, 20, 30], true, 0.05), [20, 20, 30]);
+        let l = tone([30, 60, 120], false, 0.6);
+        assert!((luminance(l) - 0.6).abs() < 0.01, "lifted: {}", luminance(l));
+        assert!(l[2] > l[1] && l[1] > l[0], "hue kept: {l:?}");
+        assert_eq!(tone([250, 250, 250], false, 0.6), [250, 250, 250]);
+    }
+
+    fn contrast(a: f32, b: f32) -> f32 {
+        (a.max(b) + 0.05) / (a.min(b) + 0.05)
+    }
+
+    /// Worst case over every pixel of the baked layers under the runtime tint: the sidebar's grey
+    /// labels (fg3) keep 4.5:1 on the frame; on the cards the body text (fg2) keeps 4.5:1 and fg3
+    /// 3.5:1 even on the brightest cloud.
+    #[test]
+    fn small_text_keeps_its_contrast_on_both_frosts() {
+        for (webp, dark, pal) in [(NIGHT, true, &cauldron_chrome::tokens::DARK), (DAY, false, &cauldron_chrome::tokens::LIGHT)] {
+            let t = frame_tint(dark);
+            let fr = pal.frame;
+            let mix = |p: [u8; 3]| -> [u8; 3] {
+                let m = |v: u8, f: u8| (v as f32 * (1.0 - t) + f as f32 * t).round() as u8;
+                [m(p[0], fr.0), m(p[1], fr.1), m(p[2], fr.2)]
+            };
+            let lum = |c: Rgb| luminance([c.0, c.1, c.2]);
+            for (f, fg3_min, fg2_min) in [(FRAME, 4.5, 4.5), (CARD, 3.5, 4.5)] {
+                let img = bake(webp, f, dark);
+                let (mut w3, mut w2) = (f32::MAX, f32::MAX);
+                for p in img.pixels() {
+                    let bg = luminance(mix([p.0[0], p.0[1], p.0[2]]));
+                    w3 = w3.min(contrast(bg, lum(pal.fg3)));
+                    w2 = w2.min(contrast(bg, lum(pal.fg2)));
+                }
+                assert!(w3 >= fg3_min && w2 >= fg2_min, "dark {dark} blur {}: fg3 {w3:.2} fg2 {w2:.2}", f.blur);
+            }
+        }
+    }
+
+    /// A card's crop is the part of the light layer under it: a window twice the layer's size maps
+    /// a rect to half its size, from the matching corner.
+    #[test]
+    fn a_crop_lines_up_with_the_full_window_layer() {
+        let mut src = RgbaImage::new(100, 50);
+        src.put_pixel(60, 30, image::Rgba([255, 0, 0, 255]));
+        let r = Rect { x: 100.0, y: 40.0, w: 40.0, h: 40.0 };
+        let c = crop(&src, (200.0, 100.0), r);
+        assert_eq!((c.width(), c.height()), (20, 20));
+        assert_eq!(c.get_pixel(10, 10).0, [255, 0, 0, 255], "the marked pixel sits where the window has it");
+        // A wider window crops the layer's height (cover): the centre stays the centre.
+        let c = crop(&src, (400.0, 100.0), Rect { x: 0.0, y: 0.0, w: 400.0, h: 100.0 });
+        assert!(c.width() == 100 && c.height().abs_diff(25) <= 1, "{}x{}", c.width(), c.height());
+    }
+
+    /// Glass is the default again (Charles, 19 Nov): a fresh prefs file and the old app's
+    /// paintings draw it; only "plain" draws the plain frame.
+    #[test]
+    fn glass_is_the_default_and_plain_is_a_choice() {
         let mut p = Prefs::default();
-        assert!(!wants_painting(&p), "fresh prefs: plain");
+        assert!(wants_painting(&p), "fresh prefs: the painting");
         p.backdrop = "harbour".into();
-        assert!(!wants_painting(&p), "the old app's backdrop: plain here");
+        assert!(wants_painting(&p));
         p.backdrop = PAINTING.into();
         assert!(wants_painting(&p));
         p.backdrop = PLAIN.into();
@@ -186,6 +372,6 @@ mod tests {
         assert_eq!(surface(true, v, GLASS_CARD).a, GLASS_CARD);
         assert_eq!(surface(false, v, GLASS_CARD).a, 1.0);
         assert!(GLASS_COMPOSER > GLASS_TERM && GLASS_TERM > GLASS_CARD, "reading surfaces more opaque");
-        assert_eq!((frame_tint(true), frame_tint(false)), (0.70, 0.52));
+        assert_eq!((frame_tint(true), frame_tint(false)), (0.22, 0.30));
     }
 }
