@@ -237,6 +237,11 @@ pub(crate) struct Cauldron {
     fam_error: Option<String>,
     fam_composer: Option<(Entity<TextareaState>, Subscription)>,
     fam_fixture: bool,
+    /// The platform's notification inbox (Inbox board, direction A): its notes newest first, the
+    /// popover under the bell, and the note on show as a toast with when it came.
+    inbox: Vec<backspace_core::platform::notify::Note>,
+    inbox_open: bool,
+    inbox_toast: Option<(backspace_core::platform::notify::Note, std::time::Instant)>,
     /// A familiar's joined tab: where it slides from (x, width), where it was last headed, since
     /// when; and the open Highlights tab.
     fam_from: (f32, f32),
@@ -378,7 +383,7 @@ impl Cauldron {
     }
 
     pub(crate) fn new() -> Self {
-        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, support_data: Default::default(), files_open: Default::default(), painting: false, root_focus: None, plan: false, open_in_menu: false, open_in: thread::OpenIn::Folder, search_open: false, indent: false, usage: Default::default(), settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, familiar: None, fam_views: Vec::new(), fam_live: Vec::new(), fam_watch: Vec::new(), fam_driving: Default::default(), fam_error: None, fam_composer: None, fam_fixture: false, fam_from: (0.0, 0.0), fam_to: None, fam_since: None, fam_hl: 0, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
+        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, support_data: Default::default(), files_open: Default::default(), painting: false, root_focus: None, plan: false, open_in_menu: false, open_in: thread::OpenIn::Folder, search_open: false, indent: false, usage: Default::default(), settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, familiar: None, fam_views: Vec::new(), fam_live: Vec::new(), fam_watch: Vec::new(), fam_driving: Default::default(), fam_error: None, fam_composer: None, fam_fixture: false, inbox: Vec::new(), inbox_open: false, inbox_toast: None, fam_from: (0.0, 0.0), fam_to: None, fam_since: None, fam_hl: 0, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
     }
 
     /// Opens core off the main thread (the sidebar shows Loading meanwhile), then keeps the thread
@@ -2076,6 +2081,56 @@ impl Render for Cauldron {
             );
         }
 
+        // ---- the inbox bell, beside search (Inbox board, direction A), and its popover under it
+        if let Some(sb) = s.sidebar {
+            let b = s.sidebar_button;
+            let label = self.inbox_label();
+            let unread = self.inbox.iter().filter(|n| !n.read).count();
+            let mut bell = icon_button("inbox-btn", "bell", "Inbox", pal, self.inbox_open).relative().aria_label(label.clone());
+            if unread > 0 {
+                bell = bell.child(
+                    div()
+                        .absolute()
+                        .top(px(1.))
+                        .right(px(0.))
+                        .h(px(14.))
+                        .min_w(px(14.))
+                        .px(px(3.))
+                        .rounded_full()
+                        .bg(c(pal.accent))
+                        .text_color(c(pal.on_accent))
+                        .text_size(px(9.5))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .child(if unread > 9 { "9+".to_string() } else { unread.to_string() }),
+                );
+            }
+            root = root.child(
+                pane("inbox-slot", Rect::new(b.x - 72.0, b.y, metric::SBTN, metric::SBTN))
+                    .opacity(sb.alpha)
+                    .child(
+                        // No tooltip while the popover is open: it would sit over the popover's head.
+                        if self.inbox_open { bell } else { self.tipped("inbox-btn", bell, label, Side::Below, pal, cx) }
+                            .occlude()
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.inbox_open = !this.inbox_open;
+                                cx.notify();
+                            }))
+                            .test_support(),
+                    )
+                    .test_support(),
+            );
+            if self.inbox_open {
+                root = root.child(abs(Rect::new(b.x - 72.0, b.y + metric::SBTN + 6.0, 300.0, 400.0)).child(self.inbox_popover(pal, cx).test_support()));
+            }
+        }
+        if let Some(t) = self.inbox_toast(pal, cx) {
+            let vp = window.viewport_size();
+            root = root.child(abs(Rect::new(f32::from(vp.width) - 280.0 - 16.0, f32::from(vp.height) - 16.0 - 80.0, 280.0, 80.0)).flex().flex_col().justify_end().child(t.test_support()));
+        }
+
         // ---- sidebar button: the sidebar's top row when open; the stream header when folded
         root = root.child(
             pane("sbtn-slot", s.sidebar_button).child(
@@ -2612,6 +2667,77 @@ mod tests {
     /// card's left and right, never over Highlights, which has its own tabs on the same line; no
     /// title row between the tabs and the stream. The open tab is the joined shape, and the card's
     /// top-left corner is square under the first tab.
+    fn note(id: u64, kind: backspace_core::platform::events::Kind, source: &str, title: &str, read: bool) -> backspace_core::platform::notify::Note {
+        let event = backspace_core::platform::events::Event { app: "code".into(), source: source.into(), kind, title: title.into(), body: "body".into(), at: 0 };
+        backspace_core::platform::notify::Note { id, event, read, alert: true }
+    }
+
+    /// Inbox board, direction A: a bell beside Search with the unread count; it opens the notes,
+    /// newest first; a note opens what it is about and is read; Mark all read clears the count.
+    #[gpui_kit::test]
+    fn the_bell_counts_unread_notes_and_opens_them(cx: &mut TestAppContext) {
+        use backspace_core::platform::events::Kind;
+        cx.update(gpui_kit::init);
+        let mut c = Cauldron::new();
+        c.fam_views = super::familiar::fixtures();
+        c.fam_fixture = true;
+        c.inbox = vec![note(2, Kind::Delivered, "fx-2", "Add CSV export delivered", false), note(1, Kind::NeedsYou, "fx-1", "Ship onboarding v2 needs you", false), note(0, Kind::Failed, "x", "Old one", true)];
+        let handle = open(cx, c);
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            assert_eq!(window.find("inbox-btn").label(), Some("Inbox, 2 unread"));
+            let (bell, search) = (rect(window, "inbox-btn"), rect(window, "search-btn"));
+            assert_eq!((bell.y, search.x - bell.x), (search.y, 36.0), "beside Search, as Search is beside the sidebar button");
+            assert!(window.try_find("inbox").is_none(), "closed until clicked");
+            window.click("inbox-btn", cx);
+            window.render_frame(cx);
+            assert_eq!(window.find(("inbox-note", 0usize)).label(), Some("Unread: Add CSV export delivered"), "newest first");
+            assert_eq!(window.find(("inbox-note", 2usize)).label(), Some("Old one"));
+            window.click(("inbox-note", 1usize), cx);
+            window.render_frame(cx);
+            assert!(window.try_find("inbox").is_none(), "a note closes the inbox");
+            assert!(window.try_find("familiar-ask").is_some(), "and opens the familiar it is about");
+            assert_eq!(window.find("inbox-btn").label(), Some("Inbox, 1 unread"));
+            window.click("inbox-btn", cx);
+            window.render_frame(cx);
+            window.click("inbox-read-all", cx);
+            window.render_frame(cx);
+            assert_eq!(window.find("inbox-btn").label(), Some("Inbox"));
+        })
+        .unwrap();
+    }
+
+    /// A note that alerts shows as a toast at the window's bottom right; one that came in quiet
+    /// hours does not.
+    #[gpui_kit::test]
+    fn an_alerting_note_shows_as_a_toast(cx: &mut TestAppContext) {
+        use backspace_core::platform::events::Kind;
+        cx.update(gpui_kit::init);
+        let handle = open(cx, Cauldron::new());
+        handle
+            .update(cx, |c, _, cx| {
+                let mut quiet = note(1, Kind::Delivered, "f", "Quiet one", false);
+                quiet.alert = false;
+                c.take_note(quiet, cx);
+            })
+            .unwrap();
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            assert!(window.try_find("inbox-toast").is_none(), "quiet hours: no toast");
+            assert_eq!(window.find("inbox-btn").label(), Some("Inbox, 1 unread"), "but the note is in");
+        })
+        .unwrap();
+        handle.update(cx, |c, _, cx| c.take_note(note(2, Kind::NeedsYou, "f", "Loud one", false), cx)).unwrap();
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            assert_eq!(window.find("inbox-toast").label(), Some("Loud one"));
+            let (t, vp) = (rect(window, "inbox-toast"), window.viewport_size());
+            let (w, h) = (f32::from(vp.width), f32::from(vp.height));
+            assert!(w - t.right() <= 24.0 && h - t.bottom() <= 24.0 && t.right() <= w && t.bottom() <= h, "bottom right, inside the window");
+        })
+        .unwrap();
+    }
+
     /// D2 (Charles, 17 Nov): a delivered familiar's stream ends on the delivery card, its
     /// Highlights say where it shipped, and the foot names all five stages; merge is never offered.
     #[gpui_kit::test]
