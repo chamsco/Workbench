@@ -1,20 +1,9 @@
-//! The apps tray (19 Nov, after Charles's Ghostex reference and the context sidebar approved on
+//! The apps (19 Nov, after Charles's Ghostex reference and the context sidebar approved on
 //! 13 Nov): each app swaps the sidebar's list. Streams is the stream list; Folders groups streams
 //! by the folder they run in (a click filters Streams to it); Agents lists the familiars; Usage
 //! lists what each subscription has left. Automations and Library have no source yet and say so.
 
 use super::*;
-
-/// The apps tray's geometry: buttons left-packed in a tray with a 3px inset.
-pub(crate) const TRAY_PAD: f32 = 3.0;
-pub(crate) const TRAY_BTN_W: f32 = 30.0;
-pub(crate) const TRAY_BTN_H: f32 = 26.0;
-pub(crate) const TRAY_GAP: f32 = 2.0;
-
-/// Where app `pos` (fractional while the indicator slides) sits in the tray.
-pub(crate) fn tray_x(pos: f32) -> f32 {
-    TRAY_PAD + pos * (TRAY_BTN_W + TRAY_GAP)
-}
 
 /// Folders of the streams, with how many streams each has, most streams first, then by name.
 /// Streams with no folder count under "No folder" (last).
@@ -154,13 +143,5 @@ mod tests {
         let v = vec![t("a", Some("/x/Cauldron")), t("b", None), t("c", Some("/y/Ocean")), t("d", Some("C:\\w\\Cauldron"))];
         assert_eq!(folders(&v), vec![("Cauldron".into(), 2), ("Ocean".into(), 1), (NO_FOLDER.into(), 1)]);
         assert!(folders(&[]).is_empty());
-    }
-
-    /// The tray packs its buttons from the left: the indicator for app i sits at its button.
-    #[::core::prelude::v1::test]
-    fn tray_slots_are_left_packed() {
-        assert_eq!(tray_x(0.0), TRAY_PAD);
-        assert_eq!(tray_x(2.0), TRAY_PAD + 2.0 * (TRAY_BTN_W + TRAY_GAP));
-        assert!(tray_x(5.0) + TRAY_BTN_W + TRAY_PAD <= 236.0 - 18.0, "six apps fit the sidebar");
     }
 }

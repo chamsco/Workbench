@@ -187,6 +187,9 @@ pub(crate) struct Cauldron {
     /// The cards' crops of the light frost (two-depth glass), and the user's own picture or GIF
     /// behind the stream card instead (Settings > Appearance), if they chose one.
     glass: backdrop::GlassCache,
+    /// The sidebar's width (dragged by its right edge), and whether it is being dragged now.
+    sidebar_w: f32,
+    sidebar_drag: bool,
     /// The decision card: grown under the pointer, the option open in Highlights, the sets already
     /// answered here, and each live familiar's waiting set (refreshed with its view).
     ask_hover: bool,
@@ -334,6 +337,7 @@ impl Cauldron {
         c.painting = backdrop::wants_painting(&prefs);
         c.stream_bg = backdrop::stream_bg(&prefs);
         c.frost = backdrop::FrostLevel::from_pref(&prefs);
+        c.sidebar_w = layout::clamp_sidebar(prefs.sidebar_w.unwrap_or(metric::SIDEBAR_W));
         if c.painting {
             Self::warm_glass(cx);
         }
@@ -441,7 +445,7 @@ impl Cauldron {
     }
 
     pub(crate) fn new() -> Self {
-        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, support_data: Default::default(), files_open: Default::default(), painting: false, glass: Default::default(), ask_hover: false, ask_open: None, ask_answered: Default::default(), fam_questions: Default::default(), frost: backdrop::FrostLevel::Heavy, stream_bg: None, root_focus: None, plan: false, open_in_menu: false, open_in: thread::OpenIn::Folder, search_open: false, indent: false, usage: Default::default(), settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, familiar: None, fam_views: Vec::new(), fam_live: Vec::new(), fam_watch: Vec::new(), fam_driving: Default::default(), fam_error: None, fam_composer: None, fam_fixture: false, inbox: Vec::new(), inbox_open: false, inbox_toast: None, fam_from: (0.0, 0.0), fam_to: None, fam_since: None, fam_hl: 0, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
+        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, support_data: Default::default(), files_open: Default::default(), painting: false, glass: Default::default(), sidebar_w: metric::SIDEBAR_W, sidebar_drag: false, ask_hover: false, ask_open: None, ask_answered: Default::default(), fam_questions: Default::default(), frost: backdrop::FrostLevel::Heavy, stream_bg: None, root_focus: None, plan: false, open_in_menu: false, open_in: thread::OpenIn::Folder, search_open: false, indent: false, usage: Default::default(), settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, familiar: None, fam_views: Vec::new(), fam_live: Vec::new(), fam_watch: Vec::new(), fam_driving: Default::default(), fam_error: None, fam_composer: None, fam_fixture: false, inbox: Vec::new(), inbox_open: false, inbox_toast: None, fam_from: (0.0, 0.0), fam_to: None, fam_since: None, fam_hl: 0, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
     }
 
     /// Opens core off the main thread (the sidebar shows Loading meanwhile), then keeps the thread
@@ -849,6 +853,38 @@ impl Cauldron {
     }
 
     /// Selects a function. The sidebar indicator slides to it from wherever it is now.
+    /// A drag of the sidebar's edge: the width follows the pointer inside its range; past the
+    /// collapse point the sidebar folds. Released outside the window ends it too.
+    fn drag_sidebar(&mut self, ev: &MouseMoveEvent, cx: &mut Context<Self>) {
+        if !self.sidebar_drag {
+            return;
+        }
+        if ev.pressed_button != Some(MouseButton::Left) {
+            self.end_sidebar_drag(cx);
+            return;
+        }
+        let x = f32::from(ev.position.x);
+        if x < metric::SIDEBAR_COLLAPSE {
+            self.sidebar_open = false;
+            self.end_sidebar_drag(cx);
+        } else {
+            self.sidebar_w = layout::clamp_sidebar(x);
+        }
+        cx.notify();
+    }
+
+    /// Ends the drag and keeps the width for next time.
+    fn end_sidebar_drag(&mut self, cx: &mut Context<Self>) {
+        if !self.sidebar_drag && self.sidebar_w == metric::SIDEBAR_W && Prefs::load().sidebar_w.is_none() {
+            return;
+        }
+        self.sidebar_drag = false;
+        let mut p = Prefs::load();
+        p.sidebar_w = (self.sidebar_w != metric::SIDEBAR_W).then_some(self.sidebar_w);
+        p.save();
+        cx.notify();
+    }
+
     fn select_section(&mut self, i: usize, cx: &mut Context<Self>) {
         if i != self.section {
             let now = std::time::Instant::now();
@@ -1226,10 +1262,13 @@ impl Render for Cauldron {
         let vs = window.viewport_size();
         let (w, h) = (f32::from(vs.width), f32::from(vs.height));
         let plat = platform();
-        let want = ShellState { sidebar_open: self.sidebar_open, support_open: self.drawer.is_some(), dock_open: self.terminal };
+        // A new stream has no support card and no quick-button rail (Charles, 19 Nov): they belong
+        // to an existing stream. The card's tabs stay and come back when a stream opens.
+        let new_screen = self.open.is_none() && self.active == 0 && self.settings.is_none() && self.familiar.is_none();
+        let want = ShellState { sidebar_open: self.sidebar_open, support_open: self.drawer.is_some() && !new_screen, dock_open: self.terminal };
         let now = std::time::Instant::now();
         let reduce = cx.reduce_motion();
-        let (s, mut moving) = self.motion.frame(want, Frame::at_rest(&layout::solve(w, h, want, plat)), now, reduce);
+        let (s, mut moving) = self.motion.frame(want, Frame::at_rest(&layout::solve_at(w, h, want, plat, self.sidebar_w)), now, reduce);
         // The drawer body's crossfade, the + menu's open and close, and the Send/Stop glyphs.
         let busy_now = self.busy();
         if busy_now != self.busy_shown {
@@ -1319,11 +1358,15 @@ impl Render for Cauldron {
             .font_family(SANS).font_features(sans_features())
             .text_size(px(13.))
             .text_color(fg)
-            .on_mouse_move(cx.listener(|this, ev: &MouseMoveEvent, _, cx| this.drag_line(ev, cx)))
+            .on_mouse_move(cx.listener(|this, ev: &MouseMoveEvent, _, cx| {
+                this.drag_line(ev, cx);
+                this.drag_sidebar(ev, cx);
+            }))
             .on_mouse_up(MouseButton::Left, cx.listener(|this, _, _, cx| {
                 if this.pane_drag.take().is_some() {
                     cx.notify();
                 }
+                this.end_sidebar_drag(cx);
             }));
 
         // ---- the frame layer: the Harbour painting, baked frosted, under the frame tint
@@ -1344,49 +1387,13 @@ impl Render for Cauldron {
         // ---- sidebar, flat on the frame (the board's `.sb`): the top row (lights or logo, and the
         // sidebar button, drawn on the window), a line, the apps row, New stream, Search, the list
         if let Some(sp) = s.sidebar {
-            // The apps tray (19 Nov): left-packed in a sunken tray under New stream; the indicator is
-            // a raised key that slides to the selected app (INDICATOR ms); each app swaps the list.
-            let mut fnrow = div()
-                .id("apps-tray")
-                .relative()
-                .flex()
-                .gap(px(apps::TRAY_GAP))
-                .p(px(apps::TRAY_PAD))
-                .mt(px(6.))
-                .mb(px(2.))
-                .rounded(px(radius::CONTROL + 2.0))
-                .bg(ca(Rgb::hex(0x000000), if dark { 0.22 } else { 0.05 }))
-                .border_1()
-                .border_color(c(pal.line))
-                .aria_label("Apps");
-            let pos = crate::motion::ease_between(self.section_from, self.section as f32, self.section_since, now, cauldron_chrome::motion::time::INDICATOR);
-            fnrow = fnrow.child(
-                div()
-                    .absolute()
-                    .left(px(apps::tray_x(pos) - 1.0))
-                    .top(px(apps::TRAY_PAD - 1.0))
-                    .w(px(apps::TRAY_BTN_W))
-                    .h(px(apps::TRAY_BTN_H))
-                    .rounded(px(radius::CONTROL))
-                    .bg(ca(pal.fg, if dark { 0.11 } else { 0.08 }))
-                    .border_1()
-                    .border_color(c(pal.line_strong)),
-            );
+            // The apps (19 Nov, Charles): separate buttons, not a switcher: six plain icon buttons
+            // spread across the row, the open app lit; New stream sits under them.
+            let mut fnrow = div().id("apps-row").flex().justify_between().mt(px(6.)).pt(px(2.)).pb(px(8.)).mb(px(6.)).border_b_1().border_color(c(pal.line)).aria_label("Apps");
             for (i, (name, label)) in FUNCTIONS.iter().enumerate() {
                 let on = i == self.section;
-                let b = div()
-                    .id(("fn", i))
-                    .w(px(apps::TRAY_BTN_W))
-                    .h(px(apps::TRAY_BTN_H))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .rounded(px(radius::CONTROL))
-                    .cursor_pointer()
-                    .aria_label(*label)
-                    .aria_selected(on)
-                    .when_live(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
-                    .child(glyph(name, 15., if on { fg } else { fg3 }))
+                let b = icon_button_in(("fn", i), name, label, pal, on, false)
+                    .when_live(on, |d| d.bg(ca(pal.fg, if dark { 0.11 } else { 0.08 })))
                     .on_click(cx.listener(move |this, _, _, cx| this.select_section(i, cx)));
                 fnrow = fnrow.child(self.tipped(("fn", i), b, *label, Side::Right, pal, cx).test_support());
             }
@@ -1416,7 +1423,6 @@ impl Render for Cauldron {
             // The board's `.nav`: New stream with its shortcut.
             let new_thread = div()
                 .id("new-thread")
-                .mt(px(8.))
                 .h(px(30.))
                 .flex()
                 .items_center()
@@ -1449,8 +1455,8 @@ impl Render for Cauldron {
                 .pb(px(6.))
                 .child(div().id("side-top").h(px(30.)).flex_none().window_control_area(WindowControlArea::Drag).test_support())
                 .overflow_hidden()
+                .child(fnrow.test_support())
                 .when_live(self.settings.is_none(), |d| d.child(new_thread))
-                .child(fnrow.when_live(self.settings.is_some(), |d| d.mb(px(8.))).test_support())
                 .when_live(self.settings.is_some(), |d| d.child(self.settings_nav(self.settings.unwrap_or(0), pal, cx).test_support()))
                 // The search row opens from the top row's search button and stays while it has text.
                 .when_live(self.settings.is_none() && (self.search_open || !self.query.is_empty()), |d| d.child(
@@ -1531,6 +1537,30 @@ impl Render for Cauldron {
                         })).test_support()),
                 );
             root = root.child(card_el.test_support());
+            // The sidebar's right edge is a drag handle: it resizes the sidebar, and dragged past
+            // the minimum it folds into the folded state (the hover band). Double-click resets.
+            root = root.child(
+                div()
+                    .id("sidebar-resize")
+                    .absolute()
+                    .left(px(sp.rect.right() - 3.0))
+                    .top(px(sp.rect.y))
+                    .w(px(7.))
+                    .h(px(sp.rect.h))
+                    .cursor_col_resize()
+                    .aria_label("Resize the sidebar")
+                    .on_mouse_down(MouseButton::Left, cx.listener(|this, ev: &MouseDownEvent, _, cx| {
+                        if ev.click_count >= 2 {
+                            this.sidebar_w = metric::SIDEBAR_W;
+                            this.end_sidebar_drag(cx);
+                        } else {
+                            this.sidebar_drag = true;
+                        }
+                        cx.stop_propagation();
+                        cx.notify();
+                    }))
+                    .test_support(),
+            );
         }
 
         // ---- the stream's tabs, in the stream card's 38px header (the board's `.tab`). Only an open stream
@@ -1768,8 +1798,7 @@ impl Render for Cauldron {
                     .test_support(),
             );
         }
-        let new_screen = self.open.is_none() && self.active == 0 && self.settings.is_none() && self.familiar.is_none();
-        let rail_here = s.support.is_none();
+        let rail_here = s.support.is_none() && !new_screen;
         // The body under the header, clear of the rail when it is in this card.
         let body_w = s.main.w - 2.0 - if rail_here { metric::RAIL_W } else { 0.0 };
         let body_h = s.main.h - 2.0 - metric::HEAD_H - if new_screen { STAGE_H } else { 0.0 };
@@ -2091,8 +2120,8 @@ impl Render for Cauldron {
 
         // ---- the quick-button rail, inside the rightmost card's right edge (the board's `.irail`):
         // Highlights, Changes, Git, Trace, a rule, Browser, Files, Simulator, Terminal; the fold
-        // toggle at the bottom. A short accent mark shows a panel that has a tab.
-        {
+        // toggle at the bottom. A short accent mark shows a panel that has a tab. Not on a new stream.
+        if !new_screen {
             let rail_button = |this: &Self, id: (&'static str, usize), p: Panel, cx: &mut Context<Self>| {
                 let has_tab = this.support_tabs.contains(&p);
                 this.tipped(id, icon_button(id, p.icon(), p.title(), pal, this.drawer == Some(p)), p.title(), Side::Left, pal, cx)
@@ -2455,6 +2484,15 @@ mod tests {
 
     /// Every pane the shell draws sits exactly where `cauldron_chrome::layout::solve` puts it, in
     /// all eight combinations of sidebar, support card and dock.
+    /// A shell with a stream open (a familiar), the only place the rail and support card exist.
+    fn with_stream() -> Cauldron {
+        let mut c = Cauldron::new();
+        c.fam_views = super::familiar::fixtures();
+        c.fam_fixture = true;
+        c.open_familiar(0);
+        c
+    }
+
     #[gpui_kit::test]
     fn panes_match_the_layout_solver_in_every_state(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
@@ -2465,7 +2503,7 @@ mod tests {
                 sidebar_open: state.sidebar_open,
                 drawer: state.support_open.then_some(Panel::Highlights),
                 terminal: state.dock_open,
-                ..Cauldron::new()
+                ..with_stream()
             });
             cx.simulate_window_resize(handle.into(), size(px(W), px(H)));
             cx.update_window(handle.into(), |_, window, cx| {
@@ -2497,7 +2535,7 @@ mod tests {
     fn the_support_card_has_its_own_tabs_and_a_plus_menu(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         cx.update(|cx| cx.set_reduce_motion(true));
-        let handle = cx.add_window(|_, _| Cauldron::new());
+        let handle = cx.add_window(|_, _| with_stream());
         cx.simulate_window_resize(handle.into(), size(px(W), px(H)));
         // The shell moves on the wall clock, so start each check from rest.
         let rest = |cx: &mut TestAppContext| handle.update(cx, |c, _, _| c.motion = Default::default()).unwrap();
@@ -2564,7 +2602,7 @@ mod tests {
     fn icon_buttons_have_names_and_tooltips(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         cx.update(|cx| cx.set_reduce_motion(true));
-        let handle = cx.add_window(|_, _| Cauldron::new());
+        let handle = cx.add_window(|_, _| with_stream());
         cx.simulate_window_resize(handle.into(), size(px(W), px(H)));
         let ms = std::time::Duration::from_millis;
         cx.update_window(handle.into(), |_, window, cx| {
@@ -2671,7 +2709,8 @@ mod tests {
             // Core has no stages or usage yet, so usage is an empty state and no stage is current:
             // plain fg3 labels, nothing to click.
             let bar = rect(window, "stage-bar");
-            assert_eq!((bar.x, bar.w, bar.h), (card.x + 1.0, s.rail.x - card.x - 1.0, 32.0), "stage bar card-wide, clear of the rail");
+            assert_eq!((bar.x, bar.w, bar.h), (card.x + 1.0, card.w - 2.0, 32.0), "stage bar card-wide");
+            assert!(window.try_find("rail").is_none() && window.try_find("support").is_none(), "no rail or support card on a new stream");
             assert_eq!(bar.bottom(), card.bottom() - 1.0, "at the card's bottom, inside its border");
             assert_eq!(window.find("stage-usage").label(), Some("No usage data yet"));
             let mut last = rect(window, "stage-usage").right();

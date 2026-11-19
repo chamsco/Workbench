@@ -80,6 +80,11 @@ pub mod metric {
     /// The window margin around the cards and the gap between them.
     pub const GAP: f32 = 4.0;
     pub const SIDEBAR_W: f32 = 236.0;
+    /// The sidebar can be dragged between these widths; dragged below `SIDEBAR_COLLAPSE` it folds
+    /// into the folded state (the hover band).
+    pub const SIDEBAR_MIN: f32 = 200.0;
+    pub const SIDEBAR_MAX: f32 = 380.0;
+    pub const SIDEBAR_COLLAPSE: f32 = 150.0;
     /// The support card's default width; it stays within [`SUPPORT_MIN_W`] and half the window.
     pub const SUPPORT_W: f32 = 470.0;
     pub const SUPPORT_MIN_W: f32 = 360.0;
@@ -115,13 +120,23 @@ pub fn support_width(w: f32) -> f32 {
     metric::SUPPORT_W.min(w / 2.0).max(metric::SUPPORT_MIN_W)
 }
 
-/// The window's geometry for exactly the state asked for.
+/// A dragged sidebar width, held to its range.
+pub fn clamp_sidebar(w: f32) -> f32 {
+    w.clamp(metric::SIDEBAR_MIN, metric::SIDEBAR_MAX)
+}
+
+/// The window's geometry for exactly the state asked for, at the default sidebar width.
 pub fn layout(w: f32, h: f32, state: ShellState, platform: Platform) -> Shell {
+    layout_at(w, h, state, platform, metric::SIDEBAR_W)
+}
+
+/// [`layout`] with the sidebar `sidebar_w` wide (the user dragged it).
+pub fn layout_at(w: f32, h: f32, state: ShellState, platform: Platform, sidebar_w: f32) -> Shell {
     use metric::*;
     let (top, bottom, right) = (GAP, h - GAP, w - GAP);
     let full_h = bottom - top;
 
-    let sidebar = state.sidebar_open.then(|| Rect::new(0.0, top, SIDEBAR_W, full_h));
+    let sidebar = state.sidebar_open.then(|| Rect::new(0.0, top, sidebar_w, full_h));
     let left = sidebar.map_or(GAP, |s| s.right() + GAP);
     let support = state.support_open.then(|| {
         let sw = support_width(w);
@@ -149,7 +164,7 @@ pub fn layout(w: f32, h: f32, state: ShellState, platform: Platform) -> Shell {
         (Some(sb), _) => {
             let lights = (!windows).then(|| Rect::new(sb.x + 12.0, sb.y + 17.0, LIGHTS_W, LIGHTS_H));
             let title = windows.then(|| Rect::new(sb.x + 16.0, sb.y + 9.0, 96.0, SBTN));
-            (lights, Rect::new(sb.x + 196.0, sb.y + 9.0, SBTN, SBTN), None, title, main.x + HEAD_IN)
+            (lights, Rect::new(sb.right() - 40.0, sb.y + 9.0, SBTN, SBTN), None, title, main.x + HEAD_IN)
         }
         // macOS folded: lights, sidebar button, New stream, tabs.
         (None, Platform::Mac) => {
@@ -174,13 +189,51 @@ pub fn layout(w: f32, h: f32, state: ShellState, platform: Platform) -> Shell {
 
 /// The state that actually fits: the stream column keeps [`metric::MAIN_MIN_W`], so the support
 /// card closes. The sidebar is the user's choice and stays; the dock takes no width.
-pub fn resolve(w: f32, h: f32, mut state: ShellState, platform: Platform) -> ShellState {
-    if state.support_open && layout(w, h, state, platform).main.w < metric::MAIN_MIN_W {
+pub fn resolve(w: f32, h: f32, state: ShellState, platform: Platform) -> ShellState {
+    resolve_at(w, h, state, platform, metric::SIDEBAR_W)
+}
+
+pub fn resolve_at(w: f32, h: f32, mut state: ShellState, platform: Platform, sidebar_w: f32) -> ShellState {
+    if state.support_open && layout_at(w, h, state, platform, sidebar_w).main.w < metric::MAIN_MIN_W {
         state.support_open = false;
     }
     state
 }
 
 pub fn solve(w: f32, h: f32, state: ShellState, platform: Platform) -> Shell {
-    layout(w, h, resolve(w, h, state, platform), platform)
+    solve_at(w, h, state, platform, metric::SIDEBAR_W)
+}
+
+pub fn solve_at(w: f32, h: f32, state: ShellState, platform: Platform, sidebar_w: f32) -> Shell {
+    layout_at(w, h, resolve_at(w, h, state, platform, sidebar_w), platform, sidebar_w)
+}
+
+#[cfg(test)]
+mod sidebar_width_tests {
+    use super::*;
+
+    fn open() -> ShellState {
+        ShellState { sidebar_open: true, support_open: false, dock_open: false }
+    }
+
+    /// A dragged sidebar moves the card's left edge and keeps the sidebar button on its right edge;
+    /// the default width is exactly the old layout.
+    #[test]
+    fn the_sidebar_width_moves_the_card_and_the_button() {
+        let a = solve(1240.0, 702.0, open(), Platform::Windows);
+        let b = solve_at(1240.0, 702.0, open(), Platform::Windows, 300.0);
+        assert_eq!(a.sidebar.unwrap().w, metric::SIDEBAR_W);
+        assert_eq!(b.sidebar.unwrap().w, 300.0);
+        assert_eq!(b.main.x - a.main.x, 300.0 - metric::SIDEBAR_W);
+        assert_eq!(a.sidebar_button.x, a.sidebar.unwrap().x + 196.0, "unchanged at the default width");
+        assert_eq!(b.sidebar_button.right(), b.sidebar.unwrap().right() - 12.0, "the button keeps 12px from the sidebar's right edge");
+    }
+
+    #[test]
+    fn dragged_widths_are_held_to_the_range() {
+        assert_eq!(clamp_sidebar(100.0), metric::SIDEBAR_MIN);
+        assert_eq!(clamp_sidebar(900.0), metric::SIDEBAR_MAX);
+        assert_eq!(clamp_sidebar(260.0), 260.0);
+        assert!(metric::SIDEBAR_COLLAPSE < metric::SIDEBAR_MIN);
+    }
 }

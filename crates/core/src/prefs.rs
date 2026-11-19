@@ -92,6 +92,8 @@ pub struct Prefs {
     pub backdrop: String,
     /// Cauldron: a picture or GIF the stream card shows instead of its glass. None: the glass.
     pub stream_bg: Option<String>,
+    /// Cauldron: the sidebar's width in logical px after the user dragged it. None: the default.
+    pub sidebar_w: Option<f32>,
     /// Cauldron: how frosted the frame and sidebar are, "light", "medium" or "heavy". None: heavy.
     pub frost: Option<String>,
     /// How Backspace tells you something needs you: "system" (the OS's
@@ -157,6 +159,7 @@ impl Default for Prefs {
             cli_effort: None,
             backdrop: "harbour".into(),
             stream_bg: None,
+            sidebar_w: None,
             frost: None,
             notify: "system".into(),
             companion: CompanionCfg::default(),
