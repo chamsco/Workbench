@@ -66,6 +66,13 @@ jobs:
             <key>NSHighResolutionCapable</key><true/>
           </dict></plist>
           PLIST
+          # The runner's disk is nearly full after two release builds: drop the
+          # intermediate objects (the binaries are already in the .app) before
+          # hdiutil needs room for the image.
+          for t in aarch64-apple-darwin x86_64-apple-darwin; do
+            rm -rf target/$t/release/deps target/$t/release/build target/$t/release/incremental
+          done
+          df -h . | tail -1
           codesign --force --deep -s - "$app"
           hdiutil create -volname Cauldron -srcfolder "$app" -ov -format UDZO out/Cauldron-mac.dmg
           ditto -c -k --keepParent "$app" out/Cauldron-mac.app.zip
