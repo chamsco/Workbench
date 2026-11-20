@@ -221,6 +221,11 @@ main_min_effort = "high"
 pin_main = "mock-mid"
 pin_sub = "cli-model"
 
+[sandbox]
+# The fake CLIs here keep their records next to themselves or in the project,
+# which the M6 sandbox makes read-only; the sandbox is tested in tests/sandbox.rs.
+mode = "off"
+
 [orchestrator]
 max_parallel_calls = 2
 max_subagents = 4

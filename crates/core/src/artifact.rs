@@ -287,8 +287,8 @@ mod tests {
             "Which one?",
             "",
             vec![
-                crate::options::Variant { id: "a".into(), label: "A".into(), note: String::new(), image: Some("a.png".into()), url: None },
-                crate::options::Variant { id: "b".into(), label: "B".into(), note: String::new(), image: Some("b.png".into()), url: None },
+                crate::options::Variant { id: "a".into(), label: "A".into(), note: String::new(), image: Some("a.png".into()), url: None, recommended: false },
+                crate::options::Variant { id: "b".into(), label: "B".into(), note: String::new(), image: Some("b.png".into()), url: None, recommended: false },
             ],
         )
         .unwrap();

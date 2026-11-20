@@ -26,7 +26,7 @@ pub mod a2a;
 #[derive(Clone, Debug)]
 pub enum Target {
     /// A coding CLI, run headless: `provider` is claude, codex, cursor,
-    /// opencode or grok; `bin` is the executable to start.
+    /// opencode, grok or gemini; `bin` is the executable to start.
     Cli { provider: String, bin: PathBuf },
     /// Ollama's own API at `url` (e.g. http://localhost:11434).
     Ollama { url: String },
@@ -105,6 +105,9 @@ pub struct Request {
     pub advisor: Option<String>,
     /// Extra subagents for CLIs that take them (Claude Code's `--agents`).
     pub agents: Option<Value>,
+    /// A command line the CLI runs inside (Backspace's sandbox, M6): the
+    /// CLI and its arguments follow it. Empty: the CLI runs as it is.
+    pub wrap: Vec<String>,
 }
 
 impl Request {
@@ -128,6 +131,7 @@ impl Request {
             effort: None,
             advisor: None,
             agents: None,
+            wrap: vec![],
         }
     }
 }
@@ -358,7 +362,15 @@ fn toml_inline(v: &Value) -> String {
 /// The command line, environment and stdin text of one CLI turn. Nothing is started here, so a test
 /// can read exactly what a CLI would be given.
 fn build_cli(req: &Request, provider: &str, bin: &PathBuf) -> Result<(tokio::process::Command, Option<String>)> {
-    let mut cmd = tokio::process::Command::new(bin);
+    // In Backspace's sandbox (M6) the sandbox's command comes first and runs the CLI.
+    let mut cmd = match req.wrap.split_first() {
+        Some((first, rest)) => {
+            let mut c = tokio::process::Command::new(first);
+            c.args(rest).arg(bin);
+            c
+        }
+        None => tokio::process::Command::new(bin),
+    };
     cmd.current_dir(&req.cwd)
         .env("NO_COLOR", "1")
         .stdin(Stdio::piped())
@@ -502,6 +514,25 @@ fn build_cli(req: &Request, provider: &str, bin: &PathBuf) -> Result<(tokio::pro
             cmd.args(["-p", &with_system(req, transcript(&req.history))]);
             stdin_text = None;
         }
+        "gemini" => {
+            // Gemini CLI's headless mode: one JSON object per line (init, message deltas,
+            // tool_use/tool_result, result). It is not resumed by id: the history goes in
+            // the prompt, as for Cursor.
+            cmd.args(["--output-format", "stream-json"]);
+            if let Some(m) = &model {
+                cmd.args(["-m", m]);
+            }
+            match (req.edit, req.permission.as_deref()) {
+                (true, Some("full")) => cmd.arg("--yolo"),
+                (true, _) => cmd.args(["--approval-mode", "auto_edit"]),
+                (false, _) => cmd.args(["--approval-mode", "default"]),
+            };
+            for d in &req.add_dirs {
+                cmd.args(["--include-directories", &d.display().to_string()]);
+            }
+            cmd.args(["-p", &with_system(req, transcript(&req.history))]);
+            stdin_text = None;
+        }
         other => bail!("{other} has no one-shot mode to chat with; use it from a project"),
     }
     Ok((cmd, stdin_text))
@@ -549,6 +580,7 @@ async fn run_cli(req: &Request, provider: &str, bin: &PathBuf, on: Sink<'_>) -> 
                 }
                 codex_line(&line, &mut fail, on);
             }
+            "gemini" if serde_json::from_str::<Value>(&line).is_ok() => gemini_line(&line, &mut fail, on),
             _ => {
                 raw.push_str(&line);
                 raw.push('\n');
@@ -574,6 +606,52 @@ async fn run_cli(req: &Request, provider: &str, bin: &PathBuf, on: Sink<'_>) -> 
         );
     }
     Ok(())
+}
+
+/// One line of `gemini --output-format stream-json`.
+fn gemini_line(line: &str, fail: &mut Option<String>, on: Sink<'_>) {
+    let Ok(v) = serde_json::from_str::<Value>(line) else { return };
+    match v["type"].as_str() {
+        Some("init") => {
+            if let Some(s) = v["session_id"].as_str() {
+                on(Event::Session { id: s.into() });
+            }
+            if let Some(m) = v["model"].as_str() {
+                on(Event::Model { model: m.into() });
+            }
+        }
+        Some("message") if v["role"].as_str() == Some("assistant") => {
+            let t = v["content"].as_str().unwrap_or_default();
+            if v["delta"].as_bool() == Some(true) {
+                on(Event::Text { text: t.into() });
+            } else {
+                on(Event::Final { text: t.into() });
+            }
+        }
+        Some("tool_use") => {
+            let id = v["tool_id"].as_str().unwrap_or_default().to_string();
+            on(Event::Break);
+            on(Event::ToolStart { id, name: v["tool_name"].as_str().unwrap_or("tool").into(), input: v["parameters"].to_string() });
+        }
+        Some("tool_result") => {
+            let id = v["tool_id"].as_str().unwrap_or_default().to_string();
+            let output = v["output"].as_str().map(str::to_string).unwrap_or_else(|| v["error"]["message"].as_str().unwrap_or_default().to_string());
+            on(Event::ToolEnd { id, output, error: v["status"].as_str() == Some("error") });
+        }
+        Some("error") => {
+            *fail = Some(v["message"].as_str().unwrap_or("Gemini reported an error").to_string());
+        }
+        Some("result") => {
+            if v["status"].as_str() == Some("error") {
+                *fail = Some(v["error"]["message"].as_str().unwrap_or("Gemini reported an error").to_string());
+            }
+            let s = &v["stats"];
+            if let (Some(i), Some(o)) = (s["input_tokens"].as_u64(), s["output_tokens"].as_u64()) {
+                on(Event::Usage { input: i, output: o });
+            }
+        }
+        _ => {}
+    }
 }
 
 /// One line of `claude -p --output-format stream-json`.
@@ -945,6 +1023,22 @@ mod tests {
         args.windows(2).filter(|w| w[0] == flag).map(|w| w[1].clone()).collect()
     }
 
+    /// M6: a CLI executor is started inside the sandbox: the sandbox's command
+    /// line comes first and the CLI, with all its own arguments, after it.
+    #[test]
+    fn a_wrapped_cli_runs_inside_the_sandbox_command() {
+        let mut r = cli_request("claude", Some("pin-1"), None);
+        r.wrap = vec!["/usr/bin/bwrap".into(), "--ro-bind".into(), "/".into(), "/".into(), "--".into()];
+        let (cmd, _) = build_cli(&r, "claude", &PathBuf::from("/opt/claude")).unwrap();
+        assert_eq!(cmd.as_std().get_program().to_string_lossy(), "/usr/bin/bwrap");
+        let args: Vec<String> = cmd.as_std().get_args().map(|a| a.to_string_lossy().into_owned()).collect();
+        assert_eq!(&args[..5], ["--ro-bind", "/", "/", "--", "/opt/claude"], "{args:?}");
+        assert_eq!(pairs(&args, "--model"), ["pin-1"], "the CLI keeps its own arguments: {args:?}");
+        let plain = cli_request("claude", Some("pin-1"), None);
+        let (cmd, _) = build_cli(&plain, "claude", &PathBuf::from("/opt/claude")).unwrap();
+        assert_eq!(cmd.as_std().get_program().to_string_lossy(), "/opt/claude", "unwrapped by default");
+    }
+
     #[test]
     fn codex_is_given_its_model_by_the_long_flag() {
         // `--model` is the documented spelling; `-m` is the same clap argument (codex-rs shared_options.rs)
@@ -984,6 +1078,41 @@ mod tests {
             let args = args_of(&cli_request(p, None, None), p);
             assert!(!args.iter().any(|a| a == "--model" || a == "-m"), "{p}: {args:?}");
         }
+    }
+
+    #[test]
+    fn gemini_runs_headless_with_stream_json_and_its_lines_become_events() {
+        let mut r = cli_request("gemini", Some("gemini-pin-1"), None);
+        r.edit = true;
+        let args = args_of(&r, "gemini");
+        assert_eq!(pairs(&args, "--output-format"), ["stream-json"], "{args:?}");
+        assert_eq!(pairs(&args, "-m"), ["gemini-pin-1"], "{args:?}");
+        assert_eq!(pairs(&args, "--approval-mode"), ["auto_edit"], "an editing run may edit, nothing more: {args:?}");
+        assert_eq!(pairs(&args, "-p").len(), 1, "{args:?}");
+        r.permission = Some("full".into());
+        assert!(args_of(&r, "gemini").iter().any(|a| a == "--yolo"));
+
+        let mut got = Vec::new();
+        let mut fail = None;
+        for l in [
+            r#"{"type":"init","session_id":"s1","model":"gemini-x"}"#,
+            r#"{"type":"message","role":"user","content":"hi"}"#,
+            r#"{"type":"message","role":"assistant","content":"Hel","delta":true}"#,
+            r#"{"type":"tool_use","tool_name":"read_file","tool_id":"t1","parameters":{"path":"a"}}"#,
+            r#"{"type":"tool_result","tool_id":"t1","status":"success","output":"ok"}"#,
+            r#"{"type":"message","role":"assistant","content":"lo","delta":true}"#,
+            r#"{"type":"result","status":"success","stats":{"input_tokens":5,"output_tokens":2}}"#,
+        ] {
+            gemini_line(l, &mut fail, &mut |e| got.push(e));
+        }
+        assert!(fail.is_none());
+        let text: String = got.iter().filter_map(|e| if let Event::Text { text } = e { Some(text.as_str()) } else { None }).collect();
+        assert_eq!(text, "Hello", "the user's own line is not echoed back");
+        assert!(got.iter().any(|e| matches!(e, Event::Session { id } if id == "s1")));
+        assert!(got.iter().any(|e| matches!(e, Event::ToolEnd { id, error: false, .. } if id == "t1")));
+        assert!(got.iter().any(|e| matches!(e, Event::Usage { input: 5, output: 2 })));
+        gemini_line(r#"{"type":"result","status":"error","error":{"message":"quota"}}"#, &mut fail, &mut |_| {});
+        assert_eq!(fail.as_deref(), Some("quota"));
     }
 
     #[test]

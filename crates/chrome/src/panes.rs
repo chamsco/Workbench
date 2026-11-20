@@ -1,4 +1,4 @@
-//! Split panes inside the thread card, direction B of design/cauldron-split-panes.html (Charles,
+//! Split panes inside the thread card, direction B of design/legacy-ui/cauldron-split-panes.html (Charles,
 //! 13 Nov 01:49Z: three at most): six fixed shapes, stepped through by one layout button in the card
 //! head, a 4px gap, a draggable line on every divider, and no pane under 200 x 120. Pure geometry,
 //! like [`crate::layout`].

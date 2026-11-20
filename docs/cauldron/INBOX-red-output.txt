@@ -1,0 +1,9 @@
+test shell::tests::the_bell_counts_unread_notes_and_opens_them ... FAILED
+test shell::tests::an_alerting_note_shows_as_a_toast ... FAILED
+
+failures:
+
+--
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.19s
+
+error: test failed, to rerun pass `-p backspace --bin backspace`

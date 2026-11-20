@@ -1,5 +1,73 @@
 # Handoff: Backspace (ohMyHarness → Workbench), v0
 
+**Session, 17 Nov 2026: Cauldron M6, the execution engine (sandbox and herdr).**
+
+- **Agents' commands run in a sandbox.** That covers bash, checks, Rampart's vetting
+  and the sealed and mutation runs. It is bubblewrap on Linux and Seatbelt on macOS
+  (`crates/core/src/sandbox.rs`). Agents write only to their worktree, git's store
+  and a private /tmp. `.backspace/`, Backspace's data and your SSH, cloud and CLI
+  credentials are hidden. The policy, git hooks and config, and sealed tests are
+  read-only. Secrets are taken out of the environment.
+- **Coding-CLI workers run in it too** (runner `Request.wrap`). They keep only their
+  own login.
+- **Config.** `[sandbox] mode = "auto" | "required" | "off"`, `network`, `pass_env`,
+  `hide`. **On Windows** commands run at low integrity with mandatory labels
+  (`backspace-jail`, or `__backspace_jail` on any Backspace binary). The network
+  stays on there, and agents cannot commit.
+- **herdr.** It sits behind `herdr::Supervisor`, pinned to 0.9.5 and off by default.
+  Any other version falls back to native. Its states are signals, never gates.
+- **Rampart.** It prefers a model other than the lead's. In the sandbox it gets a
+  read-only, offline shell.
+- **Details:** `docs/cauldron/M6-NOTES.md`, `M6-REPORT.md`.
+
+**Session, 17 Nov 2026: Verify, Ship and Learn (Platform PRD §4.4-4.6).**
+
+- **Stages are now Plan, Execute, Verify, Ship, Learn.** `Phase::Test` is the Verify
+  stage; `Commit` is renamed `Learn` (an old `"commit"` in phase.json or prefs still reads).
+- **Verify** (`crates/core/src/deliver.rs`) judges the run against `plan.json` (now
+  written next to spec.md): each acceptance command runs in the run worktree, every
+  criterion needs a ticket, every ticket must be finished, sealed tests must match
+  their hash, and no test may be deleted, skipped or lose asserts since the run
+  started. Output: `.backspace/verify.json` + `VERIFY.md`, pinned to one commit.
+- **Ship** delivers exactly that commit: `local` (run branch), `branch` (pushed as
+  `cauldron/<slug>-<sha>`) or `pr` (via `gh`). Never merges. A later commit sends the
+  work back to Verify; a missing `gh`/remote is an error, not a delivery. Record:
+  `.backspace/delivery.json` + `DELIVERY.md`. Prefs `ship_target` picks the target.
+- **Learn** runs right after Ship; if it fails the delivery stands and notes are kept.
+- **CLI:** `backspace-cli <ws> "<goal>" [--ship local|branch|pr]` carries on through
+  Verify, Ship and Learn once the agents finish; `status <ws>`; `deliver <ws>` retries
+  from Execute without agents (exit 2 when nothing was delivered).
+- **`crates/decision`**: decision.rs and ladder.rs, no Cauldron dependency;
+  core re-exports them and adapts `ModelSpec` through `ladder::Rung`.
+
+**Session, 16 Nov 2026: Cauldron M5, Builder and Rampart.**
+
+- **On the long path, an independent Rampart writes the tests first.** The lead's
+  first `work_tickets` starts it (`AgentKind::Rampart`). It sees only the approved
+  spec.md and baseline.json, and may only `read`/`list` its baseline checkout
+  (`.backspace/rampart/tree`) and call `submit_ramparts`.
+- **Every test must fail on the baseline in all 3 runs**, and every criterion needs a
+  test. The first 3 suites wait for your yes. Then they are sealed
+  (`.backspace/rampart/seal.json`, hash per file) and committed to the lead's branch.
+- **Workers are held to the seal.** A changed sealed file refuses the delivery. The
+  tests for the ticket's `covers` run 3 times. A pass is mutated for a rampart score.
+- **§7.4:** 3 failures, the same failure twice, the cheap budget, or a cheaper frontier
+  leads to ONE frontier call with a digest, then you.
+- **Code:** `crates/core/src/rampart.rs`. Details and limits: `docs/cauldron/M5-NOTES.md`.
+
+**Session, 13 Nov 2026: Cauldron M4, the planning stage.**
+
+- **A long task plans before it builds.** With intake on and a task on the long
+  path, Main's tickets are refused until it calls `submit_spec` with a typed
+  checklist (goal, criteria, a test per criterion, non-goals, constraints,
+  dependencies, task type). Code checks it, captures the "before" baseline
+  per task type, writes `.backspace/planning/spec.md` and asks you for a yes.
+  The yes is bound to the file's SHA-256 (`crates/core/src/planning.rs`).
+- **CLI planners** reach it through the MCP tool `submit_spec` (`/v1/plan/spec`).
+- **Not done:** the decision-model scoring (`planning::score`) is unwired until
+  the §10 eval; there is no UI button for the yes; `tests.md` waits for M5. Details:
+  `docs/cauldron/M4-NOTES.md`.
+
 **Session, 24 Oct 2026 — Plan, Execute, Ship, Commit, and the note chain.**
 
 - **The stages were planned (docs/PLAN-PHASES-2026-10-17.md) and half built in
@@ -62,6 +130,99 @@ router exclusions), `cargo check -p backspace-tauri`. The real `ui/` in
 coordinator badge, the `@` chips, a waiting count, the header menu), the ADE
 executor menu and Settings → Workbench. **Not run:** real CLIs talking to each
 other — no signed-in CLI here.
+
+**Session, 23 Oct 2026 — Brainpowr Engine.**
+
+- **`crates/engine`** (package `brainpowr-engine`) is a new crate that knows
+  nothing about Backspace. It is modeled on atomic-chat-core (MIT):
+  - `backend.rs` installs a pinned llama.cpp `b11463` build. Asset names and
+    sha256 are copied from Atomic's upstream-releases-baseline.json. It
+    downloads, verifies, unpacks (zip-slip safe) and records the build in
+    `installed.json`.
+  - `gguf.rs` reads the header metadata.
+  - `session.rs` runs one `llama-server` per model. It does lazy load, LRU
+    eviction, pinning, the idle reaper and error classification.
+- `model_engine.rs` lost its start/stop engines code. It now exposes
+  `engine()`, `install_backend` (a job `engine:<variant>`), `restore` (loads
+  pinned models) and `stop_all` (on app exit). It lists the runtime
+  `brainpowr`, and `model_gateway::handle_llm` calls `engine().ensure(id)`
+  before it forwards. Prefs: `engine` (Settings), `engine_variant`,
+  `pinned_models`. The old `engines` pref was dropped.
+- UI: Settings → Local models gets a Brainpowr Engine section (builds,
+  memory settings) plus Load/Unload/Keep loaded per downloaded model. CLI:
+  `backspace-cli engine [install [variant]]`.
+- **Ran:** 11 engine tests, including a fake python `llama-server` for LRU,
+  pinning and OOM. A gateway end to end with a fake server: the cold request
+  loaded in 0.6s, the warm one took 19ms. UI checked in the uiharness with
+  mocks. **Not run:** a real llama.cpp download (GitHub returns 403 here;
+  a hash mismatch fails safely), real inference, macOS/Windows.
+  `spec_gate` failed once and passed on rerun; it is unrelated and flaky.
+
+**Session, 22 Oct 2026 — getting models and starting engines.**
+
+- **`crates/core/src/model_engine.rs`** is the other half of Atomic Chat's
+  core. It does two things. *Get* a model: `POST /api/pull` into Ollama, or
+  download one GGUF from Hugging Face. The download goes to
+  `<data>/models/<org>__<repo>/`, resumes from a `.part`, and finds the file
+  by quant through the repo's tree API. *Run* it: `llama-server -m <file>`
+  on a free port from 8090, `--alias` = the file name without `.gguf`.
+  Running engines join `model_server::detect`, so the model server, Chat and
+  small jobs see them with no extra wiring. Engines the user started are
+  `prefs.engines` and come back at launch; `RunEvent::Exit` stops them all.
+  `ollama serve` can be started too.
+- Downloads and pulls are background jobs (`jobs()`, `cancel`). Settings →
+  Local models → Get models shows five suggested small models (Pull into
+  Ollama / Download GGUF), any Ollama name, any HF repo's GGUF files, and
+  the downloaded files with Start / Stop / Delete. While a job runs, only
+  the progress rows redraw.
+- No engine binary is downloaded: if `llama-server` is missing the panel says
+  how to install it (`brew install llama.cpp`, `winget install llama.cpp`,
+  or the release page).
+
+**Ran:** unit tests (repo tree filtering, quant pick, path containment, pull
+progress). A one-off end-to-end test, since removed: a fake `llama-server`
+on `BACKSPACE_CLI_PATH` was started, listed as a runtime, served through
+`served()` and stopped, and a 3 MB download through `fetch` came out
+byte-identical. UI screenshot with mocks, including the polling path.
+**Not run:** real Hugging Face (blocked from this container), real Ollama
+pull, real llama-server, Range resume against a real server, macOS.
+
+**Session, 22 Oct 2026 — the model server.**
+
+- **One URL for every model, like Atomic Chat's `:1337`.**
+  `crates/core/src/model_gateway.rs` serves `http://127.0.0.1:7422/v1`
+  (OpenAI-compatible: `/models`, `/chat/completions`, `/completions`,
+  `/embeddings`, `/responses`). A request names a model; the server finds the
+  runtime that has it (Ollama, LM Studio, llama.cpp, MLX, a server on the
+  network, a connected machine), rewrites the id and streams the answer back.
+  Other machines' models are listed as `<host>/<model>`. On by default,
+  loopback only, keyless for tools on this machine; a request with an `Origin`
+  (a browser page) needs the token.
+- **The network.** `prefs.model_serve.allow_lan` binds `0.0.0.0`, wants the
+  token, serves only this machine's own runtimes (no relaying, so two servers
+  that list each other cannot loop) and answers a UDP broadcast on 7422.
+  `discover()` sends that broadcast and sweeps the /24 for 11434, 1234, 1337
+  and 8080. Servers you add are `prefs.lan_models`.
+- **Through the connection.** The share link (remote.rs) and the phone link
+  (companion.rs) serve the same routes under `/v1/llm` with their own tokens,
+  so a connected machine (Settings → Machines) shows its models here and the
+  phone can chat with the desk's models.
+- **Where it shows.** Settings → Local models gains Serve and On the network
+  (scan, add by address, remove). Chat lists a "Model server" router when it
+  reaches anything beyond Ollama (`router:backspace`); small jobs can pick
+  `backspace:<host>/<model>`. `backspace-cli serve-models [addr]` runs it with
+  no app, for a GPU box with no screen.
+- Fixed the Ollama hint that suggested the non-existent `lfm2.5:2.6b`.
+
+**Ran:** `cargo test -p backspace-core` (142 pass, incl. a loopback streaming
+test of the proxy); `cargo check -p backspace-tauri`; by hand, a fake
+OpenAI server on :1234 behind two `serve-models` (one LAN with a token, one
+loopback that adds the first as a network server): listing, streamed chat
+through both hops, 401 for an `Origin` and for a LAN caller without the
+token, and 404 when the LAN caller asks for a relayed model. Settings panel
+screenshot in the uiharness with mocks. **Not run:** real Ollama/LM Studio,
+two physical machines, macOS build, the share/phone `/v1/llm` routes end to
+end (they call the same handler).
 
 **Session, 22 Oct 2026 — Our own sea.**
 

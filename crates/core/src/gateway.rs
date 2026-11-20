@@ -53,7 +53,8 @@ impl Role {
     /// The main agent, and any agent that plans tickets for others, decide;
     /// workers, triage and scouts carry out bounded work.
     pub fn of(kind: AgentKind, plans: bool) -> Role {
-        if kind == AgentKind::Main || plans {
+        // Rampart is one of the two orchestrators of PLAN §7.
+        if kind == AgentKind::Main || kind == AgentKind::Rampart || plans {
             Role::Orchestration
         } else {
             Role::Execution

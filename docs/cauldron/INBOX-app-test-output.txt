@@ -1,0 +1,141 @@
+
+running 71 tests
+test motion::tests::a_slide_starts_at_from_ends_at_to_and_eases_between ... ok
+test motion::tests::a_change_starts_at_the_frame_drawn_and_ends_at_the_new_rest ... ok
+test motion::tests::an_interrupted_run_continues_from_the_drawn_frame ... ok
+test motion::tests::a_resize_moves_the_target_without_restarting_the_run ... ok
+test motion::tests::reduced_motion_is_quick_and_moves_nothing ... ok
+test motion::tests::the_first_render_is_at_rest_and_asks_for_no_frame ... ok
+test shell::backdrop::tests::saturate_matches_css ... ok
+test shell::backdrop::tests::plain_is_the_default_and_painting_is_a_choice ... ok
+test shell::backdrop::tests::surfaces_are_glass_only_over_the_painting ... ok
+test icons::tests::every_shell_icon_loads ... ok
+test shell::newthread::tests::an_unreadable_file_leaves_no_thread_behind ... ok
+test shell::newthread::tests::start_creates_sends_and_opens_the_thread ... ok
+test shell::newthread::tests::start_waits_while_core_opens_and_says_when_it_failed ... ok
+test shell::newthread::tests::the_body_line_turns_accent_with_focus ... ok
+test shell::newthread::tests::start_waits_for_a_subscription ... ok
+test shell::newthread::tests::start_on_a_connected_machine_sends_a_task ... ok
+test shell::newthread::tests::the_new_thread_screen_is_the_boards_centred_box ... FAILED
+test shell::panes::tests::a_new_pane_offers_the_surfaces ... ok
+test shell::panes::tests::panes_are_4px_apart_and_close_steps_back ... ok
+test shell::panes::tests::a_pane_drags_onto_another_to_swap ... ok
+test shell::newthread::tests::the_box_has_trust_plan_folder_and_the_run_menu ... ok
+test shell::panes::tests::the_layout_button_steps_through_six_shapes ... ok
+test shell::settings::tests::a_subscription_without_usage_says_no_data_yet ... ok
+test shell::support::tests::a_diff_keeps_hunks_and_lines_and_drops_headers ... ok
+test shell::support::tests::a_missing_folder_says_so ... ok
+test shell::support::tests::a_real_repository_reads_through ... ok
+test shell::support::tests::log_reads_hash_and_subject ... ok
+test shell::support::tests::numstat_reads_counts_and_binaries ... ok
+test shell::support::tests::status_splits_staged_and_unstaged ... ok
+test shell::panes::tests::the_lines_drag_the_split ... ok
+test shell::terminal::tests::the_meta_line_says_who_and_how_it_ended ... ok
+test shell::terminal::tests::the_terminal_shows_the_threads_commands ... ok
+test shell::tests::a_delivered_familiar_ends_on_its_delivery_card ... ok
+test shell::tests::a_familiar_pins_its_tab_first_and_shows_its_crew ... ok
+test shell::tests::a_familiars_tabs_sit_on_its_stream_card ... ok
+test shell::support::tests::the_support_panels_read_the_streams_folder ... ok
+test shell::tests::an_alerting_note_shows_as_a_toast ... ok
+test shell::tests::function_slots_span_the_row_with_equal_gaps ... ok
+test shell::tests::icon_buttons_have_names_and_tooltips ... ok
+test shell::tests::new_thread_screen_has_no_tabs_and_a_card_head ... ok
+test shell::tests::panes_match_the_layout_solver_in_every_state ... ok
+test shell::tests::plus_opens_a_one_to_one ... ok
+test shell::settings::tests::settings_swaps_the_sidebar_list_and_fills_the_card ... ok
+test shell::tests::search_button_and_the_hover_indent ... ok
+test shell::tests::sidebar_draws_loading_empty_no_match_and_error ... ok
+test shell::tests::sidebar_lists_threads_in_groups_with_counts ... ok
+test shell::tests::tabs_carry_no_agent_figures ... ok
+test shell::tests::search_filters_and_arrows_move_the_selection ... ok
+test shell::tests::the_new_stream_box_starts_a_familiar_only_in_a_folder ... ok
+test shell::tests::the_bell_counts_unread_notes_and_opens_them ... ok
+test shell::tests::agent_tabs_clamp_then_scroll_with_the_coordinator_pinned ... ok
+test shell::tests::the_support_card_has_its_own_tabs_and_a_plus_menu ... FAILED
+test shell::tests::thread_rows_are_the_boards ... ok
+test shell::tests::thread_tabs_float_in_the_bar ... ok
+test shell::tests::usage_badges_and_the_user_row_come_from_accounts ... ok
+test shell::thread::tests::a_row_opens_its_thread ... ok
+test shell::thread::tests::lines_carry_who_answered_and_the_cost ... ok
+test shell::thread::tests::steps_group_a_replys_tool_calls ... ok
+test shell::thread::tests::a_running_reply_shows_a_status_line ... ok
+test shell::thread::tests::the_current_tick_follows_the_top_row ... ok
+test shell::thread::tests::the_effort_chip_cycles_and_saves ... ok
+test shell::tests::the_open_tab_is_kept_in_view ... ok
+test shell::thread::tests::the_composer_sends_through_core ... ok
+test shell::thread::tests::the_new_stream_shortcut_works_from_anywhere ... ok
+test threads::tests::each_thread_lands_in_one_group_by_precedence ... ok
+test threads::tests::groups_come_in_order_keep_list_order_and_skip_empty_ones ... ok
+test threads::tests::meta_is_the_project_folder_else_no_repo ... ok
+test threads::tests::search_matches_title_or_preview_ignoring_case ... ok
+test shell::thread::tests::the_thread_fits_the_smallest_pane ... ok
+test shell::backdrop::tests::the_frame_layer_is_the_painting_shrunk_and_blurred ... ok
+test shell::thread::tests::the_stream_view_has_the_boards_composer_and_sends_plans ... ok
+
+failures:
+
+---- shell::newthread::tests::the_new_thread_screen_is_the_boards_centred_box stdout ----
+
+thread 'shell::newthread::tests::the_new_thread_screen_is_the_boards_centred_box' (10236) panicked at crates/app/src/shell/newthread.rs:886:17:
+assertion `left == right` failed: nt-trust
+  left: Some("Approve routine")
+ right: Some("Ask first")
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+   1: core::panicking::panic_fmt
+   2: core::panicking::assert_failed_inner
+   3: core::panicking::assert_failed::<core::option::Option<&str>, core::option::Option<&str>>
+   4: backspace::shell::newthread::tests::the_new_thread_screen_is_the_boards_centred_box::__the_new_thread_screen_is_the_boards_centred_box::{closure#1}
+   5: <gpui::app::App>::update_window_id::<(), backspace::shell::newthread::tests::the_new_thread_screen_is_the_boards_centred_box::__the_new_thread_screen_is_the_boards_centred_box::{closure#1}>::{closure#0}
+   6: <gpui::app::App>::update_window_erased::{closure#0}
+   7: <gpui::app::App>::update_window_erased
+   8: <gpui::app::App as gpui::AppContext>::update_window::<(), backspace::shell::newthread::tests::the_new_thread_screen_is_the_boards_centred_box::__the_new_thread_screen_is_the_boards_centred_box::{closure#1}>
+   9: <gpui::app::test_context::TestAppContext as gpui::AppContext>::update_window::<(), backspace::shell::newthread::tests::the_new_thread_screen_is_the_boards_centred_box::__the_new_thread_screen_is_the_boards_centred_box::{closure#1}>
+  10: backspace::shell::newthread::tests::the_new_thread_screen_is_the_boards_centred_box::__the_new_thread_screen_is_the_boards_centred_box
+  11: backspace::shell::newthread::tests::the_new_thread_screen_is_the_boards_centred_box::{closure#0}
+  12: gpui::test::run_test::{closure#0}
+  13: std::panicking::catch_unwind::do_call::<gpui::test::run_test::{closure#0}, ()>
+  14: __rust_try
+  15: std::panic::catch_unwind::<gpui::test::run_test::{closure#0}, ()>
+  16: gpui::test::run_test
+  17: backspace::shell::newthread::tests::the_new_thread_screen_is_the_boards_centred_box
+  18: backspace::shell::newthread::tests::the_new_thread_screen_is_the_boards_centred_box::{closure#0}
+  19: <backspace::shell::newthread::tests::the_new_thread_screen_is_the_boards_centred_box::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- shell::tests::the_support_card_has_its_own_tabs_and_a_plus_menu stdout ----
+
+thread 'shell::tests::the_support_card_has_its_own_tabs_and_a_plus_menu' (10322) panicked at /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gpui-kit-0.6.6/src/test.rs:54:9:
+missing ElementId NamedInteger("support-menu-item", 5) in scope []. Registered paths: [View(EntityId(1v1)), Name("cauldron"), Name("caps")], [View(EntityId(1v1)), Name("cauldron"), Name("inbox-slot"), Name("inbox-btn")], [View(EntityId(1v1)), Name("cauldron"), Name("inbox-slot")], [View(EntityId(1v1)), Name("cauldron"), Name("main"), Name("card"), Name("card-head"), Name("card-title")], [View(EntityId(1v1)), Name("cauldron"), Name("main"), Name("card"), Name("card-head")], [View(EntityId(1v1)), Name("cauldron"), Name("main"), Name("card"), Name("new-thread-screen"), Name("nt-bar"), Name("machine")], [View(EntityId(1v1)), Name("cauldron"), Name("main"), Name("card"), Name("new-thread-screen"), Name("nt-bar"), Name("nt-folder")], [View(EntityId(1v1)), Name("cauldron"), Name("main"), Name("card"), Name("new-thread-screen"), Name("nt-bar"), Name("nt-github")], [View(EntityId(1v1)), Name("cauldron"), Name("main"), Name("card"), Name("new-thread-screen"), Name("nt-bar"), Name("nt-worktree")], [View(EntityId(1v1)), Name("cauldron"), Name("main"), Name("card"), Name("new-thread-screen"), Name("nt-bar")], [View(EntityId(1v1)), Name("cauldron"), Name("main"), Name("card"), Name("new-thread-screen"), Name("nt-box"), Name("add-file")], [View(EntityId(1v1)), Name("cauldron"), Name("main"), Name("card"), Name("new-thread-screen"), Name("nt-box"), Name("nt-effort")], [View(EntityId(1v1)), Name("cauldron"), Name("main"), Name("card"), Name("new-thread-screen"), Name("nt-box"), Name("nt-familiar")], [View(EntityId(1v1)), Name("cauldron"), Name("main"), Name("card"), Name("new-thread-screen"), Name("nt-box"), Name("nt-input"), Name("gpui_component::input::textarea::Textarea"), Name("gpui_component::input::input::Input"), NamedInteger("input", 4294967302)], [View(EntityId(1v1)), Name("cauldron"), Name("main"), Name("card"), Name("new-thread-screen"), Name("nt-box"), Name("nt-input")], [View(EntityId(1v1)), Name("cauldron"), Name("main"), Name("card"), Name("new-thread-screen"), Name("nt-box"), Name("nt-model")], [View(EntityId(1v1)), Name("cauldron"), Name("main"), Name("card"), Name("new-thread-screen"), Name("nt-box"), Name("nt-plan")], [View(EntityId(1v1)), Name("cauldron"), Name("main"), Name("card"), Name("new-thread-screen"), Name("nt-box"), Name("nt-trust")], [View(EntityId(1v1)), Name("cauldron"), Name("main"), Name("card"), Name("new-thread-screen"), Name("nt-box"), Name("start")], [View(EntityId(1v1)), Name("cauldron"), Name("main"), Name("card"), Name("new-thread-screen"), Name("nt-box")], [View(EntityId(1v1)), Name("cauldron"), Name("main"), Name("card"), Name("new-thread-screen"), Name("nt-heading")], [View(EntityId(1v1)), Name("cauldron"), Name("main"), Name("card"), Name("new-thread-screen"), Name("start-why")], [View(EntityId(1v1)), Name("cauldron"), Name("main"), Name("card"), Name("new-thread-screen")], [View(EntityId(1v1)), Name("cauldron"), Name("main"), Name("card")], [View(EntityId(1v1)), Name("cauldron"), Name("main"), Name("stage-bar"), Name("stage-usage")], [View(EntityId(1v1)), Name("cauldron"), Name("main"), Name("stage-bar"), NamedInteger("stage", 0)], [View(EntityId(1v1)), Name("cauldron"), Name("main"), Name("stage-bar"), NamedInteger("stage", 1)], [View(EntityId(1v1)), Name("cauldron"), Name("main"), Name("stage-bar"), NamedInteger("stage", 2)], [View(EntityId(1v1)), Name("cauldron"), Name("main"), Name("stage-bar"), NamedInteger("stage", 3)], [View(EntityId(1v1)), Name("cauldron"), Name("main"), Name("stage-bar"), NamedInteger("stage", 4)], [View(EntityId(1v1)), Name("cauldron"), Name("main"), Name("stage-bar")], [View(EntityId(1v1)), Name("cauldron"), Name("main")], [View(EntityId(1v1)), Name("cauldron"), Name("notch")], [View(EntityId(1v1)), Name("cauldron"), Name("rail"), Name("rb-fold")], [View(EntityId(1v1)), Name("cauldron"), Name("rail"), Name("rb-term")], [View(EntityId(1v1)), Name("cauldron"), Name("rail"), NamedInteger("rb", 0)], [View(EntityId(1v1)), Name("cauldron"), Name("rail"), NamedInteger("rb", 1)], [View(EntityId(1v1)), Name("cauldron"), Name("rail"), NamedInteger("rb", 2)], [View(EntityId(1v1)), Name("cauldron"), Name("rail"), NamedInteger("rb", 3)], [View(EntityId(1v1)), Name("cauldron"), Name("rail"), NamedInteger("rb", 4)], [View(EntityId(1v1)), Name("cauldron"), Name("rail"), NamedInteger("rb", 5)], [View(EntityId(1v1)), Name("cauldron"), Name("rail"), NamedInteger("rb", 6)], [View(EntityId(1v1)), Name("cauldron"), Name("rail")], [View(EntityId(1v1)), Name("cauldron"), Name("sbtn-slot"), Name("sbtn")], [View(EntityId(1v1)), Name("cauldron"), Name("sbtn-slot")], [View(EntityId(1v1)), Name("cauldron"), Name("search-slot"), Name("search-btn")], [View(EntityId(1v1)), Name("cauldron"), Name("search-slot")], [View(EntityId(1v1)), Name("cauldron"), Name("sidebar"), Name("familiars-empty")], [View(EntityId(1v1)), Name("cauldron"), Name("sidebar"), Name("familiars-head")], [View(EntityId(1v1)), Name("cauldron"), Name("sidebar"), Name("new-thread")], [View(EntityId(1v1)), Name("cauldron"), Name("sidebar"), Name("settings")], [View(EntityId(1v1)), Name("cauldron"), Name("sidebar"), Name("side-top")], [View(EntityId(1v1)), Name("cauldron"), Name("sidebar"), Name("thread-list"), Name("threads-empty")], [View(EntityId(1v1)), Name("cauldron"), Name("sidebar"), Name("usage-left")], [View(EntityId(1v1)), Name("cauldron"), Name("sidebar"), Name("version")], [View(EntityId(1v1)), Name("cauldron"), Name("sidebar"), NamedInteger("fn", 0)], [View(EntityId(1v1)), Name("cauldron"), Name("sidebar"), NamedInteger("fn", 1)], [View(EntityId(1v1)), Name("cauldron"), Name("sidebar"), NamedInteger("fn", 2)], [View(EntityId(1v1)), Name("cauldron"), Name("sidebar"), NamedInteger("fn", 3)], [View(EntityId(1v1)), Name("cauldron"), Name("sidebar"), NamedInteger("fn", 4)], [View(EntityId(1v1)), Name("cauldron"), Name("sidebar"), NamedInteger("fn", 5)], [View(EntityId(1v1)), Name("cauldron"), Name("sidebar")], [View(EntityId(1v1)), Name("cauldron"), Name("support"), Name("support-body"), Name("support-empty")], [View(EntityId(1v1)), Name("cauldron"), Name("support"), Name("support-body"), Name("support-placeholder")], [View(EntityId(1v1)), Name("cauldron"), Name("support"), Name("support-head"), Name("support-add")], [View(EntityId(1v1)), Name("cauldron"), Name("support"), Name("support-head"), Name("support-more")], [View(EntityId(1v1)), Name("cauldron"), Name("support"), Name("support-head"), NamedInteger("st", 0)], [View(EntityId(1v1)), Name("cauldron"), Name("support"), Name("support-head"), NamedInteger("st", 1)], [View(EntityId(1v1)), Name("cauldron"), Name("support"), Name("support-head"), NamedInteger("st", 4), NamedInteger("st-close", 4)], [View(EntityId(1v1)), Name("cauldron"), Name("support"), Name("support-head"), NamedInteger("st", 4)], [View(EntityId(1v1)), Name("cauldron"), Name("support"), Name("support-head")], [View(EntityId(1v1)), Name("cauldron"), Name("support")], [View(EntityId(1v1)), Name("cauldron"), Name("tools"), Name("layout")], [View(EntityId(1v1)), Name("cauldron"), Name("tools"), Name("open-in-wrap"), Name("open-in")], [View(EntityId(1v1)), Name("cauldron"), Name("tools"), Name("open-in-wrap"), Name("open-in-more")], [View(EntityId(1v1)), Name("cauldron"), Name("tools"), Name("open-in-wrap")], [View(EntityId(1v1)), Name("cauldron"), Name("tools"), Name("top-term")], [View(EntityId(1v1)), Name("cauldron"), Name("tools")]. Check the ID, observation, and completed frame.
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+   1: core::panicking::panic_fmt
+   2: gpui_kit::test::require::{closure#0}
+   3: <core::option::Option<gpui_base::test_support::ElementSnapshot>>::unwrap_or_else::<gpui_kit::test::require::{closure#0}>
+   4: gpui_kit::test::require
+   5: <gpui::window::Window as gpui_kit::test::TestWindowExt>::find::<(&str, usize)>
+   6: backspace::shell::tests::the_support_card_has_its_own_tabs_and_a_plus_menu::__the_support_card_has_its_own_tabs_and_a_plus_menu::{closure#4}
+   7: <gpui::app::App>::update_window_id::<(), backspace::shell::tests::the_support_card_has_its_own_tabs_and_a_plus_menu::__the_support_card_has_its_own_tabs_and_a_plus_menu::{closure#4}>::{closure#0}
+   8: <gpui::app::App>::update_window_erased::{closure#0}
+   9: <gpui::app::App>::update_window_erased
+  10: <gpui::app::App as gpui::AppContext>::update_window::<(), backspace::shell::tests::the_support_card_has_its_own_tabs_and_a_plus_menu::__the_support_card_has_its_own_tabs_and_a_plus_menu::{closure#4}>
+  11: <gpui::app::test_context::TestAppContext as gpui::AppContext>::update_window::<(), backspace::shell::tests::the_support_card_has_its_own_tabs_and_a_plus_menu::__the_support_card_has_its_own_tabs_and_a_plus_menu::{closure#4}>
+  12: backspace::shell::tests::the_support_card_has_its_own_tabs_and_a_plus_menu::__the_support_card_has_its_own_tabs_and_a_plus_menu
+  13: backspace::shell::tests::the_support_card_has_its_own_tabs_and_a_plus_menu::{closure#0}
+  14: gpui::test::run_test::{closure#0}
+  15: std::panicking::catch_unwind::do_call::<gpui::test::run_test::{closure#0}, ()>
+  16: __rust_try
+  17: std::panic::catch_unwind::<gpui::test::run_test::{closure#0}, ()>
+  18: gpui::test::run_test
+  19: backspace::shell::tests::the_support_card_has_its_own_tabs_and_a_plus_menu
+  20: backspace::shell::tests::the_support_card_has_its_own_tabs_and_a_plus_menu::{closure#0}
+  21: <backspace::shell::tests::the_support_card_has_its_own_tabs_and_a_plus_menu::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+
+failures:
+    shell::newthread::tests::the_new_thread_screen_is_the_boards_centred_box
+    shell::tests::the_support_card_has_its_own_tabs_and_a_plus_menu
+
+test result: FAILED. 69 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.78s
+

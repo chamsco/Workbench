@@ -1,0 +1,921 @@
+warning: variable does not need to be mutable
+   --> crates/core/src/usage.rs:339:9
+    |
+339 |     let mut sess = |id: &str, t: u64, by: &mut BTreeMap<String, Session>| {
+    |         ----^^^^
+    |         |
+    |         help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `backspace-core` (lib) generated 1 warning (run `cargo fix --lib -p backspace-core` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.28s
+     Running tests/planning.rs (target/debug/deps/planning-e93bf7a1e55c4ba5)
+
+running 26 tests
+test a_bug_fix_baseline_is_a_repro_that_fails_today ... FAILED
+test a_decision_model_can_refuse_a_passing_checklist_but_never_open_a_failing_one ... FAILED
+test a_complete_plan_with_a_captured_baseline_passes ... FAILED
+test a_plan_that_is_not_typed_right_is_refused_with_the_field ... FAILED
+test a_feature_baseline_is_every_acceptance_test_failing_today ... FAILED
+test a_refactor_baseline_is_the_suite_passing_with_its_numbers ... FAILED
+test a_ui_baseline_cannot_read_through_a_symlink_that_leaves_the_workspace ... FAILED
+test a_ui_baseline_is_screenshots_of_the_current_state_kept_with_their_hashes ... FAILED
+test an_empty_section_is_refused_but_an_explicit_none_is_a_statement ... FAILED
+test a_research_task_cannot_submit_a_spec ... ok
+test every_criterion_needs_its_own_test ... FAILED
+test only_a_plain_yes_is_a_yes ... FAILED
+test placeholders_are_refused_wherever_they_are ... FAILED
+test research_has_no_baseline_and_no_spec ... FAILED
+test spec_md_is_generated_from_the_checklist_and_carries_the_baseline ... FAILED
+test the_baseline_item_is_not_met_until_it_is_captured_and_holds ... FAILED
+test the_checklist_has_the_seven_items_of_section_6_in_order ... FAILED
+test the_checklist_questions_are_typed_one_per_item ... FAILED
+test the_long_path_has_the_planning_tool_and_the_others_do_not ... FAILED
+test a_changed_spec_after_the_yes_closes_the_gate_again ... FAILED
+test a_yes_is_for_one_exact_spec ... FAILED
+test anything_but_a_yes_leaves_the_spec_unapproved ... FAILED
+test with_intake_off_the_planner_is_as_it_was ... ok
+test the_long_path_planner_is_offered_submit_spec_and_told_about_the_stage ... FAILED
+test the_long_path_plans_until_the_checklist_passes_then_waits_for_a_yes ... FAILED
+test the_question_waits_across_a_restart ... FAILED
+
+failures:
+
+---- a_bug_fix_baseline_is_a_repro_that_fails_today stdout ----
+
+thread 'a_bug_fix_baseline_is_a_repro_that_fails_today' (25462) panicked at crates/core/src/planning.rs:47:9:
+not yet implemented: M4
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: <backspace_core::planning::PlanSpec>::from_json
+             at ./src/planning.rs:47:9
+   3: planning::plan
+             at ./tests/planning.rs:52:5
+   4: planning::capture::<planning::a_bug_fix_baseline_is_a_repro_that_fails_today::{closure#0}>
+             at ./tests/planning.rs:319:13
+   5: planning::a_bug_fix_baseline_is_a_repro_that_fails_today
+             at ./tests/planning.rs:327:18
+   6: planning::a_bug_fix_baseline_is_a_repro_that_fails_today::{closure#0}
+             at ./tests/planning.rs:326:52
+   7: <planning::a_bug_fix_baseline_is_a_repro_that_fails_today::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   8: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- a_decision_model_can_refuse_a_passing_checklist_but_never_open_a_failing_one stdout ----
+
+thread 'a_decision_model_can_refuse_a_passing_checklist_but_never_open_a_failing_one' (25465) panicked at crates/core/src/planning.rs:47:9:
+not yet implemented: M4
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: <backspace_core::planning::PlanSpec>::from_json
+             at ./src/planning.rs:47:9
+   3: planning::plan
+             at ./tests/planning.rs:52:5
+   4: planning::a_decision_model_can_refuse_a_passing_checklist_but_never_open_a_failing_one
+             at ./tests/planning.rs:281:13
+   5: planning::a_decision_model_can_refuse_a_passing_checklist_but_never_open_a_failing_one::{closure#0}
+             at ./tests/planning.rs:280:82
+   6: <planning::a_decision_model_can_refuse_a_passing_checklist_but_never_open_a_failing_one::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   7: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- a_complete_plan_with_a_captured_baseline_passes stdout ----
+
+thread 'a_complete_plan_with_a_captured_baseline_passes' (25464) panicked at crates/core/src/planning.rs:47:9:
+not yet implemented: M4
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: <backspace_core::planning::PlanSpec>::from_json
+             at ./src/planning.rs:47:9
+   3: planning::plan
+             at ./tests/planning.rs:52:5
+   4: planning::a_complete_plan_with_a_captured_baseline_passes
+             at ./tests/planning.rs:85:13
+   5: planning::a_complete_plan_with_a_captured_baseline_passes::{closure#0}
+             at ./tests/planning.rs:84:53
+   6: <planning::a_complete_plan_with_a_captured_baseline_passes::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   7: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- a_plan_that_is_not_typed_right_is_refused_with_the_field stdout ----
+
+thread 'a_plan_that_is_not_typed_right_is_refused_with_the_field' (25475) panicked at crates/core/src/planning.rs:47:9:
+not yet implemented: M4
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: <backspace_core::planning::PlanSpec>::from_json
+             at ./src/planning.rs:47:9
+   3: planning::a_plan_that_is_not_typed_right_is_refused_with_the_field
+             at ./tests/planning.rs:164:33
+   4: planning::a_plan_that_is_not_typed_right_is_refused_with_the_field::{closure#0}
+             at ./tests/planning.rs:157:62
+   5: <planning::a_plan_that_is_not_typed_right_is_refused_with_the_field::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   6: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- a_feature_baseline_is_every_acceptance_test_failing_today stdout ----
+
+thread 'a_feature_baseline_is_every_acceptance_test_failing_today' (25474) panicked at crates/core/src/planning.rs:47:9:
+not yet implemented: M4
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: <backspace_core::planning::PlanSpec>::from_json
+             at ./src/planning.rs:47:9
+   3: planning::plan
+             at ./tests/planning.rs:52:5
+   4: planning::capture::<planning::a_feature_baseline_is_every_acceptance_test_failing_today::{closure#0}>
+             at ./tests/planning.rs:319:13
+   5: planning::a_feature_baseline_is_every_acceptance_test_failing_today
+             at ./tests/planning.rs:344:18
+   6: planning::a_feature_baseline_is_every_acceptance_test_failing_today::{closure#0}
+             at ./tests/planning.rs:343:63
+   7: <planning::a_feature_baseline_is_every_acceptance_test_failing_today::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   8: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- a_refactor_baseline_is_the_suite_passing_with_its_numbers stdout ----
+
+thread 'a_refactor_baseline_is_the_suite_passing_with_its_numbers' (25476) panicked at crates/core/src/planning.rs:47:9:
+not yet implemented: M4
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: <backspace_core::planning::PlanSpec>::from_json
+             at ./src/planning.rs:47:9
+   3: planning::plan
+             at ./tests/planning.rs:52:5
+   4: planning::capture::<planning::a_refactor_baseline_is_the_suite_passing_with_its_numbers::{closure#0}>
+             at ./tests/planning.rs:319:13
+   5: planning::a_refactor_baseline_is_the_suite_passing_with_its_numbers
+             at ./tests/planning.rs:396:18
+   6: planning::a_refactor_baseline_is_the_suite_passing_with_its_numbers::{closure#0}
+             at ./tests/planning.rs:395:63
+   7: <planning::a_refactor_baseline_is_the_suite_passing_with_its_numbers::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   8: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- a_ui_baseline_cannot_read_through_a_symlink_that_leaves_the_workspace stdout ----
+
+thread 'a_ui_baseline_cannot_read_through_a_symlink_that_leaves_the_workspace' (25479) panicked at crates/core/src/planning.rs:47:9:
+not yet implemented: M4
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: <backspace_core::planning::PlanSpec>::from_json
+             at ./src/planning.rs:47:9
+   3: planning::plan
+             at ./tests/planning.rs:52:5
+   4: planning::capture::<planning::a_ui_baseline_cannot_read_through_a_symlink_that_leaves_the_workspace::{closure#0}>
+             at ./tests/planning.rs:319:13
+   5: planning::a_ui_baseline_cannot_read_through_a_symlink_that_leaves_the_workspace
+             at ./tests/planning.rs:387:21
+   6: planning::a_ui_baseline_cannot_read_through_a_symlink_that_leaves_the_workspace::{closure#0}
+             at ./tests/planning.rs:384:75
+   7: <planning::a_ui_baseline_cannot_read_through_a_symlink_that_leaves_the_workspace::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   8: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- a_ui_baseline_is_screenshots_of_the_current_state_kept_with_their_hashes stdout ----
+
+thread 'a_ui_baseline_is_screenshots_of_the_current_state_kept_with_their_hashes' (25480) panicked at crates/core/src/planning.rs:47:9:
+not yet implemented: M4
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: <backspace_core::planning::PlanSpec>::from_json
+             at ./src/planning.rs:47:9
+   3: planning::plan
+             at ./tests/planning.rs:52:5
+   4: planning::capture::<planning::a_ui_baseline_is_screenshots_of_the_current_state_kept_with_their_hashes::{closure#0}>
+             at ./tests/planning.rs:319:13
+   5: planning::a_ui_baseline_is_screenshots_of_the_current_state_kept_with_their_hashes
+             at ./tests/planning.rs:357:21
+   6: planning::a_ui_baseline_is_screenshots_of_the_current_state_kept_with_their_hashes::{closure#0}
+             at ./tests/planning.rs:355:78
+   7: <planning::a_ui_baseline_is_screenshots_of_the_current_state_kept_with_their_hashes::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   8: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- an_empty_section_is_refused_but_an_explicit_none_is_a_statement stdout ----
+
+thread 'an_empty_section_is_refused_but_an_explicit_none_is_a_statement' (25482) panicked at crates/core/src/planning.rs:47:9:
+not yet implemented: M4
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: <backspace_core::planning::PlanSpec>::from_json
+             at ./src/planning.rs:47:9
+   3: planning::plan
+             at ./tests/planning.rs:52:5
+   4: planning::an_empty_section_is_refused_but_an_explicit_none_is_a_statement
+             at ./tests/planning.rs:129:34
+   5: planning::an_empty_section_is_refused_but_an_explicit_none_is_a_statement::{closure#0}
+             at ./tests/planning.rs:125:69
+   6: <planning::an_empty_section_is_refused_but_an_explicit_none_is_a_statement::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   7: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- every_criterion_needs_its_own_test stdout ----
+
+thread 'every_criterion_needs_its_own_test' (25557) panicked at crates/core/src/planning.rs:47:9:
+not yet implemented: M4
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: <backspace_core::planning::PlanSpec>::from_json
+             at ./src/planning.rs:47:9
+   3: planning::plan
+             at ./tests/planning.rs:52:5
+   4: planning::every_criterion_needs_its_own_test
+             at ./tests/planning.rs:113:30
+   5: planning::every_criterion_needs_its_own_test::{closure#0}
+             at ./tests/planning.rs:110:40
+   6: <planning::every_criterion_needs_its_own_test::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   7: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- only_a_plain_yes_is_a_yes stdout ----
+
+thread 'only_a_plain_yes_is_a_yes' (25558) panicked at crates/core/src/planning.rs:147:5:
+not yet implemented: M4
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: backspace_core::planning::parse_yes
+             at ./src/planning.rs:147:5
+   3: planning::only_a_plain_yes_is_a_yes
+             at ./tests/planning.rs:214:17
+   4: planning::only_a_plain_yes_is_a_yes::{closure#0}
+             at ./tests/planning.rs:212:31
+   5: <planning::only_a_plain_yes_is_a_yes::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   6: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- placeholders_are_refused_wherever_they_are stdout ----
+
+thread 'placeholders_are_refused_wherever_they_are' (25559) panicked at crates/core/src/planning.rs:47:9:
+not yet implemented: M4
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: <backspace_core::planning::PlanSpec>::from_json
+             at ./src/planning.rs:47:9
+   3: planning::plan
+             at ./tests/planning.rs:52:5
+   4: planning::placeholders_are_refused_wherever_they_are
+             at ./tests/planning.rs:148:34
+   5: planning::placeholders_are_refused_wherever_they_are::{closure#0}
+             at ./tests/planning.rs:144:48
+   6: <planning::placeholders_are_refused_wherever_they_are::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   7: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- research_has_no_baseline_and_no_spec stdout ----
+
+thread 'research_has_no_baseline_and_no_spec' (25560) panicked at crates/core/src/planning.rs:47:9:
+not yet implemented: M4
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: <backspace_core::planning::PlanSpec>::from_json
+             at ./src/planning.rs:47:9
+   3: planning::plan
+             at ./tests/planning.rs:52:5
+   4: planning::capture::<planning::research_has_no_baseline_and_no_spec::{closure#0}>
+             at ./tests/planning.rs:319:13
+   5: planning::research_has_no_baseline_and_no_spec
+             at ./tests/planning.rs:411:21
+   6: planning::research_has_no_baseline_and_no_spec::{closure#0}
+             at ./tests/planning.rs:410:42
+   7: <planning::research_has_no_baseline_and_no_spec::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   8: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- spec_md_is_generated_from_the_checklist_and_carries_the_baseline stdout ----
+
+thread 'spec_md_is_generated_from_the_checklist_and_carries_the_baseline' (25561) panicked at crates/core/src/planning.rs:47:9:
+not yet implemented: M4
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: <backspace_core::planning::PlanSpec>::from_json
+             at ./src/planning.rs:47:9
+   3: planning::plan
+             at ./tests/planning.rs:52:5
+   4: planning::spec_md_is_generated_from_the_checklist_and_carries_the_baseline
+             at ./tests/planning.rs:171:13
+   5: planning::spec_md_is_generated_from_the_checklist_and_carries_the_baseline::{closure#0}
+             at ./tests/planning.rs:170:70
+   6: <planning::spec_md_is_generated_from_the_checklist_and_carries_the_baseline::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   7: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- the_baseline_item_is_not_met_until_it_is_captured_and_holds stdout ----
+
+thread 'the_baseline_item_is_not_met_until_it_is_captured_and_holds' (25562) panicked at crates/core/src/planning.rs:47:9:
+not yet implemented: M4
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: <backspace_core::planning::PlanSpec>::from_json
+             at ./src/planning.rs:47:9
+   3: planning::plan
+             at ./tests/planning.rs:52:5
+   4: planning::the_baseline_item_is_not_met_until_it_is_captured_and_holds
+             at ./tests/planning.rs:93:13
+   5: planning::the_baseline_item_is_not_met_until_it_is_captured_and_holds::{closure#0}
+             at ./tests/planning.rs:92:65
+   6: <planning::the_baseline_item_is_not_met_until_it_is_captured_and_holds::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   7: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- the_checklist_has_the_seven_items_of_section_6_in_order stdout ----
+
+thread 'the_checklist_has_the_seven_items_of_section_6_in_order' (25563) panicked at crates/core/tests/planning.rs:61:5:
+assertion `left == right` failed
+  left: [Goal, Goal, Goal, Goal, Goal, Goal, Goal]
+ right: [Goal, AcceptanceCriteria, TestPerCriterion, NonGoals, Constraints, Dependencies, Baseline]
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: core::panicking::assert_failed_inner
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:439:17
+   3: core::panicking::assert_failed::<[backspace_core::planning::Item; 7], [backspace_core::planning::Item; 7]>
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:394:5
+   4: planning::the_checklist_has_the_seven_items_of_section_6_in_order
+             at ./tests/planning.rs:61:5
+   5: planning::the_checklist_has_the_seven_items_of_section_6_in_order::{closure#0}
+             at ./tests/planning.rs:60:61
+   6: <planning::the_checklist_has_the_seven_items_of_section_6_in_order::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   7: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- the_checklist_questions_are_typed_one_per_item stdout ----
+
+thread 'the_checklist_questions_are_typed_one_per_item' (25564) panicked at crates/core/src/planning.rs:151:5:
+not yet implemented: M4
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: backspace_core::planning::questions
+             at ./src/planning.rs:151:5
+   3: planning::the_checklist_questions_are_typed_one_per_item
+             at ./tests/planning.rs:271:13
+   4: planning::the_checklist_questions_are_typed_one_per_item::{closure#0}
+             at ./tests/planning.rs:270:52
+   5: <planning::the_checklist_questions_are_typed_one_per_item::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   6: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- the_long_path_has_the_planning_tool_and_the_others_do_not stdout ----
+
+thread 'the_long_path_has_the_planning_tool_and_the_others_do_not' (25565) panicked at crates/core/src/planning.rs:159:5:
+not yet implemented: M4
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: backspace_core::planning::submit_spec_tool
+             at ./src/planning.rs:159:5
+   3: planning::the_long_path_has_the_planning_tool_and_the_others_do_not
+             at ./tests/planning.rs:226:13
+   4: planning::the_long_path_has_the_planning_tool_and_the_others_do_not::{closure#0}
+             at ./tests/planning.rs:222:63
+   5: <planning::the_long_path_has_the_planning_tool_and_the_others_do_not::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   6: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- a_changed_spec_after_the_yes_closes_the_gate_again stdout ----
+
+thread 'a_changed_spec_after_the_yes_closes_the_gate_again' (25463) panicked at crates/core/tests/planning.rs:559:9:
+timed out waiting for the spec: [
+    (
+        "main",
+        Idle,
+        [
+            LogEntry {
+                kind: System,
+                text: "initialised a git repository in the workspace",
+            },
+            LogEntry {
+                kind: System,
+                text: "agents work on `backspace/run`; your branch is left alone. Merge it when you're happy: git merge backspace/run",
+            },
+            LogEntry {
+                kind: System,
+                text: "policy warning: no [policy] section in backspace.toml: every model, skill and plugin is allowed for every agent (orchestration_models, execution_models, skills and plugins are all open). Write the lists and set `mode = \"enforced\"` (`backspace-cli policy init` prints them), or set `mode = \"legacy_open\"` under [policy] to say this is intended.",
+            },
+            LogEntry {
+                kind: User,
+                text: "build a dashboard system platform across several services",
+            },
+            LogEntry {
+                kind: System,
+                text: "intake: long path (85% sure)",
+            },
+            LogEntry {
+                kind: System,
+                text: "routed by heuristic+pinned → mock-mid @ xhigh",
+            },
+            LogEntry {
+                kind: ToolCall,
+                text: "submit_spec {\"acceptance\":[{\"criterion\":\"hello.txt exists after a run\",\"test\":\"test -f hello.txt\"},{\"criterion\":\"hello.txt says hello\",\"test\":\"grep -q hello hello.txt\"}],\"baseline\":{\"kind\":\"feature\"},\"constraints\":[\"No new dependencies.\"],\"dependencies\":[\"None\"],\"goal\":\"The app writes hello.txt so that the greeting survives a restart.\",\"non_goals\":[\"Translations of the greeting.\"],\"title\":\"Greeting file\"}",
+            },
+            LogEntry {
+                kind: Error,
+                text: "error: tool `submit_spec` is not available to you",
+            },
+            LogEntry {
+                kind: Assistant,
+                text: "asked",
+            },
+        ],
+    ),
+]
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: planning::wait::<planning::a_changed_spec_after_the_yes_closes_the_gate_again::{closure#1}>
+             at ./tests/planning.rs:559:9
+   3: planning::a_changed_spec_after_the_yes_closes_the_gate_again
+             at ./tests/planning.rs:698:5
+   4: planning::a_changed_spec_after_the_yes_closes_the_gate_again::{closure#0}
+             at ./tests/planning.rs:684:56
+   5: <planning::a_changed_spec_after_the_yes_closes_the_gate_again::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   6: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- a_yes_is_for_one_exact_spec stdout ----
+
+thread 'a_yes_is_for_one_exact_spec' (25481) panicked at crates/core/tests/planning.rs:559:9:
+timed out waiting for the planning turn: [
+    (
+        "main",
+        AwaitingApproval,
+        [
+            LogEntry {
+                kind: System,
+                text: "initialised a git repository in the workspace",
+            },
+            LogEntry {
+                kind: System,
+                text: "agents work on `backspace/run`; your branch is left alone. Merge it when you're happy: git merge backspace/run",
+            },
+            LogEntry {
+                kind: System,
+                text: "policy warning: no [policy] section in backspace.toml: every model, skill and plugin is allowed for every agent (orchestration_models, execution_models, skills and plugins are all open). Write the lists and set `mode = \"enforced\"` (`backspace-cli policy init` prints them), or set `mode = \"legacy_open\"` under [policy] to say this is intended.",
+            },
+            LogEntry {
+                kind: User,
+                text: "build a dashboard system platform across several services",
+            },
+            LogEntry {
+                kind: System,
+                text: "intake: long path (85% sure)",
+            },
+            LogEntry {
+                kind: System,
+                text: "routed by heuristic+pinned → mock-mid @ xhigh",
+            },
+            LogEntry {
+                kind: ToolCall,
+                text: "create_tickets {\"tickets\":[{\"acceptance\":[\"hello.txt says hello\"],\"key\":\"greet\",\"title\":\"Write the greeting\",\"what_to_build\":\"Write hello.txt\"}]}",
+            },
+        ],
+    ),
+]
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: planning::wait::<planning::spec_turn::{closure#0}>
+             at ./tests/planning.rs:559:9
+   3: planning::spec_turn
+             at ./tests/planning.rs:598:5
+   4: planning::a_yes_is_for_one_exact_spec
+             at ./tests/planning.rs:672:22
+   5: planning::a_yes_is_for_one_exact_spec::{closure#0}
+             at ./tests/planning.rs:671:33
+   6: <planning::a_yes_is_for_one_exact_spec::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   7: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- anything_but_a_yes_leaves_the_spec_unapproved stdout ----
+
+thread 'anything_but_a_yes_leaves_the_spec_unapproved' (25484) panicked at crates/core/tests/planning.rs:559:9:
+timed out waiting for the planning turn: [
+    (
+        "main",
+        AwaitingApproval,
+        [
+            LogEntry {
+                kind: System,
+                text: "initialised a git repository in the workspace",
+            },
+            LogEntry {
+                kind: System,
+                text: "agents work on `backspace/run`; your branch is left alone. Merge it when you're happy: git merge backspace/run",
+            },
+            LogEntry {
+                kind: System,
+                text: "policy warning: no [policy] section in backspace.toml: every model, skill and plugin is allowed for every agent (orchestration_models, execution_models, skills and plugins are all open). Write the lists and set `mode = \"enforced\"` (`backspace-cli policy init` prints them), or set `mode = \"legacy_open\"` under [policy] to say this is intended.",
+            },
+            LogEntry {
+                kind: User,
+                text: "build a dashboard system platform across several services",
+            },
+            LogEntry {
+                kind: System,
+                text: "intake: long path (85% sure)",
+            },
+            LogEntry {
+                kind: System,
+                text: "routed by heuristic+pinned → mock-mid @ xhigh",
+            },
+            LogEntry {
+                kind: ToolCall,
+                text: "create_tickets {\"tickets\":[{\"acceptance\":[\"hello.txt says hello\"],\"key\":\"greet\",\"title\":\"Write the greeting\",\"what_to_build\":\"Write hello.txt\"}]}",
+            },
+        ],
+    ),
+]
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: planning::wait::<planning::spec_turn::{closure#0}>
+             at ./tests/planning.rs:559:9
+   3: planning::spec_turn
+             at ./tests/planning.rs:598:5
+   4: planning::anything_but_a_yes_leaves_the_spec_unapproved
+             at ./tests/planning.rs:654:23
+   5: planning::anything_but_a_yes_leaves_the_spec_unapproved::{closure#0}
+             at ./tests/planning.rs:653:51
+   6: <planning::anything_but_a_yes_leaves_the_spec_unapproved::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   7: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- the_long_path_planner_is_offered_submit_spec_and_told_about_the_stage stdout ----
+
+thread 'the_long_path_planner_is_offered_submit_spec_and_told_about_the_stage' (25566) panicked at crates/core/tests/planning.rs:559:9:
+timed out waiting for the planning turn: [
+    (
+        "main",
+        AwaitingApproval,
+        [
+            LogEntry {
+                kind: System,
+                text: "initialised a git repository in the workspace",
+            },
+            LogEntry {
+                kind: System,
+                text: "agents work on `backspace/run`; your branch is left alone. Merge it when you're happy: git merge backspace/run",
+            },
+            LogEntry {
+                kind: System,
+                text: "policy warning: no [policy] section in backspace.toml: every model, skill and plugin is allowed for every agent (orchestration_models, execution_models, skills and plugins are all open). Write the lists and set `mode = \"enforced\"` (`backspace-cli policy init` prints them), or set `mode = \"legacy_open\"` under [policy] to say this is intended.",
+            },
+            LogEntry {
+                kind: User,
+                text: "build a dashboard system platform across several services",
+            },
+            LogEntry {
+                kind: System,
+                text: "intake: long path (85% sure)",
+            },
+            LogEntry {
+                kind: System,
+                text: "routed by heuristic+pinned → mock-mid @ xhigh",
+            },
+            LogEntry {
+                kind: ToolCall,
+                text: "create_tickets {\"tickets\":[{\"acceptance\":[\"hello.txt says hello\"],\"key\":\"greet\",\"title\":\"Write the greeting\",\"what_to_build\":\"Write hello.txt\"}]}",
+            },
+        ],
+    ),
+]
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: planning::wait::<planning::spec_turn::{closure#0}>
+             at ./tests/planning.rs:559:9
+   3: planning::spec_turn
+             at ./tests/planning.rs:598:5
+   4: planning::the_long_path_planner_is_offered_submit_spec_and_told_about_the_stage
+             at ./tests/planning.rs:730:24
+   5: planning::the_long_path_planner_is_offered_submit_spec_and_told_about_the_stage::{closure#0}
+             at ./tests/planning.rs:729:75
+   6: <planning::the_long_path_planner_is_offered_submit_spec_and_told_about_the_stage::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   7: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- the_long_path_plans_until_the_checklist_passes_then_waits_for_a_yes stdout ----
+
+thread 'the_long_path_plans_until_the_checklist_passes_then_waits_for_a_yes' (25592) panicked at crates/core/tests/planning.rs:559:9:
+timed out waiting for the planning turn: [
+    (
+        "main",
+        AwaitingApproval,
+        [
+            LogEntry {
+                kind: System,
+                text: "initialised a git repository in the workspace",
+            },
+            LogEntry {
+                kind: System,
+                text: "agents work on `backspace/run`; your branch is left alone. Merge it when you're happy: git merge backspace/run",
+            },
+            LogEntry {
+                kind: System,
+                text: "policy warning: no [policy] section in backspace.toml: every model, skill and plugin is allowed for every agent (orchestration_models, execution_models, skills and plugins are all open). Write the lists and set `mode = \"enforced\"` (`backspace-cli policy init` prints them), or set `mode = \"legacy_open\"` under [policy] to say this is intended.",
+            },
+            LogEntry {
+                kind: User,
+                text: "build a dashboard system platform across several services",
+            },
+            LogEntry {
+                kind: System,
+                text: "intake: long path (85% sure)",
+            },
+            LogEntry {
+                kind: System,
+                text: "routed by heuristic+pinned → mock-mid @ xhigh",
+            },
+            LogEntry {
+                kind: ToolCall,
+                text: "create_tickets {\"tickets\":[{\"acceptance\":[\"hello.txt says hello\"],\"key\":\"greet\",\"title\":\"Write the greeting\",\"what_to_build\":\"Write hello.txt\"}]}",
+            },
+        ],
+    ),
+]
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: planning::wait::<planning::spec_turn::{closure#0}>
+             at ./tests/planning.rs:559:9
+   3: planning::spec_turn
+             at ./tests/planning.rs:598:5
+   4: planning::the_long_path_plans_until_the_checklist_passes_then_waits_for_a_yes
+             at ./tests/planning.rs:609:22
+   5: planning::the_long_path_plans_until_the_checklist_passes_then_waits_for_a_yes::{closure#0}
+             at ./tests/planning.rs:608:73
+   6: <planning::the_long_path_plans_until_the_checklist_passes_then_waits_for_a_yes::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   7: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- the_question_waits_across_a_restart stdout ----
+
+thread 'the_question_waits_across_a_restart' (25605) panicked at crates/core/tests/planning.rs:559:9:
+timed out waiting for the planning turn: [
+    (
+        "main",
+        AwaitingApproval,
+        [
+            LogEntry {
+                kind: System,
+                text: "initialised a git repository in the workspace",
+            },
+            LogEntry {
+                kind: System,
+                text: "agents work on `backspace/run`; your branch is left alone. Merge it when you're happy: git merge backspace/run",
+            },
+            LogEntry {
+                kind: System,
+                text: "policy warning: no [policy] section in backspace.toml: every model, skill and plugin is allowed for every agent (orchestration_models, execution_models, skills and plugins are all open). Write the lists and set `mode = \"enforced\"` (`backspace-cli policy init` prints them), or set `mode = \"legacy_open\"` under [policy] to say this is intended.",
+            },
+            LogEntry {
+                kind: User,
+                text: "build a dashboard system platform across several services",
+            },
+            LogEntry {
+                kind: System,
+                text: "intake: long path (85% sure)",
+            },
+            LogEntry {
+                kind: System,
+                text: "routed by heuristic+pinned → mock-mid @ xhigh",
+            },
+            LogEntry {
+                kind: ToolCall,
+                text: "create_tickets {\"tickets\":[{\"acceptance\":[\"hello.txt says hello\"],\"key\":\"greet\",\"title\":\"Write the greeting\",\"what_to_build\":\"Write hello.txt\"}]}",
+            },
+        ],
+    ),
+]
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: planning::wait::<planning::spec_turn::{closure#0}>
+             at ./tests/planning.rs:559:9
+   3: planning::spec_turn
+             at ./tests/planning.rs:598:5
+   4: planning::the_question_waits_across_a_restart
+             at ./tests/planning.rs:718:22
+   5: planning::the_question_waits_across_a_restart::{closure#0}
+             at ./tests/planning.rs:717:41
+   6: <planning::the_question_waits_across_a_restart::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   7: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+
+failures:
+    a_bug_fix_baseline_is_a_repro_that_fails_today
+    a_changed_spec_after_the_yes_closes_the_gate_again
+    a_complete_plan_with_a_captured_baseline_passes
+    a_decision_model_can_refuse_a_passing_checklist_but_never_open_a_failing_one
+    a_feature_baseline_is_every_acceptance_test_failing_today
+    a_plan_that_is_not_typed_right_is_refused_with_the_field
+    a_refactor_baseline_is_the_suite_passing_with_its_numbers
+    a_ui_baseline_cannot_read_through_a_symlink_that_leaves_the_workspace
+    a_ui_baseline_is_screenshots_of_the_current_state_kept_with_their_hashes
+    a_yes_is_for_one_exact_spec
+    an_empty_section_is_refused_but_an_explicit_none_is_a_statement
+    anything_but_a_yes_leaves_the_spec_unapproved
+    every_criterion_needs_its_own_test
+    only_a_plain_yes_is_a_yes
+    placeholders_are_refused_wherever_they_are
+    research_has_no_baseline_and_no_spec
+    spec_md_is_generated_from_the_checklist_and_carries_the_baseline
+    the_baseline_item_is_not_met_until_it_is_captured_and_holds
+    the_checklist_has_the_seven_items_of_section_6_in_order
+    the_checklist_questions_are_typed_one_per_item
+    the_long_path_has_the_planning_tool_and_the_others_do_not
+    the_long_path_planner_is_offered_submit_spec_and_told_about_the_stage
+    the_long_path_plans_until_the_checklist_passes_then_waits_for_a_yes
+    the_question_waits_across_a_restart
+
+test result: FAILED. 2 passed; 24 failed; 0 ignored; 0 measured; 0 filtered out; finished in 80.31s
+
+error: test failed, to rerun pass `-p backspace-core --test planning`
+     Running tests/planning_cli.rs (target/debug/deps/planning_cli-2fff1a46c313fa91)
+
+running 1 test
+test a_cli_planner_reaches_the_planning_stage_through_the_bridge ... FAILED
+
+failures:
+
+---- a_cli_planner_reaches_the_planning_stage_through_the_bridge stdout ----
+
+thread 'a_cli_planner_reaches_the_planning_stage_through_the_bridge' (25662) panicked at crates/core/tests/planning_cli.rs:63:9:
+timed out waiting for the spec: [
+    (
+        "main",
+        AwaitingApproval,
+        [
+            LogEntry {
+                kind: System,
+                text: "the planner runs on claude, on your own plan",
+            },
+            LogEntry {
+                kind: System,
+                text: "initialised a git repository in the workspace",
+            },
+            LogEntry {
+                kind: System,
+                text: "agents work on `backspace/run`; your branch is left alone. Merge it when you're happy: git merge backspace/run",
+            },
+            LogEntry {
+                kind: System,
+                text: "policy warning: no [policy] section in backspace.toml: every model, skill and plugin is allowed for every agent (orchestration_models, execution_models, skills and plugins are all open). Write the lists and set `mode = \"enforced\"` (`backspace-cli policy init` prints them), or set `mode = \"legacy_open\"` under [policy] to say this is intended.",
+            },
+            LogEntry {
+                kind: User,
+                text: "build a dashboard system platform across several services",
+            },
+            LogEntry {
+                kind: System,
+                text: "intake: long path (85% sure)",
+            },
+            LogEntry {
+                kind: System,
+                text: "claude turn done (≈$0.010 at API prices; billed to your claude plan)",
+            },
+        ],
+    ),
+]
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: planning_cli::wait::<planning_cli::a_cli_planner_reaches_the_planning_stage_through_the_bridge::{closure#0}>
+             at ./tests/planning_cli.rs:63:9
+   3: planning_cli::a_cli_planner_reaches_the_planning_stage_through_the_bridge
+             at ./tests/planning_cli.rs:117:13
+   4: planning_cli::a_cli_planner_reaches_the_planning_stage_through_the_bridge::{closure#0}
+             at ./tests/planning_cli.rs:74:65
+   5: <planning_cli::a_cli_planner_reaches_the_planning_stage_through_the_bridge::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   6: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+
+failures:
+    a_cli_planner_reaches_the_planning_stage_through_the_bridge
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 40.23s
+
+error: test failed, to rerun pass `-p backspace-core --test planning_cli`
+error: 2 targets failed:
+    `-p backspace-core --test planning`
+    `-p backspace-core --test planning_cli`

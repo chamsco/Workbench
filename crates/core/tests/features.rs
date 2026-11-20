@@ -749,7 +749,7 @@ fn local_triage_server() -> (u16, Arc<Mutex<Vec<Value>>>) {
 
 #[test]
 fn one_limited_login_does_not_stop_the_project() {
-    let mut a = Accounts { policy: FailoverPolicy::Automatic, list: vec![] };
+    let mut a = Accounts { policy: FailoverPolicy::Automatic, list: vec![], ..Default::default() };
     let one = a.add("claude", "Personal");
     let two = a.add("claude", "Work");
     let now = 1_800_000_000_000u64;
@@ -798,7 +798,7 @@ fn accounts_round_trip_and_keep_their_env() {
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("accounts.json");
 
-    let mut a = Accounts { policy: FailoverPolicy::Manual, list: vec![] };
+    let mut a = Accounts { policy: FailoverPolicy::Manual, list: vec![], ..Default::default() };
     let acc = a.add("claude", "Work Claude");
     a.add("codex", "Codex Work");
     a.save(&path).unwrap();

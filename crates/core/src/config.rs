@@ -25,6 +25,15 @@ pub struct Config {
     /// What happens to a first message before any planning (intake.rs).
     #[serde(default)]
     pub intake: IntakeConfig,
+    /// Builder and Rampart (rampart.rs): runs per test, spot-checks, limits.
+    #[serde(default)]
+    pub rampart: crate::rampart::RampartConfig,
+    /// Where agents' commands run (sandbox.rs).
+    #[serde(default)]
+    pub sandbox: crate::sandbox::SandboxConfig,
+    /// herdr, the terminal agent multiplexer, behind its adapter (herdr.rs).
+    #[serde(default)]
+    pub herdr: crate::herdr::HerdrConfig,
     pub providers: BTreeMap<String, ProviderConfig>,
     pub models: Vec<ModelSpec>,
 }
@@ -259,9 +268,11 @@ pub struct ModelSpec {
     /// Effort levels the provider accepts for this model. Empty = no knob.
     #[serde(default)]
     pub efforts: Vec<Effort>,
-    /// Where this model sits on the cost ladder (`local`, `mid`, `frontier`).
-    /// Unset: by tier, 0 local, 1–2 mid, 3–4 frontier.
-    #[serde(default)]
+    /// Where this model sits on the cost ladder (`local`, `mid`, `frontier`),
+    /// set as `model_class` (the older key `class` still works; setting both is
+    /// an error). Unset: by tier, 0 local, 1–3 mid, 4 frontier. An unknown
+    /// value is a config error, never a fall back to the tier.
+    #[serde(default, alias = "model_class")]
     pub class: Option<crate::ladder::ModelClass>,
 }
 

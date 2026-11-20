@@ -1,0 +1,1189 @@
+   Compiling backspace-core v0.1.0 (/home/user/workbench/crates/core)
+warning: variable does not need to be mutable
+   --> crates/core/src/usage.rs:339:9
+    |
+339 |     let mut sess = |id: &str, t: u64, by: &mut BTreeMap<String, Session>| {
+    |         ----^^^^
+    |         |
+    |         help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `backspace-core` (lib) generated 1 warning (run `cargo fix --lib -p backspace-core` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 59.73s
+     Running tests/hands_policy.rs (target/debug/deps/hands_policy-b74c52811158219f)
+
+running 2 tests
+test the_models_a_decider_calls_are_named ... FAILED
+test a_browser_task_in_a_project_asks_the_policy_first_and_a_refusal_runs_nothing ... FAILED
+
+failures:
+
+---- the_models_a_decider_calls_are_named stdout ----
+
+thread 'the_models_a_decider_calls_are_named' (1181) panicked at crates/core/src/hands/mod.rs:103:5:
+not yet implemented: M4 closure
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: backspace_core::hands::decider_models
+             at ./src/hands/mod.rs:103:5
+   3: hands_policy::the_models_a_decider_calls_are_named
+             at ./tests/hands_policy.rs:17:16
+   4: hands_policy::the_models_a_decider_calls_are_named::{closure#0}
+             at ./tests/hands_policy.rs:15:42
+   5: <hands_policy::the_models_a_decider_calls_are_named::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   6: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- a_browser_task_in_a_project_asks_the_policy_first_and_a_refusal_runs_nothing stdout ----
+
+thread 'a_browser_task_in_a_project_asks_the_policy_first_and_a_refusal_runs_nothing' (1180) panicked at crates/core/tests/hands_policy.rs:75:5:
+/usr/bin/google-chrome started but never opened its DevTools port
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: hands_policy::a_browser_task_in_a_project_asks_the_policy_first_and_a_refusal_runs_nothing
+             at ./tests/hands_policy.rs:75:5
+   3: hands_policy::a_browser_task_in_a_project_asks_the_policy_first_and_a_refusal_runs_nothing::{closure#0}
+             at ./tests/hands_policy.rs:57:82
+   4: <hands_policy::a_browser_task_in_a_project_asks_the_policy_first_and_a_refusal_runs_nothing::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   5: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+
+failures:
+    a_browser_task_in_a_project_asks_the_policy_first_and_a_refusal_runs_nothing
+    the_models_a_decider_calls_are_named
+
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 20.04s
+
+error: test failed, to rerun pass `-p backspace-core --test hands_policy`
+     Running tests/hands_policy_bridge.rs (target/debug/deps/hands_policy_bridge-2dcaad69bb25dfd0)
+
+running 1 test
+test the_bridge_checks_a_browser_decider_against_the_project_policy ... FAILED
+
+failures:
+
+---- the_bridge_checks_a_browser_decider_against_the_project_policy stdout ----
+
+thread 'the_bridge_checks_a_browser_decider_against_the_project_policy' (1207) panicked at crates/core/tests/hands_policy_bridge.rs:85:5:
+assertion `left == right` failed: {"error":"not found"}
+  left: "404"
+ right: "400"
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: core::panicking::assert_failed_inner
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:434:23
+   3: core::panicking::assert_failed::<alloc::string::String, &str>
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:394:5
+   4: hands_policy_bridge::the_bridge_checks_a_browser_decider_against_the_project_policy
+             at ./tests/hands_policy_bridge.rs:85:5
+   5: hands_policy_bridge::the_bridge_checks_a_browser_decider_against_the_project_policy::{closure#0}
+             at ./tests/hands_policy_bridge.rs:11:68
+   6: <hands_policy_bridge::the_bridge_checks_a_browser_decider_against_the_project_policy::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   7: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+
+failures:
+    the_bridge_checks_a_browser_decider_against_the_project_policy
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.61s
+
+error: test failed, to rerun pass `-p backspace-core --test hands_policy_bridge`
+     Running tests/planning.rs (target/debug/deps/planning-15065a6c746715b0)
+
+running 31 tests
+test a_complete_plan_with_a_captured_baseline_passes ... ok
+test a_decision_model_can_refuse_a_passing_checklist_but_never_open_a_failing_one ... ok
+test a_bug_fix_baseline_is_a_repro_that_fails_today ... ok
+test a_plan_that_is_not_typed_right_is_refused_with_the_field ... ok
+test a_feature_baseline_is_every_acceptance_test_failing_today ... ok
+test a_refactor_baseline_is_the_suite_passing_with_its_numbers ... ok
+test a_ui_baseline_cannot_read_through_a_symlink_that_leaves_the_workspace ... ok
+test a_ui_baseline_is_screenshots_of_the_current_state_kept_with_their_hashes ... ok
+test a_research_task_cannot_submit_a_spec ... ok
+test an_empty_section_is_refused_but_an_explicit_none_is_a_statement ... ok
+test a_yes_is_for_one_exact_spec ... FAILED
+test a_changed_spec_after_the_yes_closes_the_gate_again ... FAILED
+test anything_but_a_yes_leaves_the_spec_unapproved ... FAILED
+test a_changed_command_needs_its_own_approval ... FAILED
+test only_a_plain_yes_is_a_yes ... ok
+test every_criterion_needs_its_own_test ... ok
+test placeholders_are_refused_wherever_they_are ... ok
+test research_has_no_baseline_and_no_spec ... ok
+test spec_md_is_generated_from_the_checklist_and_carries_the_baseline ... ok
+test the_checklist_has_the_seven_items_of_section_6_in_order ... ok
+test the_checklist_questions_are_typed_one_per_item ... ok
+test the_baseline_item_is_not_met_until_it_is_captured_and_holds ... ok
+test the_long_path_has_the_planning_tool_and_the_others_do_not ... ok
+test the_commands_a_baseline_would_run_are_listed_per_task_type ... FAILED
+test the_long_path_plans_until_the_checklist_passes_then_waits_for_a_yes ... FAILED
+test the_planning_contract_names_the_one_spec_m5_consumes ... FAILED
+test the_long_path_planner_is_offered_submit_spec_and_told_about_the_stage ... FAILED
+test baseline_commands_do_not_run_before_the_user_approves_them ... FAILED
+test approved_baseline_commands_run_and_the_spec_goes_to_the_user ... FAILED
+test with_intake_off_the_planner_is_as_it_was ... ok
+test the_question_waits_across_a_restart ... FAILED
+
+failures:
+
+---- a_yes_is_for_one_exact_spec stdout ----
+
+thread 'a_yes_is_for_one_exact_spec' (1351) panicked at crates/core/tests/planning.rs:559:9:
+timed out waiting for the baseline commands to be put to the user: [
+    (
+        "main",
+        Idle,
+        [
+            LogEntry {
+                kind: System,
+                text: "initialised a git repository in the workspace",
+            },
+            LogEntry {
+                kind: System,
+                text: "agents work on `backspace/run`; your branch is left alone. Merge it when you're happy: git merge backspace/run",
+            },
+            LogEntry {
+                kind: System,
+                text: "policy warning: no [policy] section in backspace.toml: every model, skill and plugin is allowed for every agent (orchestration_models, execution_models, skills and plugins are all open). Write the lists and set `mode = \"enforced\"` (`backspace-cli policy init` prints them), or set `mode = \"legacy_open\"` under [policy] to say this is intended.",
+            },
+            LogEntry {
+                kind: User,
+                text: "build a dashboard system platform across several services",
+            },
+            LogEntry {
+                kind: System,
+                text: "intake: long path (85% sure)",
+            },
+            LogEntry {
+                kind: System,
+                text: "routed by heuristic+pinned → mock-mid @ xhigh",
+            },
+            LogEntry {
+                kind: ToolCall,
+                text: "create_tickets {\"tickets\":[{\"acceptance\":[\"hello.txt says hello\"],\"key\":\"greet\",\"title\":\"Write the greeting\",\"what_to_build\":\"Write hello.txt\"}]}",
+            },
+            LogEntry {
+                kind: Error,
+                text: "error: The long path plans first (the planning stage): grill the user until you can fill every checklist item, then call submit_spec. create_tickets opens once the checklist passes and the user says yes.",
+            },
+            LogEntry {
+                kind: ToolCall,
+                text: "submit_spec {\"acceptance\":[{\"criterion\":\"hello.txt exists after a run\",\"test\":\"test -f hello.txt\"},{\"criterion\":\"hello.txt says hello\",\"test\":\"grep -q hello hello.txt\"}],\"baseline\":{\"kind\":\"feature\"},\"constraints\":[],\"dependencies\":[],\"goal\":\"The app writes hello.txt so that the greeting survives a restart.\",\"non_goals\":[\"Translations of the greeting.\"],\"title\":\"Greeting file\"}",
+            },
+            LogEntry {
+                kind: System,
+                text: "planning: checklist refused (4 of 7 met)",
+            },
+            LogEntry {
+                kind: Error,
+                text: "error: The checklist refused this plan:\n- Constraints: no constraints stated (write \"None\" if there are truly none)\n- Dependencies: no dependencies stated (write \"None\" if there are truly none)\n- Baseline: not captured yet (it is captured once every other item is met)\nAsk the user what only they can answer, fix the rest, and call submit_spec again.",
+            },
+            LogEntry {
+                kind: ToolCall,
+                text: "submit_spec {\"acceptance\":[{\"criterion\":\"hello.txt exists after a run\",\"test\":\"test -f hello.txt\"},{\"criterion\":\"hello.txt says hello\",\"test\":\"grep -q hello hello.txt\"}],\"baseline\":{\"kind\":\"feature\"},\"constraints\":[\"No new dependencies.\"],\"dependencies\":[\"None\"],\"goal\":\"The app writes hello.txt so that the greeting survives a restart.\",\"non_goals\":[\"Translations of the greeting.\"],\"title\":\"Greeting file\"}",
+            },
+            LogEntry {
+                kind: Assistant,
+                text: ".backspace/planning/spec.md is ready: the checklist passed (7 of 7) and the feature baseline is captured.\n\n- Goal: stated\n- Acceptance criteria: 2 criteria (A1 to A2)\n- Test per criterion: 2 tests, one per criterion\n- Non-goals: 1 stated\n- Constraints: 1 stated\n- Dependencies: none, stated\n- Baseline: feature captured: 2 acceptance tests fail today\n\nReply **yes** to approve this spec, or tell me what to change.",
+            },
+            LogEntry {
+                kind: ToolResult,
+                text: "The checklist passed and .backspace/planning/spec.md is written (sha256 6907637986361d11f2f0c6d1ea16362c40f7f34136cbb5d80688035a32168874). The user has been asked for a yes: end your turn now. create_tickets is refused until they say yes.",
+            },
+            LogEntry {
+                kind: ToolCall,
+                text: "create_tickets {\"tickets\":[{\"acceptance\":[\"hello.txt says hello\"],\"key\":\"greet\",\"title\":\"Write the greeting\",\"what_to_build\":\"Write hello.txt\"}]}",
+            },
+            LogEntry {
+                kind: Error,
+                text: "error: .backspace/planning/spec.md passed its checklist, but the user has not said yes yet: end your turn and wait for their answer.",
+            },
+            LogEntry {
+                kind: Assistant,
+                text: "waiting for you",
+            },
+        ],
+    ),
+]
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: planning::wait::<planning::spec_turn::{closure#0}>
+             at ./tests/planning.rs:559:9
+   3: planning::spec_turn
+             at ./tests/planning.rs:614:5
+   4: planning::a_yes_is_for_one_exact_spec
+             at ./tests/planning.rs:692:22
+   5: planning::a_yes_is_for_one_exact_spec::{closure#0}
+             at ./tests/planning.rs:691:33
+   6: <planning::a_yes_is_for_one_exact_spec::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   7: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- a_changed_spec_after_the_yes_closes_the_gate_again stdout ----
+
+thread 'a_changed_spec_after_the_yes_closes_the_gate_again' (1248) panicked at crates/core/tests/planning.rs:559:9:
+timed out waiting for the commands: [
+    (
+        "main",
+        Idle,
+        [
+            LogEntry {
+                kind: System,
+                text: "initialised a git repository in the workspace",
+            },
+            LogEntry {
+                kind: System,
+                text: "agents work on `backspace/run`; your branch is left alone. Merge it when you're happy: git merge backspace/run",
+            },
+            LogEntry {
+                kind: System,
+                text: "policy warning: no [policy] section in backspace.toml: every model, skill and plugin is allowed for every agent (orchestration_models, execution_models, skills and plugins are all open). Write the lists and set `mode = \"enforced\"` (`backspace-cli policy init` prints them), or set `mode = \"legacy_open\"` under [policy] to say this is intended.",
+            },
+            LogEntry {
+                kind: User,
+                text: "build a dashboard system platform across several services",
+            },
+            LogEntry {
+                kind: System,
+                text: "intake: long path (85% sure)",
+            },
+            LogEntry {
+                kind: System,
+                text: "routed by heuristic+pinned → mock-mid @ xhigh",
+            },
+            LogEntry {
+                kind: ToolCall,
+                text: "submit_spec {\"acceptance\":[{\"criterion\":\"hello.txt exists after a run\",\"test\":\"test -f hello.txt\"},{\"criterion\":\"hello.txt says hello\",\"test\":\"grep -q hello hello.txt\"}],\"baseline\":{\"kind\":\"feature\"},\"constraints\":[\"No new dependencies.\"],\"dependencies\":[\"None\"],\"goal\":\"The app writes hello.txt so that the greeting survives a restart.\",\"non_goals\":[\"Translations of the greeting.\"],\"title\":\"Greeting file\"}",
+            },
+            LogEntry {
+                kind: Assistant,
+                text: ".backspace/planning/spec.md is ready: the checklist passed (7 of 7) and the feature baseline is captured.\n\n- Goal: stated\n- Acceptance criteria: 2 criteria (A1 to A2)\n- Test per criterion: 2 tests, one per criterion\n- Non-goals: 1 stated\n- Constraints: 1 stated\n- Dependencies: none, stated\n- Baseline: feature captured: 2 acceptance tests fail today\n\nReply **yes** to approve this spec, or tell me what to change.",
+            },
+            LogEntry {
+                kind: ToolResult,
+                text: "The checklist passed and .backspace/planning/spec.md is written (sha256 8604ece0f773d6f62079522db51088e8844f643d7e34e3054a651edd290150b4). The user has been asked for a yes: end your turn now. create_tickets is refused until they say yes.",
+            },
+            LogEntry {
+                kind: Assistant,
+                text: "ok",
+            },
+        ],
+    ),
+]
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: planning::wait::<planning::a_changed_spec_after_the_yes_closes_the_gate_again::{closure#1}>
+             at ./tests/planning.rs:559:9
+   3: planning::a_changed_spec_after_the_yes_closes_the_gate_again
+             at ./tests/planning.rs:719:5
+   4: planning::a_changed_spec_after_the_yes_closes_the_gate_again::{closure#0}
+             at ./tests/planning.rs:704:56
+   5: <planning::a_changed_spec_after_the_yes_closes_the_gate_again::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   6: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- anything_but_a_yes_leaves_the_spec_unapproved stdout ----
+
+thread 'anything_but_a_yes_leaves_the_spec_unapproved' (1424) panicked at crates/core/tests/planning.rs:559:9:
+timed out waiting for the baseline commands to be put to the user: [
+    (
+        "main",
+        Idle,
+        [
+            LogEntry {
+                kind: System,
+                text: "initialised a git repository in the workspace",
+            },
+            LogEntry {
+                kind: System,
+                text: "agents work on `backspace/run`; your branch is left alone. Merge it when you're happy: git merge backspace/run",
+            },
+            LogEntry {
+                kind: System,
+                text: "policy warning: no [policy] section in backspace.toml: every model, skill and plugin is allowed for every agent (orchestration_models, execution_models, skills and plugins are all open). Write the lists and set `mode = \"enforced\"` (`backspace-cli policy init` prints them), or set `mode = \"legacy_open\"` under [policy] to say this is intended.",
+            },
+            LogEntry {
+                kind: User,
+                text: "build a dashboard system platform across several services",
+            },
+            LogEntry {
+                kind: System,
+                text: "intake: long path (85% sure)",
+            },
+            LogEntry {
+                kind: System,
+                text: "routed by heuristic+pinned → mock-mid @ xhigh",
+            },
+            LogEntry {
+                kind: ToolCall,
+                text: "create_tickets {\"tickets\":[{\"acceptance\":[\"hello.txt says hello\"],\"key\":\"greet\",\"title\":\"Write the greeting\",\"what_to_build\":\"Write hello.txt\"}]}",
+            },
+            LogEntry {
+                kind: Error,
+                text: "error: The long path plans first (the planning stage): grill the user until you can fill every checklist item, then call submit_spec. create_tickets opens once the checklist passes and the user says yes.",
+            },
+            LogEntry {
+                kind: ToolCall,
+                text: "submit_spec {\"acceptance\":[{\"criterion\":\"hello.txt exists after a run\",\"test\":\"test -f hello.txt\"},{\"criterion\":\"hello.txt says hello\",\"test\":\"grep -q hello hello.txt\"}],\"baseline\":{\"kind\":\"feature\"},\"constraints\":[],\"dependencies\":[],\"goal\":\"The app writes hello.txt so that the greeting survives a restart.\",\"non_goals\":[\"Translations of the greeting.\"],\"title\":\"Greeting file\"}",
+            },
+            LogEntry {
+                kind: System,
+                text: "planning: checklist refused (4 of 7 met)",
+            },
+            LogEntry {
+                kind: Error,
+                text: "error: The checklist refused this plan:\n- Constraints: no constraints stated (write \"None\" if there are truly none)\n- Dependencies: no dependencies stated (write \"None\" if there are truly none)\n- Baseline: not captured yet (it is captured once every other item is met)\nAsk the user what only they can answer, fix the rest, and call submit_spec again.",
+            },
+            LogEntry {
+                kind: ToolCall,
+                text: "submit_spec {\"acceptance\":[{\"criterion\":\"hello.txt exists after a run\",\"test\":\"test -f hello.txt\"},{\"criterion\":\"hello.txt says hello\",\"test\":\"grep -q hello hello.txt\"}],\"baseline\":{\"kind\":\"feature\"},\"constraints\":[\"No new dependencies.\"],\"dependencies\":[\"None\"],\"goal\":\"The app writes hello.txt so that the greeting survives a restart.\",\"non_goals\":[\"Translations of the greeting.\"],\"title\":\"Greeting file\"}",
+            },
+            LogEntry {
+                kind: Assistant,
+                text: ".backspace/planning/spec.md is ready: the checklist passed (7 of 7) and the feature baseline is captured.\n\n- Goal: stated\n- Acceptance criteria: 2 criteria (A1 to A2)\n- Test per criterion: 2 tests, one per criterion\n- Non-goals: 1 stated\n- Constraints: 1 stated\n- Dependencies: none, stated\n- Baseline: feature captured: 2 acceptance tests fail today\n\nReply **yes** to approve this spec, or tell me what to change.",
+            },
+            LogEntry {
+                kind: ToolResult,
+                text: "The checklist passed and .backspace/planning/spec.md is written (sha256 c20ad972d1343870ed92174a4e1543b62e7c267bbe7620211ac103d9ad95de58). The user has been asked for a yes: end your turn now. create_tickets is refused until they say yes.",
+            },
+            LogEntry {
+                kind: ToolCall,
+                text: "create_tickets {\"tickets\":[{\"acceptance\":[\"hello.txt says hello\"],\"key\":\"greet\",\"title\":\"Write the greeting\",\"what_to_build\":\"Write hello.txt\"}]}",
+            },
+            LogEntry {
+                kind: Error,
+                text: "error: .backspace/planning/spec.md passed its checklist, but the user has not said yes yet: end your turn and wait for their answer.",
+            },
+            LogEntry {
+                kind: Assistant,
+                text: "waiting for you",
+            },
+        ],
+    ),
+]
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: planning::wait::<planning::spec_turn::{closure#0}>
+             at ./tests/planning.rs:559:9
+   3: planning::spec_turn
+             at ./tests/planning.rs:614:5
+   4: planning::anything_but_a_yes_leaves_the_spec_unapproved
+             at ./tests/planning.rs:674:23
+   5: planning::anything_but_a_yes_leaves_the_spec_unapproved::{closure#0}
+             at ./tests/planning.rs:673:51
+   6: <planning::anything_but_a_yes_leaves_the_spec_unapproved::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   7: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- a_changed_command_needs_its_own_approval stdout ----
+
+thread 'a_changed_command_needs_its_own_approval' (1247) panicked at crates/core/tests/planning.rs:559:9:
+timed out waiting for the commands: [
+    (
+        "main",
+        Idle,
+        [
+            LogEntry {
+                kind: System,
+                text: "initialised a git repository in the workspace",
+            },
+            LogEntry {
+                kind: System,
+                text: "agents work on `backspace/run`; your branch is left alone. Merge it when you're happy: git merge backspace/run",
+            },
+            LogEntry {
+                kind: System,
+                text: "policy warning: no [policy] section in backspace.toml: every model, skill and plugin is allowed for every agent (orchestration_models, execution_models, skills and plugins are all open). Write the lists and set `mode = \"enforced\"` (`backspace-cli policy init` prints them), or set `mode = \"legacy_open\"` under [policy] to say this is intended.",
+            },
+            LogEntry {
+                kind: User,
+                text: "build a dashboard system platform across several services",
+            },
+            LogEntry {
+                kind: System,
+                text: "intake: long path (85% sure)",
+            },
+            LogEntry {
+                kind: System,
+                text: "routed by heuristic+pinned → mock-mid @ xhigh",
+            },
+            LogEntry {
+                kind: ToolCall,
+                text: "submit_spec {\"acceptance\":[{\"criterion\":\"hello.txt exists after a run\",\"test\":\"touch a1.ran; test -f hello.txt\"},{\"criterion\":\"hello.txt says hello\",\"test\":\"touch a2.ran; grep -q hello hello.txt\"}],\"baseline\":{\"kind\":\"feature\"},\"constraints\":[\"No new dependencies.\"],\"dependencies\":[\"None\"],\"goal\":\"The app writes hello.txt so that the greeting survives a restart.\",\"non_goals\":[\"Translations of the greeting.\"],",
+            },
+            LogEntry {
+                kind: Assistant,
+                text: ".backspace/planning/spec.md is ready: the checklist passed (7 of 7) and the feature baseline is captured.\n\n- Goal: stated\n- Acceptance criteria: 2 criteria (A1 to A2)\n- Test per criterion: 2 tests, one per criterion\n- Non-goals: 1 stated\n- Constraints: 1 stated\n- Dependencies: none, stated\n- Baseline: feature captured: 2 acceptance tests fail today\n\nReply **yes** to approve this spec, or tell me what to change.",
+            },
+            LogEntry {
+                kind: ToolResult,
+                text: "The checklist passed and .backspace/planning/spec.md is written (sha256 63627fabfc10c1440e625ad84993133eb2eb40069cb002c6305d60e23a82bbd9). The user has been asked for a yes: end your turn now. create_tickets is refused until they say yes.",
+            },
+            LogEntry {
+                kind: Assistant,
+                text: "waiting",
+            },
+        ],
+    ),
+]
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: planning::wait::<planning::a_changed_command_needs_its_own_approval::{closure#1}>
+             at ./tests/planning.rs:559:9
+   3: planning::a_changed_command_needs_its_own_approval
+             at ./tests/planning.rs:886:5
+   4: planning::a_changed_command_needs_its_own_approval::{closure#0}
+             at ./tests/planning.rs:872:46
+   5: <planning::a_changed_command_needs_its_own_approval::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   6: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- the_commands_a_baseline_would_run_are_listed_per_task_type stdout ----
+
+thread 'the_commands_a_baseline_would_run_are_listed_per_task_type' (1524) panicked at crates/core/src/planning.rs:277:5:
+not yet implemented: M4 closure
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: backspace_core::planning::commands
+             at ./src/planning.rs:277:5
+   3: planning::the_commands_a_baseline_would_run_are_listed_per_task_type
+             at ./tests/planning.rs:816:16
+   4: planning::the_commands_a_baseline_would_run_are_listed_per_task_type::{closure#0}
+             at ./tests/planning.rs:814:64
+   5: <planning::the_commands_a_baseline_would_run_are_listed_per_task_type::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   6: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- the_long_path_plans_until_the_checklist_passes_then_waits_for_a_yes stdout ----
+
+thread 'the_long_path_plans_until_the_checklist_passes_then_waits_for_a_yes' (1529) panicked at crates/core/tests/planning.rs:559:9:
+timed out waiting for the baseline commands to be put to the user: [
+    (
+        "main",
+        Idle,
+        [
+            LogEntry {
+                kind: System,
+                text: "initialised a git repository in the workspace",
+            },
+            LogEntry {
+                kind: System,
+                text: "agents work on `backspace/run`; your branch is left alone. Merge it when you're happy: git merge backspace/run",
+            },
+            LogEntry {
+                kind: System,
+                text: "policy warning: no [policy] section in backspace.toml: every model, skill and plugin is allowed for every agent (orchestration_models, execution_models, skills and plugins are all open). Write the lists and set `mode = \"enforced\"` (`backspace-cli policy init` prints them), or set `mode = \"legacy_open\"` under [policy] to say this is intended.",
+            },
+            LogEntry {
+                kind: User,
+                text: "build a dashboard system platform across several services",
+            },
+            LogEntry {
+                kind: System,
+                text: "intake: long path (85% sure)",
+            },
+            LogEntry {
+                kind: System,
+                text: "routed by heuristic+pinned → mock-mid @ xhigh",
+            },
+            LogEntry {
+                kind: ToolCall,
+                text: "create_tickets {\"tickets\":[{\"acceptance\":[\"hello.txt says hello\"],\"key\":\"greet\",\"title\":\"Write the greeting\",\"what_to_build\":\"Write hello.txt\"}]}",
+            },
+            LogEntry {
+                kind: Error,
+                text: "error: The long path plans first (the planning stage): grill the user until you can fill every checklist item, then call submit_spec. create_tickets opens once the checklist passes and the user says yes.",
+            },
+            LogEntry {
+                kind: ToolCall,
+                text: "submit_spec {\"acceptance\":[{\"criterion\":\"hello.txt exists after a run\",\"test\":\"test -f hello.txt\"},{\"criterion\":\"hello.txt says hello\",\"test\":\"grep -q hello hello.txt\"}],\"baseline\":{\"kind\":\"feature\"},\"constraints\":[],\"dependencies\":[],\"goal\":\"The app writes hello.txt so that the greeting survives a restart.\",\"non_goals\":[\"Translations of the greeting.\"],\"title\":\"Greeting file\"}",
+            },
+            LogEntry {
+                kind: System,
+                text: "planning: checklist refused (4 of 7 met)",
+            },
+            LogEntry {
+                kind: Error,
+                text: "error: The checklist refused this plan:\n- Constraints: no constraints stated (write \"None\" if there are truly none)\n- Dependencies: no dependencies stated (write \"None\" if there are truly none)\n- Baseline: not captured yet (it is captured once every other item is met)\nAsk the user what only they can answer, fix the rest, and call submit_spec again.",
+            },
+            LogEntry {
+                kind: ToolCall,
+                text: "submit_spec {\"acceptance\":[{\"criterion\":\"hello.txt exists after a run\",\"test\":\"test -f hello.txt\"},{\"criterion\":\"hello.txt says hello\",\"test\":\"grep -q hello hello.txt\"}],\"baseline\":{\"kind\":\"feature\"},\"constraints\":[\"No new dependencies.\"],\"dependencies\":[\"None\"],\"goal\":\"The app writes hello.txt so that the greeting survives a restart.\",\"non_goals\":[\"Translations of the greeting.\"],\"title\":\"Greeting file\"}",
+            },
+            LogEntry {
+                kind: Assistant,
+                text: ".backspace/planning/spec.md is ready: the checklist passed (7 of 7) and the feature baseline is captured.\n\n- Goal: stated\n- Acceptance criteria: 2 criteria (A1 to A2)\n- Test per criterion: 2 tests, one per criterion\n- Non-goals: 1 stated\n- Constraints: 1 stated\n- Dependencies: none, stated\n- Baseline: feature captured: 2 acceptance tests fail today\n\nReply **yes** to approve this spec, or tell me what to change.",
+            },
+            LogEntry {
+                kind: ToolResult,
+                text: "The checklist passed and .backspace/planning/spec.md is written (sha256 2a69965e33d2115f735de9d17daa85581d4123e1597dfeef98a0a6c5785b9952). The user has been asked for a yes: end your turn now. create_tickets is refused until they say yes.",
+            },
+            LogEntry {
+                kind: ToolCall,
+                text: "create_tickets {\"tickets\":[{\"acceptance\":[\"hello.txt says hello\"],\"key\":\"greet\",\"title\":\"Write the greeting\",\"what_to_build\":\"Write hello.txt\"}]}",
+            },
+            LogEntry {
+                kind: Error,
+                text: "error: .backspace/planning/spec.md passed its checklist, but the user has not said yes yet: end your turn and wait for their answer.",
+            },
+            LogEntry {
+                kind: Assistant,
+                text: "waiting for you",
+            },
+        ],
+    ),
+]
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: planning::wait::<planning::spec_turn::{closure#0}>
+             at ./tests/planning.rs:559:9
+   3: planning::spec_turn
+             at ./tests/planning.rs:614:5
+   4: planning::the_long_path_plans_until_the_checklist_passes_then_waits_for_a_yes
+             at ./tests/planning.rs:627:22
+   5: planning::the_long_path_plans_until_the_checklist_passes_then_waits_for_a_yes::{closure#0}
+             at ./tests/planning.rs:626:73
+   6: <planning::the_long_path_plans_until_the_checklist_passes_then_waits_for_a_yes::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   7: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- the_planning_contract_names_the_one_spec_m5_consumes stdout ----
+
+thread 'the_planning_contract_names_the_one_spec_m5_consumes' (1669) panicked at crates/core/tests/planning.rs:900:127:
+docs/cauldron/PLANNING-CONTRACT.md: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: core::result::unwrap_failed
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/result.rs:1867:5
+   3: <core::result::Result<alloc::string::String, std::io::error::Error>>::expect
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/result.rs:1185:23
+   4: planning::the_planning_contract_names_the_one_spec_m5_consumes
+             at ./tests/planning.rs:900:127
+   5: planning::the_planning_contract_names_the_one_spec_m5_consumes::{closure#0}
+             at ./tests/planning.rs:899:58
+   6: <planning::the_planning_contract_names_the_one_spec_m5_consumes::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   7: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- the_long_path_planner_is_offered_submit_spec_and_told_about_the_stage stdout ----
+
+thread 'the_long_path_planner_is_offered_submit_spec_and_told_about_the_stage' (1527) panicked at crates/core/tests/planning.rs:559:9:
+timed out waiting for the baseline commands to be put to the user: [
+    (
+        "main",
+        Idle,
+        [
+            LogEntry {
+                kind: System,
+                text: "initialised a git repository in the workspace",
+            },
+            LogEntry {
+                kind: System,
+                text: "agents work on `backspace/run`; your branch is left alone. Merge it when you're happy: git merge backspace/run",
+            },
+            LogEntry {
+                kind: System,
+                text: "policy warning: no [policy] section in backspace.toml: every model, skill and plugin is allowed for every agent (orchestration_models, execution_models, skills and plugins are all open). Write the lists and set `mode = \"enforced\"` (`backspace-cli policy init` prints them), or set `mode = \"legacy_open\"` under [policy] to say this is intended.",
+            },
+            LogEntry {
+                kind: User,
+                text: "build a dashboard system platform across several services",
+            },
+            LogEntry {
+                kind: System,
+                text: "intake: long path (85% sure)",
+            },
+            LogEntry {
+                kind: System,
+                text: "routed by heuristic+pinned → mock-mid @ xhigh",
+            },
+            LogEntry {
+                kind: ToolCall,
+                text: "create_tickets {\"tickets\":[{\"acceptance\":[\"hello.txt says hello\"],\"key\":\"greet\",\"title\":\"Write the greeting\",\"what_to_build\":\"Write hello.txt\"}]}",
+            },
+            LogEntry {
+                kind: Error,
+                text: "error: The long path plans first (the planning stage): grill the user until you can fill every checklist item, then call submit_spec. create_tickets opens once the checklist passes and the user says yes.",
+            },
+            LogEntry {
+                kind: ToolCall,
+                text: "submit_spec {\"acceptance\":[{\"criterion\":\"hello.txt exists after a run\",\"test\":\"test -f hello.txt\"},{\"criterion\":\"hello.txt says hello\",\"test\":\"grep -q hello hello.txt\"}],\"baseline\":{\"kind\":\"feature\"},\"constraints\":[],\"dependencies\":[],\"goal\":\"The app writes hello.txt so that the greeting survives a restart.\",\"non_goals\":[\"Translations of the greeting.\"],\"title\":\"Greeting file\"}",
+            },
+            LogEntry {
+                kind: System,
+                text: "planning: checklist refused (4 of 7 met)",
+            },
+            LogEntry {
+                kind: Error,
+                text: "error: The checklist refused this plan:\n- Constraints: no constraints stated (write \"None\" if there are truly none)\n- Dependencies: no dependencies stated (write \"None\" if there are truly none)\n- Baseline: not captured yet (it is captured once every other item is met)\nAsk the user what only they can answer, fix the rest, and call submit_spec again.",
+            },
+            LogEntry {
+                kind: ToolCall,
+                text: "submit_spec {\"acceptance\":[{\"criterion\":\"hello.txt exists after a run\",\"test\":\"test -f hello.txt\"},{\"criterion\":\"hello.txt says hello\",\"test\":\"grep -q hello hello.txt\"}],\"baseline\":{\"kind\":\"feature\"},\"constraints\":[\"No new dependencies.\"],\"dependencies\":[\"None\"],\"goal\":\"The app writes hello.txt so that the greeting survives a restart.\",\"non_goals\":[\"Translations of the greeting.\"],\"title\":\"Greeting file\"}",
+            },
+            LogEntry {
+                kind: Assistant,
+                text: ".backspace/planning/spec.md is ready: the checklist passed (7 of 7) and the feature baseline is captured.\n\n- Goal: stated\n- Acceptance criteria: 2 criteria (A1 to A2)\n- Test per criterion: 2 tests, one per criterion\n- Non-goals: 1 stated\n- Constraints: 1 stated\n- Dependencies: none, stated\n- Baseline: feature captured: 2 acceptance tests fail today\n\nReply **yes** to approve this spec, or tell me what to change.",
+            },
+            LogEntry {
+                kind: ToolResult,
+                text: "The checklist passed and .backspace/planning/spec.md is written (sha256 6907637986361d11f2f0c6d1ea16362c40f7f34136cbb5d80688035a32168874). The user has been asked for a yes: end your turn now. create_tickets is refused until they say yes.",
+            },
+            LogEntry {
+                kind: ToolCall,
+                text: "create_tickets {\"tickets\":[{\"acceptance\":[\"hello.txt says hello\"],\"key\":\"greet\",\"title\":\"Write the greeting\",\"what_to_build\":\"Write hello.txt\"}]}",
+            },
+            LogEntry {
+                kind: Error,
+                text: "error: .backspace/planning/spec.md passed its checklist, but the user has not said yes yet: end your turn and wait for their answer.",
+            },
+            LogEntry {
+                kind: Assistant,
+                text: "waiting for you",
+            },
+        ],
+    ),
+]
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: planning::wait::<planning::spec_turn::{closure#0}>
+             at ./tests/planning.rs:559:9
+   3: planning::spec_turn
+             at ./tests/planning.rs:614:5
+   4: planning::the_long_path_planner_is_offered_submit_spec_and_told_about_the_stage
+             at ./tests/planning.rs:753:24
+   5: planning::the_long_path_planner_is_offered_submit_spec_and_told_about_the_stage::{closure#0}
+             at ./tests/planning.rs:752:75
+   6: <planning::the_long_path_planner_is_offered_submit_spec_and_told_about_the_stage::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   7: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- baseline_commands_do_not_run_before_the_user_approves_them stdout ----
+
+thread 'baseline_commands_do_not_run_before_the_user_approves_them' (1505) panicked at crates/core/tests/planning.rs:559:9:
+timed out waiting for the commands: [
+    (
+        "main",
+        Idle,
+        [
+            LogEntry {
+                kind: System,
+                text: "initialised a git repository in the workspace",
+            },
+            LogEntry {
+                kind: System,
+                text: "agents work on `backspace/run`; your branch is left alone. Merge it when you're happy: git merge backspace/run",
+            },
+            LogEntry {
+                kind: System,
+                text: "policy warning: no [policy] section in backspace.toml: every model, skill and plugin is allowed for every agent (orchestration_models, execution_models, skills and plugins are all open). Write the lists and set `mode = \"enforced\"` (`backspace-cli policy init` prints them), or set `mode = \"legacy_open\"` under [policy] to say this is intended.",
+            },
+            LogEntry {
+                kind: User,
+                text: "build a dashboard system platform across several services",
+            },
+            LogEntry {
+                kind: System,
+                text: "intake: long path (85% sure)",
+            },
+            LogEntry {
+                kind: System,
+                text: "routed by heuristic+pinned → mock-mid @ xhigh",
+            },
+            LogEntry {
+                kind: ToolCall,
+                text: "create_tickets {\"tickets\":[{\"acceptance\":[\"hello.txt says hello\"],\"key\":\"greet\",\"title\":\"Write the greeting\",\"what_to_build\":\"Write hello.txt\"}]}",
+            },
+            LogEntry {
+                kind: Error,
+                text: "error: The long path plans first (the planning stage): grill the user until you can fill every checklist item, then call submit_spec. create_tickets opens once the checklist passes and the user says yes.",
+            },
+            LogEntry {
+                kind: ToolCall,
+                text: "submit_spec {\"acceptance\":[{\"criterion\":\"hello.txt exists after a run\",\"test\":\"touch a1.ran; test -f hello.txt\"},{\"criterion\":\"hello.txt says hello\",\"test\":\"touch a2.ran; grep -q hello hello.txt\"}],\"baseline\":{\"kind\":\"feature\"},\"constraints\":[],\"dependencies\":[],\"goal\":\"The app writes hello.txt so that the greeting survives a restart.\",\"non_goals\":[\"Translations of the greeting.\"],\"title\":\"Greeting file\"}",
+            },
+            LogEntry {
+                kind: System,
+                text: "planning: checklist refused (4 of 7 met)",
+            },
+            LogEntry {
+                kind: Error,
+                text: "error: The checklist refused this plan:\n- Constraints: no constraints stated (write \"None\" if there are truly none)\n- Dependencies: no dependencies stated (write \"None\" if there are truly none)\n- Baseline: not captured yet (it is captured once every other item is met)\nAsk the user what only they can answer, fix the rest, and call submit_spec again.",
+            },
+            LogEntry {
+                kind: ToolCall,
+                text: "submit_spec {\"acceptance\":[{\"criterion\":\"hello.txt exists after a run\",\"test\":\"touch a1.ran; test -f hello.txt\"},{\"criterion\":\"hello.txt says hello\",\"test\":\"touch a2.ran; grep -q hello hello.txt\"}],\"baseline\":{\"kind\":\"feature\"},\"constraints\":[\"No new dependencies.\"],\"dependencies\":[\"None\"],\"goal\":\"The app writes hello.txt so that the greeting survives a restart.\",\"non_goals\":[\"Translations of the greeting.\"],",
+            },
+            LogEntry {
+                kind: Assistant,
+                text: ".backspace/planning/spec.md is ready: the checklist passed (7 of 7) and the feature baseline is captured.\n\n- Goal: stated\n- Acceptance criteria: 2 criteria (A1 to A2)\n- Test per criterion: 2 tests, one per criterion\n- Non-goals: 1 stated\n- Constraints: 1 stated\n- Dependencies: none, stated\n- Baseline: feature captured: 2 acceptance tests fail today\n\nReply **yes** to approve this spec, or tell me what to change.",
+            },
+            LogEntry {
+                kind: ToolResult,
+                text: "The checklist passed and .backspace/planning/spec.md is written (sha256 4c399686b975d394333401a9e6cbc5c79a535310c81a50df1383d691d6403362). The user has been asked for a yes: end your turn now. create_tickets is refused until they say yes.",
+            },
+            LogEntry {
+                kind: ToolCall,
+                text: "create_tickets {\"tickets\":[{\"acceptance\":[\"hello.txt says hello\"],\"key\":\"greet\",\"title\":\"Write the greeting\",\"what_to_build\":\"Write hello.txt\"}]}",
+            },
+            LogEntry {
+                kind: Error,
+                text: "error: .backspace/planning/spec.md passed its checklist, but the user has not said yes yet: end your turn and wait for their answer.",
+            },
+            LogEntry {
+                kind: Assistant,
+                text: "waiting for you",
+            },
+        ],
+    ),
+]
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: planning::wait::<planning::baseline_commands_do_not_run_before_the_user_approves_them::{closure#0}>
+             at ./tests/planning.rs:559:9
+   3: planning::baseline_commands_do_not_run_before_the_user_approves_them
+             at ./tests/planning.rs:834:13
+   4: planning::baseline_commands_do_not_run_before_the_user_approves_them::{closure#0}
+             at ./tests/planning.rs:830:64
+   5: <planning::baseline_commands_do_not_run_before_the_user_approves_them::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   6: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- approved_baseline_commands_run_and_the_spec_goes_to_the_user stdout ----
+
+thread 'approved_baseline_commands_run_and_the_spec_goes_to_the_user' (1503) panicked at crates/core/tests/planning.rs:559:9:
+timed out waiting for the commands: [
+    (
+        "main",
+        Idle,
+        [
+            LogEntry {
+                kind: System,
+                text: "initialised a git repository in the workspace",
+            },
+            LogEntry {
+                kind: System,
+                text: "agents work on `backspace/run`; your branch is left alone. Merge it when you're happy: git merge backspace/run",
+            },
+            LogEntry {
+                kind: System,
+                text: "policy warning: no [policy] section in backspace.toml: every model, skill and plugin is allowed for every agent (orchestration_models, execution_models, skills and plugins are all open). Write the lists and set `mode = \"enforced\"` (`backspace-cli policy init` prints them), or set `mode = \"legacy_open\"` under [policy] to say this is intended.",
+            },
+            LogEntry {
+                kind: User,
+                text: "build a dashboard system platform across several services",
+            },
+            LogEntry {
+                kind: System,
+                text: "intake: long path (85% sure)",
+            },
+            LogEntry {
+                kind: System,
+                text: "routed by heuristic+pinned → mock-mid @ xhigh",
+            },
+            LogEntry {
+                kind: ToolCall,
+                text: "create_tickets {\"tickets\":[{\"acceptance\":[\"hello.txt says hello\"],\"key\":\"greet\",\"title\":\"Write the greeting\",\"what_to_build\":\"Write hello.txt\"}]}",
+            },
+            LogEntry {
+                kind: Error,
+                text: "error: The long path plans first (the planning stage): grill the user until you can fill every checklist item, then call submit_spec. create_tickets opens once the checklist passes and the user says yes.",
+            },
+            LogEntry {
+                kind: ToolCall,
+                text: "submit_spec {\"acceptance\":[{\"criterion\":\"hello.txt exists after a run\",\"test\":\"touch a1.ran; test -f hello.txt\"},{\"criterion\":\"hello.txt says hello\",\"test\":\"touch a2.ran; grep -q hello hello.txt\"}],\"baseline\":{\"kind\":\"feature\"},\"constraints\":[],\"dependencies\":[],\"goal\":\"The app writes hello.txt so that the greeting survives a restart.\",\"non_goals\":[\"Translations of the greeting.\"],\"title\":\"Greeting file\"}",
+            },
+            LogEntry {
+                kind: System,
+                text: "planning: checklist refused (4 of 7 met)",
+            },
+            LogEntry {
+                kind: Error,
+                text: "error: The checklist refused this plan:\n- Constraints: no constraints stated (write \"None\" if there are truly none)\n- Dependencies: no dependencies stated (write \"None\" if there are truly none)\n- Baseline: not captured yet (it is captured once every other item is met)\nAsk the user what only they can answer, fix the rest, and call submit_spec again.",
+            },
+            LogEntry {
+                kind: ToolCall,
+                text: "submit_spec {\"acceptance\":[{\"criterion\":\"hello.txt exists after a run\",\"test\":\"touch a1.ran; test -f hello.txt\"},{\"criterion\":\"hello.txt says hello\",\"test\":\"touch a2.ran; grep -q hello hello.txt\"}],\"baseline\":{\"kind\":\"feature\"},\"constraints\":[\"No new dependencies.\"],\"dependencies\":[\"None\"],\"goal\":\"The app writes hello.txt so that the greeting survives a restart.\",\"non_goals\":[\"Translations of the greeting.\"],",
+            },
+            LogEntry {
+                kind: Assistant,
+                text: ".backspace/planning/spec.md is ready: the checklist passed (7 of 7) and the feature baseline is captured.\n\n- Goal: stated\n- Acceptance criteria: 2 criteria (A1 to A2)\n- Test per criterion: 2 tests, one per criterion\n- Non-goals: 1 stated\n- Constraints: 1 stated\n- Dependencies: none, stated\n- Baseline: feature captured: 2 acceptance tests fail today\n\nReply **yes** to approve this spec, or tell me what to change.",
+            },
+            LogEntry {
+                kind: ToolResult,
+                text: "The checklist passed and .backspace/planning/spec.md is written (sha256 9d355436c6ff5be4bac5f388025e6b148970c09caa2ab3cde1aa7eb7697187fb). The user has been asked for a yes: end your turn now. create_tickets is refused until they say yes.",
+            },
+            LogEntry {
+                kind: ToolCall,
+                text: "create_tickets {\"tickets\":[{\"acceptance\":[\"hello.txt says hello\"],\"key\":\"greet\",\"title\":\"Write the greeting\",\"what_to_build\":\"Write hello.txt\"}]}",
+            },
+            LogEntry {
+                kind: Error,
+                text: "error: .backspace/planning/spec.md passed its checklist, but the user has not said yes yet: end your turn and wait for their answer.",
+            },
+            LogEntry {
+                kind: Assistant,
+                text: "waiting for you",
+            },
+        ],
+    ),
+]
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: planning::wait::<planning::approved_baseline_commands_run_and_the_spec_goes_to_the_user::{closure#0}>
+             at ./tests/planning.rs:559:9
+   3: planning::approved_baseline_commands_run_and_the_spec_goes_to_the_user
+             at ./tests/planning.rs:862:5
+   4: planning::approved_baseline_commands_run_and_the_spec_goes_to_the_user::{closure#0}
+             at ./tests/planning.rs:858:66
+   5: <planning::approved_baseline_commands_run_and_the_spec_goes_to_the_user::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   6: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- the_question_waits_across_a_restart stdout ----
+
+thread 'the_question_waits_across_a_restart' (1670) panicked at crates/core/tests/planning.rs:559:9:
+timed out waiting for the baseline commands to be put to the user: [
+    (
+        "main",
+        Idle,
+        [
+            LogEntry {
+                kind: System,
+                text: "initialised a git repository in the workspace",
+            },
+            LogEntry {
+                kind: System,
+                text: "agents work on `backspace/run`; your branch is left alone. Merge it when you're happy: git merge backspace/run",
+            },
+            LogEntry {
+                kind: System,
+                text: "policy warning: no [policy] section in backspace.toml: every model, skill and plugin is allowed for every agent (orchestration_models, execution_models, skills and plugins are all open). Write the lists and set `mode = \"enforced\"` (`backspace-cli policy init` prints them), or set `mode = \"legacy_open\"` under [policy] to say this is intended.",
+            },
+            LogEntry {
+                kind: User,
+                text: "build a dashboard system platform across several services",
+            },
+            LogEntry {
+                kind: System,
+                text: "intake: long path (85% sure)",
+            },
+            LogEntry {
+                kind: System,
+                text: "routed by heuristic+pinned → mock-mid @ xhigh",
+            },
+            LogEntry {
+                kind: ToolCall,
+                text: "create_tickets {\"tickets\":[{\"acceptance\":[\"hello.txt says hello\"],\"key\":\"greet\",\"title\":\"Write the greeting\",\"what_to_build\":\"Write hello.txt\"}]}",
+            },
+            LogEntry {
+                kind: Error,
+                text: "error: The long path plans first (the planning stage): grill the user until you can fill every checklist item, then call submit_spec. create_tickets opens once the checklist passes and the user says yes.",
+            },
+            LogEntry {
+                kind: ToolCall,
+                text: "submit_spec {\"acceptance\":[{\"criterion\":\"hello.txt exists after a run\",\"test\":\"test -f hello.txt\"},{\"criterion\":\"hello.txt says hello\",\"test\":\"grep -q hello hello.txt\"}],\"baseline\":{\"kind\":\"feature\"},\"constraints\":[],\"dependencies\":[],\"goal\":\"The app writes hello.txt so that the greeting survives a restart.\",\"non_goals\":[\"Translations of the greeting.\"],\"title\":\"Greeting file\"}",
+            },
+            LogEntry {
+                kind: System,
+                text: "planning: checklist refused (4 of 7 met)",
+            },
+            LogEntry {
+                kind: Error,
+                text: "error: The checklist refused this plan:\n- Constraints: no constraints stated (write \"None\" if there are truly none)\n- Dependencies: no dependencies stated (write \"None\" if there are truly none)\n- Baseline: not captured yet (it is captured once every other item is met)\nAsk the user what only they can answer, fix the rest, and call submit_spec again.",
+            },
+            LogEntry {
+                kind: ToolCall,
+                text: "submit_spec {\"acceptance\":[{\"criterion\":\"hello.txt exists after a run\",\"test\":\"test -f hello.txt\"},{\"criterion\":\"hello.txt says hello\",\"test\":\"grep -q hello hello.txt\"}],\"baseline\":{\"kind\":\"feature\"},\"constraints\":[\"No new dependencies.\"],\"dependencies\":[\"None\"],\"goal\":\"The app writes hello.txt so that the greeting survives a restart.\",\"non_goals\":[\"Translations of the greeting.\"],\"title\":\"Greeting file\"}",
+            },
+            LogEntry {
+                kind: Assistant,
+                text: ".backspace/planning/spec.md is ready: the checklist passed (7 of 7) and the feature baseline is captured.\n\n- Goal: stated\n- Acceptance criteria: 2 criteria (A1 to A2)\n- Test per criterion: 2 tests, one per criterion\n- Non-goals: 1 stated\n- Constraints: 1 stated\n- Dependencies: none, stated\n- Baseline: feature captured: 2 acceptance tests fail today\n\nReply **yes** to approve this spec, or tell me what to change.",
+            },
+            LogEntry {
+                kind: ToolResult,
+                text: "The checklist passed and .backspace/planning/spec.md is written (sha256 90fef967f6e99e292fc7265199facbe54119d833f0e7c6e7afb04e884c410617). The user has been asked for a yes: end your turn now. create_tickets is refused until they say yes.",
+            },
+            LogEntry {
+                kind: ToolCall,
+                text: "create_tickets {\"tickets\":[{\"acceptance\":[\"hello.txt says hello\"],\"key\":\"greet\",\"title\":\"Write the greeting\",\"what_to_build\":\"Write hello.txt\"}]}",
+            },
+            LogEntry {
+                kind: Error,
+                text: "error: .backspace/planning/spec.md passed its checklist, but the user has not said yes yet: end your turn and wait for their answer.",
+            },
+            LogEntry {
+                kind: Assistant,
+                text: "waiting for you",
+            },
+        ],
+    ),
+]
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: planning::wait::<planning::spec_turn::{closure#0}>
+             at ./tests/planning.rs:559:9
+   3: planning::spec_turn
+             at ./tests/planning.rs:614:5
+   4: planning::the_question_waits_across_a_restart
+             at ./tests/planning.rs:741:22
+   5: planning::the_question_waits_across_a_restart::{closure#0}
+             at ./tests/planning.rs:740:41
+   6: <planning::the_question_waits_across_a_restart::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   7: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+
+failures:
+    a_changed_command_needs_its_own_approval
+    a_changed_spec_after_the_yes_closes_the_gate_again
+    a_yes_is_for_one_exact_spec
+    anything_but_a_yes_leaves_the_spec_unapproved
+    approved_baseline_commands_run_and_the_spec_goes_to_the_user
+    baseline_commands_do_not_run_before_the_user_approves_them
+    the_commands_a_baseline_would_run_are_listed_per_task_type
+    the_long_path_planner_is_offered_submit_spec_and_told_about_the_stage
+    the_long_path_plans_until_the_checklist_passes_then_waits_for_a_yes
+    the_planning_contract_names_the_one_spec_m5_consumes
+    the_question_waits_across_a_restart
+
+test result: FAILED. 20 passed; 11 failed; 0 ignored; 0 measured; 0 filtered out; finished in 120.67s
+
+error: test failed, to rerun pass `-p backspace-core --test planning`
+     Running tests/planning_cli.rs (target/debug/deps/planning_cli-afca2cd332da1c03)
+
+running 1 test
+test a_cli_planner_reaches_the_planning_stage_through_the_bridge ... FAILED
+
+failures:
+
+---- a_cli_planner_reaches_the_planning_stage_through_the_bridge stdout ----
+
+thread 'a_cli_planner_reaches_the_planning_stage_through_the_bridge' (1735) panicked at crates/core/tests/planning_cli.rs:66:9:
+timed out waiting for the commands: [
+    (
+        "main",
+        Idle,
+        [
+            LogEntry {
+                kind: System,
+                text: "the planner runs on claude, on your own plan",
+            },
+            LogEntry {
+                kind: System,
+                text: "initialised a git repository in the workspace",
+            },
+            LogEntry {
+                kind: System,
+                text: "agents work on `backspace/run`; your branch is left alone. Merge it when you're happy: git merge backspace/run",
+            },
+            LogEntry {
+                kind: System,
+                text: "policy warning: no [policy] section in backspace.toml: every model, skill and plugin is allowed for every agent (orchestration_models, execution_models, skills and plugins are all open). Write the lists and set `mode = \"enforced\"` (`backspace-cli policy init` prints them), or set `mode = \"legacy_open\"` under [policy] to say this is intended.",
+            },
+            LogEntry {
+                kind: User,
+                text: "build a dashboard system platform across several services",
+            },
+            LogEntry {
+                kind: System,
+                text: "intake: long path (85% sure)",
+            },
+            LogEntry {
+                kind: Assistant,
+                text: ".backspace/planning/spec.md is ready: the checklist passed (7 of 7) and the feature baseline is captured.\n\n- Goal: stated\n- Acceptance criteria: 1 criteria (A1 to A1)\n- Test per criterion: 1 tests, one per criterion\n- Non-goals: 1 stated\n- Constraints: 1 stated\n- Dependencies: none, stated\n- Baseline: feature captured: 1 acceptance tests fail today\n\nReply **yes** to approve this spec, or tell me what to change.",
+            },
+            LogEntry {
+                kind: System,
+                text: "claude turn done (≈$0.010 at API prices; billed to your claude plan)",
+            },
+        ],
+    ),
+]
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: planning_cli::wait::<planning_cli::a_cli_planner_reaches_the_planning_stage_through_the_bridge::{closure#0}>
+             at ./tests/planning_cli.rs:66:9
+   3: planning_cli::a_cli_planner_reaches_the_planning_stage_through_the_bridge
+             at ./tests/planning_cli.rs:120:5
+   4: planning_cli::a_cli_planner_reaches_the_planning_stage_through_the_bridge::{closure#0}
+             at ./tests/planning_cli.rs:77:65
+   5: <planning_cli::a_cli_planner_reaches_the_planning_stage_through_the_bridge::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   6: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+
+failures:
+    a_cli_planner_reaches_the_planning_stage_through_the_bridge
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 40.21s
+
+error: test failed, to rerun pass `-p backspace-core --test planning_cli`
+     Running tests/policy_matrix.rs (target/debug/deps/policy_matrix-e97e3fcd1b923927)
+
+running 17 tests
+test chats_direct_post_to_backspace_cloud_is_the_one_the_unmetered_scan_cannot_see ... ok
+test each_path_gets_the_phrase_it_has_earned_and_names_the_policy_it_is_checked_at ... ok
+test every_policy_cell_uses_an_agreed_phrase ... ok
+test the_cli_model_section_keeps_five_kinds_of_statement_apart_in_order ... ok
+test the_cli_model_section_matches_what_the_code_pins_and_what_it_calls_an_alias ... ok
+test the_document_states_what_max_project_tokens_costs ... ok
+test every_assumption_and_limitation_the_review_named_is_written_down ... ok
+test the_notes_keep_controls_recommendations_assumptions_limitations_and_future_work_apart ... ok
+test the_page_says_it_answers_two_questions_and_that_neither_is_read_from_the_other ... ok
+test the_paths_table_keeps_budget_and_policy_in_separate_columns ... ok
+test the_remaining_limitation_column_names_what_each_path_still_cannot_do ... ok
+test the_strict_budget_section_and_the_jev_rows_say_the_same_things ... ok
+test the_strict_budget_section_separates_a_recommendation_from_an_enforced_setting_from_a_limit ... ok
+test what_is_not_verified_about_the_clis_is_named_one_by_one ... ok
+test the_documents_never_promise_a_hard_budget_guarantee ... ok
+test every_path_has_a_row ... FAILED
+test every_place_that_posts_over_http_is_a_model_call_with_a_row_or_is_listed_as_not_one ... FAILED
+
+failures:
+
+---- every_path_has_a_row stdout ----
+
+thread 'every_path_has_a_row' (1793) panicked at crates/core/tests/policy_matrix.rs:79:5:
+assertion `left == right` failed: expected one row for `browser_task's decision model`, found 0: ["API agent turn (`drive`: Main, orchestrators, workers, scouts, triage on an API model)", "The advisor on an API turn (Anthropic server tool)", "CLI worker turn (`finish_cli`)", "CLI planner (`plan_on_cli`: the main agent running in a coding CLI)", "Claude Code's own advisor (`--advisor`)", "Claude Code's scout subagent (`--agents`)", "JevRouter's own model: the router's classification call (`[router] jev_model` at `jev_endpoint`)", "JevRouter's candidate models: the models it may pick", "`CloudChatServer`: the development Backspace Cloud server answering chat with the models in its own config", "`AgentChat`: chat with an agent, a bot or a routine, over a CLI, a local model, a router or Backspace Cloud", "A remote machine's harness", "Plugins"]
+  left: 0
+ right: 1
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: core::panicking::assert_failed_inner
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:434:23
+   3: core::panicking::assert_failed::<usize, usize>
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:394:5
+   4: policy_matrix::row
+             at ./tests/policy_matrix.rs:79:5
+   5: policy_matrix::every_path_has_a_row
+             at ./tests/policy_matrix.rs:122:9
+   6: policy_matrix::every_path_has_a_row::{closure#0}
+             at ./tests/policy_matrix.rs:104:26
+   7: <policy_matrix::every_path_has_a_row::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   8: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- every_place_that_posts_over_http_is_a_model_call_with_a_row_or_is_listed_as_not_one stdout ----
+
+thread 'every_place_that_posts_over_http_is_a_model_call_with_a_row_or_is_listed_as_not_one' (1794) panicked at crates/core/tests/policy_matrix.rs:79:5:
+assertion `left == right` failed: expected one row for `browser_task's decision model`, found 0: ["API agent turn (`drive`: Main, orchestrators, workers, scouts, triage on an API model)", "The advisor on an API turn (Anthropic server tool)", "CLI worker turn (`finish_cli`)", "CLI planner (`plan_on_cli`: the main agent running in a coding CLI)", "Claude Code's own advisor (`--advisor`)", "Claude Code's scout subagent (`--agents`)", "JevRouter's own model: the router's classification call (`[router] jev_model` at `jev_endpoint`)", "JevRouter's candidate models: the models it may pick", "`CloudChatServer`: the development Backspace Cloud server answering chat with the models in its own config", "`AgentChat`: chat with an agent, a bot or a routine, over a CLI, a local model, a router or Backspace Cloud", "A remote machine's harness", "Plugins"]
+  left: 0
+ right: 1
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: core::panicking::assert_failed_inner
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:434:23
+   3: core::panicking::assert_failed::<usize, usize>
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:394:5
+   4: policy_matrix::row
+             at ./tests/policy_matrix.rs:79:5
+   5: policy_matrix::every_place_that_posts_over_http_is_a_model_call_with_a_row_or_is_listed_as_not_one
+             at ./tests/policy_matrix.rs:280:13
+   6: policy_matrix::every_place_that_posts_over_http_is_a_model_call_with_a_row_or_is_listed_as_not_one::{closure#0}
+             at ./tests/policy_matrix.rs:265:89
+   7: <policy_matrix::every_place_that_posts_over_http_is_a_model_call_with_a_row_or_is_listed_as_not_one::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   8: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+
+failures:
+    every_path_has_a_row
+    every_place_that_posts_over_http_is_a_model_call_with_a_row_or_is_listed_as_not_one
+
+test result: FAILED. 15 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+
+error: test failed, to rerun pass `-p backspace-core --test policy_matrix`
+error: 5 targets failed:
+    `-p backspace-core --test hands_policy`
+    `-p backspace-core --test hands_policy_bridge`
+    `-p backspace-core --test planning`
+    `-p backspace-core --test planning_cli`
+    `-p backspace-core --test policy_matrix`

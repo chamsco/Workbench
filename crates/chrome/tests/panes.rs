@@ -1,4 +1,4 @@
-//! Split panes, direction B (design/cauldron-split-panes.html; Charles, 13 Nov 01:49Z: "3 MAX and
+//! Split panes, direction B (design/legacy-ui/cauldron-split-panes.html; Charles, 13 Nov 01:49Z: "3 MAX and
 //! make each pane draggable (either 3 vertical or 2 side by side and 1 vertical, or 2 stacked on
 //! one side and 1 tall pane)"): six shapes inside the thread card, one layout button that steps
 //! through them, a 4px gap, a draggable line on every divider, no pane under 200 x 120, three at most.

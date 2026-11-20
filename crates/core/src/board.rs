@@ -314,6 +314,11 @@ pub(crate) fn do_plan(b: &Bridge, path: &str, mut body: Value) -> Result<String>
     body["me"] = json!(b.me);
     Ok(call(b, path, body)?["text"].as_str().unwrap_or("").to_string())
 }
+/// Ask the project whether `me` may call these models (its model policy, at
+/// its role). An error names the refusal.
+pub(crate) fn check_models(b: &Bridge, models: &[String]) -> Result<()> {
+    call(b, "/v1/policy/model", json!({"me": b.me, "models": models})).map(|_| ())
+}
 /// Open or close a canvas in the user's window (`op`: "open" or "close").
 pub(crate) fn do_canvas(b: &Bridge, op: &str, mut body: Value) -> Result<String> {
     body["me"] = json!(b.me);
@@ -345,6 +350,9 @@ pub(crate) fn do_note(b: &Bridge, text: &str) -> Result<String> {
 /// the program name) are not one of these, so the binary carries on.
 pub fn client_main(args: &[String]) -> Option<i32> {
     match args.first().map(String::as_str) {
+        // The sandbox's launcher on Windows (sandbox.rs): any Backspace
+        // binary can start an agent's command at low integrity.
+        Some(crate::sandbox::JAIL_ARG) => Some(crate::sandbox::jail_run(&args[1..])),
         Some("msg") => Some(match msg(&args[1..]) {
             Ok(out) => {
                 println!("{out}");

@@ -12,6 +12,7 @@ use crate::agents::{Agent, Routine};
 use crate::chat::{now_ms, Chats, Ctx, Scope};
 use crate::cloud::{Account, Overage, Plan};
 use crate::files::FileEntry;
+use crate::folders::Folders;
 use crate::harness::Harness;
 use crate::harnesses::HarnessInfo;
 use crate::prefs::{MachineCfg, Prefs};
@@ -196,6 +197,7 @@ pub struct Fleet {
     apps: Arc<crate::apps::Apps>,
     agents: Arc<crate::agents::Agents>,
     projects: Arc<Projects>,
+    folders: Arc<Folders>,
     harnesses: Mutex<Vec<HarnessInfo>>,
     http: reqwest::Client,
     remotes: Mutex<Vec<Arc<Remote>>>,
@@ -206,6 +208,10 @@ pub struct Fleet {
     serving: Mutex<Option<tokio::task::AbortHandle>>,
     companion: Mutex<Option<tokio::task::AbortHandle>>,
     companion_error: Mutex<Option<String>>,
+    /// The model server and, while it is open to the network, its discovery
+    /// answerer (model_gateway.rs).
+    models: Mutex<Vec<tokio::task::AbortHandle>>,
+    models_error: Mutex<Option<String>>,
     share_error: Mutex<Option<String>>,
     dreamer: crate::memory_dream::Dreamer,
     dreaming: Mutex<bool>,
@@ -238,6 +244,7 @@ impl Fleet {
                 )
             })
             .collect();
+        let folders = Arc::new(Folders::open(Prefs::data_dir(), chats.clone()));
         let fleet = Arc::new(Fleet {
             local: Mutex::new(local),
             chats,
@@ -245,6 +252,7 @@ impl Fleet {
             apps: Arc::new(crate::apps::Apps::open(Prefs::data_dir().join("apps"))),
             agents: Arc::new(crate::agents::Agents::open(Prefs::data_dir().join("agents"))),
             projects: Arc::new(Projects::open(Prefs::data_dir())),
+            folders,
             harnesses: Mutex::new(Vec::new()),
             http: reqwest::Client::new(),
             remotes: Mutex::new(remotes),
@@ -255,6 +263,8 @@ impl Fleet {
             serving: Mutex::new(None),
             companion: Mutex::new(None),
             companion_error: Mutex::new(None),
+            models: Mutex::new(vec![]),
+            models_error: Mutex::new(None),
             share_error: Mutex::new(None),
             dreamer: crate::memory_dream::Dreamer::open(Prefs::data_dir()),
             dreaming: Mutex::new(false),
@@ -266,6 +276,11 @@ impl Fleet {
         if prefs.companion.enabled {
             fleet.start_companion();
         }
+        if prefs.model_serve.enabled {
+            fleet.start_models();
+        }
+        // The pinned models; slow to load, so restore() goes off this thread.
+        crate::model_engine::restore(&prefs);
         if prefs.share.enabled {
             if let Err(e) = fleet.start_sharing() {
                 *fleet.share_error.lock().unwrap() = Some(e.to_string());
@@ -292,6 +307,11 @@ impl Fleet {
 
     pub fn projects(&self) -> &Arc<Projects> {
         &self.projects
+    }
+
+    /// The folders streams are filed in, and the proposals to file them.
+    pub fn folders(&self) -> &Arc<Folders> {
+        &self.folders
     }
 
     pub fn apps(&self) -> &Arc<crate::apps::Apps> {
@@ -589,6 +609,86 @@ impl Fleet {
         }
     }
 
+    // ------------------------------------------------------------ model server
+
+    fn start_models(self: &Arc<Self>) {
+        for h in self.models.lock().unwrap().drain(..) {
+            h.abort();
+        }
+        let c = self.prefs().model_serve;
+        *self.models_error.lock().unwrap() = None;
+        let me = Arc::downgrade(self);
+        let (addr, token) = (c.bind_addr(), c.token.clone());
+        let mut tasks = vec![self
+            .rt
+            .spawn(async move {
+                if let Err(e) = crate::model_gateway::serve(addr, token).await {
+                    if let Some(f) = me.upgrade() {
+                        *f.models_error.lock().unwrap() = Some(e.to_string());
+                        let _ = f.notify.try_send(());
+                    }
+                }
+            })
+            .abort_handle()];
+        // Only a server the network may use says so on the network. A busy
+        // UDP port costs discovery, not the server, so its error is dropped.
+        if c.allow_lan {
+            let port = c.port();
+            tasks.push(
+                self.rt
+                    .spawn(async move {
+                        let _ = crate::model_gateway::answer_discovery(port).await;
+                    })
+                    .abort_handle(),
+            );
+        }
+        *self.models.lock().unwrap() = tasks;
+    }
+
+    /// Settings → Local models → Serve: on or off, open to the network or
+    /// not, optionally with a new token. Restarts the server either way.
+    pub fn set_model_serve(self: &Arc<Self>, enabled: bool, allow_lan: bool, new_token: bool) {
+        self.update_prefs(|p| {
+            p.model_serve.enabled = enabled;
+            p.model_serve.allow_lan = allow_lan;
+            if new_token {
+                p.model_serve.token = crate::remote::new_token();
+            }
+        });
+        if enabled {
+            self.start_models();
+        } else {
+            for h in self.models.lock().unwrap().drain(..) {
+                h.abort();
+            }
+            *self.models_error.lock().unwrap() = None;
+        }
+        self.poke();
+    }
+
+    /// The model server as Settings shows it: the URL tools on this machine
+    /// use, the one the network uses (only while it is open to it), the token
+    /// and any error binding the port.
+    pub fn model_serve_status(&self) -> serde_json::Value {
+        let c = self.prefs().model_serve;
+        let lan = c
+            .allow_lan
+            .then(crate::companion::lan_ip)
+            .flatten()
+            .map(|ip| format!("http://{ip}:{}/v1", c.port()));
+        let error = self.models_error.lock().unwrap().clone();
+        serde_json::json!({
+            "enabled": c.enabled,
+            "running": c.enabled && !self.models.lock().unwrap().is_empty() && error.is_none(),
+            "allow_lan": c.allow_lan,
+            "url": c.local_url(),
+            "lan_url": lan,
+            "token": c.token,
+            "name": crate::model_gateway::machine_name(),
+            "error": error,
+        })
+    }
+
     /// What Settings shows: on or off, the address a phone uses, the
     /// pairing link for the QR code, and any error binding the port.
     pub fn companion_status(&self) -> serde_json::Value {
@@ -627,7 +727,7 @@ impl Fleet {
         Ok((h, snap))
     }
 
-    /// Where the open project stands in Plan → Execute → Ship → Commit: the
+    /// Where the open project stands in Plan → Execute → Verify → Ship → Learn: the
     /// stage, each stage's decision model and spend, the last gate answers,
     /// what stops the next gate, and the Librarian's last receipt.
     pub fn stage_status(&self) -> Result<serde_json::Value> {
@@ -660,9 +760,10 @@ impl Fleet {
         let (gaps, how): (Vec<String>, &str) = match p.phase {
             Phase::Specify => (vec![format!("{} hasn't passed its gate: finish the spec in Plan mode", crate::spec::FILE)], "plan"),
             Phase::Plan => (vec!["the plan isn't approved yet: the main agent proposes tickets, you approve them".into()], "plan"),
-            Phase::Execute | Phase::Test => (crate::stages::execute_gaps(&tickets), "rules"),
-            Phase::Ship => (vec![], "human"),
-            Phase::Commit => (vec![], "librarian"),
+            Phase::Execute => (crate::stages::execute_gaps(&tickets), "rules"),
+            Phase::Test => (crate::deliver::last_verify(&root).filter(|r| !r.passed).map(|r| r.issues.into_iter().chain(r.weakened).collect()).unwrap_or_default(), "verify"),
+            Phase::Ship => (vec![], "ship"),
+            Phase::Learn => (vec![], "librarian"),
             Phase::Done => (vec!["done".into()], "none"),
         };
         Ok(serde_json::json!({
@@ -674,12 +775,15 @@ impl Fleet {
             "advance": how,
             "notes": snap.agents.first().map_or(0, |a| a.notes.len()),
             "receipt": self.memory.receipts().last(),
+            "verify": crate::deliver::last_verify(&root),
+            "delivery": crate::deliver::last_delivery(&root),
             "total": snap.total_cost_usd,
         }))
     }
 
     /// Open the current stage's gate, from the stage strip. Rules decide
-    /// Execute; you decide Ship; the Librarian files at Commit. A decision
+    /// Execute and Verify; Ship delivers the verified run (deliver.rs, never a
+    /// merge) and Learn follows at once, where the Librarian files the notes. A decision
     /// model assigned to the stage is asked first and may refuse (the answer
     /// is kept, and the project stays where it is), never open anything.
     pub async fn advance_stage(self: &Arc<Self>) -> Result<serde_json::Value> {
@@ -696,7 +800,7 @@ impl Fleet {
         let mut model_note: Option<String> = None;
         // The stage's model reads the evidence and may refuse.
         let ask = |evidence: String| {
-            let route = prefs.stage_models.get(stage.key()).cloned();
+            let route = prefs.stage_model(stage);
             let chats = self.chats.clone();
             let ctx = ctx.clone();
             async move {
@@ -715,7 +819,7 @@ impl Fleet {
         match p.phase {
             Phase::Specify | Phase::Plan => bail!("Plan finishes in Plan mode: write the spec, then approve the plan"),
             Phase::Done => bail!("this project is done"),
-            Phase::Execute | Phase::Test => {
+            Phase::Execute => {
                 let gaps = crate::stages::execute_gaps(&tickets.iter().map(|(k, _, s)| (k.clone(), *s)).collect::<Vec<_>>());
                 if !gaps.is_empty() {
                     bail!("Execute isn't finished: {}", gaps.join("; "));
@@ -728,10 +832,24 @@ impl Fleet {
                     Ok(_) => {}
                     Err(e) => model_note = Some(format!("the Execute model couldn't be reached ({e:#}); the rules stood")),
                 }
-                if p.phase == Phase::Execute {
-                    crate::stages::passed(&root, GateBy::Rules, ".backspace/tickets", "every ticket finished", at)?;
+                crate::stages::passed(&root, GateBy::Rules, ".backspace/tickets", "every ticket finished", at)?;
+            }
+            Phase::Test => {
+                // Rules first (deliver.rs records the gate); a model may only
+                // send a passing run back.
+                let facts: Vec<crate::deliver::TicketFacts> = snap.tickets.iter().map(crate::deliver::TicketFacts::of).collect();
+                let report = crate::deliver::verify(&root, &facts)?;
+                if !report.passed {
+                    bail!("Verify isn't passed: {}", report.issues.iter().chain(&report.weakened).cloned().collect::<Vec<_>>().join("; "));
                 }
-                crate::stages::passed(&root, GateBy::Rules, ".backspace/tickets", "no ticket failed", at)?;
+                match ask(crate::deliver::verify_markdown(&report, crate::deliver::load_plan(&root).as_ref())).await {
+                    Ok(Some(crate::stages::Review::Block(why))) => {
+                        crate::stages::vetoed(&root, Phase::Test, crate::deliver::VERIFY_MD, &why, at)?;
+                        bail!("The Verify model refused: {why}");
+                    }
+                    Ok(_) => {}
+                    Err(e) => model_note = Some(format!("the Verify model couldn't be reached ({e:#}); the rules stood")),
+                }
             }
             Phase::Ship => {
                 match ask(crate::stages::execute_evidence(&tickets, &summaries)).await {
@@ -740,15 +858,20 @@ impl Fleet {
                         bail!("The Ship model says not yet: {why}");
                     }
                     Ok(_) => {}
-                    Err(e) => model_note = Some(format!("the Ship model couldn't be reached ({e:#}); you decide")),
+                    Err(e) => model_note = Some(format!("the Ship model couldn't be reached ({e:#}); the rules stood")),
                 }
-                // Publishing is yours to decide: pressing the button is the approval.
-                crate::stages::passed(&root, GateBy::Human, "RELEASE", "approved by you", at)?;
+                // Delivers the verified commit (never merges), then Learn runs
+                // at once without holding the delivery back.
+                let target = crate::deliver::Target::parse(&prefs.ship_target).unwrap_or_default();
+                crate::deliver::ship(&root, &crate::deliver::ShipOpts { target, gh: None })?;
+                if let Err(e) = Box::pin(self.advance_stage()).await {
+                    model_note = Some(format!("delivered; Learn didn't finish ({e:#}): the notes are kept for the next try"));
+                }
             }
-            Phase::Commit => {
+            Phase::Learn => {
                 let notes = h.take_notes();
                 let project = root.display().to_string();
-                let fates = match prefs.stage_models.get(stage.key()).cloned().filter(|_| !notes.is_empty()) {
+                let fates = match prefs.stage_model(stage).filter(|_| !notes.is_empty()) {
                     None => crate::stages::rule_fates(&notes),
                     Some(r) => {
                         let (sys, prompt) = crate::stages::librarian_prompt(&notes);

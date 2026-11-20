@@ -70,10 +70,15 @@ pub struct Prefs {
     pub worker: Option<String>,
     /// When the router decides: models it may not give a worker.
     pub worker_exclude: Vec<String>,
-    /// The decision model per stage ("plan", "execute", "ship", "commit"; the
-    /// Commit one is the Librarian). It may refuse a gate the rules passed,
-    /// never open one. A stage with none runs on rules alone, which cost nothing.
+    /// The decision model per stage ("plan", "execute", "verify", "ship",
+    /// "learn"; the Learn one is the Librarian, and an older "commit" entry
+    /// still counts for it). It may refuse a gate the rules passed, never open
+    /// one. A stage with none runs on rules alone, which cost nothing.
     pub stage_models: BTreeMap<String, crate::chat::Route>,
+    /// Where Ship delivers a verified run: "local" (the run branch, for you to
+    /// merge), "branch" (pushed to origin) or "pr" (a pull request via gh).
+    /// Ship never merges.
+    pub ship_target: String,
     /// Model id the Workbench planner runs on; a CLI one ("claude-code",
     /// "codex") runs it on your subscription. None: an API model if a key
     /// is set, else the workers' CLI.
@@ -85,6 +90,15 @@ pub struct Prefs {
     /// The window's backdrop: "harbour", "dawn", "night", "open-sea",
     /// "fog", "aurora" or "plain".
     pub backdrop: String,
+    /// Cauldron: a picture or GIF the stream card shows instead of its glass. None: the glass.
+    pub stream_bg: Option<String>,
+    /// Cauldron: how dark the scrim over the stream picture is, "light", "medium" or "dark". None: dark.
+    pub stream_dim: Option<String>,
+    /// Cauldron: how frosted the frame and sidebar are, "light", "medium" or "heavy". None: heavy.
+    pub frost: Option<String>,
+    /// Cauldron on Windows: "notch" puts the caption buttons in a notch in the top-right card;
+    /// None (or anything else) is the slim top strip.
+    pub window_style: Option<String>,
     /// How Backspace tells you something needs you: "system" (the OS's
     /// notifications), "app" (inside the app only) or "off".
     pub notify: String,
@@ -108,6 +122,18 @@ pub struct Prefs {
     pub local_tasks: Vec<String>,
     /// Agents' browser and desktop use (hands/mod.rs).
     pub hands: Hands,
+    /// This machine's model server: one OpenAI-compatible URL for every model
+    /// it can reach (model_gateway.rs).
+    pub model_serve: ModelServeCfg,
+    /// Model servers on the local network the user added (Settings → Local
+    /// models → On the network), probed alongside this machine's own.
+    pub lan_models: Vec<LanServer>,
+    /// Downloaded models kept in memory and loaded at launch (model_engine.rs).
+    pub pinned_models: Vec<String>,
+    /// Brainpowr Engine: context, idle unload, models at once, GPU layers.
+    pub engine: brainpowr_engine::Settings,
+    /// Which installed llama.cpp build to run; None: the best for this machine.
+    pub engine_variant: Option<String>,
 }
 
 impl Default for Prefs {
@@ -135,6 +161,10 @@ impl Default for Prefs {
             cli_permission: "edits".into(),
             cli_effort: None,
             backdrop: "harbour".into(),
+            stream_bg: None,
+            stream_dim: None,
+            frost: None,
+            window_style: None,
             notify: "system".into(),
             companion: CompanionCfg::default(),
             uses: vec!["chat".into(), "code".into()],
@@ -150,11 +180,17 @@ impl Default for Prefs {
             worker: None,
             worker_exclude: vec![],
             stage_models: BTreeMap::new(),
+            ship_target: "local".into(),
             api_keys: BTreeMap::new(),
             appearance: Appearance::default(),
             subagent_model: None,
             local_tasks: vec![],
             hands: Hands::default(),
+            model_serve: ModelServeCfg::default(),
+            lan_models: vec![],
+            pinned_models: vec![],
+            engine: Default::default(),
+            engine_variant: None,
         }
     }
 }
@@ -291,6 +327,64 @@ impl CompanionCfg {
         let a = self.bind_addr();
         a.starts_with("127.") || a.starts_with("localhost") || a.starts_with("[::1]")
     }
+}
+
+/// The model server (model_gateway.rs). On by default and loopback only, the
+/// way Atomic Chat serves `localhost:1337`: tools on this machine get one
+/// OpenAI-compatible URL for every model it can reach, keyless. Other machines
+/// only once `allow_lan` is on, and then always with the token.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(default)]
+pub struct ModelServeCfg {
+    pub enabled: bool,
+    pub addr: String,
+    pub token: String,
+    pub allow_lan: bool,
+}
+
+impl Default for ModelServeCfg {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            addr: "127.0.0.1:7422".into(),
+            token: crate::remote::new_token(),
+            allow_lan: false,
+        }
+    }
+}
+
+impl ModelServeCfg {
+    /// Loopback while `allow_lan` is off, every interface once it is on; the
+    /// port is the user's either way.
+    pub fn bind_addr(&self) -> String {
+        let port = self.port();
+        if self.allow_lan {
+            format!("0.0.0.0:{port}")
+        } else {
+            format!("127.0.0.1:{port}")
+        }
+    }
+
+    pub fn port(&self) -> u16 {
+        self.addr.trim().rsplit(':').next().and_then(|p| p.parse().ok()).unwrap_or(7422)
+    }
+
+    /// The URL tools on this machine use, OpenAI form.
+    pub fn local_url(&self) -> String {
+        format!("http://127.0.0.1:{}/v1", self.port())
+    }
+}
+
+/// A model server on the local network: another machine's Ollama, LM Studio,
+/// Atomic Chat or Backspace model server, by its OpenAI-compatible base URL.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+#[serde(default)]
+pub struct LanServer {
+    pub name: String,
+    /// `http://192.168.1.20:11434/v1`.
+    pub base_url: String,
+    /// Bearer token, when the server wants one (a Backspace server always does).
+    pub token: String,
 }
 
 /// The second pane of the split view.
@@ -508,6 +602,11 @@ impl PaneSpec {
 }
 
 impl Prefs {
+    /// The decision model a stage reads, with Learn's older "commit" key.
+    pub fn stage_model(&self, stage: crate::phase::Stage) -> Option<crate::chat::Route> {
+        self.stage_models.get(stage.key()).or_else(|| (stage == crate::phase::Stage::Learn).then(|| self.stage_models.get("commit")).flatten()).cloned()
+    }
+
     /// `BACKSPACE_PREFS` overrides the location (tests, benches, profiles).
     pub fn path() -> Option<PathBuf> {
         if let Some(p) = std::env::var_os("BACKSPACE_PREFS") {

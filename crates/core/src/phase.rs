@@ -1,8 +1,8 @@
 //! Where a project stands in specify → plan → execute → test → ship →
 //! commit, and the record of every gate it has passed or been refused at.
 //!
-//! The app shows four stages over those phases (see [`Stage`]): Plan
-//! (specify, plan), Execute (execute, test), Ship, and Commit, where the
+//! The app shows five stages over those phases (see [`Stage`]): Plan
+//! (specify, plan), Execute (execute), Verify (test), Ship, and Learn, where the
 //! Librarian files what the agents learned before the project is done.
 //!
 //! The phase lives on the project state, not in a prompt, so the harness and
@@ -25,13 +25,16 @@ pub enum Phase {
     Execute,
     Test,
     Ship,
-    /// Shipped; the Librarian is filing the notes (stages.rs).
-    Commit,
+    /// Shipped; Learn hands what the agents found to the Librarian
+    /// (stages.rs). Was `commit` before Ship became the delivery gate
+    /// (PRD §4.5); old phase files still read.
+    #[serde(alias = "commit")]
+    Learn,
     Done,
 }
 
 impl Phase {
-    pub const ALL: [Phase; 7] = [Phase::Specify, Phase::Plan, Phase::Execute, Phase::Test, Phase::Ship, Phase::Commit, Phase::Done];
+    pub const ALL: [Phase; 7] = [Phase::Specify, Phase::Plan, Phase::Execute, Phase::Test, Phase::Ship, Phase::Learn, Phase::Done];
 
     /// The phase a passed gate leads to.
     pub fn next(self) -> Phase {
@@ -40,8 +43,8 @@ impl Phase {
             Phase::Plan => Phase::Execute,
             Phase::Execute => Phase::Test,
             Phase::Test => Phase::Ship,
-            Phase::Ship => Phase::Commit,
-            Phase::Commit | Phase::Done => Phase::Done,
+            Phase::Ship => Phase::Learn,
+            Phase::Learn | Phase::Done => Phase::Done,
         }
     }
 
@@ -49,33 +52,37 @@ impl Phase {
     pub fn stage(self) -> Stage {
         match self {
             Phase::Specify | Phase::Plan => Stage::Plan,
-            Phase::Execute | Phase::Test => Stage::Execute,
+            Phase::Execute => Stage::Execute,
+            Phase::Test => Stage::Verify,
             Phase::Ship => Stage::Ship,
-            Phase::Commit | Phase::Done => Stage::Commit,
+            Phase::Learn | Phase::Done => Stage::Learn,
         }
     }
 }
 
-/// What the app shows: four stages, each with its own decision model and spend.
+/// What the app shows: five stages, each with its own decision model and spend.
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 #[serde(rename_all = "snake_case")]
 pub enum Stage {
     Plan,
     Execute,
+    Verify,
     Ship,
-    Commit,
+    #[serde(alias = "commit")]
+    Learn,
 }
 
 impl Stage {
-    pub const ALL: [Stage; 4] = [Stage::Plan, Stage::Execute, Stage::Ship, Stage::Commit];
+    pub const ALL: [Stage; 5] = [Stage::Plan, Stage::Execute, Stage::Verify, Stage::Ship, Stage::Learn];
 
-    /// The key prefs and the UI use ("plan", "execute", "ship", "commit").
+    /// The key prefs and the UI use ("plan", "execute", "verify", "ship", "learn").
     pub fn key(self) -> &'static str {
         match self {
             Stage::Plan => "plan",
             Stage::Execute => "execute",
+            Stage::Verify => "verify",
             Stage::Ship => "ship",
-            Stage::Commit => "commit",
+            Stage::Learn => "learn",
         }
     }
 }
@@ -151,6 +158,26 @@ impl PhaseState {
         }
         self.gates.push(Gate { phase: Phase::Specify, passed, by: GateBy::Rules, at, artifact: crate::spec::FILE.into(), note: note.to_string() });
         self.gates.last().unwrap()
+    }
+
+    /// The long path's checklist (planning.rs), judged by rules. It is kept
+    /// either way but never opens the gate by itself: the user's yes does
+    /// ([`record_checklist_yes`]). A refusal sends the project back to Specify.
+    pub fn record_checklist(&mut self, passed: bool, at: u64, artifact: &str, note: &str) {
+        self.gates.push(Gate { phase: Phase::Specify, passed, by: GateBy::Rules, at, artifact: artifact.to_string(), note: note.to_string() });
+        if !passed && self.phase > Phase::Specify {
+            self.phase = Phase::Specify;
+        }
+    }
+
+    /// The user said yes to the spec whose checklist passed: a person opens
+    /// the Specify gate.
+    pub fn record_checklist_yes(&mut self, at: u64, artifact: &str) {
+        if self.phase == Phase::Specify {
+            self.record(true, GateBy::Human, at, artifact, "the user said yes to this spec");
+        } else {
+            self.gates.push(Gate { phase: Phase::Specify, passed: true, by: GateBy::Human, at, artifact: artifact.to_string(), note: "the user said yes to this spec".into() });
+        }
     }
 
     /// A decision model refused a gate the rules had already opened: the
@@ -272,15 +299,16 @@ mod tests {
         assert_eq!(back, p);
         assert_eq!(serde_json::to_value(Phase::Execute).unwrap(), "execute");
         assert_eq!(Phase::ALL.len(), 7);
-        assert_eq!(Phase::Ship.next(), Phase::Commit);
+        assert_eq!(Phase::Ship.next(), Phase::Learn);
         assert_eq!(Phase::Done.next(), Phase::Done);
     }
 
     #[test]
     fn four_stages_over_seven_phases() {
         let stages: Vec<Stage> = Phase::ALL.iter().map(|p| p.stage()).collect();
-        assert_eq!(stages, [Stage::Plan, Stage::Plan, Stage::Execute, Stage::Execute, Stage::Ship, Stage::Commit, Stage::Commit]);
-        assert_eq!(serde_json::to_value(Stage::Commit).unwrap(), "commit");
+        assert_eq!(stages, [Stage::Plan, Stage::Plan, Stage::Execute, Stage::Verify, Stage::Ship, Stage::Learn, Stage::Learn]);
+        assert_eq!(serde_json::to_value(Stage::Learn).unwrap(), "learn");
+        assert_eq!(serde_json::from_value::<Stage>(serde_json::json!("commit")).unwrap(), Stage::Learn);
     }
 
     #[test]

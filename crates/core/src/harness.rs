@@ -52,6 +52,11 @@ struct Inner {
     reservations: Arc<crate::gateway::Reservations>,
     /// Undoes a change to the policy files made while an agent was acting.
     guard: Arc<crate::policy_guard::PolicyGuard>,
+    /// Where agents' commands run (M6, sandbox.rs).
+    sandbox: crate::sandbox::Sandbox,
+    /// Who supervises the agents' panes: native, or herdr behind its adapter
+    /// (M6, herdr.rs). Its states are signals, never gates.
+    supervisor: Box<dyn crate::herdr::Supervisor>,
     /// What the user should know about the policy, as found when the project opened.
     notices: Vec<crate::gateway::PolicyNotice>,
     /// Every model call and task outcome so far, for the §3.4 metrics.
@@ -93,6 +98,9 @@ struct Inner {
     /// What a CLI planner asked for through the bridge during its turn; run
     /// once the turn ends (approvals and dispatches outlast a tool call).
     planner_queue: Mutex<Vec<PlanAction>>,
+    /// The main loop's inbox, so code can tell the lead something (Rampart's
+    /// tests were sealed) without a person typing it.
+    wake_main: Mutex<Option<mpsc::UnboundedSender<String>>>,
     /// Per-machine choices: CLI permissions and effort, tracing.
     over: Overrides,
     /// One trace per agent run, a span per tool call.
@@ -261,6 +269,9 @@ pub fn runtime_base(prefs: &crate::prefs::Prefs, runtime: &str) -> Option<String
         "lmstudio" => "http://127.0.0.1:1234/v1".to_string(),
         "llamacpp" => "http://127.0.0.1:8080/v1".to_string(),
         "mlx" => "http://127.0.0.1:8081/v1".to_string(),
+        // The model server: a model on the network or a connected machine, and
+        // Brainpowr Engine's downloaded models behind it.
+        "backspace" | "brainpowr" => prefs.model_serve.local_url(),
         other => prefs.routers.iter().find(|r| r.id == other || r.name.eq_ignore_ascii_case(other))?.base_url.trim_end_matches('/').to_string(),
     })
 }
@@ -450,6 +461,14 @@ impl Harness {
         for n in git_notes {
             main.log.push(LogEntry { kind: LogKind::System, text: n });
         }
+        // Where the agents' commands run, and who supervises their panes (M6).
+        let sandbox = crate::sandbox::Sandbox::new(&cfg.sandbox);
+        let supervisor = crate::herdr::select(&cfg.herdr);
+        main.log.push(LogEntry { kind: LogKind::System, text: sandbox.describe() });
+        main.log.push(LogEntry { kind: LogKind::System, text: format!("supervisor: {}", supervisor.0.name()) });
+        if let Some(n) = &supervisor.1 {
+            main.log.push(LogEntry { kind: LogKind::System, text: n.clone() });
+        }
         for n in &notices {
             let text = match n.level {
                 crate::gateway::NoticeLevel::Warning => format!("policy warning: {}", n.text),
@@ -474,6 +493,8 @@ impl Harness {
             artifacts: vec![],
             phase: Default::default(),
             intake: Default::default(),
+            planning: Default::default(),
+            rampart: Default::default(),
         };
         // A project opened before carries on: tickets, approvals, spend and
         // the board come back; what was running is marked interrupted.
@@ -533,6 +554,8 @@ impl Harness {
                 (crate::gateway::lock_path(&root), "the policy lock"),
             ]),
             notices,
+            sandbox,
+            supervisor: supervisor.0,
             ledger: Mutex::new(Default::default()),
             agents_md: std::fs::read_to_string(root.join("AGENTS.md")).ok(),
             memory: over.memory.clone(),
@@ -557,6 +580,7 @@ impl Harness {
             stop_main: tokio::sync::Notify::new(),
             planner,
             planner_queue: Mutex::new(vec![]),
+            wake_main: Mutex::new(None),
             over,
             recs: Mutex::new(HashMap::new()),
         });
@@ -584,6 +608,7 @@ impl Harness {
         }
 
         let (to_main, inbox) = mpsc::unbounded_channel();
+        *inner.wake_main.lock().unwrap() = Some(to_main.clone());
         rt.spawn(main_loop(inner.clone(), inbox));
         Ok(Harness {
             inner,
@@ -614,6 +639,15 @@ impl Harness {
         let text = text.into();
         self.inner.record_request(crate::request::EntryKind::Message, &text, None);
         let _ = self.to_main.send(text);
+    }
+
+    /// Hand the main agent a goal on the long path, skipping intake's
+    /// classification: a familiar (familiar.rs) always plans, gets your yes
+    /// on the spec, seals tests, builds, then verifies and ships.
+    pub fn start_long(&self, goal: impl Into<String>) {
+        self.inner.update(|s| s.intake = crate::intake::IntakeState { path: Some(TaskType::Long), pending: None, spec_key: None });
+        self.inner.save();
+        self.send(goal);
     }
 
     pub fn approve(&self, approval: usize) {
@@ -660,6 +694,15 @@ impl Harness {
     /// The PLAN §3.4 metrics for this run so far.
     pub fn metrics(&self) -> crate::metrics::RunMetrics {
         self.inner.ledger.lock().unwrap().metrics()
+    }
+
+    /// Who supervises the agents' panes ("native", or "herdr 0.9.5") and
+    /// what it reports about each: signals for a person to look at, never
+    /// gates (M6, PLAN §9.2).
+    pub fn supervisor_signals(&self) -> (String, Vec<(String, crate::herdr::Signal)>) {
+        let name = self.inner.supervisor.name();
+        let signals = self.rt.block_on(self.inner.supervisor.signals()).unwrap_or_default();
+        (name, signals)
     }
 
     pub fn snapshot(&self) -> ProjectState {
@@ -847,6 +890,17 @@ fn stop(inner: &Arc<Inner>, agent: Option<AgentId>) {
         }
     }
     for id in ids.into_iter().filter(|&id| id != MAIN) {
+        // Mark the agent and its ticket failed before the task is aborted: the
+        // abort wakes whoever dispatched it at once, and a lead that dispatches
+        // again must find the ticket already failed (and so retryable).
+        let key = inner.state.lock().unwrap().agents[id].ticket.clone();
+        inner.set_status(id, AgentStatus::Failed);
+        if let Some(k) = &key {
+            inner.ticket(k, |t| {
+                t.state = TicketState::Failed;
+                t.notes.push("stopped by the user".into());
+            });
+        }
         if let Some(h) = inner.tasks.lock().unwrap().remove(&id) {
             h.abort();
         }
@@ -857,15 +911,7 @@ fn stop(inner: &Arc<Inner>, agent: Option<AgentId>) {
             inner.verdicts.lock().unwrap().remove(&ap);
             inner.update(|s| s.approvals[ap].state = ApprovalState::Rejected { feedback: "stopped".into() });
         }
-        let key = inner.state.lock().unwrap().agents[id].ticket.clone();
         inner.log(id, LogKind::System, "stopped by you");
-        inner.set_status(id, AgentStatus::Failed);
-        if let Some(k) = key {
-            inner.ticket(&k, |t| {
-                t.state = TicketState::Failed;
-                t.notes.push("stopped by the user".into());
-            });
-        }
         inner.trace_finish(id, Some("stopped".into()));
     }
     inner.save();
@@ -1153,11 +1199,43 @@ impl Inner {
         depth < self.cfg.orchestrator.max_depth
     }
 
+    /// An agent's directory, its commands run in the sandbox (M6): writes
+    /// only there, Backspace's folder and credentials hidden, the policy and
+    /// the sealed tests read-only.
     fn workspace(&self, dir: &Path) -> Workspace {
-        Workspace {
-            root: dir.to_path_buf(),
-            bash_timeout: Duration::from_secs(self.cfg.orchestrator.bash_timeout_secs),
+        let mut profile = crate::sandbox::Profile::agent(&self.root, dir, &self.cfg.sandbox);
+        self.lock_sealed(&mut profile, dir);
+        self.jailed(dir, profile)
+    }
+
+    /// Rampart's own shell: its baseline checkout read-only, no network.
+    fn rampart_workspace(&self, dir: &Path) -> Workspace {
+        let mut profile = crate::sandbox::Profile::rampart(&self.root, dir, &self.cfg.sandbox);
+        profile.read_only.push(dir.to_path_buf());
+        self.jailed(dir, profile)
+    }
+
+    /// Where a submitted suite is vetted on the baseline: the checkout
+    /// writable (tests may build), still no network.
+    fn vetting_workspace(&self, dir: &Path) -> Workspace {
+        self.jailed(dir, crate::sandbox::Profile::rampart(&self.root, dir, &self.cfg.sandbox))
+    }
+
+    fn jailed(&self, dir: &Path, profile: crate::sandbox::Profile) -> Workspace {
+        let jail = crate::sandbox::Jail { sandbox: self.sandbox.clone(), profile };
+        Workspace::new(dir.to_path_buf(), Duration::from_secs(self.cfg.orchestrator.bash_timeout_secs)).jailed(Arc::new(jail))
+    }
+
+    /// Sealed tests are read-only inside the sandbox too.
+    fn lock_sealed(&self, profile: &mut crate::sandbox::Profile, dir: &Path) {
+        if let Some(seal) = &self.state.lock().unwrap().rampart.seal {
+            profile.read_only.extend(seal.files.iter().map(|f| dir.join(&f.path)));
         }
+    }
+
+    /// Rampart gets a shell only where the sandbox isolates it (M5 decision 2).
+    fn rampart_shell(&self) -> bool {
+        self.sandbox.mode != crate::sandbox::SandboxMode::Off && self.sandbox.backend.isolates() && self.sandbox.backend.blocks_network()
     }
 
     /// Where an agent's work lives, and the branch it is on.
@@ -1195,6 +1273,7 @@ impl Inner {
             AgentKind::Worker => include_str!("prompts/worker.md").to_string(),
             AgentKind::Triage => include_str!("prompts/triage.md").to_string(),
             AgentKind::Scout => SCOUT_PROMPT.to_string(),
+            AgentKind::Rampart => crate::rampart::PROMPT.to_string(),
         };
         if matches!(kind, AgentKind::Main | AgentKind::Worker) {
             s.push_str(&self.team_notes());
@@ -1219,6 +1298,7 @@ impl Inner {
             AgentKind::Worker => &wf.worker_skills,
             AgentKind::Triage => &wf.triage_skills,
             AgentKind::Scout => &wf.triage_skills,
+            AgentKind::Rampart => &wf.triage_skills,
         };
         for name in injected {
             if name == "grilling" && !wf.grill {
@@ -1345,6 +1425,13 @@ fn tools_for(kind: AgentKind, can_spawn: bool) -> Vec<ToolDef> {
         tools.retain(|t| t.name == "read" || t.name == "bash");
         return tools;
     }
+    if kind == AgentKind::Rampart {
+        // Read its baseline checkout and submit a suite: nothing else (§7.1).
+        tools.retain(|t| t.name == "read");
+        tools.push(intake::list_tool());
+        tools.push(submit_ramparts_tool());
+        return tools;
+    }
     tools.push(skill_tool());
     if can_spawn {
         tools.extend([create_tickets_tool(), work_tickets_tool(), revise_tool()]);
@@ -1439,9 +1526,9 @@ pub(crate) fn produce_tool() -> ToolDef {
 pub(crate) fn show_options_tool() -> ToolDef {
     ToolDef {
         name: "show_options",
-        description: "Show the user a few visual variants to choose between — designs, layouts, or a before/after — as a row of thumbnails with a compare view. Give each variant a label, a one-line note, and either `image` (a screenshot you wrote in the project) or `url` (a live page). Opens a canvas and waits for the user: their pick comes back as this tool's result. Use it when the user asked for options or the choice is visual; not for routine steps.",
+        description: "Ask the user to choose between a few options and wait for the answer: a multiple-choice question (text-only variants), or visual variants — designs, layouts, a before/after — each with `image` (a screenshot you wrote in the project) or `url` (a live page) the user can open full size. Give each variant a label and a one-line note on what it costs or gives up; mark the one you recommend with `recommended: true` (at most one). The title is the question. Their pick comes back as this tool's result (empty if they dismissed it). Use it for a decision that changes the goal or blocks your work; not for routine steps.",
         schema: json!({"type": "object", "properties": {
-            "title": {"type": "string", "description": "What the set is, e.g. \"Context usage: 3 options\""},
+            "title": {"type": "string", "description": "The question, e.g. \"How should onboarding handle old chats?\""},
             "note": {"type": "string", "description": "One or two lines on the set as a whole"},
             "variants": {"type": "array", "minItems": 2, "maxItems": 6, "items": {
                 "type": "object",
@@ -1450,7 +1537,8 @@ pub(crate) fn show_options_tool() -> ToolDef {
                     "label": {"type": "string", "description": "what the user reads under the thumbnail"},
                     "note": {"type": "string", "description": "one line on what this variant does"},
                     "image": {"type": "string", "description": "a screenshot file in the project"},
-                    "url": {"type": "string", "description": "or a live page to show"}
+                    "url": {"type": "string", "description": "or a live page to show"},
+                    "recommended": {"type": "boolean", "description": "true on the one variant you recommend"}
                 },
                 "required": ["label"]
             }}
@@ -1612,6 +1700,22 @@ async fn main_loop(inner: Arc<Inner>, mut inbox: mpsc::UnboundedReceiver<String>
                 }
             }
             let path = inner.state.lock().unwrap().intake.path;
+            // The planning stage (M4): the message after a spec was put to the
+            // user is their answer, read in code before the planner sees it.
+            if path == Some(TaskType::Long) {
+                let (cmds, spec) = {
+                    let p = &inner.state.lock().unwrap().planning;
+                    (p.awaiting_commands, p.awaiting_yes)
+                };
+                let suite = inner.state.lock().unwrap().rampart.awaiting_yes;
+                if cmds {
+                    text = commands_answer(&inner, &text);
+                } else if spec {
+                    text = spec_answer(&inner, &text);
+                } else if suite {
+                    text = suite_answer(&inner, &text).await;
+                }
+            }
             if let (Some(p @ (TaskType::Research | TaskType::OneShot)), true) = (path, inner.planner.is_some()) {
                 // Neither restricted path can be kept to its rules in a coding
                 // CLI: it has its own file and shell tools, and nothing in code
@@ -1649,6 +1753,7 @@ async fn main_loop(inner: Arc<Inner>, mut inbox: mpsc::UnboundedReceiver<String>
         };
         // Stop drops the turn where it is (and any agents it was waiting on
         // are stopped by `stop`).
+        let next;
         let res = tokio::select! {
             r = turn => Some(r),
             _ = inner.stop_main.notified() => None,
@@ -1662,16 +1767,16 @@ async fn main_loop(inner: Arc<Inner>, mut inbox: mpsc::UnboundedReceiver<String>
                 if end_restricted_path(&inner) {
                     convo = None;
                 }
-                inner.set_status(MAIN, AgentStatus::Approved);
+                next = AgentStatus::Approved;
                 inner.trace_finish(MAIN, None);
             }
             Some(Ok(TurnEnd::Replied)) => {
-                inner.set_status(MAIN, AgentStatus::Idle);
+                next = AgentStatus::Idle;
                 inner.trace_finish(MAIN, None);
             }
             Some(Err(e)) => {
                 inner.log(MAIN, LogKind::Error, format!("{e:#}"));
-                inner.set_status(MAIN, AgentStatus::Idle);
+                next = AgentStatus::Idle;
                 inner.trace_finish(MAIN, Some(format!("{e:#}")));
             }
             None => {
@@ -1685,13 +1790,17 @@ async fn main_loop(inner: Arc<Inner>, mut inbox: mpsc::UnboundedReceiver<String>
                 if end_restricted_path(&inner) {
                     convo = None;
                 }
-                inner.set_status(MAIN, AgentStatus::Idle);
+                next = AgentStatus::Idle;
                 inner.trace_finish(MAIN, Some("stopped".into()));
             }
         }
+        // Saved before the status changes: whoever sees the lead idle (and may
+        // Stop it, which deletes a restricted task's saved conversation) must
+        // not have this save land after them.
         if let Some(c) = &convo {
             save_main(&inner, c);
         }
+        inner.set_status(MAIN, next);
         emit_metrics(&inner);
     }
 }
@@ -1779,15 +1888,22 @@ fn main_convo(inner: &Inner, d: Decision, messages: Vec<Message>, path: Option<T
         path: restricted,
         ws: inner.workspace(&inner.run_dir),
         initial: d.clone(),
-        system: match restricted {
-            Some(p) => path_system(p, &d),
-            None => inner.system_prompt(AgentKind::Main, 0, &d),
+        system: match (restricted, path) {
+            (Some(p), _) => path_system(p, &d),
+            // The long path plans first (M4): the brief says how.
+            (None, Some(TaskType::Long)) => format!("{}\n\n{}", inner.system_prompt(AgentKind::Main, 0, &d), crate::planning::PROMPT),
+            (None, _) => inner.system_prompt(AgentKind::Main, 0, &d),
         },
         decision: d,
         messages,
-        tools: match restricted {
-            Some(p) => tools_for_path(p),
-            None => tools_for(AgentKind::Main, true),
+        tools: match (restricted, path) {
+            (Some(p), _) => tools_for_path(p),
+            (None, Some(TaskType::Long)) => {
+                let mut t = tools_for(AgentKind::Main, true);
+                t.push(crate::planning::submit_spec_tool());
+                t
+            }
+            (None, _) => tools_for(AgentKind::Main, true),
         },
         budget_warned_at: None,
         turns_total: 0,
@@ -1894,12 +2010,17 @@ fn planner_system(inner: &Inner) -> String {
         note: None,
         triage: None,
     };
-    format!(
+    let mut s = format!(
         "{}{}\n\n# Your tools here\n\nYou run inside a coding CLI. Backspace's planning tools are MCP tools named `create_tickets` and `work_tickets` (server `backspace`). Both return at once: after calling either, end your turn with a one-line note. The user's verdict on a plan, or each ticket's result, comes back as your next message. Do not build the tickets yourself; agents do that on their own branches, and their accepted work is merged into this checkout (branch `{}`), where you can read and verify it.",
         inner.system_prompt(AgentKind::Main, 0, &d),
         cli_team_notes(inner),
         inner.base_branch
-    )
+    );
+    // The long path plans first (M4); in a CLI the tool is the MCP `submit_spec`.
+    if inner.state.lock().unwrap().intake.path == Some(TaskType::Long) {
+        s.push_str(&format!("\n\n{}\n\nHere `submit_spec` is an MCP tool on the same server; like the others it returns at once.", crate::planning::PROMPT));
+    }
+    s
 }
 
 fn announce_route(inner: &Inner, id: AgentId, d: &Decision) {
@@ -1931,6 +2052,17 @@ fn escalate(inner: &Inner, c: &mut Conversation, reason: &str) -> bool {
     if c.kind != AgentKind::Worker {
         return false;
     }
+    // Sealed-test failures climb by §7.4 alone: cheap retries until a
+    // trigger, then one frontier call (rampart.rs).
+    if reason == crate::rampart::SEALED_FAILED {
+        return sealed_escalate(inner, c);
+    }
+    // Under a seal the rest of the ladder stays on cheap rungs: the frontier
+    // is reached only through §7.4.
+    let sealed = {
+        let s = inner.state.lock().unwrap();
+        s.rampart.seal.is_some() && c.ticket.as_ref().is_some_and(|k| s.rampart.tickets.contains(k))
+    };
     let steps = inner.state.lock().unwrap().agents[c.id].escalations.len();
     if steps >= inner.cfg.escalation.max_steps {
         inner.log(
@@ -1955,6 +2087,7 @@ fn escalate(inner: &Inner, c: &mut Conversation, reason: &str) -> bool {
         .usable_models()
         .into_iter()
         .filter(|m| m.tier > spec.tier && !inner.cfg.router.exclude_sub.contains(&m.id))
+        .filter(|m| !sealed || crate::ladder::class_of(m) < crate::ladder::ModelClass::Frontier)
         .filter(|m| inner.gateway.check_model(role, &m.id).is_ok())
         .min_by(|a, b| {
             a.tier
@@ -1997,10 +2130,10 @@ fn escalate(inner: &Inner, c: &mut Conversation, reason: &str) -> bool {
 
 /// Drive an agent until it delivers, nudging it if it stops early.
 async fn finish(inner: &Arc<Inner>, c: &mut Conversation) -> Result<Deliverable> {
-    let tool = if c.kind == AgentKind::Triage {
-        "triage_ticket"
-    } else {
-        "submit_deliverable"
+    let tool = match c.kind {
+        AgentKind::Triage => "triage_ticket",
+        AgentKind::Rampart => "submit_ramparts",
+        _ => "submit_deliverable",
     };
     for _nudge in 0..2 {
         match drive(inner, c).await? {
@@ -2095,6 +2228,11 @@ async fn finish_cli(
             ToolOutcome::Delivered(d, note) => {
                 inner.log(c.id, LogKind::System, note);
                 return Ok(d);
+            }
+            ToolOutcome::Failure(msg, reason) if reason == crate::rampart::SEALED_FAILED && cli_limit_reached(inner, c) => {
+                inner.log(c.id, LogKind::System, format!("round {}: {}", round + 1, truncate(&msg, 400)));
+                let why = handed_off(inner, c).unwrap_or_else(|| "the sealed tests still fail".into());
+                bail!("{why}");
             }
             ToolOutcome::Failure(msg, _) | ToolOutcome::Text(msg) => {
                 inner.log(
@@ -2274,6 +2412,15 @@ async fn run_cli_turn(
     }
     req.env.push(("PATH".into(), crate::harnesses::path_env().to_string_lossy().into_owned()));
     req.env.extend(acc.iter().cloned());
+    // The CLI runs in the sandbox (M6): its own login and network, but writes
+    // only to its worktree, and Backspace's folder, the policy and its lock
+    // are out of reach. Under mode "required" with no sandbox, it does not run.
+    {
+        let mut profile = crate::sandbox::Profile::cli(&inner.root, dir, bin, &inner.cfg.sandbox);
+        inner.lock_sealed(&mut profile, dir);
+        req.wrap = inner.sandbox.wrap(&profile, &[])?.argv;
+        req.env.push((crate::sandbox::ENV_LEVEL.into(), inner.sandbox.label().into()));
+    }
     if cli == "claude" && inner.gateway.enforced() && (pin.is_some() || req.agents.is_some()) {
         // Backspace has named the models: `--model` for the agent, the definition for the scout. A subagent
         // with no model of its own takes this variable's before the main model, and before Claude Code
@@ -2947,6 +3094,11 @@ async fn drive(inner: &Arc<Inner>, c: &mut Conversation) -> Result<TurnEnd> {
                 turn = 0;
             }
         }
+        if failures.iter().any(|r| r == crate::rampart::SEALED_FAILED) {
+            if let Some(why) = handed_off(inner, c) {
+                bail!("{why}");
+            }
+        }
     }
 }
 
@@ -2968,6 +3120,20 @@ async fn run_tool(
     input: &Value,
 ) -> Result<ToolOutcome> {
     let text = ToolOutcome::Text;
+    // Rampart reads its baseline checkout and submits a suite. Anything else
+    // is refused here, whatever it was offered or told (PLAN §7.1).
+    if c.kind == AgentKind::Rampart && !crate::rampart::tools(inner.rampart_shell()).contains(&name) {
+        bail!("tool `{name}` is not available to you");
+    }
+    // A sealed test is hash-locked: no agent's file tools may change it.
+    if matches!(name, "write" | "edit") {
+        if let (Some(seal), Some(path)) = (inner.state.lock().unwrap().rampart.seal.clone(), input["path"].as_str()) {
+            let rel = Path::new(path).strip_prefix(&c.ws.root).map(|p| p.to_string_lossy().into_owned()).unwrap_or_else(|_| path.to_string());
+            if crate::rampart::is_sealed(&seal, &rel) {
+                bail!("`{rel}` is a sealed test: Rampart wrote it and it is hash-locked, so it cannot be changed. Make the code pass it as it is.");
+            }
+        }
+    }
     // A task's path limits what it may do, in code, whatever the model was told.
     if let Some(p) = c.path {
         if !intake::allows(p, name) {
@@ -2985,6 +3151,7 @@ async fn run_tool(
                 .ok_or_else(|| anyhow!("no skill or file named {n}"))
         }
         "create_tickets" if c.can_spawn => create_tickets(inner, c.id, input).await.map(text),
+        "submit_spec" if c.id == MAIN => submit_spec(inner, input).await.map(text),
         "work_tickets" if c.can_spawn => work_tickets(inner, c.id, input).await.map(text),
         "revise_ticket" if c.can_spawn => revise(inner, c.id, input).await.map(text),
         "file_ticket" if c.kind != AgentKind::Triage => {
@@ -2994,7 +3161,7 @@ async fn run_tool(
             file_ticket(inner, c.id, owner, input).map(text)
         }
         "triage_ticket" if c.kind == AgentKind::Triage => triage(inner, c, input),
-        "submit_deliverable" if c.kind != AgentKind::Triage => submit(inner, c, input).await,
+        "submit_deliverable" if !matches!(c.kind, AgentKind::Triage | AgentKind::Rampart) => submit(inner, c, input).await,
         "list_agents" => Ok(text(crate::board::agents_line(
             &inner.state.lock().unwrap(),
         ))),
@@ -3046,7 +3213,8 @@ async fn run_tool(
         "colony_create" | "colony_exec" | "colony_list" | "colony_status" | "colony_destroy" => {
             colony_tool(name, input).map(text)
         }
-        "list" if c.path.is_some() => c.ws.run(name, input).await.map(text),
+        "list" if c.path.is_some() || c.kind == AgentKind::Rampart => c.ws.run(name, input).await.map(text),
+        "submit_ramparts" if c.kind == AgentKind::Rampart => submit_ramparts(inner, c, input).await,
         "submit_report" if c.path == Some(TaskType::Research) => submit_report(inner, input),
         "read" | "bash" => c.ws.run(name, input).await.map(text),
         "write" | "edit" if c.kind != AgentKind::Triage => c.ws.run(name, input).await.map(text),
@@ -3303,6 +3471,20 @@ async fn submit_as(inner: &Arc<Inner>, c: &Conversation, input: &Value, source: 
             .unwrap_or_default();
     }
 
+    // 1b. Rampart's sealed tests (PLAN §7): hash-verified, run, flake-checked,
+    // then the change is mutated to score them. Failing is §7.4 evidence.
+    if c.kind == AgentKind::Worker {
+        let seal = {
+            let s = inner.state.lock().unwrap();
+            s.rampart.seal.clone().filter(|_| c.ticket.as_ref().is_some_and(|k| s.rampart.tickets.contains(k)))
+        };
+        if let Some(seal) = seal {
+            if let Some(out) = sealed_gate(inner, c, &seal, &mut deliverable).await? {
+                return Ok(out);
+            }
+        }
+    }
+
     // 2. The ticket's check gates review. Failing it is escalation evidence.
     if let Some(check) = ticket.as_ref().and_then(|t| t.check.clone()) {
         let (code, out) = c.ws.sh(&check).await?;
@@ -3466,6 +3648,17 @@ fn create_batch(inner: &Inner, caller: AgentId, input: &Value, planned: bool) ->
             }
             batch.push(t);
         }
+        if caller == MAIN && planned && path == Some(TaskType::Long) {
+            // The long path's planning stage (M4): no ticket before the
+            // checklist passed and the user said yes to that exact spec.
+            if let Some(why) = crate::planning::ticket_refusal(&s.planning, &inner.root) {
+                bail!("{why}");
+            }
+        }
+        if caller == MAIN && planned && path == Some(TaskType::Long) {
+            // These are built against spec.md, so Rampart's seal holds them.
+            s.rampart.tickets.extend(batch.iter().map(|t| t.key.clone()));
+        }
         if caller == MAIN && planned && !one_shot {
             // Earlier tickets count toward coverage only where they said what they cover.
             let earlier = s.tickets.iter().filter(|t| t.owner == MAIN && !t.covers.is_empty() && t.state != TicketState::Wontfix);
@@ -3487,6 +3680,148 @@ fn create_batch(inner: &Inner, caller: AgentId, input: &Value, planned: bool) ->
         inner.log(MAIN, LogKind::System, format!("one-shot spec handed off at {rel}"));
     }
     Ok((batch.iter().map(|t| t.key.clone()).collect(), needs_approval))
+}
+
+/// May agent `me` call these models? Its role decides the list (an agent
+/// that may create tickets is orchestration); an unknown agent is refused.
+fn policy_model(inner: &Inner, body: &Value) -> Result<String> {
+    let me = body["me"].as_str().unwrap_or("");
+    let role = {
+        let s = inner.state.lock().unwrap();
+        let a = s.agents.iter().find(|a| a.key == me).ok_or_else(|| anyhow!("no agent `{me}` in this project"))?;
+        GateRole::of(a.kind, a.kind == AgentKind::Main)
+    };
+    let models: Vec<&str> = body["models"].as_array().map(|a| a.iter().filter_map(Value::as_str).collect()).unwrap_or_default();
+    if models.is_empty() {
+        bail!("no models named");
+    }
+    for m in &models {
+        inner.gateway.check_model(role, m).map_err(|r| anyhow!("the project's model policy does not allow `{m}`: {r}"))?;
+    }
+    Ok(format!("allowed: {}", models.join(", ")))
+}
+
+/// `submit_spec`: the long path's planning stage (planning.rs). The typed
+/// checklist is judged by rules; once every other item is met the baseline is
+/// captured in the planner's workspace; a full pass writes spec.md and asks
+/// the user for a yes. Every answer is recorded on the phase (by rules: a
+/// pass here does not open the gate, the user's yes does).
+async fn submit_spec(inner: &Arc<Inner>, input: &Value) -> Result<String> {
+    use crate::planning;
+    if inner.state.lock().unwrap().intake.path != Some(TaskType::Long) {
+        bail!("submit_spec is the long path's planning stage, and this task is not on the long path");
+    }
+    let plan = planning::PlanSpec::from_json(input)?;
+    let mut checklist = planning::check(&plan, None);
+    let mut baseline = None;
+    if checklist.ready_to_capture()
+        && !matches!(plan.baseline, None | Some(planning::BaselineSpec::Research))
+    {
+        // No command runs before the user approved that exact list.
+        let cmds = planning::commands(&plan);
+        let hash = planning::commands_sha256(&plan);
+        let approved = inner.state.lock().unwrap().planning.commands_approved_sha256.clone();
+        if !cmds.is_empty() && approved.as_deref() != Some(hash.as_str()) {
+            inner.update(|s| {
+                s.planning = planning::PlanningState {
+                    awaiting_commands: true,
+                    commands_sha256: Some(hash.clone()),
+                    commands_approved_sha256: approved.clone(),
+                    ..Default::default()
+                }
+            });
+            inner.save();
+            inner.log(MAIN, LogKind::Assistant, planning::commands_ask(&plan));
+            return Ok(format!(
+                "Every other checklist item is met, but the baseline commands have not run: the user has been asked to approve these {} command(s) first. End your turn now; after their yes, call submit_spec again with the same plan. A changed command needs a new approval.",
+                cmds.len()
+            ));
+        }
+        let b = planning::capture(&plan, &inner.workspace(&inner.run_dir), &inner.root).await;
+        let path = inner.root.join(planning::BASELINE);
+        std::fs::create_dir_all(path.parent().unwrap())?;
+        std::fs::write(&path, serde_json::to_string_pretty(&b)?)?;
+        checklist = planning::check(&plan, Some(&b));
+        baseline = Some(b);
+    }
+    let at = crate::chat::now_ms();
+    let mut phase = crate::phase::PhaseState::load(&inner.root);
+    if !checklist.passed() {
+        let gaps = checklist.gaps();
+        inner.update(|s| s.planning = planning::PlanningState { commands_approved_sha256: s.planning.commands_approved_sha256.clone(), ..Default::default() });
+        inner.save();
+        phase.record_checklist(false, at, planning::SPEC, &gaps.join("; "));
+        let _ = phase.save(&inner.root);
+        inner.log(MAIN, LogKind::System, format!("planning: checklist refused ({} of 7 met)", 7 - gaps.len()));
+        bail!(
+            "The checklist refused this plan:\n{}\nAsk the user what only they can answer, fix the rest, and call submit_spec again.",
+            gaps.iter().map(|g| format!("- {g}")).collect::<Vec<_>>().join("\n")
+        );
+    }
+    let baseline = baseline.expect("a passed checklist has a captured baseline");
+    let md = planning::render(&plan, &baseline, &checklist);
+    let path = inner.root.join(planning::SPEC);
+    let tmp = path.with_extension("md.tmp");
+    std::fs::write(&tmp, &md)?;
+    std::fs::rename(&tmp, &path)?;
+    // The typed plan, for Verify to judge the finished run against.
+    std::fs::write(inner.root.join(crate::deliver::PLAN_JSON), serde_json::to_string_pretty(&plan)?)?;
+    let hash = planning::sha256_hex(md.as_bytes());
+    inner.update(|s| {
+        s.planning = planning::PlanningState {
+            spec_sha256: Some(hash.clone()),
+            passed: true,
+            awaiting_yes: true,
+            commands_sha256: s.planning.commands_sha256.clone(),
+            commands_approved_sha256: s.planning.commands_approved_sha256.clone(),
+            ..Default::default()
+        }
+    });
+    inner.save();
+    phase.record_checklist(true, at, planning::SPEC, &format!("every item met; sha256 {hash}"));
+    let _ = phase.save(&inner.root);
+    inner.log(
+        MAIN,
+        LogKind::Assistant,
+        format!(
+            "{} is ready: the checklist passed (7 of 7) and the {} baseline is captured.\n\n{}\n\nReply **yes** to approve this spec, or tell me what to change.",
+            planning::SPEC,
+            baseline.kind,
+            checklist.items.iter().map(|c| format!("- {}: {}", c.item.label(), c.note)).collect::<Vec<_>>().join("\n")
+        ),
+    );
+    Ok(format!(
+        "The checklist passed and {} is written (sha256 {hash}). The user has been asked for a yes: end your turn now. create_tickets is refused until they say yes.",
+        planning::SPEC
+    ))
+}
+
+/// The user's answer to the baseline commands put to them: a plain yes
+/// approves that exact list; nothing runs until the planner submits again.
+fn commands_answer(inner: &Inner, text: &str) -> String {
+    let mut st = inner.state.lock().unwrap().planning.clone();
+    let (pass_on, note) = crate::planning::answer_commands(&mut st, text);
+    inner.update(|s| s.planning = st);
+    inner.save();
+    inner.log(MAIN, LogKind::System, note);
+    pass_on
+}
+
+/// The user's answer to a spec put to them: a plain yes approves that exact
+/// file (its hash), and opens the phase gate as a person's decision.
+fn spec_answer(inner: &Inner, text: &str) -> String {
+    let mut st = inner.state.lock().unwrap().planning.clone();
+    let (pass_on, note) = crate::planning::answer(&mut st, &inner.root, text);
+    let approved = st.approved_sha256.is_some();
+    inner.update(|s| s.planning = st);
+    inner.save();
+    if approved {
+        let mut phase = crate::phase::PhaseState::load(&inner.root);
+        phase.record_checklist_yes(crate::chat::now_ms(), crate::planning::SPEC);
+        let _ = phase.save(&inner.root);
+    }
+    inner.log(MAIN, LogKind::System, note);
+    pass_on
 }
 
 /// Gate 2, when the project has a SPEC.md (Plan mode wrote one): no tickets
@@ -3599,6 +3934,24 @@ async fn approve_plan(inner: &Arc<Inner>, caller: AgentId, keys: Vec<String>) ->
 }
 
 async fn work_tickets(inner: &Arc<Inner>, caller: AgentId, input: &Value) -> Result<String> {
+    // The long path (PLAN §6): no worker before Rampart's tests are sealed.
+    // The first dispatch starts Rampart, with the approved spec and nothing else.
+    // Only the long task's own tickets wait: a task started alongside does not.
+    let held = {
+        let s = inner.state.lock().unwrap();
+        let wanted: Vec<String> = match input["keys"].as_array() {
+            Some(a) => a.iter().filter_map(|k| k.as_str().map(String::from)).collect(),
+            None => s.tickets.iter().filter(|t| t.owner == caller && matches!(t.state, TicketState::ReadyForAgent | TicketState::Failed)).map(|t| t.key.clone()).collect(),
+        };
+        caller == MAIN && s.intake.path == Some(TaskType::Long) && wanted.iter().any(|k| s.rampart.tickets.contains(k))
+    };
+    if held {
+        let why = crate::rampart::work_refusal(&inner.state.lock().unwrap().rampart);
+        if let Some(why) = why {
+            start_rampart(inner, None);
+            bail!("{why}");
+        }
+    }
     let requested: Option<Vec<String>> = input["keys"].as_array().map(|a| {
         a.iter()
             .filter_map(|k| k.as_str().map(String::from))
@@ -3911,6 +4264,12 @@ fn run_worker_with(
             if !handoff.deps.is_empty() {
                 ctx.push_str("\n# Tickets that blocked this one\n\n");
                 ctx.push_str(&handoff.deps.iter().map(|(_, md)| md.replacen("# ", "## ", 1)).collect::<Vec<_>>().join("\n"));
+            }
+            if let Some(seal) = s.rampart.seal.as_ref().filter(|_| s.rampart.tickets.contains(&key)) {
+                ctx.push_str("\n# Sealed tests\n\nRampart, an independent test writer, wrote these from the spec. They are in your directory and hash-locked: your delivery must pass every one of them as it is, and changing, skipping or deleting one gets it refused.\n");
+                for f in &seal.files {
+                    ctx.push_str(&format!("- `{}` ({}): `{}`\n", f.path, f.criteria.join(", "), f.command));
+                }
             }
             if let Some(b) = me.budget_usd {
                 ctx.push_str(&format!(
@@ -4398,6 +4757,456 @@ fn triage(inner: &Arc<Inner>, c: &Conversation, input: &Value) -> Result<ToolOut
 
 // ------------------------------------------------------------------ tools
 
+// ------------------------------------------------------- Builder and Rampart
+
+/// What Rampart may call, enforced in `run_tool` (PLAN §7.1).
+
+fn submit_ramparts_tool() -> ToolDef {
+    ToolDef {
+        name: "submit_ramparts",
+        description: "Submit your test suite. Each test is a file (path relative to the project root, and its full content), the shell command that runs it (exit 0 = pass), and the acceptance criteria it checks (\"A1\", …). Every criterion needs a test. Backspace runs each test several times on the baseline: each must fail every time. A refused suite comes back with what was wrong; an accepted one is sealed and hash-locked.",
+        schema: json!({"type": "object", "properties": {
+            "tests": {"type": "array", "items": {"type": "object", "properties": {
+                "path": {"type": "string"},
+                "content": {"type": "string"},
+                "command": {"type": "string"},
+                "criteria": {"type": "array", "items": {"type": "string"}}
+            }, "required": ["path", "content", "command", "criteria"]}}
+        }, "required": ["tests"]}),
+    }
+}
+
+/// Tell the lead something from code (the next turn of the main loop).
+fn wake(inner: &Inner, text: impl Into<String>) {
+    if let Some(tx) = inner.wake_main.lock().unwrap().as_ref() {
+        let _ = tx.send(text.into());
+    }
+}
+
+/// spec.md's goal, for the failure digest.
+fn spec_goal(root: &Path) -> String {
+    let spec = std::fs::read_to_string(root.join(crate::planning::SPEC)).unwrap_or_default();
+    spec.split("## Goal").nth(1).and_then(|g| g.split("\n## ").next()).map(|g| g.trim().to_string()).unwrap_or_default()
+}
+
+/// Keep a decision on a cheap rung (below the frontier) when an allowed
+/// model there exists: Rampart starts cheap (PLAN §7.1).
+fn cheap_rung(inner: &Inner, d: &mut Decision, role: GateRole) {
+    use crate::ladder::{class_of, ModelClass};
+    let Some(spec) = inner.cfg.model(&d.model) else { return };
+    if class_of(spec) < ModelClass::Frontier {
+        return;
+    }
+    let allowed = inner.cfg.usable_models();
+    let allowed: Vec<&crate::config::ModelSpec> = allowed.into_iter().filter(|m| class_of(m) < ModelClass::Frontier && inner.gateway.check_model(role, &m.id).is_ok()).collect();
+    // Another model than the lead's where one is allowed (M5 decision 1).
+    let lead = inner.state.lock().unwrap().agents[0].decision.as_ref().map(|d| d.model.clone()).unwrap_or_default();
+    let cheap = crate::rampart::pick_cheap(&allowed, &lead);
+    let note = match cheap {
+        Some(m) => {
+            let n = format!("{} is a frontier model; Rampart starts on a cheap rung: {}", d.model, m.id);
+            d.model = m.id.clone();
+            n
+        }
+        None => format!("no model below the frontier is allowed, so Rampart runs on {}", d.model),
+    };
+    d.note = Some(match d.note.take() {
+        Some(n) => format!("{n}\n{note}"),
+        None => note,
+    });
+}
+
+/// The cheapest frontier model this role may use, for the one §7.4 call.
+fn frontier_model(inner: &Inner, role: GateRole) -> Option<String> {
+    use crate::ladder::{class_of, ModelClass};
+    inner
+        .cfg
+        .usable_models()
+        .into_iter()
+        .filter(|m| class_of(m) == ModelClass::Frontier && inner.gateway.check_model(role, &m.id).is_ok())
+        .min_by(|a, b| a.output_usd_per_mtok.total_cmp(&b.output_usd_per_mtok).then(a.input_usd_per_mtok.total_cmp(&b.input_usd_per_mtok)).then_with(|| a.id.cmp(&b.id)))
+        .map(|m| m.id.clone())
+}
+
+/// Start Rampart unless it is at work already, its suite waits on the user,
+/// or the suite is sealed. `feedback` is the user's answer to a suite they
+/// did not approve.
+fn start_rampart(inner: &Arc<Inner>, feedback: Option<String>) {
+    let id = {
+        let mut s = inner.state.lock().unwrap();
+        if s.rampart.seal.is_some() || s.rampart.awaiting_yes {
+            return;
+        }
+        if let Some(a) = s.rampart.agent {
+            if matches!(s.agents[a].status, AgentStatus::Running | AgentStatus::Queued) {
+                return;
+            }
+        }
+        let id = s.agents.len();
+        let mut rec = new_record(id, AgentKind::Rampart, Some(MAIN), 1, format!("rampart-{id}"), "Rampart: sealed tests".into());
+        rec.status = AgentStatus::Queued;
+        s.agents.push(rec);
+        s.rampart.agent = Some(id);
+        id
+    };
+    inner.save();
+    inner.touch();
+    inner.log(MAIN, LogKind::System, "Rampart started: it writes the sealed tests from the approved spec; workers wait for the seal");
+    let i = inner.clone();
+    let h = tokio::spawn(async move {
+        match run_rampart(&i, id, feedback).await {
+            Ok(_) => i.set_status(id, AgentStatus::Approved),
+            Err(e) => {
+                i.log(id, LogKind::Error, format!("{e:#}"));
+                i.set_status(id, AgentStatus::Failed);
+                i.log(MAIN, LogKind::System, format!("Rampart stopped without a sealed suite ({e:#}); the next work_tickets starts it again"));
+            }
+        }
+        i.tasks.lock().unwrap().remove(&id);
+    });
+    inner.tasks.lock().unwrap().insert(id, h.abort_handle());
+}
+
+/// Rampart's checkout of the baseline: the lead's branch as committed, in a
+/// detached worktree (or a copy when the project is not isolated).
+async fn rampart_tree(inner: &Inner) -> Result<(PathBuf, String)> {
+    let tree = inner.root.join(crate::rampart::TREE);
+    if inner.isolated() {
+        let _g = inner.git.lock().await;
+        let head = git::head(&inner.run_dir).await?;
+        git::add_detached(&inner.root, &tree, &head).await?;
+        Ok((tree, head))
+    } else {
+        crate::rampart::copy_tree(&inner.run_dir, &tree)?;
+        Ok((tree, "copy".into()))
+    }
+}
+
+async fn run_rampart(inner: &Arc<Inner>, id: AgentId, feedback: Option<String>) -> Result<Deliverable> {
+    let brief = {
+        let s = inner.state.lock().unwrap();
+        crate::rampart::brief(&s.planning, &inner.root)
+    }?;
+    let (tree, base) = rampart_tree(inner).await?;
+    inner.update(|s| s.rampart.base = Some(base));
+    let mut d = inner.router.route_for(AgentRole::Sub, "rampart", &brief.spec, "").await?;
+    inner.cap_start(&mut d);
+    cheap_rung(inner, &mut d, GateRole::Orchestration);
+    announce_route(inner, id, &d);
+    let t = tree.clone();
+    inner.agent(id, |a| a.worktree = Some(t));
+    let mut first = brief.message();
+    if let Some(f) = feedback {
+        first.push_str(&format!("\n\n# The user did not approve your last suite\n\nTheir words:\n{f}"));
+    }
+    inner.log(id, LogKind::User, first.clone());
+    inner.set_status(id, AgentStatus::Running);
+    inner.trace_start(id, "rampart", &brief.spec);
+    let mut c = Conversation {
+        id,
+        kind: AgentKind::Rampart,
+        path: None,
+        ticket: None,
+        can_spawn: false,
+        ws: inner.rampart_workspace(&tree),
+        initial: d.clone(),
+        system: inner.system_prompt(AgentKind::Rampart, 1, &d),
+        decision: d,
+        messages: vec![Message::user_text(first)],
+        tools: {
+            let mut t = tools_for(AgentKind::Rampart, false);
+            if inner.rampart_shell() {
+                t.extend(crate::tools::file_tools().into_iter().filter(|t| t.name == "bash"));
+            }
+            t
+        },
+        budget_warned_at: None,
+        turns_total: 0,
+        recent_calls: vec![],
+    };
+    let r = finish(inner, &mut c).await;
+    inner.trace_finish(id, r.as_ref().err().map(|e| format!("{e:#}")));
+    r
+}
+
+fn bullets(lines: &[String]) -> String {
+    lines.iter().map(|l| format!("- {l}")).collect::<Vec<_>>().join("\n")
+}
+
+/// Rampart's suite: shape and traceability first, then every test on the
+/// baseline `runs` times. A good suite is put to the user (the first
+/// `spot_checks`) or sealed at once.
+async fn submit_ramparts(inner: &Arc<Inner>, c: &Conversation, input: &Value) -> Result<ToolOutcome> {
+    let suite = match crate::rampart::Suite::from_json(input) {
+        Ok(s) => s,
+        Err(e) => return Ok(ToolOutcome::Failure(format!("Nothing was submitted: {e:#}."), "malformed suite".into())),
+    };
+    let brief = {
+        let s = inner.state.lock().unwrap();
+        crate::rampart::brief(&s.planning, &inner.root)
+    }?;
+    let gaps = crate::rampart::shape_gaps(&suite, &brief.spec);
+    if !gaps.is_empty() {
+        return Ok(ToolOutcome::Failure(
+            format!("The suite was refused before anything ran:\n{}\nFix it and call submit_ramparts again.", bullets(&gaps)),
+            "suite refused".into(),
+        ));
+    }
+    let runs = inner.cfg.rampart.runs.max(1);
+    let vetting = crate::rampart::vet(&suite, &inner.vetting_workspace(&c.ws.root), runs).await?;
+    if !vetting.passed() {
+        return Ok(ToolOutcome::Failure(
+            format!("The suite was refused after {runs} runs of each test on the baseline:\n{}\nFix these tests and call submit_ramparts again.", bullets(&vetting.gaps())),
+            "ramparts refused".into(),
+        ));
+    }
+    let (base, ask_user) = {
+        let s = inner.state.lock().unwrap();
+        (s.rampart.base.clone().unwrap_or_default(), crate::rampart::needs_spot_check(&s.rampart, &inner.cfg.rampart))
+    };
+    let pending = crate::rampart::Pending { suite, vetting, model: c.decision.model.clone(), base };
+    let d = Deliverable {
+        summary: format!("{} test(s), each failing on the baseline in all {runs} runs", pending.suite.tests.len()),
+        files: pending.suite.tests.iter().map(|t| t.path.clone()).collect(),
+        ..Default::default()
+    };
+    if ask_user {
+        let ask = crate::rampart::ask(&pending);
+        inner.update(|s| {
+            s.rampart.pending = Some(pending);
+            s.rampart.awaiting_yes = true;
+        });
+        inner.save();
+        inner.log(MAIN, LogKind::Assistant, ask);
+        return Ok(ToolOutcome::Delivered(d, "Accepted. The user is asked to spot-check the suite; it is sealed on their yes.".into()));
+    }
+    let seal = seal_now(inner, pending, false).await?;
+    wake(
+        inner,
+        format!("(Backspace: Rampart's {} tests are sealed and in your branch. Call work_tickets.)", seal.files.len()),
+    );
+    Ok(ToolOutcome::Delivered(d, "Accepted and sealed.".into()))
+}
+
+/// Seal a vetted suite: seal.json and copies under .backspace, the files on
+/// the lead's branch (so every worker forks with them).
+async fn seal_now(inner: &Arc<Inner>, p: crate::rampart::Pending, human: bool) -> Result<crate::rampart::Seal> {
+    let spec_sha = inner.state.lock().unwrap().planning.approved_sha256.clone().unwrap_or_default();
+    let seal = crate::rampart::seal(&p.suite, &p.vetting, &spec_sha, &p.base, &p.model, human)?;
+    crate::rampart::write(&inner.root, &p.suite, &seal)?;
+    crate::rampart::place(&inner.run_dir, &inner.root, &seal)?;
+    if inner.isolated() {
+        let _g = inner.git.lock().await;
+        let paths: Vec<String> = seal.files.iter().map(|f| f.path.clone()).collect();
+        git::commit_paths(&inner.run_dir, &paths, "rampart: sealed tests").await?;
+    }
+    inner.update(|s| {
+        s.rampart.seal = Some(seal.clone());
+        s.rampart.pending = None;
+        s.rampart.awaiting_yes = false;
+    });
+    inner.save();
+    inner.log(
+        MAIN,
+        LogKind::System,
+        format!(
+            "Rampart's tests are sealed (suite sha256 {}): {}",
+            seal.suite_sha256,
+            seal.files.iter().map(|f| f.path.as_str()).collect::<Vec<_>>().join(", ")
+        ),
+    );
+    Ok(seal)
+}
+
+/// The user's answer to a suite put to them: a plain yes seals it; anything
+/// else sends Rampart back to write it again, with their words.
+async fn suite_answer(inner: &Arc<Inner>, text: &str) -> String {
+    let mut st = inner.state.lock().unwrap().rampart.clone();
+    let pending = st.pending.clone();
+    let (pass_on, note, ok) = crate::rampart::answer(&mut st, text);
+    inner.update(|s| s.rampart = st);
+    inner.save();
+    inner.log(MAIN, LogKind::System, note);
+    if !ok {
+        start_rampart(inner, Some(text.to_string()));
+        return format!("{text}\n\n(Backspace: the user did not approve Rampart's tests, so Rampart is writing them again. Workers wait for the seal.)");
+    }
+    if let Some(p) = pending {
+        if let Err(e) = seal_now(inner, p, true).await {
+            inner.log(MAIN, LogKind::Error, format!("sealing failed: {e:#}"));
+            return format!("{text}\n\n(Backspace: sealing Rampart's tests failed: {e:#})");
+        }
+    }
+    pass_on
+}
+
+/// Builder's delivery against the seal: the sealed files must match their
+/// hashes, then every sealed test must pass `runs` times. On a pass the
+/// changed lines are mutated for the rampart score; on a failure the attempt
+/// is recorded for §7.4.
+async fn sealed_gate(inner: &Arc<Inner>, c: &Conversation, seal: &crate::rampart::Seal, d: &mut Deliverable) -> Result<Option<ToolOutcome>> {
+    let cfg = inner.cfg.rampart.clone();
+    let runs = cfg.runs.max(1);
+    // Every sealed file is verified; the tests run are the ones for the
+    // criteria this ticket covers (all of them when it names none).
+    let covers = c.ticket.as_ref().and_then(|k| inner.state.lock().unwrap().ticket(k).map(|t| t.covers.clone())).unwrap_or_default();
+    let full = seal;
+    let scoped = crate::rampart::scoped(seal, &covers);
+    let seal = &scoped;
+    let tampered = crate::rampart::verify(&c.ws.root, full);
+    let mut failed: Vec<(String, i32, String)> = Vec::new();
+    if !tampered.is_empty() {
+        failed = tampered.iter().map(|t| ("sealed files".to_string(), -1, t.clone())).collect();
+    } else {
+        for run in 0..runs {
+            for f in &seal.files {
+                let (code, out) = c.ws.sh(&f.command).await.unwrap_or_else(|e| (-1, format!("{e:#}")));
+                if code != 0 {
+                    let out = if run > 0 { format!("flaky: it passed before and failed on run {}\n{out}", run + 1) } else { out };
+                    failed.push((f.command.clone(), code, out));
+                }
+            }
+            if !failed.is_empty() {
+                break;
+            }
+        }
+    }
+    if failed.is_empty() {
+        let scope = if seal.files.len() == full.files.len() { String::new() } else { format!(" (the ones for {}, the criteria this ticket covers)", covers.join(", ")) };
+        inner.log(c.id, LogKind::System, format!("sealed tests passed: {} test(s){scope}, {runs} run(s) each", seal.files.len()));
+        let tree = inner.root.join(crate::rampart::TREE);
+        let files: Vec<String> = if d.changes.is_empty() { d.files.clone() } else { d.changes.iter().map(|f| f.path.clone()).collect() };
+        let changed: Vec<(String, Vec<usize>)> = files
+            .into_iter()
+            .filter(|f| !crate::rampart::is_sealed(full, f))
+            .filter_map(|f| {
+                let lines = crate::rampart::diff_lines(&tree.join(&f), &c.ws.root.join(&f));
+                (!lines.is_empty()).then_some((f, lines))
+            })
+            .collect();
+        match crate::rampart::mutation_score(&c.ws, seal, &changed, cfg.max_mutants).await {
+            Ok(m) => {
+                let mut line = format!("rampart score: the sealed tests caught {} of {} mutants of the changed lines", m.killed, m.total);
+                if !m.survived.is_empty() {
+                    line.push_str(&format!("; survived: {}", m.survived.join("; ")));
+                }
+                inner.log(c.id, LogKind::System, line);
+                d.mutation = Some(m);
+            }
+            Err(e) => inner.log(c.id, LogKind::System, format!("mutation testing did not run: {e:#}")),
+        }
+        return Ok(None);
+    }
+
+    let key = c.ticket.clone().unwrap_or_default();
+    let spent_now = inner.state.lock().unwrap().agents[c.id].cost_usd;
+    let frontier_usd = frontier_model(inner, GateRole::of(c.kind, c.can_spawn)).and_then(|m| inner.cfg.model(&m).cloned()).map(|m| {
+        let chars = serde_json::to_string(&c.messages).map(|s| s.len()).unwrap_or(0) + c.system.len();
+        m.cost(crate::gateway::estimate_tokens(chars), m.max_output_tokens as u64)
+    });
+    let (next, n) = inner.update(|s| {
+        let l = s.rampart.limits.entry(key.clone()).or_default();
+        let before: f64 = l.attempts.iter().map(|a| a.cost_usd).sum();
+        let a = crate::rampart::attempt(&failed, (spent_now - before).max(0.0));
+        let next = l.record(a, &cfg, frontier_usd);
+        (next, l.attempts.len())
+    });
+    inner.save();
+    let body = failed.iter().map(|(cmd, code, out)| format!("$ {cmd}  (exit {code})\n{}", truncate(out, 1500))).collect::<Vec<_>>().join("\n\n");
+    let head = if tampered.is_empty() {
+        format!("SEALED TESTS FAILED (attempt {n}). Nothing was sent for review.")
+    } else {
+        "SEALED TESTS CHANGED: the delivery was refused. Rampart's sealed tests are hash-locked: restore them exactly as they were on the branch you started from, and make the code pass them as they are.".to_string()
+    };
+    let what_next = match &next {
+        crate::rampart::Next::Retry => "Fix the code (the tests are sealed and cannot change), then call submit_deliverable again.".to_string(),
+        crate::rampart::Next::Escalate(t) => format!("Limit reached: {}.", t.describe()),
+        crate::rampart::Next::HandOff => "That was the frontier attempt: the ticket goes to a person.".to_string(),
+    };
+    inner.log(c.id, LogKind::System, format!("{head} {what_next}"));
+    Ok(Some(ToolOutcome::Failure(format!("{head}\n{body}\n\n{what_next}"), crate::rampart::SEALED_FAILED.into())))
+}
+
+/// §7.4: after a trigger, ONE frontier call with the failure digest. Nothing
+/// above it: a second trigger hands the ticket to a person.
+fn sealed_escalate(inner: &Inner, c: &mut Conversation) -> bool {
+    let Some(key) = c.ticket.clone() else { return false };
+    let (lim, seal) = {
+        let s = inner.state.lock().unwrap();
+        (s.rampart.limits.get(&key).cloned().unwrap_or_default(), s.rampart.seal.clone())
+    };
+    let (Some(trigger), Some(seal)) = (lim.trigger.clone(), seal) else { return false };
+    if lim.escalated_to.is_some() || lim.handed_off {
+        return false;
+    }
+    let Some(m) = frontier_model(inner, GateRole::of(c.kind, c.can_spawn)) else {
+        inner.update(|s| {
+            if let Some(l) = s.rampart.limits.get_mut(&key) {
+                l.handed_off = true;
+            }
+        });
+        inner.log(c.id, LogKind::System, format!("{}; no frontier model is allowed here, so the ticket goes to a person", trigger.describe()));
+        return false;
+    };
+    let lim = inner.update(|s| {
+        let l = s.rampart.limits.entry(key.clone()).or_default();
+        l.mark_escalated(&m);
+        l.clone()
+    });
+    inner.save();
+    let digest = crate::rampart::digest(&spec_goal(&inner.root), &seal, &lim);
+    let old = format!("{} @ {}", c.decision.model, c.decision.effort);
+    c.decision.model = m.clone();
+    c.messages.push(Message::user_text(format!(
+        "ESCALATED ONCE to {m}: {}. This is the only frontier attempt on this ticket; if the sealed tests still fail, it goes to a person with this digest.\n\n{digest}",
+        trigger.describe()
+    )));
+    let line = format!("{old} → {m} @ {} (§7.4: {})", c.decision.effort, trigger.describe());
+    inner.log(c.id, LogKind::System, format!("escalated: {line}"));
+    let d = c.decision.clone();
+    inner.agent(c.id, |a| {
+        a.escalations.push(line);
+        a.decision = Some(d);
+    });
+    inner.ledger.lock().unwrap().task_escalated(&key);
+    true
+}
+
+/// When the ticket was handed to a person (§7.4), the message for them.
+fn handed_off(inner: &Inner, c: &Conversation) -> Option<String> {
+    let key = c.ticket.clone()?;
+    let (lim, seal) = {
+        let s = inner.state.lock().unwrap();
+        (s.rampart.limits.get(&key).cloned()?, s.rampart.seal.clone()?)
+    };
+    if !lim.handed_off {
+        return None;
+    }
+    let digest = crate::rampart::digest(&spec_goal(&inner.root), &seal, &lim);
+    let msg = format!(
+        "Handed to you: `{key}` still fails Rampart's sealed tests after {} attempt(s){}. No more frontier calls are made for it.\n\n{digest}",
+        lim.attempts.len(),
+        lim.escalated_to.as_ref().map(|m| format!(", the last on {m}")).unwrap_or_default()
+    );
+    inner.log(MAIN, LogKind::Assistant, msg.clone());
+    Some(msg)
+}
+
+/// A coding-CLI worker cannot be moved to a frontier model mid-session, so
+/// for it a §7.4 trigger goes straight to a person.
+fn cli_limit_reached(inner: &Inner, c: &Conversation) -> bool {
+    let Some(key) = c.ticket.clone() else { return false };
+    let hit = inner.update(|s| match s.rampart.limits.get_mut(&key) {
+        Some(l) if l.trigger.is_some() => {
+            l.handed_off = true;
+            true
+        }
+        _ => false,
+    });
+    inner.save();
+    hit
+}
+
 fn skill_tool() -> ToolDef {
     ToolDef {
         name: "skill",
@@ -4570,6 +5379,11 @@ async fn bridge_handle(
                 json!({"text": format!("Created {keys_s}. Call work_tickets to dispatch them.")})
             }
         }),
+        "/v1/plan/spec" => submit_spec(&inner, &body).await.map(|t| json!({"text": t})),
+        // `browser_task`'s decision model (hands/decide.rs), asked by an
+        // agent's `backspace mcp` before it runs: the project's lists, at the
+        // agent's role.
+        "/v1/policy/model" => policy_model(&inner, &body).map(|t| json!({"text": t})),
         "/v1/plan/dispatch" if inner.state.lock().unwrap().intake.path == Some(TaskType::Research) => {
             Err(anyhow!("{}", intake::refusal(TaskType::Research, "work_tickets")))
         }

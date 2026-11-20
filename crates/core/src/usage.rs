@@ -5,6 +5,9 @@
 //! [`Session`] and the whole window into a [`Summary`]. Only counts, timings
 //! and tool names are kept: never prompts, tool input or tool output.
 //! What a log doesn't record stays `None` and is shown as "not logged".
+//! `tool_usage_summary` folds the same readers into per-tool counts for the
+//! last 24 hours and 7 days; what no log holds (limits, resets, cost) is
+//! never estimated: docs/cauldron/USAGE-DATA.md.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -491,6 +494,73 @@ pub fn sources(home: &Path) -> Vec<Source> {
         Source { id: "cursor", name: "Cursor", found: has(".cursor/ai-tracking"), supported: false, note: "SQLite tracking data; needs a SQLite reader" },
         Source { id: "gemini", name: "Gemini CLI", found: has(".gemini/tmp"), supported: false, note: "chat JSON; reader not written yet" },
     ]
+}
+
+/// What one tool's own logs record over a window: counts and tokens, nothing
+/// a log does not hold. There is no limit, percentage, reset time or cost here
+/// because no local log carries one (docs/cauldron/USAGE-DATA.md).
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+pub struct ToolWindow {
+    /// Sessions with a record in the window; a subagent's file is not a session of its own.
+    pub sessions: u32,
+    pub prompts: u32,
+    pub tool_calls: u32,
+    /// Subagents' tokens included: they spend the same quota.
+    pub tokens: Tokens,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct ToolUsage {
+    /// "claude-code", "codex" or "opencode".
+    pub tool: String,
+    /// The last 24 hours up to `as_of` (a rolling window, not the calendar day).
+    pub today: ToolWindow,
+    /// The last 7 days up to `as_of`.
+    pub week: ToolWindow,
+    /// The folder or database the numbers were read from.
+    pub source_path: String,
+    /// Unix ms the windows end at (the `now_ms` given).
+    pub as_of: u64,
+}
+
+/// Per-tool counts for the last 24 hours and 7 days, read from the logs under
+/// `home` (`sources`' locations). A tool whose log location is missing is left
+/// out: "No data yet". One whose location exists but holds nothing in a window
+/// reports zeros, which is true. Reads each log twice (once per window), so it
+/// costs about what `summarize` costs; call it off the UI thread.
+pub fn tool_usage_summary(home: &Path, now_ms: u64) -> Vec<ToolUsage> {
+    let day = summarize(home, now_ms, 1, "", &[]);
+    let week = summarize(home, now_ms, 7, "", &[]);
+    let window = |sum: &Summary, tool: &str| {
+        let mut w = ToolWindow::default();
+        for s in sum.sessions.iter().filter(|s| s.tool == tool) {
+            w.sessions += u32::from(!s.subagent);
+            w.prompts += s.prompts;
+            w.tool_calls += s.tool_calls;
+            w.tokens.add(&s.tokens);
+        }
+        w
+    };
+    sources(home)
+        .into_iter()
+        .filter(|s| s.supported && s.found)
+        .map(|s| ToolUsage {
+            tool: s.id.to_string(),
+            today: window(&day, s.id),
+            week: window(&week, s.id),
+            source_path: log_path(home, s.id).to_string_lossy().into_owned(),
+            as_of: now_ms,
+        })
+        .collect()
+}
+
+/// Where a supported tool's logs live under `home` (the paths `sources` checks).
+fn log_path(home: &Path, id: &str) -> PathBuf {
+    match id {
+        "claude-code" => home.join(".claude").join("projects"),
+        "codex" => home.join(".codex").join("sessions"),
+        _ => home.join(".local/share/opencode/opencode.db"),
+    }
 }
 
 #[cfg(test)]

@@ -1,0 +1,70 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Top bar and agent figures</title>
+<style>
+:root{--frame:#1e1e1e;--card:#151515;--line:#262626;--hov:#262626;--fg:#f2f1f4;--fg2:#cfcad4;--fg3:#8e8896;--fg4:#5f5a66;--acc:#8b5cf6;--warn:#e0a32a;--bad:#e05656;color-scheme:dark}
+*{box-sizing:border-box}body{margin:0;background:#0b0b0c;color:var(--fg);font:13px/1.45 "Segoe UI",system-ui,sans-serif;padding:24px}
+h1{font-size:22px;margin:0 0 4px}h2{font-size:15px;margin:28px 0 4px}p{color:var(--fg3);margin:0 0 10px;max-width:92ch}
+.win{width:1200px;height:520px;background:var(--frame);border-radius:8px;position:relative;overflow:hidden;box-shadow:0 0 0 1px #333;margin:10px 0 4px}
+.bar{position:absolute;left:0;right:0;top:0;height:38px;display:flex;align-items:center;gap:2px;padding:0 0 0 10px;color:var(--fg3)}
+.ib{width:28px;height:28px;border-radius:6px;display:grid;place-items:center;font-size:13px}
+.ib.on{background:var(--hov);color:var(--fg)}
+.pill{height:24px;border:1px solid #333;border-radius:6px;padding:0 9px;display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--fg2);margin-right:4px}
+.pill i{width:6px;height:6px;border-radius:50%;background:#ff4d2d}
+.caps{display:flex;margin-left:4px}.caps b{width:46px;height:38px;display:grid;place-items:center;font-weight:400;color:var(--fg2)}
+.side{position:absolute;left:0;top:42px;bottom:4px;width:236px;padding:0 10px}
+.apps{display:flex;gap:2px;margin:0 0 6px}.apps .ib{width:28px}
+.row{display:flex;align-items:center;gap:8px;height:30px;padding:0 8px;border-radius:6px;color:var(--fg2);font-size:13px}
+.row small{margin-left:auto;color:var(--fg4);font-size:11px}.row .ping{width:6px;height:6px;border-radius:50%;background:#ff4d2d}
+.grp{font-size:11.5px;color:var(--fg3);padding:12px 8px 3px;display:flex;justify-content:space-between}
+.dot{width:7px;height:7px;border-radius:50%;margin:0 7px 0 0}
+.card{position:absolute;background:var(--card);border-radius:6px;border:1px solid var(--line)}
+.ch{height:38px;display:flex;align-items:center;gap:6px;padding:0 8px 0 10px;font-size:12.5px;color:var(--fg2)}
+.tab{height:24px;padding:0 9px;border-radius:5px;display:inline-flex;align-items:center;gap:6px;font-size:12px}.tab.on{background:var(--hov);color:var(--fg)}
+.box{position:absolute;left:50%;transform:translateX(-50%);bottom:90px;width:560px;height:70px;border:1px solid #333;border-radius:8px;padding:10px 12px;color:var(--fg4)}
+.cap{font-size:12px;color:var(--fg3);margin:2px 0 14px}.sbs{display:flex;gap:16px;flex-wrap:wrap}
+.pick{display:inline-block;background:var(--acc);color:#fff;border-radius:4px;padding:1px 7px;font-size:11px;margin-left:6px}
+.dec{border:1px solid #333;border-radius:8px;padding:14px 16px;max-width:1000px;margin-top:22px}.dec li{margin:3px 0;color:var(--fg2)}
+.zoom{background:var(--frame);border-radius:8px;padding:14px 18px;box-shadow:0 0 0 1px #333;display:flex;gap:26px;align-items:center}
+</style></head><body>
+<h1>Top bar back, agent figures back</h1>
+<p>Charles, 20 Nov: drop the Windows notch and use the older top bar, and find the agent design that is no longer in the app. Both are drawn here in the approved Tight tiles geometry (cards 6px, gap 4px, sidebar flat on the frame). Dark only; light follows the same tokens.</p>
+
+<h2>1. Top bar</h2>
+<div class="sbs">
+<div><div class="cap"><b>A. Full-width top bar</b> (his screenshot) <span class="pick">picked</span><br>38px strip on the frame holds sidebar, back/forward, tabs, "N needs you", split, terminal, panel, window controls. The cards start under it.</div>
+<div class="win" id="A"></div></div></div>
+<div class="sbs"><div><div class="cap"><b>B. Slim strip, tabs stay in the card</b> (Tight tiles round 3, W1)<br>Same strip but only the sidebar button, "N needs you" and window controls; tabs and tools stay in the card header. Less moved, but two header rows over the stream.</div>
+<div class="win" id="B"></div></div></div>
+
+<h2>2. Agent figures</h2>
+<p>The figure is the approved avatar (flat head over body, agent colour, mood on the face only, cog head when working, three heads when typing). It is fully built in <code>crates/chrome/src/avatar.rs</code> but nothing in the app draws it.</p>
+<div class="zoom" id="zoom"></div>
+
+<div class="dec"><b>Decision</b>
+<ul>
+<li><b>Top bar A.</b> It is what he asked for and puts the window buttons wholly on the frame, which satisfies the round 3 rule (never half on the frame, half on a card). Tabs in the bar frees the card header, so the stream card loses its title row and gains ~38px. B keeps two chrome rows.</li>
+<li><b>Figures on every stream row</b>, tabs, and the status bust, as in the screenshot. The state dot becomes the figure's mood (asking, working, error, idle); the amber/red ping stays on the right for Needs you / Failed. Conflict: on 12 Nov he said normal threads get no agent icon. His new screenshot shows figures on every row, so I follow the screenshot; reverting to agentic-only is one condition.</li>
+<li><b>Conflict flagged:</b> Tight tiles round 11 removed the top bar. This reverses that for chrome only; cards, radii, gaps and glass stay.</li>
+</ul></div>
+<script>
+const COL=['#e0703a','#38c0e8','#3fb27f','#d9669a','#5b8cf0','#e0a32a','#9a82f5'];
+function fig(c,mood,h){const w=h*.83;let head=`<circle cx="50" cy="33" r="22" fill="${c}"/>`,face='<rect x="39" y="26" width="6" height="14" rx="3" fill="#14121a"/><rect x="55" y="26" width="6" height="14" rx="3" fill="#14121a"/>';
+if(mood=='working'){head=`<path fill-rule="evenodd" fill="${c}" transform="translate(50 33) scale(.51) translate(-50 -50)" d="M39.23 15.65 L41.41 2.27 L58.59 2.27 L60.77 15.65 A36 36 0 0 1 74.37 23.5 L87.04 18.7 L95.63 33.57 L85.13 42.15 A36 36 0 0 1 85.13 57.85 L95.63 66.43 L87.04 81.3 L74.37 76.5 A36 36 0 0 1 60.77 84.35 L58.59 97.73 L41.41 97.73 L39.23 84.35 A36 36 0 0 1 25.63 76.5 L12.96 81.3 L4.37 66.43 L14.87 57.85 A36 36 0 0 1 14.87 42.15 L4.37 33.57 L12.96 18.7 L25.63 23.5 A36 36 0 0 1 39.23 15.65 Z M64 50 A14 14 0 1 0 36 50 A14 14 0 1 0 64 50 Z"/>`;face=''}
+if(mood=='asking')face='<rect x="42" y="23" width="6" height="14" rx="3" fill="#14121a"/><rect x="58" y="23" width="6" height="14" rx="3" fill="#14121a"/>';
+if(mood=='error')face='<rect x="39" y="30" width="7" height="8" rx="3" fill="#14121a"/><rect x="55" y="30" width="7" height="8" rx="3" fill="#14121a"/>';
+return `<svg width="${w}" height="${h}" viewBox="10 4 80 96" style="flex:none"><path d="M17 100A33 33 0 0 1 83 100Z" fill="${c}"/>${head}${face}</svg>`}
+const icons={panel:'▯',left:'‹',right:'›',split:'◫',term:'›_',min:'—',max:'☐',x:'✕',plus:'+'};
+const ib=(k,on)=>`<span class="ib${on?' on':''}">${icons[k]}</span>`;
+const caps=`<span class="caps"><b>—</b><b>☐</b><b>✕</b></span>`;
+const apps=['💬','📁','🗓','🤖','◔','🛢','▦'].map((a,i)=>`<span class="ib${i?'':' on'}" style="font-size:12px;filter:grayscale(1)">${a}</span>`).join('');
+const rows=(figs)=>{const R=[['Approve M3 start_task','workbench',0,'asking','!'],['Windows build on UI5','workbench',1,'error','!'],['Top bar A in GPUI','workbench',2,'working'],['Sphere avatars with moods','no repo',3,'working'],['Policy gateway budgets','core',4,'idle'],['UI5 merge','workbench',5,'idle']];
+ const g=(t,n,k)=>`<div class="grp"><span>${t}</span><span${k?' style="color:#ff4d2d"':''}>${n}</span></div>`;
+ const r=x=>`<div class="row">${figs?fig(COL[x[2]],x[3],22):`<span class="dot" style="background:${x[3]=='error'?'var(--bad)':x[3]=='asking'?'var(--warn)':'transparent'};border:${x[3]=='idle'?'1px solid var(--fg4)':'0'}"></span>`}<span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${x[0]}</span><small>${x[1]}</small>${x[4]?'<span class="ping"></span>':''}</div>`;
+ return g('Needs you',2,1)+r(R[0])+r(R[1])+g('Running','')+r(R[2])+r(R[3])+g('Done',4)+r(R[4])+r(R[5])};
+const side=f=>`<div class="side"><div class="apps">${apps}</div><div class="row" style="color:var(--fg)">✎ New stream<small>Ctrl N</small></div><div class="row">⌕ Search<small>Ctrl K</small></div>${rows(f)}</div>`;
+const newbox=`<div class="box">Ask the coordinator, @ an agent or a file…</div>`;
+document.getElementById('A').innerHTML=`<div class="bar">${ib('panel')}${ib('left')}${ib('right')}<span style="width:190px"></span><span class="tab on">${fig(COL[0],'idle',16)}New stream ✕</span><span class="ib">+</span><span style="flex:1"></span><span class="pill"><i></i>1 needs you</span>${ib('split')}${ib('term')}${ib('panel',1)}${caps}</div>${side(true)}<div class="card" style="left:240px;right:4px;top:42px;bottom:4px"><div class="ch"><b style="color:var(--fg)">New stream</b></div>${newbox}</div>`;
+document.getElementById('B').innerHTML=`<div class="bar" style="height:30px">${ib('panel')}<span style="flex:1"></span><span class="pill"><i></i>1 needs you</span>${caps.replace(/height:38px/,'')}</div>${side(true)}<div class="card" style="left:240px;right:4px;top:34px;bottom:4px"><div class="ch"><span class="tab on">${fig(COL[0],'idle',16)}New stream ✕</span><span class="ib">+</span><span style="flex:1"></span>${ib('split')}${ib('term')}${ib('panel',1)}</div>${newbox}</div>`;
+document.getElementById('B').querySelector('.caps').querySelectorAll('b').forEach(b=>b.style.height='30px');
+const mk=(m,l)=>`<div style="text-align:center">${fig(COL[0],m,44)}<div class="cap" style="margin:4px 0 0">${l}</div></div>`;
+document.getElementById('zoom').innerHTML=mk('idle','idle')+mk('asking','asking')+mk('working','working (cog)')+mk('error','error')+`<div style="margin-left:10px;max-width:420px;color:var(--fg3)">Sidebar rows (22px) and tabs (16px) draw the figure; at 16px and under the face is two bars. The chat status line draws the outlined bust.</div>`;
+</script></body></html>

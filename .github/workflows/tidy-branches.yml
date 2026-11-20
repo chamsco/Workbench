@@ -1,0 +1,81 @@
+# One-off tidy-up, run by hand from the Actions tab (or the API).
+# Tags every branch except main and archive/* as archive/<branch>, so each head
+# stays reachable, then (only when delete=true) deletes the branch. Also tags the
+# last Tauri app state as tauri-final, removes the stale preview releases, and
+# deletes CI artifacts. Run with delete=false first to see the list.
+name: Tidy branches and releases
+
+on:
+  workflow_dispatch:
+    inputs:
+      delete:
+        description: "Delete the branches, releases and artifacts (false = tag and list only)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  actions: write
+  pull-requests: write
+
+jobs:
+  tidy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Tag every branch head
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898732+github-actions[bot]@users.noreply.github.com"
+          git fetch --prune origin '+refs/heads/*:refs/remotes/origin/*'
+          git tag -f -a tauri-final -m "Last state of the Rust Tauri app (Backspace); windows-tauri was built from here" e3d472a2cadf50724007600e1dd13db17b241174
+          git push -f origin refs/tags/tauri-final
+          : > branches.txt
+          for ref in $(git for-each-ref --format='%(refname:short)' refs/remotes/origin); do
+            b="${ref#origin/}"
+            case "$b" in HEAD|origin|main|archive/*) continue ;; esac
+            echo "$b" >> branches.txt
+            git tag -f "archive/$b" "$ref"
+            git push -f origin "refs/tags/archive/$b"
+            echo "tagged archive/$b -> $(git rev-parse --short "$ref")"
+          done
+          echo "$(wc -l < branches.txt) branches tagged"
+
+      - name: Delete the branches
+        if: inputs.delete
+        shell: bash
+        run: |
+          while read -r b; do
+            # The tag must exist on the remote before the branch goes.
+            git ls-remote --exit-code origin "refs/tags/archive/$b" >/dev/null
+            git push origin --delete "$b" && echo "deleted $b"
+          done < branches.txt
+
+      - name: Delete stale releases (tags of rolling releases go too; v0.1.1 keeps its tag)
+        if: inputs.delete
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for t in windows-preview mac-preview; do gh release delete "$t" --yes --cleanup-tag || true; done
+          gh release delete v0.1.1 --yes || true
+
+      - name: Delete CI artifacts
+        if: inputs.delete
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          n=0
+          while :; do
+            ids=$(gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts?per_page=100" --jq '.artifacts[].id')
+            [ -z "$ids" ] && break
+            before=$n
+            for id in $ids; do gh api -X DELETE "repos/${GITHUB_REPOSITORY}/actions/artifacts/$id" && n=$((n+1)); done
+            [ "$n" = "$before" ] && break
+          done
+          echo "deleted $n artifacts"

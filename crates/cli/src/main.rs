@@ -6,11 +6,28 @@
 //!                                        this project allows today
 //!   backspace-cli policy adopt           accept ./backspace.toml's policy as the one
 //!                                        to run under (a person's step)
-//!   backspace-cli <workspace> "<goal>"   run a project
+//!   backspace-cli <workspace> "<goal>" [--ship local|branch|pr]
+//!                                        run a project; once its tickets are
+//!                                        done, Verify, Ship and Learn follow
+//!                                        on rules alone (default: local, the
+//!                                        run branch for you to merge)
+//!   backspace-cli status <workspace>     where the project stands, the last
+//!                                        verification and delivery
+//!   backspace-cli deliver <workspace> [--ship local|branch|pr]
+//!                                        carry on from Execute (retry Verify,
+//!                                        Ship, Learn) without running agents
 //!   backspace-cli serve <workspace> [addr]
 //!                                        share a harness so other machines
 //!                                        can follow it (default 127.0.0.1:7420;
 //!                                        token from BACKSPACE_TOKEN or printed)
+//!   backspace-cli serve-models [addr]    the model server alone (default
+//!                                        127.0.0.1:7422): every model this
+//!                                        machine reaches on one OpenAI URL;
+//!                                        another machine needs the token
+//!   backspace-cli engine [install [variant]]
+//!                                        Brainpowr Engine: its llama.cpp build,
+//!                                        the downloaded models, what is loaded;
+//!                                        install puts the build for this machine
 //!   backspace-cli scan                   which coding CLIs, local models and
 //!                                        routers this machine has
 //!   backspace-cli cloud [addr]           the development Backspace Cloud
@@ -55,12 +72,21 @@ fn main() -> Result<()> {
         [cmd] if cmd == "scan" => scan(),
         // The tiny local models, and which one small delegated jobs would use.
         [cmd] if cmd == "models" => models(),
+        [cmd, rest @ ..] if cmd == "serve-models" && rest.len() <= 1 => serve_models(rest.first().map(String::as_str)),
+        [cmd] if cmd == "engine" => engine_status(),
+        [cmd, sub, rest @ ..] if cmd == "engine" && sub == "install" && rest.len() <= 1 => engine_install(rest.first().map(String::as_str)),
         [cmd, rest @ ..] if cmd == "cloud" && rest.len() <= 1 => cloud(
             rest.first().map_or("127.0.0.1:7430", |s| s.as_str()),
         ),
-        [ws, goal @ ..] if !goal.is_empty() => run(PathBuf::from(ws), goal.join(" ")),
+        // After Execute: Verify, Ship and Learn on rules alone (deliver.rs).
+        [cmd, ws, rest @ ..] if cmd == "status" && rest.is_empty() => status(PathBuf::from(ws)),
+        [cmd, ws, rest @ ..] if cmd == "deliver" => deliver(PathBuf::from(ws), ship_flag(rest)?),
+        [ws, goal @ ..] if !goal.is_empty() => {
+            let (goal, target) = split_ship(goal)?;
+            run(PathBuf::from(ws), goal.join(" "), target)
+        }
         _ => bail!(
-            "usage: backspace-cli init-config | <workspace> <goal> | serve <workspace> [addr] | scan | models | cloud [addr] | eval <traces.jsonl> [--threshold N] | policy init | policy adopt"
+            "usage: backspace-cli init-config | <workspace> <goal> [--ship local|branch|pr] | status <workspace> | deliver <workspace> [--ship local|branch|pr] | serve <workspace> [addr] | scan | models | serve-models [addr] | engine [install [variant]] | cloud [addr] | eval <traces.jsonl> [--threshold N] | policy init | policy adopt"
         ),
     }
 }
@@ -145,6 +171,68 @@ fn scan() -> Result<()> {
     Ok(())
 }
 
+/// Brainpowr Engine at a glance.
+fn engine_status() -> Result<()> {
+    let e = backspace_core::model_engine::engine();
+    let st = e.status();
+    println!("llama.cpp {}: {}", st.tag, st.binary.as_deref().unwrap_or("not installed (backspace-cli engine install)"));
+    println!("builds for this machine: {}", st.variants.iter().map(|a| format!("{} ({})", a.variant, a.accel)).collect::<Vec<_>>().join(", "));
+    for m in e.models() {
+        println!(
+            "    {:<44} {:>9}  {}",
+            m.id,
+            backspace_core::model_server::human_size(m.size),
+            [m.meta.architecture.clone(), m.meta.context_length.map(|c| format!("ctx {c}"))].into_iter().flatten().collect::<Vec<_>>().join(" · ")
+        );
+    }
+    Ok(())
+}
+
+/// Install the best llama.cpp build for this machine, or the one named.
+fn engine_install(variant: Option<&str>) -> Result<()> {
+    use backspace_core::brainpowr_engine::backend;
+    let v = match variant {
+        Some(v) => v.to_string(),
+        None => backend::variants().first().map(|a| a.variant.to_string()).ok_or_else(|| anyhow::anyhow!("no llama.cpp build for this machine; install llama-server yourself"))?,
+    };
+    let home = backspace_core::model_engine::engine().home().to_path_buf();
+    let stop = std::sync::atomic::AtomicBool::new(false);
+    let last = std::sync::Mutex::new(0u64);
+    let i = backend::install(&home, &v, &|done, total| {
+        let pct = done * 100 / total.max(1);
+        let mut l = last.lock().unwrap();
+        if pct >= *l + 10 || done == total {
+            *l = pct;
+            eprintln!("{v}: {pct}%");
+        }
+    }, &stop)?;
+    println!("installed llama.cpp {} {} → {}", i.tag, i.variant, home.join("backends").join(&i.tag).join(&i.variant).join(&i.server).display());
+    Ok(())
+}
+
+/// The model server without the app, for a box on the network with a GPU and
+/// no screen. Open to the network when the address is not loopback, and then
+/// it answers discovery too.
+fn serve_models(addr: Option<&str>) -> Result<()> {
+    let prefs = backspace_core::prefs::Prefs::load();
+    let addr = addr.map(str::to_string).unwrap_or_else(|| prefs.model_serve.bind_addr());
+    let token = std::env::var("BACKSPACE_TOKEN").unwrap_or(prefs.model_serve.token);
+    // 0.0.0.0 is every interface here, not "this machine only".
+    let lan = !(addr.starts_with("127.") || addr.starts_with("localhost") || addr.starts_with("[::1]"));
+    let port: u16 = addr.rsplit(':').next().and_then(|p| p.parse().ok()).unwrap_or(7422);
+    println!("serving models at http://{addr}/v1");
+    if lan {
+        println!("other machines: Authorization: Bearer {token}");
+    }
+    let rt = tokio::runtime::Runtime::new()?;
+    rt.block_on(async move {
+        if lan {
+            tokio::spawn(backspace_core::model_gateway::answer_discovery(port));
+        }
+        backspace_core::model_gateway::serve(addr, token).await
+    })
+}
+
 /// The tiny local models (Settings → Local models, without the UI): what is
 /// running, which models are small enough to delegate to, and what would be
 /// used right now.
@@ -169,6 +257,18 @@ fn models() -> Result<()> {
                 if m.tiny { "tiny" } else { "" },
                 m.size_bytes.map(|b| format!("  {}", backspace_core::model_server::human_size(b))).unwrap_or_default()
             );
+        }
+    }
+    for r in backspace_core::model_server::remote_runtimes(&prefs) {
+        println!(
+            "{:<10} {:<34} {:<9} {}",
+            r.host.as_deref().unwrap_or(""),
+            r.base_url,
+            if r.running { "running" } else { "offline" },
+            r.message.clone().unwrap_or_default()
+        );
+        for m in &r.models {
+            println!("    {:<44} {}", m.id, if m.tiny { "tiny" } else { "" });
         }
     }
     match backspace_core::model_server::recommend(&runtimes) {
@@ -220,7 +320,96 @@ fn serve(ws: PathBuf, addr: &str) -> Result<()> {
     }
 }
 
-fn run(ws: PathBuf, goal: String) -> Result<()> {
+fn ship_flag(rest: &[String]) -> Result<backspace_core::deliver::Target> {
+    match rest {
+        [] => Ok(backspace_core::deliver::Target::Local),
+        [f, t] if f == "--ship" => backspace_core::deliver::Target::parse(t),
+        other => bail!("expected --ship local|branch|pr, got {other:?}"),
+    }
+}
+
+/// A trailing `--ship <target>` off the goal's words.
+fn split_ship(goal: &[String]) -> Result<(&[String], backspace_core::deliver::Target)> {
+    if goal.len() >= 2 && goal[goal.len() - 2] == "--ship" {
+        let t = backspace_core::deliver::Target::parse(&goal[goal.len() - 1])?;
+        let words = &goal[..goal.len() - 2];
+        if words.is_empty() {
+            bail!("a goal is needed before --ship");
+        }
+        return Ok((words, t));
+    }
+    Ok((goal, backspace_core::deliver::Target::Local))
+}
+
+fn status(ws: PathBuf) -> Result<()> {
+    let root = dunce::canonicalize(&ws)?;
+    let p = backspace_core::phase::PhaseState::load(&root);
+    println!("phase: {:?} (stage {})", p.phase, p.phase.stage().key());
+    for g in p.gates.iter().rev().take(6).rev() {
+        println!("  {:?} {} by {:?}: {}", g.phase, if g.passed { "passed" } else { "refused" }, g.by, g.note);
+    }
+    if let Some(r) = backspace_core::deliver::last_verify(&root) {
+        println!("\nverify: {} on {}", if r.passed { "passed" } else { "not passed" }, &r.head[..r.head.len().min(10)]);
+        for c in &r.criteria {
+            println!("  {} {} `{}`", c.key, if c.passed { "pass" } else { "FAIL" }, c.command);
+        }
+        for i in r.issues.iter().chain(&r.weakened) {
+            println!("  issue: {i}");
+        }
+    }
+    if let Some(d) = backspace_core::deliver::last_delivery(&root) {
+        println!("\ndelivered: {:?} {} at {}{}", d.target, d.branch, &d.commit[..d.commit.len().min(10)], d.pr_url.map(|u| format!(" ({u})")).unwrap_or_default());
+        for l in &d.limitations {
+            println!("  open: {l}");
+        }
+    }
+    Ok(())
+}
+
+/// Verify, Ship and Learn for a harness whose agents have finished.
+fn after_execute(h: &Harness, target: backspace_core::deliver::Target) -> Result<bool> {
+    use backspace_core::deliver::{self, Step, TicketFacts};
+    let root = h.root().to_path_buf();
+    let snap = h.snapshot();
+    let facts: Vec<TicketFacts> = snap.tickets.iter().map(TicketFacts::of).collect();
+    let data = backspace_core::prefs::Prefs::data_dir();
+    let memory = backspace_core::memory::Memory::open(data.clone());
+    let mut learn = || backspace_core::familiar::learn_with_rules(h, &memory, &data);
+    let steps = deliver::advance_rules(&root, &facts, &deliver::ShipOpts { target, gh: None }, &mut learn)?;
+    let mut delivered = false;
+    for s in steps {
+        match s {
+            Step::Executed => println!("execute: every ticket finished"),
+            Step::Verified(r) => {
+                println!("verify: {} ({} criteria) — {}", if r.passed { "passed" } else { "NOT passed" }, r.criteria.len(), root.join(deliver::VERIFY_MD).display());
+                for i in r.issues.iter().chain(&r.weakened) {
+                    println!("  issue: {i}");
+                }
+            }
+            Step::Shipped(d) => {
+                delivered = true;
+                println!("ship: {:?} {} at {}{}", d.target, d.branch, &d.commit[..d.commit.len().min(10)], d.pr_url.as_ref().map(|u| format!(" — {u}")).unwrap_or_default());
+                for l in &d.limitations {
+                    println!("  open: {l}");
+                }
+            }
+            Step::Learned(Ok(n)) => println!("learn: {n}"),
+            Step::Learned(Err(e)) => println!("learn: didn't finish ({e}); the delivery stands"),
+        }
+    }
+    Ok(delivered || backspace_core::phase::PhaseState::load(&root).phase == backspace_core::phase::Phase::Done)
+}
+
+fn deliver(ws: PathBuf, target: backspace_core::deliver::Target) -> Result<()> {
+    let h = Harness::open(ws)?;
+    if !after_execute(&h, target)? {
+        // Not delivered: a refusing gate, said above. Scripts see it.
+        std::process::exit(2);
+    }
+    Ok(())
+}
+
+fn run(ws: PathBuf, goal: String, target: backspace_core::deliver::Target) -> Result<()> {
     let h = Harness::open(ws)?;
     for n in h.policy_notices() {
         let tag = if n.level == backspace_core::gateway::NoticeLevel::Warning { "policy warning" } else { "policy" };
@@ -272,7 +461,11 @@ fn run(ws: PathBuf, goal: String) -> Result<()> {
             print!("approve? [y / feedback to reject] > ");
             std::io::stdout().flush()?;
             let mut line = String::new();
-            stdin.lock().read_line(&mut line)?;
+            if stdin.lock().read_line(&mut line)? == 0 {
+                // No more input (a pipe or a closed terminal): never approve by default.
+                println!("\n(no more input: left unapproved)");
+                return Ok(());
+            }
             let line = line.trim();
             if line.is_empty() || line.eq_ignore_ascii_case("y") {
                 h.approve(ap.id);
@@ -287,6 +480,13 @@ fn run(ws: PathBuf, goal: String) -> Result<()> {
                 "\nproject {:?}. total ${:.4} (router ${:.4})",
                 main.status, s.total_cost_usd, s.router_cost_usd
             );
+            if main.status == AgentStatus::Approved {
+                // Specify/Plan means no planned run to verify (a short-path
+                // answer); the error says so.
+                if let Err(e) = after_execute(&h, target) {
+                    println!("delivery: {e:#}");
+                }
+            }
             return Ok(());
         }
         let just_sent = main.log.last().map(|e| e.kind) == Some(LogKind::User);
@@ -295,8 +495,19 @@ fn run(ws: PathBuf, goal: String) -> Result<()> {
             print!("main is waiting for you > ");
             std::io::stdout().flush()?;
             let mut line = String::new();
-            stdin.lock().read_line(&mut line)?;
-            h.send(line.trim().to_string());
+            if stdin.lock().read_line(&mut line)? == 0 {
+                // No more input: stop here instead of sending empty turns forever, and
+                // deliver what the run finished, if it planned one.
+                println!("\n(no more input: stopping)");
+                if let Err(e) = after_execute(&h, target) {
+                    println!("delivery: {e:#}");
+                }
+                return Ok(());
+            }
+            let line = line.trim();
+            if !line.is_empty() {
+                h.send(line.to_string());
+            }
         }
     }
 }

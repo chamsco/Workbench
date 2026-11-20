@@ -1,9 +1,15 @@
 //! Shell layout solver. Pure geometry: no drawing, no GPUI.
 //!
-//! Coordinates are logical pixels from the window's top-left corner, the 1px window border
-//! included, as `tests/golden/wireframe.json` was measured. [`layout`] started as the wireframe and
-//! now follows the v3 board (design/cauldron-new-look-v3.html): the top bar, floating tabs and the
-//! drawer in the right gutter. [`solve`] first applies the minimum-width rule.
+//! Coordinates are logical pixels from the window's top-left corner. [`layout`] follows the approved
+//! Tight tiles board (design/cauldron-tight-tiles/index.html, Charles 15 Nov), as measured into
+//! `tests/golden/wireframe.json`: no top bar, the sidebar flat on the frame, the stream card and the
+//! support card as tight tiles 4px apart, the terminal docked under the stream, the quick-button
+//! rail inside the rightmost card. On Windows a slim strip runs across the top of the window on
+//! the frame (Charles, 20 Nov, option B): sidebar button, search, inbox, "N needs you" and the
+//! caption buttons, with the tabs and tools staying in the stream card's header. The old
+//! notch is an Appearance option ([`Platform::WindowsNotch`]): no strip, the caption buttons in
+//! a notch cut into the rightmost card's top-right. macOS has neither.
+//! [`solve`] first applies the minimum-width rule.
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Rect {
@@ -27,155 +33,189 @@ impl Rect {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Platform {
-    /// Traffic lights in the top bar, no caption buttons.
+    /// Traffic lights top-left, no notch.
     Mac,
-    /// Caption buttons top right, no traffic lights.
+    /// A slim strip across the top of the window holds the caption buttons, no traffic lights.
     Windows,
-    /// The wireframe window, which draws both so the review page shows each control once.
-    Reference,
+    /// Caption buttons in a notch in the rightmost card's top-right, no strip (the option).
+    WindowsNotch,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ShellState {
     pub sidebar_open: bool,
-    pub drawer_open: bool,
-    pub split_open: bool,
-    /// The terminal card in the right gutter, in the drawer's place.
-    pub terminal_open: bool,
-    /// The right gutter's plugins (drawer, its rail, the terminal): coding screens only. Settings and
-    /// the other non-coding pages have none, and the card takes the room.
-    pub plugins: bool,
+    /// The support card (Browser, Changes, Git, Files, ...) right of the stream.
+    pub support_open: bool,
+    /// The terminal, docked under the stream (Ctrl+J).
+    pub dock_open: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
 pub struct Shell {
     /// What was drawn after the minimum-width rule; equals the request when everything fits.
     pub effective: ShellState,
-    /// The 44px function rail, shown only while the sidebar is hidden.
-    pub rail: Option<Rect>,
+    /// Flat on the frame, from the window's left edge.
     pub sidebar: Option<Rect>,
-    pub bar: Rect,
-    /// The grey Shell (`card`, radius SHELL) right of the sidebar: the main card, Split and the
-    /// drawer or its rail sit inside it, SHELL_PAD in, so the drawer stands in its right gutter
-    /// and the new thread's bar in its bottom one.
-    pub shell: Rect,
+    /// The stream card.
     pub main: Rect,
-    pub half: Option<Rect>,
-    pub drawer: Option<Rect>,
-    /// The terminal card (v3 frame 5): in the right gutter, the drawer folded to its rail beside it.
-    pub terminal: Option<Rect>,
-    /// The 44px panel rail, shown only while the drawer is folded (the open drawer carries the
-    /// panels as a strip on top).
-    pub rrail: Option<Rect>,
-    pub sidebar_button: Rect,
-    pub lights: Option<Rect>,
-    /// Windows' caption buttons, inside the Shell's top right.
+    /// The terminal card under the stream.
+    pub dock: Option<Rect>,
+    /// The support card right of the stream.
+    pub support: Option<Rect>,
+    /// The 44px quick-button rail inside the rightmost card's right edge, under its header.
+    pub rail: Rect,
+    /// Windows: the top strip across the window, on the frame.
+    pub bar: Option<Rect>,
+    /// Windows with the notch option: the 100x40 notch cut into the rightmost card's top-right.
+    pub notch: Option<Rect>,
+    /// Windows strip: "N needs you", at the strip's right, left of the caption buttons.
+    pub pill: Option<Rect>,
+    /// Windows: minimise, maximise, close (at the strip's right end, or inside the notch).
     pub caps: Option<Rect>,
+    /// The sidebar's search and inbox buttons: beside the sidebar button (left of it in the
+    /// sidebar's top row; right of it in the Windows bar).
+    pub search_button: Rect,
+    pub bell_button: Rect,
+    /// macOS: the traffic lights, in the sidebar's top row or the stream header.
+    pub lights: Option<Rect>,
+    pub sidebar_button: Rect,
+    /// macOS with the sidebar folded: New stream, between the sidebar button and the tabs.
+    pub new_button: Option<Rect>,
+    /// Windows with the sidebar open: the logo and the name in the sidebar's top row.
+    pub title: Option<Rect>,
+    /// The tab row in the stream header, up to the header's tools on the right.
+    pub tabs: Rect,
+    /// The stream header's tools on the right: open-in, list, dock toggle, layout.
+    pub tools: Rect,
 }
 
-/// Measured from the wireframe.
+/// Measured from the board.
 pub mod metric {
-    pub const BORDER: f32 = 1.0;
-    pub const MARGIN_SIDE: f32 = 12.0;
-    /// From the window's edge to the Shell, top and bottom (the card sits 12px in).
-    pub const MARGIN_TOP: f32 = 6.0;
-    pub const MARGIN_BOTTOM: f32 = 6.0;
-    pub const GAP: f32 = 8.0;
-    pub const RAIL_W: f32 = 44.0;
+    /// The window margin around the cards and the gap between them.
+    pub const GAP: f32 = 4.0;
     pub const SIDEBAR_W: f32 = 236.0;
-    pub const RRAIL_W: f32 = 44.0;
-    /// The drawer in the right gutter: as wide as the sidebar (v3 board, Charles 13 Nov).
-    pub const DRAWER_W: f32 = SIDEBAR_W;
-    pub const SPLIT_W: f32 = 292.0;
-    /// The terminal card, the v3 board's `.term`.
-    pub const TERM_W: f32 = 430.0;
-    /// The top bar, full width: the board's 44, the height of the card's head, so the two lines
-    /// match. The card and the side panes start right under it.
-    pub const BAR_H: f32 = 44.0;
-    /// A floating tab in the top bar: control-sm, a little smaller than v2's (Charles, 13 Nov).
-    pub const TAB_H: f32 = 24.0;
-    /// The logo and the name after the sidebar button; the tabs never start before its end.
-    pub const TITLE_W: f32 = 96.0;
+    /// The support card's default width; it stays within [`SUPPORT_MIN_W`] and half the window.
+    pub const SUPPORT_W: f32 = 470.0;
+    pub const SUPPORT_MIN_W: f32 = 360.0;
+    pub const DOCK_H: f32 = 200.0;
+    /// A card's header, inside its 1px border; tabs live here.
+    pub const HEAD_H: f32 = 38.0;
+    /// The card's body starts this far under its top edge (the header and the space under it).
+    pub const BODY_TOP: f32 = 55.0;
+    pub const RAIL_W: f32 = 44.0;
+    /// Tabs and header buttons.
+    pub const TAB_H: f32 = 28.0;
     pub const SBTN: f32 = 28.0;
-    /// Windows' caption buttons: three of 40 x 24, in a 31px band at the Shell's top right that also
-    /// carries the panes' tab strips.
-    pub const CAPS_W: f32 = 120.0;
-    pub const CAPS_H: f32 = 24.0;
-    pub const CAPS_BAND: f32 = 31.0;
-    /// Proposed, not drawn in the wireframe.
+    /// Header items start this far inside the card's edge (1px border, 5px padding).
+    pub const HEAD_IN: f32 = 6.0;
+    /// The header's right padding, inside the border.
+    pub const HEAD_PR: f32 = 8.0;
+    /// Gap between items in a header.
+    pub const HEAD_GAP: f32 = 2.0;
+    /// Open-in (54), three buttons (28 each) and their 4px gaps.
+    pub const TOOLS_W: f32 = 146.0;
+    /// Windows: the top strip's height, and the caption buttons (three 46px cells) in it.
+    pub const BAR_H: f32 = 34.0;
+    pub const CAP_W: f32 = 46.0;
+    pub const CAPS_W: f32 = 138.0;
+    pub const CAPS_H: f32 = 34.0;
+    /// The notch option: 100x40 cut into the card, the buttons 84x28 inside it.
+    pub const NOTCH_W: f32 = 100.0;
+    pub const NOTCH_H: f32 = 40.0;
+    pub const NOTCH_CAPS_W: f32 = 84.0;
+    pub const NOTCH_CAPS_H: f32 = 28.0;
+    /// Windows: the "N needs you" pill in the bar.
+    pub const PILL_W: f32 = 100.0;
+    pub const PILL_H: f32 = 24.0;
+    pub const LIGHTS_W: f32 = 70.0;
+    pub const LIGHTS_H: f32 = 12.0;
+    /// The stream column's minimum width; the support card closes before it gets narrower.
     pub const MAIN_MIN_W: f32 = 360.0;
-    /// The Shell's inside padding: the card's radius nests in the Shell's (22 = 16 + 6).
-    pub const PAD: f32 = crate::tokens::radius::SHELL_PAD;
 }
 
-/// The window's geometry for exactly the state asked for. There is no top bar over the content
-/// (Charles, 13 Nov 06:52Z): a 44px row over the sidebar holds the lights, the sidebar button and
-/// the name; the Shell runs from 6px under the window's top to 6px over its bottom (under that row
-/// while the sidebar is folded, so it never meets the name). On Windows the caption buttons sit in a
-/// 30px band at the Shell's top right, and the panes start under it.
+/// The support card's width in a window `w` wide.
+pub fn support_width(w: f32) -> f32 {
+    metric::SUPPORT_W.min(w / 2.0).max(metric::SUPPORT_MIN_W)
+}
+
+/// The window's geometry for exactly the state asked for.
 pub fn layout(w: f32, h: f32, state: ShellState, platform: Platform) -> Shell {
     use metric::*;
-    let inner = Rect::new(BORDER, BORDER, w - 2.0 * BORDER, h - 2.0 * BORDER);
-    let foot = inner.bottom() - MARGIN_BOTTOM;
-    let side_top = inner.y + BAR_H;
+    let strip = platform == Platform::Windows;
+    let windows = strip || platform == Platform::WindowsNotch;
+    let (top, bottom, right) = (if strip { BAR_H } else { GAP }, h - GAP, w - GAP);
+    let full_h = bottom - top;
 
-    let (rail, sidebar, main_x) = if state.sidebar_open {
-        let sb = Rect::new(inner.x + MARGIN_SIDE, side_top, SIDEBAR_W, foot - side_top);
-        (None, Some(sb), sb.right() + GAP)
-    } else {
-        (Some(Rect::new(inner.x, side_top, RAIL_W, foot - side_top)), None, inner.x + RAIL_W + GAP)
-    };
-    let bar = if state.sidebar_open { Rect::new(inner.x, inner.y, main_x - inner.x, BAR_H) } else { Rect::new(inner.x, inner.y, inner.w, BAR_H) };
-    let top = if state.sidebar_open { inner.y + MARGIN_TOP } else { side_top };
-
-    // The Shell from the sidebar to the side margin; everything in it sits SHELL_PAD in (under the
-    // caption band on Windows), and its right gutter holds the open drawer, or the rail while folded.
-    let shell = Rect::new(main_x, top, inner.right() - MARGIN_SIDE - main_x, foot - top);
-    let has_caps = platform != Platform::Mac;
-    let caps = has_caps.then(|| Rect::new(shell.right() - PAD - CAPS_W, shell.y + (CAPS_BAND - CAPS_H) / 2.0, CAPS_W, CAPS_H));
-    let in_top = shell.y + if has_caps { CAPS_BAND } else { PAD };
-    let (in_h, right) = (shell.bottom() - PAD - in_top, shell.right() - PAD);
-    let (drawer, rrail) = if !state.plugins {
-        (None, None)
-    } else if state.drawer_open && !state.terminal_open {
-        (Some(Rect::new(right - DRAWER_W, in_top, DRAWER_W, in_h)), None)
-    } else {
-        (None, Some(Rect::new(right - RRAIL_W, in_top, RRAIL_W, in_h)))
-    };
-    let mut main_right = drawer.or(rrail).map_or(right, |r| r.x - PAD);
-    let terminal = (state.terminal_open && state.plugins).then(|| {
-        let t = Rect::new(main_right - TERM_W, in_top, TERM_W, in_h);
-        main_right = t.x - PAD;
-        t
+    let sidebar = state.sidebar_open.then(|| Rect::new(0.0, top, SIDEBAR_W, full_h));
+    let left = sidebar.map_or(GAP, |s| s.right() + GAP);
+    let support = state.support_open.then(|| {
+        let sw = support_width(w);
+        Rect::new(right - sw, top, sw, full_h)
     });
-    let half = state.split_open.then(|| {
-        let hf = Rect::new(main_right - SPLIT_W, in_top, SPLIT_W, in_h);
-        main_right = hf.x - PAD;
-        hf
-    });
-    let main = Rect::new(shell.x + PAD, in_top, main_right - shell.x - PAD, in_h);
+    let col_right = support.map_or(right, |s| s.x - GAP);
+    let col = Rect::new(left, top, col_right - left, full_h);
+    let (main, dock) = if state.dock_open {
+        let d = Rect::new(col.x, bottom - DOCK_H, col.w, DOCK_H);
+        (Rect::new(col.x, top, col.w, d.y - GAP - top), Some(d))
+    } else {
+        (col, None)
+    };
 
-    let has_lights = platform != Platform::Windows;
-    let lights = has_lights.then(|| Rect::new(inner.x + 14.0, inner.y + (BAR_H - 12.0) / 2.0, 52.0, 12.0));
-    let sbtn_x = if has_lights { inner.x + 78.0 } else { inner.x + 14.0 };
-    let sidebar_button = Rect::new(sbtn_x, inner.y + (BAR_H - SBTN) / 2.0, SBTN, SBTN);
+    let host = support.unwrap_or(main);
+    let rail = Rect::new(host.right() - 1.0 - RAIL_W, host.y + BODY_TOP, RAIL_W, host.h - BODY_TOP - 1.0);
+    let bar = strip.then(|| Rect::new(0.0, 0.0, w, BAR_H));
+    let notch = (platform == Platform::WindowsNotch).then(|| Rect::new(host.right() - NOTCH_W, host.y, NOTCH_W, NOTCH_H));
+    let caps = if strip {
+        Some(Rect::new(w - CAPS_W, 0.0, CAPS_W, CAPS_H))
+    } else {
+        notch.map(|n| Rect::new(n.x + 7.0, n.y + 6.0, NOTCH_CAPS_W, NOTCH_CAPS_H))
+    };
 
-    Shell { effective: state, rail, sidebar, bar, shell, main, half, drawer, terminal, rrail, sidebar_button, lights, caps }
+    // The header row: 6px in from the card's top and left.
+    let row_y = main.y + HEAD_IN;
+    let (lights, sidebar_button, new_button, title, tabs_x) = match (sidebar, platform) {
+        // The strip's left end holds the sidebar button, search and inbox, open or folded.
+        (_, Platform::Windows) => {
+            let sbtn = Rect::new(10.0, (BAR_H - SBTN) / 2.0, SBTN, SBTN);
+            (None, sbtn, None, None, main.x + HEAD_IN)
+        }
+        // Open: the sidebar's top row holds the lights or the logo, then search and the button.
+        (Some(sb), _) => {
+            let lights = (!windows).then(|| Rect::new(sb.x + 12.0, sb.y + 17.0, LIGHTS_W, LIGHTS_H));
+            let title = windows.then(|| Rect::new(sb.x + 16.0, sb.y + 9.0, 96.0, SBTN));
+            (lights, Rect::new(sb.x + 196.0, sb.y + 9.0, SBTN, SBTN), None, title, main.x + HEAD_IN)
+        }
+        // macOS folded: lights, sidebar button, New stream, tabs.
+        (None, Platform::Mac) => {
+            let lights = Rect::new(main.x + HEAD_IN, main.y + 14.0, LIGHTS_W, LIGHTS_H);
+            let sbtn = Rect::new(lights.right() + 2.0, row_y, SBTN, SBTN);
+            let newb = Rect::new(sbtn.right() + HEAD_GAP, row_y, SBTN, SBTN);
+            (Some(lights), sbtn, Some(newb), None, newb.right() + HEAD_GAP)
+        }
+        // Notch, folded: the sidebar button in the stream card, left of the tabs, with a rule between.
+        (None, _) => {
+            let sbtn = Rect::new(main.x + HEAD_IN, row_y, SBTN, SBTN);
+            (None, sbtn, None, None, sbtn.right() + 15.0)
+        }
+    };
+    let (search_button, bell_button) = if strip {
+        (Rect::new(sidebar_button.x + 36.0, sidebar_button.y, SBTN, SBTN), Rect::new(sidebar_button.x + 72.0, sidebar_button.y, SBTN, SBTN))
+    } else {
+        (Rect::new(sidebar_button.x - 36.0, sidebar_button.y, SBTN, SBTN), Rect::new(sidebar_button.x - 72.0, sidebar_button.y, SBTN, SBTN))
+    };
+    let notch_room = if notch.is_some() && support.is_none() { NOTCH_W + HEAD_GAP } else { 0.0 };
+    let tools = Rect::new(main.right() - 1.0 - HEAD_PR - notch_room - TOOLS_W, row_y, TOOLS_W, TAB_H);
+    let pill = strip.then(|| Rect::new(w - CAPS_W - 8.0 - PILL_W, (BAR_H - PILL_H) / 2.0, PILL_W, PILL_H));
+    let tabs = Rect::new(tabs_x, row_y, (tools.x - HEAD_GAP - tabs_x).max(0.0), TAB_H);
+
+    Shell { effective: state, sidebar, main, dock, support, rail, bar, notch, pill, caps, search_button, bell_button, lights, sidebar_button, new_button, title, tabs, tools }
 }
 
-/// The state that actually fits: the thread column keeps [`metric::MAIN_MIN_W`], so Split closes
-/// first, then the terminal, then the drawer. The sidebar is the user's choice and stays.
+/// The state that actually fits: the stream column keeps [`metric::MAIN_MIN_W`], so the support
+/// card closes. The sidebar is the user's choice and stays; the dock takes no width.
 pub fn resolve(w: f32, h: f32, mut state: ShellState, platform: Platform) -> ShellState {
-    while layout(w, h, state, platform).main.w < metric::MAIN_MIN_W {
-        if state.split_open {
-            state.split_open = false;
-        } else if state.terminal_open {
-            state.terminal_open = false;
-        } else if state.drawer_open {
-            state.drawer_open = false;
-        } else {
-            break;
-        }
+    if state.support_open && layout(w, h, state, platform).main.w < metric::MAIN_MIN_W {
+        state.support_open = false;
     }
     state
 }

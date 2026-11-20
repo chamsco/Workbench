@@ -94,7 +94,7 @@ impl Cauldron {
                 self.term_note = Some("Open a thread first: # asks that thread's agent.".into());
                 return;
             };
-            self.term_note = match chats.send(&id, ask, Vec::new(), None, thread::ctx()) {
+            self.term_note = match chats.send(&id, ask, Vec::new(), None, thread::ctx(self.plan)) {
                 Ok(()) => None,
                 Err(e) => Some(e.to_string()),
             };
@@ -190,7 +190,7 @@ impl Cauldron {
         let title = self.thread.as_ref().map(|t| t.title.clone());
         let head = div()
             .id("term-head")
-            .h(px(44.))
+            .h(px(metric::HEAD_H))
             .flex_none()
             .flex()
             .items_center()
@@ -210,7 +210,7 @@ impl Cauldron {
                     .flex()
                     .items_center()
                     .justify_center()
-                    .rounded(px(radius::INNER))
+                    .rounded(px(radius::CONTROL))
                     .cursor_pointer()
                     .hover(|d| d.bg(c(pal.hover)))
                     .aria_label("Close the terminal")
@@ -221,29 +221,13 @@ impl Cauldron {
                     }))
                     .test_support(),
             );
-        // Over the painting the terminal is frosted glass; without it, the panel.
-        let frost = self.glass_card.get().and_then(|(_, _, dark)| {
-            let mut b = self.backdrop.borrow_mut();
-            let cut = (r.x as i32, r.y as i32, r.w as u32, r.h as u32);
-            let tint = b.hsla_for(super::backdrop::Surface::Card, dark, cut, pal);
-            b.glass(cut.0, cut.1, cut.2, cut.3).map(|f| (f, tint))
-        });
         pane("terminal", r)
             .opacity(alpha)
             .flex()
             .flex_col()
             .overflow_hidden()
             .rounded(px(radius::PANEL))
-            .when_live(frost.is_none(), |d| d.bg(c(pal.panel)))
-            .children(frost.map(|(f, tint)| {
-                div()
-                    .absolute()
-                    .top_0()
-                    .left_0()
-                    .size_full()
-                    .child(img(f).absolute().top_0().left_0().size_full().rounded(px(radius::PANEL)))
-                    .child(div().absolute().top_0().left_0().size_full().rounded(px(radius::PANEL)).bg(tint))
-            }))
+            .bg(super::backdrop::surface(self.painting, pal.panel, super::backdrop::GLASS_TERM))
             .border_1()
             .border_color(c(pal.line))
             .child(head.test_support())
@@ -272,8 +256,9 @@ mod tests {
         assert!(meta(&b).ends_with("· 1.5s · ok"), "{}", meta(&b));
     }
 
-    /// The Terminal button opens the card in the drawer's place with one block per command the
-    /// thread's agent ran (from its trace), the failed one marked; a typed command is not run.
+    /// The Terminal button docks the card under the stream (Tight tiles rule 5) with one block per
+    /// command the stream's agent ran (from its trace), the failed one marked; a typed command is
+    /// not run. The support card is not touched.
     #[gpui_kit::test]
     fn the_terminal_shows_the_threads_commands(cx: &mut TestAppContext) {
         let (handle, _chats) = open(cx);
@@ -283,14 +268,15 @@ mod tests {
             window.render_frame(cx);
             window.click(("thread", 0usize), cx);
             assert!(window.try_find("terminal").is_none());
-            window.click("term-btn", cx);
+            window.click("top-term", cx);
         })
         .unwrap();
         rest(cx);
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
             assert!(window.try_find("terminal").is_some(), "the card opens");
-            assert!(window.try_find("drawer").is_none() && window.try_find("rrail").is_some(), "the drawer folds to its rail");
+            let (term, main) = (super::super::tests::rect(window, "terminal"), super::super::tests::rect(window, "main"));
+            assert_eq!((term.x, term.w, term.y), (main.x, main.w, main.bottom() + 4.0), "docked under the stream, 4px below it");
             assert_eq!(window.find(("block", 0usize)).label(), Some("cargo test"), "the agent's command, from the trace");
             assert!(window.try_find(("block", 1usize)).is_none(), "one Bash span, one block");
             window.click("term-close", cx);
@@ -299,7 +285,7 @@ mod tests {
         rest(cx);
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
-            assert!(window.try_find("terminal").is_none() && window.try_find("drawer").is_some(), "closing brings the drawer back");
+            assert!(window.try_find("terminal").is_none(), "closing undocks it");
         })
         .unwrap();
         handle

@@ -19,6 +19,12 @@ The same test pipeline serves both modes.
 
 The working product is a native GPUI desktop app on macOS and Windows that looks like the reviewed wireframe and runs this core. It adds no features beyond section 5. Its milestones (UI0 to UI9) are in `docs/cauldron/UI-PLAN.md` and follow the same rules as section 12: failing acceptance tests first, full suite output pasted, stop for Charles's review where the plan says so. The Tauri shell was retired on 10 Nov 2026 (moved to `legacy/tauri-app`); UI9 deletes it.
 
+### 1.2 Review cadence and the Platform PRD (amendment, 17 Nov 2026, Charles)
+
+No mandatory review per milestone from M1 to M13: Charles tests the finished result (CLI and the GPUI app). Every other rule in section 12 stands (failing tests first, full suite output, never weaken tests). Irreversible actions, missing credentials and unsandboxed agent Bash on his machine still stop for him; M6's sandbox lands before he tests autonomous Execute.
+
+The Platform / Code / Decision Engine PRD (17 Nov 2026) adds Verify as its own stage, makes Ship the delivery gate (local, branch or pull request, never a merge) and moves the Librarian's filing to Learn, after Ship and never blocking it. Commit is renamed Learn; old phase files still read. The decision interface and the cost ladder live in `crates/decision`, which depends on nothing in Cauldron. The audit and migration plan: `docs/cauldron/PHASE0-AUDIT.md`.
+
 ## 2. Non-goals
 
 - Anything Meadow related.

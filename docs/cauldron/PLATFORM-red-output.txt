@@ -1,0 +1,22 @@
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test the_platform_depends_on_no_app ... ok
+test quiet_hours_keep_the_note_but_not_the_alert_and_wrap_past_midnight ... FAILED
+test the_inbox_keeps_notes_across_opens_and_counts_unread ... FAILED
+test every_subscriber_gets_each_event_and_a_dropped_one_is_forgotten ... FAILED
+test the_same_unread_note_is_not_repeated ... FAILED
+test result: FAILED. 1 passed; 4 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+error: test failed, to rerun pass `-p cauldron-platform --test platform`
+test a_new_ask_a_delivery_and_a_failure_are_platform_events_once ... FAILED
+test a_familiar_needs_a_folder_and_a_goal ... ok
+test the_view_carries_the_delivery_and_a_refused_verify ... ok
+test the_view_says_needs_you_when_the_spec_waits_for_a_yes ... ok
+test records_round_trip_and_get_a_short_name_from_the_goal ... ok
+test drive_does_not_rerun_a_refused_verify_on_the_same_commit ... ok
+test drive_waits_for_the_main_agent_then_ships_once ... ok
+
+failures:
+
+--
+test result: FAILED. 6 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s
+
+error: test failed, to rerun pass `-p backspace-core --test familiar`

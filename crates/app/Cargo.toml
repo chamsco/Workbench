@@ -20,7 +20,10 @@ gpui-kit = "0.6.6"
 tokio.workspace = true
 serde_json.workspace = true
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
-image = { version = "0.25", default-features = false, features = ["webp"] }
+# The backdrop painting: decoded, blurred once and cached (src/shell/backdrop.rs). The versions
+# GPUI already builds.
+image = { version = "0.25", default-features = false, features = ["webp", "png"] }
+smallvec = "1"
 
 [features]
 # `CAULDRON_SHOTS=<dir>` renders the shell headless and writes PNGs (macOS, src/shell/shots.rs).

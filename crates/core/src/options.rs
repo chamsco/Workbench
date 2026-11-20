@@ -34,6 +34,9 @@ pub struct Variant {
     /// Or a live page to show in the card.
     #[serde(default)]
     pub url: Option<String>,
+    /// The agent's own recommendation (at most one per set).
+    #[serde(default)]
+    pub recommended: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -52,8 +55,8 @@ pub struct OptionSet {
     pub by: String,
 }
 
-/// Add a set to the project. Variants with no id get "a", "b", …; a variant
-/// with neither an image nor a url is refused.
+/// Add a set to the project. Variants with no id get "a", "b", …. A variant
+/// may be text only (a multiple-choice question); at most one is recommended.
 pub fn add(
     s: &mut ProjectState,
     by: &str,
@@ -75,14 +78,12 @@ pub fn add(
         if v.label.trim().is_empty() {
             bail!("every variant needs a label");
         }
-        let has = v.image.as_deref().is_some_and(|x| !x.trim().is_empty())
-            || v.url.as_deref().is_some_and(|x| !x.trim().is_empty());
-        if !has {
-            bail!("variant `{}` needs an image or a url", v.label);
-        }
         if v.id.trim().is_empty() {
             v.id = ((b'a' + i as u8) as char).to_string();
         }
+    }
+    if variants.iter().filter(|v| v.recommended).count() > 1 {
+        bail!("recommend at most one variant");
     }
     let mut seen = std::collections::HashSet::new();
     for v in &variants {
@@ -134,6 +135,7 @@ mod tests {
             note: String::new(),
             image: Some(format!("{label}.png")),
             url: None,
+            recommended: false,
         }
     }
 
@@ -157,14 +159,30 @@ mod tests {
         assert!(pick(&mut s, "nope", Some("a")).is_err());
     }
 
+    /// A multiple-choice question: text-only variants, one recommended.
+    #[test]
+    fn text_only_variants_make_a_question() {
+        let mut s = ProjectState::empty("p");
+        let mut a = variant("Skip import");
+        a.image = None;
+        a.recommended = true;
+        let mut b = variant("Wait for a sample");
+        b.image = None;
+        let set = add(&mut s, "main", "How should onboarding handle old chats?", "", vec![a, b]).unwrap();
+        assert!(set.variants[0].recommended && !set.variants[1].recommended);
+        let v: Variant = serde_json::from_str(r#"{"label":"x"}"#).unwrap();
+        assert!(!v.recommended && v.image.is_none(), "older sets still load");
+    }
+
     #[test]
     fn bad_sets_are_refused() {
         let mut s = ProjectState::empty("p");
         assert!(add(&mut s, "main", "", "", vec![variant("a"), variant("b")]).is_err());
         assert!(add(&mut s, "main", "t", "", vec![variant("a")]).is_err());
-        let mut no_img = variant("a");
-        no_img.image = None;
-        assert!(add(&mut s, "main", "t", "", vec![no_img, variant("b")]).is_err());
+        let (mut r1, mut r2) = (variant("a"), variant("b"));
+        r1.recommended = true;
+        r2.recommended = true;
+        assert!(add(&mut s, "main", "t", "", vec![r1, r2]).is_err(), "two recommended");
         let mut dup = variant("b");
         dup.id = "a".into();
         assert!(add(&mut s, "main", "t", "", vec![variant("a"), dup]).is_err());

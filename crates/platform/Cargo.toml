@@ -1,0 +1,11 @@
+[package]
+name = "cauldron-platform"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Cauldron's platform services that apps share: a typed event bus and the notification inbox. It knows no app: Code (backspace-core) depends on it, never the reverse."
+
+[dependencies]
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true

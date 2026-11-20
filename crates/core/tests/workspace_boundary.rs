@@ -33,7 +33,7 @@ fn fixture(tag: &str) -> Fixture {
     std::fs::create_dir_all(&outside).unwrap();
     std::fs::write(outside.join("secret.txt"), "TOP SECRET").unwrap();
     std::fs::write(root.join("src/inside.txt"), "inside text").unwrap();
-    Fixture { ws: Workspace { root: root.clone(), bash_timeout: Duration::from_secs(5) }, root, outside }
+    Fixture { ws: Workspace { root: root.clone(), bash_timeout: Duration::from_secs(5), jail: None }, root, outside }
 }
 
 async fn refused(ws: &Workspace, tool: &str, input: serde_json::Value) -> String {
@@ -110,7 +110,7 @@ async fn a_workspace_that_is_itself_reached_through_a_symlink_works() {
     let f = fixture("rootlink");
     let link: PathBuf = f.root.parent().unwrap().join("project-link");
     symlink(&f.root, &link).unwrap();
-    let ws = Workspace { root: link.clone(), bash_timeout: Duration::from_secs(5) };
+    let ws = Workspace { root: link.clone(), bash_timeout: Duration::from_secs(5), jail: None };
     assert_eq!(ws.run("read", &json!({"path": "src/inside.txt"})).await.unwrap(), "inside text");
     symlink(f.outside.join("secret.txt"), f.root.join("leak.txt")).unwrap();
     assert!(says_symlink(&refused(&ws, "read", json!({"path": "leak.txt"})).await));
@@ -127,7 +127,7 @@ async fn listing_shows_a_symlink_by_name_and_never_its_target_contents() {
 
 #[test]
 fn the_lexical_rules_still_hold() {
-    let w = Workspace { root: Path::new("/tmp/bs-boundary-nonexistent-root").to_path_buf(), bash_timeout: Duration::from_secs(1) };
+    let w = Workspace { root: Path::new("/tmp/bs-boundary-nonexistent-root").to_path_buf(), bash_timeout: Duration::from_secs(1), jail: None };
     assert!(w.resolve("../x").is_err());
     assert!(w.resolve("/etc/passwd").is_err());
     assert_eq!(w.resolve("a/../b.txt").unwrap(), Path::new("/tmp/bs-boundary-nonexistent-root/b.txt"));

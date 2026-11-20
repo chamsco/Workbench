@@ -2951,6 +2951,7 @@ fn run_shell() -> anyhow::Result<()> {
         .with_assets(icons::Assets)
         .run(move |cx: &mut App| {
             gpui_kit::init(cx);
+            shell::bind_keys(cx);
             if let Err(e) = cx.text_system().add_fonts(bundled_fonts()) {
                 eprintln!("bundled fonts: {e}");
             }

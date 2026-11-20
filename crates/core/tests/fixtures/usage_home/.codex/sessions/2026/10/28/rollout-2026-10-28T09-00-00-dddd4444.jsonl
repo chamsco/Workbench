@@ -1,0 +1,4 @@
+{"type":"session_meta","timestamp":"2026-10-28T09:00:00.000Z","payload":{"id":"dddd4444-2222","cwd":"/w/space"}}
+{"type":"turn_context","timestamp":"2026-10-28T09:00:01.000Z","payload":{"model":"gpt-x"}}
+{"type":"response_item","timestamp":"2026-10-28T09:00:03.000Z","payload":{"type":"message","role":"user","content":[{"text":"an older prompt"}]}}
+{"type":"token_usage_record","timestamp":"2026-10-28T09:00:04.000Z","payload":{"usage":{"input_tokens":50,"cached_input_tokens":0,"output_tokens":5},"thread_token_usage":{"total_tokens":999999}}}

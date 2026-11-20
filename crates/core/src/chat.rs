@@ -220,6 +220,11 @@ pub struct Thread {
     /// Pair: the project folder a CLI works in, with leave to edit it.
     #[serde(default)]
     pub project: Option<String>,
+    /// The folder this stream is filed in (a `folders::Folder` id); None is
+    /// unfiled. Only a way to organise the list: it says nothing about where
+    /// the CLI runs, which is `project`. Absent in older files: unfiled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folder: Option<String>,
     /// The installed app this thread belongs to (its agent's chat).
     #[serde(default)]
     pub app: Option<String>,
@@ -801,6 +806,7 @@ impl Chats {
             cli_session: None,
             branched_from: None,
             project: scope.project.filter(|p| !p.is_empty()),
+            folder: None,
             app: scope.app,
             system: scope.system,
             agent: scope.agent,
@@ -847,6 +853,62 @@ impl Chats {
 
     pub fn pin(&self, id: &str, pinned: bool) -> Result<()> {
         self.edit_thread(id, |t| t.pinned = pinned)
+    }
+
+    /// File a thread in a folder, or take it out. Only the folder changes: not
+    /// `project` (where a CLI runs), and not `updated` either, since filing is
+    /// not activity and must not reorder the list (pin and rename leave it too).
+    /// Whether the folder exists is for `folders::Folders` to check; that is
+    /// why this is not public.
+    pub(crate) fn set_folder(&self, id: &str, folder: Option<String>) -> Result<()> {
+        {
+            let mut ts = self.threads.lock().unwrap();
+            let t = ts.get_mut(id).ok_or_else(|| anyhow!("no such chat"))?;
+            if t.hidden || !t.life.saves() {
+                bail!("a ghost chat is never saved, so it cannot be filed");
+            }
+            if t.folder == folder {
+                return Ok(());
+            }
+            t.folder = folder;
+        }
+        self.save(id);
+        self.poke();
+        Ok(())
+    }
+
+    /// Is there a saved thread with this id that can be filed?
+    pub(crate) fn can_file(&self, id: &str) -> bool {
+        self.threads.lock().unwrap().get(id).is_some_and(|t| !t.hidden && t.life.saves())
+    }
+
+    /// Take every thread out of `folder` (it was deleted). The threads stay.
+    pub(crate) fn unfile_all(&self, folder: &str) {
+        let filed: Vec<String> = self
+            .threads
+            .lock()
+            .unwrap()
+            .values()
+            .filter(|t| t.folder.as_deref() == Some(folder))
+            .map(|t| t.id.clone())
+            .collect();
+        for id in filed {
+            let _ = self.edit_thread(&id, |t| t.folder = None);
+        }
+    }
+
+    /// `list()` with each thread's folder id beside it, for `folders.rs`
+    /// (`ThreadInfo` is what the shells build rows from, and stays as it is).
+    pub(crate) fn list_with_folder(&self) -> Vec<(ThreadInfo, Option<String>)> {
+        let infos = self.list();
+        let ts = self.threads.lock().unwrap();
+        infos
+            .into_iter()
+            .map(|i| {
+                let folder = ts.get(&i.id).and_then(|t| t.folder.clone());
+                (i, folder)
+            })
+            .collect()
     }
 
     /// Switch who answers from the next message on. A CLI session does not
@@ -905,6 +967,8 @@ impl Chats {
             cli_session: None,
             branched_from: Some(src.id.clone()),
             project: src.project.clone(),
+            // A branch is the same work, so it stays where its source is filed.
+            folder: src.folder.clone(),
             app: src.app.clone(),
             system: src.system.clone(),
             agent: src.agent.clone(),
@@ -1087,6 +1151,9 @@ impl Chats {
         for l in crate::relay::drain(&self.dir) {
             let _ = self.deliver(&l, ctx.clone());
         }
+        for sp in crate::relay::drain_spawns(&self.dir) {
+            let _ = self.spawn_sub(&sp, ctx.clone());
+        }
         let ready: Vec<String> = self
             .inbox
             .lock()
@@ -1103,6 +1170,25 @@ impl Chats {
         }
     }
 
+    /// A sub-agent a stream asked for (`delegate`): a new stream on that
+    /// provider, in the parent's project, given only the task. Its answer goes
+    /// back to the parent as the parent's next turn; it counts as a hand-off,
+    /// so sub-agents can't nest past [`crate::relay::MAX_HOPS`].
+    pub fn spawn_sub(self: &Arc<Self>, sp: &crate::relay::Spawn, ctx: Ctx) -> Result<String> {
+        let parent = self.peek(&sp.from).ok_or_else(|| anyhow!("the stream that asked is gone"))?;
+        let hops = self.hops.lock().unwrap().get(&sp.from).copied().unwrap_or(0) + 1;
+        if hops > crate::relay::MAX_HOPS {
+            self.note(&sp.from, &sp.from, &format!("(Sub-agent not started: work has been handed on {} times already.)", crate::relay::MAX_HOPS));
+            bail!("too many hand-offs");
+        }
+        let title = sp.title.clone().unwrap_or_else(|| sp.task.lines().next().unwrap_or("Sub-agent").chars().take(60).collect());
+        let route = Route { kind: RouteKind::Cli, provider: sp.provider.clone(), model: sp.model.clone() };
+        let child = self.create_in(route, Scope { project: parent.project.clone(), title: Some(format!("↳ {title}")), ..Scope::default() });
+        let inb = Inbound { from: sp.from.clone(), text: sp.task.clone(), reply: true, as_note: false, hops, origin: None };
+        self.take_letter(&child.id, inb, ctx)?;
+        Ok(child.id)
+    }
+
     /// Letters waiting for a tile while it works.
     pub fn waiting(&self, id: &str) -> usize {
         self.inbox.lock().unwrap().get(id).map_or(0, |q| q.len())
@@ -1113,6 +1199,7 @@ impl Chats {
             .into_iter()
             .find(|t| t.thread == id)
             .map(|t| t.label)
+            .or_else(|| self.peek(id).map(|t| if t.title.starts_with("↳ ") { format!("{} sub-agent", t.route.provider) } else { t.route.provider }))
             .unwrap_or_else(|| "another harness".into())
     }
 
@@ -1154,13 +1241,18 @@ impl Chats {
         let mut m = Msg::new(Role::User, inb.text.clone(), Status::Done);
         m.author = Some(format!("tile:{}", inb.from));
         m.author_name = Some(self.tile_label(&inb.from));
-        self.edit_thread(to, |t| {
+        // The tile is answering from before its letter shows until its turn is
+        // running, so it never looks idle in between.
+        self.hops.lock().unwrap().insert(to.to_string(), inb.hops);
+        self.answering.lock().unwrap().insert(to.to_string(), inb);
+        if let Err(e) = self.edit_thread(to, |t| {
             t.updated = m.at;
             Chats::touched(t);
             t.messages.push(m);
-        })?;
-        self.hops.lock().unwrap().insert(to.to_string(), inb.hops);
-        self.answering.lock().unwrap().insert(to.to_string(), inb);
+        }) {
+            self.answering.lock().unwrap().remove(to);
+            return Err(e);
+        }
         let res = self.reply(to, ctx, None);
         if res.is_err() {
             self.answering.lock().unwrap().remove(to);
@@ -1186,7 +1278,9 @@ impl Chats {
     /// A tile finished a turn: its answer goes back to whoever asked, and the
     /// next letter waiting for it starts.
     fn after_turn(self: &Arc<Self>, tid: &str, mid: &str, ctx: &Ctx) {
-        let inb = self.answering.lock().unwrap().remove(tid);
+        // Still answering until the answer is on its way: the asker's turn
+        // starts (or its letter waits) before this tile lets go.
+        let inb = self.answering.lock().unwrap().get(tid).cloned();
         if let Some(inb) = inb.filter(|i| i.reply) {
             let label = self.tile_label(tid);
             let m = self.peek(tid).and_then(|t| t.messages.into_iter().find(|m| m.id == mid));
@@ -1202,6 +1296,7 @@ impl Chats {
                 let _ = self.take_letter(&inb.from, back, ctx.clone());
             }
         }
+        self.answering.lock().unwrap().remove(tid);
         let next = self.inbox.lock().unwrap().get_mut(tid).and_then(|q| q.pop_front());
         if let Some(n) = next {
             let _ = self.start_letter(tid, n, ctx.clone());
@@ -1245,6 +1340,7 @@ impl Chats {
             cli_session: None,
             branched_from: None,
             project: None,
+            folder: None,
             app: None,
             system: Some(system.to_string()),
             agent: None,
@@ -1841,6 +1937,10 @@ impl Chats {
                 Target::Cli { provider: route.provider.clone(), bin }
             }
             RouteKind::Local => Target::Ollama { url: ctx.prefs.ollama_url.trim_end_matches('/').to_string() },
+            // This machine's model server: whatever it reaches, keyless on loopback.
+            RouteKind::Router if route.provider == crate::model_gateway::ROUTER_ID => {
+                Target::OpenAi { base: ctx.prefs.model_serve.local_url(), key: String::new() }
+            }
             RouteKind::Router => {
                 let r = ctx
                     .prefs
@@ -1965,6 +2065,12 @@ Ask the reader for input with the real form parts: `f = FormControl(\"Name\", In
             }
         };
         req.env.push(("PATH".into(), crate::harnesses::path_env().to_string_lossy().to_string()));
+        // The account picked for this CLI (Settings > Subscriptions): its own profile
+        // folder, so the turn runs on that login and never on another's.
+        if route.kind == RouteKind::Cli {
+            let accounts = crate::accounts::Accounts::load(&crate::accounts::Accounts::path());
+            req.env.extend(accounts.env_now(&route.provider));
+        }
         // What `backspace mcp` reads goes in its own server entry: Codex starts
         // MCP servers with a filtered environment, so the CLI's would not reach it.
         let mut env = serde_json::Map::new();
@@ -1995,6 +2101,12 @@ Ask the reader for input with the real form parts: `f = FormControl(\"Name\", In
             env.insert(crate::relay::ENV_TILE.into(), id.into());
             req.env.push((crate::relay::ENV_TILE.into(), id.into()));
         }
+        // Every stream may start sub-agents on any provider (`delegate`), at the top level only
+        // when it was not itself handed the work twice already (MAX_HOPS).
+        let can_delegate = call.agent.is_none() && matches!(route.provider.as_str(), "claude" | "codex") && route.kind == RouteKind::Cli;
+        if can_delegate {
+            env.insert(crate::relay::ENV_STREAM.into(), id.into());
+        }
         // A bot's rules, however it is called (its thread or a group): the
         // CLI's own tools it may not use, and what `backspace mcp` leaves out.
         let deny = call.agent.as_ref().map(|a| a.deny()).unwrap_or_default();
@@ -2011,7 +2123,7 @@ Ask the reader for input with the real form parts: `f = FormControl(\"Name\", In
         let mut servers = serde_json::Map::new();
         // Installed apps' tools, the agent's computer, memory and hands, and the
         // other harness tiles, through `backspace mcp`.
-        if !crate::mcp::app_tools(&deny).is_empty() || computer.is_some() || mem_scope.is_some() || hands.is_some() || tile.is_some() {
+        if !crate::mcp::app_tools(&deny).is_empty() || computer.is_some() || mem_scope.is_some() || hands.is_some() || tile.is_some() || can_delegate {
             if let Ok(exe) = std::env::current_exe() {
                 servers.insert("backspace".into(), json!({"command": exe.display().to_string(), "args": ["mcp"], "env": env}));
             }
@@ -2677,6 +2789,32 @@ mod tests {
         assert!(at.messages[0].author_name.as_deref() == Some("codex") && at.messages[0].text.contains("`codex` failed"), "{:?}", at.messages[0]);
         assert_eq!(at.messages.len(), 2);
         assert_eq!(c.thread(&b).unwrap().messages.len(), 2);
+    }
+
+    #[test]
+    fn a_delegated_task_runs_in_its_own_stream_and_its_answer_wakes_the_parent() {
+        let dir = tmp("delegate");
+        let (c, _rt) = chats(&dir);
+        let parent = c.create_in(route(), Scope { project: Some("/work/app".into()), ..Scope::default() }).id;
+        let sp = crate::relay::Spawn { from: parent.clone(), provider: "cauldron-test-missing-cli".into(), model: Some("m1".into()), title: Some("Audit billing".into()), task: "Audit the billing page".into() };
+        let child = c.spawn_sub(&sp, dead_ctx()).unwrap();
+        settle(&c, &[&parent, &child]);
+        let ct = c.thread(&child).unwrap();
+        assert_eq!(ct.title, "↳ Audit billing");
+        assert_eq!(ct.project.as_deref(), Some("/work/app"), "the sub-agent works in the parent's project");
+        assert_eq!((ct.route.provider.as_str(), ct.route.model.as_deref()), ("cauldron-test-missing-cli", Some("m1")));
+        assert_eq!(ct.messages[0].text, "Audit the billing page", "only the task, never the parent's history");
+        let pt = c.thread(&parent).unwrap();
+        assert!(pt.messages[0].text.contains("failed"), "its answer (here a failure) comes back as the parent's turn: {:?}", pt.messages[0]);
+        assert!(pt.messages[0].author_name.as_deref().is_some_and(|n| n.contains("sub-agent")), "{:?}", pt.messages[0].author_name);
+
+        // Through the outbox, as `backspace mcp` posts it: pump starts it.
+        std::fs::create_dir_all(dir.join("relay/spawn")).unwrap();
+        std::fs::write(dir.join("relay/spawn/0000000000001-x.json"), serde_json::to_vec(&sp).unwrap()).unwrap();
+        let before = c.list().len();
+        c.pump(dead_ctx());
+        assert_eq!(c.list().len(), before + 1);
+        assert!(crate::relay::drain_spawns(&dir).is_empty(), "taken once");
     }
 
     #[test]

@@ -7,6 +7,7 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
+    tags: ["v*"]
     paths: ["crates/**", "Cargo.*", ".github/workflows/macos.yml"]
 
 permissions:
@@ -18,7 +19,7 @@ concurrency:
 
 jobs:
   build:
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
@@ -61,11 +62,18 @@ jobs:
             <key>CFBundleIdentifier</key><string>dev.cauldron.app</string>
             <key>CFBundleName</key><string>Cauldron</string>
             <key>CFBundlePackageType</key><string>APPL</string>
-            <key>CFBundleShortVersionString</key><string>0.1.0</string>
+            <key>CFBundleShortVersionString</key><string>0.2.0</string>
             <key>LSMinimumSystemVersion</key><string>11.0</string>
             <key>NSHighResolutionCapable</key><true/>
           </dict></plist>
           PLIST
+          # The runner's disk is nearly full after two release builds: drop the
+          # intermediate objects (the binaries are already in the .app) before
+          # hdiutil needs room for the image.
+          for t in aarch64-apple-darwin x86_64-apple-darwin; do
+            rm -rf target/$t/release/deps target/$t/release/build target/$t/release/incremental
+          done
+          df -h . | tail -1
           codesign --force --deep -s - "$app"
           hdiutil create -volname Cauldron -srcfolder "$app" -ov -format UDZO out/Cauldron-mac.dmg
           ditto -c -k --keepParent "$app" out/Cauldron-mac.app.zip
@@ -77,6 +85,7 @@ jobs:
           path: |
             out/Cauldron-mac.dmg
             out/Cauldron-mac.app.zip
+          retention-days: 7
 
       - name: Publish to the "mac-latest" pre-release
         # Only a push to main moves the rolling release. A manual run on a
@@ -90,3 +99,15 @@ jobs:
           gh release create mac-latest out/Cauldron-mac.dmg out/Cauldron-mac.app.zip --prerelease --target "$GITHUB_SHA" \
             --title "Cauldron for Mac (latest main)" \
             --notes "Built from ${GITHUB_SHA::7}. Unsigned: right-click Cauldron.app, then Open, the first time, or run: xattr -dr com.apple.quarantine /Applications/Cauldron.app"
+
+      # A version tag (v*) adds the build to that version's release, which the
+      # Windows workflow fills too.
+      - name: Add to the version release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="$GITHUB_REF_NAME"
+          gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --verify-tag --title "Cauldron $tag" \
+            --notes-file .github/release-notes.md || true
+          gh release upload "$tag" out/Cauldron-mac.dmg out/Cauldron-mac.app.zip --clobber

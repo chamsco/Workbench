@@ -155,6 +155,58 @@ pub fn evaluate(model: &dyn DecisionModel, traces: &[Trace], threshold: f64, cfg
     })
 }
 
+/// One trace's outcome under a decision model at a threshold.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PerTrace {
+    pub id: String,
+    pub label: TaskType,
+    pub best: TaskType,
+    pub p: f64,
+    pub confident: bool,
+    pub correct: bool,
+    pub chars: usize,
+}
+
+/// What `EvalReport` does not carry: the confusion matrix and the split of
+/// confident versus asked outcomes. `confusion[true][predicted]` in
+/// `TaskType::ALL` order. A trace is confident when its top probability meets
+/// the threshold; accuracy over all traces counts the asked ones too.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Extended {
+    pub confusion: [[usize; 3]; 3],
+    pub confident: usize,
+    pub confident_correct: usize,
+    pub asked: usize,
+    /// Asked, and the top class was wrong: the mistakes asking catches.
+    pub wrong_caught: usize,
+    /// Asked, but the top class was right: escalated without need.
+    pub asked_but_right: usize,
+    pub per_trace: Vec<PerTrace>,
+}
+
+pub fn extended(model: &dyn DecisionModel, traces: &[Trace], threshold: f64) -> Result<Extended> {
+    let idx = |t: TaskType| TaskType::ALL.iter().position(|x| *x == t).expect("known type");
+    let mut x = Extended { confusion: [[0; 3]; 3], confident: 0, confident_correct: 0, asked: 0, wrong_caught: 0, asked_but_right: 0, per_trace: vec![] };
+    for t in traces {
+        let dist = task_distribution(model, &t.text).with_context(|| format!("trace `{}`", t.id))?;
+        let triage = Triage::from_distribution(&dist, threshold);
+        let (best, p) = (triage.best(), triage.p());
+        let correct = best == t.label;
+        let confident = matches!(triage, Triage::Confident { .. });
+        x.confusion[idx(t.label)][idx(best)] += 1;
+        if confident {
+            x.confident += 1;
+            x.confident_correct += correct as usize;
+        } else {
+            x.asked += 1;
+            x.wrong_caught += !correct as usize;
+            x.asked_but_right += correct as usize;
+        }
+        x.per_trace.push(PerTrace { id: t.id.clone(), label: t.label, best, p, confident, correct, chars: t.text.chars().count() });
+    }
+    Ok(x)
+}
+
 fn pct(num: usize, den: usize) -> String {
     if den == 0 {
         "n/a".into()
