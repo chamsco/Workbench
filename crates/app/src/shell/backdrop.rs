@@ -63,6 +63,13 @@ pub(crate) const GLASS_TERM: f32 = 0.70;
 /// Over the user's own picture or GIF, which is not tone-mapped: a heavier scrim.
 pub(crate) const MEDIA_SCRIM: f32 = 0.66;
 
+/// How dark the scrim over the user's picture is: (pref name, alpha).
+pub(crate) const DIMS: [(&str, f32); 3] = [("light", 0.30), ("medium", 0.48), ("dark", MEDIA_SCRIM)];
+
+pub(crate) fn dim_alpha(p: &Prefs) -> f32 {
+    DIMS.iter().find(|(n, _)| Some(*n) == p.stream_dim.as_deref()).map_or(MEDIA_SCRIM, |(_, a)| *a)
+}
+
 /// Pictures the stream card can show (GPUI decodes these; a GIF plays).
 pub(crate) const MEDIA_EXT: [&str; 5] = ["png", "jpg", "jpeg", "webp", "gif"];
 

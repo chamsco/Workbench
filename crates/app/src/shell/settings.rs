@@ -248,6 +248,39 @@ impl Cauldron {
                 None => "The painting under a light frost, or your own picture or GIF (png, jpg, webp, gif).".into(),
             };
             col = col.child(row(("appearance", 1), "Stream background".into(), help, seg.test_support().into_any_element()));
+            if pic {
+                let cur = Prefs::load();
+                let mut seg = div().id("set-stream-dim").flex().gap(px(2.)).p(px(2.)).rounded(px(radius::CONTROL)).border_1().border_color(c(pal.line_strong));
+                for (i, (name, a)) in super::backdrop::DIMS.into_iter().enumerate() {
+                    let on = (super::backdrop::dim_alpha(&cur) - a).abs() < 0.001;
+                    seg = seg.child(
+                        div()
+                            .id(("stream-dim-opt", i))
+                            .h(px(24.))
+                            .px(px(10.))
+                            .flex()
+                            .items_center()
+                            .rounded(px(radius::TAG))
+                            .cursor_pointer()
+                            .when_live(on, |d| d.bg(c(pal.selected)))
+                            .when_live(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
+                            .aria_selected(on)
+                            .aria_label(name)
+                            .text_size(px(12.))
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(if on { fg } else { fg2 })
+                            .child(name[..1].to_uppercase() + &name[1..])
+                            .on_click(cx.listener(move |_, _, _, cx| {
+                                let mut p = Prefs::load();
+                                p.stream_dim = Some(name.to_string());
+                                p.save();
+                                cx.notify();
+                            }))
+                            .test_support(),
+                    );
+                }
+                col = col.child(row(("appearance", 3), "Picture dimming".into(), "How dark the scrim over your picture is, so the text stays readable.".into(), seg.test_support().into_any_element()));
+            }
             return div().id("settings-body").size_full().overflow_y_scroll().flex().justify_center().child(col).test_support().into_any_element();
         }
         if page != 0 {

@@ -425,7 +425,7 @@ impl Cauldron {
             if let Some(path) = self.stream_bg.clone() {
                 return Some(vec![
                     img(path).id("stream-bg").absolute().left_0().top_0().size_full().rounded(round).object_fit(ObjectFit::Cover).test_support().into_any_element(),
-                    div().absolute().left_0().top_0().size_full().rounded(round).bg(backdrop::surface(true, pal.frame, backdrop::MEDIA_SCRIM)).into_any_element(),
+                    div().absolute().left_0().top_0().size_full().rounded(round).bg(backdrop::surface(true, pal.frame, backdrop::dim_alpha(&Prefs::load()))).into_any_element(),
                 ]);
             }
         }
