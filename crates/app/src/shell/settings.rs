@@ -212,6 +212,43 @@ impl Cauldron {
                 );
             }
             col = col.child(row(("appearance", 2), "Frost".into(), "How much of the painting shows through the frame and sidebar. The cards keep their light glass.".into(), seg.test_support().into_any_element()));
+            // Windows only: the window controls as a slim strip across the top (the default), or in a
+            // notch cut into the top-right card (Charles, 20 Nov).
+            if platform() != cauldron_chrome::layout::Platform::Mac {
+                let notch = platform() == cauldron_chrome::layout::Platform::WindowsNotch;
+                let mut seg = div().id("set-window").flex().gap(px(2.)).p(px(2.)).rounded(px(radius::CONTROL)).border_1().border_color(c(pal.line_strong));
+                for (i, name) in ["Top strip", "Notch"].into_iter().enumerate() {
+                    let on = (i == 1) == notch;
+                    seg = seg.child(
+                        div()
+                            .id(("window-opt", i))
+                            .h(px(24.))
+                            .px(px(10.))
+                            .flex()
+                            .items_center()
+                            .rounded(px(radius::TAG))
+                            .cursor_pointer()
+                            .when_live(on, |d| d.bg(c(pal.selected)))
+                            .when_live(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
+                            .aria_selected(on)
+                            .aria_label(name)
+                            .text_size(px(12.))
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(if on { fg } else { fg2 })
+                            .child(name)
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                set_notch(i == 1);
+                                let mut p = Prefs::load();
+                                p.window_style = (i == 1).then(|| "notch".to_string());
+                                p.save();
+                                this.motion = Default::default();
+                                cx.notify();
+                            }))
+                            .test_support(),
+                    );
+                }
+                col = col.child(row(("appearance", 3), "Window controls".into(), "A slim strip across the top of the window, or a notch in the top-right corner of the stream card.".into(), seg.test_support().into_any_element()));
+            }
             // The stream card: the light frost of the painting, or the user's own picture or GIF.
             let mut seg = div().id("set-stream-bg").flex().gap(px(2.)).p(px(2.)).rounded(px(radius::CONTROL)).border_1().border_color(c(pal.line_strong));
             let pic = self.stream_bg.is_some();
@@ -368,6 +405,12 @@ mod tests {
             assert_eq!(window.find("settings-empty").label(), Some("Machines settings arrive in a later milestone."));
             window.click(("settings-page", 2usize), cx);
             assert_eq!(window.find(("appearance", 0usize)).label(), Some("Backdrop"));
+            // Windows only (Charles, 20 Nov): the top strip by default, or the notch.
+            let windows = crate::shell::platform() != cauldron_chrome::layout::Platform::Mac;
+            assert_eq!(window.try_find(("appearance", 3usize)).is_some(), windows, "Window controls is a Windows setting");
+            if windows {
+                assert_eq!(window.find(("window-opt", 0usize)).selected(), Some(true), "the strip is the default");
+            }
             assert_eq!(window.find(("backdrop-opt", 1usize)).selected(), Some(true), "plain by default");
             window.click(("backdrop-opt", 0usize), cx);
             window.render_frame(cx);

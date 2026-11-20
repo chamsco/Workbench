@@ -1,20 +1,20 @@
-# Windows top bar and agent figures (20 Nov 2026)
+# Windows top strip, notch option, apps row, agent figures (20 Nov 2026)
 
-Charles: drop the Windows notch for the older top bar, and bring back the agent design that was no longer in the app.
-Direction board: `design/cauldron-top-bar-figures.html` (A, the full-width bar, picked over B, a slim strip).
-Shots are the real GPUI window under Xvfb at 1200x720 with `CAULDRON_PLATFORM=windows`, fixture streams, Plain backdrop.
+Round 1: Charles asked to drop the notch for the older top bar and to find the missing agent design.
+Round 2 (his reply): top bar B is the default (a slim strip, tabs stay in the card), the notch comes back as an
+Appearance option, the apps are separate buttons above New stream, the right rail's mark shows only the open
+panel, and streams get no agent figure (agents, familiars and captains do).
+Direction board: `design/cauldron-top-bar-figures.html` (B picked). Shots are the real GPUI window under Xvfb,
+1200x720, `CAULDRON_PLATFORM=windows`, fixture streams, Plain backdrop, dark.
 
-| | Before | After |
+| | Before (gg3ogp, notch) | After |
 |---|---|---|
-| Open, dark | ![](before-open-dark.png) | ![](after-open-dark.png) |
-| Open, light | ![](before-open-light.png) | ![](after-open-light.png) |
-| Folded, support card, dark | ![](before-folded-support-dark.png) | ![](after-folded-support-dark.png) |
-| Folded, hover indent (after only) | | ![](after-folded-hover-indent-dark.png) |
+| Default, open | ![](before-open-dark.png) | ![](after-strip-dark.png) |
+| Default, support card | ![](before-folded-support-dark.png) | ![](after-strip-support-dark.png) |
+| Notch option (Settings > Appearance > Window controls) | | ![](after-notch-option-dark.png) |
+| The setting | | ![](after-appearance-window-controls.png) |
 
-What changed (Windows only; macOS is unchanged):
-- 38px top bar across the window on the frame: sidebar button, search, inbox, the tabs, "N needs you", the tools, and the caption buttons at the right end. The notch is gone. The cards start under the bar.
-- The sidebar's own top row (logo, name) is gone; its buttons moved into the bar.
-- Agent figures are back (`crates/chrome/src/avatar.rs` was complete but nothing drew it): every stream row, the pinned tab, and the chat status line's outlined bust. Mood follows state: asking (needs you), error face (failed), cog (running), plain (done).
-- Why they were gone: NL3 (38c24b7) removed them after the 13 Nov note "figures belong to the Agents page"; the Tight tiles rebuild kept dots and the Agents page never got them.
+Before shots are round 1's baseline (notch, one tray under New stream, dots).
 
-Limits: the figure is a still frame (the cog does not spin yet); other tabs than the pinned one are names only; the figure colour comes from the stream's agent name, so a stream with none is the coordinator's colour; "N needs you" counts streams only (familiars not included).
+Limits: not run on a real Windows PC; the notch option needs an app restart-free toggle but I only drove it by
+saving the pref and relaunching in the capture; the figure is a still frame; "N needs you" counts streams only.

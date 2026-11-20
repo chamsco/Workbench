@@ -4,9 +4,11 @@
 //! Tight tiles board (design/cauldron-tight-tiles/index.html, Charles 15 Nov), as measured into
 //! `tests/golden/wireframe.json`: no top bar, the sidebar flat on the frame, the stream card and the
 //! support card as tight tiles 4px apart, the terminal docked under the stream, the quick-button
-//! rail inside the rightmost card. On Windows (Charles, 20 Nov: the notch is out) a 38px top bar
-//! runs across the window on the frame: sidebar button, search and inbox, the tabs, "N needs you",
-//! the tools and the caption buttons, with the cards starting under it. macOS keeps no bar.
+//! rail inside the rightmost card. On Windows a slim strip runs across the top of the window on
+//! the frame (Charles, 20 Nov, option B): sidebar button, search, inbox, "N needs you" and the
+//! caption buttons, with the tabs and tools staying in the stream card's header. The old
+//! notch is an Appearance option ([`Platform::WindowsNotch`]): no strip, the caption buttons in
+//! a notch cut into the rightmost card's top-right. macOS has neither.
 //! [`solve`] first applies the minimum-width rule.
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -33,8 +35,10 @@ impl Rect {
 pub enum Platform {
     /// Traffic lights top-left, no notch.
     Mac,
-    /// A 38px top bar across the window holds the caption buttons, no traffic lights.
+    /// A slim strip across the top of the window holds the caption buttons, no traffic lights.
     Windows,
+    /// Caption buttons in a notch in the rightmost card's top-right, no strip (the option).
+    WindowsNotch,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -60,11 +64,13 @@ pub struct Shell {
     pub support: Option<Rect>,
     /// The 44px quick-button rail inside the rightmost card's right edge, under its header.
     pub rail: Rect,
-    /// Windows: the top bar across the window, on the frame.
+    /// Windows: the top strip across the window, on the frame.
     pub bar: Option<Rect>,
-    /// Windows: "N needs you", in the bar left of the tools.
+    /// Windows with the notch option: the 100x40 notch cut into the rightmost card's top-right.
+    pub notch: Option<Rect>,
+    /// Windows strip: "N needs you", at the strip's right, left of the caption buttons.
     pub pill: Option<Rect>,
-    /// Windows: minimise, maximise, close, at the bar's right end.
+    /// Windows: minimise, maximise, close (at the strip's right end, or inside the notch).
     pub caps: Option<Rect>,
     /// The sidebar's search and inbox buttons: beside the sidebar button (left of it in the
     /// sidebar's top row; right of it in the Windows bar).
@@ -108,11 +114,16 @@ pub mod metric {
     pub const HEAD_GAP: f32 = 2.0;
     /// Open-in (54), three buttons (28 each) and their 4px gaps.
     pub const TOOLS_W: f32 = 146.0;
-    /// Windows: the top bar's height, and the caption buttons (three 46px cells) in it.
-    pub const BAR_H: f32 = 38.0;
+    /// Windows: the top strip's height, and the caption buttons (three 46px cells) in it.
+    pub const BAR_H: f32 = 34.0;
     pub const CAP_W: f32 = 46.0;
     pub const CAPS_W: f32 = 138.0;
-    pub const CAPS_H: f32 = 38.0;
+    pub const CAPS_H: f32 = 34.0;
+    /// The notch option: 100x40 cut into the card, the buttons 84x28 inside it.
+    pub const NOTCH_W: f32 = 100.0;
+    pub const NOTCH_H: f32 = 40.0;
+    pub const NOTCH_CAPS_W: f32 = 84.0;
+    pub const NOTCH_CAPS_H: f32 = 28.0;
     /// Windows: the "N needs you" pill in the bar.
     pub const PILL_W: f32 = 100.0;
     pub const PILL_H: f32 = 24.0;
@@ -130,8 +141,9 @@ pub fn support_width(w: f32) -> f32 {
 /// The window's geometry for exactly the state asked for.
 pub fn layout(w: f32, h: f32, state: ShellState, platform: Platform) -> Shell {
     use metric::*;
-    let windows = platform == Platform::Windows;
-    let (top, bottom, right) = (if windows { BAR_H } else { GAP }, h - GAP, w - GAP);
+    let strip = platform == Platform::Windows;
+    let windows = strip || platform == Platform::WindowsNotch;
+    let (top, bottom, right) = (if strip { BAR_H } else { GAP }, h - GAP, w - GAP);
     let full_h = bottom - top;
 
     let sidebar = state.sidebar_open.then(|| Rect::new(0.0, top, SIDEBAR_W, full_h));
@@ -151,45 +163,52 @@ pub fn layout(w: f32, h: f32, state: ShellState, platform: Platform) -> Shell {
 
     let host = support.unwrap_or(main);
     let rail = Rect::new(host.right() - 1.0 - RAIL_W, host.y + BODY_TOP, RAIL_W, host.h - BODY_TOP - 1.0);
-    let bar = windows.then(|| Rect::new(0.0, 0.0, w, BAR_H));
-    let caps = windows.then(|| Rect::new(w - CAPS_W, 0.0, CAPS_W, CAPS_H));
+    let bar = strip.then(|| Rect::new(0.0, 0.0, w, BAR_H));
+    let notch = (platform == Platform::WindowsNotch).then(|| Rect::new(host.right() - NOTCH_W, host.y, NOTCH_W, NOTCH_H));
+    let caps = if strip {
+        Some(Rect::new(w - CAPS_W, 0.0, CAPS_W, CAPS_H))
+    } else {
+        notch.map(|n| Rect::new(n.x + 7.0, n.y + 6.0, NOTCH_CAPS_W, NOTCH_CAPS_H))
+    };
 
-    // The header row: 6px in from the card's top and left; on Windows it is the bar's row.
-    let row_y = if windows { (BAR_H - TAB_H) / 2.0 } else { main.y + HEAD_IN };
+    // The header row: 6px in from the card's top and left.
+    let row_y = main.y + HEAD_IN;
     let (lights, sidebar_button, new_button, title, tabs_x) = match (sidebar, platform) {
-        // Windows: the bar's left end holds the sidebar button, search and inbox; the tabs start
-        // at the stream card's left edge, or after the inbox when the sidebar is folded.
-        (sb, Platform::Windows) => {
-            let sbtn = Rect::new(10.0, row_y, SBTN, SBTN);
-            let after = sbtn.x + 3.0 * 36.0 + 8.0;
-            let _ = sb;
-            (None, sbtn, None, None, (main.x + HEAD_IN).max(after))
+        // The strip's left end holds the sidebar button, search and inbox, open or folded.
+        (_, Platform::Windows) => {
+            let sbtn = Rect::new(10.0, (BAR_H - SBTN) / 2.0, SBTN, SBTN);
+            (None, sbtn, None, None, main.x + HEAD_IN)
         }
-        // Open: the sidebar's top row holds the lights, then search and the button.
+        // Open: the sidebar's top row holds the lights or the logo, then search and the button.
         (Some(sb), _) => {
-            let lights = Rect::new(sb.x + 12.0, sb.y + 17.0, LIGHTS_W, LIGHTS_H);
-            (Some(lights), Rect::new(sb.x + 196.0, sb.y + 9.0, SBTN, SBTN), None, None, main.x + HEAD_IN)
+            let lights = (!windows).then(|| Rect::new(sb.x + 12.0, sb.y + 17.0, LIGHTS_W, LIGHTS_H));
+            let title = windows.then(|| Rect::new(sb.x + 16.0, sb.y + 9.0, 96.0, SBTN));
+            (lights, Rect::new(sb.x + 196.0, sb.y + 9.0, SBTN, SBTN), None, title, main.x + HEAD_IN)
         }
         // macOS folded: lights, sidebar button, New stream, tabs.
-        (None, _) => {
+        (None, Platform::Mac) => {
             let lights = Rect::new(main.x + HEAD_IN, main.y + 14.0, LIGHTS_W, LIGHTS_H);
             let sbtn = Rect::new(lights.right() + 2.0, row_y, SBTN, SBTN);
             let newb = Rect::new(sbtn.right() + HEAD_GAP, row_y, SBTN, SBTN);
             (Some(lights), sbtn, Some(newb), None, newb.right() + HEAD_GAP)
         }
+        // Notch, folded: the sidebar button in the stream card, left of the tabs, with a rule between.
+        (None, _) => {
+            let sbtn = Rect::new(main.x + HEAD_IN, row_y, SBTN, SBTN);
+            (None, sbtn, None, None, sbtn.right() + 15.0)
+        }
     };
-    let (search_button, bell_button) = if windows {
+    let (search_button, bell_button) = if strip {
         (Rect::new(sidebar_button.x + 36.0, sidebar_button.y, SBTN, SBTN), Rect::new(sidebar_button.x + 72.0, sidebar_button.y, SBTN, SBTN))
     } else {
         (Rect::new(sidebar_button.x - 36.0, sidebar_button.y, SBTN, SBTN), Rect::new(sidebar_button.x - 72.0, sidebar_button.y, SBTN, SBTN))
     };
-    let tools_right = if windows { w - CAPS_W - HEAD_PR } else { main.right() - 1.0 - HEAD_PR };
-    let tools = Rect::new(tools_right - TOOLS_W, row_y, TOOLS_W, TAB_H);
-    let pill = windows.then(|| Rect::new(tools.x - HEAD_GAP - 4.0 - PILL_W, (BAR_H - PILL_H) / 2.0, PILL_W, PILL_H));
-    let tabs_end = pill.map_or(tools.x, |p| p.x);
-    let tabs = Rect::new(tabs_x, row_y, (tabs_end - HEAD_GAP - tabs_x).max(0.0), TAB_H);
+    let notch_room = if notch.is_some() && support.is_none() { NOTCH_W + HEAD_GAP } else { 0.0 };
+    let tools = Rect::new(main.right() - 1.0 - HEAD_PR - notch_room - TOOLS_W, row_y, TOOLS_W, TAB_H);
+    let pill = strip.then(|| Rect::new(w - CAPS_W - 8.0 - PILL_W, (BAR_H - PILL_H) / 2.0, PILL_W, PILL_H));
+    let tabs = Rect::new(tabs_x, row_y, (tools.x - HEAD_GAP - tabs_x).max(0.0), TAB_H);
 
-    Shell { effective: state, sidebar, main, dock, support, rail, bar, pill, caps, search_button, bell_button, lights, sidebar_button, new_button, title, tabs, tools }
+    Shell { effective: state, sidebar, main, dock, support, rail, bar, notch, pill, caps, search_button, bell_button, lights, sidebar_button, new_button, title, tabs, tools }
 }
 
 /// The state that actually fits: the stream column keeps [`metric::MAIN_MIN_W`], so the support

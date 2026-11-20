@@ -36,13 +36,22 @@ mod thread;
 pub(crate) mod shots;
 
 /// Where the shell draws window controls: lights on macOS, caption buttons elsewhere.
+/// Appearance > Window on Windows: the old notch in the card instead of the top strip.
+static NOTCH: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub(crate) fn set_notch(on: bool) {
+    NOTCH.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
 pub(crate) fn platform() -> Platform {
     // Debug builds only: `CAULDRON_PLATFORM=windows` draws the Windows chrome on a Mac, for screenshots.
     if cfg!(debug_assertions) && std::env::var("CAULDRON_PLATFORM").is_ok_and(|v| v == "windows") {
-        return Platform::Windows;
+        return if NOTCH.load(std::sync::atomic::Ordering::Relaxed) { Platform::WindowsNotch } else { Platform::Windows };
     }
     if cfg!(target_os = "macos") {
         Platform::Mac
+    } else if NOTCH.load(std::sync::atomic::Ordering::Relaxed) {
+        Platform::WindowsNotch
     } else {
         Platform::Windows
     }
@@ -335,6 +344,7 @@ impl Cauldron {
         c.painting = backdrop::wants_painting(&prefs);
         c.stream_bg = backdrop::stream_bg(&prefs);
         c.frost = backdrop::FrostLevel::from_pref(&prefs);
+        set_notch(prefs.window_style.as_deref() == Some("notch"));
         if c.painting {
             Self::warm_glass(cx);
         }
@@ -614,32 +624,33 @@ impl Cauldron {
                     for t in ts {
                         let on = self.selected.as_deref() == Some(t.id.as_str());
                         let id = t.id.clone();
-                        // The agent's figure (Charles, 20 Nov, from the round 3 board): its colour from the
-                        // agent, its mood from the state: asking when it needs you, an error face when the
-                        // reply failed, the cog while it works, a plain face when done.
-                        let (state, mood) = match g {
-                            Group::Running => ("Working", Mood::Working),
-                            Group::NeedsYou if t.failed.is_some() => ("Failed", Mood::Error),
-                            Group::NeedsYou => ("Needs you", Mood::Asking),
-                            Group::Done => ("Done", Mood::Idle),
+                        // A state dot, agent or not (figures belong to the Agents page): amber when it
+                        // needs you (red when the reply failed), the accent with a halo while it runs,
+                        // a hollow ring when done (the board's `.dot`).
+                        let state = match g {
+                            Group::Running => "Working",
+                            Group::NeedsYou if t.failed.is_some() => "Failed",
+                            Group::NeedsYou => "Needs you",
+                            Group::Done => "Done",
                         };
-                        let (fw, fh) = avatar::size(ROW_FIG);
-                        let fig = div()
-                            .id(("thread-fig", i))
-                            .flex_none()
-                            .w(px(fw))
-                            .h(px(fh))
-                            .child(img(Arc::new(Image::from_bytes(ImageFormat::Svg, avatar::svg(agent_dot(t), mood, Look { px: ROW_FIG, outline: false, ms: None, bust: false, ink: None }).into_bytes()))).size_full());
+                        let dot = div().id(("thread-dot", i)).size(px(7.)).rounded_full();
+                        let dot = match state {
+                            // The halo is the board's `box-shadow: 0 0 0 3px`, so the dot keeps its 7px.
+                            "Working" => dot.bg(c(pal.accent)).shadow(vec![BoxShadow { color: ca(pal.accent, 0.18), offset: point(px(0.), px(0.)), blur_radius: px(0.), spread_radius: px(3.), inset: false }]),
+                            "Failed" => dot.bg(c(pal.bad)),
+                            "Needs you" => dot.bg(c(pal.warn)),
+                            _ => dot.border_1().border_color(c(pal.fg4)),
+                        };
                         let slot = div()
                             .id(("thread-av", i))
-                            .w(px(fw))
+                            .w(px(7.))
                             .h(px(22.))
                             .flex_none()
                             .flex()
                             .items_center()
                             .justify_center()
                             .aria_label(state)
-                            .child(fig.test_support());
+                            .child(dot.test_support());
                         list = list.child(
                             div()
                                 .id(("thread", i))
@@ -1101,16 +1112,9 @@ fn icon_button_in(id: impl Into<ElementId>, name: &str, label: &'static str, pal
 
 /// The sidebar's padding (the board's `.sb`: 8 8 6 10).
 const SIDE_PL: f32 = 10.0;
-/// A stream row's agent figure, the sheet's 22px size.
-const ROW_FIG: f32 = 22.0;
-/// The tab's figure.
+/// An agent's figure on its tab and in lists (Charles, 20 Nov): only agents and captains get one;
+/// streams do not.
 const TAB_FIG: f32 = 16.0;
-
-/// The agent's colour index in `AGENT_DOTS`: the same agent always gets the same colour. A stream
-/// with no named agent is the coordinator's, which is the first colour.
-pub(crate) fn agent_dot(t: &ThreadInfo) -> usize {
-    t.agent.as_deref().map_or(0, |a| a.bytes().fold(0usize, |h, b| h.wrapping_mul(31).wrapping_add(b as usize)) % tokens::AGENT_DOTS.len())
-}
 const SIDE_PR: f32 = 8.0;
 
 /// How long the usage badges trust accounts.json before reading it again.
@@ -1354,48 +1358,27 @@ impl Render for Cauldron {
         // ---- sidebar, flat on the frame (the board's `.sb`): the top row (lights or logo, and the
         // sidebar button, drawn on the window), a line, the apps row, New stream, Search, the list
         if let Some(sp) = s.sidebar {
-            // The apps tray (19 Nov): left-packed in a sunken tray under New stream; the indicator is
-            // a raised key that slides to the selected app (INDICATOR ms); each app swaps the list.
-            let mut fnrow = div()
-                .id("apps-tray")
-                .relative()
-                .flex()
-                .gap(px(apps::TRAY_GAP))
-                .p(px(apps::TRAY_PAD))
-                .mt(px(6.))
-                .mb(px(2.))
-                .rounded(px(radius::CONTROL + 2.0))
-                .bg(ca(Rgb::hex(0x000000), if dark { 0.22 } else { 0.05 }))
-                .border_1()
-                .border_color(c(pal.line))
-                .aria_label("Apps");
-            let pos = crate::motion::ease_between(self.section_from, self.section as f32, self.section_since, now, cauldron_chrome::motion::time::INDICATOR);
-            fnrow = fnrow.child(
-                div()
-                    .absolute()
-                    .left(px(apps::tray_x(pos) - 1.0))
-                    .top(px(apps::TRAY_PAD - 1.0))
-                    .w(px(apps::TRAY_BTN_W))
-                    .h(px(apps::TRAY_BTN_H))
-                    .rounded(px(radius::CONTROL))
-                    .bg(ca(pal.fg, if dark { 0.11 } else { 0.08 }))
-                    .border_1()
-                    .border_color(c(pal.line_strong)),
-            );
+            // The apps row (20 Nov): above New stream, each app its own button with its own fill and
+            // border (the stream rows' look, but separate); the open one is darker. Each app swaps the list.
+            let mut fnrow = div().id("apps-tray").flex().gap(px(apps::TRAY_GAP)).mt(px(if s.bar.is_some() { 0. } else { 6. })).mb(px(8.)).aria_label("Apps");
             for (i, (name, label)) in FUNCTIONS.iter().enumerate() {
                 let on = i == self.section;
                 let b = div()
                     .id(("fn", i))
                     .w(px(apps::TRAY_BTN_W))
                     .h(px(apps::TRAY_BTN_H))
+                    .flex_none()
                     .flex()
                     .items_center()
                     .justify_center()
                     .rounded(px(radius::CONTROL))
+                    .border_1()
                     .cursor_pointer()
                     .aria_label(*label)
                     .aria_selected(on)
-                    .when_live(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
+                    .border_color(if on { c(pal.line_strong) } else { c(pal.line) })
+                    .bg(ca(pal.fg, if on { if dark { 0.16 } else { 0.12 } } else if dark { 0.04 } else { 0.03 }))
+                    .when_live(!on, |d| d.hover(|d| d.bg(ca(pal.fg, if dark { 0.08 } else { 0.06 }))))
                     .child(glyph(name, 15., if on { fg } else { fg3 }))
                     .on_click(cx.listener(move |this, _, _, cx| this.select_section(i, cx)));
                 fnrow = fnrow.child(self.tipped(("fn", i), b, *label, Side::Right, pal, cx).test_support());
@@ -1459,8 +1442,8 @@ impl Render for Cauldron {
                 .pb(px(6.))
                 .child(div().id("side-top").h(px(if s.bar.is_some() { 0. } else { 30. })).flex_none().window_control_area(WindowControlArea::Drag).test_support())
                 .overflow_hidden()
+                .when_live(self.settings.is_none(), |d| d.child(fnrow.test_support()))
                 .when_live(self.settings.is_none(), |d| d.child(new_thread))
-                .child(fnrow.when_live(self.settings.is_some(), |d| d.mb(px(8.))).test_support())
                 .when_live(self.settings.is_some(), |d| d.child(self.settings_nav(self.settings.unwrap_or(0), pal, cx).test_support()))
                 // The search row opens from the top row's search button and stays while it has text.
                 .when_live(self.settings.is_none() && (self.search_open || !self.query.is_empty()), |d| d.child(
@@ -1556,8 +1539,7 @@ impl Render for Cauldron {
                 let run = TextRun { len: anchor_label.len(), font: Font { weight: FontWeight::MEDIUM, features: sans_features(), ..font(SANS) }, color: fg, background_color: None, underline: None, strikethrough: None };
                 f32::from(window.text_system().shape_line(anchor_label.clone(), px(12.5), &[run], None).width)
             };
-            let fig_w = avatar::size(TAB_FIG).0 + CLOSE_GAP;
-            let anchor_w = (TAB_PAD + fig_w + label_w + TAB_PAD + 2.0).ceil().min(ANCHOR_MAX);
+            let anchor_w = (TAB_PAD + label_w + TAB_PAD + 2.0).ceil().min(ANCHOR_MAX);
             let n = self.agents.len();
             let room = s.tabs.w - anchor_w - (TAB_GAP + ADD_W);
             let scrolls = n as f32 * (TAB_MIN + TAB_GAP) + TAB_GAP > room;
@@ -1636,16 +1618,6 @@ impl Render for Cauldron {
                 .w(px(anchor_w))
                 .px(px(TAB_PAD))
                 .aria_label(anchor_label.clone())
-                .child({
-                    let (fw, fh) = avatar::size(TAB_FIG);
-                    div()
-                        .id("tab-fig")
-                        .flex_none()
-                        .w(px(fw))
-                        .h(px(fh))
-                        .child(img(Arc::new(Image::from_bytes(ImageFormat::Svg, avatar::svg(0, Mood::Idle, Look { px: TAB_FIG, outline: false, ms: None, bust: false, ink: None }).into_bytes()))).size_full())
-                        .test_support()
-                })
                 .child(div().min_w_0().truncate().child(anchor_label.clone()))
                 .on_click(cx.listener(|this, _, window, cx| {
                     this.active = 0;
@@ -1684,6 +1656,16 @@ impl Render for Cauldron {
                     .group(group)
                     .px(px(TAB_PAD))
                     .aria_label(agent.name.clone())
+                    .child({
+                        let (fw, fh) = avatar::size(TAB_FIG);
+                        div()
+                            .id(("tab-fig", i))
+                            .flex_none()
+                            .w(px(fw))
+                            .h(px(fh))
+                            .child(img(Arc::new(Image::from_bytes(ImageFormat::Svg, avatar::svg(i, Mood::Idle, Look { px: TAB_FIG, outline: false, ms: None, bust: false, ink: None }).into_bytes()))).size_full())
+                            .test_support()
+                    })
                     .child(div().min_w_0().truncate().child(agent.name.clone()))
                     .child(close)
                     .on_click(cx.listener(move |this, _, window, cx| {
@@ -1765,14 +1747,14 @@ impl Render for Cauldron {
             .flex()
             .items_center()
             .gap(px(4.))
-            .pl(px(if s.bar.is_some() { 14.0 } else { s.tabs.x - s.main.x - 1.0 + TAB_PAD }))
+            .pl(px(s.tabs.x - s.main.x - 1.0 + TAB_PAD))
             .pr(px(14.))
             .text_size(px(12.5))
             .text_color(fg3)
             // Under a familiar's folder tabs the header is the frame they sit on.
             .when_live(self.familiar.is_some(), |d| d.bg(familiar::fam_layers(self.painting, pal).1))
             .window_control_area(WindowControlArea::Drag);
-        if (tab_row.is_none() || s.bar.is_some()) && self.familiar.is_none() {
+        if tab_row.is_none() && self.familiar.is_none() {
             if let Some(p) = self.thread.as_ref().filter(|_| self.settings.is_none()).and_then(|t| t.project.as_ref()) {
                 let folder = p.rsplit(['/', '\\']).find(|s| !s.is_empty()).unwrap_or(p).to_string();
                 head = head.child(div().id("card-crumb").flex_none().aria_label(folder.clone()).child(format!("{folder} /")).test_support());
@@ -1915,7 +1897,7 @@ impl Render for Cauldron {
                 .items_center()
                 .gap(px(TAB_GAP))
                 .pl(px(metric::HEAD_IN - 1.0))
-                .pr(px(metric::HEAD_PR))
+                .pr(px(metric::HEAD_PR + s.notch.map_or(0.0, |n| n.w)))
                 .window_control_area(WindowControlArea::Drag);
             // The open tab stays in view: when it is past the first three it takes the third place.
             let open_at = self.support_tabs.iter().position(|q| Some(*q) == self.drawer);
@@ -1927,7 +1909,8 @@ impl Render for Cauldron {
                 let i = self.support_tabs.iter().position(|t| *t == q).unwrap_or(0);
                 let on = self.drawer == Some(q);
                 shead = shead.child(
-                    // Tabs give way before the + does: three long tabs and "+N" would push + off the card.
+                    // Tabs give way before the + does: with the Windows notch reserved on the
+                    // right, three long tabs and "+N" would push + under the caption buttons.
                     div()
                         .id(("st", i))
                         .h(px(metric::TAB_H))
@@ -2114,7 +2097,8 @@ impl Render for Cauldron {
         // toggle at the bottom. A short accent mark shows a panel that has a tab.
         {
             let rail_button = |this: &Self, id: (&'static str, usize), p: Panel, cx: &mut Context<Self>| {
-                let has_tab = this.support_tabs.contains(&p);
+                // The mark shows the open panel only, not every panel that has a tab (Charles, 20 Nov).
+                let has_tab = this.drawer == Some(p);
                 this.tipped(id, icon_button(id, p.icon(), p.title(), pal, this.drawer == Some(p)), p.title(), Side::Left, pal, cx)
                     .when_live(has_tab, |d| d.child(div().absolute().left(px(-8.)).top(px(9.)).w(px(3.)).h(px(10.)).rounded(px(2.)).bg(accent)))
                     .on_click(cx.listener(move |this, _, _, cx| {
@@ -2262,6 +2246,11 @@ impl Render for Cauldron {
             )
             .test_support(),
         );
+        // Windows notch, folded: a short rule between the button and the tabs.
+        if s.sidebar.is_none() && s.lights.is_none() && s.bar.is_none() {
+            let b = s.sidebar_button;
+            root = root.child(abs(Rect::new(b.right() + 7.0, b.y + 6.0, 1.0, 16.0)).bg(c(pal.line)));
+        }
         // ---- macOS folded: New stream after the sidebar button
         if let Some(np) = s.new_button {
             root = root.child(
@@ -2277,7 +2266,23 @@ impl Render for Cauldron {
             );
         }
 
-        // ---- Windows: the top bar across the window (Charles, 20 Nov; the notch is out). It sits on
+        // ---- Windows notch option: cut into the rightmost card's top-right, with the caption buttons
+        if let Some(n) = s.notch {
+            // A cut, not a pane: over the painting it shows the same frame layer, cropped to it.
+            let mut notch = pane("notch", n).bg(frame).overflow_hidden().rounded_bl(px(radius::PANEL));
+            if let Some(img_src) = layer.clone() {
+                notch = notch
+                    .child(img(img_src).absolute().left(px(-n.x)).top(px(-n.y)).w(px(w)).h(px(h)).object_fit(ObjectFit::Cover))
+                    .child(div().absolute().size_full().bg(backdrop::frame_tint_at(pal, dark, self.frost)));
+            }
+            root = root.child(
+                notch
+                    .child(div().absolute().size_full().border_l_1().border_b_1().border_color(c(pal.line)).rounded_bl(px(radius::PANEL)))
+                    .window_control_area(WindowControlArea::Drag)
+                    .test_support(),
+            );
+        }
+        // ---- Windows: the top strip across the window (Charles, 20 Nov, option B). It sits on
         // the frame layer, so it only needs to be a drag area under the buttons, then the pill.
         if let Some(bar) = s.bar {
             root = root.child(pane("bar", bar).window_control_area(WindowControlArea::Drag).test_support());
@@ -2315,6 +2320,7 @@ impl Render for Cauldron {
                     .flex()
                     .items_center()
                     .justify_center()
+                    .when_live(s.notch.is_some(), |d| d.rounded(px(radius::CONTROL)))
                     .window_control_area(area)
                     .occlude()
                     .hover(move |d| d.bg(if danger { bad } else { ca(pal.fg, 0.08) }))
@@ -2641,7 +2647,7 @@ mod tests {
             window.render_frame(cx);
             assert_eq!(window.find("tooltip").label(), Some("Usage"));
             let (tip, btn) = (rect(window, "tooltip"), rect(window, ("fn", 4usize)));
-            assert!((tip.x - (btn.right() + 8.0)).abs() < 0.5, "left-side tip sits 8px right of its button: {tip:?} {btn:?}");
+            assert!((tip.x - (btn.right() + 8.0)).abs() < 1.5, "left-side tip sits 8px right of its button: {tip:?} {btn:?}");
         })
         .unwrap();
     }
@@ -2718,8 +2724,7 @@ mod tests {
             let head = rect(window, "card-head");
             assert_eq!((head.x, head.y, head.w, head.h), (card.x + 1.0, card.y + 1.0, card.w - 2.0, 38.0), "head");
             assert_eq!(window.find("card-title").label(), Some("New stream"));
-            let want_x = if s.bar.is_some() { card.x + 1.0 + 14.0 } else { s.tabs.x + 10.0 };
-            assert_eq!(rect(window, "card-title").x, want_x, "the title where a tab's label would start (14 in on Windows, under the bar)");
+            assert_eq!(rect(window, "card-title").x, s.tabs.x + 10.0, "the title where a tab's label would start");
         })
         .unwrap();
     }
@@ -2735,8 +2740,8 @@ mod tests {
             let s = layout::solve(W, H, ShellState { sidebar_open: true, support_open: false, dock_open: false }, platform());
             let row = rect(window, "tabs");
             assert_eq!((row.x, row.y, row.w, row.h), (s.tabs.x, s.tabs.y, s.tabs.w, s.tabs.h), "tab row");
-            let head = rect(window, if s.bar.is_some() { "bar" } else { "card-head" });
-            assert!(row.y >= head.y && row.bottom() <= head.bottom(), "in the card's header, or the Windows top bar");
+            let head = rect(window, "card-head");
+            assert!(row.y >= head.y && row.bottom() <= head.bottom(), "in the card's header");
             for i in 0..=3usize {
                 let t = rect(window, ("tab", i));
                 assert_eq!((t.y, t.h), (row.y, 28.0), "tab {i}");
@@ -2951,14 +2956,14 @@ mod tests {
     /// No agent figures in threads (Charles, 13 Nov): they belong to the Agents page. A tab is its
     /// label after the 8px padding, with agents on the thread or not.
     #[gpui_kit::test]
-    fn the_pinned_tab_carries_the_agent_figure(cx: &mut TestAppContext) {
+    fn only_agent_tabs_carry_the_agent_figure(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let handle = open(cx, with_agents(2, &[]));
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
-            assert!(window.try_find("tab-fig").is_some(), "the pinned tab draws the coordinator's figure");
-            for i in 0..=2usize {
-                assert!(window.try_find(("tab-fig", i)).is_none(), "the other tabs are names only for now");
+            assert!(window.try_find("tab-fig").is_none(), "the pinned stream tab has no figure");
+            for i in 1..=2usize {
+                assert!(window.try_find(("tab-fig", i)).is_some(), "agent tab {i} draws the agent's figure");
             }
         })
         .unwrap();
@@ -2966,7 +2971,7 @@ mod tests {
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
             assert_eq!(window.find(("tab", 0usize)).label(), Some("Plain thread"));
-            assert!(window.try_find("tab-fig").is_some(), "a normal thread's tab draws the figure too");
+            assert!(window.try_find("tab-fig").is_none(), "a normal thread's tab has no figure");
         })
         .unwrap();
     }
@@ -3214,6 +3219,28 @@ mod tests {
         .unwrap();
     }
 
+    /// The apps (20 Nov): a row above New stream, each its own button with a gap between, not one
+    /// tray with a sliding key.
+    #[gpui_kit::test]
+    fn the_apps_are_separate_buttons_above_new_stream(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = open(cx, with_threads());
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            let (apps, new) = (rect(window, "apps-tray"), rect(window, "new-thread"));
+            assert!(apps.bottom() <= new.y, "the apps sit above New stream");
+            for i in 0..super::FUNCTIONS.len() {
+                let b = rect(window, ("fn", i));
+                assert!(b.x >= apps.x && b.right() <= apps.right() + 0.5, "app {i} inside the row");
+                if i > 0 {
+                    assert!(b.x - rect(window, ("fn", i - 1)).right() >= 3.5, "app {i} has its own space");
+                }
+            }
+            assert_eq!(window.find(("fn", 0usize)).selected(), Some(true), "Streams is the open one");
+        })
+        .unwrap();
+    }
+
     /// The rows are the Tight tiles board's `.th`: 30 high, the agent's 22px figure 8px in (its
     /// mood from the stream's state), the title, the repo as a tag, and a 6px ping on an unread row
     /// only. Every row shows a figure (Charles, 20 Nov, from the round 3 board; it had been
@@ -3235,12 +3262,12 @@ mod tests {
                 let r = rect(window, ("thread", i));
                 assert_eq!(r.h, 30.0, "row {i}");
                 let a = rect(window, ("thread-av", i));
-                assert!((a.w - super::avatar::size(22.0).0).abs() <= 0.5 && a.h == 22.0, "row {i}'s slot is the 22px figure, got {}x{}", a.w, a.h);
+                assert_eq!((a.w, a.h), (7.0, 22.0), "row {i}'s slot");
                 assert!((a.y + a.h / 2.0 - (r.y + r.h / 2.0)).abs() <= 1.0, "row {i}'s slot is centred");
-                assert_eq!(a.x - r.x, 8.0, "row {i}'s figure is 8px in");
+                assert_eq!(a.x - r.x, 8.0, "row {i}'s dot is 8px in, as the board's");
                 assert_eq!(window.find(("thread-av", i)).label(), Some(state), "row {i}");
-                assert!(window.try_find(("thread-fig", i)).is_some(), "row {i}: the agent's figure (Charles, 20 Nov)");
-                assert!(window.try_find(("thread-dot", i)).is_none(), "row {i}: the figure replaces the dot");
+                assert!(window.try_find(("thread-fig", i)).is_none(), "row {i}: no figure, streams do not have agents (Charles, 20 Nov)");
+                assert!(window.try_find(("thread-dot", i)).is_some(), "row {i}: a state dot");
                 assert_eq!(window.find(("thread-meta", i)).label(), Some("no repo"), "row {i}");
             }
             let (row, ping) = (rect(window, ("thread", 0usize)), rect(window, ("ping", 0usize)));

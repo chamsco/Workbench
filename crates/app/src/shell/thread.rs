@@ -115,27 +115,23 @@ pub(super) fn steps(t: &backspace_core::trace::Trace, thought: bool) -> Vec<Stri
 fn pending(s: Status) -> Option<&'static str> {
     match s {
         Status::Stopped => Some("Stopped"),
-        s => live(s).map(|(_, l)| l),
+        s => live(s),
     }
 }
 
-/// A reply on its way: the agent's mood and what its status line says.
-fn live(s: Status) -> Option<(Mood, &'static str)> {
+/// A reply on its way: what its status line says.
+fn live(s: Status) -> Option<&'static str> {
     match s {
-        Status::Sending => Some((Mood::Waiting, "Waiting for the reply")),
-        Status::Streaming => Some((Mood::Typing, "Writing")),
+        Status::Sending => Some("Waiting for the reply"),
+        Status::Streaming => Some("Writing"),
         _ => None,
     }
 }
 
-/// The agent's bust in a 16px slot, then its label: the same slot and 8px gap as the step
-/// lines, so the label starts where their text does. It stays under the text while the reply
-/// streams. The head and marks overhang the slot, so the image sits absolutely above it.
-fn status_line(i: usize, mood: Mood, label: &'static str, grey: Rgb) -> impl IntoElement {
-    // ponytail: a still frame (ms None); the cog spin and typing hop come with the motion clock.
-    let look = Look { px: 16., outline: true, ms: None, bust: true, ink: Some(grey) };
-    let (w, h, top) = avatar::bust_frame(16.);
-    let pic = img(Arc::new(Image::from_bytes(ImageFormat::Svg, avatar::svg(0, mood, look).into_bytes())));
+/// A 6px dot in a 16px slot, then the label: the same slot and 8px gap as the step lines, so the
+/// label starts where their text does. It stays under the text while the reply streams. No agent
+/// bust: figures belong to the Agents page (Charles, 13 Nov).
+fn status_line(i: usize, label: &'static str, grey: Rgb) -> impl IntoElement {
     div()
         .id(("live", i))
         .flex()
@@ -145,7 +141,7 @@ fn status_line(i: usize, mood: Mood, label: &'static str, grey: Rgb) -> impl Int
         .text_size(px(12.5))
         .text_color(c(grey))
         .aria_label(label)
-        .child(div().id(("bust", i)).relative().size(px(16.)).flex_none().child(pic.absolute().left_0().top(px(-top)).w(px(w)).h(px(h))).test_support())
+        .child(div().id(("live-slot", i)).size(px(16.)).flex_none().flex().items_center().justify_center().child(div().size(px(6.)).rounded_full().bg(c(grey))).test_support())
         .child(div().id(("live-text", i)).child(label).test_support())
         .test_support()
 }
@@ -416,7 +412,7 @@ impl Cauldron {
                     d.child(col.test_support())
                 })
                 .when_live(!l.text.is_empty() || live(l.status).is_none(), |d| d.child(div().text_size(px(13.)).line_height(px(20.)).text_color(if l.text.is_empty() { fg3 } else { fg }).child(shown.clone())))
-                .when_some(live(l.status), |d, (mood, label)| d.child(status_line(i, mood, label, pal.fg3)));
+                .when_some(live(l.status), |d, label| d.child(status_line(i, label, pal.fg3)));
             if let Some(e) = &l.error {
                 let mut err = div()
                     .id(("msg-error", i))
@@ -918,8 +914,7 @@ pub(super) mod tests {
             // Tight tiles: the stream's title is its tab, in the stream card's header.
             assert_eq!(window.find(("tab", 0usize)).label(), Some("Get M3 through review"));
             let (tab, head) = (super::super::tests::rect(window, ("tab", 0usize)), super::super::tests::rect(window, "card-head"));
-            let head = if super::super::platform() == cauldron_chrome::layout::Platform::Windows { super::super::tests::rect(window, "bar") } else { head };
-            assert!(tab.x >= head.x && tab.right() <= head.right() && tab.y >= head.y && tab.bottom() <= head.bottom(), "the title tab sits in the card header, or the Windows top bar");
+            assert!(tab.x >= head.x && tab.right() <= head.right() && tab.y >= head.y && tab.bottom() <= head.bottom(), "the title tab sits in the card header");
             assert_eq!(window.find(("msg", 0usize)).label(), Some("Run the tests"));
             assert_eq!(window.find(("msg", 1usize)).label(), Some("All 591 pass."));
             assert_eq!(window.find(("steps", 1usize)).label(), Some("Thought, Read 1 file, Ran 1 command"), "how the reply was made, from its trace");
@@ -933,8 +928,9 @@ pub(super) mod tests {
         .unwrap();
     }
 
-    /// A reply still on its way shows the agent's bust and what it is doing, in the step lines' grey
-    /// with its label lined up on the step text, under any text so far; a finished reply has none.
+    /// A reply still on its way shows a dot and what it is doing, in the step lines' grey with its
+    /// label lined up on the step text, under any text so far; a finished reply has none. No agent
+    /// bust: figures belong to the Agents page (Charles, 13 Nov).
     #[gpui_kit::test]
     fn a_running_reply_shows_a_status_line(cx: &mut TestAppContext) {
         let (handle, _chats) = open(cx);
@@ -958,8 +954,9 @@ pub(super) mod tests {
             cx.update_window(handle.into(), |_, window, cx| {
                 window.render_frame(cx);
                 assert_eq!(window.find(("live", 2usize)).label(), Some(label));
-                let slot = window.find(("bust", 2usize)).bounds();
-                assert_eq!((slot.size.width, slot.size.height), (px(16.), px(16.)), "the agent's bust in a 16px square slot");
+                assert!(window.try_find(("bust", 2usize)).is_none(), "no agent bust");
+                let slot = window.find(("live-slot", 2usize)).bounds();
+                assert_eq!((slot.size.width, slot.size.height), (px(16.), px(16.)), "a 16px square slot");
                 let tx = window.find(("live-text", 2usize)).bounds().origin.x;
                 let step = window.find("step-text-1-0").bounds().origin.x;
                 assert_eq!(tx, step, "the label lines up with the step text");
