@@ -9,7 +9,7 @@
 
 use backspace_core::config::{Config, DEFAULT_CONFIG};
 use backspace_core::decision::{task_distribution, DecisionModel, KeywordDecider, KeywordDeciderNoLength, TaskType, Triage};
-use backspace_core::eval::{evaluate, parse_traces, Trace};
+use backspace_core::eval::{evaluate, extended, parse_traces, Trace};
 use serde_json::{json, Value};
 
 fn main() -> anyhow::Result<()> {
@@ -43,26 +43,9 @@ fn main() -> anyhow::Result<()> {
     let rep = evaluate(model.as_ref(), &traces, threshold, &cfg)?;
 
     let types = TaskType::ALL;
-    let idx = |t: TaskType| types.iter().position(|x| *x == t).unwrap();
-    let mut confusion = vec![vec![0usize; 3]; 3]; // [true][predicted]
-    let (mut conf_n, mut conf_ok, mut ask_n, mut ask_wrong) = (0usize, 0usize, 0usize, 0usize);
-    let mut per = vec![];
-    for t in &traces {
-        let dist = task_distribution(model.as_ref(), &t.text)?;
-        let tri = Triage::from_distribution(&dist, threshold);
-        let (best, p) = (tri.best(), tri.p());
-        confusion[idx(t.label)][idx(best)] += 1;
-        let ok = best == t.label;
-        let confident = matches!(tri, Triage::Confident { .. });
-        if confident {
-            conf_n += 1;
-            conf_ok += ok as usize;
-        } else {
-            ask_n += 1;
-            ask_wrong += !ok as usize;
-        }
-        per.push(json!({"id": t.id, "label": t.label.as_str(), "best": best.as_str(), "p": p, "confident": confident, "correct": ok, "chars": t.text.chars().count()}));
-    }
+    let x = extended(model.as_ref(), &traces, threshold)?;
+    let (confusion, conf_n, conf_ok, ask_n, ask_wrong) = (x.confusion, x.confident, x.confident_correct, x.asked, x.wrong_caught);
+    let per: Vec<Value> = x.per_trace.iter().map(|p| json!({"id": p.id, "label": p.label.as_str(), "best": p.best.as_str(), "p": p.p, "confident": p.confident, "correct": p.correct, "chars": p.chars})).collect();
     let n = traces.len();
     let per_type: Vec<Value> = rep.per_type.iter().map(|(t, s)| json!({"type": t.as_str(), "n": s.n, "correct": s.correct})).collect();
     let bins: Vec<Value> = rep.bins.iter().filter(|b| b.n > 0).map(|b| json!({"lo": b.lo, "hi": b.hi, "n": b.n, "mean_confidence": b.mean_confidence, "accuracy": b.accuracy})).collect();
