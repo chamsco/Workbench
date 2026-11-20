@@ -459,6 +459,85 @@ impl Accounts {
     }
 }
 
+/// One login of a CLI as Settings and the model menu show it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LoginStatus {
+    /// The account's id; None is the machine's own login.
+    pub id: Option<String>,
+    pub name: String,
+    pub signed_in: crate::harnesses::Auth,
+    /// Who, or which plan ("work@x.com · Claude Max", "ChatGPT Plus").
+    pub detail: Option<String>,
+}
+
+/// One coding CLI: installed or not, its logins, and the one new turns use.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CliStatus {
+    pub provider: String,
+    pub name: String,
+    pub installed: bool,
+    pub version: Option<String>,
+    /// How to install it, when it is not.
+    pub install: String,
+    /// The machine's own login first, then each account added in Cauldron.
+    pub logins: Vec<LoginStatus>,
+    /// Index into `logins` of the one the next turn runs on.
+    pub active: usize,
+}
+
+impl CliStatus {
+    /// Usable now: installed and its active login signed in.
+    pub fn ready(&self) -> bool {
+        self.installed && self.logins.get(self.active).is_some_and(|l| l.signed_in == crate::harnesses::Auth::Authenticated)
+    }
+}
+
+/// The coding CLIs a stream can run on, each with its logins' state. Starts
+/// processes (`claude auth status`...), so call it off the UI thread.
+pub fn status_all(accounts: &Accounts, prefs: &crate::prefs::Prefs) -> Vec<CliStatus> {
+    use crate::harnesses::{Auth, Kind};
+    let scanned: Vec<_> = crate::harnesses::scan(prefs).into_iter().filter(|h| h.kind == Kind::Cli && h.chat).collect();
+    let now = crate::chat::now_ms();
+    std::thread::scope(|s| {
+        let jobs: Vec<_> = scanned
+            .iter()
+            .map(|h| {
+                s.spawn(move || {
+                    let mut logins = vec![LoginStatus { id: None, name: "This machine's login".into(), signed_in: h.auth, detail: h.detail.clone() }];
+                    for a in accounts.for_provider(&h.id) {
+                        let (signed_in, detail) = if h.installed { crate::harnesses::auth_with(&h.id, &accounts.env_for(&a.id)) } else { (Auth::Unknown, None) };
+                        logins.push(LoginStatus { id: Some(a.id.clone()), name: a.name.clone(), signed_in, detail });
+                    }
+                    let picked = accounts.pick(&h.id, now).map(|a| a.id.clone());
+                    let active = logins.iter().position(|l| l.id == picked).unwrap_or(0);
+                    CliStatus { provider: h.id.clone(), name: h.name.clone(), installed: h.installed, version: h.version.clone(), install: h.install.to_string(), logins, active }
+                })
+            })
+            .collect();
+        let mut v: Vec<CliStatus> = jobs.into_iter().filter_map(|j| j.join().ok()).collect();
+        v.sort_by_key(|s| !s.installed);
+        v
+    })
+}
+
+/// Add a login for `provider` and open its CLI's sign-in pointed at the new
+/// profile folder. Returns the new account's id.
+pub fn add_and_sign_in(path: &Path, provider: &str) -> Result<String> {
+    let mut a = Accounts::load(path);
+    let n = a.for_provider(provider).len() + 1;
+    let acc = a.add(provider, &format!("Account {n}"));
+    a.save(path)?;
+    crate::harnesses::open_login_with(provider, &a.env_for(&acc.id))?;
+    Ok(acc.id)
+}
+
+/// Open the sign-in for one login: an added account (its folder) or, with
+/// None, the machine's own.
+pub fn sign_in(path: &Path, provider: &str, id: Option<&str>) -> Result<()> {
+    let env = id.map(|id| Accounts::load(path).env_for(id)).unwrap_or_default();
+    crate::harnesses::open_login_with(provider, &env)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

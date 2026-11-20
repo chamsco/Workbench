@@ -28,6 +28,7 @@ mod motion;
 mod newthread;
 mod panes;
 mod settings;
+mod subs;
 mod support;
 mod terminal;
 mod thread;
@@ -482,6 +483,7 @@ impl Cauldron {
                 }
                 c.watch(changes, cx);
                 c.pump(cx);
+                c.load_providers(cx);
                 c.load_familiars(cx);
                 cx.notify();
             });

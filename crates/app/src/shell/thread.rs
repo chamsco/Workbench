@@ -586,7 +586,7 @@ impl Cauldron {
                     .when_live(!narrow, |d| d.child(self.trust_chip("trust", pal, cx)).child(self.plan_chip("plan", pal, cx)))
                     .child(div().flex_1())
                     // In a narrow pane the route chip gives way first, so Send stays in view.
-                    .child(chip_btn("route", format!("Answered by {}", t.route.provider)).min_w_0().truncate().test_support())
+                    .child(self.route_chip("route", super::subs::PickFor::Thread(t.id.clone()), Some(&t.route), pal, cx))
                     .child(effort_chip.flex_none().test_support())
                     .child(action),
             )

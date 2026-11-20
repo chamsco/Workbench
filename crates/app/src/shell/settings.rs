@@ -265,32 +265,10 @@ impl Cauldron {
         }
         col = col.child(div().text_size(px(13.)).text_color(fg3).mb(px(6.)).child("Who answers in your threads, and the subscriptions they run on."));
 
-        // Subscriptions: one row per login core knows (accounts.json). Usage only where the CLI reported it.
+        // Subscriptions (board "Accounts and looks", A): a row per coding CLI with its logins under it.
         let accounts = Accounts::load(&self.accounts_path());
         col = col.child(section("Subscriptions"));
-        if accounts.list.is_empty() {
-            col = col.child(row(("sub", 0), "No subscriptions on this machine yet".into(), "They appear here once a coding CLI account is added to Cauldron.".into(), div().into_any_element()));
-        }
-        for (i, a) in accounts.list.iter().enumerate() {
-            let who = a.identity.clone().map_or_else(|| "Not signed in yet".to_string(), |w| format!("Signed in as {w}"));
-            let help = format!("{} · {}", a.provider, who);
-            let usage = match a.usage.as_ref().and_then(|u| Some((u.used?, u.limit?))) {
-                Some((used, limit)) if limit > 0 => {
-                    let left = 100u64.saturating_sub(used * 100 / limit);
-                    let low = left < 20;
-                    div()
-                        .w(px(140.))
-                        .flex()
-                        .flex_col()
-                        .gap(px(3.))
-                        .child(div().h(px(4.)).rounded(px(2.)).bg(c(pal.line_strong)).child(div().h_full().w(relative(left as f32 / 100.0)).rounded(px(2.)).bg(if low { c(pal.warn) } else { fg3 })))
-                        .child(div().text_size(px(11.)).text_color(fg3).flex().justify_end().child(format!("{left}% left")))
-                        .into_any_element()
-                }
-                _ => div().id(("sub-usage", i)).text_size(px(12.)).text_color(fg3).aria_label("No data yet").child("No data yet").test_support().into_any_element(),
-            };
-            col = col.child(row(("sub", i), a.name.clone(), help, usage));
-        }
+        col = col.child(self.subscription_rows(pal, cx));
 
         // Agents: who plans and who builds (prefs), the CLI's effort (cycles, as the composer's
         // chip does) and what happens when a subscription hits its limit (cycles, saved to accounts.json).
@@ -356,7 +334,7 @@ mod tests {
             window.click("settings", cx);
             window.render_frame(cx);
             assert!(window.try_find(("thread", 0usize)).is_none() && window.try_find("new-thread").is_none(), "the thread list gives way");
-            assert_eq!(window.find(("sub", 0usize)).label(), Some("No subscriptions on this machine yet"));
+            assert_eq!(window.find(("sub", 0usize)).label(), Some("No coding CLI found on this machine"));
             assert_eq!(window.find("settings-back").label(), Some("Back to threads"));
             assert_eq!(window.find(("settings-page", 0usize)).label(), Some("Agents and subscriptions"));
             assert_eq!(window.find(("settings-page", 0usize)).selected(), Some(true));
@@ -387,25 +365,38 @@ mod tests {
         let _ = handle.update(cx, |_, _, _| ());
     }
 
-    /// A subscription with no usage from core shows "No data yet", never a made-up number.
+    /// Subscriptions list each CLI with its logins; one with nothing known says so rather than
+    /// showing a made-up state, and an unsigned login offers Sign in.
     #[gpui_kit::test]
-    fn a_subscription_without_usage_says_no_data_yet(cx: &mut TestAppContext) {
+    fn subscriptions_list_each_cli_with_its_logins(cx: &mut TestAppContext) {
+        use backspace_core::accounts::{CliStatus, LoginStatus};
+        use backspace_core::harnesses::Auth;
         let (handle, _chats) = open(cx);
-        // A file of the test's own, never the user's accounts.json.
         let path = std::env::temp_dir().join(format!("cauldron-settings-{}.json", std::process::id()));
-        let mut a = backspace_core::accounts::Accounts::default();
-        a.add("claude", "Work");
-        a.save(&path).unwrap();
-        let p2 = path.clone();
-        handle.update(cx, move |c, _, _| c.accounts_file = Some(p2)).unwrap();
+        handle.update(cx, move |c, _, _| {
+            c.accounts_file = Some(path);
+            c.start.providers = vec![CliStatus {
+                provider: "claude".into(),
+                name: "Claude".into(),
+                installed: true,
+                version: Some("2.1.0".into()),
+                install: String::new(),
+                logins: vec![
+                    LoginStatus { id: None, name: "This machine's login".into(), signed_in: Auth::Authenticated, detail: None },
+                    LoginStatus { id: Some("work".into()), name: "Work".into(), signed_in: Auth::Unauthenticated, detail: None },
+                ],
+                active: 0,
+            }];
+        })
+        .unwrap();
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
             window.click("settings", cx);
             window.render_frame(cx);
-            assert_eq!(window.find(("sub", 0usize)).label(), Some("Work"));
-            assert_eq!(window.find(("sub-usage", 0usize)).label(), Some("No data yet"));
+            assert_eq!(window.find(("sub-cli", 0usize)).label(), Some("Claude: 2.1.0 · 2 logins"));
+            assert_eq!(window.find(("sub-login", 1usize)).label(), Some("Work: Not signed in"));
+            assert_eq!(window.find(("sub-signin", 1usize)).label(), Some("Sign in"));
         })
         .unwrap();
-        let _ = std::fs::remove_file(path);
     }
 }

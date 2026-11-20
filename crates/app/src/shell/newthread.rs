@@ -39,6 +39,11 @@ pub(crate) struct Start {
     /// Familiar on (S1): Start hands the goal to a familiar in the chosen folder instead of
     /// opening a stream.
     pub(crate) familiar: bool,
+    /// Every coding CLI and its logins (`accounts::status_all`), for the route menu and Settings.
+    pub(crate) providers: Vec<backspace_core::accounts::CliStatus>,
+    pub(crate) providers_loading: bool,
+    /// The open route menu, and whose route it sets.
+    pub(crate) route_menu: Option<super::subs::PickFor>,
 }
 
 /// The route a new thread gets: the default chat model, else Claude Code if it is installed.
@@ -315,7 +320,6 @@ impl Cauldron {
             .child(glyph("arrow-up", 14., if ready { c(pal.on_accent) } else { fg2 }))
             .on_click(cx.listener(|this, _, window, cx| this.start_thread(window, cx)))
             .test_support();
-        let model = self.start.route.as_ref().map_or_else(|| "No model".to_string(), |r| r.model.clone().unwrap_or_else(|| r.provider.clone()));
         let tools = div()
             .flex()
             .items_center()
@@ -337,7 +341,7 @@ impl Cauldron {
             .when(self.start.familiar, |d| d.child(self.ship_chip(pal, cx)))
             .child(div().flex_1())
             // A familiar runs its own harness, whose models come from the project, not this route.
-            .when(!self.start.familiar, |d| d.child(div().id("nt-model").h(px(24.)).min_w_0().flex_shrink(1.).px(px(8.)).flex().items_center().gap(px(5.)).text_size(px(12.)).text_color(fg2).aria_label(model.clone()).child(div().min_w_0().truncate().child(model)).test_support()))
+            .when(!self.start.familiar, |d| d.child(self.route_chip("nt-model", super::subs::PickFor::New, self.start.route.as_ref(), pal, cx)))
             .child(
                 dd("nt-effort")
                     .h(px(24.))
