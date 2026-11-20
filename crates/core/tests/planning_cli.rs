@@ -68,9 +68,17 @@ fn wait(h: &Harness, what: &str, done: impl Fn(&ProjectState) -> bool) -> Projec
     }
 }
 
+/// What the bridge answered to one call. The shell opens `<name>.code` before
+/// curl gets the answer, and the harness can show the new state while curl is
+/// still writing, so this waits until the code is there.
 fn said(name: &str) -> (String, String) {
     let b = bin();
-    (std::fs::read_to_string(b.join(format!("{name}.code"))).unwrap_or_default(), std::fs::read_to_string(b.join(format!("{name}.body"))).unwrap_or_default())
+    let read = |ext: &str| std::fs::read_to_string(b.join(format!("{name}.{ext}"))).unwrap_or_default();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while read("code").is_empty() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    (read("code"), read("body"))
 }
 
 #[test]
