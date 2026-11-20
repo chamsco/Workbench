@@ -1701,6 +1701,9 @@ impl Render for Cauldron {
             // from the row, so each tab carries the row's wheel handler too. The open tab is the
             // `selected` fill with a hairline ring and no shadow; the rest are fg3 on the card.
             let ftab = |id: (&'static str, usize), on: bool, cx: &mut Context<Self>| {
+                // Only the card's own tab fills when open; an open agent tab outside it is bright
+                // text over an accent line, so it never reads as a second, lower card tab.
+                let pinned = id.1 == 0;
                 div()
                     .id(id)
                     .relative()
@@ -1709,7 +1712,8 @@ impl Render for Cauldron {
                     .gap(px(CLOSE_GAP))
                     .h(px(metric::TAB_H))
                     .rounded(px(tabshape::PILL_R))
-                    .when_live(on, |d| d.bg(c(pal.selected)).border_1().border_color(c(pal.line)))
+                    .when_live(on && pinned, |d| d.bg(c(pal.selected)).border_1().border_color(c(pal.line)))
+                    .when_live(on && !pinned, |d| d.child(div().absolute().left(px(TAB_PAD)).right(px(TAB_PAD)).bottom_0().h(px(2.)).rounded(px(1.)).bg(c(pal.accent))))
                     .when_live(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
                     .occlude()
                     .cursor_pointer()
@@ -1950,25 +1954,10 @@ impl Render for Cauldron {
                     .flex_col()
                     .overflow_hidden()
                     .rounded(px(radius::PANEL))
-                    .when_live(cut, |d| d.rounded_tl(px(tabshape::TAB_R)))
+                    // The tabbed card takes the tab's corners all round (Charles, 21 Nov).
+                    .when_live(cut, |d| d.rounded(px(tabshape::TAB_R)))
                     .when_live(!glass, |d| d.bg(backdrop::surface(self.painting, pal.panel, backdrop::GLASS_CARD)))
                     .children(under.unwrap_or_default())
-                    // The content well, one stroke inside the card under its tab (tabshape.rs).
-                    .when_live(cut, |d| {
-                        d.child(
-                            div()
-                                .id("card-well")
-                                .absolute()
-                                .left(px(tabshape::S - 1.0))
-                                .right(px(tabshape::S - 1.0))
-                                .top(px(tabshape::BUMP_H + tabshape::S - 1.0))
-                                .bottom(px(tabshape::S - 1.0))
-                                .rounded_t(px(tabshape::WELL_R))
-                                .rounded_b(px(2.))
-                                .bg(if dark { gpui::black().opacity(0.30) } else { gpui::white().opacity(0.45) })
-                                .test_support(),
-                        )
-                    })
                     .border_1()
                     .border_color(c(if glass { pal.line_strong } else { pal.line }))
                     .text_color(fg3)

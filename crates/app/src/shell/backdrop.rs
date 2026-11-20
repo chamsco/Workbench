@@ -321,6 +321,38 @@ pub(crate) fn crop(src: &RgbaImage, win: (f32, f32), r: Rect) -> RgbaImage {
     imageops::crop_imm(src, x0, y0, x1 - x0, y1 - y0).to_image()
 }
 
+/// The part of `src` under `r` as `crop` would cut it, in the layer's pixels: what a card drawn
+/// with that crop stretched over `r` shows.
+fn snapped(src: &RgbaImage, win: (f32, f32), r: Rect) -> [f32; 4] {
+    let (iw, ih) = (src.width() as f32, src.height() as f32);
+    let scale = (win.0 / iw).max(win.1 / ih).max(1e-6);
+    let (ox, oy) = ((win.0 - iw * scale) / 2.0, (win.1 - ih * scale) / 2.0);
+    let x0 = ((r.x - ox) / scale).floor().clamp(0.0, iw - 1.0);
+    let y0 = ((r.y - oy) / scale).floor().clamp(0.0, ih - 1.0);
+    let x1 = ((r.x + r.w - ox) / scale).ceil().clamp(x0 + 1.0, iw);
+    let y1 = ((r.y + r.h - oy) / scale).ceil().clamp(y0 + 1.0, ih);
+    [x0, y0, x1, y1]
+}
+
+/// The part of `src` under `r` exactly, for a layer drawn `object-fit: cover` over `win`.
+fn exact(src: &RgbaImage, win: (f32, f32), r: Rect) -> [f32; 4] {
+    let (iw, ih) = (src.width() as f32, src.height() as f32);
+    let scale = (win.0 / iw).max(win.1 / ih).max(1e-6);
+    let (ox, oy) = ((win.0 - iw * scale) / 2.0, (win.1 - ih * scale) / 2.0);
+    [(r.x - ox) / scale, (r.y - oy) / scale, (r.x + r.w - ox) / scale, (r.y + r.h - oy) / scale]
+}
+
+/// `src` over the layer-pixel rect `at`, resampled (bilinear, pixel centres) to `w` x `h`.
+fn resample(src: &RgbaImage, at: [f32; 4], w: u32, h: u32) -> RgbaImage {
+    let (sw, sh) = ((at[2] - at[0]) / w as f32, (at[3] - at[1]) / h as f32);
+    let (mx, my) = (src.width() as f32 - 1.0, src.height() as f32 - 1.0);
+    RgbaImage::from_fn(w, h, |x, y| {
+        let u = (at[0] + (x as f32 + 0.5) * sw - 0.5).clamp(0.0, mx);
+        let v = (at[1] + (y as f32 + 0.5) * sh - 0.5).clamp(0.0, my);
+        imageops::interpolate_bilinear(src, u, v).unwrap_or(*src.get_pixel(u as u32, v as u32))
+    })
+}
+
 /// The cards' crops of the light layer, by card: rebuilt only when a card's rect, the window or
 /// the theme changes. A replaced image is handed back so the caller frees it from GPUI's atlas.
 #[derive(Default)]
@@ -352,13 +384,26 @@ impl GlassCache {
 impl GlassCache {
     /// A crop of any layer `src` for piece `id` at `r`, where `src` covers a `win`-sized area
     /// (object-fit cover). Rebuilt when the rect, the area, the theme or the layers change.
-    pub(crate) fn piece(&mut self, id: &'static str, src: &RgbaImage, dark: bool, win: (f32, f32), r: Rect, stale: &mut Vec<Arc<RenderImage>>) -> Arc<RenderImage> {
+    ///
+    /// The piece is resampled at its own size, not cut on the layer's pixel grid, so a small piece
+    /// lines up with what is around it: with `within`, the card rect whose own crop (`get`) the
+    /// piece must match; without, the layer as drawn over the whole area.
+    pub(crate) fn piece(&mut self, id: &'static str, src: &RgbaImage, dark: bool, win: (f32, f32), r: Rect, within: Option<Rect>, stale: &mut Vec<Arc<RenderImage>>) -> Arc<RenderImage> {
         let mut key = (dark, [r.x, r.y, r.w, r.h, win.0, win.1, 0.0].map(|v| v.round() as i32));
         key.1[6] = generation() as i32;
         if let Some(s) = self.slots.iter().find(|s| s.0 == id && s.1 == key) {
             return s.2.clone();
         }
-        let img = Arc::new(to_render(crop(src, win, r)));
+        let at = match within {
+            Some(m) => {
+                let c = snapped(src, win, m);
+                let (kx, ky) = ((c[2] - c[0]) / m.w.max(1.0), (c[3] - c[1]) / m.h.max(1.0));
+                [c[0] + (r.x - m.x) * kx, c[1] + (r.y - m.y) * ky, c[0] + (r.right() - m.x) * kx, c[1] + (r.y + r.h - m.y) * ky]
+            }
+            None => exact(src, win, r),
+        };
+        // Twice the piece's size in points: sharp enough on a 2x screen, and the layers are soft.
+        let img = Arc::new(to_render(resample(src, at, (r.w * 2.0).ceil().max(1.0) as u32, (r.h * 2.0).ceil().max(1.0) as u32)));
         if let Some(k) = self.slots.iter().position(|s| s.0 == id) {
             let (_, _, old) = self.slots.swap_remove(k);
             stale.push(old);

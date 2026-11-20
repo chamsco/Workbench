@@ -271,9 +271,10 @@ fn the_windows_strip_holds_the_window_controls() {
         }
         assert_eq!((strip.main.x, strip.main.w), (notch.main.x, notch.main.w), "{st:?}: same widths");
         let caps = strip.caps.unwrap();
-        assert_eq!((caps.right(), caps.y, caps.w, caps.h), (1200.0, 0.0, 138.0, 34.0), "{st:?}: three 46px cells at the right end");
+        let caps_y = if strip.support.is_none() { strip.main.y } else { 0.0 };
+        assert_eq!((caps.right(), caps.y, caps.w, caps.h), (1200.0, caps_y, 138.0, 34.0), "{st:?}: three 46px cells at the right end, down on the card's top line");
         assert!(strip.pill.is_none(), "{st:?}: no needs-you pill");
-        for r in [strip.sidebar_button, strip.search_button, strip.bell_button, caps] {
+        for r in [strip.sidebar_button, strip.search_button, strip.bell_button] {
             assert!(inside(bar, r), "{st:?}: {r:?} inside the strip");
         }
         assert_eq!((strip.sidebar_button.x, strip.search_button.x, strip.bell_button.x), (10.0, 46.0, 82.0), "{st:?}: sidebar, search, inbox in order");

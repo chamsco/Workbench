@@ -1,8 +1,9 @@
 //! The stream card's tab (Charles, 20 Nov, from his picture): the card grows a tab at its top
 //! left that holds the stream's tabs; to its right the frame comes down to the card's top line,
-//! joined by a concave foot. Every radius is the picture's, as a multiple of its frame stroke s
-//! (63 px there, `S` here): tab top corners 2.8s, the foot 1.5s, the active pill 1.3s, the
-//! content well 4s.
+//! joined by a concave foot. Radii (Charles, 21 Nov: the picture's were too round, and the top
+//! should match the bottom): every card corner, the tab's top ones too, is `TAB_R` (2s); the
+//! foot is one stroke; the open pill is concentric with the tab (TAB_R - S). The content shares
+//! the card's glass: no inner well with its own frost.
 //!
 //! GPUI rounds rectangles only, and the card is glass, so the shape is the card's own rect (its
 //! top-left rounded) with three pieces over it, each a crop of the very layer it stands for:
@@ -14,19 +15,16 @@
 
 use super::*;
 
-/// The frame stroke: the ring around the content well and the inset of the tabs.
+/// The frame stroke: the inset of the tabs.
 pub(crate) const S: f32 = 6.0;
-/// The tab's top corners and the body's top-right corner (2.8s).
-pub(crate) const TAB_R: f32 = 17.0;
-/// The body's top-right corner: the ring's width, so its card piece never reaches the content
-/// well (whose 4s corner leaves that much room), and the other cards' 6.
-pub(crate) const BODY_R: f32 = S;
-/// The concave foot where the tab meets the card's top line (1.5s).
-pub(crate) const FOOT_R: f32 = 9.0;
-/// The active tab's pill (1.3s).
-pub(crate) const PILL_R: f32 = 8.0;
-/// The content well's top corners (4s).
-pub(crate) const WELL_R: f32 = 24.0;
+/// Every corner of the stream card, the tab's top ones included (2s).
+pub(crate) const TAB_R: f32 = 12.0;
+/// The body's top-right corner: the card's own.
+pub(crate) const BODY_R: f32 = TAB_R;
+/// The concave foot where the tab meets the card's top line (1s).
+pub(crate) const FOOT_R: f32 = S;
+/// The open tab's pill, one stroke inside the tab: concentric with its corners.
+pub(crate) const PILL_R: f32 = TAB_R - S;
 /// The tab's height over the card's top line: the tabs' inset plus their height, so the open
 /// tab's pill sits on that line, as in the picture.
 pub(crate) const BUMP_H: f32 = metric::HEAD_IN + metric::TAB_H;
@@ -69,7 +67,7 @@ impl Cauldron {
         let mut d = round(abs(r), k);
         if self.painting {
             let mut stale = Vec::new();
-            let crop = self.glass.piece(id, &backdrop::frame_rgba(dark), dark, win, r, &mut stale);
+            let crop = self.glass.piece(id, &backdrop::frame_rgba(dark), dark, win, r, None, &mut stale);
             for old in stale {
                 let _ = window.drop_image(old);
             }
@@ -90,13 +88,14 @@ impl Cauldron {
         }
         let mut stale = Vec::new();
         let src = match (self.stream_bg.is_some(), backdrop::user_layers()) {
-            (true, Some(u)) => Some((u.pic.clone(), (main.w, main.h), Rect::new(r.x - main.x, r.y - main.y, r.w, r.h), backdrop::surface(true, pal.frame, backdrop::dim_alpha(&Prefs::load())))),
+            (true, Some(u)) => Some((u.pic.clone(), (main.w, main.h), Rect::new(r.x - main.x, r.y - main.y, r.w, r.h), None, backdrop::surface(true, pal.frame, backdrop::dim_alpha(&Prefs::load())))),
             (true, None) => None,
-            (false, _) => backdrop::card_source(dark).map(|src| (src, win, r, backdrop::tint(pal, dark))),
+            // The card's glass is its own crop of the light layer (GlassCache::get), stretched.
+            (false, _) => backdrop::card_source(dark).map(|src| (src, win, r, Some(main), backdrop::tint(pal, dark))),
         };
         d = match src {
-            Some((src, area, at, tint)) => {
-                let crop = self.glass.piece(id, &src, dark, area, at, &mut stale);
+            Some((src, area, at, within, tint)) => {
+                let crop = self.glass.piece(id, &src, dark, area, at, within, &mut stale);
                 d.child(round(img(crop).absolute().left_0().top_0().size_full().object_fit(ObjectFit::Fill), k)).child(round(div().absolute().left_0().top_0().size_full().bg(tint), k))
             }
             None => d.bg(backdrop::surface(true, pal.panel, backdrop::GLASS_CARD)),
@@ -138,13 +137,13 @@ impl Cauldron {
 mod tests {
     use super::*;
 
-    /// Every radius is the picture's multiple of the stroke (63 px there): tab tops 2.8s, the foot
-    /// 1.5s, the pill 1.3s, the well 4s; the pill sits on the card's top line.
+    /// The tab's top corners are the card's bottom ones, the pill is concentric with the tab, and
+    /// the pill sits on the card's top line.
     #[::core::prelude::v1::test]
-    fn the_radii_are_the_pictures_multiples_of_the_stroke() {
-        for (r, k) in [(TAB_R, 2.8), (FOOT_R, 1.5), (PILL_R, 1.3), (WELL_R, 4.0)] {
-            assert!((r / S - k).abs() < 0.1, "{r} is {:.2}s, the picture has {k}s", r / S);
-        }
+    fn the_top_corners_match_the_bottom_and_the_pill_is_concentric() {
+        assert_eq!(BODY_R, TAB_R);
+        assert_eq!(PILL_R, TAB_R - S);
+        assert!(TAB_R < 17.0, "Charles, 21 Nov: the 17px tab top was too round");
         assert_eq!(BUMP_H, metric::HEAD_IN + metric::TAB_H, "the open tab's pill ends on the card's top line");
         assert!((metric::HEAD_IN - S).abs() < 0.5, "the tabs sit one stroke in, as the picture's pill");
     }
@@ -161,9 +160,6 @@ mod tests {
             assert_eq!((frame.right(), frame.y, frame.w), (card.right(), card.y, r));
             assert_eq!(card.w, r * 2.0, "GPUI caps a radius at half the side");
         }
-        // The body's corner piece stays in the ring: the well's 4s corner never reaches it.
-        let (cx, cy) = (S + WELL_R, S + WELL_R);
-        assert!(((cx - 2.0 * BODY_R).powi(2) + (cy - 2.0 * BODY_R).powi(2)).sqrt() > WELL_R);
         assert_eq!((q1.0.right(), q1.0.y), (right.x, main.y));
         assert_eq!((q2.0.right(), q2.0.y), (main.right(), main.y + BUMP_H));
         assert!(pieces(main, 890.0).is_none());
