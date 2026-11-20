@@ -29,35 +29,60 @@ pub(crate) const PILL_R: f32 = TAB_R - S;
 /// tab's pill sits on that line, as in the picture.
 pub(crate) const BUMP_H: f32 = metric::HEAD_IN + metric::TAB_H;
 
-/// The pieces' rects for a card `main` whose tab is `bump_w` wide: the frame right of the tab,
-/// and the corners at the tab's top-right and the body's top-right, each a `TAB_R` frame square
-/// under a `2 * TAB_R` card square (GPUI clamps a corner's radius to half the side). None when
-/// the tab fills the card's width (nothing to cut).
-pub(crate) fn pieces(main: Rect, bump_w: f32) -> Option<(Rect, [(Rect, Rect); 2])> {
-    let bump_w = bump_w.max(TAB_R * 2.0).ceil();
-    if bump_w + FOOT_R + TAB_R * 2.0 >= main.w {
-        return None;
-    }
-    let right = Rect::new(main.x + bump_w, main.y, main.w - bump_w, BUMP_H);
-    let d = TAB_R * 2.0;
-    let q1 = (Rect::new(right.x - TAB_R, main.y, TAB_R, TAB_R), Rect::new(right.x - d, main.y, d, d));
-    let q2 = (Rect::new(main.right() - BODY_R, main.y + BUMP_H, BODY_R, BODY_R), Rect::new(main.right() - BODY_R * 2.0, main.y + BUMP_H, BODY_R * 2.0, BODY_R * 2.0));
-    Some((right, [q1, q2]))
+/// The frame beside the card's tab on one side, with its two convex corners: at the tab's top
+/// edge and at the body's top corner on that side. Each corner is a `TAB_R` frame square under a
+/// `2 * TAB_R` card square (GPUI clamps a corner's radius to half the side).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct Side {
+    pub frame: Rect,
+    pub tab_q: (Rect, Rect),
+    pub body_q: (Rect, Rect),
 }
 
+/// The pieces for a card `main` whose tab spans `bump = (x, w)` from the card's left edge (the
+/// tab follows the open tab, Charles 21 Nov): the frame left of the tab, if the tab is not at the
+/// card's left, and right of it, if it does not reach the right. None when neither is there.
+pub(crate) fn pieces(main: Rect, bump: (f32, f32)) -> Option<(Option<Side>, Option<Side>)> {
+    let d = TAB_R * 2.0;
+    let x = bump.0.max(0.0).floor();
+    let w = bump.1.max(d).ceil();
+    let room = FOOT_R + d;
+    let left = (x >= room).then(|| {
+        let bx = main.x + x;
+        Side {
+            frame: Rect::new(main.x, main.y, x, BUMP_H),
+            tab_q: (Rect::new(bx, main.y, TAB_R, TAB_R), Rect::new(bx, main.y, d, d)),
+            body_q: (Rect::new(main.x, main.y + BUMP_H, BODY_R, BODY_R), Rect::new(main.x, main.y + BUMP_H, BODY_R * 2.0, BODY_R * 2.0)),
+        }
+    });
+    let end = x + w;
+    let right = (end + room < main.w).then(|| {
+        let rx = main.x + end;
+        Side {
+            frame: Rect::new(rx, main.y, main.w - end, BUMP_H),
+            tab_q: (Rect::new(rx - TAB_R, main.y, TAB_R, TAB_R), Rect::new(rx - d, main.y, d, d)),
+            body_q: (Rect::new(main.right() - BODY_R, main.y + BUMP_H, BODY_R, BODY_R), Rect::new(main.right() - BODY_R * 2.0, main.y + BUMP_H, BODY_R * 2.0, BODY_R * 2.0)),
+        }
+    });
+    (left.is_some() || right.is_some()).then_some((left, right))
+}
 
 #[derive(Clone, Copy)]
 enum Corner {
     None,
     BottomLeft(f32),
+    BottomRight(f32),
     TopRight(f32),
+    TopLeft(f32),
 }
 
 fn round<E: Styled>(e: E, k: Corner) -> E {
     match k {
         Corner::None => e,
         Corner::BottomLeft(r) => e.rounded_bl(px(r)),
+        Corner::BottomRight(r) => e.rounded_br(px(r)),
         Corner::TopRight(r) => e.rounded_tr(px(r)),
+        Corner::TopLeft(r) => e.rounded_tl(px(r)),
     }
 }
 
@@ -108,26 +133,40 @@ impl Cauldron {
 
     /// The pieces over the stream card that cut its tab (module docs), in drawing order. They go on
     /// the window right after the card (over its border, under its tabs, tools and rail).
-    pub(super) fn tab_cut(&mut self, main: Rect, bump_w: f32, win: (f32, f32), dark: bool, pal: &'static Palette, window: &mut Window) -> Vec<AnyElement> {
-        let Some((right, qs)) = pieces(main, bump_w) else { return Vec::new() };
+    pub(super) fn tab_cut(&mut self, main: Rect, bump: (f32, f32), win: (f32, f32), dark: bool, pal: &'static Palette, window: &mut Window) -> Vec<AnyElement> {
+        let Some((left, right)) = pieces(main, bump) else { return Vec::new() };
         let line = c(if self.painting { pal.line_strong } else { pal.line });
         let mut out = Vec::new();
-        // One past the card's right and top edges, over its border there.
-        let right_out = Rect::new(right.x, main.y - 1.0, right.w + 1.0, right.h + 1.0);
-        let foot = self
-            .frame_piece("tab-frame", right_out, Corner::BottomLeft(FOOT_R), win, dark, pal, window)
-            .child(div().absolute().left_0().top_0().size_full().rounded_bl(px(FOOT_R)).border_l_1().border_b_1().border_color(line));
-        // The frame right of the tab is window frame: on Windows it drags the window (the
-        // stream card rises into the strip there, 20 Nov). Drawn before the tabs and the caption
-        // buttons, so their clicks stay theirs.
-        out.push(foot.id("tab-cut").window_control_area(WindowControlArea::Drag).test_support().into_any_element());
-        for (fid, cid, (fq, q), r) in [("tab-q1-frame", "tab-q1-card", qs[0], TAB_R), ("tab-q2-frame", "tab-q2-card", qs[1], BODY_R)] {
-            let fq = Rect::new(fq.x, fq.y - 1.0, fq.w + 1.0, fq.h + 1.0);
-            out.push(self.frame_piece(fid, fq, Corner::None, win, dark, pal, window).into_any_element());
-            let card = self
-                .card_piece(cid, main, q, Corner::TopRight(r), win, dark, pal, window)
-                .child(div().absolute().left_0().top_0().size_full().rounded_tr(px(r)).border_t_1().border_r_1().border_color(line));
-            out.push(card.into_any_element());
+        for (side, on_left) in [(left, true), (right, false)] {
+            let Some(side) = side else { continue };
+            let f = side.frame;
+            // One past the card's outer edge and top, over its border there.
+            let (fid, cid1, cid2, qf1, qf2) = if on_left {
+                ("tab-frame-l", "tab-q0-card", "tab-q3-card", "tab-q0-frame", "tab-q3-frame")
+            } else {
+                ("tab-frame", "tab-q1-card", "tab-q2-card", "tab-q1-frame", "tab-q2-frame")
+            };
+            let (out_r, foot, convex) = if on_left {
+                (Rect::new(f.x - 1.0, f.y - 1.0, f.w + 1.0, f.h + 1.0), Corner::BottomRight(FOOT_R), Corner::TopLeft as fn(f32) -> Corner)
+            } else {
+                (Rect::new(f.x, f.y - 1.0, f.w + 1.0, f.h + 1.0), Corner::BottomLeft(FOOT_R), Corner::TopRight as fn(f32) -> Corner)
+            };
+            let ring = div().absolute().left_0().top_0().size_full().border_b_1().border_color(line);
+            let ring = if on_left { ring.rounded_br(px(FOOT_R)).border_r_1() } else { ring.rounded_bl(px(FOOT_R)).border_l_1() };
+            // The frame beside the tab is window frame: on Windows it drags the window (the
+            // stream card rises into the strip there, 20 Nov). Drawn before the tabs and the
+            // caption buttons, so their clicks stay theirs.
+            let piece = self.frame_piece(fid, out_r, foot, win, dark, pal, window).child(ring);
+            let piece = if on_left { piece.id("tab-cut-l") } else { piece.id("tab-cut") };
+            out.push(piece.window_control_area(WindowControlArea::Drag).test_support().into_any_element());
+            for (fqid, cqid, (fq, q), r) in [(qf1, cid1, side.tab_q, TAB_R), (qf2, cid2, side.body_q, BODY_R)] {
+                let fq = if on_left { Rect::new(fq.x - 1.0, fq.y - 1.0, fq.w + 1.0, fq.h + 1.0) } else { Rect::new(fq.x, fq.y - 1.0, fq.w + 1.0, fq.h + 1.0) };
+                out.push(self.frame_piece(fqid, fq, Corner::None, win, dark, pal, window).into_any_element());
+                let edge = div().absolute().left_0().top_0().size_full().border_t_1().border_color(line);
+                let edge = if on_left { edge.rounded_tl(px(r)).border_l_1() } else { edge.rounded_tr(px(r)).border_r_1() };
+                let card = self.card_piece(cqid, main, q, convex(r), win, dark, pal, window).child(edge);
+                out.push(card.into_any_element());
+            }
         }
         out
     }
@@ -148,20 +187,27 @@ mod tests {
         assert!((metric::HEAD_IN - S).abs() < 0.5, "the tabs sit one stroke in, as the picture's pill");
     }
 
-    /// The frame piece starts where the tab ends and reaches the card's right edge; the corner
-    /// squares sit at the tab's top-right and at the body's top-right. A tab as wide as the card
-    /// cuts nothing.
+    /// The frame on the right starts where the tab ends and reaches the card's right edge; a tab
+    /// away from the card's left also has frame on its left; a tab as wide as the card cuts
+    /// nothing.
     #[::core::prelude::v1::test]
-    fn the_pieces_sit_at_the_tabs_edge_and_the_cards_corner() {
+    fn the_pieces_sit_beside_the_tab_wherever_it_is() {
         let main = Rect::new(260.0, 44.0, 900.0, 600.0);
-        let (right, [q1, q2]) = pieces(main, 300.0).unwrap();
-        assert_eq!((right.x, right.y, right.right(), right.h), (560.0, 44.0, main.right(), BUMP_H));
-        for ((frame, card), r) in [(q1, TAB_R), (q2, BODY_R)] {
-            assert_eq!((frame.right(), frame.y, frame.w), (card.right(), card.y, r));
-            assert_eq!(card.w, r * 2.0, "GPUI caps a radius at half the side");
+        let (l, r) = pieces(main, (0.0, 300.0)).unwrap();
+        assert!(l.is_none());
+        let r = r.unwrap();
+        assert_eq!((r.frame.x, r.frame.y, r.frame.right(), r.frame.h), (560.0, 44.0, main.right(), BUMP_H));
+        assert_eq!((r.tab_q.0.right(), r.tab_q.0.y), (560.0, main.y));
+        assert_eq!((r.body_q.0.right(), r.body_q.0.y), (main.right(), main.y + BUMP_H));
+        for ((frame, card), rr) in [(r.tab_q, TAB_R), (r.body_q, BODY_R)] {
+            assert_eq!((frame.w, card.w), (rr, rr * 2.0), "GPUI caps a radius at half the side");
         }
-        assert_eq!((q1.0.right(), q1.0.y), (right.x, main.y));
-        assert_eq!((q2.0.right(), q2.0.y), (main.right(), main.y + BUMP_H));
-        assert!(pieces(main, 890.0).is_none());
+        let (l, r) = pieces(main, (400.0, 120.0)).unwrap();
+        let l = l.unwrap();
+        assert_eq!((l.frame.x, l.frame.right(), l.tab_q.0.x, l.body_q.0.x), (main.x, 660.0, 660.0, main.x));
+        assert_eq!(r.unwrap().frame.x, 780.0);
+        let (l, r) = pieces(main, (700.0, 200.0)).unwrap();
+        assert!(l.is_some() && r.is_none(), "a tab at the card's right end has frame only on its left");
+        assert!(pieces(main, (0.0, 890.0)).is_none());
     }
 }

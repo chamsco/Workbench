@@ -774,8 +774,8 @@ impl Cauldron {
             ScrollDelta::Lines(p) => -(p.y + p.x),
             ScrollDelta::Pixels(p) => {
                 self.wheel -= f32::from(p.y + p.x);
-                let st = (self.wheel / (TAB_MIN + TAB_GAP)).trunc();
-                self.wheel -= st * (TAB_MIN + TAB_GAP);
+                let st = (self.wheel / (TAB_MIN + TAB_SEP)).trunc();
+                self.wheel -= st * (TAB_MIN + TAB_SEP);
                 st
             }
         };
@@ -1289,7 +1289,8 @@ const TAB_MAX: f32 = 200.0;
 /// A header tab (the board's `.tab`): 2px between tabs, 10px padding, 6px from the name to the
 /// close. No figure: agent figures belong to the Agents page.
 const TAB_GAP: f32 = 2.0;
-/// From the stream's tab to the first agent tab: the card's tab edge, its foot and a stroke of frame.
+/// Between tabs: the card's tab edge, its foot and a stroke of frame, so the card's tab fits
+/// around whichever tab is open.
 const TAB_SEP: f32 = tabshape::S + tabshape::FOOT_R + tabshape::S;
 const TAB_PAD: f32 = 10.0;
 const CLOSE_GAP: f32 = 6.0;
@@ -1637,8 +1638,8 @@ impl Render for Cauldron {
         // within an equal share of the room (TAB_MIN to TAB_MAX); when TAB_MIN no longer fits, arrows appear beside +
         // and the row shows a window of 72px tabs. No figures (Charles, 13 Nov).
         let mut tab_row = None;
-        // How far the stream card's tab reaches from the card's left edge (tabshape.rs).
-        let mut bump_w: Option<f32> = None;
+        // Where the stream card's tab sits, from the card's left edge, and how wide (tabshape.rs).
+        let mut bump: Option<(f32, f32)> = None;
         // A familiar's tabs are its own folder tabs on its stream card (familiar.rs).
         let fam = self.familiar.is_some().then(|| self.familiar_strips(s.main, s.support.is_none() && self.rail_on(false), pal, now, reduce, window, cx));
         if let Some(anchor_label) = self.coordinator.clone().filter(|_| self.familiar.is_none()) {
@@ -1649,14 +1650,15 @@ impl Render for Cauldron {
             };
             let anchor_w = (TAB_PAD + label_w + TAB_PAD + 2.0).ceil().min(ANCHOR_MAX);
             let n = self.agents.len();
-            // The card's tab holds only the stream's own tab; agents' tabs and + sit on the frame
-            // past the tab's foot (Charles, 20 Nov: "outside of the tab card, with a separation").
-            let room = s.tabs.w - anchor_w - TAB_SEP - (TAB_GAP + ADD_W);
-            let scrolls = n as f32 * (TAB_MIN + TAB_GAP) + TAB_GAP > room;
+            // The card's tab holds only the open tab; the others and + sit on the frame past its
+            // feet (Charles, 20 Nov: "outside of the tab card, with a separation"; 21 Nov: the
+            // card's tab follows the open tab), so every tab is a foot apart.
+            let room = s.tabs.w - anchor_w - (TAB_SEP + ADD_W);
+            let scrolls = n as f32 * (TAB_MIN + TAB_SEP) > room;
             let (k, tab_w) = if scrolls {
-                (((room - 54.0) / (TAB_MIN + TAB_GAP)).floor().max(1.0) as usize, Some(TAB_MIN))
+                (((room - 2.0 * (TAB_SEP + 24.0)) / (TAB_MIN + TAB_SEP)).floor().max(1.0) as usize, Some(TAB_MIN))
             } else if n > 0 {
-                let per = ((room - TAB_GAP * (n as f32 + 1.0) - CLOSE_W) / n as f32).floor();
+                let per = ((room - TAB_SEP * n as f32 - CLOSE_W) / n as f32).floor();
                 (n, Some(per.min(TAB_MAX)))
             } else {
                 (0, None)
@@ -1680,7 +1682,7 @@ impl Render for Cauldron {
                 .id("tabs")
                 .flex()
                 .items_center()
-                .gap(px(TAB_GAP))
+                .gap(px(TAB_SEP))
                 .track_focus(&focus)
                 .on_key_down(cx.listener(|this, ev: &KeyDownEvent, _, cx| {
                     let last = this.agents.len();
@@ -1701,9 +1703,6 @@ impl Render for Cauldron {
             // from the row, so each tab carries the row's wheel handler too. The open tab is the
             // `selected` fill with a hairline ring and no shadow; the rest are fg3 on the card.
             let ftab = |id: (&'static str, usize), on: bool, cx: &mut Context<Self>| {
-                // Only the card's own tab fills when open; an open agent tab outside it is bright
-                // text over an accent line, so it never reads as a second, lower card tab.
-                let pinned = id.1 == 0;
                 div()
                     .id(id)
                     .relative()
@@ -1712,8 +1711,7 @@ impl Render for Cauldron {
                     .gap(px(CLOSE_GAP))
                     .h(px(metric::TAB_H))
                     .rounded(px(tabshape::PILL_R))
-                    .when_live(on && pinned, |d| d.bg(c(pal.selected)).border_1().border_color(c(pal.line)))
-                    .when_live(on && !pinned, |d| d.child(div().absolute().left(px(TAB_PAD)).right(px(TAB_PAD)).bottom_0().h(px(2.)).rounded(px(1.)).bg(c(pal.accent))))
+                    .when_live(on, |d| d.bg(c(pal.selected)).border_1().border_color(c(pal.line)))
                     .when_live(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
                     .occlude()
                     .cursor_pointer()
@@ -1738,7 +1736,13 @@ impl Render for Cauldron {
                     this.focus_tabs(window, cx);
                     cx.notify();
                 }));
-            row = row.child(anchor.test_support()).child(div().id("tab-sep").flex_none().w(px(TAB_SEP - 2.0 * TAB_GAP)).h(px(1.)));
+            row = row.child(anchor.test_support());
+            // The card's tab: one stroke round the open tab (tabshape.rs).
+            let tab0 = s.tabs.x - s.main.x;
+            if self.active == 0 {
+                bump = Some((0.0, tab0 + anchor_w + tabshape::S));
+            }
+            let mut at = tab0 + anchor_w + TAB_SEP;
 
             // Each tab is sized to its name, within its share of the room.
             let fig_w = avatar::size(TAB_FIG).0;
@@ -1801,6 +1805,10 @@ impl Render for Cauldron {
                 let want = (TAB_PAD + fig_w + CLOSE_GAP + name_w + TAB_PAD + if on { CLOSE_W } else { 0.0 }).ceil();
                 let tw = if scrolls { TAB_MIN } else { want.clamp(TAB_MIN, share.max(TAB_MIN)) };
                 tab = tab.flex_none().w(px(tw));
+                if on {
+                    bump = Some((at - tabshape::S, tw + 2.0 * tabshape::S));
+                }
+                at += tw + TAB_SEP;
                 // The full name as a tip once the tab may be narrower than the widest it gets.
                 let tab = if share < TAB_MAX { self.tipped(("tab", i), tab, agent.name.clone(), Side::Below, pal, cx) } else { tab };
                 row = row.child(tab.test_support());
@@ -1856,7 +1864,6 @@ impl Render for Cauldron {
             }
             let add = if self.tab_menu { add } else { self.tipped("tab-add", add, ADD_LABEL, Side::Below, pal, cx) };
             tab_row = Some(row.child(add.test_support()));
-            bump_w = Some(s.tabs.x - s.main.x + anchor_w + tabshape::S);
         }
 
         // ---- the stream card (the board's `.card`): its 38px header holds the tabs, its body the
@@ -1897,7 +1904,7 @@ impl Render for Cauldron {
                 pill = pill.child(div().id("card-crumb").flex_none().aria_label(folder.clone()).child(format!("{folder} /")).test_support());
             }
             let pill_w = (TAB_PAD + text_w + TAB_PAD + 2.0).ceil().min(s.tabs.w);
-            bump_w = Some(s.tabs.x - s.main.x + pill_w + tabshape::S);
+            bump = Some((0.0, s.tabs.x - s.main.x + pill_w + tabshape::S));
             pill = pill.child(
                 div()
                     .id(if self.thread.is_some() { "thread-title" } else { "card-title" })
@@ -1942,7 +1949,7 @@ impl Render for Cauldron {
                 }
             }))
             .child({
-                let cut = s.notch.is_none() && bump_w.and_then(|b| tabshape::pieces(s.main, b)).is_some();
+                let cut = s.notch.is_none() && bump.and_then(|b| tabshape::pieces(s.main, b)).is_some();
                 let under = self.glass_under("main", s.main, (w, h), dark, pal, moving, window);
 
                 let glass = under.is_some();
@@ -1996,7 +2003,7 @@ impl Render for Cauldron {
         root = root.child(card_el.test_support());
         // The card's tab: the frame comes down right of it (tabshape.rs). Not with a familiar (its
         // own folder tabs) or the notch (it already cuts the card's top-right).
-        if let (Some(b), None, None) = (bump_w, self.familiar, s.notch) {
+        if let (Some(b), None, None) = (bump, self.familiar, s.notch) {
             let pieces = self.tab_cut(s.main, b, (w, h), dark, pal, window);
             root = root.children(pieces);
         }
@@ -2908,8 +2915,8 @@ mod tests {
                 assert_eq!(on(window, i), i == 0, "tab {i}: only the coordinator is open");
             }
             for i in 1..=3usize {
-                // The stream's tab sits in the card's tab; the agents' tabs start past its foot.
-                let want = if i == 1 { super::TAB_SEP } else { 2.0 };
+                // Every tab is a foot apart, so the card's tab fits round whichever is open.
+                let want = super::TAB_SEP;
                 assert_eq!(rect(window, ("tab", i)).x - rect(window, ("tab", i - 1)).right(), want, "between tabs {} and {i}", i - 1);
             }
             let add = rect(window, "tab-add");
@@ -3227,8 +3234,8 @@ mod tests {
                 assert!(anchor.w <= 190.0, "{n}: coordinator at most 190: {anchor:?}");
                 assert_eq!(window.find(("tab", 0usize)).label(), Some("Cauldron · coordinator"));
                 assert!(window.try_find(("tab-close", 0usize)).is_none(), "{n}: coordinator has no close");
-                let room = row.w - anchor.w - 30.0;
-                let need = n as f32 * 74.0 + 2.0;
+                let room = row.w - anchor.w - (super::TAB_SEP + 28.0);
+                let need = n as f32 * (72.0 + super::TAB_SEP);
                 let arrows = window.try_find("tab-prev").is_some();
                 assert_eq!(arrows, need > room, "{n}: arrows iff 72px tabs do not fit (need {need}, room {room})");
                 let seen = visible(window, n);
