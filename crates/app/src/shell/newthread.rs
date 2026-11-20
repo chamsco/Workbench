@@ -1342,6 +1342,7 @@ mod tests {
             install: String::new(),
             logins: vec![LoginStatus { id: None, name: "This machine".into(), signed_in: auth, detail: None }],
             active: 0,
+            models: Vec::new(),
         };
         handle
             .update(cx, |c, _, _| {

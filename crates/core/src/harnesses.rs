@@ -231,6 +231,29 @@ pub fn which(bin: &str) -> Option<PathBuf> {
     None
 }
 
+/// The models a CLI says it can run, for the model picker: OpenCode lists every configured
+/// provider's models (`opencode models`, "provider/model" per line). Empty for CLIs whose list
+/// is not machine-readable; their picker offers documented aliases only (app `subs::models`).
+pub fn list_models(id: &str, bin: &Path, env: &[(String, String)]) -> Vec<String> {
+    match id {
+        "opencode" => run_cli_env(bin, &["models"], env).filter(|o| o.code == 0).map(|o| parse_opencode_models(&o.stdout)).unwrap_or_default(),
+        _ => Vec::new(),
+    }
+}
+
+/// `opencode models` output: one "provider/model" per line, anything else (banners, blank
+/// lines) dropped, order kept, no duplicates.
+pub fn parse_opencode_models(out: &str) -> Vec<String> {
+    let mut v: Vec<String> = Vec::new();
+    for l in out.lines().map(str::trim) {
+        let ok = l.contains('/') && !l.contains(char::is_whitespace) && !l.starts_with('/') && !l.ends_with('/');
+        if ok && !v.iter().any(|m| m == l) {
+            v.push(l.to_string());
+        }
+    }
+    v
+}
+
 pub struct Out {
     pub code: i32,
     pub stdout: String,
@@ -954,5 +977,11 @@ mod tests {
         assert!(v[0].enabled);
         apply_toggles(&mut v, &BTreeMap::from([("claude".to_string(), false)]));
         assert!(!v[0].enabled && v[0].user_set);
+    }
+
+    #[test]
+    fn opencode_models_are_provider_slash_model_lines() {
+        let out = "opencode/grok-code\nopenrouter/qwen/qwen3-coder\n\nsome banner text\nlocal/Qwen/Qwen3.6-35B-A3B-FP8\nopenrouter/qwen/qwen3-coder\n";
+        assert_eq!(parse_opencode_models(out), vec!["opencode/grok-code", "openrouter/qwen/qwen3-coder", "local/Qwen/Qwen3.6-35B-A3B-FP8"]);
     }
 }

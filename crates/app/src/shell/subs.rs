@@ -39,6 +39,18 @@ pub(crate) fn models(provider: &str) -> &'static [&'static str] {
     }
 }
 
+/// What a CLI's model picker offers: its own default, the aliases above, then whatever the CLI
+/// lists itself (OpenCode: every configured provider's models).
+pub(crate) fn model_opts(s: &CliStatus) -> Vec<Option<String>> {
+    let mut v: Vec<Option<String>> = vec![None];
+    for m in models(&s.provider).iter().map(|m| m.to_string()).chain(s.models.iter().cloned()) {
+        if !v.iter().any(|o| o.as_deref() == Some(m.as_str())) {
+            v.push(Some(m));
+        }
+    }
+    v
+}
+
 /// The CLI's display name for an id, from the statuses when they are in, else the id.
 fn cli_name(list: &[CliStatus], provider: &str) -> String {
     list.iter().find(|s| s.provider == provider).map_or_else(|| provider.to_string(), |s| s.name.clone())
@@ -261,11 +273,11 @@ impl Cauldron {
             }
             // Under the current CLI: its default and the models it names, then its logins.
             let pinned = route.and_then(|r| r.model.clone());
-            let opts = std::iter::once(None).chain(models(&s.provider).iter().map(|m| Some(m.to_string())));
-            for (j, m) in opts.enumerate() {
+            let mut list = div().id(("route-models", i)).flex().flex_col().max_h(px(180.)).overflow_y_scroll();
+            for (j, m) in model_opts(s).into_iter().enumerate() {
                 let sel = pinned == m;
                 let (prov, to2, m2) = (s.provider.clone(), to.clone(), m.clone());
-                menu = menu.child(
+                list = list.child(
                     item(("route-model", i * 10 + j), sel)
                         .pl(px(24.))
                         .cursor_pointer()
@@ -282,6 +294,7 @@ impl Cauldron {
                         .test_support(),
                 );
             }
+            menu = menu.child(list);
             if s.logins.len() > 1 {
                 menu = menu.child(header("Runs on"));
                 for (j, l) in s.logins.iter().enumerate() {
@@ -390,15 +403,20 @@ impl Cauldron {
         match chosen {
             Some(s) => {
                 let pinned = route.as_ref().and_then(|r| r.model.clone());
-                let opts = std::iter::once(None).chain(models(&s.provider).iter().map(|m| Some(m.to_string())));
-                for (j, m) in opts.enumerate() {
+                // A CLI with its own list (OpenCode) can name dozens: they scroll in the tray.
+                let mut list = div().id("tray-models").flex().flex_col().gap(px(1.)).max_h(px(96.)).overflow_y_scroll();
+                for (j, m) in model_opts(s).into_iter().enumerate() {
                     let sel = pinned == m;
                     let (prov, m2) = (s.provider.clone(), m.clone());
+                    // Aliases read as names ("Opus"); listed ids ("openrouter/qwen/...") stay as written.
                     let name = m.as_deref().map_or_else(|| "Its default model".to_string(), |m| {
+                        if m.contains('/') {
+                            return m.to_string();
+                        }
                         let mut ch = m.chars();
                         ch.next().map(|f| format!("{}{}", f.to_uppercase(), ch.as_str())).unwrap_or_default()
                     });
-                    right = right.child(
+                    list = list.child(
                         item(("route-model", j), sel)
                             .cursor_pointer()
                             .when(!sel, |d| d.hover(|d| d.bg(c(pal.hover))))
@@ -415,6 +433,7 @@ impl Cauldron {
                             .test_support(),
                     );
                 }
+                right = right.child(list);
                 if s.logins.len() > 1 {
                     right = right.child(head("tray-runs-on", "Runs on"));
                     for (j, l) in s.logins.iter().enumerate() {

@@ -591,6 +591,7 @@ mod tests {
                     LoginStatus { id: Some("work".into()), name: "Work".into(), signed_in: Auth::Unauthenticated, detail: None },
                 ],
                 active: 0,
+                models: Vec::new(),
             }];
         })
         .unwrap();

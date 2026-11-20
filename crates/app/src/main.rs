@@ -2896,6 +2896,10 @@ fn main() -> anyhow::Result<()> {
     if std::env::var_os("CAULDRON_LEGACY").is_none() {
         // An update on Windows set the old exe aside; it is no longer running now.
         backspace_core::update::tidy_old_exe();
+        // One Cauldron at a time: a second start brings the running window forward.
+        if !backspace_core::instance::claim("Cauldron") {
+            return Ok(());
+        }
         return run_shell();
     }
     Prefs::load().apply_keys();

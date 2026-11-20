@@ -1132,10 +1132,40 @@ impl Cauldron {
         }
     }
 
+    /// A stream without a folder: ask for one and point the stream at it, so its CLI works there
+    /// from the next turn (Charles, 21 Nov: the dim folder button looked broken).
+    fn pick_stream_folder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(id) = self.open.clone() else { return };
+        let paths = cx.prompt_for_paths(PathPromptOptions { files: false, directories: true, multiple: false, prompt: Some("Work in this folder".into()) });
+        cx.spawn_in(window, async move |this: WeakEntity<Self>, cx: &mut AsyncWindowContext| {
+            let Ok(Ok(Some(ps))) = paths.await else { return };
+            let Some(p) = ps.into_iter().next() else { return };
+            let dir = p.display().to_string();
+            let _ = this.update(cx, |c, cx| {
+                let mut prefs = Prefs::load();
+                prefs.touch_project(&dir);
+                prefs.save();
+                let res = c.core.as_ref().map(|(_, chats)| chats.set_project(&id, Some(dir.clone())));
+                match res {
+                    Some(Err(e)) => c.send_error = Some(format!("Couldn't set the folder: {e}")),
+                    _ => {
+                        if let Some(t) = c.thread.as_mut().filter(|t| t.id == id) {
+                            t.project = Some(dir);
+                        }
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
     /// The board's open-in split button (`.oi`): the left half opens the stream's folder the way
     /// it was opened last, the arrow picks another way. Dim without a folder.
     fn open_in_button(&self, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
         let has = self.thread.as_ref().is_some_and(|t| t.project.is_some());
+        // Without a folder, an open stream's button picks one.
+        let can_pick = !has && self.open.is_some();
         let how = self.open_in;
         let mut menu = None;
         if self.open_in_menu && has {
@@ -1190,7 +1220,7 @@ impl Cauldron {
             .rounded(px(7.))
             .border_1()
             .border_color(c(pal.line))
-            .when_live(!has, |d| d.opacity(0.45))
+            .when_live(!has && !can_pick, |d| d.opacity(0.45))
             .occlude()
             .child(
                 div()
@@ -1199,11 +1229,15 @@ impl Cauldron {
                     .flex()
                     .items_center()
                     .justify_center()
-                    .when_live(has, |d| d.cursor_pointer().hover(|d| d.bg(c(pal.hover))))
-                    .aria_label(how.label())
-                    .child(glyph("folder", 14., c(pal.accent)))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.open_folder(how, cx);
+                    .when_live(has || can_pick, |d| d.cursor_pointer().hover(|d| d.bg(c(pal.hover))))
+                    .aria_label(if has { how.label() } else { "Choose a folder" })
+                    .child(glyph(if has { "folder" } else { "folder-plus" }, 14., c(pal.accent)))
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        if has {
+                            this.open_folder(how, cx);
+                        } else if can_pick {
+                            this.pick_stream_folder(window, cx);
+                        }
                         cx.notify();
                     }))
                     .test_support(),
@@ -1922,10 +1956,17 @@ impl Render for Cauldron {
         let rail_here = s.support.is_none() && self.rail_on(false);
         // The body under the header, clear of the rail when it is in this card.
         let body_w = s.main.w - 2.0 - if rail_here { metric::RAIL_W } else { 0.0 };
-        let body_h = s.main.h - 2.0 - metric::HEAD_H - if new_screen { STAGE_H } else { 0.0 };
+        // On the Windows strip the header's tools sit inside the content, under the tab (20 Nov):
+        // the body starts below them, so a message never runs under the buttons (Charles, 21 Nov).
+        let tools_band = if s.tools.y > s.main.y + metric::HEAD_H && s.tools.right() <= s.main.right() && self.settings.is_none() && self.familiar.is_none() {
+            (s.tools.bottom() + metric::HEAD_IN - (s.main.y + 1.0 + metric::HEAD_H)).max(0.0).ceil()
+        } else {
+            0.0
+        };
+        let body_h = s.main.h - 2.0 - metric::HEAD_H - tools_band - if new_screen { STAGE_H } else { 0.0 };
         // Split (direction B): under the head the card holds up to four panes;
         // a shape that no longer fits steps back.
-        let area = Rect::new(s.main.x + 1.0, s.main.y + 1.0 + metric::HEAD_H, body_w, body_h);
+        let area = Rect::new(s.main.x + 1.0, s.main.y + 1.0 + metric::HEAD_H + tools_band, body_w, body_h);
         let shape = if self.settings.is_some() || self.familiar.is_some() { Shape::One } else { cauldron_chrome::panes::effective(area, self.panes.shape) };
         let split = shape != Shape::One;
         // The thread view drops what does not fit its pane, so it needs that pane's size first.
@@ -1969,6 +2010,7 @@ impl Render for Cauldron {
                     .border_color(c(if glass { pal.line_strong } else { pal.line }))
                     .text_color(fg3)
                     .child(head.test_support())
+                    .child(div().id("tools-band").w(px(body_w)).h(px(tools_band)).flex_none().test_support())
                     .child(div().w(px(body_w)).h(px(body_h)).flex_none().child(inside))
                     .test_support()
             });
@@ -1984,7 +2026,7 @@ impl Render for Cauldron {
                     .id("stage-bar")
                     .absolute()
                     .left(px(1.))
-                    .top(px(1.0 + metric::HEAD_H + body_h))
+                    .top(px(1.0 + metric::HEAD_H + tools_band + body_h))
                     .w(px(body_w))
                     .h(px(STAGE_H))
                     .flex()

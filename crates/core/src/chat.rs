@@ -851,6 +851,18 @@ impl Chats {
         self.edit_thread(id, |t| t.title = title.to_string())
     }
 
+    /// Point a stream at a project folder (the folder button on a stream that has none). The CLI's
+    /// own session is dropped: a resumed session belongs to the folder it ran in, so the next turn
+    /// starts a fresh one with the conversation so far.
+    pub fn set_project(&self, id: &str, project: Option<String>) -> Result<()> {
+        self.edit_thread(id, |t| {
+            if t.project != project {
+                t.project = project;
+                t.cli_session = None;
+            }
+        })
+    }
+
     pub fn pin(&self, id: &str, pinned: bool) -> Result<()> {
         self.edit_thread(id, |t| t.pinned = pinned)
     }
