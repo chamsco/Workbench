@@ -320,17 +320,63 @@ impl Cauldron {
             }
             return div().id("settings-body").size_full().overflow_y_scroll().flex().justify_center().child(col).test_support().into_any_element();
         }
+        if page == 1 {
+            // General: what is real today. Updates is a pref the old app reads too.
+            let p = Prefs::load();
+            col = col.child(section("Updates"));
+            let on = p.check_updates;
+            let toggle = div()
+                .id("set-updates")
+                .cursor_pointer()
+                .hover(|d| d.opacity(0.85))
+                .aria_label(if on { "Check for updates: on" } else { "Check for updates: off" })
+                .aria_selected(on)
+                .child(value(if on { "On".into() } else { "Off".into() }))
+                .on_click(cx.listener(|_, _, _, cx| {
+                    let mut p = Prefs::load();
+                    p.check_updates = !p.check_updates;
+                    p.save();
+                    cx.notify();
+                }))
+                .test_support();
+            col = col.child(row(("general", 0), "Check for updates".into(), "Look for a newer Cauldron when it starts.".into(), toggle.into_any_element()));
+            col = col.child(section("Data"));
+            col = col.child(row(("general", 1), "Data folder".into(), "Where streams, accounts and settings are kept.".into(), value(Prefs::path().as_deref().and_then(|p| p.parent()).map_or_else(|| "Unknown".into(), |d| d.display().to_string())).into_any_element()));
+            col = col.child(row(("general", 2), "Version".into(), "This build.".into(), value(env!("CARGO_PKG_VERSION").to_string()).into_any_element()));
+            return div().id("settings-body").size_full().overflow_y_scroll().flex().justify_center().child(col).test_support().into_any_element();
+        }
+        if page == 3 {
+            // Machines: the connected machines from the prefs; adding one is still the old app's job.
+            let p = Prefs::load();
+            col = col.child(div().text_size(px(13.)).text_color(fg3).mb(px(6.)).child("Where a stream can run. This machine is always there."));
+            col = col.child(section("Machines"));
+            col = col.child(row(("machine", 0), "This machine".into(), "Runs streams with the CLIs installed here.".into(), value("Here".into()).into_any_element()));
+            for (i, m) in p.machines.iter().enumerate() {
+                col = col.child(row(("machine", i + 1), m.name.clone(), m.url.clone(), value("Connected".into()).into_any_element()));
+            }
+            if p.machines.is_empty() {
+                col = col.child(div().id("settings-empty").mt(px(8.)).text_size(px(13.)).text_color(fg3).aria_label("No other machines connected.").child("No other machines connected.").test_support());
+            }
+            return div().id("settings-body").size_full().overflow_y_scroll().flex().justify_center().child(col).test_support().into_any_element();
+        }
+        if page == 4 {
+            let cmd = if cfg!(target_os = "macos") { "\u{2318}" } else { "Ctrl+" };
+            col = col.child(section("Keys"));
+            for (i, (label, help, keys)) in [
+                ("New stream", "Open an empty stream.", format!("{cmd}N")),
+                ("Terminal", "Show or hide the terminal under the stream.", format!("{cmd}J")),
+                ("Send", "Send the message in the box.", "Enter".to_string()),
+                ("New line", "A line break in the box.", "Shift+Enter".to_string()),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                col = col.child(row(("keys", i), label.into(), help.into(), value(keys).into_any_element()));
+            }
+            return div().id("settings-body").size_full().overflow_y_scroll().flex().justify_center().child(col).test_support().into_any_element();
+        }
         if page != 0 {
-            col = col.child(
-                div()
-                    .id("settings-empty")
-                    .mt(px(8.))
-                    .text_size(px(13.))
-                    .text_color(fg3)
-                    .aria_label(format!("{name} settings arrive in a later milestone."))
-                    .child(format!("{name} settings arrive in a later milestone."))
-                    .test_support(),
-            );
+            col = col.child(div().id("settings-empty").mt(px(8.)).text_size(px(13.)).text_color(fg3).aria_label(format!("{name} settings arrive in a later milestone.")).child(format!("{name} settings arrive in a later milestone.")).test_support());
             return div().id("settings-body").size_full().overflow_y_scroll().flex().justify_center().child(col).test_support().into_any_element();
         }
         col = col.child(div().text_size(px(13.)).text_color(fg3).mb(px(6.)).child("Who answers in your threads, and the subscriptions they run on."));
@@ -395,6 +441,7 @@ mod tests {
     /// says "No data yet"; the back row returns to the threads.
     #[gpui_kit::test]
     fn settings_swaps_the_sidebar_list_and_fills_the_card(cx: &mut TestAppContext) {
+        let _prefs = super::thread::tests::prefs_guard();
         let (handle, _chats) = open(cx);
         // Never the user's own accounts.json: a file of the test's own, absent.
         let path = std::env::temp_dir().join(format!("cauldron-settings-none-{}.json", std::process::id()));
@@ -413,7 +460,14 @@ mod tests {
             assert!(page.x >= card.x && page.right() <= card.right(), "the page is in the card");
             assert_eq!(window.find(("agent", 2usize)).label(), Some("Effort"));
             window.click(("settings-page", 3usize), cx);
-            assert_eq!(window.find("settings-empty").label(), Some("Machines settings arrive in a later milestone."));
+            assert_eq!(window.find(("machine", 0usize)).label(), Some("This machine"));
+            window.click(("settings-page", 4usize), cx);
+            assert_eq!(window.find(("keys", 0usize)).label(), Some("New stream"));
+            window.click(("settings-page", 1usize), cx);
+            assert_eq!(window.find(("general", 0usize)).label(), Some("Check for updates"));
+            let before = backspace_core::prefs::Prefs::load().check_updates;
+            window.click("set-updates", cx);
+            assert_eq!(backspace_core::prefs::Prefs::load().check_updates, !before, "the toggle saves");
             window.click(("settings-page", 2usize), cx);
             assert_eq!(window.find(("appearance", 0usize)).label(), Some("Backdrop"));
             assert!(window.try_find("rail").is_none(), "no right rail in Settings: it belongs to an open stream");
