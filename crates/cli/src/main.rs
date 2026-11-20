@@ -461,7 +461,11 @@ fn run(ws: PathBuf, goal: String, target: backspace_core::deliver::Target) -> Re
             print!("approve? [y / feedback to reject] > ");
             std::io::stdout().flush()?;
             let mut line = String::new();
-            stdin.lock().read_line(&mut line)?;
+            if stdin.lock().read_line(&mut line)? == 0 {
+                // No more input (a pipe or a closed terminal): never approve by default.
+                println!("\n(no more input: left unapproved)");
+                return Ok(());
+            }
             let line = line.trim();
             if line.is_empty() || line.eq_ignore_ascii_case("y") {
                 h.approve(ap.id);
@@ -491,8 +495,19 @@ fn run(ws: PathBuf, goal: String, target: backspace_core::deliver::Target) -> Re
             print!("main is waiting for you > ");
             std::io::stdout().flush()?;
             let mut line = String::new();
-            stdin.lock().read_line(&mut line)?;
-            h.send(line.trim().to_string());
+            if stdin.lock().read_line(&mut line)? == 0 {
+                // No more input: stop here instead of sending empty turns forever, and
+                // deliver what the run finished, if it planned one.
+                println!("\n(no more input: stopping)");
+                if let Err(e) = after_execute(&h, target) {
+                    println!("delivery: {e:#}");
+                }
+                return Ok(());
+            }
+            let line = line.trim();
+            if !line.is_empty() {
+                h.send(line.to_string());
+            }
         }
     }
 }

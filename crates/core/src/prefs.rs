@@ -92,8 +92,13 @@ pub struct Prefs {
     pub backdrop: String,
     /// Cauldron: a picture or GIF the stream card shows instead of its glass. None: the glass.
     pub stream_bg: Option<String>,
+    /// Cauldron: how dark the scrim over the stream picture is, "light", "medium" or "dark". None: dark.
+    pub stream_dim: Option<String>,
     /// Cauldron: how frosted the frame and sidebar are, "light", "medium" or "heavy". None: heavy.
     pub frost: Option<String>,
+    /// Cauldron on Windows: "notch" puts the caption buttons in a notch in the top-right card;
+    /// None (or anything else) is the slim top strip.
+    pub window_style: Option<String>,
     /// How Backspace tells you something needs you: "system" (the OS's
     /// notifications), "app" (inside the app only) or "off".
     pub notify: String,
@@ -157,7 +162,9 @@ impl Default for Prefs {
             cli_effort: None,
             backdrop: "harbour".into(),
             stream_bg: None,
+            stream_dim: None,
             frost: None,
+            window_style: None,
             notify: "system".into(),
             companion: CompanionCfg::default(),
             uses: vec!["chat".into(), "code".into()],

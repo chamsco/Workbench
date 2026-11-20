@@ -146,7 +146,14 @@ pub struct Account {
 pub struct Accounts {
     pub policy: FailoverPolicy,
     pub list: Vec<Account>,
+    /// The account each CLI runs on, picked by the user ("claude" -> an id).
+    /// [`SYSTEM`] means the machine's own login; no entry lets health decide.
+    pub active: std::collections::BTreeMap<String, String>,
 }
+
+/// In [`Accounts::active`]: run the CLI on the machine's own login, the way a
+/// terminal would, even when accounts were added for it.
+pub const SYSTEM: &str = "system";
 
 impl Accounts {
     /// Where the registry lives: one file for the whole machine, so every
@@ -202,6 +209,32 @@ impl Accounts {
             .collect();
         v.sort_by_key(|a| (a.priority, a.id.clone()));
         v
+    }
+
+    /// The account a new turn of `provider` runs on: the one the user picked
+    /// while it is enabled and not cooling down, else the healthiest one. None
+    /// is the machine's own login (also what [`SYSTEM`] asks for).
+    pub fn pick(&self, provider: &str, now: u64) -> Option<&Account> {
+        match self.active.get(provider).map(String::as_str) {
+            Some(SYSTEM) => None,
+            Some(id) => self
+                .list
+                .iter()
+                .find(|a| a.id == id && a.enabled && a.health.cooldown_until <= now)
+                .or_else(|| self.best_for(provider, now)),
+            None => self.best_for(provider, now),
+        }
+    }
+
+    /// Run `provider` on this account from the next turn on (None: its own login).
+    /// A running turn keeps the account it started with.
+    pub fn set_active(&mut self, provider: &str, id: Option<&str>) {
+        self.active.insert(provider.to_string(), id.unwrap_or(SYSTEM).to_string());
+    }
+
+    /// The environment for `provider`'s next turn: the picked account's profile.
+    pub fn env_now(&self, provider: &str) -> Vec<(String, String)> {
+        self.pick(provider, crate::chat::now_ms()).map(|a| self.env_for(&a.id)).unwrap_or_default()
     }
 
     /// The best account to run one CLI right now (health and cooldown decide;
@@ -426,9 +459,110 @@ impl Accounts {
     }
 }
 
+/// One login of a CLI as Settings and the model menu show it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LoginStatus {
+    /// The account's id; None is the machine's own login.
+    pub id: Option<String>,
+    pub name: String,
+    pub signed_in: crate::harnesses::Auth,
+    /// Who, or which plan ("work@x.com · Claude Max", "ChatGPT Plus").
+    pub detail: Option<String>,
+}
+
+/// One coding CLI: installed or not, its logins, and the one new turns use.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CliStatus {
+    pub provider: String,
+    pub name: String,
+    pub installed: bool,
+    pub version: Option<String>,
+    /// How to install it, when it is not.
+    pub install: String,
+    /// The machine's own login first, then each account added in Cauldron.
+    pub logins: Vec<LoginStatus>,
+    /// Index into `logins` of the one the next turn runs on.
+    pub active: usize,
+}
+
+impl CliStatus {
+    /// Usable now: installed and its active login signed in.
+    pub fn ready(&self) -> bool {
+        self.installed && self.logins.get(self.active).is_some_and(|l| l.signed_in == crate::harnesses::Auth::Authenticated)
+    }
+}
+
+/// The coding CLIs a stream can run on, each with its logins' state. Starts
+/// processes (`claude auth status`...), so call it off the UI thread.
+pub fn status_all(accounts: &Accounts, prefs: &crate::prefs::Prefs) -> Vec<CliStatus> {
+    use crate::harnesses::{Auth, Kind};
+    let scanned: Vec<_> = crate::harnesses::scan(prefs).into_iter().filter(|h| h.kind == Kind::Cli && h.chat).collect();
+    let now = crate::chat::now_ms();
+    std::thread::scope(|s| {
+        let jobs: Vec<_> = scanned
+            .iter()
+            .map(|h| {
+                s.spawn(move || {
+                    let mut logins = vec![LoginStatus { id: None, name: "This machine's login".into(), signed_in: h.auth, detail: h.detail.clone() }];
+                    for a in accounts.for_provider(&h.id) {
+                        let (signed_in, detail) = if h.installed { crate::harnesses::auth_with(&h.id, &accounts.env_for(&a.id)) } else { (Auth::Unknown, None) };
+                        logins.push(LoginStatus { id: Some(a.id.clone()), name: a.name.clone(), signed_in, detail });
+                    }
+                    let picked = accounts.pick(&h.id, now).map(|a| a.id.clone());
+                    let active = logins.iter().position(|l| l.id == picked).unwrap_or(0);
+                    CliStatus { provider: h.id.clone(), name: h.name.clone(), installed: h.installed, version: h.version.clone(), install: h.install.to_string(), logins, active }
+                })
+            })
+            .collect();
+        let mut v: Vec<CliStatus> = jobs.into_iter().filter_map(|j| j.join().ok()).collect();
+        v.sort_by_key(|s| !s.installed);
+        v
+    })
+}
+
+/// Add a login for `provider` and open its CLI's sign-in pointed at the new
+/// profile folder. Returns the new account's id.
+pub fn add_and_sign_in(path: &Path, provider: &str) -> Result<String> {
+    let mut a = Accounts::load(path);
+    let n = a.for_provider(provider).len() + 1;
+    let acc = a.add(provider, &format!("Account {n}"));
+    a.save(path)?;
+    crate::harnesses::open_login_with(provider, &a.env_for(&acc.id))?;
+    Ok(acc.id)
+}
+
+/// Open the sign-in for one login: an added account (its folder) or, with
+/// None, the machine's own.
+pub fn sign_in(path: &Path, provider: &str, id: Option<&str>) -> Result<()> {
+    let env = id.map(|id| Accounts::load(path).env_for(id)).unwrap_or_default();
+    crate::harnesses::open_login_with(provider, &env)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_picked_account_runs_until_it_cools_down_and_system_means_the_machines_login() {
+        let mut a = Accounts::default();
+        let one = a.add("claude", "Work");
+        let two = a.add("claude", "Personal");
+        let now = crate::chat::now_ms();
+        assert_eq!(a.pick("claude", now).unwrap().id, one.id, "no pick: health and priority decide");
+        a.set_active("claude", Some(&two.id));
+        assert_eq!(a.pick("claude", now).unwrap().id, two.id);
+        let dir = two.profile_dir.clone().unwrap();
+        assert_eq!(a.env_now("claude"), vec![("CLAUDE_CONFIG_DIR".to_string(), dir)]);
+        a.find_mut(&two.id).unwrap().health.cooldown_until = now + 60_000;
+        assert_eq!(a.pick("claude", now).unwrap().id, one.id, "a cooling account hands over");
+        a.set_active("claude", None);
+        assert!(a.pick("claude", now).is_none() && a.env_now("claude").is_empty());
+        assert!(a.pick("codex", now).is_none(), "another CLI is untouched");
+        let back: Accounts = serde_json::from_str(&serde_json::to_string(&a).unwrap()).unwrap();
+        assert_eq!(back.active.get("claude").map(String::as_str), Some(SYSTEM));
+        let old: Accounts = serde_json::from_str(r#"{"policy":"manual","list":[]}"#).unwrap();
+        assert!(old.active.is_empty(), "a file from before the switch still reads");
+    }
 
     const HOUR: u64 = 60 * 60 * 1000;
 

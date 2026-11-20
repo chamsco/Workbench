@@ -116,8 +116,12 @@ pub struct Frame {
     pub dock: Option<Pane>,
     pub main: Rect,
     pub rail: Rect,
+    pub bar: Option<Rect>,
     pub notch: Option<Rect>,
+    pub pill: Option<Rect>,
     pub caps: Option<Pane>,
+    pub search_button: Rect,
+    pub bell_button: Rect,
     pub lights: Option<Pane>,
     pub sidebar_button: Rect,
     pub new_button: Option<Pane>,
@@ -147,8 +151,12 @@ impl Frame {
             dock: at_rest(s.dock),
             main: s.main,
             rail: s.rail,
+            bar: s.bar,
             notch: s.notch,
+            pill: s.pill,
             caps: at_rest(s.caps),
+            search_button: s.search_button,
+            bell_button: s.bell_button,
             lights: at_rest(s.lights),
             sidebar_button: s.sidebar_button,
             new_button: at_rest(s.new_button),
@@ -164,7 +172,7 @@ impl Frame {
     /// `to` slides in from its rest place and fades in over the second half; a pane only in
     /// `from` stays where it was and fades out over the first third. A support card that appears
     /// slides in from `DRAWER_SLIDE` to the right. With `reduce`, nothing moves and the panes
-    /// cross-fade on linear progress. The notch is a cut, not a pane: it jumps with its card's end.
+    /// cross-fade on linear progress. The bar is fixed; the pill moves with the tools.
     pub fn between(from: &Frame, to: &Frame, p: f32, reduce: bool) -> Frame {
         let p = p.clamp(0.0, 1.0);
         let e = if reduce { p } else { SETTLE.at(p) };
@@ -197,8 +205,12 @@ impl Frame {
             dock: pane(from.dock, to.dock, 0.0),
             main: rect(from.main, to.main),
             rail: rect(from.rail, to.rail),
+            bar: to.bar,
             notch: to.notch.map(|n| from.notch.map_or(n, |m| rect(m, n))),
+            pill: to.pill.map(|n| from.pill.map_or(n, |m| rect(m, n))),
             caps: pane(from.caps, to.caps, 0.0),
+            search_button: rect(from.search_button, to.search_button),
+            bell_button: rect(from.bell_button, to.bell_button),
             lights: pane(from.lights, to.lights, 0.0),
             sidebar_button: rect(from.sidebar_button, to.sidebar_button),
             new_button: pane(from.new_button, to.new_button, 0.0),

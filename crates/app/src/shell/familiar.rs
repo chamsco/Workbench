@@ -761,7 +761,17 @@ impl Cauldron {
                     .when_live(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
                     .cursor_pointer()
                     .aria_label(f.name.clone())
-                    .child(glyph("ship-wheel", 14., c(pal.accent)))
+                    // A familiar is an agent, so it gets the agent figure (Charles, 20 Nov); streams do not.
+                    .child({
+                        let (fw, fh) = avatar::size(18.);
+                        div()
+                            .id(("familiar-fig", i))
+                            .flex_none()
+                            .w(px(fw))
+                            .h(px(fh))
+                            .child(img(Arc::new(Image::from_bytes(ImageFormat::Svg, avatar::svg(i, Mood::Idle, Look { px: 18., outline: false, ms: None, bust: false, ink: None }).into_bytes()))).size_full())
+                            .test_support()
+                    })
                     .child(div().flex_1().min_w_0().truncate().child(f.name.clone()))
                     .child(dot(("familiar-dot", i), f.state, pal).test_support())
                     .on_click(cx.listener(move |this, _, _, cx| {
@@ -1094,6 +1104,14 @@ impl Cauldron {
             Kind::Delivered => d.bg(c(pal.accent)),
             Kind::Failed => d.bg(c(pal.bad)),
             Kind::Info => d.border_1().border_color(c(pal.fg3)),
+        }
+    }
+
+    /// How many streams wait on you (the Windows top bar's "N needs you" pill).
+    pub(crate) fn needs_you(&self) -> usize {
+        match &self.threads {
+            Threads::Ready(v) => v.iter().filter(|t| Group::of(t) == Group::NeedsYou).count(),
+            _ => 0,
         }
     }
 

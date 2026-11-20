@@ -146,6 +146,38 @@ impl Cauldron {
         if page == 2 {
             // Appearance: the backdrop (Tight tiles rule 7) or the plain frame, saved to the shared
             // `backdrop` pref the old app reads too.
+            col = col.child(section("Look"));
+            let mut seg = div().id("set-mode").flex().gap(px(2.)).p(px(2.)).rounded(px(radius::CONTROL)).border_1().border_color(c(pal.line_strong));
+            for (i, (label, key)) in [("System", "system"), ("Light", "light"), ("Dark", "dark")].into_iter().enumerate() {
+                let on = if self.theme_mode.is_empty() { key == "system" } else { self.theme_mode == key };
+                seg = seg.child(
+                    div()
+                        .id(("mode-opt", i))
+                        .h(px(24.))
+                        .px(px(10.))
+                        .flex()
+                        .items_center()
+                        .rounded(px(radius::TAG))
+                        .cursor_pointer()
+                        .when_live(on, |d| d.bg(c(pal.selected)))
+                        .when_live(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
+                        .aria_selected(on)
+                        .aria_label(label)
+                        .text_size(px(12.))
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(if on { fg } else { fg2 })
+                        .child(label)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.theme_mode = key.to_string();
+                            let mut p = Prefs::load();
+                            p.theme = key.to_string();
+                            p.save();
+                            cx.notify();
+                        }))
+                        .test_support(),
+                );
+            }
+            col = col.child(row(("appearance", 4), "Mode".into(), "Follow the system, or always light or dark.".into(), seg.test_support().into_any_element()));
             col = col.child(section("Window"));
             let mut seg = div().id("set-backdrop").flex().gap(px(2.)).p(px(2.)).rounded(px(radius::CONTROL)).border_1().border_color(c(pal.line_strong));
             for (i, (label, on)) in [("Painting", self.painting), ("Plain", !self.painting)].into_iter().enumerate() {
@@ -212,6 +244,43 @@ impl Cauldron {
                 );
             }
             col = col.child(row(("appearance", 2), "Frost".into(), "How much of the painting shows through the frame and sidebar. The cards keep their light glass.".into(), seg.test_support().into_any_element()));
+            // Windows only: the window controls as a slim strip across the top (the default), or in a
+            // notch cut into the top-right card (Charles, 20 Nov).
+            if platform() != cauldron_chrome::layout::Platform::Mac {
+                let notch = platform() == cauldron_chrome::layout::Platform::WindowsNotch;
+                let mut seg = div().id("set-window").flex().gap(px(2.)).p(px(2.)).rounded(px(radius::CONTROL)).border_1().border_color(c(pal.line_strong));
+                for (i, name) in ["Top strip", "Notch"].into_iter().enumerate() {
+                    let on = (i == 1) == notch;
+                    seg = seg.child(
+                        div()
+                            .id(("window-opt", i))
+                            .h(px(24.))
+                            .px(px(10.))
+                            .flex()
+                            .items_center()
+                            .rounded(px(radius::TAG))
+                            .cursor_pointer()
+                            .when_live(on, |d| d.bg(c(pal.selected)))
+                            .when_live(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
+                            .aria_selected(on)
+                            .aria_label(name)
+                            .text_size(px(12.))
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(if on { fg } else { fg2 })
+                            .child(name)
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                set_notch(i == 1);
+                                let mut p = Prefs::load();
+                                p.window_style = (i == 1).then(|| "notch".to_string());
+                                p.save();
+                                this.motion = Default::default();
+                                cx.notify();
+                            }))
+                            .test_support(),
+                    );
+                }
+                col = col.child(row(("appearance", 3), "Window controls".into(), "A slim strip across the top of the window, or a notch in the top-right corner of the stream card.".into(), seg.test_support().into_any_element()));
+            }
             // The stream card: the light frost of the painting, or the user's own picture or GIF.
             let mut seg = div().id("set-stream-bg").flex().gap(px(2.)).p(px(2.)).rounded(px(radius::CONTROL)).border_1().border_color(c(pal.line_strong));
             let pic = self.stream_bg.is_some();
@@ -248,49 +317,106 @@ impl Cauldron {
                 None => "The painting under a light frost, or your own picture or GIF (png, jpg, webp, gif).".into(),
             };
             col = col.child(row(("appearance", 1), "Stream background".into(), help, seg.test_support().into_any_element()));
+            if pic {
+                let cur = Prefs::load();
+                let mut seg = div().id("set-stream-dim").flex().gap(px(2.)).p(px(2.)).rounded(px(radius::CONTROL)).border_1().border_color(c(pal.line_strong));
+                for (i, (name, a)) in super::backdrop::DIMS.into_iter().enumerate() {
+                    let on = (super::backdrop::dim_alpha(&cur) - a).abs() < 0.001;
+                    seg = seg.child(
+                        div()
+                            .id(("stream-dim-opt", i))
+                            .h(px(24.))
+                            .px(px(10.))
+                            .flex()
+                            .items_center()
+                            .rounded(px(radius::TAG))
+                            .cursor_pointer()
+                            .when_live(on, |d| d.bg(c(pal.selected)))
+                            .when_live(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
+                            .aria_selected(on)
+                            .aria_label(name)
+                            .text_size(px(12.))
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(if on { fg } else { fg2 })
+                            .child(name[..1].to_uppercase() + &name[1..])
+                            .on_click(cx.listener(move |_, _, _, cx| {
+                                let mut p = Prefs::load();
+                                p.stream_dim = Some(name.to_string());
+                                p.save();
+                                cx.notify();
+                            }))
+                            .test_support(),
+                    );
+                }
+                col = col.child(row(("appearance", 3), "Picture dimming".into(), "How dark the scrim over your picture is, so the text stays readable.".into(), seg.test_support().into_any_element()));
+            }
+            return div().id("settings-body").size_full().overflow_y_scroll().flex().justify_center().child(col).test_support().into_any_element();
+        }
+        if page == 1 {
+            // General: what is real today. Updates is a pref the old app reads too.
+            let p = Prefs::load();
+            col = col.child(section("Updates"));
+            let on = p.check_updates;
+            let toggle = div()
+                .id("set-updates")
+                .cursor_pointer()
+                .hover(|d| d.opacity(0.85))
+                .aria_label(if on { "Check for updates: on" } else { "Check for updates: off" })
+                .aria_selected(on)
+                .child(value(if on { "On".into() } else { "Off".into() }))
+                .on_click(cx.listener(|_, _, _, cx| {
+                    let mut p = Prefs::load();
+                    p.check_updates = !p.check_updates;
+                    p.save();
+                    cx.notify();
+                }))
+                .test_support();
+            col = col.child(row(("general", 0), "Check for updates".into(), "Look for a newer Cauldron when it starts.".into(), toggle.into_any_element()));
+            col = col.child(section("Data"));
+            col = col.child(row(("general", 1), "Data folder".into(), "Where streams, accounts and settings are kept.".into(), value(Prefs::path().as_deref().and_then(|p| p.parent()).map_or_else(|| "Unknown".into(), |d| d.display().to_string())).into_any_element()));
+            col = col.child(row(("general", 2), "Version".into(), "This build.".into(), value(env!("CARGO_PKG_VERSION").to_string()).into_any_element()));
+            return div().id("settings-body").size_full().overflow_y_scroll().flex().justify_center().child(col).test_support().into_any_element();
+        }
+        if page == 3 {
+            // Machines: the connected machines from the prefs; adding one is still the old app's job.
+            let p = Prefs::load();
+            col = col.child(div().text_size(px(13.)).text_color(fg3).mb(px(6.)).child("Where a stream can run. This machine is always there."));
+            col = col.child(section("Machines"));
+            col = col.child(row(("machine", 0), "This machine".into(), "Runs streams with the CLIs installed here.".into(), value("Here".into()).into_any_element()));
+            for (i, m) in p.machines.iter().enumerate() {
+                col = col.child(row(("machine", i + 1), m.name.clone(), m.url.clone(), value("Connected".into()).into_any_element()));
+            }
+            if p.machines.is_empty() {
+                col = col.child(div().id("settings-empty").mt(px(8.)).text_size(px(13.)).text_color(fg3).aria_label("No other machines connected.").child("No other machines connected.").test_support());
+            }
+            return div().id("settings-body").size_full().overflow_y_scroll().flex().justify_center().child(col).test_support().into_any_element();
+        }
+        if page == 4 {
+            let cmd = if cfg!(target_os = "macos") { "\u{2318}" } else { "Ctrl+" };
+            col = col.child(section("Keys"));
+            for (i, (label, help, keys)) in [
+                ("New stream", "Open an empty stream.", format!("{cmd}N")),
+                ("Terminal", "Show or hide the terminal under the stream.", format!("{cmd}J")),
+                ("Send", "Send the message in the box.", "Enter".to_string()),
+                ("New line", "A line break in the box.", "Shift+Enter".to_string()),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                col = col.child(row(("keys", i), label.into(), help.into(), value(keys).into_any_element()));
+            }
             return div().id("settings-body").size_full().overflow_y_scroll().flex().justify_center().child(col).test_support().into_any_element();
         }
         if page != 0 {
-            col = col.child(
-                div()
-                    .id("settings-empty")
-                    .mt(px(8.))
-                    .text_size(px(13.))
-                    .text_color(fg3)
-                    .aria_label(format!("{name} settings arrive in a later milestone."))
-                    .child(format!("{name} settings arrive in a later milestone."))
-                    .test_support(),
-            );
+            col = col.child(div().id("settings-empty").mt(px(8.)).text_size(px(13.)).text_color(fg3).aria_label(format!("{name} settings arrive in a later milestone.")).child(format!("{name} settings arrive in a later milestone.")).test_support());
             return div().id("settings-body").size_full().overflow_y_scroll().flex().justify_center().child(col).test_support().into_any_element();
         }
         col = col.child(div().text_size(px(13.)).text_color(fg3).mb(px(6.)).child("Who answers in your threads, and the subscriptions they run on."));
 
-        // Subscriptions: one row per login core knows (accounts.json). Usage only where the CLI reported it.
+        // Subscriptions (board "Accounts and looks", A): a row per coding CLI with its logins under it.
         let accounts = Accounts::load(&self.accounts_path());
         col = col.child(section("Subscriptions"));
-        if accounts.list.is_empty() {
-            col = col.child(row(("sub", 0), "No subscriptions on this machine yet".into(), "They appear here once a coding CLI account is added to Cauldron.".into(), div().into_any_element()));
-        }
-        for (i, a) in accounts.list.iter().enumerate() {
-            let who = a.identity.clone().map_or_else(|| "Not signed in yet".to_string(), |w| format!("Signed in as {w}"));
-            let help = format!("{} · {}", a.provider, who);
-            let usage = match a.usage.as_ref().and_then(|u| Some((u.used?, u.limit?))) {
-                Some((used, limit)) if limit > 0 => {
-                    let left = 100u64.saturating_sub(used * 100 / limit);
-                    let low = left < 20;
-                    div()
-                        .w(px(140.))
-                        .flex()
-                        .flex_col()
-                        .gap(px(3.))
-                        .child(div().h(px(4.)).rounded(px(2.)).bg(c(pal.line_strong)).child(div().h_full().w(relative(left as f32 / 100.0)).rounded(px(2.)).bg(if low { c(pal.warn) } else { fg3 })))
-                        .child(div().text_size(px(11.)).text_color(fg3).flex().justify_end().child(format!("{left}% left")))
-                        .into_any_element()
-                }
-                _ => div().id(("sub-usage", i)).text_size(px(12.)).text_color(fg3).aria_label("No data yet").child("No data yet").test_support().into_any_element(),
-            };
-            col = col.child(row(("sub", i), a.name.clone(), help, usage));
-        }
+        col = col.child(self.subscription_rows(pal, cx));
 
         // Agents: who plans and who builds (prefs), the CLI's effort (cycles, as the composer's
         // chip does) and what happens when a subscription hits its limit (cycles, saved to accounts.json).
@@ -347,6 +473,7 @@ mod tests {
     /// says "No data yet"; the back row returns to the threads.
     #[gpui_kit::test]
     fn settings_swaps_the_sidebar_list_and_fills_the_card(cx: &mut TestAppContext) {
+        let _prefs = super::thread::tests::prefs_guard();
         let (handle, _chats) = open(cx);
         // Never the user's own accounts.json: a file of the test's own, absent.
         let path = std::env::temp_dir().join(format!("cauldron-settings-none-{}.json", std::process::id()));
@@ -356,7 +483,7 @@ mod tests {
             window.click("settings", cx);
             window.render_frame(cx);
             assert!(window.try_find(("thread", 0usize)).is_none() && window.try_find("new-thread").is_none(), "the thread list gives way");
-            assert_eq!(window.find(("sub", 0usize)).label(), Some("No subscriptions on this machine yet"));
+            assert_eq!(window.find(("sub", 0usize)).label(), Some("No coding CLI found on this machine"));
             assert_eq!(window.find("settings-back").label(), Some("Back to threads"));
             assert_eq!(window.find(("settings-page", 0usize)).label(), Some("Agents and subscriptions"));
             assert_eq!(window.find(("settings-page", 0usize)).selected(), Some(true));
@@ -365,9 +492,27 @@ mod tests {
             assert!(page.x >= card.x && page.right() <= card.right(), "the page is in the card");
             assert_eq!(window.find(("agent", 2usize)).label(), Some("Effort"));
             window.click(("settings-page", 3usize), cx);
-            assert_eq!(window.find("settings-empty").label(), Some("Machines settings arrive in a later milestone."));
+            assert_eq!(window.find(("machine", 0usize)).label(), Some("This machine"));
+            window.click(("settings-page", 4usize), cx);
+            assert_eq!(window.find(("keys", 0usize)).label(), Some("New stream"));
+            window.click(("settings-page", 1usize), cx);
+            assert_eq!(window.find(("general", 0usize)).label(), Some("Check for updates"));
+            let before = backspace_core::prefs::Prefs::load().check_updates;
+            window.click("set-updates", cx);
+            assert_eq!(backspace_core::prefs::Prefs::load().check_updates, !before, "the toggle saves");
             window.click(("settings-page", 2usize), cx);
             assert_eq!(window.find(("appearance", 0usize)).label(), Some("Backdrop"));
+            window.click(("mode-opt", 2usize), cx);
+            assert_eq!(backspace_core::prefs::Prefs::load().theme, "dark", "Mode saves");
+            window.click(("mode-opt", 0usize), cx);
+            assert_eq!(backspace_core::prefs::Prefs::load().theme, "system");
+            assert!(window.try_find("rail").is_none(), "no right rail in Settings: it belongs to an open stream");
+            // Windows only (Charles, 20 Nov): the top strip by default, or the notch.
+            let windows = crate::shell::platform() != cauldron_chrome::layout::Platform::Mac;
+            assert_eq!(window.try_find(("appearance", 3usize)).is_some(), windows, "Window controls is a Windows setting");
+            if windows {
+                assert_eq!(window.find(("window-opt", 0usize)).selected(), Some(true), "the strip is the default");
+            }
             assert_eq!(window.find(("backdrop-opt", 1usize)).selected(), Some(true), "plain by default");
             window.click(("backdrop-opt", 0usize), cx);
             window.render_frame(cx);
@@ -387,25 +532,38 @@ mod tests {
         let _ = handle.update(cx, |_, _, _| ());
     }
 
-    /// A subscription with no usage from core shows "No data yet", never a made-up number.
+    /// Subscriptions list each CLI with its logins; one with nothing known says so rather than
+    /// showing a made-up state, and an unsigned login offers Sign in.
     #[gpui_kit::test]
-    fn a_subscription_without_usage_says_no_data_yet(cx: &mut TestAppContext) {
+    fn subscriptions_list_each_cli_with_its_logins(cx: &mut TestAppContext) {
+        use backspace_core::accounts::{CliStatus, LoginStatus};
+        use backspace_core::harnesses::Auth;
         let (handle, _chats) = open(cx);
-        // A file of the test's own, never the user's accounts.json.
         let path = std::env::temp_dir().join(format!("cauldron-settings-{}.json", std::process::id()));
-        let mut a = backspace_core::accounts::Accounts::default();
-        a.add("claude", "Work");
-        a.save(&path).unwrap();
-        let p2 = path.clone();
-        handle.update(cx, move |c, _, _| c.accounts_file = Some(p2)).unwrap();
+        handle.update(cx, move |c, _, _| {
+            c.accounts_file = Some(path);
+            c.start.providers = vec![CliStatus {
+                provider: "claude".into(),
+                name: "Claude".into(),
+                installed: true,
+                version: Some("2.1.0".into()),
+                install: String::new(),
+                logins: vec![
+                    LoginStatus { id: None, name: "This machine's login".into(), signed_in: Auth::Authenticated, detail: None },
+                    LoginStatus { id: Some("work".into()), name: "Work".into(), signed_in: Auth::Unauthenticated, detail: None },
+                ],
+                active: 0,
+            }];
+        })
+        .unwrap();
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
             window.click("settings", cx);
             window.render_frame(cx);
-            assert_eq!(window.find(("sub", 0usize)).label(), Some("Work"));
-            assert_eq!(window.find(("sub-usage", 0usize)).label(), Some("No data yet"));
+            assert_eq!(window.find(("sub-cli", 0usize)).label(), Some("Claude: 2.1.0 · 2 logins"));
+            assert_eq!(window.find(("sub-login", 1usize)).label(), Some("Work: Not signed in"));
+            assert_eq!(window.find(("sub-signin", 1usize)).label(), Some("Sign in"));
         })
         .unwrap();
-        let _ = std::fs::remove_file(path);
     }
 }

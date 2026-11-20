@@ -5,16 +5,10 @@
 
 use super::*;
 
-/// The apps tray's geometry: buttons left-packed in a tray with a 3px inset.
-pub(crate) const TRAY_PAD: f32 = 3.0;
-pub(crate) const TRAY_BTN_W: f32 = 30.0;
-pub(crate) const TRAY_BTN_H: f32 = 26.0;
-pub(crate) const TRAY_GAP: f32 = 2.0;
-
-/// Where app `pos` (fractional while the indicator slides) sits in the tray.
-pub(crate) fn tray_x(pos: f32) -> f32 {
-    TRAY_PAD + pos * (TRAY_BTN_W + TRAY_GAP)
-}
+/// The apps row's geometry: separate buttons, left-packed.
+pub(crate) const TRAY_BTN_W: f32 = 32.0;
+pub(crate) const TRAY_BTN_H: f32 = 30.0;
+pub(crate) const TRAY_GAP: f32 = 4.0;
 
 /// Folders of the streams, with how many streams each has, most streams first, then by name.
 /// Streams with no folder count under "No folder" (last).
@@ -156,11 +150,9 @@ mod tests {
         assert!(folders(&[]).is_empty());
     }
 
-    /// The tray packs its buttons from the left: the indicator for app i sits at its button.
+    /// Six separate buttons with gaps fit the sidebar's width.
     #[::core::prelude::v1::test]
-    fn tray_slots_are_left_packed() {
-        assert_eq!(tray_x(0.0), TRAY_PAD);
-        assert_eq!(tray_x(2.0), TRAY_PAD + 2.0 * (TRAY_BTN_W + TRAY_GAP));
-        assert!(tray_x(5.0) + TRAY_BTN_W + TRAY_PAD <= 236.0 - 18.0, "six apps fit the sidebar");
+    fn six_app_buttons_fit_the_sidebar() {
+        assert!(6.0 * TRAY_BTN_W + 5.0 * TRAY_GAP <= 236.0 - 18.0, "six apps fit the sidebar");
     }
 }
