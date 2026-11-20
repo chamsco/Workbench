@@ -404,9 +404,7 @@ impl Cauldron {
             .pr(px(10.))
             .pb(px(8.))
             .bg(super::backdrop::surface(self.painting, pal.raised, super::backdrop::GLASS_COMPOSER))
-            .rounded(px(radius::SHELL))
-            .border_1()
-            .border_color(if focused { body_line(pal, true) } else if self.plan { c(pal.accent) } else { c(pal.line) })
+            .rounded_t(px(radius::SHELL - 1.))
             .child(div().id("nt-input").mx(px(-10.)).text_size(px(13.)).child(Textarea::new(&input).appearance(false)).test_support());
         if !self.start.files.is_empty() {
             let mut row = div().flex().flex_wrap().gap(px(6.));
@@ -504,8 +502,10 @@ impl Cauldron {
             .overflow_hidden()
             .relative()
             .bg(super::backdrop::surface(self.painting, pal.raised, super::backdrop::GLASS_COMPOSER))
-            .rounded_b(px(radius::SHELL))
-            .child(div().absolute().left_0().top_0().size_full().rounded_b(px(radius::SHELL)).bg(gpui::black().opacity(0.10)))
+            .border_t_1()
+            .border_color(c(pal.line))
+            .rounded_b(px(radius::SHELL - 1.))
+            .child(div().absolute().left_0().top_0().size_full().rounded_b(px(radius::SHELL - 1.)).bg(gpui::black().opacity(0.10)))
             .child(folder)
             .child(div().flex_1())
             .child(self.route_chip("nt-model", super::subs::PickFor::New, self.start.route.as_ref(), pal, cx))
@@ -529,12 +529,12 @@ impl Cauldron {
             .aria_label("What should Cauldron work on?")
             .child("What should Cauldron work on?")
             .test_support();
-        let nt_stack = div().id("nt-stack").flex().flex_col().on_hover(cx.listener(|this, h: &bool, _, cx| {
+        let nt_stack = div().id("nt-stack").flex().flex_col().rounded(px(radius::SHELL)).border_1().border_color(if focused { body_line(pal, true) } else if self.plan { c(pal.accent) } else { c(pal.line) }).on_hover(cx.listener(|this, h: &bool, _, cx| {
             if this.start.tray_hover != *h {
                 this.start.tray_hover = *h;
                 cx.notify();
             }
-        })).child(nt_box).child(bar);
+        })).child(nt_box).child(bar).test_support();
         let mut wrap = div().w_full().max_w(px(BOX_W)).flex().flex_col().child(heading).child(nt_stack);
         if let Some(e) = &self.start.error {
             wrap = wrap.child(line("start-error", e.clone(), c(pal.bad)));
@@ -957,7 +957,7 @@ mod tests {
             }
             let (bx, by, bw, bh) = rect(window, "nt-box");
             let (cx0, cy0, cw, ch) = rect(window, "new-thread-screen");
-            assert_eq!(bw, 600f32.min(cw - 48.0), "the Tight tiles board's 600, or the card's inside less its padding");
+            assert_eq!(rect(window, "nt-stack").2, 600f32.min(cw - 48.0), "the Tight tiles board's 600, or the card's inside less its padding");
             assert!(bh >= 79.0, "at least the board's box with one line: {bh}");
             assert!(((bx + bw / 2.0) - (cx0 + cw / 2.0)).abs() <= 1.0, "centred across the card");
             assert!(((by + bh / 2.0) - (cy0 + ch / 2.0)).abs() <= 60.0, "about the middle of the card");
