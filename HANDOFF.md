@@ -24,6 +24,10 @@
 - **Model tray A**: on New stream the model chip unfolds the tray under the box (220ms) into
   who answers | model, effort, manage. The box stays put (the stack's negative bottom margin
   matches the tray). An open stream still uses the popover menu.
+- **Round 2 (Charles, 22:39Z)**: only the stream's own tab sits in the card's tab; agent tabs and +
+  sit on the frame past the foot (`TAB_SEP`). Model picker gains "Stacked" (Settings > Appearance >
+  Model picker, pref `model_tray`), Unfold stays the default: a card tucked 12px behind the box with
+  a rim under it drops out 6px below the box and holds the tray, with a drop shadow.
 
 **Session, 17 Nov 2026: Cauldron M6, the execution engine (sandbox and herdr).**
 

@@ -1289,6 +1289,8 @@ const TAB_MAX: f32 = 200.0;
 /// A header tab (the board's `.tab`): 2px between tabs, 10px padding, 6px from the name to the
 /// close. No figure: agent figures belong to the Agents page.
 const TAB_GAP: f32 = 2.0;
+/// From the stream's tab to the first agent tab: the card's tab edge, its foot and a stroke of frame.
+const TAB_SEP: f32 = tabshape::S + tabshape::FOOT_R + tabshape::S;
 const TAB_PAD: f32 = 10.0;
 const CLOSE_GAP: f32 = 6.0;
 /// What the open agent tab needs beyond the others: its close button, the gap before it and its 1px ring.
@@ -1647,7 +1649,9 @@ impl Render for Cauldron {
             };
             let anchor_w = (TAB_PAD + label_w + TAB_PAD + 2.0).ceil().min(ANCHOR_MAX);
             let n = self.agents.len();
-            let room = s.tabs.w - anchor_w - (TAB_GAP + ADD_W);
+            // The card's tab holds only the stream's own tab; agents' tabs and + sit on the frame
+            // past the tab's foot (Charles, 20 Nov: "outside of the tab card, with a separation").
+            let room = s.tabs.w - anchor_w - TAB_SEP - (TAB_GAP + ADD_W);
             let scrolls = n as f32 * (TAB_MIN + TAB_GAP) + TAB_GAP > room;
             let (k, tab_w) = if scrolls {
                 (((room - 54.0) / (TAB_MIN + TAB_GAP)).floor().max(1.0) as usize, Some(TAB_MIN))
@@ -1730,11 +1734,10 @@ impl Render for Cauldron {
                     this.focus_tabs(window, cx);
                     cx.notify();
                 }));
-            row = row.child(anchor.test_support());
+            row = row.child(anchor.test_support()).child(div().id("tab-sep").flex_none().w(px(TAB_SEP - 2.0 * TAB_GAP)).h(px(1.)));
 
-            // Each tab is sized to its name here, not by flex, so the card's tab can hug the row.
+            // Each tab is sized to its name, within its share of the room.
             let fig_w = avatar::size(TAB_FIG).0;
-            let mut row_w = anchor_w;
             for (j, agent) in self.agents.iter().enumerate().skip(first).take(k) {
                 let i = j + 1;
                 let name_w = {
@@ -1793,7 +1796,6 @@ impl Render for Cauldron {
                 let share = if on && !scrolls { share + CLOSE_W } else { share };
                 let want = (TAB_PAD + fig_w + CLOSE_GAP + name_w + TAB_PAD + if on { CLOSE_W } else { 0.0 }).ceil();
                 let tw = if scrolls { TAB_MIN } else { want.clamp(TAB_MIN, share.max(TAB_MIN)) };
-                row_w += TAB_GAP + tw;
                 tab = tab.flex_none().w(px(tw));
                 // The full name as a tip once the tab may be narrower than the widest it gets.
                 let tab = if share < TAB_MAX { self.tipped(("tab", i), tab, agent.name.clone(), Side::Below, pal, cx) } else { tab };
@@ -1850,9 +1852,7 @@ impl Render for Cauldron {
             }
             let add = if self.tab_menu { add } else { self.tipped("tab-add", add, ADD_LABEL, Side::Below, pal, cx) };
             tab_row = Some(row.child(add.test_support()));
-            // Scrolling tabs fill the row (the arrows sit at its right end).
-            let row_w = if scrolls { s.tabs.w } else { row_w + TAB_GAP + ADD_W };
-            bump_w = Some(s.tabs.x - s.main.x + row_w + tabshape::S);
+            bump_w = Some(s.tabs.x - s.main.x + anchor_w + tabshape::S);
         }
 
         // ---- the stream card (the board's `.card`): its 38px header holds the tabs, its body the
@@ -2921,7 +2921,9 @@ mod tests {
                 assert_eq!(on(window, i), i == 0, "tab {i}: only the coordinator is open");
             }
             for i in 1..=3usize {
-                assert_eq!(rect(window, ("tab", i)).x - rect(window, ("tab", i - 1)).right(), 2.0, "2px between tabs {} and {i}", i - 1);
+                // The stream's tab sits in the card's tab; the agents' tabs start past its foot.
+                let want = if i == 1 { super::TAB_SEP } else { 2.0 };
+                assert_eq!(rect(window, ("tab", i)).x - rect(window, ("tab", i - 1)).right(), want, "between tabs {} and {i}", i - 1);
             }
             let add = rect(window, "tab-add");
             assert_eq!((add.y, add.h), (row.y, 28.0), "+ as tall as the tabs");

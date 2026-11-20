@@ -11,6 +11,15 @@ use backspace_core::chat::{Route, RouteKind};
 use backspace_core::harnesses::Auth;
 use gpui_kit::prelude::FluentBuilder;
 
+/// The New stream box's picker is the stacked card (Settings > Appearance > Model picker).
+pub(crate) fn tray_stacked() -> bool {
+    Prefs::load().model_tray.as_deref() == Some("stacked")
+}
+
+/// Stacked picker: how far the card hides under the box while folded, and the gap it drops to.
+pub(crate) const STACK_TUCK: f32 = 12.0;
+pub(crate) const STACK_GAP: f32 = 6.0;
+
 /// The new-stream tray's height once it has unfolded (Model tray A).
 pub(crate) const TRAY_OPEN_H: f32 = 216.0;
 

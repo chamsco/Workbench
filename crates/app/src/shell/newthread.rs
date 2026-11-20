@@ -528,7 +528,9 @@ impl Cauldron {
             .child(heading_text)
             .test_support();
         let tray_open = self.start.route_menu == Some(super::subs::PickFor::New);
-        let nt_stack = div().id("nt-stack").flex().flex_col().relative().p(px(3.)).border_1().border_color(if focused { body_line(pal, true) } else if self.plan { c(pal.accent) } else { gpui::transparent_black() }).bg(super::backdrop::surface(self.painting, pal.raised, super::backdrop::GLASS_COMPOSER)).rounded(px(radius::SHELL)).child(div().absolute().left_0().top_0().size_full().rounded(px(radius::SHELL)).bg(gpui::black().opacity(0.18))).on_hover(cx.listener(|this, h: &bool, _, cx| {
+        let stacked = super::subs::tray_stacked();
+        let glass = |d: gpui::Stateful<Div>| d.border_1().border_color(if focused { body_line(pal, true) } else if self.plan { c(pal.accent) } else { gpui::transparent_black() }).bg(super::backdrop::surface(self.painting, pal.raised, super::backdrop::GLASS_COMPOSER)).rounded(px(radius::SHELL)).child(div().absolute().left_0().top_0().size_full().rounded(px(radius::SHELL)).bg(gpui::black().opacity(0.18)));
+        let nt_stack = div().id("nt-stack").flex().relative().on_hover(cx.listener(|this, h: &bool, _, cx| {
             if this.start.tray_hover != *h {
                 this.start.tray_hover = *h;
                 cx.notify();
@@ -540,15 +542,46 @@ impl Cauldron {
                 this.start.route_menu = None;
                 cx.notify();
             }))
-        })
-        .child(nt_box)
-        .child(bar)
-        .when_live(tray_open, |d| d.child(self.route_tray(pal, cx)))
+        });
+        let grow = if stacked { super::subs::TRAY_OPEN_H + super::subs::STACK_GAP } else { super::subs::TRAY_OPEN_H };
+        let nt_stack = if stacked {
+            // Stacked (Charles, 20 Nov, board round 2): the chips ride a card tucked behind the box,
+            // with a rim of a third card under it; opening drops that card out below the box, a
+            // small gap apart, and unfolds the picker in it. Drawn back to front, laid out top down.
+            let tuck = super::subs::STACK_TUCK;
+            let line = c(if self.painting { pal.line_strong } else { pal.line });
+            let card = |d: gpui::Stateful<Div>| d.rounded(px(radius::SHELL)).border_1().border_color(line).bg(super::backdrop::surface(self.painting, pal.raised, super::backdrop::GLASS_COMPOSER)).child(div().absolute().left_0().top_0().size_full().rounded(px(radius::SHELL)).bg(gpui::black().opacity(0.30)));
+            // The rim and the card are laid out from the stack's bottom, behind the box, so the box
+            // (drawn last) covers their tucked tops; a spacer under the box makes their room.
+            let (gap, tray_h) = (super::subs::STACK_GAP, super::subs::TRAY_OPEN_H);
+            let rim = card(div().id("nt-rim").absolute().left(px(28.)).right(px(28.)).bottom_0().h(px(tuck + 8.))).test_support();
+            let mut mid = card(div().id("nt-card").absolute().left(px(14.)).right(px(14.)).bottom(px(8.)).flex().flex_col().overflow_hidden())
+                .shadow(vec![gpui::BoxShadow { color: gpui::black().opacity(0.45), offset: gpui::point(px(0.), px(10.)), blur_radius: px(28.), spread_radius: px(0.), inset: false }])
+                .child(bar);
+            if tray_open {
+                mid = mid.child(self.route_tray(pal, cx));
+            }
+            let mid = mid.test_support();
+            let spacer = div().id("nt-card-room").flex_none();
+            let (mid, spacer) = if tray_open {
+                // The tucked strip turns into the gap as the card drops out and unfolds.
+                (
+                    mid.with_animation("nt-card-drop", super::motion::anim(220.), move |d, t| d.pt(px(tuck * (1.0 - t))).h(px(40.0 + tuck + (tray_h - tuck) * t))).into_any_element(),
+                    spacer.with_animation("nt-card-room", super::motion::anim(220.), move |d, t| d.h(px(48.0 + (gap + tray_h) * t))).into_any_element(),
+                )
+            } else {
+                (mid.pt(px(tuck)).h(px(40.0 + tuck)).into_any_element(), spacer.h(px(48.)).into_any_element())
+            };
+            let front = glass(div().id("nt-front").relative().flex().flex_col().p(px(3.))).child(nt_box).test_support();
+            nt_stack.flex_col().child(rim).child(mid).child(front).child(spacer)
+        } else {
+            glass(nt_stack.flex_col().p(px(3.))).child(nt_box).child(bar).when_live(tray_open, |d| d.child(self.route_tray(pal, cx)))
+        }
         .test_support();
-        // The tray unfolds downward: the stack gives back its growth as a negative margin, so the
+        // The picker opens downward: the stack gives back its growth as a negative margin, so the
         // centred box above stays exactly where it was, and the lines under it hide meanwhile.
         let nt_stack = if tray_open {
-            nt_stack.with_animation("nt-stack-drop", super::motion::anim(220.), |d, t| d.mb(px(-super::subs::TRAY_OPEN_H * t))).into_any_element()
+            nt_stack.with_animation("nt-stack-drop", super::motion::anim(220.), move |d, t| d.mb(px(-grow * t))).into_any_element()
         } else {
             nt_stack.into_any_element()
         };
@@ -1350,5 +1383,37 @@ mod tests {
         })
         .unwrap();
         assert_eq!(handle.update(cx, |c, _, _| c.start.route.as_ref().map(|r| r.provider.clone())).unwrap().as_deref(), Some("codex"));
+    }
+
+    /// The stacked picker (Settings > Appearance > Model picker): folded, its card is tucked
+    /// behind the box with only the chips showing; open, it drops below the box a small gap apart
+    /// and holds the whole picker. The box stays put either way.
+    #[gpui_kit::test]
+    fn the_stacked_picker_drops_out_from_behind_the_box(cx: &mut TestAppContext) {
+        let _prefs = super::super::thread::tests::prefs_guard();
+        let (handle, _chats) = open(cx);
+        let mut p = Prefs::load();
+        p.model_tray = Some("stacked".into());
+        p.save();
+        handle.update(cx, |c, _, _| c.start.providers_loading = true).unwrap();
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            let front = rect(window, "nt-front");
+            let card = rect(window, "nt-card");
+            let tuck = super::super::subs::STACK_TUCK;
+            assert!((card.1 - (front.1 + front.3 - tuck)).abs() <= 1.0, "tucked under the box: {card:?} {front:?}");
+            assert!(card.0 > front.0 && card.0 + card.2 < front.0 + front.2, "narrower than the box");
+            assert!(rect(window, "nt-rim").1 + rect(window, "nt-rim").3 > card.1 + card.3, "a rim of the card behind shows under it");
+            window.click("nt-model", cx);
+            window.render_frame(cx);
+            assert_eq!(rect(window, "nt-front"), front, "the box never moves");
+            let card = rect(window, "nt-card");
+            assert!((card.1 - (front.1 + front.3 + super::super::subs::STACK_GAP)).abs() <= 1.0, "dropped out a small gap below: {card:?}");
+            assert!(window.try_find("route-tray").is_some() && window.try_find("tray-effort").is_some());
+        })
+        .unwrap();
+        let mut p = Prefs::load();
+        p.model_tray = None;
+        p.save();
     }
 }

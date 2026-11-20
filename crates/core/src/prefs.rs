@@ -99,6 +99,9 @@ pub struct Prefs {
     /// Cauldron on Windows: "notch" puts the caption buttons in a notch in the top-right card;
     /// None (or anything else) is the slim top strip.
     pub window_style: Option<String>,
+    /// Cauldron: how the New stream box shows its model picker. "stacked" is a card tucked behind
+    /// the box that drops out below it; None (or anything else) unfolds the tray under the box.
+    pub model_tray: Option<String>,
     /// How Backspace tells you something needs you: "system" (the OS's
     /// notifications), "app" (inside the app only) or "off".
     pub notify: String,
@@ -165,6 +168,7 @@ impl Default for Prefs {
             stream_dim: None,
             frost: None,
             window_style: None,
+            model_tray: None,
             notify: "system".into(),
             companion: CompanionCfg::default(),
             uses: vec!["chat".into(), "code".into()],
