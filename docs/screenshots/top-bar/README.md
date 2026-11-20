@@ -18,3 +18,7 @@ Before shots are round 1's baseline (notch, one tray under New stream, dots).
 
 Limits: not run on a real Windows PC; the notch option needs an app restart-free toggle but I only drove it by
 saving the pref and relaunching in the capture; the figure is a still frame; "N needs you" counts streams only.
+
+Round 3: the right-hand quick-button rail now shows only while a stream (or familiar) is open, or while the support
+card is open (its rail is how you fold it). It is gone in Settings (`after-appearance-window-controls.png`) and on the
+New stream screen (`after-new-stream-no-rail.png`).

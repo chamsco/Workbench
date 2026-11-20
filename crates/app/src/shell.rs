@@ -336,6 +336,13 @@ pub(crate) struct Cauldron {
 }
 
 impl Cauldron {
+    /// The quick-button rail belongs to a stream (Charles, 20 Nov): shown while a stream or a
+    /// familiar is open, or while the support card is open (its rail is how you fold it), never on
+    /// the New stream screen or in Settings.
+    pub(crate) fn rail_on(&self, support_open: bool) -> bool {
+        support_open || (self.settings.is_none() && (self.open.is_some() || self.familiar.is_some()))
+    }
+
     /// The window's first state. Debug builds only: `CAULDRON_FIXTURE_AGENTS=n` opens a thread with
     /// n agent tabs, for screenshots until UI4 brings real agents from core.
     pub(crate) fn launch(cx: &mut Context<Self>) -> Self {
@@ -1532,7 +1539,7 @@ impl Render for Cauldron {
         // and the row shows a window of 72px tabs. No figures (Charles, 13 Nov).
         let mut tab_row = None;
         // A familiar's tabs are its own folder tabs on its stream card (familiar.rs).
-        let fam = self.familiar.is_some().then(|| self.familiar_strips(s.main, s.support.is_none(), pal, now, reduce, window, cx));
+        let fam = self.familiar.is_some().then(|| self.familiar_strips(s.main, s.support.is_none() && self.rail_on(false), pal, now, reduce, window, cx));
         if let Some(anchor_label) = self.coordinator.clone().filter(|_| self.familiar.is_none()) {
             let focus = self.tab_focus.get_or_insert_with(|| cx.focus_handle()).clone();
             let label_w = {
@@ -1772,7 +1779,7 @@ impl Render for Cauldron {
             );
         }
         let new_screen = self.open.is_none() && self.active == 0 && self.settings.is_none() && self.familiar.is_none();
-        let rail_here = s.support.is_none();
+        let rail_here = s.support.is_none() && self.rail_on(false);
         // The body under the header, clear of the rail when it is in this card.
         let body_w = s.main.w - 2.0 - if rail_here { metric::RAIL_W } else { 0.0 };
         let body_h = s.main.h - 2.0 - metric::HEAD_H - if new_screen { STAGE_H } else { 0.0 };
@@ -2095,7 +2102,7 @@ impl Render for Cauldron {
         // ---- the quick-button rail, inside the rightmost card's right edge (the board's `.irail`):
         // Highlights, Changes, Git, Trace, a rule, Browser, Files, Simulator, Terminal; the fold
         // toggle at the bottom. A short accent mark shows a panel that has a tab.
-        {
+        if self.rail_on(s.support.is_some()) {
             let rail_button = |this: &Self, id: (&'static str, usize), p: Panel, cx: &mut Context<Self>| {
                 // The mark shows the open panel only, not every panel that has a tab (Charles, 20 Nov).
                 let has_tab = this.drawer == Some(p);
@@ -2498,6 +2505,8 @@ mod tests {
                 sidebar_open: state.sidebar_open,
                 drawer: state.support_open.then_some(Panel::Highlights),
                 terminal: state.dock_open,
+                // A stream is open, so its rail shows.
+                open: Some("s".into()),
                 ..Cauldron::new()
             });
             cx.simulate_window_resize(handle.into(), size(px(W), px(H)));
@@ -2535,7 +2544,7 @@ mod tests {
     fn the_support_card_has_its_own_tabs_and_a_plus_menu(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         cx.update(|cx| cx.set_reduce_motion(true));
-        let handle = cx.add_window(|_, _| Cauldron::new());
+        let handle = cx.add_window(|_, _| Cauldron { open: Some("s".into()), ..Cauldron::new() });
         cx.simulate_window_resize(handle.into(), size(px(W), px(H)));
         // The shell moves on the wall clock, so start each check from rest.
         let rest = |cx: &mut TestAppContext| handle.update(cx, |c, _, _| c.motion = Default::default()).unwrap();
@@ -2602,7 +2611,7 @@ mod tests {
     fn icon_buttons_have_names_and_tooltips(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         cx.update(|cx| cx.set_reduce_motion(true));
-        let handle = cx.add_window(|_, _| Cauldron::new());
+        let handle = cx.add_window(|_, _| Cauldron { open: Some("s".into()), ..Cauldron::new() });
         cx.simulate_window_resize(handle.into(), size(px(W), px(H)));
         let ms = std::time::Duration::from_millis;
         cx.update_window(handle.into(), |_, window, cx| {
@@ -2709,7 +2718,8 @@ mod tests {
             // Core has no stages or usage yet, so usage is an empty state and no stage is current:
             // plain fg3 labels, nothing to click.
             let bar = rect(window, "stage-bar");
-            assert_eq!((bar.x, bar.w, bar.h), (card.x + 1.0, s.rail.x - card.x - 1.0, 32.0), "stage bar card-wide, clear of the rail");
+            assert_eq!((bar.x, bar.w, bar.h), (card.x + 1.0, card.w - 2.0, 32.0), "stage bar card-wide: the rail is for an open stream, not the New stream screen");
+            assert!(window.try_find("rail").is_none(), "no right rail on the New stream screen (Charles, 20 Nov)");
             assert_eq!(bar.bottom(), card.bottom() - 1.0, "at the card's bottom, inside its border");
             assert_eq!(window.find("stage-usage").label(), Some("No usage data yet"));
             let mut last = rect(window, "stage-usage").right();

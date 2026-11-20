@@ -405,6 +405,7 @@ mod tests {
             assert_eq!(window.find("settings-empty").label(), Some("Machines settings arrive in a later milestone."));
             window.click(("settings-page", 2usize), cx);
             assert_eq!(window.find(("appearance", 0usize)).label(), Some("Backdrop"));
+            assert!(window.try_find("rail").is_none(), "no right rail in Settings: it belongs to an open stream");
             // Windows only (Charles, 20 Nov): the top strip by default, or the notch.
             let windows = crate::shell::platform() != cauldron_chrome::layout::Platform::Mac;
             assert_eq!(window.try_find(("appearance", 3usize)).is_some(), windows, "Window controls is a Windows setting");
