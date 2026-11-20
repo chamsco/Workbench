@@ -2856,18 +2856,13 @@ mod tests {
         let handle = open(cx, Cauldron::new());
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
-            assert!(window.try_find("nt-ship").is_none(), "Ship as shows only with Familiar on");
-            assert!(window.try_find("familiars-empty").is_some(), "the sidebar says how to start one");
-            window.click("nt-familiar", cx);
-            window.render_frame(cx);
-            assert_eq!(window.find("nt-familiar").label(), Some("Familiar · on"));
-            assert!(window.try_find("nt-ship").is_some());
-            assert!(window.find("start-familiar-warn").label().unwrap().contains("folder"), "says it needs a folder first");
+            assert!(window.try_find("nt-ship").is_none() && window.try_find("nt-familiar").is_none(), "no Familiar chip on the box");
         })
         .unwrap();
         handle
             .update(cx, |c, window, cx| {
                 c.start.folder = None;
+                c.start.familiar = true;
                 if let Some((st, _)) = &c.start.input {
                     st.update(cx, |s, cx| s.set_value("Add CSV export", window, cx));
                 }

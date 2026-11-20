@@ -27,6 +27,9 @@ pub(crate) struct Start {
     pub(crate) remote: Option<Arc<Remote>>,
     remote_watch: Option<Task<()>>,
     pub(crate) menu: bool,
+    /// The + menu (files, commands, connectors, plan) and whether the pointer is over the box and tray.
+    pub(crate) plus_menu: bool,
+    tray_hover: bool,
     slide: super::motion::Slide,
     pub(crate) files: Vec<PathBuf>,
     /// The folder the new stream works in (`Scope::project`); None is No folder.
@@ -324,7 +327,6 @@ impl Cauldron {
                 ch.next().map_or_else(|| "Auto".into(), |f| format!("Auto · {}{}", f.to_uppercase(), ch.as_str()))
             }
         };
-        let machine_name = if self.start.machine == 0 { "This machine".to_string() } else { self.start.machines.get(self.start.machine - 1).map_or_else(|| "This machine".into(), |m| m.name.clone()) };
         let ready = blocked.is_none() && !input.read(cx).value().trim().is_empty();
         let start_btn = div()
             .id("start")
@@ -341,44 +343,54 @@ impl Cauldron {
             .child(glyph("arrow-up", 14., if ready { c(pal.on_accent) } else { fg2 }))
             .on_click(cx.listener(|this, _, window, cx| this.start_thread(window, cx)))
             .test_support();
+        // Empty box: a voice button where Send was. With text: voice sits left of Send.
+        let has_text = !input.read(cx).value().trim().is_empty();
+        let voice = div()
+            .id("nt-voice")
+            .size(px(28.))
+            .flex_none()
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded_full()
+            .cursor_pointer()
+            .hover(|d| d.bg(c(pal.hover)))
+            .aria_label("Voice")
+            .aria_description("Dictate the task")
+            .child(glyph("mic", 15., fg2))
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.start.error = None;
+                this.start.note = Some("Voice input is not connected in this build yet.".into());
+                cx.notify();
+            }))
+            .test_support();
+        // Line one, in the box: + (everything you can add), where it runs, and Ask first at the far right.
         let tools = div()
             .flex()
             .items_center()
             .gap(px(8.))
             .child(
                 dd("add-file")
+                    .relative()
                     .w(px(24.))
                     .h(px(24.))
                     .justify_center()
                     .px_0()
-                    .aria_label("Add a file")
+                    .aria_label("Add")
+                    .aria_expanded(self.start.plus_menu)
                     .child(glyph("plus", 15., fg2))
-                    .on_click(cx.listener(|this, _, window, cx| this.pick_files(window, cx)))
-                    .test_support(),
-            )
-            .child(self.trust_chip("nt-trust", pal, cx))
-            .child(self.plan_chip("nt-plan", pal, cx))
-            .child(self.familiar_chip(pal, cx))
-            .when(self.start.familiar, |d| d.child(self.ship_chip(pal, cx)))
-            .child(div().flex_1())
-            // A familiar runs its own harness, whose models come from the project, not this route.
-            .when(!self.start.familiar, |d| d.child(self.route_chip("nt-model", super::subs::PickFor::New, self.start.route.as_ref(), pal, cx)))
-            .child(
-                dd("nt-effort")
-                    .h(px(24.))
-                    .aria_label(effort_label.clone())
-                    .child(effort_label)
-                    .child(glyph("chevron-down", 13., fg3))
-                    .on_click(cx.listener(|_, _, _, cx| {
-                        let mut p = Prefs::load();
-                        let at = EFFORTS.iter().position(|e| *e == p.cli_effort.as_deref()).unwrap_or(0);
-                        p.cli_effort = EFFORTS[(at + 1) % EFFORTS.len()].map(str::to_string);
-                        p.save();
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.start.plus_menu = !this.start.plus_menu;
+                        this.start.menu = false;
+                        this.start.folder_menu = false;
                         cx.notify();
                     }))
+                    .when(self.start.plus_menu, |d| d.child(deferred(div().absolute().top(px(28.)).left_0().child(self.plus_menu(pal, cx))).with_priority(2)))
                     .test_support(),
             )
-            .child(start_btn);
+            .child(self.machine_chip(pal, cx))
+            .child(div().flex_1())
+            .child(self.trust_chip("nt-trust", pal, cx));
 
         // The board's `.box`: radius 12, the editor, then + , trust, Plan, the model, effort, Start.
         let mut nt_box = div()
@@ -433,8 +445,8 @@ impl Cauldron {
         }
         let nt_box = nt_box.child(div().mt_auto().child(tools)).test_support();
 
-        // The bar under the box (the board's `.nbar`, option A): the folder and the worktree on the
-        // left, GitHub and where it runs on the right. Each is a lined chip.
+        // Line two, the darker tray fused under the box: the folder on the left; the model, the
+        // effort, voice and Send on the right. It opens while the box is in use and folds back after.
         let chip = |id: &'static str| {
             div()
                 .id(id)
@@ -462,44 +474,48 @@ impl Cauldron {
             .on_click(cx.listener(|this, _, _, cx| {
                 this.start.folder_menu = !this.start.folder_menu;
                 this.start.menu = false;
+                this.start.plus_menu = false;
                 cx.notify();
             }))
             .when(self.start.folder_menu, |d| d.child(deferred(div().absolute().top(px(30.)).left_0().child(self.folder_menu(pal, cx))).with_priority(2)))
             .test_support();
-        // ponytail: core has no worktrees or GitHub link yet; the chips say so rather than pretend.
-        let unavailable = |id: &'static str, icon: &'static str, label: &'static str, why: &'static str| {
-            chip(id).opacity(0.5).aria_label(label).aria_description(why).child(glyph(icon, 13., fg3)).child(label).test_support()
-        };
-        let run = chip("machine")
-            .cursor_pointer()
-            .hover(|d| d.bg(c(pal.hover)))
-            .aria_label(machine_name.clone())
-            .aria_expanded(self.start.menu)
-            .child(glyph(if self.start.machine == 0 { "laptop" } else { "monitor" }, 13., fg3))
-            .child(machine_name)
-            .child(glyph("chevron-down", 12., fg3))
-            .on_click(cx.listener(|this, _, _, cx| {
-                this.start.menu = !this.start.menu;
-                this.start.folder_menu = false;
-                this.start.slide.reset();
+        let open = self.start.tray_hover || focused || has_text || self.start.menu || self.start.folder_menu || self.start.plus_menu || self.start.route_menu.is_some() || self.start.folder.is_some() || !self.start.files.is_empty();
+        let effort_dd = dd("nt-effort")
+            .h(px(24.))
+            .aria_label(effort_label.clone())
+            .child(effort_label)
+            .child(glyph("chevron-down", 13., fg3))
+            .on_click(cx.listener(|_, _, _, cx| {
+                let mut p = Prefs::load();
+                let at = EFFORTS.iter().position(|e| *e == p.cli_effort.as_deref()).unwrap_or(0);
+                p.cli_effort = EFFORTS[(at + 1) % EFFORTS.len()].map(str::to_string);
+                p.save();
                 cx.notify();
             }))
-            // Deferred so it paints over what comes after; it opens under the chip, right-aligned.
-            .when(self.start.menu, |d| d.child(deferred(div().absolute().top(px(30.)).right_0().child(self.machine_menu(pal, cx))).with_priority(2)))
             .test_support();
         let bar = div()
             .id("nt-bar")
             .flex()
-            .items_center()
+            .items_start()
             .gap(px(4.))
-            .pt(px(8.))
+            .px(px(10.))
+            .pt(px(6.))
+            .h(px(40.))
+            .overflow_hidden()
+            .relative()
+            .bg(super::backdrop::surface(self.painting, pal.raised, super::backdrop::GLASS_COMPOSER))
+            .rounded_b(px(radius::SHELL))
+            .child(div().absolute().left_0().top_0().size_full().rounded_b(px(radius::SHELL)).bg(gpui::black().opacity(0.10)))
             .child(folder)
-            .child(unavailable("nt-worktree", "git-branch", "Worktree", "Worktrees arrive when core can make them."))
             .child(div().flex_1())
-            .child(unavailable("nt-github", "github", "GitHub", "Linking or creating a pull request is still to be decided."))
-            .child(run)
-            .test_support();
-
+            .child(self.route_chip("nt-model", super::subs::PickFor::New, self.start.route.as_ref(), pal, cx))
+            .child(effort_dd)
+            .child(voice)
+            .when(has_text, |d| d.child(start_btn));
+        let bar = bar.test_support().with_animation(if open { "tray-open" } else { "tray-shut" }, super::motion::anim(160.), move |d, t| {
+            let k = if open { t } else { 0.0 };
+            d.opacity(0.25 + 0.75 * k)
+        });
         // What the box says under it: why Start waits, a refusal, or a machine's answer.
         let line = |id: &'static str, text: String, col: Hsla| div().id(id).mt(px(10.)).px(px(6.)).text_size(px(12.)).line_height(px(17.)).text_color(col).aria_label(text.clone()).child(text).test_support();
         let heading = div()
@@ -513,7 +529,13 @@ impl Cauldron {
             .aria_label("What should Cauldron work on?")
             .child("What should Cauldron work on?")
             .test_support();
-        let mut wrap = div().w_full().max_w(px(BOX_W)).flex().flex_col().child(heading).child(nt_box).child(bar);
+        let nt_stack = div().id("nt-stack").flex().flex_col().on_hover(cx.listener(|this, h: &bool, _, cx| {
+            if this.start.tray_hover != *h {
+                this.start.tray_hover = *h;
+                cx.notify();
+            }
+        })).child(nt_box).child(bar);
+        let mut wrap = div().w_full().max_w(px(BOX_W)).flex().flex_col().child(heading).child(nt_stack);
         if let Some(e) = &self.start.error {
             wrap = wrap.child(line("start-error", e.clone(), c(pal.bad)));
         } else if let Some(n) = &self.start.note {
@@ -614,78 +636,6 @@ impl Cauldron {
             .into_any_element()
     }
 
-    /// The Familiar toggle (S1): on, Start hands the goal to a familiar that plans, builds,
-    /// verifies and ships on its own, stopping only for you.
-    fn familiar_chip(&self, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
-        let on = self.start.familiar;
-        let label = if on { "Familiar · on" } else { "Familiar" };
-        div()
-            .id("nt-familiar")
-            .h(px(24.))
-            .flex()
-            .items_center()
-            .gap(px(5.))
-            .px(px(8.))
-            .rounded(px(radius::CONTROL))
-            .border_1()
-            .border_color(if on { c(pal.accent) } else { c(pal.line) })
-            .when(on, |d| d.bg(ca(pal.accent, 0.12)))
-            .text_size(px(12.))
-            .text_color(if on { c(pal.fg) } else { c(pal.fg2) })
-            .cursor_pointer()
-            .aria_label(label)
-            .aria_selected(on)
-            .aria_description("Familiar: hand over the goal; it plans, builds, verifies and ships, and stops only for you")
-            .child(glyph("ship-wheel", 13., if on { c(pal.accent) } else { c(pal.fg3) }))
-            .child(label)
-            .on_click(cx.listener(|this, _, _, cx| {
-                this.start.familiar = !this.start.familiar;
-                this.start.error = None;
-                cx.notify();
-            }))
-            .test_support()
-            .into_any_element()
-    }
-
-    /// Ship as (S1): where a familiar delivers, cycled and saved in prefs. Never a merge.
-    fn ship_chip(&self, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
-        let t = backspace_core::deliver::Target::parse(&Prefs::load().ship_target).unwrap_or_default();
-        let label = match t {
-            backspace_core::deliver::Target::Local => "Ship as: local branch",
-            backspace_core::deliver::Target::Branch => "Ship as: pushed branch",
-            backspace_core::deliver::Target::PullRequest => "Ship as: pull request",
-        };
-        div()
-            .id("nt-ship")
-            .h(px(24.))
-            .flex()
-            .items_center()
-            .gap(px(5.))
-            .px(px(8.))
-            .rounded(px(radius::CONTROL))
-            .border_1()
-            .border_color(c(pal.line))
-            .text_size(px(12.))
-            .text_color(c(pal.fg2))
-            .cursor_pointer()
-            .aria_label(label)
-            .child(label)
-            .child(glyph("chevron-down", 13., c(pal.fg3)))
-            .on_click(cx.listener(|_, _, _, cx| {
-                let mut p = Prefs::load();
-                p.ship_target = match backspace_core::deliver::Target::parse(&p.ship_target).unwrap_or_default() {
-                    backspace_core::deliver::Target::Local => "branch",
-                    backspace_core::deliver::Target::Branch => "pr",
-                    backspace_core::deliver::Target::PullRequest => "local",
-                }
-                .into();
-                p.save();
-                cx.notify();
-            }))
-            .test_support()
-            .into_any_element()
-    }
-
     /// Plan mode on or off, with both editors' placeholders saying what it means.
     pub(super) fn set_plan(&mut self, on: bool, window: &mut Window, cx: &mut Context<Self>) {
         self.plan = on;
@@ -767,6 +717,95 @@ impl Cauldron {
                 }))
                 .test_support(),
         );
+        menu.test_support().into_any_element()
+    }
+
+    /// Where it runs, in the box's first line: this machine or a connected one.
+    fn machine_chip(&self, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
+        let (fg2, fg3) = (c(pal.fg2), c(pal.fg3));
+        let name = if self.start.machine == 0 { "This machine".to_string() } else { self.start.machines.get(self.start.machine - 1).map_or_else(|| "This machine".into(), |m| m.name.clone()) };
+        div()
+            .id("machine")
+            .relative()
+            .h(px(24.))
+            .flex()
+            .items_center()
+            .gap(px(5.))
+            .px(px(8.))
+            .rounded(px(radius::TAG))
+            .text_size(px(12.))
+            .text_color(fg2)
+            .cursor_pointer()
+            .hover(|d| d.bg(c(pal.hover)))
+            .aria_label(name.clone())
+            .aria_expanded(self.start.menu)
+            .child(glyph(if self.start.machine == 0 { "laptop" } else { "monitor" }, 13., fg3))
+            .child(name)
+            .child(glyph("chevron-down", 12., fg3))
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.start.menu = !this.start.menu;
+                this.start.folder_menu = false;
+                this.start.plus_menu = false;
+                this.start.slide.reset();
+                cx.notify();
+            }))
+            .when(self.start.menu, |d| d.child(deferred(div().absolute().top(px(28.)).left_0().child(self.machine_menu(pal, cx))).with_priority(2)))
+            .test_support()
+            .into_any_element()
+    }
+
+    /// The + menu: add files, commands, connectors, and Plan.
+    fn plus_menu(&self, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
+        let (fg, fg2, fg3) = (c(pal.fg), c(pal.fg2), c(pal.fg3));
+        let mut menu = div()
+            .id("plus-menu")
+            .w(px(230.))
+            .p(px(4.))
+            .rounded(px(radius::PANEL))
+            .bg(c(pal.raised))
+            .border_1()
+            .border_color(c(pal.line))
+            .shadow(vec![drop(tokens::shadow::MENU)])
+            .text_size(px(12.5))
+            .occlude()
+            .aria_label("Add")
+            .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                this.start.plus_menu = false;
+                cx.notify();
+            }));
+        let item = |id: &'static str, icon: &'static str, label: &'static str, on: bool, live: bool| {
+            div()
+                .id(id)
+                .h(px(30.))
+                .flex()
+                .items_center()
+                .gap(px(9.))
+                .px(px(9.))
+                .rounded(px(radius::CONTROL))
+                .text_color(if on { fg } else if live { fg2 } else { fg3 })
+                .when(live, |d| d.cursor_pointer().hover(|d| d.bg(c(pal.hover))))
+                .when(on, |d| d.bg(c(pal.hover)))
+                .aria_label(label)
+                .aria_selected(on)
+                .when(!live, |d| d.aria_description("Not available yet"))
+                .child(glyph(icon, 13., fg3))
+                .child(div().flex_1().child(label))
+                .when(!live, |d| d.child(div().text_size(px(11.)).text_color(fg3).child("Soon")))
+                .test_support()
+        };
+        menu = menu
+            .child(item("plus-files", "paperclip", "Add files", false, true).on_click(cx.listener(|this, _, window, cx| {
+                cx.stop_propagation();
+                this.start.plus_menu = false;
+                this.pick_files(window, cx);
+            })))
+            .child(item("plus-commands", "terminal", "Commands", false, false))
+            .child(item("plus-connectors", "plug", "Connectors", false, false))
+            .child(item("plus-plan", "clipboard-list", "Plan", self.plan, true).on_click(cx.listener(|this, _, window, cx| {
+                cx.stop_propagation();
+                this.start.plus_menu = false;
+                this.set_plan(!this.plan, window, cx);
+            })));
         menu.test_support().into_any_element()
     }
 
@@ -922,22 +961,52 @@ mod tests {
             assert!(bh >= 79.0, "at least the board's box with one line: {bh}");
             assert!(((bx + bw / 2.0) - (cx0 + cw / 2.0)).abs() <= 1.0, "centred across the card");
             assert!(((by + bh / 2.0) - (cy0 + ch / 2.0)).abs() <= 60.0, "about the middle of the card");
-            // The bar under the box (option A): folder on the left, where it runs on the right.
+            // The tray fused under the box: the folder on the left, the model on the right; Where it
+            // runs and Ask first are in the box's first line.
             let (fx, fy, _, _) = rect(window, "nt-folder");
-            let (mx, my, mw, _) = rect(window, "machine");
-            assert_eq!((fx, mx + mw), (bx, bx + bw), "the bar spans the box: folder left, run location right");
-            assert!(fy >= by + bh && fy - (by + bh) <= 10.0 && my == fy, "just under the box");
+            let (mx, my, _, _) = rect(window, "machine");
+            let (tx, ty, tw, _) = rect(window, "nt-trust");
+            let (rx, _, rw, _) = rect(window, "nt-model");
+            assert!(fx > bx && fy >= by + bh, "the folder sits in the tray under the box");
+            assert!(mx < tx && my < by + bh && ty < by + bh, "machine and Ask first are in the box");
+            assert!(tx + tw <= bx + bw && rx + rw <= bx + bw, "inside the box's width");
             let (hx, hy, hw, hh) = rect(window, "nt-heading");
             assert!(hy + hh <= by && ((hx + hw / 2.0) - (bx + bw / 2.0)).abs() <= 1.0, "the heading centred above the box");
-            for (id, label) in [("add-file", "Add a file"), ("nt-trust", "Ask first"), ("nt-plan", "Plan"), ("nt-effort", "Auto"), ("nt-folder", "No folder"), ("nt-worktree", "Worktree"), ("nt-github", "GitHub"), ("machine", "This machine"), ("start", "Start")] {
+            for (id, label) in [("add-file", "Add"), ("nt-trust", "Ask first"), ("nt-effort", "Auto"), ("nt-folder", "No folder"), ("machine", "This machine"), ("nt-voice", "Voice")] {
                 assert_eq!(window.find(id).label(), Some(label), "{id}");
             }
-            let (sx, sy, sw, sh) = rect(window, "start");
-            assert_eq!((sw, sh), (28.0, 28.0));
-            // The board's `.send`: 11px in from the box's right edge (border and 10px padding), 9 from its bottom.
-            assert_eq!(bx + bw - (sx + sw), 11.0, "Start at the box's right");
-            assert_eq!(by + bh - (sy + sh), 9.0, "and its bottom");
+            for gone in ["nt-plan", "nt-familiar", "nt-worktree", "nt-github", "start"] {
+                assert!(window.try_find(gone).is_none(), "{gone} is not on an empty box");
+            }
             assert!(window.try_find("start-why").is_none(), "nothing in the way");
+        })
+        .unwrap();
+    }
+
+    /// With nothing typed the tray ends in the voice button; with text, Send joins it on the right
+    /// of the voice button.
+    #[gpui_kit::test]
+    fn voice_alone_when_empty_and_send_beside_it_when_there_is_text(cx: &mut TestAppContext) {
+        let _prefs = super::super::thread::tests::prefs_guard();
+        let (handle, _chats) = open(cx);
+        handle.update(cx, |c, _, _| c.start.route = missing()).unwrap();
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            assert!(window.try_find("nt-voice").is_some() && window.try_find("start").is_none());
+        })
+        .unwrap();
+        handle
+            .update(cx, |c, window, cx| {
+                if let Some((st, _)) = &c.start.input {
+                    st.update(cx, |s, cx| s.set_value("fix the login bug", window, cx));
+                }
+            })
+            .unwrap();
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            let (vx, _, vw, _) = rect(window, "nt-voice");
+            let (sx, _, _, _) = rect(window, "start");
+            assert!(vx + vw <= sx, "voice sits left of Send");
         })
         .unwrap();
     }
@@ -966,9 +1035,11 @@ mod tests {
             window.click("nt-trust", cx);
             window.render_frame(cx);
             assert_eq!(window.find("nt-trust").label(), Some("Ask first"), "and round again");
-            window.click("nt-plan", cx);
+            window.click("add-file", cx);
             window.render_frame(cx);
-            assert_eq!(window.find("nt-plan").label(), Some("Plan · on"));
+            window.click("plus-plan", cx);
+            window.render_frame(cx);
+            assert!(window.try_find("plus-menu").is_none(), "the menu closes");
             window.click("nt-folder", cx);
             window.render_frame(cx);
             assert_eq!(window.find(("folder-item", 0usize)).label(), Some("No folder"));
