@@ -1,5 +1,39 @@
 # Handoff: Backspace (ohMyHarness → Workbench), v0
 
+**Session, 20 Nov 2026: Windows fixes from Charles's v0.2.0 test.**
+
+- **No more terminal windows.** Every child process the app starts (git, the coding CLIs, shells,
+  docker, ssh, the colony and the sandbox's low-integrity launcher) is created with
+  `CREATE_NO_WINDOW` on Windows. Use `backspace_runner::cmd` / `tokio_cmd`, never
+  `Command::new`, for anything new.
+- **Top-strip buttons work on Windows.** The strip is a drag area and was drawn after the buttons
+  on it, so Windows' hit test made every click a window drag. It is now drawn first.
+- **Version button = update check.** It asks the rolling release (`windows-latest` on Windows,
+  `mac-latest` elsewhere). On Windows "Update and restart" downloads Cauldron.exe, renames the
+  running exe to `Cauldron.old.exe`, moves the new one in, starts it and quits; the old file is
+  deleted on the next start. Elsewhere it opens the release page.
+- **Your name opens Settings; "N needs you" opens the first stream waiting on you.**
+- **The sidebar's New button follows the app**: New stream, Open a folder, New familiar (also a +
+  on the Familiars heading), Add a subscription; none for Automations and Library.
+- **A stream picture themes the frame.** The frame and cards bake their frost from the picture
+  (a GIF's first frame) and tint with its mean colour held to the theme's luminance.
+- **Tabs A: the card grows a tab** (`shell/tabshape.rs`), radii from Charles's picture as multiples
+  of the 6px stroke: tab top 17, concave foot 9, active pill 8, content well 24. GPUI rounds
+  rectangles only, so the cut is three crops of the frame/card layers drawn on the root after the
+  card. No tab when a familiar or the notch is showing.
+- **Model tray A**: on New stream the model chip unfolds the tray under the box (220ms) into
+  who answers | model, effort, manage. The box stays put (the stack's negative bottom margin
+  matches the tray). An open stream still uses the popover menu.
+- **Round 2 (Charles, 22:39Z)**: only the stream's own tab sits in the card's tab; agent tabs and +
+  sit on the frame past the foot (`TAB_SEP`). Model picker gains "Stacked" (Settings > Appearance >
+  Model picker, pref `model_tray`), Unfold stays the default: a solid card tucked 12px behind the box
+  (no third card) drops out 6px below the box and holds the tray, with a drop shadow.
+- **Round 3 (Charles, 23:08Z)**: on Windows the stream card rises into the top strip (main.y = 4;
+  sidebar and support stay under the strip); the caption buttons sit on the frame right of the
+  card's tab, which is a drag area; no "needs you" pill; split/terminal/folder tools sit inside the
+  content well, left of the rail. Windows CI also builds `Cauldron-setup.exe` (per-user NSIS,
+  `installer/windows/cauldron.nsi`) and publishes it with the exe.
+
 **Session, 17 Nov 2026: Cauldron M6, the execution engine (sandbox and herdr).**
 
 - **Agents' commands run in a sandbox.** That covers bash, checks, Rampart's vetting

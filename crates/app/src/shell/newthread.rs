@@ -90,6 +90,7 @@ impl Cauldron {
         self.thread = None;
         self.selected = None;
         self.familiar = None;
+        self.start.familiar = false;
         self.coordinator = None;
         self.agents.clear();
         self.idle.clear();
@@ -278,7 +279,7 @@ impl Cauldron {
     }
 
     /// Asks for a folder, remembers it in the recent list and starts the stream there.
-    fn pick_folder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn pick_folder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let paths = cx.prompt_for_paths(PathPromptOptions { files: false, directories: true, multiple: false, prompt: Some("Work in this folder".into()) });
         cx.spawn_in(window, async move |this: WeakEntity<Self>, cx: &mut AsyncWindowContext| {
             if let Ok(Ok(Some(ps))) = paths.await {
@@ -514,6 +515,7 @@ impl Cauldron {
         });
         // What the box says under it: why Start waits, a refusal, or a machine's answer.
         let line = |id: &'static str, text: String, col: Hsla| div().id(id).mt(px(10.)).px(px(6.)).text_size(px(12.)).line_height(px(17.)).text_color(col).aria_label(text.clone()).child(text).test_support();
+        let heading_text = if self.start.familiar { "What should a familiar take on?" } else { "What should Cauldron work on?" };
         let heading = div()
             .id("nt-heading")
             .pb(px(18.))
@@ -522,20 +524,73 @@ impl Cauldron {
             .text_size(px(17.))
             .font_weight(FontWeight::SEMIBOLD)
             .text_color(fg)
-            .aria_label("What should Cauldron work on?")
-            .child("What should Cauldron work on?")
+            .aria_label(heading_text)
+            .child(heading_text)
             .test_support();
-        let nt_stack = div().id("nt-stack").flex().flex_col().relative().p(px(3.)).border_1().border_color(if focused { body_line(pal, true) } else if self.plan { c(pal.accent) } else { gpui::transparent_black() }).bg(super::backdrop::surface(self.painting, pal.raised, super::backdrop::GLASS_COMPOSER)).rounded(px(radius::SHELL)).child(div().absolute().left_0().top_0().size_full().rounded(px(radius::SHELL)).bg(gpui::black().opacity(0.18))).on_hover(cx.listener(|this, h: &bool, _, cx| {
+        let tray_open = self.start.route_menu == Some(super::subs::PickFor::New);
+        let stacked = super::subs::tray_stacked();
+        let glass = |d: gpui::Stateful<Div>| d.border_1().border_color(if focused { body_line(pal, true) } else if self.plan { c(pal.accent) } else { gpui::transparent_black() }).bg(super::backdrop::surface(self.painting, pal.raised, super::backdrop::GLASS_COMPOSER)).rounded(px(radius::SHELL)).child(div().absolute().left_0().top_0().size_full().rounded(px(radius::SHELL)).bg(gpui::black().opacity(0.18)));
+        let nt_stack = div().id("nt-stack").flex().relative().on_hover(cx.listener(|this, h: &bool, _, cx| {
             if this.start.tray_hover != *h {
                 this.start.tray_hover = *h;
                 cx.notify();
             }
-        })).child(nt_box).child(bar).test_support();
+        }))
+        // A click anywhere outside the box folds the tray (the chip is inside, so it toggles it).
+        .when_live(tray_open, |d| {
+            d.on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                this.start.route_menu = None;
+                cx.notify();
+            }))
+        });
+        let grow = if stacked { super::subs::TRAY_OPEN_H + super::subs::STACK_GAP } else { super::subs::TRAY_OPEN_H };
+        let nt_stack = if stacked {
+            // Stacked (Charles, 20 Nov, board round 2): the chips ride a solid card tucked behind the
+            // box; opening drops that card out below the box, a
+            // small gap apart, and unfolds the picker in it. Drawn back to front, laid out top down.
+            let tuck = super::subs::STACK_TUCK;
+            let line = c(if self.painting { pal.line_strong } else { pal.line });
+            // Solid, not glass (Charles, 20 Nov): the card reads as an object behind the box.
+            let card = |d: gpui::Stateful<Div>| d.rounded(px(radius::SHELL)).border_1().border_color(line).bg(c(pal.raised));
+            // The card is laid out from the stack's bottom, behind the box, so the box
+            // (drawn last) covers its tucked top; a spacer under the box makes its room.
+            let (gap, tray_h) = (super::subs::STACK_GAP, super::subs::TRAY_OPEN_H);
+            let mut mid = card(div().id("nt-card").absolute().left(px(14.)).right(px(14.)).bottom_0().flex().flex_col().overflow_hidden())
+                .shadow(vec![gpui::BoxShadow { color: gpui::black().opacity(0.45), offset: gpui::point(px(0.), px(10.)), blur_radius: px(28.), spread_radius: px(0.), inset: false }])
+                .child(bar);
+            if tray_open {
+                mid = mid.child(self.route_tray(pal, cx));
+            }
+            let mid = mid.test_support();
+            let spacer = div().id("nt-card-room").flex_none();
+            let (mid, spacer) = if tray_open {
+                // The tucked strip turns into the gap as the card drops out and unfolds.
+                (
+                    mid.with_animation("nt-card-drop", super::motion::anim(220.), move |d, t| d.pt(px(tuck * (1.0 - t))).h(px(40.0 + tuck + (tray_h - tuck) * t))).into_any_element(),
+                    spacer.with_animation("nt-card-room", super::motion::anim(220.), move |d, t| d.h(px(40.0 + (gap + tray_h) * t))).into_any_element(),
+                )
+            } else {
+                (mid.pt(px(tuck)).h(px(40.0 + tuck)).into_any_element(), spacer.h(px(40.)).into_any_element())
+            };
+            let front = glass(div().id("nt-front").relative().flex().flex_col().p(px(3.))).child(nt_box).test_support();
+            nt_stack.flex_col().child(mid).child(front).child(spacer)
+        } else {
+            glass(nt_stack.flex_col().p(px(3.))).child(nt_box).child(bar).when_live(tray_open, |d| d.child(self.route_tray(pal, cx)))
+        }
+        .test_support();
+        // The picker opens downward: the stack gives back its growth as a negative margin, so the
+        // centred box above stays exactly where it was, and the lines under it hide meanwhile.
+        let nt_stack = if tray_open {
+            nt_stack.with_animation("nt-stack-drop", super::motion::anim(220.), move |d, t| d.mb(px(-grow * t))).into_any_element()
+        } else {
+            nt_stack.into_any_element()
+        };
         let mut wrap = div().w_full().max_w(px(BOX_W)).flex().flex_col().child(heading).child(nt_stack);
+        let mut under = div().flex().flex_col().when(tray_open, |d| d.invisible());
         if let Some(e) = &self.start.error {
-            wrap = wrap.child(line("start-error", e.clone(), c(pal.bad)));
+            under = under.child(line("start-error", e.clone(), c(pal.bad)));
         } else if let Some(n) = &self.start.note {
-            wrap = wrap.child(line("start-note", n.clone(), c(pal.ok)));
+            under = under.child(line("start-note", n.clone(), c(pal.ok)));
         } else if self.start.familiar {
             // S1: say plainly what a familiar does on this machine before it does it.
             // The probe runs once per process and is cached.
@@ -547,15 +602,16 @@ impl Cauldron {
             } else {
                 "No sandbox runs on this machine: a familiar's agents and the plan's test commands would run in this folder unconfined. It never merges.".to_string()
             };
-            wrap = wrap.child(line("start-familiar-warn", warn, c(pal.warn)));
+            under = under.child(line("start-familiar-warn", warn, c(pal.warn)));
         } else if let Some(why) = blocked.filter(|w| w != "Sending") {
             let bad = why.starts_with("Can't");
-            wrap = wrap.child(line("start-why", why, if bad { c(pal.bad) } else { fg3 }));
+            under = under.child(line("start-why", why, if bad { c(pal.bad) } else { fg3 }));
         }
         // The board's usage badges under the box; nothing while core has no usage.
         if let Some(b) = self.usage_badges(pal) {
-            wrap = wrap.child(b.px(px(2.)));
+            under = under.child(b.px(px(2.)));
         }
+        wrap = wrap.child(under);
 
         let screen = div()
             .id("new-thread-screen")
@@ -1267,5 +1323,97 @@ mod tests {
             assert!(window.find("start-why").label().unwrap().starts_with("Can't reach Attic"), "{:?}", window.find("start-why").label());
         })
         .unwrap();
+    }
+
+    /// Model tray A (Charles, 20 Nov): the model chip unfolds the tray under the box with who
+    /// answers, the model and the effort side by side. Picking who answers keeps it open, picking a
+    /// model folds it, and the box above never moves.
+    #[gpui_kit::test]
+    fn the_model_chip_unfolds_the_whole_picker_under_the_box(cx: &mut TestAppContext) {
+        use backspace_core::accounts::{CliStatus, LoginStatus};
+        use backspace_core::harnesses::Auth;
+        let _prefs = super::super::thread::tests::prefs_guard();
+        let (handle, _chats) = open(cx);
+        let cli = |provider: &str, name: &str, auth: Auth| CliStatus {
+            provider: provider.into(),
+            name: name.into(),
+            installed: true,
+            version: None,
+            install: String::new(),
+            logins: vec![LoginStatus { id: None, name: "This machine".into(), signed_in: auth, detail: None }],
+            active: 0,
+        };
+        handle
+            .update(cx, |c, _, _| {
+                c.start.providers = vec![cli("claude", "Claude Code", Auth::Authenticated), cli("codex", "Codex", Auth::Authenticated)];
+                c.start.providers_loading = true;
+                c.start.route = Some(Route { kind: RouteKind::Cli, provider: "claude".into(), model: None });
+            })
+            .unwrap();
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            assert!(window.try_find("route-tray").is_none(), "folded until the chip is clicked");
+            let before = rect(window, "nt-box");
+            window.click("nt-model", cx);
+            window.render_frame(cx);
+            let tray = rect(window, "route-tray");
+            let bar = rect(window, "nt-bar");
+            assert_eq!(rect(window, "nt-box"), before, "the box never moves");
+            assert_eq!(window.find("nt-model").expanded(), Some(true));
+            assert!((tray.1 - (bar.1 + bar.3)).abs() <= 1.0 && (tray.3 - super::super::subs::TRAY_OPEN_H).abs() <= 1.0, "unfolds under the chips: {tray:?}");
+            let (who, model) = (rect(window, "tray-who"), rect(window, "tray-model"));
+            assert!(who.0 + who.2 <= model.0 && (who.1 - model.1).abs() <= 1.0, "who answers left of the model");
+            for id in ["tray-effort", "route-manage"] {
+                assert!(window.try_find(id).is_some(), "{id}");
+            }
+            assert_eq!(window.find(("tray-effort-opt", 0usize)).label(), Some("Auto"));
+            assert_eq!(window.find(("route-cli", 0usize)).selected(), Some(true), "the current CLI is selected");
+            window.click(("route-cli", 1usize), cx);
+            window.render_frame(cx);
+            assert!(window.try_find("route-tray").is_some(), "picking who answers keeps the tray open for its model");
+            assert_eq!(window.find(("route-cli", 1usize)).selected(), Some(true));
+            window.click(("route-model", 0usize), cx);
+            window.render_frame(cx);
+            assert!(window.try_find("route-tray").is_none(), "picking a model folds the tray");
+            window.click("nt-model", cx);
+            window.render_frame(cx);
+            window.click("nt-model", cx);
+            window.render_frame(cx);
+            assert!(window.try_find("route-tray").is_none(), "the chip folds it again");
+        })
+        .unwrap();
+        assert_eq!(handle.update(cx, |c, _, _| c.start.route.as_ref().map(|r| r.provider.clone())).unwrap().as_deref(), Some("codex"));
+    }
+
+    /// The stacked picker (Settings > Appearance > Model picker): folded, its card is tucked
+    /// behind the box with only the chips showing; open, it drops below the box a small gap apart
+    /// and holds the whole picker. The box stays put either way.
+    #[gpui_kit::test]
+    fn the_stacked_picker_drops_out_from_behind_the_box(cx: &mut TestAppContext) {
+        let _prefs = super::super::thread::tests::prefs_guard();
+        let (handle, _chats) = open(cx);
+        let mut p = Prefs::load();
+        p.model_tray = Some("stacked".into());
+        p.save();
+        handle.update(cx, |c, _, _| c.start.providers_loading = true).unwrap();
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            let front = rect(window, "nt-front");
+            let card = rect(window, "nt-card");
+            let tuck = super::super::subs::STACK_TUCK;
+            assert!((card.1 - (front.1 + front.3 - tuck)).abs() <= 1.0, "tucked under the box: {card:?} {front:?}");
+            assert!(card.0 > front.0 && card.0 + card.2 < front.0 + front.2, "narrower than the box");
+            assert!(window.try_find("nt-rim").is_none(), "two cards, no third (Charles, 20 Nov)");
+            window.click("nt-model", cx);
+            window.render_frame(cx);
+            assert_eq!(rect(window, "nt-front"), front, "the box never moves");
+            let card = rect(window, "nt-card");
+            assert!((card.1 - (front.1 + front.3 + super::super::subs::STACK_GAP)).abs() <= 1.0, "dropped out a small gap below: {card:?}");
+            assert!(window.try_find("route-tray").is_some() && window.try_find("tray-effort").is_some());
+        })
+        .unwrap();
+        let mut p = Prefs::load();
+        p.model_tray = None;
+        p.save();
     }
 }

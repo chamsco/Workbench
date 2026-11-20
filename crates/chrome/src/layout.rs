@@ -153,10 +153,14 @@ pub fn layout(w: f32, h: f32, state: ShellState, platform: Platform) -> Shell {
         Rect::new(right - sw, top, sw, full_h)
     });
     let col_right = support.map_or(right, |s| s.x - GAP);
-    let col = Rect::new(left, top, col_right - left, full_h);
+    // Windows strip: the stream card's own tab rises into the strip (Charles, 20 Nov: "we don't
+    // need that gap at the top"), so the stream column starts at the window's top gap; the sidebar
+    // and the support card stay under the strip, which keeps its buttons over them.
+    let col_top = if strip { GAP } else { top };
+    let col = Rect::new(left, col_top, col_right - left, bottom - col_top);
     let (main, dock) = if state.dock_open {
         let d = Rect::new(col.x, bottom - DOCK_H, col.w, DOCK_H);
-        (Rect::new(col.x, top, col.w, d.y - GAP - top), Some(d))
+        (Rect::new(col.x, col.y, col.w, d.y - GAP - col.y), Some(d))
     } else {
         (col, None)
     };
@@ -175,9 +179,12 @@ pub fn layout(w: f32, h: f32, state: ShellState, platform: Platform) -> Shell {
     let row_y = main.y + HEAD_IN;
     let (lights, sidebar_button, new_button, title, tabs_x) = match (sidebar, platform) {
         // The strip's left end holds the sidebar button, search and inbox, open or folded.
+        // With the sidebar folded the stream card reaches the strip's buttons, so its tabs
+        // start after them (search and inbox end at 110).
         (_, Platform::Windows) => {
             let sbtn = Rect::new(10.0, (BAR_H - SBTN) / 2.0, SBTN, SBTN);
-            (None, sbtn, None, None, main.x + HEAD_IN)
+            let after = if sidebar.is_none() { (sbtn.x + 72.0 + SBTN + 10.0).max(main.x + HEAD_IN) } else { main.x + HEAD_IN };
+            (None, sbtn, None, None, after)
         }
         // Open: the sidebar's top row holds the lights or the logo, then search and the button.
         (Some(sb), _) => {
@@ -204,9 +211,18 @@ pub fn layout(w: f32, h: f32, state: ShellState, platform: Platform) -> Shell {
         (Rect::new(sidebar_button.x - 36.0, sidebar_button.y, SBTN, SBTN), Rect::new(sidebar_button.x - 72.0, sidebar_button.y, SBTN, SBTN))
     };
     let notch_room = if notch.is_some() && support.is_none() { NOTCH_W + HEAD_GAP } else { 0.0 };
-    let tools = Rect::new(main.right() - 1.0 - HEAD_PR - notch_room - TOOLS_W, row_y, TOOLS_W, TAB_H);
-    let pill = strip.then(|| Rect::new(w - CAPS_W - 8.0 - PILL_W, (BAR_H - PILL_H) / 2.0, PILL_W, PILL_H));
-    let tabs = Rect::new(tabs_x, row_y, (tools.x - HEAD_GAP - tabs_x).max(0.0), TAB_H);
+    let (tools, pill, tabs) = if strip {
+        // The tools sit inside the stream's content well, top right (left of the rail when the
+        // rail is in this card); the tabs run up to the caption buttons, which now sit on the
+        // frame right of the card's tab. No "needs you" pill (the sidebar has its own group).
+        let rail_room = if support.is_none() { RAIL_W + HEAD_GAP } else { 0.0 };
+        let tools = Rect::new(main.right() - 1.0 - HEAD_PR - rail_room - TOOLS_W, main.y + HEAD_IN + TAB_H + HEAD_IN + HEAD_PR, TOOLS_W, TAB_H);
+        let end = if support.is_none() { (w - CAPS_W - HEAD_PR).min(main.right() - 1.0 - HEAD_PR) } else { main.right() - 1.0 - HEAD_PR };
+        (tools, None, Rect::new(tabs_x, row_y, (end - tabs_x).max(0.0), TAB_H))
+    } else {
+        let tools = Rect::new(main.right() - 1.0 - HEAD_PR - notch_room - TOOLS_W, row_y, TOOLS_W, TAB_H);
+        (tools, None, Rect::new(tabs_x, row_y, (tools.x - HEAD_GAP - tabs_x).max(0.0), TAB_H))
+    };
 
     Shell { effective: state, sidebar, main, dock, support, rail, bar, notch, pill, caps, search_button, bell_button, lights, sidebar_button, new_button, title, tabs, tools }
 }

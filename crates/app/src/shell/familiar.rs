@@ -727,6 +727,24 @@ impl Cauldron {
                 .aria_label("Familiars")
                 .child("Familiars")
                 .when_live(self.fam_fixture, |d| d.child(div().ml_auto().child(preview_tag("familiars-preview", pal).test_support())))
+                .child(
+                    // New familiar beside the heading (Charles, 20 Nov: a New familiar button, as Capy has
+                    // New captain): the New stream screen with the goal going to a familiar.
+                    div()
+                        .id("familiars-new")
+                        .when_live(!self.fam_fixture, |d| d.ml_auto())
+                        .size(px(20.))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded(px(radius::TAG))
+                        .cursor_pointer()
+                        .hover(|d| d.bg(c(pal.hover)))
+                        .aria_label(super::apps::NEW_FAMILIAR)
+                        .child(glyph("plus", 13., fg3))
+                        .on_click(cx.listener(|this, _, window, cx| this.new_familiar(window, cx)))
+                        .test_support(),
+                )
                 .test_support(),
         );
         if self.fam_views.is_empty() {
@@ -739,7 +757,7 @@ impl Cauldron {
                     .line_height(px(16.))
                     .text_color(fg3)
                     .aria_label("No familiars yet")
-                    .child("Start one from New stream with Familiar on.")
+                    .child("Hand an agent a goal with + or New familiar under Agents.")
                     .test_support(),
             );
         }
@@ -1113,6 +1131,21 @@ impl Cauldron {
             Threads::Ready(v) => v.iter().filter(|t| Group::of(t) == Group::NeedsYou).count(),
             _ => 0,
         }
+    }
+
+    /// The top strip's "N needs you" pill: opens the first stream waiting on you, in the Streams
+    /// list (Charles, 20 Nov: the pill did nothing).
+    pub(crate) fn open_needs_you(&mut self, cx: &mut Context<Self>) {
+        let id = match &self.threads {
+            Threads::Ready(v) => v.iter().find(|t| Group::of(t) == Group::NeedsYou).map(|t| t.id.clone()),
+            _ => None,
+        };
+        let Some(id) = id else { return };
+        self.settings = None;
+        self.sidebar_open = true;
+        self.select_section(0, cx);
+        self.open_thread(id);
+        cx.notify();
     }
 
     /// The bell's label: "Inbox", or with the unread count.

@@ -1,6 +1,7 @@
 # Builds Cauldron for Windows: the GPUI app, one .exe that runs as is on Windows 10/11.
 # Unsigned, so SmartScreen warns on first run: More info, then Run anyway.
-# The installer returns with UI8 (docs/cauldron/UI-PLAN.md).
+# Also Cauldron-setup.exe: a per-user NSIS installer (installer/windows/cauldron.nsi) that
+# adds Cauldron to the Start menu and to Settings > Apps.
 name: Windows app
 
 on:
@@ -13,7 +14,7 @@ on:
   push:
     branches: [main, "claude/**"]
     tags: ["v*"]
-    paths: ["crates/**", "Cargo.*", ".github/workflows/windows.yml"]
+    paths: ["crates/**", "Cargo.*", "installer/**", ".github/workflows/windows.yml"]
 
 permissions:
   contents: write
@@ -54,6 +55,17 @@ jobs:
           cp target/release/backspace.exe out/Cauldron.exe
           ls -la out
 
+      - name: Build Cauldron-setup.exe
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          command -v makensis >/dev/null || [ -x "/c/Program Files (x86)/NSIS/makensis.exe" ] || choco install nsis -y --no-progress
+          mk="$(command -v makensis || echo '/c/Program Files (x86)/NSIS/makensis.exe')"
+          v="${VERSION:-${GITHUB_REF_NAME//\//-}}"
+          "$mk" -V2 "-DVERSION=$v" "-DSRC=$(cygpath -w "$PWD/out")" installer/windows/cauldron.nsi
+          ls -la out
+
       - uses: actions/upload-artifact@v4
         with:
           name: Cauldron-windows
@@ -72,7 +84,7 @@ jobs:
           gh release delete windows-latest --yes --cleanup-tag 2>/dev/null || true
           gh release create windows-latest out/* --prerelease --target "$GITHUB_SHA" \
             --title "Cauldron for Windows (latest main)" \
-            --notes "Built from ${GITHUB_SHA::7} on main. Unsigned: Windows SmartScreen will warn the first time; choose More info, then Run anyway. Cauldron.exe runs without installing."
+            --notes "Built from ${GITHUB_SHA::7} on main. Unsigned: Windows SmartScreen will warn the first time; choose More info, then Run anyway. Cauldron-setup.exe installs it for you (Start menu, no admin); Cauldron.exe runs without installing."
 
       - name: Add to the version release
         if: startsWith(github.ref, 'refs/tags/v') || inputs.version != ''

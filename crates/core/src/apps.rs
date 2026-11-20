@@ -429,7 +429,7 @@ impl Apps {
             .iter()
             .find(|t| t.name == tool)
             .ok_or_else(|| anyhow!("{id} has no tool {tool}"))?;
-        let mut child = std::process::Command::new(&t.command[0])
+        let mut child = backspace_runner::cmd(&t.command[0])
             .args(&t.command[1..])
             .current_dir(&a.dir)
             .env("PATH", crate::harnesses::path_env())

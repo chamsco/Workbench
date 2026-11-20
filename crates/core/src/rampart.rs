@@ -882,7 +882,7 @@ pub async fn mutation_score(ws: &Workspace, seal: &Seal, changed: &[(String, Vec
 pub fn diff_lines(old: &Path, new: &Path) -> Vec<usize> {
     let null = if cfg!(windows) { "NUL" } else { "/dev/null" };
     let old_s = if old.is_file() { old.to_string_lossy().into_owned() } else { null.to_string() };
-    let out = std::process::Command::new("git")
+    let out = backspace_runner::cmd("git")
         .args(["diff", "--no-index", "--no-color", "-U0", "--", &old_s, &new.to_string_lossy()])
         .stdin(std::process::Stdio::null())
         .output();

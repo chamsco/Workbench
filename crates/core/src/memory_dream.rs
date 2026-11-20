@@ -188,7 +188,7 @@ impl Dreamer {
                     // The commit message names what changed (only our own new commit).
                     let made = memory.head().filter(|h| Some(h) != before.as_ref());
                     if !changes.is_empty() && made.is_some() {
-                        let _ = std::process::Command::new("git")
+                        let _ = backspace_runner::cmd("git")
                             .arg("-C")
                             .arg(memory.root())
                             .args(["-c", "user.name=Backspace", "-c", "user.email=memory@backspace.local", "-c", "commit.gpgsign=false"])

@@ -459,9 +459,10 @@ mod tests {
         let handle = open(cx);
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
-            let head = rect(window, "card-head");
+            // In the card: its head on a Mac, its content well under the strip on Windows (20 Nov).
+            let card = rect(window, "card");
             let b = rect(window, "layout");
-            assert!(b.x >= head.x && b.right() <= head.right() && b.y >= head.y && b.bottom() <= head.bottom(), "the button sits in the card head");
+            assert!(b.x >= card.x && b.right() <= card.right() && b.y >= card.y && b.bottom() <= card.bottom(), "the button sits in the stream card");
             assert_eq!(count(window), 0, "one pane: the card as it was, no pane frames");
             let mut seen = Vec::new();
             for _ in 0..6 {

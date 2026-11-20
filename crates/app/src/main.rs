@@ -2894,6 +2894,8 @@ fn main() -> anyhow::Result<()> {
         return Ok(());
     }
     if std::env::var_os("CAULDRON_LEGACY").is_none() {
+        // An update on Windows set the old exe aside; it is no longer running now.
+        backspace_core::update::tidy_old_exe();
         return run_shell();
     }
     Prefs::load().apply_keys();

@@ -32,7 +32,9 @@ mod settings;
 mod subs;
 mod support;
 mod terminal;
+mod tabshape;
 mod thread;
+mod update;
 #[cfg(all(feature = "shots", target_os = "macos"))]
 pub(crate) mod shots;
 
@@ -267,6 +269,9 @@ pub(crate) struct Cauldron {
     /// popover under the bell, and the note on show as a toast with when it came.
     inbox: Vec<backspace_core::platform::notify::Note>,
     inbox_open: bool,
+    /// The version button's update check and whether its card is open.
+    update: update::UpdateState,
+    update_open: bool,
     inbox_toast: Option<(backspace_core::platform::notify::Note, std::time::Instant)>,
     /// A familiar's joined tab: where it slides from (x, width), where it was last headed, since
     /// when; and the open Highlights tab.
@@ -353,6 +358,9 @@ impl Cauldron {
         let prefs = Prefs::load();
         c.painting = backdrop::wants_painting(&prefs);
         c.stream_bg = backdrop::stream_bg(&prefs);
+        if let Some(path) = c.stream_bg.clone() {
+            Self::warm_picture(path, cx);
+        }
         c.theme_mode = prefs.theme.clone();
         c.frost = backdrop::FrostLevel::from_pref(&prefs);
         set_notch(prefs.window_style.as_deref() == Some("notch"));
@@ -434,6 +442,22 @@ impl Cauldron {
         .detach();
     }
 
+    /// Bakes the frame and card layers from the user's picture off the UI thread, then draws again
+    /// (the frame keeps the painting's layers until then).
+    pub(crate) fn warm_picture(path: std::path::PathBuf, cx: &mut Context<Self>) {
+        if cfg!(test) {
+            return;
+        }
+        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            let res = cx.background_executor().spawn(async move { backdrop::warm_user(&path) }).await;
+            if let Err(e) = res {
+                eprintln!("stream picture: {e}");
+            }
+            let _ = this.update(cx, |_, cx| cx.notify());
+        })
+        .detach();
+    }
+
     /// What goes under a card over the painting: the user's picture under its scrim (stream card
     /// only), or this card's crop of the light frost under the tint. Empty on the plain frame or
     /// before the frost is baked; then the card keeps its own glass colour.
@@ -463,7 +487,7 @@ impl Cauldron {
     }
 
     pub(crate) fn new() -> Self {
-        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, support_data: Default::default(), files_open: Default::default(), painting: false, glass: Default::default(), ask_hover: false, ask_open: None, ask_answered: Default::default(), fam_questions: Default::default(), frost: backdrop::FrostLevel::Heavy, stream_bg: None, theme_mode: String::new(), root_focus: None, plan: false, open_in_menu: false, open_in: thread::OpenIn::Folder, search_open: false, indent: false, usage: Default::default(), settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, familiar: None, fam_views: Vec::new(), fam_live: Vec::new(), fam_watch: Vec::new(), fam_driving: Default::default(), fam_error: None, fam_composer: None, fam_fixture: false, inbox: Vec::new(), inbox_open: false, inbox_toast: None, fam_from: (0.0, 0.0), fam_to: None, fam_since: None, fam_hl: 0, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
+        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, support_data: Default::default(), files_open: Default::default(), painting: false, glass: Default::default(), ask_hover: false, ask_open: None, ask_answered: Default::default(), fam_questions: Default::default(), frost: backdrop::FrostLevel::Heavy, stream_bg: None, theme_mode: String::new(), root_focus: None, plan: false, open_in_menu: false, open_in: thread::OpenIn::Folder, search_open: false, indent: false, usage: Default::default(), settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, familiar: None, fam_views: Vec::new(), fam_live: Vec::new(), fam_watch: Vec::new(), fam_driving: Default::default(), fam_error: None, fam_composer: None, fam_fixture: false, inbox: Vec::new(), inbox_open: false, update: Default::default(), update_open: false, inbox_toast: None, fam_from: (0.0, 0.0), fam_to: None, fam_since: None, fam_hl: 0, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
     }
 
     /// Opens core off the main thread (the sidebar shows Loading meanwhile), then keeps the thread
@@ -888,6 +912,112 @@ impl Cauldron {
         }
     }
 
+    /// The sidebar's foot (the board's `.foot`): you, what is left of your first subscription, the
+    /// version, and Settings. Its own function: the shell's render is one large frame, and the
+    /// tests' 2 MB threads overflowed once this grew inside it.
+    #[inline(never)]
+    fn sidebar_foot(&self, pal: &'static Palette, accent: Hsla, user: &str, initial: &str, cx: &mut Context<Self>) -> Div {
+        let fg3 = c(pal.fg3);
+        let fg2 = c(pal.fg2);
+        let (user, initial) = (user.to_string(), initial.to_string());
+        let left = self.usage_left();
+        let usage_line = left.first().map_or_else(|| "No data yet".to_string(), |(_, pct)| format!("{pct}% left"));
+        let version: SharedString = env!("CARGO_PKG_VERSION").into();
+        // The version's dot: orange once a newer build is known, red when the check failed.
+        let update_dot = match &self.update {
+            update::UpdateState::Ready(i) if i.newer => c(pal.warn),
+            update::UpdateState::Failed(_) => c(pal.bad),
+            _ => accent,
+        };
+                    div()
+                .h(px(36.))
+                .flex_none()
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .pl(px(4.))
+                .pt(px(6.))
+                .child(
+                    // You: opens Settings on your agents and subscriptions (Charles, 20 Nov: it did nothing).
+                    div()
+                        .id("user-row")
+                        .flex_1()
+                        .min_w_0()
+                        .flex()
+                        .items_center()
+                        .gap(px(6.))
+                        .ml(px(-4.))
+                        .pl(px(4.))
+                        .py(px(3.))
+                        .rounded(px(radius::CONTROL))
+                        .cursor_pointer()
+                        .hover(|d| d.bg(c(pal.hover)))
+                        .aria_label(format!("{user}, your subscriptions"))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.settings = if this.settings == Some(0) { None } else { Some(0) };
+                            cx.notify();
+                        }))
+                        .child(
+                            div()
+                                .size(px(24.))
+                                .flex_none()
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .rounded_full()
+                                .bg(accent)
+                                .text_size(px(11.))
+                                .text_color(c(pal.on_accent))
+                                .child(initial),
+                        )
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .flex()
+                                .flex_col()
+                                .line_height(px(15.))
+                                .child(div().truncate().text_size(px(12.5)).child(user.clone()))
+                                .child(div().id("usage-left").truncate().text_size(px(11.)).text_color(fg3).aria_label(usage_line.clone()).child(usage_line).test_support()),
+                        )
+                        .test_support(),
+                )
+                .child(
+                    div()
+                        .id("version")
+                        .h(px(22.))
+                        .px(px(7.))
+                        .flex_none()
+                        .flex()
+                        .items_center()
+                        .gap(px(4.))
+                        .rounded(px(radius::CONTROL))
+                        .border_1()
+                        .border_color(c(pal.line))
+                        .text_size(px(11.))
+                        .font_features(tnum())
+                        .text_color(fg2)
+                        .cursor_pointer()
+                        .hover(|d| d.bg(c(pal.hover)))
+                        .aria_label(version.clone())
+                        .child(div().size(px(5.)).rounded_full().bg(update_dot))
+                        .child(version)
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            if this.update_open {
+                                this.update_open = false;
+                                cx.notify();
+                            } else {
+                                this.check_for_update(cx);
+                            }
+                        }))
+                        .test_support(),
+                )
+                .child(self.tipped("settings", icon_button("settings", "settings", "Settings", pal, self.settings.is_some()), "Settings", Side::Right, pal, cx).on_click(cx.listener(|this, _, _, cx| {
+                    this.settings = if this.settings.is_some() { None } else { Some(0) };
+                    cx.notify();
+                })).test_support())
+    }
+
     /// Selects a function. The sidebar indicator slides to it from wherever it is now.
     fn select_section(&mut self, i: usize, cx: &mut Context<Self>) {
         if i != self.section {
@@ -995,7 +1125,7 @@ impl Cauldron {
         match how {
             thread::OpenIn::Folder => cx.reveal_path(std::path::Path::new(&dir)),
             thread::OpenIn::Editor => {
-                if let Err(e) = std::process::Command::new("code").arg(&dir).spawn() {
+                if let Err(e) = backspace_runner::cmd("code").arg(&dir).spawn() {
                     self.send_error = Some(format!("Couldn't start VS Code: {e}"));
                 }
             }
@@ -1159,6 +1289,8 @@ const TAB_MAX: f32 = 200.0;
 /// A header tab (the board's `.tab`): 2px between tabs, 10px padding, 6px from the name to the
 /// close. No figure: agent figures belong to the Agents page.
 const TAB_GAP: f32 = 2.0;
+/// From the stream's tab to the first agent tab: the card's tab edge, its foot and a stroke of frame.
+const TAB_SEP: f32 = tabshape::S + tabshape::FOOT_R + tabshape::S;
 const TAB_PAD: f32 = 10.0;
 const CLOSE_GAP: f32 = 6.0;
 /// What the open agent tab needs beyond the others: its close button, the gap before it and its 1px ring.
@@ -1439,9 +1571,10 @@ impl Render for Cauldron {
             let familiars = self.familiar_group(pal, cx);
             let user = std::env::var("USER").or_else(|_| std::env::var("USERNAME")).unwrap_or_else(|_| "You".into());
             let initial = user.chars().next().map(|ch| ch.to_uppercase().to_string()).unwrap_or_else(|| "Y".into());
-            // The board's `.nav`: New stream with its shortcut.
+            // The board's `.nav`: the app's New button (New stream with its shortcut on Streams).
+            let (new_id, new_icon, new_label) = Self::new_action(self.section).unwrap_or(("new-thread", "square-pen", NEW_TAB));
             let new_thread = div()
-                .id("new-thread")
+                .id(new_id)
                 .mt(px(8.))
                 .h(px(30.))
                 .flex()
@@ -1453,17 +1586,13 @@ impl Render for Cauldron {
                 .hover(|d| d.bg(c(pal.hover)))
                 .text_size(px(13.))
                 .text_color(fg2)
-                .aria_label(NEW_TAB)
-                .child(glyph("square-pen", 15., fg2))
-                .child(NEW_TAB)
-                .child(div().ml_auto().text_size(px(11.)).text_color(c(pal.fg4)).child(NEW_KEY))
-                .on_click(cx.listener(|this, _, window, cx| this.new_thread(window, cx)))
+                .aria_label(new_label)
+                .child(glyph(new_icon, 15., fg2))
+                .child(new_label)
+                .when_live(new_id == "new-thread", |d| d.child(div().ml_auto().text_size(px(11.)).text_color(c(pal.fg4)).child(NEW_KEY)))
+                .on_click(cx.listener(|this, _, window, cx| this.do_new(window, cx)))
                 .test_support();
-            // The user row (the board's `.foot`): you, what is left of your first subscription, the
-            // version, and Settings.
-            let left = self.usage_left();
-            let usage_line = left.first().map_or_else(|| "No data yet".to_string(), |(_, pct)| format!("{pct}% left"));
-            let version: SharedString = env!("CARGO_PKG_VERSION").into();
+            let has_new = Self::new_action(self.section).is_some();
             // The top row is 30 high under 8px of padding; the window draws its contents.
             let card_el = pane("sidebar", sp.rect)
                 .opacity(sp.alpha)
@@ -1476,7 +1605,7 @@ impl Render for Cauldron {
                 .child(div().id("side-top").h(px(if s.bar.is_some() { 0. } else { 30. })).flex_none().window_control_area(WindowControlArea::Drag).test_support())
                 .overflow_hidden()
                 .when_live(self.settings.is_none(), |d| d.child(fnrow.test_support()))
-                .when_live(self.settings.is_none(), |d| d.child(new_thread))
+                .when_live(self.settings.is_none() && has_new, |d| d.child(new_thread))
                 .when_live(self.settings.is_some(), |d| d.child(self.settings_nav(self.settings.unwrap_or(0), pal, cx).test_support()))
                 // The search row opens from the top row's search button and stays while it has text.
                 .when_live(self.settings.is_none() && (self.search_open || !self.query.is_empty()), |d| d.child(
@@ -1499,63 +1628,7 @@ impl Render for Cauldron {
                 ))
                 .when_live(self.settings.is_none() && self.section == 0, |d| d.child(familiars).child(list))
                 .when_live(self.settings.is_none() && self.section != 0, |d| d.child(self.app_list(self.section, pal, cx)))
-                .child(
-                    div()
-                        .h(px(36.))
-                        .flex_none()
-                        .flex()
-                        .items_center()
-                        .gap(px(6.))
-                        .pl(px(4.))
-                        .pt(px(6.))
-                        .child(
-                            div()
-                                .size(px(24.))
-                                .flex_none()
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .rounded_full()
-                                .bg(accent)
-                                .text_size(px(11.))
-                                .text_color(c(pal.on_accent))
-                                .child(initial),
-                        )
-                        .child(
-                            div()
-                                .flex_1()
-                                .min_w_0()
-                                .flex()
-                                .flex_col()
-                                .line_height(px(15.))
-                                .child(div().truncate().text_size(px(12.5)).child(user))
-                                .child(div().id("usage-left").truncate().text_size(px(11.)).text_color(fg3).aria_label(usage_line.clone()).child(usage_line).test_support()),
-                        )
-                        .child(
-                            div()
-                                .id("version")
-                                .h(px(22.))
-                                .px(px(7.))
-                                .flex_none()
-                                .flex()
-                                .items_center()
-                                .gap(px(4.))
-                                .rounded(px(radius::CONTROL))
-                                .border_1()
-                                .border_color(c(pal.line))
-                                .text_size(px(11.))
-                                .font_features(tnum())
-                                .text_color(fg2)
-                                .aria_label(version.clone())
-                                .child(div().size(px(5.)).rounded_full().bg(accent))
-                                .child(version)
-                                .test_support(),
-                        )
-                        .child(self.tipped("settings", icon_button("settings", "settings", "Settings", pal, self.settings.is_some()), "Settings", Side::Right, pal, cx).on_click(cx.listener(|this, _, _, cx| {
-                            this.settings = if this.settings.is_some() { None } else { Some(0) };
-                            cx.notify();
-                        })).test_support()),
-                );
+                .child(self.sidebar_foot(pal, accent, &user, &initial, cx));
             root = root.child(card_el.test_support());
         }
 
@@ -1564,6 +1637,8 @@ impl Render for Cauldron {
         // within an equal share of the room (TAB_MIN to TAB_MAX); when TAB_MIN no longer fits, arrows appear beside +
         // and the row shows a window of 72px tabs. No figures (Charles, 13 Nov).
         let mut tab_row = None;
+        // How far the stream card's tab reaches from the card's left edge (tabshape.rs).
+        let mut bump_w: Option<f32> = None;
         // A familiar's tabs are its own folder tabs on its stream card (familiar.rs).
         let fam = self.familiar.is_some().then(|| self.familiar_strips(s.main, s.support.is_none() && self.rail_on(false), pal, now, reduce, window, cx));
         if let Some(anchor_label) = self.coordinator.clone().filter(|_| self.familiar.is_none()) {
@@ -1574,7 +1649,9 @@ impl Render for Cauldron {
             };
             let anchor_w = (TAB_PAD + label_w + TAB_PAD + 2.0).ceil().min(ANCHOR_MAX);
             let n = self.agents.len();
-            let room = s.tabs.w - anchor_w - (TAB_GAP + ADD_W);
+            // The card's tab holds only the stream's own tab; agents' tabs and + sit on the frame
+            // past the tab's foot (Charles, 20 Nov: "outside of the tab card, with a separation").
+            let room = s.tabs.w - anchor_w - TAB_SEP - (TAB_GAP + ADD_W);
             let scrolls = n as f32 * (TAB_MIN + TAB_GAP) + TAB_GAP > room;
             let (k, tab_w) = if scrolls {
                 (((room - 54.0) / (TAB_MIN + TAB_GAP)).floor().max(1.0) as usize, Some(TAB_MIN))
@@ -1631,7 +1708,7 @@ impl Render for Cauldron {
                     .items_center()
                     .gap(px(CLOSE_GAP))
                     .h(px(metric::TAB_H))
-                    .rounded(px(radius::CONTROL))
+                    .rounded(px(tabshape::PILL_R))
                     .when_live(on, |d| d.bg(c(pal.selected)).border_1().border_color(c(pal.line)))
                     .when_live(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
                     .occlude()
@@ -1657,10 +1734,16 @@ impl Render for Cauldron {
                     this.focus_tabs(window, cx);
                     cx.notify();
                 }));
-            row = row.child(anchor.test_support());
+            row = row.child(anchor.test_support()).child(div().id("tab-sep").flex_none().w(px(TAB_SEP - 2.0 * TAB_GAP)).h(px(1.)));
 
+            // Each tab is sized to its name, within its share of the room.
+            let fig_w = avatar::size(TAB_FIG).0;
             for (j, agent) in self.agents.iter().enumerate().skip(first).take(k) {
                 let i = j + 1;
+                let name_w = {
+                    let run = TextRun { len: agent.name.len(), font: Font { weight: FontWeight::MEDIUM, features: sans_features(), ..font(SANS) }, color: fg, background_color: None, underline: None, strikethrough: None };
+                    f32::from(window.text_system().shape_line(agent.name.clone(), px(12.5), &[run], None).width)
+                };
                 let on = i == self.active;
                 let group: SharedString = format!("tab{i}").into();
                 let close = div()
@@ -1711,7 +1794,9 @@ impl Render for Cauldron {
                 let share = tab_w.unwrap_or(TAB_MAX);
                 // The open tab also holds its close button, so it gets that much more than the others.
                 let share = if on && !scrolls { share + CLOSE_W } else { share };
-                tab = if scrolls { tab.flex_none().w(px(TAB_MIN)) } else { tab.flex_none().min_w(px(TAB_MIN)).max_w(px(share)) };
+                let want = (TAB_PAD + fig_w + CLOSE_GAP + name_w + TAB_PAD + if on { CLOSE_W } else { 0.0 }).ceil();
+                let tw = if scrolls { TAB_MIN } else { want.clamp(TAB_MIN, share.max(TAB_MIN)) };
+                tab = tab.flex_none().w(px(tw));
                 // The full name as a tip once the tab may be narrower than the widest it gets.
                 let tab = if share < TAB_MAX { self.tipped(("tab", i), tab, agent.name.clone(), Side::Below, pal, cx) } else { tab };
                 row = row.child(tab.test_support());
@@ -1767,12 +1852,17 @@ impl Render for Cauldron {
             }
             let add = if self.tab_menu { add } else { self.tipped("tab-add", add, ADD_LABEL, Side::Below, pal, cx) };
             tab_row = Some(row.child(add.test_support()));
+            bump_w = Some(s.tabs.x - s.main.x + anchor_w + tabshape::S);
         }
 
         // ---- the stream card (the board's `.card`): its 38px header holds the tabs, its body the
         // stream or the New stream screen. The rail sits inside its right edge while the support
         // card is folded.
-        let head_title: SharedString = if self.settings.is_some() { "Settings".into() } else { self.coordinator.clone().unwrap_or_else(|| NEW_TAB.into()) };
+        let head_title: SharedString = if self.settings.is_some() {
+            "Settings".into()
+        } else {
+            self.coordinator.clone().unwrap_or_else(|| if self.start.familiar && self.familiar.is_none() { apps::NEW_FAMILIAR.into() } else { NEW_TAB.into() })
+        };
         let mut head = div()
             .id("card-head")
             .h(px(metric::HEAD_H))
@@ -1787,12 +1877,24 @@ impl Render for Cauldron {
             // Under a familiar's folder tabs the header is the frame they sit on.
             .when_live(self.familiar.is_some(), |d| d.bg(familiar::fam_layers(self.painting, pal).1))
             .window_control_area(WindowControlArea::Drag);
+        // The title is the card's one tab when there are no stream tabs: a pill in the card's tab,
+        // drawn on the window over the tab's corner pieces, as the tab row is.
+        let mut title_el = None;
         if tab_row.is_none() && self.familiar.is_none() {
+            let measure = |t: &str, weight: FontWeight, window: &Window| {
+                let run = TextRun { len: t.len(), font: Font { weight, features: sans_features(), ..font(SANS) }, color: fg, background_color: None, underline: None, strikethrough: None };
+                f32::from(window.text_system().shape_line(SharedString::from(t.to_string()), px(12.5), &[run], None).width)
+            };
+            let mut text_w = measure(&head_title, FontWeight::MEDIUM, window);
+            let mut pill = div().flex().items_center().gap(px(4.)).px(px(TAB_PAD)).rounded(px(tabshape::PILL_R)).bg(c(pal.selected)).border_1().border_color(c(pal.line)).text_size(px(12.5)).text_color(fg3);
             if let Some(p) = self.thread.as_ref().filter(|_| self.settings.is_none()).and_then(|t| t.project.as_ref()) {
                 let folder = p.rsplit(['/', '\\']).find(|s| !s.is_empty()).unwrap_or(p).to_string();
-                head = head.child(div().id("card-crumb").flex_none().aria_label(folder.clone()).child(format!("{folder} /")).test_support());
+                text_w += measure(&format!("{folder} /"), FontWeight::NORMAL, window) + 4.0;
+                pill = pill.child(div().id("card-crumb").flex_none().aria_label(folder.clone()).child(format!("{folder} /")).test_support());
             }
-            head = head.child(
+            let pill_w = (TAB_PAD + text_w + TAB_PAD + 2.0).ceil().min(s.tabs.w);
+            bump_w = Some(s.tabs.x - s.main.x + pill_w + tabshape::S);
+            pill = pill.child(
                 div()
                     .id(if self.thread.is_some() { "thread-title" } else { "card-title" })
                     .min_w_0()
@@ -1803,6 +1905,7 @@ impl Render for Cauldron {
                     .child(head_title)
                     .test_support(),
             );
+            title_el = Some(abs(Rect::new(s.tabs.x, s.tabs.y, pill_w, metric::TAB_H)).child(pill.size_full()));
         }
         let new_screen = self.open.is_none() && self.active == 0 && self.settings.is_none() && self.familiar.is_none();
         let rail_here = s.support.is_none() && self.rail_on(false);
@@ -1835,7 +1938,9 @@ impl Render for Cauldron {
                 }
             }))
             .child({
+                let cut = s.notch.is_none() && bump_w.and_then(|b| tabshape::pieces(s.main, b)).is_some();
                 let under = self.glass_under("main", s.main, (w, h), dark, pal, moving, window);
+
                 let glass = under.is_some();
                 div()
                     .id("card")
@@ -1845,8 +1950,25 @@ impl Render for Cauldron {
                     .flex_col()
                     .overflow_hidden()
                     .rounded(px(radius::PANEL))
+                    .when_live(cut, |d| d.rounded_tl(px(tabshape::TAB_R)))
                     .when_live(!glass, |d| d.bg(backdrop::surface(self.painting, pal.panel, backdrop::GLASS_CARD)))
                     .children(under.unwrap_or_default())
+                    // The content well, one stroke inside the card under its tab (tabshape.rs).
+                    .when_live(cut, |d| {
+                        d.child(
+                            div()
+                                .id("card-well")
+                                .absolute()
+                                .left(px(tabshape::S - 1.0))
+                                .right(px(tabshape::S - 1.0))
+                                .top(px(tabshape::BUMP_H + tabshape::S - 1.0))
+                                .bottom(px(tabshape::S - 1.0))
+                                .rounded_t(px(tabshape::WELL_R))
+                                .rounded_b(px(2.))
+                                .bg(if dark { gpui::black().opacity(0.30) } else { gpui::white().opacity(0.45) })
+                                .test_support(),
+                        )
+                    })
                     .border_1()
                     .border_color(c(if glass { pal.line_strong } else { pal.line }))
                     .text_color(fg3)
@@ -1883,6 +2005,15 @@ impl Render for Cauldron {
             );
         }
         root = root.child(card_el.test_support());
+        // The card's tab: the frame comes down right of it (tabshape.rs). Not with a familiar (its
+        // own folder tabs) or the notch (it already cuts the card's top-right).
+        if let (Some(b), None, None) = (bump_w, self.familiar, s.notch) {
+            let pieces = self.tab_cut(s.main, b, (w, h), dark, pal, window);
+            root = root.children(pieces);
+        }
+        if let Some(t) = title_el {
+            root = root.child(t);
+        }
         if let Some(row) = tab_row {
             root = root.child(row.test_support());
         }
@@ -2169,6 +2300,13 @@ impl Render for Cauldron {
             root = root.child(rr.test_support());
         }
 
+        // ---- Windows: the top strip across the window (Charles, 20 Nov, option B). A drag area,
+        // so it must come BEFORE every button drawn on it: Windows asks the topmost hitbox under the
+        // pointer, and a strip painted over the sidebar, search, inbox and pill buttons made every
+        // click on them a window drag (Charles's 20 Nov Windows test: none of them responded).
+        if let Some(bar) = s.bar {
+            root = root.child(pane("bar", bar).window_control_area(WindowControlArea::Drag).test_support());
+        }
         // ---- Windows: the logo and name in the sidebar's top row
         if let Some(tp) = s.title {
             let t = tp.rect;
@@ -2257,6 +2395,10 @@ impl Render for Cauldron {
                 root = root.child(abs(Rect::new(b.x, b.y + metric::SBTN + 6.0, 300.0, 400.0)).child(self.inbox_popover(pal, cx).test_support()));
             }
         }
+        // The version button's update card, above the user row, over every pane.
+        if let (true, Some(sp)) = (self.update_open, s.sidebar) {
+            root = root.child(div().absolute().left(px(sp.rect.x + 6.0)).bottom(px(h - (sp.rect.y + sp.rect.h) + 44.0)).child(self.update_card(pal, cx).test_support()));
+        }
         if let Some(t) = self.inbox_toast(pal, cx) {
             let vp = window.viewport_size();
             root = root.child(abs(Rect::new(f32::from(vp.width) - 280.0 - 16.0, f32::from(vp.height) - 16.0 - 80.0, 280.0, 80.0)).flex().flex_col().justify_end().child(t.test_support()));
@@ -2315,11 +2457,6 @@ impl Render for Cauldron {
                     .test_support(),
             );
         }
-        // ---- Windows: the top strip across the window (Charles, 20 Nov, option B). It sits on
-        // the frame layer, so it only needs to be a drag area under the buttons, then the pill.
-        if let Some(bar) = s.bar {
-            root = root.child(pane("bar", bar).window_control_area(WindowControlArea::Drag).test_support());
-        }
         if let Some(p) = s.pill {
             let n = self.needs_you();
             let label: SharedString = format!("{n} needs you").into();
@@ -2335,7 +2472,8 @@ impl Render for Cauldron {
                     .text_size(px(12.))
                     .text_color(fg2)
                     .opacity(if n > 0 { 1.0 } else { 0.0 })
-                    .occlude()
+                    .when_live(n > 0, |d| d.occlude().cursor_pointer().hover(|d| d.bg(c(pal.hover))))
+                    .on_click(cx.listener(|this, _, _, cx| this.open_needs_you(cx)))
                     .aria_label(label.clone())
                     .child(div().size(px(6.)).rounded_full().bg(c(pal.accent)))
                     .child(label)
@@ -2498,7 +2636,6 @@ impl Render for Cauldron {
 mod tests {
     // Explicit imports: a glob of gpui_kit brings GPUI's `test` macro, which shadows Rust's.
     use super::{platform, AgentTab, Cauldron, Panel, Threads};
-    use cauldron_chrome::layout::metric;
     use crate::threads::sample;
 
     use cauldron_chrome::layout::{self, Rect, ShellState};
@@ -2549,13 +2686,11 @@ mod tests {
                         None => assert!(window.try_find(id).is_none(), "{id} drawn in {state:?} but solve() has none"),
                     }
                 }
-                match (s.bar, s.pill) {
-                    (Some(b), Some(p)) => {
-                        assert_rect(window, "bar", b, state);
-                        assert_rect(window, "needs-pill", p, state);
-                    }
-                    _ => assert!(window.try_find("bar").is_none() && window.try_find("notch").is_none(), "no bar on this platform"),
+                match s.bar {
+                    Some(b) => assert_rect(window, "bar", b, state),
+                    None => assert!(window.try_find("bar").is_none() && window.try_find("notch").is_none(), "no bar on this platform"),
                 }
+                assert_eq!(window.try_find("needs-pill").is_some(), s.pill.is_some(), "the needs-you pill only where solve() has one");
                 assert_rect(window, "search-slot", s.search_button, state);
                 assert_rect(window, "inbox-slot", s.bell_button, state);
             })
@@ -2760,7 +2895,7 @@ mod tests {
             let head = rect(window, "card-head");
             assert_eq!((head.x, head.y, head.w, head.h), (card.x + 1.0, card.y + 1.0, card.w - 2.0, 38.0), "head");
             assert_eq!(window.find("card-title").label(), Some("New stream"));
-            assert_eq!(rect(window, "card-title").x, s.tabs.x + 10.0, "the title where a tab's label would start");
+            assert_eq!(rect(window, "card-title").x, s.tabs.x + 1.0 + 10.0, "the title where a tab's label would start, inside its pill's border");
         })
         .unwrap();
     }
@@ -2784,7 +2919,9 @@ mod tests {
                 assert_eq!(on(window, i), i == 0, "tab {i}: only the coordinator is open");
             }
             for i in 1..=3usize {
-                assert_eq!(rect(window, ("tab", i)).x - rect(window, ("tab", i - 1)).right(), 2.0, "2px between tabs {} and {i}", i - 1);
+                // The stream's tab sits in the card's tab; the agents' tabs start past its foot.
+                let want = if i == 1 { super::TAB_SEP } else { 2.0 };
+                assert_eq!(rect(window, ("tab", i)).x - rect(window, ("tab", i - 1)).right(), want, "between tabs {} and {i}", i - 1);
             }
             let add = rect(window, "tab-add");
             assert_eq!((add.y, add.h), (row.y, 28.0), "+ as tall as the tabs");
@@ -3246,6 +3383,46 @@ mod tests {
                 assert!(r.x >= side.x && r.right() <= side.right(), "row {i} inside the sidebar");
             }
             assert!(rect(window, ("thread", 0usize)).y > rect(window, "new-thread").bottom(), "rows under New stream");
+        })
+        .unwrap();
+    }
+
+    /// Charles's 20 Nov Windows test: the version, your name and the New button did nothing, and
+    /// New stream was the same in every app. The version opens the update card, your name opens
+    /// Settings, and the New button follows the app (New familiar under Agents, none where an app
+    /// has nothing to make yet).
+    #[gpui_kit::test]
+    fn the_version_your_name_and_the_new_button_all_act(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = open(cx, with_threads());
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            assert!(window.try_find("update-card").is_none(), "closed until clicked");
+            window.click("version", cx);
+            window.render_frame(cx);
+            assert_eq!(window.find("update-card").label(), Some("Checking for updates…"));
+            window.click("user-row", cx);
+            window.render_frame(cx);
+            assert_eq!(window.find(("settings-page", 0usize)).label().map(|l| l.starts_with("Agents")), Some(true), "your name opens Settings");
+            window.click("settings", cx);
+            window.render_frame(cx);
+            for (i, id) in [(0usize, Some("new-thread")), (1, Some("new-folder")), (2, None), (3, Some("new-familiar")), (4, Some("new-sub")), (5, None)] {
+                window.click(("fn", i), cx);
+                window.render_frame(cx);
+                for other in ["new-thread", "new-folder", "new-familiar", "new-sub"] {
+                    assert_eq!(window.try_find(other).is_some(), Some(other) == id, "app {i}: {other}");
+                }
+            }
+            window.click(("fn", 3usize), cx);
+            window.render_frame(cx);
+            window.click("new-familiar", cx);
+            window.render_frame(cx);
+            assert_eq!(window.find("nt-heading").label(), Some("What should a familiar take on?"));
+            window.click(("fn", 0usize), cx);
+            window.render_frame(cx);
+            window.click("new-thread", cx);
+            window.render_frame(cx);
+            assert_eq!(window.find("nt-heading").label(), Some("What should Cauldron work on?"), "New stream turns Familiar off again");
         })
         .unwrap();
     }

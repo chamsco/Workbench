@@ -24,7 +24,7 @@ fn grab() -> Result<Vec<u8>> {
     #[cfg(target_os = "macos")]
     {
         let f = std::env::temp_dir().join(format!("backspace-shot-{}.png", std::process::id()));
-        let ok = std::process::Command::new("screencapture").args(["-x", "-m", "-t", "png"]).arg(&f).status()?.success();
+        let ok = backspace_runner::cmd("screencapture").args(["-x", "-m", "-t", "png"]).arg(&f).status()?.success();
         let bytes = std::fs::read(&f);
         let _ = std::fs::remove_file(&f);
         if !ok {
@@ -46,7 +46,7 @@ fn grab() -> Result<Vec<u8>> {
         // Linux: whichever screenshot tool is there (Wayland's grim, then X11's).
         let tools: [(&str, &[&str]); 3] = [("grim", &["-t", "png", "-"]), ("import", &["-window", "root", "png:-"]), ("maim", &[])];
         for (exe, args) in tools {
-            if let Ok(o) = std::process::Command::new(exe).args(args).output() {
+            if let Ok(o) = backspace_runner::cmd(exe).args(args).output() {
                 if o.status.success() && o.stdout.starts_with(b"\x89PNG") {
                     return Ok(o.stdout);
                 }
@@ -60,13 +60,12 @@ fn grab() -> Result<Vec<u8>> {
 /// The titles of the windows that are open, as text, for models whose backend
 /// can't look at the picture: they can still say what is on the screen.
 pub fn open_windows() -> Option<String> {
-    use std::process::Command;
     let out = if cfg!(target_os = "windows") {
-        Command::new("powershell").args(["-NoProfile", "-Command", "Get-Process | Where-Object { $_.MainWindowTitle } | ForEach-Object { $_.ProcessName + ': ' + $_.MainWindowTitle }"]).output().ok()?
+        backspace_runner::cmd("powershell").args(["-NoProfile", "-Command", "Get-Process | Where-Object { $_.MainWindowTitle } | ForEach-Object { $_.ProcessName + ': ' + $_.MainWindowTitle }"]).output().ok()?
     } else if cfg!(target_os = "macos") {
-        Command::new("osascript").args(["-e", "tell application \"System Events\" to get name of (processes where background only is false)"]).output().ok()?
+        backspace_runner::cmd("osascript").args(["-e", "tell application \"System Events\" to get name of (processes where background only is false)"]).output().ok()?
     } else {
-        Command::new("wmctrl").arg("-l").output().ok()?
+        backspace_runner::cmd("wmctrl").arg("-l").output().ok()?
     };
     let text = String::from_utf8_lossy(&out.stdout).replace(", ", "\n");
     let lines: Vec<&str> = text.lines().map(str::trim).filter(|l| !l.is_empty()).take(40).collect();

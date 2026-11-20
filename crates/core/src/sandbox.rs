@@ -103,7 +103,7 @@ impl Backend {
                 if cfg!(target_os = "linux") {
                     if let Some(b) = on_path("bwrap").or_else(|| Some(PathBuf::from("/usr/bin/bwrap")).filter(|p| p.is_file())) {
                         // Installed is not enough: user namespaces can be off.
-                        let mut c = Command::new(&b);
+                        let mut c = backspace_runner::cmd(&b);
                         c.args(["--die-with-parent", "--unshare-pid", "--unshare-net", "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc", "--tmpfs", "/tmp", "--", "true"]);
                         if quiet(&mut c) {
                             return Backend::Bwrap(b);
@@ -112,7 +112,7 @@ impl Backend {
                 }
                 if cfg!(windows) {
                     if let Some(prefix) = jail_launcher() {
-                        let mut c = Command::new(&prefix[0]);
+                        let mut c = backspace_runner::cmd(&prefix[0]);
                         c.args(&prefix[1..]).args(["--", "cmd.exe", "/c", "exit 0"]);
                         if quiet(&mut c) {
                             return Backend::LowIntegrity(prefix);
@@ -121,7 +121,7 @@ impl Backend {
                 }
                 if cfg!(target_os = "macos") {
                     let b = PathBuf::from("/usr/bin/sandbox-exec");
-                    if b.is_file() && quiet(Command::new(&b).args(["-p", "(version 1)(allow default)", "/usr/bin/true"])) {
+                    if b.is_file() && quiet(backspace_runner::cmd(&b).args(["-p", "(version 1)(allow default)", "/usr/bin/true"])) {
                         return Backend::Seatbelt(b);
                     }
                 }
@@ -482,7 +482,7 @@ fn user_temp_dirs() -> Vec<PathBuf> {
     DIRS.get_or_init(|| {
         let mut v = vec![real(&std::env::temp_dir())];
         if cfg!(target_os = "macos") {
-            if let Ok(o) = std::process::Command::new("/usr/bin/getconf").arg("DARWIN_USER_TEMP_DIR").output() {
+            if let Ok(o) = backspace_runner::cmd("/usr/bin/getconf").arg("DARWIN_USER_TEMP_DIR").output() {
                 let d = String::from_utf8_lossy(&o.stdout).trim().trim_end_matches('/').to_string();
                 if o.status.success() && !d.is_empty() {
                     v.push(real(Path::new(&d)));
@@ -875,7 +875,9 @@ mod win {
                 std::ptr::null(),
                 std::ptr::null(),
                 1,
-                CREATE_SUSPENDED,
+                // CREATE_NO_WINDOW: the launcher has no console (the app is a GUI program), so without it
+                // every jailed command would open its own terminal window.
+                CREATE_SUSPENDED | backspace_runner::CREATE_NO_WINDOW,
                 std::ptr::null(),
                 std::ptr::null(),
                 &si,

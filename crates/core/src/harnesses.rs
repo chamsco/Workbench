@@ -239,7 +239,7 @@ pub struct Out {
 
 /// Run a command with a deadline; None if it could not start or ran over.
 pub fn run(bin: &Path, args: &[&str], timeout: Duration) -> Option<Out> {
-    run_with(Command::new(bin), args, timeout)
+    run_with(backspace_runner::cmd(bin), args, timeout)
 }
 
 /// Run a CLI with the full search PATH, so one that spawns `node` finds it.
@@ -249,7 +249,7 @@ fn run_cli(bin: &Path, args: &[&str]) -> Option<Out> {
 
 /// [`run_cli`] with extra variables: an account's profile directory.
 fn run_cli_env(bin: &Path, args: &[&str], env: &[(String, String)]) -> Option<Out> {
-    let mut cmd = Command::new(bin);
+    let mut cmd = backspace_runner::cmd(bin);
     cmd.env("PATH", path_env());
     for (k, v) in env {
         cmd.env(k, v);
@@ -569,7 +569,7 @@ pub fn open_login_with(id: &str, env: &[(String, String)]) -> anyhow::Result<()>
     let mut cmd = if cfg!(windows) {
         // `start` opens a new console; /K keeps it so errors stay readable.
         // The bare name resolves through PATH below (cmd can't take Rust's quoting).
-        let mut c = Command::new("cmd");
+        let mut c = backspace_runner::cmd("cmd");
         c.args(["/C", "start", "Sign in", "cmd", "/K", bin_for(id)]).args(args);
         c
     } else if cfg!(target_os = "macos") {
@@ -577,7 +577,7 @@ pub fn open_login_with(id: &str, env: &[(String, String)]) -> anyhow::Result<()>
             "tell application \"Terminal\" to do script \"{}\"\ntell application \"Terminal\" to activate",
             line.replace('\\', "\\\\").replace('"', "\\\"")
         );
-        let mut c = Command::new("osascript");
+        let mut c = backspace_runner::cmd("osascript");
         c.args(["-e", &script]);
         c
     } else {
@@ -586,7 +586,7 @@ pub fn open_login_with(id: &str, env: &[(String, String)]) -> anyhow::Result<()>
             .into_iter()
             .find(|t| which(t).is_some())
             .ok_or_else(|| anyhow::anyhow!("no terminal found; run {line} yourself"))?;
-        let mut c = Command::new(term);
+        let mut c = backspace_runner::cmd(term);
         if term == "gnome-terminal" { c.arg("--") } else { c.arg("-e") };
         c.args(["sh", "-c", &format!("{line}; exec $SHELL")]);
         c

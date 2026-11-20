@@ -85,12 +85,121 @@ pub(crate) fn surface(painting: bool, v: Rgb, alpha: f32) -> gpui_kit::Hsla {
     if painting { super::ca(v, alpha) } else { super::c(v) }
 }
 
-/// The frame layer for a theme, built on first use and kept for the process.
+/// The frame layer for a theme: the user's picture's when one is set and baked (the frame takes
+/// its theme from the stream card's picture, Charles 20 Nov), else the Harbour painting's.
 pub(crate) fn frame_layer(dark: bool) -> Arc<RenderImage> {
+    if let Some(u) = user_layers() {
+        return u.frame[dark as usize].clone();
+    }
     static DARK: OnceLock<Arc<RenderImage>> = OnceLock::new();
     static LIGHT: OnceLock<Arc<RenderImage>> = OnceLock::new();
     let cell = if dark { &DARK } else { &LIGHT };
-    cell.get_or_init(|| Arc::new(to_render(baked(dark, FRAME)))).clone()
+    cell.get_or_init(|| Arc::new(to_render(frame_rgba(dark).as_ref().clone()))).clone()
+}
+
+/// The frame layer's pixels, for crops that must match it exactly (the tab's frame pieces).
+pub(crate) fn frame_rgba(dark: bool) -> Arc<RgbaImage> {
+    if let Some(u) = user_layers() {
+        return u.frame_px[dark as usize].clone();
+    }
+    static DARK: OnceLock<Arc<RgbaImage>> = OnceLock::new();
+    static LIGHT: OnceLock<Arc<RgbaImage>> = OnceLock::new();
+    let cell = if dark { &DARK } else { &LIGHT };
+    cell.get_or_init(|| Arc::new(baked(dark, FRAME))).clone()
+}
+
+/// The frost layers baked from the user's own picture, so the frame and every card carry the
+/// picture's colours, spread wide by the blur, instead of the Harbour painting's navy.
+pub(crate) struct UserLayers {
+    pub path: PathBuf,
+    /// By `dark as usize`.
+    pub frame: [Arc<RenderImage>; 2],
+    pub frame_px: [Arc<RgbaImage>; 2],
+    pub card: [Arc<RgbaImage>; 2],
+    /// The picture itself (a GIF's first frame), for the stream card's small corner pieces.
+    pub pic: Arc<RgbaImage>,
+    /// The tint over the frame: the picture's mean colour, held to the theme frame's luminance so
+    /// text on the frame keeps the contrast it has over the painting.
+    pub tint: [Rgb; 2],
+}
+
+static USER: std::sync::Mutex<Option<Arc<UserLayers>>> = std::sync::Mutex::new(None);
+/// Bumped whenever the source of the layers changes, so cached crops are rebuilt.
+static GEN: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+pub(crate) fn user_layers() -> Option<Arc<UserLayers>> {
+    USER.lock().ok()?.clone()
+}
+
+pub(crate) fn generation() -> u32 {
+    GEN.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Back to the painting's layers (no picture).
+pub(crate) fn clear_user() {
+    if let Ok(mut u) = USER.lock() {
+        if u.take().is_some() {
+            GEN.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+    }
+}
+
+/// Bakes the layers from the picture at `path` (a GIF's first frame) and makes them current.
+/// Blocking: call it off the UI thread. A picture that won't decode leaves the painting's.
+pub(crate) fn warm_user(path: &std::path::Path) -> Result<(), String> {
+    if user_layers().is_some_and(|u| u.path == path) {
+        return Ok(());
+    }
+    let src = image::open(path).map_err(|e| format!("can't read {}: {e}", path.display()))?.to_rgba8();
+    let mut frame = Vec::new();
+    let mut frame_px = Vec::new();
+    let mut card = Vec::new();
+    let mut tint = Vec::new();
+    for dark in [false, true] {
+        let f = bake_rgba(&src, FRAME, dark);
+        tint.push(mean_tint(&f, dark));
+        frame.push(Arc::new(to_render(f.clone())));
+        frame_px.push(Arc::new(f));
+        card.push(Arc::new(bake_rgba(&src, CARD, dark)));
+    }
+    // Small enough to crop corners from quickly; the card shows the real file.
+    let pic = if src.width() > 1600 { imageops::resize(&src, 1600, (1600.0 * src.height() as f32 / src.width() as f32).round().max(1.0) as u32, imageops::FilterType::Triangle) } else { src };
+    let layers = UserLayers {
+        path: path.to_path_buf(),
+        frame: [frame[0].clone(), frame[1].clone()],
+        frame_px: [frame_px[0].clone(), frame_px[1].clone()],
+        card: [card[0].clone(), card[1].clone()],
+        pic: Arc::new(pic),
+        tint: [tint[0], tint[1]],
+    };
+    if let Ok(mut u) = USER.lock() {
+        *u = Some(Arc::new(layers));
+        GEN.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+    Ok(())
+}
+
+/// The frame tint for a baked picture layer: its mean colour, capped (dark) or floored (light)
+/// at the theme frame's own luminance, so it is never brighter (dark) or darker (light) than the
+/// tint the contrast tests hold the painting to.
+pub(crate) fn mean_tint(layer: &RgbaImage, dark: bool) -> Rgb {
+    let n = (layer.width() * layer.height()).max(1) as f32;
+    let mut sum = [0f32; 3];
+    for p in layer.pixels() {
+        for k in 0..3 {
+            sum[k] += to_lin(p.0[k]);
+        }
+    }
+    let mean = [to_srgb(sum[0] / n), to_srgb(sum[1] / n), to_srgb(sum[2] / n)];
+    let theme = if dark { cauldron_chrome::tokens::DARK.frame } else { cauldron_chrome::tokens::LIGHT.frame };
+    let level = 0.2126 * to_lin(theme.0) + 0.7152 * to_lin(theme.1) + 0.0722 * to_lin(theme.2);
+    let [r, g, b] = tone(mean, dark, level);
+    Rgb(r, g, b)
+}
+
+/// The colour drawn over the frame layer: the picture's when its layers are current.
+pub(crate) fn tint_colour(pal: &Palette, dark: bool) -> Rgb {
+    user_layers().map_or(pal.frame, |u| u.tint[dark as usize])
 }
 
 fn card_cell(dark: bool) -> &'static OnceLock<Arc<RgbaImage>> {
@@ -102,6 +211,9 @@ fn card_cell(dark: bool) -> &'static OnceLock<Arc<RgbaImage>> {
 /// The cards' light layer, once `warm` has baked it; None until then (cards fall back to the
 /// single-depth glass), so the UI thread never waits on it.
 pub(crate) fn card_source(dark: bool) -> Option<Arc<RgbaImage>> {
+    if let Some(u) = user_layers() {
+        return Some(u.card[dark as usize].clone());
+    }
     card_cell(dark).get().cloned()
 }
 
@@ -141,8 +253,13 @@ pub(crate) fn baked(dark: bool, f: Frost) -> RgbaImage {
 /// luminance, keeping its hue.
 pub(crate) fn bake(webp: &[u8], f: Frost, dark: bool) -> RgbaImage {
     let img = image::load_from_memory_with_format(webp, ImageFormat::WebP).expect("bundled painting decodes").to_rgba8();
+    bake_rgba(&img, f, dark)
+}
+
+/// `bake` for any decoded picture.
+pub(crate) fn bake_rgba(img: &RgbaImage, f: Frost, dark: bool) -> RgbaImage {
     let h = ((f.work_w as f32) * img.height() as f32 / img.width() as f32).round().max(1.0) as u32;
-    let small = imageops::resize(&img, f.work_w, h, imageops::FilterType::Triangle);
+    let small = imageops::resize(img, f.work_w, h, imageops::FilterType::Triangle);
     let mut out = imageops::blur(&small, f.blur * f.work_w as f32 / REF_W);
     for p in out.pixels_mut() {
         let [r, g, b, _] = p.0;
@@ -208,7 +325,7 @@ pub(crate) fn crop(src: &RgbaImage, win: (f32, f32), r: Rect) -> RgbaImage {
 /// the theme changes. A replaced image is handed back so the caller frees it from GPUI's atlas.
 #[derive(Default)]
 pub(crate) struct GlassCache {
-    slots: Vec<(&'static str, (bool, [i32; 6]), Arc<RenderImage>)>,
+    slots: Vec<(&'static str, (bool, [i32; 7]), Arc<RenderImage>)>,
 }
 
 impl GlassCache {
@@ -217,8 +334,9 @@ impl GlassCache {
     /// image every frame; the crop catches up when it settles.
     pub(crate) fn get(&mut self, id: &'static str, dark: bool, win: (f32, f32), r: Rect, moving: bool, stale: &mut Vec<Arc<RenderImage>>) -> Option<Arc<RenderImage>> {
         let src = card_source(dark)?;
-        let key = (dark, [r.x, r.y, r.w, r.h, win.0, win.1].map(|v| v.round() as i32));
-        if let Some(s) = self.slots.iter().find(|s| s.0 == id && (s.1 == key || (moving && s.1 .0 == dark))) {
+        let mut key = (dark, [r.x, r.y, r.w, r.h, win.0, win.1, 0.0].map(|v| v.round() as i32));
+        key.1[6] = generation() as i32;
+        if let Some(s) = self.slots.iter().find(|s| s.0 == id && (s.1 == key || (moving && s.1 .0 == dark && s.1 .1[6] == key.1[6]))) {
             return Some(s.2.clone());
         }
         let img = Arc::new(to_render(crop(&src, win, r)));
@@ -228,6 +346,25 @@ impl GlassCache {
         }
         self.slots.push((id, key, img.clone()));
         Some(img)
+    }
+}
+
+impl GlassCache {
+    /// A crop of any layer `src` for piece `id` at `r`, where `src` covers a `win`-sized area
+    /// (object-fit cover). Rebuilt when the rect, the area, the theme or the layers change.
+    pub(crate) fn piece(&mut self, id: &'static str, src: &RgbaImage, dark: bool, win: (f32, f32), r: Rect, stale: &mut Vec<Arc<RenderImage>>) -> Arc<RenderImage> {
+        let mut key = (dark, [r.x, r.y, r.w, r.h, win.0, win.1, 0.0].map(|v| v.round() as i32));
+        key.1[6] = generation() as i32;
+        if let Some(s) = self.slots.iter().find(|s| s.0 == id && s.1 == key) {
+            return s.2.clone();
+        }
+        let img = Arc::new(to_render(crop(src, win, r)));
+        if let Some(k) = self.slots.iter().position(|s| s.0 == id) {
+            let (_, _, old) = self.slots.swap_remove(k);
+            stale.push(old);
+        }
+        self.slots.push((id, key, img.clone()));
+        img
     }
 }
 
@@ -252,7 +389,7 @@ fn to_render(mut img: RgbaImage) -> RenderImage {
 
 /// The tint drawn over the frame layer.
 pub(crate) fn tint(pal: &Palette, dark: bool) -> gpui_kit::Hsla {
-    surface(true, pal.frame, frame_tint(dark))
+    surface(true, tint_colour(pal, dark), frame_tint(dark))
 }
 
 /// How frosted the frame and sidebar are (Settings > Appearance > Frost; Charles, 19 Nov: Heavy is
@@ -299,7 +436,7 @@ impl FrostLevel {
 
 /// The tint over the frame and sidebar at a frost level.
 pub(crate) fn frame_tint_at(pal: &Palette, dark: bool, level: FrostLevel) -> gpui_kit::Hsla {
-    surface(true, pal.frame, level.alpha(dark))
+    surface(true, tint_colour(pal, dark), level.alpha(dark))
 }
 
 #[cfg(test)]
@@ -436,5 +573,23 @@ mod tests {
         assert_eq!(FrostLevel::from_pref(&p), FrostLevel::Heavy, "Heavy by default");
         p.frost = Some(FrostLevel::Medium.pref());
         assert_eq!(FrostLevel::from_pref(&p), FrostLevel::Medium);
+    }
+
+    /// A picture's frame tint is its own colour (a warm picture gives a warm frame, not the
+    /// theme's navy or grey), held to the theme frame's luminance so text keeps its contrast.
+    #[test]
+    fn a_pictures_tint_is_its_colour_at_the_themes_luminance() {
+        let warm = RgbaImage::from_pixel(8, 8, image::Rgba([220, 120, 40, 255]));
+        for dark in [true, false] {
+            let t = mean_tint(&warm, dark);
+            assert!(t.0 > t.1 && t.1 > t.2, "warm stays warm: {t:?}");
+            let theme = if dark { cauldron_chrome::tokens::DARK.frame } else { cauldron_chrome::tokens::LIGHT.frame };
+            let (lt, lf) = (luminance([t.0, t.1, t.2]), luminance([theme.0, theme.1, theme.2]));
+            if dark {
+                assert!(lt <= lf + 0.005, "no brighter than the dark frame: {lt} vs {lf}");
+            } else {
+                assert!(lt + 0.01 >= lf, "no darker than the light frame: {lt} vs {lf}");
+            }
+        }
     }
 }

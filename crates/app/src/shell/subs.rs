@@ -11,6 +11,18 @@ use backspace_core::chat::{Route, RouteKind};
 use backspace_core::harnesses::Auth;
 use gpui_kit::prelude::FluentBuilder;
 
+/// The New stream box's picker is the stacked card (Settings > Appearance > Model picker).
+pub(crate) fn tray_stacked() -> bool {
+    Prefs::load().model_tray.as_deref() == Some("stacked")
+}
+
+/// Stacked picker: how far the card hides under the box while folded, and the gap it drops to.
+pub(crate) const STACK_TUCK: f32 = 12.0;
+pub(crate) const STACK_GAP: f32 = 6.0;
+
+/// The new-stream tray's height once it has unfolded (Model tray A).
+pub(crate) const TRAY_OPEN_H: f32 = 216.0;
+
 /// Where a picked route goes: the new-stream box, or an open stream.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum PickFor {
@@ -133,7 +145,7 @@ impl Cauldron {
 
     /// The route chip: what answers, opening the menu. `id` keeps each place's chip findable.
     pub(super) fn route_chip(&self, id: &'static str, to: PickFor, route: Option<&Route>, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
-        let (fg, fg2, fg3) = (c(pal.fg), c(pal.fg2), c(pal.fg3));
+        let (fg, fg3) = (c(pal.fg), c(pal.fg3));
         let label = route_label(&self.start.providers, route);
         let open = self.start.route_menu.as_ref() == Some(&to);
         let ready = route.is_none_or(|r| r.kind != RouteKind::Cli || self.start.providers.iter().find(|s| s.provider == r.provider).is_none_or(CliStatus::ready));
@@ -168,7 +180,8 @@ impl Cauldron {
                 }
                 cx.notify();
             }))
-            .when(open, |d| d.child(deferred(div().absolute().bottom(px(30.)).right_0().child(self.route_menu(to, route, pal, cx))).with_priority(3)))
+            // The new-stream box unfolds its tray instead (`route_tray`); an open stream keeps the menu.
+            .when(open && to != PickFor::New, |d| d.child(deferred(div().absolute().bottom(px(30.)).right_0().child(self.route_menu(to, route, pal, cx))).with_priority(3)))
             .test_support()
             .into_any_element()
     }
@@ -198,7 +211,7 @@ impl Cauldron {
         let item = |id: (&'static str, usize), on: bool| {
             div()
                 .id(id)
-                .h(px(28.))
+                .h(px(26.))
                 .flex()
                 .items_center()
                 .gap(px(8.))
@@ -308,6 +321,208 @@ impl Cauldron {
                 .test_support(),
         );
         menu.test_support().into_any_element()
+    }
+
+    /// Model tray A (Charles, 20 Nov: "the under tray should drop down with an animation where
+    /// it expands down to reveal the whole picker"): under the new-stream box's chips the tray
+    /// grows to `TRAY_OPEN_H`, showing who answers, the model, the account and the effort at once.
+    /// The box never moves. Picking a model, the chip again or a click outside folds it.
+    pub(super) fn route_tray(&self, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
+        let (fg, fg2, fg3) = (c(pal.fg), c(pal.fg2), c(pal.fg3));
+        let route = self.start.route.clone();
+        let current = route.as_ref().filter(|r| r.kind == RouteKind::Cli).map(|r| r.provider.clone());
+        let head = |id: &'static str, text: &'static str| div().id(id).px(px(9.)).pt(px(8.)).pb(px(4.)).text_size(px(11.)).text_color(fg3).aria_label(text).child(text).test_support();
+        let item = |id: (&'static str, usize), on: bool| {
+            div()
+                .id(id)
+                .h(px(28.))
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .px(px(9.))
+                .rounded(px(radius::CONTROL))
+                .text_size(px(12.5))
+                .text_color(if on { fg } else { fg2 })
+                .when(on, |d| d.bg(c(pal.selected)))
+        };
+        // Who answers: every coding CLI, installed and signed-in ones first.
+        let mut left = div().id("tray-who").w(px(200.)).flex_none().flex().flex_col().gap(px(1.)).child(head("tray-who-head", "Who answers"));
+        if self.start.providers.is_empty() {
+            left = left.child(div().id("route-loading").px(px(9.)).py(px(6.)).text_size(px(12.)).text_color(fg3).aria_label("Looking for coding CLIs…").child("Looking for coding CLIs…").test_support());
+        }
+        let mut list: Vec<&CliStatus> = self.start.providers.iter().collect();
+        list.sort_by_key(|s| (!s.installed, !s.ready()));
+        let mut chosen = None;
+        for (i, s) in list.iter().enumerate() {
+            let on = current.as_deref() == Some(s.provider.as_str());
+            if on {
+                chosen = Some(*s);
+            }
+            let login = s.logins.get(s.active);
+            let state = if !s.installed { "Not installed".to_string() } else { login.map_or_else(String::new, login_line) };
+            let dot = if !s.installed { c(pal.line_strong) } else if s.ready() { c(pal.ok) } else { c(pal.warn) };
+            let (prov, installed, ready) = (s.provider.clone(), s.installed, s.ready());
+            let active_id = login.and_then(|l| l.id.clone());
+            let mut row = item(("route-cli", i), on)
+                .aria_label(format!("{} — {state}", s.name))
+                .aria_selected(on)
+                .child(div().size(px(7.)).flex_none().rounded_full().bg(dot))
+                .child(div().flex_1().min_w_0().truncate().child(s.name.clone()))
+                .child(div().max_w(px(80.)).truncate().text_size(px(11.)).text_color(fg3).child(state));
+            if installed {
+                row = row.cursor_pointer().when(!on, |d| d.hover(|d| d.bg(c(pal.hover)))).on_click(cx.listener(move |this, _, _, cx| {
+                    cx.stop_propagation();
+                    if !ready {
+                        this.sign_in(&prov, active_id.as_deref(), cx);
+                        return;
+                    }
+                    // Picking who answers keeps the tray open for its model.
+                    this.pick_route(&PickFor::New, Route { kind: RouteKind::Cli, provider: prov.clone(), model: None });
+                    cx.notify();
+                }));
+            } else {
+                row = row.opacity(0.55).aria_description(format!("Install: {}", s.install));
+            }
+            left = left.child(row.test_support());
+        }
+        // The chosen CLI's models, its accounts, and the effort.
+        let mut right = div().id("tray-model").flex_1().min_w_0().flex().flex_col().gap(px(1.)).child(head("tray-model-head", "Model"));
+        match chosen {
+            Some(s) => {
+                let pinned = route.as_ref().and_then(|r| r.model.clone());
+                let opts = std::iter::once(None).chain(models(&s.provider).iter().map(|m| Some(m.to_string())));
+                for (j, m) in opts.enumerate() {
+                    let sel = pinned == m;
+                    let (prov, m2) = (s.provider.clone(), m.clone());
+                    let name = m.as_deref().map_or_else(|| "Its default model".to_string(), |m| {
+                        let mut ch = m.chars();
+                        ch.next().map(|f| format!("{}{}", f.to_uppercase(), ch.as_str())).unwrap_or_default()
+                    });
+                    right = right.child(
+                        item(("route-model", j), sel)
+                            .cursor_pointer()
+                            .when(!sel, |d| d.hover(|d| d.bg(c(pal.hover))))
+                            .aria_label(name.clone())
+                            .aria_selected(sel)
+                            .child(div().flex_1().child(name))
+                            .when(sel, |d| d.child(glyph("check", 13., fg2)))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                cx.stop_propagation();
+                                this.pick_route(&PickFor::New, Route { kind: RouteKind::Cli, provider: prov.clone(), model: m2.clone() });
+                                this.start.route_menu = None;
+                                cx.notify();
+                            }))
+                            .test_support(),
+                    );
+                }
+                if s.logins.len() > 1 {
+                    right = right.child(head("tray-runs-on", "Runs on"));
+                    for (j, l) in s.logins.iter().enumerate() {
+                        let sel = j == s.active;
+                        let (prov, lid) = (s.provider.clone(), l.id.clone());
+                        right = right.child(
+                            item(("route-login", j), sel)
+                                .cursor_pointer()
+                                .when(!sel, |d| d.hover(|d| d.bg(c(pal.hover))))
+                                .aria_label(l.name.clone())
+                                .aria_selected(sel)
+                                .child(div().flex_1().min_w_0().truncate().child(l.name.clone()))
+                                .child(div().max_w(px(120.)).truncate().text_size(px(11.)).text_color(fg3).child(login_line(l)))
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    cx.stop_propagation();
+                                    this.pick_login(&prov, lid.clone(), cx);
+                                }))
+                                .test_support(),
+                        );
+                    }
+                }
+            }
+            None => {
+                right = right.child(div().id("tray-pick-first").px(px(9.)).py(px(6.)).text_size(px(12.)).text_color(fg3).aria_label("Pick who answers first.").child("Pick who answers first.").test_support());
+            }
+        }
+        // Effort: one segmented row instead of a chip that cycles.
+        let effort = Prefs::load().cli_effort;
+        let mut seg = div().id("tray-effort").flex().gap(px(2.)).p(px(2.)).mx(px(9.)).rounded(px(radius::CONTROL)).border_1().border_color(c(pal.line_strong));
+        for (k, e) in super::thread::EFFORTS.iter().enumerate() {
+            let on = effort.as_deref() == *e;
+            let label = e.map_or_else(|| "Auto".to_string(), |v| {
+                let mut ch = v.chars();
+                ch.next().map(|f| format!("{}{}", f.to_uppercase(), ch.as_str())).unwrap_or_default()
+            });
+            let val = e.map(str::to_string);
+            seg = seg.child(
+                div()
+                    .id(("tray-effort-opt", k))
+                    .flex_1()
+                    .h(px(22.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(px(radius::TAG))
+                    .cursor_pointer()
+                    .text_size(px(11.5))
+                    .text_color(if on { fg } else { fg2 })
+                    .when(on, |d| d.bg(c(pal.selected)))
+                    .when(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
+                    .aria_selected(on)
+                    .aria_label(label.clone())
+                    .child(label)
+                    .on_click(cx.listener(move |_, _, _, cx| {
+                        cx.stop_propagation();
+                        let mut p = Prefs::load();
+                        p.cli_effort = val.clone();
+                        p.save();
+                        cx.notify();
+                    }))
+                    .test_support(),
+            );
+        }
+        let manage = div()
+            .id("route-manage")
+            .h(px(26.))
+            .px(px(9.))
+            .flex()
+            .items_center()
+            .gap(px(6.))
+            .rounded(px(radius::CONTROL))
+            .cursor_pointer()
+            .hover(|d| d.bg(c(pal.hover)))
+            .text_size(px(12.))
+            .text_color(fg3)
+            .aria_label("Manage subscriptions")
+            .child(glyph("settings", 13., fg3))
+            .child("Manage subscriptions…")
+            .on_click(cx.listener(|this, _, _, cx| {
+                cx.stop_propagation();
+                this.start.route_menu = None;
+                this.settings = Some(0);
+                cx.notify();
+            }))
+            .test_support();
+        right = right.child(head("tray-effort-head", "Effort")).child(seg.test_support()).child(div().flex_1()).child(manage);
+        let body = div()
+            .flex()
+            .flex_col()
+            .h(px(TRAY_OPEN_H))
+            .px(px(6.))
+            .pb(px(6.))
+            .border_t_1()
+            .border_color(c(pal.line))
+            .child(div().flex_1().min_h_0().flex().gap(px(10.)).overflow_hidden().child(left.test_support()).child(right.test_support()));
+        // Height 0 to TRAY_OPEN_H over 220 ms; the rows fade in a beat behind the edge.
+        div()
+            .id("route-tray")
+            .overflow_hidden()
+            .occlude()
+            .aria_label("Who answers")
+            .child(body)
+            .test_support()
+            .with_animation("route-tray-open", super::motion::anim(220.), |d, t| {
+                let rows = ((t - 0.27) / 0.73).clamp(0.0, 1.0);
+                d.h(px(TRAY_OPEN_H * t)).opacity(0.35 + 0.65 * rows)
+            })
+            .into_any_element()
     }
 
     /// Settings > Subscriptions: a row per CLI, its logins under it, each with Sign in; the radio

@@ -68,7 +68,13 @@ impl VisorCli {
 
     /// Run the CLI. `Ok(None)` when the command prints nothing (delete).
     fn run(&self, args: &[String]) -> Result<Option<Value>> {
-        let out = Command::new(&self.exe)
+        let mut cmd = Command::new(&self.exe);
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW: no console flash from the GUI app
+        }
+        let out = cmd
             .args(args)
             .output()
             .with_context(|| format!("failed to run {}", self.exe.display()))?;

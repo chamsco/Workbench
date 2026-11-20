@@ -769,7 +769,7 @@ pub fn container(id: &str) -> String {
 }
 
 fn docker(args: &[&str]) -> Result<String> {
-    let o = Command::new("docker")
+    let o = backspace_runner::cmd("docker")
         .args(args)
         .env("PATH", crate::harnesses::path_env())
         .output()
@@ -832,7 +832,7 @@ fn clip(s: String) -> String {
 }
 
 fn ssh_cmd(c: &Computer) -> Command {
-    let mut cmd = Command::new("ssh");
+    let mut cmd = backspace_runner::cmd("ssh");
     cmd.args(["-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new", "-o", "ConnectTimeout=10"]);
     if c.port != 0 {
         cmd.args(["-p", &c.port.to_string()]);
@@ -850,7 +850,7 @@ pub fn run(env: &ComputerEnv, command: &str, timeout: Duration) -> Result<String
     let mut cmd = match env.computer.kind.as_str() {
         "docker" => {
             ensure_container(env)?;
-            let mut c = Command::new("docker");
+            let mut c = backspace_runner::cmd("docker");
             c.args(["exec", "-w", "/home/agent", &container(&env.agent), "sh", "-lc", command]);
             c
         }
@@ -871,7 +871,7 @@ pub fn write(env: &ComputerEnv, path: &str, content: &str) -> Result<String> {
     let mut cmd = match env.computer.kind.as_str() {
         "docker" => {
             ensure_container(env)?;
-            let mut c = Command::new("docker");
+            let mut c = backspace_runner::cmd("docker");
             c.args(["exec", "-i", "-w", "/home/agent", &container(&env.agent), "sh", "-c", &script]);
             c
         }
