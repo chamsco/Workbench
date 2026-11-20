@@ -274,6 +274,27 @@ impl Cauldron {
         .detach();
     }
 
+    /// Asks for a folder, remembers it in the recent list and starts the stream there.
+    fn pick_folder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let paths = cx.prompt_for_paths(PathPromptOptions { files: false, directories: true, multiple: false, prompt: Some("Work in this folder".into()) });
+        cx.spawn_in(window, async move |this: WeakEntity<Self>, cx: &mut AsyncWindowContext| {
+            if let Ok(Ok(Some(ps))) = paths.await {
+                if let Some(p) = ps.into_iter().next() {
+                    let dir = p.display().to_string();
+                    let _ = this.update(cx, |c, cx| {
+                        let mut prefs = Prefs::load();
+                        prefs.touch_project(&dir);
+                        prefs.save();
+                        c.start.folder = Some(dir);
+                        c.start.folder_menu = false;
+                        cx.notify();
+                    });
+                }
+            }
+        })
+        .detach();
+    }
+
     pub(super) fn new_thread_view(&self, pal: &'static Palette, window: &Window, cx: &mut Context<Self>) -> AnyElement {
         let (fg, fg2, fg3) = (c(pal.fg), c(pal.fg2), c(pal.fg3));
         let blocked = self.start_blocked();
@@ -725,6 +746,27 @@ impl Cauldron {
                     .test_support(),
             );
         }
+        menu = menu.child(div().h(px(1.)).my(px(4.)).bg(c(pal.line))).child(
+            div()
+                .id("folder-choose")
+                .h(px(30.))
+                .flex()
+                .items_center()
+                .gap(px(9.))
+                .px(px(9.))
+                .rounded(px(radius::CONTROL))
+                .cursor_pointer()
+                .text_color(fg2)
+                .hover(|d| d.bg(c(pal.hover)))
+                .aria_label("Choose folder")
+                .child(glyph("plus", 13., fg3))
+                .child("Choose folder…")
+                .on_click(cx.listener(|this, _, window, cx| {
+                    cx.stop_propagation();
+                    this.pick_folder(window, cx);
+                }))
+                .test_support(),
+        );
         menu.test_support().into_any_element()
     }
 
