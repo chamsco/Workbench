@@ -4972,12 +4972,14 @@ async fn submit_ramparts(inner: &Arc<Inner>, c: &Conversation, input: &Value) ->
     };
     if ask_user {
         let ask = crate::rampart::ask(&pending);
+        // The ask is in the log before the flag goes up, so whoever sees `awaiting_yes` also sees
+        // what is being asked (the test that waits on the flag raced the log otherwise).
+        inner.log(MAIN, LogKind::Assistant, ask);
         inner.update(|s| {
             s.rampart.pending = Some(pending);
             s.rampart.awaiting_yes = true;
         });
         inner.save();
-        inner.log(MAIN, LogKind::Assistant, ask);
         return Ok(ToolOutcome::Delivered(d, "Accepted. The user is asked to spot-check the suite; it is sealed on their yes.".into()));
     }
     let seal = seal_now(inner, pending, false).await?;
