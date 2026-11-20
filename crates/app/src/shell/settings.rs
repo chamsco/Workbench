@@ -146,6 +146,38 @@ impl Cauldron {
         if page == 2 {
             // Appearance: the backdrop (Tight tiles rule 7) or the plain frame, saved to the shared
             // `backdrop` pref the old app reads too.
+            col = col.child(section("Look"));
+            let mut seg = div().id("set-mode").flex().gap(px(2.)).p(px(2.)).rounded(px(radius::CONTROL)).border_1().border_color(c(pal.line_strong));
+            for (i, (label, key)) in [("System", "system"), ("Light", "light"), ("Dark", "dark")].into_iter().enumerate() {
+                let on = if self.theme_mode.is_empty() { key == "system" } else { self.theme_mode == key };
+                seg = seg.child(
+                    div()
+                        .id(("mode-opt", i))
+                        .h(px(24.))
+                        .px(px(10.))
+                        .flex()
+                        .items_center()
+                        .rounded(px(radius::TAG))
+                        .cursor_pointer()
+                        .when_live(on, |d| d.bg(c(pal.selected)))
+                        .when_live(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
+                        .aria_selected(on)
+                        .aria_label(label)
+                        .text_size(px(12.))
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(if on { fg } else { fg2 })
+                        .child(label)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.theme_mode = key.to_string();
+                            let mut p = Prefs::load();
+                            p.theme = key.to_string();
+                            p.save();
+                            cx.notify();
+                        }))
+                        .test_support(),
+                );
+            }
+            col = col.child(row(("appearance", 4), "Mode".into(), "Follow the system, or always light or dark.".into(), seg.test_support().into_any_element()));
             col = col.child(section("Window"));
             let mut seg = div().id("set-backdrop").flex().gap(px(2.)).p(px(2.)).rounded(px(radius::CONTROL)).border_1().border_color(c(pal.line_strong));
             for (i, (label, on)) in [("Painting", self.painting), ("Plain", !self.painting)].into_iter().enumerate() {
@@ -470,6 +502,10 @@ mod tests {
             assert_eq!(backspace_core::prefs::Prefs::load().check_updates, !before, "the toggle saves");
             window.click(("settings-page", 2usize), cx);
             assert_eq!(window.find(("appearance", 0usize)).label(), Some("Backdrop"));
+            window.click(("mode-opt", 2usize), cx);
+            assert_eq!(backspace_core::prefs::Prefs::load().theme, "dark", "Mode saves");
+            window.click(("mode-opt", 0usize), cx);
+            assert_eq!(backspace_core::prefs::Prefs::load().theme, "system");
             assert!(window.try_find("rail").is_none(), "no right rail in Settings: it belongs to an open stream");
             // Windows only (Charles, 20 Nov): the top strip by default, or the notch.
             let windows = crate::shell::platform() != cauldron_chrome::layout::Platform::Mac;
