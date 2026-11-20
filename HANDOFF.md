@@ -28,6 +28,11 @@
   sit on the frame past the foot (`TAB_SEP`). Model picker gains "Stacked" (Settings > Appearance >
   Model picker, pref `model_tray`), Unfold stays the default: a solid card tucked 12px behind the box
   (no third card) drops out 6px below the box and holds the tray, with a drop shadow.
+- **Round 3 (Charles, 23:08Z)**: on Windows the stream card rises into the top strip (main.y = 4;
+  sidebar and support stay under the strip); the caption buttons sit on the frame right of the
+  card's tab, which is a drag area; no "needs you" pill; split/terminal/folder tools sit inside the
+  content well, left of the rail. Windows CI also builds `Cauldron-setup.exe` (per-user NSIS,
+  `installer/windows/cauldron.nsi`) and publishes it with the exe.
 
 **Session, 17 Nov 2026: Cauldron M6, the execution engine (sandbox and herdr).**
 

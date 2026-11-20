@@ -118,7 +118,10 @@ impl Cauldron {
         let foot = self
             .frame_piece("tab-frame", right_out, Corner::BottomLeft(FOOT_R), win, dark, pal, window)
             .child(div().absolute().left_0().top_0().size_full().rounded_bl(px(FOOT_R)).border_l_1().border_b_1().border_color(line));
-        out.push(foot.id("tab-cut").test_support().into_any_element());
+        // The frame right of the tab is window frame: on Windows it drags the window (the
+        // stream card rises into the strip there, 20 Nov). Drawn before the tabs and the caption
+        // buttons, so their clicks stay theirs.
+        out.push(foot.id("tab-cut").window_control_area(WindowControlArea::Drag).test_support().into_any_element());
         for (fid, cid, (fq, q), r) in [("tab-q1-frame", "tab-q1-card", qs[0], TAB_R), ("tab-q2-frame", "tab-q2-card", qs[1], BODY_R)] {
             let fq = Rect::new(fq.x, fq.y - 1.0, fq.w + 1.0, fq.h + 1.0);
             out.push(self.frame_piece(fid, fq, Corner::None, win, dark, pal, window).into_any_element());

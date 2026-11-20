@@ -2686,13 +2686,11 @@ mod tests {
                         None => assert!(window.try_find(id).is_none(), "{id} drawn in {state:?} but solve() has none"),
                     }
                 }
-                match (s.bar, s.pill) {
-                    (Some(b), Some(p)) => {
-                        assert_rect(window, "bar", b, state);
-                        assert_rect(window, "needs-pill", p, state);
-                    }
-                    _ => assert!(window.try_find("bar").is_none() && window.try_find("notch").is_none(), "no bar on this platform"),
+                match s.bar {
+                    Some(b) => assert_rect(window, "bar", b, state),
+                    None => assert!(window.try_find("bar").is_none() && window.try_find("notch").is_none(), "no bar on this platform"),
                 }
+                assert_eq!(window.try_find("needs-pill").is_some(), s.pill.is_some(), "the needs-you pill only where solve() has one");
                 assert_rect(window, "search-slot", s.search_button, state);
                 assert_rect(window, "inbox-slot", s.bell_button, state);
             })
