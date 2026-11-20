@@ -94,7 +94,18 @@ pub(crate) fn frame_layer(dark: bool) -> Arc<RenderImage> {
     static DARK: OnceLock<Arc<RenderImage>> = OnceLock::new();
     static LIGHT: OnceLock<Arc<RenderImage>> = OnceLock::new();
     let cell = if dark { &DARK } else { &LIGHT };
-    cell.get_or_init(|| Arc::new(to_render(baked(dark, FRAME)))).clone()
+    cell.get_or_init(|| Arc::new(to_render(frame_rgba(dark).as_ref().clone()))).clone()
+}
+
+/// The frame layer's pixels, for crops that must match it exactly (the tab's frame pieces).
+pub(crate) fn frame_rgba(dark: bool) -> Arc<RgbaImage> {
+    if let Some(u) = user_layers() {
+        return u.frame_px[dark as usize].clone();
+    }
+    static DARK: OnceLock<Arc<RgbaImage>> = OnceLock::new();
+    static LIGHT: OnceLock<Arc<RgbaImage>> = OnceLock::new();
+    let cell = if dark { &DARK } else { &LIGHT };
+    cell.get_or_init(|| Arc::new(baked(dark, FRAME))).clone()
 }
 
 /// The frost layers baked from the user's own picture, so the frame and every card carry the
@@ -103,7 +114,10 @@ pub(crate) struct UserLayers {
     pub path: PathBuf,
     /// By `dark as usize`.
     pub frame: [Arc<RenderImage>; 2],
+    pub frame_px: [Arc<RgbaImage>; 2],
     pub card: [Arc<RgbaImage>; 2],
+    /// The picture itself (a GIF's first frame), for the stream card's small corner pieces.
+    pub pic: Arc<RgbaImage>,
     /// The tint over the frame: the picture's mean colour, held to the theme frame's luminance so
     /// text on the frame keeps the contrast it has over the painting.
     pub tint: [Rgb; 2],
@@ -138,18 +152,24 @@ pub(crate) fn warm_user(path: &std::path::Path) -> Result<(), String> {
     }
     let src = image::open(path).map_err(|e| format!("can't read {}: {e}", path.display()))?.to_rgba8();
     let mut frame = Vec::new();
+    let mut frame_px = Vec::new();
     let mut card = Vec::new();
     let mut tint = Vec::new();
     for dark in [false, true] {
         let f = bake_rgba(&src, FRAME, dark);
         tint.push(mean_tint(&f, dark));
-        frame.push(Arc::new(to_render(f)));
+        frame.push(Arc::new(to_render(f.clone())));
+        frame_px.push(Arc::new(f));
         card.push(Arc::new(bake_rgba(&src, CARD, dark)));
     }
+    // Small enough to crop corners from quickly; the card shows the real file.
+    let pic = if src.width() > 1600 { imageops::resize(&src, 1600, (1600.0 * src.height() as f32 / src.width() as f32).round().max(1.0) as u32, imageops::FilterType::Triangle) } else { src };
     let layers = UserLayers {
         path: path.to_path_buf(),
         frame: [frame[0].clone(), frame[1].clone()],
+        frame_px: [frame_px[0].clone(), frame_px[1].clone()],
         card: [card[0].clone(), card[1].clone()],
+        pic: Arc::new(pic),
         tint: [tint[0], tint[1]],
     };
     if let Ok(mut u) = USER.lock() {
@@ -326,6 +346,25 @@ impl GlassCache {
         }
         self.slots.push((id, key, img.clone()));
         Some(img)
+    }
+}
+
+impl GlassCache {
+    /// A crop of any layer `src` for piece `id` at `r`, where `src` covers a `win`-sized area
+    /// (object-fit cover). Rebuilt when the rect, the area, the theme or the layers change.
+    pub(crate) fn piece(&mut self, id: &'static str, src: &RgbaImage, dark: bool, win: (f32, f32), r: Rect, stale: &mut Vec<Arc<RenderImage>>) -> Arc<RenderImage> {
+        let mut key = (dark, [r.x, r.y, r.w, r.h, win.0, win.1, 0.0].map(|v| v.round() as i32));
+        key.1[6] = generation() as i32;
+        if let Some(s) = self.slots.iter().find(|s| s.0 == id && s.1 == key) {
+            return s.2.clone();
+        }
+        let img = Arc::new(to_render(crop(src, win, r)));
+        if let Some(k) = self.slots.iter().position(|s| s.0 == id) {
+            let (_, _, old) = self.slots.swap_remove(k);
+            stale.push(old);
+        }
+        self.slots.push((id, key, img.clone()));
+        img
     }
 }
 

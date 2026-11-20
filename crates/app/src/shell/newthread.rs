@@ -527,17 +527,37 @@ impl Cauldron {
             .aria_label(heading_text)
             .child(heading_text)
             .test_support();
+        let tray_open = self.start.route_menu == Some(super::subs::PickFor::New);
         let nt_stack = div().id("nt-stack").flex().flex_col().relative().p(px(3.)).border_1().border_color(if focused { body_line(pal, true) } else if self.plan { c(pal.accent) } else { gpui::transparent_black() }).bg(super::backdrop::surface(self.painting, pal.raised, super::backdrop::GLASS_COMPOSER)).rounded(px(radius::SHELL)).child(div().absolute().left_0().top_0().size_full().rounded(px(radius::SHELL)).bg(gpui::black().opacity(0.18))).on_hover(cx.listener(|this, h: &bool, _, cx| {
             if this.start.tray_hover != *h {
                 this.start.tray_hover = *h;
                 cx.notify();
             }
-        })).child(nt_box).child(bar).test_support();
+        }))
+        // A click anywhere outside the box folds the tray (the chip is inside, so it toggles it).
+        .when_live(tray_open, |d| {
+            d.on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                this.start.route_menu = None;
+                cx.notify();
+            }))
+        })
+        .child(nt_box)
+        .child(bar)
+        .when_live(tray_open, |d| d.child(self.route_tray(pal, cx)))
+        .test_support();
+        // The tray unfolds downward: the stack gives back its growth as a negative margin, so the
+        // centred box above stays exactly where it was, and the lines under it hide meanwhile.
+        let nt_stack = if tray_open {
+            nt_stack.with_animation("nt-stack-drop", super::motion::anim(220.), |d, t| d.mb(px(-super::subs::TRAY_OPEN_H * t))).into_any_element()
+        } else {
+            nt_stack.into_any_element()
+        };
         let mut wrap = div().w_full().max_w(px(BOX_W)).flex().flex_col().child(heading).child(nt_stack);
+        let mut under = div().flex().flex_col().when(tray_open, |d| d.invisible());
         if let Some(e) = &self.start.error {
-            wrap = wrap.child(line("start-error", e.clone(), c(pal.bad)));
+            under = under.child(line("start-error", e.clone(), c(pal.bad)));
         } else if let Some(n) = &self.start.note {
-            wrap = wrap.child(line("start-note", n.clone(), c(pal.ok)));
+            under = under.child(line("start-note", n.clone(), c(pal.ok)));
         } else if self.start.familiar {
             // S1: say plainly what a familiar does on this machine before it does it.
             // The probe runs once per process and is cached.
@@ -549,15 +569,16 @@ impl Cauldron {
             } else {
                 "No sandbox runs on this machine: a familiar's agents and the plan's test commands would run in this folder unconfined. It never merges.".to_string()
             };
-            wrap = wrap.child(line("start-familiar-warn", warn, c(pal.warn)));
+            under = under.child(line("start-familiar-warn", warn, c(pal.warn)));
         } else if let Some(why) = blocked.filter(|w| w != "Sending") {
             let bad = why.starts_with("Can't");
-            wrap = wrap.child(line("start-why", why, if bad { c(pal.bad) } else { fg3 }));
+            under = under.child(line("start-why", why, if bad { c(pal.bad) } else { fg3 }));
         }
         // The board's usage badges under the box; nothing while core has no usage.
         if let Some(b) = self.usage_badges(pal) {
-            wrap = wrap.child(b.px(px(2.)));
+            under = under.child(b.px(px(2.)));
         }
+        wrap = wrap.child(under);
 
         let screen = div()
             .id("new-thread-screen")
@@ -1269,5 +1290,65 @@ mod tests {
             assert!(window.find("start-why").label().unwrap().starts_with("Can't reach Attic"), "{:?}", window.find("start-why").label());
         })
         .unwrap();
+    }
+
+    /// Model tray A (Charles, 20 Nov): the model chip unfolds the tray under the box with who
+    /// answers, the model and the effort side by side. Picking who answers keeps it open, picking a
+    /// model folds it, and the box above never moves.
+    #[gpui_kit::test]
+    fn the_model_chip_unfolds_the_whole_picker_under_the_box(cx: &mut TestAppContext) {
+        use backspace_core::accounts::{CliStatus, LoginStatus};
+        use backspace_core::harnesses::Auth;
+        let _prefs = super::super::thread::tests::prefs_guard();
+        let (handle, _chats) = open(cx);
+        let cli = |provider: &str, name: &str, auth: Auth| CliStatus {
+            provider: provider.into(),
+            name: name.into(),
+            installed: true,
+            version: None,
+            install: String::new(),
+            logins: vec![LoginStatus { id: None, name: "This machine".into(), signed_in: auth, detail: None }],
+            active: 0,
+        };
+        handle
+            .update(cx, |c, _, _| {
+                c.start.providers = vec![cli("claude", "Claude Code", Auth::Authenticated), cli("codex", "Codex", Auth::Authenticated)];
+                c.start.providers_loading = true;
+                c.start.route = Some(Route { kind: RouteKind::Cli, provider: "claude".into(), model: None });
+            })
+            .unwrap();
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            assert!(window.try_find("route-tray").is_none(), "folded until the chip is clicked");
+            let before = rect(window, "nt-box");
+            window.click("nt-model", cx);
+            window.render_frame(cx);
+            let tray = rect(window, "route-tray");
+            let bar = rect(window, "nt-bar");
+            assert_eq!(rect(window, "nt-box"), before, "the box never moves");
+            assert_eq!(window.find("nt-model").expanded(), Some(true));
+            assert!((tray.1 - (bar.1 + bar.3)).abs() <= 1.0 && (tray.3 - super::super::subs::TRAY_OPEN_H).abs() <= 1.0, "unfolds under the chips: {tray:?}");
+            let (who, model) = (rect(window, "tray-who"), rect(window, "tray-model"));
+            assert!(who.0 + who.2 <= model.0 && (who.1 - model.1).abs() <= 1.0, "who answers left of the model");
+            for id in ["tray-effort", "route-manage"] {
+                assert!(window.try_find(id).is_some(), "{id}");
+            }
+            assert_eq!(window.find(("tray-effort-opt", 0usize)).label(), Some("Auto"));
+            assert_eq!(window.find(("route-cli", 0usize)).selected(), Some(true), "the current CLI is selected");
+            window.click(("route-cli", 1usize), cx);
+            window.render_frame(cx);
+            assert!(window.try_find("route-tray").is_some(), "picking who answers keeps the tray open for its model");
+            assert_eq!(window.find(("route-cli", 1usize)).selected(), Some(true));
+            window.click(("route-model", 0usize), cx);
+            window.render_frame(cx);
+            assert!(window.try_find("route-tray").is_none(), "picking a model folds the tray");
+            window.click("nt-model", cx);
+            window.render_frame(cx);
+            window.click("nt-model", cx);
+            window.render_frame(cx);
+            assert!(window.try_find("route-tray").is_none(), "the chip folds it again");
+        })
+        .unwrap();
+        assert_eq!(handle.update(cx, |c, _, _| c.start.route.as_ref().map(|r| r.provider.clone())).unwrap().as_deref(), Some("codex"));
     }
 }

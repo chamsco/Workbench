@@ -476,7 +476,6 @@ mod tests {
     use super::{parse_diff, parse_log, parse_numstat, parse_status, read_changes, read_files, read_git, Data, DiffKind, FileStat, Load};
     use super::super::Panel;
     use std::path::PathBuf;
-    use std::process::Command;
 
     #[test]
     fn numstat_reads_counts_and_binaries() {

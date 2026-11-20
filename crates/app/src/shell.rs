@@ -32,6 +32,7 @@ mod settings;
 mod subs;
 mod support;
 mod terminal;
+mod tabshape;
 mod thread;
 mod update;
 #[cfg(all(feature = "shots", target_os = "macos"))]
@@ -1634,6 +1635,8 @@ impl Render for Cauldron {
         // within an equal share of the room (TAB_MIN to TAB_MAX); when TAB_MIN no longer fits, arrows appear beside +
         // and the row shows a window of 72px tabs. No figures (Charles, 13 Nov).
         let mut tab_row = None;
+        // How far the stream card's tab reaches from the card's left edge (tabshape.rs).
+        let mut bump_w: Option<f32> = None;
         // A familiar's tabs are its own folder tabs on its stream card (familiar.rs).
         let fam = self.familiar.is_some().then(|| self.familiar_strips(s.main, s.support.is_none() && self.rail_on(false), pal, now, reduce, window, cx));
         if let Some(anchor_label) = self.coordinator.clone().filter(|_| self.familiar.is_none()) {
@@ -1701,7 +1704,7 @@ impl Render for Cauldron {
                     .items_center()
                     .gap(px(CLOSE_GAP))
                     .h(px(metric::TAB_H))
-                    .rounded(px(radius::CONTROL))
+                    .rounded(px(tabshape::PILL_R))
                     .when_live(on, |d| d.bg(c(pal.selected)).border_1().border_color(c(pal.line)))
                     .when_live(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
                     .occlude()
@@ -1729,8 +1732,15 @@ impl Render for Cauldron {
                 }));
             row = row.child(anchor.test_support());
 
+            // Each tab is sized to its name here, not by flex, so the card's tab can hug the row.
+            let fig_w = avatar::size(TAB_FIG).0;
+            let mut row_w = anchor_w;
             for (j, agent) in self.agents.iter().enumerate().skip(first).take(k) {
                 let i = j + 1;
+                let name_w = {
+                    let run = TextRun { len: agent.name.len(), font: Font { weight: FontWeight::MEDIUM, features: sans_features(), ..font(SANS) }, color: fg, background_color: None, underline: None, strikethrough: None };
+                    f32::from(window.text_system().shape_line(agent.name.clone(), px(12.5), &[run], None).width)
+                };
                 let on = i == self.active;
                 let group: SharedString = format!("tab{i}").into();
                 let close = div()
@@ -1781,7 +1791,10 @@ impl Render for Cauldron {
                 let share = tab_w.unwrap_or(TAB_MAX);
                 // The open tab also holds its close button, so it gets that much more than the others.
                 let share = if on && !scrolls { share + CLOSE_W } else { share };
-                tab = if scrolls { tab.flex_none().w(px(TAB_MIN)) } else { tab.flex_none().min_w(px(TAB_MIN)).max_w(px(share)) };
+                let want = (TAB_PAD + fig_w + CLOSE_GAP + name_w + TAB_PAD + if on { CLOSE_W } else { 0.0 }).ceil();
+                let tw = if scrolls { TAB_MIN } else { want.clamp(TAB_MIN, share.max(TAB_MIN)) };
+                row_w += TAB_GAP + tw;
+                tab = tab.flex_none().w(px(tw));
                 // The full name as a tip once the tab may be narrower than the widest it gets.
                 let tab = if share < TAB_MAX { self.tipped(("tab", i), tab, agent.name.clone(), Side::Below, pal, cx) } else { tab };
                 row = row.child(tab.test_support());
@@ -1837,6 +1850,9 @@ impl Render for Cauldron {
             }
             let add = if self.tab_menu { add } else { self.tipped("tab-add", add, ADD_LABEL, Side::Below, pal, cx) };
             tab_row = Some(row.child(add.test_support()));
+            // Scrolling tabs fill the row (the arrows sit at its right end).
+            let row_w = if scrolls { s.tabs.w } else { row_w + TAB_GAP + ADD_W };
+            bump_w = Some(s.tabs.x - s.main.x + row_w + tabshape::S);
         }
 
         // ---- the stream card (the board's `.card`): its 38px header holds the tabs, its body the
@@ -1861,12 +1877,24 @@ impl Render for Cauldron {
             // Under a familiar's folder tabs the header is the frame they sit on.
             .when_live(self.familiar.is_some(), |d| d.bg(familiar::fam_layers(self.painting, pal).1))
             .window_control_area(WindowControlArea::Drag);
+        // The title is the card's one tab when there are no stream tabs: a pill in the card's tab,
+        // drawn on the window over the tab's corner pieces, as the tab row is.
+        let mut title_el = None;
         if tab_row.is_none() && self.familiar.is_none() {
+            let measure = |t: &str, weight: FontWeight, window: &Window| {
+                let run = TextRun { len: t.len(), font: Font { weight, features: sans_features(), ..font(SANS) }, color: fg, background_color: None, underline: None, strikethrough: None };
+                f32::from(window.text_system().shape_line(SharedString::from(t.to_string()), px(12.5), &[run], None).width)
+            };
+            let mut text_w = measure(&head_title, FontWeight::MEDIUM, window);
+            let mut pill = div().flex().items_center().gap(px(4.)).px(px(TAB_PAD)).rounded(px(tabshape::PILL_R)).bg(c(pal.selected)).border_1().border_color(c(pal.line)).text_size(px(12.5)).text_color(fg3);
             if let Some(p) = self.thread.as_ref().filter(|_| self.settings.is_none()).and_then(|t| t.project.as_ref()) {
                 let folder = p.rsplit(['/', '\\']).find(|s| !s.is_empty()).unwrap_or(p).to_string();
-                head = head.child(div().id("card-crumb").flex_none().aria_label(folder.clone()).child(format!("{folder} /")).test_support());
+                text_w += measure(&format!("{folder} /"), FontWeight::NORMAL, window) + 4.0;
+                pill = pill.child(div().id("card-crumb").flex_none().aria_label(folder.clone()).child(format!("{folder} /")).test_support());
             }
-            head = head.child(
+            let pill_w = (TAB_PAD + text_w + TAB_PAD + 2.0).ceil().min(s.tabs.w);
+            bump_w = Some(s.tabs.x - s.main.x + pill_w + tabshape::S);
+            pill = pill.child(
                 div()
                     .id(if self.thread.is_some() { "thread-title" } else { "card-title" })
                     .min_w_0()
@@ -1877,6 +1905,7 @@ impl Render for Cauldron {
                     .child(head_title)
                     .test_support(),
             );
+            title_el = Some(abs(Rect::new(s.tabs.x, s.tabs.y, pill_w, metric::TAB_H)).child(pill.size_full()));
         }
         let new_screen = self.open.is_none() && self.active == 0 && self.settings.is_none() && self.familiar.is_none();
         let rail_here = s.support.is_none() && self.rail_on(false);
@@ -1909,7 +1938,9 @@ impl Render for Cauldron {
                 }
             }))
             .child({
+                let cut = s.notch.is_none() && bump_w.and_then(|b| tabshape::pieces(s.main, b)).is_some();
                 let under = self.glass_under("main", s.main, (w, h), dark, pal, moving, window);
+
                 let glass = under.is_some();
                 div()
                     .id("card")
@@ -1919,8 +1950,25 @@ impl Render for Cauldron {
                     .flex_col()
                     .overflow_hidden()
                     .rounded(px(radius::PANEL))
+                    .when_live(cut, |d| d.rounded_tl(px(tabshape::TAB_R)))
                     .when_live(!glass, |d| d.bg(backdrop::surface(self.painting, pal.panel, backdrop::GLASS_CARD)))
                     .children(under.unwrap_or_default())
+                    // The content well, one stroke inside the card under its tab (tabshape.rs).
+                    .when_live(cut, |d| {
+                        d.child(
+                            div()
+                                .id("card-well")
+                                .absolute()
+                                .left(px(tabshape::S - 1.0))
+                                .right(px(tabshape::S - 1.0))
+                                .top(px(tabshape::BUMP_H + tabshape::S - 1.0))
+                                .bottom(px(tabshape::S - 1.0))
+                                .rounded_t(px(tabshape::WELL_R))
+                                .rounded_b(px(2.))
+                                .bg(if dark { gpui::black().opacity(0.30) } else { gpui::white().opacity(0.45) })
+                                .test_support(),
+                        )
+                    })
                     .border_1()
                     .border_color(c(if glass { pal.line_strong } else { pal.line }))
                     .text_color(fg3)
@@ -1957,6 +2005,15 @@ impl Render for Cauldron {
             );
         }
         root = root.child(card_el.test_support());
+        // The card's tab: the frame comes down right of it (tabshape.rs). Not with a familiar (its
+        // own folder tabs) or the notch (it already cuts the card's top-right).
+        if let (Some(b), None, None) = (bump_w, self.familiar, s.notch) {
+            let pieces = self.tab_cut(s.main, b, (w, h), dark, pal, window);
+            root = root.children(pieces);
+        }
+        if let Some(t) = title_el {
+            root = root.child(t);
+        }
         if let Some(row) = tab_row {
             root = root.child(row.test_support());
         }
@@ -2579,7 +2636,6 @@ impl Render for Cauldron {
 mod tests {
     // Explicit imports: a glob of gpui_kit brings GPUI's `test` macro, which shadows Rust's.
     use super::{platform, AgentTab, Cauldron, Panel, Threads};
-    use cauldron_chrome::layout::metric;
     use crate::threads::sample;
 
     use cauldron_chrome::layout::{self, Rect, ShellState};
@@ -2841,7 +2897,7 @@ mod tests {
             let head = rect(window, "card-head");
             assert_eq!((head.x, head.y, head.w, head.h), (card.x + 1.0, card.y + 1.0, card.w - 2.0, 38.0), "head");
             assert_eq!(window.find("card-title").label(), Some("New stream"));
-            assert_eq!(rect(window, "card-title").x, s.tabs.x + 10.0, "the title where a tab's label would start");
+            assert_eq!(rect(window, "card-title").x, s.tabs.x + 1.0 + 10.0, "the title where a tab's label would start, inside its pill's border");
         })
         .unwrap();
     }

@@ -17,6 +17,13 @@
   on the Familiars heading), Add a subscription; none for Automations and Library.
 - **A stream picture themes the frame.** The frame and cards bake their frost from the picture
   (a GIF's first frame) and tint with its mean colour held to the theme's luminance.
+- **Tabs A: the card grows a tab** (`shell/tabshape.rs`), radii from Charles's picture as multiples
+  of the 6px stroke: tab top 17, concave foot 9, active pill 8, content well 24. GPUI rounds
+  rectangles only, so the cut is three crops of the frame/card layers drawn on the root after the
+  card. No tab when a familiar or the notch is showing.
+- **Model tray A**: on New stream the model chip unfolds the tray under the box (220ms) into
+  who answers | model, effort, manage. The box stays put (the stack's negative bottom margin
+  matches the tray). An open stream still uses the popover menu.
 
 **Session, 17 Nov 2026: Cauldron M6, the execution engine (sandbox and herdr).**
 
