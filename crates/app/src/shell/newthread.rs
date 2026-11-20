@@ -503,7 +503,7 @@ impl Cauldron {
             .relative()
             .bg(super::backdrop::surface(self.painting, pal.raised, super::backdrop::GLASS_COMPOSER))
             .border_t_1()
-            .border_color(c(pal.line))
+            .border_color(if focused { body_line(pal, true) } else if self.plan { c(pal.accent) } else { c(pal.line_control) })
             .rounded_b(px(radius::SHELL - 1.))
             .child(div().absolute().left_0().top_0().size_full().rounded_b(px(radius::SHELL - 1.)).bg(gpui::black().opacity(0.10)))
             .child(folder)
@@ -529,7 +529,7 @@ impl Cauldron {
             .aria_label("What should Cauldron work on?")
             .child("What should Cauldron work on?")
             .test_support();
-        let nt_stack = div().id("nt-stack").flex().flex_col().rounded(px(radius::SHELL)).border_1().border_color(if focused { body_line(pal, true) } else if self.plan { c(pal.accent) } else { c(pal.line) }).on_hover(cx.listener(|this, h: &bool, _, cx| {
+        let nt_stack = div().id("nt-stack").flex().flex_col().rounded(px(radius::SHELL)).border_1().border_color(if focused { body_line(pal, true) } else if self.plan { c(pal.accent) } else { c(pal.line_control) }).on_hover(cx.listener(|this, h: &bool, _, cx| {
             if this.start.tray_hover != *h {
                 this.start.tray_hover = *h;
                 cx.notify();
