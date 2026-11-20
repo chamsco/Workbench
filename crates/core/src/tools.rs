@@ -261,7 +261,7 @@ impl Workspace {
             }
             None => (argv, None),
         };
-        let mut command = tokio::process::Command::new(&argv[0]);
+        let mut command = backspace_runner::tokio_cmd(&argv[0]);
         command
             .args(&argv[1..])
             .current_dir(&self.root)

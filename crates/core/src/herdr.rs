@@ -165,7 +165,7 @@ pub fn select(c: &HerdrConfig) -> (Box<dyn Supervisor>, Option<String>) {
     // another thread forks: try again rather than call it missing.
     let mut tries = 0;
     let out = loop {
-        match std::process::Command::new(&c.bin).arg("--version").stdin(std::process::Stdio::null()).output() {
+        match backspace_runner::cmd(&c.bin).arg("--version").stdin(std::process::Stdio::null()).output() {
             Ok(o) => break o,
             Err(e) if e.raw_os_error() == Some(26) && tries < 20 => {
                 tries += 1;

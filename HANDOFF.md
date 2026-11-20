@@ -1,5 +1,23 @@
 # Handoff: Backspace (ohMyHarness → Workbench), v0
 
+**Session, 20 Nov 2026: Windows fixes from Charles's v0.2.0 test.**
+
+- **No more terminal windows.** Every child process the app starts (git, the coding CLIs, shells,
+  docker, ssh, the colony and the sandbox's low-integrity launcher) is created with
+  `CREATE_NO_WINDOW` on Windows. Use `backspace_runner::cmd` / `tokio_cmd`, never
+  `Command::new`, for anything new.
+- **Top-strip buttons work on Windows.** The strip is a drag area and was drawn after the buttons
+  on it, so Windows' hit test made every click a window drag. It is now drawn first.
+- **Version button = update check.** It asks the rolling release (`windows-latest` on Windows,
+  `mac-latest` elsewhere). On Windows "Update and restart" downloads Cauldron.exe, renames the
+  running exe to `Cauldron.old.exe`, moves the new one in, starts it and quits; the old file is
+  deleted on the next start. Elsewhere it opens the release page.
+- **Your name opens Settings; "N needs you" opens the first stream waiting on you.**
+- **The sidebar's New button follows the app**: New stream, Open a folder, New familiar (also a +
+  on the Familiars heading), Add a subscription; none for Automations and Library.
+- **A stream picture themes the frame.** The frame and cards bake their frost from the picture
+  (a GIF's first frame) and tint with its mean colour held to the theme's luminance.
+
 **Session, 17 Nov 2026: Cauldron M6, the execution engine (sandbox and herdr).**
 
 - **Agents' commands run in a sandbox.** That covers bash, checks, Rampart's vetting

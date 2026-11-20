@@ -17,8 +17,9 @@ use serde::Serialize;
 use serde_json::Value;
 
 pub const REPO: &str = "chamsco/Workbench";
-/// The rolling pre-release the macOS workflow replaces on every push to main.
-pub const ROLLING_TAG: &str = "mac-latest";
+/// The rolling pre-release this platform's workflow replaces on every push to main:
+/// `windows-latest` (Cauldron.exe) on Windows, `mac-latest` elsewhere.
+pub const ROLLING_TAG: &str = if cfg!(windows) { "windows-latest" } else { "mac-latest" };
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 // The commit this binary was built from, or "" for a build made by hand. CI
 // writes it before building, into the source the compiler reads: see
@@ -51,8 +52,9 @@ pub struct UpdateInfo {
     pub url: String,
     /// The commit this build came from, short; "" when built by hand.
     pub build: String,
-    /// Can this build download the update and swap itself? macOS only: the
-    /// release carries a `.app`, and nothing else knows how to install one.
+    /// Can this build download the update and swap itself? Windows only: the
+    /// release carries one `Cauldron.exe`, which [`install_exe`] puts in place
+    /// of the running one. Elsewhere the app opens the release page.
     pub installs: bool,
     /// What changed between this build and the newest one, newest first, at
     /// most `CHANGES_SHOWN` of them. Empty when nothing is newer, or when
@@ -244,6 +246,93 @@ pub async fn app_zip(http: &reqwest::Client) -> Result<(String, u64)> {
     Ok((url.to_string(), asset["size"].as_u64().unwrap_or(0)))
 }
 
+/// `check` from a thread that has no async runtime (the app's background executor).
+pub fn check_blocking() -> Result<UpdateInfo> {
+    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+    rt.block_on(async { check(&reqwest::Client::new()).await })
+}
+
+/// The Windows build in the rolling release: where `Cauldron.exe` is and how big it is.
+pub async fn exe_asset(http: &reqwest::Client) -> Result<(String, u64)> {
+    let v: Value = http
+        .get(format!("https://api.github.com/repos/{REPO}/releases/tags/{ROLLING_TAG}"))
+        .header("user-agent", "backspace")
+        .header("accept", "application/vnd.github+json")
+        .timeout(std::time::Duration::from_secs(15))
+        .send()
+        .await
+        .map_err(|e| anyhow::anyhow!("couldn't reach GitHub ({})", e.without_url()))?
+        .error_for_status()?
+        .json()
+        .await?;
+    exe_in(&v).ok_or_else(|| anyhow::anyhow!("that release has no Cauldron.exe to install"))
+}
+
+fn exe_in(release: &Value) -> Option<(String, u64)> {
+    let a = release["assets"].as_array()?.iter().find(|a| a["name"].as_str().is_some_and(|n| n.eq_ignore_ascii_case("Cauldron.exe")))?;
+    let url = a["browser_download_url"].as_str().filter(|u| !u.is_empty())?;
+    Some((url.to_string(), a["size"].as_u64().unwrap_or(0)))
+}
+
+/// Where the running exe is set aside while its replacement takes its name.
+pub fn old_exe(exe: &std::path::Path) -> std::path::PathBuf {
+    exe.with_extension("old.exe")
+}
+
+/// Downloads the newest `Cauldron.exe` and puts it where the running exe is. Windows lets a
+/// running exe be renamed but not overwritten, so the running one moves to `Cauldron.old.exe`
+/// (deleted by [`tidy_old_exe`] on the next start) and the download takes its name. Returns the
+/// path to start; the caller starts it and quits. Blocking: call it off the UI thread.
+pub fn install_exe() -> Result<std::path::PathBuf> {
+    let exe = std::env::current_exe()?;
+    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+    let bytes = rt.block_on(async {
+        let http = reqwest::Client::new();
+        let (url, size) = exe_asset(&http).await?;
+        let body = http
+            .get(&url)
+            .header("user-agent", "backspace")
+            .timeout(std::time::Duration::from_secs(600))
+            .send()
+            .await?
+            .error_for_status()?
+            .bytes()
+            .await?;
+        if size > 0 && body.len() as u64 != size {
+            anyhow::bail!("the download stopped early ({} of {} bytes)", body.len(), size);
+        }
+        anyhow::Ok(body)
+    })?;
+    swap_exe(&exe, &bytes)?;
+    Ok(exe)
+}
+
+/// Writes `bytes` beside `exe`, sets the running file aside and moves the new one in. On any
+/// failure the old exe is put back, so the app is never left without one.
+pub fn swap_exe(exe: &std::path::Path, bytes: &[u8]) -> Result<()> {
+    // An exe is a PE file: "MZ" first. Anything else (an HTML error page) must not replace it.
+    if bytes.len() < 2 || &bytes[..2] != b"MZ" {
+        anyhow::bail!("the download is not a Windows program");
+    }
+    let new = exe.with_extension("new.exe");
+    std::fs::write(&new, bytes)?;
+    let old = old_exe(exe);
+    let _ = std::fs::remove_file(&old);
+    std::fs::rename(exe, &old)?;
+    if let Err(e) = std::fs::rename(&new, exe) {
+        let _ = std::fs::rename(&old, exe);
+        return Err(e.into());
+    }
+    Ok(())
+}
+
+/// Deletes the exe an update set aside last time, once it is no longer running.
+pub fn tidy_old_exe() {
+    if let Ok(exe) = std::env::current_exe() {
+        let _ = std::fs::remove_file(old_exe(&exe));
+    }
+}
+
 /// Nothing to offer, because no rolling build is published at all.
 fn idle() -> UpdateInfo {
     UpdateInfo {
@@ -252,7 +341,7 @@ fn idle() -> UpdateInfo {
         newer: false,
         url: releases_url(),
         build: short(BUILD).to_string(),
-        installs: cfg!(target_os = "macos"),
+        installs: cfg!(windows),
         changes: Vec::new(),
         more: 0,
         changes_url: String::new(),
@@ -408,5 +497,34 @@ mod tests {
         if let Ok(said) = std::env::var("GITHUB_SHA") {
             assert_eq!(BUILD, said.trim().to_ascii_lowercase().as_str());
         }
+    }
+
+    /// The Windows install path picks the release's Cauldron.exe, never another asset.
+    #[test]
+    fn the_windows_asset_is_cauldron_exe() {
+        let v = json!({ "assets": [
+            { "name": "Cauldron-mac.app.zip", "browser_download_url": "https://x/mac", "size": 9 },
+            { "name": "Cauldron.exe", "browser_download_url": "https://x/exe", "size": 42 },
+        ]});
+        assert_eq!(super::exe_in(&v), Some(("https://x/exe".into(), 42)));
+        assert_eq!(super::exe_in(&json!({ "assets": [] })), None);
+    }
+
+    /// The swap sets the running exe aside and moves the download in; a download that is not a
+    /// program leaves the old exe exactly where it was.
+    #[test]
+    fn swapping_the_exe_keeps_the_old_one_aside_and_refuses_junk() {
+        let dir = std::env::temp_dir().join(format!("cauldron-swap-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let exe = dir.join("Cauldron.exe");
+        std::fs::write(&exe, b"MZold").unwrap();
+        assert!(super::swap_exe(&exe, b"<html>rate limited</html>").is_err());
+        assert_eq!(std::fs::read(&exe).unwrap(), b"MZold");
+        super::swap_exe(&exe, b"MZnew").unwrap();
+        assert_eq!(std::fs::read(&exe).unwrap(), b"MZnew");
+        assert_eq!(std::fs::read(super::old_exe(&exe)).unwrap(), b"MZold");
+        assert_eq!(super::old_exe(&exe), dir.join("Cauldron.old.exe"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

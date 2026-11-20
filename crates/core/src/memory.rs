@@ -341,7 +341,7 @@ fn entry_line(n: &Note) -> String {
 // ------------------------------------------------------------ git
 
 fn git(root: &Path, args: &[&str]) -> bool {
-    std::process::Command::new("git")
+    backspace_runner::cmd("git")
         .arg("-C")
         .arg(root)
         .args(["-c", "user.name=Backspace", "-c", "user.email=memory@backspace.local", "-c", "commit.gpgsign=false"])
@@ -916,7 +916,7 @@ impl Memory {
 
     /// The repo's current commit, if git is there.
     pub fn head(&self) -> Option<String> {
-        let o = std::process::Command::new("git")
+        let o = backspace_runner::cmd("git")
             .arg("-C")
             .arg(&self.root)
             .args(["rev-parse", "HEAD"])
@@ -1091,7 +1091,7 @@ mod tests {
         let n = m.capture("Remember that I like green tea", None, None).unwrap();
         m.forget(&n.id).unwrap();
         let commits = || {
-            let o = std::process::Command::new("git").arg("-C").arg(m.root()).args(["rev-list", "--count", "HEAD"]).output().unwrap();
+            let o = backspace_runner::cmd("git").arg("-C").arg(m.root()).args(["rev-list", "--count", "HEAD"]).output().unwrap();
             String::from_utf8_lossy(&o.stdout).trim().parse::<u32>().unwrap()
         };
         let before = commits();
@@ -1174,7 +1174,7 @@ mod tests {
 
         // Every change is a commit.
         if root.join(".git").exists() {
-            let log = std::process::Command::new("git").arg("-C").arg(&root).args(["log", "--oneline"]).output().unwrap();
+            let log = backspace_runner::cmd("git").arg("-C").arg(&root).args(["log", "--oneline"]).output().unwrap();
             let log = String::from_utf8_lossy(&log.stdout).to_string();
             assert!(log.contains("Remember: Deploys go through fly.io"), "{log}");
             assert!(log.lines().count() >= 5, "{log}");

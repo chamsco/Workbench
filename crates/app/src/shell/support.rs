@@ -4,7 +4,6 @@
 //! the panels draw Loading, the content, an empty state or the error. The parsers are pure.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 /// A panel's content as it stands.
 #[derive(Clone, Debug, PartialEq)]
@@ -69,7 +68,7 @@ const COMMITS: usize = 8;
 const DIR_MAX: usize = 500;
 
 fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
-    let out = Command::new("git").arg("-C").arg(dir).args(args).output().map_err(|e| format!("git could not run: {e}"))?;
+    let out = backspace_runner::cmd("git").arg("-C").arg(dir).args(args).output().map_err(|e| format!("git could not run: {e}"))?;
     if out.status.success() {
         Ok(String::from_utf8_lossy(&out.stdout).into_owned())
     } else {
@@ -517,7 +516,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("cauldron-support-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("src")).unwrap();
-        let run = |args: &[&str]| assert!(Command::new("git").arg("-C").arg(&dir).args(args).output().unwrap().status.success(), "git {args:?}");
+        let run = |args: &[&str]| assert!(backspace_runner::cmd("git").arg("-C").arg(&dir).args(args).output().unwrap().status.success(), "git {args:?}");
         run(&["init", "-q"]);
         std::fs::write(dir.join("src/a.rs"), "one\ntwo\n").unwrap();
         run(&["add", "."]);

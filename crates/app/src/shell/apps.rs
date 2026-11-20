@@ -30,6 +30,7 @@ pub(crate) fn folders(list: &[ThreadInfo]) -> Vec<(String, usize)> {
 }
 
 pub(crate) const NO_FOLDER: &str = "No folder";
+pub(crate) const NEW_FAMILIAR: &str = "New familiar";
 
 impl Cauldron {
     /// The sidebar's list for app `section` other than Streams.
@@ -81,7 +82,7 @@ impl Cauldron {
             "Agents" => {
                 list = list.child(head("agents-head", "Familiars".into()));
                 if self.fam_views.is_empty() {
-                    return list.child(note("agents-empty", "No familiars yet", "Turn Familiar on in the New stream box to hand an agent a goal."));
+                    return list.child(note("agents-empty", "No familiars yet", "New familiar hands an agent a goal in a folder; it plans, builds, verifies and ships."));
                 }
                 for (i, f) in self.fam_views.iter().enumerate() {
                     let dot = match f.state {
@@ -117,6 +118,48 @@ impl Cauldron {
             "Automations" => list.child(note("automations-later", "Automations arrive in a later build", "Scheduled and repeating streams will be listed here.")),
             _ => list.child(note("library-later", "The Library arrives in a later build", "Notes and files your agents keep will be listed here.")),
         }
+    }
+
+    /// The sidebar's New button for app `section` (Charles, 20 Nov: "every section has a New
+    /// stream button when it should adapt"): (id, icon, label). None hides it where the app has
+    /// nothing to make yet, rather than drawing a button that does nothing.
+    pub(super) fn new_action(section: usize) -> Option<(&'static str, &'static str, &'static str)> {
+        match FUNCTIONS.get(section).map(|f| f.1) {
+            Some("Streams") | None => Some(("new-thread", "square-pen", NEW_TAB)),
+            Some("Folders") => Some(("new-folder", "folder-plus", "Open a folder")),
+            Some("Agents") => Some(("new-familiar", "sparkles", NEW_FAMILIAR)),
+            Some("Usage") => Some(("new-sub", "plus", "Add a subscription")),
+            _ => None,
+        }
+    }
+
+    /// What the section's New button does.
+    pub(super) fn do_new(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        match FUNCTIONS.get(self.section).map(|f| f.1) {
+            Some("Folders") => {
+                self.settings = None;
+                self.new_thread(window, cx);
+                self.pick_folder(window, cx);
+            }
+            Some("Agents") => self.new_familiar(window, cx),
+            Some("Usage") => {
+                self.settings = Some(0);
+                cx.notify();
+            }
+            _ => {
+                self.settings = None;
+                self.new_thread(window, cx);
+            }
+        }
+    }
+
+    /// The New stream screen with Familiar on: the goal goes to a familiar in a folder (the
+    /// Captains-style entry point Charles asked for; the box's Familiar chip was removed on 20 Nov).
+    pub(super) fn new_familiar(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.settings = None;
+        self.new_thread(window, cx);
+        self.start.familiar = true;
+        cx.notify();
     }
 
     /// Folders: back to Streams, searching for the folder (the search matches a stream's folder).

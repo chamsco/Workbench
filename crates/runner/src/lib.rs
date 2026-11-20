@@ -22,6 +22,33 @@ use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 
 pub mod a2a;
 
+/// Windows `CREATE_NO_WINDOW`: a console program started by the app (a GUI
+/// program with no console) gets no window of its own. Without it every git,
+/// CLI or shell call flashes a terminal window on screen.
+#[cfg(windows)]
+pub const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+/// `std::process::Command::new` that never opens a console window on Windows.
+pub fn cmd(program: impl AsRef<std::ffi::OsStr>) -> std::process::Command {
+    #[allow(unused_mut)]
+    let mut c = std::process::Command::new(program);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        c.creation_flags(CREATE_NO_WINDOW);
+    }
+    c
+}
+
+/// `tokio::process::Command::new` that never opens a console window on Windows.
+pub fn tokio_cmd(program: impl AsRef<std::ffi::OsStr>) -> tokio::process::Command {
+    #[allow(unused_mut)]
+    let mut c = tokio::process::Command::new(program);
+    #[cfg(windows)]
+    c.creation_flags(CREATE_NO_WINDOW);
+    c
+}
+
 /// Who answers.
 #[derive(Clone, Debug)]
 pub enum Target {
@@ -318,7 +345,7 @@ impl Drop for KillTree {
     fn drop(&mut self) {
         #[cfg(windows)]
         if let Some(pid) = self.0 {
-            let _ = std::process::Command::new("taskkill")
+            let _ = cmd("taskkill")
                 .args(["/T", "/F", "/PID", &pid.to_string()])
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
@@ -365,11 +392,11 @@ fn build_cli(req: &Request, provider: &str, bin: &PathBuf) -> Result<(tokio::pro
     // In Backspace's sandbox (M6) the sandbox's command comes first and runs the CLI.
     let mut cmd = match req.wrap.split_first() {
         Some((first, rest)) => {
-            let mut c = tokio::process::Command::new(first);
+            let mut c = tokio_cmd(first);
             c.args(rest).arg(bin);
             c
         }
-        None => tokio::process::Command::new(bin),
+        None => tokio_cmd(bin),
     };
     cmd.current_dir(&req.cwd)
         .env("NO_COLOR", "1")

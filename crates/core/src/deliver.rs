@@ -21,7 +21,6 @@
 //! worktree, not sandboxed until M6.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use anyhow::{anyhow, bail, Context, Result};
 use serde::{Deserialize, Serialize};
@@ -134,7 +133,7 @@ pub struct DeliveryRecord {
 }
 
 fn git(dir: &Path, args: &[&str]) -> Result<String> {
-    let out = Command::new("git")
+    let out = backspace_runner::cmd("git")
         .args(["-c", "user.name=Cauldron", "-c", "user.email=cauldron@localhost"])
         .args(args)
         .current_dir(dir)
@@ -200,7 +199,7 @@ fn shell(jail: &crate::sandbox::Jail, dir: &Path, cmd: &str) -> (Option<i32>, u6
         Ok(w) => w,
         Err(e) => return (None, 0, format!("not run in the sandbox: {e:#}")),
     };
-    let mut c = Command::new(&wrapped.argv[0]);
+    let mut c = backspace_runner::cmd(&wrapped.argv[0]);
     c.args(&wrapped.argv[1..]);
     if let Some(env) = wrapped.env {
         c.env_clear().envs(env);
@@ -428,7 +427,7 @@ pub fn ship(root: &Path, opts: &ShipOpts) -> Result<DeliveryRecord> {
 
     let gh = opts.gh.clone().unwrap_or_else(|| PathBuf::from("gh"));
     if opts.target == Target::PullRequest {
-        let ok = Command::new(&gh).arg("--version").stdin(std::process::Stdio::null()).output().map(|o| o.status.success()).unwrap_or(false);
+        let ok = backspace_runner::cmd(&gh).arg("--version").stdin(std::process::Stdio::null()).output().map(|o| o.status.success()).unwrap_or(false);
         if !ok {
             bail!("a pull request needs the GitHub CLI: `{}` is missing or failed (install gh and run `gh auth login`, or ship with --ship branch)", gh.display());
         }
@@ -448,7 +447,7 @@ pub fn ship(root: &Path, opts: &ShipOpts) -> Result<DeliveryRecord> {
                 let body = format!("{}\n\n_Opened by Cauldron after Verify passed on `{}`._\n", verify_markdown(&report, load_plan(root).as_ref()), short(&head));
                 let body_file = root.join(".backspace/pr-body.md");
                 std::fs::write(&body_file, body)?;
-                let out = Command::new(&gh)
+                let out = backspace_runner::cmd(&gh)
                     .args(["pr", "create", "--head", &pushed, "--base", &user_branch, "--title", &title, "--body-file"])
                     .arg(&body_file)
                     .current_dir(root)

@@ -90,6 +90,7 @@ impl Cauldron {
         self.thread = None;
         self.selected = None;
         self.familiar = None;
+        self.start.familiar = false;
         self.coordinator = None;
         self.agents.clear();
         self.idle.clear();
@@ -278,7 +279,7 @@ impl Cauldron {
     }
 
     /// Asks for a folder, remembers it in the recent list and starts the stream there.
-    fn pick_folder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn pick_folder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let paths = cx.prompt_for_paths(PathPromptOptions { files: false, directories: true, multiple: false, prompt: Some("Work in this folder".into()) });
         cx.spawn_in(window, async move |this: WeakEntity<Self>, cx: &mut AsyncWindowContext| {
             if let Ok(Ok(Some(ps))) = paths.await {
@@ -514,6 +515,7 @@ impl Cauldron {
         });
         // What the box says under it: why Start waits, a refusal, or a machine's answer.
         let line = |id: &'static str, text: String, col: Hsla| div().id(id).mt(px(10.)).px(px(6.)).text_size(px(12.)).line_height(px(17.)).text_color(col).aria_label(text.clone()).child(text).test_support();
+        let heading_text = if self.start.familiar { "What should a familiar take on?" } else { "What should Cauldron work on?" };
         let heading = div()
             .id("nt-heading")
             .pb(px(18.))
@@ -522,8 +524,8 @@ impl Cauldron {
             .text_size(px(17.))
             .font_weight(FontWeight::SEMIBOLD)
             .text_color(fg)
-            .aria_label("What should Cauldron work on?")
-            .child("What should Cauldron work on?")
+            .aria_label(heading_text)
+            .child(heading_text)
             .test_support();
         let nt_stack = div().id("nt-stack").flex().flex_col().relative().p(px(3.)).border_1().border_color(if focused { body_line(pal, true) } else if self.plan { c(pal.accent) } else { gpui::transparent_black() }).bg(super::backdrop::surface(self.painting, pal.raised, super::backdrop::GLASS_COMPOSER)).rounded(px(radius::SHELL)).child(div().absolute().left_0().top_0().size_full().rounded(px(radius::SHELL)).bg(gpui::black().opacity(0.18))).on_hover(cx.listener(|this, h: &bool, _, cx| {
             if this.start.tray_hover != *h {

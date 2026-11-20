@@ -14,6 +14,7 @@ anyhow.workspace = true
 async-channel.workspace = true
 base64 = "0.22"
 backspace-core = { path = "../core" }
+backspace-runner = { path = "../runner" }
 cauldron-chrome = { path = "../chrome" }
 # Pins the matching gpui-pre release, platform layer, components and icons.
 gpui-kit = "0.6.6"
@@ -22,7 +23,7 @@ serde_json.workspace = true
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 # The backdrop painting: decoded, blurred once and cached (src/shell/backdrop.rs). The versions
 # GPUI already builds.
-image = { version = "0.25", default-features = false, features = ["webp", "png"] }
+image = { version = "0.25", default-features = false, features = ["webp", "png", "jpeg", "gif"] }
 smallvec = "1"
 
 [features]

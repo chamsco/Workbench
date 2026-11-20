@@ -22,7 +22,7 @@
 use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
@@ -271,7 +271,7 @@ fn pull_line(id: &str, v: &Value) {
 pub fn start_ollama() -> Result<()> {
     let bin = which("ollama")
         .ok_or_else(|| anyhow!("Ollama is not installed: https://ollama.com/download"))?;
-    Command::new(bin)
+    backspace_runner::cmd(bin)
         .arg("serve")
         .stdin(Stdio::null())
         .stdout(Stdio::null())

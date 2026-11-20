@@ -263,7 +263,7 @@ pub fn drive(root: &Path, main: AgentStatus, tickets: &[TicketFacts], target: Ta
         Phase::Specify | Phase::Plan | Phase::Done => return Ok(None),
         Phase::Test => {
             if let Some(r) = deliver::last_verify(root) {
-                let head = std::process::Command::new("git")
+                let head = backspace_runner::cmd("git")
                     .args(["rev-parse", "HEAD"])
                     .current_dir(deliver::run_dir(root))
                     .output()

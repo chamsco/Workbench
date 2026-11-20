@@ -6,7 +6,6 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
-use tokio::process::Command;
 
 const IDENT: [&str; 4] = [
     "-c",
@@ -20,7 +19,7 @@ async fn git(dir: &Path, args: &[&str]) -> Result<String> {
 }
 
 async fn git_env(dir: &Path, args: &[&str], env: &[(&str, &Path)]) -> Result<String> {
-    let out = Command::new("git")
+    let out = backspace_runner::tokio_cmd("git")
         .args(IDENT)
         .args(args)
         .envs(env.iter().map(|(k, v)| (*k, *v)))
@@ -216,7 +215,7 @@ pub async fn merge(into: &Path, branch: &str, msg: &str) -> Result<Merge> {
 /// Commits a day over the last `days` days (oldest first) across every
 /// branch, and lines added and removed, for Home's activity widget.
 pub fn activity(dir: &Path, days: u32) -> Result<(Vec<u32>, u64, u64)> {
-    let out = std::process::Command::new("git")
+    let out = backspace_runner::cmd("git")
         .args(["log", "--all", &format!("--since={days}.days"), "--date=short", "--format=@%cd", "--numstat"])
         .current_dir(dir)
         .stdin(std::process::Stdio::null())
@@ -247,7 +246,7 @@ pub fn activity(dir: &Path, days: u32) -> Result<(Vec<u32>, u64, u64)> {
 /// The last `n` commits on every branch, newest first: (short hash,
 /// subject, author, when, branch names).
 pub fn log(dir: &Path, n: usize) -> Result<Vec<(String, String, String, String, String)>> {
-    let out = std::process::Command::new("git")
+    let out = backspace_runner::cmd("git")
         .args(["log", "--all", &format!("-n{n}"), "--date=relative", "--format=%h%x1f%s%x1f%an%x1f%ad%x1f%D"])
         .current_dir(dir)
         .stdin(std::process::Stdio::null())
@@ -275,7 +274,7 @@ pub struct Change {
 }
 
 fn git_out(dir: &Path, args: &[&str]) -> Result<String> {
-    let out = std::process::Command::new("git").args(args).current_dir(dir).stdin(std::process::Stdio::null()).output()?;
+    let out = backspace_runner::cmd("git").args(args).current_dir(dir).stdin(std::process::Stdio::null()).output()?;
     if !out.status.success() {
         bail!("{}", String::from_utf8_lossy(&out.stderr).trim());
     }

@@ -30,6 +30,11 @@ impl Cauldron {
         p.stream_bg = path.as_ref().map(|p| p.display().to_string());
         p.save();
         self.stream_bg = super::backdrop::stream_bg(&p);
+        // The frame follows the picture: bake its layers, or go back to the painting's.
+        match self.stream_bg.clone() {
+            Some(path) => Self::warm_picture(path, cx),
+            None => super::backdrop::clear_user(),
+        }
         cx.notify();
     }
 
@@ -313,7 +318,7 @@ impl Cauldron {
                 );
             }
             let help: String = match &self.stream_bg {
-                Some(p) => format!("Showing {} under a dark scrim. Only over the painting.", p.file_name().map_or_else(|| p.display().to_string(), |n| n.to_string_lossy().into_owned())),
+                Some(p) => format!("Showing {} under a scrim; the frame takes its colours. Only over the painting.", p.file_name().map_or_else(|| p.display().to_string(), |n| n.to_string_lossy().into_owned())),
                 None => "The painting under a light frost, or your own picture or GIF (png, jpg, webp, gif).".into(),
             };
             col = col.child(row(("appearance", 1), "Stream background".into(), help, seg.test_support().into_any_element()));
