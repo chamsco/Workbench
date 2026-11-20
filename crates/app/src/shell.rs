@@ -481,6 +481,7 @@ impl Cauldron {
                     c.open_thread(id);
                 }
                 c.watch(changes, cx);
+                c.pump(cx);
                 c.load_familiars(cx);
                 cx.notify();
             });

@@ -96,7 +96,7 @@ const CLIS: &[Spec] = &[
         id: "grok",
         name: "Grok",
         bins: &["grok"],
-        install: "npm i -g @vibe-kit/grok-cli",
+        install: "https://x.ai/cli",
         chat: true,
     },
     Spec {
@@ -104,6 +104,13 @@ const CLIS: &[Spec] = &[
         name: "OpenCode",
         bins: &["opencode"],
         install: "npm i -g opencode-ai",
+        chat: true,
+    },
+    Spec {
+        id: "gemini",
+        name: "Gemini",
+        bins: &["gemini"],
+        install: "npm i -g @google/gemini-cli",
         chat: true,
     },
     Spec {
@@ -161,7 +168,20 @@ pub fn search_path() -> &'static Vec<PathBuf> {
                 }
             }
         }
-        if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
+        // Windows: npm's global shims, and the folders the native installers use.
+        #[cfg(windows)]
+        {
+            if let Some(d) = std::env::var_os("APPDATA").map(PathBuf::from) {
+                add(d.join("npm"));
+            }
+            if let Some(d) = std::env::var_os("LOCALAPPDATA").map(PathBuf::from) {
+                for sub in ["Programs\\cursor\\resources\\app\\bin", "cursor-agent", "pnpm", "Volta\\bin", "Microsoft\\WinGet\\Links"] {
+                    add(d.join(sub));
+                }
+            }
+        }
+        let home_dir = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"));
+        if let Some(home) = home_dir.map(PathBuf::from) {
             for d in [
                 ".local/bin",
                 ".bun/bin",
@@ -224,9 +244,22 @@ pub fn run(bin: &Path, args: &[&str], timeout: Duration) -> Option<Out> {
 
 /// Run a CLI with the full search PATH, so one that spawns `node` finds it.
 fn run_cli(bin: &Path, args: &[&str]) -> Option<Out> {
+    run_cli_env(bin, args, &[])
+}
+
+/// [`run_cli`] with extra variables: an account's profile directory.
+fn run_cli_env(bin: &Path, args: &[&str], env: &[(String, String)]) -> Option<Out> {
     let mut cmd = Command::new(bin);
     cmd.env("PATH", path_env());
+    for (k, v) in env {
+        cmd.env(k, v);
+    }
     run_with(cmd, args, Duration::from_secs(8))
+}
+
+/// A variable from `env` (an account's profile), else from this process.
+fn env_var(env: &[(String, String)], key: &str) -> Option<PathBuf> {
+    env.iter().find(|(k, _)| k == key).map(|(_, v)| PathBuf::from(v)).or_else(|| std::env::var_os(key).map(PathBuf::from))
 }
 
 fn run_with(mut cmd: Command, args: &[&str], timeout: Duration) -> Option<Out> {
@@ -334,9 +367,8 @@ pub fn codex_plan_label(plan: &str) -> String {
     }
 }
 
-fn codex_auth(bin: &Path) -> (Auth, Option<String>) {
-    let file = std::env::var_os("CODEX_HOME")
-        .map(PathBuf::from)
+fn codex_auth(bin: &Path, env: &[(String, String)]) -> (Auth, Option<String>) {
+    let file = env_var(env, "CODEX_HOME")
         .or_else(|| home().map(|h| h.join(".codex")))
         .map(|d| d.join("auth.json"));
     let json: Option<Value> = file
@@ -358,7 +390,7 @@ fn codex_auth(bin: &Path) -> (Auth, Option<String>) {
             return (Auth::Authenticated, Some("API key".into()));
         }
     }
-    match run_cli(bin, &["login", "status"]) {
+    match run_cli_env(bin, &["login", "status"], env) {
         Some(o) if o.code == 0 => {
             let text = format!("{}{}", o.stdout, o.stderr);
             let detail = if text.contains("API key") {
@@ -373,16 +405,21 @@ fn codex_auth(bin: &Path) -> (Auth, Option<String>) {
     }
 }
 
-fn claude_auth(bin: &Path) -> (Auth, Option<String>) {
-    let Some(o) = run_cli(bin, &["auth", "status"]) else {
+fn claude_auth(bin: &Path, env: &[(String, String)]) -> (Auth, Option<String>) {
+    let Some(o) = run_cli_env(bin, &["auth", "status"], env) else {
         return (Auth::Unknown, None);
     };
     let v: Value = serde_json::from_str(o.stdout.trim()).unwrap_or(Value::Null);
     match v["loggedIn"].as_bool() {
         Some(true) => {
-            let detail = v["subscriptionType"]
+            let detail = v["email"]
                 .as_str()
-                .map(|s| format!("Claude {} Subscription", title(s)))
+                .filter(|e| !e.is_empty())
+                .map(|e| match v["subscriptionType"].as_str() {
+                    Some(s) => format!("{e} · Claude {}", title(s)),
+                    None => e.to_string(),
+                })
+                .or_else(|| v["subscriptionType"].as_str().map(|s| format!("Claude {} Subscription", title(s))))
                 .or_else(|| match v["authMethod"].as_str() {
                     Some("api_key") => Some("API key".into()),
                     _ => None,
@@ -397,8 +434,8 @@ fn claude_auth(bin: &Path) -> (Auth, Option<String>) {
     }
 }
 
-fn cursor_auth(bin: &Path) -> (Auth, Option<String>) {
-    match run_cli(bin, &["status"]) {
+fn cursor_auth(bin: &Path, env: &[(String, String)]) -> (Auth, Option<String>) {
+    match run_cli_env(bin, &["status"], env) {
         Some(o) => {
             let t = format!("{}{}", o.stdout, o.stderr).to_lowercase();
             if t.contains("not logged in") || t.contains("not authenticated") {
@@ -436,9 +473,8 @@ fn grok_auth() -> (Auth, Option<String>) {
     (Auth::Unauthenticated, None)
 }
 
-fn opencode_auth() -> (Auth, Option<String>) {
-    let file = std::env::var_os("XDG_DATA_HOME")
-        .map(PathBuf::from)
+fn opencode_auth(env: &[(String, String)]) -> (Auth, Option<String>) {
+    let file = env_var(env, "XDG_DATA_HOME")
         .or_else(|| home().map(|h| h.join(".local/share")))
         .map(|d| d.join("opencode/auth.json"));
     let v: Option<Value> = file
@@ -451,6 +487,39 @@ fn opencode_auth() -> (Auth, Option<String>) {
         }
         Some(_) => (Auth::Unauthenticated, None),
         None => (Auth::Unknown, None),
+    }
+}
+
+/// Gemini CLI keeps its sign-in in `~/.gemini` (or `$GEMINI_CLI_HOME/.gemini`):
+/// a Google login leaves `oauth_creds.json`; an API key comes from the environment.
+fn gemini_auth(env: &[(String, String)]) -> (Auth, Option<String>) {
+    if ["GEMINI_API_KEY", "GOOGLE_API_KEY"].iter().any(|k| std::env::var(k).is_ok_and(|v| !v.trim().is_empty())) {
+        return (Auth::Authenticated, Some("API key".into()));
+    }
+    let dir = env_var(env, "GEMINI_CLI_HOME").or_else(home).map(|h| h.join(".gemini"));
+    let Some(dir) = dir else { return (Auth::Unknown, None) };
+    if dir.join("oauth_creds.json").is_file() {
+        let who = std::fs::read_to_string(dir.join("google_accounts.json"))
+            .ok()
+            .and_then(|s| serde_json::from_str::<Value>(&s).ok())
+            .and_then(|v| v["active"].as_str().map(str::to_string));
+        return (Auth::Authenticated, Some(who.unwrap_or_else(|| "Google account".into())));
+    }
+    (Auth::Unauthenticated, None)
+}
+
+/// Whether a CLI is signed in, as the account whose profile `env` points at
+/// (empty: the machine's own login), and who as. Never starts a sign-in.
+pub fn auth_with(id: &str, env: &[(String, String)]) -> (Auth, Option<String>) {
+    let Some(bin) = which(bin_for(id)) else { return (Auth::Unknown, None) };
+    match id {
+        "codex" => codex_auth(&bin, env),
+        "claude" => claude_auth(&bin, env),
+        "cursor" => cursor_auth(&bin, env),
+        "grok" => grok_auth(),
+        "opencode" => opencode_auth(env),
+        "gemini" => gemini_auth(env),
+        _ => (Auth::Unknown, None),
     }
 }
 
@@ -470,6 +539,9 @@ pub fn login_args(id: &str) -> Option<&'static [&'static str]> {
         "claude" => Some(&["auth", "login"]),
         "cursor" => Some(&["login"]),
         "opencode" => Some(&["auth", "login"]),
+        "grok" => Some(&["login"]),
+        // Gemini CLI has no login command: its first interactive start asks how to sign in.
+        "gemini" => Some(&[]),
         _ => None,
     }
 }
@@ -478,9 +550,22 @@ pub fn login_args(id: &str) -> Option<&'static [&'static str]> {
 /// child: these flows are interactive (pick a method, paste a code) and the
 /// user should see what runs.
 pub fn open_login(id: &str) -> anyhow::Result<()> {
+    open_login_with(id, &[])
+}
+
+/// [`open_login`] for one account: the CLI signs in with `env` set (its
+/// profile directory), so the login lands in that account's folder and the
+/// machine's own login is left alone. The variables are exported in the
+/// terminal's command line too, since a macOS Terminal window does not
+/// inherit them.
+pub fn open_login_with(id: &str, env: &[(String, String)]) -> anyhow::Result<()> {
     let args = login_args(id).ok_or_else(|| anyhow::anyhow!("{id} has no sign-in command"))?;
     let bin = which(bin_for(id)).ok_or_else(|| anyhow::anyhow!("{id} is not installed"))?;
-    let line = format!("'{}' {}", bin.display(), args.join(" "));
+    for (_, v) in env {
+        let _ = std::fs::create_dir_all(v);
+    }
+    let exports: String = env.iter().map(|(k, v)| format!("export {k}='{}'; ", v.replace('\'', "'\\''"))).collect();
+    let line = format!("{exports}'{}' {}", bin.display(), args.join(" "));
     let mut cmd = if cfg!(windows) {
         // `start` opens a new console; /K keeps it so errors stay readable.
         // The bare name resolves through PATH below (cmd can't take Rust's quoting).
@@ -506,6 +591,9 @@ pub fn open_login(id: &str) -> anyhow::Result<()> {
         c.args(["sh", "-c", &format!("{line}; exec $SHELL")]);
         c
     };
+    for (k, v) in env {
+        cmd.env(k, v);
+    }
     cmd.env("PATH", path_env()).spawn()?;
     Ok(())
 }
@@ -543,11 +631,12 @@ fn probe_cli(spec: &Spec) -> HarnessInfo {
         }
     }
     let (auth, detail) = match spec.id {
-        "codex" => codex_auth(&bin),
-        "claude" => claude_auth(&bin),
-        "cursor" => cursor_auth(&bin),
+        "codex" => codex_auth(&bin, &[]),
+        "claude" => claude_auth(&bin, &[]),
+        "cursor" => cursor_auth(&bin, &[]),
         "grok" => grok_auth(),
-        "opencode" => opencode_auth(),
+        "opencode" => opencode_auth(&[]),
+        "gemini" => gemini_auth(&[]),
         _ => (Auth::Unknown, None),
     };
     h.auth = auth;

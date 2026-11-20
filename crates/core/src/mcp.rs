@@ -40,6 +40,11 @@ fn tile() -> Option<String> {
     std::env::var(crate::relay::ENV_TILE).ok().filter(|s| !s.is_empty())
 }
 
+/// The stream a CLI turn answers in, when it may delegate (relay.rs).
+fn stream() -> Option<String> {
+    std::env::var(crate::relay::ENV_STREAM).ok().filter(|s| !s.is_empty())
+}
+
 fn memory_search(scope: &str, query: &str) -> Result<String> {
     if query.trim().is_empty() {
         bail!("say what to look for");
@@ -190,6 +195,17 @@ pub fn serve() -> Result<()> {
                     tools.push(json!({"name": "message_tile", "description": "Hand another harness tile something to do or answer, by name. It becomes that harness's next turn (it waits if the harness is busy), and with `reply` (the default) its answer comes back to you as your next message, so end your turn after sending if you need the answer to go on.",
                         "inputSchema": {"type": "object", "properties": {"to": {"type": "string"}, "text": {"type": "string"}, "reply": {"type": "boolean", "description": "Send me its answer (default true)"}}, "required": ["to", "text"]}}));
                 }
+                if stream().is_some() {
+                    tools.push(json!({"name": "delegate", "description": "Hand a self-contained task to a sub-agent running on another coding CLI (Claude Code, Codex, Cursor, OpenCode, Grok or Gemini) in its own stream, in the same project. It sees ONLY `task`, not this conversation, so include the goal, the files, the constraints and what to report back. Its final answer comes back to you as your next message: after delegating, end your turn (or carry on with other work) instead of waiting. Use list_providers first to see who is installed and signed in.",
+                        "inputSchema": {"type": "object", "properties": {
+                            "provider": {"type": "string", "enum": crate::relay::DELEGATES},
+                            "task": {"type": "string", "description": "Everything the sub-agent needs"},
+                            "model": {"type": "string", "description": "Optional model id for that CLI; omit for its default"},
+                            "title": {"type": "string", "description": "A short name for its stream"}
+                        }, "required": ["provider", "task"]}}));
+                    tools.push(json!({"name": "list_providers", "description": "The coding CLIs installed on this machine that delegate can start, and whether each is signed in.",
+                        "inputSchema": {"type": "object", "properties": {}}}));
+                }
                 if memory_scope().is_some() {
                     tools.push(json!({"name": "memory_search", "description": "Search the user's memory (an Agent Memory Repo: notes and any topic files) for what this task needs: preferences, decisions, facts about people and projects, saved queries.",
                         "inputSchema": {"type": "object", "properties": {"query": {"type": "string", "description": "Words that must all appear"}}, "required": ["query"]}}));
@@ -257,6 +273,18 @@ pub fn serve() -> Result<()> {
                             a["to"].as_str().unwrap_or(""),
                             a["text"].as_str().unwrap_or(""),
                             a["reply"].as_bool().unwrap_or(true),
+                        ),
+                    },
+                    "list_providers" => Ok(crate::relay::providers()),
+                    "delegate" => match stream() {
+                        None => Err(anyhow!("delegation is not open to this session")),
+                        Some(me) => crate::relay::delegate(
+                            &crate::prefs::Prefs::data_dir(),
+                            &me,
+                            a["provider"].as_str().unwrap_or(""),
+                            a["model"].as_str(),
+                            a["title"].as_str(),
+                            a["task"].as_str().unwrap_or(""),
                         ),
                     },
                     "memory_search" | "memory_save" => match memory_scope() {

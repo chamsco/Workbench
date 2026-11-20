@@ -262,6 +262,22 @@ impl Cauldron {
         }));
     }
 
+    /// Every second, off the UI thread: start the sub-agents streams asked for (`delegate`)
+    /// and deliver letters between streams, then start whatever waits for a free stream.
+    pub(super) fn pump(&mut self, cx: &mut Context<Self>) {
+        let Some((_, chats)) = self.core.as_ref() else { return };
+        let chats = chats.clone();
+        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| loop {
+            cx.background_executor().timer(std::time::Duration::from_secs(1)).await;
+            if this.update(cx, |_, _| ()).is_err() {
+                break;
+            }
+            let c = chats.clone();
+            cx.background_executor().spawn(async move { c.pump(ctx(false)) }).await;
+        })
+        .detach();
+    }
+
     pub(super) fn busy(&self) -> bool {
         match (&self.core, &self.open) {
             (Some((_, chats)), Some(id)) => chats.is_busy(id),
