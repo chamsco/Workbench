@@ -551,7 +551,7 @@ dependencies = [
 
 [[package]]
 name = "backspace"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "async-channel",
@@ -568,7 +568,7 @@ dependencies = [
 
 [[package]]
 name = "backspace-cli"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "backspace-core",
@@ -587,7 +587,7 @@ dependencies = [
 
 [[package]]
 name = "backspace-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "async-channel",
@@ -615,7 +615,7 @@ dependencies = [
 
 [[package]]
 name = "backspace-runner"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "reqwest",
@@ -829,7 +829,7 @@ dependencies = [
 
 [[package]]
 name = "brainpowr-engine"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "flate2",
@@ -938,14 +938,14 @@ dependencies = [
 
 [[package]]
 name = "cauldron-chrome"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde_json",
 ]
 
 [[package]]
 name = "cauldron-decision"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "serde",
@@ -953,7 +953,7 @@ dependencies = [
 
 [[package]]
 name = "cauldron-platform"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "serde",

@@ -4,7 +4,7 @@ members = ["crates/runner", "crates/decision", "crates/platform", "crates/engine
 default-members = ["crates/runner", "crates/decision", "crates/platform", "crates/engine", "crates/core", "crates/cli", "crates/colony", "crates/chrome"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 license = "MIT"
 
