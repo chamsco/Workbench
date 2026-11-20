@@ -232,7 +232,7 @@ fn windows_folded_puts_the_sidebar_button_left_of_the_tabs() {
     assert!(inside(win.main, win.sidebar_button), "button in the main card");
     assert_eq!(win.sidebar_button.x, win.main.x + 6.0);
     assert!(win.tabs.x > win.sidebar_button.right(), "tabs after the button");
-    for platform in [Platform::Mac, Platform::WindowsNotch, Platform::WindowsNotchNotch] {
+    for platform in [Platform::Mac, Platform::Windows, Platform::WindowsNotch] {
         let open = solve(1200.0, 760.0, state(true, true, false), platform);
         assert!(inside(open.sidebar.unwrap(), open.sidebar_button), "{platform:?}: open, the button in the sidebar");
     }
