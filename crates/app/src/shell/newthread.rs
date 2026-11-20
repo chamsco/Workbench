@@ -354,10 +354,11 @@ impl Cauldron {
             .justify_center()
             .rounded_full()
             .cursor_pointer()
-            .hover(|d| d.bg(c(pal.hover)))
+            .bg(if has_text { ca(pal.fg, 0.08) } else { c(pal.accent) })
+            .hover(|d| d.opacity(0.85))
             .aria_label("Voice")
             .aria_description("Dictate the task")
-            .child(glyph("mic", 15., fg2))
+            .child(glyph("mic", 15., if has_text { fg2 } else { c(pal.on_accent) }))
             .on_click(cx.listener(|this, _, _, cx| {
                 this.start.error = None;
                 this.start.note = Some("Voice input is not connected in this build yet.".into());
@@ -390,7 +391,9 @@ impl Cauldron {
             )
             .child(self.machine_chip(pal, cx))
             .child(div().flex_1())
-            .child(self.trust_chip("nt-trust", pal, cx));
+            .child(self.trust_chip("nt-trust", pal, cx))
+            .child(voice)
+            .when(has_text, |d| d.child(start_btn));
 
         // The board's `.box`: radius 12, the editor, then + , trust, Plan, the model, effort, Start.
         let mut nt_box = div()
@@ -404,7 +407,7 @@ impl Cauldron {
             .pr(px(10.))
             .pb(px(8.))
             .bg(super::backdrop::surface(self.painting, pal.raised, super::backdrop::GLASS_COMPOSER))
-            .rounded_t(px(radius::SHELL - 4.))
+            .rounded(px(radius::SHELL - 4.))
             .child(div().id("nt-input").mx(px(-10.)).text_size(px(13.)).child(Textarea::new(&input).appearance(false)).test_support());
         if !self.start.files.is_empty() {
             let mut row = div().flex().flex_wrap().gap(px(6.));
@@ -462,6 +465,7 @@ impl Cauldron {
         };
         let folder_name = self.start.folder.as_deref().map_or_else(|| "No folder".to_string(), |p| p.rsplit(['/', '\\']).find(|s| !s.is_empty()).unwrap_or(p).to_string());
         let folder = chip("nt-folder")
+            .text_color(fg)
             .cursor_pointer()
             .hover(|d| d.bg(c(pal.hover)))
             .aria_label(folder_name.clone())
@@ -480,6 +484,7 @@ impl Cauldron {
         let open = self.start.tray_hover || focused || has_text || self.start.menu || self.start.folder_menu || self.start.plus_menu || self.start.route_menu.is_some() || self.start.folder.is_some() || !self.start.files.is_empty();
         let effort_dd = dd("nt-effort")
             .h(px(24.))
+            .text_color(fg)
             .aria_label(effort_label.clone())
             .child(effort_label)
             .child(glyph("chevron-down", 13., fg3))
@@ -494,18 +499,15 @@ impl Cauldron {
         let bar = div()
             .id("nt-bar")
             .flex()
-            .items_start()
+            .items_center()
             .gap(px(4.))
             .px(px(10.))
-            .pt(px(6.))
             .h(px(40.))
             .overflow_hidden()
             .child(folder)
             .child(div().flex_1())
             .child(self.route_chip("nt-model", super::subs::PickFor::New, self.start.route.as_ref(), pal, cx))
-            .child(effort_dd)
-            .child(voice)
-            .when(has_text, |d| d.child(start_btn));
+            .child(effort_dd);
         let bar = bar.test_support().with_animation(if open { "tray-open" } else { "tray-shut" }, super::motion::anim(160.), move |d, t| {
             let k = if open { t } else { 0.0 };
             d.opacity(0.25 + 0.75 * k)
