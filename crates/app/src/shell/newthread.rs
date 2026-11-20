@@ -335,7 +335,7 @@ impl Cauldron {
             .flex()
             .items_center()
             .justify_center()
-            .rounded_full()
+            .rounded(px(radius::CONTROL))
             .bg(if ready { c(pal.accent) } else { c(pal.raised) })
             .aria_label("Start")
             .when_some(blocked.clone(), |d, why| d.aria_description(why).opacity(0.45))
@@ -352,7 +352,7 @@ impl Cauldron {
             .flex()
             .items_center()
             .justify_center()
-            .rounded_full()
+            .rounded(px(radius::CONTROL))
             .cursor_pointer()
             .bg(if has_text { ca(pal.fg, 0.08) } else { c(pal.accent) })
             .hover(|d| d.opacity(0.85))
@@ -408,7 +408,7 @@ impl Cauldron {
             .pb(px(8.))
             .bg(super::backdrop::surface(self.painting, pal.raised, super::backdrop::GLASS_COMPOSER))
             .rounded(px(radius::SHELL - 4.))
-            .child(div().id("nt-input").mx(px(-10.)).text_size(px(13.)).child(Textarea::new(&input).appearance(false)).test_support());
+            .child(div().id("nt-input").mx(px(-10.)).text_size(px(13.)).text_color(c(pal.fg)).child(Textarea::new(&input).appearance(false)).test_support());
         if !self.start.files.is_empty() {
             let mut row = div().flex().flex_wrap().gap(px(6.));
             for (i, p) in self.start.files.iter().enumerate() {
