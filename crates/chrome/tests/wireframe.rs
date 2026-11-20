@@ -28,7 +28,9 @@ fn pick(s: &Shell, key: &str) -> Option<Rect> {
         "dock" => s.dock,
         "support" => s.support,
         "rail" => Some(s.rail),
-        "notch" => s.notch,
+        "bar" => s.bar,
+        // The board's Windows notch is gone; the golden still lists it, hidden on macOS.
+        "notch" => None,
         "caps" => s.caps,
         "lights" => s.lights,
         "sbtn" => Some(s.sidebar_button),
@@ -57,6 +59,17 @@ fn solver_matches_every_golden_state_and_size() {
             let flags = state(st["sidebar_open"].as_bool().unwrap(), st["support_open"].as_bool().unwrap(), st["dock_open"].as_bool().unwrap());
             let shell = layout(w, h, flags, platform);
             for (key, r) in st["rects"].as_object().unwrap() {
+                // Windows (Charles, 20 Nov) swapped the board's notch for a top bar: its cards start
+                // under the bar, so only their x and width still follow the board; the bar has its
+                // own tests below. Header items moved into the bar and have none.
+                if platform == Platform::Windows {
+                    if let (true, Some(g)) = (["sidebar", "main", "dock", "support", "rail"].contains(&key.as_str()) && r["visible"].as_bool().unwrap(), pick(&shell, key)) {
+                        let w = want(r);
+                        assert!((g.x - w.x).abs() <= TOL && (g.w - w.w).abs() <= TOL, "{w:?} {name}: {key} x/w got {g:?}");
+                    }
+                    checked += 1;
+                    continue;
+                }
                 let got = pick(&shell, key);
                 if r["visible"].as_bool().unwrap() {
                     let got = got.unwrap_or_else(|| panic!("{w}x{h} {name}: {key} should be visible"));
@@ -119,29 +132,31 @@ fn panes_never_overlap_and_stay_inside_the_window() {
     }
 }
 
-/// Tight tiles: the cards stand 4px from the window's top, right and bottom edges and 4px from each
+/// Tight tiles: the cards stand 4px from the window's right and bottom edges and 4px from each
 /// other; the sidebar sits flat on the frame from the left edge, and with it folded the card takes
-/// the 4px margin on the left too. There is no top bar: every card starts 4px from the top.
+/// the 4px margin on the left too. macOS has no top bar: every card starts 4px from the top. On
+/// Windows the 38px top bar runs over the window and the cards start under it.
 #[test]
-fn cards_are_tight_tiles_4px_apart_with_no_top_bar() {
+fn cards_are_tight_tiles_4px_apart() {
     for platform in [Platform::Mac, Platform::Windows] {
         for st in all_states() {
             let (w, h) = (1200.0, 760.0);
             let s = solve(w, h, st, platform);
             let at = format!("{platform:?} {st:?}");
+            let top = if platform == Platform::Windows { metric::BAR_H } else { 4.0 };
             for c in cards(&s) {
                 assert!(c.right() <= w - 4.0 + 0.01 && c.bottom() <= h - 4.0 + 0.01, "{at}: {c:?} keeps the 4px margin");
             }
-            assert_eq!(s.main.y, 4.0, "{at}: no top bar");
+            assert_eq!(s.main.y, top, "{at}: cards start under the bar, or 4px down without one");
             match s.sidebar {
                 Some(sb) => {
-                    assert_eq!((sb.x, sb.y, sb.w, sb.bottom()), (0.0, 4.0, 236.0, h - 4.0), "{at}: sidebar on the frame");
+                    assert_eq!((sb.x, sb.y, sb.w, sb.bottom()), (0.0, top, 236.0, h - 4.0), "{at}: sidebar on the frame");
                     assert_eq!(s.main.x, sb.right() + 4.0, "{at}: card 4px from the sidebar");
                 }
                 None => assert_eq!(s.main.x, 4.0, "{at}: the card takes the left margin"),
             }
             if let Some(sup) = s.support {
-                assert_eq!((sup.y, sup.bottom(), sup.right()), (4.0, h - 4.0, w - 4.0), "{at}: support card full height at the right");
+                assert_eq!((sup.y, sup.bottom(), sup.right()), (top, h - 4.0, w - 4.0), "{at}: support card full height at the right");
                 assert_eq!(s.main.right() + 4.0, sup.x, "{at}: 4px between stream and support");
             } else {
                 assert_eq!(s.main.right(), w - 4.0, "{at}: folded, the stream card runs to the margin");
@@ -181,37 +196,49 @@ fn the_rail_is_inside_the_rightmost_card() {
     }
 }
 
-/// Windows: the caption buttons sit in a 100x40 notch cut into the top-right of the rightmost
-/// card; macOS has no notch and its lights sit top-left. Pane geometry is the same on both.
+/// Windows: a 38px top bar runs across the window with the caption buttons at its right end and
+/// "N needs you" before the tools; macOS has no bar and its lights sit top-left. The cards are the
+/// same width on both, and Windows' start under the bar.
 #[test]
 fn platforms_differ_only_in_window_controls() {
     for st in all_states() {
         let mac = solve(1200.0, 760.0, st, Platform::Mac);
         let win = solve(1200.0, 760.0, st, Platform::Windows);
-        assert!(mac.lights.is_some() && mac.caps.is_none() && mac.notch.is_none(), "{st:?}");
-        assert!(win.lights.is_none() && win.caps.is_some(), "{st:?}");
-        assert_eq!(mac.main, win.main, "{st:?}: same pane geometry on both platforms");
-        assert_eq!((mac.support, mac.dock, mac.sidebar, mac.rail), (win.support, win.dock, win.sidebar, win.rail), "{st:?}");
-        let n = win.notch.expect("notch");
-        let host = win.support.unwrap_or(win.main);
-        assert_eq!((n.w, n.h, n.right(), n.y), (100.0, 40.0, host.right(), host.y), "{st:?}: notch in the card's top-right");
-        assert!(inside(n, win.caps.unwrap()), "{st:?}: caption buttons inside the notch");
+        assert!(mac.lights.is_some() && mac.caps.is_none() && mac.bar.is_none() && mac.pill.is_none(), "{st:?}");
+        assert!(win.lights.is_none() && win.caps.is_some() && win.bar.is_some() && win.pill.is_some(), "{st:?}");
+        assert_eq!((mac.main.x, mac.main.w), (win.main.x, win.main.w), "{st:?}: same widths on both platforms");
+        assert_eq!(win.main.y, metric::BAR_H, "{st:?}: the cards start under the bar");
+        let bar = win.bar.unwrap();
+        assert_eq!((bar.x, bar.y, bar.w, bar.h), (0.0, 0.0, 1200.0, 38.0), "{st:?}");
+        let caps = win.caps.unwrap();
+        assert_eq!((caps.right(), caps.y, caps.h, caps.w), (1200.0, 0.0, 38.0, 138.0), "{st:?}: three 46px cells at the bar's right end");
+        assert!(inside(bar, caps) && inside(bar, win.pill.unwrap()) && inside(bar, win.tools) && inside(bar, win.tabs), "{st:?}");
+        for r in [win.pill.unwrap(), win.tools, win.tabs, win.sidebar_button, win.search_button, win.bell_button] {
+            assert!(!overlaps(r, caps), "{st:?}: {r:?} clear of the caption buttons");
+        }
+        assert!(win.pill.unwrap().right() <= win.tools.x && win.tabs.right() <= win.pill.unwrap().x, "{st:?}: tabs, then the pill, then the tools");
     }
 }
 
-/// The stream card's 38px header holds the tabs, clear of the lights, the sidebar button, New
-/// stream, the tools on the right and, on Windows, the notch.
+/// The header items (tabs, pill, tools) share one row: the stream card's 38px header on macOS,
+/// the top bar on Windows. Clear of the lights, the sidebar button, search and inbox, New stream.
 #[test]
-fn tabs_live_in_the_stream_header() {
+fn tabs_live_in_the_header_row() {
     for &(w, h) in &[(1200.0, 760.0), (1000.0, 640.0), (1920.0, 1080.0)] {
         for platform in [Platform::Mac, Platform::Windows] {
             for st in all_states() {
                 let s = solve(w, h, st, platform);
                 let t = s.tabs;
                 let at = format!("{w}x{h} {platform:?} {st:?}: tabs {t:?}");
-                assert_eq!((t.y, t.h), (s.main.y + 6.0, 28.0), "{at}: in the 38px header");
-                assert!(t.x >= s.main.x + 6.0 && t.right() <= s.main.right() - 8.0, "{at}: inside the card");
-                for r in [s.lights, Some(s.sidebar_button), s.new_button, s.notch].into_iter().flatten() {
+                let (row_y, edge) = if platform == Platform::Windows { (5.0, w) } else { (s.main.y + 6.0, s.main.right() - 8.0) };
+                assert_eq!((t.y, t.h), (row_y, 28.0), "{at}: in the header row");
+                assert!(t.x >= 6.0 && t.right() <= edge, "{at}: inside the row");
+                if platform == Platform::Windows {
+                    assert!(t.x >= s.main.x + 6.0, "{at}: from the stream card's left edge");
+                } else {
+                    assert!(t.x >= s.main.x + 6.0 && t.right() <= s.main.right() - 8.0, "{at}: inside the card");
+                }
+                for r in [s.lights, Some(s.sidebar_button), s.new_button, s.pill, s.caps].into_iter().flatten().chain((platform == Platform::Windows).then_some([s.search_button, s.bell_button]).into_iter().flatten()) {
                     assert!(!overlaps(t, r), "{at}: clear of {r:?}");
                 }
             }
@@ -219,21 +246,22 @@ fn tabs_live_in_the_stream_header() {
     }
 }
 
-/// Windows with the sidebar folded (Charles, 15 Nov): the sidebar button sits in the main
-/// content, directly left of the tabs. With the sidebar open it is in the sidebar's top row, on
-/// both platforms; Mac folded keeps it after the lights.
+/// Windows: the sidebar button is the first thing in the bar, folded or not, with search and
+/// inbox after it. On macOS it is in the sidebar's top row (open), or after the lights (folded),
+/// with search and inbox to its left.
 #[test]
-fn windows_folded_puts_the_sidebar_button_left_of_the_tabs() {
-    let st = state(false, true, false);
-    let win = solve(1200.0, 760.0, st, Platform::Windows);
-    assert!(inside(win.main, win.sidebar_button), "button in the main card");
-    assert_eq!(win.sidebar_button.x, win.main.x + 6.0);
-    assert!(win.tabs.x > win.sidebar_button.right(), "tabs after the button");
-    for platform in [Platform::Mac, Platform::Windows] {
+fn the_sidebar_button_leads_the_bar_on_windows() {
+    for st in all_states() {
+        let win = solve(1200.0, 760.0, st, Platform::Windows);
+        assert_eq!((win.sidebar_button.x, win.sidebar_button.y), (10.0, 5.0), "{st:?}");
+        assert!(win.search_button.x == win.sidebar_button.x + 36.0 && win.bell_button.x == win.sidebar_button.x + 72.0, "{st:?}");
+    }
+    for platform in [Platform::Mac] {
         let open = solve(1200.0, 760.0, state(true, true, false), platform);
         assert!(inside(open.sidebar.unwrap(), open.sidebar_button), "{platform:?}: open, the button in the sidebar");
+        assert!(open.search_button.x < open.sidebar_button.x, "{platform:?}: search left of the button");
     }
-    let mac = solve(1200.0, 760.0, st, Platform::Mac);
+    let mac = solve(1200.0, 760.0, state(false, true, false), Platform::Mac);
     assert!(mac.sidebar_button.x > mac.lights.unwrap().right(), "Mac: button after the lights");
 }
 

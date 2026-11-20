@@ -1097,6 +1097,14 @@ impl Cauldron {
         }
     }
 
+    /// How many streams wait on you (the Windows top bar's "N needs you" pill).
+    pub(crate) fn needs_you(&self) -> usize {
+        match &self.threads {
+            Threads::Ready(v) => v.iter().filter(|t| Group::of(t) == Group::NeedsYou).count(),
+            _ => 0,
+        }
+    }
+
     /// The bell's label: "Inbox", or with the unread count.
     pub(crate) fn inbox_label(&self) -> String {
         match self.inbox.iter().filter(|n| !n.read).count() {

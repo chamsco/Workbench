@@ -459,7 +459,7 @@ mod tests {
         let handle = open(cx);
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
-            let head = rect(window, "card-head");
+            let head = rect(window, if crate::shell::platform() == cauldron_chrome::layout::Platform::Windows { "bar" } else { "card-head" });
             let b = rect(window, "layout");
             assert!(b.x >= head.x && b.right() <= head.right() && b.y >= head.y && b.bottom() <= head.bottom(), "the button sits in the card head");
             assert_eq!(count(window), 0, "one pane: the card as it was, no pane frames");
