@@ -545,17 +545,17 @@ impl Cauldron {
         });
         let grow = if stacked { super::subs::TRAY_OPEN_H + super::subs::STACK_GAP } else { super::subs::TRAY_OPEN_H };
         let nt_stack = if stacked {
-            // Stacked (Charles, 20 Nov, board round 2): the chips ride a card tucked behind the box,
-            // with a rim of a third card under it; opening drops that card out below the box, a
+            // Stacked (Charles, 20 Nov, board round 2): the chips ride a solid card tucked behind the
+            // box; opening drops that card out below the box, a
             // small gap apart, and unfolds the picker in it. Drawn back to front, laid out top down.
             let tuck = super::subs::STACK_TUCK;
             let line = c(if self.painting { pal.line_strong } else { pal.line });
-            let card = |d: gpui::Stateful<Div>| d.rounded(px(radius::SHELL)).border_1().border_color(line).bg(super::backdrop::surface(self.painting, pal.raised, super::backdrop::GLASS_COMPOSER)).child(div().absolute().left_0().top_0().size_full().rounded(px(radius::SHELL)).bg(gpui::black().opacity(0.30)));
-            // The rim and the card are laid out from the stack's bottom, behind the box, so the box
-            // (drawn last) covers their tucked tops; a spacer under the box makes their room.
+            // Solid, not glass (Charles, 20 Nov): the card reads as an object behind the box.
+            let card = |d: gpui::Stateful<Div>| d.rounded(px(radius::SHELL)).border_1().border_color(line).bg(c(pal.raised));
+            // The card is laid out from the stack's bottom, behind the box, so the box
+            // (drawn last) covers its tucked top; a spacer under the box makes its room.
             let (gap, tray_h) = (super::subs::STACK_GAP, super::subs::TRAY_OPEN_H);
-            let rim = card(div().id("nt-rim").absolute().left(px(28.)).right(px(28.)).bottom_0().h(px(tuck + 8.))).test_support();
-            let mut mid = card(div().id("nt-card").absolute().left(px(14.)).right(px(14.)).bottom(px(8.)).flex().flex_col().overflow_hidden())
+            let mut mid = card(div().id("nt-card").absolute().left(px(14.)).right(px(14.)).bottom_0().flex().flex_col().overflow_hidden())
                 .shadow(vec![gpui::BoxShadow { color: gpui::black().opacity(0.45), offset: gpui::point(px(0.), px(10.)), blur_radius: px(28.), spread_radius: px(0.), inset: false }])
                 .child(bar);
             if tray_open {
@@ -567,13 +567,13 @@ impl Cauldron {
                 // The tucked strip turns into the gap as the card drops out and unfolds.
                 (
                     mid.with_animation("nt-card-drop", super::motion::anim(220.), move |d, t| d.pt(px(tuck * (1.0 - t))).h(px(40.0 + tuck + (tray_h - tuck) * t))).into_any_element(),
-                    spacer.with_animation("nt-card-room", super::motion::anim(220.), move |d, t| d.h(px(48.0 + (gap + tray_h) * t))).into_any_element(),
+                    spacer.with_animation("nt-card-room", super::motion::anim(220.), move |d, t| d.h(px(40.0 + (gap + tray_h) * t))).into_any_element(),
                 )
             } else {
-                (mid.pt(px(tuck)).h(px(40.0 + tuck)).into_any_element(), spacer.h(px(48.)).into_any_element())
+                (mid.pt(px(tuck)).h(px(40.0 + tuck)).into_any_element(), spacer.h(px(40.)).into_any_element())
             };
             let front = glass(div().id("nt-front").relative().flex().flex_col().p(px(3.))).child(nt_box).test_support();
-            nt_stack.flex_col().child(rim).child(mid).child(front).child(spacer)
+            nt_stack.flex_col().child(mid).child(front).child(spacer)
         } else {
             glass(nt_stack.flex_col().p(px(3.))).child(nt_box).child(bar).when_live(tray_open, |d| d.child(self.route_tray(pal, cx)))
         }
@@ -1403,7 +1403,7 @@ mod tests {
             let tuck = super::super::subs::STACK_TUCK;
             assert!((card.1 - (front.1 + front.3 - tuck)).abs() <= 1.0, "tucked under the box: {card:?} {front:?}");
             assert!(card.0 > front.0 && card.0 + card.2 < front.0 + front.2, "narrower than the box");
-            assert!(rect(window, "nt-rim").1 + rect(window, "nt-rim").3 > card.1 + card.3, "a rim of the card behind shows under it");
+            assert!(window.try_find("nt-rim").is_none(), "two cards, no third (Charles, 20 Nov)");
             window.click("nt-model", cx);
             window.render_frame(cx);
             assert_eq!(rect(window, "nt-front"), front, "the box never moves");
