@@ -794,8 +794,24 @@ impl Cauldron {
             }))
             .child(self.tab_slide.measure(None))
             .children(self.tab_slide.highlight(ca(pal.fg, 0.06), radius::CONTROL))
-            // ponytail: spawning needs the thread view's core wiring (UI4); shown, not live.
-            .child(item("menu-spawn".into()).text_color(c(pal.fg3)).aria_label("Spawn a subagent").child(glyph("plus", 14., c(pal.fg3))).child("Spawn a subagent…").test_support().with_animation("in", motion::staggered(0), |d, t| d.opacity(t)));
+            // A sub-agent is a stream the model starts with its `delegate` tool: this fills the box
+            // with the ask, for the person to finish and send.
+            .child(
+                item("menu-spawn".into())
+                    .text_color(c(pal.fg2))
+                    .aria_label("Spawn a subagent")
+                    .child(glyph("plus", 14., c(pal.fg3)))
+                    .child("Spawn a subagent…")
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.tab_menu = false;
+                        if let Some((st, _)) = &this.composer {
+                            st.update(cx, |s, cx| s.set_value("Use your delegate tool to hand this to a sub-agent on another CLI: ", window, cx));
+                        }
+                        cx.notify();
+                    }))
+                    .test_support()
+                    .with_animation("in", motion::staggered(0), |d, t| d.opacity(t)),
+            );
         if !self.idle.is_empty() {
             menu = menu.child(div().px(px(8.)).pt(px(6.)).pb(px(2.)).text_size(px(11.)).font_weight(FontWeight::SEMIBOLD).text_color(c(pal.fg3)).child("Open 1:1 with").with_animation("in", motion::staggered(1), |d, t| d.opacity(t)));
         }
