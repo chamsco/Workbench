@@ -5,6 +5,7 @@
 //! Content inside the panes is a labelled placeholder until the milestone that owns it
 //! (docs/cauldron/UI-PLAN.md): the thread list is UI3, the thread view UI4, the drawer UI6.
 
+use cauldron_chrome::avatar::{self, Look, Mood};
 use cauldron_chrome::layout::{self, metric, Platform, Rect, ShellState};
 use cauldron_chrome::motion::Frame;
 use cauldron_chrome::panes::{Shape, Split};
@@ -36,13 +37,22 @@ mod thread;
 pub(crate) mod shots;
 
 /// Where the shell draws window controls: lights on macOS, caption buttons elsewhere.
+/// Appearance > Window on Windows: the old notch in the card instead of the top strip.
+static NOTCH: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub(crate) fn set_notch(on: bool) {
+    NOTCH.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
 pub(crate) fn platform() -> Platform {
     // Debug builds only: `CAULDRON_PLATFORM=windows` draws the Windows chrome on a Mac, for screenshots.
     if cfg!(debug_assertions) && std::env::var("CAULDRON_PLATFORM").is_ok_and(|v| v == "windows") {
-        return Platform::Windows;
+        return if NOTCH.load(std::sync::atomic::Ordering::Relaxed) { Platform::WindowsNotch } else { Platform::Windows };
     }
     if cfg!(target_os = "macos") {
         Platform::Mac
+    } else if NOTCH.load(std::sync::atomic::Ordering::Relaxed) {
+        Platform::WindowsNotch
     } else {
         Platform::Windows
     }
@@ -327,6 +337,13 @@ pub(crate) struct Cauldron {
 }
 
 impl Cauldron {
+    /// The quick-button rail belongs to a stream (Charles, 20 Nov): shown while a stream or a
+    /// familiar is open, or while the support card is open (its rail is how you fold it), never on
+    /// the New stream screen or in Settings.
+    pub(crate) fn rail_on(&self, support_open: bool) -> bool {
+        support_open || (self.settings.is_none() && (self.open.is_some() || self.familiar.is_some()))
+    }
+
     /// The window's first state. Debug builds only: `CAULDRON_FIXTURE_AGENTS=n` opens a thread with
     /// n agent tabs, for screenshots until UI4 brings real agents from core.
     pub(crate) fn launch(cx: &mut Context<Self>) -> Self {
@@ -335,6 +352,7 @@ impl Cauldron {
         c.painting = backdrop::wants_painting(&prefs);
         c.stream_bg = backdrop::stream_bg(&prefs);
         c.frost = backdrop::FrostLevel::from_pref(&prefs);
+        set_notch(prefs.window_style.as_deref() == Some("notch"));
         if c.painting {
             Self::warm_glass(cx);
         }
@@ -1104,6 +1122,9 @@ fn icon_button_in(id: impl Into<ElementId>, name: &str, label: &'static str, pal
 
 /// The sidebar's padding (the board's `.sb`: 8 8 6 10).
 const SIDE_PL: f32 = 10.0;
+/// An agent's figure on its tab and in lists (Charles, 20 Nov): only agents and captains get one;
+/// streams do not.
+const TAB_FIG: f32 = 16.0;
 const SIDE_PR: f32 = 8.0;
 
 /// How long the usage badges trust accounts.json before reading it again.
@@ -1347,48 +1368,27 @@ impl Render for Cauldron {
         // ---- sidebar, flat on the frame (the board's `.sb`): the top row (lights or logo, and the
         // sidebar button, drawn on the window), a line, the apps row, New stream, Search, the list
         if let Some(sp) = s.sidebar {
-            // The apps tray (19 Nov): left-packed in a sunken tray under New stream; the indicator is
-            // a raised key that slides to the selected app (INDICATOR ms); each app swaps the list.
-            let mut fnrow = div()
-                .id("apps-tray")
-                .relative()
-                .flex()
-                .gap(px(apps::TRAY_GAP))
-                .p(px(apps::TRAY_PAD))
-                .mt(px(6.))
-                .mb(px(2.))
-                .rounded(px(radius::CONTROL + 2.0))
-                .bg(ca(Rgb::hex(0x000000), if dark { 0.22 } else { 0.05 }))
-                .border_1()
-                .border_color(c(pal.line))
-                .aria_label("Apps");
-            let pos = crate::motion::ease_between(self.section_from, self.section as f32, self.section_since, now, cauldron_chrome::motion::time::INDICATOR);
-            fnrow = fnrow.child(
-                div()
-                    .absolute()
-                    .left(px(apps::tray_x(pos) - 1.0))
-                    .top(px(apps::TRAY_PAD - 1.0))
-                    .w(px(apps::TRAY_BTN_W))
-                    .h(px(apps::TRAY_BTN_H))
-                    .rounded(px(radius::CONTROL))
-                    .bg(ca(pal.fg, if dark { 0.11 } else { 0.08 }))
-                    .border_1()
-                    .border_color(c(pal.line_strong)),
-            );
+            // The apps row (20 Nov): above New stream, each app its own button with its own fill and
+            // border (the stream rows' look, but separate); the open one is darker. Each app swaps the list.
+            let mut fnrow = div().id("apps-tray").flex().gap(px(apps::TRAY_GAP)).mt(px(if s.bar.is_some() { 0. } else { 6. })).mb(px(8.)).aria_label("Apps");
             for (i, (name, label)) in FUNCTIONS.iter().enumerate() {
                 let on = i == self.section;
                 let b = div()
                     .id(("fn", i))
                     .w(px(apps::TRAY_BTN_W))
                     .h(px(apps::TRAY_BTN_H))
+                    .flex_none()
                     .flex()
                     .items_center()
                     .justify_center()
                     .rounded(px(radius::CONTROL))
+                    .border_1()
                     .cursor_pointer()
                     .aria_label(*label)
                     .aria_selected(on)
-                    .when_live(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
+                    .border_color(if on { c(pal.line_strong) } else { c(pal.line) })
+                    .bg(ca(pal.fg, if on { if dark { 0.16 } else { 0.12 } } else if dark { 0.04 } else { 0.03 }))
+                    .when_live(!on, |d| d.hover(|d| d.bg(ca(pal.fg, if dark { 0.08 } else { 0.06 }))))
                     .child(glyph(name, 15., if on { fg } else { fg3 }))
                     .on_click(cx.listener(move |this, _, _, cx| this.select_section(i, cx)));
                 fnrow = fnrow.child(self.tipped(("fn", i), b, *label, Side::Right, pal, cx).test_support());
@@ -1450,10 +1450,10 @@ impl Render for Cauldron {
                 .pr(px(SIDE_PR))
                 .pt(px(8.))
                 .pb(px(6.))
-                .child(div().id("side-top").h(px(30.)).flex_none().window_control_area(WindowControlArea::Drag).test_support())
+                .child(div().id("side-top").h(px(if s.bar.is_some() { 0. } else { 30. })).flex_none().window_control_area(WindowControlArea::Drag).test_support())
                 .overflow_hidden()
+                .when_live(self.settings.is_none(), |d| d.child(fnrow.test_support()))
                 .when_live(self.settings.is_none(), |d| d.child(new_thread))
-                .child(fnrow.when_live(self.settings.is_some(), |d| d.mb(px(8.))).test_support())
                 .when_live(self.settings.is_some(), |d| d.child(self.settings_nav(self.settings.unwrap_or(0), pal, cx).test_support()))
                 // The search row opens from the top row's search button and stays while it has text.
                 .when_live(self.settings.is_none() && (self.search_open || !self.query.is_empty()), |d| d.child(
@@ -1542,7 +1542,7 @@ impl Render for Cauldron {
         // and the row shows a window of 72px tabs. No figures (Charles, 13 Nov).
         let mut tab_row = None;
         // A familiar's tabs are its own folder tabs on its stream card (familiar.rs).
-        let fam = self.familiar.is_some().then(|| self.familiar_strips(s.main, s.support.is_none(), pal, now, reduce, window, cx));
+        let fam = self.familiar.is_some().then(|| self.familiar_strips(s.main, s.support.is_none() && self.rail_on(false), pal, now, reduce, window, cx));
         if let Some(anchor_label) = self.coordinator.clone().filter(|_| self.familiar.is_none()) {
             let focus = self.tab_focus.get_or_insert_with(|| cx.focus_handle()).clone();
             let label_w = {
@@ -1666,6 +1666,16 @@ impl Render for Cauldron {
                     .group(group)
                     .px(px(TAB_PAD))
                     .aria_label(agent.name.clone())
+                    .child({
+                        let (fw, fh) = avatar::size(TAB_FIG);
+                        div()
+                            .id(("tab-fig", i))
+                            .flex_none()
+                            .w(px(fw))
+                            .h(px(fh))
+                            .child(img(Arc::new(Image::from_bytes(ImageFormat::Svg, avatar::svg(i, Mood::Idle, Look { px: TAB_FIG, outline: false, ms: None, bust: false, ink: None }).into_bytes()))).size_full())
+                            .test_support()
+                    })
                     .child(div().min_w_0().truncate().child(agent.name.clone()))
                     .child(close)
                     .on_click(cx.listener(move |this, _, window, cx| {
@@ -1772,7 +1782,7 @@ impl Render for Cauldron {
             );
         }
         let new_screen = self.open.is_none() && self.active == 0 && self.settings.is_none() && self.familiar.is_none();
-        let rail_here = s.support.is_none();
+        let rail_here = s.support.is_none() && self.rail_on(false);
         // The body under the header, clear of the rail when it is in this card.
         let body_w = s.main.w - 2.0 - if rail_here { metric::RAIL_W } else { 0.0 };
         let body_h = s.main.h - 2.0 - metric::HEAD_H - if new_screen { STAGE_H } else { 0.0 };
@@ -2095,9 +2105,10 @@ impl Render for Cauldron {
         // ---- the quick-button rail, inside the rightmost card's right edge (the board's `.irail`):
         // Highlights, Changes, Git, Trace, a rule, Browser, Files, Simulator, Terminal; the fold
         // toggle at the bottom. A short accent mark shows a panel that has a tab.
-        {
+        if self.rail_on(s.support.is_some()) {
             let rail_button = |this: &Self, id: (&'static str, usize), p: Panel, cx: &mut Context<Self>| {
-                let has_tab = this.support_tabs.contains(&p);
+                // The mark shows the open panel only, not every panel that has a tab (Charles, 20 Nov).
+                let has_tab = this.drawer == Some(p);
                 this.tipped(id, icon_button(id, p.icon(), p.title(), pal, this.drawer == Some(p)), p.title(), Side::Left, pal, cx)
                     .when_live(has_tab, |d| d.child(div().absolute().left(px(-8.)).top(px(9.)).w(px(3.)).h(px(10.)).rounded(px(2.)).bg(accent)))
                     .on_click(cx.listener(move |this, _, _, cx| {
@@ -2152,16 +2163,16 @@ impl Render for Cauldron {
         }
         // The line under the sidebar's top row: the app frame above (lights or logo, the sidebar
         // button), the sidebar's elements below (Charles, 15 Nov).
-        if let Some(sb) = s.sidebar {
+        if let Some(sb) = s.sidebar.filter(|_| s.bar.is_none()) {
             root = root.child(abs(Rect::new(sb.rect.x, sb.rect.y + 41.0, sb.rect.w, 1.0)).opacity(sb.alpha).bg(c(pal.line_strong)));
         }
 
         // ---- search, in the sidebar's top row beside the sidebar button (the board's `.brand`)
-        if let Some(sb) = s.sidebar {
-            let b = s.sidebar_button;
+        // On Windows the search and inbox buttons live in the top bar and stay with it when the sidebar folds.
+        if let Some(alpha) = s.sidebar.map(|sb| sb.alpha).or(s.bar.map(|_| 1.0)) {
             root = root.child(
-                pane("search-slot", Rect::new(b.x - 36.0, b.y, metric::SBTN, metric::SBTN))
-                    .opacity(sb.alpha)
+                pane("search-slot", s.search_button)
+                    .opacity(alpha)
                     .child(
                         self.tipped("search-btn", icon_button("search-btn", "search", "Search streams", pal, self.search_open), "Search streams", Side::Below, pal, cx)
                             .occlude()
@@ -2179,8 +2190,8 @@ impl Render for Cauldron {
         }
 
         // ---- the inbox bell, beside search (Inbox board, direction A), and its popover under it
-        if let Some(sb) = s.sidebar {
-            let b = s.sidebar_button;
+        if let Some(alpha) = s.sidebar.map(|sb| sb.alpha).or(s.bar.map(|_| 1.0)) {
+            let b = s.bell_button;
             let label = self.inbox_label();
             let unread = self.inbox.iter().filter(|n| !n.read).count();
             let mut bell = icon_button("inbox-btn", "bell", "Inbox", pal, self.inbox_open).relative().aria_label(label.clone());
@@ -2205,8 +2216,8 @@ impl Render for Cauldron {
                 );
             }
             root = root.child(
-                pane("inbox-slot", Rect::new(b.x - 72.0, b.y, metric::SBTN, metric::SBTN))
-                    .opacity(sb.alpha)
+                pane("inbox-slot", b)
+                    .opacity(alpha)
                     .child(
                         // No tooltip while the popover is open: it would sit over the popover's head.
                         if self.inbox_open { bell } else { self.tipped("inbox-btn", bell, label, Side::Below, pal, cx) }
@@ -2220,7 +2231,7 @@ impl Render for Cauldron {
                     .test_support(),
             );
             if self.inbox_open {
-                root = root.child(abs(Rect::new(b.x - 72.0, b.y + metric::SBTN + 6.0, 300.0, 400.0)).child(self.inbox_popover(pal, cx).test_support()));
+                root = root.child(abs(Rect::new(b.x, b.y + metric::SBTN + 6.0, 300.0, 400.0)).child(self.inbox_popover(pal, cx).test_support()));
             }
         }
         if let Some(t) = self.inbox_toast(pal, cx) {
@@ -2245,8 +2256,8 @@ impl Render for Cauldron {
             )
             .test_support(),
         );
-        // Windows folded: a short rule between the button and the tabs.
-        if s.sidebar.is_none() && s.lights.is_none() {
+        // Windows notch, folded: a short rule between the button and the tabs.
+        if s.sidebar.is_none() && s.lights.is_none() && s.bar.is_none() {
             let b = s.sidebar_button;
             root = root.child(abs(Rect::new(b.right() + 7.0, b.y + 6.0, 1.0, 16.0)).bg(c(pal.line)));
         }
@@ -2265,7 +2276,7 @@ impl Render for Cauldron {
             );
         }
 
-        // ---- Windows: the notch cut into the rightmost card's top-right, with the caption buttons
+        // ---- Windows notch option: cut into the rightmost card's top-right, with the caption buttons
         if let Some(n) = s.notch {
             // A cut, not a pane: over the painting it shows the same frame layer, cropped to it.
             let mut notch = pane("notch", n).bg(frame).overflow_hidden().rounded_bl(px(radius::PANEL));
@@ -2281,6 +2292,33 @@ impl Render for Cauldron {
                     .test_support(),
             );
         }
+        // ---- Windows: the top strip across the window (Charles, 20 Nov, option B). It sits on
+        // the frame layer, so it only needs to be a drag area under the buttons, then the pill.
+        if let Some(bar) = s.bar {
+            root = root.child(pane("bar", bar).window_control_area(WindowControlArea::Drag).test_support());
+        }
+        if let Some(p) = s.pill {
+            let n = self.needs_you();
+            let label: SharedString = format!("{n} needs you").into();
+            root = root.child(
+                pane("needs-pill", p)
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .gap(px(6.))
+                    .rounded(px(radius::CONTROL))
+                    .border_1()
+                    .border_color(c(pal.line_strong))
+                    .text_size(px(12.))
+                    .text_color(fg2)
+                    .opacity(if n > 0 { 1.0 } else { 0.0 })
+                    .occlude()
+                    .aria_label(label.clone())
+                    .child(div().size(px(6.)).rounded_full().bg(c(pal.accent)))
+                    .child(label)
+                    .test_support(),
+            );
+        }
         if let Some(cp) = s.caps {
             let r = cp.rect;
             let bad = c(pal.bad);
@@ -2292,7 +2330,7 @@ impl Render for Cauldron {
                     .flex()
                     .items_center()
                     .justify_center()
-                    .rounded(px(radius::CONTROL))
+                    .when_live(s.notch.is_some(), |d| d.rounded(px(radius::CONTROL)))
                     .window_control_area(area)
                     .occlude()
                     .hover(move |d| d.bg(if danger { bad } else { ca(pal.fg, 0.08) }))
@@ -2314,14 +2352,16 @@ impl Render for Cauldron {
         // stream, the apps, Settings and you. A rounded hairline is the card's edge beside it.
         if s.sidebar.is_none() && self.settings.is_none() {
             let bw = indent_w(plat);
+            // On Windows the band starts under the top bar, so the bar's buttons stay in reach.
+            let by = s.bar.map_or(0.0, |b| b.h);
             root = root.child(
                 div()
                     .id("indent-zone")
                     .absolute()
                     .left_0()
-                    .top_0()
+                    .top(px(by))
                     .w(px(8.))
-                    .h(px(h))
+                    .h(px(h - by))
                     // It overlaps the card's first 4px; the card must not see the pointer here.
                     .occlude()
                     .on_hover(cx.listener(|this, on: &bool, _, cx| {
@@ -2338,9 +2378,9 @@ impl Render for Cauldron {
                     .id("indent")
                     .absolute()
                     .left_0()
-                    .top_0()
+                    .top(px(by))
                     .w(px(bw))
-                    .h(px(h))
+                    .h(px(h - by))
                     .overflow_hidden()
                     .bg(frame)
                     .occlude()
@@ -2352,7 +2392,7 @@ impl Render for Cauldron {
                     }));
                 if let Some(img_src) = layer.clone() {
                     band = band
-                        .child(img(img_src).absolute().left_0().top_0().w(px(w)).h(px(h)).object_fit(ObjectFit::Cover))
+                        .child(img(img_src).absolute().left_0().top(px(-by)).w(px(w)).h(px(h)).object_fit(ObjectFit::Cover))
                         .child(div().absolute().size_full().bg(backdrop::frame_tint_at(pal, dark, self.frost)));
                 }
                 let at = |y: f32, el: AnyElement| div().absolute().left(px(x0)).top(px(y)).child(el);
@@ -2374,7 +2414,7 @@ impl Render for Cauldron {
                     let b = icon_button(("indent-fn", i), name, label, pal, i == self.section).on_click(cx.listener(move |this, _, _, cx| this.select_section(i, cx)));
                     band = band.child(at(rule_y + 9.0 + 32.0 * i as f32, self.tipped(("indent-fn", i), b, *label, Side::Right, pal, cx).test_support().into_any_element()));
                 }
-                band = band.child(at(h - 70.0, self.tipped("indent-settings", icon_button("indent-settings", "settings", "Settings", pal, false), "Settings", Side::Right, pal, cx).on_click(cx.listener(|this, _, _, cx| {
+                band = band.child(at(h - by - 70.0, self.tipped("indent-settings", icon_button("indent-settings", "settings", "Settings", pal, false), "Settings", Side::Right, pal, cx).on_click(cx.listener(|this, _, _, cx| {
                     this.settings = Some(0);
                     this.sidebar_open = true;
                     this.indent = false;
@@ -2386,7 +2426,7 @@ impl Render for Cauldron {
                     div()
                         .absolute()
                         .left(px((bw - 24.0) / 2.0))
-                        .top(px(h - 34.0))
+                        .top(px(h - by - 34.0))
                         .size(px(24.))
                         .flex()
                         .items_center()
@@ -2468,6 +2508,8 @@ mod tests {
                 sidebar_open: state.sidebar_open,
                 drawer: state.support_open.then_some(Panel::Highlights),
                 terminal: state.dock_open,
+                // A stream is open, so its rail shows.
+                open: Some("s".into()),
                 ..Cauldron::new()
             });
             cx.simulate_window_resize(handle.into(), size(px(W), px(H)));
@@ -2484,10 +2526,15 @@ mod tests {
                         None => assert!(window.try_find(id).is_none(), "{id} drawn in {state:?} but solve() has none"),
                     }
                 }
-                match s.notch {
-                    Some(n) => assert_rect(window, "notch", n, state),
-                    None => assert!(window.try_find("notch").is_none(), "no notch on this platform"),
+                match (s.bar, s.pill) {
+                    (Some(b), Some(p)) => {
+                        assert_rect(window, "bar", b, state);
+                        assert_rect(window, "needs-pill", p, state);
+                    }
+                    _ => assert!(window.try_find("bar").is_none() && window.try_find("notch").is_none(), "no bar on this platform"),
                 }
+                assert_rect(window, "search-slot", s.search_button, state);
+                assert_rect(window, "inbox-slot", s.bell_button, state);
             })
             .unwrap();
         }
@@ -2500,7 +2547,7 @@ mod tests {
     fn the_support_card_has_its_own_tabs_and_a_plus_menu(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         cx.update(|cx| cx.set_reduce_motion(true));
-        let handle = cx.add_window(|_, _| Cauldron::new());
+        let handle = cx.add_window(|_, _| Cauldron { open: Some("s".into()), ..Cauldron::new() });
         cx.simulate_window_resize(handle.into(), size(px(W), px(H)));
         // The shell moves on the wall clock, so start each check from rest.
         let rest = |cx: &mut TestAppContext| handle.update(cx, |c, _, _| c.motion = Default::default()).unwrap();
@@ -2567,7 +2614,7 @@ mod tests {
     fn icon_buttons_have_names_and_tooltips(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         cx.update(|cx| cx.set_reduce_motion(true));
-        let handle = cx.add_window(|_, _| Cauldron::new());
+        let handle = cx.add_window(|_, _| Cauldron { open: Some("s".into()), ..Cauldron::new() });
         cx.simulate_window_resize(handle.into(), size(px(W), px(H)));
         let ms = std::time::Duration::from_millis;
         cx.update_window(handle.into(), |_, window, cx| {
@@ -2612,7 +2659,7 @@ mod tests {
             window.render_frame(cx);
             assert_eq!(window.find("tooltip").label(), Some("Usage"));
             let (tip, btn) = (rect(window, "tooltip"), rect(window, ("fn", 4usize)));
-            assert!((tip.x - (btn.right() + 8.0)).abs() < 0.5, "left-side tip sits 8px right of its button: {tip:?} {btn:?}");
+            assert!((tip.x - (btn.right() + 8.0)).abs() < 1.5, "left-side tip sits 8px right of its button: {tip:?} {btn:?}");
         })
         .unwrap();
     }
@@ -2674,7 +2721,8 @@ mod tests {
             // Core has no stages or usage yet, so usage is an empty state and no stage is current:
             // plain fg3 labels, nothing to click.
             let bar = rect(window, "stage-bar");
-            assert_eq!((bar.x, bar.w, bar.h), (card.x + 1.0, s.rail.x - card.x - 1.0, 32.0), "stage bar card-wide, clear of the rail");
+            assert_eq!((bar.x, bar.w, bar.h), (card.x + 1.0, card.w - 2.0, 32.0), "stage bar card-wide: the rail is for an open stream, not the New stream screen");
+            assert!(window.try_find("rail").is_none(), "no right rail on the New stream screen (Charles, 20 Nov)");
             assert_eq!(bar.bottom(), card.bottom() - 1.0, "at the card's bottom, inside its border");
             assert_eq!(window.find("stage-usage").label(), Some("No usage data yet"));
             let mut last = rect(window, "stage-usage").right();
@@ -2775,7 +2823,8 @@ mod tests {
             window.render_frame(cx);
             assert_eq!(window.find("inbox-btn").label(), Some("Inbox, 2 unread"));
             let (bell, search) = (rect(window, "inbox-btn"), rect(window, "search-btn"));
-            assert_eq!((bell.y, search.x - bell.x), (search.y, 36.0), "beside Search, as Search is beside the sidebar button");
+            let side = if platform() == layout::Platform::Windows { -36.0 } else { 36.0 };
+            assert_eq!((bell.y, search.x - bell.x), (search.y, side), "beside Search, as Search is beside the sidebar button");
             assert!(window.try_find("inbox").is_none(), "closed until clicked");
             window.click("inbox-btn", cx);
             window.render_frame(cx);
@@ -2915,13 +2964,14 @@ mod tests {
     /// No agent figures in threads (Charles, 13 Nov): they belong to the Agents page. A tab is its
     /// label after the 8px padding, with agents on the thread or not.
     #[gpui_kit::test]
-    fn tabs_carry_no_agent_figures(cx: &mut TestAppContext) {
+    fn only_agent_tabs_carry_the_agent_figure(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let handle = open(cx, with_agents(2, &[]));
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
-            for i in 0..=2usize {
-                assert!(window.try_find(("tab-fig", i)).is_none(), "tab {i} has no figure");
+            assert!(window.try_find("tab-fig").is_none(), "the pinned stream tab has no figure");
+            for i in 1..=2usize {
+                assert!(window.try_find(("tab-fig", i)).is_some(), "agent tab {i} draws the agent's figure");
             }
         })
         .unwrap();
@@ -2929,7 +2979,7 @@ mod tests {
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
             assert_eq!(window.find(("tab", 0usize)).label(), Some("Plain thread"));
-            assert!(window.try_find(("tab-fig", 0usize)).is_none(), "a normal thread's tab has no figure");
+            assert!(window.try_find("tab-fig").is_none(), "a normal thread's tab has no figure");
         })
         .unwrap();
     }
@@ -2977,7 +3027,9 @@ mod tests {
             window.render_frame(cx);
             assert!(window.try_find("search").is_none(), "search waits behind its button");
             let (b, sb) = (rect(window, "search-btn"), rect(window, "sbtn"));
-            assert_eq!((b.y, sb.x - b.x), (sb.y, 36.0), "beside the sidebar button, as the board's 160 and 196");
+            // Windows: right of the button in the top bar. Elsewhere: left of it, as the board's 160 and 196.
+            let side = if platform() == layout::Platform::Windows { -36.0 } else { 36.0 };
+            assert_eq!((b.y, sb.x - b.x), (sb.y, side), "beside the sidebar button");
             window.click("search-btn", cx);
             window.render_frame(cx);
             assert!(window.try_find("search").is_some(), "the button opens the search row");
@@ -3175,10 +3227,33 @@ mod tests {
         .unwrap();
     }
 
-    /// The rows are the Tight tiles board's `.th`: 30 high, a 7px state dot 8px in, the title, the
-    /// repo as a tag, and a 6px ping on an unread row only. Every row shows its dot, an agentic
-    /// stream too: agent figures belong to the Agents page (Charles, 13 Nov). Group heads are the
-    /// board's 34px `.grp`; New stream is a 30px row with its shortcut.
+    /// The apps (20 Nov): a row above New stream, each its own button with a gap between, not one
+    /// tray with a sliding key.
+    #[gpui_kit::test]
+    fn the_apps_are_separate_buttons_above_new_stream(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = open(cx, with_threads());
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            let (apps, new) = (rect(window, "apps-tray"), rect(window, "new-thread"));
+            assert!(apps.bottom() <= new.y, "the apps sit above New stream");
+            for i in 0..super::FUNCTIONS.len() {
+                let b = rect(window, ("fn", i));
+                assert!(b.x >= apps.x && b.right() <= apps.right() + 0.5, "app {i} inside the row");
+                if i > 0 {
+                    assert!(b.x - rect(window, ("fn", i - 1)).right() >= 3.5, "app {i} has its own space");
+                }
+            }
+            assert_eq!(window.find(("fn", 0usize)).selected(), Some(true), "Streams is the open one");
+        })
+        .unwrap();
+    }
+
+    /// The rows are the Tight tiles board's `.th`: 30 high, the agent's 22px figure 8px in (its
+    /// mood from the stream's state), the title, the repo as a tag, and a 6px ping on an unread row
+    /// only. Every row shows a figure (Charles, 20 Nov, from the round 3 board; it had been
+    /// dropped on 13 Nov). Group heads are the board's 34px `.grp`; New stream is a 30px row with
+    /// its shortcut.
     #[gpui_kit::test]
     fn thread_rows_are_the_boards(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
@@ -3199,7 +3274,7 @@ mod tests {
                 assert!((a.y + a.h / 2.0 - (r.y + r.h / 2.0)).abs() <= 1.0, "row {i}'s slot is centred");
                 assert_eq!(a.x - r.x, 8.0, "row {i}'s dot is 8px in, as the board's");
                 assert_eq!(window.find(("thread-av", i)).label(), Some(state), "row {i}");
-                assert!(window.try_find(("thread-fig", i)).is_none(), "row {i}: no figure");
+                assert!(window.try_find(("thread-fig", i)).is_none(), "row {i}: no figure, streams do not have agents (Charles, 20 Nov)");
                 assert!(window.try_find(("thread-dot", i)).is_some(), "row {i}: a state dot");
                 assert_eq!(window.find(("thread-meta", i)).label(), Some("no repo"), "row {i}");
             }

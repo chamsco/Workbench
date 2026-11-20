@@ -29,6 +29,7 @@ fn pick(s: &Shell, key: &str) -> Option<Rect> {
         "support" => s.support,
         "rail" => Some(s.rail),
         "notch" => s.notch,
+        "bar" => s.bar,
         "caps" => s.caps,
         "lights" => s.lights,
         "sbtn" => Some(s.sidebar_button),
@@ -51,7 +52,8 @@ fn solver_matches_every_golden_state_and_size() {
         for (name, st) in size["states"].as_object().unwrap() {
             let platform = match st["platform"].as_str().unwrap() {
                 "mac" => Platform::Mac,
-                "windows" => Platform::Windows,
+                // The golden is the board's Windows notch layout, now the Appearance option.
+                "windows" => Platform::WindowsNotch,
                 other => panic!("unknown platform {other}"),
             };
             let flags = state(st["sidebar_open"].as_bool().unwrap(), st["support_open"].as_bool().unwrap(), st["dock_open"].as_bool().unwrap());
@@ -102,7 +104,7 @@ fn all_states() -> impl Iterator<Item = ShellState> {
 fn panes_never_overlap_and_stay_inside_the_window() {
     for &(w, h) in &[(1200.0, 760.0), (1000.0, 640.0), (800.0, 600.0), (1920.0, 1080.0)] {
         let win = Rect { x: 0.0, y: 0.0, w, h };
-        for platform in [Platform::Mac, Platform::Windows] {
+        for platform in [Platform::Mac, Platform::Windows, Platform::WindowsNotch] {
             for st in all_states() {
                 let s = solve(w, h, st, platform);
                 assert!(s.main.w >= 100.0 && s.main.h > 100.0, "{w}x{h} {platform:?} {st:?}: main collapsed {:?}", s.main);
@@ -123,25 +125,26 @@ fn panes_never_overlap_and_stay_inside_the_window() {
 /// other; the sidebar sits flat on the frame from the left edge, and with it folded the card takes
 /// the 4px margin on the left too. There is no top bar: every card starts 4px from the top.
 #[test]
-fn cards_are_tight_tiles_4px_apart_with_no_top_bar() {
-    for platform in [Platform::Mac, Platform::Windows] {
+fn cards_are_tight_tiles_4px_apart() {
+    for platform in [Platform::Mac, Platform::Windows, Platform::WindowsNotch] {
         for st in all_states() {
             let (w, h) = (1200.0, 760.0);
             let s = solve(w, h, st, platform);
             let at = format!("{platform:?} {st:?}");
+            let top = if platform == Platform::Windows { metric::BAR_H } else { 4.0 };
             for c in cards(&s) {
                 assert!(c.right() <= w - 4.0 + 0.01 && c.bottom() <= h - 4.0 + 0.01, "{at}: {c:?} keeps the 4px margin");
             }
-            assert_eq!(s.main.y, 4.0, "{at}: no top bar");
+            assert_eq!(s.main.y, top, "{at}: no bar, except the Windows strip");
             match s.sidebar {
                 Some(sb) => {
-                    assert_eq!((sb.x, sb.y, sb.w, sb.bottom()), (0.0, 4.0, 236.0, h - 4.0), "{at}: sidebar on the frame");
+                    assert_eq!((sb.x, sb.y, sb.w, sb.bottom()), (0.0, top, 236.0, h - 4.0), "{at}: sidebar on the frame");
                     assert_eq!(s.main.x, sb.right() + 4.0, "{at}: card 4px from the sidebar");
                 }
                 None => assert_eq!(s.main.x, 4.0, "{at}: the card takes the left margin"),
             }
             if let Some(sup) = s.support {
-                assert_eq!((sup.y, sup.bottom(), sup.right()), (4.0, h - 4.0, w - 4.0), "{at}: support card full height at the right");
+                assert_eq!((sup.y, sup.bottom(), sup.right()), (top, h - 4.0, w - 4.0), "{at}: support card full height at the right");
                 assert_eq!(s.main.right() + 4.0, sup.x, "{at}: 4px between stream and support");
             } else {
                 assert_eq!(s.main.right(), w - 4.0, "{at}: folded, the stream card runs to the margin");
@@ -170,7 +173,7 @@ fn support_card_is_470_within_360_and_half_the_window() {
 /// open and folded use the same rail.
 #[test]
 fn the_rail_is_inside_the_rightmost_card() {
-    for platform in [Platform::Mac, Platform::Windows] {
+    for platform in [Platform::Mac, Platform::Windows, Platform::WindowsNotch] {
         for st in all_states() {
             let s = solve(1200.0, 760.0, st, platform);
             let host = s.support.unwrap_or(s.main);
@@ -187,7 +190,7 @@ fn the_rail_is_inside_the_rightmost_card() {
 fn platforms_differ_only_in_window_controls() {
     for st in all_states() {
         let mac = solve(1200.0, 760.0, st, Platform::Mac);
-        let win = solve(1200.0, 760.0, st, Platform::Windows);
+        let win = solve(1200.0, 760.0, st, Platform::WindowsNotch);
         assert!(mac.lights.is_some() && mac.caps.is_none() && mac.notch.is_none(), "{st:?}");
         assert!(win.lights.is_none() && win.caps.is_some(), "{st:?}");
         assert_eq!(mac.main, win.main, "{st:?}: same pane geometry on both platforms");
@@ -204,7 +207,7 @@ fn platforms_differ_only_in_window_controls() {
 #[test]
 fn tabs_live_in_the_stream_header() {
     for &(w, h) in &[(1200.0, 760.0), (1000.0, 640.0), (1920.0, 1080.0)] {
-        for platform in [Platform::Mac, Platform::Windows] {
+        for platform in [Platform::Mac, Platform::Windows, Platform::WindowsNotch] {
             for st in all_states() {
                 let s = solve(w, h, st, platform);
                 let t = s.tabs;
@@ -225,11 +228,11 @@ fn tabs_live_in_the_stream_header() {
 #[test]
 fn windows_folded_puts_the_sidebar_button_left_of_the_tabs() {
     let st = state(false, true, false);
-    let win = solve(1200.0, 760.0, st, Platform::Windows);
+    let win = solve(1200.0, 760.0, st, Platform::WindowsNotch);
     assert!(inside(win.main, win.sidebar_button), "button in the main card");
     assert_eq!(win.sidebar_button.x, win.main.x + 6.0);
     assert!(win.tabs.x > win.sidebar_button.right(), "tabs after the button");
-    for platform in [Platform::Mac, Platform::Windows] {
+    for platform in [Platform::Mac, Platform::WindowsNotch] {
         let open = solve(1200.0, 760.0, state(true, true, false), platform);
         assert!(inside(open.sidebar.unwrap(), open.sidebar_button), "{platform:?}: open, the button in the sidebar");
     }
@@ -246,4 +249,31 @@ fn main_keeps_a_minimum_width_by_closing_the_support_card() {
     assert!(s.sidebar.is_some() && s.dock.is_some());
     let wide = solve(1400.0, 800.0, state(true, true, false), Platform::Mac);
     assert!(wide.support.is_some() && wide.effective == state(true, true, false));
+}
+
+/// Windows default (Charles, 20 Nov, option B): a 34px strip across the window on the frame holds the
+/// sidebar button, search, inbox, "N needs you" and the caption buttons; tabs and tools stay in the
+/// stream card's header. The cards start under the strip and are as wide as on the other layouts.
+#[test]
+fn the_windows_strip_holds_the_window_controls() {
+    for st in all_states() {
+        let strip = solve(1200.0, 760.0, st, Platform::Windows);
+        let notch = solve(1200.0, 760.0, st, Platform::WindowsNotch);
+        assert!(strip.notch.is_none() && notch.notch.is_some() && notch.bar.is_none() && notch.pill.is_none(), "{st:?}");
+        let bar = strip.bar.expect("strip");
+        assert_eq!((bar.x, bar.y, bar.w, bar.h), (0.0, 0.0, 1200.0, 34.0), "{st:?}");
+        assert_eq!(strip.main.y, 34.0, "{st:?}: the cards start under the strip");
+        assert_eq!((strip.main.x, strip.main.w), (notch.main.x, notch.main.w), "{st:?}: same widths");
+        let caps = strip.caps.unwrap();
+        assert_eq!((caps.right(), caps.y, caps.w, caps.h), (1200.0, 0.0, 138.0, 34.0), "{st:?}: three 46px cells at the right end");
+        let pill = strip.pill.unwrap();
+        for r in [pill, strip.sidebar_button, strip.search_button, strip.bell_button, caps] {
+            assert!(inside(bar, r), "{st:?}: {r:?} inside the strip");
+        }
+        assert_eq!((strip.sidebar_button.x, strip.search_button.x, strip.bell_button.x), (10.0, 46.0, 82.0), "{st:?}: sidebar, search, inbox in order");
+        assert!(strip.bell_button.right() < pill.x && pill.right() <= caps.x, "{st:?}: buttons, then the pill, then the caption buttons");
+        // Tabs and tools are in the card header, unchanged by the strip.
+        assert_eq!((strip.tabs.y, strip.tools.y), (strip.main.y + 6.0, strip.main.y + 6.0), "{st:?}");
+        assert!(strip.tools.right() <= strip.main.right() - 8.0, "{st:?}: tools need no notch room");
+    }
 }
