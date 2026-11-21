@@ -76,15 +76,23 @@ impl Cauldron {
         let mut out = Vec::new();
         for (si, (sid, title)) in self.sides.iter().enumerate() {
             let on = self.open.as_deref() == Some(sid.as_str());
+            // A closed side stream is not deleted: it leaves the tab row and stays under its main
+            // in the sidebar, where a click brings it back.
+            if !on && self.closed_sides.contains(sid) {
+                continue;
+            }
             let name_w = {
                 let run = TextRun { len: title.len(), font: Font { weight: FontWeight::MEDIUM, features: sans_features(), ..font(SANS) }, color: fg, background_color: None, underline: None, strikethrough: None };
                 f32::from(window.text_system().shape_line(title.clone().into(), px(12.5), &[run], None).width)
             };
-            let tw = (TAB_PAD + 12.0 + CLOSE_GAP + super::mark::TAB_W + name_w + TAB_PAD).ceil().clamp(TAB_MIN, 160.0);
+            let tw = (TAB_PAD + 12.0 + CLOSE_GAP + super::mark::TAB_W + name_w + CLOSE_GAP + 16.0 + TAB_PAD).ceil().clamp(TAB_MIN, 176.0);
+            let (sid2, sid3, sid4) = (sid.clone(), sid.clone(), sid.clone());
             let (sm, scol) = self.stream_mark(sid, pal);
-            let sid2 = sid.clone();
+            let main_id = self.side_root.clone();
+            let group: SharedString = format!("side-tab{si}").into();
             let tab = div()
                 .id(("side-tab", si))
+                .group(group.clone())
                 .relative()
                 .flex()
                 .items_center()
@@ -107,9 +115,38 @@ impl Cauldron {
                 .aria_label(format!("Side stream: {title}"))
                 .child(glyph("corner-down-right", 12., fg3))
                 .child(super::mark::mark(("side-mark", si), sm, super::mark::SIZE, c(scol)).test_support())
-                .child(div().min_w_0().truncate().child(title.clone()))
+                .child(div().flex_1().min_w_0().truncate().child(title.clone()))
+                .child(
+                    div()
+                        .id(("side-close", si))
+                        .size(px(16.))
+                        .flex_none()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded(px(radius::TAG))
+                        .when(!on, |d| d.opacity(0.5).group_hover(group.clone(), |s| s.opacity(1.)))
+                        .hover(|d| d.bg(ca(pal.fg, 0.08)))
+                        .aria_label("Close side stream")
+                        .child(glyph("x", 12., fg3))
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            cx.stop_propagation();
+                            this.closed_sides.insert(sid3.clone());
+                            if this.open.as_deref() == Some(sid3.as_str()) {
+                                if let Some(m) = main_id.clone() {
+                                    this.active = 0;
+                                    this.open_thread(m);
+                                    this.focus_tabs(window, cx);
+                                }
+                            }
+                            cx.notify();
+                        }))
+                        .test_support(),
+                )
+                .on_mouse_down(MouseButton::Right, cx.listener(move |this, ev: &MouseDownEvent, _, cx| this.open_stream_menu(sid4.clone(), ev.position, cx)))
                 .on_click(cx.listener(move |this, _, window, cx| {
                     this.active = 0;
+                    this.closed_sides.remove(&sid2);
                     this.open_thread(sid2.clone());
                     this.focus_tabs(window, cx);
                     cx.notify();
@@ -118,7 +155,7 @@ impl Cauldron {
                 *bump = Some((*at - super::tabshape::S, tw + 2.0 * super::tabshape::S));
             }
             *at += tw + TAB_SEP;
-            let tab = if tw >= 160.0 { self.tipped(("side-tab", si), tab, title.clone(), Side::Below, pal, cx) } else { tab };
+            let tab = if tw >= 176.0 { self.tipped(("side-tab", si), tab, title.clone(), Side::Below, pal, cx) } else { tab };
             out.push(tab.test_support().into_any_element());
         }
         out
@@ -248,5 +285,46 @@ impl Cauldron {
             )
             .test_support()
             .into_any_element()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::thread::tests::open;
+    use backspace_core::chat::SideCtx;
+    use gpui_kit::test::TestWindowExt;
+    use gpui_kit::{AppContext, TestAppContext};
+
+    /// A side stream's tab closes without deleting it; the sidebar lists it under its main and a
+    /// click brings the tab back.
+    #[gpui_kit::test]
+    fn a_closed_side_tab_stays_in_the_sidebar_and_comes_back(cx: &mut TestAppContext) {
+        let (handle, chats) = open(cx);
+        let side = chats.side("t1", "what about windows?", SideCtx::None).unwrap();
+        handle
+            .update(cx, |c, _, _| {
+                c.refresh();
+                c.open_thread("t1".into());
+            })
+            .unwrap();
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            assert!(window.try_find(("side-tab", 0usize)).is_some(), "the side stream has a tab");
+            window.click(("side-close", 0usize), cx);
+            window.render_frame(cx);
+            assert!(window.try_find(("side-tab", 0usize)).is_none(), "closing takes the tab away");
+        })
+        .unwrap();
+        assert!(chats.peek(&side.id).is_some(), "and deletes nothing");
+        cx.update_window(handle.into(), |_, window, cx| {
+            assert!(window.try_find(("side-row", 0usize)).is_none(), "the sidebar list is folded");
+            window.click(("thread-sides", 0usize), cx);
+            window.render_frame(cx);
+            assert!(window.try_find(("side-row", 0usize)).is_some(), "its main lists it");
+            window.click(("side-row", 0usize), cx);
+            window.render_frame(cx);
+            assert!(window.try_find(("side-tab", 0usize)).is_some(), "a click brings the tab back");
+        })
+        .unwrap();
     }
 }

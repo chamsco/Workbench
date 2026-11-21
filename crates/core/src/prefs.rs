@@ -104,6 +104,12 @@ pub struct Prefs {
     /// Cauldron: how the New stream box shows its model picker. "stacked" is a card tucked behind
     /// the box that drops out below it; None (or anything else) unfolds the tray under the box.
     pub model_tray: Option<String>,
+    /// Cauldron: the frame and sidebar colour, `#rrggbb`. None: the theme's.
+    pub sidebar_color: Option<String>,
+    /// Cauldron: the stream and support cards' colour, `#rrggbb`. None: the theme's.
+    pub main_color: Option<String>,
+    /// Cauldron: saved themes, one per entry: `name|frame|main|backdrop|picture|dim` (`-` for none).
+    pub themes: Vec<String>,
     /// Cauldron, plain background: the dither planes ("off" hides them; on by default).
     pub dither: Option<String>,
     /// The working stream's plane: "ripple", else the valley faded in at the bottom.
@@ -178,6 +184,9 @@ impl Default for Prefs {
             frost: None,
             window_style: None,
             model_tray: None,
+            sidebar_color: None,
+            main_color: None,
+            themes: Vec::new(),
             dither: None,
             dither_work: None,
             dither_motion: None,
