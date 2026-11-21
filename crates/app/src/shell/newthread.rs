@@ -440,55 +440,6 @@ impl Cauldron {
             .pb(px(8.))
             .bg(super::backdrop::surface(self.painting, pal.raised, super::backdrop::GLASS_COMPOSER))
             .rounded(px(radius::SHELL - 4.));
-        // Attachments (Charles, 21 Nov, option 1): a row of chips above the text, each its kind's
-        // icon, its name and a remove x. One line; more than fit scroll sideways.
-        if !self.start.files.is_empty() {
-            let mut row = div().id("nt-files").flex().gap(px(6.)).pt(px(6.)).pb(px(2.)).overflow_x_scroll();
-            for (i, p) in self.start.files.iter().enumerate() {
-                let name = p.file_name().map_or_else(String::new, |n| n.to_string_lossy().to_string());
-                let (icon, tint) = file_kind(p, pal);
-                row = row.child(
-                    div()
-                        .id(("file", i))
-                        .flex_none()
-                        .h(px(28.))
-                        .flex()
-                        .items_center()
-                        .gap(px(6.))
-                        .pl(px(8.))
-                        .pr(px(4.))
-                        .rounded(px(radius::INNER))
-                        .border_1()
-                        .border_color(c(pal.line_strong))
-                        .bg(c(pal.inset))
-                        .text_size(px(12.5))
-                        .text_color(c(pal.fg))
-                        .aria_label(name.clone())
-                        .child(glyph(icon, 14., tint))
-                        .child(div().max_w(px(180.)).truncate().child(name))
-                        .child(
-                            div()
-                                .id(("file-x", i))
-                                .size(px(20.))
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .rounded(px(radius::TAG))
-                                .cursor_pointer()
-                                .hover(|d| d.bg(c(pal.hover)))
-                                .aria_label("Remove")
-                                .child(glyph("x", 12., fg3))
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.start.files.remove(i);
-                                    cx.notify();
-                                }))
-                                .test_support(),
-                        )
-                        .test_support(),
-                );
-            }
-            nt_box = nt_box.child(row.test_support());
-        }
         nt_box = nt_box.child(div().id("nt-input").mx(px(-10.)).text_size(px(13.)).text_color(c(pal.fg)).child(Textarea::new(&input).appearance(false)).test_support());
         let nt_box = nt_box.child(div().mt_auto().child(tools)).test_support();
 
@@ -619,10 +570,10 @@ impl Cauldron {
             } else {
                 (mid.pt(px(tuck)).h(px(40.0 + tuck)).into_any_element(), spacer.h(px(40.)).into_any_element())
             };
-            let front = glass(div().id("nt-front").relative().flex().flex_col().p(px(3.))).child(nt_box).test_support();
+            let front = glass(div().id("nt-front").relative().flex().flex_col().p(px(3.))).when_some(self.files_tray(pal, cx), |d, t| d.child(t)).child(nt_box).test_support();
             nt_stack.flex_col().child(mid).child(front).child(spacer)
         } else {
-            glass(nt_stack.flex_col().p(px(3.))).child(nt_box).child(bar).when_live(tray_open, |d| d.child(self.route_tray(pal, cx)))
+            glass(nt_stack.flex_col().p(px(3.))).when_some(self.files_tray(pal, cx), |d, t| d.child(t)).child(nt_box).child(bar).when_live(tray_open, |d| d.child(self.route_tray(pal, cx)))
         }
         .test_support();
         // The picker opens downward: the stack gives back its growth as a negative margin, so the
@@ -1023,8 +974,125 @@ fn ctx_now(plan: bool) -> backspace_core::chat::Ctx {
     super::thread::ctx(plan)
 }
 
+/// The attach ring (Charles, 21 Nov: "a circle getting filled up and green, and then it goes
+/// away"): an arc that fills over `t` in 0..0.7, turns green with a check by 0.85, then fades.
+/// Red instead when the file can no longer be read.
+pub(super) fn attach_ring(t: f32, ok: bool, pal: &Palette) -> String {
+    let hex = |r: super::tokens::Rgb| format!("#{:02x}{:02x}{:02x}", r.0, r.1, r.2);
+    let (track, accent, done) = (hex(pal.line_strong.0), hex(pal.accent), if ok { hex(pal.ok) } else { hex(pal.bad) });
+    let fill = (t / 0.7).clamp(0.0, 1.0);
+    let circ = 2.0 * std::f32::consts::PI * 6.0;
+    let (col, mark) = if fill < 1.0 {
+        (accent, String::new())
+    } else if ok {
+        (done.clone(), format!(r#"<path d="M5 8.2l2 2 4-4.2" fill="none" stroke="{done}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>"#))
+    } else {
+        (done.clone(), format!(r#"<path d="M6 6l4 4M10 6l-4 4" fill="none" stroke="{done}" stroke-width="1.8" stroke-linecap="round"/>"#))
+    };
+    let fade = if t > 0.85 { ((1.0 - t) / 0.15).clamp(0.0, 1.0) } else { 1.0 };
+    format!(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" opacity="{fade:.2}"><circle cx="8" cy="8" r="6" fill="none" stroke="{track}" stroke-width="2"/><circle cx="8" cy="8" r="6" fill="none" stroke="{col}" stroke-width="2" stroke-linecap="round" stroke-dasharray="{:.2} {circ:.2}" transform="rotate(-90 8 8)"/>{mark}</svg>"#,
+        circ * fill
+    )
+}
+
+impl Cauldron {
+    /// Attachments, option 1 (Charles, 21 Nov): a tray of chips on top of the box, inside its
+    /// frame. A new chip shows the attach ring in place of its icon, then the icon.
+    #[inline(never)]
+    pub(super) fn files_tray(&self, pal: &'static Palette, cx: &mut Context<Self>) -> Option<AnyElement> {
+        if self.start.files.is_empty() {
+            return None;
+        }
+        let fg3 = c(pal.fg3);
+        let mut row = div().id("nt-files").flex().gap(px(6.)).px(px(4.)).pt(px(3.)).pb(px(6.)).overflow_x_scroll();
+        for (i, p) in self.start.files.iter().enumerate() {
+            let name = p.file_name().map_or_else(String::new, |n| n.to_string_lossy().to_string());
+            let (icon, tint) = file_kind(p, pal);
+            let ok = p.exists();
+            // Keyed by the path, so a new attachment animates and the rest stay settled.
+            let key = {
+                use std::hash::{Hash, Hasher};
+                let mut h = std::collections::hash_map::DefaultHasher::new();
+                p.hash(&mut h);
+                h.finish() as usize
+            };
+            let slot = div().id(("file-ring", key)).size(px(16.)).flex_none().flex().items_center().justify_center().with_animation(("file-ring-a", key), super::motion::anim(1100.), move |d, t| {
+                if t < 1.0 {
+                    d.child(img(Arc::new(Image::from_bytes(ImageFormat::Svg, attach_ring(t, ok, pal).into_bytes()))).size(px(16.)))
+                } else if ok {
+                    d.child(glyph(icon, 14., tint))
+                } else {
+                    d.child(glyph("circle-alert", 14., c(pal.bad)))
+                }
+            });
+            row = row.child(
+                div()
+                    .id(("file", i))
+                    .flex_none()
+                    .h(px(30.))
+                    .flex()
+                    .items_center()
+                    .gap(px(7.))
+                    .pl(px(9.))
+                    .pr(px(4.))
+                    .rounded(px(radius::INNER + 2.))
+                    .bg(c(pal.raised))
+                    .border_1()
+                    .border_color(c(pal.line))
+                    .shadow(vec![drop(tokens::shadow::TIP)])
+                    .text_size(px(12.5))
+                    .text_color(c(pal.fg))
+                    .aria_label(name.clone())
+                    .when(!ok, |d| d.aria_description("Can't read this file"))
+                    .child(slot)
+                    .child(div().max_w(px(180.)).truncate().child(name))
+                    .child(
+                        div()
+                            .id(("file-x", i))
+                            .size(px(20.))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .rounded(px(radius::TAG))
+                            .cursor_pointer()
+                            .hover(|d| d.bg(c(pal.hover)))
+                            .aria_label("Remove")
+                            .child(glyph("x", 12., fg3))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.start.files.remove(i);
+                                cx.notify();
+                            }))
+                            .test_support(),
+                    )
+                    .test_support(),
+            );
+        }
+        Some(row.test_support().into_any_element())
+    }
+}
+
 #[cfg(test)]
 mod tests {
+
+    /// The attach ring fills in the accent, turns green with a check, then fades; red with an x
+    /// when the file is gone. `CAULDRON_RING_DUMP=<dir>` writes the frames as SVG for the PR.
+    #[::core::prelude::v1::test]
+    fn the_attach_ring_fills_turns_green_and_fades() {
+        let pal = &cauldron_chrome::tokens::DARK;
+        let hex = |r: cauldron_chrome::tokens::Rgb| format!("#{:02x}{:02x}{:02x}", r.0, r.1, r.2);
+        let half = super::attach_ring(0.35, true, pal);
+        assert!(half.contains(&hex(pal.accent)) && !half.contains("M5 8.2"), "filling in the accent: {half}");
+        let done = super::attach_ring(0.8, true, pal);
+        assert!(done.contains(&hex(pal.ok)) && done.contains("M5 8.2"), "green with a check");
+        assert!(super::attach_ring(0.99, true, pal).contains("opacity=\"0.07\""), "fading out");
+        assert!(super::attach_ring(0.8, false, pal).contains(&hex(pal.bad)), "red when unreadable");
+        if let Some(dir) = std::env::var_os("CAULDRON_RING_DUMP") {
+            for (k, t) in [0.0, 0.2, 0.45, 0.7, 0.8, 0.95].into_iter().enumerate() {
+                std::fs::write(std::path::Path::new(&dir).join(format!("ring-{k}.svg")), super::attach_ring(t, true, pal)).unwrap();
+            }
+        }
+    }
     use super::super::thread::tests::open;
     use super::super::Cauldron;
     use super::body_line;

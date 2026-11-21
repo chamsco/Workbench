@@ -440,6 +440,11 @@ impl Cauldron {
             c.active = n;
             c.reveal = true;
         }
+        // Debug builds only: `CAULDRON_FIXTURE_FILES=a;b` attaches these to the New stream box.
+        #[cfg(debug_assertions)]
+        if let Ok(v) = std::env::var("CAULDRON_FIXTURE_FILES") {
+            c.start.files = v.split(';').filter(|p| !p.is_empty()).map(std::path::PathBuf::from).collect();
+        }
         c
     }
 
