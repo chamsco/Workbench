@@ -36,6 +36,8 @@ mod settings;
 mod subs;
 mod support;
 mod terminal;
+mod colours;
+mod theme;
 mod tabshape;
 mod thread;
 mod update;
@@ -213,6 +215,11 @@ pub(crate) struct Cauldron {
     fam_questions: std::collections::HashMap<String, Option<backspace_core::options::OptionSet>>,
     frost: backdrop::FrostLevel,
     stream_bg: Option<std::path::PathBuf>,
+    /// The picture that was behind the card, and when the new one started wiping over it.
+    bg_wipe: Option<(Option<std::path::PathBuf>, std::time::Instant)>,
+    /// Settings > Appearance: which colour the swatches set, and the open hex field.
+    color_target: theme::Target,
+    hex_input: Option<(Entity<InputState>, Subscription)>,
     /// "system", "light" or "dark" (the Appearance page's Mode, saved in prefs).
     theme_mode: String,
     /// The shell's own focus: it takes the keys when nothing inside has them (⌘N, Ctrl+N).
@@ -543,17 +550,15 @@ impl Cauldron {
     /// only), or this card's crop of the light frost under the tint. Empty on the plain frame or
     /// before the frost is baked; then the card keeps its own glass colour.
     fn glass_under(&mut self, id: &'static str, r: Rect, win: (f32, f32), dark: bool, pal: &'static Palette, moving: bool, window: &mut Window) -> Option<Vec<AnyElement>> {
+        let round = px(radius::PANEL);
+        // The user's picture shows on the plain frame too, so Settings can preview it.
+        if id == "main" && self.settings.is_none() {
+            if let Some(layers) = self.picture_layers(r.w, round, pal) {
+                return Some(layers);
+            }
+        }
         if !self.painting {
             return None;
-        }
-        let round = px(radius::PANEL);
-        if id == "main" {
-            if let Some(path) = self.stream_bg.clone() {
-                return Some(vec![
-                    img(path).id("stream-bg").absolute().left_0().top_0().size_full().rounded(round).object_fit(ObjectFit::Cover).test_support().into_any_element(),
-                    div().absolute().left_0().top_0().size_full().rounded(round).bg(backdrop::surface(true, pal.frame, backdrop::dim_alpha(&Prefs::load()))).into_any_element(),
-                ]);
-            }
         }
         let mut stale = Vec::new();
         let crop = self.glass.get(id, dark, win, r, moving, &mut stale);
@@ -568,7 +573,7 @@ impl Cauldron {
     }
 
     pub(crate) fn new() -> Self {
-        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, support_data: Default::default(), files_open: Default::default(), painting: false, glass: Default::default(), plane: Default::default(), ask_hover: false, ask_open: None, ask_answered: Default::default(), fam_questions: Default::default(), frost: backdrop::FrostLevel::Heavy, stream_bg: None, theme_mode: String::new(), root_focus: None, plan: false, open_in_menu: false, open_in: thread::OpenIn::Folder, search_open: false, indent: false, usage: Default::default(), settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, familiar: None, fam_views: Vec::new(), fam_live: Vec::new(), fam_watch: Vec::new(), fam_driving: Default::default(), fam_error: None, fam_composer: None, fam_fixture: false, inbox: Vec::new(), inbox_open: false, update: Default::default(), update_open: false, inbox_toast: None, fam_from: (0.0, 0.0), fam_to: None, fam_since: None, fam_hl: 0, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default(), err_open: Default::default(), side_root: None, sides: Vec::new(), side_win: false, side_input: None, side_ctx: Default::default() }
+        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, support_data: Default::default(), files_open: Default::default(), painting: false, glass: Default::default(), plane: Default::default(), ask_hover: false, ask_open: None, ask_answered: Default::default(), fam_questions: Default::default(), frost: backdrop::FrostLevel::Heavy, stream_bg: None, bg_wipe: None, color_target: theme::Target::Sidebar, hex_input: None, theme_mode: String::new(), root_focus: None, plan: false, open_in_menu: false, open_in: thread::OpenIn::Folder, search_open: false, indent: false, usage: Default::default(), settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, familiar: None, fam_views: Vec::new(), fam_live: Vec::new(), fam_watch: Vec::new(), fam_driving: Default::default(), fam_error: None, fam_composer: None, fam_fixture: false, inbox: Vec::new(), inbox_open: false, update: Default::default(), update_open: false, inbox_toast: None, fam_from: (0.0, 0.0), fam_to: None, fam_since: None, fam_hl: 0, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default(), err_open: Default::default(), side_root: None, sides: Vec::new(), side_win: false, side_input: None, side_ctx: Default::default() }
     }
 
     /// Opens core off the main thread (the sidebar shows Loading meanwhile), then keeps the thread
@@ -1553,7 +1558,7 @@ impl Render for Cauldron {
             "light" => false,
             _ => !matches!(window.appearance(), WindowAppearance::Light | WindowAppearance::VibrantLight),
         });
-        let pal: &'static Palette = if dark { &tokens::DARK } else { &tokens::LIGHT };
+        let pal: &'static Palette = theme::themed(dark);
         let vs = window.viewport_size();
         let (w, h) = (f32::from(vs.width), f32::from(vs.height));
         let plat = platform();
@@ -1614,6 +1619,11 @@ impl Render for Cauldron {
             } else {
                 moving = true;
             }
+        }
+        if self.bg_wipe.as_ref().is_some_and(|(_, t)| t.elapsed().as_millis() < colours::WIPE_MS) {
+            moving = true;
+        } else {
+            self.bg_wipe = None;
         }
         if moving {
             window.request_animation_frame();
