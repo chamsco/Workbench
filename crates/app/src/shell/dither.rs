@@ -151,69 +151,78 @@ fn to_render(mut img: RgbaImage) -> RenderImage {
     RenderImage::new(smallvec::smallvec![image::Frame::new(img)])
 }
 
-/// The plane last drawn, by what it was drawn for. Moving keeps a loop of frames.
+/// What a plane was drawn for: kind, size and scale (rounded), theme, Moving.
+pub(crate) type Key = (Kind, u32, u32, u32, bool, bool);
+
+pub(crate) fn key(kind: Kind, w: f32, h: f32, scale: f32, dark: bool, moving: bool) -> Key {
+    (kind, w.round() as u32, h.round() as u32, (scale * 100.0).round() as u32, dark, moving)
+}
+
+/// Draws the frames for `key`: one at the screen's pixels for Still, the loop at one pixel per
+/// point for Moving (a third of the memory of 12 full frames). Slow (7-130 ms): call it off the UI
+/// thread.
+pub(crate) fn frames(kind: Kind, w: f32, h: f32, scale: f32, dark: bool, moving: bool) -> Vec<Arc<RenderImage>> {
+    if moving {
+        let period = std::f32::consts::TAU / 2.2;
+        (0..FRAMES)
+            .map(|i| Arc::new(to_render(render(kind, w, h, 1.0, dark, Some(period * i as f32 / FRAMES as f32)))))
+            .collect()
+    } else {
+        vec![Arc::new(to_render(render(kind, w, h, scale, dark, None)))]
+    }
+}
+
+/// The plane last drawn, by what it was drawn for. Moving keeps a loop of frames. New frames are
+/// drawn off the UI thread (`pending`); until they land, the card shows the last ones stretched.
 #[derive(Default)]
 pub(crate) struct Plane {
-    key: Option<(Kind, u32, u32, u32, bool, bool)>,
-    frames: Vec<Arc<RenderImage>>,
+    pub(crate) key: Option<Key>,
+    pub(crate) frames: Vec<Arc<RenderImage>>,
+    /// The frames being drawn, by key.
+    pub(crate) pending: Option<(Key, gpui_kit::Task<()>)>,
+    /// Images replaced off the UI thread, for the next draw to free from the atlas.
+    pub(crate) stale: Vec<Arc<RenderImage>>,
     /// The ticker that redraws the Moving loop.
     pub(crate) ticker: Option<gpui_kit::Task<()>>,
 }
 
 impl Plane {
-    /// The image for this card, drawing it when the card's size, the theme or the plane changed.
-    /// Images it no longer needs go to `stale`, for the window to drop.
-    pub(crate) fn get(
-        &mut self,
-        kind: Kind,
-        w: f32,
-        h: f32,
-        scale: f32,
-        dark: bool,
-        moving: bool,
-        stale: &mut Vec<Arc<RenderImage>>,
-    ) -> Arc<RenderImage> {
-        let key = (
-            kind,
-            w.round() as u32,
-            h.round() as u32,
-            (scale * 100.0).round() as u32,
-            dark,
-            moving,
-        );
-        if self.key != Some(key) || self.frames.is_empty() {
-            stale.append(&mut self.frames);
-            self.key = Some(key);
-            self.frames = if moving {
-                // The loop at one pixel per point (a third of the memory of 12 full frames).
-                let period = std::f32::consts::TAU / 2.2;
-                (0..FRAMES)
-                    .map(|i| {
-                        Arc::new(to_render(render(
-                            kind,
-                            w,
-                            h,
-                            1.0,
-                            dark,
-                            Some(period * i as f32 / FRAMES as f32),
-                        )))
-                    })
-                    .collect()
-            } else {
-                vec![Arc::new(to_render(render(kind, w, h, scale, dark, None)))]
-            };
+    /// Whether frames for `key` must be drawn: neither shown nor on their way. While the layout
+    /// animates (`settling`) a plane of the same kind, theme and motion is kept, stretched, the way
+    /// the glass crops are, so an animation does not redraw the plane every frame.
+    pub(crate) fn needs(&self, key: Key, settling: bool) -> bool {
+        if self.key == Some(key) && !self.frames.is_empty() {
+            return false;
         }
-        let i = if moving {
-            (now_ms() / FRAME_MS) as usize % self.frames.len()
-        } else {
-            0
-        };
-        self.frames[i].clone()
+        if self.pending.as_ref().is_some_and(|(k, _)| *k == key) {
+            return false;
+        }
+        let same_look = |k: &Key| k.0 == key.0 && k.3 == key.3 && k.4 == key.4 && k.5 == key.5;
+        !(settling && !self.frames.is_empty() && self.key.as_ref().is_some_and(same_look))
+    }
+
+    /// Takes frames drawn for `key`; the ones they replace go to `stale`.
+    pub(crate) fn land(&mut self, key: Key, frames: Vec<Arc<RenderImage>>) {
+        if self.pending.as_ref().is_some_and(|(k, _)| *k == key) {
+            self.pending = None;
+        }
+        let old = std::mem::replace(&mut self.frames, frames);
+        self.stale.extend(old);
+        self.key = Some(key);
+    }
+
+    /// The frame to show now, if any is drawn.
+    pub(crate) fn current(&self) -> Option<Arc<RenderImage>> {
+        let moving = self.key.is_some_and(|k| k.5);
+        let n = self.frames.len();
+        (n > 0).then(|| self.frames[if moving { (now_ms() / FRAME_MS) as usize % n } else { 0 }].clone())
     }
 
     pub(crate) fn clear(&mut self, stale: &mut Vec<Arc<RenderImage>>) {
         stale.append(&mut self.frames);
+        stale.append(&mut self.stale);
         self.key = None;
+        self.pending = None;
         self.ticker = None;
     }
 }
@@ -257,5 +266,20 @@ mod tests {
             img.pixels().all(|p| p.0[3] == 0 || p.0[3] == 15),
             "6% dots only"
         );
+    }
+
+    #[::core::prelude::v1::test]
+    fn a_plane_is_drawn_once_and_kept_while_the_layout_animates() {
+        use super::{key, Plane};
+        let mut pl = Plane::default();
+        let a = key(Kind::Horizon, 900.0, 600.0, 1.0, true, false);
+        let b = key(Kind::Horizon, 640.0, 600.0, 1.0, true, false);
+        assert!(pl.needs(a, false), "nothing drawn yet");
+        pl.land(a, super::frames(Kind::Horizon, 30.0, 20.0, 1.0, true, false));
+        assert!(!pl.needs(a, false), "same size: nothing to draw");
+        assert!(!pl.needs(b, true), "an animation keeps the last plane, stretched");
+        assert!(pl.needs(b, false), "settled at a new size: draw it");
+        assert!(pl.needs(key(Kind::Horizon, 900.0, 600.0, 1.0, false, false), true), "a theme change is not an animation");
+        assert!(pl.current().is_some());
     }
 }

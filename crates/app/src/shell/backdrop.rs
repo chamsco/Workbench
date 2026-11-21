@@ -99,10 +99,43 @@ pub(crate) fn frame_layer(dark: bool) -> Arc<RenderImage> {
     if let Some(u) = user_layers() {
         return u.frame[dark as usize].clone();
     }
+    frame_cell(dark).get_or_init(|| Arc::new(to_render(frame_rgba(dark).as_ref().clone()))).clone()
+}
+
+fn frame_cell(dark: bool) -> &'static OnceLock<Arc<RenderImage>> {
     static DARK: OnceLock<Arc<RenderImage>> = OnceLock::new();
     static LIGHT: OnceLock<Arc<RenderImage>> = OnceLock::new();
-    let cell = if dark { &DARK } else { &LIGHT };
-    cell.get_or_init(|| Arc::new(to_render(frame_rgba(dark).as_ref().clone()))).clone()
+    if dark { &DARK } else { &LIGHT }
+}
+
+fn frame_px_cell(dark: bool) -> &'static OnceLock<Arc<RgbaImage>> {
+    static DARK: OnceLock<Arc<RgbaImage>> = OnceLock::new();
+    static LIGHT: OnceLock<Arc<RgbaImage>> = OnceLock::new();
+    if dark { &DARK } else { &LIGHT }
+}
+
+/// The frame layer for drawing: None until `warm` has baked it, so the first frame never waits on
+/// the bake (68 ms on a first launch, 4 ms reading the cache after); the frame shows its plain
+/// colour meanwhile. Tests bake it in place, as before.
+pub(crate) fn frame_layer_now(dark: bool) -> Option<Arc<RenderImage>> {
+    if cfg!(test) {
+        return Some(frame_layer(dark));
+    }
+    match user_layers() {
+        Some(u) => Some(u.frame[dark as usize].clone()),
+        None => frame_cell(dark).get().cloned(),
+    }
+}
+
+/// `frame_rgba` once baked; None until then (see `frame_layer_now`).
+pub(crate) fn frame_rgba_now(dark: bool) -> Option<Arc<RgbaImage>> {
+    if cfg!(test) {
+        return Some(frame_rgba(dark));
+    }
+    match user_layers() {
+        Some(u) => Some(u.frame_px[dark as usize].clone()),
+        None => frame_layer_now(dark).and_then(|_| frame_px_cell(dark).get().cloned()),
+    }
 }
 
 /// The frame layer's pixels, for crops that must match it exactly (the tab's frame pieces).
@@ -110,10 +143,7 @@ pub(crate) fn frame_rgba(dark: bool) -> Arc<RgbaImage> {
     if let Some(u) = user_layers() {
         return u.frame_px[dark as usize].clone();
     }
-    static DARK: OnceLock<Arc<RgbaImage>> = OnceLock::new();
-    static LIGHT: OnceLock<Arc<RgbaImage>> = OnceLock::new();
-    let cell = if dark { &DARK } else { &LIGHT };
-    cell.get_or_init(|| Arc::new(baked(dark, FRAME))).clone()
+    frame_px_cell(dark).get_or_init(|| Arc::new(baked(dark, FRAME))).clone()
 }
 
 /// The frost layers baked from the user's own picture, so the frame and every card carry the
