@@ -63,6 +63,7 @@ pub mod spec;
 pub mod stages;
 pub mod ticket;
 pub mod tools;
+pub mod cli_update;
 pub mod update;
 pub mod usage;
 
