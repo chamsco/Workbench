@@ -283,7 +283,13 @@ fn serve(listener: TcpListener) {
             }
             let mut body = vec![0; len];
             reader.read_exact(&mut body).unwrap();
-            let req: Value = serde_json::from_slice(&body).unwrap();
+            // Only model calls carry a JSON body; anything else that finds the port (a GET probe
+            // for a model list, a health check) gets a 404 instead of panicking this thread, which
+            // left the request unanswered and the test's project folder half written.
+            let Ok(req) = serde_json::from_slice::<Value>(&body) else {
+                let _ = write!(stream, "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+                return;
+            };
             let out = respond(&req).to_string();
             write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{out}", out.len()).unwrap();
         });
