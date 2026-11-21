@@ -109,7 +109,7 @@ impl Cauldron {
     fn card_piece(&mut self, id: &'static str, main: Rect, r: Rect, k: Corner, win: (f32, f32), dark: bool, pal: &'static Palette, window: &mut Window) -> Div {
         let mut d = round(abs(r), k);
         if !self.painting {
-            return d.bg(c(pal.panel));
+            return d.bg(backdrop::card_bg(false, pal));
         }
         let mut stale = Vec::new();
         let src = match (self.stream_bg.is_some(), backdrop::user_layers()) {

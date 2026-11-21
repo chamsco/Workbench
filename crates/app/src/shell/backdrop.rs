@@ -85,6 +85,13 @@ pub(crate) fn surface(painting: bool, v: Rgb, alpha: f32) -> gpui_kit::Hsla {
     if painting { super::ca(v, alpha) } else { super::c(v) }
 }
 
+/// A stream or support card's own fill when it has no glass under it. Plain: the frame's tone, so
+/// the window is one sheet and the card is only its hairline and tab (Charles, 21 Nov: two tones
+/// read as two apps). Over the painting: the card's translucent glass colour.
+pub(crate) fn card_bg(painting: bool, pal: &Palette) -> gpui_kit::Hsla {
+    if painting { surface(true, pal.panel, GLASS_CARD) } else { super::c(pal.frame) }
+}
+
 /// The frame layer for a theme: the user's picture's when one is set and baked (the frame takes
 /// its theme from the stream card's picture, Charles 20 Nov), else the Harbour painting's.
 pub(crate) fn frame_layer(dark: bool) -> Arc<RenderImage> {

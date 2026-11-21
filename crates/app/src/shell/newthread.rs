@@ -83,6 +83,20 @@ fn mime(name: &str) -> &'static str {
     }
 }
 
+/// An attachment's icon and tint by kind (option 1 chips): documents, images, sheets, folders.
+fn file_kind(p: &std::path::Path, pal: &'static Palette) -> (&'static str, gpui_kit::Hsla) {
+    if p.is_dir() {
+        return ("folder", c(pal.warn));
+    }
+    let ext = p.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
+    match ext.as_str() {
+        "png" | "jpg" | "jpeg" | "gif" | "webp" | "svg" | "bmp" => ("image", c(pal.accent)),
+        "pdf" | "doc" | "docx" | "md" | "txt" | "rtf" => ("file-text", c(pal.bad)),
+        "csv" | "xls" | "xlsx" | "tsv" | "numbers" => ("sheet", c(pal.ok)),
+        _ => ("file", c(pal.fg2)),
+    }
+}
+
 impl Cauldron {
     /// Back to the New thread screen with an empty box.
     pub(super) fn new_thread(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -408,30 +422,43 @@ impl Cauldron {
             .pr(px(10.))
             .pb(px(8.))
             .bg(super::backdrop::surface(self.painting, pal.raised, super::backdrop::GLASS_COMPOSER))
-            .rounded(px(radius::SHELL - 4.))
-            .child(div().id("nt-input").mx(px(-10.)).text_size(px(13.)).text_color(c(pal.fg)).child(Textarea::new(&input).appearance(false)).test_support());
+            .rounded(px(radius::SHELL - 4.));
+        // Attachments (Charles, 21 Nov, option 1): a row of chips above the text, each its kind's
+        // icon, its name and a remove x. One line; more than fit scroll sideways.
         if !self.start.files.is_empty() {
-            let mut row = div().flex().flex_wrap().gap(px(6.));
+            let mut row = div().id("nt-files").flex().gap(px(6.)).pt(px(6.)).pb(px(2.)).overflow_x_scroll();
             for (i, p) in self.start.files.iter().enumerate() {
                 let name = p.file_name().map_or_else(String::new, |n| n.to_string_lossy().to_string());
+                let (icon, tint) = file_kind(p, pal);
                 row = row.child(
                     div()
                         .id(("file", i))
+                        .flex_none()
+                        .h(px(28.))
                         .flex()
                         .items_center()
                         .gap(px(6.))
-                        .px(px(8.))
-                        .py(px(3.))
-                        .rounded(px(radius::TAG))
+                        .pl(px(8.))
+                        .pr(px(4.))
+                        .rounded(px(radius::INNER))
+                        .border_1()
+                        .border_color(c(pal.line_strong))
                         .bg(c(pal.inset))
-                        .text_size(px(12.))
-                        .text_color(fg2)
+                        .text_size(px(12.5))
+                        .text_color(c(pal.fg))
                         .aria_label(name.clone())
-                        .child(name)
+                        .child(glyph(icon, 14., tint))
+                        .child(div().max_w(px(180.)).truncate().child(name))
                         .child(
                             div()
                                 .id(("file-x", i))
+                                .size(px(20.))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .rounded(px(radius::TAG))
                                 .cursor_pointer()
+                                .hover(|d| d.bg(c(pal.hover)))
                                 .aria_label("Remove")
                                 .child(glyph("x", 12., fg3))
                                 .on_click(cx.listener(move |this, _, _, cx| {
@@ -443,8 +470,9 @@ impl Cauldron {
                         .test_support(),
                 );
             }
-            nt_box = nt_box.child(row);
+            nt_box = nt_box.child(row.test_support());
         }
+        nt_box = nt_box.child(div().id("nt-input").mx(px(-10.)).text_size(px(13.)).text_color(c(pal.fg)).child(Textarea::new(&input).appearance(false)).test_support());
         let nt_box = nt_box.child(div().mt_auto().child(tools)).test_support();
 
         // Line two, the darker tray fused under the box: the folder on the left; the model, the
