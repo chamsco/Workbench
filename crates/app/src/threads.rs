@@ -68,6 +68,7 @@ pub(crate) fn sample(id: &str, title: &str) -> ThreadInfo {
         created: 0,
         updated: 0,
         pinned: false,
+        archived: false,
         route: Route { kind: RouteKind::Cli, provider: "claude".into(), model: None },
         preview: String::new(),
         busy: false,

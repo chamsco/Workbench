@@ -36,6 +36,9 @@ mod settings;
 mod subs;
 mod support;
 mod terminal;
+mod colours;
+mod streammenu;
+mod theme;
 mod tabshape;
 mod thread;
 mod update;
@@ -213,6 +216,17 @@ pub(crate) struct Cauldron {
     fam_questions: std::collections::HashMap<String, Option<backspace_core::options::OptionSet>>,
     frost: backdrop::FrostLevel,
     stream_bg: Option<std::path::PathBuf>,
+    /// The picture that was behind the card, and when the new one started wiping over it.
+    bg_wipe: Option<(Option<std::path::PathBuf>, std::time::Instant)>,
+    /// Side streams whose tab was closed (kept, not deleted), and the mains whose side streams
+    /// are listed under them in the sidebar.
+    closed_sides: std::collections::HashSet<String>,
+    sides_listed: std::collections::HashSet<String>,
+    /// The right-click menu on a stream, when open.
+    stream_menu: Option<streammenu::StreamMenu>,
+    /// Settings > Appearance: which colour the swatches set, and the open hex field.
+    color_target: theme::Target,
+    hex_input: Option<(Entity<InputState>, Subscription)>,
     /// "system", "light" or "dark" (the Appearance page's Mode, saved in prefs).
     theme_mode: String,
     /// The shell's own focus: it takes the keys when nothing inside has them (⌘N, Ctrl+N).
@@ -279,6 +293,8 @@ pub(crate) struct Cauldron {
     /// The version button's update check and whether its card is open.
     update: update::UpdateState,
     update_open: bool,
+    /// The coding CLIs in the update card, with where each stands.
+    cli_rows: Vec<update::CliRow>,
     inbox_toast: Option<(backspace_core::platform::notify::Note, std::time::Instant)>,
     /// A familiar's joined tab: where it slides from (x, width), where it was last headed, since
     /// when; and the open Highlights tab.
@@ -543,17 +559,15 @@ impl Cauldron {
     /// only), or this card's crop of the light frost under the tint. Empty on the plain frame or
     /// before the frost is baked; then the card keeps its own glass colour.
     fn glass_under(&mut self, id: &'static str, r: Rect, win: (f32, f32), dark: bool, pal: &'static Palette, moving: bool, window: &mut Window) -> Option<Vec<AnyElement>> {
+        let round = px(radius::PANEL);
+        // The user's picture shows on the plain frame too, so Settings can preview it.
+        if id == "main" && self.settings.is_none() {
+            if let Some(layers) = self.picture_layers(r.w, round, pal) {
+                return Some(layers);
+            }
+        }
         if !self.painting {
             return None;
-        }
-        let round = px(radius::PANEL);
-        if id == "main" {
-            if let Some(path) = self.stream_bg.clone() {
-                return Some(vec![
-                    img(path).id("stream-bg").absolute().left_0().top_0().size_full().rounded(round).object_fit(ObjectFit::Cover).test_support().into_any_element(),
-                    div().absolute().left_0().top_0().size_full().rounded(round).bg(backdrop::surface(true, pal.frame, backdrop::dim_alpha(&Prefs::load()))).into_any_element(),
-                ]);
-            }
         }
         let mut stale = Vec::new();
         let crop = self.glass.get(id, dark, win, r, moving, &mut stale);
@@ -568,7 +582,7 @@ impl Cauldron {
     }
 
     pub(crate) fn new() -> Self {
-        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, support_data: Default::default(), files_open: Default::default(), painting: false, glass: Default::default(), plane: Default::default(), ask_hover: false, ask_open: None, ask_answered: Default::default(), fam_questions: Default::default(), frost: backdrop::FrostLevel::Heavy, stream_bg: None, theme_mode: String::new(), root_focus: None, plan: false, open_in_menu: false, open_in: thread::OpenIn::Folder, search_open: false, indent: false, usage: Default::default(), settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, familiar: None, fam_views: Vec::new(), fam_live: Vec::new(), fam_watch: Vec::new(), fam_driving: Default::default(), fam_error: None, fam_composer: None, fam_fixture: false, inbox: Vec::new(), inbox_open: false, update: Default::default(), update_open: false, inbox_toast: None, fam_from: (0.0, 0.0), fam_to: None, fam_since: None, fam_hl: 0, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default(), err_open: Default::default(), side_root: None, sides: Vec::new(), side_win: false, side_input: None, side_ctx: Default::default() }
+        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, support_data: Default::default(), files_open: Default::default(), painting: false, glass: Default::default(), plane: Default::default(), ask_hover: false, ask_open: None, ask_answered: Default::default(), fam_questions: Default::default(), frost: backdrop::FrostLevel::Heavy, stream_bg: None, bg_wipe: None, stream_menu: None, closed_sides: Default::default(), sides_listed: Default::default(), color_target: theme::Target::Sidebar, hex_input: None, theme_mode: String::new(), root_focus: None, plan: false, open_in_menu: false, open_in: thread::OpenIn::Folder, search_open: false, indent: false, usage: Default::default(), settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, familiar: None, fam_views: Vec::new(), fam_live: Vec::new(), fam_watch: Vec::new(), fam_driving: Default::default(), fam_error: None, fam_composer: None, fam_fixture: false, inbox: Vec::new(), inbox_open: false, update: Default::default(), update_open: false, cli_rows: Vec::new(), inbox_toast: None, fam_from: (0.0, 0.0), fam_to: None, fam_since: None, fam_hl: 0, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default(), err_open: Default::default(), side_root: None, sides: Vec::new(), side_win: false, side_input: None, side_ctx: Default::default() }
     }
 
     /// Opens core off the main thread (the sidebar shows Loading meanwhile), then keeps the thread
@@ -713,13 +727,16 @@ impl Cauldron {
             Threads::Ready(v) => {
                 // Side streams live in their main's tab group, not as rows of their own.
                 let side_n = |id: &str| v.iter().filter(|t| t.side_of.as_deref() == Some(id)).count();
-                let mains: Vec<ThreadInfo> = v.iter().filter(|t| t.side_of.as_ref().is_none_or(|m| !v.iter().any(|x| &x.id == m))).cloned().collect();
+                // Archived streams stay out of the list until a search asks for them.
+                let searching = !self.query.trim().is_empty();
+                let mains: Vec<ThreadInfo> = v.iter().filter(|t| (!t.archived || searching) && t.side_of.as_ref().is_none_or(|m| !v.iter().any(|x| &x.id == m))).cloned().collect();
                 let groups = threads::grouped(&mains, &self.query);
                 if groups.is_empty() {
                     let q = self.query.trim().to_string();
                     return list.child(note("threads-no-match", format!("No threads match {q}"), None, format!("No threads match \u{201c}{q}\u{201d}"), None));
                 }
                 let mut i = 0usize;
+                let mut side_i = 0usize;
                 for (gi, (g, ts)) in groups.into_iter().enumerate() {
                     let n = ts.len();
                     // The board's `.grp`: the name, then its count in a quieter grey.
@@ -793,7 +810,35 @@ impl Cauldron {
                                 .when_live(t.pinned, |d| d.child(glyph("pin", 11., fg3)))
                                 .when_live(side_n(&t.id) > 0, |d| {
                                     let n = side_n(&t.id);
-                                    d.child(div().id(("thread-sides", i)).flex_none().flex().items_center().gap(px(2.)).text_size(px(10.5)).text_color(fg3).aria_label(format!("{n} side streams")).child(glyph("corner-down-right", 10., fg3)).child(n.to_string()).test_support())
+                                    let listed = self.sides_listed.contains(&t.id);
+                                    let tid = t.id.clone();
+                                    d.child(
+                                        div()
+                                            .id(("thread-sides", i))
+                                            .h(px(18.))
+                                            .px(px(3.))
+                                            .flex_none()
+                                            .flex()
+                                            .items_center()
+                                            .gap(px(2.))
+                                            .rounded(px(radius::TAG))
+                                            .hover(|d| d.bg(c(pal.selected)))
+                                            .text_size(px(10.5))
+                                            .text_color(fg3)
+                                            .aria_label(format!("{n} side streams"))
+                                            .aria_selected(listed)
+                                            .child(glyph("corner-down-right", 10., fg3))
+                                            .child(n.to_string())
+                                            .child(glyph(if listed { "chevron-down" } else { "chevron-right" }, 10., fg3))
+                                            .on_click(cx.listener(move |this, _, _, cx| {
+                                                cx.stop_propagation();
+                                                if !this.sides_listed.remove(&tid) {
+                                                    this.sides_listed.insert(tid.clone());
+                                                }
+                                                cx.notify();
+                                            }))
+                                            .test_support(),
+                                    )
                                 })
                                 // The repo as a tag (the board's `.r`).
                                 .child({
@@ -817,6 +862,10 @@ impl Cauldron {
                                         .test_support()
                                 })
                                 .when_live(t.unread, |d| d.child(div().id(("ping", i)).size(px(6.)).flex_none().rounded_full().bg(c(pal.accent)).test_support()))
+                                .on_mouse_down(MouseButton::Right, cx.listener({
+                                    let id = id.clone();
+                                    move |this, ev: &MouseDownEvent, _, cx| this.open_stream_menu(id.clone(), ev.position, cx)
+                                }))
                                 .on_click(cx.listener(move |this, _, window, cx| {
                                     this.selected = Some(id.clone());
                                     this.open_thread(id.clone());
@@ -827,6 +876,47 @@ impl Cauldron {
                                 }))
                                 .test_support(),
                         );
+                        if self.sides_listed.contains(&t.id) {
+                            let mut subs: Vec<&ThreadInfo> = v.iter().filter(|x| x.side_of.as_deref() == Some(t.id.as_str())).collect();
+                            subs.sort_by_key(|x| x.created);
+                            for x in subs {
+                                let sid = x.id.clone();
+                                let open_now = self.open.as_deref() == Some(sid.as_str());
+                                let (sm, sk) = (x.id.clone(), x.id.clone());
+                                let closed = self.closed_sides.contains(&x.id);
+                                list = list.child(
+                                    div()
+                                        .id(("side-row", side_i))
+                                        .h(px(26.))
+                                        .flex_none()
+                                        .flex()
+                                        .items_center()
+                                        .gap(px(7.))
+                                        .pl(px(24.))
+                                        .pr(px(8.))
+                                        .rounded(px(radius::CONTROL))
+                                        .text_size(px(12.5))
+                                        .text_color(if open_now { fg } else { fg2 })
+                                        .when_live(open_now, |d| d.bg(c(pal.hover)))
+                                        .when_live(!open_now, |d| d.hover(|d| d.bg(c(pal.hover))))
+                                        .cursor_pointer()
+                                        .aria_label(format!("Side stream: {}", x.title))
+                                        .child(glyph("corner-down-right", 11., fg3))
+                                        .child(div().flex_1().min_w_0().truncate().child(x.title.clone()))
+                                        .when_live(x.busy, |d| d.child(div().size(px(6.)).flex_none().rounded_full().bg(c(pal.accent))))
+                                        .when_live(closed && !x.busy, |d| d.child(div().text_size(px(10.5)).text_color(c(pal.fg4)).child("closed")))
+                                        .on_mouse_down(MouseButton::Right, cx.listener(move |this, ev: &MouseDownEvent, _, cx| this.open_stream_menu(sm.clone(), ev.position, cx)))
+                                        .on_click(cx.listener(move |this, _, _, cx| {
+                                            this.closed_sides.remove(&sk);
+                                            this.open_thread(sk.clone());
+                                            cx.notify();
+                                        }))
+                                        .test_support(),
+                                );
+                                side_i += 1;
+                                let _ = &sid;
+                            }
+                        }
                         i += 1;
                     }
                 }
@@ -1553,7 +1643,7 @@ impl Render for Cauldron {
             "light" => false,
             _ => !matches!(window.appearance(), WindowAppearance::Light | WindowAppearance::VibrantLight),
         });
-        let pal: &'static Palette = if dark { &tokens::DARK } else { &tokens::LIGHT };
+        let pal: &'static Palette = theme::themed(dark);
         let vs = window.viewport_size();
         let (w, h) = (f32::from(vs.width), f32::from(vs.height));
         let plat = platform();
@@ -1614,6 +1704,11 @@ impl Render for Cauldron {
             } else {
                 moving = true;
             }
+        }
+        if self.bg_wipe.as_ref().is_some_and(|(_, t)| t.elapsed().as_millis() < colours::WIPE_MS) {
+            moving = true;
+        } else {
+            self.bg_wipe = None;
         }
         if moving {
             window.request_animation_frame();
@@ -2116,8 +2211,10 @@ impl Render for Cauldron {
                 // Pills, not a tab cut into the card (board round 5, P): the card keeps its own shape.
                 bump = None;
                 let cut = false;
-                let under = self.glass_under("main", s.main, (w, h), dark, pal, moving, window);
-                let plane = self.plane_under(s.main, under.is_none() && self.settings.is_none() && self.familiar.is_none(), new_screen, dark, window, cx);
+                // Split panes are cards of their own on the frame, like the support card (Charles,
+                // 21 Nov 05:10Z): the host card paints nothing under them.
+                let under = if split { None } else { self.glass_under("main", s.main, (w, h), dark, pal, moving, window) };
+                let plane = if split { None } else { self.plane_under(s.main, under.is_none() && self.settings.is_none() && self.familiar.is_none(), new_screen, dark, window, cx) };
 
                 let glass = under.is_some();
                 div()
@@ -2126,16 +2223,16 @@ impl Render for Cauldron {
                     .relative()
                     .flex()
                     .flex_col()
-                    .overflow_hidden()
+                    .when_live(!split, |d| d.overflow_hidden())
                     .rounded(px(radius::PANEL))
                     // The tabbed card takes the tab's corners all round (Charles, 21 Nov).
                     .when_live(cut, |d| d.rounded(px(tabshape::TAB_R)))
-                    .when_live(!glass, |d| d.bg(backdrop::card_bg(self.painting, pal)))
-                    .shadow(lift(Lift::Card, pal))
+                    .when_live(!glass && !split, |d| d.bg(backdrop::card_bg(self.painting, pal)))
+                    .when_live(!split, |d| d.shadow(lift(Lift::Card, pal)))
                     .children(under.unwrap_or_default())
                     .children(plane)
                     .border_1()
-                    .border_color(c(if glass { pal.line_strong } else { pal.line }))
+                    .border_color(if split { gpui_kit::transparent_black() } else { c(if glass { pal.line_strong } else { pal.line }) })
                     .text_color(fg3)
                     .child(head.test_support())
                     .child(div().id("tools-band").w(px(body_w)).h(px(tools_band)).flex_none().test_support())
@@ -2788,7 +2885,7 @@ impl Render for Cauldron {
         }
 
         // ---- window ring, drawn last so it sits on top of every pane edge
-        root.child(
+        root.children(self.stream_menu_el(pal, window, cx)).child(
             div()
                 .absolute()
                 .size_full()
