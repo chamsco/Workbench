@@ -68,6 +68,60 @@ impl Cauldron {
         cx.notify();
     }
 
+    /// The side streams' tabs after the main's, advancing `at` and moving the card's tab onto
+    /// the open one. Out of `render` so its frame stays small.
+    #[inline(never)]
+    pub(super) fn side_tabs(&self, at: &mut f32, bump: &mut Option<(f32, f32)>, window: &mut Window, pal: &'static Palette, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let (fg, fg3) = (c(pal.fg), c(pal.fg3));
+        let mut out = Vec::new();
+        for (si, (sid, title)) in self.sides.iter().enumerate() {
+            let on = self.open.as_deref() == Some(sid.as_str());
+            let name_w = {
+                let run = TextRun { len: title.len(), font: Font { weight: FontWeight::MEDIUM, features: sans_features(), ..font(SANS) }, color: fg, background_color: None, underline: None, strikethrough: None };
+                f32::from(window.text_system().shape_line(title.clone().into(), px(12.5), &[run], None).width)
+            };
+            let tw = (TAB_PAD + 12.0 + CLOSE_GAP + name_w + TAB_PAD).ceil().clamp(TAB_MIN, 160.0);
+            let sid2 = sid.clone();
+            let tab = div()
+                .id(("side-tab", si))
+                .relative()
+                .flex()
+                .items_center()
+                .gap(px(CLOSE_GAP))
+                .h(px(super::tabshape::PILL_H))
+                .top(px(super::tabshape::PILL_DY))
+                .rounded(px(super::tabshape::PILL_R))
+                .when(on, |d| d.bg(c(pal.selected)).border_1().border_color(c(pal.line)))
+                .when(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
+                .occlude()
+                .cursor_pointer()
+                .aria_selected(on)
+                .text_size(px(12.5))
+                .line_height(px(16.))
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(if on { fg } else { fg3 })
+                .flex_none()
+                .w(px(tw))
+                .px(px(TAB_PAD))
+                .aria_label(format!("Side stream: {title}"))
+                .child(glyph("corner-down-right", 12., fg3))
+                .child(div().min_w_0().truncate().child(title.clone()))
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    this.active = 0;
+                    this.open_thread(sid2.clone());
+                    this.focus_tabs(window, cx);
+                    cx.notify();
+                }));
+            if on {
+                *bump = Some((*at - super::tabshape::S, tw + 2.0 * super::tabshape::S));
+            }
+            *at += tw + TAB_SEP;
+            let tab = if tw >= 160.0 { self.tipped(("side-tab", si), tab, title.clone(), Side::Below, pal, cx) } else { tab };
+            out.push(tab.test_support().into_any_element());
+        }
+        out
+    }
+
     /// The + window.
     pub(super) fn side_window(&self, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
         let (fg, fg2, fg3) = (c(pal.fg), c(pal.fg2), c(pal.fg3));

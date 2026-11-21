@@ -1801,34 +1801,9 @@ impl Render for Cauldron {
             }
             let mut at = tab0 + anchor_w + TAB_SEP;
             // Side streams, in the main's group on the same line: a corner arrow, no figure.
-            if self.familiar.is_none() {
-                for (si, (sid, title)) in self.sides.iter().enumerate() {
-                    let on = self.open.as_deref() == Some(sid.as_str());
-                    let name_w = {
-                        let run = TextRun { len: title.len(), font: Font { weight: FontWeight::MEDIUM, features: sans_features(), ..font(SANS) }, color: fg, background_color: None, underline: None, strikethrough: None };
-                        f32::from(window.text_system().shape_line(title.clone().into(), px(12.5), &[run], None).width)
-                    };
-                    let tw = (TAB_PAD + 12.0 + CLOSE_GAP + name_w + TAB_PAD).ceil().clamp(TAB_MIN, 160.0);
-                    let sid2 = sid.clone();
-                    let tab = ftab(("side-tab", si), on, cx)
-                        .flex_none()
-                        .w(px(tw))
-                        .px(px(TAB_PAD))
-                        .aria_label(format!("Side stream: {title}"))
-                        .child(glyph("corner-down-right", 12., fg3))
-                        .child(div().min_w_0().truncate().child(title.clone()))
-                        .on_click(cx.listener(move |this, _, window, cx| {
-                            this.active = 0;
-                            this.open_thread(sid2.clone());
-                            this.focus_tabs(window, cx);
-                            cx.notify();
-                        }));
-                    if on {
-                        bump = Some((at - tabshape::S, tw + 2.0 * tabshape::S));
-                    }
-                    at += tw + TAB_SEP;
-                    let tab = if tw >= 160.0 { self.tipped(("side-tab", si), tab, title.clone(), Side::Below, pal, cx) } else { tab };
-                    row = row.child(tab.test_support());
+            if self.familiar.is_none() && !self.sides.is_empty() {
+                for el in self.side_tabs(&mut at, &mut bump, window, pal, cx) {
+                    row = row.child(el);
                 }
             }
 
