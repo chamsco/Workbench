@@ -543,6 +543,19 @@ impl Cauldron {
         // The newest of the user's bubbles rises into place (a rise and fade, not a carry from
         // the composer box).
         let fresh_mine = ls.iter().rposition(|l| l.mine);
+        // The newest bubble carries the stream's state (Charles, 21 Nov): the same mark as its row.
+        let turn_mark = ls.last().map(|l| {
+            if l.mine {
+                (Mark::Waiting, pal.fg3)
+            } else {
+                match l.status {
+                    Status::Sending => (Mark::Waiting, pal.fg3),
+                    Status::Streaming => (Mark::Working, pal.accent),
+                    Status::Error => (Mark::Error, pal.bad),
+                    _ => (Mark::Idle, pal.fg4),
+                }
+            }
+        });
         if ls.is_empty() {
             msgs = msgs.child(
                 div()
@@ -581,7 +594,11 @@ impl Cauldron {
                         .line_height(px(22.))
                         .text_color(fg)
                         .aria_label(l.text.clone())
-                        .child(shown)
+                        .flex()
+                        .items_start()
+                        .gap(px(8.))
+                        .child(div().min_w_0().child(shown))
+                        .when_some(turn_mark.filter(|_| fresh_mine == Some(i)), |d, (m, col)| d.child(div().flex_none().h(px(22.)).flex().items_center().child(super::mark::mark("turn-mark", m, super::mark::SIZE, c(col)).aria_label(m.label()).test_support())))
                         .test_support(),
                 );
                 continue;
@@ -1105,6 +1122,10 @@ pub(super) mod tests {
             assert_eq!(window.find(("steps", 1usize)).label(), Some("Thought, Read 1 file, Ran 1 command"), "how the reply was made, from its trace");
             assert!(window.find(("msg", 0usize)).bounds().origin.x > window.find(("msg", 1usize)).bounds().origin.x, "your message sits right");
             assert_eq!(window.find("usage").label(), Some("This stream has cost $0.42"));
+            // The newest bubble of yours carries the stream's status mark, inside it (Charles, 21 Nov); the finished reply is idle.
+            let (bub, mk) = (super::super::tests::rect(window, ("msg", 0usize)), super::super::tests::rect(window, "turn-mark"));
+            assert_eq!(window.find("turn-mark").label(), Some("Idle"));
+            assert!(mk.x >= bub.x && mk.right() <= bub.right() && mk.y >= bub.y && mk.bottom() <= bub.bottom(), "the mark sits inside the bubble");
             assert_eq!(window.find("composer").label(), Some("Message the coordinator"));
             assert_eq!(window.find("send").label(), Some("Send"));
             window.click(("thread", 1usize), cx);
