@@ -379,7 +379,7 @@ impl Cauldron {
                         .child(name)
                         .on_click(cx.listener(move |this, _, _, cx| {
                             let mut p = Prefs::load();
-                            p.model_tray = (i == 1).then(|| "stacked".to_string());
+                            p.model_tray = Some(if i == 1 { "stacked" } else { "unfold" }.to_string());
                             p.save();
                             this.start.route_menu = None;
                             cx.notify();

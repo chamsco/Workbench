@@ -11,10 +11,14 @@ use backspace_core::chat::{Route, RouteKind};
 use backspace_core::harnesses::Auth;
 use gpui_kit::prelude::FluentBuilder;
 
-/// The New stream box's picker is the stacked card (Settings > Appearance > Model picker).
+/// The New stream box's picker is the stacked card (Settings > Appearance > Model picker); the
+/// default since Charles's 21 Nov ask ("expand down the stack from under").
 pub(crate) fn tray_stacked() -> bool {
-    Prefs::load().model_tray.as_deref() == Some("stacked")
+    Prefs::load().model_tray.as_deref() != Some("unfold")
 }
+
+/// The stacked card's picker height once it has dropped out (picker v2 inside).
+pub(crate) const STACK_OPEN_H: f32 = 380.0;
 
 /// Stacked picker: how far the card hides under the box while folded, and the gap it drops to.
 pub(crate) const STACK_TUCK: f32 = 12.0;
@@ -190,15 +194,13 @@ impl Cauldron {
                 this.start.route_menu = if was { None } else { Some(to2.clone()) };
                 if !was {
                     this.load_providers(cx);
-                    if to2 != PickFor::New {
-                        this.open_picker(r0.as_ref(), window, cx);
-                    }
+                    this.open_picker(r0.as_ref(), window, cx);
                 }
                 cx.notify();
             }))
             // The new-stream box unfolds its tray instead (`route_tray`); an open stream gets the
             // model picker (board Picker A).
-            .when(open && to != PickFor::New, |d| d.child(deferred(div().absolute().bottom(px(30.)).right_0().child(self.model_picker(to, route, pal, cx))).with_priority(3)))
+            // An open stream's picker is a tray on top of its chat box (thread.rs).
             .test_support()
             .into_any_element()
     }

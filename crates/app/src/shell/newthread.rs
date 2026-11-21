@@ -54,6 +54,14 @@ pub(crate) struct Start {
     pub(crate) pick_query: String,
     pub(crate) pick_search: Option<(Entity<InputState>, Subscription)>,
     pub(crate) pick_flat: bool,
+    /// Picker v2 (Charles, 21 Nov 00:43Z): the list's scroll (the rail jumps to a CLI's section),
+    /// how it sorts (0 provider, 1 price, 2 name), the Reasoning and Free filters, and which
+    /// model families are dropped down to their versions ("cli:family").
+    pub(crate) pick_scroll: ScrollHandle,
+    pub(crate) pick_sort: u8,
+    pub(crate) pick_reason: bool,
+    pub(crate) pick_free: bool,
+    pub(crate) pick_open: std::collections::HashSet<String>,
 }
 
 /// The route a new thread gets: the default chat model, else Claude Code if it is installed.
@@ -580,7 +588,7 @@ impl Cauldron {
                 cx.notify();
             }))
         });
-        let grow = if stacked { super::subs::TRAY_OPEN_H + super::subs::STACK_GAP } else { super::subs::TRAY_OPEN_H };
+        let grow = if stacked { super::subs::STACK_OPEN_H + super::subs::STACK_GAP } else { super::subs::TRAY_OPEN_H };
         let nt_stack = if stacked {
             // Stacked (Charles, 20 Nov, board round 2): the chips ride a solid card tucked behind the
             // box; opening drops that card out below the box, a
@@ -591,12 +599,14 @@ impl Cauldron {
             let card = |d: gpui::Stateful<Div>| d.rounded(px(radius::SHELL)).border_1().border_color(line).bg(c(pal.raised));
             // The card is laid out from the stack's bottom, behind the box, so the box
             // (drawn last) covers its tucked top; a spacer under the box makes its room.
-            let (gap, tray_h) = (super::subs::STACK_GAP, super::subs::TRAY_OPEN_H);
+            let (gap, tray_h) = (super::subs::STACK_GAP, super::subs::STACK_OPEN_H);
             let mut mid = card(div().id("nt-card").absolute().left(px(14.)).right(px(14.)).bottom_0().flex().flex_col().overflow_hidden())
                 .shadow(vec![gpui::BoxShadow { color: gpui::black().opacity(0.45), offset: gpui::point(px(0.), px(10.)), blur_radius: px(28.), spread_radius: px(0.), inset: false }])
                 .child(bar);
             if tray_open {
-                mid = mid.child(self.route_tray(pal, cx));
+                // Picker v2 in the dropped card, under its chips.
+                let route = self.start.route.clone();
+                mid = mid.child(div().flex_1().min_h_0().border_t_1().border_color(c(pal.line)).child(self.picker_body(super::subs::PickFor::New, route.as_ref(), false, pal, cx)));
             }
             let mid = mid.test_support();
             let spacer = div().id("nt-card-room").flex_none();
@@ -617,7 +627,9 @@ impl Cauldron {
         .test_support();
         // The picker opens downward: the stack gives back its growth as a negative margin, so the
         // centred box above stays exactly where it was, and the lines under it hide meanwhile.
-        let nt_stack = if tray_open {
+        // The stacked card is tall (picker v2): the box rides up as it drops, so the whole stack
+        // stays in the window; the unfolding tray keeps the box where it was.
+        let nt_stack = if tray_open && !stacked {
             nt_stack.with_animation("nt-stack-drop", super::motion::anim(220.), move |d, t| d.mb(px(-grow * t))).into_any_element()
         } else {
             nt_stack.into_any_element()
@@ -1370,6 +1382,9 @@ mod tests {
         use backspace_core::accounts::{CliStatus, LoginStatus};
         use backspace_core::harnesses::Auth;
         let _prefs = super::super::thread::tests::prefs_guard();
+        let mut p = Prefs::load();
+        p.model_tray = Some("unfold".into());
+        p.save();
         let (handle, _chats) = open(cx);
         let cli = |provider: &str, name: &str, auth: Auth| CliStatus {
             provider: provider.into(),
@@ -1426,7 +1441,7 @@ mod tests {
 
     /// The stacked picker (Settings > Appearance > Model picker): folded, its card is tucked
     /// behind the box with only the chips showing; open, it drops below the box a small gap apart
-    /// and holds the whole picker. The box stays put either way.
+    /// and holds picker v2; the box rides up so the whole stack stays in the window.
     #[gpui_kit::test]
     fn the_stacked_picker_drops_out_from_behind_the_box(cx: &mut TestAppContext) {
         let _prefs = super::super::thread::tests::prefs_guard();
@@ -1445,14 +1460,68 @@ mod tests {
             assert!(window.try_find("nt-rim").is_none(), "two cards, no third (Charles, 20 Nov)");
             window.click("nt-model", cx);
             window.render_frame(cx);
-            assert_eq!(rect(window, "nt-front"), front, "the box never moves");
+            let moved = rect(window, "nt-front");
+            assert!(moved.1 < front.1 && moved.0 == front.0, "the box rides up: {moved:?} from {front:?}");
             let card = rect(window, "nt-card");
-            assert!((card.1 - (front.1 + front.3 + super::super::subs::STACK_GAP)).abs() <= 1.0, "dropped out a small gap below: {card:?}");
-            assert!(window.try_find("route-tray").is_some() && window.try_find("tray-effort").is_some());
+            assert!((card.1 - (moved.1 + moved.3 + super::super::subs::STACK_GAP)).abs() <= 1.0, "dropped out a small gap below: {card:?}");
+            let screen = rect(window, "new-thread-screen");
+            assert!(card.1 + card.3 <= screen.1 + screen.3, "the whole stack stays in the window: {card:?} {screen:?}");
+            for id in ["pick-rail", "pick-list", "route-manage"] {
+                assert!(window.try_find(id).is_some(), "{id}");
+            }
+            assert!(window.try_find(("pick-trust", 0usize)).is_some(), "Access under the list");
+            assert!(window.try_find("pick-detail").is_none(), "no detail panel in the narrow box");
         })
         .unwrap();
         let mut p = Prefs::load();
         p.model_tray = None;
         p.save();
+    }
+
+    /// Picker v2 in a stream: a tray on top of the chat box with the star and CLI rail, a family
+    /// drops down to its versions, and picking a version sets the stream's model.
+    #[gpui_kit::test]
+    fn the_stream_picker_rides_on_the_chat_box_and_families_drop_down(cx: &mut TestAppContext) {
+        use backspace_core::accounts::{CliStatus, LoginStatus};
+        use backspace_core::harnesses::{Auth, ModelInfo};
+        let _prefs = super::super::thread::tests::prefs_guard();
+        let (handle, chats) = open(cx);
+        let route = Route { kind: RouteKind::Cli, provider: "opencode".into(), model: None };
+        let id = chats.create(route).id;
+        let q = |id: &str, n: &str| ModelInfo { id: id.into(), name: Some(n.into()), family: Some("qwen".into()), input: Some(0.0), output: Some(0.0), ..Default::default() };
+        let info = vec![q("opencode/qwen3.6-plus", "Qwen 3.6 Plus"), q("opencode/qwen3.5", "Qwen 3.5")];
+        handle
+            .update(cx, |c, _, _| {
+                c.start.providers = vec![CliStatus {
+                    provider: "opencode".into(),
+                    name: "OpenCode".into(),
+                    installed: true,
+                    version: None,
+                    install: String::new(),
+                    logins: vec![LoginStatus { id: None, name: "This machine".into(), signed_in: Auth::Authenticated, detail: None }],
+                    active: 0,
+                    models: info.iter().map(|m| m.id.clone()).collect(),
+                    model_info: info.clone(),
+                }];
+                c.start.providers_loading = true;
+                c.open_thread(id.clone());
+            })
+            .unwrap();
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            window.click("route", cx);
+            window.render_frame(cx);
+            let (tray, boxr) = (rect(window, "pick-tray"), rect(window, "composer"));
+            assert!((tray.0 - boxr.0).abs() <= 2.0 && (tray.2 - boxr.2).abs() <= 2.0, "as wide as the chat box: {tray:?} {boxr:?}");
+            assert!(tray.1 + tray.3 <= boxr.1 + 1.0, "on top of it");
+            assert!(window.try_find(("pick-rail-fav", 0usize)).is_some(), "the star heads the rail");
+            assert!(window.try_find(("route-model", 1usize)).is_none(), "the Qwen family is folded");
+            window.click(("pick-family", 3usize), cx);
+            window.render_frame(cx);
+            window.click(("route-model", 2usize), cx);
+            window.render_frame(cx);
+        })
+        .unwrap();
+        assert_eq!(chats.thread(&id).unwrap().route.model.as_deref(), Some("opencode/qwen3.5"), "a version picks the stream's model");
     }
 }

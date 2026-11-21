@@ -239,6 +239,8 @@ pub struct ModelInfo {
     pub id: String,
     /// Its display name, when the CLI gives one.
     pub name: Option<String>,
+    /// The model family it is a version of ("qwen", "claude-sonnet"), when the CLI says.
+    pub family: Option<String>,
     /// Context window in tokens.
     pub context: Option<u64>,
     /// Dollars per million input and output tokens.
@@ -306,6 +308,7 @@ pub fn parse_opencode_verbose(out: &str) -> Vec<ModelInfo> {
         let Some(m) = v.last_mut() else { return };
         let Ok(j) = serde_json::from_str::<serde_json::Value>(json) else { return };
         m.name = j["name"].as_str().map(str::to_string);
+        m.family = j["family"].as_str().filter(|f| !f.is_empty()).map(str::to_string);
         m.context = j["limit"]["context"].as_u64().filter(|n| *n > 0);
         m.input = j["cost"]["input"].as_f64();
         m.output = j["cost"]["output"].as_f64();

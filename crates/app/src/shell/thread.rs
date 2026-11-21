@@ -725,6 +725,26 @@ impl Cauldron {
                     .child(action),
             )
         };
+        // The model picker (Charles, 21 Nov: "a top rail on top ... on the chat box"): a tray as
+        // wide as the box, rising from its top edge.
+        if self.start.route_menu == Some(super::subs::PickFor::Thread(t.id.clone())) {
+            let tray = self.model_picker(super::subs::PickFor::Thread(t.id.clone()), Some(&t.route), pal, cx);
+            composer = composer.relative().child(
+                deferred(
+                    div()
+                        .id("pick-tray")
+                        .absolute()
+                        .left_0()
+                        .right_0()
+                        .bottom(relative(1.))
+                        .pb(px(6.))
+                        .child(tray)
+                        .test_support()
+                        .with_animation("pick-rise", super::motion::anim(200.), |d, t| d.opacity(t).pb(px(6.0 - 6.0 * (1.0 - t)))),
+                )
+                .with_priority(3),
+            );
+        }
         if let Some(e) = &self.send_error {
             composer = composer.child(div().id("send-error").text_size(px(12.)).text_color(c(pal.bad)).aria_label(e.clone()).child(e.clone()).test_support());
         }
