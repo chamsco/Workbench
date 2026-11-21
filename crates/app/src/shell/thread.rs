@@ -187,7 +187,7 @@ fn status_line(i: usize, label: &'static str, grey: Rgb) -> impl IntoElement {
         .text_size(px(12.5))
         .text_color(c(grey))
         .aria_label(label)
-        .child(div().id(("live-slot", i)).size(px(16.)).flex_none().flex().items_center().justify_center().child(div().size(px(6.)).rounded_full().bg(c(grey))).test_support())
+        .child(div().id(("live-slot", i)).size(px(16.)).flex_none().flex().items_center().justify_center().child(super::mark::mark(("live-mark", i), if label == "Writing" { Mark::Working } else { Mark::Waiting }, super::mark::SIZE, c(grey))).test_support())
         .child(div().id(("live-text", i)).child(label).test_support())
         .test_support()
 }
