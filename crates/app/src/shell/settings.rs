@@ -592,6 +592,7 @@ mod tests {
                 ],
                 active: 0,
                 models: Vec::new(),
+                model_info: Vec::new(),
             }];
         })
         .unwrap();

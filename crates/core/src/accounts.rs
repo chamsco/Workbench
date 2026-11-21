@@ -485,6 +485,8 @@ pub struct CliStatus {
     pub active: usize,
     /// The models the CLI lists itself (`harnesses::list_models`); empty when it has no list.
     pub models: Vec<String>,
+    /// The same models with what the CLI says about each (price, context, reasoning).
+    pub model_info: Vec<crate::harnesses::ModelInfo>,
 }
 
 impl CliStatus {
@@ -513,11 +515,12 @@ pub fn status_all(accounts: &Accounts, prefs: &crate::prefs::Prefs) -> Vec<CliSt
                     let picked = accounts.pick(&h.id, now).map(|a| a.id.clone());
                     let active = logins.iter().position(|l| l.id == picked).unwrap_or(0);
                     let env = logins.get(active).and_then(|l| l.id.as_ref()).map(|id| accounts.env_for(id)).unwrap_or_default();
-                    let models = match (&h.path, h.installed) {
+                    let model_info = match (&h.path, h.installed) {
                         (Some(p), true) => crate::harnesses::list_models(&h.id, Path::new(p), &env),
                         _ => Vec::new(),
                     };
-                    CliStatus { provider: h.id.clone(), name: h.name.clone(), installed: h.installed, version: h.version.clone(), install: h.install.to_string(), logins, active, models }
+                    let models = model_info.iter().map(|m| m.id.clone()).collect();
+                    CliStatus { provider: h.id.clone(), name: h.name.clone(), installed: h.installed, version: h.version.clone(), install: h.install.to_string(), logins, active, models, model_info }
                 })
             })
             .collect();

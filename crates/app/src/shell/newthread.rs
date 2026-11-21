@@ -47,6 +47,13 @@ pub(crate) struct Start {
     pub(crate) providers_loading: bool,
     /// The open route menu, and whose route it sets.
     pub(crate) route_menu: Option<super::subs::PickFor>,
+    /// The model picker (board Picker A): the CLI its rail shows, the model its detail panel
+    /// describes ("cli:model"), its search, and whether the list is grouped by provider.
+    pub(crate) pick_cli: Option<String>,
+    pub(crate) pick_focus: Option<String>,
+    pub(crate) pick_query: String,
+    pub(crate) pick_search: Option<(Entity<InputState>, Subscription)>,
+    pub(crate) pick_flat: bool,
 }
 
 /// The route a new thread gets: the default chat model, else Claude Code if it is installed.
@@ -1373,6 +1380,7 @@ mod tests {
             logins: vec![LoginStatus { id: None, name: "This machine".into(), signed_in: auth, detail: None }],
             active: 0,
             models: Vec::new(),
+            model_info: Vec::new(),
         };
         handle
             .update(cx, |c, _, _| {

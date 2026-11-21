@@ -28,6 +28,7 @@ mod familiar;
 mod motion;
 mod newthread;
 mod panes;
+mod picker;
 mod settings;
 mod subs;
 mod support;
