@@ -95,6 +95,9 @@ impl Cauldron {
     /// Saves the stream card's background (None: the glass) to the shared prefs.
     pub(super) fn set_stream_bg(&mut self, path: Option<std::path::PathBuf>, cx: &mut Context<Self>) {
         let mut p = Prefs::load();
+        if path != self.stream_bg {
+            self.bg_wipe = Some((self.stream_bg.clone(), std::time::Instant::now()));
+        }
         p.stream_bg = path.as_ref().map(|p| p.display().to_string());
         p.save();
         self.stream_bg = super::backdrop::stream_bg(&p);
@@ -184,6 +187,320 @@ impl Cauldron {
         nav
     }
 
+    /// Settings > Appearance. Three functions in turn, not one: each has its own stack frame,
+    /// and the debug test threads have only 2 MB.
+    #[inline(never)]
+    fn appearance_page(&self, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
+        let mut col = div().w_full().max_w(px(660.)).flex().flex_col().px(px(24.)).py(px(8.));
+        col = col.child(div().text_size(px(20.)).line_height(px(26.)).font_weight(FontWeight::SEMIBOLD).text_color(c(pal.fg)).mt(px(12.)).mb(px(4.)).child("Appearance"));
+        col = self.appearance_look(col, pal, cx);
+        col = col.children(self.colour_block(pal, cx));
+        col = self.appearance_window(col, pal, cx);
+        div().id("settings-body").size_full().overflow_y_scroll().flex().justify_center().child(col).test_support().into_any_element()
+    }
+
+    #[inline(never)]
+    fn appearance_look(&self, mut col: Div, pal: &'static Palette, cx: &mut Context<Self>) -> Div {
+        let (fg, fg2, fg3) = (c(pal.fg), c(pal.fg2), c(pal.fg3));
+        let line = c(pal.line);
+        // A row: label and one line of help on the left, the control on the right.
+        let row = |id: (&'static str, usize), label: String, help: String, control: AnyElement| {
+            div()
+                .id(id)
+                .flex()
+                .items_center()
+                .gap(px(16.))
+                .py(px(8.))
+                .border_t_1()
+                .border_color(line)
+                .aria_label(label.clone())
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .flex()
+                        .flex_col()
+                        .child(div().truncate().text_size(px(13.)).text_color(fg).child(label))
+                        .child(div().text_size(px(12.)).line_height(px(16.)).text_color(fg3).child(help)),
+                )
+                .child(div().flex_none().child(control))
+                .test_support()
+        };
+        let section = |title: &'static str| div().mt(px(24.)).mb(px(4.)).text_size(px(11.)).line_height(px(14.)).font_weight(FontWeight::MEDIUM).text_color(fg3).child(title);
+        // Appearance: the backdrop (Tight tiles rule 7) or the plain frame, saved to the shared
+        // `backdrop` pref the old app reads too.
+        col = col.child(section("Look"));
+        let mut seg = div().id("set-mode").flex().gap(px(2.)).p(px(2.)).rounded(px(radius::CONTROL)).border_1().border_color(c(pal.line_strong));
+        for (i, (label, key)) in [("System", "system"), ("Light", "light"), ("Dark", "dark")].into_iter().enumerate() {
+            let on = if self.theme_mode.is_empty() { key == "system" } else { self.theme_mode == key };
+            seg = seg.child(
+                div()
+                    .id(("mode-opt", i))
+                    .h(px(24.))
+                    .px(px(10.))
+                    .flex()
+                    .items_center()
+                    .rounded(px(radius::TAG))
+                    .cursor_pointer()
+                    .when_live(on, |d| d.bg(c(pal.selected)))
+                    .when_live(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
+                    .aria_selected(on)
+                    .aria_label(label)
+                    .text_size(px(12.))
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(if on { fg } else { fg2 })
+                    .child(label)
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.theme_mode = key.to_string();
+                        let mut p = Prefs::load();
+                        p.theme = key.to_string();
+                        p.save();
+                        cx.notify();
+                    }))
+                    .test_support(),
+            );
+        }
+        col = col.child(row(("appearance", 4), "Mode".into(), "Follow the system, or always light or dark.".into(), seg.test_support().into_any_element()));
+        col
+    }
+
+    #[inline(never)]
+    fn appearance_window(&self, mut col: Div, pal: &'static Palette, cx: &mut Context<Self>) -> Div {
+        let (fg, fg2, fg3) = (c(pal.fg), c(pal.fg2), c(pal.fg3));
+        let line = c(pal.line);
+        // A row: label and one line of help on the left, the control on the right.
+        let row = |id: (&'static str, usize), label: String, help: String, control: AnyElement| {
+            div()
+                .id(id)
+                .flex()
+                .items_center()
+                .gap(px(16.))
+                .py(px(8.))
+                .border_t_1()
+                .border_color(line)
+                .aria_label(label.clone())
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .flex()
+                        .flex_col()
+                        .child(div().truncate().text_size(px(13.)).text_color(fg).child(label))
+                        .child(div().text_size(px(12.)).line_height(px(16.)).text_color(fg3).child(help)),
+                )
+                .child(div().flex_none().child(control))
+                .test_support()
+        };
+        let section = |title: &'static str| div().mt(px(24.)).mb(px(4.)).text_size(px(11.)).line_height(px(14.)).font_weight(FontWeight::MEDIUM).text_color(fg3).child(title);
+        col = col.child(section("Window"));
+        let mut seg = div().id("set-backdrop").flex().gap(px(2.)).p(px(2.)).rounded(px(radius::CONTROL)).border_1().border_color(c(pal.line_strong));
+        for (i, (label, on)) in [("Painting", self.painting), ("Plain", !self.painting)].into_iter().enumerate() {
+            seg = seg.child(
+                div()
+                    .id(("backdrop-opt", i))
+                    .h(px(24.))
+                    .px(px(10.))
+                    .flex()
+                    .items_center()
+                    .rounded(px(radius::TAG))
+                    .cursor_pointer()
+                    .when_live(on, |d| d.bg(c(pal.selected)))
+                    .when_live(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
+                    .aria_selected(on)
+                    .aria_label(label)
+                    .text_size(px(12.))
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(if on { fg } else { fg2 })
+                    .child(label)
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.painting = i == 0;
+                        if this.painting {
+                            Self::warm_glass(cx);
+                        }
+                        let mut p = Prefs::load();
+                        p.backdrop = if this.painting { super::backdrop::PAINTING.into() } else { super::backdrop::PLAIN.into() };
+                        p.save();
+                        cx.notify();
+                    }))
+                    .test_support(),
+            );
+        }
+        col = col.child(row(("appearance", 0), "Backdrop".into(), "The Harbour painting behind a frosted frame, or the plain frame.".into(), seg.test_support().into_any_element()));
+        // How frosted the frame and sidebar are.
+        let mut seg = div().id("set-frost").flex().gap(px(2.)).p(px(2.)).rounded(px(radius::CONTROL)).border_1().border_color(c(pal.line_strong));
+        for (i, level) in super::backdrop::FrostLevel::ALL.into_iter().enumerate() {
+            let on = level == self.frost;
+            seg = seg.child(
+                div()
+                    .id(("frost-opt", i))
+                    .h(px(24.))
+                    .px(px(10.))
+                    .flex()
+                    .items_center()
+                    .rounded(px(radius::TAG))
+                    .cursor_pointer()
+                    .when_live(on, |d| d.bg(c(pal.selected)))
+                    .when_live(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
+                    .aria_selected(on)
+                    .aria_label(level.name())
+                    .text_size(px(12.))
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(if on { fg } else { fg2 })
+                    .child(level.name())
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.frost = level;
+                        let mut p = Prefs::load();
+                        p.frost = Some(level.pref());
+                        p.save();
+                        cx.notify();
+                    }))
+                    .test_support(),
+            );
+        }
+        col = col.child(row(("appearance", 2), "Frost".into(), "How much of the painting shows through the frame and sidebar. The cards keep their light glass.".into(), seg.test_support().into_any_element()));
+        // Windows only: the window controls as a slim strip across the top (the default), or in a
+        // notch cut into the top-right card (Charles, 20 Nov).
+        if platform() != cauldron_chrome::layout::Platform::Mac {
+            let notch = platform() == cauldron_chrome::layout::Platform::WindowsNotch;
+            let mut seg = div().id("set-window").flex().gap(px(2.)).p(px(2.)).rounded(px(radius::CONTROL)).border_1().border_color(c(pal.line_strong));
+            for (i, name) in ["Top strip", "Notch"].into_iter().enumerate() {
+                let on = (i == 1) == notch;
+                seg = seg.child(
+                    div()
+                        .id(("window-opt", i))
+                        .h(px(24.))
+                        .px(px(10.))
+                        .flex()
+                        .items_center()
+                        .rounded(px(radius::TAG))
+                        .cursor_pointer()
+                        .when_live(on, |d| d.bg(c(pal.selected)))
+                        .when_live(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
+                        .aria_selected(on)
+                        .aria_label(name)
+                        .text_size(px(12.))
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(if on { fg } else { fg2 })
+                        .child(name)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            set_notch(i == 1);
+                            let mut p = Prefs::load();
+                            p.window_style = (i == 1).then(|| "notch".to_string());
+                            p.save();
+                            this.motion = Default::default();
+                            cx.notify();
+                        }))
+                        .test_support(),
+                );
+            }
+            col = col.child(row(("appearance", 3), "Window controls".into(), "A slim strip across the top of the window, or a notch in the top-right corner of the stream card.".into(), seg.test_support().into_any_element()));
+        }
+        // The stream card: the light frost of the painting, or the user's own picture or GIF.
+        let mut seg = div().id("set-stream-bg").flex().gap(px(2.)).p(px(2.)).rounded(px(radius::CONTROL)).border_1().border_color(c(pal.line_strong));
+        let pic = self.stream_bg.is_some();
+        for (i, (label, on)) in [("Glass", !pic), ("Picture…", pic)].into_iter().enumerate() {
+            seg = seg.child(
+                div()
+                    .id(("stream-bg-opt", i))
+                    .h(px(24.))
+                    .px(px(10.))
+                    .flex()
+                    .items_center()
+                    .rounded(px(radius::TAG))
+                    .cursor_pointer()
+                    .when_live(on, |d| d.bg(c(pal.selected)))
+                    .when_live(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
+                    .aria_selected(on)
+                    .aria_label(label)
+                    .text_size(px(12.))
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(if on { fg } else { fg2 })
+                    .child(label)
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        if i == 0 {
+                            this.set_stream_bg(None, cx);
+                        } else {
+                            this.pick_stream_bg(window, cx);
+                        }
+                    }))
+                    .test_support(),
+            );
+        }
+        let help: String = match &self.stream_bg {
+            Some(p) => format!("Showing {} under a scrim in streams. Settings pages keep their plain card.", p.file_name().map_or_else(|| p.display().to_string(), |n| n.to_string_lossy().into_owned())),
+            None => "The painting under a light frost, or your own picture or GIF (png, jpg, webp, gif).".into(),
+        };
+        col = col.child(row(("appearance", 1), "Stream background".into(), help, seg.test_support().into_any_element()));
+        if pic {
+            let cur = Prefs::load();
+            let mut seg = div().id("set-stream-dim").flex().gap(px(2.)).p(px(2.)).rounded(px(radius::CONTROL)).border_1().border_color(c(pal.line_strong));
+            for (i, (name, a)) in super::backdrop::DIMS.into_iter().enumerate() {
+                let on = (super::backdrop::dim_alpha(&cur) - a).abs() < 0.001;
+                seg = seg.child(
+                    div()
+                        .id(("stream-dim-opt", i))
+                        .h(px(24.))
+                        .px(px(10.))
+                        .flex()
+                        .items_center()
+                        .rounded(px(radius::TAG))
+                        .cursor_pointer()
+                        .when_live(on, |d| d.bg(c(pal.selected)))
+                        .when_live(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
+                        .aria_selected(on)
+                        .aria_label(name)
+                        .text_size(px(12.))
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(if on { fg } else { fg2 })
+                        .child(name[..1].to_uppercase() + &name[1..])
+                        .on_click(cx.listener(move |_, _, _, cx| {
+                            let mut p = Prefs::load();
+                            p.stream_dim = Some(name.to_string());
+                            p.save();
+                            cx.notify();
+                        }))
+                        .test_support(),
+                );
+            }
+            col = col.child(row(("appearance", 3), "Picture dimming".into(), "How dark the scrim over your picture is, so the text stays readable.".into(), seg.test_support().into_any_element()));
+        }
+        // The New stream box's model picker: the tray unfolds (A), or a card stacked behind the box.
+        let stacked = super::subs::tray_stacked();
+        let mut seg = div().id("set-model-tray").flex().gap(px(2.)).p(px(2.)).rounded(px(radius::CONTROL)).border_1().border_color(c(pal.line_strong));
+        for (i, name) in ["Unfold", "Stacked"].into_iter().enumerate() {
+            let on = (i == 1) == stacked;
+            seg = seg.child(
+                div()
+                    .id(("model-tray-opt", i))
+                    .h(px(24.))
+                    .px(px(10.))
+                    .flex()
+                    .items_center()
+                    .rounded(px(radius::TAG))
+                    .cursor_pointer()
+                    .when_live(on, |d| d.bg(c(pal.selected)))
+                    .when_live(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
+                    .aria_selected(on)
+                    .aria_label(name)
+                    .text_size(px(12.))
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(if on { fg } else { fg2 })
+                    .child(name)
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        let mut p = Prefs::load();
+                        p.model_tray = Some(if i == 1 { "stacked" } else { "unfold" }.to_string());
+                        p.save();
+                        this.start.route_menu = None;
+                        cx.notify();
+                    }))
+                    .test_support(),
+            );
+        }
+        col = col.children(self.dither_rows(pal, cx));
+        col = col.child(row(("appearance", 5), "Model picker".into(), "On New stream: the tray under the box unfolds, or a card stacked behind the box drops out below it.".into(), seg.test_support().into_any_element()));
+        col
+    }
+
     /// The open Settings page, in the card.
     pub(super) fn settings_page(&self, page: usize, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
         let (fg, fg2, fg3) = (c(pal.fg), c(pal.fg2), c(pal.fg3));
@@ -217,247 +534,7 @@ impl Cauldron {
         let section = |title: &'static str| div().mt(px(24.)).mb(px(4.)).text_size(px(11.)).line_height(px(14.)).font_weight(FontWeight::MEDIUM).text_color(fg3).child(title);
         let value = |text: String| div().h(px(28.)).px(px(8.)).flex().items_center().rounded(px(radius::CONTROL)).border_1().border_color(c(pal.line_strong)).text_size(px(12.)).font_weight(FontWeight::MEDIUM).text_color(fg2).child(text);
         if page == 2 {
-            // Appearance: the backdrop (Tight tiles rule 7) or the plain frame, saved to the shared
-            // `backdrop` pref the old app reads too.
-            col = col.child(section("Look"));
-            let mut seg = div().id("set-mode").flex().gap(px(2.)).p(px(2.)).rounded(px(radius::CONTROL)).border_1().border_color(c(pal.line_strong));
-            for (i, (label, key)) in [("System", "system"), ("Light", "light"), ("Dark", "dark")].into_iter().enumerate() {
-                let on = if self.theme_mode.is_empty() { key == "system" } else { self.theme_mode == key };
-                seg = seg.child(
-                    div()
-                        .id(("mode-opt", i))
-                        .h(px(24.))
-                        .px(px(10.))
-                        .flex()
-                        .items_center()
-                        .rounded(px(radius::TAG))
-                        .cursor_pointer()
-                        .when_live(on, |d| d.bg(c(pal.selected)))
-                        .when_live(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
-                        .aria_selected(on)
-                        .aria_label(label)
-                        .text_size(px(12.))
-                        .font_weight(FontWeight::MEDIUM)
-                        .text_color(if on { fg } else { fg2 })
-                        .child(label)
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.theme_mode = key.to_string();
-                            let mut p = Prefs::load();
-                            p.theme = key.to_string();
-                            p.save();
-                            cx.notify();
-                        }))
-                        .test_support(),
-                );
-            }
-            col = col.child(row(("appearance", 4), "Mode".into(), "Follow the system, or always light or dark.".into(), seg.test_support().into_any_element()));
-            col = col.child(section("Window"));
-            let mut seg = div().id("set-backdrop").flex().gap(px(2.)).p(px(2.)).rounded(px(radius::CONTROL)).border_1().border_color(c(pal.line_strong));
-            for (i, (label, on)) in [("Painting", self.painting), ("Plain", !self.painting)].into_iter().enumerate() {
-                seg = seg.child(
-                    div()
-                        .id(("backdrop-opt", i))
-                        .h(px(24.))
-                        .px(px(10.))
-                        .flex()
-                        .items_center()
-                        .rounded(px(radius::TAG))
-                        .cursor_pointer()
-                        .when_live(on, |d| d.bg(c(pal.selected)))
-                        .when_live(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
-                        .aria_selected(on)
-                        .aria_label(label)
-                        .text_size(px(12.))
-                        .font_weight(FontWeight::MEDIUM)
-                        .text_color(if on { fg } else { fg2 })
-                        .child(label)
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.painting = i == 0;
-                            if this.painting {
-                                Self::warm_glass(cx);
-                            }
-                            let mut p = Prefs::load();
-                            p.backdrop = if this.painting { super::backdrop::PAINTING.into() } else { super::backdrop::PLAIN.into() };
-                            p.save();
-                            cx.notify();
-                        }))
-                        .test_support(),
-                );
-            }
-            col = col.child(row(("appearance", 0), "Backdrop".into(), "The Harbour painting behind a frosted frame, or the plain frame.".into(), seg.test_support().into_any_element()));
-            // How frosted the frame and sidebar are.
-            let mut seg = div().id("set-frost").flex().gap(px(2.)).p(px(2.)).rounded(px(radius::CONTROL)).border_1().border_color(c(pal.line_strong));
-            for (i, level) in super::backdrop::FrostLevel::ALL.into_iter().enumerate() {
-                let on = level == self.frost;
-                seg = seg.child(
-                    div()
-                        .id(("frost-opt", i))
-                        .h(px(24.))
-                        .px(px(10.))
-                        .flex()
-                        .items_center()
-                        .rounded(px(radius::TAG))
-                        .cursor_pointer()
-                        .when_live(on, |d| d.bg(c(pal.selected)))
-                        .when_live(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
-                        .aria_selected(on)
-                        .aria_label(level.name())
-                        .text_size(px(12.))
-                        .font_weight(FontWeight::MEDIUM)
-                        .text_color(if on { fg } else { fg2 })
-                        .child(level.name())
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.frost = level;
-                            let mut p = Prefs::load();
-                            p.frost = Some(level.pref());
-                            p.save();
-                            cx.notify();
-                        }))
-                        .test_support(),
-                );
-            }
-            col = col.child(row(("appearance", 2), "Frost".into(), "How much of the painting shows through the frame and sidebar. The cards keep their light glass.".into(), seg.test_support().into_any_element()));
-            // Windows only: the window controls as a slim strip across the top (the default), or in a
-            // notch cut into the top-right card (Charles, 20 Nov).
-            if platform() != cauldron_chrome::layout::Platform::Mac {
-                let notch = platform() == cauldron_chrome::layout::Platform::WindowsNotch;
-                let mut seg = div().id("set-window").flex().gap(px(2.)).p(px(2.)).rounded(px(radius::CONTROL)).border_1().border_color(c(pal.line_strong));
-                for (i, name) in ["Top strip", "Notch"].into_iter().enumerate() {
-                    let on = (i == 1) == notch;
-                    seg = seg.child(
-                        div()
-                            .id(("window-opt", i))
-                            .h(px(24.))
-                            .px(px(10.))
-                            .flex()
-                            .items_center()
-                            .rounded(px(radius::TAG))
-                            .cursor_pointer()
-                            .when_live(on, |d| d.bg(c(pal.selected)))
-                            .when_live(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
-                            .aria_selected(on)
-                            .aria_label(name)
-                            .text_size(px(12.))
-                            .font_weight(FontWeight::MEDIUM)
-                            .text_color(if on { fg } else { fg2 })
-                            .child(name)
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                set_notch(i == 1);
-                                let mut p = Prefs::load();
-                                p.window_style = (i == 1).then(|| "notch".to_string());
-                                p.save();
-                                this.motion = Default::default();
-                                cx.notify();
-                            }))
-                            .test_support(),
-                    );
-                }
-                col = col.child(row(("appearance", 3), "Window controls".into(), "A slim strip across the top of the window, or a notch in the top-right corner of the stream card.".into(), seg.test_support().into_any_element()));
-            }
-            // The stream card: the light frost of the painting, or the user's own picture or GIF.
-            let mut seg = div().id("set-stream-bg").flex().gap(px(2.)).p(px(2.)).rounded(px(radius::CONTROL)).border_1().border_color(c(pal.line_strong));
-            let pic = self.stream_bg.is_some();
-            for (i, (label, on)) in [("Glass", !pic), ("Picture…", pic)].into_iter().enumerate() {
-                seg = seg.child(
-                    div()
-                        .id(("stream-bg-opt", i))
-                        .h(px(24.))
-                        .px(px(10.))
-                        .flex()
-                        .items_center()
-                        .rounded(px(radius::TAG))
-                        .cursor_pointer()
-                        .when_live(on, |d| d.bg(c(pal.selected)))
-                        .when_live(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
-                        .aria_selected(on)
-                        .aria_label(label)
-                        .text_size(px(12.))
-                        .font_weight(FontWeight::MEDIUM)
-                        .text_color(if on { fg } else { fg2 })
-                        .child(label)
-                        .on_click(cx.listener(move |this, _, window, cx| {
-                            if i == 0 {
-                                this.set_stream_bg(None, cx);
-                            } else {
-                                this.pick_stream_bg(window, cx);
-                            }
-                        }))
-                        .test_support(),
-                );
-            }
-            let help: String = match &self.stream_bg {
-                Some(p) => format!("Showing {} under a scrim; the frame takes its colours. Only over the painting.", p.file_name().map_or_else(|| p.display().to_string(), |n| n.to_string_lossy().into_owned())),
-                None => "The painting under a light frost, or your own picture or GIF (png, jpg, webp, gif).".into(),
-            };
-            col = col.child(row(("appearance", 1), "Stream background".into(), help, seg.test_support().into_any_element()));
-            if pic {
-                let cur = Prefs::load();
-                let mut seg = div().id("set-stream-dim").flex().gap(px(2.)).p(px(2.)).rounded(px(radius::CONTROL)).border_1().border_color(c(pal.line_strong));
-                for (i, (name, a)) in super::backdrop::DIMS.into_iter().enumerate() {
-                    let on = (super::backdrop::dim_alpha(&cur) - a).abs() < 0.001;
-                    seg = seg.child(
-                        div()
-                            .id(("stream-dim-opt", i))
-                            .h(px(24.))
-                            .px(px(10.))
-                            .flex()
-                            .items_center()
-                            .rounded(px(radius::TAG))
-                            .cursor_pointer()
-                            .when_live(on, |d| d.bg(c(pal.selected)))
-                            .when_live(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
-                            .aria_selected(on)
-                            .aria_label(name)
-                            .text_size(px(12.))
-                            .font_weight(FontWeight::MEDIUM)
-                            .text_color(if on { fg } else { fg2 })
-                            .child(name[..1].to_uppercase() + &name[1..])
-                            .on_click(cx.listener(move |_, _, _, cx| {
-                                let mut p = Prefs::load();
-                                p.stream_dim = Some(name.to_string());
-                                p.save();
-                                cx.notify();
-                            }))
-                            .test_support(),
-                    );
-                }
-                col = col.child(row(("appearance", 3), "Picture dimming".into(), "How dark the scrim over your picture is, so the text stays readable.".into(), seg.test_support().into_any_element()));
-            }
-            // The New stream box's model picker: the tray unfolds (A), or a card stacked behind the box.
-            let stacked = super::subs::tray_stacked();
-            let mut seg = div().id("set-model-tray").flex().gap(px(2.)).p(px(2.)).rounded(px(radius::CONTROL)).border_1().border_color(c(pal.line_strong));
-            for (i, name) in ["Unfold", "Stacked"].into_iter().enumerate() {
-                let on = (i == 1) == stacked;
-                seg = seg.child(
-                    div()
-                        .id(("model-tray-opt", i))
-                        .h(px(24.))
-                        .px(px(10.))
-                        .flex()
-                        .items_center()
-                        .rounded(px(radius::TAG))
-                        .cursor_pointer()
-                        .when_live(on, |d| d.bg(c(pal.selected)))
-                        .when_live(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
-                        .aria_selected(on)
-                        .aria_label(name)
-                        .text_size(px(12.))
-                        .font_weight(FontWeight::MEDIUM)
-                        .text_color(if on { fg } else { fg2 })
-                        .child(name)
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            let mut p = Prefs::load();
-                            p.model_tray = Some(if i == 1 { "stacked" } else { "unfold" }.to_string());
-                            p.save();
-                            this.start.route_menu = None;
-                            cx.notify();
-                        }))
-                        .test_support(),
-                );
-            }
-            col = col.children(self.dither_rows(pal, cx));
-            col = col.child(row(("appearance", 5), "Model picker".into(), "On New stream: the tray under the box unfolds, or a card stacked behind the box drops out below it.".into(), seg.test_support().into_any_element()));
-            return div().id("settings-body").size_full().overflow_y_scroll().flex().justify_center().child(col).test_support().into_any_element();
+            return self.appearance_page(pal, cx);
         }
         if page == 1 {
             // General: what is real today. Updates is a pref the old app reads too.
@@ -575,6 +652,54 @@ mod tests {
     use gpui_kit::test::TestWindowExt;
     use gpui_kit::{AppContext, TestAppContext};
 
+    /// Appearance > Colours: a swatch saves the frame colour, the main card switches the target,
+    /// themes save and come back, Reset clears. In steps of their own: each click costs stack.
+    #[gpui_kit::test]
+    fn colours_save_and_themes_come_back(cx: &mut TestAppContext) {
+        let _prefs = super::thread::tests::prefs_guard();
+        let (handle, _chats) = open(cx);
+        cx.simulate_window_resize(handle.into(), gpui_kit::size(gpui_kit::px(1200.), gpui_kit::px(1500.)));
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            window.click("settings", cx);
+            window.render_frame(cx);
+            window.click(("settings-page", 2usize), cx);
+            window.render_frame(cx);
+            colour_targets(window, cx);
+            colour_themes_step(window, cx);
+        })
+        .unwrap();
+    }
+
+    #[inline(never)]
+    fn colour_targets(window: &mut gpui_kit::Window, cx: &mut gpui_kit::App) {
+        assert_eq!(window.find("mini-frame").selected(), Some(true), "Frame is the target at first");
+        window.click(("swatch", 1usize), cx);
+        assert!(backspace_core::prefs::Prefs::load().sidebar_color.is_some(), "a swatch saves the frame colour");
+        window.click("mini-main", cx);
+        window.render_frame(cx);
+        assert_eq!(window.find("mini-main").selected(), Some(true), "the main card is the target now");
+        assert_eq!(window.find("mini-frame").selected(), Some(false), "and the frame is not");
+        window.click(("swatch", 2usize), cx);
+        assert!(backspace_core::prefs::Prefs::load().main_color.is_some(), "and its swatch saves the main colour");
+    }
+
+    #[inline(never)]
+    fn colour_themes_step(window: &mut gpui_kit::Window, cx: &mut gpui_kit::App) {
+        window.click("theme-save", cx);
+        assert_eq!(backspace_core::prefs::Prefs::load().themes.len(), 1, "Save current keeps a theme");
+        window.click("colour-reset", cx);
+        let p = backspace_core::prefs::Prefs::load();
+        assert!(p.sidebar_color.is_none() && p.main_color.is_none(), "Reset goes back to the theme's colours");
+        window.click(("theme-saved", 0usize), cx);
+        assert!(backspace_core::prefs::Prefs::load().sidebar_color.is_some(), "a saved theme brings the colours back");
+        let mut p = backspace_core::prefs::Prefs::load();
+        p.themes.clear();
+        p.sidebar_color = None;
+        p.main_color = None;
+        p.save();
+    }
+
     /// The gear opens Settings: its pages take the sidebar's place under a back row, and the
     /// first page fills the card with Agents and subscriptions. With no usage from core the row
     /// says "No data yet"; the back row returns to the threads.
@@ -582,6 +707,8 @@ mod tests {
     fn settings_swaps_the_sidebar_list_and_fills_the_card(cx: &mut TestAppContext) {
         let _prefs = super::thread::tests::prefs_guard();
         let (handle, _chats) = open(cx);
+        // The colour preview makes the Appearance page taller than the usual test window.
+        cx.simulate_window_resize(handle.into(), gpui_kit::size(gpui_kit::px(1200.), gpui_kit::px(1500.)));
         // Never the user's own accounts.json: a file of the test's own, absent.
         let path = std::env::temp_dir().join(format!("cauldron-settings-none-{}.json", std::process::id()));
         handle.update(cx, |c, _, _| c.accounts_file = Some(path)).unwrap();
