@@ -30,6 +30,7 @@ mod motion;
 mod newthread;
 mod panes;
 mod dither;
+mod ledger;
 mod logos;
 mod mark;
 mod picker;
@@ -257,6 +258,12 @@ pub(crate) struct Cauldron {
     terminal: bool,
     /// Its blocks: the open thread's commands, from core's traces.
     term_blocks: Vec<terminal::Block>,
+    /// The open stream's command blocks by trace id (terminal::blocks).
+    term_cache: std::collections::HashMap<String, Vec<terminal::Block>>,
+    /// Which ledger steps are open or shut, where the reader chose (ledger.rs).
+    act_open: std::collections::HashMap<String, bool>,
+    /// Redraws 10 times a second while a reply runs, so its timers count and its sweep moves.
+    act_tick: Option<gpui_kit::Task<()>>,
     term_input: Option<(Entity<InputState>, Subscription)>,
     /// What the input line answered last (no shell yet, or a send error).
     term_note: Option<String>,
@@ -276,6 +283,8 @@ pub(crate) struct Cauldron {
     /// The transcript's scroll, kept at the newest message when a thread opens or grows.
     transcript_scroll: ScrollHandle,
     transcript_seen: std::cell::RefCell<Option<(String, usize)>>,
+    /// What the transcript's last frame measured: stream, width, messages, steps (thread_view).
+    transcript_fit: std::cell::RefCell<Option<(String, i32, usize, usize)>>,
     /// The thread's coordinator, pinned as the first tab; None on the New thread screen.
     coordinator: Option<SharedString>,
     /// The open familiar (an index into `fam_views`): the card shows its view and the tabs are its crew.
@@ -530,9 +539,9 @@ impl Cauldron {
 
     /// The dither plane under the main card on the plain background (board round 4): the valley
     /// on New stream, the valley at the bottom or the ripple in a working stream.
-    fn plane_under(&mut self, r: Rect, show: bool, new_screen: bool, dark: bool, window: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
+    fn plane_under(&mut self, r: Rect, show: bool, new_screen: bool, dark: bool, settling: bool, window: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
         let p = Prefs::load();
-        let mut stale = Vec::new();
+        let mut stale = std::mem::take(&mut self.plane.stale);
         let kind = if show { dither::wanted(&p, self.painting, new_screen) } else { None };
         let Some(kind) = kind else {
             self.plane.clear(&mut stale);
@@ -541,12 +550,30 @@ impl Cauldron {
             }
             return None;
         };
-        let moving = dither::moving(&p) && !cx.reduce_motion();
-        let im = self.plane.get(kind, r.w, r.h, window.scale_factor(), dark, moving, &mut stale);
         for old in stale {
             let _ = window.drop_image(old);
         }
-        if !moving {
+        let moving = dither::moving(&p) && !cx.reduce_motion();
+        let scale = window.scale_factor();
+        let key = dither::key(kind, r.w, r.h, scale, dark, moving);
+        // Drawing a plane takes 7-130 ms: off the UI thread, the card keeps the last one meanwhile.
+        if self.plane.needs(key, settling) {
+            let (w, h) = (r.w, r.h);
+            let task = cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+                let frames = cx.background_executor().spawn(async move { dither::frames(kind, w, h, scale, dark, moving) }).await;
+                let _ = this.update(cx, |c, cx| {
+                    if c.plane.pending.as_ref().is_some_and(|(k, _)| *k == key) {
+                        c.plane.land(key, frames);
+                        cx.notify();
+                    }
+                });
+            });
+            self.plane.pending = Some((key, task));
+        }
+        let im = self.plane.current()?;
+        // The loop only plays while the window is in front: a hidden or background window does
+        // not redraw 8 times a second. Activating the window draws again, which restarts it.
+        if !(moving && self.plane.key.is_some_and(|k| k.5) && window.is_window_active()) {
             self.plane.ticker = None;
         } else if self.plane.ticker.is_none() {
             self.plane.ticker = Some(cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| loop {
@@ -586,7 +613,7 @@ impl Cauldron {
     }
 
     pub(crate) fn new() -> Self {
-        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, support_data: Default::default(), files_open: Default::default(), painting: false, glass: Default::default(), plane: Default::default(), mark_ticker: None, ask_hover: false, ask_open: None, ask_answered: Default::default(), fam_questions: Default::default(), frost: backdrop::FrostLevel::Heavy, stream_bg: None, bg_wipe: None, stream_menu: None, closed_sides: Default::default(), sides_listed: Default::default(), color_target: theme::Target::Sidebar, hex_input: None, theme_mode: String::new(), root_focus: None, plan: false, open_in_menu: false, open_in: thread::OpenIn::Folder, search_open: false, indent: false, usage: Default::default(), settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, familiar: None, fam_views: Vec::new(), fam_live: Vec::new(), fam_watch: Vec::new(), fam_driving: Default::default(), fam_error: None, fam_composer: None, fam_fixture: false, inbox: Vec::new(), inbox_open: false, update: Default::default(), update_open: false, cli_rows: Vec::new(), inbox_toast: None, fam_from: (0.0, 0.0), fam_to: None, fam_since: None, fam_hl: 0, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default(), err_open: Default::default(), side_root: None, sides: Vec::new(), side_win: false, side_input: None, side_ctx: Default::default() }
+        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, support_data: Default::default(), files_open: Default::default(), painting: false, glass: Default::default(), plane: Default::default(), mark_ticker: None, ask_hover: false, ask_open: None, ask_answered: Default::default(), fam_questions: Default::default(), frost: backdrop::FrostLevel::Heavy, stream_bg: None, bg_wipe: None, stream_menu: None, closed_sides: Default::default(), sides_listed: Default::default(), color_target: theme::Target::Sidebar, hex_input: None, theme_mode: String::new(), root_focus: None, plan: false, open_in_menu: false, open_in: thread::OpenIn::Folder, search_open: false, indent: false, usage: Default::default(), settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_cache: Default::default(), act_open: Default::default(), act_tick: None, term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), transcript_fit: Default::default(), coordinator: None, familiar: None, fam_views: Vec::new(), fam_live: Vec::new(), fam_watch: Vec::new(), fam_driving: Default::default(), fam_error: None, fam_composer: None, fam_fixture: false, inbox: Vec::new(), inbox_open: false, update: Default::default(), update_open: false, cli_rows: Vec::new(), inbox_toast: None, fam_from: (0.0, 0.0), fam_to: None, fam_since: None, fam_hl: 0, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default(), err_open: Default::default(), side_root: None, sides: Vec::new(), side_win: false, side_input: None, side_ctx: Default::default() }
     }
 
     /// Opens core off the main thread (the sidebar shows Loading meanwhile), then keeps the thread
@@ -1724,6 +1751,21 @@ impl Render for Cauldron {
         let fg3 = c(pal.fg3);
         let accent = c(pal.accent);
 
+        // While the open stream's reply runs, its timers and sweep need a redraw every 100 ms; the
+        // reply's own updates only come when it writes or calls a tool.
+        if self.busy() && self.settings.is_none() {
+            if self.act_tick.is_none() {
+                self.act_tick = Some(cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| loop {
+                    cx.background_executor().timer(std::time::Duration::from_millis(100)).await;
+                    if this.update(cx, |_, cx| cx.notify()).is_err() {
+                        break;
+                    }
+                }));
+            }
+        } else {
+            self.act_tick = None;
+        }
+
         self.ensure_composer(window, cx);
         if self.familiar.is_some() {
             self.ensure_fam_composer(window, cx);
@@ -1757,7 +1799,7 @@ impl Render for Cauldron {
 
         // ---- the frame layer: the Harbour painting, baked frosted, under the frame tint
         // (Tight tiles rule 7). The plain frame is the root's own colour.
-        let layer = self.painting.then(|| backdrop::frame_layer(dark));
+        let layer = if self.painting { backdrop::frame_layer_now(dark) } else { None };
         if let Some(img_src) = layer.clone() {
             root = root
                 .child(img(img_src).id("backdrop").absolute().size_full().object_fit(ObjectFit::Cover).test_support())
@@ -2220,7 +2262,7 @@ impl Render for Cauldron {
                 // Split panes are cards of their own on the frame, like the support card (Charles,
                 // 21 Nov 05:10Z): the host card paints nothing under them.
                 let under = if split { None } else { self.glass_under("main", s.main, (w, h), dark, pal, moving, window) };
-                let plane = if split { None } else { self.plane_under(s.main, under.is_none() && self.settings.is_none() && self.familiar.is_none(), new_screen, dark, window, cx) };
+                let plane = if split { None } else { self.plane_under(s.main, under.is_none() && self.settings.is_none() && self.familiar.is_none(), new_screen, dark, moving, window, cx) };
 
                 let glass = under.is_some();
                 div()

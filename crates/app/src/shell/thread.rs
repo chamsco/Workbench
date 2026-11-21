@@ -19,6 +19,8 @@ pub(super) struct Line {
     pub error: Option<String>,
     /// Who answered, with which model and at what cost, under a reply.
     pub meta: Option<String>,
+    /// The reply as text and steps, when it recorded any steps (board A); else empty.
+    pub parts: Vec<super::ledger::Part>,
 }
 
 /// A failed reply, read for people: `reason` in words, the exit code, a hint for causes we know,
@@ -68,7 +70,16 @@ pub(super) fn failure(e: &str) -> Failure {
 }
 
 pub(super) fn lines(t: &Thread) -> Vec<Line> {
-    t.messages.iter().map(|m| Line { id: m.id.clone(), mine: m.role == Role::User, text: m.text.clone(), status: m.status, error: m.error.clone(), meta: meta(m) }).collect()
+    t.messages.iter().map(|m| Line { id: m.id.clone(), mine: m.role == Role::User, text: m.text.clone(), status: m.status, error: m.error.clone(), meta: meta(m), parts: reply_parts(m) }).collect()
+}
+
+/// A reply's text and steps, when it recorded steps. In flight is `Sending` or `Streaming`, unless
+/// the app closed under it.
+fn reply_parts(m: &Msg) -> Vec<super::ledger::Part> {
+    if m.role == Role::User || m.acts.is_empty() {
+        return Vec::new();
+    }
+    super::ledger::parts(m, matches!(m.status, Status::Sending | Status::Streaming) && !m.interrupted)
 }
 
 fn meta(m: &Msg) -> Option<String> {
@@ -264,8 +275,9 @@ impl Cauldron {
         let Some((_, chats)) = &self.core else { return };
         self.thread = chats.thread(&id);
         self.steps.clear();
+        self.term_cache.clear();
         fill_steps(chats, self.thread.as_ref(), &mut self.steps);
-        self.term_blocks = super::terminal::blocks(chats, self.thread.as_ref());
+        self.term_blocks = super::terminal::blocks(chats, self.thread.as_ref(), &mut self.term_cache);
         self.term_scroll.scroll_to_bottom();
         self.familiar = None;
         self.coordinator = Some(self.thread.as_ref().map_or_else(|| "Thread".into(), |t| t.title.clone().into()));
@@ -287,7 +299,7 @@ impl Cauldron {
             if let Some(id) = &self.open {
                 self.thread = chats.peek(id);
                 fill_steps(chats, self.thread.as_ref(), &mut self.steps);
-                self.term_blocks = super::terminal::blocks(chats, self.thread.as_ref());
+                self.term_blocks = super::terminal::blocks(chats, self.thread.as_ref(), &mut self.term_cache);
             }
         }
         self.sync_sides();
@@ -524,6 +536,7 @@ impl Cauldron {
         let (fg, fg2, fg3) = (c(pal.fg), c(pal.fg2), c(pal.fg3));
         // The transcript fades in over the second half of the carry after a thread opens.
         let now = std::time::Instant::now();
+        let now_ms = super::ledger::now_ms();
         let open_k = self.open_since.map_or(1.0, |t0| cauldron_chrome::motion::fade_in(crate::motion::run(now, t0, cauldron_chrome::motion::time::CARRY)));
         let bubble_k = self.bubble_since.map_or(1.0, |t0| crate::motion::run(now, t0, cauldron_chrome::motion::time::CARRY));
         let mut msgs = div().id("transcript").flex_1().min_h_0().overflow_y_scroll().track_scroll(&self.transcript_scroll).flex().flex_col().gap(px(12.)).opacity(open_k);
@@ -560,7 +573,25 @@ impl Cauldron {
         let last = ls.len().saturating_sub(1);
         // The scroll ticks' targets: one per response, by its row in the transcript.
         let replies: Vec<usize> = ls.iter().enumerate().filter(|(_, l)| !l.mine).map(|(i, _)| i).collect();
+        // Only the messages near the view are built: one further is drawn as an empty box of the
+        // height it had last frame, so a scroll step in a long stream lays out a screenful, not
+        // every message (26 ms at 240 messages before). The boxes are trusted only when last
+        // frame drew this stream at this width with these messages and steps; otherwise every
+        // message is built once, which measures them again.
+        let n = ls.len();
+        let vb = self.transcript_scroll.bounds();
+        let fit = (t.id.clone(), f32::from(vb.size.width).round() as i32, n, self.steps.values().map(Vec::len).sum::<usize>());
+        let measured = vb.size.height > px(0.) && self.transcript_fit.borrow().as_ref() == Some(&fit);
+        *self.transcript_fit.borrow_mut() = Some(fit);
+        let off = self.transcript_scroll.offset().y;
+        let (lo, hi) = (vb.top() - off - vb.size.height, vb.bottom() - off + vb.size.height);
         for (i, l) in ls.into_iter().enumerate() {
+            if measured && i + 1 < n && live(l.status).is_none() {
+                if let Some(b) = self.transcript_scroll.bounds_for_item(i).filter(|b| b.bottom() < lo || b.top() > hi) {
+                    msgs = msgs.child(div().id(("msg", i)).flex_none().w_full().h(b.size.height));
+                    continue;
+                }
+            }
             let shown = if l.text.is_empty() { pending(l.status).unwrap_or("").to_string() } else { l.text.clone() };
             if l.mine {
                 let k = if fresh_mine == Some(i) { bubble_k } else { 1.0 };
@@ -594,15 +625,22 @@ impl Cauldron {
                 .flex_col()
                 .gap(px(6.))
                 .aria_label(if l.text.is_empty() { shown.clone() } else { l.text.clone() })
-                .when_some(self.steps.get(&l.id).filter(|s| !s.is_empty()), |d, st| {
+                .when_some(self.steps.get(&l.id).filter(|s| !s.is_empty() && l.parts.is_empty()), |d, st| {
                     let mut col = div().id(("steps", i)).flex().flex_col().gap(px(2.)).aria_label(st.join(", "));
                     for (j, s) in st.iter().enumerate() {
                         col = col.child(div().flex().items_center().gap(px(8.)).h(px(20.)).text_size(px(12.5)).text_color(fg3).child(div().size(px(16.)).flex_none().flex().items_center().justify_center().child(glyph("check", 13., fg3))).child(div().id(format!("step-text-{i}-{j}")).child(s.clone()).test_support()));
                     }
                     d.child(col.test_support())
                 })
-                .when_live(!l.text.is_empty() || live(l.status).is_none(), |d| d.child(div().text_size(px(14.)).line_height(px(22.)).text_color(if l.text.is_empty() { fg3 } else { fg }).child(shown.clone())))
-                .when_some(live(l.status), |d, label| d.child(status_line(i, label, pal.fg3)));
+                .when_live(l.parts.is_empty() && (!l.text.is_empty() || live(l.status).is_none()), |d| d.child(div().text_size(px(14.)).line_height(px(22.)).text_color(if l.text.is_empty() { fg3 } else { fg }).child(shown.clone())))
+                .when_some(live(l.status).filter(|_| l.parts.is_empty()), |d, label| d.child(status_line(i, label, pal.fg3)));
+            // The ledger (board A): the text and the steps in the order they happened.
+            for (j, part) in l.parts.iter().enumerate() {
+                say = match part {
+                    super::ledger::Part::Text(t) => say.child(div().id(("part", i * 1000 + j)).text_size(px(14.)).line_height(px(22.)).text_color(fg).child(t.clone())),
+                    super::ledger::Part::Step(st) => say.child(self.step_el(st, st.end.is_none(), now_ms, pal, cx)),
+                };
+            }
             if let Some(e) = &l.error {
                 say = say.child(self.failure_card(i, &l.id, e, i == last, &t.id, pal, cx));
             }
@@ -800,6 +838,8 @@ impl Cauldron {
                         .child(div().h(px(2.)).w(px(if on { 20. } else { 14. })).rounded(px(1.)).bg(if on { c(pal.accent) } else { ca(pal.fg4, 0.75) }))
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.transcript_scroll.scroll_to_item(row);
+                            // The jump lands after this frame is built: build every message.
+                            *this.transcript_fit.borrow_mut() = None;
                             cx.notify();
                         }))
                         .test_support(),

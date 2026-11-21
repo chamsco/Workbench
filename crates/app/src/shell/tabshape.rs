@@ -96,9 +96,9 @@ impl Cauldron {
     /// The frame at `r`, exactly as the window's frame layer draws it there.
     fn frame_piece(&mut self, id: &'static str, r: Rect, k: Corner, win: (f32, f32), dark: bool, pal: &'static Palette, window: &mut Window) -> Div {
         let mut d = round(abs(r), k);
-        if self.painting {
+        if let Some(src) = self.painting.then(|| backdrop::frame_rgba_now(dark)).flatten() {
             let mut stale = Vec::new();
-            let crop = self.glass.piece(id, &backdrop::frame_rgba(dark), dark, win, r, None, &mut stale);
+            let crop = self.glass.piece(id, &src, dark, win, r, None, &mut stale);
             for old in stale {
                 let _ = window.drop_image(old);
             }

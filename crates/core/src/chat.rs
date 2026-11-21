@@ -97,6 +97,10 @@ pub struct Msg {
     /// The reasoning the target showed while it worked, when it shows any.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub thinking: String,
+    /// What the reply did while it was written, in order: the reasoning, then each tool call, with
+    /// when each started and ended (unix ms). Written live, so the view can show a step running.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub acts: Vec<Act>,
     /// Where in `text` (UTF-16 units, as the face counts) one assistant turn
     /// ended and the next began, i.e. after a tool call. The face draws each
     /// stretch as its own bubble.
@@ -133,6 +137,38 @@ pub struct Msg {
     pub spec: Option<crate::spec::Verdict>,
 }
 
+/// The reasoning ends when the reply starts writing or calls a tool.
+fn end_thinking(m: &mut Msg) {
+    if let Some(a) = m.acts.last_mut().filter(|a| a.name == "Thinking" && a.end.is_none()) {
+        a.end = Some(now_ms());
+    }
+}
+
+/// One step of a reply: the reasoning ("Thinking") or a tool call.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+pub struct Act {
+    /// The tool call's id; empty for the reasoning.
+    #[serde(default)]
+    pub id: String,
+    /// "Thinking", or the tool's name ("Read", "Bash", ...).
+    pub name: String,
+    /// The tool's input as the runner reported it (JSON text, short), for a one-line label.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub input: String,
+    /// What the call printed, trimmed to the tail, once it ended.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub output: String,
+    pub start: u64,
+    #[serde(default)]
+    pub end: Option<u64>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub error: bool,
+    /// How much of the reply's text (bytes) was written when this step began, so the view can set
+    /// the step between the paragraphs it fell between.
+    #[serde(default)]
+    pub at: usize,
+}
+
 impl Msg {
     fn new(role: Role, text: String, status: Status) -> Msg {
         Msg {
@@ -149,6 +185,7 @@ impl Msg {
             ad: None,
             cost_usd: None,
             thinking: String::new(),
+            acts: Vec::new(),
             breaks: Vec::new(),
             edited: false,
             via: None,
@@ -1175,6 +1212,7 @@ impl Chats {
                 ad: None,
                 cost_usd: None,
                 thinking: String::new(),
+                acts: Vec::new(),
                 breaks: Vec::new(),
                 edited: false,
                 via: None,
@@ -1622,6 +1660,11 @@ impl Chats {
     fn finish(&self, tid: &str, mid: &str, res: Result<()>) {
         let _ = self.edit_thread(tid, |t| {
             if let Some(m) = t.messages.iter_mut().find(|m| m.id == mid) {
+                // Whatever was still running when the reply ended ends with it.
+                let at = now_ms();
+                for a in m.acts.iter_mut().filter(|a| a.end.is_none()) {
+                    a.end = Some(at);
+                }
                 match res {
                     Ok(()) => {
                         m.status = Status::Done;
@@ -2233,10 +2276,33 @@ Ask the reader for input with the real form parts: `f = FormControl(\"Name\", In
             self.save(id);
         }
         match e {
-            RunEvent::Text { text } => self.append(id, mid, &text),
+            RunEvent::Text { text } => {
+                if !text.is_empty() {
+                    self.with_msg(id, mid, |m| end_thinking(m));
+                }
+                self.append(id, mid, &text)
+            }
             RunEvent::Thinking { text } => self.with_msg(id, mid, |m| {
                 m.status = Status::Streaming;
                 m.thinking.push_str(&text);
+                if !m.acts.last().is_some_and(|a| a.name == "Thinking" && a.end.is_none()) {
+                    let at = m.text.len();
+                    m.acts.push(Act { name: "Thinking".into(), start: now_ms(), at, ..Default::default() });
+                }
+            }),
+            RunEvent::ToolStart { id: tid, name, input } => self.with_msg(id, mid, |m| {
+                end_thinking(m);
+                let input: String = input.chars().take(400).collect();
+                let at = m.text.len();
+                m.acts.push(Act { id: tid, name, input, start: now_ms(), at, ..Default::default() });
+            }),
+            RunEvent::ToolEnd { id: tid, output, error } => self.with_msg(id, mid, |m| {
+                if let Some(a) = m.acts.iter_mut().rev().find(|a| a.id == tid && a.end.is_none()) {
+                    a.end = Some(now_ms());
+                    a.error = error;
+                    let n = output.chars().count();
+                    a.output = output.chars().skip(n.saturating_sub(600)).collect();
+                }
             }),
             RunEvent::Break => {
                 // The next stretch is a new turn: note where this one ended,
@@ -2264,7 +2330,7 @@ Ask the reader for input with the real form parts: `f = FormControl(\"Name\", In
                 }
             }
             RunEvent::Cost { usd } => self.with_msg(id, mid, |m| m.cost_usd = Some(usd)),
-            RunEvent::Usage { .. } | RunEvent::ToolStart { .. } | RunEvent::ToolEnd { .. } => {}
+            RunEvent::Usage { .. } => {}
         }
     }
 
@@ -2531,6 +2597,7 @@ mod tests {
             ad: None,
             cost_usd: None,
             thinking: String::new(),
+            acts: Vec::new(),
             breaks: Vec::new(),
             edited: false,
             via: None,
@@ -2593,6 +2660,7 @@ mod tests {
                     ad: None,
                     cost_usd: None,
                     thinking: String::new(),
+                    acts: Vec::new(),
                     breaks: Vec::new(),
                     edited: false,
                     via: None,
