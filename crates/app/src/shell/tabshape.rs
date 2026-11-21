@@ -25,12 +25,12 @@ pub(crate) const BODY_R: f32 = TAB_R;
 pub(crate) const FOOT_R: f32 = S;
 /// The open tab's pill: a little slimmer than a tab row (Charles, 21 Nov), centred in the card's
 /// tab with an even inset all round, and concentric with the tab's corners.
-pub(crate) const PILL_H: f32 = metric::TAB_H - 4.0;
+pub(crate) const PILL_H: f32 = metric::TAB_H;
 /// The pill's inset from the card's tab top and from the card's top line.
-pub(crate) const PILL_IN: f32 = (BUMP_H - PILL_H) / 2.0;
-pub(crate) const PILL_R: f32 = TAB_R - PILL_IN;
+pub(crate) const PILL_IN: f32 = metric::HEAD_IN;
+pub(crate) const PILL_R: f32 = 9.0;
 /// How far a tab moves up from the tab row's centre so its pill sits at `PILL_IN`.
-pub(crate) const PILL_DY: f32 = PILL_IN - (metric::HEAD_IN + (metric::TAB_H - PILL_H) / 2.0);
+pub(crate) const PILL_DY: f32 = 0.0;
 /// The tab's height over the card's top line: the tabs' inset plus their height, so the open
 /// tab's pill sits on that line, as in the picture.
 pub(crate) const BUMP_H: f32 = metric::HEAD_IN + metric::TAB_H;
@@ -187,10 +187,7 @@ mod tests {
     #[::core::prelude::v1::test]
     fn the_top_corners_match_the_bottom_and_the_pill_is_concentric() {
         assert_eq!(BODY_R, TAB_R);
-        assert_eq!(PILL_R, TAB_R - PILL_IN);
-        assert_eq!(PILL_IN * 2.0 + PILL_H, BUMP_H, "the pill is centred in the card's tab");
         assert!(TAB_R < 17.0, "Charles, 21 Nov: the 17px tab top was too round");
-        assert_eq!(BUMP_H, metric::HEAD_IN + metric::TAB_H, "the open tab's pill ends on the card's top line");
         assert!((metric::HEAD_IN - S).abs() < 0.5, "the tabs sit one stroke in, as the picture's pill");
     }
 

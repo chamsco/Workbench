@@ -18,11 +18,11 @@ pub(crate) fn tray_stacked() -> bool {
 }
 
 /// The stacked card's picker height once it has dropped out (picker v2 inside).
-pub(crate) const STACK_OPEN_H: f32 = super::picker::PICKER_H;
+pub(crate) const STACK_OPEN_H: f32 = super::picker::COLS_H;
 
 /// Stacked picker: how far the card hides under the box while folded, and the gap it drops to.
 pub(crate) const STACK_TUCK: f32 = 12.0;
-pub(crate) const STACK_GAP: f32 = 6.0;
+pub(crate) const STACK_GAP: f32 = 4.0;
 
 /// The new-stream tray's height once it has unfolded (Model tray A).
 pub(crate) const TRAY_OPEN_H: f32 = 216.0;

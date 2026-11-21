@@ -21,6 +21,8 @@ pub(crate) const PICKER_H: f32 = 316.0;
 /// Board round 4, Picker B (Charles, 21 Nov 03:54Z: "1-B should be for the thread working"): in a
 /// working stream, a short tray as wide as the chat box, its CLIs as a row of tabs on top.
 pub(crate) const TRAY_B_H: f32 = 236.0;
+/// The New stream tray (board round 5, M2): one column per CLI, its height below the chip row.
+pub(crate) const COLS_H: f32 = 264.0;
 const ROW_H: f32 = 26.0;
 
 /// "1M", "262k", "8k".
@@ -167,6 +169,80 @@ impl Cauldron {
         // A: the rail on the left of search, list and footer.
         let middle = div().flex_1().min_w_0().flex().flex_col().min_h_0().child(head).child(list.test_support()).child(footer);
         div().size_full().flex().min_h_0().child(rail.test_support()).child(middle)
+    }
+
+    /// The New stream tray (board round 5, M2, Charles 21 Nov 04:24Z): one column per coding CLI,
+    /// left to right, under a search row, with Reasoning and Access under them. It goes in the
+    /// rounded card that slides out from under the box.
+    #[inline(never)]
+    pub(super) fn picker_columns(&self, to: PickFor, route: Option<&Route>, pal: &'static Palette, cx: &mut Context<Self>) -> Div {
+        let (fg2, fg3) = (c(pal.fg2), c(pal.fg3));
+        let mut clis: Vec<&CliStatus> = self.start.providers.iter().filter(|s| s.installed).collect();
+        clis.sort_by_key(|s| !s.ready());
+        let query = self.start.pick_query.trim().to_lowercase();
+        let current = route.filter(|r| r.kind == RouteKind::Cli);
+        let search = self.start.pick_search.as_ref().map(|(s, _)| s.clone());
+        let head = div()
+            .flex_none()
+            .flex()
+            .items_center()
+            .gap(px(8.))
+            .h(px(32.))
+            .px(px(10.))
+            .border_b_1()
+            .border_color(c(pal.line))
+            .child(glyph("search", 13., fg3))
+            .child(div().flex_1().min_w_0().when_some(search, |d, s| d.child(Input::new(&s).appearance(false).text_size(px(12.5)).p_0())));
+        let mut cols = div().id("pick-cols").flex_1().min_h_0().flex().gap(px(2.)).px(px(6.)).pt(px(4.));
+        if self.start.providers.is_empty() {
+            cols = cols.child(div().id("route-loading").px(px(8.)).py(px(10.)).text_size(px(12.5)).text_color(fg3).aria_label("Looking for coding CLIs…").child("Looking for coding CLIs…").test_support());
+        }
+        let mut n = 0usize;
+        for (ci, s) in clis.iter().enumerate() {
+            let mut list = div().id(("pick-col", ci)).flex_1().min_h_0().overflow_y_scroll().flex().flex_col();
+            for (m, info) in rows_of(s) {
+                if !query.is_empty() && !(m.is_some() && matches(&query, s, m.as_deref(), info)) {
+                    continue;
+                }
+                let label = match m.as_deref() {
+                    None => format!("{}'s default", s.name),
+                    Some(id) => row_label(id, info, true),
+                };
+                list = list.child(self.pick_row(n, &to, current, s, m, info, label, 0.0, true, pal, cx));
+                n += 1;
+            }
+            let dot = if s.ready() { c(pal.ok) } else { c(pal.warn) };
+            let mark = super::logos::cli_mark(&s.provider).and_then(|n| super::logos::image(n, &pal.fg2.to_hex()));
+            cols = cols.child(
+                div()
+                    .id(("pick-col-wrap", ci))
+                    .flex_1()
+                    .w_0()
+                    .min_w_0()
+                    .flex()
+                    .flex_col()
+                    .child(
+                        div()
+                            .flex_none()
+                            .flex()
+                            .items_center()
+                            .gap(px(6.))
+                            .h(px(24.))
+                            .px(px(6.))
+                            .text_size(px(11.))
+                            .text_color(fg2)
+                            .child(match mark {
+                                Some(i) => img(i).size(px(12.)).flex_none().into_any_element(),
+                                None => div().size(px(12.)).flex_none().into_any_element(),
+                            })
+                            .child(div().min_w_0().truncate().child(s.name.clone()))
+                            .child(div().size(px(6.)).flex_none().rounded_full().bg(dot)),
+                    )
+                    .child(list)
+                    .test_support(),
+            );
+        }
+        div().size_full().flex().flex_col().min_h_0().child(head).child(cols.test_support()).child(self.picker_footer(route, false, pal, cx))
     }
 
     #[inline(never)]
@@ -477,7 +553,7 @@ impl Cauldron {
         }
         for (s, m, i) in fav_rows {
             let label = format!("{} · {}", s.name, m.as_deref().map_or_else(|| "default".to_string(), |m| row_label(m, i, false)));
-            list = list.child(self.pick_row(n, to, current, s, m, i, label, 0.0, pal, cx));
+            list = list.child(self.pick_row(n, to, current, s, m, i, label, 0.0, false, pal, cx));
             n += 1;
             kids += 1;
         }
@@ -516,7 +592,7 @@ impl Cauldron {
                 if f.items.len() == 1 {
                     let (m, i) = f.items.into_iter().next().expect("one");
                     let label = m.as_deref().map_or_else(|| format!("{}'s default", s.name), |m| row_label(m, i, true));
-                    list = list.child(self.pick_row(n, to, current, s, m, i, label, 0.0, pal, cx));
+                    list = list.child(self.pick_row(n, to, current, s, m, i, label, 0.0, false, pal, cx));
                     n += 1;
                     kids += 1;
                     continue;
@@ -566,7 +642,7 @@ impl Cauldron {
                 if open {
                     for (m, i) in f.items {
                         let label = m.as_deref().map_or_else(|| format!("{}'s default", s.name), |m| row_label(m, i, true));
-                        list = list.child(self.pick_row(n, to, current, s, m, i, label, 18.0, pal, cx));
+                        list = list.child(self.pick_row(n, to, current, s, m, i, label, 18.0, false, pal, cx));
                         n += 1;
                         kids += 1;
                     }
@@ -581,12 +657,12 @@ impl Cauldron {
 
     /// One model row: the label, a Free or price tag, a check on the current one.
     #[allow(clippy::too_many_arguments)]
-    fn pick_row(&self, n: usize, to: &PickFor, current: Option<&Route>, s: &CliStatus, m: Option<String>, info: Option<&ModelInfo>, label: String, indent: f32, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
+    fn pick_row(&self, n: usize, to: &PickFor, current: Option<&Route>, s: &CliStatus, m: Option<String>, info: Option<&ModelInfo>, label: String, indent: f32, compact: bool, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
         let (fg, fg2, fg3) = (c(pal.fg), c(pal.fg2), c(pal.fg3));
         let sel = current.is_some_and(|r| r.provider == s.provider && r.model == m);
         let key = fav_key(&s.provider, m.as_deref());
         let named = info.is_some_and(|i| i.name.is_some());
-        let price = price_tag(info);
+        let price = price_tag(info).filter(|_| !compact);
         let free = info.is_some_and(ModelInfo::free);
         let (to2, prov, m2, key2) = (to.clone(), s.provider.clone(), m.clone(), key);
         let ready = s.ready();
@@ -596,7 +672,7 @@ impl Cauldron {
             None => super::logos::cli_mark(&s.provider),
         }
         .and_then(|n| super::logos::image(n, &pal.fg2.to_hex()));
-        let ctx = info.and_then(|i| i.context).map(tokens_short);
+        let ctx = info.and_then(|i| i.context).map(tokens_short).filter(|_| !compact);
         let fav = Prefs::load().fav_models.contains(&key2);
         let focused = self.start.pick_focus.as_deref() == Some(key2.as_str());
         let key3 = key2.clone();

@@ -141,9 +141,11 @@ pub fn support_width(w: f32) -> f32 {
 /// The window's geometry for exactly the state asked for.
 pub fn layout(w: f32, h: f32, state: ShellState, platform: Platform) -> Shell {
     use metric::*;
-    let strip = platform == Platform::Windows;
-    let windows = strip || platform == Platform::WindowsNotch;
-    let (top, bottom, right) = (if strip { BAR_H } else { GAP }, h - GAP, w - GAP);
+    // Charles, 21 Nov 04:25Z (board round 5, H1-H3): no strip. The card runs the full window height
+    // beside the sidebar, and every frame element sits in its top row, the window buttons included.
+    let strip = false;
+    let windows = platform != Platform::Mac;
+    let (top, bottom, right) = (GAP, h - GAP, w - GAP);
     let full_h = bottom - top;
 
     let sidebar = state.sidebar_open.then(|| Rect::new(0.0, top, SIDEBAR_W, full_h));
@@ -169,11 +171,9 @@ pub fn layout(w: f32, h: f32, state: ShellState, platform: Platform) -> Shell {
     let rail = Rect::new(host.right() - 1.0 - RAIL_W, host.y + BODY_TOP, RAIL_W, host.h - BODY_TOP - 1.0);
     let bar = strip.then(|| Rect::new(0.0, 0.0, w, BAR_H));
     let notch = (platform == Platform::WindowsNotch).then(|| Rect::new(host.right() - NOTCH_W, host.y, NOTCH_W, NOTCH_H));
-    let caps = if strip {
-        // With the stream card risen into the strip, the buttons sit down on its top line
-        // (Charles, 21 Nov); over a support column they stay on the strip.
-        let y = if support.is_none() { main.y } else { 0.0 };
-        Some(Rect::new(w - CAPS_W, y, CAPS_W, CAPS_H))
+    let caps = if platform == Platform::Windows {
+        // In the rightmost card's top row, at its right edge.
+        Some(Rect::new(host.right() - 1.0 - HEAD_PR - CAPS_W + 4.0, host.y + 1.0 + (HEAD_H - CAPS_H) / 2.0, CAPS_W, CAPS_H))
     } else {
         notch.map(|n| Rect::new(n.x + 7.0, n.y + 6.0, NOTCH_CAPS_W, NOTCH_CAPS_H))
     };
@@ -184,10 +184,10 @@ pub fn layout(w: f32, h: f32, state: ShellState, platform: Platform) -> Shell {
         // The strip's left end holds the sidebar button, search and inbox, open or folded.
         // With the sidebar folded the stream card reaches the strip's buttons, so its tabs
         // start after them (search and inbox end at 110).
-        (_, Platform::Windows) => {
-            let sbtn = Rect::new(10.0, (BAR_H - SBTN) / 2.0, SBTN, SBTN);
-            let after = if sidebar.is_none() { (sbtn.x + 72.0 + SBTN + 10.0).max(main.x + HEAD_IN) } else { main.x + HEAD_IN };
-            (None, sbtn, None, None, after)
+        // Windows, folded: the sidebar button, search and inbox join the card's top-left.
+        (None, Platform::Windows) => {
+            let sbtn = Rect::new(main.x + HEAD_IN, row_y, SBTN, SBTN);
+            (None, sbtn, None, None, sbtn.x + 72.0 + SBTN + 10.0)
         }
         // Open: the sidebar's top row holds the lights or the logo, then search and the button.
         (Some(sb), _) => {
@@ -208,21 +208,19 @@ pub fn layout(w: f32, h: f32, state: ShellState, platform: Platform) -> Shell {
             (None, sbtn, None, None, sbtn.right() + 15.0)
         }
     };
-    let (search_button, bell_button) = if strip {
+    let (search_button, bell_button) = if platform == Platform::Windows && sidebar.is_none() {
         (Rect::new(sidebar_button.x + 36.0, sidebar_button.y, SBTN, SBTN), Rect::new(sidebar_button.x + 72.0, sidebar_button.y, SBTN, SBTN))
     } else {
         (Rect::new(sidebar_button.x - 36.0, sidebar_button.y, SBTN, SBTN), Rect::new(sidebar_button.x - 72.0, sidebar_button.y, SBTN, SBTN))
     };
-    let notch_room = if notch.is_some() && support.is_none() { NOTCH_W + HEAD_GAP } else { 0.0 };
-    let (tools, pill, tabs) = if strip {
-        // The tools sit inside the stream's content well, top right (left of the rail when the
-        // rail is in this card); the tabs run up to the caption buttons, which now sit on the
-        // frame right of the card's tab. No "needs you" pill (the sidebar has its own group).
-        let rail_room = if support.is_none() { RAIL_W + HEAD_GAP } else { 0.0 };
-        let tools = Rect::new(main.right() - 1.0 - HEAD_PR - rail_room - TOOLS_W, main.y + HEAD_IN + TAB_H + HEAD_IN + HEAD_PR, TOOLS_W, TAB_H);
-        let end = if support.is_none() { (w - CAPS_W - HEAD_PR).min(main.right() - 1.0 - HEAD_PR) } else { main.right() - 1.0 - HEAD_PR };
-        (tools, None, Rect::new(tabs_x, row_y, (end - tabs_x).max(0.0), TAB_H))
+    let notch_room = if notch.is_some() && support.is_none() {
+        NOTCH_W + HEAD_GAP
+    } else if platform == Platform::Windows && support.is_none() {
+        CAPS_W + HEAD_GAP
     } else {
+        0.0
+    };
+    let (tools, pill, tabs) = {
         let tools = Rect::new(main.right() - 1.0 - HEAD_PR - notch_room - TOOLS_W, row_y, TOOLS_W, TAB_H);
         (tools, None, Rect::new(tabs_x, row_y, (tools.x - HEAD_GAP - tabs_x).max(0.0), TAB_H))
     };

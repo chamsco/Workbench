@@ -477,6 +477,37 @@ impl Cauldron {
         .detach();
     }
 
+    /// The sidebar's New button, the lifted element in every app (board round 5). Out of
+    /// `render` so its frame stays small.
+    #[inline(never)]
+    fn new_button_row(&self, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
+        let (fg, fg2) = (c(pal.fg), c(pal.fg2));
+            let (new_id, _new_icon, new_label) = Self::new_action(self.section).unwrap_or(("new-thread", "square-pen", NEW_TAB));
+            let new_thread = div()
+                .id(new_id)
+                .mt(px(8.))
+                .h(px(30.))
+                .flex()
+                .items_center()
+                .gap(px(9.))
+                .px(px(8.))
+                .rounded(px(radius::CONTROL))
+                .cursor_pointer()
+                // The lifted button, the same in every app (board round 5, Charles 21 Nov 04:21Z).
+                .bg(c(pal.raised))
+                .shadow(lift(Lift::Button, pal))
+                .hover(|d| d.bg(c(pal.hover)))
+                .text_size(px(13.))
+                .text_color(fg)
+                .aria_label(new_label)
+                .child(glyph("plus", 15., fg2))
+                .child(new_label)
+                .when_live(new_id == "new-thread", |d| d.child(div().ml_auto().text_size(px(11.)).text_color(c(pal.fg4)).child(NEW_KEY)))
+                .on_click(cx.listener(|this, _, window, cx| this.do_new(window, cx)))
+                .test_support();
+        new_thread.into_any_element()
+    }
+
     /// The dither plane under the main card on the plain background (board round 4): the valley
     /// on New stream, the valley at the bottom or the ripple in a working stream.
     fn plane_under(&mut self, r: Rect, show: bool, new_screen: bool, dark: bool, window: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
@@ -1382,7 +1413,8 @@ const TAB_MAX: f32 = 200.0;
 const TAB_GAP: f32 = 2.0;
 /// Between tabs: the card's tab edge, its foot and a stroke of frame, so the card's tab fits
 /// around whichever tab is open.
-const TAB_SEP: f32 = tabshape::S + tabshape::FOOT_R + tabshape::S;
+/// Pills sit a small gap apart (board round 5, P).
+const TAB_SEP: f32 = 6.0;
 const TAB_PAD: f32 = 10.0;
 const CLOSE_GAP: f32 = 6.0;
 /// What the open agent tab needs beyond the others: its close button, the gap before it and its 1px ring.
@@ -1446,6 +1478,7 @@ pub(crate) enum Lift {
 }
 
 /// S2, "lifted": a hairline edge, a long soft shadow, and a light along the top edge.
+#[inline(never)]
 pub(crate) fn lift(l: Lift, pal: &Palette) -> Vec<BoxShadow> {
     let dark = pal.panel.0 < 0x80;
     let shade = |a: f32| hsla(0., 0., 0., if dark { a } else { a * 0.28 });
@@ -1691,26 +1724,7 @@ impl Render for Cauldron {
             let user = std::env::var("USER").or_else(|_| std::env::var("USERNAME")).unwrap_or_else(|_| "You".into());
             let initial = user.chars().next().map(|ch| ch.to_uppercase().to_string()).unwrap_or_else(|| "Y".into());
             // The board's `.nav`: the app's New button (New stream with its shortcut on Streams).
-            let (new_id, new_icon, new_label) = Self::new_action(self.section).unwrap_or(("new-thread", "square-pen", NEW_TAB));
-            let new_thread = div()
-                .id(new_id)
-                .mt(px(8.))
-                .h(px(30.))
-                .flex()
-                .items_center()
-                .gap(px(9.))
-                .px(px(8.))
-                .rounded(px(radius::CONTROL))
-                .cursor_pointer()
-                .hover(|d| d.bg(c(pal.hover)))
-                .text_size(px(13.))
-                .text_color(fg2)
-                .aria_label(new_label)
-                .child(glyph(new_icon, 15., fg2))
-                .child(new_label)
-                .when_live(new_id == "new-thread", |d| d.child(div().ml_auto().text_size(px(11.)).text_color(c(pal.fg4)).child(NEW_KEY)))
-                .on_click(cx.listener(|this, _, window, cx| this.do_new(window, cx)))
-                .test_support();
+            let new_thread = self.new_button_row(pal, cx);
             let has_new = Self::new_action(self.section).is_some();
             // The top row is 30 high under 8px of padding; the window draws its contents.
             let card_el = pane("sidebar", sp.rect)
@@ -1830,7 +1844,7 @@ impl Render for Cauldron {
                     .h(px(tabshape::PILL_H))
                     .top(px(tabshape::PILL_DY))
                     .rounded(px(tabshape::PILL_R))
-                    .when_live(on, |d| d.bg(c(pal.selected)).border_1().border_color(c(pal.line)))
+                    .when_live(on, |d| d.bg(c(pal.raised)).shadow(lift(Lift::Button, pal)))
                     .when_live(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
                     .occlude()
                     .cursor_pointer()
@@ -1977,10 +1991,12 @@ impl Render for Cauldron {
                 .flex()
                 .items_center()
                 .justify_center()
-                .rounded(px(radius::TAG))
+                .rounded(px(tabshape::PILL_R))
+                .bg(c(pal.raised))
+                .shadow(lift(Lift::Button, pal))
                 .occlude()
                 .cursor_pointer()
-                .hover(|d| d.bg(ca(pal.fg, 0.08)))
+                .hover(|d| d.bg(c(pal.hover)))
                 .aria_label(ADD_LABEL)
                 .child(glyph("plus", 13., fg3))
                 .on_click(cx.listener(|this, _, window, cx| {
@@ -2097,7 +2113,9 @@ impl Render for Cauldron {
                 }
             }))
             .child({
-                let cut = s.notch.is_none() && bump.and_then(|b| tabshape::pieces(s.main, b)).is_some();
+                // Pills, not a tab cut into the card (board round 5, P): the card keeps its own shape.
+                bump = None;
+                let cut = false;
                 let under = self.glass_under("main", s.main, (w, h), dark, pal, moving, window);
                 let plane = self.plane_under(s.main, under.is_none() && self.settings.is_none() && self.familiar.is_none(), new_screen, dark, window, cx);
 
@@ -2209,7 +2227,7 @@ impl Render for Cauldron {
                 .items_center()
                 .gap(px(TAB_GAP))
                 .pl(px(metric::HEAD_IN - 1.0))
-                .pr(px(metric::HEAD_PR + s.notch.map_or(0.0, |n| n.w)))
+                .pr(px(metric::HEAD_PR + s.notch.map_or_else(|| s.caps.map_or(0.0, |cp| cp.rect.w - 4.0), |n| n.w)))
                 .window_control_area(WindowControlArea::Drag);
             // The open tab stays in view: when it is past the first three it takes the third place.
             let open_at = self.support_tabs.iter().position(|q| Some(*q) == self.drawer);
@@ -2479,7 +2497,7 @@ impl Render for Cauldron {
 
         // ---- search, in the sidebar's top row beside the sidebar button (the board's `.brand`)
         // On Windows the search and inbox buttons live in the top bar and stay with it when the sidebar folds.
-        if let Some(alpha) = s.sidebar.map(|sb| sb.alpha).or(s.bar.map(|_| 1.0)) {
+        if let Some(alpha) = s.sidebar.map(|sb| sb.alpha).or((plat == Platform::Windows).then_some(1.0)) {
             root = root.child(
                 pane("search-slot", s.search_button)
                     .opacity(alpha)
@@ -2500,7 +2518,7 @@ impl Render for Cauldron {
         }
 
         // ---- the inbox bell, beside search (Inbox board, direction A), and its popover under it
-        if let Some(alpha) = s.sidebar.map(|sb| sb.alpha).or(s.bar.map(|_| 1.0)) {
+        if let Some(alpha) = s.sidebar.map(|sb| sb.alpha).or((plat == Platform::Windows).then_some(1.0)) {
             let b = s.bell_button;
             let label = self.inbox_label();
             let unread = self.inbox.iter().filter(|n| !n.read).count();
@@ -2571,7 +2589,7 @@ impl Render for Cauldron {
             .test_support(),
         );
         // Windows notch, folded: a short rule between the button and the tabs.
-        if s.sidebar.is_none() && s.lights.is_none() && s.bar.is_none() {
+        if s.sidebar.is_none() && s.lights.is_none() {
             let b = s.sidebar_button;
             root = root.child(abs(Rect::new(b.right() + 7.0, b.y + 6.0, 1.0, 16.0)).bg(c(pal.line)));
         }
@@ -3064,7 +3082,7 @@ mod tests {
             assert!(row.y >= head.y && row.bottom() <= head.bottom(), "in the card's header");
             for i in 0..=3usize {
                 let t = rect(window, ("tab", i));
-                assert_eq!((t.y, t.h), (row.y + 2.0 + super::tabshape::PILL_DY, super::tabshape::PILL_H), "tab {i}: slim pill, centred in the card's tab");
+                assert_eq!((t.y, t.h), (row.y + super::tabshape::PILL_DY, super::tabshape::PILL_H), "tab {i}: a pill the height of the tab row");
                 assert_eq!(on(window, i), i == 0, "tab {i}: only the coordinator is open");
             }
             for i in 1..=3usize {
@@ -3132,7 +3150,7 @@ mod tests {
             window.render_frame(cx);
             assert_eq!(window.find("inbox-btn").label(), Some("Inbox, 2 unread"));
             let (bell, search) = (rect(window, "inbox-btn"), rect(window, "search-btn"));
-            let side = if platform() == layout::Platform::Windows { -36.0 } else { 36.0 };
+            let side = 36.0;
             assert_eq!((bell.y, search.x - bell.x), (search.y, side), "beside Search, as Search is beside the sidebar button");
             assert!(window.try_find("inbox").is_none(), "closed until clicked");
             window.click("inbox-btn", cx);
@@ -3337,7 +3355,7 @@ mod tests {
             assert!(window.try_find("search").is_none(), "search waits behind its button");
             let (b, sb) = (rect(window, "search-btn"), rect(window, "sbtn"));
             // Windows: right of the button in the top bar. Elsewhere: left of it, as the board's 160 and 196.
-            let side = if platform() == layout::Platform::Windows { -36.0 } else { 36.0 };
+            let side = 36.0;
             assert_eq!((b.y, sb.x - b.x), (sb.y, side), "beside the sidebar button");
             window.click("search-btn", cx);
             window.render_frame(cx);

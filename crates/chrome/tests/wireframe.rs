@@ -133,7 +133,7 @@ fn cards_are_tight_tiles_4px_apart() {
             let at = format!("{platform:?} {st:?}");
             // The Windows strip sits over the sidebar and the support card; the stream card's own
             // tab rises into it (20 Nov), so the stream column starts 4px from the top everywhere.
-            let top = if platform == Platform::Windows { metric::BAR_H } else { 4.0 };
+            let top = 4.0;
             for c in cards(&s) {
                 assert!(c.right() <= w - 4.0 + 0.01 && c.bottom() <= h - 4.0 + 0.01, "{at}: {c:?} keeps the 4px margin");
             }
@@ -253,37 +253,39 @@ fn main_keeps_a_minimum_width_by_closing_the_support_card() {
     assert!(wide.support.is_some() && wide.effective == state(true, true, false));
 }
 
-/// Windows default (Charles, 20 Nov): a 34px strip across the window on the frame holds the
-/// sidebar button, search, inbox and the caption buttons, over the sidebar and the support card.
-/// The stream card rises into it: its tab row runs up to the caption buttons, which sit on the
-/// frame right of the card's tab; the tools sit inside the content well; no "needs you" pill.
+/// Windows default (Charles, 21 Nov 04:25Z, board round 5 H1-H3): no strip. The card runs the full
+/// window height beside the sidebar and the window buttons sit in the rightmost card's top row,
+/// with the tools left of them; folded, the sidebar button, search and inbox join the card's
+/// top-left.
 #[test]
-fn the_windows_strip_holds_the_window_controls() {
+fn windows_has_no_strip_and_its_buttons_sit_in_the_card() {
     for st in all_states() {
-        let strip = solve(1200.0, 760.0, st, Platform::Windows);
+        let win = solve(1200.0, 760.0, st, Platform::Windows);
         let notch = solve(1200.0, 760.0, st, Platform::WindowsNotch);
-        assert!(strip.notch.is_none() && notch.notch.is_some() && notch.bar.is_none() && notch.pill.is_none(), "{st:?}");
-        let bar = strip.bar.expect("strip");
-        assert_eq!((bar.x, bar.y, bar.w, bar.h), (0.0, 0.0, 1200.0, 34.0), "{st:?}");
-        assert_eq!(strip.main.y, 4.0, "{st:?}: the stream card rises into the strip");
-        if let Some(sb) = strip.sidebar {
-            assert_eq!(sb.y, 34.0, "{st:?}: the sidebar stays under the strip");
+        assert!(win.bar.is_none() && win.notch.is_none() && win.pill.is_none(), "{st:?}");
+        assert_eq!(win.main.y, 4.0, "{st:?}: the card starts at the top margin");
+        assert_eq!((win.main.x, win.main.w), (notch.main.x, notch.main.w), "{st:?}: same widths");
+        let host = win.support.unwrap_or(win.main);
+        let caps = win.caps.unwrap();
+        assert!(inside(host, caps) && (caps.w, caps.h) == (138.0, 34.0), "{st:?}: caption buttons inside the card's top row");
+        assert!(caps.y < host.y + metric::HEAD_H, "{st:?}: in the header row");
+        if win.support.is_none() {
+            assert!(!overlaps(win.tools, caps) && !overlaps(win.tabs, caps), "{st:?}: tools and tabs clear of the caption buttons");
+            assert!(!overlaps(win.tools, win.rail), "{st:?}: clear of the rail");
         }
-        assert_eq!((strip.main.x, strip.main.w), (notch.main.x, notch.main.w), "{st:?}: same widths");
-        let caps = strip.caps.unwrap();
-        let caps_y = if strip.support.is_none() { strip.main.y } else { 0.0 };
-        assert_eq!((caps.right(), caps.y, caps.w, caps.h), (1200.0, caps_y, 138.0, 34.0), "{st:?}: three 46px cells at the right end, down on the card's top line");
-        assert!(strip.pill.is_none(), "{st:?}: no needs-you pill");
-        for r in [strip.sidebar_button, strip.search_button, strip.bell_button] {
-            assert!(inside(bar, r), "{st:?}: {r:?} inside the strip");
-        }
-        assert_eq!((strip.sidebar_button.x, strip.search_button.x, strip.bell_button.x), (10.0, 46.0, 82.0), "{st:?}: sidebar, search, inbox in order");
-        assert!(strip.tabs.x > strip.bell_button.right(), "{st:?}: tabs after the strip's buttons");
-        assert!(strip.tabs.right() <= caps.x - 8.0, "{st:?}: tabs stop before the caption buttons");
-        // The tools are inside the content well, under the tab, in the card.
-        assert!(strip.tools.y >= strip.main.y + 40.0 && inside(strip.main, strip.tools), "{st:?}: tools in the content");
-        if strip.support.is_none() {
-            assert!(!overlaps(strip.tools, strip.rail), "{st:?}: clear of the rail");
+        match win.sidebar {
+            Some(sb) => {
+                for r in [win.sidebar_button, win.search_button, win.bell_button] {
+                    assert!(inside(sb, r), "{st:?}: {r:?} in the sidebar's top row");
+                }
+            }
+            None => {
+                for r in [win.sidebar_button, win.search_button, win.bell_button] {
+                    assert!(inside(win.main, r), "{st:?}: {r:?} in the card's top-left");
+                    assert!(!overlaps(win.tabs, r), "{st:?}: tabs after {r:?}");
+                }
+                assert!(win.sidebar_button.x < win.search_button.x && win.search_button.x < win.bell_button.x, "{st:?}: in order");
+            }
         }
     }
 }

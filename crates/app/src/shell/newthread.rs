@@ -553,15 +553,15 @@ impl Cauldron {
             // The card is laid out from the stack's bottom, behind the box, so the box
             // (drawn last) covers its tucked top; a spacer under the box makes its room.
             let (gap, tray_h) = (super::subs::STACK_GAP, super::subs::STACK_OPEN_H);
-            // Open, the card is Picker A (board round 4, Charles 21 Nov 03:54Z): a 420-wide card
-            // under the model chip at the box's right; folded, it peeks across the whole box.
-            let mut mid = card(div().id("nt-card").absolute().right(px(14.)).when(!tray_open, |d| d.left(px(14.))).when(tray_open, |d| d.w(px(super::picker::PICKER_W))).bottom_0().flex().flex_col().overflow_hidden())
+            // Open or folded, the card is as wide as when it peeks; open it holds one column per
+            // CLI (board round 5, M2, Charles 21 Nov 04:24Z).
+            let mut mid = card(div().id("nt-card").absolute().left(px(14.)).right(px(14.)).bottom_0().flex().flex_col().overflow_hidden())
                 .shadow(vec![gpui::BoxShadow { color: gpui::black().opacity(0.45), offset: gpui::point(px(0.), px(10.)), blur_radius: px(28.), spread_radius: px(0.), inset: false }])
                 .child(bar);
             if tray_open {
                 // Picker v2 in the dropped card, under its chips.
                 let route = self.start.route.clone();
-                mid = mid.child(div().flex_1().min_h_0().border_t_1().border_color(c(pal.line)).child(self.picker_body(super::subs::PickFor::New, route.as_ref(), false, pal, cx)));
+                mid = mid.child(div().flex_1().min_h_0().border_t_1().border_color(c(pal.line)).child(self.picker_columns(super::subs::PickFor::New, route.as_ref(), pal, cx)));
             }
             let mid = mid.test_support();
             let spacer = div().id("nt-card-room").flex_none();
@@ -1539,14 +1539,13 @@ mod tests {
             assert!((card.1 - (moved.1 + moved.3 + super::super::subs::STACK_GAP)).abs() <= 1.0, "dropped out a small gap below: {card:?}");
             let screen = rect(window, "new-thread-screen");
             assert!(card.1 + card.3 <= screen.1 + screen.3, "the whole stack stays in the window: {card:?} {screen:?}");
-            for id in ["pick-rail", "pick-list", "route-manage"] {
+            for id in ["pick-cols", "route-manage"] {
                 assert!(window.try_find(id).is_some(), "{id}");
             }
             assert!(window.try_find(("pick-trust", 0usize)).is_some(), "Access under the list");
             assert!(window.try_find("pick-detail").is_none(), "no detail panel in the narrow box");
             // Picker A: the dropped card is 420 wide, flush with the box's right edge less its inset.
-            assert!((card.2 - super::super::picker::PICKER_W).abs() <= 1.0, "Picker A's width: {card:?}");
-            assert!((card.0 + card.2 - (moved.0 + moved.2 - 14.0)).abs() <= 1.0, "under the model chip: {card:?} {moved:?}");
+            assert!(card.0 > moved.0 && card.0 + card.2 < moved.0 + moved.2, "as wide as when folded, inside the box: {card:?} {moved:?}");
         })
         .unwrap();
         let mut p = Prefs::load();
