@@ -28,6 +28,7 @@ mod familiar;
 mod motion;
 mod newthread;
 mod panes;
+mod logos;
 mod picker;
 mod side;
 mod settings;

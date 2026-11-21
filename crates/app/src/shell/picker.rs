@@ -13,9 +13,15 @@ use backspace_core::chat::{Route, RouteKind};
 use backspace_core::harnesses::ModelInfo;
 use gpui_kit::prelude::FluentBuilder;
 
-const RAIL_W: f32 = 44.0;
-const DETAIL_W: f32 = 228.0;
-pub(crate) const PICKER_H: f32 = 460.0;
+const RAIL_W: f32 = 34.0;
+/// Board round 4, Picker A (21 Nov): a card that rises from the model chip, a third of the old
+/// tray's area (Charles: "insanely big").
+pub(crate) const PICKER_W: f32 = 420.0;
+pub(crate) const PICKER_H: f32 = 316.0;
+/// Board round 4, Picker B (Charles, 21 Nov 03:54Z: "1-B should be for the thread working"): in a
+/// working stream, a short tray as wide as the chat box, its CLIs as a row of tabs on top.
+pub(crate) const TRAY_B_H: f32 = 236.0;
+const ROW_H: f32 = 26.0;
 
 /// "1M", "262k", "8k".
 pub(crate) fn tokens_short(n: u64) -> String {
@@ -44,7 +50,7 @@ pub(crate) fn price_tag(m: Option<&ModelInfo>) -> Option<String> {
     Some(format!("{} / {}", dollars(m.input?), dollars(m.output?)))
 }
 
-/// Two letters for a CLI on the rail: brand marks are not ours to draw.
+/// Two letters for a CLI with no mark of its own.
 fn rail_mark(provider: &str, name: &str) -> String {
     match provider {
         "claude" => "Cl".into(),
@@ -122,7 +128,7 @@ impl Cauldron {
     pub(super) fn model_picker(&self, to: PickFor, route: Option<&Route>, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
         div()
             .id("route-menu")
-            .h(px(PICKER_H))
+            .h(px(TRAY_B_H))
             .flex()
             .rounded(px(radius::PANEL))
             .bg(c(pal.raised))
@@ -146,25 +152,25 @@ impl Cauldron {
     /// jumps to one); a model family drops down to its versions; search with sort and filters;
     /// Reasoning and Access under it; a detail panel when `detail` and a model is under the pointer.
     #[inline(never)]
-    pub(super) fn picker_body(&self, to: PickFor, route: Option<&Route>, detail: bool, pal: &'static Palette, cx: &mut Context<Self>) -> Div {
-        let (fg2, fg3) = (c(pal.fg2), c(pal.fg3));
+    pub(super) fn picker_body(&self, to: PickFor, route: Option<&Route>, wide: bool, pal: &'static Palette, cx: &mut Context<Self>) -> Div {
         let mut clis: Vec<&CliStatus> = self.start.providers.iter().collect();
         clis.sort_by_key(|s| (!s.installed, !s.ready()));
         let favs = Prefs::load().fav_models;
         let (list, sections) = self.picker_list(&to, route, &clis, &favs, pal, cx);
-
-        let rail = self.picker_rail(&clis, &sections, pal, cx);
-        let head = self.picker_head(pal, cx);
-        // ---- footer: Reasoning and Access, then Manage
-        let footer = self.picker_footer(route, pal, cx);
+        let rail = self.picker_rail(&clis, &sections, wide, pal, cx);
+        let head = self.picker_head(wide, pal, cx);
+        let footer = self.picker_footer(route, wide, pal, cx);
+        if wide {
+            // B: tabs on top, then search, the list and one footer row.
+            return div().size_full().flex().flex_col().min_h_0().child(rail.test_support()).child(head).child(list.test_support()).child(footer);
+        }
+        // A: the rail on the left of search, list and footer.
         let middle = div().flex_1().min_w_0().flex().flex_col().min_h_0().child(head).child(list.test_support()).child(footer);
-
-        let detail_el = if detail { self.picker_detail(&clis, &favs, pal, cx) } else { None };
-        div().size_full().flex().min_h_0().child(rail.test_support()).child(middle).when_some(detail_el, |d, x| d.child(x))
+        div().size_full().flex().min_h_0().child(rail.test_support()).child(middle)
     }
 
     #[inline(never)]
-    fn picker_rail(&self, clis: &[&CliStatus], sections: &[(String, usize)], pal: &'static Palette, cx: &mut Context<Self>) -> Stateful<Div> {
+    fn picker_rail(&self, clis: &[&CliStatus], sections: &[(String, usize)], wide: bool, pal: &'static Palette, cx: &mut Context<Self>) -> Stateful<Div> {
         let (fg, fg2, fg3) = (c(pal.fg), c(pal.fg2), c(pal.fg3));
         let _ = (fg, fg2, fg3);
         // ---- rail: the star, then one button per CLI; each jumps to its section
@@ -172,7 +178,9 @@ impl Cauldron {
             div()
                 .id(id)
                 .relative()
-                .size(px(30.))
+                .h(px(24.))
+                .when(!wide, |d| d.w(px(24.)))
+                .when(wide, |d| d.px(px(7.)).gap(px(5.)))
                 .flex_none()
                 .flex()
                 .items_center()
@@ -188,11 +196,15 @@ impl Cauldron {
                 .aria_selected(on)
         };
         let shown = self.start.pick_cli.clone();
-        let mut rail = div().id("pick-rail").w(px(RAIL_W)).flex_none().flex().flex_col().items_center().gap(px(4.)).py(px(8.)).border_r_1().border_color(c(pal.line));
+        let mut rail = if wide {
+            div().id("pick-rail").flex_none().flex().items_center().gap(px(2.)).px(px(6.)).py(px(4.)).border_b_1().border_color(c(pal.line))
+        } else {
+            div().id("pick-rail").w(px(RAIL_W)).flex_none().flex().flex_col().items_center().gap(px(4.)).py(px(6.)).border_r_1().border_color(c(pal.line))
+        };
         let fav_ix = sections.iter().find(|(k, _)| k == "★").map(|(_, i)| *i);
         rail = rail.child(
             rail_btn(("pick-rail-fav", 0), shown.as_deref() == Some("★"), "Favorites".into())
-                .child(glyph("star", 14., if shown.as_deref() == Some("★") { fg } else { fg3 }))
+                .child(glyph("star", 13., if shown.as_deref() == Some("★") { fg } else { fg3 }))
                 .on_click(cx.listener(move |this, _, _, cx| {
                     cx.stop_propagation();
                     this.start.pick_cli = Some("★".into());
@@ -201,7 +213,7 @@ impl Cauldron {
                 }))
                 .test_support(),
         );
-        rail = rail.child(div().w(px(20.)).h(px(1.)).my(px(2.)).bg(c(pal.line)));
+        rail = rail.child(if wide { div().w(px(1.)).h(px(14.)).mx(px(2.)).bg(c(pal.line)) } else { div().w(px(16.)).h(px(1.)).my(px(1.)).bg(c(pal.line)) });
         for (i, s) in clis.iter().enumerate() {
             let on = shown.as_deref() == Some(s.provider.as_str());
             let state = if !s.installed { "Not installed".to_string() } else { s.logins.get(s.active).map_or_else(String::new, login_line) };
@@ -211,8 +223,12 @@ impl Cauldron {
             rail = rail.child(
                 rail_btn(("route-cli", i), on, format!("{} — {state}", s.name))
                     .when(!s.installed, |d| d.opacity(0.45))
-                    .child(rail_mark(&s.provider, &s.name))
-                    .when_some(dot, |d, dot| d.child(div().absolute().right(px(3.)).bottom(px(3.)).size(px(6.)).rounded_full().bg(dot)))
+                    .child(match super::logos::cli_mark(&s.provider).and_then(|n| super::logos::image(n, &pal.fg.to_hex())) {
+                        Some(i) => img(i).size(px(if wide { 13. } else { 15. })).flex_none().into_any_element(),
+                        None => div().text_size(px(10.5)).child(rail_mark(&s.provider, &s.name)).into_any_element(),
+                    })
+                    .when(wide, |d| d.text_size(px(11.5)).font_weight(FontWeight::MEDIUM).child(s.name.clone()))
+                    .when_some(dot, |d, dot| d.child(div().absolute().right(px(1.)).bottom(px(1.)).size(px(5.)).rounded_full().bg(dot).border_1().border_color(c(pal.raised))))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         cx.stop_propagation();
                         this.start.pick_cli = Some(prov.clone());
@@ -229,7 +245,7 @@ impl Cauldron {
     }
 
     #[inline(never)]
-    fn picker_head(&self, pal: &'static Palette, cx: &mut Context<Self>) -> Div {
+    fn picker_head(&self, wide: bool, pal: &'static Palette, cx: &mut Context<Self>) -> Div {
         let (fg, fg2, fg3) = (c(pal.fg), c(pal.fg2), c(pal.fg3));
         let _ = (fg, fg2, fg3);
         // ---- search, sort and filters
@@ -237,14 +253,14 @@ impl Cauldron {
         let chip = |id: (&'static str, usize), on: bool, label: &'static str| {
             div()
                 .id(id)
-                .h(px(22.))
-                .px(px(8.))
+                .h(px(20.))
+                .px(px(6.))
                 .flex()
                 .items_center()
                 .flex_none()
                 .rounded(px(radius::TAG))
                 .cursor_pointer()
-                .text_size(px(11.5))
+                .text_size(px(11.))
                 .text_color(if on { fg } else { fg3 })
                 .when(on, |d| d.bg(c(pal.selected)))
                 .when(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
@@ -252,7 +268,7 @@ impl Cauldron {
                 .aria_selected(on)
                 .child(label)
         };
-        let mut chips = div().flex().items_center().gap(px(4.)).px(px(10.)).pb(px(8.)).child(div().text_size(px(11.5)).text_color(fg3).mr(px(2.)).child("By"));
+        let mut chips = div().flex().items_center().gap(px(2.)).when(!wide, |d| d.px(px(8.)).pb(px(6.))).child(div().text_size(px(11.)).text_color(fg3).mr(px(2.)).child("By"));
         for (k, label) in ["Provider", "Price", "Name"].into_iter().enumerate() {
             chips = chips.child(
                 chip(("pick-sort", k), self.start.pick_sort as usize == k, label)
@@ -264,7 +280,7 @@ impl Cauldron {
                     .test_support(),
             );
         }
-        chips = chips.child(div().w(px(1.)).h(px(14.)).mx(px(4.)).bg(c(pal.line)));
+        chips = chips.child(div().w(px(1.)).h(px(12.)).mx(px(3.)).bg(c(pal.line)));
         chips = chips
             .child(
                 chip(("pick-filter", 0), self.start.pick_reason, "Reasoning")
@@ -284,117 +300,23 @@ impl Cauldron {
                     }))
                     .test_support(),
             );
-        let head = div()
-            .flex_none()
+        let row = div()
             .flex()
-            .flex_col()
-            .border_b_1()
-            .border_color(c(pal.line))
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(8.))
-                    .h(px(38.))
-                    .px(px(12.))
-                    .child(glyph("search", 14., fg3))
-                    .child(div().flex_1().min_w_0().when_some(search, |d, s| d.child(Input::new(&s).appearance(false).text_size(px(13.)).p_0()))),
-            )
-            .child(chips);
+            .items_center()
+            .gap(px(8.))
+            .h(px(32.))
+            .px(px(10.))
+            .child(glyph("search", 13., fg3))
+            .child(div().flex_1().min_w_0().when_some(search, |d, s| d.child(Input::new(&s).appearance(false).text_size(px(12.5)).p_0())));
+        let head = div().flex_none().flex().flex_col().border_b_1().border_color(c(pal.line));
+        let head = if wide { head.child(row.child(chips)) } else { head.child(row).child(chips) };
 
         head
     }
 
-    #[inline(never)]
-    fn picker_detail(&self, clis: &[&CliStatus], favs: &[String], pal: &'static Palette, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let (fg, fg2, fg3) = (c(pal.fg), c(pal.fg2), c(pal.fg3));
-        let _ = (fg, fg2, fg3);
-        // ---- detail panel for the model under the pointer
-        let focus = self.start.pick_focus.clone().and_then(|k| {
-            let (cli, m) = k.split_once(':').map(|(a, b)| (a.to_string(), b.to_string()))?;
-            let s = clis.iter().find(|s| s.provider == cli)?;
-            let m = (!m.is_empty()).then_some(m);
-            let info = m.as_deref().and_then(|id| s.model_info.iter().find(|i| i.id == id)).cloned();
-            Some((*s, m, info, k))
-        });
-        let detail_el = focus.map(|(s, m, info, key)| {
-            let title = info.as_ref().and_then(|i| i.name.clone()).or_else(|| m.clone()).unwrap_or_else(|| format!("{}'s default", s.name));
-            let via = match m.as_deref().and_then(|m| m.split_once('/')) {
-                Some((up, _)) => format!("via {} · {up}", s.name),
-                None => format!("via {}", s.name),
-            };
-            let fact = |k: &str, v: Option<String>| {
-                div()
-                    .flex()
-                    .justify_between()
-                    .text_size(px(12.))
-                    .child(div().text_color(fg3).child(k.to_string()))
-                    .child(div().font_family(crate::ui::SANS_MONO).text_color(if v.is_some() { fg } else { fg3 }).child(v.unwrap_or_else(|| "—".into())))
-            };
-            let any = info.as_ref().is_some_and(|i| i.context.is_some() || i.input.is_some());
-            let fav = favs.contains(&key);
-            let key2 = key.clone();
-            div()
-                .id("pick-detail")
-                .w(px(DETAIL_W))
-                .flex_none()
-                .flex()
-                .flex_col()
-                .gap(px(6.))
-                .p(px(12.))
-                .border_l_1()
-                .border_color(c(pal.line))
-                .child(div().text_size(px(13.)).font_weight(FontWeight::SEMIBOLD).text_color(fg).child(title))
-                .when_some(m.clone().filter(|_| info.as_ref().is_some_and(|i| i.name.is_some())), |d, m| d.child(div().font_family(crate::ui::SANS_MONO).text_size(px(11.)).text_color(fg3).child(m)))
-                .child(div().text_size(px(12.)).text_color(fg3).mb(px(4.)).child(via))
-                .child(fact("Context", info.as_ref().and_then(|i| i.context).map(tokens_short)))
-                .child(fact("Input per 1M", info.as_ref().and_then(|i| i.input).map(dollars)))
-                .child(fact("Output per 1M", info.as_ref().and_then(|i| i.output).map(dollars)))
-                .child(fact("Reasoning", info.as_ref().map(|i| match i.variants.as_slice() {
-                    [] => if i.reasoning { "yes".into() } else { "no".into() },
-                    [one] => one.clone(),
-                    [first, .., last] => format!("{first} – {last}"),
-                })))
-                .when(!any, |d| d.child(div().mt(px(2.)).text_size(px(11.)).line_height(px(15.)).text_color(fg3).child(format!("{} does not report price or context for this one.", s.name))))
-                .child(div().flex_1())
-                .child(
-                    div()
-                        .id("pick-fav")
-                        .h(px(28.))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .gap(px(6.))
-                        .rounded(px(radius::CONTROL))
-                        .bg(c(pal.inset))
-                        .cursor_pointer()
-                        .hover(|d| d.bg(c(pal.hover)))
-                        .text_size(px(12.5))
-                        .text_color(fg2)
-                        .aria_label(if fav { "Remove from favorites" } else { "Add to favorites" })
-                        .child(glyph(if fav { "star-off" } else { "star" }, 13., fg2))
-                        .child(if fav { "Remove from favorites" } else { "Add to favorites" })
-                        .on_click(cx.listener(move |_, _, _, cx| {
-                            cx.stop_propagation();
-                            let mut p = Prefs::load();
-                            if let Some(at) = p.fav_models.iter().position(|k| *k == key2) {
-                                p.fav_models.remove(at);
-                            } else {
-                                p.fav_models.push(key2.clone());
-                            }
-                            p.save();
-                            cx.notify();
-                        }))
-                        .test_support(),
-                )
-                .test_support()
-        });
-        detail_el.map(IntoElement::into_any_element)
-    }
-
     /// Reasoning and Access as segmented rows, then Manage subscriptions.
     #[inline(never)]
-    fn picker_footer(&self, route: Option<&Route>, pal: &'static Palette, cx: &mut Context<Self>) -> Div {
+    fn picker_footer(&self, route: Option<&Route>, wide: bool, pal: &'static Palette, cx: &mut Context<Self>) -> Div {
         let (fg, fg2, fg3) = (c(pal.fg), c(pal.fg2), c(pal.fg3));
         let p = Prefs::load();
         let seg = |id: &'static str, opts: Vec<(String, bool, Box<dyn Fn(&mut Prefs)>)>, cx: &mut Context<Self>| {
@@ -405,13 +327,13 @@ impl Cauldron {
                     div()
                         .id((id, k))
                         .flex_1()
-                        .h(px(22.))
+                        .h(px(20.))
                         .flex()
                         .items_center()
                         .justify_center()
                         .rounded(px(radius::TAG))
                         .cursor_pointer()
-                        .text_size(px(11.5))
+                        .text_size(px(11.))
                         .whitespace_nowrap()
                         .text_color(if on { fg } else { fg3 })
                         .when(on, |d| d.bg(c(pal.raised)).shadow(vec![drop(tokens::shadow::TIP)]))
@@ -450,28 +372,28 @@ impl Cauldron {
                 (l.to_string(), on, Box::new(move |p: &mut Prefs| p.cli_permission = k.clone()) as Box<dyn Fn(&mut Prefs)>)
             })
             .collect();
-        let label = |t: &str| div().w(px(62.)).flex_none().text_size(px(12.)).text_color(fg3).child(t.to_string());
+        let label = |t: &str| div().w(px(58.)).flex_none().text_size(px(11.5)).text_color(fg3).child(t.to_string());
         let cur = route.filter(|r| r.kind == RouteKind::Cli).map(|r| r.provider.clone());
         let cur_name = cur.as_deref().and_then(|p| self.start.providers.iter().find(|s| s.provider == p)).map_or_else(String::new, |s| s.name.clone());
         div()
             .flex_none()
             .flex()
-            .flex_col()
-            .gap(px(6.))
-            .px(px(10.))
-            .py(px(8.))
+            .when(!wide, |d| d.flex_col().gap(px(4.)))
+            .when(wide, |d| d.items_center().gap(px(16.)))
+            .px(px(8.))
+            .py(px(6.))
             .border_t_1()
             .border_color(c(pal.line))
             .child(if cur.as_deref().is_none_or(takes_effort) {
-                div().flex().items_center().gap(px(8.)).child(label("Reasoning")).child(seg("pick-effort", effort_opts, cx))
+                div().flex().flex_1().items_center().gap(px(8.)).child(label("Reasoning")).child(seg("pick-effort", effort_opts, cx))
             } else {
-                div().flex().items_center().gap(px(8.)).h(px(26.)).child(label("Reasoning")).child(div().text_size(px(11.5)).text_color(fg3).child(format!("Set per model in {cur_name}'s own config")))
+                div().flex().flex_1().items_center().gap(px(8.)).h(px(24.)).child(label("Reasoning")).child(div().text_size(px(11.5)).text_color(fg3).child(format!("Set per model in {cur_name}'s own config")))
             })
             .child(
-                div().flex().items_center().gap(px(8.)).child(label("Access")).child(seg("pick-trust", trust_opts, cx)).child(
+                div().flex().flex_1().items_center().gap(px(8.)).child(label("Access")).child(seg("pick-trust", trust_opts, cx)).child(
                     div()
                         .id("route-manage")
-                        .size(px(26.))
+                        .size(px(24.))
                         .flex_none()
                         .flex()
                         .items_center()
@@ -507,7 +429,7 @@ impl Cauldron {
                 && (!want_free || i.is_some_and(ModelInfo::free))
                 && !(filtering && m.is_none())
         };
-        let mut list = div().id("pick-list").flex_1().min_h_0().overflow_y_scroll().track_scroll(&self.start.pick_scroll).px(px(6.)).pb(px(6.)).flex().flex_col();
+        let mut list = div().id("pick-list").flex_1().min_h_0().overflow_y_scroll().track_scroll(&self.start.pick_scroll).px(px(4.)).pb(px(4.)).flex().flex_col();
         let mut sections: Vec<(String, usize)> = Vec::new();
         let mut kids = 0usize;
         let (mut n, mut hn) = (0usize, 0usize);
@@ -518,10 +440,10 @@ impl Cauldron {
                 .flex()
                 .items_center()
                 .gap(px(6.))
-                .px(px(8.))
-                .pt(px(if big { 10. } else { 6. }))
-                .pb(px(3.))
-                .text_size(px(if big { 12. } else { 11. }))
+                .px(px(6.))
+                .pt(px(if big { 8. } else { 5. }))
+                .pb(px(2.))
+                .text_size(px(if big { 11.5 } else { 10.5 }))
                 .font_weight(if big { FontWeight::SEMIBOLD } else { FontWeight::NORMAL })
                 .text_color(if big { c(pal.fg2) } else { fg3 })
                 .child(text)
@@ -541,16 +463,20 @@ impl Cauldron {
                 keep(s, m.as_deref(), info).then_some((*s, m, info))
             })
             .collect();
+        // Favorites only take room once there are some, or when the star asked for them.
+        let fav_shown = !fav_rows.is_empty() || self.start.pick_cli.as_deref() == Some("★");
         sections.push(("★".into(), kids));
-        list = list.child(header(("pick-head", hn), "Favorites".into(), true).child(glyph("star", 11., fg3)).test_support());
-        hn += 1;
-        kids += 1;
-        if fav_rows.is_empty() {
-            list = list.child(div().id("pick-fav-empty").px(px(8.)).pb(px(6.)).text_size(px(11.5)).text_color(fg3).child("Star a model to keep it here.").test_support());
+        if fav_shown {
+            list = list.child(header(("pick-head", hn), "Favorites".into(), true).child(glyph("star", 11., fg3)).test_support());
+            hn += 1;
+            kids += 1;
+        }
+        if fav_rows.is_empty() && fav_shown {
+            list = list.child(div().id("pick-fav-empty").px(px(8.)).pb(px(6.)).text_size(px(11.5)).text_color(fg3).child("Star a model to keep it here: hover it and click its star.").test_support());
             kids += 1;
         }
         for (s, m, i) in fav_rows {
-            let label = format!("{} · {}", rail_mark(&s.provider, &s.name), m.as_deref().map_or_else(|| "default".to_string(), |m| row_label(m, i, false)));
+            let label = format!("{} · {}", s.name, m.as_deref().map_or_else(|| "default".to_string(), |m| row_label(m, i, false)));
             list = list.child(self.pick_row(n, to, current, s, m, i, label, 0.0, pal, cx));
             n += 1;
             kids += 1;
@@ -559,7 +485,14 @@ impl Cauldron {
         for s in clis {
             sections.push((s.provider.clone(), kids));
             let state = if !s.installed { "Not installed".to_string() } else { s.logins.get(s.active).map_or_else(String::new, login_line) };
-            list = list.child(header(("pick-head", hn), s.name.clone(), true).child(div().font_weight(FontWeight::NORMAL).text_color(fg3).child(format!("· {state}"))).test_support());
+            let mark = super::logos::cli_mark(&s.provider).and_then(|n| super::logos::image(n, &pal.fg.to_hex()));
+            list = list.child(
+                header(("pick-head", hn), String::new(), true)
+                    .when_some(mark, |d, i| d.child(img(i).size(px(13.)).flex_none()))
+                    .child(s.name.clone())
+                    .child(div().font_weight(FontWeight::NORMAL).text_color(fg3).truncate().child(format!("· {state}")))
+                    .test_support(),
+            );
             hn += 1;
             kids += 1;
             if !s.installed {
@@ -594,24 +527,29 @@ impl Cauldron {
                 let from = f.items.iter().filter_map(|(_, i)| i.and_then(|i| i.input)).fold(None::<f64>, |a, b| Some(a.map_or(b, |a| a.min(b))));
                 let all_free = f.items.iter().all(|(_, i)| i.is_some_and(ModelInfo::free));
                 let key2 = key.clone();
+                let maker = f.items.iter().find_map(|(m, _)| m.as_deref()).and_then(super::logos::maker_mark).or_else(|| super::logos::maker_mark(&f.key)).and_then(|n| super::logos::image(n, &pal.fg2.to_hex()));
                 list = list.child(
                     div()
                         .id(("pick-family", hn))
-                        .h(px(28.))
+                        .h(px(ROW_H))
                         .flex_none()
                         .flex()
                         .items_center()
-                        .gap(px(8.))
-                        .px(px(8.))
+                        .gap(px(7.))
+                        .px(px(6.))
                         .rounded(px(radius::CONTROL))
                         .cursor_pointer()
                         .hover(|d| d.bg(c(pal.hover)))
                         .text_color(c(pal.fg2))
                         .aria_label(f.label.clone())
                         .aria_expanded(open)
-                        .child(glyph(if open { "chevron-down" } else { "chevron-right" }, 12., fg3))
+                        .child(glyph(if open { "chevron-down" } else { "chevron-right" }, 11., fg3))
+                        .child(match maker {
+                            Some(i) => img(i).size(px(14.)).flex_none().into_any_element(),
+                            None => div().size(px(14.)).flex_none().into_any_element(),
+                        })
                         .child(div().flex_1().min_w_0().truncate().child(f.label.clone()))
-                        .child(div().flex_none().text_size(px(11.)).text_color(fg3).child(format!("{} versions", f.items.len())))
+                        .child(div().flex_none().text_size(px(10.5)).text_color(fg3).child(format!("{} versions", f.items.len())))
                         .when(all_free, |d| d.child(div().flex_none().px(px(6.)).h(px(18.)).flex().items_center().rounded(px(radius::TAG)).bg(ca(pal.ok, 0.14)).text_size(px(11.)).text_color(c(pal.ok)).child("Free")))
                         .when_some(from.filter(|_| !all_free), |d, v| d.child(div().flex_none().font_family(crate::ui::SANS_MONO).text_size(px(11.)).text_color(fg3).child(format!("from {}", dollars(v)))))
                         .on_click(cx.listener(move |this, _, _, cx| {
@@ -628,7 +566,7 @@ impl Cauldron {
                 if open {
                     for (m, i) in f.items {
                         let label = m.as_deref().map_or_else(|| format!("{}'s default", s.name), |m| row_label(m, i, true));
-                        list = list.child(self.pick_row(n, to, current, s, m, i, label, 20.0, pal, cx));
+                        list = list.child(self.pick_row(n, to, current, s, m, i, label, 18.0, pal, cx));
                         n += 1;
                         kids += 1;
                     }
@@ -652,15 +590,25 @@ impl Cauldron {
         let free = info.is_some_and(ModelInfo::free);
         let (to2, prov, m2, key2) = (to.clone(), s.provider.clone(), m.clone(), key);
         let ready = s.ready();
+        // The maker's mark, else the CLI's (its own default).
+        let mark = match m.as_deref() {
+            Some(m) => super::logos::maker_mark(m).or_else(|| super::logos::house_maker(&s.provider)),
+            None => super::logos::cli_mark(&s.provider),
+        }
+        .and_then(|n| super::logos::image(n, &pal.fg2.to_hex()));
+        let ctx = info.and_then(|i| i.context).map(tokens_short);
+        let fav = Prefs::load().fav_models.contains(&key2);
+        let focused = self.start.pick_focus.as_deref() == Some(key2.as_str());
+        let key3 = key2.clone();
         div()
             .id(("route-model", n))
-            .h(px(28.))
+            .h(px(ROW_H))
             .flex_none()
             .flex()
             .items_center()
-            .gap(px(8.))
-            .pl(px(8. + indent))
-            .pr(px(8.))
+            .gap(px(7.))
+            .pl(px(6. + indent))
+            .pr(px(6.))
             .rounded(px(radius::CONTROL))
             .cursor_pointer()
             .text_color(if sel { fg } else { fg2 })
@@ -669,15 +617,49 @@ impl Cauldron {
             .when(!ready, |d| d.opacity(0.6))
             .aria_label(label.clone())
             .aria_selected(sel)
-            .child(div().flex_1().min_w_0().truncate().when(m.is_some() && !named, |d| d.font_family(crate::ui::SANS_MONO).text_size(px(12.))).child(label))
+            .child(match mark {
+                Some(i) => img(i).size(px(14.)).flex_none().into_any_element(),
+                None => div().size(px(14.)).flex_none().into_any_element(),
+            })
+            .child(div().min_w_0().truncate().when(m.is_some() && !named, |d| d.font_family(crate::ui::SANS_MONO).text_size(px(11.5))).child(label))
+            .when_some(ctx, |d, t| d.child(div().flex_none().text_size(px(10.5)).text_color(fg3).child(t)))
+            .child(div().flex_1())
             .when_some(price, |d, p| {
                 d.child(if free {
-                    div().flex_none().px(px(6.)).h(px(18.)).flex().items_center().rounded(px(radius::TAG)).bg(ca(pal.ok, 0.14)).text_size(px(11.)).text_color(c(pal.ok)).child(p)
+                    div().flex_none().px(px(5.)).h(px(16.)).flex().items_center().rounded(px(radius::TAG)).bg(ca(pal.ok, 0.14)).text_size(px(10.5)).text_color(c(pal.ok)).child(p)
                 } else {
-                    div().flex_none().font_family(crate::ui::SANS_MONO).text_size(px(11.)).text_color(fg3).child(p)
+                    div().flex_none().font_family(crate::ui::SANS_MONO).text_size(px(10.5)).text_color(fg3).child(p)
                 })
             })
-            .when(sel, |d| d.child(glyph("check", 13., fg2)))
+            .when(fav || focused, |d| {
+                d.child(
+                    div()
+                        .id(("pick-fav", n))
+                        .size(px(18.))
+                        .flex_none()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded(px(radius::TAG))
+                        .hover(|d| d.bg(c(pal.hover)))
+                        .aria_label(if fav { "Remove from favorites" } else { "Add to favorites" })
+                        .aria_selected(fav)
+                        .child(glyph("star", 11., if fav { c(pal.warn) } else { fg3 }))
+                        .on_click(cx.listener(move |_, _, _, cx| {
+                            cx.stop_propagation();
+                            let mut p = Prefs::load();
+                            if let Some(i) = p.fav_models.iter().position(|k| *k == key3) {
+                                p.fav_models.remove(i);
+                            } else {
+                                p.fav_models.push(key3.clone());
+                            }
+                            p.save();
+                            cx.notify();
+                        }))
+                        .test_support(),
+                )
+            })
+            .when(sel, |d| d.child(glyph("check", 12., fg2)))
             .on_hover(cx.listener(move |this, h: &bool, _, cx| {
                 if *h && this.start.pick_focus.as_deref() != Some(key2.as_str()) {
                     this.start.pick_focus = Some(key2.clone());

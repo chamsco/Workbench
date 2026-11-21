@@ -551,7 +551,9 @@ impl Cauldron {
             // The card is laid out from the stack's bottom, behind the box, so the box
             // (drawn last) covers its tucked top; a spacer under the box makes its room.
             let (gap, tray_h) = (super::subs::STACK_GAP, super::subs::STACK_OPEN_H);
-            let mut mid = card(div().id("nt-card").absolute().left(px(14.)).right(px(14.)).bottom_0().flex().flex_col().overflow_hidden())
+            // Open, the card is Picker A (board round 4, Charles 21 Nov 03:54Z): a 420-wide card
+            // under the model chip at the box's right; folded, it peeks across the whole box.
+            let mut mid = card(div().id("nt-card").absolute().right(px(14.)).when(!tray_open, |d| d.left(px(14.))).when(tray_open, |d| d.w(px(super::picker::PICKER_W))).bottom_0().flex().flex_col().overflow_hidden())
                 .shadow(vec![gpui::BoxShadow { color: gpui::black().opacity(0.45), offset: gpui::point(px(0.), px(10.)), blur_radius: px(28.), spread_radius: px(0.), inset: false }])
                 .child(bar);
             if tray_open {
@@ -1450,10 +1452,11 @@ mod tests {
         use backspace_core::accounts::{CliStatus, LoginStatus};
         use backspace_core::harnesses::Auth;
         let _prefs = super::super::thread::tests::prefs_guard();
+        // After `open`, which points the prefs at the test file.
+        let (handle, _chats) = open(cx);
         let mut p = Prefs::load();
         p.model_tray = Some("unfold".into());
         p.save();
-        let (handle, _chats) = open(cx);
         let cli = |provider: &str, name: &str, auth: Auth| CliStatus {
             provider: provider.into(),
             name: name.into(),
@@ -1539,6 +1542,9 @@ mod tests {
             }
             assert!(window.try_find(("pick-trust", 0usize)).is_some(), "Access under the list");
             assert!(window.try_find("pick-detail").is_none(), "no detail panel in the narrow box");
+            // Picker A: the dropped card is 420 wide, flush with the box's right edge less its inset.
+            assert!((card.2 - super::super::picker::PICKER_W).abs() <= 1.0, "Picker A's width: {card:?}");
+            assert!((card.0 + card.2 - (moved.0 + moved.2 - 14.0)).abs() <= 1.0, "under the model chip: {card:?} {moved:?}");
         })
         .unwrap();
         let mut p = Prefs::load();
@@ -1580,11 +1586,24 @@ mod tests {
             window.click("route", cx);
             window.render_frame(cx);
             let (tray, boxr) = (rect(window, "pick-tray"), rect(window, "composer"));
+            // Board round 4, Picker B (Charles, 21 Nov 03:54Z): as wide as the chat box, and short.
             assert!((tray.0 - boxr.0).abs() <= 2.0 && (tray.2 - boxr.2).abs() <= 2.0, "as wide as the chat box: {tray:?} {boxr:?}");
+            assert!(tray.3 <= super::super::picker::TRAY_B_H + 8.0, "short: {tray:?}");
             assert!(tray.1 + tray.3 <= boxr.1 + 1.0, "on top of it");
             assert!(window.try_find(("pick-rail-fav", 0usize)).is_some(), "the star heads the rail");
             assert!(window.try_find(("route-model", 1usize)).is_none(), "the Qwen family is folded");
-            window.click(("pick-family", 3usize), cx);
+        })
+        .unwrap();
+        // The short tray shows a few rows: bring the family up first.
+        handle.update(cx, |c, _, _| c.start.pick_scroll.scroll_to_top_of_item(2)).unwrap();
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            window.click(("pick-family", 2usize), cx);
+            window.render_frame(cx);
+        })
+        .unwrap();
+        handle.update(cx, |c, _, _| c.start.pick_scroll.scroll_to_top_of_item(4)).unwrap();
+        cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
             window.click(("route-model", 2usize), cx);
             window.render_frame(cx);
