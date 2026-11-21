@@ -80,7 +80,8 @@ impl Cauldron {
                 let run = TextRun { len: title.len(), font: Font { weight: FontWeight::MEDIUM, features: sans_features(), ..font(SANS) }, color: fg, background_color: None, underline: None, strikethrough: None };
                 f32::from(window.text_system().shape_line(title.clone().into(), px(12.5), &[run], None).width)
             };
-            let tw = (TAB_PAD + 12.0 + CLOSE_GAP + name_w + TAB_PAD).ceil().clamp(TAB_MIN, 160.0);
+            let tw = (TAB_PAD + 12.0 + CLOSE_GAP + super::mark::TAB_W + name_w + TAB_PAD).ceil().clamp(TAB_MIN, 160.0);
+            let (sm, scol) = self.stream_mark(sid, pal);
             let sid2 = sid.clone();
             let tab = div()
                 .id(("side-tab", si))
@@ -105,6 +106,7 @@ impl Cauldron {
                 .px(px(TAB_PAD))
                 .aria_label(format!("Side stream: {title}"))
                 .child(glyph("corner-down-right", 12., fg3))
+                .child(super::mark::mark(("side-mark", si), sm, super::mark::SIZE, c(scol)).test_support())
                 .child(div().min_w_0().truncate().child(title.clone()))
                 .on_click(cx.listener(move |this, _, window, cx| {
                     this.active = 0;

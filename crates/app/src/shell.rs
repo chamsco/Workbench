@@ -1783,7 +1783,7 @@ impl Render for Cauldron {
                 let run = TextRun { len: anchor_label.len(), font: Font { weight: FontWeight::MEDIUM, features: sans_features(), ..font(SANS) }, color: fg, background_color: None, underline: None, strikethrough: None };
                 f32::from(window.text_system().shape_line(anchor_label.clone(), px(12.5), &[run], None).width)
             };
-            let anchor_w = (TAB_PAD + label_w + TAB_PAD + 2.0).ceil().min(ANCHOR_MAX);
+            let anchor_w = (TAB_PAD + mark::TAB_W + label_w + TAB_PAD + 2.0).ceil().min(ANCHOR_MAX);
             let n = self.agents.len();
             // The card's tab holds only the open tab; the others and + sit on the frame past its
             // feet (Charles, 20 Nov: "outside of the tab card, with a separation"; 21 Nov: the
@@ -1862,11 +1862,14 @@ impl Render for Cauldron {
             // The pinned tab: the stream, or with side streams the group's main.
             let in_side = self.familiar.is_none() && self.open.is_some() && self.open != self.side_root;
             let on = self.active == 0 && !in_side;
+            // The stream's status mark sits inside its tab (Charles, 21 Nov), as on its sidebar row.
+            let (am, acol) = self.stream_mark(self.side_root.as_deref().or(self.open.as_deref()).unwrap_or(""), pal);
             let anchor = ftab(("tab", 0), on, cx)
                 .flex_none()
                 .w(px(anchor_w))
                 .px(px(TAB_PAD))
                 .aria_label(anchor_label.clone())
+                .child(mark::mark(("tab-mark", 0usize), am, mark::SIZE, c(acol)).test_support())
                 .child(div().min_w_0().truncate().child(anchor_label.clone()))
                 .on_click(cx.listener(|this, _, window, cx| {
                     this.active = 0;

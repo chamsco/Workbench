@@ -9,6 +9,6 @@ Agents keep their head; a familiar row adds the same mark beside it. Stepped at 
 Mapping: Working = rising bars (accent), Needs you = question glyph (amber), Failed = cross (red), Done = one faint dot.
 Thinking and Waiting exist in `crates/chrome/src/status.rs`; the chat status line uses Waiting ("Waiting for the reply") and Working ("Writing").
 
-The newest bubble of yours in an open stream also carries the mark, inside it at the right (Charles, 21 Nov):
-waiting for the reply, working while it streams, a cross if it failed, the faint dot once done. It is covered by
-`a_row_opens_its_thread`; no screenshot, because the screenshot fixtures have no messages to open.
+The stream's tab at top left and each side-stream tab (the corner-arrow ones) carry the same mark inside them, left of the title,
+showing that stream's state as its sidebar row does. Covered by `a_row_opens_its_thread`; no screenshot, because the
+screenshot fixtures have no open stream with messages. Agent tabs keep their head and have no mark yet.

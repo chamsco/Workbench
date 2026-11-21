@@ -23,6 +23,9 @@ fn frame() -> Option<u32> {
 /// The size every row uses: a 3px cell, so each lit dot is about 2px and holds on a 1x screen.
 pub(crate) const SIZE: f32 = 15.0;
 
+/// What a tab spends on its mark: the mark and the gap after it.
+pub(crate) const TAB_W: f32 = SIZE + 6.0;
+
 /// A `px` square mark in `color`. `id` is the element id; the state is its aria label.
 pub(crate) fn mark(id: impl Into<ElementId>, m: Mark, px_: f32, color: Hsla) -> Stateful<Div> {
     let f = frame();
@@ -40,6 +43,21 @@ pub(crate) fn mark(id: impl Into<ElementId>, m: Mark, px_: f32, color: Hsla) -> 
 }
 
 impl Cauldron {
+    /// The mark and colour of stream `id`, as its sidebar row shows it.
+    pub(crate) fn stream_mark(&self, id: &str, pal: &Palette) -> (Mark, Rgb) {
+        use crate::threads::Group;
+        let Threads::Ready(v) = &self.threads else { return (Mark::Idle, pal.fg4) };
+        match v.iter().find(|t| t.id == id) {
+            Some(t) => match Group::of(t) {
+                Group::Running => (Mark::Working, pal.accent),
+                Group::NeedsYou if t.failed.is_some() => (Mark::Error, pal.bad),
+                Group::NeedsYou => (Mark::Asking, pal.warn),
+                Group::Done => (Mark::Idle, pal.fg4),
+            },
+            None => (Mark::Idle, pal.fg4),
+        }
+    }
+
     /// Called once at the top of each render: reads whether the last frame drew a mark, and keeps
     /// the ticker running only then.
     pub(crate) fn mark_clock(&mut self, reduce: bool, cx: &mut Context<Self>) {
