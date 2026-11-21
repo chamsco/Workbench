@@ -1,7 +1,7 @@
 //! The apps tray (19 Nov, after Charles's Ghostex reference and the context sidebar approved on
 //! 13 Nov): each app swaps the sidebar's list. Streams is the stream list; Folders groups streams
-//! by the folder they run in (a click filters Streams to it); Agents lists the familiars; Usage
-//! lists what each subscription has left. Automations and Library have no source yet and say so.
+//! by the folder they run in (a click filters Streams to it); Agents lists the familiars. Usage left
+//! the row on 21 Nov for the sidebar foot (usage.rs). Automations and Library have no source yet and say so.
 
 use super::*;
 
@@ -80,43 +80,47 @@ impl Cauldron {
                 list
             }
             "Agents" => {
-                list = list.child(head("agents-head", "Familiars".into()));
-                if self.fam_views.is_empty() {
-                    return list.child(note("agents-empty", "No familiars yet", "New familiar hands an agent a goal in a folder; it plans, builds, verifies and ships."));
-                }
-                for (i, f) in self.fam_views.iter().enumerate() {
-                    let dot = match f.state {
+                let (real, roster) = self.roster();
+                list = list.child(div().flex().items_center().gap(px(6.)).child(head("agents-head", "Familiars".into())).children((!real).then(|| Self::mock_tag(pal))));
+                for (i, (name, _, state, _)) in roster.into_iter().enumerate() {
+                    let on = self.section_page && self.pages.agent == i;
+                    let dot = match state {
                         familiar::State::NeedsYou => c(pal.warn),
                         familiar::State::Running => c(pal.accent),
                         familiar::State::Failed => c(pal.bad),
                         familiar::State::Done => c(pal.fg4),
                     };
                     list = list.child(
-                        row(("agent-row", i), Some(dot), f.name.clone(), familiar::state_text(f.state).into())
+                        div()
+                            .id(("agent-row", i))
+                            .h(px(46.))
+                            .px(px(8.))
+                            .flex()
+                            .items_center()
+                            .gap(px(9.))
+                            .rounded(px(radius::CONTROL))
+                            .cursor_pointer()
+                            .when_live(on, |d| d.bg(c(pal.selected)))
+                            .hover(|d| d.bg(c(pal.hover)))
+                            .aria_label(format!("{name}, {}", familiar::state_text(state)))
+                            .child(img(Arc::new(Image::from_bytes(ImageFormat::Svg, avatar::svg(i, Mood::Idle, Look { px: 30., outline: false, ms: None, bust: true, ink: None }).into_bytes()))).size(px(30.)))
+                            .child(div().flex_1().min_w_0().flex().flex_col().child(div().truncate().text_color(fg).child(name)).child(div().flex().items_center().gap(px(5.)).text_size(px(11.)).text_color(fg3).child(div().size(px(6.)).rounded_full().bg(dot)).child(familiar::state_text(state))))
                             .on_click(cx.listener(move |this, _, _, cx| {
-                                this.select_section(0, cx);
-                                this.open_familiar(i);
+                                // The page beside shows it (Charles, 21 Nov 17:33Z: the roster lives in the sidebar).
+                                this.pages.agent = i;
+                                this.select_section(3, cx);
                                 cx.notify();
                             }))
                             .test_support(),
                     );
                 }
-                list
-            }
-            "Usage" => {
-                let left = self.usage_left();
-                list = list.child(head("usage-head", "Left on each subscription".into()));
-                if left.is_empty() {
-                    return list.child(note("usage-empty", "No usage data yet", "It appears once a coding CLI reports its limits."));
-                }
-                for (i, (name, pct)) in left.into_iter().enumerate() {
-                    let dot = if pct < 20 { c(pal.warn) } else { c(pal.ok) };
-                    list = list.child(row(("usage-row", i), Some(dot), name, format!("{pct}%")).test_support());
+                if self.fam_views.is_empty() {
+                    list = list.child(note("agents-empty", "No familiars yet", "New familiar hands an agent a goal in a folder; it plans, builds, verifies and ships."));
                 }
                 list
             }
             "Automations" => list.child(note("automations-later", "Automations arrive in a later build", "Scheduled and repeating streams will be listed here.")),
-            _ => list.child(note("library-later", "The Library arrives in a later build", "Notes and files your agents keep will be listed here.")),
+            _ => list.child(note("library-later", "The Librarian is not built yet", "The page shows sample proposals, notes and a graph, marked Mockup.")),
         }
     }
 
@@ -128,7 +132,6 @@ impl Cauldron {
             Some("Streams") | None => Some(("new-thread", "square-pen", NEW_TAB)),
             Some("Folders") => Some(("new-folder", "folder-plus", "Open a folder")),
             Some("Agents") => Some(("new-familiar", "sparkles", NEW_FAMILIAR)),
-            Some("Usage") => Some(("new-sub", "plus", "Add a subscription")),
             _ => None,
         }
     }
@@ -142,10 +145,6 @@ impl Cauldron {
                 self.pick_folder(window, cx);
             }
             Some("Agents") => self.new_familiar(window, cx),
-            Some("Usage") => {
-                self.settings = Some(0);
-                cx.notify();
-            }
             _ => {
                 self.settings = None;
                 self.new_thread(window, cx);
@@ -163,7 +162,7 @@ impl Cauldron {
     }
 
     /// Folders: back to Streams, searching for the folder (the search matches a stream's folder).
-    fn filter_streams(&mut self, q: String, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn filter_streams(&mut self, q: String, window: &mut Window, cx: &mut Context<Self>) {
         self.select_section(0, cx);
         self.query = q.clone();
         self.search_open = !q.is_empty();
