@@ -118,35 +118,44 @@ impl Cauldron {
         }
     }
 
-    /// The ring and its number in the user row: hover for the card, click for the page.
+    /// The meter bar in the user row (Charles, 21 Nov 16:52Z): one slim bar per connected account,
+    /// filled by what it has left when it reported a limit, dim when it has not. No percentage:
+    /// several subscriptions have no honest single number. Hover for the card, click for the page.
     pub(super) fn usage_button(&self, pal: &'static Palette, cx: &mut Context<Self>) -> Stateful<Div> {
-        let low = self.usage_left().into_iter().min_by_key(|(_, p)| *p);
-        let left = low.as_ref().map(|(_, p)| *p);
-        let (text, label) = match &low {
-            Some((who, p)) => (format!("{p}%"), format!("Usage, {p}% left on {who}")),
-            None => ("–".to_string(), "Usage, no limits reported yet".to_string()),
+        let lines: Vec<UsageLine> = self.usage_lines().into_iter().filter(|l| !l.detected).take(4).collect();
+        let label = match lines.len() {
+            0 => "Usage, no accounts yet".to_string(),
+            1 => "Usage, 1 account".to_string(),
+            n => format!("Usage, {n} accounts"),
         };
-        let col = Self::ring_col(left, pal);
+        let mut bars = div().flex().items_center().gap(px(3.));
+        for (i, l) in lines.iter().enumerate() {
+            let col = Self::ring_col(l.left, pal);
+            bars = bars.child(
+                div().id(("meter", i)).relative().w(px(16.)).h(px(4.)).rounded_full().bg(c(pal.line_strong)).overflow_hidden().child(div().absolute().left_0().top_0().h_full().w(px(16. * l.left.unwrap_or(0).min(100) as f32 / 100.)).rounded_full().bg(col)).test_support(),
+            );
+        }
+        if lines.is_empty() {
+            bars = bars.child(div().w(px(16.)).h(px(4.)).rounded_full().bg(c(pal.line_strong)));
+        }
         div()
             .id("usage-button")
             .h(px(26.))
-            .pl(px(4.))
-            .pr(px(6.))
+            .px(px(8.))
             .flex_none()
             .flex()
             .items_center()
-            .gap(px(5.))
+            .gap(px(7.))
             .rounded(px(radius::CONTROL))
             .cursor_pointer()
             .text_size(px(11.5))
-            .font_features(tnum())
-            .text_color(if left.is_some_and(|p| p < LOW) { col } else { c(pal.fg2) })
+            .text_color(c(pal.fg2))
             .when_live(self.usage_page || self.usage_hover, |d| d.bg(c(pal.hover)))
             .hover(|d| d.bg(c(pal.hover)))
             .aria_label(label)
             .aria_selected(self.usage_page)
-            .child(ring(left, 18., col, c(pal.line_strong)))
-            .child(text)
+            .child("Usage")
+            .child(bars)
             .on_hover(cx.listener(|this, on: &bool, _, cx| {
                 this.usage_hover = *on;
                 if *on && this.start.providers.is_empty() {
@@ -161,6 +170,8 @@ impl Cauldron {
 
     pub(super) fn open_usage(&mut self, cx: &mut Context<Self>) {
         self.usage_page = true;
+        self.section_page = false;
+        self.load_pages(cx);
         self.usage_hover = false;
         self.settings = None;
         if self.start.providers.is_empty() {
@@ -257,10 +268,10 @@ impl Cauldron {
     pub(super) fn usage_page_body(&self, pal: &'static Palette, _cx: &mut Context<Self>) -> AnyElement {
         let (fg, fg3) = (c(pal.fg), c(pal.fg3));
         let lines = self.usage_lines();
-        let mut col = div().w_full().max_w(px(660.)).flex().flex_col().px(px(24.)).py(px(8.));
+        let mut col = div().w_full().max_w(px(760.)).flex().flex_col().px(px(24.)).py(px(8.));
         col = col
             .child(div().text_size(px(20.)).line_height(px(26.)).font_weight(FontWeight::SEMIBOLD).text_color(fg).mt(px(12.)).child("Usage"))
-            .child(div().text_size(px(13.)).text_color(fg3).mb(px(14.)).child("What each coding CLI reported last, read every 30 seconds."));
+            .child(div().text_size(px(13.)).text_color(fg3).mb(px(14.)).child("Read from your coding tools on this computer. Open it from the meter or the card."));
         // Group by CLI, keeping the order lines come in.
         let mut clis: Vec<String> = Vec::new();
         for l in &lines {
@@ -296,7 +307,7 @@ impl Cauldron {
             }
             grid = grid.child(card.test_support());
         }
-        col = col.child(grid);
+        col = col.child(grid).child(self.activity_card(pal));
         if !quiet.is_empty() {
             col = col.child(div().mt(px(20.)).mb(px(4.)).text_size(px(11.)).font_weight(FontWeight::MEDIUM).text_color(fg3).child("Found, no limits reported"));
             for (i, l) in quiet {

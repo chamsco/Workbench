@@ -116,6 +116,7 @@ impl Cauldron {
     /// Back to the New thread screen with an empty box.
     pub(super) fn new_thread(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.usage_page = false;
+        self.section_page = false;
         self.open = None;
         self.thread = None;
         self.selected = None;

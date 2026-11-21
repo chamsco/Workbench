@@ -104,7 +104,7 @@ impl Cauldron {
                 list
             }
             "Automations" => list.child(note("automations-later", "Automations arrive in a later build", "Scheduled and repeating streams will be listed here.")),
-            _ => list.child(note("library-later", "The Library arrives in a later build", "Notes and files your agents keep will be listed here.")),
+            _ => list.child(note("library-later", "The Librarian is not built yet", "The page shows sample proposals, notes and a graph, marked Mockup.")),
         }
     }
 
@@ -146,7 +146,7 @@ impl Cauldron {
     }
 
     /// Folders: back to Streams, searching for the folder (the search matches a stream's folder).
-    fn filter_streams(&mut self, q: String, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn filter_streams(&mut self, q: String, window: &mut Window, cx: &mut Context<Self>) {
         self.select_section(0, cx);
         self.query = q.clone();
         self.search_open = !q.is_empty();

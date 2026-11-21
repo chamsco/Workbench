@@ -42,6 +42,7 @@ mod theme;
 mod tabshape;
 mod thread;
 mod update;
+mod pages;
 mod usage;
 #[cfg(all(feature = "shots", target_os = "macos"))]
 pub(crate) mod shots;
@@ -247,6 +248,9 @@ pub(crate) struct Cauldron {
     usage: std::cell::RefCell<Option<(std::time::Instant, Vec<(String, u64)>)>>,
     /// The Usage page is in the card, and the pointer is on the foot's ring or on its hover card.
     usage_page: bool,
+    /// Folders, Agents or Library shows its page in the card (pages.rs), and what it loaded.
+    section_page: bool,
+    pages: pages::State,
     usage_hover: bool,
     usage_card_hover: bool,
     /// Settings is open on this page (v3 frame 7): its pages take the sidebar's list, the page the card.
@@ -385,8 +389,13 @@ impl Cauldron {
     /// The quick-button rail belongs to a stream (Charles, 20 Nov): shown while a stream or a
     /// familiar is open, or while the support card is open (its rail is how you fold it), never on
     /// the New stream screen or in Settings.
+    /// A page (Usage, Folders, Agents, Library) is in the card.
+    pub(crate) fn paged(&self) -> bool {
+        self.usage_page || self.section_page
+    }
+
     pub(crate) fn rail_on(&self, support_open: bool) -> bool {
-        support_open || (self.settings.is_none() && (self.open.is_some() || self.familiar.is_some()))
+        support_open || (self.settings.is_none() && !self.paged() && (self.open.is_some() || self.familiar.is_some()))
     }
 
     /// The window's first state. Debug builds only: `CAULDRON_FIXTURE_AGENTS=n` opens a thread with
@@ -608,7 +617,7 @@ impl Cauldron {
     }
 
     pub(crate) fn new() -> Self {
-        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, support_data: Default::default(), files_open: Default::default(), painting: false, glass: Default::default(), plane: Default::default(), ask_hover: false, ask_open: None, ask_answered: Default::default(), fam_questions: Default::default(), frost: backdrop::FrostLevel::Heavy, stream_bg: None, bg_wipe: None, stream_menu: None, closed_sides: Default::default(), sides_listed: Default::default(), color_target: theme::Target::Sidebar, hex_input: None, theme_mode: String::new(), root_focus: None, plan: false, open_in_menu: false, open_in: thread::OpenIn::Folder, search_open: false, indent: false, usage: Default::default(), usage_page: false, usage_hover: false, usage_card_hover: false, settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_cache: Default::default(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), transcript_fit: Default::default(), coordinator: None, familiar: None, fam_views: Vec::new(), fam_live: Vec::new(), fam_watch: Vec::new(), fam_driving: Default::default(), fam_error: None, fam_composer: None, fam_fixture: false, inbox: Vec::new(), inbox_open: false, update: Default::default(), update_open: false, cli_rows: Vec::new(), inbox_toast: None, fam_from: (0.0, 0.0), fam_to: None, fam_since: None, fam_hl: 0, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default(), err_open: Default::default(), side_root: None, sides: Vec::new(), side_win: false, side_input: None, side_ctx: Default::default() }
+        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, support_data: Default::default(), files_open: Default::default(), painting: false, glass: Default::default(), plane: Default::default(), ask_hover: false, ask_open: None, ask_answered: Default::default(), fam_questions: Default::default(), frost: backdrop::FrostLevel::Heavy, stream_bg: None, bg_wipe: None, stream_menu: None, closed_sides: Default::default(), sides_listed: Default::default(), color_target: theme::Target::Sidebar, hex_input: None, theme_mode: String::new(), root_focus: None, plan: false, open_in_menu: false, open_in: thread::OpenIn::Folder, search_open: false, indent: false, usage: Default::default(), usage_page: false, section_page: false, pages: Default::default(), usage_hover: false, usage_card_hover: false, settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_cache: Default::default(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), transcript_fit: Default::default(), coordinator: None, familiar: None, fam_views: Vec::new(), fam_live: Vec::new(), fam_watch: Vec::new(), fam_driving: Default::default(), fam_error: None, fam_composer: None, fam_fixture: false, inbox: Vec::new(), inbox_open: false, update: Default::default(), update_open: false, cli_rows: Vec::new(), inbox_toast: None, fam_from: (0.0, 0.0), fam_to: None, fam_since: None, fam_hl: 0, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default(), err_open: Default::default(), side_root: None, sides: Vec::new(), side_win: false, side_input: None, side_ctx: Default::default() }
     }
 
     /// Opens core off the main thread (the sidebar shows Loading meanwhile), then keeps the thread
@@ -1156,6 +1165,7 @@ impl Cauldron {
                         .aria_label(format!("{user}, your subscriptions"))
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.usage_page = false;
+                            this.section_page = false;
                             this.settings = if this.settings == Some(0) { None } else { Some(0) };
                             cx.notify();
                         }))
@@ -1218,6 +1228,7 @@ impl Cauldron {
                 )
                 .child(self.tipped("settings", icon_button("settings", "settings", "Settings", pal, self.settings.is_some()), "Settings", Side::Right, pal, cx).on_click(cx.listener(|this, _, _, cx| {
                     this.usage_page = false;
+                            this.section_page = false;
                     this.settings = if this.settings.is_some() { None } else { Some(0) };
                     cx.notify();
                 })).test_support())
@@ -1226,6 +1237,10 @@ impl Cauldron {
     /// Selects a function. The sidebar indicator slides to it from wherever it is now.
     fn select_section(&mut self, i: usize, cx: &mut Context<Self>) {
         self.usage_page = false;
+        self.section_page = pages::has_page(i);
+        if self.section_page {
+            self.load_pages(cx);
+        }
         if i != self.section {
             let now = std::time::Instant::now();
             self.section_from = crate::motion::ease_between(self.section_from, self.section as f32, self.section_since, now, cauldron_chrome::motion::time::INDICATOR);
@@ -1591,6 +1606,10 @@ fn tnum() -> FontFeatures {
 pub(crate) enum Lift {
     /// The main and support cards.
     Card,
+    /// The content area's frame: the card's lift, then a close shadow and a stronger edge and
+    /// top light, so the frame reads as the same raised surface as the buttons and chat boxes
+    /// (Charles, 21 Nov 16:52Z).
+    Frame,
     /// Chat boxes.
     Box,
     /// Buttons.
@@ -1602,13 +1621,20 @@ pub(crate) enum Lift {
 pub(crate) fn lift(l: Lift, pal: &Palette) -> Vec<BoxShadow> {
     let dark = pal.panel.0 < 0x80;
     let shade = |a: f32| hsla(0., 0., 0., if dark { a } else { a * 0.28 });
-    let edge = BoxShadow { color: if dark { hsla(0., 0., 1., 0.05) } else { hsla(0., 0., 0., 0.06) }, offset: point(px(0.), px(0.)), blur_radius: px(0.), spread_radius: px(1.), inset: false };
+    let strong = matches!(l, Lift::Frame);
+    let edge = BoxShadow { color: if dark { hsla(0., 0., 1., if strong { 0.12 } else { 0.05 }) } else { hsla(0., 0., 0., if strong { 0.14 } else { 0.06 }) }, offset: point(px(0.), px(0.)), blur_radius: px(0.), spread_radius: px(1.), inset: false };
     let top = BoxShadow { color: hsla(0., 0., 1., if dark { 0.07 } else { 0.8 }), offset: point(px(0.), px(1.)), blur_radius: px(0.), spread_radius: px(0.), inset: true };
     let long = match l {
+        Lift::Frame => BoxShadow { color: shade(0.7), offset: point(px(0.), px(20.)), blur_radius: px(48.), spread_radius: px(-18.), inset: false },
         Lift::Card => BoxShadow { color: shade(0.55), offset: point(px(0.), px(18.)), blur_radius: px(44.), spread_radius: px(-20.), inset: false },
         Lift::Box => BoxShadow { color: shade(0.8), offset: point(px(0.), px(24.)), blur_radius: px(48.), spread_radius: px(-18.), inset: false },
         Lift::Button => BoxShadow { color: shade(0.45), offset: point(px(0.), px(2.)), blur_radius: px(6.), spread_radius: px(-2.), inset: false },
     };
+    if strong {
+        // A close, tight shadow under the long one: the lip the buttons have.
+        let close = BoxShadow { color: shade(0.4), offset: point(px(0.), px(2.)), blur_radius: px(6.), spread_radius: px(-1.), inset: false };
+        return vec![long, close, edge, top];
+    }
     vec![long, edge, top]
 }
 
@@ -2153,6 +2179,10 @@ impl Render for Cauldron {
         // card is folded.
         let head_title: SharedString = if self.settings.is_some() {
             "Settings".into()
+        } else if self.usage_page {
+            "Usage".into()
+        } else if self.section_page {
+            pages::title(self.section).into()
         } else {
             self.coordinator.clone().unwrap_or_else(|| if self.start.familiar && self.familiar.is_none() { apps::NEW_FAMILIAR.into() } else { NEW_TAB.into() })
         };
@@ -2200,13 +2230,13 @@ impl Render for Cauldron {
             );
             title_el = Some(abs(Rect::new(s.tabs.x, s.main.y + tabshape::PILL_IN, pill_w, tabshape::PILL_H)).child(pill.size_full()));
         }
-        let new_screen = self.open.is_none() && self.active == 0 && self.settings.is_none() && self.familiar.is_none();
+        let new_screen = self.open.is_none() && self.active == 0 && self.settings.is_none() && self.familiar.is_none() && !self.paged();
         let rail_here = s.support.is_none() && self.rail_on(false);
         // The body under the header, clear of the rail when it is in this card.
         let body_w = s.main.w - 2.0 - if rail_here { metric::RAIL_W } else { 0.0 };
         // On the Windows strip the header's tools sit inside the content, under the tab (20 Nov):
         // the body starts below them, so a message never runs under the buttons (Charles, 21 Nov).
-        let tools_band = if s.tools.y > s.main.y + metric::HEAD_H && s.tools.right() <= s.main.right() && self.settings.is_none() && self.familiar.is_none() {
+        let tools_band = if s.tools.y > s.main.y + metric::HEAD_H && s.tools.right() <= s.main.right() && self.settings.is_none() && self.familiar.is_none() && !self.paged() {
             (s.tools.bottom() + metric::HEAD_IN - (s.main.y + 1.0 + metric::HEAD_H)).max(0.0).ceil()
         } else {
             0.0
@@ -2215,7 +2245,7 @@ impl Render for Cauldron {
         // Split (direction B): under the head the card holds up to four panes;
         // a shape that no longer fits steps back.
         let area = Rect::new(s.main.x + 1.0, s.main.y + 1.0 + metric::HEAD_H + tools_band, body_w, body_h);
-        let shape = if self.settings.is_some() || self.familiar.is_some() { Shape::One } else { cauldron_chrome::panes::effective(area, self.panes.shape) };
+        let shape = if self.settings.is_some() || self.familiar.is_some() || self.paged() { Shape::One } else { cauldron_chrome::panes::effective(area, self.panes.shape) };
         let split = shape != Shape::One;
         // The thread view drops what does not fit its pane, so it needs that pane's size first.
         let sp = Split { shape, ..self.panes };
@@ -2225,6 +2255,7 @@ impl Render for Cauldron {
         let body = match self.settings {
             Some(page) => self.settings_page(page, pal, cx),
             None if self.usage_page => self.usage_page_body(pal, cx),
+            None if self.section_page => self.section_page_body(pal, cx),
             None if self.familiar.is_some() => self.familiar_body(pal, fam.as_ref().map_or((radius::PANEL, 1.0), |f| (f.corner, f.fade)), cx),
             None => self.card_body(pal, window, cx),
         };
@@ -2245,7 +2276,7 @@ impl Render for Cauldron {
                 // Split panes are cards of their own on the frame, like the support card (Charles,
                 // 21 Nov 05:10Z): the host card paints nothing under them.
                 let under = if split { None } else { self.glass_under("main", s.main, (w, h), dark, pal, moving, window) };
-                let plane = if split { None } else { self.plane_under(s.main, under.is_none() && self.settings.is_none() && self.familiar.is_none(), new_screen, dark, moving, window, cx) };
+                let plane = if split { None } else { self.plane_under(s.main, under.is_none() && self.settings.is_none() && self.familiar.is_none() && !self.paged(), new_screen, dark, moving, window, cx) };
 
                 let glass = under.is_some();
                 div()
@@ -2259,7 +2290,7 @@ impl Render for Cauldron {
                     // The tabbed card takes the tab's corners all round (Charles, 21 Nov).
                     .when_live(cut, |d| d.rounded(px(tabshape::TAB_R)))
                     .when_live(!glass && !split, |d| d.bg(backdrop::card_bg(self.painting, pal)))
-                    .when_live(!split, |d| d.shadow(lift(Lift::Card, pal)))
+                    .when_live(!split, |d| d.shadow(lift(Lift::Frame, pal)))
                     .children(under.unwrap_or_default())
                     .children(plane)
                     .border_1()
@@ -2270,7 +2301,7 @@ impl Render for Cauldron {
                     .child(div().w(px(body_w)).h(px(body_h)).flex_none().child(inside))
                     .test_support()
             });
-        if new_screen && !self.usage_page {
+        if new_screen {
             // ponytail: core has no stages or per-subscription usage yet (UI-PLAN decision 5), so the
             // bar is static: usage as an empty state, the stages as plain labels with none current.
             let mut stages = div().flex().gap(px(12.));
@@ -2316,7 +2347,7 @@ impl Render for Cauldron {
         }
 
         // ---- the header's tools on the right: the layout and the dock toggle (Ctrl+J)
-        if self.settings.is_none() {
+        if self.settings.is_none() && !self.paged() {
             root = root.child(
                 pane("tools", s.tools)
                     .flex()
@@ -2542,7 +2573,7 @@ impl Render for Cauldron {
                 .overflow_hidden()
                 .rounded(px(radius::PANEL))
                 .when_live(!glass, |d| d.bg(backdrop::card_bg(self.painting, pal)))
-                .shadow(lift(Lift::Card, pal))
+                .shadow(lift(Lift::Frame, pal))
                 .children(under.unwrap_or_default())
                 .border_1()
                 .border_color(c(pal.line_strong))
@@ -3453,7 +3484,7 @@ mod tests {
         let handle = open(cx, with_threads());
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
-            assert_eq!(window.find("usage-button").label(), Some("Usage, no limits reported yet"));
+            assert_eq!(window.find("usage-button").label(), Some("Usage, no accounts yet"));
             assert!((0..super::FUNCTIONS.len()).all(|i| window.find(("fn", i)).label() != Some("Usage")), "not in the apps row");
             assert!(window.try_find(("usage-badge", 0usize)).is_none(), "no usage, no badge");
             assert_eq!(window.find("version").label(), Some(env!("CARGO_PKG_VERSION")));
@@ -3467,7 +3498,8 @@ mod tests {
         let handle = open(cx, Cauldron { accounts_file: Some(path.clone()), ..with_threads() });
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
-            assert_eq!(window.find("usage-button").label(), Some("Usage, 14% left on Codex"));
+            assert_eq!(window.find("usage-button").label(), Some("Usage, 2 accounts"));
+            assert!(window.try_find(("meter", 1usize)).is_some() && window.try_find(("meter", 2usize)).is_none(), "one bar per account, no percentage");
             let (u, me) = (rect(window, "usage-button"), rect(window, "user-row"));
             assert!(u.x >= me.right() && (u.y - me.y).abs() < 8.0, "beside your name");
             assert_eq!(window.find(("usage-badge", 0usize)).label(), Some("Claude 62%"));
@@ -3480,9 +3512,17 @@ mod tests {
             assert_eq!(window.find(("usage-pop-row", 0usize)).label(), Some("Claude · Claude: 62% left"));
             assert_eq!(window.find(("usage-pop-row", 1usize)).label(), Some("Claude · Codex: 14% left"));
             assert!(rect(window, "usage-card").bottom() <= u.y + 1.0, "the card sits on the user row");
+            // Two ways in: the card's link, then the meter itself.
+            window.click("usage-open", cx);
+            window.render_frame(cx);
+            assert!(window.try_find("usage-page").is_some(), "Open Usage opens the page");
+            assert!(window.try_find("activity").is_some(), "the page has the activity tracker");
+            window.click("new-thread", cx);
+            window.render_frame(cx);
+            assert!(window.try_find("usage-page").is_none());
             window.click("usage-button", cx);
             window.render_frame(cx);
-            assert!(window.try_find("usage-page").is_some(), "click opens the page");
+            assert!(window.try_find("usage-page").is_some(), "clicking the meter opens the page");
             assert!(window.try_find("stage-bar").is_none(), "the page has the card to itself");
             window.click("new-thread", cx);
             window.render_frame(cx);
@@ -3490,6 +3530,41 @@ mod tests {
         })
         .unwrap();
         let _ = std::fs::remove_file(path);
+    }
+
+    /// Folders, Agents and Library open their own pages in the card; Library's tabs switch and
+    /// a proposal can be accepted and undone; a stream leaves the page.
+    #[gpui_kit::test]
+    fn apps_open_pages_in_the_card(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = open(cx, with_threads());
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            for (i, id) in [(1usize, "folders-page"), (3, "agents-page"), (4, "library-page")] {
+                window.click(("fn", i), cx);
+                window.render_frame(cx);
+                assert!(window.try_find(id).is_some(), "{id}");
+                assert!(window.try_find("stage-bar").is_none(), "a page has the card to itself");
+            }
+            window.click(("lib-tab", 2usize), cx);
+            window.render_frame(cx);
+            assert!(window.try_find("graph").is_some() && window.try_find("note-panel").is_some());
+            window.click(("lib-tab", 0usize), cx);
+            window.render_frame(cx);
+            window.click(("accept", 0usize), cx);
+            window.render_frame(cx);
+            assert!(window.try_find("receipt").is_some(), "accepting leaves a receipt");
+            window.click("receipt-undo", cx);
+            window.render_frame(cx);
+            assert!(window.try_find("receipt").is_none(), "undo clears it");
+            window.click(("fn", 1usize), cx);
+            window.render_frame(cx);
+            assert!(window.try_find(("folder-tile", 0usize)).is_some(), "a real folder tile");
+            window.click("folder-new", cx);
+            window.render_frame(cx);
+            assert!(window.try_find("folders-page").is_none(), "New folder leaves the page");
+        })
+        .unwrap();
     }
 
     /// The top row's search button opens the search row; the folded sidebar's hover indent (Tight
