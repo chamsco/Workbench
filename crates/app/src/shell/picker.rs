@@ -179,6 +179,7 @@ impl Cauldron {
         let (fg2, fg3) = (c(pal.fg2), c(pal.fg3));
         let mut clis: Vec<&CliStatus> = self.start.providers.iter().filter(|s| s.installed).collect();
         clis.sort_by_key(|s| !s.ready());
+        let favs = Prefs::load().fav_models;
         let query = self.start.pick_query.trim().to_lowercase();
         let current = route.filter(|r| r.kind == RouteKind::Cli);
         let search = self.start.pick_search.as_ref().map(|(s, _)| s.clone());
@@ -208,7 +209,7 @@ impl Cauldron {
                     None => format!("{}'s default", s.name),
                     Some(id) => row_label(id, info, true),
                 };
-                list = list.child(self.pick_row(n, &to, current, s, m, info, label, 0.0, true, pal, cx));
+                list = list.child(self.pick_row(&favs, n, &to, current, s, m, info, label, 0.0, true, pal, cx));
                 n += 1;
             }
             let dot = if s.ready() { c(pal.ok) } else { c(pal.warn) };
@@ -553,7 +554,7 @@ impl Cauldron {
         }
         for (s, m, i) in fav_rows {
             let label = format!("{} · {}", s.name, m.as_deref().map_or_else(|| "default".to_string(), |m| row_label(m, i, false)));
-            list = list.child(self.pick_row(n, to, current, s, m, i, label, 0.0, false, pal, cx));
+            list = list.child(self.pick_row(&favs, n, to, current, s, m, i, label, 0.0, false, pal, cx));
             n += 1;
             kids += 1;
         }
@@ -592,7 +593,7 @@ impl Cauldron {
                 if f.items.len() == 1 {
                     let (m, i) = f.items.into_iter().next().expect("one");
                     let label = m.as_deref().map_or_else(|| format!("{}'s default", s.name), |m| row_label(m, i, true));
-                    list = list.child(self.pick_row(n, to, current, s, m, i, label, 0.0, false, pal, cx));
+                    list = list.child(self.pick_row(&favs, n, to, current, s, m, i, label, 0.0, false, pal, cx));
                     n += 1;
                     kids += 1;
                     continue;
@@ -642,7 +643,7 @@ impl Cauldron {
                 if open {
                     for (m, i) in f.items {
                         let label = m.as_deref().map_or_else(|| format!("{}'s default", s.name), |m| row_label(m, i, true));
-                        list = list.child(self.pick_row(n, to, current, s, m, i, label, 18.0, false, pal, cx));
+                        list = list.child(self.pick_row(&favs, n, to, current, s, m, i, label, 18.0, false, pal, cx));
                         n += 1;
                         kids += 1;
                     }
@@ -657,7 +658,7 @@ impl Cauldron {
 
     /// One model row: the label, a Free or price tag, a check on the current one.
     #[allow(clippy::too_many_arguments)]
-    fn pick_row(&self, n: usize, to: &PickFor, current: Option<&Route>, s: &CliStatus, m: Option<String>, info: Option<&ModelInfo>, label: String, indent: f32, compact: bool, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
+    fn pick_row(&self, favs: &[String], n: usize, to: &PickFor, current: Option<&Route>, s: &CliStatus, m: Option<String>, info: Option<&ModelInfo>, label: String, indent: f32, compact: bool, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
         let (fg, fg2, fg3) = (c(pal.fg), c(pal.fg2), c(pal.fg3));
         let sel = current.is_some_and(|r| r.provider == s.provider && r.model == m);
         let key = fav_key(&s.provider, m.as_deref());
@@ -673,7 +674,7 @@ impl Cauldron {
         }
         .and_then(|n| super::logos::image(n, &pal.fg2.to_hex()));
         let ctx = info.and_then(|i| i.context).map(tokens_short).filter(|_| !compact);
-        let fav = Prefs::load().fav_models.contains(&key2);
+        let fav = favs.contains(&key2);
         let focused = self.start.pick_focus.as_deref() == Some(key2.as_str());
         let key3 = key2.clone();
         div()

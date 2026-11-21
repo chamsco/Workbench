@@ -20,27 +20,40 @@ pub(crate) struct Block {
     pub failed: bool,
 }
 
-/// The blocks of a thread, oldest first: every `Bash` span in its replies' traces.
-pub(crate) fn blocks(chats: &Chats, t: Option<&Thread>) -> Vec<Block> {
+/// The blocks of a thread, oldest first: every `Bash` span in its replies' traces. A trace is
+/// written once, when its reply ends, so each is read from disk once and kept in `cache` by trace
+/// id: core pokes the view many times a second while a reply streams, and re-reading every trace
+/// of a long stream each time cost milliseconds that grew with its length.
+pub(crate) fn blocks(chats: &Chats, t: Option<&Thread>, cache: &mut std::collections::HashMap<String, Vec<Block>>) -> Vec<Block> {
     let mut out = Vec::new();
     for m in t.into_iter().flat_map(|t| t.messages.iter()).filter(|m| m.role != Role::User) {
-        let Some(tr) = m.trace.as_ref().and_then(|id| chats.trace(id)) else { continue };
-        for s in tr.spans.iter().filter(|s| s.kind == "tool" && s.name == "Bash") {
-            let command = serde_json::from_str::<serde_json::Value>(&s.input)
-                .ok()
-                .and_then(|v| v.get("command").and_then(|c| c.as_str()).map(str::to_string))
-                .unwrap_or_else(|| s.input.clone());
-            out.push(Block {
-                command,
-                output: s.output.trim_end().to_string(),
-                who: m.model.clone().unwrap_or_else(|| "agent".into()),
-                start: s.start,
-                end: s.end,
-                failed: s.error.is_some(),
-            });
+        let Some(id) = m.trace.as_ref() else { continue };
+        if !cache.contains_key(id) {
+            let Some(tr) = chats.trace(id) else { continue };
+            cache.insert(id.clone(), trace_blocks(&tr, m.model.clone()));
         }
+        out.extend(cache[id].iter().cloned());
     }
     out
+}
+
+fn trace_blocks(tr: &backspace_core::trace::Trace, model: Option<String>) -> Vec<Block> {
+    let who = model.unwrap_or_else(|| "agent".into());
+    tr.spans
+        .iter()
+        .filter(|s| s.kind == "tool" && s.name == "Bash")
+        .map(|s| Block {
+            command: serde_json::from_str::<serde_json::Value>(&s.input)
+                .ok()
+                .and_then(|v| v.get("command").and_then(|c| c.as_str()).map(str::to_string))
+                .unwrap_or_else(|| s.input.clone()),
+            output: s.output.trim_end().to_string(),
+            who: who.clone(),
+            start: s.start,
+            end: s.end,
+            failed: s.error.is_some(),
+        })
+        .collect()
 }
 
 /// "agent · 17:27 · 1.2s · failed": the meta line under a block's command.
