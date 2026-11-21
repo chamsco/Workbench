@@ -9,6 +9,7 @@ use cauldron_chrome::avatar::{self, Look, Mood};
 use cauldron_chrome::layout::{self, metric, Platform, Rect, ShellState};
 use cauldron_chrome::motion::Frame;
 use cauldron_chrome::panes::{Shape, Split};
+use cauldron_chrome::status::Mark;
 use cauldron_chrome::tokens::{self, motion as mt, radius, Palette, Rgb, Rgba};
 use gpui_kit::*;
 
@@ -29,7 +30,9 @@ mod motion;
 mod newthread;
 mod panes;
 mod dither;
+mod ledger;
 mod logos;
+mod mark;
 mod picker;
 mod side;
 mod settings;
@@ -209,6 +212,8 @@ pub(crate) struct Cauldron {
     /// behind the stream card instead (Settings > Appearance), if they chose one.
     glass: backdrop::GlassCache,
     plane: dither::Plane,
+    /// Redraws the status marks while one moves.
+    mark_ticker: Option<gpui_kit::Task<()>>,
     /// The decision card: grown under the pointer, the option open in Highlights, the sets already
     /// answered here, and each live familiar's waiting set (refreshed with its view).
     ask_hover: bool,
@@ -263,6 +268,10 @@ pub(crate) struct Cauldron {
     term_blocks: Vec<terminal::Block>,
     /// The open stream's command blocks by trace id (terminal::blocks).
     term_cache: std::collections::HashMap<String, Vec<terminal::Block>>,
+    /// Which ledger steps are open or shut, where the reader chose (ledger.rs).
+    act_open: std::collections::HashMap<String, bool>,
+    /// Redraws 10 times a second while a reply runs, so its timers count and its sweep moves.
+    act_tick: Option<gpui_kit::Task<()>>,
     term_input: Option<(Entity<InputState>, Subscription)>,
     /// What the input line answered last (no shell yet, or a send error).
     term_note: Option<String>,
@@ -617,7 +626,7 @@ impl Cauldron {
     }
 
     pub(crate) fn new() -> Self {
-        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, support_data: Default::default(), files_open: Default::default(), painting: false, glass: Default::default(), plane: Default::default(), ask_hover: false, ask_open: None, ask_answered: Default::default(), fam_questions: Default::default(), frost: backdrop::FrostLevel::Heavy, stream_bg: None, bg_wipe: None, stream_menu: None, closed_sides: Default::default(), sides_listed: Default::default(), color_target: theme::Target::Sidebar, hex_input: None, theme_mode: String::new(), root_focus: None, plan: false, open_in_menu: false, open_in: thread::OpenIn::Folder, search_open: false, indent: false, usage: Default::default(), usage_page: false, section_page: false, pages: Default::default(), usage_hover: false, usage_card_hover: false, settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_cache: Default::default(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), transcript_fit: Default::default(), coordinator: None, familiar: None, fam_views: Vec::new(), fam_live: Vec::new(), fam_watch: Vec::new(), fam_driving: Default::default(), fam_error: None, fam_composer: None, fam_fixture: false, inbox: Vec::new(), inbox_open: false, update: Default::default(), update_open: false, cli_rows: Vec::new(), inbox_toast: None, fam_from: (0.0, 0.0), fam_to: None, fam_since: None, fam_hl: 0, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default(), err_open: Default::default(), side_root: None, sides: Vec::new(), side_win: false, side_input: None, side_ctx: Default::default() }
+        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, support_data: Default::default(), files_open: Default::default(), painting: false, glass: Default::default(), plane: Default::default(), mark_ticker: None, ask_hover: false, ask_open: None, ask_answered: Default::default(), fam_questions: Default::default(), frost: backdrop::FrostLevel::Heavy, stream_bg: None, bg_wipe: None, stream_menu: None, closed_sides: Default::default(), sides_listed: Default::default(), color_target: theme::Target::Sidebar, hex_input: None, theme_mode: String::new(), root_focus: None, plan: false, open_in_menu: false, open_in: thread::OpenIn::Folder, search_open: false, indent: false, usage: Default::default(), usage_page: false, section_page: false, pages: Default::default(), usage_hover: false, usage_card_hover: false, settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_cache: Default::default(), act_open: Default::default(), act_tick: None, term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), transcript_fit: Default::default(), coordinator: None, familiar: None, fam_views: Vec::new(), fam_live: Vec::new(), fam_watch: Vec::new(), fam_driving: Default::default(), fam_error: None, fam_composer: None, fam_fixture: false, inbox: Vec::new(), inbox_open: false, update: Default::default(), update_open: false, cli_rows: Vec::new(), inbox_toast: None, fam_from: (0.0, 0.0), fam_to: None, fam_since: None, fam_hl: 0, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default(), err_open: Default::default(), side_root: None, sides: Vec::new(), side_win: false, side_input: None, side_ctx: Default::default() }
     }
 
     /// Opens core off the main thread (the sidebar shows Loading meanwhile), then keeps the thread
@@ -806,17 +815,15 @@ impl Cauldron {
                             Group::NeedsYou => "Needs you",
                             Group::Done => "Done",
                         };
-                        let dot = div().id(("thread-dot", i)).size(px(7.)).rounded_full();
                         let dot = match state {
-                            // The halo is the board's `box-shadow: 0 0 0 3px`, so the dot keeps its 7px.
-                            "Working" => dot.bg(c(pal.accent)).shadow(vec![BoxShadow { color: ca(pal.accent, 0.18), offset: point(px(0.), px(0.)), blur_radius: px(0.), spread_radius: px(3.), inset: false }]),
-                            "Failed" => dot.bg(c(pal.bad)),
-                            "Needs you" => dot.bg(c(pal.warn)),
-                            _ => dot.border_1().border_color(c(pal.fg4)),
+                            "Working" => mark::mark(("thread-dot", i), Mark::Working, mark::SIZE, c(pal.accent)),
+                            "Failed" => mark::mark(("thread-dot", i), Mark::Error, mark::SIZE, c(pal.bad)),
+                            "Needs you" => mark::mark(("thread-dot", i), Mark::Asking, mark::SIZE, c(pal.warn)),
+                            _ => mark::mark(("thread-dot", i), Mark::Idle, mark::SIZE, c(pal.fg4)),
                         };
                         let slot = div()
                             .id(("thread-av", i))
-                            .w(px(7.))
+                            .w(px(mark::SIZE))
                             .h(px(22.))
                             .flex_none()
                             .flex()
@@ -1706,6 +1713,7 @@ impl Render for Cauldron {
         let want = ShellState { sidebar_open: self.sidebar_open, support_open: self.drawer.is_some(), dock_open: self.terminal };
         let now = std::time::Instant::now();
         let reduce = cx.reduce_motion();
+        self.mark_clock(reduce, cx);
         let (s, mut moving) = self.motion.frame(want, Frame::at_rest(&layout::solve(w, h, want, plat)), now, reduce);
         // The drawer body's crossfade, the + menu's open and close, and the Send/Stop glyphs.
         let busy_now = self.busy();
@@ -1776,6 +1784,21 @@ impl Render for Cauldron {
         let fg2 = c(pal.fg2);
         let fg3 = c(pal.fg3);
         let accent = c(pal.accent);
+
+        // While the open stream's reply runs, its timers and sweep need a redraw every 100 ms; the
+        // reply's own updates only come when it writes or calls a tool.
+        if self.busy() && self.settings.is_none() {
+            if self.act_tick.is_none() {
+                self.act_tick = Some(cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| loop {
+                    cx.background_executor().timer(std::time::Duration::from_millis(100)).await;
+                    if this.update(cx, |_, cx| cx.notify()).is_err() {
+                        break;
+                    }
+                }));
+            }
+        } else {
+            self.act_tick = None;
+        }
 
         self.ensure_composer(window, cx);
         if self.familiar.is_some() {
@@ -1931,7 +1954,7 @@ impl Render for Cauldron {
                 let run = TextRun { len: anchor_label.len(), font: Font { weight: FontWeight::MEDIUM, features: sans_features(), ..font(SANS) }, color: fg, background_color: None, underline: None, strikethrough: None };
                 f32::from(window.text_system().shape_line(anchor_label.clone(), px(12.5), &[run], None).width)
             };
-            let anchor_w = (TAB_PAD + label_w + TAB_PAD + 2.0).ceil().min(ANCHOR_MAX);
+            let anchor_w = (TAB_PAD + mark::TAB_W + label_w + TAB_PAD + 2.0).ceil().min(ANCHOR_MAX);
             let n = self.agents.len();
             // The card's tab holds only the open tab; the others and + sit on the frame past its
             // feet (Charles, 20 Nov: "outside of the tab card, with a separation"; 21 Nov: the
@@ -2010,11 +2033,14 @@ impl Render for Cauldron {
             // The pinned tab: the stream, or with side streams the group's main.
             let in_side = self.familiar.is_none() && self.open.is_some() && self.open != self.side_root;
             let on = self.active == 0 && !in_side;
+            // The stream's status mark sits inside its tab (Charles, 21 Nov), as on its sidebar row.
+            let (am, acol) = self.stream_mark(self.side_root.as_deref().or(self.open.as_deref()).unwrap_or(""), pal);
             let anchor = ftab(("tab", 0), on, cx)
                 .flex_none()
                 .w(px(anchor_w))
                 .px(px(TAB_PAD))
                 .aria_label(anchor_label.clone())
+                .child(mark::mark(("tab-mark", 0usize), am, mark::SIZE, c(acol)).test_support())
                 .child(div().min_w_0().truncate().child(anchor_label.clone()))
                 .on_click(cx.listener(|this, _, window, cx| {
                     this.active = 0;
@@ -3861,11 +3887,12 @@ mod tests {
                 let r = rect(window, ("thread", i));
                 assert_eq!(r.h, 30.0, "row {i}");
                 let a = rect(window, ("thread-av", i));
-                assert_eq!((a.w, a.h), (7.0, 22.0), "row {i}'s slot");
+                assert_eq!((a.w, a.h), (15.0, 22.0), "row {i}'s slot");
                 assert!((a.y + a.h / 2.0 - (r.y + r.h / 2.0)).abs() <= 1.0, "row {i}'s slot is centred");
                 assert_eq!(a.x - r.x, 8.0, "row {i}'s dot is 8px in, as the board's");
                 assert_eq!(window.find(("thread-av", i)).label(), Some(state), "row {i}");
                 assert!(window.try_find(("thread-fig", i)).is_none(), "row {i}: no figure, streams do not have agents (Charles, 20 Nov)");
+                assert_eq!(rect(window, ("thread-dot", i)).w, 15.0, "row {i}: the mark is 15px");
                 assert!(window.try_find(("thread-dot", i)).is_some(), "row {i}: a state dot");
                 assert_eq!(window.find(("thread-meta", i)).label(), Some("no repo"), "row {i}");
             }
