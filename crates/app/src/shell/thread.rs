@@ -277,6 +277,7 @@ impl Cauldron {
         self.open_since = Some(std::time::Instant::now());
         self.send_error = None;
         self.threads = Threads::Ready(chats.list());
+        self.sync_sides();
     }
 
     /// Re-reads the list and the open thread from core.
@@ -289,6 +290,7 @@ impl Cauldron {
                 self.term_blocks = super::terminal::blocks(chats, self.thread.as_ref());
             }
         }
+        self.sync_sides();
     }
 
     /// Keeps the view current: core pokes `changes` whenever a thread changes.

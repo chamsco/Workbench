@@ -217,6 +217,10 @@ pub struct Thread {
     /// Thread this one was branched from.
     #[serde(default)]
     pub branched_from: Option<String>,
+    /// A side stream: the main stream it sits beside (board "Side streams A"). Side streams
+    /// share the main's tab group and sidebar row; they never nest, so this is always a main.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub side_of: Option<String>,
     /// Pair: the project folder a CLI works in, with leave to edit it.
     #[serde(default)]
     pub project: Option<String>,
@@ -243,6 +247,15 @@ pub struct Thread {
     /// chat. `Life::Ghost` turns this on for the whole session.
     #[serde(skip)]
     pub hidden: bool,
+}
+
+/// What a side stream starts knowing (`Chats::side`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum SideCtx {
+    None,
+    #[default]
+    LastReply,
+    Whole,
 }
 
 /// Where a new thread lives: the plain chat list, a project (Pair) or an app.
@@ -295,6 +308,8 @@ pub struct ThreadInfo {
     pub ghost: bool,
     /// A temporal chat: when it forgets itself, for the countdown.
     pub expires_at: Option<u64>,
+    /// A side stream's main stream (`Thread::side_of`).
+    pub side_of: Option<String>,
 }
 
 /// See `Chats::activity`.
@@ -728,6 +743,7 @@ impl Chats {
                 members: t.members.clone(),
                 failed: t.messages.last().filter(|m| m.role != Role::User).and_then(|m| m.error.clone()),
                 ghost: t.life.is_ghost(),
+                side_of: t.side_of.clone(),
                 expires_at: if t.life == Life::Temporal { t.expires_at } else { None },
             })
             .collect();
@@ -805,6 +821,7 @@ impl Chats {
             messages: vec![],
             cli_session: None,
             branched_from: None,
+            side_of: None,
             project: scope.project.filter(|p| !p.is_empty()),
             folder: None,
             app: scope.app,
@@ -959,6 +976,37 @@ impl Chats {
         })
     }
 
+    /// A side stream beside `id` (board "Side streams A"): same CLI, model, folder and filing,
+    /// its own CLI session, so the main never waits on it. `ctx` is what it starts knowing:
+    /// nothing, the main's last reply, or the whole conversation. The caller sends the question.
+    pub fn side(&self, id: &str, question: &str, ctx: SideCtx) -> Result<Thread> {
+        let src = self.thread(id).ok_or_else(|| anyhow!("no such chat"))?;
+        // A side of a side sits beside the same main: one level, one group.
+        let main = match &src.side_of {
+            Some(m) => self.thread(m).unwrap_or_else(|| src.clone()),
+            None => src.clone(),
+        };
+        let from = if src.side_of.is_some() { &src } else { &main };
+        let messages = match ctx {
+            SideCtx::None => Vec::new(),
+            SideCtx::LastReply => from.messages.iter().rev().find(|m| m.role != Role::User && !m.text.is_empty()).cloned().into_iter().collect(),
+            SideCtx::Whole => from.messages.clone(),
+        };
+        let mut title: String = question.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(40).collect();
+        if title.is_empty() {
+            title = "Side stream".into();
+        }
+        let now = now_ms();
+        let mut t = self.create_in(from.route.clone(), Scope { project: from.project.clone(), title: Some(title), ..Scope::default() });
+        t.side_of = Some(main.id.clone());
+        t.folder = main.folder.clone();
+        t.messages = messages;
+        t.created = now;
+        self.threads.lock().unwrap().insert(t.id.clone(), t.clone());
+        self.save(&t.id);
+        Ok(t)
+    }
+
     /// A new thread with the messages up to and including `msg`.
     pub fn branch(&self, id: &str, msg: &str) -> Result<Thread> {
         let src = self.thread(id).ok_or_else(|| anyhow!("no such chat"))?;
@@ -978,6 +1026,7 @@ impl Chats {
             messages: src.messages[..=end].to_vec(),
             cli_session: None,
             branched_from: Some(src.id.clone()),
+            side_of: None,
             project: src.project.clone(),
             // A branch is the same work, so it stays where its source is filed.
             folder: src.folder.clone(),
@@ -1351,6 +1400,7 @@ impl Chats {
             messages: vec![user, reply],
             cli_session: None,
             branched_from: None,
+            side_of: None,
             project: None,
             folder: None,
             app: None,
@@ -2801,6 +2851,30 @@ mod tests {
         assert!(at.messages[0].author_name.as_deref() == Some("codex") && at.messages[0].text.contains("`codex` failed"), "{:?}", at.messages[0]);
         assert_eq!(at.messages.len(), 2);
         assert_eq!(c.thread(&b).unwrap().messages.len(), 2);
+    }
+
+    #[test]
+    fn a_side_stream_sits_beside_its_main_and_starts_from_the_last_reply() {
+        let dir = tmp("side");
+        let (c, _rt) = chats(&dir);
+        let main = c.create_in(route(), Scope { project: Some("/work/app".into()), ..Scope::default() }).id;
+        {
+            let mut g = c.threads.lock().unwrap();
+            let t = g.get_mut(&main).unwrap();
+            t.messages.push(Msg::new(Role::User, "fix the redirect".into(), Status::Done));
+            t.messages.push(Msg::new(Role::Assistant, "The cookie is set after the 302.".into(), Status::Done));
+        }
+        let s = c.side(&main, "why   does a 302 drop cookies?", SideCtx::LastReply).unwrap();
+        assert_eq!(s.side_of.as_deref(), Some(main.as_str()));
+        assert_eq!(s.project.as_deref(), Some("/work/app"), "same folder as the main");
+        assert_eq!(s.title, "why does a 302 drop cookies?");
+        assert_eq!(s.messages.len(), 1, "only the last reply");
+        assert_eq!(s.messages[0].text, "The cookie is set after the 302.");
+        assert!(c.side(&main, "q", SideCtx::None).unwrap().messages.is_empty());
+        assert_eq!(c.side(&main, "q", SideCtx::Whole).unwrap().messages.len(), 2);
+        let nested = c.side(&s.id, "deeper", SideCtx::None).unwrap();
+        assert_eq!(nested.side_of.as_deref(), Some(main.as_str()), "a side of a side sits beside the same main");
+        assert_eq!(c.list().iter().filter(|t| t.side_of.as_deref() == Some(main.as_str())).count(), 4);
     }
 
     #[test]

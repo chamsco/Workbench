@@ -29,6 +29,7 @@ mod motion;
 mod newthread;
 mod panes;
 mod picker;
+mod side;
 mod settings;
 mod subs;
 mod support;
@@ -284,6 +285,13 @@ pub(crate) struct Cauldron {
     fam_hl: usize,
     /// Agents with an open 1:1 tab, in tab order, and the thread's other agents (the + menu).
     agents: Vec<AgentTab>,
+    /// Side streams (board "Side streams A"): the open stream's main, its side streams as
+    /// (id, title), and the + window that starts one.
+    side_root: Option<String>,
+    sides: Vec<(String, String)>,
+    side_win: bool,
+    side_input: Option<(Entity<InputState>, Subscription)>,
+    side_ctx: backspace_core::chat::SideCtx,
     idle: Vec<AgentTab>,
     /// The open tab: 0 is the pinned one, i is `agents[i - 1]`.
     active: usize,
@@ -490,7 +498,7 @@ impl Cauldron {
     }
 
     pub(crate) fn new() -> Self {
-        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, support_data: Default::default(), files_open: Default::default(), painting: false, glass: Default::default(), ask_hover: false, ask_open: None, ask_answered: Default::default(), fam_questions: Default::default(), frost: backdrop::FrostLevel::Heavy, stream_bg: None, theme_mode: String::new(), root_focus: None, plan: false, open_in_menu: false, open_in: thread::OpenIn::Folder, search_open: false, indent: false, usage: Default::default(), settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, familiar: None, fam_views: Vec::new(), fam_live: Vec::new(), fam_watch: Vec::new(), fam_driving: Default::default(), fam_error: None, fam_composer: None, fam_fixture: false, inbox: Vec::new(), inbox_open: false, update: Default::default(), update_open: false, inbox_toast: None, fam_from: (0.0, 0.0), fam_to: None, fam_since: None, fam_hl: 0, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default(), err_open: Default::default() }
+        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, support_data: Default::default(), files_open: Default::default(), painting: false, glass: Default::default(), ask_hover: false, ask_open: None, ask_answered: Default::default(), fam_questions: Default::default(), frost: backdrop::FrostLevel::Heavy, stream_bg: None, theme_mode: String::new(), root_focus: None, plan: false, open_in_menu: false, open_in: thread::OpenIn::Folder, search_open: false, indent: false, usage: Default::default(), settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, familiar: None, fam_views: Vec::new(), fam_live: Vec::new(), fam_watch: Vec::new(), fam_driving: Default::default(), fam_error: None, fam_composer: None, fam_fixture: false, inbox: Vec::new(), inbox_open: false, update: Default::default(), update_open: false, inbox_toast: None, fam_from: (0.0, 0.0), fam_to: None, fam_since: None, fam_hl: 0, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default(), err_open: Default::default(), side_root: None, sides: Vec::new(), side_win: false, side_input: None, side_ctx: Default::default() }
     }
 
     /// Opens core off the main thread (the sidebar shows Loading meanwhile), then keeps the thread
@@ -633,7 +641,10 @@ impl Cauldron {
                 list.child(note("threads-empty", "No threads yet".into(), None, "No threads yet".into(), Some("Start one with New thread.".into())))
             }
             Threads::Ready(v) => {
-                let groups = threads::grouped(v, &self.query);
+                // Side streams live in their main's tab group, not as rows of their own.
+                let side_n = |id: &str| v.iter().filter(|t| t.side_of.as_deref() == Some(id)).count();
+                let mains: Vec<ThreadInfo> = v.iter().filter(|t| t.side_of.as_ref().is_none_or(|m| !v.iter().any(|x| &x.id == m))).cloned().collect();
+                let groups = threads::grouped(&mains, &self.query);
                 if groups.is_empty() {
                     let q = self.query.trim().to_string();
                     return list.child(note("threads-no-match", format!("No threads match {q}"), None, format!("No threads match \u{201c}{q}\u{201d}"), None));
@@ -710,6 +721,10 @@ impl Cauldron {
                                 .child(slot.test_support())
                                 .child(div().flex_1().min_w_0().truncate().font_weight(if t.unread { FontWeight::SEMIBOLD } else { FontWeight::NORMAL }).child(t.title.clone()))
                                 .when_live(t.pinned, |d| d.child(glyph("pin", 11., fg3)))
+                                .when_live(side_n(&t.id) > 0, |d| {
+                                    let n = side_n(&t.id);
+                                    d.child(div().id(("thread-sides", i)).flex_none().flex().items_center().gap(px(2.)).text_size(px(10.5)).text_color(fg3).aria_label(format!("{n} side streams")).child(glyph("corner-down-right", 10., fg3)).child(n.to_string()).test_support())
+                                })
                                 // The repo as a tag (the board's `.r`).
                                 .child({
                                     let m = threads::meta(t);
@@ -1761,8 +1776,9 @@ impl Render for Cauldron {
                     .on_scroll_wheel(cx.listener(|this, ev: &ScrollWheelEvent, _, cx| this.wheel_tabs(ev, cx)))
             };
 
-            // The pinned tab.
-            let on = self.active == 0;
+            // The pinned tab: the stream, or with side streams the group's main.
+            let in_side = self.familiar.is_none() && self.open.is_some() && self.open != self.side_root;
+            let on = self.active == 0 && !in_side;
             let anchor = ftab(("tab", 0), on, cx)
                 .flex_none()
                 .w(px(anchor_w))
@@ -1771,16 +1787,50 @@ impl Render for Cauldron {
                 .child(div().min_w_0().truncate().child(anchor_label.clone()))
                 .on_click(cx.listener(|this, _, window, cx| {
                     this.active = 0;
+                    if let Some(r) = this.side_root.clone().filter(|r| this.open.as_ref() != Some(r)) {
+                        this.open_thread(r);
+                    }
                     this.focus_tabs(window, cx);
                     cx.notify();
                 }));
             row = row.child(anchor.test_support());
             // The card's tab: one stroke round the open tab (tabshape.rs).
             let tab0 = s.tabs.x - s.main.x;
-            if self.active == 0 {
+            if on {
                 bump = Some((0.0, tab0 + anchor_w + tabshape::S));
             }
             let mut at = tab0 + anchor_w + TAB_SEP;
+            // Side streams, in the main's group on the same line: a corner arrow, no figure.
+            if self.familiar.is_none() {
+                for (si, (sid, title)) in self.sides.iter().enumerate() {
+                    let on = self.open.as_deref() == Some(sid.as_str());
+                    let name_w = {
+                        let run = TextRun { len: title.len(), font: Font { weight: FontWeight::MEDIUM, features: sans_features(), ..font(SANS) }, color: fg, background_color: None, underline: None, strikethrough: None };
+                        f32::from(window.text_system().shape_line(title.clone().into(), px(12.5), &[run], None).width)
+                    };
+                    let tw = (TAB_PAD + 12.0 + CLOSE_GAP + name_w + TAB_PAD).ceil().clamp(TAB_MIN, 160.0);
+                    let sid2 = sid.clone();
+                    let tab = ftab(("side-tab", si), on, cx)
+                        .flex_none()
+                        .w(px(tw))
+                        .px(px(TAB_PAD))
+                        .aria_label(format!("Side stream: {title}"))
+                        .child(glyph("corner-down-right", 12., fg3))
+                        .child(div().min_w_0().truncate().child(title.clone()))
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            this.active = 0;
+                            this.open_thread(sid2.clone());
+                            this.focus_tabs(window, cx);
+                            cx.notify();
+                        }));
+                    if on {
+                        bump = Some((at - tabshape::S, tw + 2.0 * tabshape::S));
+                    }
+                    at += tw + TAB_SEP;
+                    let tab = if tw >= 160.0 { self.tipped(("side-tab", si), tab, title.clone(), Side::Below, pal, cx) } else { tab };
+                    row = row.child(tab.test_support());
+                }
+            }
 
             // Each tab is sized to its name, within its share of the room.
             let fig_w = avatar::size(TAB_FIG).0;
@@ -1892,15 +1942,27 @@ impl Render for Cauldron {
                 .hover(|d| d.bg(ca(pal.fg, 0.08)))
                 .aria_label(ADD_LABEL)
                 .child(glyph("plus", 13., fg3))
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.tab_menu = !this.tab_menu;
-                    this.tab_slide.reset();
+                .on_click(cx.listener(|this, _, window, cx| {
+                    // On an open stream the + starts a side stream; elsewhere it is the agents menu.
+                    if this.familiar.is_none() && this.open.is_some() {
+                        if this.side_win {
+                            this.side_win = false;
+                        } else {
+                            this.open_side_win(window, cx);
+                        }
+                    } else {
+                        this.tab_menu = !this.tab_menu;
+                        this.tab_slide.reset();
+                    }
                     cx.notify();
                 }));
             if self.tab_menu {
                 add = add.child(self.tab_menu_el(pal, cx));
             }
-            let add = if self.tab_menu { add } else { self.tipped("tab-add", add, ADD_LABEL, Side::Below, pal, cx) };
+            if self.side_win {
+                add = add.child(deferred(div().absolute().top(px(ADD_W + 6.0)).left(px(-8.0)).child(self.side_window(pal, cx))).with_priority(3));
+            }
+            let add = if self.tab_menu || self.side_win { add } else { self.tipped("tab-add", add, ADD_LABEL, Side::Below, pal, cx) };
             tab_row = Some(row.child(add.test_support()));
         }
 

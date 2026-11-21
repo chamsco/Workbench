@@ -79,6 +79,7 @@ pub(crate) fn sample(id: &str, title: &str) -> ThreadInfo {
         failed: None,
         ghost: false,
         expires_at: None,
+        side_of: None,
     }
 }
 
