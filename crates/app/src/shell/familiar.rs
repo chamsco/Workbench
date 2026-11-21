@@ -195,6 +195,7 @@ fn stage_line(stage: Phase, pal: &'static Palette) -> Stateful<Div> {
 impl Cauldron {
     /// Opens familiar `i`: its tab first, one tab per subagent, the support card folded.
     pub(crate) fn open_familiar(&mut self, i: usize) {
+        self.usage_page = false;
         let Some(f) = self.fam_views.get(i) else { return };
         self.familiar = Some(i);
         self.open = None;

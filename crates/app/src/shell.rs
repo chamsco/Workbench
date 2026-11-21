@@ -42,6 +42,7 @@ mod theme;
 mod tabshape;
 mod thread;
 mod update;
+mod usage;
 #[cfg(all(feature = "shots", target_os = "macos"))]
 pub(crate) mod shots;
 
@@ -154,12 +155,11 @@ impl Panel {
 }
 
 /// The apps row (Tight tiles): what the sidebar and the hover indent switch between.
-const FUNCTIONS: [(&str, &str); 6] = [
+const FUNCTIONS: [(&str, &str); 5] = [
     ("message-square", "Streams"),
     ("folder", "Folders"),
     ("calendar", "Automations"),
     ("bot", "Agents"),
-    ("gauge", "Usage"),
     ("database", "Library"),
 ];
 
@@ -245,6 +245,10 @@ pub(crate) struct Cauldron {
     indent: bool,
     /// The subscriptions' usage left, read from accounts.json at most every `USAGE_EVERY`.
     usage: std::cell::RefCell<Option<(std::time::Instant, Vec<(String, u64)>)>>,
+    /// The Usage page is in the card, and the pointer is on the foot's ring or on its hover card.
+    usage_page: bool,
+    usage_hover: bool,
+    usage_card_hover: bool,
     /// Settings is open on this page (v3 frame 7): its pages take the sidebar's list, the page the card.
     settings: Option<usize>,
     /// Where Settings reads the subscriptions; None is core's `accounts.json` (tests use their own).
@@ -582,7 +586,7 @@ impl Cauldron {
     }
 
     pub(crate) fn new() -> Self {
-        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, support_data: Default::default(), files_open: Default::default(), painting: false, glass: Default::default(), plane: Default::default(), ask_hover: false, ask_open: None, ask_answered: Default::default(), fam_questions: Default::default(), frost: backdrop::FrostLevel::Heavy, stream_bg: None, bg_wipe: None, stream_menu: None, closed_sides: Default::default(), sides_listed: Default::default(), color_target: theme::Target::Sidebar, hex_input: None, theme_mode: String::new(), root_focus: None, plan: false, open_in_menu: false, open_in: thread::OpenIn::Folder, search_open: false, indent: false, usage: Default::default(), settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, familiar: None, fam_views: Vec::new(), fam_live: Vec::new(), fam_watch: Vec::new(), fam_driving: Default::default(), fam_error: None, fam_composer: None, fam_fixture: false, inbox: Vec::new(), inbox_open: false, update: Default::default(), update_open: false, cli_rows: Vec::new(), inbox_toast: None, fam_from: (0.0, 0.0), fam_to: None, fam_since: None, fam_hl: 0, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default(), err_open: Default::default(), side_root: None, sides: Vec::new(), side_win: false, side_input: None, side_ctx: Default::default() }
+        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, support_data: Default::default(), files_open: Default::default(), painting: false, glass: Default::default(), plane: Default::default(), ask_hover: false, ask_open: None, ask_answered: Default::default(), fam_questions: Default::default(), frost: backdrop::FrostLevel::Heavy, stream_bg: None, bg_wipe: None, stream_menu: None, closed_sides: Default::default(), sides_listed: Default::default(), color_target: theme::Target::Sidebar, hex_input: None, theme_mode: String::new(), root_focus: None, plan: false, open_in_menu: false, open_in: thread::OpenIn::Folder, search_open: false, indent: false, usage: Default::default(), usage_page: false, usage_hover: false, usage_card_hover: false, settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, familiar: None, fam_views: Vec::new(), fam_live: Vec::new(), fam_watch: Vec::new(), fam_driving: Default::default(), fam_error: None, fam_composer: None, fam_fixture: false, inbox: Vec::new(), inbox_open: false, update: Default::default(), update_open: false, cli_rows: Vec::new(), inbox_toast: None, fam_from: (0.0, 0.0), fam_to: None, fam_since: None, fam_hl: 0, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default(), err_open: Default::default(), side_root: None, sides: Vec::new(), side_win: false, side_input: None, side_ctx: Default::default() }
     }
 
     /// Opens core off the main thread (the sidebar shows Loading meanwhile), then keeps the thread
@@ -1095,11 +1099,8 @@ impl Cauldron {
     /// tests' 2 MB threads overflowed once this grew inside it.
     #[inline(never)]
     fn sidebar_foot(&self, pal: &'static Palette, accent: Hsla, user: &str, initial: &str, cx: &mut Context<Self>) -> Div {
-        let fg3 = c(pal.fg3);
         let fg2 = c(pal.fg2);
         let (user, initial) = (user.to_string(), initial.to_string());
-        let left = self.usage_left();
-        let usage_line = left.first().map_or_else(|| "No data yet".to_string(), |(_, pct)| format!("{pct}% left"));
         let version: SharedString = env!("CARGO_PKG_VERSION").into();
         // The version's dot: orange once a newer build is known, red when the check failed.
         let update_dot = match &self.update {
@@ -1132,6 +1133,7 @@ impl Cauldron {
                         .hover(|d| d.bg(c(pal.hover)))
                         .aria_label(format!("{user}, your subscriptions"))
                         .on_click(cx.listener(|this, _, _, cx| {
+                            this.usage_page = false;
                             this.settings = if this.settings == Some(0) { None } else { Some(0) };
                             cx.notify();
                         }))
@@ -1155,11 +1157,13 @@ impl Cauldron {
                                 .flex()
                                 .flex_col()
                                 .line_height(px(15.))
-                                .child(div().truncate().text_size(px(12.5)).child(user.clone()))
-                                .child(div().id("usage-left").truncate().text_size(px(11.)).text_color(fg3).aria_label(usage_line.clone()).child(usage_line).test_support()),
+                                .child(div().truncate().text_size(px(12.5)).child(user.clone())),
                         )
                         .test_support(),
                 )
+                // Usage sits beside your name (Charles, 21 Nov 16:00Z): hover lists the accounts,
+                // click opens the Usage page.
+                .child(self.usage_button(pal, cx).test_support())
                 .child(
                     div()
                         .id("version")
@@ -1191,6 +1195,7 @@ impl Cauldron {
                         .test_support(),
                 )
                 .child(self.tipped("settings", icon_button("settings", "settings", "Settings", pal, self.settings.is_some()), "Settings", Side::Right, pal, cx).on_click(cx.listener(|this, _, _, cx| {
+                    this.usage_page = false;
                     this.settings = if this.settings.is_some() { None } else { Some(0) };
                     cx.notify();
                 })).test_support())
@@ -1198,6 +1203,7 @@ impl Cauldron {
 
     /// Selects a function. The sidebar indicator slides to it from wherever it is now.
     fn select_section(&mut self, i: usize, cx: &mut Context<Self>) {
+        self.usage_page = false;
         if i != self.section {
             let now = std::time::Instant::now();
             self.section_from = crate::motion::ease_between(self.section_from, self.section as f32, self.section_since, now, cauldron_chrome::motion::time::INDICATOR);
@@ -1482,6 +1488,8 @@ fn icon_button_in(id: impl Into<ElementId>, name: &str, label: &'static str, pal
 }
 
 /// The sidebar's padding (the board's `.sb`: 8 8 6 10).
+/// Room between the sidebar's top row and the apps row (Charles, 21 Nov 16:00Z: it was cramped).
+const APPS_TOP: f32 = 16.0;
 const SIDE_PL: f32 = 10.0;
 /// An agent's figure on its tab and in lists (Charles, 20 Nov): only agents and captains get one;
 /// streams do not.
@@ -1772,7 +1780,7 @@ impl Render for Cauldron {
         if let Some(sp) = s.sidebar {
             // The apps row (20 Nov): above New stream, each app its own button with its own fill and
             // border (the stream rows' look, but separate); the open one is darker. Each app swaps the list.
-            let mut fnrow = div().id("apps-tray").flex().gap(px(apps::TRAY_GAP)).mt(px(if s.bar.is_some() { 0. } else { 6. })).mb(px(8.)).aria_label("Apps");
+            let mut fnrow = div().id("apps-tray").flex().gap(px(apps::TRAY_GAP)).mt(px(if s.bar.is_some() { 0. } else { APPS_TOP })).mb(px(8.)).aria_label("Apps");
             for (i, (name, label)) in FUNCTIONS.iter().enumerate() {
                 let on = i == self.section;
                 let b = div()
@@ -2194,6 +2202,7 @@ impl Render for Cauldron {
         self.thread_box.set(if split { (tb.w, tb.h - 32.0) } else { (tb.w, tb.h) });
         let body = match self.settings {
             Some(page) => self.settings_page(page, pal, cx),
+            None if self.usage_page => self.usage_page_body(pal, cx),
             None if self.familiar.is_some() => self.familiar_body(pal, fam.as_ref().map_or((radius::PANEL, 1.0), |f| (f.corner, f.fade)), cx),
             None => self.card_body(pal, window, cx),
         };
@@ -2232,14 +2241,14 @@ impl Render for Cauldron {
                     .children(under.unwrap_or_default())
                     .children(plane)
                     .border_1()
-                    .border_color(if split { gpui_kit::transparent_black() } else { c(if glass { pal.line_strong } else { pal.line }) })
+                    .border_color(if split { gpui_kit::transparent_black() } else { c(pal.line_strong) })
                     .text_color(fg3)
                     .child(head.test_support())
                     .child(div().id("tools-band").w(px(body_w)).h(px(tools_band)).flex_none().test_support())
                     .child(div().w(px(body_w)).h(px(body_h)).flex_none().child(inside))
                     .test_support()
             });
-        if new_screen {
+        if new_screen && !self.usage_page {
             // ponytail: core has no stages or per-subscription usage yet (UI-PLAN decision 5), so the
             // bar is static: usage as an empty state, the stages as plain labels with none current.
             let mut stages = div().flex().gap(px(12.));
@@ -2514,7 +2523,7 @@ impl Render for Cauldron {
                 .shadow(lift(Lift::Card, pal))
                 .children(under.unwrap_or_default())
                 .border_1()
-                .border_color(c(if glass { pal.line_strong } else { pal.line }))
+                .border_color(c(pal.line_strong))
                 .child(shead.test_support())
                 .child(bodies);
             root = root.child(d.test_support());
@@ -2658,6 +2667,10 @@ impl Render for Cauldron {
             if self.inbox_open {
                 root = root.child(abs(Rect::new(b.x, b.y + metric::SBTN + 6.0, 300.0, 400.0)).child(self.inbox_popover(pal, cx).test_support()));
             }
+        }
+        // The usage ring's hover card, over the user row, touching it so the pointer can cross.
+        if let (true, Some(sp)) = (self.usage_hover || self.usage_card_hover, s.sidebar) {
+            root = root.child(div().absolute().left(px(sp.rect.x + 90.0)).bottom(px(h - (sp.rect.y + sp.rect.h) + 36.0)).child(self.usage_card(pal, cx).test_support()));
         }
         // The version button's update card, above the user row, over every pane.
         if let (true, Some(sp)) = (self.update_open, s.sidebar) {
@@ -3042,7 +3055,7 @@ mod tests {
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
             let named: [(ElementId, &str); 8] = [
-                (("fn", 4usize).into(), "Usage"),
+                (("fn", 4usize).into(), "Library"),
                 (("rb", 0usize).into(), "Highlights"),
                 (("rb", 1usize).into(), "Changes"),
                 ("rb-term".into(), "Terminal"),
@@ -3079,7 +3092,7 @@ mod tests {
         cx.update_window(handle.into(), |_, window, cx| {
             window.hover(("fn", 4usize), cx);
             window.render_frame(cx);
-            assert_eq!(window.find("tooltip").label(), Some("Usage"));
+            assert_eq!(window.find("tooltip").label(), Some("Library"));
             let (tip, btn) = (rect(window, "tooltip"), rect(window, ("fn", 4usize)));
             assert!((tip.x - (btn.right() + 8.0)).abs() < 1.5, "left-side tip sits 8px right of its button: {tip:?} {btn:?}");
         })
@@ -3408,16 +3421,18 @@ mod tests {
         .unwrap();
     }
 
-    /// With no usage in accounts.json the user row says "No data yet" and no badge is drawn; with
-    /// usage, the row says what is left of the first subscription and each one gets a badge under
-    /// the composer box, the low ones (under 20%) in the accent. The version sits beside you.
+    /// Usage lives beside your name, not in the apps row (Charles, 21 Nov 16:00Z). With no usage in
+    /// accounts.json the ring says so and no badge is drawn; with usage, the ring names the lowest
+    /// share left, hovering it lists the accounts, clicking opens the Usage page in the card, and
+    /// New stream leaves it. Each subscription still gets a badge under the composer box.
     #[gpui_kit::test]
     fn usage_badges_and_the_user_row_come_from_accounts(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let handle = open(cx, with_threads());
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
-            assert_eq!(window.find("usage-left").label(), Some("No data yet"));
+            assert_eq!(window.find("usage-button").label(), Some("Usage, no limits reported yet"));
+            assert!((0..super::FUNCTIONS.len()).all(|i| window.find(("fn", i)).label() != Some("Usage")), "not in the apps row");
             assert!(window.try_find(("usage-badge", 0usize)).is_none(), "no usage, no badge");
             assert_eq!(window.find("version").label(), Some(env!("CARGO_PKG_VERSION")));
         })
@@ -3430,11 +3445,26 @@ mod tests {
         let handle = open(cx, Cauldron { accounts_file: Some(path.clone()), ..with_threads() });
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
-            assert_eq!(window.find("usage-left").label(), Some("62% left"));
+            assert_eq!(window.find("usage-button").label(), Some("Usage, 14% left on Codex"));
+            let (u, me) = (rect(window, "usage-button"), rect(window, "user-row"));
+            assert!(u.x >= me.right() && (u.y - me.y).abs() < 8.0, "beside your name");
             assert_eq!(window.find(("usage-badge", 0usize)).label(), Some("Claude 62%"));
             assert_eq!(window.find(("usage-badge", 1usize)).label(), Some("Codex 14%"));
             let (b, nt) = (rect(window, ("usage-badge", 0usize)), rect(window, "nt-box"));
             assert!(b.y >= nt.bottom(), "under the box");
+            assert!(window.try_find("usage-card").is_none(), "no card until hovered");
+            window.hover("usage-button", cx);
+            window.render_frame(cx);
+            assert_eq!(window.find(("usage-pop-row", 0usize)).label(), Some("Claude · Claude: 62% left"));
+            assert_eq!(window.find(("usage-pop-row", 1usize)).label(), Some("Claude · Codex: 14% left"));
+            assert!(rect(window, "usage-card").bottom() <= u.y + 1.0, "the card sits on the user row");
+            window.click("usage-button", cx);
+            window.render_frame(cx);
+            assert!(window.try_find("usage-page").is_some(), "click opens the page");
+            assert!(window.try_find("stage-bar").is_none(), "the page has the card to itself");
+            window.click("new-thread", cx);
+            window.render_frame(cx);
+            assert!(window.try_find("usage-page").is_none(), "New stream leaves it");
         })
         .unwrap();
         let _ = std::fs::remove_file(path);
@@ -3472,7 +3502,7 @@ mod tests {
             let band = rect(window, "indent");
             assert_eq!((band.x, band.w), (0.0, if platform() == layout::Platform::Mac { 72.0 } else { 48.0 }), "72 on macOS, 48 on Windows");
             assert_eq!(rect(window, "main"), main, "no reflow: the card stays where it was");
-            for i in 0..6usize {
+            for i in 0..super::FUNCTIONS.len() {
                 assert!(window.try_find(("indent-fn", i)).is_some(), "app {i} in the band");
             }
             for id in ["indent-search", "indent-new", "indent-settings"] {
@@ -3670,10 +3700,10 @@ mod tests {
             assert_eq!(window.find(("settings-page", 0usize)).label().map(|l| l.starts_with("Agents")), Some(true), "your name opens Settings");
             window.click("settings", cx);
             window.render_frame(cx);
-            for (i, id) in [(0usize, Some("new-thread")), (1, Some("new-folder")), (2, None), (3, Some("new-familiar")), (4, Some("new-sub")), (5, None)] {
+            for (i, id) in [(0usize, Some("new-thread")), (1, Some("new-folder")), (2, None), (3, Some("new-familiar")), (4, None)] {
                 window.click(("fn", i), cx);
                 window.render_frame(cx);
-                for other in ["new-thread", "new-folder", "new-familiar", "new-sub"] {
+                for other in ["new-thread", "new-folder", "new-familiar"] {
                     assert_eq!(window.try_find(other).is_some(), Some(other) == id, "app {i}: {other}");
                 }
             }

@@ -91,8 +91,11 @@ pub struct Shell {
 
 /// Measured from the board.
 pub mod metric {
-    /// The window margin around the cards and the gap between them.
+    /// The gap between cards.
     pub const GAP: f32 = 4.0;
+    /// The frame's band round the cards at the window's edges, wide enough to read as a border
+    /// (Charles, 21 Nov 16:00Z: "bring the border back"); the sidebar stays flat on it.
+    pub const FRAME: f32 = 6.0;
     pub const SIDEBAR_W: f32 = 236.0;
     /// The support card's default width; it stays within [`SUPPORT_MIN_W`] and half the window.
     pub const SUPPORT_W: f32 = 470.0;
@@ -140,16 +143,22 @@ pub fn support_width(w: f32) -> f32 {
 
 /// The window's geometry for exactly the state asked for.
 pub fn layout(w: f32, h: f32, state: ShellState, platform: Platform) -> Shell {
+    layout_framed(w, h, state, platform, metric::FRAME)
+}
+
+/// [`layout`] with the frame's band at the window edges `frame` wide. The Tight tiles board drew
+/// it 4px ([`metric::GAP`]); the golden test measures against that.
+pub fn layout_framed(w: f32, h: f32, state: ShellState, platform: Platform, frame: f32) -> Shell {
     use metric::*;
     // Charles, 21 Nov 04:25Z (board round 5, H1-H3): no strip. The card runs the full window height
     // beside the sidebar, and every frame element sits in its top row, the window buttons included.
     let strip = false;
     let windows = platform != Platform::Mac;
-    let (top, bottom, right) = (GAP, h - GAP, w - GAP);
+    let (top, bottom, right) = (frame, h - frame, w - frame);
     let full_h = bottom - top;
 
     let sidebar = state.sidebar_open.then(|| Rect::new(0.0, top, SIDEBAR_W, full_h));
-    let left = sidebar.map_or(GAP, |s| s.right() + GAP);
+    let left = sidebar.map_or(frame, |s| s.right() + GAP);
     let support = state.support_open.then(|| {
         let sw = support_width(w);
         Rect::new(right - sw, top, sw, full_h)
@@ -158,7 +167,7 @@ pub fn layout(w: f32, h: f32, state: ShellState, platform: Platform) -> Shell {
     // Windows strip: the stream card's own tab rises into the strip (Charles, 20 Nov: "we don't
     // need that gap at the top"), so the stream column starts at the window's top gap; the sidebar
     // and the support card stay under the strip, which keeps its buttons over them.
-    let col_top = if strip { GAP } else { top };
+    let col_top = if strip { frame } else { top };
     let col = Rect::new(left, col_top, col_right - left, bottom - col_top);
     let (main, dock) = if state.dock_open {
         let d = Rect::new(col.x, bottom - DOCK_H, col.w, DOCK_H);

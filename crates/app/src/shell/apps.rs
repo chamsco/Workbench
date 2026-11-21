@@ -1,7 +1,7 @@
 //! The apps tray (19 Nov, after Charles's Ghostex reference and the context sidebar approved on
 //! 13 Nov): each app swaps the sidebar's list. Streams is the stream list; Folders groups streams
-//! by the folder they run in (a click filters Streams to it); Agents lists the familiars; Usage
-//! lists what each subscription has left. Automations and Library have no source yet and say so.
+//! by the folder they run in (a click filters Streams to it); Agents lists the familiars. Usage left
+//! the row on 21 Nov for the sidebar foot (usage.rs). Automations and Library have no source yet and say so.
 
 use super::*;
 
@@ -103,18 +103,6 @@ impl Cauldron {
                 }
                 list
             }
-            "Usage" => {
-                let left = self.usage_left();
-                list = list.child(head("usage-head", "Left on each subscription".into()));
-                if left.is_empty() {
-                    return list.child(note("usage-empty", "No usage data yet", "It appears once a coding CLI reports its limits."));
-                }
-                for (i, (name, pct)) in left.into_iter().enumerate() {
-                    let dot = if pct < 20 { c(pal.warn) } else { c(pal.ok) };
-                    list = list.child(row(("usage-row", i), Some(dot), name, format!("{pct}%")).test_support());
-                }
-                list
-            }
             "Automations" => list.child(note("automations-later", "Automations arrive in a later build", "Scheduled and repeating streams will be listed here.")),
             _ => list.child(note("library-later", "The Library arrives in a later build", "Notes and files your agents keep will be listed here.")),
         }
@@ -128,7 +116,6 @@ impl Cauldron {
             Some("Streams") | None => Some(("new-thread", "square-pen", NEW_TAB)),
             Some("Folders") => Some(("new-folder", "folder-plus", "Open a folder")),
             Some("Agents") => Some(("new-familiar", "sparkles", NEW_FAMILIAR)),
-            Some("Usage") => Some(("new-sub", "plus", "Add a subscription")),
             _ => None,
         }
     }
@@ -142,10 +129,6 @@ impl Cauldron {
                 self.pick_folder(window, cx);
             }
             Some("Agents") => self.new_familiar(window, cx),
-            Some("Usage") => {
-                self.settings = Some(0);
-                cx.notify();
-            }
             _ => {
                 self.settings = None;
                 self.new_thread(window, cx);

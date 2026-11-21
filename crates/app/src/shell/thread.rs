@@ -261,6 +261,7 @@ fn fill_steps(chats: &Chats, t: Option<&Thread>, map: &mut std::collections::Has
 impl Cauldron {
     /// Opens a thread in the main card. Reading it through core marks it read.
     pub(super) fn open_thread(&mut self, id: String) {
+        self.usage_page = false;
         let Some((_, chats)) = &self.core else { return };
         self.thread = chats.thread(&id);
         self.steps.clear();

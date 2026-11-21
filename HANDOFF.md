@@ -1,5 +1,16 @@
 # Handoff: Backspace (ohMyHarness → Workbench), v0
 
+**Session, 21 Nov 2026: usage beside your name, the frame border back, room above the apps.**
+
+- **Usage left the apps row.** It is a ring and percentage in the user row (`shell/usage.rs`),
+  showing the lowest share left across subscriptions; amber under 20%. Hovering lists accounts
+  connected in Cauldron (accounts.json) and logins detected on this machine (`start.providers`),
+  each with what it has left; clicking opens the Usage page in the card. New stream, a stream, a
+  familiar, an app or Settings leaves it. Board: `design/usage-foot/board.html` (direction A).
+- **Frame border.** `metric::FRAME` = 6px at the window edges (was the 4px tile gap); the card's
+  hairline uses `line_strong`. The golden test still measures the board's 4px via `layout_framed`.
+- **Apps row** sits 16px under the sidebar's top row (`APPS_TOP`, was 6).
+
 **Session, 20 Nov 2026: Windows fixes from Charles's v0.2.0 test.**
 
 - **No more terminal windows.** Every child process the app starts (git, the coding CLIs, shells,
