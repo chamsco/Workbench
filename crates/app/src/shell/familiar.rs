@@ -834,6 +834,7 @@ impl Cauldron {
                 .text_size(px(12.))
                 .cursor_pointer()
                 .aria_label(text)
+                .shadow(super::lift(super::Lift::Button, pal))
                 .when_live(primary, |d| d.bg(c(pal.accent)).text_color(c(pal.on_accent)))
                 .when_live(!primary, |d| d.border_1().border_color(c(pal.line)).text_color(fg2).hover(|d| d.bg(ca(pal.fg, 0.05))))
                 .child(text)

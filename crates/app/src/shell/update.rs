@@ -104,6 +104,7 @@ impl Cauldron {
                 .rounded(px(radius::CONTROL))
                 .cursor_pointer()
                 .text_size(px(12.))
+                .shadow(super::lift(super::Lift::Button, pal))
                 .when_live(primary, |d| d.bg(c(pal.accent)).text_color(c(pal.on_accent)))
                 .when_live(!primary, |d| d.border_1().border_color(c(pal.line_strong)).text_color(fg).hover(|d| d.bg(c(pal.hover))))
                 .aria_label(label)

@@ -277,6 +277,7 @@ impl Cauldron {
         self.open_since = Some(std::time::Instant::now());
         self.send_error = None;
         self.threads = Threads::Ready(chats.list());
+        self.sync_sides();
     }
 
     /// Re-reads the list and the open thread from core.
@@ -289,6 +290,7 @@ impl Cauldron {
                 self.term_blocks = super::terminal::blocks(chats, self.thread.as_ref());
             }
         }
+        self.sync_sides();
     }
 
     /// Keeps the view current: core pokes `changes` whenever a thread changes.
@@ -438,6 +440,7 @@ impl Cauldron {
                 .rounded(px(radius::INNER))
                 .text_size(px(12.5))
                 .cursor_pointer()
+                .shadow(super::lift(super::Lift::Button, pal))
                 .aria_label(label)
                 .when(primary, |d| d.bg(c(pal.accent)).text_color(c(pal.on_accent)).hover(|d| d.bg(c(pal.accent_hover))))
                 .when(!primary, |d| d.border_1().border_color(c(pal.line_strong)).text_color(fg).hover(|d| d.bg(c(pal.hover))))
@@ -630,6 +633,7 @@ impl Cauldron {
         let ((now_name, now_size), (was_name, was_size)) = if busy { (("square", 13.), ("arrow-up", 16.)) } else { (("arrow-up", 16.), ("square", 13.)) };
         let mut action = div()
             .id(if busy { "stop" } else { "send" })
+            .shadow(super::lift(super::Lift::Button, pal))
             .relative()
             .aria_label(if busy { "Stop" } else { "Send" })
             .child(layer(now_name, now_size, k));
@@ -704,6 +708,7 @@ impl Cauldron {
             .border_1()
             .border_color(c(pal.line))
             .bg(super::backdrop::surface(self.painting, pal.raised, super::backdrop::GLASS_COMPOSER))
+            .shadow(super::lift(super::Lift::Box, pal))
             .aria_label("Message the coordinator");
         composer = if tiny {
             // A very short pane: one row, the editor and Send, no chips.
@@ -723,6 +728,26 @@ impl Cauldron {
                     .child(action),
             )
         };
+        // The model picker (Charles, 21 Nov: "a top rail on top ... on the chat box"): a tray as
+        // wide as the box, rising from its top edge.
+        if self.start.route_menu == Some(super::subs::PickFor::Thread(t.id.clone())) {
+            let tray = self.model_picker(super::subs::PickFor::Thread(t.id.clone()), Some(&t.route), pal, cx);
+            composer = composer.relative().child(
+                deferred(
+                    div()
+                        .id("pick-tray")
+                        .absolute()
+                        .left_0()
+                        .right_0()
+                        .bottom(relative(1.))
+                        .pb(px(6.))
+                        .child(tray)
+                        .test_support()
+                        .with_animation("pick-rise", super::motion::anim(200.), |d, t| d.opacity(t).pb(px(6.0 - 6.0 * (1.0 - t)))),
+                )
+                .with_priority(3),
+            );
+        }
         if let Some(e) = &self.send_error {
             composer = composer.child(div().id("send-error").text_size(px(12.)).text_color(c(pal.bad)).aria_label(e.clone()).child(e.clone()).test_support());
         }

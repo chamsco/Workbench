@@ -85,6 +85,8 @@ pub struct Prefs {
     pub planner: Option<String>,
     /// What coding CLIs may do without asking: "edits", "auto" or "full".
     pub cli_permission: String,
+    /// Favourite models in the model picker, as "cli:model" ("opencode:opencode/qwen3.6-plus").
+    pub fav_models: Vec<String>,
     /// Effort for coding CLIs: low, medium, high, xhigh, max. None: theirs.
     pub cli_effort: Option<String>,
     /// The window's backdrop: "harbour", "dawn", "night", "open-sea",
@@ -102,6 +104,12 @@ pub struct Prefs {
     /// Cauldron: how the New stream box shows its model picker. "stacked" is a card tucked behind
     /// the box that drops out below it; None (or anything else) unfolds the tray under the box.
     pub model_tray: Option<String>,
+    /// Cauldron, plain background: the dither planes ("off" hides them; on by default).
+    pub dither: Option<String>,
+    /// The working stream's plane: "ripple", else the valley faded in at the bottom.
+    pub dither_work: Option<String>,
+    /// "moving" plays the planes' loop; else they are still.
+    pub dither_motion: Option<String>,
     /// How Backspace tells you something needs you: "system" (the OS's
     /// notifications), "app" (inside the app only) or "off".
     pub notify: String,
@@ -162,6 +170,7 @@ impl Default for Prefs {
             wb_view: "canvases".into(),
             planner: None,
             cli_permission: "edits".into(),
+            fav_models: Vec::new(),
             cli_effort: None,
             backdrop: "harbour".into(),
             stream_bg: None,
@@ -169,6 +178,9 @@ impl Default for Prefs {
             frost: None,
             window_style: None,
             model_tray: None,
+            dither: None,
+            dither_work: None,
+            dither_motion: None,
             notify: "system".into(),
             companion: CompanionCfg::default(),
             uses: vec!["chat".into(), "code".into()],

@@ -47,6 +47,21 @@ pub(crate) struct Start {
     pub(crate) providers_loading: bool,
     /// The open route menu, and whose route it sets.
     pub(crate) route_menu: Option<super::subs::PickFor>,
+    /// The model picker (board Picker A): the CLI its rail shows, the model its detail panel
+    /// describes ("cli:model"), its search, and whether the list is grouped by provider.
+    pub(crate) pick_cli: Option<String>,
+    pub(crate) pick_focus: Option<String>,
+    pub(crate) pick_query: String,
+    pub(crate) pick_search: Option<(Entity<InputState>, Subscription)>,
+    pub(crate) pick_flat: bool,
+    /// Picker v2 (Charles, 21 Nov 00:43Z): the list's scroll (the rail jumps to a CLI's section),
+    /// how it sorts (0 provider, 1 price, 2 name), the Reasoning and Free filters, and which
+    /// model families are dropped down to their versions ("cli:family").
+    pub(crate) pick_scroll: ScrollHandle,
+    pub(crate) pick_sort: u8,
+    pub(crate) pick_reason: bool,
+    pub(crate) pick_free: bool,
+    pub(crate) pick_open: std::collections::HashSet<String>,
 }
 
 /// The route a new thread gets: the default chat model, else Claude Code if it is installed.
@@ -347,6 +362,7 @@ impl Cauldron {
         let ready = blocked.is_none() && !input.read(cx).value().trim().is_empty();
         let start_btn = div()
             .id("start")
+            .shadow(super::lift(super::Lift::Button, pal))
             .size(px(28.))
             .flex_none()
             .flex()
@@ -364,6 +380,7 @@ impl Cauldron {
         let has_text = !input.read(cx).value().trim().is_empty();
         let voice = div()
             .id("nt-voice")
+            .shadow(super::lift(super::Lift::Button, pal))
             .size(px(28.))
             .flex_none()
             .flex()
@@ -425,55 +442,6 @@ impl Cauldron {
             .pb(px(8.))
             .bg(super::backdrop::surface(self.painting, pal.raised, super::backdrop::GLASS_COMPOSER))
             .rounded(px(radius::SHELL - 4.));
-        // Attachments (Charles, 21 Nov, option 1): a row of chips above the text, each its kind's
-        // icon, its name and a remove x. One line; more than fit scroll sideways.
-        if !self.start.files.is_empty() {
-            let mut row = div().id("nt-files").flex().gap(px(6.)).pt(px(6.)).pb(px(2.)).overflow_x_scroll();
-            for (i, p) in self.start.files.iter().enumerate() {
-                let name = p.file_name().map_or_else(String::new, |n| n.to_string_lossy().to_string());
-                let (icon, tint) = file_kind(p, pal);
-                row = row.child(
-                    div()
-                        .id(("file", i))
-                        .flex_none()
-                        .h(px(28.))
-                        .flex()
-                        .items_center()
-                        .gap(px(6.))
-                        .pl(px(8.))
-                        .pr(px(4.))
-                        .rounded(px(radius::INNER))
-                        .border_1()
-                        .border_color(c(pal.line_strong))
-                        .bg(c(pal.inset))
-                        .text_size(px(12.5))
-                        .text_color(c(pal.fg))
-                        .aria_label(name.clone())
-                        .child(glyph(icon, 14., tint))
-                        .child(div().max_w(px(180.)).truncate().child(name))
-                        .child(
-                            div()
-                                .id(("file-x", i))
-                                .size(px(20.))
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .rounded(px(radius::TAG))
-                                .cursor_pointer()
-                                .hover(|d| d.bg(c(pal.hover)))
-                                .aria_label("Remove")
-                                .child(glyph("x", 12., fg3))
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.start.files.remove(i);
-                                    cx.notify();
-                                }))
-                                .test_support(),
-                        )
-                        .test_support(),
-                );
-            }
-            nt_box = nt_box.child(row.test_support());
-        }
         nt_box = nt_box.child(div().id("nt-input").mx(px(-10.)).text_size(px(13.)).text_color(c(pal.fg)).child(Textarea::new(&input).appearance(false)).test_support());
         let nt_box = nt_box.child(div().mt_auto().child(tools)).test_support();
 
@@ -559,7 +527,7 @@ impl Cauldron {
             .test_support();
         let tray_open = self.start.route_menu == Some(super::subs::PickFor::New);
         let stacked = super::subs::tray_stacked();
-        let glass = |d: gpui::Stateful<Div>| d.border_1().border_color(if focused { body_line(pal, true) } else if self.plan { c(pal.accent) } else { gpui::transparent_black() }).bg(super::backdrop::surface(self.painting, pal.raised, super::backdrop::GLASS_COMPOSER)).rounded(px(radius::SHELL)).child(div().absolute().left_0().top_0().size_full().rounded(px(radius::SHELL)).bg(gpui::black().opacity(0.18)));
+        let glass = |d: gpui::Stateful<Div>| d.shadow(super::lift(super::Lift::Box, pal)).border_1().border_color(if focused { body_line(pal, true) } else if self.plan { c(pal.accent) } else { gpui::transparent_black() }).bg(super::backdrop::surface(self.painting, pal.raised, super::backdrop::GLASS_COMPOSER)).rounded(px(radius::SHELL)).child(div().absolute().left_0().top_0().size_full().rounded(px(radius::SHELL)).bg(gpui::black().opacity(0.18)));
         let nt_stack = div().id("nt-stack").flex().relative().on_hover(cx.listener(|this, h: &bool, _, cx| {
             if this.start.tray_hover != *h {
                 this.start.tray_hover = *h;
@@ -573,7 +541,7 @@ impl Cauldron {
                 cx.notify();
             }))
         });
-        let grow = if stacked { super::subs::TRAY_OPEN_H + super::subs::STACK_GAP } else { super::subs::TRAY_OPEN_H };
+        let grow = if stacked { super::subs::STACK_OPEN_H + super::subs::STACK_GAP } else { super::subs::TRAY_OPEN_H };
         let nt_stack = if stacked {
             // Stacked (Charles, 20 Nov, board round 2): the chips ride a solid card tucked behind the
             // box; opening drops that card out below the box, a
@@ -584,12 +552,16 @@ impl Cauldron {
             let card = |d: gpui::Stateful<Div>| d.rounded(px(radius::SHELL)).border_1().border_color(line).bg(c(pal.raised));
             // The card is laid out from the stack's bottom, behind the box, so the box
             // (drawn last) covers its tucked top; a spacer under the box makes its room.
-            let (gap, tray_h) = (super::subs::STACK_GAP, super::subs::TRAY_OPEN_H);
+            let (gap, tray_h) = (super::subs::STACK_GAP, super::subs::STACK_OPEN_H);
+            // Open or folded, the card is as wide as when it peeks; open it holds one column per
+            // CLI (board round 5, M2, Charles 21 Nov 04:24Z).
             let mut mid = card(div().id("nt-card").absolute().left(px(14.)).right(px(14.)).bottom_0().flex().flex_col().overflow_hidden())
                 .shadow(vec![gpui::BoxShadow { color: gpui::black().opacity(0.45), offset: gpui::point(px(0.), px(10.)), blur_radius: px(28.), spread_radius: px(0.), inset: false }])
                 .child(bar);
             if tray_open {
-                mid = mid.child(self.route_tray(pal, cx));
+                // Picker v2 in the dropped card, under its chips.
+                let route = self.start.route.clone();
+                mid = mid.child(div().flex_1().min_h_0().border_t_1().border_color(c(pal.line)).child(self.picker_columns(super::subs::PickFor::New, route.as_ref(), pal, cx)));
             }
             let mid = mid.test_support();
             let spacer = div().id("nt-card-room").flex_none();
@@ -602,15 +574,17 @@ impl Cauldron {
             } else {
                 (mid.pt(px(tuck)).h(px(40.0 + tuck)).into_any_element(), spacer.h(px(40.)).into_any_element())
             };
-            let front = glass(div().id("nt-front").relative().flex().flex_col().p(px(3.))).child(nt_box).test_support();
+            let front = glass(div().id("nt-front").relative().flex().flex_col().p(px(3.))).when_some(self.files_tray(pal, cx), |d, t| d.child(t)).child(nt_box).test_support();
             nt_stack.flex_col().child(mid).child(front).child(spacer)
         } else {
-            glass(nt_stack.flex_col().p(px(3.))).child(nt_box).child(bar).when_live(tray_open, |d| d.child(self.route_tray(pal, cx)))
+            glass(nt_stack.flex_col().p(px(3.))).when_some(self.files_tray(pal, cx), |d, t| d.child(t)).child(nt_box).child(bar).when_live(tray_open, |d| d.child(self.route_tray(pal, cx)))
         }
         .test_support();
         // The picker opens downward: the stack gives back its growth as a negative margin, so the
         // centred box above stays exactly where it was, and the lines under it hide meanwhile.
-        let nt_stack = if tray_open {
+        // The stacked card is tall (picker v2): the box rides up as it drops, so the whole stack
+        // stays in the window; the unfolding tray keeps the box where it was.
+        let nt_stack = if tray_open && !stacked {
             nt_stack.with_animation("nt-stack-drop", super::motion::anim(220.), move |d, t| d.mb(px(-grow * t))).into_any_element()
         } else {
             nt_stack.into_any_element()
@@ -1004,8 +978,125 @@ fn ctx_now(plan: bool) -> backspace_core::chat::Ctx {
     super::thread::ctx(plan)
 }
 
+/// The attach ring (Charles, 21 Nov: "a circle getting filled up and green, and then it goes
+/// away"): an arc that fills over `t` in 0..0.7, turns green with a check by 0.85, then fades.
+/// Red instead when the file can no longer be read.
+pub(super) fn attach_ring(t: f32, ok: bool, pal: &Palette) -> String {
+    let hex = |r: super::tokens::Rgb| format!("#{:02x}{:02x}{:02x}", r.0, r.1, r.2);
+    let (track, accent, done) = (hex(pal.line_strong.0), hex(pal.accent), if ok { hex(pal.ok) } else { hex(pal.bad) });
+    let fill = (t / 0.7).clamp(0.0, 1.0);
+    let circ = 2.0 * std::f32::consts::PI * 6.0;
+    let (col, mark) = if fill < 1.0 {
+        (accent, String::new())
+    } else if ok {
+        (done.clone(), format!(r#"<path d="M5 8.2l2 2 4-4.2" fill="none" stroke="{done}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>"#))
+    } else {
+        (done.clone(), format!(r#"<path d="M6 6l4 4M10 6l-4 4" fill="none" stroke="{done}" stroke-width="1.8" stroke-linecap="round"/>"#))
+    };
+    let fade = if t > 0.85 { ((1.0 - t) / 0.15).clamp(0.0, 1.0) } else { 1.0 };
+    format!(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" opacity="{fade:.2}"><circle cx="8" cy="8" r="6" fill="none" stroke="{track}" stroke-width="2"/><circle cx="8" cy="8" r="6" fill="none" stroke="{col}" stroke-width="2" stroke-linecap="round" stroke-dasharray="{:.2} {circ:.2}" transform="rotate(-90 8 8)"/>{mark}</svg>"#,
+        circ * fill
+    )
+}
+
+impl Cauldron {
+    /// Attachments, option 1 (Charles, 21 Nov): a tray of chips on top of the box, inside its
+    /// frame. A new chip shows the attach ring in place of its icon, then the icon.
+    #[inline(never)]
+    pub(super) fn files_tray(&self, pal: &'static Palette, cx: &mut Context<Self>) -> Option<AnyElement> {
+        if self.start.files.is_empty() {
+            return None;
+        }
+        let fg3 = c(pal.fg3);
+        let mut row = div().id("nt-files").flex().gap(px(6.)).px(px(4.)).pt(px(3.)).pb(px(6.)).overflow_x_scroll();
+        for (i, p) in self.start.files.iter().enumerate() {
+            let name = p.file_name().map_or_else(String::new, |n| n.to_string_lossy().to_string());
+            let (icon, tint) = file_kind(p, pal);
+            let ok = p.exists();
+            // Keyed by the path, so a new attachment animates and the rest stay settled.
+            let key = {
+                use std::hash::{Hash, Hasher};
+                let mut h = std::collections::hash_map::DefaultHasher::new();
+                p.hash(&mut h);
+                h.finish() as usize
+            };
+            let slot = div().id(("file-ring", key)).size(px(16.)).flex_none().flex().items_center().justify_center().with_animation(("file-ring-a", key), super::motion::anim(1100.), move |d, t| {
+                if t < 1.0 {
+                    d.child(img(Arc::new(Image::from_bytes(ImageFormat::Svg, attach_ring(t, ok, pal).into_bytes()))).size(px(16.)))
+                } else if ok {
+                    d.child(glyph(icon, 14., tint))
+                } else {
+                    d.child(glyph("circle-alert", 14., c(pal.bad)))
+                }
+            });
+            row = row.child(
+                div()
+                    .id(("file", i))
+                    .flex_none()
+                    .h(px(30.))
+                    .flex()
+                    .items_center()
+                    .gap(px(7.))
+                    .pl(px(9.))
+                    .pr(px(4.))
+                    .rounded(px(radius::INNER + 2.))
+                    .bg(c(pal.raised))
+                    .border_1()
+                    .border_color(c(pal.line))
+                    .shadow(vec![drop(tokens::shadow::TIP)])
+                    .text_size(px(12.5))
+                    .text_color(c(pal.fg))
+                    .aria_label(name.clone())
+                    .when(!ok, |d| d.aria_description("Can't read this file"))
+                    .child(slot)
+                    .child(div().max_w(px(180.)).truncate().child(name))
+                    .child(
+                        div()
+                            .id(("file-x", i))
+                            .size(px(20.))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .rounded(px(radius::TAG))
+                            .cursor_pointer()
+                            .hover(|d| d.bg(c(pal.hover)))
+                            .aria_label("Remove")
+                            .child(glyph("x", 12., fg3))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.start.files.remove(i);
+                                cx.notify();
+                            }))
+                            .test_support(),
+                    )
+                    .test_support(),
+            );
+        }
+        Some(row.test_support().into_any_element())
+    }
+}
+
 #[cfg(test)]
 mod tests {
+
+    /// The attach ring fills in the accent, turns green with a check, then fades; red with an x
+    /// when the file is gone. `CAULDRON_RING_DUMP=<dir>` writes the frames as SVG for the PR.
+    #[::core::prelude::v1::test]
+    fn the_attach_ring_fills_turns_green_and_fades() {
+        let pal = &cauldron_chrome::tokens::DARK;
+        let hex = |r: cauldron_chrome::tokens::Rgb| format!("#{:02x}{:02x}{:02x}", r.0, r.1, r.2);
+        let half = super::attach_ring(0.35, true, pal);
+        assert!(half.contains(&hex(pal.accent)) && !half.contains("M5 8.2"), "filling in the accent: {half}");
+        let done = super::attach_ring(0.8, true, pal);
+        assert!(done.contains(&hex(pal.ok)) && done.contains("M5 8.2"), "green with a check");
+        assert!(super::attach_ring(0.99, true, pal).contains("opacity=\"0.07\""), "fading out");
+        assert!(super::attach_ring(0.8, false, pal).contains(&hex(pal.bad)), "red when unreadable");
+        if let Some(dir) = std::env::var_os("CAULDRON_RING_DUMP") {
+            for (k, t) in [0.0, 0.2, 0.45, 0.7, 0.8, 0.95].into_iter().enumerate() {
+                std::fs::write(std::path::Path::new(&dir).join(format!("ring-{k}.svg")), super::attach_ring(t, true, pal)).unwrap();
+            }
+        }
+    }
     use super::super::thread::tests::open;
     use super::super::Cauldron;
     use super::body_line;
@@ -1363,7 +1454,11 @@ mod tests {
         use backspace_core::accounts::{CliStatus, LoginStatus};
         use backspace_core::harnesses::Auth;
         let _prefs = super::super::thread::tests::prefs_guard();
+        // After `open`, which points the prefs at the test file.
         let (handle, _chats) = open(cx);
+        let mut p = Prefs::load();
+        p.model_tray = Some("unfold".into());
+        p.save();
         let cli = |provider: &str, name: &str, auth: Auth| CliStatus {
             provider: provider.into(),
             name: name.into(),
@@ -1373,6 +1468,7 @@ mod tests {
             logins: vec![LoginStatus { id: None, name: "This machine".into(), signed_in: auth, detail: None }],
             active: 0,
             models: Vec::new(),
+            model_info: Vec::new(),
         };
         handle
             .update(cx, |c, _, _| {
@@ -1418,7 +1514,7 @@ mod tests {
 
     /// The stacked picker (Settings > Appearance > Model picker): folded, its card is tucked
     /// behind the box with only the chips showing; open, it drops below the box a small gap apart
-    /// and holds the whole picker. The box stays put either way.
+    /// and holds picker v2; the box rides up so the whole stack stays in the window.
     #[gpui_kit::test]
     fn the_stacked_picker_drops_out_from_behind_the_box(cx: &mut TestAppContext) {
         let _prefs = super::super::thread::tests::prefs_guard();
@@ -1437,14 +1533,83 @@ mod tests {
             assert!(window.try_find("nt-rim").is_none(), "two cards, no third (Charles, 20 Nov)");
             window.click("nt-model", cx);
             window.render_frame(cx);
-            assert_eq!(rect(window, "nt-front"), front, "the box never moves");
+            let moved = rect(window, "nt-front");
+            assert!(moved.1 < front.1 && moved.0 == front.0, "the box rides up: {moved:?} from {front:?}");
             let card = rect(window, "nt-card");
-            assert!((card.1 - (front.1 + front.3 + super::super::subs::STACK_GAP)).abs() <= 1.0, "dropped out a small gap below: {card:?}");
-            assert!(window.try_find("route-tray").is_some() && window.try_find("tray-effort").is_some());
+            assert!((card.1 - (moved.1 + moved.3 + super::super::subs::STACK_GAP)).abs() <= 1.0, "dropped out a small gap below: {card:?}");
+            let screen = rect(window, "new-thread-screen");
+            assert!(card.1 + card.3 <= screen.1 + screen.3, "the whole stack stays in the window: {card:?} {screen:?}");
+            for id in ["pick-cols", "route-manage"] {
+                assert!(window.try_find(id).is_some(), "{id}");
+            }
+            assert!(window.try_find(("pick-trust", 0usize)).is_some(), "Access under the list");
+            assert!(window.try_find("pick-detail").is_none(), "no detail panel in the narrow box");
+            // Picker A: the dropped card is 420 wide, flush with the box's right edge less its inset.
+            assert!(card.0 > moved.0 && card.0 + card.2 < moved.0 + moved.2, "as wide as when folded, inside the box: {card:?} {moved:?}");
         })
         .unwrap();
         let mut p = Prefs::load();
         p.model_tray = None;
         p.save();
+    }
+
+    /// Picker v2 in a stream: a tray on top of the chat box with the star and CLI rail, a family
+    /// drops down to its versions, and picking a version sets the stream's model.
+    #[gpui_kit::test]
+    fn the_stream_picker_rides_on_the_chat_box_and_families_drop_down(cx: &mut TestAppContext) {
+        use backspace_core::accounts::{CliStatus, LoginStatus};
+        use backspace_core::harnesses::{Auth, ModelInfo};
+        let _prefs = super::super::thread::tests::prefs_guard();
+        let (handle, chats) = open(cx);
+        let route = Route { kind: RouteKind::Cli, provider: "opencode".into(), model: None };
+        let id = chats.create(route).id;
+        let q = |id: &str, n: &str| ModelInfo { id: id.into(), name: Some(n.into()), family: Some("qwen".into()), input: Some(0.0), output: Some(0.0), ..Default::default() };
+        let info = vec![q("opencode/qwen3.6-plus", "Qwen 3.6 Plus"), q("opencode/qwen3.5", "Qwen 3.5")];
+        handle
+            .update(cx, |c, _, _| {
+                c.start.providers = vec![CliStatus {
+                    provider: "opencode".into(),
+                    name: "OpenCode".into(),
+                    installed: true,
+                    version: None,
+                    install: String::new(),
+                    logins: vec![LoginStatus { id: None, name: "This machine".into(), signed_in: Auth::Authenticated, detail: None }],
+                    active: 0,
+                    models: info.iter().map(|m| m.id.clone()).collect(),
+                    model_info: info.clone(),
+                }];
+                c.start.providers_loading = true;
+                c.open_thread(id.clone());
+            })
+            .unwrap();
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            window.click("route", cx);
+            window.render_frame(cx);
+            let (tray, boxr) = (rect(window, "pick-tray"), rect(window, "composer"));
+            // Board round 4, Picker B (Charles, 21 Nov 03:54Z): as wide as the chat box, and short.
+            assert!((tray.0 - boxr.0).abs() <= 2.0 && (tray.2 - boxr.2).abs() <= 2.0, "as wide as the chat box: {tray:?} {boxr:?}");
+            assert!(tray.3 <= super::super::picker::TRAY_B_H + 8.0, "short: {tray:?}");
+            assert!(tray.1 + tray.3 <= boxr.1 + 1.0, "on top of it");
+            assert!(window.try_find(("pick-rail-fav", 0usize)).is_some(), "the star heads the rail");
+            assert!(window.try_find(("route-model", 1usize)).is_none(), "the Qwen family is folded");
+        })
+        .unwrap();
+        // The short tray shows a few rows: bring the family up first.
+        handle.update(cx, |c, _, _| c.start.pick_scroll.scroll_to_top_of_item(2)).unwrap();
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            window.click(("pick-family", 2usize), cx);
+            window.render_frame(cx);
+        })
+        .unwrap();
+        handle.update(cx, |c, _, _| c.start.pick_scroll.scroll_to_top_of_item(4)).unwrap();
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            window.click(("route-model", 2usize), cx);
+            window.render_frame(cx);
+        })
+        .unwrap();
+        assert_eq!(chats.thread(&id).unwrap().route.model.as_deref(), Some("opencode/qwen3.5"), "a version picks the stream's model");
     }
 }

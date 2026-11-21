@@ -231,14 +231,59 @@ pub fn which(bin: &str) -> Option<PathBuf> {
     None
 }
 
-/// The models a CLI says it can run, for the model picker: OpenCode lists every configured
-/// provider's models (`opencode models`, "provider/model" per line). Empty for CLIs whose list
-/// is not machine-readable; their picker offers documented aliases only (app `subs::models`).
-pub fn list_models(id: &str, bin: &Path, env: &[(String, String)]) -> Vec<String> {
+/// One model a CLI can run, with what the CLI says about it. Every fact is optional: only
+/// OpenCode's verbose listing carries them, and the picker leaves a blank where it says nothing.
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ModelInfo {
+    /// What the CLI takes after `-m`: "provider/model" for OpenCode.
+    pub id: String,
+    /// Its display name, when the CLI gives one.
+    pub name: Option<String>,
+    /// The model family it is a version of ("qwen", "claude-sonnet"), when the CLI says.
+    pub family: Option<String>,
+    /// Context window in tokens.
+    pub context: Option<u64>,
+    /// Dollars per million input and output tokens.
+    pub input: Option<f64>,
+    pub output: Option<f64>,
+    /// Whether it thinks before answering.
+    pub reasoning: bool,
+    /// Reasoning levels it accepts (OpenCode "variants": low, medium, high...).
+    pub variants: Vec<String>,
+}
+
+impl ModelInfo {
+    /// The upstream provider: the part before the first "/", or "" when there is none.
+    pub fn upstream(&self) -> &str {
+        self.id.split_once('/').map_or("", |(p, _)| p)
+    }
+    /// Both prices known and zero.
+    pub fn free(&self) -> bool {
+        self.input == Some(0.0) && self.output == Some(0.0)
+    }
+}
+
+/// The models a CLI says it can run, for the model picker. OpenCode lists every configured
+/// provider's models; `models --verbose` adds each one's metadata as JSON (cost, context,
+/// reasoning variants), and the plain listing is the fallback for builds without it. Empty for
+/// CLIs whose list is not machine-readable; their picker offers documented aliases only.
+pub fn list_models(id: &str, bin: &Path, env: &[(String, String)]) -> Vec<ModelInfo> {
     match id {
-        "opencode" => run_cli_env(bin, &["models"], env).filter(|o| o.code == 0).map(|o| parse_opencode_models(&o.stdout)).unwrap_or_default(),
+        "opencode" => {
+            let ok = |args: &[&str]| run_cli_env(bin, args, env).filter(|o| o.code == 0).map(|o| o.stdout);
+            let v = ok(&["models", "--verbose"]).map(|o| parse_opencode_verbose(&o)).unwrap_or_default();
+            if v.is_empty() {
+                ok(&["models"]).map(|o| parse_opencode_models(&o)).unwrap_or_default().into_iter().map(|id| ModelInfo { id, ..Default::default() }).collect()
+            } else {
+                v
+            }
+        }
         _ => Vec::new(),
     }
+}
+
+fn opencode_id_line(l: &str) -> bool {
+    l.contains('/') && !l.contains(char::is_whitespace) && !l.starts_with('/') && !l.ends_with('/') && !l.starts_with('{')
 }
 
 /// `opencode models` output: one "provider/model" per line, anything else (banners, blank
@@ -246,9 +291,57 @@ pub fn list_models(id: &str, bin: &Path, env: &[(String, String)]) -> Vec<String
 pub fn parse_opencode_models(out: &str) -> Vec<String> {
     let mut v: Vec<String> = Vec::new();
     for l in out.lines().map(str::trim) {
-        let ok = l.contains('/') && !l.contains(char::is_whitespace) && !l.starts_with('/') && !l.ends_with('/');
-        if ok && !v.iter().any(|m| m == l) {
+        if opencode_id_line(l) && !v.iter().any(|m| m == l) {
             v.push(l.to_string());
+        }
+    }
+    v
+}
+
+/// `opencode models --verbose`: each id on its own line, then its metadata as pretty JSON that
+/// ends at a bare "}". A model whose JSON does not parse keeps its id with no facts.
+pub fn parse_opencode_verbose(out: &str) -> Vec<ModelInfo> {
+    let mut v: Vec<ModelInfo> = Vec::new();
+    let mut json = String::new();
+    let mut depth = 0i32;
+    let finish = |v: &mut Vec<ModelInfo>, json: &str| {
+        let Some(m) = v.last_mut() else { return };
+        let Ok(j) = serde_json::from_str::<serde_json::Value>(json) else { return };
+        m.name = j["name"].as_str().map(str::to_string);
+        m.family = j["family"].as_str().filter(|f| !f.is_empty()).map(str::to_string);
+        m.context = j["limit"]["context"].as_u64().filter(|n| *n > 0);
+        m.input = j["cost"]["input"].as_f64();
+        m.output = j["cost"]["output"].as_f64();
+        m.reasoning = j["capabilities"]["reasoning"].as_bool().unwrap_or(false);
+        m.variants = j["variants"].as_object().map(|o| o.keys().cloned().collect()).unwrap_or_default();
+        // JSON objects come back sorted by name; put the levels in their own order.
+        const RANK: [&str; 7] = ["none", "minimal", "low", "medium", "high", "xhigh", "max"];
+        m.variants.sort_by_key(|k| RANK.iter().position(|r| r == k).unwrap_or(RANK.len()));
+    };
+    for raw in out.lines() {
+        let l = raw.trim();
+        if depth == 0 && opencode_id_line(l) {
+            if !v.iter().any(|m| m.id == l) {
+                v.push(ModelInfo { id: l.to_string(), ..Default::default() });
+            }
+            continue;
+        }
+        if depth == 0 && !l.starts_with('{') {
+            continue;
+        }
+        json.push_str(raw);
+        json.push('\n');
+        for ch in l.chars() {
+            match ch {
+                '{' => depth += 1,
+                '}' => depth -= 1,
+                _ => {}
+            }
+        }
+        if depth <= 0 {
+            finish(&mut v, &json);
+            json.clear();
+            depth = 0;
         }
     }
     v
@@ -977,6 +1070,20 @@ mod tests {
         assert!(v[0].enabled);
         apply_toggles(&mut v, &BTreeMap::from([("claude".to_string(), false)]));
         assert!(!v[0].enabled && v[0].user_set);
+    }
+
+    #[test]
+    fn opencode_verbose_listing_keeps_price_context_and_variants() {
+        let out = "opencode/beam-free\n{\n  \"name\": \"Beam Free\",\n  \"cost\": {\n    \"input\": 0,\n    \"output\": 0\n  },\n  \"limit\": {\n    \"context\": 1048576\n  },\n  \"capabilities\": {\n    \"reasoning\": true\n  },\n  \"variants\": {\n    \"low\": {},\n    \"high\": {}\n  }\n}\nanthropic/claude-sonnet\n{\n  \"cost\": { \"input\": 3, \"output\": 15 }\n}\nlocal/broken\n{ not json\n}\n";
+        let v = parse_opencode_verbose(out);
+        assert_eq!(v.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), ["opencode/beam-free", "anthropic/claude-sonnet", "local/broken"]);
+        assert_eq!(v[0].name.as_deref(), Some("Beam Free"));
+        assert_eq!(v[0].context, Some(1_048_576));
+        assert!(v[0].free() && v[0].reasoning);
+        assert_eq!(v[0].variants, ["low", "high"]);
+        assert_eq!((v[1].input, v[1].output, v[1].free()), (Some(3.0), Some(15.0), false));
+        assert_eq!(v[1].upstream(), "anthropic");
+        assert_eq!((v[2].name.clone(), v[2].input), (None, None), "bad JSON keeps the id only");
     }
 
     #[test]

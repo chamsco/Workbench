@@ -232,6 +232,7 @@ impl Cauldron {
         d.child(
             div()
                 .id("option-pane-pick")
+                .shadow(super::lift(super::Lift::Button, pal))
                 .h(px(28.))
                 .flex()
                 .items_center()
