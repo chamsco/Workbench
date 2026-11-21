@@ -1745,7 +1745,8 @@ impl Render for Cauldron {
                     .flex()
                     .items_center()
                     .gap(px(CLOSE_GAP))
-                    .h(px(metric::TAB_H))
+                    .h(px(tabshape::PILL_H))
+                    .top(px(tabshape::PILL_DY))
                     .rounded(px(tabshape::PILL_R))
                     .when_live(on, |d| d.bg(c(pal.selected)).border_1().border_color(c(pal.line)))
                     .when_live(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
@@ -1801,7 +1802,7 @@ impl Render for Cauldron {
                     .rounded(px(radius::TAG))
                     // Inactive tabs show their close on hover, over the end of the name, so a 72px tab
                     // still has room for a few letters.
-                    .when_live(!on, |d| d.absolute().right(px(4.)).top(px((metric::TAB_H - 18.0) / 2.0)).bg(c(pal.panel)).opacity(0.).group_hover(group.clone(), |s| s.opacity(1.)))
+                    .when_live(!on, |d| d.absolute().right(px(4.)).top(px((tabshape::PILL_H - 18.0) / 2.0)).bg(c(pal.panel)).opacity(0.).group_hover(group.clone(), |s| s.opacity(1.)))
                     .hover(|d| d.bg(ca(pal.fg, 0.08)))
                     .aria_label("Close tab")
                     .child(glyph("x", 13., fg3))
@@ -1952,7 +1953,7 @@ impl Render for Cauldron {
                     .child(head_title)
                     .test_support(),
             );
-            title_el = Some(abs(Rect::new(s.tabs.x, s.tabs.y, pill_w, metric::TAB_H)).child(pill.size_full()));
+            title_el = Some(abs(Rect::new(s.tabs.x, s.main.y + tabshape::PILL_IN, pill_w, tabshape::PILL_H)).child(pill.size_full()));
         }
         let new_screen = self.open.is_none() && self.active == 0 && self.settings.is_none() && self.familiar.is_none();
         let rail_here = s.support.is_none() && self.rail_on(false);
@@ -2955,7 +2956,7 @@ mod tests {
             assert!(row.y >= head.y && row.bottom() <= head.bottom(), "in the card's header");
             for i in 0..=3usize {
                 let t = rect(window, ("tab", i));
-                assert_eq!((t.y, t.h), (row.y, 28.0), "tab {i}");
+                assert_eq!((t.y, t.h), (row.y + 2.0 + super::tabshape::PILL_DY, super::tabshape::PILL_H), "tab {i}: slim pill, centred in the card's tab");
                 assert_eq!(on(window, i), i == 0, "tab {i}: only the coordinator is open");
             }
             for i in 1..=3usize {
@@ -2964,7 +2965,7 @@ mod tests {
                 assert_eq!(rect(window, ("tab", i)).x - rect(window, ("tab", i - 1)).right(), want, "between tabs {} and {i}", i - 1);
             }
             let add = rect(window, "tab-add");
-            assert_eq!((add.y, add.h), (row.y, 28.0), "+ as tall as the tabs");
+            assert_eq!((add.y, add.h), (row.y, 28.0), "+ keeps the row's height");
             window.click(("tab", 2usize), cx);
             assert!(on(window, 2) && !on(window, 0), "a click opens the tab");
             assert_eq!(rect(window, "card").y, s.main.y, "the card stays put");

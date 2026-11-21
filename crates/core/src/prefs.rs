@@ -720,6 +720,22 @@ impl Prefs {
 
     /// Where chats, attachments and the CLI scratch folder live.
     /// `BACKSPACE_DATA` overrides it.
+    /// Where a stream works when nobody picked a folder (Charles, 21 Nov: never force a folder):
+    /// `~/Cauldron` (`%USERPROFILE%\Cauldron`), made on first use. The librarian may file the
+    /// stream into a real project later. `CAULDRON_WORKSPACE` overrides it.
+    pub fn default_workspace() -> PathBuf {
+        let dir = std::env::var_os("CAULDRON_WORKSPACE").map(PathBuf::from).unwrap_or_else(|| {
+            std::env::var_os("USERPROFILE")
+                .filter(|_| cfg!(windows))
+                .or_else(|| std::env::var_os("HOME"))
+                .map(PathBuf::from)
+                .unwrap_or_else(std::env::temp_dir)
+                .join("Cauldron")
+        });
+        let _ = std::fs::create_dir_all(&dir);
+        dir
+    }
+
     pub fn data_dir() -> PathBuf {
         if let Some(p) = std::env::var_os("BACKSPACE_DATA") {
             return PathBuf::from(p);

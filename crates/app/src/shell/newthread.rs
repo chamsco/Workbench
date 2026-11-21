@@ -228,7 +228,9 @@ impl Cauldron {
                 }
             }
         }
-        let t = chats.create_in(route, Scope { project: self.start.folder.clone(), ..Scope::default() });
+        // No folder picked: the stream works in the Cauldron workspace, not in no folder at all.
+        let project = self.start.folder.clone().or_else(|| Some(Prefs::default_workspace().display().to_string()));
+        let t = chats.create_in(route, Scope { project, ..Scope::default() });
         let sent = (|| {
             use base64::Engine;
             let atts = files.iter().map(|(name, b)| chats.attach(&t.id, name, mime(name), &base64::engine::general_purpose::STANDARD.encode(b))).collect::<anyhow::Result<Vec<_>>>()?;
@@ -492,7 +494,7 @@ impl Cauldron {
                 .text_size(px(12.))
                 .text_color(fg2)
         };
-        let folder_name = self.start.folder.as_deref().map_or_else(|| "No folder".to_string(), |p| p.rsplit(['/', '\\']).find(|s| !s.is_empty()).unwrap_or(p).to_string());
+        let folder_name = self.start.folder.as_deref().map_or_else(|| "Cauldron workspace".to_string(), |p| p.rsplit(['/', '\\']).find(|s| !s.is_empty()).unwrap_or(p).to_string());
         let folder = chip("nt-folder")
             .text_color(fg)
             .cursor_pointer()
@@ -749,7 +751,7 @@ impl Cauldron {
         let items = std::iter::once(None).chain(Prefs::load().projects.into_iter().map(Some));
         for (i, p) in items.enumerate() {
             let on = self.start.folder == p;
-            let name = p.as_deref().map_or_else(|| "No folder".to_string(), |p| p.rsplit(['/', '\\']).find(|s| !s.is_empty()).unwrap_or(p).to_string());
+            let name = p.as_deref().map_or_else(|| "Cauldron workspace".to_string(), |p| p.rsplit(['/', '\\']).find(|s| !s.is_empty()).unwrap_or(p).to_string());
             menu = menu.child(
                 div()
                     .id(("folder-item", i))
@@ -1052,7 +1054,7 @@ mod tests {
             assert!(tx + tw <= bx + bw && rx + rw <= bx + bw, "inside the box's width");
             let (hx, hy, hw, hh) = rect(window, "nt-heading");
             assert!(hy + hh <= by && ((hx + hw / 2.0) - (bx + bw / 2.0)).abs() <= 1.0, "the heading centred above the box");
-            for (id, label) in [("add-file", "Add"), ("nt-trust", "Ask first"), ("nt-effort", "Auto"), ("nt-folder", "No folder"), ("machine", "This machine"), ("nt-voice", "Voice")] {
+            for (id, label) in [("add-file", "Add"), ("nt-trust", "Ask first"), ("nt-effort", "Auto"), ("nt-folder", "Cauldron workspace"), ("machine", "This machine"), ("nt-voice", "Voice")] {
                 assert_eq!(window.find(id).label(), Some(label), "{id}");
             }
             for gone in ["nt-plan", "nt-familiar", "nt-worktree", "nt-github", "start"] {
@@ -1122,7 +1124,7 @@ mod tests {
             assert!(window.try_find("plus-menu").is_none(), "the menu closes");
             window.click("nt-folder", cx);
             window.render_frame(cx);
-            assert_eq!(window.find(("folder-item", 0usize)).label(), Some("No folder"));
+            assert_eq!(window.find(("folder-item", 0usize)).label(), Some("Cauldron workspace"));
             let name = std::path::Path::new(&dir).file_name().unwrap().to_string_lossy().to_string();
             assert_eq!(window.find(("folder-item", 1usize)).label(), Some(name.as_str()));
             window.click(("folder-item", 1usize), cx);
