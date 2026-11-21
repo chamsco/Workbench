@@ -198,6 +198,9 @@ pub struct Thread {
     pub updated: u64,
     #[serde(default)]
     pub pinned: bool,
+    /// Put away from the sidebar, not deleted.
+    #[serde(default)]
+    pub archived: bool,
     pub route: Route,
     pub messages: Vec<Msg>,
     /// How long this thread lives (see `Life`). Absent in older files: Keep.
@@ -294,6 +297,8 @@ pub struct ThreadInfo {
     pub created: u64,
     pub updated: u64,
     pub pinned: bool,
+    /// Put away from the sidebar (`Thread::archived`).
+    pub archived: bool,
     pub route: Route,
     pub preview: String,
     pub busy: bool,
@@ -724,6 +729,7 @@ impl Chats {
                 created: t.created,
                 updated: t.updated,
                 pinned: t.pinned,
+                archived: t.archived,
                 route: t.route.clone(),
                 preview: t
                     .messages
@@ -817,6 +823,7 @@ impl Chats {
             created: now,
             updated: now,
             pinned: false,
+            archived: false,
             route,
             messages: vec![],
             cli_session: None,
@@ -882,6 +889,18 @@ impl Chats {
 
     pub fn pin(&self, id: &str, pinned: bool) -> Result<()> {
         self.edit_thread(id, |t| t.pinned = pinned)
+    }
+
+    /// Put a stream away from the sidebar, or bring it back. Nothing is deleted.
+    pub fn archive(&self, id: &str, archived: bool) -> Result<()> {
+        self.edit_thread(id, |t| t.archived = archived)
+    }
+
+    /// Clear a stream's unread mark without opening it.
+    pub fn mark_read(&self, id: &str) {
+        if self.unread.lock().unwrap().remove(id) {
+            self.poke();
+        }
     }
 
     /// File a thread in a folder, or take it out. Only the folder changes: not
@@ -1022,6 +1041,7 @@ impl Chats {
             created: now,
             updated: now,
             pinned: false,
+            archived: false,
             route: src.route.clone(),
             messages: src.messages[..=end].to_vec(),
             cli_session: None,
@@ -1396,6 +1416,7 @@ impl Chats {
             created: now,
             updated: now,
             pinned: false,
+            archived: false,
             route: route.clone(),
             messages: vec![user, reply],
             cli_session: None,
