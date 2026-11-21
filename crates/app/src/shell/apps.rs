@@ -80,28 +80,42 @@ impl Cauldron {
                 list
             }
             "Agents" => {
-                list = list.child(head("agents-head", "Familiars".into()));
-                if self.fam_views.is_empty() {
-                    return list.child(note("agents-empty", "No familiars yet", "New familiar hands an agent a goal in a folder; it plans, builds, verifies and ships."));
-                }
-                for (i, f) in self.fam_views.iter().enumerate() {
-                    let dot = match f.state {
+                let (real, roster) = self.roster();
+                list = list.child(div().flex().items_center().gap(px(6.)).child(head("agents-head", "Familiars".into())).children((!real).then(|| Self::mock_tag(pal))));
+                for (i, (name, _, state, _)) in roster.into_iter().enumerate() {
+                    let on = self.section_page && self.pages.agent == i;
+                    let dot = match state {
                         familiar::State::NeedsYou => c(pal.warn),
                         familiar::State::Running => c(pal.accent),
                         familiar::State::Failed => c(pal.bad),
                         familiar::State::Done => c(pal.fg4),
                     };
                     list = list.child(
-                        row(("agent-row", i), Some(dot), f.name.clone(), familiar::state_text(f.state).into())
-                            .when_live(self.section_page && self.pages.agent == i, |d| d.bg(c(pal.selected)))
+                        div()
+                            .id(("agent-row", i))
+                            .h(px(46.))
+                            .px(px(8.))
+                            .flex()
+                            .items_center()
+                            .gap(px(9.))
+                            .rounded(px(radius::CONTROL))
+                            .cursor_pointer()
+                            .when_live(on, |d| d.bg(c(pal.selected)))
+                            .hover(|d| d.bg(c(pal.hover)))
+                            .aria_label(format!("{name}, {}", familiar::state_text(state)))
+                            .child(img(Arc::new(Image::from_bytes(ImageFormat::Svg, avatar::svg(i, Mood::Idle, Look { px: 30., outline: false, ms: None, bust: true, ink: None }).into_bytes()))).size(px(30.)))
+                            .child(div().flex_1().min_w_0().flex().flex_col().child(div().truncate().text_color(fg).child(name)).child(div().flex().items_center().gap(px(5.)).text_size(px(11.)).text_color(fg3).child(div().size(px(6.)).rounded_full().bg(dot)).child(familiar::state_text(state))))
                             .on_click(cx.listener(move |this, _, _, cx| {
-                                // The page beside shows it (Charles, 21 Nov 17:25Z: the list lives in the sidebar).
+                                // The page beside shows it (Charles, 21 Nov 17:33Z: the roster lives in the sidebar).
                                 this.pages.agent = i;
                                 this.select_section(3, cx);
                                 cx.notify();
                             }))
                             .test_support(),
                     );
+                }
+                if self.fam_views.is_empty() {
+                    list = list.child(note("agents-empty", "No familiars yet", "New familiar hands an agent a goal in a folder; it plans, builds, verifies and ships."));
                 }
                 list
             }

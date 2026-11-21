@@ -107,6 +107,22 @@ impl Cauldron {
         .detach();
     }
 
+    /// The familiars for the sidebar's Agents list and the page: the real ones, else a made-up one
+    /// (the caller tags it Mockup). Name, goal, state, crew as (name, ticket, state).
+    pub(super) fn roster(&self) -> (bool, Vec<(String, String, FamState, Vec<(String, String, FamState)>)>) {
+        if !self.fam_views.is_empty() {
+            let v = self.fam_views.iter().map(|v| (v.name.clone(), v.goal.clone(), v.state, v.crew.iter().map(|s| (s.name.clone(), s.ticket.clone(), s.state)).collect())).collect();
+            return (true, v);
+        }
+        let mock = (
+            "Ship onboarding v2".to_string(),
+            "Build the 6-step onboarding behind a setting.".to_string(),
+            FamState::Running,
+            vec![("Rampart".to_string(), "Tests for T1-T4".to_string(), FamState::Done), ("T1 Builder".to_string(), "Welcome + Agents".to_string(), FamState::Done), ("T2 Builder".to_string(), "Machines picker".to_string(), FamState::Running)],
+        );
+        (false, vec![mock])
+    }
+
     fn page_shell(id: &'static str, title: &'static str, sub: &str, pal: &'static Palette, kids: Vec<AnyElement>) -> AnyElement {
         div().id(id).size_full().overflow_y_scroll().flex().justify_center().child(
             div()
@@ -125,7 +141,7 @@ impl Cauldron {
     }
 
     /// A small "Mockup" tag for parts drawn from made-up data.
-    fn mock_tag(pal: &'static Palette) -> Div {
+    pub(super) fn mock_tag(pal: &'static Palette) -> Div {
         div().flex_none().px(px(6.)).h(px(16.)).flex().items_center().rounded(px(4.)).bg(c(pal.inset)).text_size(px(10.)).font_weight(FontWeight::MEDIUM).text_color(c(pal.fg3)).child("Mockup")
     }
 
@@ -341,18 +357,7 @@ impl Cauldron {
 
     fn agents_page(&self, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
         let (fg, fg2, fg3) = (c(pal.fg), c(pal.fg2), c(pal.fg3));
-        let real = !self.fam_views.is_empty();
-        // Name, goal, state, crew (name, ticket, state).
-        let roster: Vec<(String, String, FamState, Vec<(String, String, FamState)>)> = if real {
-            self.fam_views.iter().map(|v| (v.name.clone(), v.goal.clone(), v.state, v.crew.iter().map(|s| (s.name.clone(), s.ticket.clone(), s.state)).collect())).collect()
-        } else {
-            vec![(
-                "Ship onboarding v2".into(),
-                "Build the 6-step onboarding behind a setting.".into(),
-                FamState::Running,
-                vec![("Rampart".into(), "Tests for T1-T4".into(), FamState::Done), ("T1 Builder".into(), "Welcome + Agents".into(), FamState::Done), ("T2 Builder".into(), "Machines picker".into(), FamState::Running)],
-            )]
-        };
+        let (real, roster) = self.roster();
         let sel = self.pages.agent.min(roster.len() - 1);
         let (name, goal, state, crew) = roster[sel].clone();
         let state_col = |s: FamState| match s {
