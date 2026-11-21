@@ -9,4 +9,5 @@ pub mod avatar;
 pub mod layout;
 pub mod motion;
 pub mod panes;
+pub mod status;
 pub mod tokens;

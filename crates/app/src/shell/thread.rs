@@ -198,7 +198,7 @@ fn status_line(i: usize, label: &'static str, grey: Rgb) -> impl IntoElement {
         .text_size(px(12.5))
         .text_color(c(grey))
         .aria_label(label)
-        .child(div().id(("live-slot", i)).size(px(16.)).flex_none().flex().items_center().justify_center().child(div().size(px(6.)).rounded_full().bg(c(grey))).test_support())
+        .child(div().id(("live-slot", i)).size(px(16.)).flex_none().flex().items_center().justify_center().child(super::mark::mark(("live-mark", i), if label == "Writing" { Mark::Working } else { Mark::Waiting }, super::mark::SIZE, c(grey))).test_support())
         .child(div().id(("live-text", i)).child(label).test_support())
         .test_support()
 }
@@ -1140,6 +1140,9 @@ pub(super) mod tests {
             assert_eq!(window.find(("tab", 0usize)).label(), Some("Get M3 through review"));
             let (tab, head) = (super::super::tests::rect(window, ("tab", 0usize)), super::super::tests::rect(window, "card-head"));
             assert!(tab.x >= head.x && tab.right() <= head.right() && tab.y >= head.y && tab.bottom() <= head.bottom(), "the title tab sits in the card header");
+            // The stream's status mark sits inside its tab, left of the title (Charles, 21 Nov).
+            let mk = super::super::tests::rect(window, ("tab-mark", 0usize));
+            assert!(mk.x >= tab.x && mk.right() <= tab.right() && mk.y >= tab.y && mk.bottom() <= tab.bottom(), "the mark is inside the tab");
             assert_eq!(window.find(("msg", 0usize)).label(), Some("Run the tests"));
             assert_eq!(window.find(("msg", 1usize)).label(), Some("All 591 pass."));
             assert_eq!(window.find(("steps", 1usize)).label(), Some("Thought, Read 1 file, Ran 1 command"), "how the reply was made, from its trace");

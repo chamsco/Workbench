@@ -144,15 +144,14 @@ pub(crate) fn stream_span(x: f32, body_w: f32) -> (f32, f32) {
 }
 
 pub(crate) fn dot(id: impl Into<ElementId>, state: State, pal: &'static Palette) -> Stateful<Div> {
-    let d = div().id(id).size(px(7.)).flex_none().rounded_full().aria_label(state_label(state));
-    match state {
-        // The halo is an absolute 13px disc of tint around the 7px dot (a box shadow draws square), so it
-        // takes no room in the row; the tint over the dot itself leaves it the accent.
-        State::Running => d.relative().bg(c(pal.accent)).child(div().absolute().left(px(-3.)).top(px(-3.)).size(px(13.)).rounded_full().bg(ca(pal.accent, 0.18))),
-        State::NeedsYou => d.bg(c(pal.warn)),
-        State::Done => d.border_1().border_color(c(pal.fg4)),
-        State::Failed => d.bg(c(pal.bad)),
-    }
+    // The same status mark a stream row carries (Charles, 21 Nov): an agent keeps its head and adds this.
+    let (m, col) = match state {
+        State::Running => (Mark::Working, c(pal.accent)),
+        State::NeedsYou => (Mark::Asking, c(pal.warn)),
+        State::Done => (Mark::Idle, c(pal.fg4)),
+        State::Failed => (Mark::Error, c(pal.bad)),
+    };
+    super::mark::mark(id, m, super::mark::SIZE, col).aria_label(state_label(state))
 }
 
 /// A small "Preview" tag in the warning colour: made-up familiars (screenshots, tests).
