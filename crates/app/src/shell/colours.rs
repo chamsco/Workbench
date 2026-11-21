@@ -403,7 +403,37 @@ fn button_chip(id: (&'static str, usize), label: &str, pal: &'static Palette) ->
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::super::thread::tests::open;
+    use super::Saved;
+    use gpui_kit::test::TestWindowExt;
+    use gpui_kit::{AppContext, TestAppContext};
+
+    /// A new picture wipes in over the old one, then settles as one picture.
+    #[gpui_kit::test]
+    fn a_new_picture_wipes_in_then_settles(cx: &mut TestAppContext) {
+        let (handle, _chats) = open(cx);
+        cx.simulate_window_resize(handle.into(), gpui_kit::size(gpui_kit::px(1200.), gpui_kit::px(1500.)));
+        handle
+            .update(cx, |c, _, _| {
+                c.stream_bg = Some(std::path::PathBuf::from("new.png"));
+                c.bg_wipe = Some((Some(std::path::PathBuf::from("old.png")), std::time::Instant::now()));
+                c.settings = Some(2);
+            })
+            .unwrap();
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            assert!(window.try_find("stream-bg-wipe").is_some(), "the new picture opens from the left");
+            assert!(window.try_find("stream-bg").is_none());
+        })
+        .unwrap();
+        handle.update(cx, |c, _, _| c.bg_wipe = None).unwrap();
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            assert!(window.try_find("stream-bg").is_some(), "then it is just the picture");
+            assert!(window.try_find("stream-bg-wipe").is_none());
+        })
+        .unwrap();
+    }
 
     #[::core::prelude::v1::test]
     fn saved_themes_round_trip() {

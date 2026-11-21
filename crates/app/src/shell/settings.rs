@@ -427,7 +427,7 @@ impl Cauldron {
             );
         }
         let help: String = match &self.stream_bg {
-            Some(p) => format!("Showing {} under a scrim; the frame takes its colours. Only over the painting.", p.file_name().map_or_else(|| p.display().to_string(), |n| n.to_string_lossy().into_owned())),
+            Some(p) => format!("Showing {} under a scrim in streams. Settings pages keep their plain card.", p.file_name().map_or_else(|| p.display().to_string(), |n| n.to_string_lossy().into_owned())),
             None => "The painting under a light frost, or your own picture or GIF (png, jpg, webp, gif).".into(),
         };
         col = col.child(row(("appearance", 1), "Stream background".into(), help, seg.test_support().into_any_element()));
