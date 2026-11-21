@@ -427,6 +427,7 @@ impl Cauldron {
                 .rounded(px(radius::CONTROL))
                 .border_1()
                 .border_color(if primary { c(pal.accent) } else { c(pal.line) })
+                .shadow(super::lift(super::Lift::Button, pal))
                 .when(primary, |d| d.bg(c(pal.accent)).text_color(c(pal.on_accent)))
                 .when(!primary, |d| d.text_color(fg2))
                 .text_size(px(12.))

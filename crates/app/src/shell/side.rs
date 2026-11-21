@@ -225,6 +225,7 @@ impl Cauldron {
                     .child(
                         div()
                             .id("side-start")
+                            .shadow(super::lift(super::Lift::Button, pal))
                             .h(px(26.))
                             .px(px(12.))
                             .flex()

@@ -28,6 +28,7 @@ mod familiar;
 mod motion;
 mod newthread;
 mod panes;
+mod dither;
 mod logos;
 mod picker;
 mod side;
@@ -203,6 +204,7 @@ pub(crate) struct Cauldron {
     /// The cards' crops of the light frost (two-depth glass), and the user's own picture or GIF
     /// behind the stream card instead (Settings > Appearance), if they chose one.
     glass: backdrop::GlassCache,
+    plane: dither::Plane,
     /// The decision card: grown under the pointer, the option open in Highlights, the sets already
     /// answered here, and each live familiar's waiting set (refreshed with its view).
     ask_hover: bool,
@@ -475,6 +477,37 @@ impl Cauldron {
         .detach();
     }
 
+    /// The dither plane under the main card on the plain background (board round 4): the valley
+    /// on New stream, the valley at the bottom or the ripple in a working stream.
+    fn plane_under(&mut self, r: Rect, show: bool, new_screen: bool, dark: bool, window: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let p = Prefs::load();
+        let mut stale = Vec::new();
+        let kind = if show { dither::wanted(&p, self.painting, new_screen) } else { None };
+        let Some(kind) = kind else {
+            self.plane.clear(&mut stale);
+            for old in stale {
+                let _ = window.drop_image(old);
+            }
+            return None;
+        };
+        let moving = dither::moving(&p) && !cx.reduce_motion();
+        let im = self.plane.get(kind, r.w, r.h, window.scale_factor(), dark, moving, &mut stale);
+        for old in stale {
+            let _ = window.drop_image(old);
+        }
+        if !moving {
+            self.plane.ticker = None;
+        } else if self.plane.ticker.is_none() {
+            self.plane.ticker = Some(cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| loop {
+                cx.background_executor().timer(std::time::Duration::from_millis(dither::FRAME_MS)).await;
+                if this.update(cx, |_, cx| cx.notify()).is_err() {
+                    break;
+                }
+            }));
+        }
+        Some(img(im).id("dither-plane").absolute().left_0().top_0().size_full().rounded(px(radius::PANEL)).object_fit(ObjectFit::Fill).test_support().into_any_element())
+    }
+
     /// What goes under a card over the painting: the user's picture under its scrim (stream card
     /// only), or this card's crop of the light frost under the tint. Empty on the plain frame or
     /// before the frost is baked; then the card keeps its own glass colour.
@@ -504,7 +537,7 @@ impl Cauldron {
     }
 
     pub(crate) fn new() -> Self {
-        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, support_data: Default::default(), files_open: Default::default(), painting: false, glass: Default::default(), ask_hover: false, ask_open: None, ask_answered: Default::default(), fam_questions: Default::default(), frost: backdrop::FrostLevel::Heavy, stream_bg: None, theme_mode: String::new(), root_focus: None, plan: false, open_in_menu: false, open_in: thread::OpenIn::Folder, search_open: false, indent: false, usage: Default::default(), settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, familiar: None, fam_views: Vec::new(), fam_live: Vec::new(), fam_watch: Vec::new(), fam_driving: Default::default(), fam_error: None, fam_composer: None, fam_fixture: false, inbox: Vec::new(), inbox_open: false, update: Default::default(), update_open: false, inbox_toast: None, fam_from: (0.0, 0.0), fam_to: None, fam_since: None, fam_hl: 0, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default(), err_open: Default::default(), side_root: None, sides: Vec::new(), side_win: false, side_input: None, side_ctx: Default::default() }
+        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, support_data: Default::default(), files_open: Default::default(), painting: false, glass: Default::default(), plane: Default::default(), ask_hover: false, ask_open: None, ask_answered: Default::default(), fam_questions: Default::default(), frost: backdrop::FrostLevel::Heavy, stream_bg: None, theme_mode: String::new(), root_focus: None, plan: false, open_in_menu: false, open_in: thread::OpenIn::Folder, search_open: false, indent: false, usage: Default::default(), settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, familiar: None, fam_views: Vec::new(), fam_live: Vec::new(), fam_watch: Vec::new(), fam_driving: Default::default(), fam_error: None, fam_composer: None, fam_fixture: false, inbox: Vec::new(), inbox_open: false, update: Default::default(), update_open: false, inbox_toast: None, fam_from: (0.0, 0.0), fam_to: None, fam_since: None, fam_hl: 0, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default(), err_open: Default::default(), side_root: None, sides: Vec::new(), side_win: false, side_input: None, side_ctx: Default::default() }
     }
 
     /// Opens core off the main thread (the sidebar shows Loading meanwhile), then keeps the thread
@@ -1399,6 +1432,33 @@ fn tnum() -> FontFeatures {
     crate::ui::sans_features()
 }
 
+/// How far a surface stands off the card under it (board round 4, S2; Charles, 21 Nov 04:01Z: "the
+/// rest of the app use this effect on the top of the cards, chatboxes, main content elements and
+/// buttons").
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Lift {
+    /// The main and support cards.
+    Card,
+    /// Chat boxes.
+    Box,
+    /// Buttons.
+    Button,
+}
+
+/// S2, "lifted": a hairline edge, a long soft shadow, and a light along the top edge.
+pub(crate) fn lift(l: Lift, pal: &Palette) -> Vec<BoxShadow> {
+    let dark = pal.panel.0 < 0x80;
+    let shade = |a: f32| hsla(0., 0., 0., if dark { a } else { a * 0.28 });
+    let edge = BoxShadow { color: if dark { hsla(0., 0., 1., 0.05) } else { hsla(0., 0., 0., 0.06) }, offset: point(px(0.), px(0.)), blur_radius: px(0.), spread_radius: px(1.), inset: false };
+    let top = BoxShadow { color: hsla(0., 0., 1., if dark { 0.07 } else { 0.8 }), offset: point(px(0.), px(1.)), blur_radius: px(0.), spread_radius: px(0.), inset: true };
+    let long = match l {
+        Lift::Card => BoxShadow { color: shade(0.55), offset: point(px(0.), px(18.)), blur_radius: px(44.), spread_radius: px(-20.), inset: false },
+        Lift::Box => BoxShadow { color: shade(0.8), offset: point(px(0.), px(24.)), blur_radius: px(48.), spread_radius: px(-18.), inset: false },
+        Lift::Button => BoxShadow { color: shade(0.45), offset: point(px(0.), px(2.)), blur_radius: px(6.), spread_radius: px(-2.), inset: false },
+    };
+    vec![long, edge, top]
+}
+
 fn drop(s: tokens::shadow::Shadow) -> BoxShadow {
     BoxShadow { color: hsla(0., 0., 0., s.alpha), offset: point(px(0.), px(s.y)), blur_radius: px(s.blur), spread_radius: px(s.spread), inset: false }
 }
@@ -2039,6 +2099,7 @@ impl Render for Cauldron {
             .child({
                 let cut = s.notch.is_none() && bump.and_then(|b| tabshape::pieces(s.main, b)).is_some();
                 let under = self.glass_under("main", s.main, (w, h), dark, pal, moving, window);
+                let plane = self.plane_under(s.main, under.is_none() && self.settings.is_none() && self.familiar.is_none(), new_screen, dark, window, cx);
 
                 let glass = under.is_some();
                 div()
@@ -2052,7 +2113,9 @@ impl Render for Cauldron {
                     // The tabbed card takes the tab's corners all round (Charles, 21 Nov).
                     .when_live(cut, |d| d.rounded(px(tabshape::TAB_R)))
                     .when_live(!glass, |d| d.bg(backdrop::card_bg(self.painting, pal)))
+                    .shadow(lift(Lift::Card, pal))
                     .children(under.unwrap_or_default())
+                    .children(plane)
                     .border_1()
                     .border_color(c(if glass { pal.line_strong } else { pal.line }))
                     .text_color(fg3)
@@ -2333,6 +2396,7 @@ impl Render for Cauldron {
                 .overflow_hidden()
                 .rounded(px(radius::PANEL))
                 .when_live(!glass, |d| d.bg(backdrop::card_bg(self.painting, pal)))
+                .shadow(lift(Lift::Card, pal))
                 .children(under.unwrap_or_default())
                 .border_1()
                 .border_color(c(if glass { pal.line_strong } else { pal.line }))

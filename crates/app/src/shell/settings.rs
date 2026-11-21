@@ -24,6 +24,74 @@ fn policy_label(p: FailoverPolicy) -> &'static str {
 }
 
 impl Cauldron {
+    /// Settings > Appearance: the dither planes (board round 4, Charles 21 Nov 03:54Z). Out of
+    /// the page's render so its frame stays small.
+    #[inline(never)]
+    fn dither_rows(&self, pal: &'static Palette, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let (fg, fg3, line) = (c(pal.fg), c(pal.fg3), c(pal.line));
+        let row = |id: (&'static str, usize), label: &str, help: &str, control: AnyElement| {
+            div()
+                .id(id)
+                .flex()
+                .items_center()
+                .gap(px(16.))
+                .py(px(8.))
+                .border_t_1()
+                .border_color(line)
+                .aria_label(label.to_string())
+                .child(div().flex_1().min_w_0().flex().flex_col().child(div().truncate().text_size(px(13.)).text_color(fg).child(label.to_string())).child(div().text_size(px(12.)).line_height(px(16.)).text_color(fg3).child(help.to_string())))
+                .child(div().flex_none().child(control))
+                .test_support()
+                .into_any_element()
+        };
+        let p = Prefs::load();
+        let on = p.dither.as_deref() != Some("off");
+        let mut out = vec![row(("appearance", 6), "Dither", "On the plain background: a picture in fine dots behind New stream and the bottom of a stream.", self.dither_seg("set-dither", ["On", "Off"], usize::from(!on), |p, i| p.dither = (i == 1).then(|| "off".to_string()), pal, cx))];
+        if on {
+            let ripple = p.dither_work.as_deref() == Some("ripple");
+            out.push(row(("appearance", 7), "In a stream", "The valley under the chat box, or rings rippling out from the middle.", self.dither_seg("set-dither-work", ["Valley", "Ripple"], usize::from(ripple), |p, i| p.dither_work = (i == 1).then(|| "ripple".to_string()), pal, cx)));
+            let moving = p.dither_motion.as_deref() == Some("moving");
+            out.push(row(("appearance", 8), "Motion", "Still, or a slow loop that plays while Cauldron is open.", self.dither_seg("set-dither-motion", ["Still", "Moving"], usize::from(moving), |p, i| p.dither_motion = (i == 1).then(|| "moving".to_string()), pal, cx)));
+        }
+        out
+    }
+
+    /// A two-way setting for the dither planes.
+    #[inline(never)]
+    fn dither_seg(&self, id: &'static str, opts: [&'static str; 2], on_ix: usize, set: fn(&mut Prefs, usize), pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
+        let (fg, fg2) = (c(pal.fg), c(pal.fg2));
+        let mut seg = div().id(id).flex().gap(px(2.)).p(px(2.)).rounded(px(radius::CONTROL)).border_1().border_color(c(pal.line_strong));
+        for (i, name) in opts.into_iter().enumerate() {
+            let on = i == on_ix;
+            seg = seg.child(
+                div()
+                    .id((id, i))
+                    .h(px(24.))
+                    .px(px(10.))
+                    .flex()
+                    .items_center()
+                    .rounded(px(radius::TAG))
+                    .cursor_pointer()
+                    .when_live(on, |d| d.bg(c(pal.selected)))
+                    .when_live(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
+                    .aria_selected(on)
+                    .aria_label(name)
+                    .text_size(px(12.))
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(if on { fg } else { fg2 })
+                    .child(name)
+                    .on_click(cx.listener(move |_, _, _, cx| {
+                        let mut p = Prefs::load();
+                        set(&mut p, i);
+                        p.save();
+                        cx.notify();
+                    }))
+                    .test_support(),
+            );
+        }
+        seg.test_support().into_any_element()
+    }
+
     /// Saves the stream card's background (None: the glass) to the shared prefs.
     pub(super) fn set_stream_bg(&mut self, path: Option<std::path::PathBuf>, cx: &mut Context<Self>) {
         let mut p = Prefs::load();
@@ -387,6 +455,7 @@ impl Cauldron {
                         .test_support(),
                 );
             }
+            col = col.children(self.dither_rows(pal, cx));
             col = col.child(row(("appearance", 5), "Model picker".into(), "On New stream: the tray under the box unfolds, or a card stacked behind the box drops out below it.".into(), seg.test_support().into_any_element()));
             return div().id("settings-body").size_full().overflow_y_scroll().flex().justify_center().child(col).test_support().into_any_element();
         }

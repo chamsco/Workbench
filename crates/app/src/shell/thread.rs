@@ -440,6 +440,7 @@ impl Cauldron {
                 .rounded(px(radius::INNER))
                 .text_size(px(12.5))
                 .cursor_pointer()
+                .shadow(super::lift(super::Lift::Button, pal))
                 .aria_label(label)
                 .when(primary, |d| d.bg(c(pal.accent)).text_color(c(pal.on_accent)).hover(|d| d.bg(c(pal.accent_hover))))
                 .when(!primary, |d| d.border_1().border_color(c(pal.line_strong)).text_color(fg).hover(|d| d.bg(c(pal.hover))))
@@ -632,6 +633,7 @@ impl Cauldron {
         let ((now_name, now_size), (was_name, was_size)) = if busy { (("square", 13.), ("arrow-up", 16.)) } else { (("arrow-up", 16.), ("square", 13.)) };
         let mut action = div()
             .id(if busy { "stop" } else { "send" })
+            .shadow(super::lift(super::Lift::Button, pal))
             .relative()
             .aria_label(if busy { "Stop" } else { "Send" })
             .child(layer(now_name, now_size, k));
@@ -706,6 +708,7 @@ impl Cauldron {
             .border_1()
             .border_color(c(pal.line))
             .bg(super::backdrop::surface(self.painting, pal.raised, super::backdrop::GLASS_COMPOSER))
+            .shadow(super::lift(super::Lift::Box, pal))
             .aria_label("Message the coordinator");
         composer = if tiny {
             // A very short pane: one row, the editor and Send, no chips.
