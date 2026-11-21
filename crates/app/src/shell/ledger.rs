@@ -62,7 +62,8 @@ fn kind(name: &str) -> Option<(&'static str, &'static str, &'static str)> {
 fn describe(a: &Act, thinking: Option<&str>) -> (String, String, Option<String>) {
     let file = field(&a.input, &["file_path", "path", "notebook_path"]).map(|p| base(&p));
     match a.name.as_str() {
-        "Thinking" => ("Thinking".into(), "Thought".into(), thinking.filter(|t| !t.trim().is_empty()).map(str::to_string)),
+        // Its own text; a thread from before Thoughts kept theirs has only the reply's, for the first.
+        "Thinking" => ("Thinking".into(), "Thought".into(), Some(a.output.as_str()).filter(|t| !t.trim().is_empty()).or(thinking).filter(|t| !t.trim().is_empty()).map(str::to_string)),
         "Read" => {
             let f = file.unwrap_or_else(|| "a file".into());
             (format!("Reading {f}"), format!("Read {f}"), None)
@@ -199,7 +200,7 @@ impl Cauldron {
         } else if s.error {
             glyph("x", 13., c(pal.bad)).into_any_element()
         } else {
-            glyph("check", 13., fg3).into_any_element()
+            glyph("check", 13., c(pal.ok)).into_any_element()
         };
         let text_el: AnyElement = if live { shimmer(&label, now, fg3, fg, still).into_any_element() } else { div().child(label.clone()).into_any_element() };
         let row = div()
@@ -302,6 +303,18 @@ mod tests {
         let p = parts(&m, false);
         assert!(matches!(&p[0], Part::Step(s) if s.detail.as_deref() == Some("The cause is the order.")));
         assert!(matches!(&p[1], Part::Step(s) if s.detail.as_deref() == Some("$ ls\na\nb")));
+    }
+
+    #[::core::prelude::v1::test]
+    fn every_thought_in_a_reply_opens() {
+        let mut t1 = act("Thinking", "", 0, 0, Some(1000));
+        t1.output = "First.".into();
+        let mut t2 = act("Thinking", "", 0, 2000, Some(3000));
+        t2.output = "Second.".into();
+        let m = msg("ok", vec![t1, act("Bash", r#"{"command":"ls"}"#, 0, 1000, Some(2000)), t2]);
+        let p = parts(&m, false);
+        assert!(matches!(&p[0], Part::Step(s) if s.detail.as_deref() == Some("First.")));
+        assert!(matches!(&p[2], Part::Step(s) if s.detail.as_deref() == Some("Second.")), "{p:?}");
     }
 
     #[::core::prelude::v1::test]

@@ -245,9 +245,9 @@ impl Cauldron {
                 }
             }
         }
-        // No folder picked: the stream works in the Cauldron workspace, not in no folder at all.
-        let project = self.start.folder.clone().or_else(|| Some(Prefs::default_workspace().display().to_string()));
-        let t = chats.create_in(route, Scope { project, ..Scope::default() });
+        // No folder picked: the stream gets its own project folder in the Cauldron workspace.
+        let project = self.start.folder.clone().or_else(|| Some(Prefs::new_stream_folder(&text).display().to_string()));
+        let t = chats.create_in(route, Scope { project: project.clone(), ..Scope::default() });
         let sent = (|| {
             use base64::Engine;
             let atts = files.iter().map(|(name, b)| chats.attach(&t.id, name, mime(name), &base64::engine::general_purpose::STANDARD.encode(b))).collect::<anyhow::Result<Vec<_>>>()?;
@@ -255,6 +255,12 @@ impl Cauldron {
         })();
         if let Err(e) = sent {
             let _ = chats.delete(&t.id);
+            // The folder made for it, still empty, goes too.
+            if self.start.folder.is_none() {
+                if let Some(p) = &project {
+                    let _ = std::fs::remove_dir(p);
+                }
+            }
             self.start.error = Some(e.to_string());
             self.refresh();
             cx.notify();

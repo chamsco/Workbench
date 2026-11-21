@@ -155,7 +155,7 @@ pub struct Act {
     /// The tool's input as the runner reported it (JSON text, short), for a one-line label.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub input: String,
-    /// What the call printed, trimmed to the tail, once it ended.
+    /// What the call printed, trimmed to the tail, once it ended; for "Thinking", its reasoning.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub output: String,
     pub start: u64,
@@ -2288,6 +2288,10 @@ Ask the reader for input with the real form parts: `f = FormControl(\"Name\", In
                 if !m.acts.last().is_some_and(|a| a.name == "Thinking" && a.end.is_none()) {
                     let at = m.text.len();
                     m.acts.push(Act { name: "Thinking".into(), start: now_ms(), at, ..Default::default() });
+                }
+                // Each Thought keeps its own text, so every one of them folds open.
+                if let Some(a) = m.acts.last_mut() {
+                    a.output.push_str(&text);
                 }
             }),
             RunEvent::ToolStart { id: tid, name, input } => self.with_msg(id, mid, |m| {

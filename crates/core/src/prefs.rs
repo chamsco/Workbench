@@ -757,6 +757,22 @@ impl Prefs {
         dir
     }
 
+    /// A new stream's own project folder in the default workspace, named from what it was asked
+    /// (Charles, 21 Nov: real folders in the workspace, as DeepSeek Harness and WorkBuddy make,
+    /// not everything in one). Made here, before the CLI starts in it.
+    pub fn new_stream_folder(ask: &str) -> PathBuf {
+        let root = Self::default_workspace();
+        let name = folder_name(ask);
+        let mut dir = root.join(&name);
+        let mut n = 2;
+        while dir.exists() {
+            dir = root.join(format!("{name}-{n}"));
+            n += 1;
+        }
+        let _ = std::fs::create_dir_all(&dir);
+        dir
+    }
+
     pub fn data_dir() -> PathBuf {
         if let Some(p) = std::env::var_os("BACKSPACE_DATA") {
             return PathBuf::from(p);
@@ -770,5 +786,46 @@ impl Prefs {
         } else {
             home.join(".local/share/backspace")
         }
+    }
+}
+
+/// A folder name from a stream's first message: its first words, lower case, joined by "-".
+/// Letters of any script stay; what Windows refuses in a name goes, and so do its device names.
+fn folder_name(ask: &str) -> String {
+    let words: Vec<String> = ask
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .take(6)
+        .map(str::to_lowercase)
+        .collect();
+    let mut name = String::new();
+    for w in words {
+        if name.chars().count() + w.chars().count() > 40 {
+            break;
+        }
+        if !name.is_empty() {
+            name.push('-');
+        }
+        name.push_str(&w);
+    }
+    let reserved = ["con", "prn", "aux", "nul", "com1", "com2", "com3", "com4", "com5", "com6", "com7", "com8", "com9", "lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6", "lpt7", "lpt8", "lpt9"];
+    if name.is_empty() || reserved.contains(&name.as_str()) {
+        name = format!("stream-{}", if name.is_empty() { "new" } else { &name });
+    }
+    name
+}
+
+#[cfg(test)]
+mod folder_name_tests {
+    use super::folder_name;
+
+    #[test]
+    fn a_stream_folder_is_named_from_its_ask() {
+        assert_eq!(folder_name("Make a pong game!"), "make-a-pong-game");
+        assert_eq!(folder_name("say hello in chinese: 你好 世界"), "say-hello-in-chinese-你好-世界");
+        assert_eq!(folder_name("fix C:\\Users\\x <bad>|name?"), "fix-c-users-x-bad-name");
+        assert_eq!(folder_name("CON"), "stream-con");
+        assert_eq!(folder_name("???"), "stream-new");
+        assert!(folder_name(&"word ".repeat(30)).chars().count() <= 40);
     }
 }
