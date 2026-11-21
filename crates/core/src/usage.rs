@@ -75,6 +75,16 @@ pub struct Session {
     pub latency_s: BTreeMap<String, Vec<f64>>,
     /// Model-call errors such as `usage_limit_reached` (not tool errors).
     pub api_errors: BTreeMap<String, u32>,
+    /// Prompts and tool calls per hour: unix ms divided by an hour, for the activity tracker.
+    #[serde(default)]
+    pub hours: BTreeMap<u64, u32>,
+}
+
+impl Session {
+    /// Counts one prompt or tool call at `t_ms`.
+    pub fn bump(&mut self, t_ms: u64) {
+        *self.hours.entry(t_ms / 3_600_000).or_default() += 1;
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
@@ -201,6 +211,7 @@ pub fn read_claude(path: &Path, since: u64, seen: &mut Seen) -> Option<Session> 
                         if seen.calls.insert(id.to_string()) {
                             let name = b["name"].as_str().unwrap_or("unknown").to_string();
                             s.tool_calls += 1;
+                            s.bump(t);
                             *s.calls_by_tool.entry(name.clone()).or_default() += 1;
                             pending.insert(id.to_string(), (name, t));
                         }
@@ -230,6 +241,7 @@ pub fn read_claude(path: &Path, since: u64, seen: &mut Seen) -> Option<Session> 
                     || o["turnOrigin"] == "task_notification";
                 if typed && !skip {
                     s.prompts += 1;
+                    s.bump(t);
                 }
             }
             _ => {}
@@ -304,12 +316,14 @@ pub fn read_codex(path: &Path, since: u64) -> Option<Session> {
                 // Developer/system context starts with a tag; a prompt doesn't.
                 if !text.trim().is_empty() && !text.trim_start().starts_with('<') {
                     s.prompts += 1;
+                    s.bump(t);
                 }
             }
             ("response_item", "function_call" | "custom_tool_call" | "local_shell_call") => {
                 let id = p["call_id"].as_str().or(p["id"].as_str()).unwrap_or("").to_string();
                 let name = p["name"].as_str().unwrap_or(pty).to_string();
                 s.tool_calls += 1;
+                s.bump(t);
                 *s.calls_by_tool.entry(name.clone()).or_default() += 1;
                 pending.insert(id, (name, t));
             }
@@ -339,7 +353,7 @@ pub fn read_opencode(db: &Path, since: u64) -> Vec<Session> {
             dirs.insert(id, (project_of(&dir.unwrap_or_default()), parent.is_some()));
         }
     }
-    let mut sess = |id: &str, t: u64, by: &mut BTreeMap<String, Session>| {
+    let sess = |id: &str, t: u64, by: &mut BTreeMap<String, Session>| {
         let (project, subagent) = dirs.get(id).cloned().unwrap_or_default();
         let s = by.entry(id.to_string()).or_insert_with(|| Session { id: short(id.trim_start_matches("ses_")), tool: "opencode".into(), project, subagent, ..Default::default() });
         if s.start == 0 || t < s.start {
@@ -356,6 +370,7 @@ pub fn read_opencode(db: &Path, since: u64) -> Vec<Session> {
             let s = by.get_mut(&key).unwrap();
             if o["role"] == "user" {
                 s.prompts += 1;
+                s.bump(t as u64);
             } else if o["role"] == "assistant" {
                 let k = &o["tokens"];
                 let g = |v: &Value| v.as_u64().unwrap_or(0);
@@ -378,6 +393,7 @@ pub fn read_opencode(db: &Path, since: u64) -> Vec<Session> {
             let s = by.get_mut(&key).unwrap();
             let name = o["tool"].as_str().unwrap_or("unknown").to_string();
             s.tool_calls += 1;
+            s.bump(t as u64);
             *s.calls_by_tool.entry(name.clone()).or_default() += 1;
             let failed = o["state"]["status"] == "error";
             match (o["state"]["time"]["start"].as_u64(), o["state"]["time"]["end"].as_u64()) {
@@ -523,6 +539,24 @@ pub struct ToolUsage {
     pub as_of: u64,
 }
 
+/// Prompts plus tool calls per hour for the last `days` days across every tool, oldest hour
+/// first; `days * 24` entries ending at the hour of `now_ms`. Reads the logs; call it off the UI thread.
+pub fn activity(home: &Path, now_ms: u64, days: u32) -> Vec<u32> {
+    let sum = summarize(home, now_ms, days, "", &[]);
+    let end = now_ms / 3_600_000;
+    let n = days as u64 * 24;
+    let first = (end + 1).saturating_sub(n);
+    let mut out = vec![0u32; n as usize];
+    for s in &sum.sessions {
+        for (h, c) in &s.hours {
+            if *h >= first && *h <= end {
+                out[(*h - first) as usize] += c;
+            }
+        }
+    }
+    out
+}
+
 /// Per-tool counts for the last 24 hours and 7 days, read from the logs under
 /// `home` (`sources`' locations). A tool whose log location is missing is left
 /// out: "No data yet". One whose location exists but holds nothing in a window
@@ -583,6 +617,21 @@ mod tests {
         assert!(v.iter().find(|s| s.id == "codex").unwrap().found);
         assert!(!v.iter().find(|s| s.id == "claude-code").unwrap().found);
         assert!(v.iter().filter(|s| s.supported).count() == 3);
+    }
+
+    #[test]
+    fn bump_counts_by_epoch_hour_and_activity_lays_them_out() {
+        let mut s = Session::default();
+        s.bump(5 * 3_600_000 + 10);
+        s.bump(5 * 3_600_000 + 999);
+        s.bump(3 * 3_600_000);
+        assert_eq!(s.hours.get(&5), Some(&2));
+        assert_eq!(s.hours.get(&3), Some(&1));
+        // An empty home has no logs: the right length, all zero.
+        let d = std::env::temp_dir().join(format!("bs-act-{}", std::process::id()));
+        std::fs::create_dir_all(&d).unwrap();
+        let a = activity(&d, 10 * 86_400_000, 2);
+        assert_eq!((a.len(), a.iter().sum::<u32>()), (48, 0));
     }
 
     #[test]

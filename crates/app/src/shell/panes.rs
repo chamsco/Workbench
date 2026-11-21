@@ -364,7 +364,7 @@ impl Cauldron {
                 .overflow_hidden()
                 .rounded(px(radius::PANEL))
                 .bg(backdrop::card_bg(self.painting, pal))
-                .shadow(lift(Lift::Card, pal))
+                .shadow(lift(Lift::Frame, pal))
                 .border_1()
                 .border_color(ring)
                 .aria_label(title)

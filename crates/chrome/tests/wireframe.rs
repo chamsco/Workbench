@@ -2,7 +2,7 @@
 //! (design/cauldron-tight-tiles/index.html, Charles 15 Nov). The golden file is measured from the
 //! board by tools/wireframe-golden/extract.js, never typed by hand.
 
-use cauldron_chrome::layout::{layout, metric, solve, support_width, Platform, Rect, Shell, ShellState};
+use cauldron_chrome::layout::{layout_framed, metric, solve, support_width, Platform, Rect, Shell, ShellState};
 use serde_json::Value;
 
 const GOLDEN: &str = include_str!("golden/wireframe.json");
@@ -57,7 +57,8 @@ fn solver_matches_every_golden_state_and_size() {
                 other => panic!("unknown platform {other}"),
             };
             let flags = state(st["sidebar_open"].as_bool().unwrap(), st["support_open"].as_bool().unwrap(), st["dock_open"].as_bool().unwrap());
-            let shell = layout(w, h, flags, platform);
+            // The board's 4px frame; the app's is metric::FRAME since 21 Nov.
+            let shell = layout_framed(w, h, flags, platform, metric::GAP);
             for (key, r) in st["rects"].as_object().unwrap() {
                 let got = pick(&shell, key);
                 if r["visible"].as_bool().unwrap() {
@@ -133,30 +134,30 @@ fn cards_are_tight_tiles_4px_apart() {
             let at = format!("{platform:?} {st:?}");
             // The Windows strip sits over the sidebar and the support card; the stream card's own
             // tab rises into it (20 Nov), so the stream column starts 4px from the top everywhere.
-            let top = 4.0;
+            let (top, f) = (metric::FRAME, metric::FRAME);
             for c in cards(&s) {
-                assert!(c.right() <= w - 4.0 + 0.01 && c.bottom() <= h - 4.0 + 0.01, "{at}: {c:?} keeps the 4px margin");
+                assert!(c.right() <= w - f + 0.01 && c.bottom() <= h - f + 0.01, "{at}: {c:?} keeps the 4px margin");
             }
-            assert_eq!(s.main.y, 4.0, "{at}: the stream card starts 4px from the top");
+            assert_eq!(s.main.y, f, "{at}: the stream card starts at the frame");
             match s.sidebar {
                 Some(sb) => {
-                    assert_eq!((sb.x, sb.y, sb.w, sb.bottom()), (0.0, top, 236.0, h - 4.0), "{at}: sidebar on the frame");
+                    assert_eq!((sb.x, sb.y, sb.w, sb.bottom()), (0.0, top, 236.0, h - f), "{at}: sidebar on the frame");
                     assert_eq!(s.main.x, sb.right() + 4.0, "{at}: card 4px from the sidebar");
                 }
-                None => assert_eq!(s.main.x, 4.0, "{at}: the card takes the left margin"),
+                None => assert_eq!(s.main.x, f, "{at}: the card takes the left margin"),
             }
             if let Some(sup) = s.support {
-                assert_eq!((sup.y, sup.bottom(), sup.right()), (top, h - 4.0, w - 4.0), "{at}: support card full height at the right");
+                assert_eq!((sup.y, sup.bottom(), sup.right()), (top, h - f, w - f), "{at}: support card full height at the right");
                 assert_eq!(s.main.right() + 4.0, sup.x, "{at}: 4px between stream and support");
             } else {
-                assert_eq!(s.main.right(), w - 4.0, "{at}: folded, the stream card runs to the margin");
+                assert_eq!(s.main.right(), w - f, "{at}: folded, the stream card runs to the margin");
             }
             match s.dock {
                 Some(d) => {
-                    assert_eq!((d.x, d.w, d.h, d.bottom()), (s.main.x, s.main.w, 200.0, h - 4.0), "{at}: the dock under the stream");
+                    assert_eq!((d.x, d.w, d.h, d.bottom()), (s.main.x, s.main.w, 200.0, h - f), "{at}: the dock under the stream");
                     assert_eq!(s.main.bottom() + 4.0, d.y, "{at}: 4px above the dock");
                 }
-                None => assert_eq!(s.main.bottom(), h - 4.0, "{at}: the stream runs to the bottom margin"),
+                None => assert_eq!(s.main.bottom(), h - f, "{at}: the stream runs to the bottom margin"),
             }
         }
     }
@@ -263,7 +264,7 @@ fn windows_has_no_strip_and_its_buttons_sit_in_the_card() {
         let win = solve(1200.0, 760.0, st, Platform::Windows);
         let notch = solve(1200.0, 760.0, st, Platform::WindowsNotch);
         assert!(win.bar.is_none() && win.notch.is_none() && win.pill.is_none(), "{st:?}");
-        assert_eq!(win.main.y, 4.0, "{st:?}: the card starts at the top margin");
+        assert_eq!(win.main.y, metric::FRAME, "{st:?}: the card starts at the frame");
         assert_eq!((win.main.x, win.main.w), (notch.main.x, notch.main.w), "{st:?}: same widths");
         let host = win.support.unwrap_or(win.main);
         let caps = win.caps.unwrap();
