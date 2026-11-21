@@ -79,7 +79,7 @@ pub(crate) struct Turn {
     assistant: HashSet<String>,
     /// Part id → its type ("text", "reasoning", "tool"…).
     kinds: HashMap<String, String>,
-    /// Text already passed on per text part, to fill in what came without deltas.
+    /// Text already passed on per text or reasoning part, to fill in what came without deltas.
     sent: HashMap<String, usize>,
     tools: HashSet<String>,
     said: bool,
@@ -139,6 +139,17 @@ impl Turn {
                             }
                         }
                     }
+                    // The same for reasoning that came without deltas.
+                    "reasoning" => {
+                        let text = part["text"].as_str().unwrap_or_default();
+                        let sent = self.sent.get(pid).copied().unwrap_or(0);
+                        if text.len() > sent && part["time"]["end"].is_number() {
+                            if let Some(rest) = text.get(sent..) {
+                                self.sent.insert(pid.into(), text.len());
+                                on(Event::Thinking { text: rest.into() });
+                            }
+                        }
+                    }
                     "tool" => {
                         let id = part["callID"].as_str().unwrap_or(pid).to_string();
                         let st = &part["state"];
@@ -170,7 +181,10 @@ impl Turn {
                 }
                 match self.kinds.get(pid).map(String::as_str) {
                     Some("text") => self.text(pid, d, on),
-                    Some("reasoning") => on(Event::Thinking { text: d.into() }),
+                    Some("reasoning") => {
+                        *self.sent.entry(pid.into()).or_insert(0) += d.len();
+                        on(Event::Thinking { text: d.into() });
+                    }
                     _ => {}
                 }
             }
@@ -396,6 +410,10 @@ mod tests {
             ev("message.updated", json!({"sessionID": s, "info": {"id": "msg_a", "role": "assistant", "providerID": "opencode", "modelID": "beam-free", "sessionID": s}})),
             ev("message.part.updated", json!({"sessionID": s, "part": {"id": "prt_r", "messageID": "msg_a", "type": "reasoning", "text": ""}})),
             ev("message.part.delta", json!({"sessionID": s, "partID": "prt_r", "field": "text", "delta": "thinking"})),
+            // Its finished part repeats what the delta sent: nothing new.
+            ev("message.part.updated", json!({"sessionID": s, "part": {"id": "prt_r", "messageID": "msg_a", "type": "reasoning", "text": "thinking", "time": {"start": 1, "end": 2}}})),
+            // Reasoning that came whole, with no deltas.
+            ev("message.part.updated", json!({"sessionID": s, "part": {"id": "prt_r2", "messageID": "msg_a", "type": "reasoning", "text": "more", "time": {"start": 1, "end": 2}}})),
             ev("message.part.updated", json!({"sessionID": s, "part": {"id": "prt_1", "messageID": "msg_a", "type": "text", "text": ""}})),
             ev("message.part.delta", json!({"sessionID": s, "partID": "prt_1", "field": "text", "delta": "Hello "})),
             ev("message.part.delta", json!({"sessionID": "ses_other", "partID": "prt_1", "field": "text", "delta": "NOT MINE"})),
@@ -415,7 +433,8 @@ mod tests {
         }
         let text: String = got.iter().filter_map(|e| if let Event::Text { text } = e { Some(text.as_str()) } else { None }).collect();
         assert_eq!(text, "Hello thereDone.");
-        assert!(got.iter().any(|e| matches!(e, Event::Thinking { text } if text == "thinking")));
+        let thought: Vec<&str> = got.iter().filter_map(|e| if let Event::Thinking { text } = e { Some(text.as_str()) } else { None }).collect();
+        assert_eq!(thought, ["thinking", "more"]);
         assert!(got.iter().any(|e| matches!(e, Event::Model { model } if model == "opencode/beam-free")));
         assert!(got.iter().any(|e| matches!(e, Event::ToolStart { id, name, .. } if id == "call_1" && name == "bash")));
         assert!(got.iter().any(|e| matches!(e, Event::ToolEnd { output, error: false, .. } if output == "a.txt")));

@@ -7,6 +7,7 @@
 use super::*;
 use backspace_core::chat::{Ctx, Msg, Role, Status, Thread};
 use gpui_kit::component::input::{Textarea, TextareaState};
+use gpui::{linear_color_stop, linear_gradient, HighlightStyle, StyledText};
 use gpui_kit::prelude::FluentBuilder;
 
 /// One transcript entry as drawn.
@@ -21,6 +22,8 @@ pub(super) struct Line {
     pub meta: Option<String>,
     /// The reply as text and steps, when it recorded any steps (board A); else empty.
     pub parts: Vec<super::ledger::Part>,
+    /// When it was sent (ms), for the wait timer.
+    pub at: u64,
 }
 
 /// A failed reply, read for people: `reason` in words, the exit code, a hint for causes we know,
@@ -70,7 +73,7 @@ pub(super) fn failure(e: &str) -> Failure {
 }
 
 pub(super) fn lines(t: &Thread) -> Vec<Line> {
-    t.messages.iter().map(|m| Line { id: m.id.clone(), mine: m.role == Role::User, text: m.text.clone(), status: m.status, error: m.error.clone(), meta: meta(m), parts: reply_parts(m) }).collect()
+    t.messages.iter().map(|m| Line { id: m.id.clone(), mine: m.role == Role::User, text: m.text.clone(), status: m.status, error: m.error.clone(), meta: meta(m), parts: reply_parts(m), at: m.at }).collect()
 }
 
 /// A reply's text and steps, when it recorded steps. In flight is `Sending` or `Streaming`, unless
@@ -176,6 +179,30 @@ fn pending(s: Status) -> Option<&'static str> {
     }
 }
 
+/// The first `n` characters of `s`.
+fn head(s: &str, n: usize) -> &str {
+    s.char_indices().nth(n).map_or(s, |(i, _)| &s[..i])
+}
+
+/// How much of a live paragraph of `total` characters to show at `now` (ms), from where it was
+/// (`shown`, when last drawn at `last`). Providers send bursts (OpenCode: half a minute of
+/// nothing, then a paragraph in under a second), so the text comes out at a steady pace that
+/// gains on what has arrived: never slower than 60 characters a second, about a third of a second
+/// behind at most.
+fn pace(shown: f32, last: u64, total: usize, now: u64) -> f32 {
+    let dt = now.saturating_sub(last).min(200) as f32;
+    let behind = (total as f32 - shown).max(0.0);
+    (shown + dt * (behind / 300.0).max(0.06)).min(total as f32)
+}
+
+/// Text with the live edge after it: a caret in the accent that blinks once a second.
+fn caret(text: &str, now: u64, accent: Hsla) -> StyledText {
+    let s = format!("{text}\u{258d}");
+    let on = (now / 530) % 2 == 0;
+    let hl = vec![(text.len()..s.len(), HighlightStyle { color: Some(accent.opacity(if on { 1.0 } else { 0.0 })), ..Default::default() })];
+    StyledText::new(s).with_highlights(hl)
+}
+
 /// A reply on its way: what its status line says.
 fn live(s: Status) -> Option<&'static str> {
     match s {
@@ -188,7 +215,7 @@ fn live(s: Status) -> Option<&'static str> {
 /// A 6px dot in a 16px slot, then the label: the same slot and 8px gap as the step lines, so the
 /// label starts where their text does. It stays under the text while the reply streams. No agent
 /// bust: figures belong to the Agents page (Charles, 13 Nov).
-fn status_line(i: usize, label: &'static str, grey: Rgb) -> impl IntoElement {
+fn status_line(i: usize, label: &'static str, since: Option<u64>, grey: Rgb) -> impl IntoElement {
     div()
         .id(("live", i))
         .flex()
@@ -200,6 +227,8 @@ fn status_line(i: usize, label: &'static str, grey: Rgb) -> impl IntoElement {
         .aria_label(label)
         .child(div().id(("live-slot", i)).size(px(16.)).flex_none().flex().items_center().justify_center().child(super::mark::mark(("live-mark", i), if label == "Writing" { Mark::Working } else { Mark::Waiting }, super::mark::SIZE, c(grey))).test_support())
         .child(div().id(("live-text", i)).child(label).test_support())
+        // How long it has waited, as the step lines count theirs.
+        .when_some(since, |d, t0| d.child(div().ml_auto().flex_none().font_family(MONO).font_features(tnum()).text_size(px(11.5)).child(super::ledger::dur(super::ledger::now_ms().saturating_sub(t0)))))
         .test_support()
 }
 
@@ -543,7 +572,10 @@ impl Cauldron {
         let ls = lines(t);
         // Keep the newest message in view when a thread opens or grows, in a short pane too.
         let seen = Some((t.id.clone(), ls.len()));
-        if *self.transcript_seen.borrow() != seen {
+        // While a reply grows, keep following it, unless the reader scrolled up.
+        let at_bottom = -self.transcript_scroll.offset().y >= self.transcript_scroll.max_offset().y - px(40.);
+        let growing = ls.last().is_some_and(|l| live(l.status).is_some());
+        if *self.transcript_seen.borrow() != seen || (growing && at_bottom) {
             self.transcript_scroll.scroll_to_bottom();
             *self.transcript_seen.borrow_mut() = seen;
         }
@@ -592,7 +624,35 @@ impl Cauldron {
                     continue;
                 }
             }
-            let shown = if l.text.is_empty() { pending(l.status).unwrap_or("").to_string() } else { l.text.clone() };
+            let streaming = l.status == Status::Streaming && !cx.reduce_motion();
+            let mut shown = if l.text.is_empty() { pending(l.status).unwrap_or("").to_string() } else { l.text.clone() };
+            // The live paragraph, paced (see `pace`), with a caret at its end.
+            let last_text = l.parts.iter().rposition(|p| matches!(p, super::ledger::Part::Text(_)));
+            let tail = if !streaming || l.mine {
+                None
+            } else if l.parts.is_empty() {
+                (!l.text.is_empty()).then(|| (format!("{}:", l.id), l.text.clone()))
+            } else {
+                last_text.filter(|&j| j + 1 == l.parts.len()).and_then(|j| match &l.parts[j] {
+                    super::ledger::Part::Text(t) => Some((format!("{}:{j}", l.id), t.clone())),
+                    _ => None,
+                })
+            };
+            let paced: Option<String> = tail.map(|(key, text)| {
+                let total = text.chars().count();
+                let mut map = self.paced.borrow_mut();
+                // First seen with text already there (a stream opened mid-reply): no replay.
+                let (was, last) = map.get(&key).copied().unwrap_or((total as f32, now_ms));
+                let n = pace(was, last, total, now_ms);
+                map.insert(key, (n, now_ms));
+                if (n as usize) < total {
+                    self.pace_behind.set(true);
+                }
+                head(&text, n as usize).to_string()
+            });
+            if let (Some(p), true) = (&paced, l.parts.is_empty()) {
+                shown = p.clone();
+            }
             if l.mine {
                 let k = if fresh_mine == Some(i) { bubble_k } else { 1.0 };
                 msgs = msgs.child(
@@ -618,9 +678,9 @@ impl Cauldron {
                 continue;
             }
             // ponytail: replies draw as plain text; markdown rendering is a later pass.
+            // The full column, the composer's width (Charles, 21 Nov: "using the entire space").
             let mut say = div()
                 .id(("msg", i))
-                .max_w(px(560.))
                 .flex()
                 .flex_col()
                 .gap(px(6.))
@@ -632,12 +692,18 @@ impl Cauldron {
                     }
                     d.child(col.test_support())
                 })
-                .when_live(l.parts.is_empty() && (!l.text.is_empty() || live(l.status).is_none()), |d| d.child(div().text_size(px(14.)).line_height(px(22.)).text_color(if l.text.is_empty() { fg3 } else { fg }).child(shown.clone())))
-                .when_some(live(l.status).filter(|_| l.parts.is_empty()), |d, label| d.child(status_line(i, label, pal.fg3)));
+                .when_live(l.parts.is_empty() && (!l.text.is_empty() || live(l.status).is_none()), |d| d.child(div().text_size(px(14.)).line_height(px(22.)).text_color(if l.text.is_empty() { fg3 } else { fg }).child(match &paced {
+                    Some(p) => caret(p, now_ms, c(pal.accent)).into_any_element(),
+                    None => shown.clone().into_any_element(),
+                })))
+                .when_some(live(l.status).filter(|_| l.parts.is_empty()), |d, label| d.child(status_line(i, label, (l.status == Status::Sending).then_some(l.at), pal.fg3)));
             // The ledger (board A): the text and the steps in the order they happened.
             for (j, part) in l.parts.iter().enumerate() {
                 say = match part {
-                    super::ledger::Part::Text(t) => say.child(div().id(("part", i * 1000 + j)).text_size(px(14.)).line_height(px(22.)).text_color(fg).child(t.clone())),
+                    super::ledger::Part::Text(t) => say.child(div().id(("part", i * 1000 + j)).text_size(px(14.)).line_height(px(22.)).text_color(fg).child(match (&paced, Some(j) == last_text) {
+                        (Some(p), true) => caret(p, now_ms, c(pal.accent)).into_any_element(),
+                        _ => t.clone().into_any_element(),
+                    })),
                     super::ledger::Part::Step(st) => say.child(self.step_el(st, st.end.is_none(), now_ms, pal, cx)),
                 };
             }
@@ -746,7 +812,10 @@ impl Cauldron {
             .border_1()
             .border_color(c(pal.line))
             .bg(super::backdrop::surface(self.painting, pal.raised, super::backdrop::GLASS_COMPOSER))
-            .shadow(super::lift(super::Lift::Box, pal))
+            // The light along the top only: the long shadow and the ring outside the border drew a
+            // double halo round the box on Windows (Charles, 21 Nov). The transcript fades out
+            // above it instead ("composer-fade").
+            .shadow(super::lift(super::Lift::Box, pal).split_off(2))
             .aria_label("Message the coordinator");
         composer = if tiny {
             // A very short pane: one row, the editor and Send, no chips.
@@ -814,8 +883,9 @@ impl Cauldron {
             if let Some(b) = t.project.as_deref().and_then(branch) {
                 bar = bar.child(item("ctx-branch", "git-branch", b));
             }
-            // ponytail: core has no worktrees yet; shown dimmed, as on the new-stream bar.
-            bar.child(div().opacity(0.5).child(item("ctx-worktree", "git-fork", "Worktree".into()))).test_support()
+            // No Worktree chip: it did nothing (Charles, 21 Nov), and moving an open stream to a new
+            // folder would lose the CLI's session, which it finds by folder.
+            bar.test_support()
         });
         // Scroll ticks on the right edge (the board's `.mm`): one per response, the one at the
         // top of the view in the accent; a click jumps to it.
@@ -860,7 +930,21 @@ impl Cauldron {
             .py(px(if short { 8. } else { 14. }))
             .child(msgs.test_support())
             .children(ticks)
-            .child(div().flex().flex_col().gap(px(6.)).children(ctx_bar).child(composer.test_support()))
+            .child(
+                div()
+                    .relative()
+                    .flex()
+                    .flex_col()
+                    .gap(px(6.))
+                    // A real fade: the transcript dissolves into the card above the box. Not over a
+                    // picture (the Harbour or the user's), where a band of the card's colour would cover it.
+                    .when_live(!self.painting && self.stream_bg.is_none(), |d| {
+                        let bg = super::backdrop::card_bg(false, pal);
+                        d.child(div().id("composer-fade").absolute().left_0().right_0().top(px(-40.)).h(px(40.)).bg(linear_gradient(180., linear_color_stop(bg.opacity(0.), 0.), linear_color_stop(bg, 1.))).test_support())
+                    })
+                    .children(ctx_bar)
+                    .child(composer.test_support()),
+            )
             .when_live(!short, |d| d.child(div().flex().items_end().justify_between().gap(px(8.)).child(usage).children(self.usage_badges(pal))))
             .into_any_element()
     }
