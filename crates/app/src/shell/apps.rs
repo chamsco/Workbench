@@ -93,9 +93,11 @@ impl Cauldron {
                     };
                     list = list.child(
                         row(("agent-row", i), Some(dot), f.name.clone(), familiar::state_text(f.state).into())
+                            .when_live(self.section_page && self.pages.agent == i, |d| d.bg(c(pal.selected)))
                             .on_click(cx.listener(move |this, _, _, cx| {
-                                this.select_section(0, cx);
-                                this.open_familiar(i);
+                                // The page beside shows it (Charles, 21 Nov 17:25Z: the list lives in the sidebar).
+                                this.pages.agent = i;
+                                this.select_section(3, cx);
                                 cx.notify();
                             }))
                             .test_support(),

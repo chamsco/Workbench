@@ -367,39 +367,17 @@ impl Cauldron {
             FamState::Done => "Done",
             FamState::Failed => "Failed",
         };
-        let mut left = div().w(px(232.)).flex_none().h_full().flex().flex_col().gap(px(2.)).p(px(10.)).border_r_1().border_color(c(pal.line));
-        left = left.child(div().px(px(6.)).pb(px(6.)).flex().items_center().gap(px(6.)).text_size(px(11.5)).text_color(fg3).child("Familiars").children((!real).then(|| Self::mock_tag(pal))));
-        for (i, (n, _, s, _)) in roster.iter().enumerate() {
-            let on = i == sel;
-            left = left.child(
-                div()
-                    .id(("agent-row", i))
-                    .h(px(46.))
-                    .px(px(8.))
-                    .flex()
-                    .items_center()
-                    .gap(px(9.))
-                    .rounded(px(radius::CONTROL))
-                    .cursor_pointer()
-                    .when_live(on, |d| d.bg(c(pal.selected)))
-                    .hover(|d| d.bg(c(pal.hover)))
-                    .aria_label(format!("{n}, {}", state_txt(*s)))
-                    .child(img(Arc::new(Image::from_bytes(ImageFormat::Svg, avatar::svg(i, Mood::Idle, Look { px: 30., outline: false, ms: None, bust: true, ink: None }).into_bytes()))).size(px(30.)))
-                    .child(div().flex_1().min_w_0().flex().flex_col().child(div().truncate().text_size(px(12.5)).text_color(fg).child(n.clone())).child(div().flex().items_center().gap(px(5.)).text_size(px(11.)).text_color(fg3).child(div().size(px(6.)).rounded_full().bg(state_col(*s))).child(state_txt(*s))))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.pages.agent = i;
-                        cx.notify();
-                    }))
-                    .test_support(),
-            );
-        }
-        left = left.child(
-            div().id("agent-new").mt(px(6.)).h(px(30.)).px(px(8.)).flex().items_center().rounded(px(radius::CONTROL)).cursor_pointer().text_size(px(12.5)).text_color(fg2).hover(|d| d.bg(c(pal.hover))).aria_label("New familiar").child("+ New familiar").on_click(cx.listener(|this, _, window, cx| this.new_familiar(window, cx))).test_support(),
-        );
         // The middle: the goal and the crew's tickets, over the composer.
         let mut mid = div().flex_1().min_w_0().h_full().flex().flex_col().p(px(18.)).gap(px(10.));
-        mid = mid.child(div().flex().items_center().gap(px(8.)).child(div().text_size(px(16.)).font_weight(FontWeight::SEMIBOLD).text_color(fg).child(name.clone())).child(div().size(px(7.)).rounded_full().bg(state_col(state))).child(div().text_size(px(12.)).text_color(fg3).child(state_txt(state))));
+        mid = mid.child(div().flex().items_center().gap(px(8.)).child(div().text_size(px(16.)).font_weight(FontWeight::SEMIBOLD).text_color(fg).child(name.clone())).child(div().size(px(7.)).rounded_full().bg(state_col(state))).child(div().text_size(px(12.)).text_color(fg3).child(state_txt(state))).children((!real).then(|| Self::mock_tag(pal))));
         mid = mid.child(div().text_size(px(13.)).line_height(px(19.)).text_color(fg2).child(goal));
+        if real {
+            mid = mid.child(div().id("agent-open").self_start().px(px(10.)).h(px(24.)).flex().items_center().rounded(px(radius::CONTROL)).bg(c(pal.raised)).shadow(lift(Lift::Button, pal)).cursor_pointer().text_size(px(12.)).aria_label("Open familiar").child("Open familiar").on_click(cx.listener(move |this, _, _, cx| {
+                this.select_section(0, cx);
+                this.open_familiar(sel);
+                cx.notify();
+            })).test_support());
+        }
         mid = mid.child(div().mt(px(8.)).text_size(px(11.5)).text_color(fg3).child("Crew"));
         for (i, (n, t, s)) in crew.iter().enumerate() {
             mid = mid.child(
@@ -455,7 +433,7 @@ impl Cauldron {
             1 => right = right.child(div().text_size(px(12.)).line_height(px(17.)).text_color(fg3).child("Traces of each tool call will list here. Not wired yet.")),
             _ => right = right.child(div().text_size(px(12.)).line_height(px(17.)).text_color(fg3).child("Routines the agent repeats will list here. Not wired yet.")),
         }
-        div().id("agents-page").size_full().flex().child(left).child(mid).child(right).test_support().into_any_element()
+        div().id("agents-page").size_full().flex().child(mid).child(right).test_support().into_any_element()
     }
 
     // ---- Library ---------------------------------------------------------------------------

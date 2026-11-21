@@ -3593,6 +3593,27 @@ mod tests {
         .unwrap();
     }
 
+    /// Familiars are listed in the sidebar under Agents, not in the page; picking one shows its
+    /// crew in the page without leaving it (Charles, 21 Nov 17:25Z).
+    #[gpui_kit::test]
+    fn agents_roster_lives_in_the_sidebar(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = open(cx, Cauldron { fam_views: super::familiar::fixtures(), ..with_threads() });
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            window.click(("fn", 3usize), cx);
+            window.render_frame(cx);
+            assert!(window.try_find("agents-page").is_some());
+            assert!(window.try_find(("agent-row", 1usize)).is_some(), "the list is in the sidebar");
+            let (row, page) = (rect(window, ("agent-row", 0usize)), rect(window, "agents-page"));
+            assert!(row.right() <= page.x, "the row is left of the page, not inside it");
+            window.click(("agent-row", 1usize), cx);
+            window.render_frame(cx);
+            assert!(window.try_find("agents-page").is_some(), "picking one stays on the page");
+        })
+        .unwrap();
+    }
+
     /// The top row's search button opens the search row; the folded sidebar's hover indent (Tight
     /// tiles rule 6) appears when the pointer reaches the window's left edge, over the card with no
     /// reflow: search, New stream, the six apps, Settings. Leaving it hides it.
