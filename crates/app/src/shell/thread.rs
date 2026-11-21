@@ -7,7 +7,7 @@
 use super::*;
 use backspace_core::chat::{Ctx, Msg, Role, Status, Thread};
 use gpui_kit::component::input::{Textarea, TextareaState};
-use gpui::{linear_color_stop, linear_gradient, HighlightStyle, StyledText};
+use gpui::{linear_color_stop, linear_gradient};
 use gpui_kit::prelude::FluentBuilder;
 
 /// One transcript entry as drawn.
@@ -193,14 +193,6 @@ fn pace(shown: f32, last: u64, total: usize, now: u64) -> f32 {
     let dt = now.saturating_sub(last).min(200) as f32;
     let behind = (total as f32 - shown).max(0.0);
     (shown + dt * (behind / 300.0).max(0.06)).min(total as f32)
-}
-
-/// Text with the live edge after it: a caret in the accent that blinks once a second.
-fn caret(text: &str, now: u64, accent: Hsla) -> StyledText {
-    let s = format!("{text}\u{258d}");
-    let on = (now / 530) % 2 == 0;
-    let hl = vec![(text.len()..s.len(), HighlightStyle { color: Some(accent.opacity(if on { 1.0 } else { 0.0 })), ..Default::default() })];
-    StyledText::new(s).with_highlights(hl)
 }
 
 /// A reply on its way: what its status line says.
@@ -694,18 +686,21 @@ impl Cauldron {
                     }
                     d.child(col.test_support())
                 })
-                .when_live(l.parts.is_empty() && (!l.text.is_empty() || live(l.status).is_none()), |d| d.child(div().text_size(px(14.)).line_height(px(22.)).text_color(if l.text.is_empty() { fg3 } else { fg }).child(match &paced {
-                    Some(p) => caret(p, now_ms, c(pal.accent)).into_any_element(),
-                    None => shown.clone().into_any_element(),
-                })))
+                .when_live(l.parts.is_empty() && (!l.text.is_empty() || live(l.status).is_none()), |d| {
+                    if l.text.is_empty() {
+                        d.child(div().text_size(px(14.)).line_height(px(22.)).text_color(fg3).child(shown.clone()))
+                    } else {
+                        d.child(self.md_el(&shown, &l.id, paced.as_ref().map(|_| (now_ms, c(pal.accent))), pal, cx))
+                    }
+                })
                 .when_some(live(l.status).filter(|_| l.parts.is_empty()), |d, label| d.child(status_line(i, label, (l.status == Status::Sending).then_some(l.at), pal.fg3)));
             // The ledger (board A): the text and the steps in the order they happened.
             for (j, part) in l.parts.iter().enumerate() {
                 say = match part {
-                    super::ledger::Part::Text(t) => say.child(div().id(("part", i * 1000 + j)).text_size(px(14.)).line_height(px(22.)).text_color(fg).child(match (&paced, Some(j) == last_text) {
-                        (Some(p), true) => caret(p, now_ms, c(pal.accent)).into_any_element(),
-                        _ => t.clone().into_any_element(),
-                    })),
+                    super::ledger::Part::Text(t) => {
+                        let live_tail = paced.as_ref().filter(|_| Some(j) == last_text);
+                        say.child(div().id(("part", i * 1000 + j)).child(self.md_el(live_tail.unwrap_or(t), &format!("{}:{j}", l.id), live_tail.map(|_| (now_ms, c(pal.accent))), pal, cx)))
+                    }
                     super::ledger::Part::Step(st) => say.child(self.step_el(st, st.end.is_none(), now_ms, pal, cx)),
                 };
             }

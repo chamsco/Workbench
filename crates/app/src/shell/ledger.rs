@@ -28,6 +28,8 @@ pub(super) struct Step {
     pub error: bool,
     /// What opens under the line: the reasoning, or a command and what it printed.
     pub detail: Option<String>,
+    /// A command step's command, drawn in mono after "Ran" (Tuff UI: tool name and its argument).
+    pub cmd: Option<String>,
 }
 
 fn base(path: &str) -> String {
@@ -49,8 +51,18 @@ fn short(s: &str, n: usize) -> String {
 }
 
 /// The kind a step merges under, with its plural for "Read 3 files".
+/// A tool's name as the CLIs that capitalise it call it: OpenCode says "bash", Claude Code "Bash".
+fn canon(name: &str) -> &str {
+    const NAMES: [&str; 14] = ["Read", "Edit", "MultiEdit", "Write", "NotebookEdit", "Grep", "Glob", "LS", "WebSearch", "WebFetch", "Bash", "PowerShell", "Task", "TodoWrite"];
+    match name {
+        "list" => "LS",
+        "patch" => "Edit",
+        _ => NAMES.iter().find(|n| n.eq_ignore_ascii_case(name)).copied().unwrap_or(name),
+    }
+}
+
 fn kind(name: &str) -> Option<(&'static str, &'static str, &'static str)> {
-    Some(match name {
+    Some(match canon(name) {
         "Read" => ("read", "Read", "files"),
         "Edit" | "MultiEdit" | "Write" | "NotebookEdit" => ("edit", "Edited", "files"),
         "Grep" | "Glob" | "LS" => ("search", "Searched", "times"),
@@ -60,8 +72,8 @@ fn kind(name: &str) -> Option<(&'static str, &'static str, &'static str)> {
 }
 
 fn describe(a: &Act, thinking: Option<&str>) -> (String, String, Option<String>) {
-    let file = field(&a.input, &["file_path", "path", "notebook_path"]).map(|p| base(&p));
-    match a.name.as_str() {
+    let file = field(&a.input, &["file_path", "filePath", "path", "notebook_path"]).map(|p| base(&p));
+    match canon(&a.name) {
         // Its own text; a thread from before Thoughts kept theirs has only the reply's, for the first.
         "Thinking" => ("Thinking".into(), "Thought".into(), Some(a.output.as_str()).filter(|t| !t.trim().is_empty()).or(thinking).filter(|t| !t.trim().is_empty()).map(str::to_string)),
         "Read" => {
@@ -133,7 +145,7 @@ pub(super) fn parts(m: &Msg, running: bool) -> Vec<Part> {
             (Some(e), Some((k, _, _))) if !a.error => Some((k, 1, a.start, e)),
             _ => None,
         };
-        out.push(Part::Step(Step { key: format!("{}:{i}", m.id), live, done, start: a.start, end, error: a.error, detail }));
+        out.push(Part::Step(Step { key: format!("{}:{i}", m.id), live, done, start: a.start, end, error: a.error, detail, cmd: matches!(canon(&a.name), "Bash" | "PowerShell").then(|| field(&a.input, &["command"]).map(|c| short(&c, 56))).flatten().filter(|c| !c.is_empty()) }));
     }
     push_text(&mut out, &m.text[prev.min(m.text.len())..]);
     out
@@ -191,9 +203,9 @@ impl Cauldron {
             _ => None,
         };
         let key = s.key.clone();
-        let glyph_el: AnyElement = if foldable {
-            glyph(if open { "chevron-down" } else { "chevron-right" }, 10., if live { accent } else { fg3 }).into_any_element()
-        } else if live {
+        // The status stays on the left (a failed command keeps its X); a foldable step's chevron is
+        // after its time, as on Tuff UI's tool rows.
+        let glyph_el: AnyElement = if live {
             // A breathing dot, in step with the sweep.
             let breath = if still { 1.0 } else { 0.35 + 0.65 * (((now % 1100) as f32 / 1100.0) * std::f32::consts::TAU).sin().abs() };
             div().size(px(6.)).rounded_full().bg(accent).opacity(breath).into_any_element()
@@ -202,7 +214,20 @@ impl Cauldron {
         } else {
             glyph("check", 13., c(pal.ok)).into_any_element()
         };
-        let text_el: AnyElement = if live { shimmer(&label, now, fg3, fg, still).into_any_element() } else { div().child(label.clone()).into_any_element() };
+        let text_el: AnyElement = match &s.cmd {
+            // A command: the verb, then the command itself in mono (Tuff UI: tool name and argument).
+            Some(cmd) => {
+                let verb = if live { "Running" } else { "Ran" };
+                div()
+                    .flex()
+                    .gap(px(8.))
+                    .child(div().flex_none().child(if live { shimmer(verb, now, fg3, fg, still).into_any_element() } else { verb.into_any_element() }))
+                    .child(div().min_w_0().overflow_hidden().text_ellipsis().font_family(MONO).text_size(px(11.5)).text_color(if live { fg } else { fg3.opacity(0.85) }).child(cmd.clone()))
+                    .into_any_element()
+            }
+            None if live => shimmer(&label, now, fg3, fg, still).into_any_element(),
+            None => div().child(label.clone()).into_any_element(),
+        };
         let row = div()
             .id(format!("step-{key}"))
             .flex()
@@ -218,6 +243,7 @@ impl Cauldron {
             .child(div().size(px(16.)).flex_none().flex().items_center().justify_center().child(glyph_el))
             .child(div().min_w_0().overflow_hidden().whitespace_nowrap().text_ellipsis().child(text_el))
             .when_some(time, |d, t| d.child(div().ml_auto().flex_none().font_family(MONO).font_features(tnum()).text_size(px(11.5)).child(t)))
+            .when_live(foldable, |d| d.child(div().w(px(14.)).flex_none().flex().items_center().justify_center().child(glyph(if open { "chevron-down" } else { "chevron-right" }, 10., if live { accent } else { fg3 }))))
             .when_live(foldable, |d| {
                 let k = key.clone();
                 d.cursor_pointer().hover(|d| d.text_color(fg)).on_click(cx.listener(move |this, _, _, cx| {
@@ -280,6 +306,15 @@ mod tests {
         assert!(matches!(&p[0], Part::Text(t) if t == "Looking."));
         assert!(matches!(&p[1], Part::Step(s) if s.done == "Read b.rs" && s.live == "Reading b.rs"));
         assert!(matches!(&p[2], Part::Text(t) if t == "Found it."));
+    }
+
+    #[::core::prelude::v1::test]
+    fn lower_case_tool_names_get_the_same_lines() {
+        // OpenCode names its tools "bash", "write", "read".
+        let m = msg("done", vec![act("bash", r#"{"command":"ls -la"}"#, 0, 0, Some(100)), act("write", r#"{"filePath":"C:/x/index.html"}"#, 0, 200, Some(300))]);
+        let p = parts(&m, false);
+        assert!(matches!(&p[0], Part::Step(s) if s.cmd.as_deref() == Some("ls -la") && s.done == "Ran ls -la"), "{p:?}");
+        assert!(matches!(&p[1], Part::Step(s) if s.done == "Edited index.html"), "{p:?}");
     }
 
     #[::core::prelude::v1::test]
