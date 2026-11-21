@@ -57,9 +57,9 @@ fn rail_mark(provider: &str, name: &str) -> String {
     }
 }
 
-/// CLIs whose runner passes the Reasoning level on (`--effort`, `model_reasoning_effort`).
+/// CLIs whose runner passes the Reasoning level on (`--effort`, `model_reasoning_effort`, OpenCode's variant).
 fn takes_effort(provider: &str) -> bool {
-    matches!(provider, "claude" | "codex")
+    matches!(provider, "claude" | "codex" | "opencode")
 }
 
 /// A row's label: the CLI's display name for the model, else its id, without the group's prefix
@@ -147,7 +147,7 @@ impl Cauldron {
     /// Reasoning and Access under it; a detail panel when `detail` and a model is under the pointer.
     #[inline(never)]
     pub(super) fn picker_body(&self, to: PickFor, route: Option<&Route>, detail: bool, pal: &'static Palette, cx: &mut Context<Self>) -> Div {
-        let (fg, fg2, fg3) = (c(pal.fg), c(pal.fg2), c(pal.fg3));
+        let (fg2, fg3) = (c(pal.fg2), c(pal.fg3));
         let mut clis: Vec<&CliStatus> = self.start.providers.iter().collect();
         clis.sort_by_key(|s| (!s.installed, !s.ready()));
         let favs = Prefs::load().fav_models;

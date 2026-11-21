@@ -21,6 +21,7 @@ use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 
 pub mod a2a;
+mod opencode;
 
 /// Windows `CREATE_NO_WINDOW`: a console program started by the app (a GUI
 /// program with no console) gets no window of its own. Without it every git,
@@ -566,6 +567,10 @@ fn build_cli(req: &Request, provider: &str, bin: &PathBuf) -> Result<(tokio::pro
 }
 
 async fn run_cli(req: &Request, provider: &str, bin: &PathBuf, on: Sink<'_>) -> Result<()> {
+    // OpenCode runs through its own server: real sessions and live tokens.
+    if provider == "opencode" {
+        return opencode::run(req, bin, on).await;
+    }
     let (mut cmd, stdin_text) = build_cli(req, provider, bin)?;
     let mut child = cmd.spawn().with_context(|| format!("starting {}", bin.display()))?;
     // Dropping the turn kills the CLI; on Windows its `.cmd` shim's node
