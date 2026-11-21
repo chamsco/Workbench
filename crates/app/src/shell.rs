@@ -217,6 +217,8 @@ pub(crate) struct Cauldron {
     plan: bool,
     /// The open-in split button's menu, and the last choice its left half repeats.
     open_in_menu: bool,
+    /// Failed replies whose CLI output is unfolded (by message id).
+    err_open: std::collections::HashSet<String>,
     open_in: thread::OpenIn,
     /// The search row is open (the top row's search button), and the folded sidebar's hover
     /// indent is showing.
@@ -487,7 +489,7 @@ impl Cauldron {
     }
 
     pub(crate) fn new() -> Self {
-        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, support_data: Default::default(), files_open: Default::default(), painting: false, glass: Default::default(), ask_hover: false, ask_open: None, ask_answered: Default::default(), fam_questions: Default::default(), frost: backdrop::FrostLevel::Heavy, stream_bg: None, theme_mode: String::new(), root_focus: None, plan: false, open_in_menu: false, open_in: thread::OpenIn::Folder, search_open: false, indent: false, usage: Default::default(), settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, familiar: None, fam_views: Vec::new(), fam_live: Vec::new(), fam_watch: Vec::new(), fam_driving: Default::default(), fam_error: None, fam_composer: None, fam_fixture: false, inbox: Vec::new(), inbox_open: false, update: Default::default(), update_open: false, inbox_toast: None, fam_from: (0.0, 0.0), fam_to: None, fam_since: None, fam_hl: 0, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default() }
+        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, support_data: Default::default(), files_open: Default::default(), painting: false, glass: Default::default(), ask_hover: false, ask_open: None, ask_answered: Default::default(), fam_questions: Default::default(), frost: backdrop::FrostLevel::Heavy, stream_bg: None, theme_mode: String::new(), root_focus: None, plan: false, open_in_menu: false, open_in: thread::OpenIn::Folder, search_open: false, indent: false, usage: Default::default(), settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), coordinator: None, familiar: None, fam_views: Vec::new(), fam_live: Vec::new(), fam_watch: Vec::new(), fam_driving: Default::default(), fam_error: None, fam_composer: None, fam_fixture: false, inbox: Vec::new(), inbox_open: false, update: Default::default(), update_open: false, inbox_toast: None, fam_from: (0.0, 0.0), fam_to: None, fam_since: None, fam_hl: 0, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default(), err_open: Default::default() }
     }
 
     /// Opens core off the main thread (the sidebar shows Loading meanwhile), then keeps the thread
@@ -774,8 +776,8 @@ impl Cauldron {
             ScrollDelta::Lines(p) => -(p.y + p.x),
             ScrollDelta::Pixels(p) => {
                 self.wheel -= f32::from(p.y + p.x);
-                let st = (self.wheel / (TAB_MIN + TAB_GAP)).trunc();
-                self.wheel -= st * (TAB_MIN + TAB_GAP);
+                let st = (self.wheel / (TAB_MIN + TAB_SEP)).trunc();
+                self.wheel -= st * (TAB_MIN + TAB_SEP);
                 st
             }
         };
@@ -1132,10 +1134,40 @@ impl Cauldron {
         }
     }
 
+    /// A stream without a folder: ask for one and point the stream at it, so its CLI works there
+    /// from the next turn (Charles, 21 Nov: the dim folder button looked broken).
+    fn pick_stream_folder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(id) = self.open.clone() else { return };
+        let paths = cx.prompt_for_paths(PathPromptOptions { files: false, directories: true, multiple: false, prompt: Some("Work in this folder".into()) });
+        cx.spawn_in(window, async move |this: WeakEntity<Self>, cx: &mut AsyncWindowContext| {
+            let Ok(Ok(Some(ps))) = paths.await else { return };
+            let Some(p) = ps.into_iter().next() else { return };
+            let dir = p.display().to_string();
+            let _ = this.update(cx, |c, cx| {
+                let mut prefs = Prefs::load();
+                prefs.touch_project(&dir);
+                prefs.save();
+                let res = c.core.as_ref().map(|(_, chats)| chats.set_project(&id, Some(dir.clone())));
+                match res {
+                    Some(Err(e)) => c.send_error = Some(format!("Couldn't set the folder: {e}")),
+                    _ => {
+                        if let Some(t) = c.thread.as_mut().filter(|t| t.id == id) {
+                            t.project = Some(dir);
+                        }
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
     /// The board's open-in split button (`.oi`): the left half opens the stream's folder the way
     /// it was opened last, the arrow picks another way. Dim without a folder.
     fn open_in_button(&self, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
         let has = self.thread.as_ref().is_some_and(|t| t.project.is_some());
+        // Without a folder, an open stream's button picks one.
+        let can_pick = !has && self.open.is_some();
         let how = self.open_in;
         let mut menu = None;
         if self.open_in_menu && has {
@@ -1190,7 +1222,7 @@ impl Cauldron {
             .rounded(px(7.))
             .border_1()
             .border_color(c(pal.line))
-            .when_live(!has, |d| d.opacity(0.45))
+            .when_live(!has && !can_pick, |d| d.opacity(0.45))
             .occlude()
             .child(
                 div()
@@ -1199,11 +1231,15 @@ impl Cauldron {
                     .flex()
                     .items_center()
                     .justify_center()
-                    .when_live(has, |d| d.cursor_pointer().hover(|d| d.bg(c(pal.hover))))
-                    .aria_label(how.label())
-                    .child(glyph("folder", 14., c(pal.accent)))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.open_folder(how, cx);
+                    .when_live(has || can_pick, |d| d.cursor_pointer().hover(|d| d.bg(c(pal.hover))))
+                    .aria_label(if has { how.label() } else { "Choose a folder" })
+                    .child(glyph(if has { "folder" } else { "folder-plus" }, 14., c(pal.accent)))
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        if has {
+                            this.open_folder(how, cx);
+                        } else if can_pick {
+                            this.pick_stream_folder(window, cx);
+                        }
                         cx.notify();
                     }))
                     .test_support(),
@@ -1289,7 +1325,8 @@ const TAB_MAX: f32 = 200.0;
 /// A header tab (the board's `.tab`): 2px between tabs, 10px padding, 6px from the name to the
 /// close. No figure: agent figures belong to the Agents page.
 const TAB_GAP: f32 = 2.0;
-/// From the stream's tab to the first agent tab: the card's tab edge, its foot and a stroke of frame.
+/// Between tabs: the card's tab edge, its foot and a stroke of frame, so the card's tab fits
+/// around whichever tab is open.
 const TAB_SEP: f32 = tabshape::S + tabshape::FOOT_R + tabshape::S;
 const TAB_PAD: f32 = 10.0;
 const CLOSE_GAP: f32 = 6.0;
@@ -1637,8 +1674,8 @@ impl Render for Cauldron {
         // within an equal share of the room (TAB_MIN to TAB_MAX); when TAB_MIN no longer fits, arrows appear beside +
         // and the row shows a window of 72px tabs. No figures (Charles, 13 Nov).
         let mut tab_row = None;
-        // How far the stream card's tab reaches from the card's left edge (tabshape.rs).
-        let mut bump_w: Option<f32> = None;
+        // Where the stream card's tab sits, from the card's left edge, and how wide (tabshape.rs).
+        let mut bump: Option<(f32, f32)> = None;
         // A familiar's tabs are its own folder tabs on its stream card (familiar.rs).
         let fam = self.familiar.is_some().then(|| self.familiar_strips(s.main, s.support.is_none() && self.rail_on(false), pal, now, reduce, window, cx));
         if let Some(anchor_label) = self.coordinator.clone().filter(|_| self.familiar.is_none()) {
@@ -1649,14 +1686,15 @@ impl Render for Cauldron {
             };
             let anchor_w = (TAB_PAD + label_w + TAB_PAD + 2.0).ceil().min(ANCHOR_MAX);
             let n = self.agents.len();
-            // The card's tab holds only the stream's own tab; agents' tabs and + sit on the frame
-            // past the tab's foot (Charles, 20 Nov: "outside of the tab card, with a separation").
-            let room = s.tabs.w - anchor_w - TAB_SEP - (TAB_GAP + ADD_W);
-            let scrolls = n as f32 * (TAB_MIN + TAB_GAP) + TAB_GAP > room;
+            // The card's tab holds only the open tab; the others and + sit on the frame past its
+            // feet (Charles, 20 Nov: "outside of the tab card, with a separation"; 21 Nov: the
+            // card's tab follows the open tab), so every tab is a foot apart.
+            let room = s.tabs.w - anchor_w - (TAB_SEP + ADD_W);
+            let scrolls = n as f32 * (TAB_MIN + TAB_SEP) > room;
             let (k, tab_w) = if scrolls {
-                (((room - 54.0) / (TAB_MIN + TAB_GAP)).floor().max(1.0) as usize, Some(TAB_MIN))
+                (((room - 2.0 * (TAB_SEP + 24.0)) / (TAB_MIN + TAB_SEP)).floor().max(1.0) as usize, Some(TAB_MIN))
             } else if n > 0 {
-                let per = ((room - TAB_GAP * (n as f32 + 1.0) - CLOSE_W) / n as f32).floor();
+                let per = ((room - TAB_SEP * n as f32 - CLOSE_W) / n as f32).floor();
                 (n, Some(per.min(TAB_MAX)))
             } else {
                 (0, None)
@@ -1680,7 +1718,7 @@ impl Render for Cauldron {
                 .id("tabs")
                 .flex()
                 .items_center()
-                .gap(px(TAB_GAP))
+                .gap(px(TAB_SEP))
                 .track_focus(&focus)
                 .on_key_down(cx.listener(|this, ev: &KeyDownEvent, _, cx| {
                     let last = this.agents.len();
@@ -1707,7 +1745,8 @@ impl Render for Cauldron {
                     .flex()
                     .items_center()
                     .gap(px(CLOSE_GAP))
-                    .h(px(metric::TAB_H))
+                    .h(px(tabshape::PILL_H))
+                    .top(px(tabshape::PILL_DY))
                     .rounded(px(tabshape::PILL_R))
                     .when_live(on, |d| d.bg(c(pal.selected)).border_1().border_color(c(pal.line)))
                     .when_live(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
@@ -1734,7 +1773,13 @@ impl Render for Cauldron {
                     this.focus_tabs(window, cx);
                     cx.notify();
                 }));
-            row = row.child(anchor.test_support()).child(div().id("tab-sep").flex_none().w(px(TAB_SEP - 2.0 * TAB_GAP)).h(px(1.)));
+            row = row.child(anchor.test_support());
+            // The card's tab: one stroke round the open tab (tabshape.rs).
+            let tab0 = s.tabs.x - s.main.x;
+            if self.active == 0 {
+                bump = Some((0.0, tab0 + anchor_w + tabshape::S));
+            }
+            let mut at = tab0 + anchor_w + TAB_SEP;
 
             // Each tab is sized to its name, within its share of the room.
             let fig_w = avatar::size(TAB_FIG).0;
@@ -1757,7 +1802,7 @@ impl Render for Cauldron {
                     .rounded(px(radius::TAG))
                     // Inactive tabs show their close on hover, over the end of the name, so a 72px tab
                     // still has room for a few letters.
-                    .when_live(!on, |d| d.absolute().right(px(4.)).top(px((metric::TAB_H - 18.0) / 2.0)).bg(c(pal.panel)).opacity(0.).group_hover(group.clone(), |s| s.opacity(1.)))
+                    .when_live(!on, |d| d.absolute().right(px(4.)).top(px((tabshape::PILL_H - 18.0) / 2.0)).bg(c(pal.panel)).opacity(0.).group_hover(group.clone(), |s| s.opacity(1.)))
                     .hover(|d| d.bg(ca(pal.fg, 0.08)))
                     .aria_label("Close tab")
                     .child(glyph("x", 13., fg3))
@@ -1797,6 +1842,10 @@ impl Render for Cauldron {
                 let want = (TAB_PAD + fig_w + CLOSE_GAP + name_w + TAB_PAD + if on { CLOSE_W } else { 0.0 }).ceil();
                 let tw = if scrolls { TAB_MIN } else { want.clamp(TAB_MIN, share.max(TAB_MIN)) };
                 tab = tab.flex_none().w(px(tw));
+                if on {
+                    bump = Some((at - tabshape::S, tw + 2.0 * tabshape::S));
+                }
+                at += tw + TAB_SEP;
                 // The full name as a tip once the tab may be narrower than the widest it gets.
                 let tab = if share < TAB_MAX { self.tipped(("tab", i), tab, agent.name.clone(), Side::Below, pal, cx) } else { tab };
                 row = row.child(tab.test_support());
@@ -1852,7 +1901,6 @@ impl Render for Cauldron {
             }
             let add = if self.tab_menu { add } else { self.tipped("tab-add", add, ADD_LABEL, Side::Below, pal, cx) };
             tab_row = Some(row.child(add.test_support()));
-            bump_w = Some(s.tabs.x - s.main.x + anchor_w + tabshape::S);
         }
 
         // ---- the stream card (the board's `.card`): its 38px header holds the tabs, its body the
@@ -1893,7 +1941,7 @@ impl Render for Cauldron {
                 pill = pill.child(div().id("card-crumb").flex_none().aria_label(folder.clone()).child(format!("{folder} /")).test_support());
             }
             let pill_w = (TAB_PAD + text_w + TAB_PAD + 2.0).ceil().min(s.tabs.w);
-            bump_w = Some(s.tabs.x - s.main.x + pill_w + tabshape::S);
+            bump = Some((0.0, s.tabs.x - s.main.x + pill_w + tabshape::S));
             pill = pill.child(
                 div()
                     .id(if self.thread.is_some() { "thread-title" } else { "card-title" })
@@ -1905,16 +1953,23 @@ impl Render for Cauldron {
                     .child(head_title)
                     .test_support(),
             );
-            title_el = Some(abs(Rect::new(s.tabs.x, s.tabs.y, pill_w, metric::TAB_H)).child(pill.size_full()));
+            title_el = Some(abs(Rect::new(s.tabs.x, s.main.y + tabshape::PILL_IN, pill_w, tabshape::PILL_H)).child(pill.size_full()));
         }
         let new_screen = self.open.is_none() && self.active == 0 && self.settings.is_none() && self.familiar.is_none();
         let rail_here = s.support.is_none() && self.rail_on(false);
         // The body under the header, clear of the rail when it is in this card.
         let body_w = s.main.w - 2.0 - if rail_here { metric::RAIL_W } else { 0.0 };
-        let body_h = s.main.h - 2.0 - metric::HEAD_H - if new_screen { STAGE_H } else { 0.0 };
+        // On the Windows strip the header's tools sit inside the content, under the tab (20 Nov):
+        // the body starts below them, so a message never runs under the buttons (Charles, 21 Nov).
+        let tools_band = if s.tools.y > s.main.y + metric::HEAD_H && s.tools.right() <= s.main.right() && self.settings.is_none() && self.familiar.is_none() {
+            (s.tools.bottom() + metric::HEAD_IN - (s.main.y + 1.0 + metric::HEAD_H)).max(0.0).ceil()
+        } else {
+            0.0
+        };
+        let body_h = s.main.h - 2.0 - metric::HEAD_H - tools_band - if new_screen { STAGE_H } else { 0.0 };
         // Split (direction B): under the head the card holds up to four panes;
         // a shape that no longer fits steps back.
-        let area = Rect::new(s.main.x + 1.0, s.main.y + 1.0 + metric::HEAD_H, body_w, body_h);
+        let area = Rect::new(s.main.x + 1.0, s.main.y + 1.0 + metric::HEAD_H + tools_band, body_w, body_h);
         let shape = if self.settings.is_some() || self.familiar.is_some() { Shape::One } else { cauldron_chrome::panes::effective(area, self.panes.shape) };
         let split = shape != Shape::One;
         // The thread view drops what does not fit its pane, so it needs that pane's size first.
@@ -1938,7 +1993,7 @@ impl Render for Cauldron {
                 }
             }))
             .child({
-                let cut = s.notch.is_none() && bump_w.and_then(|b| tabshape::pieces(s.main, b)).is_some();
+                let cut = s.notch.is_none() && bump.and_then(|b| tabshape::pieces(s.main, b)).is_some();
                 let under = self.glass_under("main", s.main, (w, h), dark, pal, moving, window);
 
                 let glass = under.is_some();
@@ -1950,29 +2005,15 @@ impl Render for Cauldron {
                     .flex_col()
                     .overflow_hidden()
                     .rounded(px(radius::PANEL))
-                    .when_live(cut, |d| d.rounded_tl(px(tabshape::TAB_R)))
-                    .when_live(!glass, |d| d.bg(backdrop::surface(self.painting, pal.panel, backdrop::GLASS_CARD)))
+                    // The tabbed card takes the tab's corners all round (Charles, 21 Nov).
+                    .when_live(cut, |d| d.rounded(px(tabshape::TAB_R)))
+                    .when_live(!glass, |d| d.bg(backdrop::card_bg(self.painting, pal)))
                     .children(under.unwrap_or_default())
-                    // The content well, one stroke inside the card under its tab (tabshape.rs).
-                    .when_live(cut, |d| {
-                        d.child(
-                            div()
-                                .id("card-well")
-                                .absolute()
-                                .left(px(tabshape::S - 1.0))
-                                .right(px(tabshape::S - 1.0))
-                                .top(px(tabshape::BUMP_H + tabshape::S - 1.0))
-                                .bottom(px(tabshape::S - 1.0))
-                                .rounded_t(px(tabshape::WELL_R))
-                                .rounded_b(px(2.))
-                                .bg(if dark { gpui::black().opacity(0.30) } else { gpui::white().opacity(0.45) })
-                                .test_support(),
-                        )
-                    })
                     .border_1()
                     .border_color(c(if glass { pal.line_strong } else { pal.line }))
                     .text_color(fg3)
                     .child(head.test_support())
+                    .child(div().id("tools-band").w(px(body_w)).h(px(tools_band)).flex_none().test_support())
                     .child(div().w(px(body_w)).h(px(body_h)).flex_none().child(inside))
                     .test_support()
             });
@@ -1988,7 +2029,7 @@ impl Render for Cauldron {
                     .id("stage-bar")
                     .absolute()
                     .left(px(1.))
-                    .top(px(1.0 + metric::HEAD_H + body_h))
+                    .top(px(1.0 + metric::HEAD_H + tools_band + body_h))
                     .w(px(body_w))
                     .h(px(STAGE_H))
                     .flex()
@@ -2007,7 +2048,7 @@ impl Render for Cauldron {
         root = root.child(card_el.test_support());
         // The card's tab: the frame comes down right of it (tabshape.rs). Not with a familiar (its
         // own folder tabs) or the notch (it already cuts the card's top-right).
-        if let (Some(b), None, None) = (bump_w, self.familiar, s.notch) {
+        if let (Some(b), None, None) = (bump, self.familiar, s.notch) {
             let pieces = self.tab_cut(s.main, b, (w, h), dark, pal, window);
             root = root.children(pieces);
         }
@@ -2247,7 +2288,7 @@ impl Render for Cauldron {
                 .flex_col()
                 .overflow_hidden()
                 .rounded(px(radius::PANEL))
-                .when_live(!glass, |d| d.bg(backdrop::surface(self.painting, pal.panel, backdrop::GLASS_CARD)))
+                .when_live(!glass, |d| d.bg(backdrop::card_bg(self.painting, pal)))
                 .children(under.unwrap_or_default())
                 .border_1()
                 .border_color(c(if glass { pal.line_strong } else { pal.line }))
@@ -2915,16 +2956,16 @@ mod tests {
             assert!(row.y >= head.y && row.bottom() <= head.bottom(), "in the card's header");
             for i in 0..=3usize {
                 let t = rect(window, ("tab", i));
-                assert_eq!((t.y, t.h), (row.y, 28.0), "tab {i}");
+                assert_eq!((t.y, t.h), (row.y + 2.0 + super::tabshape::PILL_DY, super::tabshape::PILL_H), "tab {i}: slim pill, centred in the card's tab");
                 assert_eq!(on(window, i), i == 0, "tab {i}: only the coordinator is open");
             }
             for i in 1..=3usize {
-                // The stream's tab sits in the card's tab; the agents' tabs start past its foot.
-                let want = if i == 1 { super::TAB_SEP } else { 2.0 };
+                // Every tab is a foot apart, so the card's tab fits round whichever is open.
+                let want = super::TAB_SEP;
                 assert_eq!(rect(window, ("tab", i)).x - rect(window, ("tab", i - 1)).right(), want, "between tabs {} and {i}", i - 1);
             }
             let add = rect(window, "tab-add");
-            assert_eq!((add.y, add.h), (row.y, 28.0), "+ as tall as the tabs");
+            assert_eq!((add.y, add.h), (row.y, 28.0), "+ keeps the row's height");
             window.click(("tab", 2usize), cx);
             assert!(on(window, 2) && !on(window, 0), "a click opens the tab");
             assert_eq!(rect(window, "card").y, s.main.y, "the card stays put");
@@ -3238,8 +3279,8 @@ mod tests {
                 assert!(anchor.w <= 190.0, "{n}: coordinator at most 190: {anchor:?}");
                 assert_eq!(window.find(("tab", 0usize)).label(), Some("Cauldron · coordinator"));
                 assert!(window.try_find(("tab-close", 0usize)).is_none(), "{n}: coordinator has no close");
-                let room = row.w - anchor.w - 30.0;
-                let need = n as f32 * 74.0 + 2.0;
+                let room = row.w - anchor.w - (super::TAB_SEP + 28.0);
+                let need = n as f32 * (72.0 + super::TAB_SEP);
                 let arrows = window.try_find("tab-prev").is_some();
                 assert_eq!(arrows, need > room, "{n}: arrows iff 72px tabs do not fit (need {need}, room {room})");
                 let seen = visible(window, n);

@@ -74,7 +74,7 @@ impl Cauldron {
         cx.spawn(async move |this, cx| {
             let res = task.await;
             let _ = this.update(cx, |this, cx| match res {
-                Ok(exe) => match backspace_runner::cmd(&exe).spawn() {
+                Ok(exe) => match backspace_runner::cmd(&exe).env(backspace_core::instance::RESTART_ENV, "1").spawn() {
                     Ok(_) => cx.quit(),
                     Err(e) => {
                         this.update = UpdateState::Failed(format!("The update is in place, but it didn't start: {e}. Open Cauldron again."));

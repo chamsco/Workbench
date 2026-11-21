@@ -170,7 +170,10 @@ pub fn layout(w: f32, h: f32, state: ShellState, platform: Platform) -> Shell {
     let bar = strip.then(|| Rect::new(0.0, 0.0, w, BAR_H));
     let notch = (platform == Platform::WindowsNotch).then(|| Rect::new(host.right() - NOTCH_W, host.y, NOTCH_W, NOTCH_H));
     let caps = if strip {
-        Some(Rect::new(w - CAPS_W, 0.0, CAPS_W, CAPS_H))
+        // With the stream card risen into the strip, the buttons sit down on its top line
+        // (Charles, 21 Nov); over a support column they stay on the strip.
+        let y = if support.is_none() { main.y } else { 0.0 };
+        Some(Rect::new(w - CAPS_W, y, CAPS_W, CAPS_H))
     } else {
         notch.map(|n| Rect::new(n.x + 7.0, n.y + 6.0, NOTCH_CAPS_W, NOTCH_CAPS_H))
     };

@@ -21,6 +21,52 @@ pub(super) struct Line {
     pub meta: Option<String>,
 }
 
+/// A failed reply, read for people: `reason` in words, the exit code, a hint for causes we know,
+/// and the CLI's own lines for Show output.
+pub(super) struct Failure {
+    pub reason: String,
+    pub code: Option<String>,
+    pub hint: Option<String>,
+    pub output: Vec<String>,
+}
+
+/// Core writes a CLI failure as "<cli> exited with code N:" and then the CLI's own output.
+pub(super) fn failure(e: &str) -> Failure {
+    let mut ls: Vec<&str> = e.lines().map(str::trim_end).collect();
+    let mut code = None;
+    if let Some(first) = ls.first().copied() {
+        if let Some(rest) = first.split("exited with code ").nth(1) {
+            let n: String = rest.chars().take_while(|ch| ch.is_ascii_digit() || *ch == '-').collect();
+            code = (!n.is_empty()).then(|| format!("exit {n}"));
+            // Core may carry the CLI's first line on the same line, after the colon.
+            let tail = rest[n.len()..].trim_start_matches(':').trim();
+            if tail.is_empty() {
+                ls.remove(0);
+            } else {
+                ls[0] = tail;
+            }
+        }
+    }
+    let output: Vec<String> = ls.iter().filter(|l| !l.trim().is_empty()).map(|l| l.to_string()).collect();
+    // The last line that reads as an error, without its "Error:" prefix.
+    let said = output.iter().rev().find(|l| !l.trim_start().starts_with('>')).map(|l| l.trim().trim_start_matches("Error:").trim().to_string());
+    let low = e.to_lowercase();
+    let (reason, hint) = if low.contains("route not found") || (low.contains("not found") && low.contains("404")) {
+        ("The model's provider answered 404, route not found".to_string(), Some("This CLI's model points at a provider with no chat route. Pick another model, or fix the provider in the CLI's own config.".to_string()))
+    } else if low.contains("not installed") || low.contains("no such file") || low.contains("cannot find the file") {
+        (said.clone().unwrap_or_else(|| "The CLI could not start".into()), Some("Install it, or pick another CLI with Change model.".to_string()))
+    } else if low.contains("unauthorized") || low.contains("401") || low.contains("not logged in") || low.contains("sign in") {
+        (said.clone().unwrap_or_else(|| "Not signed in".into()), Some("Sign in to this CLI in Settings, then Retry.".to_string()))
+    } else if low.contains("rate limit") || low.contains("429") || low.contains("quota") {
+        (said.clone().unwrap_or_else(|| "Rate limited".into()), Some("The subscription hit its limit. Retry later, or pick another CLI or account.".to_string()))
+    } else {
+        (said.clone().unwrap_or_else(|| e.lines().next().unwrap_or("The reply failed").to_string()), None)
+    };
+    // When the output is only the reason itself, there is nothing more to show.
+    let output = if output.len() == 1 && said.as_deref() == Some(output[0].trim().trim_start_matches("Error:").trim()) && code.is_none() { Vec::new() } else { output };
+    Failure { reason, code, hint, output }
+}
+
 pub(super) fn lines(t: &Thread) -> Vec<Line> {
     t.messages.iter().map(|m| Line { id: m.id.clone(), mine: m.role == Role::User, text: m.text.clone(), status: m.status, error: m.error.clone(), meta: meta(m) }).collect()
 }
@@ -347,6 +393,130 @@ impl Cauldron {
         }
     }
 
+    /// A failed reply (design system: status is a glyph plus a word; Charles, 21 Nov: the raw red
+    /// CLI text was hard to read). The cause in one sentence, a hint when the cause is known, the
+    /// fix first (Change model opens this stream's model picker), Retry, and the CLI's own output
+    /// folded under Show output.
+    #[allow(clippy::too_many_arguments)]
+    fn failure_card(&self, i: usize, msg_id: &str, e: &str, last: bool, thread_id: &str, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
+        let f = failure(e);
+        let (fg, fg2, fg3, bad) = (c(pal.fg), c(pal.fg2), c(pal.fg3), c(pal.bad));
+        let shown = self.err_open.contains(msg_id);
+        let mut card = div()
+            .id(("msg-error", i))
+            .max_w(px(560.))
+            .flex()
+            .flex_col()
+            .rounded(px(radius::PANEL))
+            .border_1()
+            .border_color(c(pal.line_strong))
+            .bg(c(pal.inset))
+            .overflow_hidden()
+            .aria_label(e.to_string())
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .px(px(12.))
+                    .pt(px(9.))
+                    .pb(px(if f.hint.is_some() { 4. } else { 9. }))
+                    .text_size(px(13.))
+                    .child(glyph("x", 14., bad))
+                    .child(div().flex_none().font_weight(FontWeight::MEDIUM).text_color(bad).child("Failed"))
+                    .child(div().id(("msg-error-reason", i)).flex_1().min_w_0().text_color(fg).child(f.reason.clone()).test_support())
+                    .when_some(f.code.clone(), |d, code| d.child(div().flex_none().font_family(crate::ui::SANS_MONO).text_size(px(11.5)).text_color(fg3).child(code))),
+            )
+            .when_some(f.hint, |d, h| d.child(div().pl(px(34.)).pr(px(12.)).pb(px(10.)).text_size(px(12.5)).line_height(px(18.)).text_color(fg2).child(h)));
+        let btn = |id: (&'static str, usize), label: &'static str, primary: bool| {
+            div()
+                .id(id)
+                .h(px(26.))
+                .px(px(10.))
+                .flex()
+                .items_center()
+                .rounded(px(radius::INNER))
+                .text_size(px(12.5))
+                .cursor_pointer()
+                .aria_label(label)
+                .when(primary, |d| d.bg(c(pal.accent)).text_color(c(pal.on_accent)).hover(|d| d.bg(c(pal.accent_hover))))
+                .when(!primary, |d| d.border_1().border_color(c(pal.line_strong)).text_color(fg).hover(|d| d.bg(c(pal.hover))))
+                .child(label)
+        };
+        let mut row = div().flex().items_center().gap(px(6.)).pl(px(34.)).pr(px(12.)).pb(px(10.));
+        if last {
+            let tid = thread_id.to_string();
+            row = row
+                .child(
+                    btn(("change-model", i), "Change model", true)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.start.route_menu = Some(super::subs::PickFor::Thread(tid.clone()));
+                            cx.notify();
+                        }))
+                        .test_support(),
+                )
+                .child(
+                    btn(("retry", i), "Retry", false)
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            if let (Some(id), Some((_, chats))) = (this.open.clone(), this.core.as_ref()) {
+                                // A retry of a Plan reply stays a plan in core; nothing to add here.
+                                if let Err(e) = chats.retry(&id, ctx(false)) {
+                                    this.send_error = Some(e.to_string());
+                                }
+                            }
+                            this.refresh();
+                            cx.notify();
+                        }))
+                        .test_support(),
+                );
+        }
+        if !f.output.is_empty() {
+            let mid = msg_id.to_string();
+            row = row.child(
+                div()
+                    .id(("show-output", i))
+                    .h(px(26.))
+                    .px(px(8.))
+                    .flex()
+                    .items_center()
+                    .gap(px(4.))
+                    .rounded(px(radius::INNER))
+                    .text_size(px(12.5))
+                    .text_color(fg3)
+                    .cursor_pointer()
+                    .hover(|d| d.bg(c(pal.hover)).text_color(fg2))
+                    .aria_label(if shown { "Hide output" } else { "Show output" })
+                    .child(glyph(if shown { "chevron-down" } else { "chevron-right" }, 12., fg3))
+                    .child(if shown { "Hide output" } else { "Show output" })
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        if !this.err_open.remove(&mid) {
+                            this.err_open.insert(mid.clone());
+                        }
+                        cx.notify();
+                    }))
+                    .test_support(),
+            );
+        }
+        card = card.child(row);
+        if shown {
+            card = card.child(
+                div()
+                    .id(("error-output", i))
+                    .border_t_1()
+                    .border_color(c(pal.line))
+                    .px(px(12.))
+                    .py(px(8.))
+                    .font_family(crate::ui::SANS_MONO)
+                    .text_size(px(11.5))
+                    .line_height(px(17.))
+                    .text_color(fg3)
+                    .children(f.output.iter().map(|l| div().child(l.clone())))
+                    .test_support(),
+            );
+        }
+        card.test_support().into_any_element()
+    }
+
     fn thread_view(&self, t: &Thread, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
         let (fg, fg2, fg3) = (c(pal.fg), c(pal.fg2), c(pal.fg3));
         // The transcript fades in over the second half of the carry after a thread opens.
@@ -400,11 +570,12 @@ impl Cauldron {
                         .opacity(k)
                         .max_w(relative(if narrow { 0.9 } else { 0.72 }))
                         .px(px(12.))
-                        .py(px(9.))
-                        .rounded(px(radius::PANEL))
-                        .bg(c(pal.raised))
-                        .text_size(px(13.))
-                        .line_height(px(19.))
+                        .py(px(8.))
+                        // Design system: your words are a quiet fill, in the reading size.
+                        .rounded(px(12.))
+                        .bg(c(pal.selected))
+                        .text_size(px(14.))
+                        .line_height(px(22.))
                         .text_color(fg)
                         .aria_label(l.text.clone())
                         .child(shown)
@@ -427,49 +598,10 @@ impl Cauldron {
                     }
                     d.child(col.test_support())
                 })
-                .when_live(!l.text.is_empty() || live(l.status).is_none(), |d| d.child(div().text_size(px(13.)).line_height(px(20.)).text_color(if l.text.is_empty() { fg3 } else { fg }).child(shown.clone())))
+                .when_live(!l.text.is_empty() || live(l.status).is_none(), |d| d.child(div().text_size(px(14.)).line_height(px(22.)).text_color(if l.text.is_empty() { fg3 } else { fg }).child(shown.clone())))
                 .when_some(live(l.status), |d, label| d.child(status_line(i, label, pal.fg3)));
             if let Some(e) = &l.error {
-                let mut err = div()
-                    .id(("msg-error", i))
-                    .flex()
-                    .items_center()
-                    .gap(px(6.))
-                    .text_size(px(12.))
-                    .text_color(c(pal.bad))
-                    .aria_label(e.clone())
-                    .child(glyph("circle-alert", 13., c(pal.bad)))
-                    .child(div().min_w_0().child(e.clone()));
-                if i == last {
-                    err = err.child(
-                        div()
-                            .id(("retry", i))
-                            .ml(px(4.))
-                            .px(px(9.))
-                            .py(px(3.))
-                            .rounded(px(radius::INNER))
-                            .border_1()
-                            .border_color(c(pal.line))
-                            .bg(c(pal.raised))
-                            .text_color(fg)
-                            .text_size(px(11.5))
-                            .cursor_pointer()
-                            .aria_label("Retry")
-                            .child("Retry")
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                if let (Some(id), Some((_, chats))) = (this.open.clone(), this.core.as_ref()) {
-                                    // A retry of a Plan reply stays a plan in core; nothing to add here.
-                                    if let Err(e) = chats.retry(&id, ctx(false)) {
-                                        this.send_error = Some(e.to_string());
-                                    }
-                                }
-                                this.refresh();
-                                cx.notify();
-                            }))
-                            .test_support(),
-                    );
-                }
-                say = say.child(err.test_support());
+                say = say.child(self.failure_card(i, &l.id, e, i == last, &t.id, pal, cx));
             }
             if let Some(m) = &l.meta {
                 say = say.child(div().flex().items_center().gap(px(6.)).text_size(px(12.)).text_color(fg3).font_features(tnum()).child(glyph("terminal", 13., fg3)).child(m.clone()));
@@ -671,6 +803,18 @@ impl Cauldron {
 
 #[cfg(test)]
 pub(super) mod tests {
+
+    #[test]
+    fn a_cli_failure_reads_as_a_reason_a_code_and_its_output() {
+        let f = super::failure("opencode.exe exited with code 1: > build · Qwen/Qwen3.6-35B-A3B-FP8\n\nError: Not Found: route not found");
+        assert_eq!(f.reason, "The model's provider answered 404, route not found");
+        assert_eq!(f.code.as_deref(), Some("exit 1"));
+        assert!(f.hint.is_some());
+        assert_eq!(f.output, vec!["> build · Qwen/Qwen3.6-35B-A3B-FP8", "Error: Not Found: route not found"]);
+        let g = super::failure("claude is not installed");
+        assert_eq!(g.reason, "claude is not installed");
+        assert!(g.output.is_empty(), "nothing more to show than the reason");
+    }
     use super::super::{Cauldron, Threads};
     use super::lines;
     use backspace_core::chat::{Chats, Status};
