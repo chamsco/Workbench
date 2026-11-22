@@ -495,6 +495,8 @@ impl Cauldron {
                     if due {
                         // A snoozed stream whose time is up comes back needing you.
                         c.wake_snoozed(backspace_core::chat::now_ms());
+                        // An agent's finished sessions get a name from what was said in them.
+                        c.name_sessions(backspace_core::chat::now_ms(), ctx(false));
                         backspace_core::automations::tick(&c, &agents(), || ctx(false))
                     } else {
                         0

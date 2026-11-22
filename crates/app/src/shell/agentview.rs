@@ -91,8 +91,12 @@ impl Cauldron {
         }
         let agents = super::thread::agents();
         let captain = agents.list().into_iter().find(|c| c.lead.as_ref().is_some_and(|l| l.crew.contains(&a.id)));
-        if let Some(t) = captain.and_then(|c| chats.familiar_main(&c)).and_then(|main| chats.crew_thread(&main, &a.id)) {
-            return Some(t);
+        // Its standing thread under the captain, made now if the captain has not used it yet, so
+        // you can talk to it before it has a job (Charles, 22 Nov 20:04).
+        if let Some(c) = captain {
+            if let Some(t) = chats.familiar_main(&c).or_else(|| chats.start_familiar(&c).ok()).and_then(|main| chats.crew_thread_or_new(&main, a).ok()) {
+                return Some(t);
+            }
         }
         chats.list().into_iter().filter(|t| t.agent.as_deref() == Some(a.id.as_str()) && !t.archived).max_by_key(|t| t.updated).map(|t| t.id)
     }
@@ -155,7 +159,7 @@ impl Cauldron {
         let main: AnyElement = if self.thread.is_some() {
             self.card_body(pal, window, cx)
         } else {
-            div().id("agent-empty").size_full().flex().items_center().justify_center().text_size(px(13.)).text_color(c(pal.fg3)).child("No thread with this agent yet. Its captain gives it its first job.").test_support().into_any_element()
+            div().id("agent-empty").size_full().flex().items_center().justify_center().text_size(px(13.)).text_color(c(pal.fg3)).child("No thread with this agent yet. Write below to start one.").test_support().into_any_element()
         };
         div().id("agent-view").size_full().flex().child(self.agent_rail(pal, cx)).child(div().flex_1().min_w_0().h_full().child(main)).test_support().into_any_element()
     }
@@ -232,7 +236,7 @@ impl Cauldron {
             rail = rail.child(div().px(px(8.)).py(px(4.)).text_size(px(12.)).text_color(fg3).child(if auto_open.is_some() {
                 "It hasn't run yet."
             } else if self.thread.is_none() {
-                "Nothing yet. Its captain gives it its first job."
+                "Nothing yet. Write below, or its captain will give it a job."
             } else {
                 "Nothing yet. Write below to start the first session."
             }));

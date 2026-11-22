@@ -78,6 +78,10 @@ pub fn split(t: &Thread, now: u64) -> Vec<Session> {
         s.live = t.messages[s.start..s.end].iter().any(running) || now.saturating_sub(s.to) <= GAP_MS;
     }
     for s in &mut out {
+        // A name a model gave it (Chats::name_sessions); empty means it could not be named.
+        if let Some(n) = t.session_names.get(&t.messages[s.start].id).filter(|n| !n.is_empty()) {
+            s.title = n.clone();
+        }
         if s.title.is_empty() {
             s.title = "Session".into();
         }
@@ -138,6 +142,16 @@ mod tests {
         assert_eq!(s.len(), 2, "within the gap, but a run starts its own session");
         assert_eq!(s[1].kind, Kind::Automation("Morning PR triage".into()));
         assert_eq!(s[1].title, "Morning PR triage");
+    }
+
+    #[test]
+    fn a_session_takes_the_name_a_model_gave_it() {
+        let mut t = thread(vec![msg(Role::User, "hey can you look at the thing from yesterday", 0, 0, None), msg(Role::Assistant, "Fixed.", MIN, 2 * MIN, None)]);
+        assert_eq!(split(&t, 100 * MIN)[0].title, crate::chat::title_from("hey can you look at the thing from yesterday"));
+        t.session_names.insert("m0".into(), "Login redirect fix".into());
+        assert_eq!(split(&t, 100 * MIN)[0].title, "Login redirect fix");
+        t.session_names.insert("m0".into(), String::new());
+        assert_ne!(split(&t, 100 * MIN)[0].title, "", "an empty name keeps the first message");
     }
 
     #[test]

@@ -107,20 +107,14 @@ impl Cauldron {
         .detach();
     }
 
-    /// The familiars for the sidebar's Agents list and the page: the real ones, else a made-up one
-    /// (the caller tags it Mockup). Name, goal, state, crew as (name, ticket, state).
+    /// The missions for the sidebar's Agents list and the page: the real ones only. Name, goal, state, crew as (name, ticket, state).
     pub(super) fn roster(&self) -> (bool, Vec<(String, String, FamState, Vec<(String, String, FamState)>)>) {
         if !self.fam_views.is_empty() {
             let v = self.fam_views.iter().map(|v| (v.name.clone(), v.goal.clone(), v.state, v.crew.iter().map(|s| (s.name.clone(), s.ticket.clone(), s.state)).collect())).collect();
             return (true, v);
         }
-        let mock = (
-            "Ship onboarding v2".to_string(),
-            "Build the 6-step onboarding behind a setting.".to_string(),
-            FamState::Running,
-            vec![("Rampart".to_string(), "Tests for T1-T4".to_string(), FamState::Done), ("T1 Builder".to_string(), "Welcome + Agents".to_string(), FamState::Done), ("T2 Builder".to_string(), "Machines picker".to_string(), FamState::Running)],
-        );
-        (false, vec![mock])
+        // No made-up mission beside "No missions yet" (Charles, 22 Nov 20:04).
+        (false, Vec::new())
     }
 
     pub(super) fn page_shell(id: &'static str, title: &'static str, sub: &str, pal: &'static Palette, kids: Vec<AnyElement>) -> AnyElement {
@@ -358,6 +352,24 @@ impl Cauldron {
     fn agents_page(&self, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
         let (fg, fg2, fg3) = (c(pal.fg), c(pal.fg2), c(pal.fg3));
         let (real, roster) = self.roster();
+        if roster.is_empty() {
+            let body = div()
+                .id("missions-empty")
+                .mt(px(40.))
+                .mx_auto()
+                .max_w(px(420.))
+                .flex()
+                .flex_col()
+                .items_center()
+                .gap(px(6.))
+                .text_center()
+                .aria_label("No missions yet")
+                .child(div().text_size(px(15.)).font_weight(FontWeight::SEMIBOLD).text_color(fg).child("No missions yet"))
+                .child(div().text_size(px(12.5)).line_height(px(18.)).text_color(fg3).child("A mission hands a goal to the pipeline in a folder: it plans, builds, verifies and ships. Start one from Create crew, then \u{201c}Or a mission\u{201d}."))
+                .test_support();
+            let _ = (fg2, real, cx);
+            return div().id("agents-page").size_full().child(body).test_support().into_any_element();
+        }
         let sel = self.pages.agent.min(roster.len() - 1);
         let (name, goal, state, crew) = roster[sel].clone();
         let state_col = |s: FamState| match s {

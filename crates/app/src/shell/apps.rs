@@ -167,8 +167,8 @@ impl Cauldron {
                             .test_support(),
                     );
                 }
-                let (real, roster) = self.roster();
-                list = list.child(div().flex().items_center().gap(px(6.)).child(head("agents-head", "Missions".into())).children((!real).then(|| Self::mock_tag(pal))));
+                let (_, roster) = self.roster();
+                list = list.child(head("agents-head", "Missions".into()));
                 for (i, (name, _, state, _)) in roster.into_iter().enumerate() {
                     let on = self.section_page && !self.autos_page && self.agent_open.is_none() && self.pages.agent == i;
                     let tone = match state {

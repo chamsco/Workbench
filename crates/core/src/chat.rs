@@ -367,6 +367,9 @@ pub struct Thread {
     /// Out of the sidebar until this time (unix ms); 0 when it is not snoozed (Charles, 22 Nov).
     #[serde(default, skip_serializing_if = "is_zero")]
     pub snoozed_until: u64,
+    /// Names a model gave its sessions (sessions.rs), by the id of the session's first message.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub session_names: BTreeMap<String, String>,
     pub route: Route,
     pub messages: Vec<Msg>,
     /// How long this thread lives (see `Life`). Absent in older files: Keep.
@@ -664,6 +667,8 @@ pub struct Chats {
     running: Mutex<HashMap<String, AbortHandle>>,
     /// Threads with a reply the user has not opened yet.
     unread: Mutex<std::collections::HashSet<String>>,
+    /// Sessions being named now (`name_sessions`), so a slow answer is not asked for twice.
+    naming: Mutex<std::collections::HashSet<String>>,
     notify: async_channel::Sender<()>,
     rt: tokio::runtime::Handle,
     http: reqwest::Client,
@@ -752,6 +757,19 @@ pub const TODO_BRIEF: &str = "# Your plan\n\nWhen a task takes more than one ste
 /// After a finished task, a few things the user might want next (Charles, 22 Nov): the app shows
 /// them on a Done card to tick, each with its why behind a "?".
 pub const NEXT_BRIEF: &str = "# Next steps\n\nWhen you have finished what was asked (not when you are asking the user something, failed, or are still part way), end your reply with a fenced `next` block whose body is one JSON object: {\"items\": [{\"text\": \"Add a test for the login fix\", \"why\": \"The bug could come back unnoticed; a test pins it down.\"}]}. Give two to four things the user might want next, most useful first. `text` is a short instruction the user could send you as is; `why` is one plain sentence on what it means and why it helps. The user sees these as choices, not in your text, so don't list them again in prose. Leave the block out when nothing sensible follows.";
+
+const SESSION_NAMER: &str = "You name conversations for a list. Reply with only a title of two to six words in sentence case, saying what the conversation was about, with no quotes and no full stop.";
+
+/// A model's title, cleaned: its first line, no quotes, no closing full stop, at most 60 characters.
+fn clean_name(s: &str) -> String {
+    let line = s.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("");
+    let line = line.trim_matches(|c: char| c == '"' || c == '\'' || c == '*' || c == '`' || c == '\u{201c}' || c == '\u{201d}').trim_end_matches('.').trim();
+    // A sentence back instead of a title (the model answered the conversation): no name.
+    if line.split_whitespace().count() > 8 || line.contains(": ") {
+        return String::new();
+    }
+    line.chars().take(60).collect()
+}
 
 const ASK_MODE: &str = "# Ask mode\n\nThe user is asking a question, not asking for changes. Read whatever you need and answer it. Don't edit, create or delete any file, and don't run commands.";
 
@@ -849,6 +867,7 @@ impl Chats {
             threads: Mutex::new(threads),
             running: Mutex::new(HashMap::new()),
             unread: Mutex::new(Default::default()),
+            naming: Mutex::new(Default::default()),
             notify,
             rt,
             http: reqwest::Client::new(),
@@ -1087,6 +1106,7 @@ impl Chats {
             pinned: false,
             archived: false,
             snoozed_until: 0,
+            session_names: BTreeMap::new(),
             route,
             messages: vec![],
             cli_session: None,
@@ -1336,6 +1356,7 @@ impl Chats {
             pinned: false,
             archived: false,
             snoozed_until: 0,
+            session_names: BTreeMap::new(),
             route: src.route.clone(),
             messages: src.messages[..=end].to_vec(),
             cli_session: None,
@@ -1657,17 +1678,7 @@ impl Chats {
                 .filter_map(|id| agents.get(id))
                 .find(|a| a.name.eq_ignore_ascii_case(name.trim()) || a.id == name)
                 .ok_or_else(|| anyhow!("no crew member named {name}"))?;
-            let child = match self.crew_thread(&main, &member.id) {
-                Some(id) => id,
-                None => {
-                    let c = self.create_in(member.route.clone(), Scope { project: parent.project.clone(), agent: Some(member.id.clone()), title: Some(member.name.clone()), ..Scope::default() });
-                    self.edit_thread(&c.id, |t| {
-                        t.side_of = Some(main.clone());
-                        t.folder = parent.folder.clone();
-                    })?;
-                    c.id
-                }
-            };
+            let child = self.crew_thread_or_new(&main, &member)?;
             let inb = Inbound { from: sp.from.clone(), text: sp.task.clone(), reply: true, as_note: false, hops, origin: None };
             self.take_letter(&child, inb, ctx)?;
             return Ok(child);
@@ -1764,6 +1775,69 @@ impl Chats {
 
     /// The thread a familiar's crew member keeps under its captain's stream: the same one job after
     /// job, so it remembers the last one (nobody is killed when a job ends).
+    /// A crew member's standing thread under its captain's stream `main`, made when it has none:
+    /// the captain hands it work there, and you can talk to it there too (Charles, 22 Nov 20:04).
+    pub fn crew_thread_or_new(&self, main: &str, member: &crate::agents::Agent) -> Result<String> {
+        if let Some(id) = self.crew_thread(main, &member.id) {
+            return Ok(id);
+        }
+        let parent = self.peek(main).ok_or_else(|| anyhow!("the captain's stream is gone"))?;
+        let c = self.create_in(member.route.clone(), Scope { project: parent.project.clone(), agent: Some(member.id.clone()), title: Some(member.name.clone()), ..Scope::default() });
+        self.edit_thread(&c.id, |t| {
+            t.side_of = Some(main.to_string());
+            t.folder = parent.folder.clone();
+        })?;
+        Ok(c.id)
+    }
+
+    /// Names an agent's finished sessions from what was said in them (Charles, 22 Nov 20:04: the
+    /// first message is not a name). A small model per session, two at most per call; a session
+    /// that cannot be named keeps its first message, and is not asked about again.
+    pub fn name_sessions(self: &Arc<Self>, now: u64, ctx: Ctx) -> usize {
+        let todo: Vec<(String, String, Route, String)> = {
+            let all = self.threads.lock().unwrap();
+            let naming = self.naming.lock().unwrap();
+            let mut v = Vec::new();
+            for t in all.values().filter(|t| t.agent.is_some() && !t.archived && !t.hidden) {
+                for s in crate::sessions::split(t, now) {
+                    let key = t.messages[s.start].id.clone();
+                    if s.live || s.kind != crate::sessions::Kind::Talk || s.end - s.start < 2 || t.session_names.contains_key(&key) || naming.contains(&key) {
+                        continue;
+                    }
+                    let said: String = t.messages[s.start..s.end]
+                        .iter()
+                        .map(|m| format!("{}: {}", if m.role == Role::User { "User" } else { "Agent" }, m.text.chars().take(600).collect::<String>()))
+                        .collect::<Vec<_>>()
+                        .join("\n\n");
+                    let mut route = t.route.clone();
+                    if route.kind == RouteKind::Cli && route.provider == "claude" {
+                        route.model = Some("haiku".into());
+                    }
+                    let said: String = said.chars().take(3000).collect();
+                    let prompt = format!("Give this conversation a title of two to six words. Don't answer it, don't use tools: reply with the title only.\n\n<conversation>\n{said}\n</conversation>");
+                    v.push((t.id.clone(), key, route, prompt));
+                }
+            }
+            v.truncate(2);
+            v
+        };
+        let n = todo.len();
+        for (tid, key, route, said) in todo {
+            self.naming.lock().unwrap().insert(key.clone());
+            let me = self.clone();
+            let ctx = ctx.clone();
+            self.rt.spawn(async move {
+                let got = me.ask(route, SESSION_NAMER, &said, ctx).await.ok().map(|a| clean_name(&a)).filter(|n| !n.is_empty());
+                let name = got.unwrap_or_default();
+                let _ = me.edit_thread(&tid, |t| {
+                    t.session_names.insert(key.clone(), name);
+                });
+                me.naming.lock().unwrap().remove(&key);
+            });
+        }
+        n
+    }
+
     pub fn crew_thread(&self, main: &str, agent: &str) -> Option<String> {
         let all = self.threads.lock().unwrap();
         all.values().filter(|t| t.side_of.as_deref() == Some(main) && t.agent.as_deref() == Some(agent) && !t.archived).max_by_key(|t| t.updated).map(|t| t.id.clone())
@@ -1933,6 +2007,7 @@ impl Chats {
             pinned: false,
             archived: false,
             snoozed_until: 0,
+            session_names: BTreeMap::new(),
             route: route.clone(),
             messages: vec![user, reply],
             cli_session: None,
@@ -2669,7 +2744,8 @@ Ask the reader for input with the real form parts: `f = FormControl(\"Name\", In
             };
             req.system = Some(format!("{}{mode}", req.system.take().map(|s| s + "\n\n").unwrap_or_default()));
         }
-        if !plan {
+        // Not for one-off asks (dreaming, stage decisions, names), whose answers are parsed.
+        if !plan && !id.starts_with("ask-") {
             req.system = Some(format!("{}{NEXT_BRIEF}", req.system.take().map(|s| s + "\n\n").unwrap_or_default()));
         }
         req.cwd = match project {
@@ -3636,6 +3712,14 @@ mod tests {
         assert!(row.unread, "it comes back needing you");
         let (c2, _rt2) = chats(&dir);
         assert_eq!(c2.list()[0].snoozed_until, 0, "the wake is saved");
+    }
+
+    #[test]
+    fn a_session_name_is_one_clean_line() {
+        assert_eq!(clean_name("\n\"Login redirect fix.\"\nmore"), "Login redirect fix");
+        assert_eq!(clean_name("**Release notes**"), "Release notes");
+        assert_eq!(clean_name(&"x".repeat(90)).len(), 60);
+        assert_eq!(clean_name("I need to check something before going further: my last reply"), "", "a sentence is not a name");
     }
 
     #[test]
