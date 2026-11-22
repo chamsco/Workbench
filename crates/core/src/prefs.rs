@@ -104,6 +104,8 @@ pub struct Prefs {
     /// Cauldron: how the New stream box shows its model picker. "stacked" is a card tucked behind
     /// the box that drops out below it; None (or anything else) unfolds the tray under the box.
     pub model_tray: Option<String>,
+    /// Cauldron: the sidebar's dragged width in px. None: the default 236.
+    pub sidebar_w: Option<f32>,
     /// Cauldron: the frame and sidebar colour, `#rrggbb`. None: the theme's.
     pub sidebar_color: Option<String>,
     /// Cauldron: the stream and support cards' colour, `#rrggbb`. None: the theme's.
@@ -184,6 +186,7 @@ impl Default for Prefs {
             frost: None,
             window_style: None,
             model_tray: None,
+            sidebar_w: None,
             sidebar_color: None,
             main_color: None,
             themes: Vec::new(),

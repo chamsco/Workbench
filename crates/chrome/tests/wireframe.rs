@@ -290,3 +290,22 @@ fn windows_has_no_strip_and_its_buttons_sit_in_the_card() {
         }
     }
 }
+
+/// The sidebar drags between the six-app tray's width and 420; its button keeps to its right
+/// edge. Folded, the hover band pushes the stream card (and its header) over by `push`.
+#[test]
+fn the_sidebar_drags_and_the_band_pushes_the_card() {
+    use cauldron_chrome::layout::{sidebar_width, solve_at, Sidebar};
+    let open = ShellState { sidebar_open: true, support_open: false, dock_open: false };
+    let s = solve_at(1440.0, 900.0, open, Platform::Mac, Sidebar { w: 320.0, push: 0.0 });
+    assert_eq!(s.sidebar.unwrap().w, 320.0);
+    assert_eq!(s.main.x, 320.0 + metric::GAP);
+    assert_eq!(s.sidebar_button.right(), 320.0 - 12.0, "the button stays 12px in from the edge");
+    assert_eq!(solve(1440.0, 900.0, open, Platform::Mac).sidebar_button.x, 196.0, "the default is where it was");
+    assert_eq!((sidebar_width(100.0), sidebar_width(900.0)), (metric::SIDEBAR_MIN_W, metric::SIDEBAR_MAX_W));
+    let folded = ShellState { sidebar_open: false, ..open };
+    let (rest, pushed) = (solve(1440.0, 900.0, folded, Platform::Mac), solve_at(1440.0, 900.0, folded, Platform::Mac, Sidebar { w: 236.0, push: 76.0 }));
+    assert_eq!(pushed.main.x, rest.main.x + 76.0);
+    assert_eq!(pushed.main.right(), rest.main.right(), "the card narrows, its right edge stays");
+    assert_eq!(pushed.sidebar_button.x, rest.sidebar_button.x + 76.0, "the header moves with the card");
+}
