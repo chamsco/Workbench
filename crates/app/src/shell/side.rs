@@ -101,7 +101,8 @@ impl Cauldron {
                 .top(px(super::tabshape::PILL_DY))
                 .rounded(px(super::tabshape::PILL_R))
                 .when(on, |d| d.bg(c(pal.selected)).border_1().border_color(c(pal.line)))
-                .when(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
+                // Not the open one: a darker, slightly see-through badge (Charles, 22 Nov).
+                .when(!on, |d| d.bg(gpui_kit::black().opacity(if pal.panel.0 < 0x80 { 0.30 } else { 0.12 })).border_1().border_color(c(pal.line)).hover(|d| d.bg(gpui_kit::black().opacity(if pal.panel.0 < 0x80 { 0.14 } else { 0.03 }))))
                 .occlude()
                 .cursor_pointer()
                 .aria_selected(on)

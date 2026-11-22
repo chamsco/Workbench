@@ -109,6 +109,42 @@ pub(crate) fn image(name: &str, ink: &str) -> Option<Arc<Image>> {
     Some(i)
 }
 
+mod badge {
+    use super::super::*;
+    use super::{image, maker_mark};
+    use gpui_kit::prelude::FluentBuilder;
+
+    /// Who wrote a stream's replies ("Claude", "Claude + GPT", "Claude + more") as logos in circles,
+    /// overlapping, the stream's own first (Charles, 22 Nov: "put the Claude logo in a circle").
+    pub(crate) fn maker_badges(models: &str, pal: &'static Palette) -> Div {
+        let n = models.split(" + ").count();
+        let mut row = div().relative().h(px(16.)).w(px(16. + 11. * (n as f32 - 1.))).flex_none();
+        for (k, part) in models.split(" + ").enumerate() {
+            let inner = match maker_mark(part).and_then(|n| image(n, &pal.fg2.to_hex())) {
+                Some(m) => img(m).size(px(10.)).into_any_element(),
+                None => div().text_size(px(9.)).font_weight(FontWeight::SEMIBOLD).text_color(c(pal.fg3)).child("+").into_any_element(),
+            };
+            row = row.child(
+                div()
+                    .absolute()
+                    .left(px(11. * k as f32))
+                    .top_0()
+                    .size(px(16.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded_full()
+                    .bg(c(pal.raised))
+                    .border_1()
+                    .border_color(c(pal.line_strong))
+                    .child(inner),
+            );
+        }
+        row
+    }
+}
+pub(crate) use badge::maker_badges;
+
 #[cfg(test)]
 mod tests {
     use super::{cli_mark, maker_mark, svg, MARKS};
