@@ -10,6 +10,12 @@ use gpui_kit::prelude::FluentBuilder;
 
 pub(super) const SIDE_W: f32 = 340.0;
 
+/// A tab that is not the open one: darker and a little see-through, with a hairline.
+pub(super) fn off_badge(d: Stateful<Div>, pal: &'static Palette) -> Stateful<Div> {
+    let dark = pal.panel.0 < 0x80;
+    d.bg(gpui_kit::black().opacity(if dark { 0.30 } else { 0.12 })).border_1().border_color(c(pal.line)).hover(|d| d.bg(gpui_kit::black().opacity(if dark { 0.18 } else { 0.06 })))
+}
+
 impl Cauldron {
     /// Re-reads which main the open stream belongs to and its side streams, oldest first.
     pub(super) fn sync_sides(&mut self) {
@@ -100,9 +106,10 @@ impl Cauldron {
                 .h(px(super::tabshape::PILL_H))
                 .top(px(super::tabshape::PILL_DY))
                 .rounded(px(super::tabshape::PILL_R))
-                .when(on, |d| d.bg(c(pal.selected)).border_1().border_color(c(pal.line)))
-                // Not the open one: a darker, slightly see-through badge (Charles, 22 Nov).
-                .when(!on, |d| d.bg(gpui_kit::black().opacity(if pal.panel.0 < 0x80 { 0.30 } else { 0.12 })).border_1().border_color(c(pal.line)).hover(|d| d.bg(gpui_kit::black().opacity(if pal.panel.0 < 0x80 { 0.14 } else { 0.03 }))))
+                // The open one is the raised tab like the stream's own; the rest are a darker, slightly
+                // see-through badge (Charles, 22 Nov).
+                .when(on, |d| d.bg(c(pal.raised)).shadow(lift(Lift::Button, pal)))
+                .when(!on, |d| off_badge(d, pal))
                 .occlude()
                 .cursor_pointer()
                 .aria_selected(on)

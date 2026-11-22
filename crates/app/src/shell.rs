@@ -2173,7 +2173,10 @@ impl Render for Cauldron {
             let on = self.active == 0 && !in_side;
             // The stream's status mark sits inside its tab (Charles, 21 Nov), as on its sidebar row.
             let (am, acol) = self.stream_mark(self.side_root.as_deref().or(self.open.as_deref()).unwrap_or(""), pal);
-            let anchor = ftab(("tab", 0), on, cx)
+            let anchor = ftab(("tab", 0), on, cx);
+            // With a side stream open, the main's tab is one of the not-open ones: the same dark badge.
+            let anchor = if in_side { side::off_badge(anchor, pal) } else { anchor };
+            let anchor = anchor
                 .flex_none()
                 .w(px(anchor_w))
                 .px(px(TAB_PAD))
