@@ -30,6 +30,14 @@ smallvec = "1"
 # no GTK loop under GPUI for WebKitGTK, so it is left out there.
 [target.'cfg(any(windows, target_os = "macos"))'.dependencies]
 wry = "0.57"
+# The notification-area icon (src/background.rs): Open and Quit while the window is hidden.
+# Linux would need a GTK loop under GPUI, so it is left out there and closing quits.
+tray-icon = "0.26"
+
+[target.'cfg(windows)'.dependencies]
+# Hiding and showing the window behind the tray icon.
+raw-window-handle = "0.6"
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
 
 [features]
 # `CAULDRON_SHOTS=<dir>` renders the shell headless and writes PNGs (macOS, src/shell/shots.rs).

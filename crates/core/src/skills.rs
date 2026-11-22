@@ -1,7 +1,8 @@
 //! Skills: markdown playbooks an agent loads on demand with the `skill` tool.
 //! Defaults are vendored from github.com/mattpocock/skills (MIT, see
 //! skills/LICENSE-mattpocock-skills) and github.com/DietrichGebert/ponytail
-//! (MIT, see skills/LICENSE-ponytail). A folder with the same name under
+//! (MIT, see skills/LICENSE-ponytail), and sharp-testing from github.com/paleo/paleo-skills
+//! (CC0 1.0). A folder with the same name under
 //! `~/.config/backspace/skills/` or `<workspace>/.backspace/skills/` replaces
 //! a default or adds a new skill, so you can make them your own.
 
@@ -31,6 +32,7 @@ const DEFAULTS: &[(&str, Files)] = vendored! {
     "diagnosing-bugs" => ["SKILL.md"],
     "code-review" => ["SKILL.md"],
     "ponytail" => ["SKILL.md", "AGENTS.md"],
+    "sharp-testing" => ["SKILL.md"],
 };
 
 /// How the vendored skills' vocabulary maps onto Backspace. They were written
@@ -256,6 +258,7 @@ mod tests {
             "diagnosing-bugs",
             "code-review",
             "ponytail",
+            "sharp-testing",
         ] {
             assert!(
                 !s.by_name[name].description.is_empty(),

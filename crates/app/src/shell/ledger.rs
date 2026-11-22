@@ -47,6 +47,41 @@ fn field(input: &str, names: &[&str]) -> Option<String> {
     names.iter().find_map(|n| v.get(*n).and_then(|x| x.as_str()).map(str::to_string))
 }
 
+/// A shell call's command. Core cuts long inputs, so a cut JSON object still gives its command
+/// (unescaped up to the cut) instead of showing as raw JSON.
+pub(super) fn command_of(input: &str) -> Option<String> {
+    if let Some(c) = field(input, &["command"]) {
+        return Some(c);
+    }
+    let rest = &input[input.find("\"command\"")? + 9..];
+    let rest = rest.trim_start().strip_prefix(':')?.trim_start().strip_prefix('"')?;
+    let mut out = String::new();
+    let mut it = rest.chars();
+    while let Some(ch) = it.next() {
+        match ch {
+            '"' => break,
+            '\\' => match it.next() {
+                Some('n') => out.push('\n'),
+                Some('t') => out.push('\t'),
+                Some(o) => out.push(o),
+                None => break,
+            },
+            o => out.push(o),
+        }
+    }
+    Some(out)
+}
+
+/// The short hash `git commit` printed ("[main de0b59f] msg").
+pub(super) fn commit_hash(cmd: &str, out: &str) -> Option<String> {
+    if !cmd.contains("git commit") {
+        return None;
+    }
+    let l = out.lines().find(|l| l.trim_start().starts_with('['))?;
+    let inside = l.trim_start().strip_prefix('[')?.split(']').next()?;
+    inside.split_whitespace().last().filter(|h| (7..=12).contains(&h.len()) && h.chars().all(|c| c.is_ascii_hexdigit())).map(str::to_string)
+}
+
 /// A tool call's input as readable JSON; text that is not JSON (cut short) as it is.
 fn pretty(input: &str) -> Option<String> {
     let t = input.trim();
@@ -101,7 +136,7 @@ fn describe(a: &Act, thinking: Option<&str>) -> (String, String, Option<String>)
             (format!("Editing {f}"), format!("Edited {f}"), None)
         }
         "Bash" | "PowerShell" => {
-            let cmd = field(&a.input, &["command"]).unwrap_or_else(|| a.input.clone());
+            let cmd = command_of(&a.input).unwrap_or_else(|| a.input.clone());
             let out = a.output.trim_end();
             let detail = if cmd.trim().is_empty() && out.is_empty() { None } else if out.is_empty() { Some(format!("$ {}", cmd.trim())) } else { Some(format!("$ {}\n{}", cmd.trim(), out)) };
             (format!("Running {}", short(&cmd, 56)), format!("Ran {}", short(&cmd, 56)), detail)
@@ -163,7 +198,7 @@ pub(super) fn parts(m: &Msg, running: bool) -> Vec<Part> {
             _ => None,
         };
         let file = matches!(canon(&a.name), "Read" | "Edit" | "MultiEdit" | "Write" | "NotebookEdit").then(|| a.path.clone().or_else(|| field(&a.input, &["file_path", "filePath", "path", "notebook_path"]))).flatten();
-        let full = matches!(canon(&a.name), "Bash" | "PowerShell").then(|| field(&a.input, &["command"])).flatten().filter(|c| !c.trim().is_empty());
+        let full = matches!(canon(&a.name), "Bash" | "PowerShell").then(|| command_of(&a.input)).flatten().filter(|c| !c.trim().is_empty());
         let args = if file.is_none() && full.is_none() && a.name != "Thinking" { pretty(&a.input) } else { None };
         out.push(Part::Step(Step { key: format!("{}:{i}", m.id), live, done, start: a.start, end, error: a.error, detail, cmd: full.as_deref().map(|c| short(c, 56)), shell: full.map(|c| (c.trim().to_string(), a.output.trim_end().to_string())), args, file }));
     }
@@ -220,6 +255,11 @@ pub(super) fn shimmer(text: &str, now: u64, grey: Hsla, ink: Hsla, still: bool) 
 impl Cauldron {
     /// One step's line, and under it, when open, its detail. `live` is whether it is running now.
     pub(super) fn step_el(&self, s: &Step, live: bool, now: u64, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
+        // A finished command is its terminal card, shut (a failure opens on what it printed).
+        if let (false, Some((cmd, out))) = (live, &s.shell) {
+            let open = self.act_open.get(&s.key).copied().unwrap_or(s.error);
+            return self.shell_block(&s.key, cmd, out, false, s.error, s.start, s.end, Some(open), pal, cx);
+        }
         let (fg, fg3) = (c(pal.fg), c(pal.fg3));
         let still = cx.reduce_motion();
         let ended = s.end.filter(|_| !live);
@@ -258,6 +298,19 @@ impl Cauldron {
                     .into_any_element()
             }
             None if live => shimmer(&label, now, fg3, fg, still).into_any_element(),
+            // A picture it made or touched reads as a link to its preview (Charles, 22 Nov).
+            None if s.file.as_deref().is_some_and(|f| super::imageview::is_image(std::path::Path::new(f))) => {
+                let name = base(s.file.as_deref().unwrap_or_default());
+                let verb = label.strip_suffix(name.as_str()).unwrap_or(&label).trim_end().to_string();
+                let acc = c(pal.accent);
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
+                    .child(verb)
+                    .child(div().id(format!("step-image-{key}")).flex().items_center().gap(px(4.)).text_color(acc).hover(|d| d.underline()).aria_label(format!("Preview {name}")).child(glyph("image", 12., acc)).child(name).test_support())
+                    .into_any_element()
+            }
             None => div().child(label.clone()).into_any_element(),
         };
         let row = div()
@@ -341,7 +394,7 @@ impl Cauldron {
         let mut col = div().flex().flex_col().child(row.test_support());
         if open {
             if let Some((cmd, out)) = &s.shell {
-                col = col.child(self.shell_block(&key, cmd, out, live, s.error, s.start, s.end, pal, cx));
+                col = col.child(self.shell_block(&key, cmd, out, live, s.error, s.start, s.end, None, pal, cx));
             } else if let (Some(args), None) = (&s.args, &s.detail) {
                 col = col.child(self.tool_block(&key, &s.live, &s.done, args, live, s.error, s.start, s.end, pal, cx));
             } else if let Some(d) = &s.detail {
@@ -420,8 +473,13 @@ impl Cauldron {
 
     /// An opened command (Tuff UI's shell block): `$ command` and its state, what it printed, and
     /// a foot with the line count and Copy.
-    fn shell_block(&self, key: &str, cmd: &str, out: &str, live: bool, error: bool, start: u64, end: Option<u64>, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
+    /// A command as Tuff UI's terminal output: `$ cmd`, its status and time, then what it printed.
+    /// `fold` is Some(open) for a finished command, which stands as its own card (no "Ran" line)
+    /// and opens on a click; None under a running step's line.
+    fn shell_block(&self, key: &str, cmd: &str, out: &str, live: bool, error: bool, start: u64, end: Option<u64>, fold: Option<bool>, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
         let (fg, fg3) = (c(pal.fg), c(pal.fg3));
+        let shown = fold != Some(false);
+        let hash = commit_hash(cmd, out);
         // Status is a glyph and a word; only a failure takes a colour (design system).
         let (word, icon, ink, fill) = if live {
             ("Running", None, c(pal.fg2), c(pal.selected))
@@ -443,9 +501,10 @@ impl Cauldron {
         };
         let n = out.lines().count();
         let hair = c(pal.line);
+        let k = key.to_string();
         div()
             .id(format!("shell-{key}"))
-            .ml(px(24.))
+            .when(fold.is_none(), |d| d.ml(px(24.)))
             .my(px(4.))
             .rounded(px(radius::INSET))
             .bg(c(pal.inset))
@@ -454,14 +513,25 @@ impl Cauldron {
             .aria_label(format!("$ {cmd}, {word}"))
             .child(
                 div()
+                    .id(format!("shell-head-{key}"))
                     .flex()
                     .items_center()
                     .gap(px(8.))
                     .h(px(30.))
                     .px(px(10.))
-                    .border_b_1()
-                    .border_color(hair)
+                    .when(shown, |d| d.border_b_1().border_color(hair))
+                    .when_some(fold, |d, open| {
+                        d.cursor_pointer().hover(|d| d.bg(c(pal.hover))).on_click(cx.listener(move |this, _, _, cx| {
+                            this.act_open.insert(k.clone(), !open);
+                            cx.notify();
+                        }))
+                    })
+                    .child(glyph("terminal", 12., fg3))
                     .child(div().min_w_0().flex_1().overflow_hidden().whitespace_nowrap().text_ellipsis().font_family(MONO).text_size(px(11.5)).text_color(fg).child(format!("$ {}", cmd.lines().next().unwrap_or(""))))
+                    // A commit says which (Tuff's Tag: mono, for hashes and branches).
+                    .when_some(hash, |d, h| {
+                        d.child(div().flex_none().h(px(18.)).px(px(6.)).flex().items_center().gap(px(4.)).rounded(px(radius::TAG)).border_1().border_color(hair).font_family(MONO).text_size(px(10.5)).text_color(c(pal.fg2)).child(glyph("git-commit-horizontal", 11., c(pal.fg2))).child(h))
+                    })
                     .child(
                         div()
                             .flex_none()
@@ -507,9 +577,10 @@ impl Cauldron {
                                     cx.notify();
                                 })),
                         )
-                    }),
+                    })
+                    .when_some(fold, |d, open| d.child(div().flex_none().child(glyph(if open { "chevron-down" } else { "chevron-right" }, 10., fg3)))),
             )
-            .when(!out.is_empty(), |d| {
+            .when(shown && !out.is_empty(), |d| {
                 // The CLIs give one stream, so errors are told apart by how the line starts.
                 let mut lines = div().id(format!("shell-out-{key}")).max_h(px(280.)).overflow_y_scroll().px(px(10.)).py(px(8.)).font_family(MONO).text_size(px(11.5)).line_height(px(17.)).text_color(fg3);
                 for l in out.lines().take(1000) {
@@ -522,7 +593,7 @@ impl Cauldron {
                 }
                 d.child(lines)
             })
-            .child(
+            .when(shown, |d| d.child(
                 div()
                     .flex()
                     .items_center()
@@ -539,7 +610,7 @@ impl Cauldron {
                         (n, _) => format!("{n} lines"),
                     })
                     .child(div().ml_auto().child(copy_button(format!("shell-copy-{key}"), if out.is_empty() { cmd.to_string() } else { out.to_string() }, pal, cx))),
-            )
+            ))
             .test_support()
             .into_any_element()
     }

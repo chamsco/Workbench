@@ -1,9 +1,11 @@
 //! The apps tray (19 Nov, after Charles's Ghostex reference and the context sidebar approved on
 //! 13 Nov): each app swaps the sidebar's list. Streams is the stream list; Folders groups streams
 //! by the folder they run in (a click filters Streams to it); Agents lists the familiars. Usage left
-//! the row on 21 Nov for the sidebar foot (usage.rs). Automations and Library have no source yet and say so.
+//! the row on 21 Nov for the sidebar foot (usage.rs). Automations lists the familiars' jobs on a
+//! clock (automations.rs); the Librarian has no source yet and says so.
 
 use super::*;
+use gpui_kit::prelude::FluentBuilder;
 
 /// The apps row's geometry: separate buttons, left-packed.
 pub(crate) const TRAY_BTN_W: f32 = 32.0;
@@ -30,7 +32,8 @@ pub(crate) fn folders(list: &[ThreadInfo]) -> Vec<(String, usize)> {
 }
 
 pub(crate) const NO_FOLDER: &str = "No folder";
-pub(crate) const NEW_FAMILIAR: &str = "New familiar";
+/// The Agents app's New button (Charles, 22 Nov: "put Create crew on top").
+pub(crate) const NEW_FAMILIAR: &str = "Create crew";
 
 impl Cauldron {
     /// The sidebar's list for app `section` other than Streams.
@@ -80,15 +83,18 @@ impl Cauldron {
                 list.child(note("library-later", "The Librarian is not built yet", "Its tabs show sample proposals, notes and a graph, marked Mockup."))
             }
             "Agents" => {
-                // Familiars: captains with their crews (captain.rs), each opening its stream.
-                list = list.child(head("captains-head", "Familiars".into()));
+                // Crews first: each captain, then its crew (Charles, 22 Nov: "put captains on top").
+                // A click opens the agent in Agents, beside its sessions (agentview.rs).
+                list = list.child(head("captains-head", "Crews".into()));
                 if self.start.captains.is_empty() {
-                    list = list.child(note("captains-empty", "No familiars yet", "New familiar makes a captain that learns one project and leads a standing crew."));
+                    list = list.child(note("captains-empty", "No crews yet", "Create crew makes a captain that learns one project and leads its own agents."));
                 }
                 let roster_all = super::thread::agents();
                 for (i, a) in self.start.captains.iter().enumerate() {
                     let id = a.id.clone();
                     let project = a.lead.as_ref().map(|l| l.project.rsplit(['/', '\\']).find(|s| !s.is_empty()).unwrap_or("").to_string()).unwrap_or_default();
+                    let on = self.agent_open.as_deref() == Some(a.id.as_str());
+                    let (label, tone) = self.agent_status(&a.id, pal);
                     list = list.child(
                         div()
                             .id(("captain-row", i))
@@ -99,43 +105,77 @@ impl Cauldron {
                             .gap(px(9.))
                             .rounded(px(radius::CONTROL))
                             .cursor_pointer()
+                            .when(on, |d| d.bg(c(pal.selected)))
                             .hover(|d| d.bg(c(pal.hover)))
-                            .aria_label(format!("{}, captain of {project}", a.name))
-                            .child(super::captain::face(&a.avatar, 30., pal))
-                            .child(div().flex_1().min_w_0().flex().flex_col().child(div().truncate().text_color(fg).child(a.name.clone())).child(div().truncate().text_size(px(11.)).text_color(fg3).child(format!("Captain · {project}"))))
-                            .on_click(cx.listener(move |this, _, _, cx| this.open_captain(&id, cx)))
+                            .aria_label(format!("{}, captain of {project}, {label}", a.name))
+                            .child(super::agentview::figure(a, self.agent_mood(&a.id), 30., pal))
+                            .child(div().flex_1().min_w_0().flex().flex_col().child(div().truncate().text_color(fg).child(a.name.clone())).child(div().truncate().text_size(px(11.)).text_color(fg3).child(format!("Captain \u{b7} {project}"))))
+                            .child(div().flex_none().text_size(px(11.)).text_color(tone).child(label))
+                            .on_click(cx.listener(move |this, _, window, cx| this.show_agent(&id, window, cx)))
                             .test_support(),
                     );
                     for (j, m) in a.lead.iter().flat_map(|l| l.crew.iter()).filter_map(|id| roster_all.get(id)).enumerate() {
+                        let mid = m.id.clone();
+                        let on = self.agent_open.as_deref() == Some(m.id.as_str());
+                        let (label, tone) = self.agent_status(&m.id, pal);
                         list = list.child(
                             div()
                                 .id(("crew-row", i * 16 + j))
                                 .ml(px(22.))
                                 .pl(px(10.))
+                                .pr(px(8.))
                                 .h(px(28.))
                                 .flex()
                                 .items_center()
                                 .gap(px(8.))
                                 .border_l_1()
                                 .border_color(c(pal.line))
+                                .cursor_pointer()
+                                .when(on, |d| d.bg(c(pal.selected)))
+                                .hover(|d| d.bg(c(pal.hover)))
                                 .text_size(px(12.))
                                 .text_color(fg2)
-                                .aria_label(format!("{}, crew of {}", m.name, a.name))
-                                .child(super::captain::face(&m.avatar, 18., pal))
-                                .child(div().truncate().child(m.name.clone()))
+                                .aria_label(format!("{}, crew of {}, {label}", m.name, a.name))
+                                .child(super::agentview::figure(&m, self.agent_mood(&m.id), 18., pal))
+                                .child(div().flex_1().min_w_0().truncate().child(m.name.clone()))
+                                .child(div().flex_none().text_size(px(11.)).text_color(tone).child(label))
+                                .on_click(cx.listener(move |this, _, window, cx| this.show_agent(&mid, window, cx)))
                                 .test_support(),
                         );
                     }
                 }
-                let (real, roster) = self.roster();
-                list = list.child(div().flex().items_center().gap(px(6.)).child(head("agents-head", "Missions".into())).children((!real).then(|| Self::mock_tag(pal))));
+                // Automations: the crews' jobs on a clock (automations.rs). The heading opens their page.
+                list = list.child(
+                    div()
+                        .id("autos-open")
+                        .cursor_pointer()
+                        .rounded(px(radius::CONTROL))
+                        .hover(|d| d.bg(c(pal.hover)))
+                        .when(self.autos_page, |d| d.bg(c(pal.selected)))
+                        .child(head("autos-head", "Automations".into()))
+                        .on_click(cx.listener(|this, _, _, cx| this.open_automations_page(cx)))
+                        .test_support(),
+                );
+                if self.autos.list.is_empty() {
+                    list = list.child(note("autos-empty", "No automations yet", "Give a crew a job on a clock, or add one it proposes in a reply."));
+                }
+                for (i, (a, r)) in self.autos.list.iter().enumerate() {
+                    list = list.child(
+                        row(("auto-row", i), None, r.name.clone(), super::automations::short(r))
+                            .aria_description(format!("{}, {}", a.name, r.summary()))
+                            .on_click(cx.listener(move |this, _, window, cx| this.open_automation(i, window, cx)))
+                            .test_support(),
+                    );
+                }
+                let (_, roster) = self.roster();
+                list = list.child(head("agents-head", "Missions".into()));
                 for (i, (name, _, state, _)) in roster.into_iter().enumerate() {
-                    let on = self.section_page && self.pages.agent == i;
-                    let dot = match state {
+                    let on = self.section_page && !self.autos_page && self.agent_open.is_none() && self.pages.agent == i;
+                    let tone = match state {
                         familiar::State::NeedsYou => c(pal.warn),
                         familiar::State::Running => c(pal.accent),
                         familiar::State::Failed => c(pal.bad),
-                        familiar::State::Done => c(pal.fg4),
+                        familiar::State::Done => c(pal.ok),
                     };
                     list = list.child(
                         div()
@@ -151,11 +191,14 @@ impl Cauldron {
                             .hover(|d| d.bg(c(pal.hover)))
                             .aria_label(format!("{name}, {}", familiar::state_text(state)))
                             .child(img(Arc::new(Image::from_bytes(ImageFormat::Svg, avatar::svg(i, Mood::Idle, Look { px: 30., outline: false, ms: None, bust: true, ink: None }).into_bytes()))).size(px(30.)))
-                            .child(div().flex_1().min_w_0().flex().flex_col().child(div().truncate().text_color(fg).child(name)).child(div().flex().items_center().gap(px(5.)).text_size(px(11.)).text_color(fg3).child(div().size(px(6.)).rounded_full().bg(dot)).child(familiar::state_text(state))))
+                            .child(div().flex_1().min_w_0().truncate().text_color(fg).child(name))
+                            .child(div().flex_none().text_size(px(11.)).text_color(tone).child(familiar::state_text(state)))
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 // The page beside shows it (Charles, 21 Nov 17:33Z: the roster lives in the sidebar).
                                 this.pages.agent = i;
-                                this.select_section(2, cx);
+                                this.agent_open = None;
+                                this.autos_page = false;
+                                this.select_section(super::section_of("Agents"), cx);
                                 cx.notify();
                             }))
                             .test_support(),
@@ -166,7 +209,7 @@ impl Cauldron {
                 }
                 list
             }
-            _ => list.child(note("automations-later", "Automations arrive in a later build", "Scheduled and repeating streams will be listed here.")),
+            _ => list,
         }
     }
 
@@ -177,7 +220,7 @@ impl Cauldron {
         match FUNCTIONS.get(section).map(|f| f.1) {
             Some("Streams") | None => Some(("new-thread", "square-pen", NEW_TAB)),
             Some("Library") => Some(("new-folder", "folder-plus", "Open a folder")),
-            Some("Agents") => Some(("new-familiar", "sparkles", NEW_FAMILIAR)),
+            Some("Agents") => Some(("new-familiar", "users", NEW_FAMILIAR)),
             _ => None,
         }
     }

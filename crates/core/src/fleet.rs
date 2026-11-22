@@ -428,6 +428,9 @@ impl Fleet {
     pub fn run_routine(&self, agent: &str, routine: &str) -> Result<()> {
         let a = self.agents.get(agent).ok_or_else(|| anyhow!("no such agent"))?;
         let r = a.routines.iter().find(|r| r.id == routine).cloned().ok_or_else(|| anyhow!("no such routine"))?;
+        if a.lead.is_some() {
+            return crate::automations::run(&self.chats, &self.agents, &a, &r, false, self.chat_ctx()).map(|_| ());
+        }
         self.fire_routine(&a, &r, false)
     }
 
@@ -496,25 +499,10 @@ impl Fleet {
             .spawn(move || loop {
                 std::thread::sleep(std::time::Duration::from_secs(30));
                 let Some(f) = weak.upgrade() else { return };
-                let now = now_ms();
-                // One routine per bot per tick, and not while it is answering
-                // something else (its own folder and a project are different
-                // threads, but the bot is the same).
-                let busy: std::collections::HashSet<String> =
-                    f.chats.list().into_iter().filter(|t| t.busy).filter_map(|t| t.agent).collect();
-                for a in f.agents.list() {
-                    if busy.contains(&a.id) {
-                        continue;
-                    }
-                    let due = a
-                        .routines
-                        .iter()
-                        .filter(|r| r.enabled && r.next_run > 0 && r.next_run <= now)
-                        .min_by_key(|r| r.next_run)
-                        .cloned();
-                    if let Some(r) = due {
-                        let _ = f.fire_routine(&a, &r, true);
-                    }
+                // One routine per bot per tick, and not while it is answering something else.
+                // A familiar's runs go to their own side thread (automations.rs).
+                for (a, r) in crate::automations::due(&f.chats, &f.agents, now_ms()) {
+                    let _ = if a.lead.is_some() { crate::automations::run(&f.chats, &f.agents, &a, &r, true, f.chat_ctx()).map(|_| ()) } else { f.fire_routine(&a, &r, true) };
                 }
             })
             .ok();

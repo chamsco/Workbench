@@ -990,7 +990,7 @@ impl Cauldron {
                 .on_click(cx.listener(|this, _, _, cx| {
                     cx.stop_propagation();
                     this.start.menu = false;
-                    this.settings = Some(3);
+                    this.settings = Some(4);
                     this.sidebar_open = true;
                     cx.notify();
                 }))
@@ -1275,7 +1275,7 @@ mod tests {
             assert!(window.try_find("settings-body").is_some(), "Add a machine opens Settings");
         })
         .unwrap();
-        assert_eq!(handle.update(cx, |c, _, _| c.settings).unwrap(), Some(3), "on Machines");
+        assert_eq!(handle.update(cx, |c, _, _| c.settings).unwrap(), Some(4), "on Machines");
     }
 
     /// Start makes the thread in core, attaches the file, sends the text and opens it; New thread

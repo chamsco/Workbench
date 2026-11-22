@@ -7,8 +7,9 @@ use super::*;
 use backspace_core::accounts::{Accounts, FailoverPolicy};
 
 /// Settings' pages, in the sidebar's order: (name, icon).
-pub(crate) const PAGES: [(&str, &str); 5] = [
+pub(crate) const PAGES: [(&str, &str); 6] = [
     ("Agents and subscriptions", "bot"),
+    ("Flow", "workflow"),
     ("General", "settings"),
     ("Appearance", "palette"),
     ("Machines", "monitor"),
@@ -533,10 +534,13 @@ impl Cauldron {
         };
         let section = |title: &'static str| div().mt(px(24.)).mb(px(4.)).text_size(px(11.)).line_height(px(14.)).font_weight(FontWeight::MEDIUM).text_color(fg3).child(title);
         let value = |text: String| div().h(px(28.)).px(px(8.)).flex().items_center().rounded(px(radius::CONTROL)).border_1().border_color(c(pal.line_strong)).text_size(px(12.)).font_weight(FontWeight::MEDIUM).text_color(fg2).child(text);
-        if page == 2 {
+        if page == 1 {
+            return self.flow_page(pal, cx);
+        }
+        if page == 3 {
             return self.appearance_page(pal, cx);
         }
-        if page == 1 {
+        if page == 2 {
             // General: what is real today. Updates is a pref the old app reads too.
             let p = Prefs::load();
             col = col.child(section("Updates"));
@@ -556,12 +560,40 @@ impl Cauldron {
                 }))
                 .test_support();
             col = col.child(row(("general", 0), "Check for updates".into(), "Look for a newer Cauldron when it starts.".into(), toggle.into_any_element()));
+            // Always on (Charles, 22 Nov): background.rs and core autostart.rs.
+            col = col.child(section("Background"));
+            let flip = |id: &'static str, label: &'static str, on: bool, f: fn(&mut Prefs)| {
+                div()
+                    .id(id)
+                    .cursor_pointer()
+                    .hover(|d| d.opacity(0.85))
+                    .aria_label(format!("{label}: {}", if on { "on" } else { "off" }))
+                    .aria_selected(on)
+                    .child(value(if on { "On".into() } else { "Off".into() }))
+                    .on_click(cx.listener(move |_, _, _, cx| {
+                        let mut p = Prefs::load();
+                        f(&mut p);
+                        p.save();
+                        if let Err(e) = backspace_core::autostart::sync(p.start_at_login) {
+                            eprintln!("start at login: {e}");
+                        }
+                        cx.notify();
+                    }))
+                    .test_support()
+            };
+            let keep_help = if crate::background::HAS_TRAY {
+                "Closing the window hides it; the icon by the clock opens it again or quits. Automations keep running."
+            } else {
+                "Not on Linux yet: closing the window quits Cauldron."
+            };
+            col = col.child(row(("general", 3), "Keep running when closed".into(), keep_help.into(), flip("set-keep", "Keep running when closed", p.keep_running, |p| p.keep_running = !p.keep_running).into_any_element()));
+            col = col.child(row(("general", 4), "Start at login".into(), "Cauldron opens when you sign in to this computer.".into(), flip("set-login", "Start at login", p.start_at_login, |p| p.start_at_login = !p.start_at_login).into_any_element()));
             col = col.child(section("Data"));
             col = col.child(row(("general", 1), "Data folder".into(), "Where streams, accounts and settings are kept.".into(), value(Prefs::path().as_deref().and_then(|p| p.parent()).map_or_else(|| "Unknown".into(), |d| d.display().to_string())).into_any_element()));
             col = col.child(row(("general", 2), "Version".into(), "This build.".into(), value(env!("CARGO_PKG_VERSION").to_string()).into_any_element()));
             return div().id("settings-body").size_full().overflow_y_scroll().flex().justify_center().child(col).test_support().into_any_element();
         }
-        if page == 3 {
+        if page == 4 {
             // Machines: the connected machines from the prefs; adding one is still the old app's job.
             let p = Prefs::load();
             col = col.child(div().text_size(px(13.)).text_color(fg3).mb(px(6.)).child("Where a stream can run. This machine is always there."));
@@ -575,7 +607,7 @@ impl Cauldron {
             }
             return div().id("settings-body").size_full().overflow_y_scroll().flex().justify_center().child(col).test_support().into_any_element();
         }
-        if page == 4 {
+        if page == 5 {
             let cmd = if cfg!(target_os = "macos") { "\u{2318}" } else { "Ctrl+" };
             col = col.child(section("Keys"));
             for (i, (label, help, keys)) in [
@@ -663,7 +695,7 @@ mod tests {
             window.render_frame(cx);
             window.click("settings", cx);
             window.render_frame(cx);
-            window.click(("settings-page", 2usize), cx);
+            window.click(("settings-page", 3usize), cx);
             window.render_frame(cx);
             colour_targets(window, cx);
             colour_themes_step(window, cx);
@@ -725,16 +757,16 @@ mod tests {
             let page = super::super::tests::rect(window, "settings-body");
             assert!(page.x >= card.x && page.right() <= card.right(), "the page is in the card");
             assert_eq!(window.find(("agent", 2usize)).label(), Some("Effort"));
-            window.click(("settings-page", 3usize), cx);
-            assert_eq!(window.find(("machine", 0usize)).label(), Some("This machine"));
             window.click(("settings-page", 4usize), cx);
+            assert_eq!(window.find(("machine", 0usize)).label(), Some("This machine"));
+            window.click(("settings-page", 5usize), cx);
             assert_eq!(window.find(("keys", 0usize)).label(), Some("New stream"));
-            window.click(("settings-page", 1usize), cx);
+            window.click(("settings-page", 2usize), cx);
             assert_eq!(window.find(("general", 0usize)).label(), Some("Check for updates"));
             let before = backspace_core::prefs::Prefs::load().check_updates;
             window.click("set-updates", cx);
             assert_eq!(backspace_core::prefs::Prefs::load().check_updates, !before, "the toggle saves");
-            window.click(("settings-page", 2usize), cx);
+            window.click(("settings-page", 3usize), cx);
             assert_eq!(window.find(("appearance", 0usize)).label(), Some("Backdrop"));
             window.click(("mode-opt", 2usize), cx);
             assert_eq!(backspace_core::prefs::Prefs::load().theme, "dark", "Mode saves");

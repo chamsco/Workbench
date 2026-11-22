@@ -75,6 +75,19 @@ impl Cauldron {
             cx.notify();
             return;
         }
+        // A picture opens over everything, at full size (Charles, 22 Nov).
+        if let Link::File(f) = &link {
+            if super::imageview::is_image(f) {
+                self.image_view = Some(f.clone());
+                cx.notify();
+                return;
+            }
+        }
+        // A page opens in the app's browser, not outside or on a host (Charles, 22 Nov).
+        let link = match link {
+            Link::File(f) if f.extension().is_some_and(|e| e.eq_ignore_ascii_case("html") || e.eq_ignore_ascii_case("htm")) => Link::Url(format!("file://{}", f.display())),
+            l => l,
+        };
         let p = if matches!(link, Link::Url(_)) { Panel::Browser } else { Panel::Files };
         self.link = Some(link);
         if self.drawer != Some(p) {

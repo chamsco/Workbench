@@ -112,6 +112,10 @@ pub struct Msg {
     pub ad: Option<Ad>,
     #[serde(default)]
     pub cost_usd: Option<f64>,
+    /// When the reply finished (unix ms), for where an agent's session ends (sessions.rs).
+    /// 0 for one still going, a user message, or one saved before this was kept.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub done_at: u64,
     #[serde(default)]
     pub edited: bool,
     /// Who answered, when not the thread's own route (an @mention).
@@ -304,6 +308,7 @@ impl Msg {
             model: None,
             ad: None,
             cost_usd: None,
+            done_at: 0,
             thinking: String::new(),
             acts: Vec::new(),
             breaks: Vec::new(),
@@ -359,6 +364,12 @@ pub struct Thread {
     /// Put away from the sidebar, not deleted.
     #[serde(default)]
     pub archived: bool,
+    /// Out of the sidebar until this time (unix ms); 0 when it is not snoozed (Charles, 22 Nov).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub snoozed_until: u64,
+    /// Names a model gave its sessions (sessions.rs), by the id of the session's first message.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub session_names: BTreeMap<String, String>,
     pub route: Route,
     pub messages: Vec<Msg>,
     /// How long this thread lives (see `Life`). Absent in older files: Keep.
@@ -449,6 +460,25 @@ pub struct Scope {
     pub ttl_minutes: Option<u64>,
 }
 
+/// What an agent is doing now (`Chats::doing`).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Doing {
+    pub busy: bool,
+    /// Busy, but nothing has come back yet: thinking.
+    pub sending: bool,
+    /// The tool call running now.
+    pub act: Option<String>,
+    pub failed: bool,
+    /// Its last reply asks you something.
+    pub asks: bool,
+    /// Finished, and you have not looked yet.
+    pub unread: bool,
+    /// Letters wait for it.
+    pub waiting: bool,
+    /// When its thread last changed (unix ms).
+    pub last: u64,
+}
+
 /// The sidebar row.
 #[derive(Serialize, Clone, Debug)]
 pub struct ThreadInfo {
@@ -480,6 +510,10 @@ pub struct ThreadInfo {
     pub branch: Option<String>,
     /// Who wrote its replies, by maker: "Claude", "Claude + GPT", "Claude + more".
     pub models: String,
+    /// Its last reply ends on a question to you (a ```ask block, or a closing `?`).
+    pub asking: bool,
+    /// `Thread::snoozed_until`.
+    pub snoozed_until: u64,
 }
 
 /// See `Chats::activity`.
@@ -539,7 +573,11 @@ pub(crate) fn rand_u32() -> u32 {
     h.finish() as u32
 }
 
-fn title_from(text: &str) -> String {
+fn is_zero(n: &u64) -> bool {
+    *n == 0
+}
+
+pub(crate) fn title_from(text: &str) -> String {
     let t = text.split_whitespace().collect::<Vec<_>>().join(" ");
     if t.chars().count() <= 48 {
         return t;
@@ -629,6 +667,8 @@ pub struct Chats {
     running: Mutex<HashMap<String, AbortHandle>>,
     /// Threads with a reply the user has not opened yet.
     unread: Mutex<std::collections::HashSet<String>>,
+    /// Sessions being named now (`name_sessions`), so a slow answer is not asked for twice.
+    naming: Mutex<std::collections::HashSet<String>>,
     notify: async_channel::Sender<()>,
     rt: tokio::runtime::Handle,
     http: reqwest::Client,
@@ -714,6 +754,23 @@ pub const GOAL_TURNS: usize = 8;
 /// block as a checklist the user can edit; an edit comes back as a `Plan edit:` message.
 pub const TODO_BRIEF: &str = "# Your plan\n\nWhen a task takes more than one step, keep your plan as a checklist the user sees above the thread: a fenced `todo` block whose body is one JSON object, {\"items\": [{\"text\": \"Write the tests\", \"state\": \"done\"}, {\"text\": \"Fix the login\", \"state\": \"doing\"}, {\"text\": \"Update the docs\", \"state\": \"todo\"}]}. Post it whole again whenever a step changes state. A message starting `Plan edit:` is the user changing it: take the change into the plan without dropping the step you are on, unless it says to stop that step.";
 
+/// After a finished task, a few things the user might want next (Charles, 22 Nov): the app shows
+/// them on a Done card to tick, each with its why behind a "?".
+pub const NEXT_BRIEF: &str = "# Next steps\n\nWhen you have finished what was asked (not when you are asking the user something, failed, or are still part way), end your reply with a fenced `next` block whose body is one JSON object: {\"items\": [{\"text\": \"Add a test for the login fix\", \"why\": \"The bug could come back unnoticed; a test pins it down.\"}]}. Give two to four things the user might want next, most useful first. `text` is a short instruction the user could send you as is; `why` is one plain sentence on what it means and why it helps. The user sees these as choices, not in your text, so don't list them again in prose. Leave the block out when nothing sensible follows.";
+
+const SESSION_NAMER: &str = "You name conversations for a list. Reply with only a title of two to six words in sentence case, saying what the conversation was about, with no quotes and no full stop.";
+
+/// A model's title, cleaned: its first line, no quotes, no closing full stop, at most 60 characters.
+fn clean_name(s: &str) -> String {
+    let line = s.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("");
+    let line = line.trim_matches(|c: char| c == '"' || c == '\'' || c == '*' || c == '`' || c == '\u{201c}' || c == '\u{201d}').trim_end_matches('.').trim();
+    // A sentence back instead of a title (the model answered the conversation): no name.
+    if line.split_whitespace().count() > 8 || line.contains(": ") {
+        return String::new();
+    }
+    line.chars().take(60).collect()
+}
+
 const ASK_MODE: &str = "# Ask mode\n\nThe user is asking a question, not asking for changes. Read whatever you need and answer it. Don't edit, create or delete any file, and don't run commands.";
 
 const PLAN_MODE: &str = "# Plan mode\n\nThe user wants a plan, not changes. Read whatever you need, run read-only commands, then reply with a short plan: the files to change, what changes in each, and how to check it. Don't edit, create or delete any file.";
@@ -781,6 +838,11 @@ pub fn window_of(route: &Route) -> u64 {
 }
 
 impl Chats {
+    /// The data folder this store reads and writes (threads/, traces/, boards/ under it).
+    pub fn dir(&self) -> &std::path::Path {
+        &self.dir
+    }
+
     pub fn open(
         dir: PathBuf,
         rt: tokio::runtime::Handle,
@@ -810,6 +872,7 @@ impl Chats {
             threads: Mutex::new(threads),
             running: Mutex::new(HashMap::new()),
             unread: Mutex::new(Default::default()),
+            naming: Mutex::new(Default::default()),
             notify,
             rt,
             http: reqwest::Client::new(),
@@ -972,6 +1035,8 @@ impl Chats {
                 expires_at: if t.life == Life::Temporal { t.expires_at } else { None },
                 branch: t.project.as_deref().and_then(git_branch),
                 models: models_label(t),
+                asking: !running.contains_key(&t.id) && t.messages.last().is_some_and(|m| m.role != Role::User && m.error.is_none() && (m.text.contains("```ask") || m.text.trim_end().ends_with('?'))),
+                snoozed_until: t.snoozed_until,
             })
             .collect();
         v.sort_by(|a, b| b.pinned.cmp(&a.pinned).then(b.updated.cmp(&a.updated)));
@@ -1045,6 +1110,8 @@ impl Chats {
             updated: now,
             pinned: false,
             archived: false,
+            snoozed_until: 0,
+            session_names: BTreeMap::new(),
             route,
             messages: vec![],
             cli_session: None,
@@ -1111,6 +1178,35 @@ impl Chats {
 
     pub fn pin(&self, id: &str, pinned: bool) -> Result<()> {
         self.edit_thread(id, |t| t.pinned = pinned)
+    }
+
+    /// Snooze a stream until `until` (unix ms), or wake it now with 0.
+    pub fn snooze(&self, id: &str, until: u64) -> Result<()> {
+        self.edit_thread(id, |t| t.snoozed_until = until)
+    }
+
+    /// Streams whose snooze is over come back marked unread, so they show as needing you.
+    /// Returns how many woke.
+    pub fn wake_snoozed(&self, now: u64) -> usize {
+        let woke: Vec<String> = {
+            let mut ts = self.threads.lock().unwrap();
+            ts.values_mut()
+                .filter(|t| t.snoozed_until != 0 && t.snoozed_until <= now)
+                .map(|t| {
+                    t.snoozed_until = 0;
+                    t.id.clone()
+                })
+                .collect()
+        };
+        if woke.is_empty() {
+            return 0;
+        }
+        self.unread.lock().unwrap().extend(woke.iter().cloned());
+        for id in &woke {
+            self.save(id);
+        }
+        self.poke();
+        woke.len()
     }
 
     /// Put a stream away from the sidebar, or bring it back. Nothing is deleted.
@@ -1264,6 +1360,8 @@ impl Chats {
             updated: now,
             pinned: false,
             archived: false,
+            snoozed_until: 0,
+            session_names: BTreeMap::new(),
             route: src.route.clone(),
             messages: src.messages[..=end].to_vec(),
             cli_session: None,
@@ -1398,6 +1496,7 @@ impl Chats {
                 model: None,
                 ad: None,
                 cost_usd: None,
+                done_at: 0,
                 thinking: String::new(),
                 acts: Vec::new(),
                 breaks: Vec::new(),
@@ -1584,17 +1683,7 @@ impl Chats {
                 .filter_map(|id| agents.get(id))
                 .find(|a| a.name.eq_ignore_ascii_case(name.trim()) || a.id == name)
                 .ok_or_else(|| anyhow!("no crew member named {name}"))?;
-            let child = match self.crew_thread(&main, &member.id) {
-                Some(id) => id,
-                None => {
-                    let c = self.create_in(member.route.clone(), Scope { project: parent.project.clone(), agent: Some(member.id.clone()), title: Some(member.name.clone()), ..Scope::default() });
-                    self.edit_thread(&c.id, |t| {
-                        t.side_of = Some(main.clone());
-                        t.folder = parent.folder.clone();
-                    })?;
-                    c.id
-                }
-            };
+            let child = self.crew_thread_or_new(&main, &member)?;
             let inb = Inbound { from: sp.from.clone(), text: sp.task.clone(), reply: true, as_note: false, hops, origin: None };
             self.take_letter(&child, inb, ctx)?;
             return Ok(child);
@@ -1633,8 +1722,127 @@ impl Chats {
         Ok(t.id)
     }
 
+    /// What agent `agent` is doing now, read from its newest thread without copying it: for the
+    /// face it shows (Charles, 22 Nov: the avatar follows the activity).
+    pub fn doing(&self, agent: &str) -> Doing {
+        // Read the thread under its lock, then the other locks one at a time, never nested.
+        let seen = {
+            let all = self.threads.lock().unwrap();
+            all.values().filter(|t| t.agent.as_deref() == Some(agent) && !t.archived).max_by_key(|t| t.updated).map(|t| {
+                let last = t.messages.last();
+                let reply = t.messages.iter().rev().find(|m| m.role != Role::User);
+                (
+                    t.id.clone(),
+                    t.updated,
+                    last.is_some_and(|m| m.status == Status::Sending || (m.status == Status::Streaming && m.text.is_empty() && m.acts.iter().all(|a| a.end.is_some()))),
+                    last.and_then(|m| m.acts.iter().rev().find(|a| a.end.is_none())).map(|a| a.name.clone()),
+                    last.is_some_and(|m| m.status == Status::Error),
+                    last.is_some_and(|m| m.role != Role::User) && reply.is_some_and(|m| m.text.contains("```ask") || m.text.trim_end().ends_with('?')),
+                )
+            })
+        };
+        let Some((id, updated, sending, act, failed, asks)) = seen else { return Doing::default() };
+        let busy = self.is_busy(&id);
+        let unread = self.unread.lock().unwrap().contains(&id);
+        let waiting = self.inbox.lock().unwrap().get(&id).is_some_and(|q| !q.is_empty());
+        Doing { busy, sending: busy && sending, act: act.filter(|_| busy), failed: !busy && failed, asks: !busy && asks, unread, waiting: !busy && waiting, last: updated }
+    }
+
+    /// A familiar's own stream: the newest thread it leads in its project that is nobody's side.
+    pub fn familiar_main(&self, a: &crate::agents::Agent) -> Option<String> {
+        let project = a.lead.as_ref().map(|l| l.project.as_str());
+        let all = self.threads.lock().unwrap();
+        all.values()
+            .filter(|t| t.agent.as_deref() == Some(a.id.as_str()) && t.side_of.is_none() && t.members.is_empty() && !t.archived && t.project.as_deref() == project)
+            .max_by_key(|t| t.updated)
+            .map(|t| t.id.clone())
+    }
+
+    /// The thread an automation posts into: the one it used last time while it is still there,
+    /// else a new side thread under the familiar's stream (started first when it has none),
+    /// titled after the automation.
+    pub fn automation_thread(&self, a: &crate::agents::Agent, r: &crate::agents::Routine) -> String {
+        if !r.thread.is_empty() && self.thread(&r.thread).is_some_and(|t| !t.archived) {
+            return r.thread.clone();
+        }
+        let project = a.lead.as_ref().map(|l| l.project.clone());
+        let main = self.familiar_main(a).or_else(|| self.start_familiar(a).ok()).and_then(|m| self.thread(&m));
+        let mut t = self.create_in(a.route.clone(), Scope { project, agent: Some(a.id.clone()), title: Some(r.name.clone()), ..Scope::default() });
+        if let Some(m) = main {
+            t.side_of = Some(m.id.clone());
+            t.folder = m.folder.clone();
+        }
+        let id = t.id.clone();
+        self.threads.lock().unwrap().insert(id.clone(), t);
+        self.save(&id);
+        id
+    }
+
     /// The thread a familiar's crew member keeps under its captain's stream: the same one job after
     /// job, so it remembers the last one (nobody is killed when a job ends).
+    /// A crew member's standing thread under its captain's stream `main`, made when it has none:
+    /// the captain hands it work there, and you can talk to it there too (Charles, 22 Nov 20:04).
+    pub fn crew_thread_or_new(&self, main: &str, member: &crate::agents::Agent) -> Result<String> {
+        if let Some(id) = self.crew_thread(main, &member.id) {
+            return Ok(id);
+        }
+        let parent = self.peek(main).ok_or_else(|| anyhow!("the captain's stream is gone"))?;
+        let c = self.create_in(member.route.clone(), Scope { project: parent.project.clone(), agent: Some(member.id.clone()), title: Some(member.name.clone()), ..Scope::default() });
+        self.edit_thread(&c.id, |t| {
+            t.side_of = Some(main.to_string());
+            t.folder = parent.folder.clone();
+        })?;
+        Ok(c.id)
+    }
+
+    /// Names an agent's finished sessions from what was said in them (Charles, 22 Nov 20:04: the
+    /// first message is not a name). A small model per session, two at most per call; a session
+    /// that cannot be named keeps its first message, and is not asked about again.
+    pub fn name_sessions(self: &Arc<Self>, now: u64, ctx: Ctx) -> usize {
+        let todo: Vec<(String, String, Route, String)> = {
+            let all = self.threads.lock().unwrap();
+            let naming = self.naming.lock().unwrap();
+            let mut v = Vec::new();
+            for t in all.values().filter(|t| t.agent.is_some() && !t.archived && !t.hidden) {
+                for s in crate::sessions::split(t, now) {
+                    let key = t.messages[s.start].id.clone();
+                    if s.live || s.kind != crate::sessions::Kind::Talk || s.end - s.start < 2 || t.session_names.contains_key(&key) || naming.contains(&key) {
+                        continue;
+                    }
+                    let said: String = t.messages[s.start..s.end]
+                        .iter()
+                        .map(|m| format!("{}: {}", if m.role == Role::User { "User" } else { "Agent" }, m.text.chars().take(600).collect::<String>()))
+                        .collect::<Vec<_>>()
+                        .join("\n\n");
+                    let mut route = t.route.clone();
+                    if route.kind == RouteKind::Cli && route.provider == "claude" {
+                        route.model = Some("haiku".into());
+                    }
+                    let said: String = said.chars().take(3000).collect();
+                    let prompt = format!("Give this conversation a title of two to six words. Don't answer it, don't use tools: reply with the title only.\n\n<conversation>\n{said}\n</conversation>");
+                    v.push((t.id.clone(), key, route, prompt));
+                }
+            }
+            v.truncate(2);
+            v
+        };
+        let n = todo.len();
+        for (tid, key, route, said) in todo {
+            self.naming.lock().unwrap().insert(key.clone());
+            let me = self.clone();
+            let ctx = ctx.clone();
+            self.rt.spawn(async move {
+                let got = me.ask(route, SESSION_NAMER, &said, ctx).await.ok().map(|a| clean_name(&a)).filter(|n| !n.is_empty());
+                let name = got.unwrap_or_default();
+                let _ = me.edit_thread(&tid, |t| {
+                    t.session_names.insert(key.clone(), name);
+                });
+                me.naming.lock().unwrap().remove(&key);
+            });
+        }
+        n
+    }
+
     pub fn crew_thread(&self, main: &str, agent: &str) -> Option<String> {
         let all = self.threads.lock().unwrap();
         all.values().filter(|t| t.side_of.as_deref() == Some(main) && t.agent.as_deref() == Some(agent) && !t.archived).max_by_key(|t| t.updated).map(|t| t.id.clone())
@@ -1803,6 +2011,8 @@ impl Chats {
             updated: now,
             pinned: false,
             archived: false,
+            snoozed_until: 0,
+            session_names: BTreeMap::new(),
             route: route.clone(),
             messages: vec![user, reply],
             cli_session: None,
@@ -2014,6 +2224,7 @@ impl Chats {
                 for a in m.acts.iter_mut().filter(|a| a.end.is_none()) {
                     a.end = Some(at);
                 }
+                m.done_at = at;
                 match res {
                     Ok(()) => {
                         m.status = Status::Done;
@@ -2538,6 +2749,17 @@ Ask the reader for input with the real form parts: `f = FormControl(\"Name\", In
             };
             req.system = Some(format!("{}{mode}", req.system.take().map(|s| s + "\n\n").unwrap_or_default()));
         }
+        // A coordinator works by the user's flow (flow.rs): not side streams, crews or one-off asks.
+        if !plan && !id.starts_with("ask-") && call.agent.is_none() && self.peek(id).is_some_and(|t| t.side_of.is_none() && t.members.is_empty()) {
+            let brief = crate::flow::Flow::load(&self.dir, thread_project.as_deref().map(std::path::Path::new)).brief();
+            if !brief.is_empty() {
+                req.system = Some(format!("{}{brief}", req.system.take().map(|s| s + "\n\n").unwrap_or_default()));
+            }
+        }
+        // Not for one-off asks (dreaming, stage decisions, names), whose answers are parsed.
+        if !plan && !id.starts_with("ask-") {
+            req.system = Some(format!("{}{NEXT_BRIEF}", req.system.take().map(|s| s + "\n\n").unwrap_or_default()));
+        }
         req.cwd = match project {
             Some(p) => p,
             None => {
@@ -3020,6 +3242,7 @@ mod tests {
             model: None,
             ad: None,
             cost_usd: None,
+            done_at: 0,
             thinking: String::new(),
             acts: Vec::new(),
             breaks: Vec::new(),
@@ -3084,6 +3307,7 @@ mod tests {
                     model: None,
                     ad: None,
                     cost_usd: None,
+                    done_at: 0,
                     thinking: String::new(),
                     acts: Vec::new(),
                     breaks: Vec::new(),
@@ -3484,6 +3708,63 @@ mod tests {
         assert!(ct.messages.iter().any(|m| m.text == "Test the login") && ct.messages.iter().any(|m| m.text == "Test the logout"));
         let bad = crate::relay::Spawn { crew: Some("Nobody".into()), ..job("x") };
         assert!(c.spawn_sub(&bad, ctx).is_err(), "only its own crew");
+    }
+
+    #[test]
+    fn a_snoozed_stream_comes_back_unread_when_its_time_is_up() {
+        let dir = tmp("snooze");
+        let (c, _rt) = chats(&dir);
+        let t = c.create(route());
+        c.snooze(&t.id, 5_000).unwrap();
+        assert_eq!(c.list()[0].snoozed_until, 5_000);
+        assert_eq!(c.wake_snoozed(4_999), 0, "not yet");
+        assert_eq!(c.wake_snoozed(5_000), 1);
+        let row = &c.list()[0];
+        assert_eq!(row.snoozed_until, 0);
+        assert!(row.unread, "it comes back needing you");
+        let (c2, _rt2) = chats(&dir);
+        assert_eq!(c2.list()[0].snoozed_until, 0, "the wake is saved");
+    }
+
+    #[test]
+    fn a_session_name_is_one_clean_line() {
+        assert_eq!(clean_name("\n\"Login redirect fix.\"\nmore"), "Login redirect fix");
+        assert_eq!(clean_name("**Release notes**"), "Release notes");
+        assert_eq!(clean_name(&"x".repeat(90)).len(), 60);
+        assert_eq!(clean_name("I need to check something before going further: my last reply"), "", "a sentence is not a name");
+    }
+
+    #[test]
+    fn an_automation_runs_in_its_own_side_thread_under_the_familiar() {
+        let dir = tmp("automation");
+        let (c, _rt) = chats(&dir);
+        let agents = Arc::new(crate::agents::Agents::open(dir.join("agents")));
+        let mut cap = crate::agents::Agent::new("Ez", route());
+        cap.lead = Some(crate::agents::Lead { project: "/work/app".into(), crew: vec![] });
+        let cap = agents.save(cap).unwrap();
+        let r = crate::agents::Routine { name: "Triage PRs".into(), instructions: "Read the open PRs and list what blocks each.".into(), kind: "every".into(), every_minutes: 60, enabled: true, ..Default::default() };
+        let cap = agents.routine_save(&cap.id, r).unwrap();
+        let r = cap.routines[0].clone();
+        assert!(r.next_run > now_ms(), "it waits for its first wake");
+        assert!(crate::automations::due(&c, &agents, now_ms()).is_empty());
+        assert_eq!(crate::automations::due(&c, &agents, r.next_run).len(), 1, "due once its wake passes");
+
+        let ctx = || Ctx { agents: Some(agents.clone()), ..dead_ctx() };
+        let id = crate::automations::run(&c, &agents, &cap, &r, false, ctx()).unwrap();
+        settle(&c, &[&id]);
+        let t = c.thread(&id).unwrap();
+        let main = c.familiar_main(&cap).expect("the familiar's stream is started for it");
+        assert_eq!((t.side_of.as_deref(), t.title.as_str(), t.agent.as_deref()), (Some(main.as_str()), "Triage PRs", Some(cap.id.as_str())));
+        assert!(t.messages.iter().any(|m| m.role == Role::User && m.text.contains("Read the open PRs")), "the instructions go in");
+        assert!(c.thread(&main).unwrap().messages.is_empty(), "the familiar's own chat stays clean");
+        let saved = agents.get(&cap.id).unwrap().routines[0].clone();
+        assert_eq!((saved.thread.as_str(), saved.runs, saved.next_run), (id.as_str(), 1, r.next_run), "Run now books a run and leaves the wake");
+
+        let again = crate::automations::run(&c, &agents, &agents.get(&cap.id).unwrap(), &saved, true, ctx()).unwrap();
+        assert_eq!(again, id, "every run lands in the same thread");
+        assert!(agents.get(&cap.id).unwrap().routines[0].next_run > r.next_run, "a scheduled run moves the wake on");
+        let plain = agents.save(crate::agents::Agent::new("Bot", route())).unwrap();
+        assert!(crate::automations::run(&c, &agents, &plain, &r, false, ctx()).is_err(), "only familiars run automations");
     }
 
     #[test]

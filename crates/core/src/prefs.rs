@@ -15,6 +15,11 @@ pub struct Prefs {
     pub machines: Vec<MachineCfg>,
     pub share: Share,
     pub check_updates: bool,
+    /// Closing the window keeps Cauldron running in the notification area, so automations and
+    /// replies carry on (Charles, 22 Nov: "always on, in the background"). Quit from the tray icon.
+    pub keep_running: bool,
+    /// Cauldron starts when you sign in to the computer (autostart.rs).
+    pub start_at_login: bool,
     pub tabs: Vec<TabSpec>,
     pub active_tab: usize,
     /// The same canvas layout, per project. `tabs` above stays the fallback for
@@ -106,6 +111,9 @@ pub struct Prefs {
     pub model_tray: Option<String>,
     /// Cauldron: the sidebar's dragged width in px. None: the default 236.
     pub sidebar_w: Option<f32>,
+    /// Cauldron: the Streams list shows its Done group open. Off by default, so the list is what
+    /// needs you (Charles, 22 Nov).
+    pub streams_show_done: bool,
     /// Cauldron: the frame and sidebar colour, `#rrggbb`. None: the theme's.
     pub sidebar_color: Option<String>,
     /// Cauldron: the stream and support cards' colour, `#rrggbb`. None: the theme's.
@@ -162,6 +170,8 @@ impl Default for Prefs {
             machines: vec![],
             share: Share::default(),
             check_updates: true,
+            keep_running: true,
+            start_at_login: true,
             tabs: TabSpec::defaults(),
             active_tab: 0,
             tabs_by_project: BTreeMap::new(),
@@ -187,6 +197,7 @@ impl Default for Prefs {
             window_style: None,
             model_tray: None,
             sidebar_w: None,
+            streams_show_done: false,
             sidebar_color: None,
             main_color: None,
             themes: Vec::new(),

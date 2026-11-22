@@ -14,6 +14,8 @@ pub(crate) enum Group {
     Done,
     /// Put away; `of` never returns it, the sidebar adds it as its own shelf.
     Archived,
+    /// Snoozed until later; a shelf like Archived.
+    Snoozed,
 }
 
 impl Group {
@@ -26,6 +28,7 @@ impl Group {
             Group::Running => "Running",
             Group::Done => "Done",
             Group::Archived => "Archived",
+            Group::Snoozed => "Snoozed",
         }
     }
 
@@ -52,6 +55,47 @@ pub(crate) fn grouped<'a>(list: &'a [ThreadInfo], query: &str) -> Vec<(Group, Ve
         .map(|&g| (g, list.iter().filter(|t| Group::of(t) == g && hit(t)).collect::<Vec<_>>()))
         .filter(|(_, v)| !v.is_empty())
         .collect()
+}
+
+/// How a row reads where the dot was (Charles, 22 Nov, after T3 Code): a word, not a colour.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Status {
+    Working,
+    Failed,
+    /// Its last reply asks you something.
+    Input,
+    /// Finished and not read yet.
+    Done,
+}
+
+impl Status {
+    pub(crate) fn of(t: &ThreadInfo) -> Option<Status> {
+        if t.busy {
+            Some(Status::Working)
+        } else if t.failed.is_some() {
+            Some(Status::Failed)
+        } else if t.asking {
+            Some(Status::Input)
+        } else if t.unread {
+            Some(Status::Done)
+        } else {
+            None
+        }
+    }
+
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Status::Working => "Working",
+            Status::Failed => "\u{2715} Failed",
+            Status::Input => "? Input",
+            Status::Done => "\u{2713} Done",
+        }
+    }
+}
+
+/// Snoozed (Charles, 22 Nov): out of the list until its time comes, unless a search asks for it.
+pub(crate) fn snoozed(t: &ThreadInfo, now: u64) -> bool {
+    t.snoozed_until > now
 }
 
 /// The row's meta after the title, as the board's `.m`: the project's folder name, else "no repo".
@@ -86,6 +130,8 @@ pub(crate) fn sample(id: &str, title: &str) -> ThreadInfo {
         side_of: None,
         branch: None,
         models: "Claude".into(),
+        asking: false,
+        snoozed_until: 0,
     }
 }
 
@@ -114,6 +160,8 @@ pub(crate) fn fixture(now: u64) -> Vec<ThreadInfo> {
             failed: failed.then(|| "usage limit".into()),
             // One thread with an agent; it still shows a state dot.
             agent: (id == "r1").then(|| "Rampart".into()),
+            // One reply ends on a question.
+            asking: id == "u2",
             ..sample(id, title)
         })
         .collect();
@@ -124,6 +172,21 @@ pub(crate) fn fixture(now: u64) -> Vec<ThreadInfo> {
 #[cfg(test)]
 mod tests {
     use super::{grouped, meta, sample, Group};
+
+    #[test]
+    fn a_row_says_its_state_in_words() {
+        use super::Status;
+        let mut t = sample("a", "A");
+        assert_eq!(Status::of(&t), None, "a read, finished stream stays quiet");
+        t.unread = true;
+        assert_eq!(Status::of(&t).map(Status::label), Some("\u{2713} Done"));
+        t.asking = true;
+        assert_eq!(Status::of(&t).map(Status::label), Some("? Input"), "a question beats done");
+        t.failed = Some("usage limit".into());
+        assert_eq!(Status::of(&t), Some(Status::Failed));
+        t.busy = true;
+        assert_eq!(Status::of(&t), Some(Status::Working), "working beats everything");
+    }
 
     #[test]
     fn each_thread_lands_in_one_group_by_precedence() {
