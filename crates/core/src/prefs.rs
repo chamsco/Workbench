@@ -111,6 +111,9 @@ pub struct Prefs {
     pub model_tray: Option<String>,
     /// Cauldron: the sidebar's dragged width in px. None: the default 236.
     pub sidebar_w: Option<f32>,
+    /// Cauldron: the Streams list shows its Done group open. Off by default, so the list is what
+    /// needs you (Charles, 22 Nov).
+    pub streams_show_done: bool,
     /// Cauldron: the frame and sidebar colour, `#rrggbb`. None: the theme's.
     pub sidebar_color: Option<String>,
     /// Cauldron: the stream and support cards' colour, `#rrggbb`. None: the theme's.
@@ -194,6 +197,7 @@ impl Default for Prefs {
             window_style: None,
             model_tray: None,
             sidebar_w: None,
+            streams_show_done: false,
             sidebar_color: None,
             main_color: None,
             themes: Vec::new(),

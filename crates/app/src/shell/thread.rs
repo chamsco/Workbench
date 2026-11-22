@@ -492,7 +492,13 @@ impl Cauldron {
                 .background_executor()
                 .spawn(async move {
                     c.pump(ctx(false));
-                    if due { backspace_core::automations::tick(&c, &agents(), || ctx(false)) } else { 0 }
+                    if due {
+                        // A snoozed stream whose time is up comes back needing you.
+                        c.wake_snoozed(backspace_core::chat::now_ms());
+                        backspace_core::automations::tick(&c, &agents(), || ctx(false))
+                    } else {
+                        0
+                    }
                 })
                 .await;
             if ran > 0 {

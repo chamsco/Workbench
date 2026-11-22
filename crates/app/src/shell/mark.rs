@@ -52,7 +52,7 @@ impl Cauldron {
                 Group::Running => (Mark::Working, pal.accent),
                 Group::NeedsYou if t.failed.is_some() => (Mark::Error, pal.bad),
                 Group::NeedsYou => (Mark::Asking, pal.warn),
-                Group::Done | Group::Archived => (Mark::Idle, pal.fg4),
+                Group::Done | Group::Archived | Group::Snoozed => (Mark::Idle, pal.fg4),
             },
             None => (Mark::Idle, pal.fg4),
         }

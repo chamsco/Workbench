@@ -364,6 +364,9 @@ pub struct Thread {
     /// Put away from the sidebar, not deleted.
     #[serde(default)]
     pub archived: bool,
+    /// Out of the sidebar until this time (unix ms); 0 when it is not snoozed (Charles, 22 Nov).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub snoozed_until: u64,
     pub route: Route,
     pub messages: Vec<Msg>,
     /// How long this thread lives (see `Life`). Absent in older files: Keep.
@@ -504,6 +507,10 @@ pub struct ThreadInfo {
     pub branch: Option<String>,
     /// Who wrote its replies, by maker: "Claude", "Claude + GPT", "Claude + more".
     pub models: String,
+    /// Its last reply ends on a question to you (a ```ask block, or a closing `?`).
+    pub asking: bool,
+    /// `Thread::snoozed_until`.
+    pub snoozed_until: u64,
 }
 
 /// See `Chats::activity`.
@@ -1000,6 +1007,8 @@ impl Chats {
                 expires_at: if t.life == Life::Temporal { t.expires_at } else { None },
                 branch: t.project.as_deref().and_then(git_branch),
                 models: models_label(t),
+                asking: !running.contains_key(&t.id) && t.messages.last().is_some_and(|m| m.role != Role::User && m.error.is_none() && (m.text.contains("```ask") || m.text.trim_end().ends_with('?'))),
+                snoozed_until: t.snoozed_until,
             })
             .collect();
         v.sort_by(|a, b| b.pinned.cmp(&a.pinned).then(b.updated.cmp(&a.updated)));
@@ -1073,6 +1082,7 @@ impl Chats {
             updated: now,
             pinned: false,
             archived: false,
+            snoozed_until: 0,
             route,
             messages: vec![],
             cli_session: None,
@@ -1139,6 +1149,35 @@ impl Chats {
 
     pub fn pin(&self, id: &str, pinned: bool) -> Result<()> {
         self.edit_thread(id, |t| t.pinned = pinned)
+    }
+
+    /// Snooze a stream until `until` (unix ms), or wake it now with 0.
+    pub fn snooze(&self, id: &str, until: u64) -> Result<()> {
+        self.edit_thread(id, |t| t.snoozed_until = until)
+    }
+
+    /// Streams whose snooze is over come back marked unread, so they show as needing you.
+    /// Returns how many woke.
+    pub fn wake_snoozed(&self, now: u64) -> usize {
+        let woke: Vec<String> = {
+            let mut ts = self.threads.lock().unwrap();
+            ts.values_mut()
+                .filter(|t| t.snoozed_until != 0 && t.snoozed_until <= now)
+                .map(|t| {
+                    t.snoozed_until = 0;
+                    t.id.clone()
+                })
+                .collect()
+        };
+        if woke.is_empty() {
+            return 0;
+        }
+        self.unread.lock().unwrap().extend(woke.iter().cloned());
+        for id in &woke {
+            self.save(id);
+        }
+        self.poke();
+        woke.len()
     }
 
     /// Put a stream away from the sidebar, or bring it back. Nothing is deleted.
@@ -1292,6 +1331,7 @@ impl Chats {
             updated: now,
             pinned: false,
             archived: false,
+            snoozed_until: 0,
             route: src.route.clone(),
             messages: src.messages[..=end].to_vec(),
             cli_session: None,
@@ -1888,6 +1928,7 @@ impl Chats {
             updated: now,
             pinned: false,
             archived: false,
+            snoozed_until: 0,
             route: route.clone(),
             messages: vec![user, reply],
             cli_session: None,
@@ -3572,6 +3613,22 @@ mod tests {
         assert!(ct.messages.iter().any(|m| m.text == "Test the login") && ct.messages.iter().any(|m| m.text == "Test the logout"));
         let bad = crate::relay::Spawn { crew: Some("Nobody".into()), ..job("x") };
         assert!(c.spawn_sub(&bad, ctx).is_err(), "only its own crew");
+    }
+
+    #[test]
+    fn a_snoozed_stream_comes_back_unread_when_its_time_is_up() {
+        let dir = tmp("snooze");
+        let (c, _rt) = chats(&dir);
+        let t = c.create(route());
+        c.snooze(&t.id, 5_000).unwrap();
+        assert_eq!(c.list()[0].snoozed_until, 5_000);
+        assert_eq!(c.wake_snoozed(4_999), 0, "not yet");
+        assert_eq!(c.wake_snoozed(5_000), 1);
+        let row = &c.list()[0];
+        assert_eq!(row.snoozed_until, 0);
+        assert!(row.unread, "it comes back needing you");
+        let (c2, _rt2) = chats(&dir);
+        assert_eq!(c2.list()[0].snoozed_until, 0, "the wake is saved");
     }
 
     #[test]

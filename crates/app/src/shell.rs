@@ -245,6 +245,10 @@ pub(crate) struct Cauldron {
     sides_folded: std::collections::HashSet<String>,
     /// Sidebar groups (Needs you, Working, Done) the user folded, by label.
     groups_folded: std::collections::HashSet<String>,
+    /// Done is folded until opened, so the list shows what needs you (Charles, 22 Nov, after T3
+    /// Code); the Snoozed shelf likewise.
+    done_open: bool,
+    snooze_open: bool,
     /// The Archived shelf at the bottom of the list is open.
     archive_open: bool,
     /// The right-click menu on a stream, when open.
@@ -489,6 +493,7 @@ impl Cauldron {
         }
         c.theme_mode = prefs.theme.clone();
         c.sidebar_w = prefs.sidebar_w.map_or(metric::SIDEBAR_W, layout::sidebar_width);
+        c.done_open = prefs.streams_show_done;
         c.frost = backdrop::FrostLevel::from_pref(&prefs);
         set_notch(prefs.window_style.as_deref() == Some("notch"));
         if c.painting {
@@ -697,7 +702,7 @@ impl Cauldron {
     }
 
     pub(crate) fn new() -> Self {
-        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, support_data: Default::default(), diff_since: None, restore_ask: false, files_open: Default::default(), painting: false, glass: Default::default(), plane: Default::default(), mark_ticker: None, ask_hover: false, ask_open: None, ask_answered: Default::default(), fam_questions: Default::default(), frost: backdrop::FrostLevel::Heavy, stream_bg: None, bg_wipe: None, stream_menu: None, closed_sides: Default::default(), sides_folded: Default::default(), groups_folded: Default::default(), archive_open: false, color_target: theme::Target::Sidebar, hex_input: None, theme_mode: String::new(), root_focus: None, plan: false, open_in_menu: false, open_in: thread::OpenIn::Folder, search_open: false, indent: false, indent_run: (0.0, None), indent_to: 0.0, sidebar_w: metric::SIDEBAR_W, sidebar_drag: None, link: None, link_menu: None, link_hover: Default::default(), browser: Default::default(), browser_slot: Default::default(), usage: Default::default(), usage_page: false, section_page: false, pages: Default::default(), usage_hover: false, usage_card_hover: false, settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_cache: Default::default(), act_open: Default::default(), act_tick: None, term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), transcript_fit: Default::default(), paced: Default::default(), pace_behind: Default::default(), coordinator: None, familiar: None, fam_views: Vec::new(), fam_live: Vec::new(), fam_watch: Vec::new(), fam_driving: Default::default(), fam_error: None, fam_composer: None, fam_fixture: false, inbox: Vec::new(), inbox_open: false, update: Default::default(), update_open: false, cli_rows: Vec::new(), inbox_toast: None, fam_from: (0.0, 0.0), fam_to: None, fam_since: None, fam_hl: 0, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default(), err_open: Default::default(), side_root: None, sides: Vec::new(), side_win: false, side_input: None, side_ctx: Default::default(), block_hover: None, bar_hover: false, block_menu: None, sel: None, copied: None, ask: false, reply_files: Vec::new(), slash_sel: 0, slash_closed: false, slash_cmds: Default::default(), plan_open: false, plan_flips: 0, chip_menu: None, plan_hover: None, plan_edit: None, autos: Default::default(), agent_open: None, autos_page: false, session_pick: None }
+        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, support_data: Default::default(), diff_since: None, restore_ask: false, files_open: Default::default(), painting: false, glass: Default::default(), plane: Default::default(), mark_ticker: None, ask_hover: false, ask_open: None, ask_answered: Default::default(), fam_questions: Default::default(), frost: backdrop::FrostLevel::Heavy, stream_bg: None, bg_wipe: None, stream_menu: None, closed_sides: Default::default(), sides_folded: Default::default(), groups_folded: Default::default(), done_open: true, snooze_open: false, archive_open: false, color_target: theme::Target::Sidebar, hex_input: None, theme_mode: String::new(), root_focus: None, plan: false, open_in_menu: false, open_in: thread::OpenIn::Folder, search_open: false, indent: false, indent_run: (0.0, None), indent_to: 0.0, sidebar_w: metric::SIDEBAR_W, sidebar_drag: None, link: None, link_menu: None, link_hover: Default::default(), browser: Default::default(), browser_slot: Default::default(), usage: Default::default(), usage_page: false, section_page: false, pages: Default::default(), usage_hover: false, usage_card_hover: false, settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_cache: Default::default(), act_open: Default::default(), act_tick: None, term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), transcript_fit: Default::default(), paced: Default::default(), pace_behind: Default::default(), coordinator: None, familiar: None, fam_views: Vec::new(), fam_live: Vec::new(), fam_watch: Vec::new(), fam_driving: Default::default(), fam_error: None, fam_composer: None, fam_fixture: false, inbox: Vec::new(), inbox_open: false, update: Default::default(), update_open: false, cli_rows: Vec::new(), inbox_toast: None, fam_from: (0.0, 0.0), fam_to: None, fam_since: None, fam_hl: 0, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default(), err_open: Default::default(), side_root: None, sides: Vec::new(), side_win: false, side_input: None, side_ctx: Default::default(), block_hover: None, bar_hover: false, block_menu: None, sel: None, copied: None, ask: false, reply_files: Vec::new(), slash_sel: 0, slash_closed: false, slash_cmds: Default::default(), plan_open: false, plan_flips: 0, chip_menu: None, plan_hover: None, plan_edit: None, autos: Default::default(), agent_open: None, autos_page: false, session_pick: None }
     }
 
     /// Opens core off the main thread (the sidebar shows Loading meanwhile), then keeps the thread
@@ -847,10 +852,17 @@ impl Cauldron {
                 // An agent's threads stay in Agents (Charles, 22 Nov: "whatever you create for agents
                 // should stay inside the agents").
                 let mine = |t: &ThreadInfo| t.agent.as_deref().is_some_and(|a| self.agent_cached(a).is_some());
-                let mains: Vec<ThreadInfo> = v.iter().filter(|t| !t.archived && !mine(t) && t.side_of.as_ref().is_none_or(|m| !v.iter().any(|x| &x.id == m))).cloned().collect();
+                let now = backspace_core::chat::now_ms();
+                let top = |t: &ThreadInfo| t.side_of.as_ref().is_none_or(|m| !v.iter().any(|x| &x.id == m));
+                let mains: Vec<ThreadInfo> = v.iter().filter(|t| !t.archived && !mine(t) && !threads::snoozed(t, now) && top(t)).cloned().collect();
+                let dozing: Vec<ThreadInfo> = v.iter().filter(|t| !t.archived && !mine(t) && threads::snoozed(t, now) && top(t)).cloned().collect();
                 // Archived streams wait at the bottom, folded, so one can be opened and brought back.
                 let shelved: Vec<ThreadInfo> = v.iter().filter(|t| t.archived && t.side_of.as_ref().is_none_or(|m| !v.iter().any(|x| &x.id == m))).cloned().collect();
                 let mut groups = threads::grouped(&mains, &self.query);
+                let nap: Vec<&ThreadInfo> = threads::grouped(&dozing, &self.query).into_iter().flat_map(|(_, ts)| ts).collect();
+                if !nap.is_empty() {
+                    groups.push((Group::Snoozed, nap));
+                }
                 let shelf: Vec<&ThreadInfo> = threads::grouped(&shelved, &self.query).into_iter().flat_map(|(_, ts)| ts).collect();
                 if !shelf.is_empty() {
                     groups.push((Group::Archived, shelf));
@@ -863,7 +875,12 @@ impl Cauldron {
                 let mut side_i = 0usize;
                 for (gi, (g, ts)) in groups.into_iter().enumerate() {
                     let n = ts.len();
-                    let folded = if g == Group::Archived { !self.archive_open && !searching } else { self.groups_folded.contains(g.label()) };
+                    let folded = match g {
+                        Group::Archived => !self.archive_open && !searching,
+                        Group::Snoozed => !self.snooze_open && !searching,
+                        Group::Done => !self.done_open && !searching,
+                        _ => self.groups_folded.contains(g.label()),
+                    };
                     let glabel = g.label().to_string();
                     // The board's `.grp`: the name, then its count in a quieter grey; click folds it.
                     list = list.child(
@@ -874,6 +891,13 @@ impl Cauldron {
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 if glabel == Group::Archived.label() {
                                     this.archive_open = !this.archive_open;
+                                } else if glabel == Group::Snoozed.label() {
+                                    this.snooze_open = !this.snooze_open;
+                                } else if glabel == Group::Done.label() {
+                                    this.done_open = !this.done_open;
+                                    let mut p = Prefs::load();
+                                    p.streams_show_done = this.done_open;
+                                    p.save();
                                 } else if !this.groups_folded.remove(&glabel) {
                                     this.groups_folded.insert(glabel.clone());
                                 }
@@ -899,32 +923,35 @@ impl Cauldron {
                     for t in ts.into_iter().filter(|_| !folded) {
                         let on = self.selected.as_deref() == Some(t.id.as_str());
                         let id = t.id.clone();
-                        // A state dot, agent or not (figures belong to the Agents page): amber when it
-                        // needs you (red when the reply failed), the accent with a halo while it runs,
-                        // a hollow ring when done (the board's `.dot`).
-                        let state = match g {
-                            Group::Running => "Working",
-                            Group::NeedsYou if t.failed.is_some() => "Failed",
-                            Group::NeedsYou => "Needs you",
-                            Group::Done => "Done",
-                            Group::Archived => "Archived",
-                        };
-                        let dot = match state {
-                            "Working" => mark::mark(("thread-dot", i), Mark::Working, mark::SIZE, c(pal.accent)),
-                            "Failed" => mark::mark(("thread-dot", i), Mark::Error, mark::SIZE, c(pal.bad)),
-                            "Needs you" => mark::mark(("thread-dot", i), Mark::Asking, mark::SIZE, c(pal.warn)),
-                            _ => mark::mark(("thread-dot", i), Mark::Idle, mark::SIZE, c(pal.fg4)),
-                        };
-                        let slot = div()
-                            .id(("thread-av", i))
-                            .w(px(mark::SIZE))
-                            .h(px(22.))
-                            .flex_none()
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .aria_label(state)
-                            .child(dot.test_support());
+                        // The state in words where the dot was (Charles, 22 Nov, after T3 Code): "Working",
+                        // "? Input", "\u{2713} Done" (unread), "\u{2715} Failed"; a read, finished stream says nothing.
+                        let status = threads::Status::of(t);
+                        let word = status.map(|st| {
+                            let tone = match st {
+                                threads::Status::Working => c(pal.accent),
+                                threads::Status::Failed => c(pal.bad),
+                                threads::Status::Input => c(pal.warn),
+                                threads::Status::Done => c(pal.ok),
+                            };
+                            div()
+                                .id(("thread-status", i))
+                                .flex_none()
+                                .h(px(18.))
+                                .px(px(5.))
+                                .flex()
+                                .items_center()
+                                .rounded(px(radius::TAG))
+                                .bg(tone.opacity(0.12))
+                                .text_size(px(10.5))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(tone)
+                                .aria_label(st.label())
+                                .child(st.label())
+                                .test_support()
+                        });
+                        let snooze_note = (g == Group::Snoozed).then(|| {
+                            div().id(("thread-snoozed", i)).flex_none().text_size(px(10.5)).text_color(fg3).child(streammenu::snooze_until(t.snoozed_until)).test_support()
+                        });
                         // Under the title (Charles, 22 Nov): the branch its folder is on, and who
                         // wrote its replies; both from core's list.
                         let under = div()
@@ -933,7 +960,6 @@ impl Cauldron {
                             .items_center()
                             .gap(px(4.))
                             .h(px(15.))
-                            .pl(px(mark::SIZE + 8.))
                             .text_size(px(11.))
                             .text_color(fg3)
                             .aria_label(format!("{}, {}", t.branch.as_deref().unwrap_or("no branch"), t.models))
@@ -965,7 +991,6 @@ impl Cauldron {
                                 .when_live(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
                                 .cursor_pointer()
                                 .aria_label(t.title.clone())
-                                .child(slot.test_support())
                                 .child(div().flex_1().min_w_0().truncate().font_weight(if t.unread { FontWeight::SEMIBOLD } else { FontWeight::NORMAL }).child(t.title.clone()))
                                 .when_live(t.pinned, |d| d.child(glyph("pin", 11., fg3)))
                                 .when_live(side_n(&t.id) > 0, |d| {
@@ -1021,7 +1046,8 @@ impl Cauldron {
                                         .child(m)
                                         .test_support()
                                 })
-                                .when_live(t.unread, |d| d.child(div().id(("ping", i)).size(px(6.)).flex_none().rounded_full().bg(c(pal.accent)).test_support()))
+                                .children(snooze_note)
+                                .children(word)
                                 .on_mouse_down(MouseButton::Right, cx.listener({
                                     let id = id.clone();
                                     move |this, ev: &MouseDownEvent, _, cx| this.open_stream_menu(id.clone(), ev.position, cx)
@@ -1052,7 +1078,7 @@ impl Cauldron {
                                 // The tree (Charles, 22 Nov): the bar sits under the first letter of the stream's
                                 // title, curves into each side stream and ends in an arrow. Greyed until hovered
                                 // or open; the highlight starts a little left of the first letter.
-                                let bar_x = 8. + mark::SIZE + 8.;
+                                let bar_x = 10.;
                                 let line = c(pal.line_strong);
                                 list = list.child(
                                     div()
@@ -1082,7 +1108,7 @@ impl Cauldron {
                                                 .cursor_pointer()
                                                 .aria_label(format!("Side stream: {}", x.title))
                                                 .child(div().flex_1().min_w_0().truncate().child(x.title.clone()))
-                                                .when_live(x.busy, |d| d.child(div().size(px(6.)).flex_none().rounded_full().bg(c(pal.accent))))
+                                                .when_live(x.busy, |d| d.child(div().flex_none().text_size(px(10.5)).font_weight(FontWeight::SEMIBOLD).text_color(c(pal.accent)).child("Working")))
                                                 .when_live(closed && !x.busy, |d| d.child(div().text_size(px(10.5)).text_color(c(pal.fg4)).child("closed")))
                                                 .on_mouse_down(MouseButton::Right, cx.listener(move |this, ev: &MouseDownEvent, _, cx| this.open_stream_menu(sm.clone(), ev.position, cx)))
                                                 .on_click(cx.listener(move |this, _, _, cx| {
@@ -4259,29 +4285,50 @@ mod tests {
             for g in 0..3usize {
                 assert_eq!(rect(window, ("group", g)).h, 34.0, "group {g}");
             }
-            // Row 2 (Rampart mutation score) has an agent; it still shows a dot.
-            for (i, state) in [(0usize, "Needs you"), (1, "Failed"), (2, "Working"), (3, "Done"), (4, "Done")] {
+            // The state in words where the dot was (Charles, 22 Nov, after T3 Code); a read,
+            // finished stream says nothing.
+            for (i, state) in [(0usize, Some("\u{2713} Done")), (1, Some("\u{2715} Failed")), (2, Some("Working")), (3, None), (4, None)] {
                 let r = rect(window, ("thread", i));
                 assert_eq!(r.h, 30.0, "row {i}");
-                let a = rect(window, ("thread-av", i));
-                assert_eq!((a.w, a.h), (15.0, 22.0), "row {i}'s slot");
-                assert!((a.y + a.h / 2.0 - (r.y + r.h / 2.0)).abs() <= 1.0, "row {i}'s slot is centred");
-                assert_eq!(a.x - r.x, 8.0, "row {i}'s dot is 8px in, as the board's");
-                assert_eq!(window.find(("thread-av", i)).label(), Some(state), "row {i}");
-                assert!(window.try_find(("thread-fig", i)).is_none(), "row {i}: no figure, streams do not have agents (Charles, 20 Nov)");
-                assert_eq!(rect(window, ("thread-dot", i)).w, 15.0, "row {i}: the mark is 15px");
-                assert!(window.try_find(("thread-dot", i)).is_some(), "row {i}: a state dot");
+                assert!(window.try_find(("thread-dot", i)).is_none(), "row {i}: no dot");
+                assert_eq!(window.try_find(("thread-status", i)).and_then(|e| e.label().map(str::to_string)).as_deref(), state, "row {i}");
+                if state.is_some() {
+                    let st = rect(window, ("thread-status", i));
+                    assert!(r.right() - st.right() <= 10.0, "row {i}: the word sits at the row's right");
+                }
                 assert_eq!(window.find(("thread-meta", i)).label(), Some("no repo"), "row {i}");
                 // Under the title: the branch (none in these samples) and who answered, from core.
                 assert_eq!(window.find(("thread-under", i)).label(), Some("no branch, Claude"), "row {i}");
                 assert!(rect(window, ("thread-under", i)).y >= r.bottom(), "row {i}: under the title line");
             }
-            let (row, ping) = (rect(window, ("thread", 0usize)), rect(window, ("ping", 0usize)));
-            assert_eq!((ping.w, ping.h), (6.0, 6.0));
-            assert!(row.right() - ping.right() <= 10.0, "the ping is at the row's right");
-            for i in 1..5usize {
-                assert!(window.try_find(("ping", i)).is_none(), "row {i} is read");
-            }
+        })
+        .unwrap();
+    }
+
+    /// Only what needs you (Charles, 22 Nov, after T3 Code): Done starts folded in the app, its
+    /// head opens it, and a snoozed stream waits on its own folded shelf until its time.
+    #[gpui_kit::test]
+    fn done_starts_folded_and_snoozed_streams_wait_on_a_shelf(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let mut c = with_threads();
+        c.done_open = false;
+        if let Threads::Ready(v) = &mut c.threads {
+            let last = v.len() - 1;
+            v[last].snoozed_until = backspace_core::chat::now_ms() + 3_600_000;
+        }
+        let handle = open(cx, c);
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            assert_eq!(window.find(("group", 2usize)).label(), Some("Done, 1"), "one Done left, one snoozed");
+            assert_eq!(window.find(("group", 2usize)).expanded(), Some(false), "Done is folded");
+            assert_eq!(window.find(("group", 3usize)).label(), Some("Snoozed, 1"));
+            assert!(window.try_find(("thread", 3usize)).is_none(), "no rows under a folded group");
+            window.click(("group", 3usize), cx);
+            window.render_frame(cx);
+            assert!(window.try_find(("thread-snoozed", 3usize)).is_some(), "a snoozed row says until when");
+            window.click(("group", 2usize), cx);
+            window.render_frame(cx);
+            assert!(window.try_find(("thread", 4usize)).is_some(), "both open now");
         })
         .unwrap();
     }

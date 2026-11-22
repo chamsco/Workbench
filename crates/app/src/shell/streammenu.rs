@@ -3,6 +3,7 @@
 //! Delete asks in place ("Delete this stream for good?") and only then deletes.
 
 use super::*;
+use gpui_kit::prelude::FluentBuilder;
 
 pub(crate) struct StreamMenu {
     pub id: String,
@@ -56,6 +57,14 @@ impl Cauldron {
                     c.mark_read(&id);
                 }
             }
+            StreamAct::Snooze(until) => {
+                if let Some(c) = &chats {
+                    let _ = c.snooze(&id, until);
+                }
+                if until != 0 && self.open.as_deref() == Some(id.as_str()) {
+                    self.close_open_stream();
+                }
+            }
             StreamAct::Pin(on) => {
                 if let Some(c) = &chats {
                     let _ = c.pin(&id, on);
@@ -104,6 +113,7 @@ impl Cauldron {
         let (fg, fg2, fg3) = (c(pal.fg), c(pal.fg2), c(pal.fg3));
         let pinned = info.as_ref().is_some_and(|t| t.pinned);
         let archived = info.as_ref().is_some_and(|t| t.archived);
+        let snoozed = info.as_ref().is_some_and(|t| super::threads::snoozed(t, backspace_core::chat::now_ms()));
         let title = info.as_ref().map_or_else(|| "Stream".to_string(), |t| t.title.clone());
         let state = match &info {
             Some(t) if t.busy => "Working",
@@ -112,7 +122,7 @@ impl Cauldron {
             _ => "Done",
         };
         let vp = window.viewport_size();
-        let h_guess = if menu.confirm { 150.0 } else { 244.0 };
+        let h_guess = if menu.confirm { 150.0 } else { 304.0 };
         let x = f32::from(menu.at.x).min(f32::from(vp.width) - MENU_W - 8.0).max(8.0);
         let y = f32::from(menu.at.y).min(f32::from(vp.height) - h_guess - 8.0).max(8.0);
         let item = |id: &'static str, icon: &'static str, label: &'static str| {
@@ -263,6 +273,17 @@ impl Cauldron {
                         .on_click(cx.listener(move |this, _, window, cx| this.stream_action(StreamAct::Pin(!pinned), window, cx)))
                         .test_support(),
                 )
+                .when(snoozed, |d| {
+                    d.child(item("menu-wake", "bell", "Wake now").on_click(cx.listener(|this, _, window, cx| this.stream_action(StreamAct::Snooze(0), window, cx))).test_support())
+                })
+                .when(!snoozed, |d| {
+                    d.child(
+                        item("menu-snooze-hour", "clock", "Snooze for an hour")
+                            .on_click(cx.listener(|this, _, window, cx| this.stream_action(StreamAct::Snooze(backspace_core::chat::now_ms() + 3_600_000), window, cx)))
+                            .test_support(),
+                    )
+                    .child(item("menu-snooze-morning", "moon", "Snooze until tomorrow").on_click(cx.listener(|this, _, window, cx| this.stream_action(StreamAct::Snooze(tomorrow_morning()), window, cx))).test_support())
+                })
                 .child(
                     item("menu-archive", if archived { "archive-restore" } else { "archive" }, if archived { "Unarchive" } else { "Archive" })
                         .on_click(cx.listener(move |this, _, window, cx| this.stream_action(StreamAct::Archive(!archived), window, cx)))
@@ -285,7 +306,27 @@ impl Cauldron {
     }
 }
 
+/// When a snoozed stream comes back, as the row says it: "until 18:30", or "until Tue 09:00"
+/// when that is not today.
+pub(crate) fn snooze_until(ms: u64) -> String {
+    use chrono::{Local, TimeZone};
+    let Some(at) = Local.timestamp_millis_opt(ms as i64).single() else { return String::new() };
+    if at.date_naive() == Local::now().date_naive() {
+        format!("until {}", at.format("%H:%M"))
+    } else {
+        format!("until {}", at.format("%a %H:%M"))
+    }
+}
+
+/// Tomorrow at 09:00, local time, in unix ms.
+pub(crate) fn tomorrow_morning() -> u64 {
+    use chrono::{Days, Local, TimeZone};
+    let day = Local::now().date_naive().checked_add_days(Days::new(1)).unwrap_or_else(|| Local::now().date_naive());
+    day.and_hms_opt(9, 0, 0).and_then(|t| Local.from_local_datetime(&t).earliest()).map_or(0, |t| t.timestamp_millis() as u64)
+}
+
 pub(crate) enum StreamAct {
+    Snooze(u64),
     Split,
     Rename(String),
     Read,
@@ -299,6 +340,26 @@ mod tests {
     use super::super::thread::tests::open;
     use gpui_kit::test::TestWindowExt;
     use gpui_kit::{AppContext, TestAppContext};
+
+    /// Snooze (Charles, 22 Nov): an hour off the list, and Wake now brings it straight back.
+    #[gpui_kit::test]
+    fn snooze_takes_a_stream_off_the_list_and_wake_brings_it_back(cx: &mut TestAppContext) {
+        let (handle, chats) = open(cx);
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            window.right_click(("thread", 0usize), cx);
+            window.render_frame(cx);
+            assert!(window.try_find("menu-wake").is_none());
+            window.click("menu-snooze-hour", cx);
+        })
+        .unwrap();
+        let now = backspace_core::chat::now_ms();
+        let row = chats.list().into_iter().find(|t| t.snoozed_until > 0).expect("snoozed");
+        assert!(row.snoozed_until > now + 3_500_000 && row.snoozed_until <= now + 3_600_000, "an hour from now");
+        assert!(super::tomorrow_morning() > now, "tomorrow is later");
+        chats.snooze(&row.id, 0).unwrap();
+        assert!(chats.list().iter().all(|t| t.snoozed_until == 0), "woken");
+    }
 
     /// Right-click on a row: pin and unpin, archive and bring back, delete only after the in-place
     /// yes, and Keep leaves the stream alone.
