@@ -60,14 +60,14 @@ impl Cauldron {
             div().id(id).flex().flex_col().gap(px(4.)).px(px(8.)).pt(px(14.)).aria_label(format!("{title}. {body}")).child(div().text_size(px(12.5)).font_weight(FontWeight::SEMIBOLD).text_color(fg2).child(title)).child(div().text_size(px(11.5)).line_height(px(16.)).text_color(fg3).child(body)).test_support()
         };
         match FUNCTIONS[section].1 {
-            "Folders" => {
+            "Library" => {
                 let v = match &self.threads {
                     Threads::Ready(v) => folders(v),
                     _ => Vec::new(),
                 };
                 list = list.child(head("folders-head", "Where your streams run".into()));
                 if v.is_empty() {
-                    return list.child(note("folders-empty", "No folders yet", "A stream started in a folder shows it here."));
+                    return list.child(note("folders-empty", "No folders yet", "A stream started in a folder shows it here.")).child(note("library-later", "The Librarian is not built yet", "Its tabs show sample proposals, notes and a graph, marked Mockup."));
                 }
                 for (i, (name, n)) in v.into_iter().enumerate() {
                     let q = if name == NO_FOLDER { String::new() } else { name.clone() };
@@ -77,7 +77,7 @@ impl Cauldron {
                             .test_support(),
                     );
                 }
-                list
+                list.child(note("library-later", "The Librarian is not built yet", "Its tabs show sample proposals, notes and a graph, marked Mockup."))
             }
             "Agents" => {
                 let (real, roster) = self.roster();
@@ -108,7 +108,7 @@ impl Cauldron {
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 // The page beside shows it (Charles, 21 Nov 17:33Z: the roster lives in the sidebar).
                                 this.pages.agent = i;
-                                this.select_section(3, cx);
+                                this.select_section(2, cx);
                                 cx.notify();
                             }))
                             .test_support(),
@@ -119,8 +119,7 @@ impl Cauldron {
                 }
                 list
             }
-            "Automations" => list.child(note("automations-later", "Automations arrive in a later build", "Scheduled and repeating streams will be listed here.")),
-            _ => list.child(note("library-later", "The Librarian is not built yet", "The page shows sample proposals, notes and a graph, marked Mockup.")),
+            _ => list.child(note("automations-later", "Automations arrive in a later build", "Scheduled and repeating streams will be listed here.")),
         }
     }
 
@@ -130,7 +129,7 @@ impl Cauldron {
     pub(super) fn new_action(section: usize) -> Option<(&'static str, &'static str, &'static str)> {
         match FUNCTIONS.get(section).map(|f| f.1) {
             Some("Streams") | None => Some(("new-thread", "square-pen", NEW_TAB)),
-            Some("Folders") => Some(("new-folder", "folder-plus", "Open a folder")),
+            Some("Library") => Some(("new-folder", "folder-plus", "Open a folder")),
             Some("Agents") => Some(("new-familiar", "sparkles", NEW_FAMILIAR)),
             _ => None,
         }
@@ -139,7 +138,7 @@ impl Cauldron {
     /// What the section's New button does.
     pub(super) fn do_new(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         match FUNCTIONS.get(self.section).map(|f| f.1) {
-            Some("Folders") => {
+            Some("Library") => {
                 self.settings = None;
                 self.new_thread(window, cx);
                 self.pick_folder(window, cx);
