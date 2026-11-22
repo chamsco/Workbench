@@ -613,6 +613,8 @@ impl Cauldron {
             return centred("one-to-one", format!("1:1 with {name}"), "Agent 1:1 transcripts come with core's per-thread agents.");
         }
         match (&self.open, &self.thread) {
+            // A coordinator stream has Chat | Board (Charles, 22 Nov); a side stream has the chat only.
+            (Some(_), Some(t)) if super::boardview::is_coordinator(t) => self.coordinator_body(t, pal, cx),
             (Some(_), Some(t)) => self.thread_view(t, pal, cx),
             (Some(_), None) => centred("thread-gone", "This thread is no longer here".into(), "It was deleted, or its file could not be read."),
             (None, _) if self.start.captain.is_some() => self.captain_view(pal, cx),
@@ -745,7 +747,7 @@ impl Cauldron {
         card.test_support().into_any_element()
     }
 
-    fn thread_view(&self, t: &Thread, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn thread_view(&self, t: &Thread, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
         let (fg, fg2, fg3) = (c(pal.fg), c(pal.fg2), c(pal.fg3));
         // The transcript fades in over the second half of the carry after a thread opens.
         let now = std::time::Instant::now();

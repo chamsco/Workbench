@@ -388,7 +388,7 @@ impl Cauldron {
             let item = |id: &str, icon: &'static str, label: &'static str| {
                 div().id(SharedString::from(format!("{id}-{bk}"))).h(px(28.)).px(px(8.)).flex().items_center().gap(px(8.)).rounded(px(radius::TAG)).text_size(px(12.5)).text_color(fg).cursor_pointer().hover(|d| d.bg(c(pal.hover))).aria_label(label).child(glyph(icon, 13., fg2)).child(label)
             };
-            let (fq, mid, mid2) = (raw.clone(), msg_id.clone(), msg_id);
+            let (fq, mid, mid2, mid3) = (raw.clone(), msg_id.clone(), msg_id.clone(), msg_id);
             wrap = wrap.child(
                 div()
                     .id(SharedString::from(format!("blk-menu-{bk}")))
@@ -408,6 +408,10 @@ impl Cauldron {
                     .child(item("blk-fork", "git-fork", "Fork into a side thread").on_click(cx.listener(move |this, _, window, cx| {
                         this.block_menu = None;
                         this.fork_block(&mid, &fq, window, cx);
+                    })))
+                    .child(item("blk-pin", "pin", "Pin to the board").on_click(cx.listener(move |this, _, _, cx| {
+                        this.block_menu = None;
+                        this.board_pin(&mid3, cx);
                     })))
                     .child(item("blk-copy-all", "copy", "Copy the whole reply").on_click(cx.listener(move |this, _, _, cx| {
                         this.block_menu = None;

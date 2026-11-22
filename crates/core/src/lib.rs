@@ -59,6 +59,7 @@ pub mod projects;
 pub mod provider;
 pub mod relay;
 pub mod sessions;
+pub mod whiteboard;
 pub mod remote;
 pub mod request;
 pub mod router;

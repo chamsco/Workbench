@@ -838,6 +838,11 @@ pub fn window_of(route: &Route) -> u64 {
 }
 
 impl Chats {
+    /// The data folder this store reads and writes (threads/, traces/, boards/ under it).
+    pub fn dir(&self) -> &std::path::Path {
+        &self.dir
+    }
+
     pub fn open(
         dir: PathBuf,
         rt: tokio::runtime::Handle,
