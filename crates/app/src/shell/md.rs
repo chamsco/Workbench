@@ -266,6 +266,8 @@ impl Cauldron {
                 Block::Code(lang, _) if lang == "next" => div().into_any_element(),
                 // A job on a clock a familiar proposes: a card with Add (automations.rs).
                 Block::Code(lang, body) if lang == "routine" => self.routine_card(&body, i, pal, cx),
+                // A change to the flow the Learn step proposes: a card with Apply (flowview.rs).
+                Block::Code(lang, body) if lang == "flow" => self.flow_card(&body, i, pal, cx),
                 Block::Code(lang, body) => {
                     let copy = body.clone();
                     let id = format!("code-{key}-{i}");

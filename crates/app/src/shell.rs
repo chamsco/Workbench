@@ -32,6 +32,7 @@ mod plan;
 mod donecard;
 mod boardview;
 mod imageview;
+mod flowview;
 mod chipmenu;
 mod backdrop;
 mod decide;
@@ -414,6 +415,8 @@ pub(crate) struct Cauldron {
     image_view: Option<std::path::PathBuf>,
     /// Where the stream's map sat last frame (thread.rs), for a click or drag on it.
     map_box: std::rc::Rc<std::cell::Cell<Bounds<Pixels>>>,
+    /// The flow step being edited in Settings > Flow.
+    flow_edit: Option<flowview::FlowEdit>,
     /// The Automations page: every familiar's jobs on a clock, and the form (automations.rs).
     autos: automations::State,
     chip_menu: Option<&'static str>,
@@ -592,6 +595,36 @@ impl Cauldron {
         .detach();
     }
 
+    /// The New stream screen's bottom bar: usage (an empty state until core has it) and the
+    /// user's flow (Settings > Flow), the steps a new stream works through, none current yet.
+    /// Out of `render` so its frame stays small.
+    #[inline(never)]
+    fn stage_bar(&self, top: f32, w: f32, fg3: Hsla) -> AnyElement {
+        let mut stages = div().flex().gap(px(12.));
+        for (i, st) in self.flow().steps.into_iter().filter(|s| s.on).enumerate() {
+            stages = stages.child(div().id(("stage", i)).aria_label(st.name.clone()).child(st.name).test_support());
+        }
+        div()
+            .id("stage-bar")
+            .absolute()
+            .left(px(1.))
+            .top(px(top))
+            .w(px(w))
+            .h(px(STAGE_H))
+            .flex()
+            .items_center()
+            .justify_between()
+            .px(px(12.))
+            .text_size(px(11.))
+            .line_height(px(14.))
+            .font_weight(FontWeight::MEDIUM)
+            .text_color(fg3)
+            .child(div().id("stage-usage").aria_label("No usage data yet").child("No usage data yet").test_support())
+            .child(stages)
+            .test_support()
+            .into_any_element()
+    }
+
     /// Bakes the frame and card layers from the user's picture off the UI thread, then draws again
     /// (the frame keeps the painting's layers until then).
     pub(crate) fn warm_picture(path: std::path::PathBuf, cx: &mut Context<Self>) {
@@ -715,7 +748,7 @@ impl Cauldron {
     }
 
     pub(crate) fn new() -> Self {
-        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, support_data: Default::default(), diff_since: None, restore_ask: false, files_open: Default::default(), painting: false, glass: Default::default(), plane: Default::default(), mark_ticker: None, ask_hover: false, ask_open: None, ask_answered: Default::default(), fam_questions: Default::default(), frost: backdrop::FrostLevel::Heavy, stream_bg: None, bg_wipe: None, stream_menu: None, closed_sides: Default::default(), sides_folded: Default::default(), groups_folded: Default::default(), done_open: true, snooze_open: false, done_card: Default::default(), board: Default::default(), archive_open: false, color_target: theme::Target::Sidebar, hex_input: None, theme_mode: String::new(), root_focus: None, plan: false, open_in_menu: false, open_in: thread::OpenIn::Folder, search_open: false, indent: false, indent_run: (0.0, None), indent_to: 0.0, sidebar_w: metric::SIDEBAR_W, sidebar_drag: None, link: None, link_menu: None, link_hover: Default::default(), browser: Default::default(), browser_slot: Default::default(), usage: Default::default(), usage_page: false, section_page: false, pages: Default::default(), usage_hover: false, usage_card_hover: false, settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_runs: Default::default(), term_cache: Default::default(), act_open: Default::default(), act_tick: None, term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), transcript_fit: Default::default(), paced: Default::default(), pace_behind: Default::default(), coordinator: None, familiar: None, fam_views: Vec::new(), fam_live: Vec::new(), fam_watch: Vec::new(), fam_driving: Default::default(), fam_error: None, fam_composer: None, fam_fixture: false, inbox: Vec::new(), inbox_open: false, update: Default::default(), update_open: false, cli_rows: Vec::new(), inbox_toast: None, fam_from: (0.0, 0.0), fam_to: None, fam_since: None, fam_hl: 0, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default(), err_open: Default::default(), side_root: None, sides: Vec::new(), side_win: false, side_input: None, side_ctx: Default::default(), block_hover: None, bar_hover: false, block_menu: None, sel: None, copied: None, ask: false, reply_files: Vec::new(), slash_sel: 0, slash_closed: false, slash_cmds: Default::default(), plan_open: false, plan_flips: 0, chip_menu: None, plan_hover: None, plan_edit: None, autos: Default::default(), agent_open: None, autos_page: false, session_pick: None, image_view: None, map_box: Default::default() }
+        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, support_data: Default::default(), diff_since: None, restore_ask: false, files_open: Default::default(), painting: false, glass: Default::default(), plane: Default::default(), mark_ticker: None, ask_hover: false, ask_open: None, ask_answered: Default::default(), fam_questions: Default::default(), frost: backdrop::FrostLevel::Heavy, stream_bg: None, bg_wipe: None, stream_menu: None, closed_sides: Default::default(), sides_folded: Default::default(), groups_folded: Default::default(), done_open: true, snooze_open: false, done_card: Default::default(), board: Default::default(), archive_open: false, color_target: theme::Target::Sidebar, hex_input: None, theme_mode: String::new(), root_focus: None, plan: false, open_in_menu: false, open_in: thread::OpenIn::Folder, search_open: false, indent: false, indent_run: (0.0, None), indent_to: 0.0, sidebar_w: metric::SIDEBAR_W, sidebar_drag: None, link: None, link_menu: None, link_hover: Default::default(), browser: Default::default(), browser_slot: Default::default(), usage: Default::default(), usage_page: false, section_page: false, pages: Default::default(), usage_hover: false, usage_card_hover: false, settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_runs: Default::default(), term_cache: Default::default(), act_open: Default::default(), act_tick: None, term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), transcript_fit: Default::default(), paced: Default::default(), pace_behind: Default::default(), coordinator: None, familiar: None, fam_views: Vec::new(), fam_live: Vec::new(), fam_watch: Vec::new(), fam_driving: Default::default(), fam_error: None, fam_composer: None, fam_fixture: false, inbox: Vec::new(), inbox_open: false, update: Default::default(), update_open: false, cli_rows: Vec::new(), inbox_toast: None, fam_from: (0.0, 0.0), fam_to: None, fam_since: None, fam_hl: 0, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default(), err_open: Default::default(), side_root: None, sides: Vec::new(), side_win: false, side_input: None, side_ctx: Default::default(), block_hover: None, bar_hover: false, block_menu: None, sel: None, copied: None, ask: false, reply_files: Vec::new(), slash_sel: 0, slash_closed: false, slash_cmds: Default::default(), plan_open: false, plan_flips: 0, chip_menu: None, plan_hover: None, plan_edit: None, autos: Default::default(), agent_open: None, autos_page: false, session_pick: None, image_view: None, map_box: Default::default(), flow_edit: None }
     }
 
     /// Opens core off the main thread (the sidebar shows Loading meanwhile), then keeps the thread
@@ -2664,32 +2697,7 @@ impl Render for Cauldron {
                     .test_support()
             });
         if new_screen {
-            // ponytail: core has no stages or per-subscription usage yet (UI-PLAN decision 5), so the
-            // bar is static: usage as an empty state, the stages as plain labels with none current.
-            let mut stages = div().flex().gap(px(12.));
-            for (i, name) in ["Plan", "Execute", "Verify", "Ship", "Learn"].into_iter().enumerate() {
-                stages = stages.child(div().id(("stage", i)).aria_label(name).child(name).test_support());
-            }
-            card_el = card_el.child(
-                div()
-                    .id("stage-bar")
-                    .absolute()
-                    .left(px(1.))
-                    .top(px(1.0 + metric::HEAD_H + tools_band + body_h))
-                    .w(px(body_w))
-                    .h(px(STAGE_H))
-                    .flex()
-                    .items_center()
-                    .justify_between()
-                    .px(px(12.))
-                    .text_size(px(11.))
-                    .line_height(px(14.))
-                    .font_weight(FontWeight::MEDIUM)
-                    .text_color(fg3)
-                    .child(div().id("stage-usage").aria_label("No usage data yet").child("No usage data yet").test_support())
-                    .child(stages)
-                    .test_support(),
-            );
+            card_el = card_el.child(self.stage_bar(1.0 + metric::HEAD_H + tools_band + body_h, body_w, fg3));
         }
         root = root.child(card_el.test_support());
         // The card's tab: the frame comes down right of it (tabshape.rs). Not with a familiar (its
@@ -3592,7 +3600,9 @@ mod tests {
             assert_eq!(bar.bottom(), card.bottom() - 1.0, "at the card's bottom, inside its border");
             assert_eq!(window.find("stage-usage").label(), Some("No usage data yet"));
             let mut last = rect(window, "stage-usage").right();
-            for (i, name) in ["Plan", "Execute", "Verify", "Ship", "Learn"].into_iter().enumerate() {
+            // The flow in use (Settings > Flow); with no file of the user's, the defaults.
+            let names: Vec<String> = backspace_core::flow::Flow::default().steps.into_iter().map(|s| s.name).collect();
+            for (i, name) in names.iter().map(String::as_str).enumerate() {
                 let st = rect(window, ("stage", i));
                 assert_eq!(window.find(("stage", i)).label(), Some(name));
                 assert!(st.x > last && st.y >= bar.y && st.bottom() <= bar.bottom(), "stage {i} in order inside the bar");

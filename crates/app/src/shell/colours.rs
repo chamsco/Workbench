@@ -417,7 +417,7 @@ mod tests {
             .update(cx, |c, _, _| {
                 c.stream_bg = Some(std::path::PathBuf::from("new.png"));
                 c.bg_wipe = Some((Some(std::path::PathBuf::from("old.png")), std::time::Instant::now()));
-                c.settings = Some(2);
+                c.settings = Some(3);
             })
             .unwrap();
         cx.update_window(handle.into(), |_, window, cx| {

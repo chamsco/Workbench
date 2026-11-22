@@ -2749,6 +2749,13 @@ Ask the reader for input with the real form parts: `f = FormControl(\"Name\", In
             };
             req.system = Some(format!("{}{mode}", req.system.take().map(|s| s + "\n\n").unwrap_or_default()));
         }
+        // A coordinator works by the user's flow (flow.rs): not side streams, crews or one-off asks.
+        if !plan && !id.starts_with("ask-") && call.agent.is_none() && self.peek(id).is_some_and(|t| t.side_of.is_none() && t.members.is_empty()) {
+            let brief = crate::flow::Flow::load(&self.dir, thread_project.as_deref().map(std::path::Path::new)).brief();
+            if !brief.is_empty() {
+                req.system = Some(format!("{}{brief}", req.system.take().map(|s| s + "\n\n").unwrap_or_default()));
+            }
+        }
         // Not for one-off asks (dreaming, stage decisions, names), whose answers are parsed.
         if !plan && !id.starts_with("ask-") {
             req.system = Some(format!("{}{NEXT_BRIEF}", req.system.take().map(|s| s + "\n\n").unwrap_or_default()));
