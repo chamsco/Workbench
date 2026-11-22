@@ -2533,7 +2533,7 @@ impl Render for Cauldron {
             let r = dp.rect;
             self.load_panel(p, cx);
             // A panel's body: absolute so two bodies can cross-fade in the same place.
-            let body = |this: &Self, p: Panel, a: f32, cx: &mut Context<Self>| div().absolute().inset_0().opacity(a).child(this.support_body(p, pal, cx));
+            let body = |this: &Self, p: Panel, a: f32, cx: &mut Context<Self>| div().absolute().inset_0().opacity(a).child(this.support_body(p, pal, window, cx));
             let mut shead = div()
                 .id("support-head")
                 .h(px(metric::HEAD_H))

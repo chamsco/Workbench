@@ -7,6 +7,9 @@
 
 use backspace_core::prefs::Prefs;
 use gpui_kit::{Bounds, Pixels, Window};
+use std::cell::RefCell;
+use std::rc::Rc;
+use std::time::Instant;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct Slot {
@@ -33,6 +36,12 @@ struct Request {
     slot: Slot,
 }
 
+#[derive(Default)]
+struct LoadState {
+    started: Option<Instant>,
+    finished: bool,
+}
+
 pub(crate) const AVAILABLE: bool = cfg!(any(windows, target_os = "macos"));
 
 pub(crate) struct Browser {
@@ -44,6 +53,7 @@ pub(crate) struct Browser {
     synced: Option<Request>,
     queued: bool,
     failed_url: Option<String>,
+    load: Rc<RefCell<LoadState>>,
     /// Why the view could not be made, shown in the panel.
     pub error: Option<String>,
 }
@@ -59,6 +69,7 @@ impl Default for Browser {
             synced: None,
             queued: false,
             failed_url: None,
+            load: Rc::new(RefCell::new(LoadState::default())),
             error: None,
         }
     }
@@ -67,10 +78,17 @@ impl Default for Browser {
 impl Browser {
     /// Records the native view's desired state. Native calls happen after the render pass.
     pub(crate) fn request(&mut self, want: Option<(&str, Bounds<Pixels>)>) {
-        self.wanted = want.map(|(url, bounds)| Request {
+        let wanted = want.map(|(url, bounds)| Request {
             url: url.to_string(),
             slot: Slot::from_bounds(bounds),
         });
+        let changed = self.wanted.as_ref().map(|r| &r.url) != wanted.as_ref().map(|r| &r.url);
+        self.wanted = wanted;
+        if changed {
+            let mut load = self.load.borrow_mut();
+            load.started = self.wanted.as_ref().map(|_| Instant::now());
+            load.finished = false;
+        }
         if self.wanted.is_none() {
             self.failed_url = None;
             self.error = None;
@@ -88,6 +106,45 @@ impl Browser {
 
     pub(crate) fn queue_sync(&mut self) {
         self.queued = true;
+    }
+
+    /// Returns the visible loading-line width and whether another frame is needed.
+    pub(crate) fn load_progress(&self) -> Option<(f32, bool)> {
+        let mut load = self.load.borrow_mut();
+        if load.finished {
+            load.finished = false;
+            load.started = None;
+            return Some((1.0, false));
+        }
+        let start = load.started?;
+        Some(((start.elapsed().as_secs_f32() / 1.2).min(0.92), true))
+    }
+
+    pub(crate) fn go_back(&mut self) {
+        #[cfg(any(windows, target_os = "macos"))]
+        if let Some((view, _)) = &self.view {
+            if let Err(e) = view.go_back() {
+                self.error = Some(e.to_string());
+            }
+        }
+    }
+
+    pub(crate) fn go_forward(&mut self) {
+        #[cfg(any(windows, target_os = "macos"))]
+        if let Some((view, _)) = &self.view {
+            if let Err(e) = view.go_forward() {
+                self.error = Some(e.to_string());
+            }
+        }
+    }
+
+    pub(crate) fn reload(&mut self) {
+        #[cfg(any(windows, target_os = "macos"))]
+        if let Some((view, _)) = &self.view {
+            if let Err(e) = view.reload() {
+                self.error = Some(e.to_string());
+            }
+        }
     }
 
     /// Shows the requested URL over its bounds, or hides the view when no URL is requested.
@@ -114,6 +171,7 @@ impl Browser {
                 .into(),
                 size: LogicalSize::new(f64::from(request.slot.w), f64::from(request.slot.h)).into(),
             };
+            let load = Rc::clone(&self.load);
             match &mut self.view {
                 Some((v, at)) => {
                     if at != &request.url {
@@ -128,6 +186,16 @@ impl Browser {
                 None => match wry::WebViewBuilder::new_with_web_context(&mut self.context)
                     .with_url(&request.url)
                     .with_bounds(rect)
+                    .with_on_page_load_handler(move |event, _| {
+                        let mut load = load.borrow_mut();
+                        match event {
+                            wry::PageLoadEvent::Started => {
+                                load.started = Some(Instant::now());
+                                load.finished = false;
+                            }
+                            wry::PageLoadEvent::Finished => load.finished = true,
+                        }
+                    })
                     .build_as_child(window)
                 {
                     Ok(v) => {
