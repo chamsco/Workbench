@@ -63,6 +63,8 @@ pub(crate) struct BoardState {
     pub split: f32,
     pub note_edit: Option<(String, Entity<InputState>, Subscription)>,
     pub chat_input: Option<(Entity<InputState>, Subscription)>,
+    /// The open stream is a coordinator or one of its side streams: the header has Chat | Board.
+    pub group: bool,
     pub agent_menu: bool,
     pub bounds: Rc<Cell<Bounds<Pixels>>>,
 }
@@ -84,6 +86,7 @@ impl Default for BoardState {
             split: 0.38,
             note_edit: None,
             chat_input: None,
+            group: false,
             agent_menu: false,
             bounds: Rc::new(Cell::new(Bounds::default())),
         }
@@ -228,6 +231,34 @@ impl Cauldron {
         self.thread = Some(t);
     }
 
+    /// Keeps the board of the open stream's coordinator loaded and current, whatever the view,
+    /// so a reply can say it is on the board.
+    pub(super) fn board_follow(&mut self) {
+        self.board.group = false;
+        let (Some(t), Some((_, chats))) = (self.thread.as_ref(), self.core.as_ref()) else { return };
+        let main = match &t.side_of {
+            None => Some(t.clone()),
+            Some(r) => chats.peek(r),
+        };
+        if let Some(main) = main.filter(is_coordinator) {
+            self.board.group = true;
+            self.board_sync(&main);
+        }
+    }
+
+    /// Opens the coordinator's board on node `id`, its split open.
+    pub(super) fn board_show_node(&mut self, id: &str, cx: &mut Context<Self>) {
+        let root = self.board.thread.clone();
+        if self.open.as_deref() != Some(root.as_str()) {
+            self.selected = Some(root.clone());
+            self.open_thread(root);
+        }
+        self.board.view = true;
+        self.board.fitted = false;
+        self.board.open = Some(id.to_string());
+        cx.notify();
+    }
+
     /// Pins reply `msg` of the open stream to its coordinator's board (a side stream's reply lands
     /// on its own lane there). Says so in the box's error line when there is no board to pin to.
     pub(super) fn board_pin(&mut self, msg: &str, cx: &mut Context<Self>) {
@@ -250,58 +281,54 @@ impl Cauldron {
     }
 
     fn set_board_view(&mut self, on: bool, cx: &mut Context<Self>) {
+        // From a side stream, Board goes to its coordinator's board, Chat back to the coordinator.
+        let root = self.board.thread.clone();
+        if !root.is_empty() && self.open.as_deref() != Some(root.as_str()) {
+            self.selected = Some(root.clone());
+            self.open_thread(root);
+        }
         self.board.view = on;
         if on {
-            if let Some(t) = self.thread.clone() {
-                self.board_sync(&t);
-            }
             self.board.fitted = false;
         }
         cx.notify();
     }
 
-    /// Chat | Board over a coordinator stream.
+    /// Chat | Board, in the header where the tabs were, on the line of the header's tools
+    /// (Charles, 22 Nov). A side stream shows its chat, so Chat is on there.
     #[inline(never)]
     pub(super) fn view_switch(&self, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
-        let seg = |id: &'static str, label: &'static str, on: bool| {
+        let (fg, fg3) = (c(pal.fg), c(pal.fg3));
+        let seg = |id: &'static str, icon: &'static str, label: &'static str, on: bool| {
             div()
                 .id(id)
-                .h(px(24.))
+                .h_full()
                 .px(px(10.))
                 .flex()
                 .items_center()
+                .gap(px(6.))
                 .rounded(px(radius::CONTROL))
+                .occlude()
                 .cursor_pointer()
-                .text_size(px(12.))
-                .text_color(if on { c(pal.accent) } else { c(pal.fg2) })
-                .when(on, |d| d.bg(c(pal.accent_soft)).font_weight(FontWeight::SEMIBOLD))
-                .when(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
+                .text_size(px(12.5))
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(if on { fg } else { fg3 })
+                .when(on, |d| d.button_face(pal).pressed().shadow(super::lift(super::Lift::Button, pal)))
+                .when(!on, |d| d.hover(|d| d.bg(c(pal.hover)).text_color(fg)))
                 .aria_label(label)
                 .aria_selected(on)
+                .child(glyph(icon, 13., if on { c(pal.fg2) } else { fg3 }))
                 .child(label)
         };
-        let on = self.board.view;
+        let on = self.board.view && self.open.as_deref() == Some(self.board.thread.as_str());
         div()
             .id("view-switch")
-            .absolute()
-            .top(px(8.))
-            .left_0()
-            .right_0()
+            .h(px(metric::TAB_H))
             .flex()
-            .justify_center()
-            .child(
-                div()
-                    .flex()
-                    .gap(px(2.))
-                    .p(px(2.))
-                    .rounded(px(radius::CONTROL + 2.))
-                    .bg(c(pal.raised))
-                    .border_1()
-                    .border_color(c(pal.line))
-                    .shadow(super::lift(super::Lift::Button, pal))
-                    .child(seg("view-chat", "Chat", !on).on_click(cx.listener(|this, _, _, cx| this.set_board_view(false, cx))).test_support())
-                    .child(seg("view-board", "Board", on).on_click(cx.listener(|this, _, _, cx| this.set_board_view(true, cx))).test_support()),
-            )
+            .items_center()
+            .gap(px(2.))
+            .child(seg("view-chat", "message-square", "Chat", !on).on_click(cx.listener(|this, _, _, cx| this.set_board_view(false, cx))).test_support())
+            .child(seg("view-board", "layout-dashboard", "Board", on).on_click(cx.listener(|this, _, _, cx| this.set_board_view(true, cx))).test_support())
             .test_support()
             .into_any_element()
     }
@@ -445,8 +472,11 @@ impl Cauldron {
     /// A coordinator stream: its chat or its board, with the Chat | Board switch on top.
     #[inline(never)]
     pub(super) fn coordinator_body(&self, t: &Thread, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
-        let inner = if self.board.view { self.board_el(pal, cx) } else { self.thread_view(t, pal, cx) };
-        div().relative().size_full().child(inner).child(self.view_switch(pal, cx)).into_any_element()
+        if self.board.view {
+            self.board_el(pal, cx)
+        } else {
+            self.thread_view(t, pal, cx)
+        }
     }
 
     /// The board, when the open stream shows Board.
@@ -937,8 +967,20 @@ impl Cauldron {
             .child(div().flex().flex_col().gap(px(6.)).child(sec("What was asked")).child(div().id("node-ask").p(px(10.)).rounded(px(9.)).bg(c(pal.inset)).text_size(px(13.)).line_height(px(19.)).text_color(fg2).aria_label(n.ask.clone()).child(n.ask.clone()).test_support()));
         if !n.images.is_empty() {
             let mut ex = div().flex().flex_col().gap(px(8.));
-            for p in &n.images {
-                ex = ex.child(img(std::path::PathBuf::from(p)).max_w_full().max_h(px(h * 0.6)).rounded(px(10.)).object_fit(ObjectFit::Contain));
+            for (j, p) in n.images.iter().enumerate() {
+                let path = std::path::PathBuf::from(p);
+                let open = path.clone();
+                ex = ex.child(
+                    div()
+                        .id(("node-image", j))
+                        .cursor_pointer()
+                        .aria_label("Preview")
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.image_view = Some(open.clone());
+                            cx.notify();
+                        }))
+                        .child(img(path).max_w_full().max_h(px(h * 0.6)).rounded(px(10.)).object_fit(ObjectFit::Contain)),
+                );
             }
             left = left.child(div().flex().flex_col().gap(px(6.)).child(sec("Examples")).child(ex));
         }
@@ -1145,14 +1187,12 @@ mod tests {
         open(cx, "t3");
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
-            assert!(window.try_find("view-switch").is_none(), "a side stream has no board");
+            // A side stream has no board of its own: Board goes to its coordinator's.
+            window.click("view-board", cx);
         })
         .unwrap();
-        open(cx, "t1");
+        assert_eq!(handle.update(cx, |c, _, _| (c.open.clone(), c.board.view)).unwrap(), (Some("t1".to_string()), true), "Board on a side stream opens its coordinator's");
         cx.update_window(handle.into(), |_, window, cx| {
-            window.render_frame(cx);
-            assert!(window.try_find("view-switch").is_some(), "a coordinator has Chat | Board");
-            window.click("view-board", cx);
             window.render_frame(cx);
             window.render_frame(cx);
             assert!(window.try_find(("board-node", 0usize)).is_some(), "the commit made a node");

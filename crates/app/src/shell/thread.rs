@@ -377,9 +377,81 @@ impl OpenIn {
     }
 }
 
-/// Which scroll tick is current: the last response at or above the transcript's top row.
-pub(super) fn current_tick(replies: &[usize], top: usize) -> usize {
-    replies.iter().rposition(|&r| r <= top).unwrap_or(0)
+impl Cauldron {
+    /// The stream's map (see `map_marks`), drawn from last frame's layout of the transcript.
+    #[inline(never)]
+    fn stream_map(&self, mine: &[bool], pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
+        const RAIL_W: f32 = 24.;
+        let sh = &self.transcript_scroll;
+        let vb = sh.bounds();
+        let view_h = f32::from(vb.size.height);
+        let off = -f32::from(sh.offset().y);
+        let total = view_h + f32::from(sh.max_offset().y);
+        let rail = (view_h - 48.).clamp(60., 320.);
+        let items: Vec<(f32, f32)> = (0..mine.len())
+            .map(|i| sh.bounds_for_item(i).map_or((0., 0.), |b| (f32::from(b.origin.y - vb.origin.y) + off, f32::from(b.size.height))))
+            .collect();
+        let (marks, (wy, wh)) = map_marks(&items, off, view_h, total, rail);
+        let mut col = div().id("ticks").absolute().right(px(4.)).top(px(16.)).w(px(RAIL_W)).h(px(rail)).cursor_pointer().aria_label("Map of the stream");
+        // Last frame's place, for a click or a drag.
+        let cell = self.map_box.clone();
+        col = col.child(canvas(move |b, _, _| cell.set(b), |_, _, _, _| {}).absolute().inset_0());
+        col = col.child(div().id("map-window").absolute().top(px(wy)).h(px(wh)).left_0().right_0().rounded(px(3.)).bg(ca(pal.fg, 0.07)).border_1().border_color(ca(pal.fg, 0.12)).test_support());
+        for (k, ((y, h), me)) in marks.iter().zip(mine).enumerate() {
+            // In view when any of it is: the window over it lights it.
+            let seen = *y + *h > wy && *y < wy + wh;
+            let ink = if seen { c(pal.accent) } else { ca(pal.fg4, 0.75) };
+            col = col.child(
+                div()
+                    .id(("tick", k))
+                    .absolute()
+                    .top(px(*y + 2.))
+                    .h(px(2.))
+                    .right(px(3.))
+                    .w(px(if *me { 8. } else { 16. }))
+                    .rounded(px(1.))
+                    .bg(ink)
+                    .aria_label(if *me { "Your message" } else { "Response" })
+                    .aria_selected(seen)
+                    .test_support(),
+            );
+        }
+        let jump = move |this: &mut Self, y: Pixels| {
+            let b = this.map_box.get();
+            let to = map_offset(f32::from(y - b.origin.y), f32::from(b.size.height), total, view_h);
+            this.transcript_scroll.set_offset(point(px(0.), px(-to)));
+            // The jump lands after this frame is built: build every message.
+            *this.transcript_fit.borrow_mut() = None;
+        };
+        col.on_mouse_down(MouseButton::Left, cx.listener(move |this, ev: &MouseDownEvent, _, cx| {
+            cx.stop_propagation();
+            jump(this, ev.position.y);
+            cx.notify();
+        }))
+        .on_mouse_move(cx.listener(move |this, ev: &MouseMoveEvent, _, cx| {
+            if ev.pressed_button == Some(MouseButton::Left) && this.map_box.get().contains(&ev.position) {
+                jump(this, ev.position.y);
+                cx.notify();
+            }
+        }))
+        .test_support()
+        .into_any_element()
+    }
+}
+
+/// The stream's map: each message's (top, height) in the whole scrolled content, scaled onto a
+/// rail `rail` px tall, and the window over the view (top, height). Each mark is at least 2px.
+pub(super) fn map_marks(items: &[(f32, f32)], view_top: f32, view_h: f32, total: f32, rail: f32) -> (Vec<(f32, f32)>, (f32, f32)) {
+    let k = if total > 0. { rail / total } else { 0. };
+    let marks = items.iter().map(|(t, h)| (t * k, (h * k - 1.).max(2.))).collect();
+    let win = (view_top * k, (view_h * k).clamp(4., rail));
+    (marks, win)
+}
+
+/// The scroll offset that centres the view on point `y` of the map.
+pub(super) fn map_offset(y: f32, rail: f32, total: f32, view_h: f32) -> f32 {
+    let at = if rail > 0. { y.clamp(0., rail) / rail * total } else { 0. };
+    (at - view_h / 2.).clamp(0., (total - view_h).max(0.))
 }
 
 /// The branch checked out in `dir`, from `.git/HEAD`; None outside a repo or on a detached HEAD.
@@ -440,6 +512,7 @@ impl Cauldron {
         self.send_error = None;
         self.threads = Threads::Ready(chats.list());
         self.sync_sides();
+        self.board_follow();
     }
 
     /// Re-reads the list and the open thread from core.
@@ -453,6 +526,7 @@ impl Cauldron {
             }
         }
         self.sync_sides();
+        self.board_follow();
     }
 
     /// Keeps the view current: core pokes `changes` whenever a thread changes.
@@ -817,6 +891,7 @@ impl Cauldron {
         let next_at: Vec<u64> = ls.iter().skip(1).map(|l| l.at).chain(std::iter::once(u64::MAX)).collect();
         // The scroll ticks' targets: one per response, by its row in the transcript.
         let replies: Vec<usize> = ls.iter().enumerate().filter(|(_, l)| !l.mine).map(|(i, _)| i).collect();
+        let mine_rows: Vec<bool> = ls.iter().map(|l| l.mine).collect();
         // Only the messages near the view are built: one further is drawn as an empty box of the
         // height it had last frame, so a scroll step in a long stream lays out a screenful, not
         // every message (26 ms at 240 messages before). The boxes are trusted only when last
@@ -981,6 +1056,28 @@ impl Cauldron {
                                         this.copied = Some(lid.clone());
                                         cx.notify();
                                     }))
+                                    .test_support(),
+                            )
+                        })
+                        // A reply that is a node links to it on the board, in the app (Charles, 22 Nov).
+                        .when(self.board.b.nodes.iter().any(|n| n.id == l.id), |d| {
+                            let nid = l.id.clone();
+                            d.child(
+                                div()
+                                    .id(("reply-board", i))
+                                    .h(px(24.))
+                                    .px(px(6.))
+                                    .flex()
+                                    .items_center()
+                                    .gap(px(5.))
+                                    .rounded(px(radius::TAG))
+                                    .cursor_pointer()
+                                    .text_color(c(pal.accent))
+                                    .hover(|d| d.bg(c(pal.hover)))
+                                    .aria_label("Open on the board")
+                                    .child(glyph("layout-dashboard", 13., c(pal.accent)))
+                                    .child("On the board")
+                                    .on_click(cx.listener(move |this, _, _, cx| this.board_show_node(&nid, cx)))
                                     .test_support(),
                             )
                         })
@@ -1232,36 +1329,10 @@ impl Cauldron {
             }
             bar.test_support()
         });
-        // Scroll ticks on the right edge (the board's `.mm`): one per response, the one at the
-        // top of the view in the accent; a click jumps to it.
-        let ticks = (replies.len() > 1).then(|| {
-            let cur = current_tick(&replies, self.transcript_scroll.top_item());
-            let mut col = div().id("ticks").absolute().right(px(6.)).top(px(16.)).flex().flex_col().items_end().aria_label("Jump to a response");
-            for (k, &row) in replies.iter().enumerate() {
-                let on = k == cur;
-                col = col.child(
-                    div()
-                        .id(("tick", k))
-                        .h(px(7.))
-                        .w(px(24.))
-                        .flex()
-                        .items_center()
-                        .justify_end()
-                        .cursor_pointer()
-                        .aria_label(format!("Response {}", k + 1))
-                        .aria_selected(on)
-                        .child(div().h(px(2.)).w(px(if on { 20. } else { 14. })).rounded(px(1.)).bg(if on { c(pal.accent) } else { ca(pal.fg4, 0.75) }))
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.transcript_scroll.scroll_to_item(row);
-                            // The jump lands after this frame is built: build every message.
-                            *this.transcript_fit.borrow_mut() = None;
-                            cx.notify();
-                        }))
-                        .test_support(),
-                );
-            }
-            col.test_support()
-        });
+        // The stream's map on the right edge (the board's `.mm`): every message at its place in the
+        // whole stream, scaled to the rail (replies long, yours short), and a window over the part
+        // in view. It follows the scroll; a click or a drag on it scrolls there (Charles, 22 Nov).
+        let ticks = (replies.len() > 1).then(|| self.stream_map(&mine_rows, pal, cx));
         // Room on the right for the ticks, so they never sit over a bubble.
         let msgs = msgs.when_live(ticks.is_some(), |d| d.pr(px(28.))).on_scroll_wheel(cx.listener(|_, _, _, cx| cx.notify()));
         div()
@@ -1380,14 +1451,16 @@ pub(super) mod tests {
         .unwrap();
     }
 
-    /// The current tick is the last response at or above the top row in view.
-    #[test]
-    fn the_current_tick_follows_the_top_row() {
-        let replies = [1, 3, 5];
-        assert_eq!(super::current_tick(&replies, 0), 0, "above the first response: the first");
-        assert_eq!(super::current_tick(&replies, 3), 1);
-        assert_eq!(super::current_tick(&replies, 4), 1);
-        assert_eq!(super::current_tick(&replies, 9), 2);
+    /// The map is the whole stream scaled: a message halfway down sits halfway down the rail,
+    /// the window covers the share in view, and a click at the bottom scrolls to the end.
+    #[::core::prelude::v1::test]
+    fn the_stream_map_scales_the_whole_stream() {
+        let (marks, win) = super::map_marks(&[(0., 100.), (500., 100.)], 250., 250., 1000., 200.);
+        assert_eq!(marks[1].0, 100., "halfway down the stream, halfway down the rail");
+        assert_eq!(win, (50., 50.), "a quarter of the stream in view, a quarter of the rail");
+        assert_eq!(super::map_offset(200., 200., 1000., 250.), 750., "the bottom of the map: the end");
+        assert_eq!(super::map_offset(0., 200., 1000., 250.), 0.);
+        assert_eq!(super::map_offset(100., 200., 1000., 250.), 375., "centred on the point");
     }
 
     /// The stream view (Tight tiles): the context bar over the composer names where it runs, the
@@ -1582,10 +1655,12 @@ pub(super) mod tests {
             window.render_frame(cx);
             assert!(window.try_find("nt-box").is_some(), "no thread open: the New thread screen");
             window.click(("thread", 0usize), cx);
-            // Tight tiles: the stream's title is its tab, in the stream card's header.
+            // A coordinator (Charles, 22 Nov): Chat | Board in the card's header, the stream's tab
+            // in a band right under it.
             assert_eq!(window.find(("tab", 0usize)).label(), Some("Get M3 through review"));
-            let (tab, head) = (super::super::tests::rect(window, ("tab", 0usize)), super::super::tests::rect(window, "card-head"));
-            assert!(tab.x >= head.x && tab.right() <= head.right() && tab.y >= head.y && tab.bottom() <= head.bottom(), "the title tab sits in the card header");
+            let (tab, head, sw) = (super::super::tests::rect(window, ("tab", 0usize)), super::super::tests::rect(window, "card-head"), super::super::tests::rect(window, "view-switch"));
+            assert!(sw.y >= head.y && sw.bottom() <= head.bottom(), "Chat | Board sits in the card header");
+            assert!(tab.x >= head.x && tab.right() <= head.right() && tab.y >= head.bottom(), "the title tab sits under the header");
             // The stream's status mark sits inside its tab, left of the title (Charles, 21 Nov).
             let mk = super::super::tests::rect(window, ("tab-mark", 0usize));
             assert!(mk.x >= tab.x && mk.right() <= tab.right() && mk.y >= tab.y && mk.bottom() <= tab.bottom(), "the mark is inside the tab");

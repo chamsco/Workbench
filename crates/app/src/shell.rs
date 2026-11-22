@@ -31,6 +31,7 @@ mod slash;
 mod plan;
 mod donecard;
 mod boardview;
+mod imageview;
 mod chipmenu;
 mod backdrop;
 mod decide;
@@ -310,6 +311,8 @@ pub(crate) struct Cauldron {
     terminal: bool,
     /// Its blocks: the open thread's commands, from core's traces.
     term_blocks: Vec<terminal::Block>,
+    /// Commands you ran in the terminal, per thread id ("" with none open), oldest first.
+    term_runs: std::collections::HashMap<String, Vec<terminal::Block>>,
     /// The open stream's command blocks by trace id (terminal::blocks).
     term_cache: std::collections::HashMap<String, Vec<terminal::Block>>,
     /// Which ledger steps are open or shut, where the reader chose (ledger.rs).
@@ -407,6 +410,10 @@ pub(crate) struct Cauldron {
     autos_page: bool,
     /// The one session shown, by index into the open thread's sessions; None shows them all.
     session_pick: Option<usize>,
+    /// The picture shown over everything (imageview.rs), from a step, a link or a board node.
+    image_view: Option<std::path::PathBuf>,
+    /// Where the stream's map sat last frame (thread.rs), for a click or drag on it.
+    map_box: std::rc::Rc<std::cell::Cell<Bounds<Pixels>>>,
     /// The Automations page: every familiar's jobs on a clock, and the form (automations.rs).
     autos: automations::State,
     chip_menu: Option<&'static str>,
@@ -708,7 +715,7 @@ impl Cauldron {
     }
 
     pub(crate) fn new() -> Self {
-        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, support_data: Default::default(), diff_since: None, restore_ask: false, files_open: Default::default(), painting: false, glass: Default::default(), plane: Default::default(), mark_ticker: None, ask_hover: false, ask_open: None, ask_answered: Default::default(), fam_questions: Default::default(), frost: backdrop::FrostLevel::Heavy, stream_bg: None, bg_wipe: None, stream_menu: None, closed_sides: Default::default(), sides_folded: Default::default(), groups_folded: Default::default(), done_open: true, snooze_open: false, done_card: Default::default(), board: Default::default(), archive_open: false, color_target: theme::Target::Sidebar, hex_input: None, theme_mode: String::new(), root_focus: None, plan: false, open_in_menu: false, open_in: thread::OpenIn::Folder, search_open: false, indent: false, indent_run: (0.0, None), indent_to: 0.0, sidebar_w: metric::SIDEBAR_W, sidebar_drag: None, link: None, link_menu: None, link_hover: Default::default(), browser: Default::default(), browser_slot: Default::default(), usage: Default::default(), usage_page: false, section_page: false, pages: Default::default(), usage_hover: false, usage_card_hover: false, settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_cache: Default::default(), act_open: Default::default(), act_tick: None, term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), transcript_fit: Default::default(), paced: Default::default(), pace_behind: Default::default(), coordinator: None, familiar: None, fam_views: Vec::new(), fam_live: Vec::new(), fam_watch: Vec::new(), fam_driving: Default::default(), fam_error: None, fam_composer: None, fam_fixture: false, inbox: Vec::new(), inbox_open: false, update: Default::default(), update_open: false, cli_rows: Vec::new(), inbox_toast: None, fam_from: (0.0, 0.0), fam_to: None, fam_since: None, fam_hl: 0, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default(), err_open: Default::default(), side_root: None, sides: Vec::new(), side_win: false, side_input: None, side_ctx: Default::default(), block_hover: None, bar_hover: false, block_menu: None, sel: None, copied: None, ask: false, reply_files: Vec::new(), slash_sel: 0, slash_closed: false, slash_cmds: Default::default(), plan_open: false, plan_flips: 0, chip_menu: None, plan_hover: None, plan_edit: None, autos: Default::default(), agent_open: None, autos_page: false, session_pick: None }
+        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, support_data: Default::default(), diff_since: None, restore_ask: false, files_open: Default::default(), painting: false, glass: Default::default(), plane: Default::default(), mark_ticker: None, ask_hover: false, ask_open: None, ask_answered: Default::default(), fam_questions: Default::default(), frost: backdrop::FrostLevel::Heavy, stream_bg: None, bg_wipe: None, stream_menu: None, closed_sides: Default::default(), sides_folded: Default::default(), groups_folded: Default::default(), done_open: true, snooze_open: false, done_card: Default::default(), board: Default::default(), archive_open: false, color_target: theme::Target::Sidebar, hex_input: None, theme_mode: String::new(), root_focus: None, plan: false, open_in_menu: false, open_in: thread::OpenIn::Folder, search_open: false, indent: false, indent_run: (0.0, None), indent_to: 0.0, sidebar_w: metric::SIDEBAR_W, sidebar_drag: None, link: None, link_menu: None, link_hover: Default::default(), browser: Default::default(), browser_slot: Default::default(), usage: Default::default(), usage_page: false, section_page: false, pages: Default::default(), usage_hover: false, usage_card_hover: false, settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_runs: Default::default(), term_cache: Default::default(), act_open: Default::default(), act_tick: None, term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), transcript_fit: Default::default(), paced: Default::default(), pace_behind: Default::default(), coordinator: None, familiar: None, fam_views: Vec::new(), fam_live: Vec::new(), fam_watch: Vec::new(), fam_driving: Default::default(), fam_error: None, fam_composer: None, fam_fixture: false, inbox: Vec::new(), inbox_open: false, update: Default::default(), update_open: false, cli_rows: Vec::new(), inbox_toast: None, fam_from: (0.0, 0.0), fam_to: None, fam_since: None, fam_hl: 0, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default(), err_open: Default::default(), side_root: None, sides: Vec::new(), side_win: false, side_input: None, side_ctx: Default::default(), block_hover: None, bar_hover: false, block_menu: None, sel: None, copied: None, ask: false, reply_files: Vec::new(), slash_sel: 0, slash_closed: false, slash_cmds: Default::default(), plan_open: false, plan_flips: 0, chip_menu: None, plan_hover: None, plan_edit: None, autos: Default::default(), agent_open: None, autos_page: false, session_pick: None, image_view: None, map_box: Default::default() }
     }
 
     /// Opens core off the main thread (the sidebar shows Loading meanwhile), then keeps the thread
@@ -2258,6 +2265,11 @@ impl Render for Cauldron {
         // within an equal share of the room (TAB_MIN to TAB_MAX); when TAB_MIN no longer fits, arrows appear beside +
         // and the row shows a window of 72px tabs. No figures (Charles, 13 Nov).
         let mut tab_row = None;
+        // A coordinator's group (Charles, 22 Nov): Chat | Board takes the tabs' place in the header,
+        // on the tools' line, and the tabs drop to a band under it.
+        let group = self.board.group && self.open.is_some() && self.familiar.is_none() && self.settings.is_none() && self.agent_open.is_none() && !self.paged();
+        let band_w = s.main.w - 2.0 - if s.support.is_none() && self.rail_on(false) { metric::RAIL_W } else { 0.0 };
+        let tabs_r = if group { Rect::new(s.main.x + 1.0 + metric::HEAD_IN + 4.0, s.main.y + 1.0 + metric::HEAD_H, band_w - 2.0 * (metric::HEAD_IN + 4.0), metric::TAB_H) } else { s.tabs };
         // Where the stream card's tab sits, from the card's left edge, and how wide (tabshape.rs).
         let mut bump: Option<(f32, f32)> = None;
         // A familiar's tabs are its own folder tabs on its stream card (familiar.rs).
@@ -2273,7 +2285,7 @@ impl Render for Cauldron {
             // The card's tab holds only the open tab; the others and + sit on the frame past its
             // feet (Charles, 20 Nov: "outside of the tab card, with a separation"; 21 Nov: the
             // card's tab follows the open tab), so every tab is a foot apart.
-            let room = s.tabs.w - anchor_w - (TAB_SEP + ADD_W);
+            let room = tabs_r.w - anchor_w - (TAB_SEP + ADD_W);
             let scrolls = n as f32 * (TAB_MIN + TAB_SEP) > room;
             let (k, tab_w) = if scrolls {
                 (((room - 2.0 * (TAB_SEP + 24.0)) / (TAB_MIN + TAB_SEP)).floor().max(1.0) as usize, Some(TAB_MIN))
@@ -2298,7 +2310,7 @@ impl Render for Cauldron {
             self.tab_first = first;
             self.tab_window = k;
 
-            let mut row = abs(s.tabs)
+            let mut row = abs(tabs_r)
                 .id("tabs")
                 .flex()
                 .items_center()
@@ -2369,7 +2381,7 @@ impl Render for Cauldron {
                 }));
             row = row.child(anchor.test_support());
             // The card's tab: one stroke round the open tab (tabshape.rs).
-            let tab0 = s.tabs.x - s.main.x;
+            let tab0 = tabs_r.x - s.main.x;
             if on {
                 bump = Some((0.0, tab0 + anchor_w + tabshape::S));
             }
@@ -2546,7 +2558,9 @@ impl Render for Cauldron {
         // The title is the card's one tab when there are no stream tabs: a pill in the card's tab,
         // drawn on the window over the tab's corner pieces, as the tab row is.
         let mut title_el = None;
-        if tab_row.is_none() && self.familiar.is_none() {
+        if group {
+            title_el = Some(abs(Rect::new(s.tabs.x, s.tools.y, 150.0, metric::TAB_H)).child(self.view_switch(pal, cx)));
+        } else if tab_row.is_none() && self.familiar.is_none() {
             let measure = |t: &str, weight: FontWeight, window: &Window| {
                 let run = TextRun { len: t.len(), font: Font { weight, features: sans_features(), ..font(SANS) }, color: fg, background_color: None, underline: None, strikethrough: None };
                 f32::from(window.text_system().shape_line(SharedString::from(t.to_string()), px(12.5), &[run], None).width)
@@ -2583,7 +2597,7 @@ impl Render for Cauldron {
             (s.tools.bottom() + metric::HEAD_IN - (s.main.y + 1.0 + metric::HEAD_H)).max(0.0).ceil()
         } else {
             0.0
-        };
+        } + if group { metric::TAB_H + 6.0 } else { 0.0 };
         let body_h = s.main.h - 2.0 - metric::HEAD_H - tools_band - if new_screen { STAGE_H } else { 0.0 };
         // Split (direction B): under the head the card holds up to four panes;
         // a shape that no longer fits steps back.
@@ -3306,9 +3320,9 @@ impl Render for Cauldron {
             self.browser_slot.set(None);
         }
         root.children({
-            // One call for both overlays: each chained call on the root costs render a Div-sized slot.
+            // One call for the overlays: each chained call on the root costs render a Div-sized slot.
             let board = self.board_modal_el(pal, window, cx);
-            board.into_iter().chain(self.stream_menu_el(pal, window, cx))
+            board.into_iter().chain(self.image_view_el(pal, cx)).chain(self.stream_menu_el(pal, window, cx))
         }).children(self.link_menu_el(pal, window, cx)).children(self.sel_bar_el(pal, window, cx)).child(
             div()
                 .absolute()
