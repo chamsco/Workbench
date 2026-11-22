@@ -560,7 +560,7 @@ impl Cauldron {
                 .rounded(px(radius::CONTROL))
                 .cursor_pointer()
                 // The lifted button, the same in every app (board round 5, Charles 21 Nov 04:21Z).
-                .bg(c(pal.raised))
+                .button_face(pal)
                 .shadow(lift(Lift::Button, pal))
                 .hover(|d| d.bg(c(pal.hover)))
                 .text_size(px(13.))
@@ -983,7 +983,8 @@ impl Cauldron {
                         if !self.sides_folded.contains(&t.id) {
                             let mut subs: Vec<&ThreadInfo> = v.iter().filter(|x| x.side_of.as_deref() == Some(t.id.as_str())).collect();
                             subs.sort_by_key(|x| x.created);
-                            for x in subs {
+                            let n_subs = subs.len();
+                            for (k, x) in subs.into_iter().enumerate() {
                                 let sid = x.id.clone();
                                 let open_now = self.open.as_deref() == Some(sid.as_str());
                                 let (sm, sk) = (x.id.clone(), x.id.clone());
@@ -996,16 +997,20 @@ impl Cauldron {
                                         .flex()
                                         .items_center()
                                         .gap(px(7.))
-                                        .pl(px(24.))
+                                        .relative()
+                                        .pl(px(36.))
                                         .pr(px(8.))
                                         .rounded(px(radius::CONTROL))
                                         .text_size(px(12.5))
-                                        .text_color(if open_now { fg } else { fg2 })
+                                        // Greyed until hovered or open (Charles, 22 Nov).
+                                        .text_color(if open_now { fg } else { c(pal.fg4) })
                                         .when_live(open_now, |d| d.bg(c(pal.hover)))
-                                        .when_live(!open_now, |d| d.hover(|d| d.bg(c(pal.hover))))
+                                        .when_live(!open_now, |d| d.hover(|d| d.bg(c(pal.hover)).text_color(fg2)))
+                                        // The tree: one line down from the stream, a branch into each side stream.
+                                        .child(div().absolute().left(px(17.)).top_0().w(px(1.)).h(px(if k + 1 == n_subs { 13. } else { 26. })).bg(c(pal.line_strong)))
+                                        .child(div().absolute().left(px(17.)).top(px(13.)).w(px(12.)).h(px(1.)).bg(c(pal.line_strong)))
                                         .cursor_pointer()
                                         .aria_label(format!("Side stream: {}", x.title))
-                                        .child(glyph("corner-down-right", 11., fg3))
                                         .child(div().flex_1().min_w_0().truncate().child(x.title.clone()))
                                         .when_live(x.busy, |d| d.child(div().size(px(6.)).flex_none().rounded_full().bg(c(pal.accent))))
                                         .when_live(closed && !x.busy, |d| d.child(div().text_size(px(10.5)).text_color(c(pal.fg4)).child("closed")))
@@ -1698,6 +1703,18 @@ pub(crate) enum Lift {
     Button,
 }
 
+/// The house button's face, from Tuff UI's action button (Charles, 22 Nov): a soft vertical gradient
+/// instead of a flat fill, darker at the top so the face reads as pressed a little into its edge.
+/// The lift (`Lift::Button`) draws the hairline edge and the light on top.
+pub(crate) trait ButtonFace: Styled + Sized {
+    fn button_face(self, pal: &Palette) -> Self {
+        let dark = pal.panel.0 < 0x80;
+        let (top, bottom) = if dark { (Rgb::hex(0x1d1d1d), Rgb::hex(0x262626)) } else { (Rgb::hex(0xe2e2e2), Rgb::hex(0xececec)) };
+        self.bg(linear_gradient(180., linear_color_stop(c(top), 0.), linear_color_stop(c(bottom), 1.)))
+    }
+}
+impl<T: Styled + Sized> ButtonFace for T {}
+
 /// S2, "lifted": a hairline edge, a long soft shadow, and a light along the top edge.
 #[inline(never)]
 pub(crate) fn lift(l: Lift, pal: &Palette) -> Vec<BoxShadow> {
@@ -1717,10 +1734,10 @@ pub(crate) fn lift(l: Lift, pal: &Palette) -> Vec<BoxShadow> {
         // inside the card's top and left edges, as if the sidebar's wall cast it, with a lip of
         // light where the frame meets its bottom edge. Light uses a cool ink so it does not go grey.
         let ink = |a: f32| if dark { hsla(0., 0., 0., a) } else { hsla(222. / 360., 0.35, 0.18, a) };
-        let (top_a, top_b, left_a) = if dark { (0.34, 0.10, 0.20) } else { (0.30, 0.12, 0.18) };
+        let (top_a, top_b, left_a) = if dark { (0.22, 0.07, 0.13) } else { (0.17, 0.07, 0.10) };
         let inner = |x: f32, y: f32, blur: f32, spread: f32, a: f32| BoxShadow { color: ink(a), offset: point(px(x), px(y)), blur_radius: px(blur), spread_radius: px(spread), inset: true };
         let lip = BoxShadow { color: hsla(0., 0., 1., if dark { 0.08 } else { 0.75 }), offset: point(px(0.), px(1.)), blur_radius: px(0.), spread_radius: px(0.), inset: false };
-        return vec![inner(0., 12., 22., -12., top_a), inner(0., 2., 3., 0., top_b), inner(12., 0., 20., -14., left_a), lip, edge];
+        return vec![inner(0., 10., 28., -12., top_a), inner(0., 2., 3., 0., top_b), inner(12., 0., 20., -14., left_a), lip, edge];
     }
     vec![long, edge, top]
 }
@@ -2161,7 +2178,7 @@ impl Render for Cauldron {
                     .h(px(tabshape::PILL_H))
                     .top(px(tabshape::PILL_DY))
                     .rounded(px(tabshape::PILL_R))
-                    .when_live(on, |d| d.bg(c(pal.raised)).shadow(lift(Lift::Button, pal)))
+                    .when_live(on, |d| d.button_face(pal).shadow(lift(Lift::Button, pal)))
                     .when_live(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
                     .occlude()
                     .cursor_pointer()
@@ -2315,7 +2332,7 @@ impl Render for Cauldron {
                 .items_center()
                 .justify_center()
                 .rounded(px(tabshape::PILL_R))
-                .bg(c(pal.raised))
+                .button_face(pal)
                 .shadow(lift(Lift::Button, pal))
                 .occlude()
                 .cursor_pointer()
