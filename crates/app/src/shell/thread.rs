@@ -1284,6 +1284,7 @@ impl Cauldron {
                         d.child(div().id("composer-fade").absolute().left_0().right_0().top(px(-40.)).h(px(40.)).bg(linear_gradient(180., linear_color_stop(bg.opacity(0.), 0.), linear_color_stop(bg, 1.))).test_support())
                     })
                     // The plan sits on the box, over where it runs (Charles, 22 Nov).
+                    .children(self.done_el(t, pal, cx))
                     .children(self.plan_el(t, pal, cx))
                     .children(ctx_bar)
                     .child(composer.test_support()),
@@ -1438,9 +1439,22 @@ pub(super) mod tests {
     }
 
     pub(in crate::shell) fn open(cx: &mut TestAppContext) -> (gpui_kit::WindowHandle<Cauldron>, Arc<Chats>) {
+        open_data(cx, data())
+    }
+
+    /// `data()` with t1's reply replaced by `reply`.
+    pub(in crate::shell) fn data_replying(reply: &str) -> PathBuf {
+        let d = data();
+        let f = d.join("threads").join("t1.json");
+        let mut t: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&f).unwrap()).unwrap();
+        t["messages"][1]["text"] = reply.into();
+        std::fs::write(&f, t.to_string()).unwrap();
+        d
+    }
+
+    pub(in crate::shell) fn open_data(cx: &mut TestAppContext, d: PathBuf) -> (gpui_kit::WindowHandle<Cauldron>, Arc<Chats>) {
         cx.update(gpui_kit::init);
         prefs();
-        let d = data();
         let rt = tokio::runtime::Builder::new_multi_thread().worker_threads(1).enable_all().build().unwrap();
         // No change channel: a wake from core's tokio thread into the test scheduler makes the run
         // non-deterministic (and panics). Tests call `refresh` where the app would be poked.

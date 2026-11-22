@@ -98,7 +98,7 @@ impl Cauldron {
     }
 
     /// The open stream is gone from view (archived or deleted): back to the New stream screen.
-    fn close_open_stream(&mut self) {
+    pub(super) fn close_open_stream(&mut self) {
         self.open = None;
         self.thread = None;
         self.selected = None;

@@ -262,6 +262,8 @@ impl Cauldron {
                     .child(glyph("list-checks", 13., fg3))
                     .child("Plan updated")
                     .into_any_element(),
+                // What might come next shows on the Done card over the box (donecard.rs).
+                Block::Code(lang, _) if lang == "next" => div().into_any_element(),
                 // A job on a clock a familiar proposes: a card with Add (automations.rs).
                 Block::Code(lang, body) if lang == "routine" => self.routine_card(&body, i, pal, cx),
                 Block::Code(lang, body) => {

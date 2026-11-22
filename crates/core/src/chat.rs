@@ -749,6 +749,10 @@ pub const GOAL_TURNS: usize = 8;
 /// block as a checklist the user can edit; an edit comes back as a `Plan edit:` message.
 pub const TODO_BRIEF: &str = "# Your plan\n\nWhen a task takes more than one step, keep your plan as a checklist the user sees above the thread: a fenced `todo` block whose body is one JSON object, {\"items\": [{\"text\": \"Write the tests\", \"state\": \"done\"}, {\"text\": \"Fix the login\", \"state\": \"doing\"}, {\"text\": \"Update the docs\", \"state\": \"todo\"}]}. Post it whole again whenever a step changes state. A message starting `Plan edit:` is the user changing it: take the change into the plan without dropping the step you are on, unless it says to stop that step.";
 
+/// After a finished task, a few things the user might want next (Charles, 22 Nov): the app shows
+/// them on a Done card to tick, each with its why behind a "?".
+pub const NEXT_BRIEF: &str = "# Next steps\n\nWhen you have finished what was asked (not when you are asking the user something, failed, or are still part way), end your reply with a fenced `next` block whose body is one JSON object: {\"items\": [{\"text\": \"Add a test for the login fix\", \"why\": \"The bug could come back unnoticed; a test pins it down.\"}]}. Give two to four things the user might want next, most useful first. `text` is a short instruction the user could send you as is; `why` is one plain sentence on what it means and why it helps. The user sees these as choices, not in your text, so don't list them again in prose. Leave the block out when nothing sensible follows.";
+
 const ASK_MODE: &str = "# Ask mode\n\nThe user is asking a question, not asking for changes. Read whatever you need and answer it. Don't edit, create or delete any file, and don't run commands.";
 
 const PLAN_MODE: &str = "# Plan mode\n\nThe user wants a plan, not changes. Read whatever you need, run read-only commands, then reply with a short plan: the files to change, what changes in each, and how to check it. Don't edit, create or delete any file.";
@@ -2664,6 +2668,9 @@ Ask the reader for input with the real form parts: `f = FormControl(\"Name\", In
                 None => PLAN_MODE.to_string(),
             };
             req.system = Some(format!("{}{mode}", req.system.take().map(|s| s + "\n\n").unwrap_or_default()));
+        }
+        if !plan {
+            req.system = Some(format!("{}{NEXT_BRIEF}", req.system.take().map(|s| s + "\n\n").unwrap_or_default()));
         }
         req.cwd = match project {
             Some(p) => p,
