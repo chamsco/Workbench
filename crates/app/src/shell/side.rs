@@ -13,7 +13,7 @@ pub(super) const SIDE_W: f32 = 340.0;
 /// A tab that is not the open one: darker and a little see-through, with a hairline.
 pub(super) fn off_badge(d: Stateful<Div>, pal: &'static Palette) -> Stateful<Div> {
     let dark = pal.panel.0 < 0x80;
-    d.bg(gpui_kit::black().opacity(if dark { 0.30 } else { 0.12 })).border_1().border_color(c(pal.line)).hover(|d| d.bg(gpui_kit::black().opacity(if dark { 0.18 } else { 0.06 })))
+    d.bg(gpui_kit::black().opacity(if dark { 0.30 } else { 0.12 })).border_1().border_color(c(pal.line))
 }
 
 impl Cauldron {
@@ -109,7 +109,7 @@ impl Cauldron {
                 // The open one is the raised tab like the stream's own; the rest are a darker, slightly
                 // see-through badge (Charles, 22 Nov).
                 .when(on, |d| d.bg(c(pal.raised)).shadow(lift(Lift::Button, pal)))
-                .when(!on, |d| off_badge(d, pal))
+                .when(!on, |d| off_badge(d, pal).hover(|d| d.bg(gpui_kit::black().opacity(if pal.panel.0 < 0x80 { 0.18 } else { 0.06 }))))
                 .occlude()
                 .cursor_pointer()
                 .aria_selected(on)
@@ -325,10 +325,13 @@ mod tests {
         .unwrap();
         assert!(chats.peek(&side.id).is_some(), "and deletes nothing");
         cx.update_window(handle.into(), |_, window, cx| {
-            assert!(window.try_find(("side-row", 0usize)).is_none(), "the sidebar list is folded");
+            assert!(window.try_find(("side-row", 0usize)).is_some(), "its main lists it, open by default");
             window.click(("thread-sides", 0usize), cx);
             window.render_frame(cx);
-            assert!(window.try_find(("side-row", 0usize)).is_some(), "its main lists it");
+            assert!(window.try_find(("side-row", 0usize)).is_none(), "the badge folds the list");
+            window.click(("thread-sides", 0usize), cx);
+            window.render_frame(cx);
+            assert!(window.try_find(("side-row", 0usize)).is_some(), "and opens it again");
             window.click(("side-row", 0usize), cx);
             window.render_frame(cx);
             assert!(window.try_find(("side-tab", 0usize)).is_some(), "a click brings the tab back");
