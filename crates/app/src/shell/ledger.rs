@@ -32,6 +32,8 @@ pub(super) struct Step {
     pub cmd: Option<String>,
     /// A command step's whole command and what it printed, for its shell block.
     pub shell: Option<(String, String)>,
+    /// The file a Read or Edit step touched, whole, for its link.
+    pub file: Option<String>,
 }
 
 fn base(path: &str) -> String {
@@ -148,8 +150,9 @@ pub(super) fn parts(m: &Msg, running: bool) -> Vec<Part> {
             (Some(e), Some((k, _, _))) if !a.error => Some((k, 1, a.start, e)),
             _ => None,
         };
+        let file = matches!(canon(&a.name), "Read" | "Edit" | "MultiEdit" | "Write" | "NotebookEdit").then(|| a.path.clone().or_else(|| field(&a.input, &["file_path", "filePath", "path", "notebook_path"]))).flatten();
         let full = matches!(canon(&a.name), "Bash" | "PowerShell").then(|| field(&a.input, &["command"])).flatten().filter(|c| !c.trim().is_empty());
-        out.push(Part::Step(Step { key: format!("{}:{i}", m.id), live, done, start: a.start, end, error: a.error, detail, cmd: full.as_deref().map(|c| short(c, 56)), shell: full.map(|c| (c.trim().to_string(), a.output.trim_end().to_string())) }));
+        out.push(Part::Step(Step { key: format!("{}:{i}", m.id), live, done, start: a.start, end, error: a.error, detail, cmd: full.as_deref().map(|c| short(c, 56)), shell: full.map(|c| (c.trim().to_string(), a.output.trim_end().to_string())), file }));
     }
     push_text(&mut out, &m.text[prev.min(m.text.len())..]);
     out
@@ -298,6 +301,17 @@ impl Cauldron {
                     )
             })
             .when_live(foldable, |d| d.child(div().w(px(14.)).flex_none().flex().items_center().justify_center().child(glyph(if open { "chevron-down" } else { "chevron-right" }, 10., fg3))))
+            // A step that touched a file links to it (Charles, 22 Nov): a click shows it in the
+            // card, a right click offers where.
+            .when_some(s.file.clone().filter(|_| !foldable && !live), |d, f| {
+                let p = std::path::PathBuf::from(&f);
+                let file = if p.is_absolute() { p } else { self.thread.as_ref().and_then(|t| t.project.as_ref()).map_or(p.clone(), |d| std::path::Path::new(d).join(&p)) };
+                let (a, b) = (file.clone(), file);
+                d.cursor_pointer()
+                    .hover(|d| d.text_color(fg))
+                    .on_click(cx.listener(move |this, _, _, cx| this.open_link(super::links::Link::File(a.clone()), true, cx)))
+                    .on_mouse_down(MouseButton::Right, cx.listener(move |this, ev: &MouseDownEvent, _, cx| this.open_link_menu(super::links::Link::File(b.clone()), ev.position, cx)))
+            })
             .when_live(foldable, |d| {
                 let k = key.clone();
                 d.cursor_pointer().hover(|d| d.text_color(fg)).on_click(cx.listener(move |this, _, _, cx| {

@@ -30,7 +30,9 @@ mod motion;
 mod newthread;
 mod panes;
 mod dither;
+mod browser;
 mod ledger;
+mod links;
 mod md;
 mod logos;
 mod mark;
@@ -258,6 +260,13 @@ pub(crate) struct Cauldron {
     /// what width.
     sidebar_w: f32,
     sidebar_drag: Option<(f32, f32)>,
+    /// A link opened in the support card, the right-click menu on one, the link under the
+    /// pointer in a reply (for that menu), the browser view and the box it sits over.
+    link: Option<links::Link>,
+    link_menu: Option<(links::Link, Point<Pixels>)>,
+    link_hover: std::rc::Rc<std::cell::RefCell<Option<links::Link>>>,
+    browser: browser::Browser,
+    browser_slot: std::rc::Rc<std::cell::Cell<Option<Bounds<Pixels>>>>,
     /// The subscriptions' usage left, read from accounts.json at most every `USAGE_EVERY`.
     usage: std::cell::RefCell<Option<(std::time::Instant, Vec<(String, u64)>)>>,
     /// The Usage page is in the card, and the pointer is on the foot's ring or on its hover card.
@@ -640,7 +649,7 @@ impl Cauldron {
     }
 
     pub(crate) fn new() -> Self {
-        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, support_data: Default::default(), files_open: Default::default(), painting: false, glass: Default::default(), plane: Default::default(), mark_ticker: None, ask_hover: false, ask_open: None, ask_answered: Default::default(), fam_questions: Default::default(), frost: backdrop::FrostLevel::Heavy, stream_bg: None, bg_wipe: None, stream_menu: None, closed_sides: Default::default(), sides_listed: Default::default(), color_target: theme::Target::Sidebar, hex_input: None, theme_mode: String::new(), root_focus: None, plan: false, open_in_menu: false, open_in: thread::OpenIn::Folder, search_open: false, indent: false, indent_run: (0.0, None), indent_to: 0.0, sidebar_w: metric::SIDEBAR_W, sidebar_drag: None, usage: Default::default(), usage_page: false, section_page: false, pages: Default::default(), usage_hover: false, usage_card_hover: false, settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_cache: Default::default(), act_open: Default::default(), act_tick: None, term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), transcript_fit: Default::default(), paced: Default::default(), pace_behind: Default::default(), coordinator: None, familiar: None, fam_views: Vec::new(), fam_live: Vec::new(), fam_watch: Vec::new(), fam_driving: Default::default(), fam_error: None, fam_composer: None, fam_fixture: false, inbox: Vec::new(), inbox_open: false, update: Default::default(), update_open: false, cli_rows: Vec::new(), inbox_toast: None, fam_from: (0.0, 0.0), fam_to: None, fam_since: None, fam_hl: 0, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default(), err_open: Default::default(), side_root: None, sides: Vec::new(), side_win: false, side_input: None, side_ctx: Default::default() }
+        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, support_data: Default::default(), files_open: Default::default(), painting: false, glass: Default::default(), plane: Default::default(), mark_ticker: None, ask_hover: false, ask_open: None, ask_answered: Default::default(), fam_questions: Default::default(), frost: backdrop::FrostLevel::Heavy, stream_bg: None, bg_wipe: None, stream_menu: None, closed_sides: Default::default(), sides_listed: Default::default(), color_target: theme::Target::Sidebar, hex_input: None, theme_mode: String::new(), root_focus: None, plan: false, open_in_menu: false, open_in: thread::OpenIn::Folder, search_open: false, indent: false, indent_run: (0.0, None), indent_to: 0.0, sidebar_w: metric::SIDEBAR_W, sidebar_drag: None, link: None, link_menu: None, link_hover: Default::default(), browser: Default::default(), browser_slot: Default::default(), usage: Default::default(), usage_page: false, section_page: false, pages: Default::default(), usage_hover: false, usage_card_hover: false, settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_cache: Default::default(), act_open: Default::default(), act_tick: None, term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), transcript_fit: Default::default(), paced: Default::default(), pace_behind: Default::default(), coordinator: None, familiar: None, fam_views: Vec::new(), fam_live: Vec::new(), fam_watch: Vec::new(), fam_driving: Default::default(), fam_error: None, fam_composer: None, fam_fixture: false, inbox: Vec::new(), inbox_open: false, update: Default::default(), update_open: false, cli_rows: Vec::new(), inbox_toast: None, fam_from: (0.0, 0.0), fam_to: None, fam_since: None, fam_hl: 0, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default(), err_open: Default::default(), side_root: None, sides: Vec::new(), side_win: false, side_input: None, side_ctx: Default::default() }
     }
 
     /// Opens core off the main thread (the sidebar shows Loading meanwhile), then keeps the thread
@@ -3081,7 +3090,16 @@ impl Render for Cauldron {
         }
 
         // ---- window ring, drawn last so it sits on top of every pane edge
-        root.children(self.stream_menu_el(pal, window, cx)).child(
+        // The in-app browser sits over the Browser panel's page box (last frame's), hidden under menus.
+        let page = match (&self.link, self.drawer, self.browser_slot.get()) {
+            (Some(links::Link::Url(u)), Some(Panel::Browser), Some(b)) if self.link_menu.is_none() && self.stream_menu.is_none() => Some((u.clone(), b)),
+            _ => None,
+        };
+        self.browser.sync(page.as_ref().map(|(u, b)| (u.as_str(), *b)), window);
+        if page.is_none() {
+            self.browser_slot.set(None);
+        }
+        root.children(self.stream_menu_el(pal, window, cx)).children(self.link_menu_el(pal, window, cx)).child(
             div()
                 .absolute()
                 .size_full()

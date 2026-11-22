@@ -604,6 +604,16 @@ impl Cauldron {
             );
         }
         let last = ls.len().saturating_sub(1);
+        // This stream's side streams, each linked under the reply it branched off (Charles, 22 Nov).
+        let sides: Vec<(u64, String, String)> = match (&self.threads, t.side_of.is_none()) {
+            (Threads::Ready(v), true) => {
+                let mut x: Vec<_> = v.iter().filter(|s| s.side_of.as_deref() == Some(t.id.as_str())).map(|s| (s.created, s.id.clone(), s.title.clone())).collect();
+                x.sort();
+                x
+            }
+            _ => Vec::new(),
+        };
+        let next_at: Vec<u64> = ls.iter().skip(1).map(|l| l.at).chain(std::iter::once(u64::MAX)).collect();
         // The scroll ticks' targets: one per response, by its row in the transcript.
         let replies: Vec<usize> = ls.iter().enumerate().filter(|(_, l)| !l.mine).map(|(i, _)| i).collect();
         // Only the messages near the view are built: one further is drawn as an empty box of the
@@ -733,6 +743,30 @@ impl Cauldron {
             }
             if let Some(m) = &l.meta {
                 say = say.child(div().flex().items_center().gap(px(6.)).text_size(px(12.)).text_color(fg3).font_features(tnum()).child(glyph("terminal", 13., fg3)).child(m.clone()));
+            }
+            for (k, (_, sid, title)) in sides.iter().enumerate().filter(|(_, (at, _, _))| *at >= l.at && *at < next_at[i]) {
+                let sid = sid.clone();
+                say = say.child(
+                    div()
+                        .id(("side-link", k))
+                        .flex()
+                        .items_center()
+                        .gap(px(6.))
+                        .h(px(22.))
+                        .text_size(px(12.5))
+                        .text_color(fg3)
+                        .cursor_pointer()
+                        .aria_label(format!("Side stream: {title}"))
+                        .child(glyph("corner-down-right", 12., fg3))
+                        .child("Side stream")
+                        .child(div().min_w_0().truncate().text_color(c(pal.accent)).child(title.clone()))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.selected = Some(sid.clone());
+                            this.open_thread(sid.clone());
+                            cx.notify();
+                        }))
+                        .test_support(),
+                );
             }
             msgs = msgs.child(say.test_support());
         }

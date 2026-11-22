@@ -26,6 +26,11 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 image = { version = "0.25", default-features = false, features = ["webp", "png", "jpeg", "gif"] }
 smallvec = "1"
 
+# The in-app browser (src/shell/browser.rs): WebView2 on Windows, WKWebView on macOS. Linux has
+# no GTK loop under GPUI for WebKitGTK, so it is left out there.
+[target.'cfg(any(windows, target_os = "macos"))'.dependencies]
+wry = "0.57"
+
 [features]
 # `CAULDRON_SHOTS=<dir>` renders the shell headless and writes PNGs (macOS, src/shell/shots.rs).
 shots = ["gpui-kit/test-support"]
