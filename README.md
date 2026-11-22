@@ -15,7 +15,7 @@
   <a href="docs/HOW-IT-WORKS.md">How it works, in full</a>
 </sub></p>
 
-<p align="center"><a href="docs/assets/cauldron/stream.png"><img src="docs/assets/cauldron/stream.png" alt="A stream: the sidebar with New stream and the streams grouped by state; the agent's replies with a git commit card, an applied flow change and On the board links; the composer with Ask, Plan and Act; the stream map on the right edge." width="100%"></a></p>
+<p align="center"><a href="docs/assets/cauldron/stream.png"><img src="docs/assets/cauldron/stream.png" alt="A stream: the sidebar with New stream and the streams grouped by state; the agent's replies with a git commit card, an applied flow change and On the board links; the composer with Ask, Plan and Act; the stream map on the left of the thread." width="100%"></a></p>
 
 ---
 
@@ -75,7 +75,8 @@ Cauldron doesn't bring its own model. It finds Claude Code, Codex, Cursor, Grok,
 
 - **Sidebar.** The top row has notifications, search and the sidebar toggle. Under it are Streams, Agents and Library, then **New stream** (Ctrl+N), then your streams: running ones first, then Done and Archived. Each row shows its folder, its branch and the CLI it runs on. Usage and settings sit at the bottom.
 - **Header.** In a stream, **Chat | Board** sits at the top left and the stream's tabs (the stream and its side streams) sit under it. At the top right are the folder, split view and terminal buttons.
-- **Right edge.** The stream map shows the whole stream to scale; click or drag it to jump. The icons beside it open the panels: Highlights, Changes, Git, Trace, Browser, Files, Simulator and the terminal.
+- **Stream map.** A thin rail on the left of the thread shows the whole stream to scale, with the part in view lit. Hover it to open it; click or drag to jump.
+- **Right edge.** The icons open the panels: Highlights, Changes, Git, Trace, Browser, Files, Simulator and the terminal.
 - **Settings** has six pages: Agents and subscriptions, Flow, General, Appearance, Machines and Shortcuts. Appearance switches between the plain background (the one in these screenshots) and the painted one.
 
 ### Good to know

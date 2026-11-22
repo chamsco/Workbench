@@ -378,37 +378,48 @@ impl OpenIn {
 }
 
 impl Cauldron {
-    /// The stream's map (see `map_marks`), drawn from last frame's layout of the transcript.
+    /// The stream's map (see `map_marks`), drawn from last frame's layout of the transcript. It sits
+    /// on the thread's left, centred on the transcript, `MAP_GAP` from the card's edge and from the
+    /// messages (Charles, 22 Nov 22:55Z). At rest it is a thin rail where only the messages in view
+    /// are lit; under the pointer it grows, shows the window over the view and sits on a soft halo of
+    /// the card's colour that hides the text behind it.
     #[inline(never)]
-    fn stream_map(&self, mine: &[bool], pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
-        const RAIL_W: f32 = 24.;
+    fn stream_map(&self, mine: &[bool], top_pad: f32, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
+        let open = self.map_hover;
         let sh = &self.transcript_scroll;
         let vb = sh.bounds();
         let view_h = f32::from(vb.size.height);
         let off = -f32::from(sh.offset().y);
         let total = view_h + f32::from(sh.max_offset().y);
-        let rail = (view_h - 48.).clamp(60., 320.);
+        let full = (view_h - 48.).clamp(60., 320.);
+        let rail = if open { full } else { (full * 0.6).clamp(48., 200.) };
+        let (w, pad) = if open { (MAP_OPEN_W, 8.) } else { (MAP_W, 6.) };
+        // An item's bounds are already in the whole content's terms (they don't move with the
+        // scroll), so they take no offset.
         let items: Vec<(f32, f32)> = (0..mine.len())
-            .map(|i| sh.bounds_for_item(i).map_or((0., 0.), |b| (f32::from(b.origin.y - vb.origin.y) + off, f32::from(b.size.height))))
+            .map(|i| sh.bounds_for_item(i).map_or((0., 0.), |b| (f32::from(b.origin.y - vb.origin.y), f32::from(b.size.height))))
             .collect();
         let (marks, (wy, wh)) = map_marks(&items, off, view_h, total, rail);
-        let mut col = div().id("ticks").absolute().right(px(4.)).top(px(16.)).w(px(RAIL_W)).h(px(rail)).cursor_pointer().aria_label("Map of the stream");
+        let mut col = div().relative().w(px(w)).h(px(rail));
         // Last frame's place, for a click or a drag.
         let cell = self.map_box.clone();
         col = col.child(canvas(move |b, _, _| cell.set(b), |_, _, _, _| {}).absolute().inset_0());
-        col = col.child(div().id("map-window").absolute().top(px(wy)).h(px(wh)).left_0().right_0().rounded(px(3.)).bg(ca(pal.fg, 0.07)).border_1().border_color(ca(pal.fg, 0.12)).test_support());
+        if open {
+            col = col.child(div().id("map-window").absolute().top(px(wy)).h(px(wh)).left(px(-3.)).right(px(-3.)).rounded(px(3.)).bg(ca(pal.fg, 0.07)).border_1().border_color(ca(pal.fg, 0.12)).test_support());
+        }
         for (k, ((y, h), me)) in marks.iter().zip(mine).enumerate() {
-            // In view when any of it is: the window over it lights it.
+            // In view when any of it is: those are the only lit marks.
             let seen = *y + *h > wy && *y < wy + wh;
-            let ink = if seen { c(pal.accent) } else { ca(pal.fg4, 0.75) };
+            let ink = if seen { c(pal.accent) } else { ca(pal.fg4, if open { 0.75 } else { 0.4 }) };
+            let long = if open { w } else { MAP_W };
             col = col.child(
                 div()
                     .id(("tick", k))
                     .absolute()
-                    .top(px(*y + 2.))
+                    .top(px(*y))
                     .h(px(2.))
-                    .right(px(3.))
-                    .w(px(if *me { 8. } else { 16. }))
+                    .left_0()
+                    .w(px(if *me { long * 0.5 } else { long }))
                     .rounded(px(1.))
                     .bg(ink)
                     .aria_label(if *me { "Your message" } else { "Response" })
@@ -416,6 +427,26 @@ impl Cauldron {
                     .test_support(),
             );
         }
+        let bg = super::backdrop::card_bg(false, pal);
+        let col = div()
+            .id("ticks")
+            .absolute()
+            .left(px(MAP_GAP - pad))
+            .top(px(top_pad + (view_h - rail) / 2. - pad))
+            .p(px(pad))
+            .rounded(px(10.))
+            .cursor_pointer()
+            .aria_label("Map of the stream")
+            .when_live(open, |d| {
+                d.bg(bg.opacity(0.86)).shadow(vec![BoxShadow { color: bg.opacity(0.9), offset: point(px(0.), px(0.)), blur_radius: px(22.), spread_radius: px(10.), inset: false }, BoxShadow { color: hsla(0., 0., 0., 0.12), offset: point(px(0.), px(6.)), blur_radius: px(18.), spread_radius: px(-6.), inset: false }])
+            })
+            .on_hover(cx.listener(|this, h: &bool, _, cx| {
+                if this.map_hover != *h {
+                    this.map_hover = *h;
+                    cx.notify();
+                }
+            }))
+            .child(col);
         let jump = move |this: &mut Self, y: Pixels| {
             let b = this.map_box.get();
             let to = map_offset(f32::from(y - b.origin.y), f32::from(b.size.height), total, view_h);
@@ -439,9 +470,16 @@ impl Cauldron {
     }
 }
 
+/// The map's width at rest and under the pointer, and the space on each side of it at rest.
+pub(super) const MAP_W: f32 = 8.;
+const MAP_OPEN_W: f32 = 36.;
+pub(super) const MAP_GAP: f32 = 10.;
+
 /// The stream's map: each message's (top, height) in the whole scrolled content, scaled onto a
 /// rail `rail` px tall, and the window over the view (top, height). Each mark is at least 2px.
 pub(super) fn map_marks(items: &[(f32, f32)], view_top: f32, view_h: f32, total: f32, rail: f32) -> (Vec<(f32, f32)>, (f32, f32)) {
+    // The scroll's own extent can lag the laid-out messages; the map must hold every one.
+    let total = items.iter().fold(total, |m, (t, h)| m.max(t + h));
     let k = if total > 0. { rail / total } else { 0. };
     let marks = items.iter().map(|(t, h)| (t * k, (h * k - 1.).max(2.))).collect();
     let win = (view_top * k, (view_h * k).clamp(4., rail));
@@ -1329,12 +1367,14 @@ impl Cauldron {
             }
             bar.test_support()
         });
-        // The stream's map on the right edge (the board's `.mm`): every message at its place in the
-        // whole stream, scaled to the rail (replies long, yours short), and a window over the part
-        // in view. It follows the scroll; a click or a drag on it scrolls there (Charles, 22 Nov).
-        let ticks = (replies.len() > 1).then(|| self.stream_map(&mine_rows, pal, cx));
-        // Room on the right for the ticks, so they never sit over a bubble.
-        let msgs = msgs.when_live(ticks.is_some(), |d| d.pr(px(28.))).on_scroll_wheel(cx.listener(|_, _, _, cx| cx.notify()));
+        // The stream's map on the thread's left (the board's `.mm`): every message at its place in
+        // the whole stream, scaled to the rail (replies long, yours short). It follows the scroll; a
+        // click or a drag on it scrolls there (Charles, 22 Nov).
+        let (pad_x, pad_y) = (if narrow { 10. } else { 18. }, if short { 8. } else { 14. });
+        let ticks = (replies.len() > 1).then(|| self.stream_map(&mine_rows, pad_y, pal, cx));
+        // Room on the left for the resting map, the same space on both its sides.
+        let lead = (MAP_GAP * 2. + MAP_W - pad_x).max(0.);
+        let msgs = msgs.when_live(ticks.is_some(), |d| d.pl(px(lead))).on_scroll_wheel(cx.listener(|_, _, _, cx| cx.notify()));
         div()
             .id("thread")
             .relative()
@@ -1342,8 +1382,8 @@ impl Cauldron {
             .flex()
             .flex_col()
             .gap(px(if short { 6. } else { 10. }))
-            .px(px(if narrow { 10. } else { 18. }))
-            .py(px(if short { 8. } else { 14. }))
+            .px(px(pad_x))
+            .py(px(pad_y))
             .child(msgs.test_support())
             .children(ticks)
             .child(
@@ -1449,6 +1489,14 @@ pub(super) mod tests {
             assert!(window.try_find("nt-box").is_some(), "and with nothing focused");
         })
         .unwrap();
+    }
+
+    #[::core::prelude::v1::test]
+    fn the_stream_map_holds_messages_past_the_scroll_extent() {
+        // The scroll extent says 1000px, but the last message ends at 1200: it must still fit the rail.
+        let (marks, _) = super::map_marks(&[(0., 100.), (1100., 100.)], 0., 250., 1000., 120.);
+        let (top, h) = marks[1];
+        assert!(top + h <= 120., "the last mark ends inside the rail, got {}", top + h);
     }
 
     /// The map is the whole stream scaled: a message halfway down sits halfway down the rail,
