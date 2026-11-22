@@ -24,6 +24,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 mod apps;
+mod captain;
+mod slash;
+mod plan;
+mod chipmenu;
 mod backdrop;
 mod decide;
 mod familiar;
@@ -37,6 +41,7 @@ mod links;
 mod md;
 mod logos;
 mod surface;
+mod seltext;
 mod mark;
 mod picker;
 mod side;
@@ -362,6 +367,29 @@ pub(crate) struct Cauldron {
     side_win: bool,
     side_input: Option<(Entity<InputState>, Subscription)>,
     side_ctx: backspace_core::chat::SideCtx,
+    /// The reply block under the pointer ("msg:part#block"), its action bar, and its open ⋯ menu.
+    block_hover: Option<String>,
+    bar_hover: bool,
+    block_menu: Option<String>,
+    /// Text selected in the transcript and where the pointer let go, for the selection bar.
+    sel: Option<(String, Point<Pixels>)>,
+    /// The reply whose Copy was last pressed, to show Copied.
+    copied: Option<String>,
+    /// Ask mode (Ask · Plan · Act): answers only, no edits or commands. `plan` is Plan; neither is Act.
+    ask: bool,
+    /// Files added with + in the reply box, sent with the next message.
+    reply_files: Vec<std::path::PathBuf>,
+    /// The slash list (slash.rs): the highlighted row, closed by Escape, and the commands for a project.
+    slash_sel: usize,
+    slash_closed: bool,
+    slash_cmds: std::cell::RefCell<Option<(Option<String>, Vec<slash::Cmd>)>>,
+    /// The plan above a coordinator's thread (plan.rs): folded, the step under the pointer, the step being edited.
+    plan_open: bool,
+    plan_flips: usize,
+    /// The open Effort or trust menu, by its chip's id (chipmenu.rs).
+    chip_menu: Option<&'static str>,
+    plan_hover: Option<usize>,
+    plan_edit: Option<(usize, Entity<InputState>, Subscription)>,
     idle: Vec<AgentTab>,
     /// The open tab: 0 is the pinned one, i is `agents[i - 1]`.
     active: usize,
@@ -657,7 +685,7 @@ impl Cauldron {
     }
 
     pub(crate) fn new() -> Self {
-        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, support_data: Default::default(), diff_since: None, restore_ask: false, files_open: Default::default(), painting: false, glass: Default::default(), plane: Default::default(), mark_ticker: None, ask_hover: false, ask_open: None, ask_answered: Default::default(), fam_questions: Default::default(), frost: backdrop::FrostLevel::Heavy, stream_bg: None, bg_wipe: None, stream_menu: None, closed_sides: Default::default(), sides_folded: Default::default(), groups_folded: Default::default(), archive_open: false, color_target: theme::Target::Sidebar, hex_input: None, theme_mode: String::new(), root_focus: None, plan: false, open_in_menu: false, open_in: thread::OpenIn::Folder, search_open: false, indent: false, indent_run: (0.0, None), indent_to: 0.0, sidebar_w: metric::SIDEBAR_W, sidebar_drag: None, link: None, link_menu: None, link_hover: Default::default(), browser: Default::default(), browser_slot: Default::default(), usage: Default::default(), usage_page: false, section_page: false, pages: Default::default(), usage_hover: false, usage_card_hover: false, settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_cache: Default::default(), act_open: Default::default(), act_tick: None, term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), transcript_fit: Default::default(), paced: Default::default(), pace_behind: Default::default(), coordinator: None, familiar: None, fam_views: Vec::new(), fam_live: Vec::new(), fam_watch: Vec::new(), fam_driving: Default::default(), fam_error: None, fam_composer: None, fam_fixture: false, inbox: Vec::new(), inbox_open: false, update: Default::default(), update_open: false, cli_rows: Vec::new(), inbox_toast: None, fam_from: (0.0, 0.0), fam_to: None, fam_since: None, fam_hl: 0, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default(), err_open: Default::default(), side_root: None, sides: Vec::new(), side_win: false, side_input: None, side_ctx: Default::default() }
+        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, support_data: Default::default(), diff_since: None, restore_ask: false, files_open: Default::default(), painting: false, glass: Default::default(), plane: Default::default(), mark_ticker: None, ask_hover: false, ask_open: None, ask_answered: Default::default(), fam_questions: Default::default(), frost: backdrop::FrostLevel::Heavy, stream_bg: None, bg_wipe: None, stream_menu: None, closed_sides: Default::default(), sides_folded: Default::default(), groups_folded: Default::default(), archive_open: false, color_target: theme::Target::Sidebar, hex_input: None, theme_mode: String::new(), root_focus: None, plan: false, open_in_menu: false, open_in: thread::OpenIn::Folder, search_open: false, indent: false, indent_run: (0.0, None), indent_to: 0.0, sidebar_w: metric::SIDEBAR_W, sidebar_drag: None, link: None, link_menu: None, link_hover: Default::default(), browser: Default::default(), browser_slot: Default::default(), usage: Default::default(), usage_page: false, section_page: false, pages: Default::default(), usage_hover: false, usage_card_hover: false, settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_cache: Default::default(), act_open: Default::default(), act_tick: None, term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), transcript_fit: Default::default(), paced: Default::default(), pace_behind: Default::default(), coordinator: None, familiar: None, fam_views: Vec::new(), fam_live: Vec::new(), fam_watch: Vec::new(), fam_driving: Default::default(), fam_error: None, fam_composer: None, fam_fixture: false, inbox: Vec::new(), inbox_open: false, update: Default::default(), update_open: false, cli_rows: Vec::new(), inbox_toast: None, fam_from: (0.0, 0.0), fam_to: None, fam_since: None, fam_hl: 0, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default(), err_open: Default::default(), side_root: None, sides: Vec::new(), side_win: false, side_input: None, side_ctx: Default::default(), block_hover: None, bar_hover: false, block_menu: None, sel: None, copied: None, ask: false, reply_files: Vec::new(), slash_sel: 0, slash_closed: false, slash_cmds: Default::default(), plan_open: false, plan_flips: 0, chip_menu: None, plan_hover: None, plan_edit: None }
     }
 
     /// Opens core off the main thread (the sidebar shows Loading meanwhile), then keeps the thread
@@ -1632,6 +1660,25 @@ fn icon_button_in(id: impl Into<ElementId>, name: &str, label: &'static str, pal
         .bg(if fill { sel } else { gpui_kit::transparent_black() })
         .hover(move |d| d.bg(if fill { sel } else { hover }))
         .child(glyph(name, 16., if on { c(pal.fg) } else { c(pal.fg2) }))
+        .aria_label(label)
+}
+
+/// The pane toggle: an icon button that takes the accent while the pane is open.
+fn fold_button(id: impl Into<ElementId>, label: &'static str, pal: &'static Palette, open: bool) -> Stateful<Div> {
+    let (rest, hover) = if open { (ca(pal.accent, 0.18), ca(pal.accent, 0.26)) } else { (gpui_kit::transparent_black(), ca(pal.fg, 0.05)) };
+    div()
+        .id(id)
+        .w(px(metric::SBTN))
+        .h(px(metric::SBTN))
+        .flex_none()
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(px(radius::CONTROL))
+        .cursor_pointer()
+        .bg(rest)
+        .hover(move |d| d.bg(hover))
+        .child(glyph("panel-right", 16., if open { c(pal.accent) } else { c(pal.fg2) }))
         .aria_label(label)
 }
 
@@ -2837,6 +2884,19 @@ impl Render for Cauldron {
                     .test_support()
             };
             let mut rr = pane("rail", s.rail).flex().flex_col().items_center().gap(px(4.)).pt(px(6.)).pb(px(8.)).border_l_1().border_color(c(pal.line));
+            // The fold toggle sits at the top of the rail, right under the window buttons (Charles,
+            // 22 Nov), and takes the accent while the pane is open so it is easy to find.
+            let open_now = self.drawer.is_some();
+            let fold = if open_now { "Hide support" } else { "Show support" };
+            rr = rr.child(
+                self.tipped("rb-fold", fold_button("rb-fold", fold, pal, open_now), fold, Side::Left, pal, cx)
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.fold_support();
+                        cx.notify();
+                    }))
+                    .test_support(),
+            );
+            rr = rr.child(div().w(px(20.)).h(px(1.)).my(px(4.)).bg(c(pal.line)));
             for (i, p) in RAIL_TOP.iter().enumerate() {
                 rr = rr.child(rail_button(self, ("rb", i), *p, cx));
             }
@@ -2849,15 +2909,6 @@ impl Render for Cauldron {
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.terminal = !this.terminal;
                         this.term_scroll.scroll_to_bottom();
-                        cx.notify();
-                    }))
-                    .test_support(),
-            );
-            let fold = if self.drawer.is_some() { "Hide support" } else { "Show support" };
-            rr = rr.child(div().flex_1()).child(
-                self.tipped("rb-fold", icon_button("rb-fold", "panel-right", fold, pal, false), fold, Side::Left, pal, cx)
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.fold_support();
                         cx.notify();
                     }))
                     .test_support(),
@@ -3192,7 +3243,7 @@ impl Render for Cauldron {
         if page.is_none() {
             self.browser_slot.set(None);
         }
-        root.children(self.stream_menu_el(pal, window, cx)).children(self.link_menu_el(pal, window, cx)).child(
+        root.children(self.stream_menu_el(pal, window, cx)).children(self.link_menu_el(pal, window, cx)).children(self.sel_bar_el(pal, window, cx)).child(
             div()
                 .absolute()
                 .size_full()
@@ -4079,7 +4130,10 @@ mod tests {
             window.render_frame(cx);
             window.click("new-familiar", cx);
             window.render_frame(cx);
-            assert_eq!(window.find("nt-heading").label(), Some("What should a familiar take on?"));
+            assert!(window.try_find("cap-form").is_some(), "New familiar opens the captain form");
+            window.click("cap-mission", cx);
+            window.render_frame(cx);
+            assert_eq!(window.find("nt-heading").label(), Some("What should a mission take on?"), "the goal pipeline is a mission now");
             window.click(("fn", 0usize), cx);
             window.render_frame(cx);
             window.click("new-thread", cx);

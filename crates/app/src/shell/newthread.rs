@@ -5,7 +5,7 @@
 //!
 //! Sizes are measured from design/legacy-ui/cauldron-new-look.html (2096c8f) at 1200x720.
 
-use super::thread::{mix, EFFORTS};
+use super::thread::mix;
 use super::*;
 use backspace_core::chat::{Route, RouteKind, Scope};
 use backspace_core::prefs::MachineCfg;
@@ -42,6 +42,9 @@ pub(crate) struct Start {
     /// Familiar on (S1): Start hands the goal to a familiar in the chosen folder instead of
     /// opening a stream.
     pub(crate) familiar: bool,
+    /// The New familiar form (captain.rs), and the familiars on disk for the sidebar.
+    pub(crate) captain: Option<super::captain::Captain>,
+    pub(crate) captains: Vec<backspace_core::agents::Agent>,
     /// Every coding CLI and its logins (`accounts::status_all`), for the route menu and Settings.
     pub(crate) providers: Vec<backspace_core::accounts::CliStatus>,
     pub(crate) providers_loading: bool,
@@ -86,7 +89,7 @@ pub(super) const REPLY_PLAN_PLACEHOLDER: &str = "Ask for a plan. Nothing is edit
 /// The box's width (the board's `.box`).
 const BOX_W: f32 = 600.0;
 
-fn mime(name: &str) -> &'static str {
+pub(super) fn mime(name: &str) -> &'static str {
     match name.rsplit('.').next().map(str::to_ascii_lowercase).as_deref() {
         Some("png") => "image/png",
         Some("jpg" | "jpeg") => "image/jpeg",
@@ -122,6 +125,7 @@ impl Cauldron {
         self.selected = None;
         self.familiar = None;
         self.start.familiar = false;
+        self.start.captain = None;
         self.coordinator = None;
         self.agents.clear();
         self.idle.clear();
@@ -251,7 +255,7 @@ impl Cauldron {
         let sent = (|| {
             use base64::Engine;
             let atts = files.iter().map(|(name, b)| chats.attach(&t.id, name, mime(name), &base64::engine::general_purpose::STANDARD.encode(b))).collect::<anyhow::Result<Vec<_>>>()?;
-            chats.send(&t.id, &text, atts, None, ctx_now(self.plan))
+            chats.send(&t.id, &text, atts, None, self.mode_ctx())
         })();
         if let Err(e) = sent {
             let _ = chats.delete(&t.id);
@@ -361,10 +365,10 @@ impl Cauldron {
         };
         let effort = Prefs::load().cli_effort;
         let effort_label = match effort.as_deref() {
-            None => "Auto".to_string(),
+            None => "Effort: Auto".to_string(),
             Some(e) => {
                 let mut ch = e.chars();
-                ch.next().map_or_else(|| "Auto".into(), |f| format!("Auto · {}{}", f.to_uppercase(), ch.as_str()))
+                ch.next().map_or_else(|| "Effort: Auto".into(), |f| format!("Effort: {}{}", f.to_uppercase(), ch.as_str()))
             }
         };
         let ready = blocked.is_none() && !input.read(cx).value().trim().is_empty();
@@ -492,18 +496,15 @@ impl Cauldron {
             .test_support();
         let open = self.start.tray_hover || focused || has_text || self.start.menu || self.start.folder_menu || self.start.plus_menu || self.start.route_menu.is_some() || self.start.folder.is_some() || !self.start.files.is_empty();
         let effort_dd = dd("nt-effort")
+            .relative()
             .h(px(24.))
             .text_color(fg)
             .aria_label(effort_label.clone())
+            .aria_expanded(self.chip_menu == Some("nt-effort"))
             .child(effort_label)
             .child(glyph("chevron-down", 13., fg3))
-            .on_click(cx.listener(|_, _, _, cx| {
-                let mut p = Prefs::load();
-                let at = EFFORTS.iter().position(|e| *e == p.cli_effort.as_deref()).unwrap_or(0);
-                p.cli_effort = EFFORTS[(at + 1) % EFFORTS.len()].map(str::to_string);
-                p.save();
-                cx.notify();
-            }))
+            .on_click(cx.listener(|this, _, _, cx| this.toggle_chip_menu("nt-effort", cx)))
+            .children(self.chip_menu_el("nt-effort", pal, cx))
             .test_support();
         let bar = div()
             .id("nt-bar")
@@ -523,7 +524,7 @@ impl Cauldron {
         });
         // What the box says under it: why Start waits, a refusal, or a machine's answer.
         let line = |id: &'static str, text: String, col: Hsla| div().id(id).mt(px(10.)).px(px(6.)).text_size(px(12.)).line_height(px(17.)).text_color(col).aria_label(text.clone()).child(text).test_support();
-        let heading_text = if self.start.familiar { "What should a familiar take on?" } else { "What should Cauldron work on?" };
+        let heading_text = if self.start.familiar { "What should a mission take on?" } else { "What should Cauldron work on?" };
         let heading = div()
             .id("nt-heading")
             .pb(px(18.))
@@ -644,10 +645,12 @@ impl Cauldron {
 
     /// The trust chip (the board's "Ask first"): what the coding CLIs may do without asking.
     /// A click steps to the next of the three and saves it.
+    #[inline(never)]
     pub(super) fn trust_chip(&self, id: &'static str, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
         let label = super::thread::trust_label(&Prefs::load());
         div()
             .id(id)
+            .relative()
             .h(px(24.))
             .flex()
             .items_center()
@@ -662,44 +665,57 @@ impl Cauldron {
             .child(glyph("shield", 13., c(pal.fg3)))
             .child(label)
             .child(glyph("chevron-down", 12., c(pal.fg3)))
-            .on_click(cx.listener(|_, _, _, cx| {
-                let mut p = Prefs::load();
-                let at = super::thread::TRUST.iter().position(|(k, _)| *k == p.cli_permission).unwrap_or(0);
-                p.cli_permission = super::thread::TRUST[(at + 1) % super::thread::TRUST.len()].0.to_string();
-                p.save();
-                cx.notify();
-            }))
+            .aria_expanded(self.chip_menu == Some(id))
+            .on_click(cx.listener(move |this, _, _, cx| this.toggle_chip_menu(id, cx)))
+            .children(self.chip_menu_el(id, pal, cx))
             .test_support()
             .into_any_element()
     }
 
-    /// The Plan toggle beside the trust chip: the accent when on, and both boxes say nothing is
-    /// edited until the plan is approved.
+    /// Ask · Plan · Act (Charles, 22 Nov, after Tuff UI): one segmented control for what a send
+    /// may do. Ask answers only, Plan proposes first and edits nothing, Act edits and runs.
+    /// Plan keeps the id `id` so its old tests and shortcuts still find it.
+    #[inline(never)]
     pub(super) fn plan_chip(&self, id: &'static str, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
-        let on = self.plan;
-        let label = if on { "Plan · on" } else { "Plan" };
-        div()
-            .id(id)
-            .h(px(24.))
-            .flex()
-            .items_center()
-            .gap(px(5.))
-            .px(px(8.))
-            .rounded(px(radius::CONTROL))
-            .border_1()
-            .border_color(if on { c(pal.accent) } else { c(pal.line) })
-            .when(on, |d| d.bg(ca(pal.accent, 0.12)))
-            .text_size(px(12.))
-            .text_color(if on { c(pal.fg) } else { c(pal.fg2) })
-            .cursor_pointer()
-            .aria_label(label)
-            .aria_selected(on)
-            .aria_description("Plan mode: the agent proposes first and edits nothing")
-            .child(glyph("clipboard-list", 13., if on { c(pal.accent) } else { c(pal.fg3) }))
-            .child(label)
-            .on_click(cx.listener(|this, _, window, cx| this.set_plan(!this.plan, window, cx)))
-            .test_support()
-            .into_any_element()
+        let now = if self.plan { 1 } else if self.ask { 0 } else { 2 };
+        let modes: [(&str, &str, &str); 3] = [
+            ("Ask", "Answers only: no edits, no commands", "message-circle-question"),
+            ("Plan", "Proposes a plan first and edits nothing", "clipboard-list"),
+            ("Act", "Can edit files and run commands", "zap"),
+        ];
+        let mut seg = div().id(SharedString::from(format!("{id}-modes"))).h(px(24.)).p(px(2.)).flex().items_center().gap(px(2.)).rounded(px(radius::CONTROL)).bg(ca(pal.fg, 0.05)).aria_label(modes[now].1);
+        for (k, (label, what, _)) in modes.iter().enumerate() {
+            let on = k == now;
+            let seg_id: SharedString = if k == 1 { id.into() } else { format!("{id}-{}", label.to_lowercase()).into() };
+            seg = seg.child(
+                div()
+                    .id(seg_id)
+                    .h(px(20.))
+                    .px(px(8.))
+                    .flex()
+                    .items_center()
+                    .rounded(px(radius::TAG))
+                    .text_size(px(12.))
+                    .text_color(if on { c(pal.fg) } else { c(pal.fg3) })
+                    // Ask in blue, Plan in yellow, Act on white (Charles, 22 Nov).
+                    .when(on && k == 2, |d| d.bg(c(pal.raised)).shadow(super::lift(super::Lift::Button, pal)))
+                    .when(on && k < 2, |d| {
+                        let hue = if k == 0 { Rgb::hex(0x4f8df5) } else { Rgb::hex(0xe8b227) };
+                        d.bg(ca(hue, 0.26)).border_1().border_color(ca(hue, 0.75)).text_color(c(pal.fg))
+                    })
+                    .when(!on, |d| d.cursor_pointer().hover(|d| d.text_color(c(pal.fg))))
+                    .aria_label(*label)
+                    .aria_selected(on)
+                    .aria_description(*what)
+                    .child(*label)
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.ask = k == 0;
+                        this.set_plan(k == 1, window, cx);
+                    }))
+                    .test_support(),
+            );
+        }
+        div().flex().items_center().gap(px(8.)).child(seg).child(div().text_size(px(11.5)).text_color(c(pal.fg3)).child(modes[now].1)).into_any_element()
     }
 
     /// Plan mode on or off, with both editors' placeholders saying what it means.
@@ -715,7 +731,7 @@ impl Cauldron {
     }
 
     /// The folder menu: No folder, then the recent project folders from prefs.
-    fn folder_menu(&self, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn folder_menu(&self, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
         let (fg, fg2, fg3) = (c(pal.fg), c(pal.fg2), c(pal.fg3));
         let mut menu = div()
             .id("folder-menu")
@@ -870,6 +886,7 @@ impl Cauldron {
             .child(item("plus-plan", "clipboard-list", "Plan", self.plan, true).on_click(cx.listener(|this, _, window, cx| {
                 cx.stop_propagation();
                 this.start.plus_menu = false;
+                this.ask = false;
                 this.set_plan(!this.plan, window, cx);
             })));
         menu.test_support().into_any_element()
@@ -1155,7 +1172,7 @@ mod tests {
             assert!(tx + tw <= bx + bw && rx + rw <= bx + bw, "inside the box's width");
             let (hx, hy, hw, hh) = rect(window, "nt-heading");
             assert!(hy + hh <= by && ((hx + hw / 2.0) - (bx + bw / 2.0)).abs() <= 1.0, "the heading centred above the box");
-            for (id, label) in [("add-file", "Add"), ("nt-trust", "Ask first"), ("nt-effort", "Auto"), ("nt-folder", "Cauldron workspace"), ("machine", "This machine"), ("nt-voice", "Voice")] {
+            for (id, label) in [("add-file", "Add"), ("nt-trust", "Ask first"), ("nt-effort", "Effort: Auto"), ("nt-folder", "Cauldron workspace"), ("machine", "This machine"), ("nt-voice", "Voice")] {
                 assert_eq!(window.find(id).label(), Some(label), "{id}");
             }
             for gone in ["nt-plan", "nt-familiar", "nt-worktree", "nt-github", "start"] {
@@ -1212,12 +1229,16 @@ mod tests {
             assert_eq!(window.find("nt-trust").label(), Some("Ask first"));
             window.click("nt-trust", cx);
             window.render_frame(cx);
+            assert_eq!(window.find(("trust-opt", 0usize)).selected(), Some(true), "the menu lists the three, Ask first checked");
+            window.click(("trust-opt", 1usize), cx);
+            window.render_frame(cx);
             assert_eq!(window.find("nt-trust").label(), Some("Approve routine"));
             assert_eq!(Prefs::load().cli_permission, "auto", "saved");
             window.click("nt-trust", cx);
-            window.click("nt-trust", cx);
             window.render_frame(cx);
-            assert_eq!(window.find("nt-trust").label(), Some("Ask first"), "and round again");
+            window.click(("trust-opt", 0usize), cx);
+            window.render_frame(cx);
+            assert_eq!(window.find("nt-trust").label(), Some("Ask first"), "and back");
             window.click("add-file", cx);
             window.render_frame(cx);
             window.click("plus-plan", cx);

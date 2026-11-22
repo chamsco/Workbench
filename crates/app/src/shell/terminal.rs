@@ -107,7 +107,7 @@ impl Cauldron {
                 self.term_note = Some("Open a thread first: # asks that thread's agent.".into());
                 return;
             };
-            self.term_note = match chats.send(&id, ask, Vec::new(), None, thread::ctx(self.plan)) {
+            self.term_note = match chats.send(&id, ask, Vec::new(), None, self.mode_ctx()) {
                 Ok(()) => None,
                 Err(e) => Some(e.to_string()),
             };

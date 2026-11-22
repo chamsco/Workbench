@@ -274,13 +274,21 @@ pub struct Spawn {
     #[serde(default)]
     pub title: Option<String>,
     pub task: String,
+    /// What the side thread starts knowing besides `task`: "none" (the default), "last" (the
+    /// stream's last reply) or "whole" (the whole conversation).
+    #[serde(default)]
+    pub context: Option<String>,
+    /// A familiar's crew member, by name: the job goes to its standing thread instead of a new
+    /// CLI side thread, and `provider` is unused.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub crew: Option<String>,
 }
 
 /// The CLIs a stream may hand work to: installed and able to chat headless.
 pub const DELEGATES: [&str; 6] = ["claude", "codex", "cursor", "opencode", "grok", "gemini"];
 
 /// `delegate`: queue a sub-agent and say what happens next.
-pub fn delegate(data: &Path, me: &str, provider: &str, model: Option<&str>, title: Option<&str>, task: &str) -> Result<String> {
+pub fn delegate(data: &Path, me: &str, provider: &str, model: Option<&str>, title: Option<&str>, task: &str, context: Option<&str>) -> Result<String> {
     let provider = provider.trim().to_ascii_lowercase();
     if task.trim().is_empty() {
         bail!("give the sub-agent a task: everything it needs, since it does not see this conversation");
@@ -300,13 +308,30 @@ pub fn delegate(data: &Path, me: &str, provider: &str, model: Option<&str>, titl
         model: model.map(str::trim).filter(|m| !m.is_empty()).map(str::to_string),
         title: title.map(str::trim).filter(|t| !t.is_empty()).map(str::to_string),
         task: task.into(),
+        context: context.map(str::trim).filter(|c| matches!(*c, "none" | "last" | "whole")).map(str::to_string),
+        crew: None,
     };
     let tmp = out.join(format!("{name}.tmp"));
     std::fs::write(&tmp, serde_json::to_vec(&sp)?)?;
     std::fs::rename(&tmp, out.join(format!("{name}.json")))?;
     Ok(format!(
-        "Started a `{provider}` sub-agent in its own stream. Its answer comes back to you as your next message once it finishes: end your turn now unless you have other work."
+        "Started a `{provider}` side thread under this stream. Its answer comes back to you as your next message once it finishes: end your turn now unless you have other work."
     ))
+}
+
+/// `ask_crew`: queue a job for a familiar's crew member (its standing side thread).
+pub fn ask_crew(data: &Path, me: &str, member: &str, task: &str) -> Result<String> {
+    if member.trim().is_empty() || task.trim().is_empty() {
+        bail!("name the crew member and give it the job");
+    }
+    let out = dir(data).join("spawn");
+    std::fs::create_dir_all(&out)?;
+    let name = format!("{:013}-{}", crate::chat::now_ms(), crate::chat::new_id());
+    let sp = Spawn { from: me.into(), provider: String::new(), model: None, title: None, task: task.into(), context: None, crew: Some(member.trim().into()) };
+    let tmp = out.join(format!("{name}.tmp"));
+    std::fs::write(&tmp, serde_json::to_vec(&sp)?)?;
+    std::fs::rename(&tmp, out.join(format!("{name}.json")))?;
+    Ok(format!("Sent to {}. Its answer comes back to you as your next message once it finishes: end your turn now unless you have other work.", member.trim()))
 }
 
 /// Sub-agents waiting to start, oldest first; taking them removes them.

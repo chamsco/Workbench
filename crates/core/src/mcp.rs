@@ -196,13 +196,19 @@ pub fn serve() -> Result<()> {
                         "inputSchema": {"type": "object", "properties": {"to": {"type": "string"}, "text": {"type": "string"}, "reply": {"type": "boolean", "description": "Send me its answer (default true)"}}, "required": ["to", "text"]}}));
                 }
                 if stream().is_some() {
-                    tools.push(json!({"name": "delegate", "description": "Hand a self-contained task to a sub-agent running on another coding CLI (Claude Code, Codex, Cursor, OpenCode, Grok or Gemini) in its own stream, in the same project. It sees ONLY `task`, not this conversation, so include the goal, the files, the constraints and what to report back. Its final answer comes back to you as your next message: after delegating, end your turn (or carry on with other work) instead of waiting. Use list_providers first to see who is installed and signed in.",
+                    tools.push(json!({"name": "delegate", "description": "Hand a task to a side thread under this stream, running on a coding CLI (Claude Code, Codex, Cursor, OpenCode, Grok or Gemini), in the same project. You coordinate: split the work, send each piece to a side thread, then judge what comes back. By default it sees ONLY `task`, so include the goal, the files, the constraints and what to report back; `context` can also give it your last reply or this whole conversation. Its final answer comes back to you as your next message: after delegating, end your turn (or carry on with other work) instead of waiting. Use list_providers first to see who is installed and signed in.",
                         "inputSchema": {"type": "object", "properties": {
                             "provider": {"type": "string", "enum": crate::relay::DELEGATES},
                             "task": {"type": "string", "description": "Everything the sub-agent needs"},
                             "model": {"type": "string", "description": "Optional model id for that CLI; omit for its default"},
-                            "title": {"type": "string", "description": "A short name for its stream"}
+                            "title": {"type": "string", "description": "A short name for the side thread"},
+                            "context": {"type": "string", "enum": ["none", "last", "whole"], "description": "What it starts knowing besides the task: nothing (default), your last reply, or this whole conversation"}
                         }, "required": ["provider", "task"]}}));
+                    tools.push(json!({"name": "ask_crew", "description": "For a familiar (a captain with a crew): hand one of your crew members a job, by name. It works in its own thread under yours, which it keeps between jobs, and its answer comes back to you as your next message. Give it everything the job needs.",
+                        "inputSchema": {"type": "object", "properties": {
+                            "member": {"type": "string", "description": "The crew member's name"},
+                            "task": {"type": "string", "description": "The job, with what to report back"}
+                        }, "required": ["member", "task"]}}));
                     tools.push(json!({"name": "list_providers", "description": "The coding CLIs installed on this machine that delegate can start, and whether each is signed in.",
                         "inputSchema": {"type": "object", "properties": {}}}));
                 }
@@ -285,7 +291,12 @@ pub fn serve() -> Result<()> {
                             a["model"].as_str(),
                             a["title"].as_str(),
                             a["task"].as_str().unwrap_or(""),
+                            a["context"].as_str(),
                         ),
+                    },
+                    "ask_crew" => match stream() {
+                        None => Err(anyhow!("delegation is not open to this session")),
+                        Some(me) => crate::relay::ask_crew(&crate::prefs::Prefs::data_dir(), &me, a["member"].as_str().unwrap_or(""), a["task"].as_str().unwrap_or("")),
                     },
                     "memory_search" | "memory_save" => match memory_scope() {
                         None => Err(anyhow!("memory is not open to this session")),

@@ -66,7 +66,7 @@ impl Cauldron {
         let chats = chats.clone();
         match chats.side(&id, &q, self.side_ctx) {
             Ok(t) => {
-                if let Err(e) = chats.send(&t.id, &q, Vec::new(), None, super::thread::ctx(self.plan)) {
+                if let Err(e) = chats.send(&t.id, &q, Vec::new(), None, self.mode_ctx()) {
                     self.send_error = Some(e.to_string());
                 }
                 st.update(cx, |s, cx| s.set_value("", window, cx));

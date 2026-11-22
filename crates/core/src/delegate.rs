@@ -452,6 +452,7 @@ mod tests {
             routines: vec![],
             created: 1,
             updated: 1,
+            lead: None,
         }
     }
 

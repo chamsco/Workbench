@@ -911,6 +911,7 @@ impl Fleet {
             memory: Some(self.memory.clone()),
             agents: Some(self.agents.clone()),
             plan: false,
+            ask: false,
         }
     }
 

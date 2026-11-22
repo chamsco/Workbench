@@ -64,7 +64,7 @@ fn the_gate_refuses_twice_then_opens() {
     let chats = Chats::open(dir.join("chats"), rt.handle().clone(), tx);
     let route = Route { kind: RouteKind::Cli, provider: "claude".into(), model: None };
     let t = chats.create_in(route, Scope { project: Some(project.to_string_lossy().into()), ..Default::default() });
-    let ctx = Ctx { prefs: Prefs::default(), memory: None, agents: None, plan: true };
+    let ctx = Ctx { prefs: Prefs::default(), memory: None, agents: None, plan: true, ask: false };
 
     let mut verdicts = vec![];
     for say in ["Add dark mode", "Plain grey", "Fine"] {

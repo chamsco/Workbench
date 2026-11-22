@@ -5,6 +5,7 @@
 
 use super::*;
 use gpui::{FontWeight, HighlightStyle, StyledText};
+use gpui_kit::prelude::FluentBuilder;
 use std::ops::Range;
 
 #[derive(Debug, PartialEq, Clone)]
@@ -64,6 +65,24 @@ pub(super) fn parse(text: &str) -> Vec<Block> {
 }
 
 /// A line's text without its markers, and where the bold (false) and the code (true) sit in it.
+/// Which hover block each Markdown block belongs to: a heading joins the block after it, and
+/// list items in a row are one block.
+fn groups(blocks: &[Block]) -> Vec<usize> {
+    let mut out = Vec::with_capacity(blocks.len());
+    let mut g = 0usize;
+    for (i, b) in blocks.iter().enumerate() {
+        if i > 0 {
+            let prev = &blocks[i - 1];
+            let join = matches!(prev, Block::Head(_)) || (matches!(prev, Block::Item(..)) && matches!(b, Block::Item(..)));
+            if !join {
+                g += 1;
+            }
+        }
+        out.push(g);
+    }
+    out
+}
+
 fn inline(s: &str) -> (String, Vec<(Range<usize>, bool)>) {
     let (mut out, mut spans) = (String::new(), Vec::new());
     let mut rest = s;
@@ -108,6 +127,12 @@ fn settle(s: &str) -> String {
 
 /// A line drawn, with its links: URLs, and code spans naming a file in `dir`.
 fn styled(s: &str, tail: Option<(u64, Hsla)>, dir: Option<&std::path::Path>, pal: &'static Palette) -> (StyledText, Vec<(Range<usize>, super::links::Link)>) {
+    let (text, hl, links) = styled_parts(s, tail, dir, pal);
+    (StyledText::new(text).with_highlights(hl), links)
+}
+
+/// `styled` before it becomes a `StyledText`: the shown text, its runs and its links.
+fn styled_parts(s: &str, tail: Option<(u64, Hsla)>, dir: Option<&std::path::Path>, pal: &'static Palette) -> (String, Vec<(Range<usize>, HighlightStyle)>, Vec<(Range<usize>, super::links::Link)>) {
     let (mut text, spans) = inline(&if tail.is_some() { settle(s) } else { s.to_string() });
     let code: Vec<Range<usize>> = spans.iter().filter(|(_, c)| *c).map(|(r, _)| r.clone()).collect();
     let links = super::links::find(&text, &code, dir);
@@ -135,22 +160,36 @@ fn styled(s: &str, tail: Option<(u64, Hsla)>, dir: Option<&std::path::Path>, pal
         text.push('\u{258d}');
         hl.push((at..text.len(), HighlightStyle { color: Some(accent.opacity(if (now / 530) % 2 == 0 { 1.0 } else { 0.0 })), ..Default::default() }));
     }
-    (StyledText::new(text).with_highlights(hl), links)
+    (text, hl, links)
 }
 
 impl Cauldron {
     /// `text` as blocks. `key` names it for ids; `tail` puts the live caret after the last block.
-    pub(super) fn md_el(&self, text: &str, key: &str, tail: Option<(u64, Hsla)>, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
-        self.md_sized(text, key, tail, (14., 22.), pal, cx)
+    /// A reply in the transcript: each block gets the hover bar (`block_bar`) of the message
+    /// written at `at`.
+    pub(super) fn md_el(&self, text: &str, key: &str, tail: Option<(u64, Hsla)>, at: u64, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
+        self.md_inner(text, key, tail, (14., 22.), Some(at), pal, cx)
     }
 
     /// `md_el` at another text size and line height, for the smaller panes (a familiar's plan,
     /// a subagent's ticket and notes).
-    pub(super) fn md_sized(&self, text: &str, key: &str, tail: Option<(u64, Hsla)>, (size, line): (f32, f32), pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn md_sized(&self, text: &str, key: &str, tail: Option<(u64, Hsla)>, size: (f32, f32), pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
+        self.md_inner(text, key, tail, size, None, pal, cx)
+    }
+
+    fn md_inner(&self, text: &str, key: &str, tail: Option<(u64, Hsla)>, (size, line): (f32, f32), bar_at: Option<u64>, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
         let (fg, fg3) = (c(pal.fg), c(pal.fg3));
         let dir = self.thread.as_ref().and_then(|t| t.project.clone()).map(std::path::PathBuf::from);
         // A line with links: a click opens one in the card, a right click offers where.
+        let selectable = bar_at.is_some();
         let link_line = |s: &str, t: Option<(u64, Hsla)>, n: usize, cx: &mut Context<Self>| -> AnyElement {
+            // A finished reply line with no link can be selected (links keep their clicks).
+            if selectable && t.is_none() {
+                let (text, hl, links) = styled_parts(s, None, dir.as_deref(), pal);
+                if links.is_empty() {
+                    return div().child(super::seltext::SelText::new(SharedString::from(format!("sel-{key}-{n}")), text, hl, ca(pal.accent, 0.28))).into_any_element();
+                }
+            }
             let (st, links) = styled(s, t, dir.as_deref(), pal);
             if links.is_empty() {
                 return div().child(st).into_any_element();
@@ -185,10 +224,26 @@ impl Cauldron {
         };
         let blocks = parse(text);
         let last = blocks.len().saturating_sub(1);
-        let mut col = div().flex().flex_col().gap(px((size * 0.55).round())).text_size(px(size)).line_height(px(line)).text_color(fg);
+        let gap = px((size * 0.55).round());
+        let mut col = div().flex().flex_col().gap(gap).text_size(px(size)).line_height(px(line)).text_color(fg);
+        // The hover bar works per paragraph (Charles, 22 Nov: "by block, not line by line"): a
+        // heading goes with what follows it and a list is one block.
+        let groups = groups(&blocks);
+        let mut group: Option<(usize, Vec<AnyElement>, Vec<String>)> = None;
+        let bar = bar_at.filter(|_| tail.is_none());
+        // Each block as wide as its text, so its bar lands right after the text.
+        if bar.is_some() {
+            col = col.items_start();
+        }
         for (i, b) in blocks.into_iter().enumerate() {
             let t = tail.filter(|_| i == last);
-            col = col.child(match b {
+            let raw = match &b {
+                Block::Para(s) | Block::Head(s) => s.clone(),
+                Block::Item(None, s) => format!("- {s}"),
+                Block::Item(Some(n), s) => format!("{n}. {s}"),
+                Block::Code(lang, body) => format!("```{lang}\n{body}\n```"),
+            };
+            let el: AnyElement = match b {
                 Block::Para(s) => link_line(&s, t, i, cx),
                 Block::Head(s) => div().mt(px(4.)).font_weight(FontWeight::SEMIBOLD).child(link_line(&s, t, i, cx)).into_any_element(),
                 Block::Item(n, s) => div()
@@ -196,6 +251,16 @@ impl Cauldron {
                     .gap(px(8.))
                     .child(div().w(px(18.)).flex_none().text_color(fg3).child(n.map_or("\u{2022}".to_string(), |n| format!("{n}."))))
                     .child(div().min_w_0().flex_1().child(link_line(&s, t, i, cx)))
+                    .into_any_element(),
+                // A coordinator's plan shows above the thread (plan.rs), not as JSON here.
+                Block::Code(lang, _) if lang == "todo" => div()
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
+                    .text_size(px(12.))
+                    .text_color(fg3)
+                    .child(glyph("list-checks", 13., fg3))
+                    .child("Plan updated")
                     .into_any_element(),
                 Block::Code(lang, body) => {
                     let copy = body.clone();
@@ -229,15 +294,228 @@ impl Cauldron {
                         .child(div().px(px(12.)).pb(px(10.)).text_size(px(12.5)).line_height(px(19.)).font_family(MONO).child(body))
                         .into_any_element()
                 }
-            });
+            };
+            let Some(at) = bar else {
+                col = col.child(el);
+                continue;
+            };
+            let g = groups[i];
+            if group.as_ref().is_some_and(|(k, _, _)| *k != g) {
+                let (k, els, raws) = group.take().unwrap();
+                col = col.child(self.block_with_bar(div().flex().flex_col().gap(gap).children(els).into_any_element(), &format!("{key}#{k}"), raws.join("\n\n"), at, pal, cx));
+            }
+            let entry = group.get_or_insert_with(|| (g, Vec::new(), Vec::new()));
+            entry.1.push(el);
+            entry.2.push(raw);
+        }
+        if let (Some((k, els, raws)), Some(at)) = (group, bar) {
+            col = col.child(self.block_with_bar(div().flex().flex_col().gap(gap).children(els).into_any_element(), &format!("{key}#{k}"), raws.join("\n\n"), at, pal, cx));
         }
         col.into_any_element()
     }
 }
 
+/// Room kept at the right of each reply block for its hover bar, so the bar sits on the block's
+/// first line, right after the text, without covering it.
+const BAR_W: f32 = 132.;
+
+impl Cauldron {
+    /// A reply block that, under the pointer, lights up and shows its bar (Capy's, Charles 22 Nov):
+    /// the time it was written, Reply (quotes it in the composer), Copy, and ⋯ (fork into a side
+    /// thread, copy the whole reply).
+    fn block_with_bar(&self, el: AnyElement, bk: &str, raw: String, at: u64, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
+        let on = self.block_hover.as_deref() == Some(bk) || self.block_menu.as_deref() == Some(bk);
+        let menu = self.block_menu.as_deref() == Some(bk);
+        let (fg, fg2, fg3) = (c(pal.fg), c(pal.fg2), c(pal.fg3));
+        let msg_id = bk.split([':', '#']).next().unwrap_or("").to_string();
+        let k1 = bk.to_string();
+        let mut wrap = div()
+            .id(SharedString::from(format!("blk-{bk}")))
+            .relative()
+            .pr(px(BAR_W))
+            .on_hover(cx.listener(move |this, h: &bool, _, cx| {
+                if *h {
+                    this.block_hover = Some(k1.clone());
+                } else if !this.bar_hover && this.block_hover.as_deref() == Some(k1.as_str()) {
+                    this.block_hover = None;
+                }
+                cx.notify();
+            }))
+            .child(el);
+        if !on {
+            return wrap.into_any_element();
+        }
+        let time = chrono::DateTime::from_timestamp_millis(at as i64).map(|t| t.with_timezone(&chrono::Local).format("%H:%M").to_string()).unwrap_or_default();
+        let btn = |id: &str, icon: &'static str, label: &'static str| {
+            div().id(SharedString::from(format!("{id}-{bk}"))).size(px(24.)).flex().items_center().justify_center().rounded(px(radius::TAG)).cursor_pointer().hover(|d| d.bg(c(pal.hover))).aria_label(label).child(glyph(icon, 13., fg2))
+        };
+        let (q, cp, k2, k3) = (raw.clone(), raw.clone(), bk.to_string(), bk.to_string());
+        let bar = div()
+            .id(SharedString::from(format!("blk-bar-{bk}")))
+            .absolute()
+            .top(px(-3.))
+            .right_0()
+            .h(px(28.))
+            .px(px(4.))
+            .flex()
+            .items_center()
+            .gap(px(2.))
+            .rounded(px(radius::CONTROL))
+            .bg(c(pal.panel))
+            .border_1()
+            .border_color(c(pal.line))
+            .shadow(super::lift(super::Lift::Button, pal))
+            .on_hover(cx.listener(move |this, h: &bool, _, cx| {
+                this.bar_hover = *h;
+                this.block_hover = if *h { Some(k2.clone()) } else { None };
+                cx.notify();
+            }))
+            .child(div().id(SharedString::from(format!("blk-time-{bk}"))).px(px(6.)).text_size(px(11.5)).font_features(tnum()).text_color(fg3).aria_label(format!("Written at {time}")).child(time))
+            .child(btn("blk-reply", "reply", "Reply to this").on_click(cx.listener(move |this, _, window, cx| {
+                this.quote_in_composer(&q, window, cx);
+            })))
+            .child(btn("blk-copy", "copy", "Copy").on_click(cx.listener(move |_, _, _, cx| cx.write_to_clipboard(gpui::ClipboardItem::new_string(cp.clone())))))
+            .child(btn("blk-more", "ellipsis", "More").on_click(cx.listener(move |this, _, _, cx| {
+                this.block_menu = if this.block_menu.as_deref() == Some(k3.as_str()) { None } else { Some(k3.clone()) };
+                cx.notify();
+            })));
+        wrap = wrap.child(bar);
+        if menu {
+            let item = |id: &str, icon: &'static str, label: &'static str| {
+                div().id(SharedString::from(format!("{id}-{bk}"))).h(px(28.)).px(px(8.)).flex().items_center().gap(px(8.)).rounded(px(radius::TAG)).text_size(px(12.5)).text_color(fg).cursor_pointer().hover(|d| d.bg(c(pal.hover))).aria_label(label).child(glyph(icon, 13., fg2)).child(label)
+            };
+            let (fq, mid, mid2) = (raw.clone(), msg_id.clone(), msg_id);
+            wrap = wrap.child(
+                div()
+                    .id(SharedString::from(format!("blk-menu-{bk}")))
+                    .absolute()
+                    .top(px(28.))
+                    .right(px(4.))
+                    .w(px(220.))
+                    .p(px(4.))
+                    .flex()
+                    .flex_col()
+                    .rounded(px(radius::CONTROL))
+                    .bg(c(pal.panel))
+                    .border_1()
+                    .border_color(c(pal.line))
+                    .shadow(super::lift(super::Lift::Card, pal))
+                    .occlude()
+                    .child(item("blk-fork", "git-fork", "Fork into a side thread").on_click(cx.listener(move |this, _, window, cx| {
+                        this.block_menu = None;
+                        this.fork_block(&mid, &fq, window, cx);
+                    })))
+                    .child(item("blk-copy-all", "copy", "Copy the whole reply").on_click(cx.listener(move |this, _, _, cx| {
+                        this.block_menu = None;
+                        if let Some(m) = this.thread.as_ref().and_then(|t| t.messages.iter().find(|m| m.id == mid2)) {
+                            cx.write_to_clipboard(gpui::ClipboardItem::new_string(m.text.clone()));
+                        }
+                        cx.notify();
+                    }))),
+            );
+        }
+        wrap.into_any_element()
+    }
+
+    /// Puts `text` in the composer as a quote, with the caret after it.
+    pub(super) fn quote_in_composer(&mut self, text: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let Some((st, _)) = self.composer.as_ref() else { return };
+        let quoted: String = text.lines().map(|l| format!("> {l}\n")).collect();
+        let st = st.clone();
+        st.update(cx, |s, cx| {
+            let had = s.value().to_string();
+            let v = if had.trim().is_empty() { format!("{quoted}\n") } else { format!("{quoted}\n{had}") };
+            s.set_value(v, window, cx);
+            s.focus(window, cx);
+        });
+        cx.notify();
+    }
+
+    /// A side thread off the open stream that starts with the whole conversation, opened with
+    /// this block quoted in its composer.
+    fn fork_block(&mut self, _msg: &str, text: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let (Some(id), Some((_, chats))) = (self.open.clone(), self.core.as_ref()) else { return };
+        let title: String = text.trim_start_matches(['#', '-', '>', ' ', '*']).chars().take(40).collect();
+        match chats.side(&id, &title, backspace_core::chat::SideCtx::Whole) {
+            Ok(t) => {
+                self.selected = Some(t.id.clone());
+                self.open_thread(t.id);
+                self.refresh();
+                self.quote_in_composer(text, window, cx);
+            }
+            Err(e) => self.send_error = Some(e.to_string()),
+        }
+        cx.notify();
+    }
+
+    /// The pointer let go over the transcript: keep what is selected, and where, for the bar.
+    pub(super) fn note_selection(&mut self, at: Point<Pixels>, window: &mut Window, cx: &mut Context<Self>) {
+        let t = gpui_kit::base::TextSelection::selected_text(window, cx);
+        self.sel = (!t.trim().is_empty()).then_some((t, at));
+        cx.notify();
+    }
+
+    /// The small bar over a selection (Charles, 22 Nov): Reply with it quoted, Copy, and fork it
+    /// into a side thread.
+    pub(super) fn sel_bar_el(&self, pal: &'static Palette, window: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let (text, at) = self.sel.clone()?;
+        if !gpui_kit::base::TextSelection::has_selection(window, cx) {
+            return None;
+        }
+        let vp = window.viewport_size();
+        let x = (f32::from(at.x) - 50.).min(f32::from(vp.width) - 120.).max(8.);
+        let y = (f32::from(at.y) - 40.).max(8.);
+        let fg2 = c(pal.fg2);
+        let btn = |id: &'static str, icon: &'static str, label: &'static str| {
+            div().id(id).size(px(26.)).flex().items_center().justify_center().rounded(px(radius::TAG)).cursor_pointer().hover(|d| d.bg(c(pal.hover))).aria_label(label).child(glyph(icon, 14., fg2))
+        };
+        let (t1, t2, t3) = (text.clone(), text.clone(), text);
+        Some(
+            div()
+                .id("sel-bar")
+                .absolute()
+                .left(px(x))
+                .top(px(y))
+                .h(px(32.))
+                .px(px(3.))
+                .flex()
+                .items_center()
+                .gap(px(2.))
+                .rounded(px(radius::CONTROL))
+                .bg(c(pal.panel))
+                .border_1()
+                .border_color(c(pal.line))
+                .shadow(super::lift(super::Lift::Card, pal))
+                .occlude()
+                // Down, not click: the selection layer clears the selection on the way up.
+                .child(btn("sel-reply", "message-square-quote", "Reply with this quoted").on_mouse_down(MouseButton::Left, cx.listener(move |this, _, window, cx| {
+                    cx.stop_propagation();
+                    this.sel = None;
+                    gpui_kit::base::TextSelection::clear(window, cx);
+                    this.quote_in_composer(&t1, window, cx);
+                })))
+                .child(btn("sel-copy", "copy", "Copy").on_mouse_down(MouseButton::Left, cx.listener(move |this, _, window, cx| {
+                    cx.stop_propagation();
+                    cx.write_to_clipboard(gpui::ClipboardItem::new_string(t2.clone()));
+                    this.sel = None;
+                    gpui_kit::base::TextSelection::clear(window, cx);
+                    cx.notify();
+                })))
+                .child(btn("sel-fork", "git-fork", "Fork into a side thread").on_mouse_down(MouseButton::Left, cx.listener(move |this, _, window, cx| {
+                    cx.stop_propagation();
+                    this.sel = None;
+                    gpui_kit::base::TextSelection::clear(window, cx);
+                    this.fork_block("", &t3, window, cx);
+                })))
+                .test_support()
+                .into_any_element(),
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{inline, parse, settle, Block};
+    use super::{groups, inline, parse, settle, Block};
 
     #[test]
     fn replies_split_into_blocks() {
@@ -249,6 +527,12 @@ mod tests {
         assert_eq!(b[5], Block::Item(Some(1), "first".into()));
         // Half-arrived: the fence is still open.
         assert_eq!(parse("```sh\nls"), vec![Block::Code("sh".into(), "ls".into())]);
+    }
+
+    #[test]
+    fn a_heading_joins_its_paragraph_and_a_list_is_one_block() {
+        let b = parse("Intro.\n\n## Steps\nDo this.\n\n- one\n- two\n\nAfter.");
+        assert_eq!(groups(&b), vec![0, 1, 1, 2, 2, 3]);
     }
 
     #[test]

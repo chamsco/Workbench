@@ -409,7 +409,7 @@ impl Cauldron {
                 .cursor_pointer()
                 .aria_label("Launch a crew")
                 .child("Launch crew: describe the goal…")
-                .on_click(cx.listener(|this, _, window, cx| this.new_familiar(window, cx)))
+                .on_click(cx.listener(|this, _, window, cx| this.new_mission(window, cx)))
                 .test_support(),
         );
         // The right panel: context, traces and routines have no source in core yet.

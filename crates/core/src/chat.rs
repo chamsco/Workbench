@@ -404,6 +404,9 @@ pub struct Thread {
     pub members: Vec<String>,
     #[serde(default)]
     pub goal: Option<String>,
+    /// `/goal pause`: the goal stays but the stream stops carrying on by itself.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub goal_paused: bool,
     /// Never listed or written to disk: a one-off ask (`dreaming`), or a ghost
     /// chat. `Life::Ghost` turns this on for the whole session.
     #[serde(skip)]
@@ -662,6 +665,57 @@ struct Inbound {
 // ponytail: one global for the one chat face; per-window if there are ever two.
 pub static GENUI_PROMPT: std::sync::RwLock<Option<String>> = std::sync::RwLock::new(None);
 
+/// The letter a side thread sends back: its own turns (not the context it was started with),
+/// oldest first, then the files its tool calls changed. Long threads keep the task and the
+/// newest turns.
+fn send_back_text(t: &Thread, known: &std::collections::HashSet<String>) -> Option<String> {
+    const MAX: usize = 16_000;
+    let own: Vec<&Msg> = t.messages.iter().filter(|m| !known.contains(&m.id) && m.status == Status::Done && !m.text.trim().is_empty()).collect();
+    if !own.iter().any(|m| m.role == Role::Assistant) {
+        return None;
+    }
+    let turn = |m: &Msg| format!("**{}:** {}", if m.role == Role::User { "Asked" } else { "Answered" }, m.text.trim());
+    let mut parts: Vec<String> = own.iter().map(|m| turn(m)).collect();
+    let mut cut = 0;
+    while parts.len() > 2 && parts.iter().map(|p| p.len() + 2).sum::<usize>() > MAX {
+        parts.remove(1);
+        cut += 1;
+    }
+    if cut > 0 {
+        parts.insert(1, format!("(… {cut} earlier turns left out)"));
+    }
+    let mut files: Vec<String> = t
+        .messages
+        .iter()
+        .flat_map(|m| m.acts.iter())
+        .filter(|a| {
+            let n = a.name.to_lowercase();
+            !a.error && (n.contains("edit") || n.contains("write") || n.contains("patch"))
+        })
+        .filter_map(|a| a.path.clone())
+        .collect();
+    files.sort();
+    files.dedup();
+    let mut s = format!("Result from the side thread \"{}\" ({} turns):\n\n{}", t.title, own.len(), parts.join("\n\n"));
+    if !files.is_empty() {
+        s.push_str(&format!("\n\nFiles it changed (in the project folder; read them there):\n{}", files.iter().map(|f| format!("- {f}")).collect::<Vec<_>>().join("\n")));
+    }
+    Some(s)
+}
+
+/// What a reply says when its stream's goal is met (`/goal`).
+pub const GOAL_MET: &str = "GOAL MET";
+/// How a stream with a goal is told to carry on; these turns count toward [`GOAL_TURNS`].
+pub const GOAL_NUDGE: &str = "↻ Keep going toward the goal:";
+/// Turns a goal may take on its own, in a row, before it pauses for the user.
+pub const GOAL_TURNS: usize = 8;
+
+/// A coordinator's plan, shown above its thread (Charles, 22 Nov): the app draws the last `todo`
+/// block as a checklist the user can edit; an edit comes back as a `Plan edit:` message.
+pub const TODO_BRIEF: &str = "# Your plan\n\nWhen a task takes more than one step, keep your plan as a checklist the user sees above the thread: a fenced `todo` block whose body is one JSON object, {\"items\": [{\"text\": \"Write the tests\", \"state\": \"done\"}, {\"text\": \"Fix the login\", \"state\": \"doing\"}, {\"text\": \"Update the docs\", \"state\": \"todo\"}]}. Post it whole again whenever a step changes state. A message starting `Plan edit:` is the user changing it: take the change into the plan without dropping the step you are on, unless it says to stop that step.";
+
+const ASK_MODE: &str = "# Ask mode\n\nThe user is asking a question, not asking for changes. Read whatever you need and answer it. Don't edit, create or delete any file, and don't run commands.";
+
 const PLAN_MODE: &str = "# Plan mode\n\nThe user wants a plan, not changes. Read whatever you need, run read-only commands, then reply with a short plan: the files to change, what changes in each, and how to check it. Don't edit, create or delete any file.";
 
 /// What a send needs from prefs, copied so a reply never holds the lock.
@@ -672,6 +726,9 @@ pub struct Ctx {
     pub agents: Option<Arc<crate::agents::Agents>>,
     /// Code chat's Plan mode: read the project and propose; change nothing.
     pub plan: bool,
+    /// Ask mode (Ask · Plan · Act, Charles 22 Nov): answer from what it reads; no edits, no
+    /// commands.
+    pub ask: bool,
 }
 
 /// One reply's circumstances: which agent writes it, and for a group the
@@ -1000,6 +1057,7 @@ impl Chats {
             agent: scope.agent,
             members: scope.members,
             goal: scope.goal.filter(|g| !g.trim().is_empty()),
+            goal_paused: false,
             life: scope.life,
             expires_at: None,
             ttl_minutes: if scope.life == Life::Temporal {
@@ -1219,6 +1277,7 @@ impl Chats {
             agent: src.agent.clone(),
             members: src.members.clone(),
             goal: src.goal.clone(),
+            goal_paused: false,
             life: Life::Keep,
             expires_at: None,
             ttl_minutes: None,
@@ -1424,6 +1483,83 @@ impl Chats {
                 let _ = self.start_letter(&id, n, ctx.clone());
             }
         }
+        self.pursue_goals(ctx);
+    }
+
+    /// `/goal` (Charles, 22 Nov): a stream with a goal keeps working until its reply says the
+    /// goal is met, up to [`GOAL_TURNS`] turns in a row without the user, then pauses.
+    fn pursue_goals(self: &Arc<Self>, ctx: Ctx) {
+        let due: Vec<(String, String, bool)> = {
+            let all = self.threads.lock().unwrap();
+            all.values()
+                .filter(|t| !t.goal_paused && t.members.is_empty() && !t.archived)
+                .filter_map(|t| {
+                    let g = t.goal.clone()?;
+                    let last = t.messages.last()?;
+                    if last.role != Role::Assistant || last.status != Status::Done {
+                        return None;
+                    }
+                    let met = last.text.contains(GOAL_MET);
+                    let run = t.messages.iter().rev().filter(|m| m.role == Role::User).take_while(|m| m.text.starts_with(GOAL_NUDGE)).count();
+                    Some((t.id.clone(), g, met || run >= GOAL_TURNS)).filter(|_| met || !self.is_busy(&t.id))
+                })
+                .collect()
+        };
+        for (id, goal, stop) in due {
+            if self.is_busy(&id) || self.inbox.lock().unwrap().get(&id).is_some_and(|q| !q.is_empty()) {
+                continue;
+            }
+            if stop {
+                let met = self.thread(&id).and_then(|t| t.messages.last().map(|m| m.text.contains(GOAL_MET))).unwrap_or(false);
+                let _ = self.edit_thread(&id, |t| {
+                    if met {
+                        t.goal = None;
+                    } else {
+                        t.goal_paused = true;
+                    }
+                });
+                let note = if met { format!("(Goal met: {goal})") } else { format!("(Goal paused after {GOAL_TURNS} turns on its own: {goal}. `/goal resume` carries on.)") };
+                self.note(&id, &id, &note);
+                continue;
+            }
+            let _ = self.send(&id, &format!("{GOAL_NUDGE} {goal}"), Vec::new(), None, ctx.clone());
+        }
+    }
+
+    /// Steer a stream while it works (Charles, 22 Nov): `now` stops the turn in progress and
+    /// sends at once (a change to the step it is on); otherwise the message waits for the turn
+    /// to end, so the work in progress is not interrupted (a change to a later step).
+    pub fn steer(self: &Arc<Self>, id: &str, text: &str, now: bool, ctx: Ctx) -> Result<()> {
+        if now {
+            self.stop(id);
+            return self.send(id, text, Vec::new(), None, ctx);
+        }
+        if self.is_busy(id) || self.waiting(id) > 0 {
+            let inb = Inbound { from: id.to_string(), text: text.to_string(), reply: false, as_note: false, hops: 0, origin: None };
+            self.inbox.lock().unwrap().entry(id.to_string()).or_default().push_back(inb);
+            self.poke();
+            return Ok(());
+        }
+        self.send(id, text, Vec::new(), None, ctx)
+    }
+
+    /// `/goal clear`.
+    pub fn clear_goal(&self, id: &str) -> Result<()> {
+        self.edit_thread(id, |t| {
+            t.goal = None;
+            t.goal_paused = false;
+        })
+    }
+
+    /// Set (Some), pause or resume a stream's goal.
+    pub fn set_goal(&self, id: &str, goal: Option<&str>, paused: bool) -> Result<()> {
+        self.edit_thread(id, |t| {
+            if let Some(g) = goal {
+                t.goal = Some(g.trim().to_string()).filter(|g| !g.is_empty());
+            }
+            t.goal_paused = paused;
+        })?;
+        Ok(())
     }
 
     /// A sub-agent a stream asked for (`delegate`): a new stream on that
@@ -1437,12 +1573,84 @@ impl Chats {
             self.note(&sp.from, &sp.from, &format!("(Sub-agent not started: work has been handed on {} times already.)", crate::relay::MAX_HOPS));
             bail!("too many hand-offs");
         }
-        let title = sp.title.clone().unwrap_or_else(|| sp.task.lines().next().unwrap_or("Sub-agent").chars().take(60).collect());
+        let main = parent.side_of.clone().unwrap_or_else(|| parent.id.clone());
+        // A crew member of a familiar: its standing thread under the captain gets the job.
+        if let Some(name) = sp.crew.as_deref() {
+            let agents = ctx.agents.clone().ok_or_else(|| anyhow!("agents are not open here"))?;
+            let captain = parent.agent.as_deref().and_then(|id| agents.get(id)).and_then(|a| a.lead).ok_or_else(|| anyhow!("only a familiar has a crew"))?;
+            let member = captain
+                .crew
+                .iter()
+                .filter_map(|id| agents.get(id))
+                .find(|a| a.name.eq_ignore_ascii_case(name.trim()) || a.id == name)
+                .ok_or_else(|| anyhow!("no crew member named {name}"))?;
+            let child = match self.crew_thread(&main, &member.id) {
+                Some(id) => id,
+                None => {
+                    let c = self.create_in(member.route.clone(), Scope { project: parent.project.clone(), agent: Some(member.id.clone()), title: Some(member.name.clone()), ..Scope::default() });
+                    self.edit_thread(&c.id, |t| {
+                        t.side_of = Some(main.clone());
+                        t.folder = parent.folder.clone();
+                    })?;
+                    c.id
+                }
+            };
+            let inb = Inbound { from: sp.from.clone(), text: sp.task.clone(), reply: true, as_note: false, hops, origin: None };
+            self.take_letter(&child, inb, ctx)?;
+            return Ok(child);
+        }
+        let title = sp.title.clone().unwrap_or_else(|| sp.task.lines().next().unwrap_or("Side thread").chars().take(60).collect());
         let route = Route { kind: RouteKind::Cli, provider: sp.provider.clone(), model: sp.model.clone() };
-        let child = self.create_in(route, Scope { project: parent.project.clone(), title: Some(format!("↳ {title}")), ..Scope::default() });
+        // A side thread of the stream that asked (Charles, 22 Nov: a stream is a coordinator, its
+        // side threads are the normal threads it spawns), filed beside it and starting with the
+        // context it chose.
+        let messages = match sp.context.as_deref() {
+            // The stream is mid-turn when it delegates: only what is finished goes along.
+            Some("whole") => parent.messages.iter().filter(|m| m.status == Status::Done).cloned().collect(),
+            Some("last") => parent.messages.iter().rev().find(|m| m.role != Role::User && m.status == Status::Done && !m.text.is_empty()).cloned().into_iter().collect(),
+            _ => Vec::new(),
+        };
+        let child = self.create_in(route, Scope { project: parent.project.clone(), title: Some(title), ..Scope::default() });
+        self.edit_thread(&child.id, |t| {
+            t.side_of = Some(main.clone());
+            t.folder = parent.folder.clone();
+            t.messages = messages;
+        })?;
         let inb = Inbound { from: sp.from.clone(), text: sp.task.clone(), reply: true, as_note: false, hops, origin: None };
         self.take_letter(&child.id, inb, ctx)?;
         Ok(child.id)
+    }
+
+    /// Open a familiar's thread (Charles, 22 Nov): its captain's own stream in its project. It
+    /// starts empty, like any thread: the first message is the task, and who the captain is and
+    /// what it leads stay in its brief.
+    pub fn start_familiar(&self, a: &crate::agents::Agent) -> Result<String> {
+        let lead = a.lead.as_ref().ok_or_else(|| anyhow!("{} is not a familiar", a.name))?;
+        let t = self.create_in(
+            a.route.clone(),
+            Scope { project: Some(lead.project.clone()), agent: Some(a.id.clone()), title: Some(a.name.clone()), ..Scope::default() },
+        );
+        Ok(t.id)
+    }
+
+    /// The thread a familiar's crew member keeps under its captain's stream: the same one job after
+    /// job, so it remembers the last one (nobody is killed when a job ends).
+    pub fn crew_thread(&self, main: &str, agent: &str) -> Option<String> {
+        let all = self.threads.lock().unwrap();
+        all.values().filter(|t| t.side_of.as_deref() == Some(main) && t.agent.as_deref() == Some(agent) && !t.archived).max_by_key(|t| t.updated).map(|t| t.id.clone())
+    }
+
+    /// A side thread hands its work back (Charles, 22 Nov: "take on the work or send it back"):
+    /// its whole conversation since it started and the files it changed go to its stream as the
+    /// stream's next turn, to judge and carry on.
+    pub fn send_back(self: &Arc<Self>, side: &str, ctx: Ctx) -> Result<()> {
+        let t = self.thread(side).ok_or_else(|| anyhow!("no such chat"))?;
+        let main = t.side_of.clone().ok_or_else(|| anyhow!("this is not a side thread"))?;
+        // What it was started with is copied from its stream, ids and all: leave that out.
+        let known: std::collections::HashSet<String> = self.peek(&main).map(|m| m.messages.into_iter().map(|m| m.id).collect()).unwrap_or_default();
+        let text = send_back_text(&t, &known).ok_or_else(|| anyhow!("this side thread has no finished reply to send back yet"))?;
+        let inb = Inbound { from: side.to_string(), text, reply: false, as_note: false, hops: 1, origin: None };
+        self.take_letter(&main, inb, ctx)
     }
 
     /// Letters waiting for a tile while it works.
@@ -1455,7 +1663,7 @@ impl Chats {
             .into_iter()
             .find(|t| t.thread == id)
             .map(|t| t.label)
-            .or_else(|| self.peek(id).map(|t| if t.title.starts_with("↳ ") { format!("{} sub-agent", t.route.provider) } else { t.route.provider }))
+            .or_else(|| self.peek(id).map(|t| if t.side_of.is_some() || t.title.starts_with("↳ ") { format!("{} side thread", t.route.provider) } else { t.route.provider }))
             .unwrap_or_else(|| "another harness".into())
     }
 
@@ -1495,8 +1703,11 @@ impl Chats {
     /// A letter as the tile's next turn: posted under the sender's name, then answered.
     fn start_letter(self: &Arc<Self>, to: &str, inb: Inbound, ctx: Ctx) -> Result<()> {
         let mut m = Msg::new(Role::User, inb.text.clone(), Status::Done);
-        m.author = Some(format!("tile:{}", inb.from));
-        m.author_name = Some(self.tile_label(&inb.from));
+        // A letter to itself is the user's own message, held until the turn ended (`steer`).
+        if inb.from != to {
+            m.author = Some(format!("tile:{}", inb.from));
+            m.author_name = Some(self.tile_label(&inb.from));
+        }
         // The tile is answering from before its letter shows until its turn is
         // running, so it never looks idle in between.
         self.hops.lock().unwrap().insert(to.to_string(), inb.hops);
@@ -1604,6 +1815,7 @@ impl Chats {
             agent: None,
             members: vec![],
             goal: None,
+            goal_paused: false,
             // Dreaming: a one-off ask, so it is gone the same way a ghost is.
             life: Life::Ghost,
             expires_at: None,
@@ -2311,6 +2523,12 @@ Ask the reader for input with the real form parts: `f = FormControl(\"Name\", In
         }
         let plan = ctx.plan || self.plan_of(id);
         req.edit = project.is_some() && !plan;
+        if let Some(g) = self.peek(id).filter(|t| t.members.is_empty()).and_then(|t| t.goal) {
+            req.system = Some(format!(
+                "{}# Goal\n\nThis stream's goal: {g}\nKeep working toward it, one step per reply. When it is fully met and checked, end your reply with the line `{GOAL_MET}`. Don't write that line before.",
+                req.system.take().map(|s| s + "\n\n").unwrap_or_default()
+            ));
+        }
         if plan {
             req.permission = Some("plan".into());
             // In a project, Plan mode specifies: it grills, then writes SPEC.md.
@@ -2367,13 +2585,26 @@ Ask the reader for input with the real form parts: `f = FormControl(\"Name\", In
         }
         // Every stream may start sub-agents on any provider (`delegate`), at the top level only
         // when it was not itself handed the work twice already (MAX_HOPS).
-        let can_delegate = call.agent.is_none() && matches!(route.provider.as_str(), "claude" | "codex") && route.kind == RouteKind::Cli;
+        // A familiar (an agent that leads a crew) coordinates too: it hands its crew work.
+        let leads = call.agent.as_ref().is_some_and(|a| a.lead.is_some());
+        let can_delegate = (call.agent.is_none() || leads) && matches!(route.provider.as_str(), "claude" | "codex") && route.kind == RouteKind::Cli;
         if can_delegate {
             env.insert(crate::relay::ENV_STREAM.into(), id.into());
+            // A coordinator keeps its plan where the user sees it and can steer it.
+            req.system = Some(format!("{}{TODO_BRIEF}", req.system.take().map(|s| s + "\n\n").unwrap_or_default()));
         }
         // A bot's rules, however it is called (its thread or a group): the
         // CLI's own tools it may not use, and what `backspace mcp` leaves out.
-        let deny = call.agent.as_ref().map(|a| a.deny()).unwrap_or_default();
+        let mut deny = call.agent.as_ref().map(|a| a.deny()).unwrap_or_default();
+        if ctx.ask && !plan {
+            req.edit = false;
+            for r in ["edit", "run"] {
+                if !deny.iter().any(|d| d == r) {
+                    deny.push(r.into());
+                }
+            }
+            req.system = Some(format!("{}{ASK_MODE}", req.system.take().map(|s| s + "\n\n").unwrap_or_default()));
+        }
         req.deny = crate::agents::denied_tools(&deny);
         req.own_mcp_only = !deny.is_empty();
         if !deny.is_empty() {
@@ -2761,7 +2992,7 @@ mod tests {
             t.messages.push(Msg::new(Role::Assistant, String::new(), Status::Streaming));
         })
         .unwrap();
-        let ctx = Ctx { prefs: Prefs::default(), memory: None, agents: None, plan: false };
+        let ctx = Ctx { prefs: Prefs::default(), memory: None, agents: None, plan: false, ask: false };
         let m = c.context_map(&t.id, &ctx).unwrap();
         let got: Vec<(&str, u64)> = m.parts.iter().map(|p| (p.group.as_str(), p.tokens)).collect();
         assert_eq!(got, vec![("Instructions", 100), ("Conversation", 10), ("Conversation", 20)]);
@@ -3095,7 +3326,7 @@ mod tests {
     fn dead_ctx() -> Ctx {
         let mut prefs = Prefs::default();
         prefs.ollama_url = "http://127.0.0.1:9".into();
-        Ctx { prefs, memory: None, agents: None, plan: false }
+        Ctx { prefs, memory: None, agents: None, plan: false, ask: false }
     }
 
     fn settle(c: &Chats, ids: &[&str]) {
@@ -3166,17 +3397,18 @@ mod tests {
         let dir = tmp("delegate");
         let (c, _rt) = chats(&dir);
         let parent = c.create_in(route(), Scope { project: Some("/work/app".into()), ..Scope::default() }).id;
-        let sp = crate::relay::Spawn { from: parent.clone(), provider: "cauldron-test-missing-cli".into(), model: Some("m1".into()), title: Some("Audit billing".into()), task: "Audit the billing page".into() };
+        let sp = crate::relay::Spawn { from: parent.clone(), provider: "cauldron-test-missing-cli".into(), model: Some("m1".into()), title: Some("Audit billing".into()), task: "Audit the billing page".into(), context: None, crew: None };
         let child = c.spawn_sub(&sp, dead_ctx()).unwrap();
         settle(&c, &[&parent, &child]);
         let ct = c.thread(&child).unwrap();
-        assert_eq!(ct.title, "↳ Audit billing");
+        assert_eq!(ct.title, "Audit billing");
+        assert_eq!(ct.side_of.as_deref(), Some(parent.as_str()), "a side thread of the stream that asked");
         assert_eq!(ct.project.as_deref(), Some("/work/app"), "the sub-agent works in the parent's project");
         assert_eq!((ct.route.provider.as_str(), ct.route.model.as_deref()), ("cauldron-test-missing-cli", Some("m1")));
         assert_eq!(ct.messages[0].text, "Audit the billing page", "only the task, never the parent's history");
         let pt = c.thread(&parent).unwrap();
         assert!(pt.messages[0].text.contains("failed"), "its answer (here a failure) comes back as the parent's turn: {:?}", pt.messages[0]);
-        assert!(pt.messages[0].author_name.as_deref().is_some_and(|n| n.contains("sub-agent")), "{:?}", pt.messages[0].author_name);
+        assert!(pt.messages[0].author_name.as_deref().is_some_and(|n| n.contains("side thread")), "{:?}", pt.messages[0].author_name);
 
         // Through the outbox, as `backspace mcp` posts it: pump starts it.
         std::fs::create_dir_all(dir.join("relay/spawn")).unwrap();
@@ -3185,6 +3417,116 @@ mod tests {
         c.pump(dead_ctx());
         assert_eq!(c.list().len(), before + 1);
         assert!(crate::relay::drain_spawns(&dir).is_empty(), "taken once");
+    }
+
+    #[test]
+    fn a_side_thread_starts_with_the_context_asked_for_and_sends_its_work_back() {
+        let dir = tmp("sendback");
+        let (c, _rt) = chats(&dir);
+        let parent = c.create_in(route(), Scope { project: Some("/work/app".into()), ..Scope::default() }).id;
+        c.edit_thread(&parent, |t| {
+            t.messages.push(Msg::new(Role::User, "plan the release".into(), Status::Done));
+            t.messages.push(Msg::new(Role::Assistant, "Three parts: tests, docs, lint.".into(), Status::Done));
+            t.messages.push(Msg::new(Role::Assistant, String::new(), Status::Streaming));
+        })
+        .unwrap();
+        let sp = crate::relay::Spawn { from: parent.clone(), provider: "cauldron-test-missing-cli".into(), model: None, title: Some("Docs".into()), task: "Write the docs".into(), context: Some("whole".into()), crew: None };
+        let child = c.spawn_sub(&sp, dead_ctx()).unwrap();
+        settle(&c, &[&parent, &child]);
+        let ct = c.thread(&child).unwrap();
+        assert_eq!(ct.messages[0].text, "plan the release", "the whole finished conversation goes along");
+        assert_eq!(ct.messages[1].text, "Three parts: tests, docs, lint.");
+        assert!(ct.messages.iter().any(|m| m.text == "Write the docs"), "then the task");
+        // Its whole thread and the files it changed go back to the stream as the stream's next turn.
+        c.edit_thread(&child, |t| {
+            let mut m = Msg::new(Role::Assistant, "Docs written.".into(), Status::Done);
+            m.acts.push(Act { id: "1".into(), name: "Write".into(), input: String::new(), path: Some("docs/guide.md".into()), output: String::new(), start: 0, end: Some(1), error: false, at: 0 });
+            t.messages.push(m);
+        })
+        .unwrap();
+        let before = c.thread(&parent).unwrap().messages.len();
+        c.send_back(&child, dead_ctx()).unwrap();
+        settle(&c, &[&parent]);
+        let pt = c.thread(&parent).unwrap();
+        let got = pt.messages[before..].iter().find(|m| m.role == Role::User).expect("a letter from the side thread");
+        assert!(got.text.contains("Docs written.") && got.text.contains("\"Docs\""), "{}", got.text);
+        assert!(got.text.contains("**Asked:** Write the docs"), "the task it was given goes along: {}", got.text);
+        assert!(!got.text.contains("plan the release"), "not the context it started with");
+        assert!(got.text.contains("- docs/guide.md"), "and the files it changed");
+        assert!(c.send_back(&parent, dead_ctx()).is_err(), "a stream has nothing to send back to");
+    }
+
+    #[test]
+    fn a_familiar_starts_empty_and_its_crew_keeps_one_thread() {
+        let dir = tmp("familiar");
+        let (c, _rt) = chats(&dir);
+        let agents = Arc::new(crate::agents::Agents::open(dir.join("agents")));
+        let tester = agents.save(crate::agents::Agent { job: "Writes and runs the tests.".into(), ..crate::agents::Agent::new("Tester", route()) }).unwrap();
+        let mut cap = crate::agents::Agent::new("Ez", route());
+        cap.lead = Some(crate::agents::Lead { project: "/work/app".into(), crew: vec![tester.id.clone()] });
+        let cap = agents.save(cap).unwrap();
+        let main = c.start_familiar(&cap).unwrap();
+        let t = c.thread(&main).unwrap();
+        assert_eq!((t.agent.as_deref(), t.project.as_deref(), t.title.as_str()), (Some(cap.id.as_str()), Some("/work/app"), "Ez"));
+        assert!(t.messages.is_empty(), "a familiar's thread starts like any thread: the first message is the task");
+        let brief = agents.brief_in(&cap, None);
+        assert!(brief.contains("- Tester: Writes and runs the tests.") && brief.contains("Don't introduce yourself"), "the captain knows its crew and starts on the task");
+
+        let ctx = Ctx { agents: Some(agents.clone()), ..dead_ctx() };
+        let job = |task: &str| crate::relay::Spawn { from: main.clone(), provider: String::new(), model: None, title: None, task: task.into(), context: None, crew: Some("tester".into()) };
+        let first = c.spawn_sub(&job("Test the login"), ctx.clone()).unwrap();
+        settle(&c, &[&main, &first]);
+        let second = c.spawn_sub(&job("Test the logout"), ctx.clone()).unwrap();
+        settle(&c, &[&main, &second]);
+        assert_eq!(first, second, "a crew member keeps its thread between jobs");
+        let ct = c.thread(&first).unwrap();
+        assert_eq!((ct.side_of.as_deref(), ct.agent.as_deref()), (Some(main.as_str()), Some(tester.id.as_str())));
+        assert!(ct.messages.iter().any(|m| m.text == "Test the login") && ct.messages.iter().any(|m| m.text == "Test the logout"));
+        let bad = crate::relay::Spawn { crew: Some("Nobody".into()), ..job("x") };
+        assert!(c.spawn_sub(&bad, ctx).is_err(), "only its own crew");
+    }
+
+    #[test]
+    fn a_goal_keeps_the_stream_going_until_its_reply_says_it_is_met() {
+        let dir = tmp("goal");
+        let (c, _rt) = chats(&dir);
+        let id = c.create_in(route(), Scope::default()).id;
+        c.set_goal(&id, Some("Ship the landing page"), false).unwrap();
+        c.edit_thread(&id, |t| t.messages.push(Msg::new(Role::Assistant, "Step one done.".into(), Status::Done))).unwrap();
+        c.pump(dead_ctx());
+        settle(&c, &[&id]);
+        let t = c.thread(&id).unwrap();
+        assert!(t.messages.iter().any(|m| m.role == Role::User && m.text == format!("{GOAL_NUDGE} Ship the landing page")), "it carries on by itself");
+        c.edit_thread(&id, |t| t.messages.push(Msg::new(Role::Assistant, format!("All checked.\n{GOAL_MET}"), Status::Done))).unwrap();
+        c.pump(dead_ctx());
+        let t = c.thread(&id).unwrap();
+        assert!(t.goal.is_none(), "met: the goal goes");
+        assert!(t.messages.last().unwrap().text.starts_with("(Goal met"));
+        // Paused: nothing more happens.
+        c.set_goal(&id, Some("Another"), true).unwrap();
+        c.edit_thread(&id, |t| t.messages.push(Msg::new(Role::Assistant, "Waiting.".into(), Status::Done))).unwrap();
+        let n = c.thread(&id).unwrap().messages.len();
+        c.pump(dead_ctx());
+        assert_eq!(c.thread(&id).unwrap().messages.len(), n);
+    }
+
+    #[test]
+    fn a_steer_for_later_waits_for_the_turn_and_one_for_now_goes_at_once() {
+        let dir = tmp("steer");
+        let (c, rt) = chats(&dir);
+        let id = c.create_in(route(), Scope::default()).id;
+        let fake = rt.spawn(async { tokio::time::sleep(Duration::from_secs(60)).await });
+        c.running.lock().unwrap().insert(id.clone(), fake.abort_handle());
+        c.steer(&id, "Plan edit: later", false, dead_ctx()).unwrap();
+        assert_eq!(c.waiting(&id), 1, "held while it works");
+        assert!(c.thread(&id).unwrap().messages.is_empty());
+        c.steer(&id, "Plan edit: now", true, dead_ctx()).unwrap();
+        assert_eq!(c.thread(&id).unwrap().messages.iter().find(|m| m.role == Role::User).map(|m| m.text.as_str()), Some("Plan edit: now"), "now stops the turn and goes first");
+        settle(&c, &[&id]);
+        let t = c.thread(&id).unwrap();
+        let mine: Vec<&str> = t.messages.iter().filter(|m| m.role == Role::User).map(|m| m.text.as_str()).collect();
+        assert!(mine.contains(&"Plan edit: later") && mine.contains(&"Plan edit: now"), "{mine:?}");
+        assert!(t.messages.iter().filter(|m| m.role == Role::User).all(|m| m.author.is_none()), "the user's own words, not a letter");
     }
 
     #[test]
