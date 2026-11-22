@@ -814,10 +814,10 @@ impl Cauldron {
             .border_1()
             .border_color(c(pal.line))
             .bg(super::backdrop::surface(self.painting, pal.raised, super::backdrop::GLASS_COMPOSER))
-            // The light along the top only: the long shadow and the ring outside the border drew a
-            // double halo round the box on Windows (Charles, 21 Nov). The transcript fades out
-            // above it instead ("composer-fade").
-            .shadow(super::lift(super::Lift::Box, pal).split_off(2))
+            // The buttons' lift (edge, top light, close 2px lip), not Lift::Box: its 24px long shadow
+            // drew a double halo round the box on Windows (Charles, 21 Nov). The transcript fades
+            // out above it ("composer-fade"). Charles, 22 Nov: same effect as buttons.
+            .shadow(super::lift(super::Lift::Button, pal))
             .aria_label("Message the coordinator");
         composer = if tiny {
             // A very short pane: one row, the editor and Send, no chips.
