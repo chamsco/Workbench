@@ -31,6 +31,7 @@ mod newthread;
 mod panes;
 mod dither;
 mod ledger;
+mod md;
 mod logos;
 mod mark;
 mod picker;
