@@ -7,6 +7,7 @@
 
 use super::*;
 use backspace_core::agents::{Agent, Avatar, Lead};
+use gpui_kit::component::input::{Textarea, TextareaState};
 use gpui_kit::prelude::FluentBuilder;
 
 pub(crate) const EMOJIS: [&str; 10] = ["🦊", "🦉", "🐙", "🐝", "🐺", "🐢", "🤖", "🧙", "⚓", "🔥"];
@@ -24,6 +25,9 @@ pub(crate) const ACCESS: [(&str, &str); 3] = [("edit", "Edit files"), ("run", "R
 /// The New familiar form.
 pub(crate) struct Captain {
     pub(crate) name: Option<(Entity<InputState>, Subscription)>,
+    /// Its first task, sent as the thread's first message (Charles, 22 Nov: a familiar starts
+    /// like any thread, from the chat box, with no greeting).
+    pub(crate) task: Option<(Entity<TextareaState>, Subscription)>,
     /// None is the app's figure; Some(i) is `EMOJIS[i]`.
     pub(crate) emoji: Option<usize>,
     /// Into `AGENT_DOTS`.
@@ -39,7 +43,7 @@ pub(crate) struct Captain {
 
 impl Default for Captain {
     fn default() -> Self {
-        Captain { name: None, emoji: None, color: 0, container: false, off: [false; 3], crew: [true, false, true], error: None }
+        Captain { name: None, task: None, emoji: None, color: 0, container: false, off: [false; 3], crew: [true, false, true], error: None }
     }
 }
 
@@ -85,9 +89,16 @@ impl Cauldron {
         });
         let f = st.read(cx).focus_handle(cx);
         window.focus(&f, cx);
+        let task = cx.new(|cx| TextareaState::new(window, cx).auto_grow(2, 8).submit_on_enter(true).placeholder("What should it start on? It works like any thread: this is its first message."));
+        let task_sub = cx.subscribe_in(&task, window, |this, _, ev: &InputEvent, window, cx| {
+            if let InputEvent::PressEnter { shift: false, .. } = ev {
+                this.create_captain(window, cx);
+            }
+            cx.notify();
+        });
         // A new colour each time, so two familiars rarely look alike.
         let color = self.start.captains.len() % super::tokens::AGENT_DOTS.len();
-        self.start.captain = Some(Captain { name: Some((st, sub)), color, ..Captain::default() });
+        self.start.captain = Some(Captain { name: Some((st, sub)), task: Some((task, task_sub)), color, ..Captain::default() });
         cx.notify();
     }
 
@@ -102,6 +113,7 @@ impl Cauldron {
     pub(super) fn create_captain(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let Some(f) = self.start.captain.as_ref() else { return };
         let name = f.name.as_ref().map(|(st, _)| st.read(cx).value().trim().to_string()).unwrap_or_default();
+        let task = f.task.as_ref().map(|(st, _)| st.read(cx).value().trim().to_string()).unwrap_or_default();
         if name.is_empty() {
             return self.captain_error("Give your familiar a name.", cx);
         }
@@ -136,7 +148,11 @@ impl Cauldron {
             let mut cap = kit(&name, "", avatar.clone());
             cap.lead = Some(Lead { project: project.clone(), crew });
             let cap = agents.save(cap)?;
-            chats.start_familiar(&agents, &cap)
+            let id = chats.start_familiar(&cap)?;
+            if !task.is_empty() {
+                chats.send(&id, &task, Vec::new(), None, self.mode_ctx())?;
+            }
+            Ok(id)
         })();
         match made {
             Ok(id) => {
@@ -157,7 +173,7 @@ impl Cauldron {
         let tid = chats.list().into_iter().filter(|t| t.agent.as_deref() == Some(id) && t.side_of.is_none() && !t.archived).max_by_key(|t| t.updated).map(|t| t.id);
         let tid = match tid {
             Some(t) => Some(t),
-            None => super::thread::agents().get(id).and_then(|a| chats.start_familiar(&super::thread::agents(), &a).ok()),
+            None => super::thread::agents().get(id).and_then(|a| chats.start_familiar(&a).ok()),
         };
         if let Some(t) = tid {
             self.select_section(0, cx);
@@ -370,8 +386,9 @@ impl Cauldron {
             .text_color(fg3)
             .cursor_pointer()
             .hover(|d| d.text_color(fg))
+            .pt(px(4.))
             .aria_label("Hand a goal to a mission instead")
-            .child("Hand a goal to a mission instead")
+            .child("Or a mission")
             .on_click(cx.listener(|this, _, window, cx| this.new_mission(window, cx)))
             .test_support();
 
@@ -388,7 +405,7 @@ impl Cauldron {
             .border_color(c(pal.line))
             .bg(super::backdrop::surface(self.painting, pal.raised, super::backdrop::GLASS_COMPOSER))
             .shadow(super::lift(super::Lift::Box, pal))
-            .child(div().flex().flex_col().gap(px(3.)).child(div().text_size(px(17.)).font_weight(FontWeight::SEMIBOLD).text_color(fg).child("New familiar")).child(div().text_size(px(12.5)).text_color(fg3).child("A captain that learns one project end to end and leads a standing crew.")))
+            .child(div().flex().items_start().gap(px(12.)).child(div().flex_1().flex().flex_col().gap(px(3.)).child(div().text_size(px(17.)).font_weight(FontWeight::SEMIBOLD).text_color(fg).child("New familiar")).child(div().text_size(px(12.5)).text_color(fg3).child("A captain that learns one project end to end and leads a standing crew."))).child(mission))
             .child(head)
             .child(row("Avatar", div().flex().flex_col().child(kinds).child(colours).into_any_element()))
             .child(row("Project", div().flex().child(project).into_any_element()))
@@ -396,8 +413,25 @@ impl Cauldron {
             .child(row("Model", model.into_any_element()))
             .child(row("Access", access.into_any_element()))
             .child(row("Crew", crew.into_any_element()))
+            .when_some(f.task.as_ref().map(|(st, _)| st.clone()), |d, st| {
+                d.child(
+                    div()
+                        .id("cap-task")
+                        .min_h(px(64.))
+                        .px(px(12.))
+                        .py(px(8.))
+                        .rounded(px(radius::CONTROL))
+                        .border_1()
+                        .border_color(c(pal.line))
+                        .bg(c(pal.raised))
+                        .text_size(px(13.))
+                        .text_color(fg)
+                        .child(Textarea::new(&st).appearance(false))
+                        .test_support(),
+                )
+            })
             .when_some(f.error.clone(), |d, e| d.child(div().id("cap-error").text_size(px(12.)).text_color(c(pal.bad)).aria_label(e.clone()).child(e).test_support()))
-            .child(div().flex().items_center().child(mission).child(div().flex_1()).child(create))
+            .child(div().flex().items_center().child(div().flex_1()).child(create))
             .test_support();
         div().id("cap-screen").size_full().overflow_y_scroll().flex().flex_col().items_center().px(px(24.)).py(px(28.)).child(card).test_support().into_any_element()
     }

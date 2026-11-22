@@ -665,12 +665,54 @@ struct Inbound {
 // ponytail: one global for the one chat face; per-window if there are ever two.
 pub static GENUI_PROMPT: std::sync::RwLock<Option<String>> = std::sync::RwLock::new(None);
 
+/// The letter a side thread sends back: its own turns (not the context it was started with),
+/// oldest first, then the files its tool calls changed. Long threads keep the task and the
+/// newest turns.
+fn send_back_text(t: &Thread, known: &std::collections::HashSet<String>) -> Option<String> {
+    const MAX: usize = 16_000;
+    let own: Vec<&Msg> = t.messages.iter().filter(|m| !known.contains(&m.id) && m.status == Status::Done && !m.text.trim().is_empty()).collect();
+    if !own.iter().any(|m| m.role == Role::Assistant) {
+        return None;
+    }
+    let turn = |m: &Msg| format!("**{}:** {}", if m.role == Role::User { "Asked" } else { "Answered" }, m.text.trim());
+    let mut parts: Vec<String> = own.iter().map(|m| turn(m)).collect();
+    let mut cut = 0;
+    while parts.len() > 2 && parts.iter().map(|p| p.len() + 2).sum::<usize>() > MAX {
+        parts.remove(1);
+        cut += 1;
+    }
+    if cut > 0 {
+        parts.insert(1, format!("(… {cut} earlier turns left out)"));
+    }
+    let mut files: Vec<String> = t
+        .messages
+        .iter()
+        .flat_map(|m| m.acts.iter())
+        .filter(|a| {
+            let n = a.name.to_lowercase();
+            !a.error && (n.contains("edit") || n.contains("write") || n.contains("patch"))
+        })
+        .filter_map(|a| a.path.clone())
+        .collect();
+    files.sort();
+    files.dedup();
+    let mut s = format!("Result from the side thread \"{}\" ({} turns):\n\n{}", t.title, own.len(), parts.join("\n\n"));
+    if !files.is_empty() {
+        s.push_str(&format!("\n\nFiles it changed (in the project folder; read them there):\n{}", files.iter().map(|f| format!("- {f}")).collect::<Vec<_>>().join("\n")));
+    }
+    Some(s)
+}
+
 /// What a reply says when its stream's goal is met (`/goal`).
 pub const GOAL_MET: &str = "GOAL MET";
 /// How a stream with a goal is told to carry on; these turns count toward [`GOAL_TURNS`].
 pub const GOAL_NUDGE: &str = "↻ Keep going toward the goal:";
 /// Turns a goal may take on its own, in a row, before it pauses for the user.
 pub const GOAL_TURNS: usize = 8;
+
+/// A coordinator's plan, shown above its thread (Charles, 22 Nov): the app draws the last `todo`
+/// block as a checklist the user can edit; an edit comes back as a `Plan edit:` message.
+pub const TODO_BRIEF: &str = "# Your plan\n\nWhen a task takes more than one step, keep your plan as a checklist the user sees above the thread: a fenced `todo` block whose body is one JSON object, {\"items\": [{\"text\": \"Write the tests\", \"state\": \"done\"}, {\"text\": \"Fix the login\", \"state\": \"doing\"}, {\"text\": \"Update the docs\", \"state\": \"todo\"}]}. Post it whole again whenever a step changes state. A message starting `Plan edit:` is the user changing it: take the change into the plan without dropping the step you are on, unless it says to stop that step.";
 
 const ASK_MODE: &str = "# Ask mode\n\nThe user is asking a question, not asking for changes. Read whatever you need and answer it. Don't edit, create or delete any file, and don't run commands.";
 
@@ -1484,6 +1526,23 @@ impl Chats {
         }
     }
 
+    /// Steer a stream while it works (Charles, 22 Nov): `now` stops the turn in progress and
+    /// sends at once (a change to the step it is on); otherwise the message waits for the turn
+    /// to end, so the work in progress is not interrupted (a change to a later step).
+    pub fn steer(self: &Arc<Self>, id: &str, text: &str, now: bool, ctx: Ctx) -> Result<()> {
+        if now {
+            self.stop(id);
+            return self.send(id, text, Vec::new(), None, ctx);
+        }
+        if self.is_busy(id) || self.waiting(id) > 0 {
+            let inb = Inbound { from: id.to_string(), text: text.to_string(), reply: false, as_note: false, hops: 0, origin: None };
+            self.inbox.lock().unwrap().entry(id.to_string()).or_default().push_back(inb);
+            self.poke();
+            return Ok(());
+        }
+        self.send(id, text, Vec::new(), None, ctx)
+    }
+
     /// `/goal clear`.
     pub fn clear_goal(&self, id: &str) -> Result<()> {
         self.edit_thread(id, |t| {
@@ -1562,19 +1621,15 @@ impl Chats {
         Ok(child.id)
     }
 
-    /// Open a familiar's thread (Charles, 22 Nov): its captain's own stream in its project, which
-    /// starts with the captain's intro so the user knows what it needs.
-    pub fn start_familiar(&self, agents: &crate::agents::Agents, a: &crate::agents::Agent) -> Result<String> {
+    /// Open a familiar's thread (Charles, 22 Nov): its captain's own stream in its project. It
+    /// starts empty, like any thread: the first message is the task, and who the captain is and
+    /// what it leads stay in its brief.
+    pub fn start_familiar(&self, a: &crate::agents::Agent) -> Result<String> {
         let lead = a.lead.as_ref().ok_or_else(|| anyhow!("{} is not a familiar", a.name))?;
-        let crew: Vec<_> = lead.crew.iter().filter_map(|id| agents.get(id)).collect();
         let t = self.create_in(
             a.route.clone(),
             Scope { project: Some(lead.project.clone()), agent: Some(a.id.clone()), title: Some(a.name.clone()), ..Scope::default() },
         );
-        let mut m = Msg::new(Role::Assistant, crate::agents::intro(a, &crew), Status::Done);
-        m.author = Some(a.id.clone());
-        m.author_name = Some(a.name.clone());
-        self.edit_thread(&t.id, |t| t.messages.push(m))?;
         Ok(t.id)
     }
 
@@ -1586,18 +1641,14 @@ impl Chats {
     }
 
     /// A side thread hands its work back (Charles, 22 Nov: "take on the work or send it back"):
-    /// its last reply goes to its stream as the stream's next turn, to judge and carry on.
+    /// its whole conversation since it started and the files it changed go to its stream as the
+    /// stream's next turn, to judge and carry on.
     pub fn send_back(self: &Arc<Self>, side: &str, ctx: Ctx) -> Result<()> {
         let t = self.thread(side).ok_or_else(|| anyhow!("no such chat"))?;
         let main = t.side_of.clone().ok_or_else(|| anyhow!("this is not a side thread"))?;
-        let last = t
-            .messages
-            .iter()
-            .rev()
-            .find(|m| m.role == Role::Assistant && m.status == Status::Done && !m.text.trim().is_empty())
-            .map(|m| m.text.clone())
-            .ok_or_else(|| anyhow!("this side thread has no finished reply to send back yet"))?;
-        let text = format!("Result from the side thread \"{}\":\n\n{last}", t.title);
+        // What it was started with is copied from its stream, ids and all: leave that out.
+        let known: std::collections::HashSet<String> = self.peek(&main).map(|m| m.messages.into_iter().map(|m| m.id).collect()).unwrap_or_default();
+        let text = send_back_text(&t, &known).ok_or_else(|| anyhow!("this side thread has no finished reply to send back yet"))?;
         let inb = Inbound { from: side.to_string(), text, reply: false, as_note: false, hops: 1, origin: None };
         self.take_letter(&main, inb, ctx)
     }
@@ -1652,8 +1703,11 @@ impl Chats {
     /// A letter as the tile's next turn: posted under the sender's name, then answered.
     fn start_letter(self: &Arc<Self>, to: &str, inb: Inbound, ctx: Ctx) -> Result<()> {
         let mut m = Msg::new(Role::User, inb.text.clone(), Status::Done);
-        m.author = Some(format!("tile:{}", inb.from));
-        m.author_name = Some(self.tile_label(&inb.from));
+        // A letter to itself is the user's own message, held until the turn ended (`steer`).
+        if inb.from != to {
+            m.author = Some(format!("tile:{}", inb.from));
+            m.author_name = Some(self.tile_label(&inb.from));
+        }
         // The tile is answering from before its letter shows until its turn is
         // running, so it never looks idle in between.
         self.hops.lock().unwrap().insert(to.to_string(), inb.hops);
@@ -2531,9 +2585,13 @@ Ask the reader for input with the real form parts: `f = FormControl(\"Name\", In
         }
         // Every stream may start sub-agents on any provider (`delegate`), at the top level only
         // when it was not itself handed the work twice already (MAX_HOPS).
-        let can_delegate = call.agent.is_none() && matches!(route.provider.as_str(), "claude" | "codex") && route.kind == RouteKind::Cli;
+        // A familiar (an agent that leads a crew) coordinates too: it hands its crew work.
+        let leads = call.agent.as_ref().is_some_and(|a| a.lead.is_some());
+        let can_delegate = (call.agent.is_none() || leads) && matches!(route.provider.as_str(), "claude" | "codex") && route.kind == RouteKind::Cli;
         if can_delegate {
             env.insert(crate::relay::ENV_STREAM.into(), id.into());
+            // A coordinator keeps its plan where the user sees it and can steer it.
+            req.system = Some(format!("{}{TODO_BRIEF}", req.system.take().map(|s| s + "\n\n").unwrap_or_default()));
         }
         // A bot's rules, however it is called (its thread or a group): the
         // CLI's own tools it may not use, and what `backspace mcp` leaves out.
@@ -3379,19 +3437,27 @@ mod tests {
         assert_eq!(ct.messages[0].text, "plan the release", "the whole finished conversation goes along");
         assert_eq!(ct.messages[1].text, "Three parts: tests, docs, lint.");
         assert!(ct.messages.iter().any(|m| m.text == "Write the docs"), "then the task");
-        // Its reply goes back to the stream as the stream's next turn.
-        c.edit_thread(&child, |t| t.messages.push(Msg::new(Role::Assistant, "Docs written.".into(), Status::Done))).unwrap();
+        // Its whole thread and the files it changed go back to the stream as the stream's next turn.
+        c.edit_thread(&child, |t| {
+            let mut m = Msg::new(Role::Assistant, "Docs written.".into(), Status::Done);
+            m.acts.push(Act { id: "1".into(), name: "Write".into(), input: String::new(), path: Some("docs/guide.md".into()), output: String::new(), start: 0, end: Some(1), error: false, at: 0 });
+            t.messages.push(m);
+        })
+        .unwrap();
         let before = c.thread(&parent).unwrap().messages.len();
         c.send_back(&child, dead_ctx()).unwrap();
         settle(&c, &[&parent]);
         let pt = c.thread(&parent).unwrap();
         let got = pt.messages[before..].iter().find(|m| m.role == Role::User).expect("a letter from the side thread");
         assert!(got.text.contains("Docs written.") && got.text.contains("\"Docs\""), "{}", got.text);
+        assert!(got.text.contains("**Asked:** Write the docs"), "the task it was given goes along: {}", got.text);
+        assert!(!got.text.contains("plan the release"), "not the context it started with");
+        assert!(got.text.contains("- docs/guide.md"), "and the files it changed");
         assert!(c.send_back(&parent, dead_ctx()).is_err(), "a stream has nothing to send back to");
     }
 
     #[test]
-    fn a_familiar_opens_with_its_intro_and_its_crew_keeps_one_thread() {
+    fn a_familiar_starts_empty_and_its_crew_keeps_one_thread() {
         let dir = tmp("familiar");
         let (c, _rt) = chats(&dir);
         let agents = Arc::new(crate::agents::Agents::open(dir.join("agents")));
@@ -3399,12 +3465,12 @@ mod tests {
         let mut cap = crate::agents::Agent::new("Ez", route());
         cap.lead = Some(crate::agents::Lead { project: "/work/app".into(), crew: vec![tester.id.clone()] });
         let cap = agents.save(cap).unwrap();
-        let main = c.start_familiar(&agents, &cap).unwrap();
+        let main = c.start_familiar(&cap).unwrap();
         let t = c.thread(&main).unwrap();
         assert_eq!((t.agent.as_deref(), t.project.as_deref(), t.title.as_str()), (Some(cap.id.as_str()), Some("/work/app"), "Ez"));
-        let hi = &t.messages[0];
-        assert!(hi.text.starts_with("I'm Ez, your captain for **app**") && hi.text.contains("What to start on now") && hi.text.contains("**Tester**"), "{}", hi.text);
-        assert!(agents.brief_in(&cap, None).contains("- Tester: Writes and runs the tests."), "the captain knows its crew");
+        assert!(t.messages.is_empty(), "a familiar's thread starts like any thread: the first message is the task");
+        let brief = agents.brief_in(&cap, None);
+        assert!(brief.contains("- Tester: Writes and runs the tests.") && brief.contains("Don't introduce yourself"), "the captain knows its crew and starts on the task");
 
         let ctx = Ctx { agents: Some(agents.clone()), ..dead_ctx() };
         let job = |task: &str| crate::relay::Spawn { from: main.clone(), provider: String::new(), model: None, title: None, task: task.into(), context: None, crew: Some("tester".into()) };
@@ -3442,6 +3508,25 @@ mod tests {
         let n = c.thread(&id).unwrap().messages.len();
         c.pump(dead_ctx());
         assert_eq!(c.thread(&id).unwrap().messages.len(), n);
+    }
+
+    #[test]
+    fn a_steer_for_later_waits_for_the_turn_and_one_for_now_goes_at_once() {
+        let dir = tmp("steer");
+        let (c, rt) = chats(&dir);
+        let id = c.create_in(route(), Scope::default()).id;
+        let fake = rt.spawn(async { tokio::time::sleep(Duration::from_secs(60)).await });
+        c.running.lock().unwrap().insert(id.clone(), fake.abort_handle());
+        c.steer(&id, "Plan edit: later", false, dead_ctx()).unwrap();
+        assert_eq!(c.waiting(&id), 1, "held while it works");
+        assert!(c.thread(&id).unwrap().messages.is_empty());
+        c.steer(&id, "Plan edit: now", true, dead_ctx()).unwrap();
+        assert_eq!(c.thread(&id).unwrap().messages.iter().find(|m| m.role == Role::User).map(|m| m.text.as_str()), Some("Plan edit: now"), "now stops the turn and goes first");
+        settle(&c, &[&id]);
+        let t = c.thread(&id).unwrap();
+        let mine: Vec<&str> = t.messages.iter().filter(|m| m.role == Role::User).map(|m| m.text.as_str()).collect();
+        assert!(mine.contains(&"Plan edit: later") && mine.contains(&"Plan edit: now"), "{mine:?}");
+        assert!(t.messages.iter().filter(|m| m.role == Role::User).all(|m| m.author.is_none()), "the user's own words, not a letter");
     }
 
     #[test]

@@ -367,29 +367,11 @@ mod civil {
 /// The CLI tools (Claude Code's names) that a bot's rules turn off. Any rule
 /// also takes the tools that hand work to something the rules don't cover
 /// (a cloud agent, another session, a later run).
-/// What a new familiar says first in its thread (after Capy's captains: who it is, then the two
-/// things it needs before it is useful). Written by the app, not the model, so it shows at once.
-pub fn intro(a: &Agent, crew: &[Agent]) -> String {
-    let project = a.lead.as_ref().map(|l| l.project.as_str()).filter(|p| !p.is_empty());
-    let name = project.and_then(|p| Path::new(p).file_name()?.to_str()).unwrap_or("this project");
-    let mut s = format!(
-        "I'm {}, your captain for **{name}**. I learn this project end to end, keep a standing crew on it, and come back to you when something needs your call.\n\nTwo things I need from you before I'm useful:\n\n1. **What I'm for.** The outcome you want from {name}, and what good looks like.\n2. **What to start on now.** One concrete first task, so I can get going while we fill in the rest.\n\n",
-        a.name
-    );
-    if crew.is_empty() {
-        s.push_str("My crew is empty for now. Tell me which roles you want (a tester, a writer, a reviewer) and I'll put them to work.");
-    } else {
-        let names: Vec<String> = crew.iter().map(|c| format!("**{}**", c.name)).collect();
-        s.push_str(&format!("My crew: {}. Each keeps its own thread under mine between jobs.", names.join(", ")));
-    }
-    s
-}
-
 /// The captain's part of its brief: what it leads and how it hands its crew a job.
 pub fn lead_brief(a: &Agent, crew: &[Agent]) -> Option<String> {
     let lead = a.lead.as_ref()?;
     let mut s = format!(
-        "\n\nYou are a familiar: the captain of the project in {}. You know it end to end, keep track of what was decided, and lead a standing crew. Do small things yourself; hand the rest to your crew with the ask_crew tool, then judge what comes back before telling the user.",
+        "\n\nYou are a familiar: the captain of the project in {}. You know it end to end, keep track of what was decided, and lead a standing crew. Do small things yourself; hand the rest to your crew with the ask_crew tool, then judge what comes back before telling the user.\n\nWork like a normal thread: the user's message is the task, so start on it. Don't introduce yourself. If you can't tell what the project is for or what good looks like, ask that once, briefly, after doing what you can.",
         lead.project
     );
     if crew.is_empty() {

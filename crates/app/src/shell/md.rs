@@ -252,6 +252,16 @@ impl Cauldron {
                     .child(div().w(px(18.)).flex_none().text_color(fg3).child(n.map_or("\u{2022}".to_string(), |n| format!("{n}."))))
                     .child(div().min_w_0().flex_1().child(link_line(&s, t, i, cx)))
                     .into_any_element(),
+                // A coordinator's plan shows above the thread (plan.rs), not as JSON here.
+                Block::Code(lang, _) if lang == "todo" => div()
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
+                    .text_size(px(12.))
+                    .text_color(fg3)
+                    .child(glyph("list-checks", 13., fg3))
+                    .child("Plan updated")
+                    .into_any_element(),
                 Block::Code(lang, body) => {
                     let copy = body.clone();
                     let id = format!("code-{key}-{i}");

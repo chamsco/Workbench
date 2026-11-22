@@ -77,7 +77,7 @@ pub(super) fn failure(e: &str) -> Failure {
 }
 
 pub(super) fn lines(t: &Thread) -> Vec<Line> {
-    t.messages.iter().map(|m| Line { id: m.id.clone(), mine: m.role == Role::User, text: m.text.clone(), status: m.status, error: m.error.clone(), meta: meta(m), model: model(m, t), parts: reply_parts(m), at: m.at, wait: m.wait.clone() }).collect()
+    t.messages.iter().map(|m| Line { id: m.id.clone(), mine: m.role == Role::User, text: if m.role == Role::User { super::plan::strip(&m.text) } else { m.text.clone() }, status: m.status, error: m.error.clone(), meta: meta(m), model: model(m, t), parts: reply_parts(m), at: m.at, wait: m.wait.clone() }).collect()
 }
 
 fn model(m: &Msg, t: &Thread) -> Option<String> {
@@ -1233,6 +1233,7 @@ impl Cauldron {
             .gap(px(if short { 6. } else { 10. }))
             .px(px(if narrow { 10. } else { 18. }))
             .py(px(if short { 8. } else { 14. }))
+            .children(self.plan_el(t, pal, cx))
             .child(msgs.test_support())
             .children(ticks)
             .child(
