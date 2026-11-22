@@ -319,6 +319,10 @@ impl Cauldron {
         self.idle.clear();
         self.active = 0;
         self.selected = Some(id.clone());
+        if self.open.as_deref() != Some(id.as_str()) {
+            self.diff_since = None;
+            self.restore_ask = false;
+        }
         self.open = Some(id);
         self.open_since = Some(std::time::Instant::now());
         self.send_error = None;

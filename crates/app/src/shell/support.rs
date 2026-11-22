@@ -40,6 +40,8 @@ pub(crate) struct Changes {
     pub(crate) files: Vec<FileStat>,
     /// The first changed file's diff, cut to `DIFF_MAX` lines.
     pub(crate) diff: Vec<DiffLine>,
+    /// This stream's checkpoints, newest first (core's checkpoint.rs).
+    pub(crate) points: Vec<backspace_core::checkpoint::Point>,
 }
 
 /// `git status` in two lists: (status letter, path).
@@ -82,14 +84,29 @@ fn here(dir: &Path) -> Result<(), String> {
     if dir.is_dir() { Ok(()) } else { Err("This stream's folder is not on this machine.".into()) }
 }
 
-pub(crate) fn read_changes(dir: &Path) -> Result<Changes, String> {
+/// What changed in `dir`: since the last commit, or since a checkpoint's commit (the folder as it
+/// is now, untracked files included, against the folder as it was).
+pub(crate) fn read_changes(dir: &Path, stream: &str, since: Option<&str>) -> Result<Changes, String> {
     here(dir)?;
-    let files = parse_numstat(&git(dir, &["diff", "HEAD", "--numstat", "--no-color"])?);
+    let points = backspace_core::checkpoint::list(dir, stream);
+    let (base, target): (String, Option<String>) = match since {
+        Some(c) => (c.to_string(), Some(backspace_core::checkpoint::snapshot_tree(dir).ok_or("Could not read the folder.")?)),
+        None => ("HEAD".to_string(), None),
+    };
+    let mut args = vec!["diff", base.as_str()];
+    args.extend(target.as_deref());
+    let mut num = args.clone();
+    num.extend(["--numstat", "--no-color"]);
+    let files = parse_numstat(&git(dir, &num)?);
     let diff = match files.first() {
-        Some(f) => parse_diff(&git(dir, &["diff", "HEAD", "--no-color", "--", &f.path])?),
+        Some(f) => {
+            let mut one = args.clone();
+            one.extend(["--no-color", "--", f.path.as_str()]);
+            parse_diff(&git(dir, &one)?)
+        }
         None => Vec::new(),
     };
-    Ok(Changes { files, diff })
+    Ok(Changes { files, diff, points })
 }
 
 pub(crate) fn read_git(dir: &Path) -> Result<GitState, String> {
@@ -247,10 +264,11 @@ impl Cauldron {
         let Some(start) = Data::loading(p) else { return };
         self.support_data.insert(key.clone(), start);
         let open = self.files_open.clone();
+        let (stream, since) = (self.open.clone().unwrap_or_default(), self.diff_since.clone());
         let task = cx.background_executor().spawn(async move {
             let d = Path::new(&dir);
             match p {
-                Panel::Changes => Data::Changes(load(read_changes(d))),
+                Panel::Changes => Data::Changes(load(read_changes(d, &stream, since.as_deref()))),
                 Panel::Git => Data::Git(load(read_git(d))),
                 _ => Data::Files(load(read_files(d, &open))),
             }
@@ -362,12 +380,80 @@ impl Cauldron {
             None | Some(Data::Changes(Load::Loading)) | Some(Data::Git(Load::Loading)) | Some(Data::Files(Load::Loading)) => loading(),
             Some(Data::Changes(Load::Failed(e))) | Some(Data::Git(Load::Failed(e))) | Some(Data::Files(Load::Failed(e))) => failed(e, cx),
             Some(Data::Changes(Load::Ready(ch))) => {
-                if ch.files.is_empty() {
+                let since_now = self.diff_since.clone();
+                // Where to compare from: the last commit, or the folder as it was when a message was sent.
+                let chips = {
+                    let said = |msg: &str| t.messages.iter().find(|m| m.id == msg).map(|m| m.text.lines().next().unwrap_or("").chars().take(22).collect::<String>());
+                    let chip = |id: (&'static str, usize), label: String, on: bool| {
+                        div().id(id).h(px(22.)).px(px(8.)).flex().flex_none().items_center().rounded(px(radius::TAG)).text_size(px(11.5)).max_w(px(150.)).truncate().text_color(if on { fg } else { fg3 }).bg(if on { c(pal.selected) } else { c(pal.hover).opacity(0.0) }).cursor_pointer().hover(|d| d.bg(c(pal.hover))).aria_label(label.clone()).aria_selected(on).child(label)
+                    };
+                    let mut row = div().id("since-chips").flex().flex_wrap().gap(px(4.)).pb(px(4.)).child(chip(("since", 0), "Last commit".into(), since_now.is_none()).on_click(cx.listener(|this, _, _, cx| {
+                        this.diff_since = None;
+                        this.restore_ask = false;
+                        this.refresh_panel(Panel::Changes);
+                        cx.notify();
+                    })));
+                    for (k, pt) in ch.points.iter().filter(|p| !p.msg.starts_with("before-restore")).take(5).enumerate() {
+                        let commit = pt.commit.clone();
+                        let label = said(&pt.msg).filter(|l| !l.is_empty()).map_or_else(|| "A message".to_string(), |l| format!("Before “{l}”"));
+                        row = row.child(chip(("since", k + 1), label, since_now.as_deref() == Some(commit.as_str())).on_click(cx.listener(move |this, _, _, cx| {
+                            this.diff_since = Some(commit.clone());
+                            this.restore_ask = false;
+                            this.refresh_panel(Panel::Changes);
+                            cx.notify();
+                        })));
+                    }
+                    row.test_support()
+                };
+                if ch.files.is_empty() && since_now.is_none() && ch.points.is_empty() {
                     return state("support-empty", "No changes".into(), format!("{name} matches its last commit."), None);
+                }
+                if ch.files.is_empty() {
+                    let line = if since_now.is_some() { "Nothing changed since then." } else { "Matches its last commit." };
+                    return col().child(chips).child(div().id("support-empty").text_color(fg3).aria_label(line).child(line).test_support()).into_any_element();
                 }
                 let (a, r) = ch.files.iter().fold((0, 0), |(a, r), f| (a + f.added.unwrap_or(0), r + f.removed.unwrap_or(0)));
                 let n = ch.files.len();
-                let mut b = col().child(head(format!("{n} file{} changed · +{a} −{r}", if n == 1 { "" } else { "s" }), cx));
+                let mut b = col().child(chips).child(head(format!("{n} file{} changed · +{a} −{r}", if n == 1 { "" } else { "s" }), cx));
+                // Going back to a checkpoint changes files, so it asks twice. It first saves the
+                // folder as it is now, so it can be undone from the same list.
+                if let Some(commit) = self.diff_since.clone() {
+                    let (stream, dir2, ask) = (self.open.clone().unwrap_or_default(), dir.clone(), self.restore_ask);
+                    b = b.child(
+                        div()
+                            .id("restore")
+                            .h(px(26.))
+                            .px(px(10.))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .rounded(px(radius::CONTROL))
+                            .text_size(px(12.))
+                            .text_color(if ask { c(pal.bad) } else { fg2 })
+                            .button_face(pal)
+                            .pressed()
+                            .cursor_pointer()
+                            .aria_label(if ask { "Click again to restore" } else { "Restore this checkpoint" })
+                            .child(if ask { "Click again to restore the folder to this point" } else { "Restore the folder to this point" })
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                if !this.restore_ask {
+                                    this.restore_ask = true;
+                                } else {
+                                    this.restore_ask = false;
+                                    match backspace_core::checkpoint::restore(Path::new(&dir2), &stream, &commit) {
+                                        Ok(()) => {
+                                            this.diff_since = None;
+                                            this.refresh_panel(Panel::Changes);
+                                            this.refresh_panel(Panel::Git);
+                                        }
+                                        Err(e) => this.send_error = Some(e),
+                                    }
+                                }
+                                cx.notify();
+                            }))
+                            .test_support(),
+                    );
+                }
                 for (i, f) in ch.files.iter().enumerate() {
                     let counts = match (f.added, f.removed) {
                         (Some(a), Some(r)) => format!("+{a} −{r}"),
@@ -510,7 +596,7 @@ mod tests {
     #[test]
     fn a_missing_folder_says_so() {
         let gone = std::env::temp_dir().join("cauldron-support-no-such-folder");
-        assert_eq!(read_changes(&gone), Err("This stream's folder is not on this machine.".into()));
+        assert_eq!(read_changes(&gone, "s", None), Err("This stream's folder is not on this machine.".into()));
     }
 
     /// A repository with one commit ("First": src/a.rs), then src/a.rs changed and notes.md new.
@@ -627,7 +713,7 @@ mod tests {
     #[test]
     fn a_real_repository_reads_through() {
         let dir = repo("read");
-        let c = read_changes(&dir).unwrap();
+        let c = read_changes(&dir, "s", None).unwrap();
         assert_eq!(c.files, [FileStat { path: "src/a.rs".into(), added: Some(1), removed: Some(1) }]);
         assert!(c.diff.iter().any(|l| l.kind == DiffKind::Add && l.text == "three"));
         let g = read_git(&dir).unwrap();

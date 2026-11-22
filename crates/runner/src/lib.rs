@@ -190,6 +190,8 @@ pub enum Event {
     ToolEnd { id: String, output: String, error: bool },
 }
 
+pub use opencode::shutdown as shutdown_opencode;
+
 pub type Sink<'a> = &'a mut (dyn FnMut(Event) + Send);
 
 /// Run one turn. Dropping the future stops it (a CLI is killed).

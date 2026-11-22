@@ -2,6 +2,7 @@
 //! the GPUI app and the CLI are thin shells over [`Harness`].
 
 pub mod accounts;
+pub mod checkpoint;
 pub mod agents;
 pub mod apps;
 pub mod instance;

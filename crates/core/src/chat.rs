@@ -1312,6 +1312,7 @@ impl Chats {
         if self.is_busy(id) {
             bail!("wait for the reply, or stop it first");
         }
+        let mid = new_id();
         let now = now_ms();
         self.edit_thread(id, |t| {
             if t.members.is_empty() && (t.messages.is_empty() || t.title == "New chat") {
@@ -1326,7 +1327,7 @@ impl Chats {
                 t.title = title_from(&base);
             }
             t.messages.push(Msg {
-                id: new_id(),
+                id: mid.clone(),
                 role: Role::User,
                 text: text.trim_end().to_string(),
                 at: now,
@@ -1347,13 +1348,21 @@ impl Chats {
                 author_name: None,
                 trace: None,
                 interrupted: false,
-            wait: None,
+                wait: None,
                 plan: ctx.plan,
                 spec: None,
             });
             t.updated = now;
             Chats::touched(t);
         })?;
+        // The folder as it is before this message's work starts: a checkpoint to compare with or
+        // go back to. Off the send path, as a big folder takes a moment to hash.
+        if let Some(dir) = self.thread(id).and_then(|t| t.project).filter(|d| std::path::Path::new(d).is_dir()) {
+            let (sid, mid) = (id.to_string(), mid.clone());
+            std::thread::spawn(move || {
+                crate::checkpoint::take(std::path::Path::new(&dir), &sid, &mid);
+            });
+        }
         self.hops.lock().unwrap().insert(id.to_string(), 0);
         // `@codex ...` naming another harness tile hands the message to that
         // tile: it answers in its own session, and the answer is posted here.
@@ -2853,7 +2862,7 @@ mod tests {
                     author_name: None,
                     trace: None,
                     interrupted: false,
-            wait: None,
+                    wait: None,
                     plan: false,
                     spec: None,
                 });

@@ -328,7 +328,7 @@ impl Cauldron {
         let mut col = div().flex().flex_col().child(row.test_support());
         if open {
             if let Some((cmd, out)) = &s.shell {
-                col = col.child(self.shell_block(&key, cmd, out, live, s.error, pal, cx));
+                col = col.child(self.shell_block(&key, cmd, out, live, s.error, s.start, s.end, pal, cx));
             } else if let Some(d) = &s.detail {
                 let code = d.starts_with("$ ");
                 col = col.child(
@@ -358,7 +358,7 @@ impl Cauldron {
 
     /// An opened command (Tuff UI's shell block): `$ command` and its state, what it printed, and
     /// a foot with the line count and Copy.
-    fn shell_block(&self, key: &str, cmd: &str, out: &str, live: bool, error: bool, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
+    fn shell_block(&self, key: &str, cmd: &str, out: &str, live: bool, error: bool, start: u64, end: Option<u64>, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
         let (fg, fg3) = (c(pal.fg), c(pal.fg3));
         // Status is a glyph and a word; only a failure takes a colour (design system).
         let (word, icon, ink, fill) = if live {
@@ -367,6 +367,12 @@ impl Cauldron {
             ("Failed", Some("x"), c(pal.bad), ca(pal.bad, 0.12))
         } else {
             ("Done", Some("check"), c(pal.fg2), c(pal.selected))
+        };
+        // Tuff's header counts up while it runs and keeps the figure once it ends.
+        let took = if live { Some(now_ms().saturating_sub(start)) } else { end.map(|e| e.saturating_sub(start)) };
+        let word = match took {
+            Some(ms) => format!("{word} · {}", dur(ms)),
+            None => word.to_string(),
         };
         let n = out.lines().count();
         let hair = c(pal.line);
@@ -402,9 +408,39 @@ impl Cauldron {
                             .text_size(px(10.5))
                             .font_weight(FontWeight::MEDIUM)
                             .text_color(ink)
+                            .font_features(tnum())
                             .when_some(icon, |d, i| d.child(glyph(i, 10., ink)))
                             .child(word),
-                    ),
+                    )
+                    // Stop, while it runs: it ends the whole turn, as the composer's Stop does.
+                    .when_live(live, |d| {
+                        d.child(
+                            div()
+                                .id(format!("shell-stop-{key}"))
+                                .flex_none()
+                                .h(px(18.))
+                                .px(px(7.))
+                                .flex()
+                                .items_center()
+                                .rounded(px(radius::TAG))
+                                .text_size(px(10.5))
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(c(pal.fg2))
+                                .bg(c(pal.selected))
+                                .cursor_pointer()
+                                .hover(move |d| d.text_color(fg))
+                                .aria_label("Stop")
+                                .child("Stop")
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    cx.stop_propagation();
+                                    if let (Some(id), Some((_, chats))) = (this.open.clone(), this.core.as_ref()) {
+                                        chats.stop(&id);
+                                    }
+                                    this.refresh();
+                                    cx.notify();
+                                })),
+                        )
+                    }),
             )
             .when(!out.is_empty(), |d| {
                 d.child(div().id(format!("shell-out-{key}")).max_h(px(220.)).overflow_y_scroll().px(px(10.)).py(px(8.)).font_family(MONO).text_size(px(11.5)).line_height(px(17.)).text_color(fg3).child(out.to_string()))
@@ -420,7 +456,7 @@ impl Cauldron {
                     .text_color(fg3)
                     .font_features(tnum())
                     .child(match (n, live) {
-                        (0, true) => "No output yet".to_string(),
+                        (0, true) => "Waiting for output…".to_string(),
                         (0, false) => "No output".to_string(),
                         (1, _) => "1 line".to_string(),
                         (n, _) => format!("{n} lines"),

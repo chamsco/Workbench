@@ -109,6 +109,12 @@ pub(crate) fn image(name: &str, ink: &str) -> Option<Arc<Image>> {
     Some(i)
 }
 
+/// The mark for a route's chip: the model's maker when the model names one, else the maker behind
+/// the CLI's own short names, else the CLI's own mark.
+pub(crate) fn route_mark(provider: &str, model: Option<&str>) -> Option<&'static str> {
+    model.and_then(maker_mark).or_else(|| house_maker(provider)).or_else(|| cli_mark(provider))
+}
+
 mod badge {
     use super::super::*;
     use super::{image, maker_mark};
