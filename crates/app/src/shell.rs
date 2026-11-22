@@ -1632,17 +1632,17 @@ pub(crate) fn lift(l: Lift, pal: &Palette) -> Vec<BoxShadow> {
     let dark = pal.panel.0 < 0x80;
     let shade = |a: f32| hsla(0., 0., 0., if dark { a } else { a * 0.28 });
     let strong = matches!(l, Lift::Frame);
-    let edge = BoxShadow { color: if dark { hsla(0., 0., 1., if strong { 0.12 } else { 0.05 }) } else { hsla(0., 0., 0., if strong { 0.14 } else { 0.06 }) }, offset: point(px(0.), px(0.)), blur_radius: px(0.), spread_radius: px(1.), inset: false };
+    let edge = BoxShadow { color: if dark { hsla(0., 0., 1., if strong { 0.08 } else { 0.05 }) } else { hsla(0., 0., 0., if strong { 0.09 } else { 0.06 }) }, offset: point(px(0.), px(0.)), blur_radius: px(0.), spread_radius: px(1.), inset: false };
     let top = BoxShadow { color: hsla(0., 0., 1., if dark { 0.07 } else { 0.8 }), offset: point(px(0.), px(1.)), blur_radius: px(0.), spread_radius: px(0.), inset: true };
     let long = match l {
-        Lift::Frame => BoxShadow { color: shade(0.7), offset: point(px(0.), px(20.)), blur_radius: px(48.), spread_radius: px(-18.), inset: false },
+        Lift::Frame => BoxShadow { color: shade(0.45), offset: point(px(0.), px(20.)), blur_radius: px(48.), spread_radius: px(-18.), inset: false },
         Lift::Card => BoxShadow { color: shade(0.55), offset: point(px(0.), px(18.)), blur_radius: px(44.), spread_radius: px(-20.), inset: false },
         Lift::Box => BoxShadow { color: shade(0.8), offset: point(px(0.), px(24.)), blur_radius: px(48.), spread_radius: px(-18.), inset: false },
         Lift::Button => BoxShadow { color: shade(0.45), offset: point(px(0.), px(2.)), blur_radius: px(6.), spread_radius: px(-2.), inset: false },
     };
     if strong {
         // A close, tight shadow under the long one: the lip the buttons have.
-        let close = BoxShadow { color: shade(0.4), offset: point(px(0.), px(2.)), blur_radius: px(6.), spread_radius: px(-1.), inset: false };
+        let close = BoxShadow { color: shade(0.25), offset: point(px(0.), px(2.)), blur_radius: px(6.), spread_radius: px(-1.), inset: false };
         return vec![long, close, edge, top];
     }
     vec![long, edge, top]
