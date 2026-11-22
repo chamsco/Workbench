@@ -1635,6 +1635,25 @@ fn icon_button_in(id: impl Into<ElementId>, name: &str, label: &'static str, pal
         .aria_label(label)
 }
 
+/// The pane toggle: an icon button that takes the accent while the pane is open.
+fn fold_button(id: impl Into<ElementId>, label: &'static str, pal: &'static Palette, open: bool) -> Stateful<Div> {
+    let (rest, hover) = if open { (ca(pal.accent, 0.18), ca(pal.accent, 0.26)) } else { (gpui_kit::transparent_black(), ca(pal.fg, 0.05)) };
+    div()
+        .id(id)
+        .w(px(metric::SBTN))
+        .h(px(metric::SBTN))
+        .flex_none()
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(px(radius::CONTROL))
+        .cursor_pointer()
+        .bg(rest)
+        .hover(move |d| d.bg(hover))
+        .child(glyph("panel-right", 16., if open { c(pal.accent) } else { c(pal.fg2) }))
+        .aria_label(label)
+}
+
 /// The sidebar's padding (the board's `.sb`: 8 8 6 10).
 /// Room between the sidebar's top row and the apps row (Charles, 21 Nov 16:00Z: it was cramped).
 const APPS_TOP: f32 = 16.0;
@@ -2837,6 +2856,19 @@ impl Render for Cauldron {
                     .test_support()
             };
             let mut rr = pane("rail", s.rail).flex().flex_col().items_center().gap(px(4.)).pt(px(6.)).pb(px(8.)).border_l_1().border_color(c(pal.line));
+            // The fold toggle sits at the top of the rail, right under the window buttons (Charles,
+            // 22 Nov), and takes the accent while the pane is open so it is easy to find.
+            let open_now = self.drawer.is_some();
+            let fold = if open_now { "Hide support" } else { "Show support" };
+            rr = rr.child(
+                self.tipped("rb-fold", fold_button("rb-fold", fold, pal, open_now), fold, Side::Left, pal, cx)
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.fold_support();
+                        cx.notify();
+                    }))
+                    .test_support(),
+            );
+            rr = rr.child(div().w(px(20.)).h(px(1.)).my(px(4.)).bg(c(pal.line)));
             for (i, p) in RAIL_TOP.iter().enumerate() {
                 rr = rr.child(rail_button(self, ("rb", i), *p, cx));
             }
@@ -2849,15 +2881,6 @@ impl Render for Cauldron {
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.terminal = !this.terminal;
                         this.term_scroll.scroll_to_bottom();
-                        cx.notify();
-                    }))
-                    .test_support(),
-            );
-            let fold = if self.drawer.is_some() { "Hide support" } else { "Show support" };
-            rr = rr.child(div().flex_1()).child(
-                self.tipped("rb-fold", icon_button("rb-fold", "panel-right", fold, pal, false), fold, Side::Left, pal, cx)
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.fold_support();
                         cx.notify();
                     }))
                     .test_support(),
