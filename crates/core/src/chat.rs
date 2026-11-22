@@ -1437,12 +1437,37 @@ impl Chats {
             self.note(&sp.from, &sp.from, &format!("(Sub-agent not started: work has been handed on {} times already.)", crate::relay::MAX_HOPS));
             bail!("too many hand-offs");
         }
+        let main = parent.side_of.clone().unwrap_or_else(|| parent.id.clone());
+        // A crew member of a familiar: its standing thread under the captain gets the job.
+        if let Some(name) = sp.crew.as_deref() {
+            let agents = ctx.agents.clone().ok_or_else(|| anyhow!("agents are not open here"))?;
+            let captain = parent.agent.as_deref().and_then(|id| agents.get(id)).and_then(|a| a.lead).ok_or_else(|| anyhow!("only a familiar has a crew"))?;
+            let member = captain
+                .crew
+                .iter()
+                .filter_map(|id| agents.get(id))
+                .find(|a| a.name.eq_ignore_ascii_case(name.trim()) || a.id == name)
+                .ok_or_else(|| anyhow!("no crew member named {name}"))?;
+            let child = match self.crew_thread(&main, &member.id) {
+                Some(id) => id,
+                None => {
+                    let c = self.create_in(member.route.clone(), Scope { project: parent.project.clone(), agent: Some(member.id.clone()), title: Some(member.name.clone()), ..Scope::default() });
+                    self.edit_thread(&c.id, |t| {
+                        t.side_of = Some(main.clone());
+                        t.folder = parent.folder.clone();
+                    })?;
+                    c.id
+                }
+            };
+            let inb = Inbound { from: sp.from.clone(), text: sp.task.clone(), reply: true, as_note: false, hops, origin: None };
+            self.take_letter(&child, inb, ctx)?;
+            return Ok(child);
+        }
         let title = sp.title.clone().unwrap_or_else(|| sp.task.lines().next().unwrap_or("Side thread").chars().take(60).collect());
         let route = Route { kind: RouteKind::Cli, provider: sp.provider.clone(), model: sp.model.clone() };
         // A side thread of the stream that asked (Charles, 22 Nov: a stream is a coordinator, its
         // side threads are the normal threads it spawns), filed beside it and starting with the
         // context it chose.
-        let main = parent.side_of.clone().unwrap_or_else(|| parent.id.clone());
         let messages = match sp.context.as_deref() {
             // The stream is mid-turn when it delegates: only what is finished goes along.
             Some("whole") => parent.messages.iter().filter(|m| m.status == Status::Done).cloned().collect(),
@@ -1458,6 +1483,29 @@ impl Chats {
         let inb = Inbound { from: sp.from.clone(), text: sp.task.clone(), reply: true, as_note: false, hops, origin: None };
         self.take_letter(&child.id, inb, ctx)?;
         Ok(child.id)
+    }
+
+    /// Open a familiar's thread (Charles, 22 Nov): its captain's own stream in its project, which
+    /// starts with the captain's intro so the user knows what it needs.
+    pub fn start_familiar(&self, agents: &crate::agents::Agents, a: &crate::agents::Agent) -> Result<String> {
+        let lead = a.lead.as_ref().ok_or_else(|| anyhow!("{} is not a familiar", a.name))?;
+        let crew: Vec<_> = lead.crew.iter().filter_map(|id| agents.get(id)).collect();
+        let t = self.create_in(
+            a.route.clone(),
+            Scope { project: Some(lead.project.clone()), agent: Some(a.id.clone()), title: Some(a.name.clone()), ..Scope::default() },
+        );
+        let mut m = Msg::new(Role::Assistant, crate::agents::intro(a, &crew), Status::Done);
+        m.author = Some(a.id.clone());
+        m.author_name = Some(a.name.clone());
+        self.edit_thread(&t.id, |t| t.messages.push(m))?;
+        Ok(t.id)
+    }
+
+    /// The thread a familiar's crew member keeps under its captain's stream: the same one job after
+    /// job, so it remembers the last one (nobody is killed when a job ends).
+    pub fn crew_thread(&self, main: &str, agent: &str) -> Option<String> {
+        let all = self.threads.lock().unwrap();
+        all.values().filter(|t| t.side_of.as_deref() == Some(main) && t.agent.as_deref() == Some(agent) && !t.archived).max_by_key(|t| t.updated).map(|t| t.id.clone())
     }
 
     /// A side thread hands its work back (Charles, 22 Nov: "take on the work or send it back"):
@@ -3198,7 +3246,7 @@ mod tests {
         let dir = tmp("delegate");
         let (c, _rt) = chats(&dir);
         let parent = c.create_in(route(), Scope { project: Some("/work/app".into()), ..Scope::default() }).id;
-        let sp = crate::relay::Spawn { from: parent.clone(), provider: "cauldron-test-missing-cli".into(), model: Some("m1".into()), title: Some("Audit billing".into()), task: "Audit the billing page".into(), context: None };
+        let sp = crate::relay::Spawn { from: parent.clone(), provider: "cauldron-test-missing-cli".into(), model: Some("m1".into()), title: Some("Audit billing".into()), task: "Audit the billing page".into(), context: None, crew: None };
         let child = c.spawn_sub(&sp, dead_ctx()).unwrap();
         settle(&c, &[&parent, &child]);
         let ct = c.thread(&child).unwrap();
@@ -3231,7 +3279,7 @@ mod tests {
             t.messages.push(Msg::new(Role::Assistant, String::new(), Status::Streaming));
         })
         .unwrap();
-        let sp = crate::relay::Spawn { from: parent.clone(), provider: "cauldron-test-missing-cli".into(), model: None, title: Some("Docs".into()), task: "Write the docs".into(), context: Some("whole".into()) };
+        let sp = crate::relay::Spawn { from: parent.clone(), provider: "cauldron-test-missing-cli".into(), model: None, title: Some("Docs".into()), task: "Write the docs".into(), context: Some("whole".into()), crew: None };
         let child = c.spawn_sub(&sp, dead_ctx()).unwrap();
         settle(&c, &[&parent, &child]);
         let ct = c.thread(&child).unwrap();
@@ -3247,6 +3295,36 @@ mod tests {
         let got = pt.messages[before..].iter().find(|m| m.role == Role::User).expect("a letter from the side thread");
         assert!(got.text.contains("Docs written.") && got.text.contains("\"Docs\""), "{}", got.text);
         assert!(c.send_back(&parent, dead_ctx()).is_err(), "a stream has nothing to send back to");
+    }
+
+    #[test]
+    fn a_familiar_opens_with_its_intro_and_its_crew_keeps_one_thread() {
+        let dir = tmp("familiar");
+        let (c, _rt) = chats(&dir);
+        let agents = Arc::new(crate::agents::Agents::open(dir.join("agents")));
+        let tester = agents.save(crate::agents::Agent { job: "Writes and runs the tests.".into(), ..crate::agents::Agent::new("Tester", route()) }).unwrap();
+        let mut cap = crate::agents::Agent::new("Ez", route());
+        cap.lead = Some(crate::agents::Lead { project: "/work/app".into(), crew: vec![tester.id.clone()] });
+        let cap = agents.save(cap).unwrap();
+        let main = c.start_familiar(&agents, &cap).unwrap();
+        let t = c.thread(&main).unwrap();
+        assert_eq!((t.agent.as_deref(), t.project.as_deref(), t.title.as_str()), (Some(cap.id.as_str()), Some("/work/app"), "Ez"));
+        let hi = &t.messages[0];
+        assert!(hi.text.starts_with("I'm Ez, your captain for **app**") && hi.text.contains("What to start on now") && hi.text.contains("**Tester**"), "{}", hi.text);
+        assert!(agents.brief_in(&cap, None).contains("- Tester: Writes and runs the tests."), "the captain knows its crew");
+
+        let ctx = Ctx { agents: Some(agents.clone()), ..dead_ctx() };
+        let job = |task: &str| crate::relay::Spawn { from: main.clone(), provider: String::new(), model: None, title: None, task: task.into(), context: None, crew: Some("tester".into()) };
+        let first = c.spawn_sub(&job("Test the login"), ctx.clone()).unwrap();
+        settle(&c, &[&main, &first]);
+        let second = c.spawn_sub(&job("Test the logout"), ctx.clone()).unwrap();
+        settle(&c, &[&main, &second]);
+        assert_eq!(first, second, "a crew member keeps its thread between jobs");
+        let ct = c.thread(&first).unwrap();
+        assert_eq!((ct.side_of.as_deref(), ct.agent.as_deref()), (Some(main.as_str()), Some(tester.id.as_str())));
+        assert!(ct.messages.iter().any(|m| m.text == "Test the login") && ct.messages.iter().any(|m| m.text == "Test the logout"));
+        let bad = crate::relay::Spawn { crew: Some("Nobody".into()), ..job("x") };
+        assert!(c.spawn_sub(&bad, ctx).is_err(), "only its own crew");
     }
 
     #[test]

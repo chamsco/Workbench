@@ -72,10 +72,27 @@ pub struct Agent {
     /// Its job on a clock, owned by the bot (see [`Routine`]).
     #[serde(default)]
     pub routines: Vec<Routine>,
+    /// Set when this agent is a familiar: a captain that leads a project (see [`Lead`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lead: Option<Lead>,
     #[serde(default)]
     pub created: u64,
     #[serde(default)]
     pub updated: u64,
+}
+
+/// A familiar (Charles, 22 Nov, after Capy's captains): a long-lived agent that knows one
+/// project end to end and leads a standing crew. Each crew member is an agent of its own, with
+/// its own memory, and keeps one side thread under the captain's thread between jobs: nobody is
+/// killed when a job ends.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+pub struct Lead {
+    /// The project folder it works in.
+    #[serde(default)]
+    pub project: String,
+    /// Its crew, by agent id.
+    #[serde(default)]
+    pub crew: Vec<String>,
 }
 
 fn yes() -> bool {
@@ -87,6 +104,30 @@ fn browser_only() -> Vec<String> {
 }
 
 impl Agent {
+    /// A new agent with a name and a model, everything else at its default (ids come from save).
+    pub fn new(name: &str, route: Route) -> Agent {
+        Agent {
+            id: String::new(),
+            name: name.into(),
+            job: String::new(),
+            avatar: Avatar::default(),
+            personality: String::new(),
+            route,
+            fallbacks: vec![],
+            shared: vec![],
+            computer: Computer::default(),
+            memory: true,
+            off: vec![],
+            apps_off: vec![],
+            hands: browser_only(),
+            hook: String::new(),
+            routines: vec![],
+            lead: None,
+            created: 0,
+            updated: 0,
+        }
+    }
+
     pub fn allows(&self, rule: &str) -> bool {
         !self.off.iter().any(|o| o == rule)
     }
@@ -326,6 +367,43 @@ mod civil {
 /// The CLI tools (Claude Code's names) that a bot's rules turn off. Any rule
 /// also takes the tools that hand work to something the rules don't cover
 /// (a cloud agent, another session, a later run).
+/// What a new familiar says first in its thread (after Capy's captains: who it is, then the two
+/// things it needs before it is useful). Written by the app, not the model, so it shows at once.
+pub fn intro(a: &Agent, crew: &[Agent]) -> String {
+    let project = a.lead.as_ref().map(|l| l.project.as_str()).filter(|p| !p.is_empty());
+    let name = project.and_then(|p| Path::new(p).file_name()?.to_str()).unwrap_or("this project");
+    let mut s = format!(
+        "I'm {}, your captain for **{name}**. I learn this project end to end, keep a standing crew on it, and come back to you when something needs your call.\n\nTwo things I need from you before I'm useful:\n\n1. **What I'm for.** The outcome you want from {name}, and what good looks like.\n2. **What to start on now.** One concrete first task, so I can get going while we fill in the rest.\n\n",
+        a.name
+    );
+    if crew.is_empty() {
+        s.push_str("My crew is empty for now. Tell me which roles you want (a tester, a writer, a reviewer) and I'll put them to work.");
+    } else {
+        let names: Vec<String> = crew.iter().map(|c| format!("**{}**", c.name)).collect();
+        s.push_str(&format!("My crew: {}. Each keeps its own thread under mine between jobs.", names.join(", ")));
+    }
+    s
+}
+
+/// The captain's part of its brief: what it leads and how it hands its crew a job.
+pub fn lead_brief(a: &Agent, crew: &[Agent]) -> Option<String> {
+    let lead = a.lead.as_ref()?;
+    let mut s = format!(
+        "\n\nYou are a familiar: the captain of the project in {}. You know it end to end, keep track of what was decided, and lead a standing crew. Do small things yourself; hand the rest to your crew with the ask_crew tool, then judge what comes back before telling the user.",
+        lead.project
+    );
+    if crew.is_empty() {
+        s.push_str(" Your crew is empty: when a job needs one, say which role you would add.");
+    } else {
+        s.push_str(" Your crew:");
+        for c in crew {
+            let job = c.job.lines().find(|l| !l.trim().is_empty()).unwrap_or("no job written yet").trim();
+            s.push_str(&format!("\n- {}: {job}", c.name));
+        }
+    }
+    Some(s)
+}
+
 pub fn denied_tools(deny: &[String]) -> Vec<String> {
     let handoff = if deny.is_empty() { &[][..] } else { &["RemoteTrigger", "SendMessage", "CronCreate", "ScheduleWakeup"][..] };
     deny.iter()
@@ -570,6 +648,10 @@ impl Agents {
             s.push_str(
                 "\nA message starting `Routine · <name>` is a routine that is due now: carry it out, then say in one line what you did.",
             );
+        }
+        if a.lead.is_some() {
+            let crew: Vec<Agent> = a.lead.iter().flat_map(|l| l.crew.iter()).filter_map(|id| self.get(id)).collect();
+            s.push_str(&lead_brief(a, &crew).unwrap_or_default());
         }
         // Two fenced blocks the chat face draws as controls: a question with
         // choices, and a routine the user adds with one click. Both are plain
@@ -972,6 +1054,7 @@ mod tests {
             routines: vec![],
             created: 0,
             updated: 0,
+            lead: None,
         }
     }
 

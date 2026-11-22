@@ -77,6 +77,7 @@ fn a_webhook_wakes_only_its_bot() {
             routines: vec![],
             created: 0,
             updated: 0,
+            lead: None,
         })
         .unwrap();
 

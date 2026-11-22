@@ -24,6 +24,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 mod apps;
+mod captain;
 mod backdrop;
 mod decide;
 mod familiar;
@@ -4109,7 +4110,10 @@ mod tests {
             window.render_frame(cx);
             window.click("new-familiar", cx);
             window.render_frame(cx);
-            assert_eq!(window.find("nt-heading").label(), Some("What should a familiar take on?"));
+            assert!(window.try_find("cap-form").is_some(), "New familiar opens the captain form");
+            window.click("cap-mission", cx);
+            window.render_frame(cx);
+            assert_eq!(window.find("nt-heading").label(), Some("What should a mission take on?"), "the goal pipeline is a mission now");
             window.click(("fn", 0usize), cx);
             window.render_frame(cx);
             window.click("new-thread", cx);

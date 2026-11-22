@@ -42,6 +42,9 @@ pub(crate) struct Start {
     /// Familiar on (S1): Start hands the goal to a familiar in the chosen folder instead of
     /// opening a stream.
     pub(crate) familiar: bool,
+    /// The New familiar form (captain.rs), and the familiars on disk for the sidebar.
+    pub(crate) captain: Option<super::captain::Captain>,
+    pub(crate) captains: Vec<backspace_core::agents::Agent>,
     /// Every coding CLI and its logins (`accounts::status_all`), for the route menu and Settings.
     pub(crate) providers: Vec<backspace_core::accounts::CliStatus>,
     pub(crate) providers_loading: bool,
@@ -122,6 +125,7 @@ impl Cauldron {
         self.selected = None;
         self.familiar = None;
         self.start.familiar = false;
+        self.start.captain = None;
         self.coordinator = None;
         self.agents.clear();
         self.idle.clear();
@@ -523,7 +527,7 @@ impl Cauldron {
         });
         // What the box says under it: why Start waits, a refusal, or a machine's answer.
         let line = |id: &'static str, text: String, col: Hsla| div().id(id).mt(px(10.)).px(px(6.)).text_size(px(12.)).line_height(px(17.)).text_color(col).aria_label(text.clone()).child(text).test_support();
-        let heading_text = if self.start.familiar { "What should a familiar take on?" } else { "What should Cauldron work on?" };
+        let heading_text = if self.start.familiar { "What should a mission take on?" } else { "What should Cauldron work on?" };
         let heading = div()
             .id("nt-heading")
             .pb(px(18.))
@@ -715,7 +719,7 @@ impl Cauldron {
     }
 
     /// The folder menu: No folder, then the recent project folders from prefs.
-    fn folder_menu(&self, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn folder_menu(&self, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
         let (fg, fg2, fg3) = (c(pal.fg), c(pal.fg2), c(pal.fg3));
         let mut menu = div()
             .id("folder-menu")

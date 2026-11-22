@@ -237,7 +237,13 @@ fn status_line(i: usize, label: String, writing: bool, since: Option<u64>, now: 
 
 /// The settings a send carries: the saved prefs, and Plan mode when it is on.
 pub(super) fn ctx(plan: bool) -> Ctx {
-    Ctx { prefs: Prefs::load(), memory: None, agents: None, plan }
+    Ctx { prefs: Prefs::load(), memory: None, agents: Some(agents()), plan }
+}
+
+/// The user's agents (familiars and their crews), opened once.
+pub(super) fn agents() -> Arc<backspace_core::agents::Agents> {
+    static A: std::sync::OnceLock<Arc<backspace_core::agents::Agents>> = std::sync::OnceLock::new();
+    A.get_or_init(|| Arc::new(backspace_core::agents::Agents::open(Prefs::data_dir().join("agents")))).clone()
 }
 
 /// What the coding CLIs may do without asking (the `cli_permission` pref), as the board's trust
@@ -441,6 +447,7 @@ impl Cauldron {
         match (&self.open, &self.thread) {
             (Some(_), Some(t)) => self.thread_view(t, pal, cx),
             (Some(_), None) => centred("thread-gone", "This thread is no longer here".into(), "It was deleted, or its file could not be read."),
+            (None, _) if self.start.captain.is_some() => self.captain_view(pal, cx),
             (None, _) => self.new_thread_view(pal, window, cx),
         }
     }

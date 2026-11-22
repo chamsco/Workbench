@@ -57,6 +57,7 @@ fn agent(name: &str, job: &str) -> Agent {
         routines: vec![],
         created: 0,
         updated: 0,
+        lead: None,
     }
 }
 

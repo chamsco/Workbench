@@ -509,6 +509,7 @@ impl Cauldron {
     /// Debug builds with `CAULDRON_FIXTURE_FAMILIARS=1` show the made-up ones instead.
     pub(crate) fn load_familiars(&mut self, cx: &mut Context<Self>) {
         self.load_inbox(cx);
+        self.start.captains = super::captain::load_captains();
         #[cfg(debug_assertions)]
         if std::env::var_os("CAULDRON_FIXTURE_FAMILIARS").is_some() {
             self.fam_views = fixtures();
@@ -725,8 +726,8 @@ impl Cauldron {
                 .text_size(px(11.5))
                 .line_height(px(16.))
                 .text_color(fg3)
-                .aria_label("Familiars")
-                .child("Familiars")
+                .aria_label("Missions")
+                .child("Missions")
                 .when_live(self.fam_fixture, |d| d.child(div().ml_auto().child(preview_tag("familiars-preview", pal).test_support())))
                 .child(
                     // New familiar beside the heading (Charles, 20 Nov: a New familiar button, as Capy has
@@ -741,9 +742,9 @@ impl Cauldron {
                         .rounded(px(radius::TAG))
                         .cursor_pointer()
                         .hover(|d| d.bg(c(pal.hover)))
-                        .aria_label(super::apps::NEW_FAMILIAR)
+                        .aria_label("New mission")
                         .child(glyph("plus", 13., fg3))
-                        .on_click(cx.listener(|this, _, window, cx| this.new_familiar(window, cx)))
+                        .on_click(cx.listener(|this, _, window, cx| this.new_mission(window, cx)))
                         .test_support(),
                 )
                 .test_support(),
@@ -757,8 +758,8 @@ impl Cauldron {
                     .text_size(px(11.5))
                     .line_height(px(16.))
                     .text_color(fg3)
-                    .aria_label("No familiars yet")
-                    .child("Hand an agent a goal with + or New familiar under Agents.")
+                    .aria_label("No missions yet")
+                    .child("Hand a goal to a mission with +. Familiars live under Agents.")
                     .test_support(),
             );
         }

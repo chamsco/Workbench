@@ -204,6 +204,11 @@ pub fn serve() -> Result<()> {
                             "title": {"type": "string", "description": "A short name for the side thread"},
                             "context": {"type": "string", "enum": ["none", "last", "whole"], "description": "What it starts knowing besides the task: nothing (default), your last reply, or this whole conversation"}
                         }, "required": ["provider", "task"]}}));
+                    tools.push(json!({"name": "ask_crew", "description": "For a familiar (a captain with a crew): hand one of your crew members a job, by name. It works in its own thread under yours, which it keeps between jobs, and its answer comes back to you as your next message. Give it everything the job needs.",
+                        "inputSchema": {"type": "object", "properties": {
+                            "member": {"type": "string", "description": "The crew member's name"},
+                            "task": {"type": "string", "description": "The job, with what to report back"}
+                        }, "required": ["member", "task"]}}));
                     tools.push(json!({"name": "list_providers", "description": "The coding CLIs installed on this machine that delegate can start, and whether each is signed in.",
                         "inputSchema": {"type": "object", "properties": {}}}));
                 }
@@ -288,6 +293,10 @@ pub fn serve() -> Result<()> {
                             a["task"].as_str().unwrap_or(""),
                             a["context"].as_str(),
                         ),
+                    },
+                    "ask_crew" => match stream() {
+                        None => Err(anyhow!("delegation is not open to this session")),
+                        Some(me) => crate::relay::ask_crew(&crate::prefs::Prefs::data_dir(), &me, a["member"].as_str().unwrap_or(""), a["task"].as_str().unwrap_or("")),
                     },
                     "memory_search" | "memory_save" => match memory_scope() {
                         None => Err(anyhow!("memory is not open to this session")),

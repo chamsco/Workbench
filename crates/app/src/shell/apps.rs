@@ -80,8 +80,55 @@ impl Cauldron {
                 list.child(note("library-later", "The Librarian is not built yet", "Its tabs show sample proposals, notes and a graph, marked Mockup."))
             }
             "Agents" => {
+                // Familiars: captains with their crews (captain.rs), each opening its stream.
+                list = list.child(head("captains-head", "Familiars".into()));
+                if self.start.captains.is_empty() {
+                    list = list.child(note("captains-empty", "No familiars yet", "New familiar makes a captain that learns one project and leads a standing crew."));
+                }
+                let roster_all = super::thread::agents();
+                for (i, a) in self.start.captains.iter().enumerate() {
+                    let id = a.id.clone();
+                    let project = a.lead.as_ref().map(|l| l.project.rsplit(['/', '\\']).find(|s| !s.is_empty()).unwrap_or("").to_string()).unwrap_or_default();
+                    list = list.child(
+                        div()
+                            .id(("captain-row", i))
+                            .h(px(46.))
+                            .px(px(8.))
+                            .flex()
+                            .items_center()
+                            .gap(px(9.))
+                            .rounded(px(radius::CONTROL))
+                            .cursor_pointer()
+                            .hover(|d| d.bg(c(pal.hover)))
+                            .aria_label(format!("{}, captain of {project}", a.name))
+                            .child(super::captain::face(&a.avatar, 30., pal))
+                            .child(div().flex_1().min_w_0().flex().flex_col().child(div().truncate().text_color(fg).child(a.name.clone())).child(div().truncate().text_size(px(11.)).text_color(fg3).child(format!("Captain · {project}"))))
+                            .on_click(cx.listener(move |this, _, _, cx| this.open_captain(&id, cx)))
+                            .test_support(),
+                    );
+                    for (j, m) in a.lead.iter().flat_map(|l| l.crew.iter()).filter_map(|id| roster_all.get(id)).enumerate() {
+                        list = list.child(
+                            div()
+                                .id(("crew-row", i * 16 + j))
+                                .ml(px(22.))
+                                .pl(px(10.))
+                                .h(px(28.))
+                                .flex()
+                                .items_center()
+                                .gap(px(8.))
+                                .border_l_1()
+                                .border_color(c(pal.line))
+                                .text_size(px(12.))
+                                .text_color(fg2)
+                                .aria_label(format!("{}, crew of {}", m.name, a.name))
+                                .child(super::captain::face(&m.avatar, 18., pal))
+                                .child(div().truncate().child(m.name.clone()))
+                                .test_support(),
+                        );
+                    }
+                }
                 let (real, roster) = self.roster();
-                list = list.child(div().flex().items_center().gap(px(6.)).child(head("agents-head", "Familiars".into())).children((!real).then(|| Self::mock_tag(pal))));
+                list = list.child(div().flex().items_center().gap(px(6.)).child(head("agents-head", "Missions".into())).children((!real).then(|| Self::mock_tag(pal))));
                 for (i, (name, _, state, _)) in roster.into_iter().enumerate() {
                     let on = self.section_page && self.pages.agent == i;
                     let dot = match state {
@@ -115,7 +162,7 @@ impl Cauldron {
                     );
                 }
                 if self.fam_views.is_empty() {
-                    list = list.child(note("agents-empty", "No familiars yet", "New familiar hands an agent a goal in a folder; it plans, builds, verifies and ships."));
+                    list = list.child(note("agents-empty", "No missions yet", "A mission hands a goal to the pipeline in a folder: it plans, builds, verifies and ships."));
                 }
                 list
             }
@@ -151,9 +198,15 @@ impl Cauldron {
         }
     }
 
-    /// The New stream screen with Familiar on: the goal goes to a familiar in a folder (the
-    /// Captains-style entry point Charles asked for; the box's Familiar chip was removed on 20 Nov).
+    /// New familiar: the captain form (captain.rs; Charles, 22 Nov). The goal pipeline is a
+    /// mission now, one link away on that form (`new_mission`).
     pub(super) fn new_familiar(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_captain_form(window, cx);
+    }
+
+    /// The New stream screen with a mission on: the goal goes to the pipeline in a folder
+    /// (plan, Rampart, builders, ship).
+    pub(super) fn new_mission(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.settings = None;
         self.new_thread(window, cx);
         self.start.familiar = true;
