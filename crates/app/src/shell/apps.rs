@@ -1,9 +1,11 @@
 //! The apps tray (19 Nov, after Charles's Ghostex reference and the context sidebar approved on
 //! 13 Nov): each app swaps the sidebar's list. Streams is the stream list; Folders groups streams
 //! by the folder they run in (a click filters Streams to it); Agents lists the familiars. Usage left
-//! the row on 21 Nov for the sidebar foot (usage.rs). Automations and Library have no source yet and say so.
+//! the row on 21 Nov for the sidebar foot (usage.rs). Automations lists the familiars' jobs on a
+//! clock (automations.rs); the Librarian has no source yet and says so.
 
 use super::*;
+use gpui_kit::prelude::FluentBuilder;
 
 /// The apps row's geometry: separate buttons, left-packed.
 pub(crate) const TRAY_BTN_W: f32 = 32.0;
@@ -106,10 +108,22 @@ impl Cauldron {
                             .on_click(cx.listener(move |this, _, _, cx| this.open_captain(&id, cx)))
                             .test_support(),
                     );
+                    let chats = self.core.as_ref().map(|(_, c)| c.clone());
+                    let main = chats.as_ref().and_then(|c| c.familiar_main(a));
                     for (j, m) in a.lead.iter().flat_map(|l| l.crew.iter()).filter_map(|id| roster_all.get(id)).enumerate() {
+                        // A crew member's standing thread under the captain's stream, once it has had a job.
+                        let side = chats.as_ref().zip(main.as_deref()).and_then(|(c, main)| c.crew_thread(main, &m.id));
                         list = list.child(
                             div()
                                 .id(("crew-row", i * 16 + j))
+                                .when_some(side, |d, t| {
+                                    d.cursor_pointer().hover(|d| d.text_color(fg)).on_click(cx.listener(move |this, _, _, cx| {
+                                        this.select_section(0, cx);
+                                        this.refresh();
+                                        this.open_thread(t.clone());
+                                        cx.notify();
+                                    }))
+                                })
                                 .ml(px(22.))
                                 .pl(px(10.))
                                 .h(px(28.))
@@ -166,7 +180,23 @@ impl Cauldron {
                 }
                 list
             }
-            _ => list.child(note("automations-later", "Automations arrive in a later build", "Scheduled and repeating streams will be listed here.")),
+            _ => {
+                // Automations: each familiar's jobs on a clock (automations.rs), soonest first.
+                list = list.child(head("autos-head", "Automations".into()));
+                if self.autos.list.is_empty() {
+                    return list.child(note("autos-empty", "No automations yet", "New automation gives a familiar a job on a clock."));
+                }
+                for (i, (a, r)) in self.autos.list.iter().enumerate() {
+                    let dot = if r.enabled { c(pal.ok) } else { c(pal.fg4) };
+                    list = list.child(
+                        row(("auto-row", i), Some(dot), r.name.clone(), super::automations::short(r))
+                            .aria_description(format!("{}, {}", a.name, r.summary()))
+                            .on_click(cx.listener(move |this, _, window, cx| this.open_automation(i, window, cx)))
+                            .test_support(),
+                    );
+                }
+                list
+            }
         }
     }
 
@@ -178,6 +208,7 @@ impl Cauldron {
             Some("Streams") | None => Some(("new-thread", "square-pen", NEW_TAB)),
             Some("Library") => Some(("new-folder", "folder-plus", "Open a folder")),
             Some("Agents") => Some(("new-familiar", "sparkles", NEW_FAMILIAR)),
+            Some("Automations") => Some(("new-automation", "calendar", "New automation")),
             _ => None,
         }
     }
@@ -191,6 +222,7 @@ impl Cauldron {
                 self.pick_folder(window, cx);
             }
             Some("Agents") => self.new_familiar(window, cx),
+            Some("Automations") => self.open_automation_form(None, window, cx),
             _ => {
                 self.settings = None;
                 self.new_thread(window, cx);

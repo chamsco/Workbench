@@ -1633,6 +1633,36 @@ impl Chats {
         Ok(t.id)
     }
 
+    /// A familiar's own stream: the newest thread it leads in its project that is nobody's side.
+    pub fn familiar_main(&self, a: &crate::agents::Agent) -> Option<String> {
+        let project = a.lead.as_ref().map(|l| l.project.as_str());
+        let all = self.threads.lock().unwrap();
+        all.values()
+            .filter(|t| t.agent.as_deref() == Some(a.id.as_str()) && t.side_of.is_none() && t.members.is_empty() && !t.archived && t.project.as_deref() == project)
+            .max_by_key(|t| t.updated)
+            .map(|t| t.id.clone())
+    }
+
+    /// The thread an automation posts into: the one it used last time while it is still there,
+    /// else a new side thread under the familiar's stream (started first when it has none),
+    /// titled after the automation.
+    pub fn automation_thread(&self, a: &crate::agents::Agent, r: &crate::agents::Routine) -> String {
+        if !r.thread.is_empty() && self.thread(&r.thread).is_some_and(|t| !t.archived) {
+            return r.thread.clone();
+        }
+        let project = a.lead.as_ref().map(|l| l.project.clone());
+        let main = self.familiar_main(a).or_else(|| self.start_familiar(a).ok()).and_then(|m| self.thread(&m));
+        let mut t = self.create_in(a.route.clone(), Scope { project, agent: Some(a.id.clone()), title: Some(r.name.clone()), ..Scope::default() });
+        if let Some(m) = main {
+            t.side_of = Some(m.id.clone());
+            t.folder = m.folder.clone();
+        }
+        let id = t.id.clone();
+        self.threads.lock().unwrap().insert(id.clone(), t);
+        self.save(&id);
+        id
+    }
+
     /// The thread a familiar's crew member keeps under its captain's stream: the same one job after
     /// job, so it remembers the last one (nobody is killed when a job ends).
     pub fn crew_thread(&self, main: &str, agent: &str) -> Option<String> {
@@ -3484,6 +3514,39 @@ mod tests {
         assert!(ct.messages.iter().any(|m| m.text == "Test the login") && ct.messages.iter().any(|m| m.text == "Test the logout"));
         let bad = crate::relay::Spawn { crew: Some("Nobody".into()), ..job("x") };
         assert!(c.spawn_sub(&bad, ctx).is_err(), "only its own crew");
+    }
+
+    #[test]
+    fn an_automation_runs_in_its_own_side_thread_under_the_familiar() {
+        let dir = tmp("automation");
+        let (c, _rt) = chats(&dir);
+        let agents = Arc::new(crate::agents::Agents::open(dir.join("agents")));
+        let mut cap = crate::agents::Agent::new("Ez", route());
+        cap.lead = Some(crate::agents::Lead { project: "/work/app".into(), crew: vec![] });
+        let cap = agents.save(cap).unwrap();
+        let r = crate::agents::Routine { name: "Triage PRs".into(), instructions: "Read the open PRs and list what blocks each.".into(), kind: "every".into(), every_minutes: 60, enabled: true, ..Default::default() };
+        let cap = agents.routine_save(&cap.id, r).unwrap();
+        let r = cap.routines[0].clone();
+        assert!(r.next_run > now_ms(), "it waits for its first wake");
+        assert!(crate::automations::due(&c, &agents, now_ms()).is_empty());
+        assert_eq!(crate::automations::due(&c, &agents, r.next_run).len(), 1, "due once its wake passes");
+
+        let ctx = || Ctx { agents: Some(agents.clone()), ..dead_ctx() };
+        let id = crate::automations::run(&c, &agents, &cap, &r, false, ctx()).unwrap();
+        settle(&c, &[&id]);
+        let t = c.thread(&id).unwrap();
+        let main = c.familiar_main(&cap).expect("the familiar's stream is started for it");
+        assert_eq!((t.side_of.as_deref(), t.title.as_str(), t.agent.as_deref()), (Some(main.as_str()), "Triage PRs", Some(cap.id.as_str())));
+        assert!(t.messages.iter().any(|m| m.role == Role::User && m.text.contains("Read the open PRs")), "the instructions go in");
+        assert!(c.thread(&main).unwrap().messages.is_empty(), "the familiar's own chat stays clean");
+        let saved = agents.get(&cap.id).unwrap().routines[0].clone();
+        assert_eq!((saved.thread.as_str(), saved.runs, saved.next_run), (id.as_str(), 1, r.next_run), "Run now books a run and leaves the wake");
+
+        let again = crate::automations::run(&c, &agents, &agents.get(&cap.id).unwrap(), &saved, true, ctx()).unwrap();
+        assert_eq!(again, id, "every run lands in the same thread");
+        assert!(agents.get(&cap.id).unwrap().routines[0].next_run > r.next_run, "a scheduled run moves the wake on");
+        let plain = agents.save(crate::agents::Agent::new("Bot", route())).unwrap();
+        assert!(crate::automations::run(&c, &agents, &plain, &r, false, ctx()).is_err(), "only familiars run automations");
     }
 
     #[test]

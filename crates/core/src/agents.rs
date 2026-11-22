@@ -185,6 +185,9 @@ pub struct Routine {
     /// Minutes east of UTC, sent by the UI (JS offset negated).
     #[serde(default)]
     pub utc_offset_minutes: i32,
+    /// The thread its runs post into, once it has fired (automations.rs). Empty until then.
+    #[serde(default)]
+    pub thread: String,
     #[serde(default)]
     pub created: u64,
     #[serde(default)]
@@ -628,7 +631,7 @@ impl Agents {
                 s.push_str(&format!("\n- {}: {} — {}", r.name.trim(), r.summary(), what));
             }
             s.push_str(
-                "\nA message starting `Routine · <name>` is a routine that is due now: carry it out, then say in one line what you did.",
+                "\nA message starting `Routine · <name>`, or one saying an automation is due, is a routine to do now: carry it out, then say in one line what you did.",
             );
         }
         if a.lead.is_some() {
@@ -707,6 +710,16 @@ impl Agents {
     /// where it was.
     pub fn routine_posted(&self, agent: &str, routine: &str) -> Result<Agent> {
         self.book(agent, routine, now_ms(), false)
+    }
+
+    /// Remembers the thread a routine's runs post into, so the next run lands there too.
+    pub fn routine_thread(&self, agent: &str, routine: &str, thread: &str) -> Result<Agent> {
+        let _g = self.lock.lock().unwrap_or_else(|e| e.into_inner());
+        let mut a = self.get(agent).ok_or_else(|| anyhow!("no such agent"))?;
+        let r = a.routines.iter_mut().find(|r| r.id == routine).ok_or_else(|| anyhow!("no such routine"))?;
+        r.thread = thread.to_string();
+        self.write(&a)?;
+        Ok(a)
     }
 
     fn book(&self, agent: &str, routine: &str, at: u64, advance: bool) -> Result<Agent> {

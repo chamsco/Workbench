@@ -24,6 +24,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 mod apps;
+mod automations;
 mod captain;
 mod slash;
 mod plan;
@@ -387,6 +388,8 @@ pub(crate) struct Cauldron {
     plan_open: bool,
     plan_flips: usize,
     /// The open Effort or trust menu, by its chip's id (chipmenu.rs).
+    /// The Automations page: every familiar's jobs on a clock, and the form (automations.rs).
+    autos: automations::State,
     chip_menu: Option<&'static str>,
     plan_hover: Option<usize>,
     plan_edit: Option<(usize, Entity<InputState>, Subscription)>,
@@ -685,7 +688,7 @@ impl Cauldron {
     }
 
     pub(crate) fn new() -> Self {
-        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, support_data: Default::default(), diff_since: None, restore_ask: false, files_open: Default::default(), painting: false, glass: Default::default(), plane: Default::default(), mark_ticker: None, ask_hover: false, ask_open: None, ask_answered: Default::default(), fam_questions: Default::default(), frost: backdrop::FrostLevel::Heavy, stream_bg: None, bg_wipe: None, stream_menu: None, closed_sides: Default::default(), sides_folded: Default::default(), groups_folded: Default::default(), archive_open: false, color_target: theme::Target::Sidebar, hex_input: None, theme_mode: String::new(), root_focus: None, plan: false, open_in_menu: false, open_in: thread::OpenIn::Folder, search_open: false, indent: false, indent_run: (0.0, None), indent_to: 0.0, sidebar_w: metric::SIDEBAR_W, sidebar_drag: None, link: None, link_menu: None, link_hover: Default::default(), browser: Default::default(), browser_slot: Default::default(), usage: Default::default(), usage_page: false, section_page: false, pages: Default::default(), usage_hover: false, usage_card_hover: false, settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_cache: Default::default(), act_open: Default::default(), act_tick: None, term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), transcript_fit: Default::default(), paced: Default::default(), pace_behind: Default::default(), coordinator: None, familiar: None, fam_views: Vec::new(), fam_live: Vec::new(), fam_watch: Vec::new(), fam_driving: Default::default(), fam_error: None, fam_composer: None, fam_fixture: false, inbox: Vec::new(), inbox_open: false, update: Default::default(), update_open: false, cli_rows: Vec::new(), inbox_toast: None, fam_from: (0.0, 0.0), fam_to: None, fam_since: None, fam_hl: 0, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default(), err_open: Default::default(), side_root: None, sides: Vec::new(), side_win: false, side_input: None, side_ctx: Default::default(), block_hover: None, bar_hover: false, block_menu: None, sel: None, copied: None, ask: false, reply_files: Vec::new(), slash_sel: 0, slash_closed: false, slash_cmds: Default::default(), plan_open: false, plan_flips: 0, chip_menu: None, plan_hover: None, plan_edit: None }
+        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, support_data: Default::default(), diff_since: None, restore_ask: false, files_open: Default::default(), painting: false, glass: Default::default(), plane: Default::default(), mark_ticker: None, ask_hover: false, ask_open: None, ask_answered: Default::default(), fam_questions: Default::default(), frost: backdrop::FrostLevel::Heavy, stream_bg: None, bg_wipe: None, stream_menu: None, closed_sides: Default::default(), sides_folded: Default::default(), groups_folded: Default::default(), archive_open: false, color_target: theme::Target::Sidebar, hex_input: None, theme_mode: String::new(), root_focus: None, plan: false, open_in_menu: false, open_in: thread::OpenIn::Folder, search_open: false, indent: false, indent_run: (0.0, None), indent_to: 0.0, sidebar_w: metric::SIDEBAR_W, sidebar_drag: None, link: None, link_menu: None, link_hover: Default::default(), browser: Default::default(), browser_slot: Default::default(), usage: Default::default(), usage_page: false, section_page: false, pages: Default::default(), usage_hover: false, usage_card_hover: false, settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_cache: Default::default(), act_open: Default::default(), act_tick: None, term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), transcript_fit: Default::default(), paced: Default::default(), pace_behind: Default::default(), coordinator: None, familiar: None, fam_views: Vec::new(), fam_live: Vec::new(), fam_watch: Vec::new(), fam_driving: Default::default(), fam_error: None, fam_composer: None, fam_fixture: false, inbox: Vec::new(), inbox_open: false, update: Default::default(), update_open: false, cli_rows: Vec::new(), inbox_toast: None, fam_from: (0.0, 0.0), fam_to: None, fam_since: None, fam_hl: 0, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default(), err_open: Default::default(), side_root: None, sides: Vec::new(), side_win: false, side_input: None, side_ctx: Default::default(), block_hover: None, bar_hover: false, block_menu: None, sel: None, copied: None, ask: false, reply_files: Vec::new(), slash_sel: 0, slash_closed: false, slash_cmds: Default::default(), plan_open: false, plan_flips: 0, chip_menu: None, plan_hover: None, plan_edit: None, autos: Default::default() }
     }
 
     /// Opens core off the main thread (the sidebar shows Loading meanwhile), then keeps the thread
@@ -1370,6 +1373,10 @@ impl Cauldron {
         self.section_page = pages::has_page(i);
         if self.section_page {
             self.load_pages(cx);
+        }
+        if FUNCTIONS.get(i).is_some_and(|f| f.1 == "Automations") {
+            self.start.captains = captain::load_captains();
+            self.load_automations();
         }
         if i != self.section {
             let now = std::time::Instant::now();
@@ -4119,10 +4126,10 @@ mod tests {
             assert_eq!(window.find(("settings-page", 0usize)).label().map(|l| l.starts_with("Agents")), Some(true), "your name opens Settings");
             window.click("settings", cx);
             window.render_frame(cx);
-            for (i, id) in [(0usize, Some("new-thread")), (1, None), (2, Some("new-familiar")), (3, Some("new-folder"))] {
+            for (i, id) in [(0usize, Some("new-thread")), (1, Some("new-automation")), (2, Some("new-familiar")), (3, Some("new-folder"))] {
                 window.click(("fn", i), cx);
                 window.render_frame(cx);
-                for other in ["new-thread", "new-folder", "new-familiar"] {
+                for other in ["new-thread", "new-folder", "new-familiar", "new-automation"] {
                     assert_eq!(window.try_find(other).is_some(), Some(other) == id, "app {i}: {other}");
                 }
             }
@@ -4139,6 +4146,58 @@ mod tests {
             window.click("new-thread", cx);
             window.render_frame(cx);
             assert_eq!(window.find("nt-heading").label(), Some("What should Cauldron work on?"), "New stream turns Familiar off again");
+        })
+        .unwrap();
+    }
+
+    /// Automations (Charles, 22 Nov): the page and the sidebar list each familiar's jobs on a clock
+    /// with when they next run; New automation opens a form whose fields follow the kind of clock.
+    #[gpui_kit::test]
+    fn automations_list_each_familiars_jobs_and_the_form_follows_the_clock(cx: &mut TestAppContext) {
+        use backspace_core::agents::{Agent, Lead, Routine};
+        cx.update(gpui_kit::init);
+        let handle = open(cx, with_threads());
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            window.click(("fn", 1usize), cx);
+            window.render_frame(cx);
+            assert!(window.try_find("automations-page").is_some(), "Automations has a page");
+        })
+        .unwrap();
+        handle
+            .update(cx, |c, _, _| {
+                let route = backspace_core::chat::Route { kind: backspace_core::chat::RouteKind::Cli, provider: "claude".into(), model: None };
+                let mut cap = Agent::new("Ez", route);
+                cap.id = "ez".into();
+                cap.lead = Some(Lead { project: "/work/app".into(), crew: vec![] });
+                let now = backspace_core::chat::now_ms();
+                let triage = Routine { id: "r1".into(), name: "Triage PRs".into(), instructions: "Read the open PRs and list what blocks each.".into(), kind: "daily".into(), time: "08:00".into(), enabled: true, next_run: now + 3_600_000, last_run: now - 7_200_000, runs: 3, ..Default::default() };
+                let nightly = Routine { id: "r2".into(), name: "Nightly tests".into(), instructions: "Run the suite.".into(), kind: "every".into(), every_minutes: 360, enabled: false, ..Default::default() };
+                c.autos.list = vec![(cap.clone(), triage), (cap.clone(), nightly)];
+                c.start.captains = vec![cap];
+            })
+            .unwrap();
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            assert_eq!(window.find(("auto-card", 0usize)).label(), Some("Triage PRs, Every day at 08:00, Ez"));
+            assert_eq!(window.find(("auto-card", 1usize)).label(), Some("Nightly tests, Every 6 hours (paused), Ez"));
+            assert_eq!(window.find(("auto-row", 0usize)).label(), Some("Triage PRs, 08:00"));
+            assert_eq!(window.find(("auto-row", 1usize)).label(), Some("Nightly tests, Paused"));
+            assert_eq!(window.find(("auto-pause", 1usize)).label(), Some("Resume"));
+            assert!(window.try_find(("auto-open", 0usize)).is_none(), "no thread to open before its first run");
+            window.click("auto-new", cx);
+            window.render_frame(cx);
+            assert!(window.try_find("auto-form").is_some());
+            assert!(window.try_find("auto-time").is_some() && window.try_find(("auto-day", 0usize)).is_none(), "every day: a time, no days");
+            window.click(("auto-kind", 2usize), cx);
+            window.render_frame(cx);
+            assert!(window.try_find(("auto-day", 6usize)).is_some() && window.try_find("auto-time").is_some(), "some days: the days and a time");
+            window.click(("auto-kind", 3usize), cx);
+            window.render_frame(cx);
+            assert!(window.try_find(("auto-every", 0usize)).is_some() && window.try_find("auto-time").is_none(), "every few hours: the gap, no time");
+            window.click("auto-cancel", cx);
+            window.render_frame(cx);
+            assert!(window.try_find("auto-form").is_none());
         })
         .unwrap();
     }

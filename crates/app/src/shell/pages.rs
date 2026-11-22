@@ -9,7 +9,7 @@ use backspace_core::familiar::State as FamState;
 
 /// Apps that open a page in the card (indexes into FUNCTIONS).
 pub(crate) fn has_page(i: usize) -> bool {
-    matches!(FUNCTIONS.get(i).map(|f| f.1), Some("Agents" | "Library"))
+    matches!(FUNCTIONS.get(i).map(|f| f.1), Some("Agents" | "Library" | "Automations"))
 }
 
 pub(crate) fn title(section: usize) -> &'static str {
@@ -123,7 +123,7 @@ impl Cauldron {
         (false, vec![mock])
     }
 
-    fn page_shell(id: &'static str, title: &'static str, sub: &str, pal: &'static Palette, kids: Vec<AnyElement>) -> AnyElement {
+    pub(super) fn page_shell(id: &'static str, title: &'static str, sub: &str, pal: &'static Palette, kids: Vec<AnyElement>) -> AnyElement {
         div().id(id).size_full().overflow_y_scroll().flex().justify_center().child(
             div()
                 .w_full()
@@ -149,6 +149,7 @@ impl Cauldron {
     pub(super) fn section_page_body(&self, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
         match FUNCTIONS[self.section].1 {
             "Agents" => self.agents_page(pal, cx),
+            "Automations" => self.automations_page(pal, cx),
             _ => self.library_page(pal, cx),
         }
     }

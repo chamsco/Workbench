@@ -473,17 +473,34 @@ impl Cauldron {
     }
 
     /// Every second, off the UI thread: start the sub-agents streams asked for (`delegate`)
-    /// and deliver letters between streams, then start whatever waits for a free stream.
+    /// and deliver letters between streams, then start whatever waits for a free stream. Every
+    /// 30 s, run the familiars' automations that are due.
     pub(super) fn pump(&mut self, cx: &mut Context<Self>) {
         let Some((_, chats)) = self.core.as_ref() else { return };
         let chats = chats.clone();
+        let mut tick = 0u32;
         cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| loop {
             cx.background_executor().timer(std::time::Duration::from_secs(1)).await;
             if this.update(cx, |_, _| ()).is_err() {
                 break;
             }
             let c = chats.clone();
-            cx.background_executor().spawn(async move { c.pump(ctx(false)) }).await;
+            // Automations (automations.rs) are checked every 30 s while the app is open.
+            tick = tick.wrapping_add(1);
+            let due = tick % 30 == 0;
+            let ran = cx
+                .background_executor()
+                .spawn(async move {
+                    c.pump(ctx(false));
+                    if due { backspace_core::automations::tick(&c, &agents(), || ctx(false)) } else { 0 }
+                })
+                .await;
+            if ran > 0 {
+                let _ = this.update(cx, |c, cx| {
+                    c.load_automations();
+                    cx.notify();
+                });
+            }
         })
         .detach();
     }
@@ -863,6 +880,7 @@ impl Cauldron {
             // ponytail: replies draw as plain text; markdown rendering is a later pass.
             // The full column, the composer's width (Charles, 21 Nov: "using the entire space").
             // The model above the reply (Tuff UI), with its maker's mark.
+            let who = self.reply_who(t.agent.as_deref(), pal);
             let model_el = l.model.clone().map(|md| {
                 let mark = super::logos::maker_mark(&md).or_else(|| super::logos::house_maker(&t.route.provider)).and_then(|n| super::logos::image(n, &pal.fg3.to_hex()));
                 div()
@@ -883,7 +901,7 @@ impl Cauldron {
                 .flex()
                 .flex_col()
                 .gap(px(6.))
-                .when_some(model_el, |d, m| d.child(m))
+                .when(who.is_some() || model_el.is_some(), |d| d.child(div().flex().items_center().gap(px(8.)).children(who).children(model_el)))
                 .aria_label(if l.text.is_empty() { shown.clone() } else { l.text.clone() })
                 .when_some(self.steps.get(&l.id).filter(|s| !s.is_empty() && l.parts.is_empty()), |d, st| {
                     let mut col = div().id(("steps", i)).flex().flex_col().gap(px(2.)).aria_label(st.join(", "));
