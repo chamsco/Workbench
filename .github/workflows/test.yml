@@ -43,6 +43,28 @@ jobs:
             > crates/core/src/build_stamp.rs
           cargo test --no-fail-fast
 
+  # The Cauldron app (crates/app) is not a default member, so `cargo test`
+  # above skips it. Its tests run headless (GPUI's test platform): they need
+  # the libraries GPUI links against, not a display.
+  app:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: tests-linux-app
+      - name: Install GPUI's libraries
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q libxkbcommon-x11-dev libxcb1-dev libwayland-dev libfontconfig-dev libfreetype-dev libssl-dev libvulkan1
+      - name: cargo test -p backspace
+        run: |
+          printf 'pub const BUILD: &str = "%s";\n' "$GITHUB_SHA" \
+            > crates/core/src/build_stamp.rs
+          cargo test -p backspace --no-fail-fast
+
   # M6: the Seatbelt sandbox and the herdr adapter, on a Mac.
   sandbox-macos:
     runs-on: macos-15

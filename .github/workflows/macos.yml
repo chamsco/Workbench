@@ -44,10 +44,10 @@ jobs:
       - name: Test the chrome contract
         run: cargo test -p cauldron-chrome
 
+      # One cargo run for both: build scripts and proc macros compile once for
+      # the host, and the two targets share the runner's cores.
       - name: Build both architectures
-        run: |
-          cargo build --release -p backspace --target aarch64-apple-darwin
-          cargo build --release -p backspace --target x86_64-apple-darwin
+        run: cargo build --release -p backspace --target aarch64-apple-darwin --target x86_64-apple-darwin
 
       # A .app is a folder: the universal binary, an Info.plist and nothing else for now.
       # The icon returns with UI8.
@@ -72,15 +72,17 @@ jobs:
             <key>NSHighResolutionCapable</key><true/>
           </dict></plist>
           PLIST
-          # The runner's disk is nearly full after two release builds: drop the
-          # intermediate objects (the binaries are already in the .app) before
-          # hdiutil needs room for the image.
-          for t in aarch64-apple-darwin x86_64-apple-darwin; do
-            rm -rf target/$t/release/deps target/$t/release/build target/$t/release/incremental
-          done
+          # The build's objects stay: rust-cache saves them after the job, which
+          # is what makes the next build fast (deleting them here made every
+          # build start from nothing).
           df -h . | tail -1
           codesign --force --deep -s - "$app"
-          hdiutil create -volname Cauldron -srcfolder "$app" -ov -format UDZO out/Cauldron-mac.dmg
+          # hdiutil sizes the image from the folder and can come out too tight
+          # ("No space left on device" with 40 GB free): give it room, and try
+          # again once if the disk image driver is busy.
+          mb=$(( $(du -sm "$app" | cut -f1) * 2 + 32 ))
+          hdiutil create -volname Cauldron -srcfolder "$app" -size "${mb}m" -ov -format UDZO out/Cauldron-mac.dmg \
+            || { sleep 10; hdiutil create -volname Cauldron -srcfolder "$app" -size "${mb}m" -ov -format UDZO out/Cauldron-mac.dmg; }
           ditto -c -k --keepParent "$app" out/Cauldron-mac.app.zip
           ls -la out
 
