@@ -1707,15 +1707,20 @@ pub(crate) fn lift(l: Lift, pal: &Palette) -> Vec<BoxShadow> {
     let edge = BoxShadow { color: if dark { hsla(0., 0., 1., if strong { 0.08 } else { 0.05 }) } else { hsla(0., 0., 0., if strong { 0.09 } else { 0.06 }) }, offset: point(px(0.), px(0.)), blur_radius: px(0.), spread_radius: px(1.), inset: false };
     let top = BoxShadow { color: hsla(0., 0., 1., if dark { 0.07 } else { 0.8 }), offset: point(px(0.), px(1.)), blur_radius: px(0.), spread_radius: px(0.), inset: true };
     let long = match l {
-        Lift::Frame => BoxShadow { color: shade(0.45), offset: point(px(0.), px(20.)), blur_radius: px(48.), spread_radius: px(-18.), inset: false },
+        Lift::Frame => BoxShadow { color: shade(0.45), offset: point(px(0.), px(20.)), blur_radius: px(48.), spread_radius: px(-18.), inset: false }, // unused: Frame returns early below
         Lift::Card => BoxShadow { color: shade(0.55), offset: point(px(0.), px(18.)), blur_radius: px(44.), spread_radius: px(-20.), inset: false },
         Lift::Box => BoxShadow { color: shade(0.8), offset: point(px(0.), px(24.)), blur_radius: px(48.), spread_radius: px(-18.), inset: false },
         Lift::Button => BoxShadow { color: shade(0.45), offset: point(px(0.), px(2.)), blur_radius: px(6.), spread_radius: px(-2.), inset: false },
     };
     if strong {
-        // A close, tight shadow under the long one: the lip the buttons have.
-        let close = BoxShadow { color: shade(0.25), offset: point(px(0.), px(2.)), blur_radius: px(6.), spread_radius: px(-1.), inset: false };
-        return vec![long, close, edge, top];
+        // The frame is sunk into the window, not stood on it (Charles, 22 Nov): the shadow falls
+        // inside the card's top and left edges, as if the sidebar's wall cast it, with a lip of
+        // light where the frame meets its bottom edge. Light uses a cool ink so it does not go grey.
+        let ink = |a: f32| if dark { hsla(0., 0., 0., a) } else { hsla(222. / 360., 0.35, 0.18, a) };
+        let (top_a, top_b, left_a) = if dark { (0.34, 0.10, 0.20) } else { (0.30, 0.12, 0.18) };
+        let inner = |x: f32, y: f32, blur: f32, spread: f32, a: f32| BoxShadow { color: ink(a), offset: point(px(x), px(y)), blur_radius: px(blur), spread_radius: px(spread), inset: true };
+        let lip = BoxShadow { color: hsla(0., 0., 1., if dark { 0.08 } else { 0.75 }), offset: point(px(0.), px(1.)), blur_radius: px(0.), spread_radius: px(0.), inset: false };
+        return vec![inner(0., 12., 22., -12., top_a), inner(0., 2., 3., 0., top_b), inner(12., 0., 20., -14., left_a), lip, edge];
     }
     vec![long, edge, top]
 }
