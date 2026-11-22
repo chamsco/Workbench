@@ -139,7 +139,7 @@ impl Cauldron {
             a.off = ACCESS.iter().zip(off).filter(|(_, o)| *o).map(|((k, _), _)| k.to_string()).collect();
             a
         };
-        let made = (|| -> anyhow::Result<String> {
+        let made = (|| -> anyhow::Result<(String, String)> {
             let mut crew = Vec::new();
             for (i, (role, job)) in ROLES.iter().enumerate().filter(|(i, _)| crew_on[*i]) {
                 let face = Avatar { emoji: String::new(), color: dot_hex(i + 3) };
@@ -152,33 +152,16 @@ impl Cauldron {
             if !task.is_empty() {
                 chats.send(&id, &task, Vec::new(), None, self.mode_ctx())?;
             }
-            Ok(id)
+            Ok((cap.id.clone(), id))
         })();
         match made {
-            Ok(id) => {
+            Ok((cap, id)) => {
                 self.start.captain = None;
                 self.start.captains = load_captains();
-                self.refresh();
-                self.open_thread(id);
+                self.load_automations();
+                self.open_agent_thread(&cap, Some(id), cx);
             }
             Err(e) => self.captain_error(format!("Couldn't create it: {e}"), cx),
-        }
-        cx.notify();
-    }
-
-    /// Open a familiar's stream (its newest), or start a new one when it has none left.
-    pub(super) fn open_captain(&mut self, id: &str, cx: &mut Context<Self>) {
-        let Some((_, chats)) = self.core.as_ref() else { return };
-        let chats = chats.clone();
-        let tid = chats.list().into_iter().filter(|t| t.agent.as_deref() == Some(id) && t.side_of.is_none() && !t.archived).max_by_key(|t| t.updated).map(|t| t.id);
-        let tid = match tid {
-            Some(t) => Some(t),
-            None => super::thread::agents().get(id).and_then(|a| chats.start_familiar(&a).ok()),
-        };
-        if let Some(t) = tid {
-            self.select_section(0, cx);
-            self.refresh();
-            self.open_thread(t);
         }
         cx.notify();
     }

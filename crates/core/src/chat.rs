@@ -112,6 +112,10 @@ pub struct Msg {
     pub ad: Option<Ad>,
     #[serde(default)]
     pub cost_usd: Option<f64>,
+    /// When the reply finished (unix ms), for where an agent's session ends (sessions.rs).
+    /// 0 for one still going, a user message, or one saved before this was kept.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub done_at: u64,
     #[serde(default)]
     pub edited: bool,
     /// Who answered, when not the thread's own route (an @mention).
@@ -304,6 +308,7 @@ impl Msg {
             model: None,
             ad: None,
             cost_usd: None,
+            done_at: 0,
             thinking: String::new(),
             acts: Vec::new(),
             breaks: Vec::new(),
@@ -449,6 +454,25 @@ pub struct Scope {
     pub ttl_minutes: Option<u64>,
 }
 
+/// What an agent is doing now (`Chats::doing`).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Doing {
+    pub busy: bool,
+    /// Busy, but nothing has come back yet: thinking.
+    pub sending: bool,
+    /// The tool call running now.
+    pub act: Option<String>,
+    pub failed: bool,
+    /// Its last reply asks you something.
+    pub asks: bool,
+    /// Finished, and you have not looked yet.
+    pub unread: bool,
+    /// Letters wait for it.
+    pub waiting: bool,
+    /// When its thread last changed (unix ms).
+    pub last: u64,
+}
+
 /// The sidebar row.
 #[derive(Serialize, Clone, Debug)]
 pub struct ThreadInfo {
@@ -539,7 +563,11 @@ pub(crate) fn rand_u32() -> u32 {
     h.finish() as u32
 }
 
-fn title_from(text: &str) -> String {
+fn is_zero(n: &u64) -> bool {
+    *n == 0
+}
+
+pub(crate) fn title_from(text: &str) -> String {
     let t = text.split_whitespace().collect::<Vec<_>>().join(" ");
     if t.chars().count() <= 48 {
         return t;
@@ -1398,6 +1426,7 @@ impl Chats {
                 model: None,
                 ad: None,
                 cost_usd: None,
+                done_at: 0,
                 thinking: String::new(),
                 acts: Vec::new(),
                 breaks: Vec::new(),
@@ -1631,6 +1660,32 @@ impl Chats {
             Scope { project: Some(lead.project.clone()), agent: Some(a.id.clone()), title: Some(a.name.clone()), ..Scope::default() },
         );
         Ok(t.id)
+    }
+
+    /// What agent `agent` is doing now, read from its newest thread without copying it: for the
+    /// face it shows (Charles, 22 Nov: the avatar follows the activity).
+    pub fn doing(&self, agent: &str) -> Doing {
+        // Read the thread under its lock, then the other locks one at a time, never nested.
+        let seen = {
+            let all = self.threads.lock().unwrap();
+            all.values().filter(|t| t.agent.as_deref() == Some(agent) && !t.archived).max_by_key(|t| t.updated).map(|t| {
+                let last = t.messages.last();
+                let reply = t.messages.iter().rev().find(|m| m.role != Role::User);
+                (
+                    t.id.clone(),
+                    t.updated,
+                    last.is_some_and(|m| m.status == Status::Sending || (m.status == Status::Streaming && m.text.is_empty() && m.acts.iter().all(|a| a.end.is_some()))),
+                    last.and_then(|m| m.acts.iter().rev().find(|a| a.end.is_none())).map(|a| a.name.clone()),
+                    last.is_some_and(|m| m.status == Status::Error),
+                    last.is_some_and(|m| m.role != Role::User) && reply.is_some_and(|m| m.text.contains("```ask") || m.text.trim_end().ends_with('?')),
+                )
+            })
+        };
+        let Some((id, updated, sending, act, failed, asks)) = seen else { return Doing::default() };
+        let busy = self.is_busy(&id);
+        let unread = self.unread.lock().unwrap().contains(&id);
+        let waiting = self.inbox.lock().unwrap().get(&id).is_some_and(|q| !q.is_empty());
+        Doing { busy, sending: busy && sending, act: act.filter(|_| busy), failed: !busy && failed, asks: !busy && asks, unread, waiting: !busy && waiting, last: updated }
     }
 
     /// A familiar's own stream: the newest thread it leads in its project that is nobody's side.
@@ -2044,6 +2099,7 @@ impl Chats {
                 for a in m.acts.iter_mut().filter(|a| a.end.is_none()) {
                     a.end = Some(at);
                 }
+                m.done_at = at;
                 match res {
                     Ok(()) => {
                         m.status = Status::Done;
@@ -3050,6 +3106,7 @@ mod tests {
             model: None,
             ad: None,
             cost_usd: None,
+            done_at: 0,
             thinking: String::new(),
             acts: Vec::new(),
             breaks: Vec::new(),
@@ -3114,6 +3171,7 @@ mod tests {
                     model: None,
                     ad: None,
                     cost_usd: None,
+                    done_at: 0,
                     thinking: String::new(),
                     acts: Vec::new(),
                     breaks: Vec::new(),

@@ -514,6 +514,8 @@ impl Cauldron {
 
     /// Sends the composer's text to the open thread; a refusal shows under the composer.
     pub(super) fn send_composer(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // What you send lands in the newest session: show that one.
+        self.session_pick = None;
         let (Some(id), Some((st, _))) = (self.open.clone(), self.composer.as_ref()) else { return };
         let st = st.clone();
         let mut text = st.read(cx).value().trim().to_string();
@@ -759,7 +761,7 @@ impl Cauldron {
                 }
             }))
             .on_mouse_up(MouseButton::Left, cx.listener(|this, ev: &MouseUpEvent, window, cx| this.note_selection(ev.position, window, cx)));
-        let ls = lines(t);
+        let ls = self.session_slice(t, lines(t));
         // Keep the newest message in view when a thread opens or grows, in a short pane too.
         let seen = Some((t.id.clone(), ls.len()));
         // While a reply grows, keep following it, unless the reader scrolled up.

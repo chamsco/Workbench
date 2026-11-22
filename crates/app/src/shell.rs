@@ -24,6 +24,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 mod apps;
+mod agentview;
 mod automations;
 mod captain;
 mod slash;
@@ -170,12 +171,13 @@ impl Panel {
 }
 
 /// The apps row (Tight tiles): what the sidebar and the hover indent switch between.
-const FUNCTIONS: [(&str, &str); 4] = [
-    ("message-square", "Streams"),
-    ("calendar", "Automations"),
-    ("bot", "Agents"),
-    ("book-open", "Library"),
-];
+/// Automations live under Agents (Charles, 22 Nov: "put automations under agents").
+const FUNCTIONS: [(&str, &str); 3] = [("message-square", "Streams"), ("bot", "Agents"), ("book-open", "Library")];
+
+/// Where app `name` sits in the row.
+pub(crate) fn section_of(name: &str) -> usize {
+    FUNCTIONS.iter().position(|f| f.1 == name).unwrap_or(0)
+}
 
 gpui_kit::actions!(cauldron, [NewStream]);
 
@@ -388,6 +390,13 @@ pub(crate) struct Cauldron {
     plan_open: bool,
     plan_flips: usize,
     /// The open Effort or trust menu, by its chip's id (chipmenu.rs).
+    /// The agent open in Agents (agentview.rs): its sessions beside its thread. Agent work stays in
+    /// Agents (Charles, 22 Nov).
+    agent_open: Option<String>,
+    /// Agents shows the Automations page instead of the missions page.
+    autos_page: bool,
+    /// The one session shown, by index into the open thread's sessions; None shows them all.
+    session_pick: Option<usize>,
     /// The Automations page: every familiar's jobs on a clock, and the form (automations.rs).
     autos: automations::State,
     chip_menu: Option<&'static str>,
@@ -688,7 +697,7 @@ impl Cauldron {
     }
 
     pub(crate) fn new() -> Self {
-        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, support_data: Default::default(), diff_since: None, restore_ask: false, files_open: Default::default(), painting: false, glass: Default::default(), plane: Default::default(), mark_ticker: None, ask_hover: false, ask_open: None, ask_answered: Default::default(), fam_questions: Default::default(), frost: backdrop::FrostLevel::Heavy, stream_bg: None, bg_wipe: None, stream_menu: None, closed_sides: Default::default(), sides_folded: Default::default(), groups_folded: Default::default(), archive_open: false, color_target: theme::Target::Sidebar, hex_input: None, theme_mode: String::new(), root_focus: None, plan: false, open_in_menu: false, open_in: thread::OpenIn::Folder, search_open: false, indent: false, indent_run: (0.0, None), indent_to: 0.0, sidebar_w: metric::SIDEBAR_W, sidebar_drag: None, link: None, link_menu: None, link_hover: Default::default(), browser: Default::default(), browser_slot: Default::default(), usage: Default::default(), usage_page: false, section_page: false, pages: Default::default(), usage_hover: false, usage_card_hover: false, settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_cache: Default::default(), act_open: Default::default(), act_tick: None, term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), transcript_fit: Default::default(), paced: Default::default(), pace_behind: Default::default(), coordinator: None, familiar: None, fam_views: Vec::new(), fam_live: Vec::new(), fam_watch: Vec::new(), fam_driving: Default::default(), fam_error: None, fam_composer: None, fam_fixture: false, inbox: Vec::new(), inbox_open: false, update: Default::default(), update_open: false, cli_rows: Vec::new(), inbox_toast: None, fam_from: (0.0, 0.0), fam_to: None, fam_since: None, fam_hl: 0, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default(), err_open: Default::default(), side_root: None, sides: Vec::new(), side_win: false, side_input: None, side_ctx: Default::default(), block_hover: None, bar_hover: false, block_menu: None, sel: None, copied: None, ask: false, reply_files: Vec::new(), slash_sel: 0, slash_closed: false, slash_cmds: Default::default(), plan_open: false, plan_flips: 0, chip_menu: None, plan_hover: None, plan_edit: None, autos: Default::default() }
+        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, support_data: Default::default(), diff_since: None, restore_ask: false, files_open: Default::default(), painting: false, glass: Default::default(), plane: Default::default(), mark_ticker: None, ask_hover: false, ask_open: None, ask_answered: Default::default(), fam_questions: Default::default(), frost: backdrop::FrostLevel::Heavy, stream_bg: None, bg_wipe: None, stream_menu: None, closed_sides: Default::default(), sides_folded: Default::default(), groups_folded: Default::default(), archive_open: false, color_target: theme::Target::Sidebar, hex_input: None, theme_mode: String::new(), root_focus: None, plan: false, open_in_menu: false, open_in: thread::OpenIn::Folder, search_open: false, indent: false, indent_run: (0.0, None), indent_to: 0.0, sidebar_w: metric::SIDEBAR_W, sidebar_drag: None, link: None, link_menu: None, link_hover: Default::default(), browser: Default::default(), browser_slot: Default::default(), usage: Default::default(), usage_page: false, section_page: false, pages: Default::default(), usage_hover: false, usage_card_hover: false, settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_cache: Default::default(), act_open: Default::default(), act_tick: None, term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), transcript_fit: Default::default(), paced: Default::default(), pace_behind: Default::default(), coordinator: None, familiar: None, fam_views: Vec::new(), fam_live: Vec::new(), fam_watch: Vec::new(), fam_driving: Default::default(), fam_error: None, fam_composer: None, fam_fixture: false, inbox: Vec::new(), inbox_open: false, update: Default::default(), update_open: false, cli_rows: Vec::new(), inbox_toast: None, fam_from: (0.0, 0.0), fam_to: None, fam_since: None, fam_hl: 0, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default(), err_open: Default::default(), side_root: None, sides: Vec::new(), side_win: false, side_input: None, side_ctx: Default::default(), block_hover: None, bar_hover: false, block_menu: None, sel: None, copied: None, ask: false, reply_files: Vec::new(), slash_sel: 0, slash_closed: false, slash_cmds: Default::default(), plan_open: false, plan_flips: 0, chip_menu: None, plan_hover: None, plan_edit: None, autos: Default::default(), agent_open: None, autos_page: false, session_pick: None }
     }
 
     /// Opens core off the main thread (the sidebar shows Loading meanwhile), then keeps the thread
@@ -835,7 +844,10 @@ impl Cauldron {
                 let side_n = |id: &str| v.iter().filter(|t| t.side_of.as_deref() == Some(id)).count();
                 // Archived streams stay out of the list until a search asks for them.
                 let searching = !self.query.trim().is_empty();
-                let mains: Vec<ThreadInfo> = v.iter().filter(|t| !t.archived && t.side_of.as_ref().is_none_or(|m| !v.iter().any(|x| &x.id == m))).cloned().collect();
+                // An agent's threads stay in Agents (Charles, 22 Nov: "whatever you create for agents
+                // should stay inside the agents").
+                let mine = |t: &ThreadInfo| t.agent.as_deref().is_some_and(|a| self.agent_cached(a).is_some());
+                let mains: Vec<ThreadInfo> = v.iter().filter(|t| !t.archived && !mine(t) && t.side_of.as_ref().is_none_or(|m| !v.iter().any(|x| &x.id == m))).cloned().collect();
                 // Archived streams wait at the bottom, folded, so one can be opened and brought back.
                 let shelved: Vec<ThreadInfo> = v.iter().filter(|t| t.archived && t.side_of.as_ref().is_none_or(|m| !v.iter().any(|x| &x.id == m))).cloned().collect();
                 let mut groups = threads::grouped(&mains, &self.query);
@@ -1374,9 +1386,13 @@ impl Cauldron {
         if self.section_page {
             self.load_pages(cx);
         }
-        if FUNCTIONS.get(i).is_some_and(|f| f.1 == "Automations") {
+        if FUNCTIONS.get(i).is_some_and(|f| f.1 == "Agents") {
             self.start.captains = captain::load_captains();
             self.load_automations();
+        } else {
+            // An agent's view and the Automations page belong to Agents.
+            self.agent_open = None;
+            self.autos_page = false;
         }
         if i != self.section {
             let now = std::time::Instant::now();
@@ -2545,6 +2561,7 @@ impl Render for Cauldron {
         let body = match self.settings {
             Some(page) => self.settings_page(page, pal, cx),
             None if self.usage_page => self.usage_page_body(pal, cx),
+            None if self.agent_open.is_some() => self.agent_body(pal, window, cx),
             None if self.section_page => self.section_page_body(pal, cx),
             None if self.familiar.is_some() => self.familiar_body(pal, fam.as_ref().map_or((radius::PANEL, 1.0), |f| (f.corner, f.fade)), cx),
             None => self.card_body(pal, window, cx),
@@ -3413,7 +3430,7 @@ mod tests {
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
             let named: [(ElementId, &str); 8] = [
-                (("fn", 3usize).into(), "Library"),
+                (("fn", 2usize).into(), "Library"),
                 (("rb", 0usize).into(), "Highlights"),
                 (("rb", 1usize).into(), "Changes"),
                 ("rb-term".into(), "Terminal"),
@@ -3448,10 +3465,10 @@ mod tests {
         .unwrap();
         cx.executor().advance_clock(ms(1000));
         cx.update_window(handle.into(), |_, window, cx| {
-            window.hover(("fn", 3usize), cx);
+            window.hover(("fn", 2usize), cx);
             window.render_frame(cx);
             assert_eq!(window.find("tooltip").label(), Some("Library"));
-            let (tip, btn) = (rect(window, "tooltip"), rect(window, ("fn", 3usize)));
+            let (tip, btn) = (rect(window, "tooltip"), rect(window, ("fn", 2usize)));
             assert!((tip.x - (btn.right() + 8.0)).abs() < 1.5, "left-side tip sits 8px right of its button: {tip:?} {btn:?}");
         })
         .unwrap();
@@ -3845,7 +3862,7 @@ mod tests {
         let handle = open(cx, with_threads());
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
-            for (i, id) in [(2usize, "agents-page"), (3, "library-page")] {
+            for (i, id) in [(1usize, "agents-page"), (2, "library-page")] {
                 window.click(("fn", i), cx);
                 window.render_frame(cx);
                 assert!(window.try_find(id).is_some(), "{id}");
@@ -3881,7 +3898,7 @@ mod tests {
         let handle = open(cx, Cauldron { fam_views: super::familiar::fixtures(), ..with_threads() });
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
-            window.click(("fn", 2usize), cx);
+            window.click(("fn", 1usize), cx);
             window.render_frame(cx);
             assert!(window.try_find("agents-page").is_some());
             assert!(window.try_find(("agent-row", 1usize)).is_some(), "the list is in the sidebar");
@@ -4126,14 +4143,14 @@ mod tests {
             assert_eq!(window.find(("settings-page", 0usize)).label().map(|l| l.starts_with("Agents")), Some(true), "your name opens Settings");
             window.click("settings", cx);
             window.render_frame(cx);
-            for (i, id) in [(0usize, Some("new-thread")), (1, Some("new-automation")), (2, Some("new-familiar")), (3, Some("new-folder"))] {
+            for (i, id) in [(0usize, Some("new-thread")), (1, Some("new-familiar")), (2, Some("new-folder"))] {
                 window.click(("fn", i), cx);
                 window.render_frame(cx);
-                for other in ["new-thread", "new-folder", "new-familiar", "new-automation"] {
+                for other in ["new-thread", "new-folder", "new-familiar"] {
                     assert_eq!(window.try_find(other).is_some(), Some(other) == id, "app {i}: {other}");
                 }
             }
-            window.click(("fn", 2usize), cx);
+            window.click(("fn", 1usize), cx);
             window.render_frame(cx);
             window.click("new-familiar", cx);
             window.render_frame(cx);
@@ -4161,7 +4178,9 @@ mod tests {
             window.render_frame(cx);
             window.click(("fn", 1usize), cx);
             window.render_frame(cx);
-            assert!(window.try_find("automations-page").is_some(), "Automations has a page");
+            window.click("autos-open", cx);
+            window.render_frame(cx);
+            assert!(window.try_find("automations-page").is_some(), "Automations opens its page inside Agents");
         })
         .unwrap();
         handle

@@ -94,8 +94,7 @@ impl Cauldron {
     pub(super) fn open_automation_form(&mut self, edit: Option<(Agent, Routine)>, window: &mut Window, cx: &mut Context<Self>) {
         self.settings = None;
         self.start.captains = super::captain::load_captains();
-        let i = FUNCTIONS.iter().position(|f| f.1 == "Automations").unwrap_or(1);
-        self.select_section(i, cx);
+        self.open_automations_page(cx);
         let name = cx.new(|cx| InputState::new(window, cx).placeholder("Name it, e.g. Morning PR triage"));
         let name_sub = cx.subscribe_in(&name, window, |_, _, _: &InputEvent, _, cx| cx.notify());
         let what = cx.new(|cx| TextareaState::new(window, cx).auto_grow(3, 10).placeholder("What it does each time, as you'd ask it in a thread: \"Read the open PRs and list what blocks each.\""));
@@ -107,7 +106,8 @@ impl Cauldron {
             }
             cx.notify();
         });
-        let mut f = Form { editing: None, name: (name, name_sub), what: (what, what_sub), time: (time, time_sub), familiar: 0, kind: 0, days: [true, false, false, false, false, false, false], every: 2, error: None };
+        let pre = self.agent_open.as_deref().and_then(|id| self.start.captains.iter().position(|c| c.id == id)).unwrap_or(0);
+        let mut f = Form { editing: None, name: (name, name_sub), what: (what, what_sub), time: (time, time_sub), familiar: pre, kind: 0, days: [true, false, false, false, false, false, false], every: 2, error: None };
         let mut time_text = "08:00".to_string();
         if let Some((a, r)) = edit {
             f.editing = Some((a.id.clone(), r.id.clone()));
@@ -192,9 +192,7 @@ impl Cauldron {
             Ok(id) => {
                 self.autos.error = None;
                 self.load_automations();
-                self.select_section(0, cx);
-                self.refresh();
-                self.open_thread(id);
+                self.open_agent_thread(&a.id, Some(id), cx);
             }
             Err(e) => self.autos.error = Some(format!("{} didn't start: {e}", r.name)),
         }
@@ -232,10 +230,8 @@ impl Cauldron {
         let Some((a, r)) = self.autos.list.get(i).cloned() else { return };
         let alive = self.core.as_ref().is_some_and(|(_, c)| !r.thread.is_empty() && c.thread(&r.thread).is_some());
         if alive {
-            self.select_section(0, cx);
-            self.refresh();
-            self.open_thread(r.thread.clone());
-            cx.notify();
+            self.load_automations();
+            self.open_agent_thread(&a.id, Some(r.thread.clone()), cx);
         } else {
             self.open_automation_form(Some((a, r)), window, cx);
         }
@@ -246,7 +242,39 @@ impl Cauldron {
     pub(super) fn automations_page(&self, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
         let (fg, fg2, fg3) = (c(pal.fg), c(pal.fg2), c(pal.fg3));
         let mut kids: Vec<AnyElement> = Vec::new();
-        kids.push(div().mb(px(14.)).text_size(px(12.)).text_color(fg3).child("They run while Cauldron is open. One that comes due while it is closed runs at the next check after it opens.").into_any_element());
+        kids.push(
+            div()
+                .mb(px(14.))
+                .flex()
+                .items_center()
+                .gap(px(12.))
+                .child(div().flex_1().text_size(px(12.)).text_color(fg3).child("They run while Cauldron is open. One that comes due while it is closed runs at the next check after it opens."))
+                .when(self.autos.form.is_none() && !self.start.captains.is_empty(), |d| {
+                    d.child(
+                        div()
+                            .id("new-automation")
+                            .flex_none()
+                            .px(px(10.))
+                            .h(px(28.))
+                            .flex()
+                            .items_center()
+                            .gap(px(6.))
+                            .rounded(px(radius::CONTROL))
+                            .border_1()
+                            .border_color(c(pal.line))
+                            .cursor_pointer()
+                            .hover(|d| d.bg(c(pal.hover)))
+                            .text_size(px(12.5))
+                            .text_color(fg2)
+                            .aria_label("New automation")
+                            .child(glyph("plus", 13., fg3))
+                            .child("New automation")
+                            .on_click(cx.listener(|this, _, window, cx| this.open_automation_form(None, window, cx)))
+                            .test_support(),
+                    )
+                })
+                .into_any_element(),
+        );
         if let Some(e) = &self.autos.error {
             kids.push(div().id("auto-error").mb(px(10.)).text_size(px(12.5)).text_color(c(pal.bad)).aria_label(e.clone()).child(e.clone()).test_support().into_any_element());
         }
@@ -562,10 +590,7 @@ impl Cauldron {
                 .aria_label("Added. Open Automations")
                 .child(glyph("check", 13., c(pal.ok)))
                 .child("Added")
-                .on_click(cx.listener(|this, _, _, cx| {
-                    let i = FUNCTIONS.iter().position(|f| f.1 == "Automations").unwrap_or(1);
-                    this.select_section(i, cx);
-                }))
+                .on_click(cx.listener(|this, _, _, cx| this.open_automations_page(cx)))
                 .test_support()
                 .into_any_element(),
             (Some(a), false) => {
