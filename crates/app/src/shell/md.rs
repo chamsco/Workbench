@@ -5,6 +5,7 @@
 
 use super::*;
 use gpui::{FontWeight, HighlightStyle, StyledText};
+use gpui_kit::prelude::FluentBuilder;
 use std::ops::Range;
 
 #[derive(Debug, PartialEq, Clone)]
@@ -140,13 +141,19 @@ fn styled(s: &str, tail: Option<(u64, Hsla)>, dir: Option<&std::path::Path>, pal
 
 impl Cauldron {
     /// `text` as blocks. `key` names it for ids; `tail` puts the live caret after the last block.
-    pub(super) fn md_el(&self, text: &str, key: &str, tail: Option<(u64, Hsla)>, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
-        self.md_sized(text, key, tail, (14., 22.), pal, cx)
+    /// A reply in the transcript: each block gets the hover bar (`block_bar`) of the message
+    /// written at `at`.
+    pub(super) fn md_el(&self, text: &str, key: &str, tail: Option<(u64, Hsla)>, at: u64, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
+        self.md_inner(text, key, tail, (14., 22.), Some(at), pal, cx)
     }
 
     /// `md_el` at another text size and line height, for the smaller panes (a familiar's plan,
     /// a subagent's ticket and notes).
-    pub(super) fn md_sized(&self, text: &str, key: &str, tail: Option<(u64, Hsla)>, (size, line): (f32, f32), pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn md_sized(&self, text: &str, key: &str, tail: Option<(u64, Hsla)>, size: (f32, f32), pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
+        self.md_inner(text, key, tail, size, None, pal, cx)
+    }
+
+    fn md_inner(&self, text: &str, key: &str, tail: Option<(u64, Hsla)>, (size, line): (f32, f32), bar_at: Option<u64>, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
         let (fg, fg3) = (c(pal.fg), c(pal.fg3));
         let dir = self.thread.as_ref().and_then(|t| t.project.clone()).map(std::path::PathBuf::from);
         // A line with links: a click opens one in the card, a right click offers where.
@@ -188,7 +195,13 @@ impl Cauldron {
         let mut col = div().flex().flex_col().gap(px((size * 0.55).round())).text_size(px(size)).line_height(px(line)).text_color(fg);
         for (i, b) in blocks.into_iter().enumerate() {
             let t = tail.filter(|_| i == last);
-            col = col.child(match b {
+            let raw = match &b {
+                Block::Para(s) | Block::Head(s) => s.clone(),
+                Block::Item(None, s) => format!("- {s}"),
+                Block::Item(Some(n), s) => format!("{n}. {s}"),
+                Block::Code(lang, body) => format!("```{lang}\n{body}\n```"),
+            };
+            let el: AnyElement = match b {
                 Block::Para(s) => link_line(&s, t, i, cx),
                 Block::Head(s) => div().mt(px(4.)).font_weight(FontWeight::SEMIBOLD).child(link_line(&s, t, i, cx)).into_any_element(),
                 Block::Item(n, s) => div()
@@ -229,9 +242,146 @@ impl Cauldron {
                         .child(div().px(px(12.)).pb(px(10.)).text_size(px(12.5)).line_height(px(19.)).font_family(MONO).child(body))
                         .into_any_element()
                 }
+            };
+            col = col.child(match bar_at.filter(|_| tail.is_none()) {
+                Some(at) => self.block_with_bar(el, &format!("{key}#{i}"), raw, at, pal, cx),
+                None => el,
             });
         }
         col.into_any_element()
+    }
+}
+
+impl Cauldron {
+    /// A reply block that, under the pointer, lights up and shows its bar (Capy's, Charles 22 Nov):
+    /// the time it was written, Reply (quotes it in the composer), Copy, and ⋯ (fork into a side
+    /// thread, copy the whole reply).
+    fn block_with_bar(&self, el: AnyElement, bk: &str, raw: String, at: u64, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
+        let on = self.block_hover.as_deref() == Some(bk) || self.block_menu.as_deref() == Some(bk);
+        let menu = self.block_menu.as_deref() == Some(bk);
+        let (fg, fg2, fg3) = (c(pal.fg), c(pal.fg2), c(pal.fg3));
+        let msg_id = bk.split([':', '#']).next().unwrap_or("").to_string();
+        let k1 = bk.to_string();
+        let mut wrap = div()
+            .id(SharedString::from(format!("blk-{bk}")))
+            .relative()
+            .mx(px(-6.))
+            .px(px(6.))
+            .rounded(px(6.))
+            .when(on, |d| d.bg(ca(pal.accent, 0.08)))
+            .on_hover(cx.listener(move |this, h: &bool, _, cx| {
+                if *h {
+                    this.block_hover = Some(k1.clone());
+                } else if !this.bar_hover && this.block_hover.as_deref() == Some(k1.as_str()) {
+                    this.block_hover = None;
+                }
+                cx.notify();
+            }))
+            .child(el);
+        if !on {
+            return wrap.into_any_element();
+        }
+        let time = chrono::DateTime::from_timestamp_millis(at as i64).map(|t| t.with_timezone(&chrono::Local).format("%H:%M").to_string()).unwrap_or_default();
+        let btn = |id: &str, icon: &'static str, label: &'static str| {
+            div().id(SharedString::from(format!("{id}-{bk}"))).size(px(24.)).flex().items_center().justify_center().rounded(px(radius::TAG)).cursor_pointer().hover(|d| d.bg(c(pal.hover))).aria_label(label).child(glyph(icon, 13., fg2))
+        };
+        let (q, cp, k2, k3) = (raw.clone(), raw.clone(), bk.to_string(), bk.to_string());
+        let bar = div()
+            .id(SharedString::from(format!("blk-bar-{bk}")))
+            .absolute()
+            .top(px(-2.))
+            .right(px(4.))
+            .h(px(28.))
+            .px(px(4.))
+            .flex()
+            .items_center()
+            .gap(px(2.))
+            .rounded(px(radius::CONTROL))
+            .bg(c(pal.panel))
+            .border_1()
+            .border_color(c(pal.line))
+            .shadow(super::lift(super::Lift::Button, pal))
+            .on_hover(cx.listener(move |this, h: &bool, _, cx| {
+                this.bar_hover = *h;
+                this.block_hover = if *h { Some(k2.clone()) } else { None };
+                cx.notify();
+            }))
+            .child(div().id(SharedString::from(format!("blk-time-{bk}"))).px(px(6.)).text_size(px(11.5)).font_features(tnum()).text_color(fg3).aria_label(format!("Written at {time}")).child(time))
+            .child(btn("blk-reply", "reply", "Reply to this").on_click(cx.listener(move |this, _, window, cx| {
+                this.quote_in_composer(&q, window, cx);
+            })))
+            .child(btn("blk-copy", "copy", "Copy").on_click(cx.listener(move |_, _, _, cx| cx.write_to_clipboard(gpui::ClipboardItem::new_string(cp.clone())))))
+            .child(btn("blk-more", "ellipsis", "More").on_click(cx.listener(move |this, _, _, cx| {
+                this.block_menu = if this.block_menu.as_deref() == Some(k3.as_str()) { None } else { Some(k3.clone()) };
+                cx.notify();
+            })));
+        wrap = wrap.child(bar);
+        if menu {
+            let item = |id: &str, icon: &'static str, label: &'static str| {
+                div().id(SharedString::from(format!("{id}-{bk}"))).h(px(28.)).px(px(8.)).flex().items_center().gap(px(8.)).rounded(px(radius::TAG)).text_size(px(12.5)).text_color(fg).cursor_pointer().hover(|d| d.bg(c(pal.hover))).aria_label(label).child(glyph(icon, 13., fg2)).child(label)
+            };
+            let (fq, mid, mid2) = (raw.clone(), msg_id.clone(), msg_id);
+            wrap = wrap.child(
+                div()
+                    .id(SharedString::from(format!("blk-menu-{bk}")))
+                    .absolute()
+                    .top(px(28.))
+                    .right(px(4.))
+                    .w(px(220.))
+                    .p(px(4.))
+                    .flex()
+                    .flex_col()
+                    .rounded(px(radius::CONTROL))
+                    .bg(c(pal.panel))
+                    .border_1()
+                    .border_color(c(pal.line))
+                    .shadow(super::lift(super::Lift::Card, pal))
+                    .occlude()
+                    .child(item("blk-fork", "git-fork", "Fork into a side thread").on_click(cx.listener(move |this, _, window, cx| {
+                        this.block_menu = None;
+                        this.fork_block(&mid, &fq, window, cx);
+                    })))
+                    .child(item("blk-copy-all", "copy", "Copy the whole reply").on_click(cx.listener(move |this, _, _, cx| {
+                        this.block_menu = None;
+                        if let Some(m) = this.thread.as_ref().and_then(|t| t.messages.iter().find(|m| m.id == mid2)) {
+                            cx.write_to_clipboard(gpui::ClipboardItem::new_string(m.text.clone()));
+                        }
+                        cx.notify();
+                    }))),
+            );
+        }
+        wrap.into_any_element()
+    }
+
+    /// Puts `text` in the composer as a quote, with the caret after it.
+    pub(super) fn quote_in_composer(&mut self, text: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let Some((st, _)) = self.composer.as_ref() else { return };
+        let quoted: String = text.lines().map(|l| format!("> {l}\n")).collect();
+        let st = st.clone();
+        st.update(cx, |s, cx| {
+            let had = s.value().to_string();
+            let v = if had.trim().is_empty() { format!("{quoted}\n") } else { format!("{quoted}\n{had}") };
+            s.set_value(v, window, cx);
+            s.focus(window, cx);
+        });
+        cx.notify();
+    }
+
+    /// A side thread off the open stream that starts with the whole conversation, opened with
+    /// this block quoted in its composer.
+    fn fork_block(&mut self, _msg: &str, text: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let (Some(id), Some((_, chats))) = (self.open.clone(), self.core.as_ref()) else { return };
+        let title: String = text.trim_start_matches(['#', '-', '>', ' ', '*']).chars().take(40).collect();
+        match chats.side(&id, &title, backspace_core::chat::SideCtx::Whole) {
+            Ok(t) => {
+                self.selected = Some(t.id.clone());
+                self.open_thread(t.id);
+                self.refresh();
+                self.quote_in_composer(text, window, cx);
+            }
+            Err(e) => self.send_error = Some(e.to_string()),
+        }
+        cx.notify();
     }
 }
 

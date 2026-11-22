@@ -732,7 +732,7 @@ impl Cauldron {
                     if l.text.is_empty() {
                         d.child(div().text_size(px(14.)).line_height(px(22.)).text_color(fg3).child(shown.clone()))
                     } else {
-                        d.child(self.md_el(&shown, &l.id, paced.as_ref().map(|_| (now_ms, c(pal.accent))), pal, cx))
+                        d.child(self.md_el(&shown, &l.id, paced.as_ref().map(|_| (now_ms, c(pal.accent))), l.at, pal, cx))
                     }
                 })
                 .when_some(live(l.status).filter(|_| l.parts.is_empty()), |d, label| {
@@ -744,7 +744,7 @@ impl Cauldron {
                 say = match part {
                     super::ledger::Part::Text(t) => {
                         let live_tail = paced.as_ref().filter(|_| Some(j) == last_text);
-                        say.child(div().id(("part", i * 1000 + j)).child(self.md_el(live_tail.unwrap_or(t), &format!("{}:{j}", l.id), live_tail.map(|_| (now_ms, c(pal.accent))), pal, cx)))
+                        say.child(div().id(("part", i * 1000 + j)).child(self.md_el(live_tail.unwrap_or(t), &format!("{}:{j}", l.id), live_tail.map(|_| (now_ms, c(pal.accent))), l.at, pal, cx)))
                     }
                     super::ledger::Part::Step(st) => say.child(self.step_el(st, st.end.is_none(), now_ms, pal, cx)),
                 };
