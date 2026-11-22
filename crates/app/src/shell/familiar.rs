@@ -845,7 +845,7 @@ impl Cauldron {
             None => {
                 let mut col = div().flex().flex_col().gap(px(12.)).child(boxed("familiar-goal").aria_label(f.goal.clone()).child(label(format!("Goal · {}", f.name))).child(div().text_size(px(13.)).text_color(fg).child(f.goal.clone())).test_support());
                 if let Some(p) = &f.plan {
-                    col = col.child(div().id("familiar-plan").flex().flex_col().gap(px(2.)).aria_label(p.clone()).child(label("Familiar · plan".into())).child(div().text_size(px(13.)).text_color(fg).child(p.clone())).test_support());
+                    col = col.child(div().id("familiar-plan").flex().flex_col().gap(px(2.)).aria_label(p.clone()).child(label("Familiar · plan".into())).child(self.md_sized(p, "fam-plan", None, (13., 20.), pal, cx)).test_support());
                 }
                 for (k, e) in f.events.iter().enumerate() {
                     col = col.child(event(k, e.kind, e.text.clone()));
@@ -934,9 +934,21 @@ impl Cauldron {
                 (f.state, format!("coordinating {n} subagent{}", if n == 1 { "" } else { "s" }), col)
             }
             Some(s) => {
-                let mut col = div().flex().flex_col().gap(px(12.)).child(boxed("sub-ticket").aria_label(s.ticket.clone()).child(label(format!("Ticket from the familiar · {}", s.name))).child(div().text_size(px(13.)).text_color(fg).child(s.ticket.clone())).test_support());
+                let mut col = div().flex().flex_col().gap(px(12.)).child(boxed("sub-ticket").aria_label(s.ticket.clone()).child(label(format!("Ticket from the familiar · {}", s.name))).child(self.md_sized(&s.ticket, "sub-ticket", None, (13., 20.), pal, cx)).test_support());
+                // A subagent's notes are its own words: markdown, as a reply is.
                 for (k, text) in s.log.iter().enumerate() {
-                    col = col.child(event(k, EventKind::Agent, text.clone()));
+                    col = col.child(
+                        div()
+                            .id(("familiar-event", k))
+                            .flex()
+                            .items_start()
+                            .gap(px(8.))
+                            .text_color(fg2)
+                            .aria_label(text.clone())
+                            .child(div().pt(px(3.)).child(glyph("bot", 13., fg3)))
+                            .child(div().flex_1().min_w_0().child(self.md_sized(text, &format!("sub-log-{k}"), None, (12., 17.), pal, cx)))
+                            .test_support(),
+                    );
                 }
                 (s.state, "reports to the familiar".to_string(), col)
             }

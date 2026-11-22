@@ -30,6 +30,8 @@ pub(super) struct Step {
     pub detail: Option<String>,
     /// A command step's command, drawn in mono after "Ran" (Tuff UI: tool name and its argument).
     pub cmd: Option<String>,
+    /// A command step's whole command and what it printed, for its shell block.
+    pub shell: Option<(String, String)>,
 }
 
 fn base(path: &str) -> String {
@@ -72,7 +74,8 @@ fn kind(name: &str) -> Option<(&'static str, &'static str, &'static str)> {
 }
 
 fn describe(a: &Act, thinking: Option<&str>) -> (String, String, Option<String>) {
-    let file = field(&a.input, &["file_path", "filePath", "path", "notebook_path"]).map(|p| base(&p));
+    // Core records the path before it cuts the input; older steps only have what the cut kept.
+    let file = a.path.clone().or_else(|| field(&a.input, &["file_path", "filePath", "path", "notebook_path"])).map(|p| base(&p));
     match canon(&a.name) {
         // Its own text; a thread from before Thoughts kept theirs has only the reply's, for the first.
         "Thinking" => ("Thinking".into(), "Thought".into(), Some(a.output.as_str()).filter(|t| !t.trim().is_empty()).or(thinking).filter(|t| !t.trim().is_empty()).map(str::to_string)),
@@ -145,10 +148,17 @@ pub(super) fn parts(m: &Msg, running: bool) -> Vec<Part> {
             (Some(e), Some((k, _, _))) if !a.error => Some((k, 1, a.start, e)),
             _ => None,
         };
-        out.push(Part::Step(Step { key: format!("{}:{i}", m.id), live, done, start: a.start, end, error: a.error, detail, cmd: matches!(canon(&a.name), "Bash" | "PowerShell").then(|| field(&a.input, &["command"]).map(|c| short(&c, 56))).flatten().filter(|c| !c.is_empty()) }));
+        let full = matches!(canon(&a.name), "Bash" | "PowerShell").then(|| field(&a.input, &["command"])).flatten().filter(|c| !c.trim().is_empty());
+        out.push(Part::Step(Step { key: format!("{}:{i}", m.id), live, done, start: a.start, end, error: a.error, detail, cmd: full.as_deref().map(|c| short(c, 56)), shell: full.map(|c| (c.trim().to_string(), a.output.trim_end().to_string())) }));
     }
     push_text(&mut out, &m.text[prev.min(m.text.len())..]);
     out
+}
+
+/// The live card's clock: "0:07", "1:04".
+pub(super) fn clock(ms: u64) -> String {
+    let s = ms / 1000;
+    format!("{}:{:02}", s / 60, s % 60)
 }
 
 /// "3.2s" under ten seconds, "42s", "1m 04s".
@@ -191,10 +201,11 @@ pub(super) fn shimmer(text: &str, now: u64, grey: Hsla, ink: Hsla, still: bool) 
 impl Cauldron {
     /// One step's line, and under it, when open, its detail. `live` is whether it is running now.
     pub(super) fn step_el(&self, s: &Step, live: bool, now: u64, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
-        let (fg, fg3, accent) = (c(pal.fg), c(pal.fg3), c(pal.accent));
+        let (fg, fg3) = (c(pal.fg), c(pal.fg3));
         let still = cx.reduce_motion();
         let ended = s.end.filter(|_| !live);
-        let open = self.act_open.get(&s.key).copied().unwrap_or(live);
+        // A running command opens to nothing yet (its output comes when it ends), so it starts shut.
+        let open = self.act_open.get(&s.key).copied().unwrap_or(live && s.shell.is_none());
         let foldable = s.detail.is_some();
         let label = if live { s.live.clone() } else { s.done.clone() };
         let time = match ended {
@@ -203,12 +214,14 @@ impl Cauldron {
             _ => None,
         };
         let key = s.key.clone();
+        let is_cmd = s.shell.is_some();
         // The status stays on the left (a failed command keeps its X); a foldable step's chevron is
         // after its time, as on Tuff UI's tool rows.
         let glyph_el: AnyElement = if live {
             // A breathing dot, in step with the sweep.
             let breath = if still { 1.0 } else { 0.35 + 0.65 * (((now % 1100) as f32 / 1100.0) * std::f32::consts::TAU).sin().abs() };
-            div().size(px(6.)).rounded_full().bg(accent).opacity(breath).into_any_element()
+            // fg2, not the accent: the accent means "this wants you" (design system).
+            div().size(px(7.)).rounded_full().bg(c(pal.fg2)).opacity(breath).into_any_element()
         } else if s.error {
             glyph("x", 13., c(pal.bad)).into_any_element()
         } else {
@@ -242,21 +255,64 @@ impl Cauldron {
             })
             .child(div().size(px(16.)).flex_none().flex().items_center().justify_center().child(glyph_el))
             .child(div().min_w_0().overflow_hidden().whitespace_nowrap().text_ellipsis().child(text_el))
-            .when_some(time, |d, t| d.child(div().ml_auto().flex_none().font_family(MONO).font_features(tnum()).text_size(px(11.5)).child(t)))
-            .when_live(foldable, |d| d.child(div().w(px(14.)).flex_none().flex().items_center().justify_center().child(glyph(if open { "chevron-down" } else { "chevron-right" }, 10., if live { accent } else { fg3 }))))
+            .when_some(time.filter(|_| !live), |d, t| d.child(div().ml_auto().flex_none().font_family(MONO).font_features(tnum()).text_size(px(11.5)).child(t)))
+            // The live card (board "Stream tool blocks" A): the step running now is a card with
+            // its clock and a Stop for the stream.
+            .when(live, |d| {
+                d.h(px(40.))
+                    .pl(px(8.))
+                    .pr(px(6.))
+                    .rounded(px(radius::INSET))
+                    .bg(c(pal.inset))
+                    .text_color(c(pal.fg2))
+                    .child(div().ml_auto().flex_none().font_family(MONO).font_features(tnum()).text_size(px(11.5)).text_color(fg3).child(clock(now.saturating_sub(s.start))))
+                    .child(
+                        div()
+                            .id(format!("step-stop-{key}"))
+                            .flex_none()
+                            .h(px(26.))
+                            .px(px(10.))
+                            .flex()
+                            .items_center()
+                            .gap(px(6.))
+                            .rounded(px(radius::INNER))
+                            .border_1()
+                            .border_color(c(pal.line_strong))
+                            .bg(c(pal.panel))
+                            .text_size(px(12.))
+                            .text_color(fg)
+                            .cursor_pointer()
+                            .hover(|d| d.bg(c(pal.hover)))
+                            .aria_label("Stop")
+                            .child(div().size(px(8.)).rounded(px(2.)).bg(c(pal.fg2)))
+                            .child("Stop")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                cx.stop_propagation();
+                                if let (Some(id), Some((_, chats))) = (this.open.clone(), this.core.as_ref()) {
+                                    chats.stop(&id);
+                                }
+                                this.refresh();
+                                cx.notify();
+                            }))
+                            .test_support(),
+                    )
+            })
+            .when_live(foldable, |d| d.child(div().w(px(14.)).flex_none().flex().items_center().justify_center().child(glyph(if open { "chevron-down" } else { "chevron-right" }, 10., fg3))))
             .when_live(foldable, |d| {
                 let k = key.clone();
                 d.cursor_pointer().hover(|d| d.text_color(fg)).on_click(cx.listener(move |this, _, _, cx| {
                     let cur = this.act_open.get(&k).copied();
                     // The first click flips what it showed: a running step was open, a finished one shut.
-                    let was = cur.unwrap_or(live);
+                    let was = cur.unwrap_or(live && is_cmd);
                     this.act_open.insert(k.clone(), !was);
                     cx.notify();
                 }))
             });
         let mut col = div().flex().flex_col().child(row.test_support());
         if open {
-            if let Some(d) = &s.detail {
+            if let Some((cmd, out)) = &s.shell {
+                col = col.child(self.shell_block(&key, cmd, out, live, s.error, pal, cx));
+            } else if let Some(d) = &s.detail {
                 let code = d.starts_with("$ ");
                 col = col.child(
                     div()
@@ -272,14 +328,108 @@ impl Cauldron {
                         .text_size(px(12.))
                         .line_height(px(17.))
                         .text_color(c(pal.fg3))
+                        .relative()
                         .when(code, |d| d.font_family(MONO))
-                        .child(d.clone())
+                        .child(div().pr(px(40.)).child(d.clone()))
+                        .child(div().absolute().top(px(6.)).right(px(10.)).child(copy_button(format!("step-copy-{key}"), d.clone(), pal, cx)))
                         .test_support(),
                 );
             }
         }
         col.into_any_element()
     }
+
+    /// An opened command (Tuff UI's shell block): `$ command` and its state, what it printed, and
+    /// a foot with the line count and Copy.
+    fn shell_block(&self, key: &str, cmd: &str, out: &str, live: bool, error: bool, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
+        let (fg, fg3) = (c(pal.fg), c(pal.fg3));
+        // Status is a glyph and a word; only a failure takes a colour (design system).
+        let (word, icon, ink, fill) = if live {
+            ("Running", None, c(pal.fg2), c(pal.selected))
+        } else if error {
+            ("Failed", Some("x"), c(pal.bad), ca(pal.bad, 0.12))
+        } else {
+            ("Done", Some("check"), c(pal.fg2), c(pal.selected))
+        };
+        let n = out.lines().count();
+        let hair = c(pal.line);
+        div()
+            .id(format!("shell-{key}"))
+            .ml(px(24.))
+            .my(px(4.))
+            .rounded(px(radius::INSET))
+            .bg(c(pal.inset))
+            .overflow_hidden()
+            .text_size(px(12.))
+            .aria_label(format!("$ {cmd}, {word}"))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .h(px(30.))
+                    .px(px(10.))
+                    .border_b_1()
+                    .border_color(hair)
+                    .child(div().min_w_0().flex_1().overflow_hidden().whitespace_nowrap().text_ellipsis().font_family(MONO).text_size(px(11.5)).text_color(fg).child(format!("$ {}", cmd.lines().next().unwrap_or(""))))
+                    .child(
+                        div()
+                            .flex_none()
+                            .h(px(18.))
+                            .px(px(7.))
+                            .flex()
+                            .items_center()
+                            .gap(px(4.))
+                            .rounded(px(radius::TAG))
+                            .bg(fill)
+                            .text_size(px(10.5))
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(ink)
+                            .when_some(icon, |d, i| d.child(glyph(i, 10., ink)))
+                            .child(word),
+                    ),
+            )
+            .when(!out.is_empty(), |d| {
+                d.child(div().id(format!("shell-out-{key}")).max_h(px(220.)).overflow_y_scroll().px(px(10.)).py(px(8.)).font_family(MONO).text_size(px(11.5)).line_height(px(17.)).text_color(fg3).child(out.to_string()))
+            })
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .h(px(26.))
+                    .px(px(10.))
+                    .when(!out.is_empty(), |d| d.border_t_1().border_color(hair))
+                    .text_size(px(11.))
+                    .text_color(fg3)
+                    .font_features(tnum())
+                    .child(match (n, live) {
+                        (0, true) => "No output yet".to_string(),
+                        (0, false) => "No output".to_string(),
+                        (1, _) => "1 line".to_string(),
+                        (n, _) => format!("{n} lines"),
+                    })
+                    .child(div().ml_auto().child(copy_button(format!("shell-copy-{key}"), if out.is_empty() { cmd.to_string() } else { out.to_string() }, pal, cx))),
+            )
+            .test_support()
+            .into_any_element()
+    }
+}
+
+/// "Copy", which puts `text` on the clipboard.
+fn copy_button(id: String, text: String, pal: &'static Palette, cx: &mut Context<Cauldron>) -> impl IntoElement {
+    let fg = c(pal.fg);
+    div()
+        .id(id)
+        .text_size(px(11.))
+        .text_color(c(pal.fg2))
+        .cursor_pointer()
+        .hover(move |d| d.text_color(fg))
+        .aria_label("Copy")
+        .child("Copy")
+        .on_click(cx.listener(move |_, _, _, cx| {
+            cx.stop_propagation();
+            cx.write_to_clipboard(gpui::ClipboardItem::new_string(text.clone()));
+        }))
 }
 
 #[cfg(test)]
@@ -315,6 +465,27 @@ mod tests {
         let p = parts(&m, false);
         assert!(matches!(&p[0], Part::Step(s) if s.cmd.as_deref() == Some("ls -la") && s.done == "Ran ls -la"), "{p:?}");
         assert!(matches!(&p[1], Part::Step(s) if s.done == "Edited index.html"), "{p:?}");
+    }
+
+    #[::core::prelude::v1::test]
+    fn a_write_names_its_file_from_the_recorded_path() {
+        // The stored input was cut before the path; core kept the path on the step.
+        let mut w = act("Write", r#"{"content":"<html><p>lorem"#, 0, 0, Some(100));
+        w.path = Some("/w/landing/index.html".into());
+        let p = parts(&msg("ok", vec![w]), false);
+        assert!(matches!(&p[0], Part::Step(s) if s.done == "Edited index.html"), "{p:?}");
+    }
+
+    #[::core::prelude::v1::test]
+    fn a_command_carries_its_whole_line_and_output_for_the_block() {
+        let long = format!("cargo test --workspace {}", "-p x ".repeat(20));
+        let mut b = act("Bash", &serde_json::json!({ "command": long }).to_string(), 0, 0, Some(100));
+        b.output = "ok\nok\n".into();
+        let p = parts(&msg("ok", vec![b]), false);
+        let Part::Step(s) = &p[0] else { panic!() };
+        assert!(s.cmd.as_deref().unwrap().ends_with('…'));
+        assert_eq!(s.shell.as_ref().map(|(c, o)| (c.as_str(), o.as_str())), Some((long.trim(), "ok\nok")));
+        assert_eq!(clock(64_000), "1:04");
     }
 
     #[::core::prelude::v1::test]

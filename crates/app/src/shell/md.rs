@@ -131,10 +131,16 @@ fn styled(s: &str, tail: Option<(u64, Hsla)>, pal: &'static Palette) -> StyledTe
 impl Cauldron {
     /// `text` as blocks. `key` names it for ids; `tail` puts the live caret after the last block.
     pub(super) fn md_el(&self, text: &str, key: &str, tail: Option<(u64, Hsla)>, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
+        self.md_sized(text, key, tail, (14., 22.), pal, cx)
+    }
+
+    /// `md_el` at another text size and line height, for the smaller panes (a familiar's plan,
+    /// a subagent's ticket and notes).
+    pub(super) fn md_sized(&self, text: &str, key: &str, tail: Option<(u64, Hsla)>, (size, line): (f32, f32), pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
         let (fg, fg3) = (c(pal.fg), c(pal.fg3));
         let blocks = parse(text);
         let last = blocks.len().saturating_sub(1);
-        let mut col = div().flex().flex_col().gap(px(8.)).text_size(px(14.)).line_height(px(22.)).text_color(fg);
+        let mut col = div().flex().flex_col().gap(px((size * 0.55).round())).text_size(px(size)).line_height(px(line)).text_color(fg);
         for (i, b) in blocks.into_iter().enumerate() {
             let t = tail.filter(|_| i == last);
             col = col.child(match b {

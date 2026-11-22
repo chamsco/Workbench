@@ -144,6 +144,32 @@ fn end_thinking(m: &mut Msg) {
     }
 }
 
+/// The file a tool call names in its input (JSON text). The runner may have cut the text, so it
+/// is read as a string after the key when the whole does not parse.
+fn act_path(input: &str) -> Option<String> {
+    const KEYS: [&str; 4] = ["file_path", "filePath", "notebook_path", "path"];
+    if let Ok(v) = serde_json::from_str::<serde_json::Value>(input) {
+        return KEYS.iter().find_map(|k| v.get(*k)?.as_str()).filter(|p| !p.is_empty()).map(str::to_string);
+    }
+    KEYS.iter().find_map(|k| {
+        let rest = &input[input.find(&format!("\"{k}\":\""))? + k.len() + 4..];
+        let mut out = String::new();
+        let mut esc = false;
+        for ch in rest.chars() {
+            match (esc, ch) {
+                (true, c) => {
+                    out.push(if c == 'n' { '\n' } else { c });
+                    esc = false;
+                }
+                (false, '\\') => esc = true,
+                (false, '"') => return Some(out).filter(|p| !p.is_empty()),
+                (false, c) => out.push(c),
+            }
+        }
+        None
+    })
+}
+
 /// One step of a reply: the reasoning ("Thinking") or a tool call.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
 pub struct Act {
@@ -155,6 +181,10 @@ pub struct Act {
     /// The tool's input as the runner reported it (JSON text, short), for a one-line label.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub input: String,
+    /// The file the call works on, taken from the whole input before `input` is cut: a write's
+    /// path came after its content and was lost to the cut ("Edited a file").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
     /// What the call printed, trimmed to the tail, once it ended; for "Thinking", its reasoning.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub output: String,
@@ -2296,9 +2326,10 @@ Ask the reader for input with the real form parts: `f = FormControl(\"Name\", In
             }),
             RunEvent::ToolStart { id: tid, name, input } => self.with_msg(id, mid, |m| {
                 end_thinking(m);
+                let path = act_path(&input);
                 let input: String = input.chars().take(400).collect();
                 let at = m.text.len();
-                m.acts.push(Act { id: tid, name, input, start: now_ms(), at, ..Default::default() });
+                m.acts.push(Act { id: tid, name, input, path, start: now_ms(), at, ..Default::default() });
             }),
             RunEvent::ToolEnd { id: tid, output, error } => self.with_msg(id, mid, |m| {
                 if let Some(a) = m.acts.iter_mut().rev().find(|a| a.id == tid && a.end.is_none()) {
@@ -2528,6 +2559,13 @@ pub async fn link_preview(http: &reqwest::Client, url: &str) -> Result<LinkPrevi
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_steps_file_is_read_before_its_input_is_cut() {
+        assert_eq!(act_path(r#"{"content":"hi","file_path":"/w/a.rs"}"#).as_deref(), Some("/w/a.rs"));
+        assert_eq!(act_path(r#"{"filePath":"C:\\x\\index.html","content":"<html"#).as_deref(), Some("C:\\x\\index.html"));
+        assert_eq!(act_path(r#"{"command":"ls"}"#), None);
+    }
 
     fn chats(dir: &Path) -> (Arc<Chats>, tokio::runtime::Runtime) {
         let rt = tokio::runtime::Builder::new_multi_thread()
