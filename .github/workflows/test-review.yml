@@ -1,0 +1,71 @@
+# Reviews a pull request's test changes against the house testing rule,
+# crates/core/skills/sharp-testing/SKILL.md (see AGENTS.md).
+#
+# Prose rules cannot be checked by a script, so a model reads the diff and
+# comments once on the pull request. It is advisory: the job never fails a
+# pull request for what it finds. The Tests workflow is still what says whether
+# the code works.
+#
+# Needs the repository secret ANTHROPIC_API_KEY. Without it the job says so
+# and stops, green.
+name: Test review
+
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review]
+    paths:
+      - "**/*.rs"
+      - "crates/core/skills/sharp-testing/**"
+
+concurrency:
+  group: test-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+  id-token: write
+
+jobs:
+  review:
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check for the API key
+        id: key
+        env:
+          KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -z "$KEY" ]; then
+            echo "ANTHROPIC_API_KEY is not set: skipping the test review."
+            echo "on=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "on=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v4
+        if: steps.key.outputs.on == 'true'
+        with:
+          fetch-depth: 0
+      - uses: anthropics/claude-code-action@v1
+        if: steps.key.outputs.on == 'true'
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_args: "--allowedTools Read,Grep,Glob,Bash(git diff:*),Bash(git log:*),Bash(gh pr comment:*),Bash(gh pr diff:*)"
+          prompt: |
+            Review the test changes in pull request #${{ github.event.pull_request.number }}
+            of ${{ github.repository }} against the rules in
+            crates/core/skills/sharp-testing/SKILL.md. Read that file first.
+
+            Look only at tests the pull request adds or changes (#[test],
+            #[gpui_kit::test], files under tests/), and at code changes that
+            fix a bug without a regression test. For each problem, name the
+            test, the rule it breaks, and what to do instead. Skip anything the
+            rules allow. Do not comment on style or on code outside tests.
+
+            Post one comment with `gh pr comment`. If nothing breaks the rules,
+            post a one-line comment saying the test changes follow
+            sharp-testing. End the comment with:
+
+            ---
+            _Advisory review against sharp-testing. It does not block the merge._
