@@ -185,7 +185,12 @@ impl Cauldron {
             .aria_label(label.clone())
             .aria_expanded(open)
             .when(!ready, |d| d.aria_description("Not signed in"))
-            .child(div().size(px(6.)).flex_none().rounded_full().bg(if ready { c(pal.ok) } else { c(pal.warn) }))
+            // The model's own logo (Charles, 22 Nov); a status dot only when no logo is known.
+            .child(match route.and_then(|r| super::logos::route_mark(&r.provider, r.model.as_deref())).and_then(|n| super::logos::image(n, &pal.fg.to_hex())) {
+                // Dimmed while the CLI needs signing in; the amber dot still says so for a route with no logo.
+                Some(m) => img(m).size(px(14.)).flex_none().when(!ready, |d| d.opacity(0.45)).into_any_element(),
+                None => div().size(px(6.)).flex_none().rounded_full().bg(if ready { c(pal.ok) } else { c(pal.warn) }).into_any_element(),
+            })
             .child(div().min_w_0().truncate().child(label))
             .child(glyph("chevron-down", 12., fg3))
             .on_click(cx.listener(move |this, _, window, cx| {

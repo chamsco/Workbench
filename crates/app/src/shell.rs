@@ -36,6 +36,7 @@ mod ledger;
 mod links;
 mod md;
 mod logos;
+mod surface;
 mod mark;
 mod picker;
 mod side;
@@ -163,12 +164,11 @@ impl Panel {
 }
 
 /// The apps row (Tight tiles): what the sidebar and the hover indent switch between.
-const FUNCTIONS: [(&str, &str); 5] = [
+const FUNCTIONS: [(&str, &str); 4] = [
     ("message-square", "Streams"),
-    ("folder", "Folders"),
     ("calendar", "Automations"),
     ("bot", "Agents"),
-    ("database", "Library"),
+    ("book-open", "Library"),
 ];
 
 gpui_kit::actions!(cauldron, [NewStream]);
@@ -209,6 +209,9 @@ pub(crate) struct Cauldron {
     /// What the Changes, Git and Files panels read from the stream's folder, by panel and folder;
     /// and the folders open in the Files tree.
     support_data: std::collections::HashMap<(Panel, String), support::Data>,
+    /// The Changes panel compares with this checkpoint's commit; None is the last commit.
+    diff_since: Option<String>,
+    restore_ask: bool,
     files_open: std::collections::BTreeSet<std::path::PathBuf>,
     /// The Harbour painting behind the window (Tight tiles), or the plain frame.
     painting: bool,
@@ -231,7 +234,11 @@ pub(crate) struct Cauldron {
     /// Side streams whose tab was closed (kept, not deleted), and the mains whose side streams
     /// are listed under them in the sidebar.
     closed_sides: std::collections::HashSet<String>,
-    sides_listed: std::collections::HashSet<String>,
+    sides_folded: std::collections::HashSet<String>,
+    /// Sidebar groups (Needs you, Working, Done) the user folded, by label.
+    groups_folded: std::collections::HashSet<String>,
+    /// The Archived shelf at the bottom of the list is open.
+    archive_open: bool,
     /// The right-click menu on a stream, when open.
     stream_menu: Option<streammenu::StreamMenu>,
     /// Settings > Appearance: which colour the swatches set, and the open hex field.
@@ -560,7 +567,7 @@ impl Cauldron {
                 .rounded(px(radius::CONTROL))
                 .cursor_pointer()
                 // The lifted button, the same in every app (board round 5, Charles 21 Nov 04:21Z).
-                .bg(c(pal.raised))
+                .button_face(pal).pressed()
                 .shadow(lift(Lift::Button, pal))
                 .hover(|d| d.bg(c(pal.hover)))
                 .text_size(px(13.))
@@ -650,7 +657,7 @@ impl Cauldron {
     }
 
     pub(crate) fn new() -> Self {
-        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, support_data: Default::default(), files_open: Default::default(), painting: false, glass: Default::default(), plane: Default::default(), mark_ticker: None, ask_hover: false, ask_open: None, ask_answered: Default::default(), fam_questions: Default::default(), frost: backdrop::FrostLevel::Heavy, stream_bg: None, bg_wipe: None, stream_menu: None, closed_sides: Default::default(), sides_listed: Default::default(), color_target: theme::Target::Sidebar, hex_input: None, theme_mode: String::new(), root_focus: None, plan: false, open_in_menu: false, open_in: thread::OpenIn::Folder, search_open: false, indent: false, indent_run: (0.0, None), indent_to: 0.0, sidebar_w: metric::SIDEBAR_W, sidebar_drag: None, link: None, link_menu: None, link_hover: Default::default(), browser: Default::default(), browser_slot: Default::default(), usage: Default::default(), usage_page: false, section_page: false, pages: Default::default(), usage_hover: false, usage_card_hover: false, settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_cache: Default::default(), act_open: Default::default(), act_tick: None, term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), transcript_fit: Default::default(), paced: Default::default(), pace_behind: Default::default(), coordinator: None, familiar: None, fam_views: Vec::new(), fam_live: Vec::new(), fam_watch: Vec::new(), fam_driving: Default::default(), fam_error: None, fam_composer: None, fam_fixture: false, inbox: Vec::new(), inbox_open: false, update: Default::default(), update_open: false, cli_rows: Vec::new(), inbox_toast: None, fam_from: (0.0, 0.0), fam_to: None, fam_since: None, fam_hl: 0, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default(), err_open: Default::default(), side_root: None, sides: Vec::new(), side_win: false, side_input: None, side_ctx: Default::default() }
+        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, support_data: Default::default(), diff_since: None, restore_ask: false, files_open: Default::default(), painting: false, glass: Default::default(), plane: Default::default(), mark_ticker: None, ask_hover: false, ask_open: None, ask_answered: Default::default(), fam_questions: Default::default(), frost: backdrop::FrostLevel::Heavy, stream_bg: None, bg_wipe: None, stream_menu: None, closed_sides: Default::default(), sides_folded: Default::default(), groups_folded: Default::default(), archive_open: false, color_target: theme::Target::Sidebar, hex_input: None, theme_mode: String::new(), root_focus: None, plan: false, open_in_menu: false, open_in: thread::OpenIn::Folder, search_open: false, indent: false, indent_run: (0.0, None), indent_to: 0.0, sidebar_w: metric::SIDEBAR_W, sidebar_drag: None, link: None, link_menu: None, link_hover: Default::default(), browser: Default::default(), browser_slot: Default::default(), usage: Default::default(), usage_page: false, section_page: false, pages: Default::default(), usage_hover: false, usage_card_hover: false, settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_cache: Default::default(), act_open: Default::default(), act_tick: None, term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), transcript_fit: Default::default(), paced: Default::default(), pace_behind: Default::default(), coordinator: None, familiar: None, fam_views: Vec::new(), fam_live: Vec::new(), fam_watch: Vec::new(), fam_driving: Default::default(), fam_error: None, fam_composer: None, fam_fixture: false, inbox: Vec::new(), inbox_open: false, update: Default::default(), update_open: false, cli_rows: Vec::new(), inbox_toast: None, fam_from: (0.0, 0.0), fam_to: None, fam_since: None, fam_hl: 0, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default(), err_open: Default::default(), side_root: None, sides: Vec::new(), side_win: false, side_input: None, side_ctx: Default::default() }
     }
 
     /// Opens core off the main thread (the sidebar shows Loading meanwhile), then keeps the thread
@@ -797,8 +804,14 @@ impl Cauldron {
                 let side_n = |id: &str| v.iter().filter(|t| t.side_of.as_deref() == Some(id)).count();
                 // Archived streams stay out of the list until a search asks for them.
                 let searching = !self.query.trim().is_empty();
-                let mains: Vec<ThreadInfo> = v.iter().filter(|t| (!t.archived || searching) && t.side_of.as_ref().is_none_or(|m| !v.iter().any(|x| &x.id == m))).cloned().collect();
-                let groups = threads::grouped(&mains, &self.query);
+                let mains: Vec<ThreadInfo> = v.iter().filter(|t| !t.archived && t.side_of.as_ref().is_none_or(|m| !v.iter().any(|x| &x.id == m))).cloned().collect();
+                // Archived streams wait at the bottom, folded, so one can be opened and brought back.
+                let shelved: Vec<ThreadInfo> = v.iter().filter(|t| t.archived && t.side_of.as_ref().is_none_or(|m| !v.iter().any(|x| &x.id == m))).cloned().collect();
+                let mut groups = threads::grouped(&mains, &self.query);
+                let shelf: Vec<&ThreadInfo> = threads::grouped(&shelved, &self.query).into_iter().flat_map(|(_, ts)| ts).collect();
+                if !shelf.is_empty() {
+                    groups.push((Group::Archived, shelf));
+                }
                 if groups.is_empty() {
                     let q = self.query.trim().to_string();
                     return list.child(note("threads-no-match", format!("No threads match {q}"), None, format!("No threads match \u{201c}{q}\u{201d}"), None));
@@ -807,10 +820,22 @@ impl Cauldron {
                 let mut side_i = 0usize;
                 for (gi, (g, ts)) in groups.into_iter().enumerate() {
                     let n = ts.len();
-                    // The board's `.grp`: the name, then its count in a quieter grey.
+                    let folded = if g == Group::Archived { !self.archive_open && !searching } else { self.groups_folded.contains(g.label()) };
+                    let glabel = g.label().to_string();
+                    // The board's `.grp`: the name, then its count in a quieter grey; click folds it.
                     list = list.child(
                         div()
                             .id(("group", gi))
+                            .cursor_pointer()
+                            .aria_expanded(!folded)
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                if glabel == Group::Archived.label() {
+                                    this.archive_open = !this.archive_open;
+                                } else if !this.groups_folded.remove(&glabel) {
+                                    this.groups_folded.insert(glabel.clone());
+                                }
+                                cx.notify();
+                            }))
                             .flex()
                             .items_center()
                             .gap(px(6.))
@@ -823,11 +848,12 @@ impl Cauldron {
                             .line_height(px(16.))
                             .text_color(fg3)
                             .aria_label(format!("{}, {n}", g.label()))
+                            .child(glyph(if folded { "chevron-right" } else { "chevron-down" }, 10., fg3))
                             .child(g.label())
                             .child(div().font_features(tnum()).text_color(c(pal.fg4)).child(n.to_string()))
                             .test_support(),
                     );
-                    for t in ts {
+                    for t in ts.into_iter().filter(|_| !folded) {
                         let on = self.selected.as_deref() == Some(t.id.as_str());
                         let id = t.id.clone();
                         // A state dot, agent or not (figures belong to the Agents page): amber when it
@@ -838,6 +864,7 @@ impl Cauldron {
                             Group::NeedsYou if t.failed.is_some() => "Failed",
                             Group::NeedsYou => "Needs you",
                             Group::Done => "Done",
+                            Group::Archived => "Archived",
                         };
                         let dot = match state {
                             "Working" => mark::mark(("thread-dot", i), Mark::Working, mark::SIZE, c(pal.accent)),
@@ -869,7 +896,7 @@ impl Cauldron {
                             .aria_label(format!("{}, {}", t.branch.as_deref().unwrap_or("no branch"), t.models))
                             .child(glyph("git-branch", 10., c(pal.fg4)))
                             .child(div().min_w_0().truncate().when_live(t.branch.is_none(), |d| d.text_color(c(pal.fg4))).child(t.branch.clone().unwrap_or_else(|| "no branch".into())))
-                            .child(div().ml_auto().flex_none().pl(px(6.)).child(t.models.clone()))
+                            .child(div().ml_auto().flex_none().pl(px(6.)).child(logos::maker_badges(&t.models, pal)))
                             .test_support();
                         list = list.child(
                             div()
@@ -900,7 +927,7 @@ impl Cauldron {
                                 .when_live(t.pinned, |d| d.child(glyph("pin", 11., fg3)))
                                 .when_live(side_n(&t.id) > 0, |d| {
                                     let n = side_n(&t.id);
-                                    let listed = self.sides_listed.contains(&t.id);
+                                    let listed = !self.sides_folded.contains(&t.id);
                                     let tid = t.id.clone();
                                     d.child(
                                         div()
@@ -922,8 +949,8 @@ impl Cauldron {
                                             .child(glyph(if listed { "chevron-down" } else { "chevron-right" }, 10., fg3))
                                             .on_click(cx.listener(move |this, _, _, cx| {
                                                 cx.stop_propagation();
-                                                if !this.sides_listed.remove(&tid) {
-                                                    this.sides_listed.insert(tid.clone());
+                                                if !this.sides_folded.remove(&tid) {
+                                                    this.sides_folded.insert(tid.clone());
                                                 }
                                                 cx.notify();
                                             }))
@@ -969,42 +996,59 @@ impl Cauldron {
                                 .child(div().px(px(8.)).child(under))
                                 .test_support(),
                         );
-                        if self.sides_listed.contains(&t.id) {
+                        if !self.sides_folded.contains(&t.id) {
                             let mut subs: Vec<&ThreadInfo> = v.iter().filter(|x| x.side_of.as_deref() == Some(t.id.as_str())).collect();
                             subs.sort_by_key(|x| x.created);
-                            for x in subs {
+                            let n_subs = subs.len();
+                            for (k, x) in subs.into_iter().enumerate() {
                                 let sid = x.id.clone();
                                 let open_now = self.open.as_deref() == Some(sid.as_str());
                                 let (sm, sk) = (x.id.clone(), x.id.clone());
                                 let closed = self.closed_sides.contains(&x.id);
+                                let last = k + 1 == n_subs;
+                                // The tree (Charles, 22 Nov): the bar sits under the first letter of the stream's
+                                // title, curves into each side stream and ends in an arrow. Greyed until hovered
+                                // or open; the highlight starts a little left of the first letter.
+                                let bar_x = 8. + mark::SIZE + 8.;
+                                let line = c(pal.line_strong);
                                 list = list.child(
                                     div()
-                                        .id(("side-row", side_i))
-                                        .h(px(26.))
-                                        .flex_none()
+                                        .relative()
                                         .flex()
-                                        .items_center()
-                                        .gap(px(7.))
-                                        .pl(px(24.))
-                                        .pr(px(8.))
-                                        .rounded(px(radius::CONTROL))
-                                        .text_size(px(12.5))
-                                        .text_color(if open_now { fg } else { fg2 })
-                                        .when_live(open_now, |d| d.bg(c(pal.hover)))
-                                        .when_live(!open_now, |d| d.hover(|d| d.bg(c(pal.hover))))
-                                        .cursor_pointer()
-                                        .aria_label(format!("Side stream: {}", x.title))
-                                        .child(glyph("corner-down-right", 11., fg3))
-                                        .child(div().flex_1().min_w_0().truncate().child(x.title.clone()))
-                                        .when_live(x.busy, |d| d.child(div().size(px(6.)).flex_none().rounded_full().bg(c(pal.accent))))
-                                        .when_live(closed && !x.busy, |d| d.child(div().text_size(px(10.5)).text_color(c(pal.fg4)).child("closed")))
-                                        .on_mouse_down(MouseButton::Right, cx.listener(move |this, ev: &MouseDownEvent, _, cx| this.open_stream_menu(sm.clone(), ev.position, cx)))
-                                        .on_click(cx.listener(move |this, _, _, cx| {
-                                            this.closed_sides.remove(&sk);
-                                            this.open_thread(sk.clone());
-                                            cx.notify();
-                                        }))
-                                        .test_support(),
+                                        .flex_none()
+                                        .h(px(26.))
+                                        .child(div().absolute().left(px(bar_x)).top_0().w(px(10.)).h(px(13.)).border_l_1().border_b_1().border_color(line).rounded_bl(px(8.)))
+                                        .when_live(!last, |d| d.child(div().absolute().left(px(bar_x)).top(px(13.)).w(px(1.)).h(px(13.)).bg(line)))
+                                        .child(div().absolute().left(px(bar_x + 7.)).top(px(9.)).child(glyph("chevron-right", 8., c(pal.fg4))))
+                                        .child(
+                                            div()
+                                                .id(("side-row", side_i))
+                                                .flex_1()
+                                                .min_w_0()
+                                                .ml(px(bar_x + 17.))
+                                                .flex()
+                                                .items_center()
+                                                .gap(px(7.))
+                                                .pl(px(6.))
+                                                .pr(px(8.))
+                                                .rounded(px(radius::CONTROL))
+                                                .text_size(px(12.5))
+                                                .text_color(if open_now { fg } else { c(pal.fg4) })
+                                                .when_live(open_now, |d| d.bg(c(pal.hover)))
+                                                .when_live(!open_now, |d| d.hover(|d| d.bg(c(pal.hover)).text_color(fg2)))
+                                                .cursor_pointer()
+                                                .aria_label(format!("Side stream: {}", x.title))
+                                                .child(div().flex_1().min_w_0().truncate().child(x.title.clone()))
+                                                .when_live(x.busy, |d| d.child(div().size(px(6.)).flex_none().rounded_full().bg(c(pal.accent))))
+                                                .when_live(closed && !x.busy, |d| d.child(div().text_size(px(10.5)).text_color(c(pal.fg4)).child("closed")))
+                                                .on_mouse_down(MouseButton::Right, cx.listener(move |this, ev: &MouseDownEvent, _, cx| this.open_stream_menu(sm.clone(), ev.position, cx)))
+                                                .on_click(cx.listener(move |this, _, _, cx| {
+                                                    this.closed_sides.remove(&sk);
+                                                    this.open_thread(sk.clone());
+                                                    cx.notify();
+                                                }))
+                                                .test_support(),
+                                        ),
                                 );
                                 side_i += 1;
                                 let _ = &sid;
@@ -1687,24 +1731,59 @@ pub(crate) enum Lift {
     Button,
 }
 
+/// The house button's face, from Tuff UI's action button (Charles, 22 Nov): a soft vertical gradient
+/// instead of a flat fill, darker at the top so the face reads as pressed a little into its edge.
+/// The lift (`Lift::Button`) draws the hairline edge and the light on top.
+pub(crate) trait ButtonFace: Styled + Sized {
+    fn button_face(self, pal: &Palette) -> Self {
+        let dark = pal.panel.0 < 0x80;
+        let (top, bottom) = if dark { (Rgb::hex(0x1d1d1d), Rgb::hex(0x262626)) } else { (Rgb::hex(0xe2e2e2), Rgb::hex(0xececec)) };
+        self.bg(linear_gradient(180., linear_color_stop(c(top), 0.), linear_color_stop(c(bottom), 1.)))
+    }
+}
+impl<T: Styled + Sized> ButtonFace for T {}
+
+/// Tuff's primary action button: the silver gradient (brighter at the bottom), dark ink on top.
+pub(crate) trait PrimaryFace: Styled + Sized {
+    fn primary_face(self, pal: &Palette) -> Self {
+        let dark = pal.panel.0 < 0x80;
+        let (top, bottom) = if dark { (Rgb::hex(0xababab), Rgb::hex(0xffffff)) } else { (Rgb::hex(0xdcdcdc), Rgb::hex(0xffffff)) };
+        self.bg(linear_gradient(180., linear_color_stop(c(top), 0.), linear_color_stop(c(bottom), 1.)))
+    }
+}
+impl<T: Styled + Sized> PrimaryFace for T {}
+
+/// A little give when pressed (Tuff scales to 0.97; GPUI has no scale, so the button dims).
+pub(crate) trait Pressed: StatefulInteractiveElement + Sized {
+    fn pressed(self) -> Self {
+        self.active(|d| d.opacity(0.85))
+    }
+}
+impl<T: StatefulInteractiveElement + Sized> Pressed for T {}
+
 /// S2, "lifted": a hairline edge, a long soft shadow, and a light along the top edge.
 #[inline(never)]
 pub(crate) fn lift(l: Lift, pal: &Palette) -> Vec<BoxShadow> {
     let dark = pal.panel.0 < 0x80;
     let shade = |a: f32| hsla(0., 0., 0., if dark { a } else { a * 0.28 });
     let strong = matches!(l, Lift::Frame);
-    let edge = BoxShadow { color: if dark { hsla(0., 0., 1., if strong { 0.12 } else { 0.05 }) } else { hsla(0., 0., 0., if strong { 0.14 } else { 0.06 }) }, offset: point(px(0.), px(0.)), blur_radius: px(0.), spread_radius: px(1.), inset: false };
+    let edge = BoxShadow { color: if dark { hsla(0., 0., 1., if strong { 0.08 } else { 0.05 }) } else { hsla(0., 0., 0., if strong { 0.09 } else { 0.06 }) }, offset: point(px(0.), px(0.)), blur_radius: px(0.), spread_radius: px(1.), inset: false };
     let top = BoxShadow { color: hsla(0., 0., 1., if dark { 0.07 } else { 0.8 }), offset: point(px(0.), px(1.)), blur_radius: px(0.), spread_radius: px(0.), inset: true };
     let long = match l {
-        Lift::Frame => BoxShadow { color: shade(0.7), offset: point(px(0.), px(20.)), blur_radius: px(48.), spread_radius: px(-18.), inset: false },
+        Lift::Frame => BoxShadow { color: shade(0.45), offset: point(px(0.), px(20.)), blur_radius: px(48.), spread_radius: px(-18.), inset: false }, // unused: Frame returns early below
         Lift::Card => BoxShadow { color: shade(0.55), offset: point(px(0.), px(18.)), blur_radius: px(44.), spread_radius: px(-20.), inset: false },
         Lift::Box => BoxShadow { color: shade(0.8), offset: point(px(0.), px(24.)), blur_radius: px(48.), spread_radius: px(-18.), inset: false },
         Lift::Button => BoxShadow { color: shade(0.45), offset: point(px(0.), px(2.)), blur_radius: px(6.), spread_radius: px(-2.), inset: false },
     };
     if strong {
-        // A close, tight shadow under the long one: the lip the buttons have.
-        let close = BoxShadow { color: shade(0.4), offset: point(px(0.), px(2.)), blur_radius: px(6.), spread_radius: px(-1.), inset: false };
-        return vec![long, close, edge, top];
+        // The frame is sunk into the window, not stood on it (Charles, 22 Nov): the shadow falls
+        // inside the card's top and left edges, as if the sidebar's wall cast it, with a lip of
+        // light where the frame meets its bottom edge. Light uses a cool ink so it does not go grey.
+        let ink = |a: f32| if dark { hsla(0., 0., 0., a) } else { hsla(222. / 360., 0.35, 0.18, a) };
+        let (top_a, top_b, left_a) = if dark { (0.22, 0.07, 0.13) } else { (0.17, 0.07, 0.10) };
+        let inner = |x: f32, y: f32, blur: f32, spread: f32, a: f32| BoxShadow { color: ink(a), offset: point(px(x), px(y)), blur_radius: px(blur), spread_radius: px(spread), inset: true };
+        let lip = BoxShadow { color: hsla(0., 0., 1., if dark { 0.08 } else { 0.75 }), offset: point(px(0.), px(1.)), blur_radius: px(0.), spread_radius: px(0.), inset: false };
+        return vec![inner(0., 10., 28., -12., top_a), inner(0., 2., 3., 0., top_b), inner(12., 0., 20., -14., left_a), lip, edge];
     }
     vec![long, edge, top]
 }
@@ -1978,7 +2057,7 @@ impl Render for Cauldron {
         if let Some(sp) = s.sidebar {
             // The apps row (20 Nov): above New stream, each app its own button with its own fill and
             // border (the stream rows' look, but separate); the open one is darker. Each app swaps the list.
-            let mut fnrow = div().id("apps-tray").flex().gap(px(apps::TRAY_GAP)).mt(px(if s.bar.is_some() { 0. } else { APPS_TOP })).mb(px(8.)).aria_label("Apps");
+            let mut fnrow = div().id("apps-tray").flex().justify_center().gap(px(apps::TRAY_GAP)).mt(px(if s.bar.is_some() { 0. } else { APPS_TOP })).mb(px(8.)).aria_label("Apps");
             for (i, (name, label)) in FUNCTIONS.iter().enumerate() {
                 let on = i == self.section;
                 let b = div()
@@ -1995,8 +2074,9 @@ impl Render for Cauldron {
                     .aria_label(*label)
                     .aria_selected(on)
                     .border_color(if on { c(pal.line_strong) } else { c(pal.line) })
-                    .bg(ca(pal.fg, if on { if dark { 0.16 } else { 0.12 } } else if dark { 0.04 } else { 0.03 }))
-                    .when_live(!on, |d| d.hover(|d| d.bg(ca(pal.fg, if dark { 0.08 } else { 0.06 }))))
+                    .when_live(on, |d| d.bg(ca(pal.fg, if dark { 0.16 } else { 0.12 })))
+                    .when_live(!on, |d| d.button_face(pal).hover(|d| d.bg(ca(pal.fg, if dark { 0.08 } else { 0.06 }))))
+                    .pressed()
                     .child(glyph(name, 15., if on { fg } else { fg3 }))
                     .on_click(cx.listener(move |this, _, _, cx| this.select_section(i, cx)));
                 fnrow = fnrow.child(self.tipped(("fn", i), b, *label, Side::Right, pal, cx).test_support());
@@ -2145,7 +2225,7 @@ impl Render for Cauldron {
                     .h(px(tabshape::PILL_H))
                     .top(px(tabshape::PILL_DY))
                     .rounded(px(tabshape::PILL_R))
-                    .when_live(on, |d| d.bg(c(pal.raised)).shadow(lift(Lift::Button, pal)))
+                    .when_live(on, |d| d.button_face(pal).pressed().shadow(lift(Lift::Button, pal)))
                     .when_live(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
                     .occlude()
                     .cursor_pointer()
@@ -2162,7 +2242,10 @@ impl Render for Cauldron {
             let on = self.active == 0 && !in_side;
             // The stream's status mark sits inside its tab (Charles, 21 Nov), as on its sidebar row.
             let (am, acol) = self.stream_mark(self.side_root.as_deref().or(self.open.as_deref()).unwrap_or(""), pal);
-            let anchor = ftab(("tab", 0), on, cx)
+            let anchor = ftab(("tab", 0), on, cx);
+            // With a side stream open, the main's tab is one of the not-open ones: the same dark badge.
+            let anchor = if in_side { side::off_badge(anchor, pal) } else { anchor };
+            let anchor = anchor
                 .flex_none()
                 .w(px(anchor_w))
                 .px(px(TAB_PAD))
@@ -2296,7 +2379,7 @@ impl Render for Cauldron {
                 .items_center()
                 .justify_center()
                 .rounded(px(tabshape::PILL_R))
-                .bg(c(pal.raised))
+                .button_face(pal).pressed()
                 .shadow(lift(Lift::Button, pal))
                 .occlude()
                 .cursor_pointer()
@@ -2804,12 +2887,6 @@ impl Render for Cauldron {
                     .child("Cauldron"),
             );
         }
-        // The line under the sidebar's top row: the app frame above (lights or logo, the sidebar
-        // button), the sidebar's elements below (Charles, 15 Nov).
-        if let Some(sb) = s.sidebar.filter(|_| s.bar.is_none()) {
-            root = root.child(abs(Rect::new(sb.rect.x, sb.rect.y + 41.0, sb.rect.w, 1.0)).opacity(sb.alpha).bg(c(pal.line_strong)));
-        }
-
         // ---- search, in the sidebar's top row beside the sidebar button (the board's `.brand`)
         // On Windows the search and inbox buttons live in the top bar and stay with it when the sidebar folds.
         if let Some(alpha) = s.sidebar.map(|sb| sb.alpha).or((plat == Platform::Windows).then_some(1.0)) {
@@ -3278,7 +3355,7 @@ mod tests {
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
             let named: [(ElementId, &str); 8] = [
-                (("fn", 4usize).into(), "Library"),
+                (("fn", 3usize).into(), "Library"),
                 (("rb", 0usize).into(), "Highlights"),
                 (("rb", 1usize).into(), "Changes"),
                 ("rb-term".into(), "Terminal"),
@@ -3313,10 +3390,10 @@ mod tests {
         .unwrap();
         cx.executor().advance_clock(ms(1000));
         cx.update_window(handle.into(), |_, window, cx| {
-            window.hover(("fn", 4usize), cx);
+            window.hover(("fn", 3usize), cx);
             window.render_frame(cx);
             assert_eq!(window.find("tooltip").label(), Some("Library"));
-            let (tip, btn) = (rect(window, "tooltip"), rect(window, ("fn", 4usize)));
+            let (tip, btn) = (rect(window, "tooltip"), rect(window, ("fn", 3usize)));
             assert!((tip.x - (btn.right() + 8.0)).abs() < 1.5, "left-side tip sits 8px right of its button: {tip:?} {btn:?}");
         })
         .unwrap();
@@ -3710,16 +3787,17 @@ mod tests {
         let handle = open(cx, with_threads());
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
-            for (i, id) in [(1usize, "folders-page"), (3, "agents-page"), (4, "library-page")] {
+            for (i, id) in [(2usize, "agents-page"), (3, "library-page")] {
                 window.click(("fn", i), cx);
                 window.render_frame(cx);
                 assert!(window.try_find(id).is_some(), "{id}");
                 assert!(window.try_find("stage-bar").is_none(), "a page has the card to itself");
             }
-            window.click(("lib-tab", 2usize), cx);
+            assert!(window.try_find("folders-page").is_some(), "Library opens on its Folders tab");
+            window.click(("lib-tab", 3usize), cx);
             window.render_frame(cx);
             assert!(window.try_find("graph").is_some() && window.try_find("note-panel").is_some());
-            window.click(("lib-tab", 0usize), cx);
+            window.click(("lib-tab", 1usize), cx);
             window.render_frame(cx);
             window.click(("accept", 0usize), cx);
             window.render_frame(cx);
@@ -3727,7 +3805,7 @@ mod tests {
             window.click("receipt-undo", cx);
             window.render_frame(cx);
             assert!(window.try_find("receipt").is_none(), "undo clears it");
-            window.click(("fn", 1usize), cx);
+            window.click(("lib-tab", 0usize), cx);
             window.render_frame(cx);
             assert!(window.try_find(("folder-tile", 0usize)).is_some(), "a real folder tile");
             window.click("folder-new", cx);
@@ -3745,7 +3823,7 @@ mod tests {
         let handle = open(cx, Cauldron { fam_views: super::familiar::fixtures(), ..with_threads() });
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
-            window.click(("fn", 3usize), cx);
+            window.click(("fn", 2usize), cx);
             window.render_frame(cx);
             assert!(window.try_find("agents-page").is_some());
             assert!(window.try_find(("agent-row", 1usize)).is_some(), "the list is in the sidebar");
@@ -3760,7 +3838,7 @@ mod tests {
 
     /// The top row's search button opens the search row; the folded sidebar's hover indent (Tight
     /// tiles rule 6) appears when the pointer reaches the window's left edge, over the card with no
-    /// reflow: search, New stream, the six apps, Settings. Leaving it hides it.
+    /// reflow: search, New stream, the apps, Settings. Leaving it hides it.
     #[gpui_kit::test]
     fn search_button_and_the_hover_indent(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
@@ -3990,14 +4068,14 @@ mod tests {
             assert_eq!(window.find(("settings-page", 0usize)).label().map(|l| l.starts_with("Agents")), Some(true), "your name opens Settings");
             window.click("settings", cx);
             window.render_frame(cx);
-            for (i, id) in [(0usize, Some("new-thread")), (1, Some("new-folder")), (2, None), (3, Some("new-familiar")), (4, None)] {
+            for (i, id) in [(0usize, Some("new-thread")), (1, None), (2, Some("new-familiar")), (3, Some("new-folder"))] {
                 window.click(("fn", i), cx);
                 window.render_frame(cx);
                 for other in ["new-thread", "new-folder", "new-familiar"] {
                     assert_eq!(window.try_find(other).is_some(), Some(other) == id, "app {i}: {other}");
                 }
             }
-            window.click(("fn", 3usize), cx);
+            window.click(("fn", 2usize), cx);
             window.render_frame(cx);
             window.click("new-familiar", cx);
             window.render_frame(cx);

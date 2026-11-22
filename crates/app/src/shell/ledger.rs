@@ -34,6 +34,8 @@ pub(super) struct Step {
     pub shell: Option<(String, String)>,
     /// The file a Read or Edit step touched, whole, for its link.
     pub file: Option<String>,
+    /// A tool's arguments, as JSON text, for its block (not for files, commands or reasoning).
+    pub args: Option<String>,
 }
 
 fn base(path: &str) -> String {
@@ -43,6 +45,15 @@ fn base(path: &str) -> String {
 fn field(input: &str, names: &[&str]) -> Option<String> {
     let v: serde_json::Value = serde_json::from_str(input).ok()?;
     names.iter().find_map(|n| v.get(*n).and_then(|x| x.as_str()).map(str::to_string))
+}
+
+/// A tool call's input as readable JSON; text that is not JSON (cut short) as it is.
+fn pretty(input: &str) -> Option<String> {
+    let t = input.trim();
+    if t.is_empty() || t == "{}" {
+        return None;
+    }
+    Some(serde_json::from_str::<serde_json::Value>(t).ok().and_then(|v| serde_json::to_string_pretty(&v).ok()).unwrap_or_else(|| t.to_string()))
 }
 
 fn short(s: &str, n: usize) -> String {
@@ -140,6 +151,7 @@ pub(super) fn parts(m: &Msg, running: bool) -> Vec<Part> {
                     let noun = kind(&a.name).map_or("times", |x| x.2);
                     prev_step.done = if k == "web" { format!("Searched the web {total} times") } else { format!("{label} {total} {noun}") };
                     prev_step.end = Some(e);
+                    prev_step.args = None;
                     prev_step.start = s0;
                     merged = Some((k, total, s0, e));
                     continue;
@@ -152,7 +164,8 @@ pub(super) fn parts(m: &Msg, running: bool) -> Vec<Part> {
         };
         let file = matches!(canon(&a.name), "Read" | "Edit" | "MultiEdit" | "Write" | "NotebookEdit").then(|| a.path.clone().or_else(|| field(&a.input, &["file_path", "filePath", "path", "notebook_path"]))).flatten();
         let full = matches!(canon(&a.name), "Bash" | "PowerShell").then(|| field(&a.input, &["command"])).flatten().filter(|c| !c.trim().is_empty());
-        out.push(Part::Step(Step { key: format!("{}:{i}", m.id), live, done, start: a.start, end, error: a.error, detail, cmd: full.as_deref().map(|c| short(c, 56)), shell: full.map(|c| (c.trim().to_string(), a.output.trim_end().to_string())), file }));
+        let args = if file.is_none() && full.is_none() && a.name != "Thinking" { pretty(&a.input) } else { None };
+        out.push(Part::Step(Step { key: format!("{}:{i}", m.id), live, done, start: a.start, end, error: a.error, detail, cmd: full.as_deref().map(|c| short(c, 56)), shell: full.map(|c| (c.trim().to_string(), a.output.trim_end().to_string())), args, file }));
     }
     push_text(&mut out, &m.text[prev.min(m.text.len())..]);
     out
@@ -181,17 +194,20 @@ pub(super) fn now_ms() -> u64 {
 }
 
 /// `text` with a silver sweep running through it: each letter is mixed from the grey toward the
-/// bright ink by how near the sweep is, 1.6 s a pass. A still frame (reduced motion) is plain grey.
+/// bright ink by how near the sweep is, 1.6 s a pass, on top of a slow pulse of the whole line
+/// (2.4 s a breath) so it reads as alive even between sweeps. A still frame (reduced motion) is
+/// plain grey.
 pub(super) fn shimmer(text: &str, now: u64, grey: Hsla, ink: Hsla, still: bool) -> StyledText {
     let n = text.chars().count().max(1) as f32;
     let width = 5.0_f32;
     let phase = (now % 1600) as f32 / 1600.0;
     let centre = phase * (n + 2.0 * width) - width;
+    let breath = 0.5 - 0.5 * ((now % 2400) as f32 / 2400.0 * std::f32::consts::TAU).cos();
     let mut hl = Vec::with_capacity(text.len());
     if !still {
         for (k, (i, ch)) in text.char_indices().enumerate() {
             let near = (1.0 - ((k as f32 - centre).abs() / width)).clamp(0.0, 1.0);
-            let t = near * near * (3.0 - 2.0 * near);
+            let t = (near * near * (3.0 - 2.0 * near)).max(0.45 * breath);
             if t > 0.02 {
                 let col = Hsla { h: grey.h, s: grey.s + (ink.s - grey.s) * t, l: grey.l + (ink.l - grey.l) * t, a: grey.a + (ink.a - grey.a) * t };
                 hl.push((i..i + ch.len_utf8(), HighlightStyle { color: Some(col), ..Default::default() }));
@@ -209,7 +225,7 @@ impl Cauldron {
         let ended = s.end.filter(|_| !live);
         // A running command opens to nothing yet (its output comes when it ends), so it starts shut.
         let open = self.act_open.get(&s.key).copied().unwrap_or(live && s.shell.is_none());
-        let foldable = s.detail.is_some();
+        let foldable = s.detail.is_some() || s.args.is_some();
         let label = if live { s.live.clone() } else { s.done.clone() };
         let time = match ended {
             Some(e) if e > s.start => Some(dur(e - s.start)),
@@ -325,7 +341,9 @@ impl Cauldron {
         let mut col = div().flex().flex_col().child(row.test_support());
         if open {
             if let Some((cmd, out)) = &s.shell {
-                col = col.child(self.shell_block(&key, cmd, out, live, s.error, pal, cx));
+                col = col.child(self.shell_block(&key, cmd, out, live, s.error, s.start, s.end, pal, cx));
+            } else if let (Some(args), None) = (&s.args, &s.detail) {
+                col = col.child(self.tool_block(&key, &s.live, &s.done, args, live, s.error, s.start, s.end, pal, cx));
             } else if let Some(d) = &s.detail {
                 let code = d.starts_with("$ ");
                 col = col.child(
@@ -353,9 +371,56 @@ impl Cauldron {
         col.into_any_element()
     }
 
+    /// An opened tool call (Tuff UI's tool call block): its name, status and duration, then its
+    /// arguments, in the Surface layers. A step cannot be re-run on its own (the CLI owns the
+    /// call), so there is no Retry here.
+    fn tool_block(&self, key: &str, live_label: &str, done_label: &str, args: &str, live: bool, error: bool, start: u64, end: Option<u64>, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
+        let (word, ink, fill) = if live {
+            ("Running", c(pal.fg2), c(pal.selected))
+        } else if error {
+            ("Error", c(pal.bad), ca(pal.bad, 0.12))
+        } else {
+            ("Success", c(pal.fg2), c(pal.selected))
+        };
+        let took = if live { Some(now_ms().saturating_sub(start)) } else { end.map(|e| e.saturating_sub(start)) };
+        let word = match took {
+            Some(ms) => format!("{word} · {}", dur(ms)),
+            None => word.to_string(),
+        };
+        let chip = div().flex_none().h(px(18.)).px(px(7.)).flex().items_center().rounded(px(radius::TAG)).bg(fill).text_size(px(10.5)).font_weight(FontWeight::MEDIUM).font_features(tnum()).text_color(ink).child(word.clone());
+        let title = if live { live_label } else { done_label };
+        div()
+            .id(format!("tool-{key}"))
+            .ml(px(24.))
+            .my(px(4.))
+            .aria_label(format!("{title}, {word}"))
+            .child(
+                super::surface::shell(pal)
+                    .child(super::surface::shell_header("wrench", title.to_string(), format!("{} argument{}", args.lines().count().saturating_sub(2).max(1), if args.lines().count() > 3 { "s" } else { "" }), Some(chip.into_any_element()), pal))
+                    .child(
+                        super::surface::panel(pal)
+                            .child(div().text_size(px(10.5)).text_color(c(pal.fg3)).child("Arguments"))
+                            .child(
+                                super::surface::inset(pal)
+                                    .id(format!("tool-args-{key}"))
+                                    .max_h(px(180.))
+                                    .overflow_y_scroll()
+                                    .font_family(MONO)
+                                    .text_size(px(11.5))
+                                    .line_height(px(17.))
+                                    .text_color(c(pal.fg2))
+                                    .child(args.to_string()),
+                            )
+                            .child(div().flex().justify_end().child(copy_button(format!("tool-copy-{key}"), args.to_string(), pal, cx))),
+                    ),
+            )
+            .test_support()
+            .into_any_element()
+    }
+
     /// An opened command (Tuff UI's shell block): `$ command` and its state, what it printed, and
     /// a foot with the line count and Copy.
-    fn shell_block(&self, key: &str, cmd: &str, out: &str, live: bool, error: bool, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
+    fn shell_block(&self, key: &str, cmd: &str, out: &str, live: bool, error: bool, start: u64, end: Option<u64>, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
         let (fg, fg3) = (c(pal.fg), c(pal.fg3));
         // Status is a glyph and a word; only a failure takes a colour (design system).
         let (word, icon, ink, fill) = if live {
@@ -364,6 +429,17 @@ impl Cauldron {
             ("Failed", Some("x"), c(pal.bad), ca(pal.bad, 0.12))
         } else {
             ("Done", Some("check"), c(pal.fg2), c(pal.selected))
+        };
+        // Tuff's header counts up while it runs and keeps the figure once it ends.
+        let took = if live { Some(now_ms().saturating_sub(start)) } else { end.map(|e| e.saturating_sub(start)) };
+        let word = match took {
+            Some(ms) => format!("{word} · {}", dur(ms)),
+            None => word.to_string(),
+        };
+        // A failed command says how it ended when its output does ("Exit code 1", "exit status 2").
+        let word = match (error && !live).then(|| exit_code(out)).flatten() {
+            Some(n) => format!("{word} · exit {n}"),
+            None => word,
         };
         let n = out.lines().count();
         let hair = c(pal.line);
@@ -399,12 +475,52 @@ impl Cauldron {
                             .text_size(px(10.5))
                             .font_weight(FontWeight::MEDIUM)
                             .text_color(ink)
+                            .font_features(tnum())
                             .when_some(icon, |d, i| d.child(glyph(i, 10., ink)))
                             .child(word),
-                    ),
+                    )
+                    // Stop, while it runs: it ends the whole turn, as the composer's Stop does.
+                    .when_live(live, |d| {
+                        d.child(
+                            div()
+                                .id(format!("shell-stop-{key}"))
+                                .flex_none()
+                                .h(px(18.))
+                                .px(px(7.))
+                                .flex()
+                                .items_center()
+                                .rounded(px(radius::TAG))
+                                .text_size(px(10.5))
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(c(pal.fg2))
+                                .bg(c(pal.selected))
+                                .cursor_pointer()
+                                .hover(move |d| d.text_color(fg))
+                                .aria_label("Stop")
+                                .child("Stop")
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    cx.stop_propagation();
+                                    if let (Some(id), Some((_, chats))) = (this.open.clone(), this.core.as_ref()) {
+                                        chats.stop(&id);
+                                    }
+                                    this.refresh();
+                                    cx.notify();
+                                })),
+                        )
+                    }),
             )
             .when(!out.is_empty(), |d| {
-                d.child(div().id(format!("shell-out-{key}")).max_h(px(220.)).overflow_y_scroll().px(px(10.)).py(px(8.)).font_family(MONO).text_size(px(11.5)).line_height(px(17.)).text_color(fg3).child(out.to_string()))
+                // The CLIs give one stream, so errors are told apart by how the line starts.
+                let mut lines = div().id(format!("shell-out-{key}")).max_h(px(280.)).overflow_y_scroll().px(px(10.)).py(px(8.)).font_family(MONO).text_size(px(11.5)).line_height(px(17.)).text_color(fg3);
+                for l in out.lines().take(1000) {
+                    let ink = match line_kind(l) {
+                        Some(true) => Some(c(pal.bad)),
+                        Some(false) => Some(c(pal.warn)),
+                        None => None,
+                    };
+                    lines = lines.child(div().min_h(px(17.)).whitespace_nowrap().when_some(ink, |d, k| d.text_color(k)).child(l.to_string()));
+                }
+                d.child(lines)
             })
             .child(
                 div()
@@ -417,7 +533,7 @@ impl Cauldron {
                     .text_color(fg3)
                     .font_features(tnum())
                     .child(match (n, live) {
-                        (0, true) => "No output yet".to_string(),
+                        (0, true) => "Waiting for output…".to_string(),
                         (0, false) => "No output".to_string(),
                         (1, _) => "1 line".to_string(),
                         (n, _) => format!("{n} lines"),
@@ -426,6 +542,27 @@ impl Cauldron {
             )
             .test_support()
             .into_any_element()
+    }
+}
+
+/// The exit code a command's output ends with, when it says one.
+fn exit_code(out: &str) -> Option<i32> {
+    out.lines().rev().find_map(|l| {
+        let l = l.to_lowercase();
+        let i = l.find("exit code").map(|i| i + 9).or_else(|| l.find("exit status").map(|i| i + 11))?;
+        l[i..].trim_start_matches([' ', ':', '=']).split(|c: char| !c.is_ascii_digit() && c != '-').next()?.parse().ok()
+    })
+}
+
+/// Whether an output line reads as an error (Some(true)) or a warning (Some(false)).
+fn line_kind(l: &str) -> Option<bool> {
+    let t = l.trim_start().to_lowercase();
+    if ["error", "fatal", "panic", "npm err", "traceback", "e:", "failed", "✗"].iter().any(|p| t.starts_with(p)) {
+        Some(true)
+    } else if t.starts_with("warn") {
+        Some(false)
+    } else {
+        None
     }
 }
 
@@ -535,6 +672,16 @@ mod tests {
         let p = parts(&m, false);
         assert!(matches!(&p[0], Part::Step(s) if s.detail.as_deref() == Some("First.")));
         assert!(matches!(&p[2], Part::Step(s) if s.detail.as_deref() == Some("Second.")), "{p:?}");
+    }
+
+    #[::core::prelude::v1::test]
+    fn exit_codes_and_error_lines_are_read_from_the_output() {
+        assert_eq!(exit_code("a\nError: Exit code 2\n"), Some(2));
+        assert_eq!(exit_code("exit status 127"), Some(127));
+        assert_eq!(exit_code("fine"), None);
+        assert_eq!(line_kind("  error[E0382]: moved"), Some(true));
+        assert_eq!(line_kind("warning: unused"), Some(false));
+        assert_eq!(line_kind("compiling"), None);
     }
 
     #[::core::prelude::v1::test]

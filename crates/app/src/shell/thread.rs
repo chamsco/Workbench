@@ -26,6 +26,8 @@ pub(super) struct Line {
     pub parts: Vec<super::ledger::Part>,
     /// When it was sent (ms), for the wait timer.
     pub at: u64,
+    /// Why nothing is arriving, when the target says (OpenCode retrying a throttled provider).
+    pub wait: Option<String>,
 }
 
 /// A failed reply, read for people: `reason` in words, the exit code, a hint for causes we know,
@@ -75,7 +77,7 @@ pub(super) fn failure(e: &str) -> Failure {
 }
 
 pub(super) fn lines(t: &Thread) -> Vec<Line> {
-    t.messages.iter().map(|m| Line { id: m.id.clone(), mine: m.role == Role::User, text: m.text.clone(), status: m.status, error: m.error.clone(), meta: meta(m), model: model(m, t), parts: reply_parts(m), at: m.at }).collect()
+    t.messages.iter().map(|m| Line { id: m.id.clone(), mine: m.role == Role::User, text: m.text.clone(), status: m.status, error: m.error.clone(), meta: meta(m), model: model(m, t), parts: reply_parts(m), at: m.at, wait: m.wait.clone() }).collect()
 }
 
 fn model(m: &Msg, t: &Thread) -> Option<String> {
@@ -214,7 +216,8 @@ fn live(s: Status) -> Option<&'static str> {
 /// A 6px dot in a 16px slot, then the label: the same slot and 8px gap as the step lines, so the
 /// label starts where their text does. It stays under the text while the reply streams. No agent
 /// bust: figures belong to the Agents page (Charles, 13 Nov).
-fn status_line(i: usize, label: &'static str, since: Option<u64>, grey: Rgb) -> impl IntoElement {
+fn status_line(i: usize, label: String, writing: bool, since: Option<u64>, now: u64, still: bool, pal: &'static Palette) -> impl IntoElement {
+    let (grey, ink) = (pal.fg3, pal.fg);
     div()
         .id(("live", i))
         .flex()
@@ -223,9 +226,10 @@ fn status_line(i: usize, label: &'static str, since: Option<u64>, grey: Rgb) -> 
         .h(px(20.))
         .text_size(px(12.5))
         .text_color(c(grey))
-        .aria_label(label)
-        .child(div().id(("live-slot", i)).size(px(16.)).flex_none().flex().items_center().justify_center().child(super::mark::mark(("live-mark", i), if label == "Writing" { Mark::Working } else { Mark::Waiting }, super::mark::SIZE, c(grey))).test_support())
-        .child(div().id(("live-text", i)).child(label).test_support())
+        .aria_label(label.clone())
+        .child(div().id(("live-slot", i)).size(px(16.)).flex_none().flex().items_center().justify_center().child(super::mark::mark(("live-mark", i), if writing { Mark::Working } else { Mark::Waiting }, super::mark::SIZE, c(grey))).test_support())
+        // The silver pulse: the same sweep as a running step, so every live line moves alike.
+        .child(div().id(("live-text", i)).min_w_0().truncate().child(super::ledger::shimmer(&label, now, c(grey), c(ink), still)).test_support())
         // How long it has waited, as the step lines count theirs.
         .when_some(since, |d, t0| d.child(div().ml_auto().flex_none().font_family(MONO).font_features(tnum()).text_size(px(11.5)).child(super::ledger::dur(super::ledger::now_ms().saturating_sub(t0)))))
         .test_support()
@@ -315,6 +319,10 @@ impl Cauldron {
         self.idle.clear();
         self.active = 0;
         self.selected = Some(id.clone());
+        if self.open.as_deref() != Some(id.as_str()) {
+            self.diff_since = None;
+            self.restore_ask = false;
+        }
         self.open = Some(id);
         self.open_since = Some(std::time::Instant::now());
         self.send_error = None;
@@ -727,7 +735,10 @@ impl Cauldron {
                         d.child(self.md_el(&shown, &l.id, paced.as_ref().map(|_| (now_ms, c(pal.accent))), pal, cx))
                     }
                 })
-                .when_some(live(l.status).filter(|_| l.parts.is_empty()), |d, label| d.child(status_line(i, label, (l.status == Status::Sending).then_some(l.at), pal.fg3)));
+                .when_some(live(l.status).filter(|_| l.parts.is_empty()), |d, label| {
+                    let label = l.wait.clone().unwrap_or_else(|| label.to_string());
+                    d.child(status_line(i, label, l.status == Status::Streaming && l.wait.is_none(), (l.status == Status::Sending).then_some(l.at), now_ms, cx.reduce_motion(), pal))
+                });
             // The ledger (board A): the text and the steps in the order they happened.
             for (j, part) in l.parts.iter().enumerate() {
                 say = match part {
@@ -785,7 +796,7 @@ impl Cauldron {
         // The Send and Stop glyphs cross-fade when a reply starts or stops. Only the current one
         // takes a click, so the one fading out cannot send or stop anything.
         let k = self.action_since.map_or(1.0, |t0| crate::motion::run(std::time::Instant::now(), t0, cauldron_chrome::motion::time::SWAP));
-        let ink = c(pal.panel);
+        let ink = c(Rgb::hex(0x111111));
         let layer = |name: &'static str, size: f32, a: f32| {
             div().absolute().inset_0().flex().items_center().justify_center().opacity(a).child(glyph(name, size, ink))
         };
@@ -818,7 +829,8 @@ impl Cauldron {
             .items_center()
             .justify_center()
             .rounded(px(radius::CONTROL))
-            .bg(fg)
+            .primary_face(pal)
+            .pressed()
             .cursor_pointer()
             .test_support();
         let input = self.composer.as_ref().expect("made in render").0.clone();
@@ -867,10 +879,10 @@ impl Cauldron {
             .border_1()
             .border_color(c(pal.line))
             .bg(super::backdrop::surface(self.painting, pal.raised, super::backdrop::GLASS_COMPOSER))
-            // The light along the top only: the long shadow and the ring outside the border drew a
-            // double halo round the box on Windows (Charles, 21 Nov). The transcript fades out
-            // above it instead ("composer-fade").
-            .shadow(super::lift(super::Lift::Box, pal).split_off(2))
+            // The buttons' lift (edge, top light, close 2px lip), not Lift::Box: its 24px long shadow
+            // drew a double halo round the box on Windows (Charles, 21 Nov). The transcript fades
+            // out above it ("composer-fade"). Charles, 22 Nov: same effect as buttons.
+            .shadow(super::lift(super::Lift::Button, pal))
             .aria_label("Message the coordinator");
         composer = if tiny {
             // A very short pane: one row, the editor and Send, no chips.

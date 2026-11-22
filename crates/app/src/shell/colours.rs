@@ -239,7 +239,7 @@ impl Cauldron {
             );
         }
         let button = |id: &'static str, text: &'static str| {
-            div().id(id).h(px(26.)).px(px(10.)).flex().items_center().rounded(px(radius::CONTROL)).cursor_pointer().bg(c(pal.raised)).shadow(lift(Lift::Button, pal)).text_size(px(12.)).font_weight(FontWeight::MEDIUM).text_color(fg).aria_label(text).child(text)
+            div().id(id).h(px(26.)).px(px(10.)).flex().items_center().rounded(px(radius::CONTROL)).cursor_pointer().button_face(pal).pressed().shadow(lift(Lift::Button, pal)).text_size(px(12.)).font_weight(FontWeight::MEDIUM).text_color(fg).aria_label(text).child(text)
         };
         swatches = swatches.child(
             button("colour-custom", "Custom…")
@@ -308,7 +308,7 @@ impl Cauldron {
         let p = Prefs::load();
         let mut out: Vec<AnyElement> = Vec::new();
         let button = |id: &'static str, text: &'static str| {
-            div().id(id).h(px(26.)).px(px(10.)).flex().items_center().rounded(px(radius::CONTROL)).cursor_pointer().bg(c(pal.raised)).shadow(lift(Lift::Button, pal)).text_size(px(12.)).font_weight(FontWeight::MEDIUM).text_color(fg).aria_label(text).child(text)
+            div().id(id).h(px(26.)).px(px(10.)).flex().items_center().rounded(px(radius::CONTROL)).cursor_pointer().button_face(pal).pressed().shadow(lift(Lift::Button, pal)).text_size(px(12.)).font_weight(FontWeight::MEDIUM).text_color(fg).aria_label(text).child(text)
         };
         // Themes: built in, then saved ones.
         out.push(div().mt(px(20.)).mb(px(6.)).text_size(px(11.)).line_height(px(14.)).font_weight(FontWeight::MEDIUM).text_color(fg3).child("Themes").into_any_element());
@@ -393,7 +393,7 @@ fn button_chip(id: (&'static str, usize), label: &str, pal: &'static Palette) ->
         .gap(px(6.))
         .rounded(px(radius::CONTROL))
         .cursor_pointer()
-        .bg(c(pal.raised))
+        .button_face(pal).pressed()
         .shadow(lift(Lift::Button, pal))
         .text_size(px(12.))
         .font_weight(FontWeight::MEDIUM)

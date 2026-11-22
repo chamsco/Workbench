@@ -12,6 +12,8 @@ pub(crate) enum Group {
     NeedsYou,
     Running,
     Done,
+    /// Put away; `of` never returns it, the sidebar adds it as its own shelf.
+    Archived,
 }
 
 impl Group {
@@ -23,6 +25,7 @@ impl Group {
             Group::NeedsYou => "Needs you",
             Group::Running => "Running",
             Group::Done => "Done",
+            Group::Archived => "Archived",
         }
     }
 

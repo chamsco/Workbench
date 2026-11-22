@@ -2947,6 +2947,8 @@ fn main() -> anyhow::Result<()> {
             .expect("failed to open window");
             cx.activate(true);
         });
+    // Warm OpenCode servers outlive nothing: a static is never dropped, so stop them here.
+    backspace_runner::shutdown_opencode();
     Ok(())
 }
 

@@ -2492,6 +2492,7 @@ async fn run_cli_turn(
                         inner2.log(id, if *error { LogKind::Error } else { LogKind::ToolResult }, truncate(output, 800));
                     }
                 }
+                Event::Wait { .. } => {}
                 Event::Usage { input, output } => {
                     // Tokens of earlier turns stay counted: this turn's own
                     // figure (the largest it has reported) comes on top.

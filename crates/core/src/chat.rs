@@ -129,6 +129,10 @@ pub struct Msg {
     /// be resumed (`Chats::resume`).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub interrupted: bool,
+    /// Why nothing is arriving right now, when the target says so (OpenCode retrying a provider
+    /// that is throttling). Live only; cleared by the next text, thought or tool call.
+    #[serde(skip)]
+    pub wait: Option<String>,
     /// Sent in Plan mode: its reply, and any retry, resume or edit of it, reads and proposes only.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub plan: bool,
@@ -309,6 +313,7 @@ impl Msg {
             author_name: None,
             trace: None,
             interrupted: false,
+            wait: None,
             plan: false,
             spec: None,
         }
@@ -1307,6 +1312,7 @@ impl Chats {
         if self.is_busy(id) {
             bail!("wait for the reply, or stop it first");
         }
+        let mid = new_id();
         let now = now_ms();
         self.edit_thread(id, |t| {
             if t.members.is_empty() && (t.messages.is_empty() || t.title == "New chat") {
@@ -1321,7 +1327,7 @@ impl Chats {
                 t.title = title_from(&base);
             }
             t.messages.push(Msg {
-                id: new_id(),
+                id: mid.clone(),
                 role: Role::User,
                 text: text.trim_end().to_string(),
                 at: now,
@@ -1342,12 +1348,21 @@ impl Chats {
                 author_name: None,
                 trace: None,
                 interrupted: false,
+                wait: None,
                 plan: ctx.plan,
                 spec: None,
             });
             t.updated = now;
             Chats::touched(t);
         })?;
+        // The folder as it is before this message's work starts: a checkpoint to compare with or
+        // go back to. Off the send path, as a big folder takes a moment to hash.
+        if let Some(dir) = self.thread(id).and_then(|t| t.project).filter(|d| std::path::Path::new(d).is_dir()) {
+            let (sid, mid) = (id.to_string(), mid.clone());
+            std::thread::spawn(move || {
+                crate::checkpoint::take(std::path::Path::new(&dir), &sid, &mid);
+            });
+        }
         self.hops.lock().unwrap().insert(id.to_string(), 0);
         // `@codex ...` naming another harness tile hands the message to that
         // tile: it answers in its own session, and the answer is posted here.
@@ -1928,6 +1943,7 @@ impl Chats {
         }
         self.with_msg(id, mid, |m| {
             m.status = Status::Streaming;
+            m.wait = None;
             m.text.push_str(delta);
         });
     }
@@ -2404,8 +2420,10 @@ Ask the reader for input with the real form parts: `f = FormControl(\"Name\", In
                 }
                 self.append(id, mid, &text)
             }
+            RunEvent::Wait { text } => self.with_msg(id, mid, |m| m.wait = Some(text).filter(|t| !t.is_empty())),
             RunEvent::Thinking { text } => self.with_msg(id, mid, |m| {
                 m.status = Status::Streaming;
+                m.wait = None;
                 m.thinking.push_str(&text);
                 if !m.acts.last().is_some_and(|a| a.name == "Thinking" && a.end.is_none()) {
                     let at = m.text.len();
@@ -2417,6 +2435,9 @@ Ask the reader for input with the real form parts: `f = FormControl(\"Name\", In
                 }
             }),
             RunEvent::ToolStart { id: tid, name, input } => self.with_msg(id, mid, |m| {
+                // A reply that opens with a tool call is under way, not "waiting for the reply".
+                m.status = Status::Streaming;
+                m.wait = None;
                 end_thinking(m);
                 let path = act_path(&input);
                 let input: String = input.chars().take(400).collect();
@@ -2777,6 +2798,7 @@ mod tests {
             author_name: None,
             trace: None,
             interrupted: false,
+            wait: None,
             plan: false,
             spec: None,
         };
@@ -2840,6 +2862,7 @@ mod tests {
                     author_name: None,
                     trace: None,
                     interrupted: false,
+                    wait: None,
                     plan: false,
                     spec: None,
                 });

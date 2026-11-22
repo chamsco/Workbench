@@ -377,11 +377,13 @@ impl Cauldron {
             .items_center()
             .justify_center()
             .rounded(px(radius::CONTROL))
-            .bg(if ready { c(pal.accent) } else { c(pal.raised) })
+            .when(ready, |d| d.primary_face(pal))
+            .when(!ready, |d| d.button_face(pal))
+            .pressed()
             .aria_label("Start")
             .when_some(blocked.clone(), |d, why| d.aria_description(why).opacity(0.45))
             .when(blocked.is_none(), |d| d.cursor_pointer())
-            .child(glyph("arrow-up", 14., if ready { c(pal.on_accent) } else { fg2 }))
+            .child(glyph("arrow-up", 14., if ready { c(Rgb::hex(0x111111)) } else { fg2 }))
             .on_click(cx.listener(|this, _, window, cx| this.start_thread(window, cx)))
             .test_support();
         // Empty box: a voice button where Send was. With text: voice sits left of Send.

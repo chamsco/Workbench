@@ -7,7 +7,9 @@
 //! gives the answer token by token, tool calls as they run, and a sure end of turn
 //! (`session.idle`).
 //!
-//! One server per turn, on a free local port with a one-time password, killed with the turn.
+//! One server per project folder and setup, on a free local port with a one-time password, kept
+//! warm between turns (starting `opencode serve` is a wait of its own) and killed after ten idle
+//! minutes, when a turn is stopped or fails to start, and when the app quits (`shutdown`).
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -201,6 +203,20 @@ impl Turn {
                     self.fail = Some(msg.to_string());
                 }
             }
+            "session.status" if mine(&p["sessionID"]) && p["status"]["type"] == "retry" => {
+                // OpenCode retries a throttled or failing provider on its own, with growing
+                // delays, and says so only here. Without this the turn just looks stuck.
+                let st = &p["status"];
+                let why = st["message"].as_str().unwrap_or("The provider is not answering");
+                let n = st["attempt"].as_u64().unwrap_or(1);
+                let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64);
+                let secs = st["next"].as_u64().map(|t| t.saturating_sub(now) / 1000);
+                on(Event::Wait { text: match secs {
+                    Some(s) if s >= 90 => format!("{why}. Retry {n} in {} min", s / 60),
+                    Some(s) => format!("{why}. Retry {n} in {s}s"),
+                    None => format!("{why}. Retry {n}"),
+                } });
+            }
             "session.idle" if mine(&p["sessionID"]) => self.done = true,
             "session.status" if mine(&p["sessionID"]) && p["status"]["type"] == "idle" => self.done = true,
             _ => {}
@@ -221,8 +237,62 @@ impl Turn {
     }
 }
 
-/// One turn on OpenCode's server.
-pub(crate) async fn run(req: &Request, bin: &PathBuf, on: Sink<'_>) -> Result<()> {
+/// A running `opencode serve`: killed when dropped.
+struct Server {
+    base: String,
+    pass: String,
+    _child: tokio::process::Child,
+    _tree: KillTree,
+    pooled: std::time::Instant,
+}
+
+static POOL: std::sync::Mutex<Vec<(String, Server)>> = std::sync::Mutex::new(Vec::new());
+/// How long an unused server stays up.
+const IDLE: Duration = Duration::from_secs(600);
+
+/// Kills every warm server (the app is quitting; a static is never dropped).
+pub fn shutdown() {
+    if let Ok(mut p) = POOL.lock() {
+        p.clear();
+    }
+}
+
+/// A server on loan for one turn: back in the pool if the turn ended cleanly, killed otherwise
+/// (a stopped turn drops the future, which drops this).
+struct Loan {
+    key: String,
+    server: Option<Server>,
+    ok: bool,
+}
+
+impl Drop for Loan {
+    fn drop(&mut self) {
+        let Some(mut s) = self.server.take() else { return };
+        if !self.ok {
+            return;
+        }
+        s.pooled = std::time::Instant::now();
+        if let Ok(mut p) = POOL.lock() {
+            p.push((std::mem::take(&mut self.key), s));
+        }
+        // Reap it if nothing needs it for IDLE.
+        if let Ok(rt) = tokio::runtime::Handle::try_current() {
+            rt.spawn(async {
+                tokio::time::sleep(IDLE + Duration::from_secs(1)).await;
+                if let Ok(mut p) = POOL.lock() {
+                    p.retain(|(_, s)| s.pooled.elapsed() < IDLE);
+                }
+            });
+        }
+    }
+}
+
+/// What makes two turns share a server: the binary, the folder and everything that shapes it.
+fn pool_key(req: &Request, bin: &PathBuf) -> String {
+    format!("{:?}|{:?}|{:?}|{:?}|{:?}|{:?}", bin, req.cwd, req.wrap, req.env, req.env_remove, req.mcp)
+}
+
+async fn start(req: &Request, bin: &PathBuf) -> Result<Server> {
     let port = free_port()?;
     let pass = secret();
     let mut cmd = match req.wrap.split_first() {
@@ -253,7 +323,7 @@ pub(crate) async fn run(req: &Request, bin: &PathBuf, on: Sink<'_>) -> Result<()
         cmd.env("OPENCODE_CONFIG_CONTENT", cfg.to_string());
     }
     let mut child = cmd.spawn().with_context(|| format!("starting {}", bin.display()))?;
-    let _tree = KillTree(child.id());
+    let tree = KillTree(child.id());
     let mut err = child.stderr.take().unwrap();
     let err_task = tokio::spawn(async move {
         let mut s = String::new();
@@ -283,12 +353,48 @@ pub(crate) async fn run(req: &Request, bin: &PathBuf, on: Sink<'_>) -> Result<()
     };
     // Keep reading its output so the pipe never fills.
     tokio::spawn(async move { while let Ok(Some(_)) = out.next_line().await {} });
+    Ok(Server { base, pass, _child: child, _tree: tree, pooled: std::time::Instant::now() })
+}
 
+/// One turn on OpenCode's server.
+pub(crate) async fn run(req: &Request, bin: &PathBuf, on: Sink<'_>) -> Result<()> {
+    let key = pool_key(req, bin);
+    let warm = POOL.lock().ok().and_then(|mut p| {
+        p.retain(|(_, s)| s.pooled.elapsed() < IDLE);
+        p.iter().position(|(k, _)| *k == key).map(|i| p.remove(i).1)
+    });
+    let was_warm = warm.is_some();
+    let server = match warm {
+        Some(s) => s,
+        None => start(req, bin).await?,
+    };
+    let mut loan = Loan { key: key.clone(), server: None, ok: false };
+    let (base, pass) = (server.base.clone(), server.pass.clone());
+    loan.server = Some(server);
+    let mut result = turn(req, &base, &pass, on).await;
+    // A warm server that died while idle: start a fresh one and go again.
+    if was_warm && matches!(&result, Err(e) if e.downcast_ref::<reqwest::Error>().is_some_and(|r| r.is_connect())) {
+        loan.server = None;
+        let server = start(req, bin).await?;
+        let (base, pass) = (server.base.clone(), server.pass.clone());
+        loan.server = Some(server);
+        result = turn(req, &base, &pass, on).await;
+    }
+    // A server that answered, even with an error of the model's, is fine to reuse; one we could
+    // not talk to, or that stopped under the turn, is not.
+    loan.ok = match &result {
+        Err(e) => e.downcast_ref::<reqwest::Error>().is_none() && !e.to_string().contains("server stopped"),
+        Ok(()) => true,
+    };
+    result
+}
+
+async fn turn(req: &Request, base: &str, pass: &str, on: Sink<'_>) -> Result<()> {
     // Local only: never through a proxy.
     let http = reqwest::Client::builder().no_proxy().build()?;
     let dir = req.cwd.display().to_string();
-    let get = |path: &str| http.get(format!("{base}{path}")).basic_auth(USER, Some(&pass)).query(&[("directory", &dir)]);
-    let post = |path: &str| http.post(format!("{base}{path}")).basic_auth(USER, Some(&pass)).query(&[("directory", &dir)]);
+    let get = |path: &str| http.get(format!("{base}{path}")).basic_auth(USER, Some(pass)).query(&[("directory", &dir)]);
+    let post = |path: &str| http.post(format!("{base}{path}")).basic_auth(USER, Some(pass)).query(&[("directory", &dir)]);
 
     // Resume the stream's session when OpenCode still has it, otherwise start one.
     let mut resumed = false;
@@ -447,6 +553,17 @@ mod tests {
         assert!(t.done && t.fail.is_none());
     }
 
+    #[test]
+    fn a_retry_status_says_why_nothing_arrives() {
+        let mut t = Turn::new("ses_a");
+        let mut got = Vec::new();
+        let in_a_minute = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64 + 61_000;
+        t.on(&json!({"type": "session.status", "properties": {"sessionID": "ses_a", "status": {"type": "retry", "attempt": 2, "message": "Free usage exceeded", "next": in_a_minute}}}), &mut |e| got.push(e));
+        let Some(Event::Wait { text }) = got.first() else { panic!("no wait event: {got:?}") };
+        assert!(text.starts_with("Free usage exceeded. Retry 2 in "), "{text}");
+        assert!(!t.done && t.fail.is_none());
+    }
+
     #[::core::prelude::v1::test]
     fn an_error_fails_the_turn_but_stopping_does_not() {
         let mut t = Turn::new("ses_a");
@@ -471,6 +588,7 @@ mod tests {
             r.model = Some(model);
             r.cwd = dir;
             let (mut text, mut sid, mut deltas) = (String::new(), None, 0);
+            let t0 = std::time::Instant::now();
             crate::run(&http, &r, &mut |e| match e {
                 Event::Text { text: t } => {
                     deltas += 1;
@@ -481,10 +599,12 @@ mod tests {
             })
             .await
             .unwrap();
+            let first = t0.elapsed();
             assert!(deltas > 1, "{text}");
             r.session = sid.clone();
             r.history.push(crate::Turn { user: false, text: text.clone(), who: None, files: vec![] });
             r.history.push(crate::Turn::user("two"));
+            let t1 = std::time::Instant::now();
             let mut sid2 = None;
             let mut text2 = String::new();
             crate::run(&http, &r, &mut |e| match e {
@@ -495,7 +615,8 @@ mod tests {
             .await
             .unwrap();
             assert_eq!(sid, sid2);
-            eprintln!("turn 1: {text}\nturn 2: {text2}");
+            super::shutdown();
+            eprintln!("turn 1 ({first:?}, server start included): {text}\nturn 2 ({:?}, warm server): {text2}", t1.elapsed());
         });
     }
 }

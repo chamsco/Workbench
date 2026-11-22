@@ -10,6 +10,16 @@ use gpui_kit::prelude::FluentBuilder;
 
 pub(super) const SIDE_W: f32 = 340.0;
 
+/// A tab that is not the open one: darker and a little see-through, with a hairline.
+pub(super) fn off_badge(d: Stateful<Div>, pal: &'static Palette) -> Stateful<Div> {
+    let dark = pal.panel.0 < 0x80;
+    // Sunken (Charles, 22 Nov): the shadow falls inside the top edge, a lip of light under the bottom.
+    let ink = |a: f32| if dark { gpui_kit::black().opacity(a) } else { hsla(222. / 360., 0.35, 0.18, a) };
+    let inset = |y: f32, blur: f32, a: f32| BoxShadow { color: ink(a), offset: point(px(0.), px(y)), blur_radius: px(blur), spread_radius: px(0.), inset: true };
+    let lip = BoxShadow { color: hsla(0., 0., 1., if dark { 0.07 } else { 0.55 }), offset: point(px(0.), px(1.)), blur_radius: px(0.), spread_radius: px(0.), inset: false };
+    d.bg(gpui_kit::black().opacity(if dark { 0.24 } else { 0.07 })).shadow(vec![inset(2., 4., if dark { 0.30 } else { 0.16 }), inset(1., 1., if dark { 0.18 } else { 0.08 }), lip])
+}
+
 impl Cauldron {
     /// Re-reads which main the open stream belongs to and its side streams, oldest first.
     pub(super) fn sync_sides(&mut self) {
@@ -100,8 +110,10 @@ impl Cauldron {
                 .h(px(super::tabshape::PILL_H))
                 .top(px(super::tabshape::PILL_DY))
                 .rounded(px(super::tabshape::PILL_R))
-                .when(on, |d| d.bg(c(pal.selected)).border_1().border_color(c(pal.line)))
-                .when(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
+                // The open one is the raised tab like the stream's own; the rest are a darker, slightly
+                // see-through badge (Charles, 22 Nov).
+                .when(on, |d| d.button_face(pal).pressed().shadow(lift(Lift::Button, pal)))
+                .when(!on, |d| off_badge(d, pal).hover(|d| d.bg(gpui_kit::black().opacity(if pal.panel.0 < 0x80 { 0.18 } else { 0.06 }))))
                 .occlude()
                 .cursor_pointer()
                 .aria_selected(on)
@@ -317,10 +329,13 @@ mod tests {
         .unwrap();
         assert!(chats.peek(&side.id).is_some(), "and deletes nothing");
         cx.update_window(handle.into(), |_, window, cx| {
-            assert!(window.try_find(("side-row", 0usize)).is_none(), "the sidebar list is folded");
+            assert!(window.try_find(("side-row", 0usize)).is_some(), "its main lists it, open by default");
             window.click(("thread-sides", 0usize), cx);
             window.render_frame(cx);
-            assert!(window.try_find(("side-row", 0usize)).is_some(), "its main lists it");
+            assert!(window.try_find(("side-row", 0usize)).is_none(), "the badge folds the list");
+            window.click(("thread-sides", 0usize), cx);
+            window.render_frame(cx);
+            assert!(window.try_find(("side-row", 0usize)).is_some(), "and opens it again");
             window.click(("side-row", 0usize), cx);
             window.render_frame(cx);
             assert!(window.try_find(("side-tab", 0usize)).is_some(), "a click brings the tab back");
