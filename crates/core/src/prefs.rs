@@ -15,6 +15,11 @@ pub struct Prefs {
     pub machines: Vec<MachineCfg>,
     pub share: Share,
     pub check_updates: bool,
+    /// Closing the window keeps Cauldron running in the notification area, so automations and
+    /// replies carry on (Charles, 22 Nov: "always on, in the background"). Quit from the tray icon.
+    pub keep_running: bool,
+    /// Cauldron starts when you sign in to the computer (autostart.rs).
+    pub start_at_login: bool,
     pub tabs: Vec<TabSpec>,
     pub active_tab: usize,
     /// The same canvas layout, per project. `tabs` above stays the fallback for
@@ -162,6 +167,8 @@ impl Default for Prefs {
             machines: vec![],
             share: Share::default(),
             check_updates: true,
+            keep_running: true,
+            start_at_login: true,
             tabs: TabSpec::defaults(),
             active_tab: 0,
             tabs_by_project: BTreeMap::new(),

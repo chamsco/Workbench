@@ -20,6 +20,7 @@
 
 mod arrange;
 mod canvas;
+mod background;
 mod icons;
 mod motion;
 mod pal;
@@ -2976,7 +2977,7 @@ fn run_shell() -> anyhow::Result<()> {
                 .unwrap_or((1440., 900.));
             let bounds = Bounds::centered(None, size(px(ww), px(wh)), cx);
             let (lx, ly) = shell::lights_origin();
-            cx.open_window(
+            let handle = cx.open_window(
                 WindowOptions {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
                     window_min_size: Some(size(px(900.), px(600.))),
@@ -2989,11 +2990,14 @@ fn run_shell() -> anyhow::Result<()> {
                     ..Default::default()
                 },
                 |window, cx| {
+                    // Closing hides to the tray while Keep running is on (background.rs).
+                    window.on_window_should_close(cx, background::on_close);
                     let view = cx.new(shell::Cauldron::launch);
                     cx.new(|cx| Root::new(view, window, cx))
                 },
             )
             .expect("failed to open window");
+            background::install(handle.into(), cx);
             cx.activate(true);
         });
     Ok(())

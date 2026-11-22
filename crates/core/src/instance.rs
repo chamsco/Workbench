@@ -24,7 +24,7 @@ pub fn claim(window_title: &str) -> bool {
 mod win {
     use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, ERROR_ALREADY_EXISTS};
     use windows_sys::Win32::System::Threading::CreateMutexW;
-    use windows_sys::Win32::UI::WindowsAndMessaging::{FindWindowW, IsIconic, SetForegroundWindow, ShowWindow, SW_RESTORE};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{FindWindowW, IsIconic, IsWindowVisible, SetForegroundWindow, ShowWindow, SW_RESTORE, SW_SHOW};
 
     fn wide(s: &str) -> Vec<u16> {
         s.encode_utf16().chain(std::iter::once(0)).collect()
@@ -59,6 +59,9 @@ mod win {
             if !w.is_null() {
                 if IsIconic(w) != 0 {
                     ShowWindow(w, SW_RESTORE);
+                } else if IsWindowVisible(w) == 0 {
+                    // Hidden in the tray (background.rs): starting it again opens it.
+                    ShowWindow(w, SW_SHOW);
                 }
                 SetForegroundWindow(w);
             }

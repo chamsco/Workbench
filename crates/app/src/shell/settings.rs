@@ -556,6 +556,34 @@ impl Cauldron {
                 }))
                 .test_support();
             col = col.child(row(("general", 0), "Check for updates".into(), "Look for a newer Cauldron when it starts.".into(), toggle.into_any_element()));
+            // Always on (Charles, 22 Nov): background.rs and core autostart.rs.
+            col = col.child(section("Background"));
+            let flip = |id: &'static str, label: &'static str, on: bool, f: fn(&mut Prefs)| {
+                div()
+                    .id(id)
+                    .cursor_pointer()
+                    .hover(|d| d.opacity(0.85))
+                    .aria_label(format!("{label}: {}", if on { "on" } else { "off" }))
+                    .aria_selected(on)
+                    .child(value(if on { "On".into() } else { "Off".into() }))
+                    .on_click(cx.listener(move |_, _, _, cx| {
+                        let mut p = Prefs::load();
+                        f(&mut p);
+                        p.save();
+                        if let Err(e) = backspace_core::autostart::sync(p.start_at_login) {
+                            eprintln!("start at login: {e}");
+                        }
+                        cx.notify();
+                    }))
+                    .test_support()
+            };
+            let keep_help = if crate::background::HAS_TRAY {
+                "Closing the window hides it; the icon by the clock opens it again or quits. Automations keep running."
+            } else {
+                "Not on Linux yet: closing the window quits Cauldron."
+            };
+            col = col.child(row(("general", 3), "Keep running when closed".into(), keep_help.into(), flip("set-keep", "Keep running when closed", p.keep_running, |p| p.keep_running = !p.keep_running).into_any_element()));
+            col = col.child(row(("general", 4), "Start at login".into(), "Cauldron opens when you sign in to this computer.".into(), flip("set-login", "Start at login", p.start_at_login, |p| p.start_at_login = !p.start_at_login).into_any_element()));
             col = col.child(section("Data"));
             col = col.child(row(("general", 1), "Data folder".into(), "Where streams, accounts and settings are kept.".into(), value(Prefs::path().as_deref().and_then(|p| p.parent()).map_or_else(|| "Unknown".into(), |d| d.display().to_string())).into_any_element()));
             col = col.child(row(("general", 2), "Version".into(), "This build.".into(), value(env!("CARGO_PKG_VERSION").to_string()).into_any_element()));

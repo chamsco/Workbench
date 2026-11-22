@@ -4185,7 +4185,7 @@ mod tests {
             assert_eq!(window.find(("auto-row", 1usize)).label(), Some("Nightly tests, Paused"));
             assert_eq!(window.find(("auto-pause", 1usize)).label(), Some("Resume"));
             assert!(window.try_find(("auto-open", 0usize)).is_none(), "no thread to open before its first run");
-            window.click("auto-new", cx);
+            window.click("new-automation", cx);
             window.render_frame(cx);
             assert!(window.try_find("auto-form").is_some());
             assert!(window.try_find("auto-time").is_some() && window.try_find(("auto-day", 0usize)).is_none(), "every day: a time, no days");
