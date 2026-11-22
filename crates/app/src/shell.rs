@@ -1976,7 +1976,7 @@ impl Render for Cauldron {
         if let Some(sp) = s.sidebar {
             // The apps row (20 Nov): above New stream, each app its own button with its own fill and
             // border (the stream rows' look, but separate); the open one is darker. Each app swaps the list.
-            let mut fnrow = div().id("apps-tray").flex().gap(px(apps::TRAY_GAP)).mt(px(if s.bar.is_some() { 0. } else { APPS_TOP })).mb(px(8.)).aria_label("Apps");
+            let mut fnrow = div().id("apps-tray").flex().justify_center().gap(px(apps::TRAY_GAP)).mt(px(if s.bar.is_some() { 0. } else { APPS_TOP })).mb(px(8.)).aria_label("Apps");
             for (i, (name, label)) in FUNCTIONS.iter().enumerate() {
                 let on = i == self.section;
                 let b = div()
@@ -2802,12 +2802,6 @@ impl Render for Cauldron {
                     .child("Cauldron"),
             );
         }
-        // The line under the sidebar's top row: the app frame above (lights or logo, the sidebar
-        // button), the sidebar's elements below (Charles, 15 Nov).
-        if let Some(sb) = s.sidebar.filter(|_| s.bar.is_none()) {
-            root = root.child(abs(Rect::new(sb.rect.x, sb.rect.y + 41.0, sb.rect.w, 1.0)).opacity(sb.alpha).bg(c(pal.line_strong)));
-        }
-
         // ---- search, in the sidebar's top row beside the sidebar button (the board's `.brand`)
         // On Windows the search and inbox buttons live in the top bar and stay with it when the sidebar folds.
         if let Some(alpha) = s.sidebar.map(|sb| sb.alpha).or((plat == Platform::Windows).then_some(1.0)) {
