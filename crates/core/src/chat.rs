@@ -1437,12 +1437,44 @@ impl Chats {
             self.note(&sp.from, &sp.from, &format!("(Sub-agent not started: work has been handed on {} times already.)", crate::relay::MAX_HOPS));
             bail!("too many hand-offs");
         }
-        let title = sp.title.clone().unwrap_or_else(|| sp.task.lines().next().unwrap_or("Sub-agent").chars().take(60).collect());
+        let title = sp.title.clone().unwrap_or_else(|| sp.task.lines().next().unwrap_or("Side thread").chars().take(60).collect());
         let route = Route { kind: RouteKind::Cli, provider: sp.provider.clone(), model: sp.model.clone() };
-        let child = self.create_in(route, Scope { project: parent.project.clone(), title: Some(format!("↳ {title}")), ..Scope::default() });
+        // A side thread of the stream that asked (Charles, 22 Nov: a stream is a coordinator, its
+        // side threads are the normal threads it spawns), filed beside it and starting with the
+        // context it chose.
+        let main = parent.side_of.clone().unwrap_or_else(|| parent.id.clone());
+        let messages = match sp.context.as_deref() {
+            // The stream is mid-turn when it delegates: only what is finished goes along.
+            Some("whole") => parent.messages.iter().filter(|m| m.status == Status::Done).cloned().collect(),
+            Some("last") => parent.messages.iter().rev().find(|m| m.role != Role::User && m.status == Status::Done && !m.text.is_empty()).cloned().into_iter().collect(),
+            _ => Vec::new(),
+        };
+        let child = self.create_in(route, Scope { project: parent.project.clone(), title: Some(title), ..Scope::default() });
+        self.edit_thread(&child.id, |t| {
+            t.side_of = Some(main.clone());
+            t.folder = parent.folder.clone();
+            t.messages = messages;
+        })?;
         let inb = Inbound { from: sp.from.clone(), text: sp.task.clone(), reply: true, as_note: false, hops, origin: None };
         self.take_letter(&child.id, inb, ctx)?;
         Ok(child.id)
+    }
+
+    /// A side thread hands its work back (Charles, 22 Nov: "take on the work or send it back"):
+    /// its last reply goes to its stream as the stream's next turn, to judge and carry on.
+    pub fn send_back(self: &Arc<Self>, side: &str, ctx: Ctx) -> Result<()> {
+        let t = self.thread(side).ok_or_else(|| anyhow!("no such chat"))?;
+        let main = t.side_of.clone().ok_or_else(|| anyhow!("this is not a side thread"))?;
+        let last = t
+            .messages
+            .iter()
+            .rev()
+            .find(|m| m.role == Role::Assistant && m.status == Status::Done && !m.text.trim().is_empty())
+            .map(|m| m.text.clone())
+            .ok_or_else(|| anyhow!("this side thread has no finished reply to send back yet"))?;
+        let text = format!("Result from the side thread \"{}\":\n\n{last}", t.title);
+        let inb = Inbound { from: side.to_string(), text, reply: false, as_note: false, hops: 1, origin: None };
+        self.take_letter(&main, inb, ctx)
     }
 
     /// Letters waiting for a tile while it works.
@@ -1455,7 +1487,7 @@ impl Chats {
             .into_iter()
             .find(|t| t.thread == id)
             .map(|t| t.label)
-            .or_else(|| self.peek(id).map(|t| if t.title.starts_with("↳ ") { format!("{} sub-agent", t.route.provider) } else { t.route.provider }))
+            .or_else(|| self.peek(id).map(|t| if t.side_of.is_some() || t.title.starts_with("↳ ") { format!("{} side thread", t.route.provider) } else { t.route.provider }))
             .unwrap_or_else(|| "another harness".into())
     }
 
@@ -3166,17 +3198,18 @@ mod tests {
         let dir = tmp("delegate");
         let (c, _rt) = chats(&dir);
         let parent = c.create_in(route(), Scope { project: Some("/work/app".into()), ..Scope::default() }).id;
-        let sp = crate::relay::Spawn { from: parent.clone(), provider: "cauldron-test-missing-cli".into(), model: Some("m1".into()), title: Some("Audit billing".into()), task: "Audit the billing page".into() };
+        let sp = crate::relay::Spawn { from: parent.clone(), provider: "cauldron-test-missing-cli".into(), model: Some("m1".into()), title: Some("Audit billing".into()), task: "Audit the billing page".into(), context: None };
         let child = c.spawn_sub(&sp, dead_ctx()).unwrap();
         settle(&c, &[&parent, &child]);
         let ct = c.thread(&child).unwrap();
-        assert_eq!(ct.title, "↳ Audit billing");
+        assert_eq!(ct.title, "Audit billing");
+        assert_eq!(ct.side_of.as_deref(), Some(parent.as_str()), "a side thread of the stream that asked");
         assert_eq!(ct.project.as_deref(), Some("/work/app"), "the sub-agent works in the parent's project");
         assert_eq!((ct.route.provider.as_str(), ct.route.model.as_deref()), ("cauldron-test-missing-cli", Some("m1")));
         assert_eq!(ct.messages[0].text, "Audit the billing page", "only the task, never the parent's history");
         let pt = c.thread(&parent).unwrap();
         assert!(pt.messages[0].text.contains("failed"), "its answer (here a failure) comes back as the parent's turn: {:?}", pt.messages[0]);
-        assert!(pt.messages[0].author_name.as_deref().is_some_and(|n| n.contains("sub-agent")), "{:?}", pt.messages[0].author_name);
+        assert!(pt.messages[0].author_name.as_deref().is_some_and(|n| n.contains("side thread")), "{:?}", pt.messages[0].author_name);
 
         // Through the outbox, as `backspace mcp` posts it: pump starts it.
         std::fs::create_dir_all(dir.join("relay/spawn")).unwrap();
@@ -3185,6 +3218,35 @@ mod tests {
         c.pump(dead_ctx());
         assert_eq!(c.list().len(), before + 1);
         assert!(crate::relay::drain_spawns(&dir).is_empty(), "taken once");
+    }
+
+    #[test]
+    fn a_side_thread_starts_with_the_context_asked_for_and_sends_its_work_back() {
+        let dir = tmp("sendback");
+        let (c, _rt) = chats(&dir);
+        let parent = c.create_in(route(), Scope { project: Some("/work/app".into()), ..Scope::default() }).id;
+        c.edit_thread(&parent, |t| {
+            t.messages.push(Msg::new(Role::User, "plan the release".into(), Status::Done));
+            t.messages.push(Msg::new(Role::Assistant, "Three parts: tests, docs, lint.".into(), Status::Done));
+            t.messages.push(Msg::new(Role::Assistant, String::new(), Status::Streaming));
+        })
+        .unwrap();
+        let sp = crate::relay::Spawn { from: parent.clone(), provider: "cauldron-test-missing-cli".into(), model: None, title: Some("Docs".into()), task: "Write the docs".into(), context: Some("whole".into()) };
+        let child = c.spawn_sub(&sp, dead_ctx()).unwrap();
+        settle(&c, &[&parent, &child]);
+        let ct = c.thread(&child).unwrap();
+        assert_eq!(ct.messages[0].text, "plan the release", "the whole finished conversation goes along");
+        assert_eq!(ct.messages[1].text, "Three parts: tests, docs, lint.");
+        assert!(ct.messages.iter().any(|m| m.text == "Write the docs"), "then the task");
+        // Its reply goes back to the stream as the stream's next turn.
+        c.edit_thread(&child, |t| t.messages.push(Msg::new(Role::Assistant, "Docs written.".into(), Status::Done))).unwrap();
+        let before = c.thread(&parent).unwrap().messages.len();
+        c.send_back(&child, dead_ctx()).unwrap();
+        settle(&c, &[&parent]);
+        let pt = c.thread(&parent).unwrap();
+        let got = pt.messages[before..].iter().find(|m| m.role == Role::User).expect("a letter from the side thread");
+        assert!(got.text.contains("Docs written.") && got.text.contains("\"Docs\""), "{}", got.text);
+        assert!(c.send_back(&parent, dead_ctx()).is_err(), "a stream has nothing to send back to");
     }
 
     #[test]

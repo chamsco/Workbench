@@ -968,6 +968,37 @@ impl Cauldron {
             }
             // No Worktree chip: it did nothing (Charles, 21 Nov), and moving an open stream to a new
             // folder would lose the CLI's session, which it finds by folder.
+            // A side thread hands its work back to its stream, which judges it as its next turn.
+            if t.side_of.is_some() {
+                let sid = t.id.clone();
+                bar = bar.child(
+                    div()
+                        .id("send-back")
+                        .ml_auto()
+                        .h(px(22.))
+                        .px(px(8.))
+                        .flex()
+                        .items_center()
+                        .gap(px(5.))
+                        .rounded(px(radius::TAG))
+                        .text_color(fg2)
+                        .cursor_pointer()
+                        .hover(|d| d.bg(c(pal.hover)))
+                        .aria_label("Send the last reply back to the stream")
+                        .child(glyph("corner-up-left", 12., fg2))
+                        .child("Send back to the stream")
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            if let Some((_, chats)) = this.core.as_ref() {
+                                if let Err(e) = chats.send_back(&sid, ctx(this.plan)) {
+                                    this.send_error = Some(e.to_string());
+                                }
+                            }
+                            this.refresh();
+                            cx.notify();
+                        }))
+                        .test_support(),
+                );
+            }
             bar.test_support()
         });
         // Scroll ticks on the right edge (the board's `.mm`): one per response, the one at the
