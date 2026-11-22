@@ -1,12 +1,12 @@
-<h1 align="center">Workbench</h1>
-<p align="center"><b>A desktop home for your AI agents.</b></p>
-<p align="center">Workbench works with the coding CLIs and models you already use. Each agent gets a job and a memory,<br/>several agents can work on a project at once, and you review what they did before anything merges.</p>
+<h1 align="center">Cauldron</h1>
+<p align="center"><b>A desktop home for your coding agents.</b></p>
+<p align="center">Cauldron runs the coding CLIs you already pay for, Claude Code, Codex, Cursor and the rest,<br/>in one native window: streams to talk to them, a board of what they shipped, and crews that work while you're away.</p>
 
 <p align="center">
   <a href="https://github.com/chamsco/Workbench/releases/tag/mac-latest"><img src="https://img.shields.io/badge/macOS-download-18181b?style=flat-square&amp;logo=apple&amp;logoColor=white" alt="Download for macOS"></a>
-  <a href="https://github.com/chamsco/Workbench/releases/tag/windows-preview"><img src="https://img.shields.io/badge/Windows-download-18181b?style=flat-square&amp;logo=windows&amp;logoColor=white" alt="Download for Windows"></a>
+  <a href="https://github.com/chamsco/Workbench/releases/tag/windows-latest"><img src="https://img.shields.io/badge/Windows-download-18181b?style=flat-square&amp;logo=windows&amp;logoColor=white" alt="Download for Windows"></a>
   <img src="https://img.shields.io/badge/license-MIT-3da639?style=flat-square" alt="MIT licensed">
-  <img src="https://img.shields.io/badge/status-0.1%2C%20early-d97706?style=flat-square" alt="Version 0.1, early">
+  <img src="https://img.shields.io/badge/status-0.2%2C%20early-d97706?style=flat-square" alt="Version 0.2, early">
 </p>
 
 <p align="center"><sub>
@@ -15,7 +15,7 @@
   <a href="docs/HOW-IT-WORKS.md">How it works, in full</a>
 </sub></p>
 
-<p align="center"><a href="docs/assets/app-ade.png"><img src="docs/assets/app-ade.png" alt="Code's ADE: the sidebar with the app icons, New thread and the project's threads; the composer and four working agents in the centre; the work area's New tab page on the right." width="100%"></a></p>
+<p align="center"><a href="docs/assets/cauldron/stream.png"><img src="docs/assets/cauldron/stream.png" alt="A stream: the sidebar with New stream and the streams grouped by state; the agent's replies with a git commit card, an applied flow change and On the board links; the composer with Ask, Plan and Act; the stream map on the right edge." width="100%"></a></p>
 
 ---
 
@@ -23,63 +23,67 @@
 
 ### What it is
 
-Workbench is one window for your agents.
+Cauldron is one window for your agents. The repository is still called Workbench.
 
-- **Agents.** Each agent has a name, a brain-shaped face in its own colour, instructions, a model and a folder. You can talk to one directly, put several in a group, or let them run on a schedule.
-- **One memory.** Notes outlive a chat. A note can apply everywhere, to one project, or to one agent. Notes are stored as a git repo of Markdown files that you can edit by hand.
-- **Apps on top.** **Code** is for building software and **Chat** is for conversations. Each app is a different view of the same agents, memory and projects. Design and Clip Studio are planned.
-- **Traces.** Every reply is recorded: each tool call, the tokens and cost, and what filled the context.
+- **Streams.** A stream is a conversation with an agent in a folder. Pick the machine, the folder, the CLI, the effort, and how much it may do (Ask, Plan or Act). Branch a side stream off any reply; it opens as a tab under the header.
+- **Board.** Every stream has a Board beside its Chat. Shipped replies land on it as cards on their own, with their commits and images, and you can pin any block from its ⋯ menu. Click a card to open it, or draw on the board.
+- **Crews and automations.** A crew is a captain agent with helpers, in one project. A crew can propose automations (a nightly test run, a Monday dependency check) that you add with one click. **Missions** hand a goal to the full pipeline.
+- **Flow.** Every coordinator works through the same steps: Ask, Plan, Build, Test, Verify, Ship, Learn. Each step is text you can edit, turn off or reorder in Settings > Flow, a project can keep its own, and Learn can propose a change that you apply from the chat. Test follows the [sharp-testing](crates/core/skills/sharp-testing/SKILL.md) rule by default.
+- **Terminal.** The terminal shows the commands the agent ran in this stream, and runs your own in the stream's folder. Start a line with `#` to ask the agent instead.
+- **Updates.** Cauldron looks for a newer build when it starts; click the version button to check. On Windows, Update and restart swaps it in place; on macOS it opens the download.
 
-Workbench doesn't bring its own model. It finds Claude Code, Codex and other coding CLIs, plus Ollama, LM Studio, OpenAI-compatible routers and A2A agents. It never holds their credentials.
+Cauldron doesn't bring its own model. It finds Claude Code, Codex, Cursor, Grok, OpenCode and Gemini CLIs on this machine, plus Ollama, LM Studio and OpenAI-compatible routers. It never holds their credentials.
 
 ### See it
 
-<p align="center"><img src="docs/assets/tour.gif" alt="Home with memory and activity; Code's ADE opening Files, Review and Logs in the work area; the IDE's Wall of every agent; the sidebar folded into the pill rail." width="100%"></p>
-
-### Install
-
-- **macOS:** download the `.dmg` from [mac-latest](https://github.com/chamsco/Workbench/releases/tag/mac-latest). It runs on Apple Silicon and Intel. The build is unsigned, so open it the first time with right-click → Open, or run `xattr -dr com.apple.quarantine /Applications/Backspace.app`.
-- **Windows:** download the installer or the portable `.exe` from [windows-preview](https://github.com/chamsco/Workbench/releases/tag/windows-preview). It is also unsigned, so in SmartScreen click More info → Run anyway.
-- **From source:** see [Build and test](#build-and-test).
-
-The first launch walks you through a short setup, and you can skip it. You pick the apps you want, the CLIs it found on this machine, your first agent, and any local models or routers.
-
-### Getting around
-
 <table>
 <tr>
-<td width="50%"><a href="docs/assets/app-home.png"><img src="docs/assets/app-home.png" alt="Home: memory notes and folders, and prompts per day for the last 30 days."></a></td>
-<td width="50%"><a href="docs/assets/app-review.png"><img src="docs/assets/app-review.png" alt="The ADE with the Review tab open on an uncommitted diff."></a></td>
+<td width="50%"><a href="docs/assets/cauldron/new-stream.png"><img src="docs/assets/cauldron/new-stream.png" alt="New stream: What should Cauldron work on? with the composer, the machine, folder, CLI and effort pickers, and the flow steps at the bottom."></a></td>
+<td width="50%"><a href="docs/assets/cauldron/board.png"><img src="docs/assets/cauldron/board.png" alt="The Board: cards for shipped replies linked in time order, one with a screenshot, the drawing tools and the zoom controls."></a></td>
 </tr>
 <tr>
-<td><b>Home</b> shows what was remembered, your activity, plan usage, recent threads and projects.</td>
-<td><b>The ADE</b> puts the agent chat beside a work area with Files, Browser, Terminal, Review, Images and Logs.</td>
+<td><b>New stream.</b> Describe the task; the steps of the flow sit at the bottom.</td>
+<td><b>Board.</b> What the stream shipped, card by card, with side streams linked in.</td>
+</tr>
+<tr>
+<td><a href="docs/assets/cauldron/crew.png"><img src="docs/assets/cauldron/crew.png" alt="Agents: the Ez crew with Tester and Reviewer, its sessions and automations, and a proposed Weekly release notes automation in the chat."></a></td>
+<td><a href="docs/assets/cauldron/terminal.png"><img src="docs/assets/cauldron/terminal.png" alt="A stream with the terminal open under it, listing the git commits the agent ran and a prompt to type a command."></a></td>
+</tr>
+<tr>
+<td><b>Agents.</b> A crew, its sessions, and the automations it runs.</td>
+<td><b>Terminal.</b> The agent's commands, and yours, in the stream's folder.</td>
+</tr>
+<tr>
+<td><a href="docs/assets/cauldron/flow.png"><img src="docs/assets/cauldron/flow.png" alt="Settings, Flow: the seven steps from Ask to Learn, each with On, Up, Down, Edit and Remove; Test loads sharp-testing."></a></td>
+<td><a href="docs/assets/cauldron/subscriptions.png"><img src="docs/assets/cauldron/subscriptions.png" alt="Settings, Agents and subscriptions: Claude signed in, the other CLIs with their install commands, and the orchestrator, executor and effort choices."></a></td>
+</tr>
+<tr>
+<td><b>Flow.</b> The steps every coordinator follows, yours to change.</td>
+<td><b>Subscriptions.</b> The CLIs Cauldron found, and who plans and who builds.</td>
 </tr>
 </table>
 
-- **Sidebar.** The top row has the sidebar toggle, back and forward, search and settings. Under it are the app icons, then **New thread** (⌘N), then your projects and their threads. When you fold the sidebar, the app icons become a slim pill on the left edge.
-- **Code** has two modes. Switch between them at the top centre, or with ⌘J.
-  - **ADE** is for talking to the agents. The work area starts on a New tab page, and each view you open becomes a tab.
-  - **IDE** is for watching them work: up to six canvases, or the **Wall** with every agent tiled.
-- **Settings** opens over the page. Close it with the round button.
+### Install
 
-### How a task runs
+- **macOS:** download `Cauldron-mac.dmg` from [mac-latest](https://github.com/chamsco/Workbench/releases/tag/mac-latest). It runs on Apple Silicon and Intel. The build is unsigned, so open it the first time with right-click → Open, or run `xattr -dr com.apple.quarantine /Applications/Cauldron.app`.
+- **Windows:** download `Cauldron-setup.exe`, or the portable `Cauldron.exe`, from [windows-latest](https://github.com/chamsco/Workbench/releases/tag/windows-latest). It is also unsigned, so in SmartScreen click More info → Run anyway.
+- **From source:** see [Build and test](#build-and-test).
 
-1. You describe the goal. The main agent asks a few questions, each with a suggested answer.
-2. It proposes a plan of small tickets, each with a check that proves it is done. **You approve the plan.**
-3. One agent starts per ticket, in parallel. Each one works on its own branch and its own copy of the repo.
-4. A ticket's check has to pass before you see the work. A failure goes back to that agent.
-5. **You review the diff**, and approving it merges it.
+`mac-latest` and `windows-latest` are rebuilt from every push to `main`, and the app's update check reads them. Numbered releases, such as [v0.2.0](https://github.com/chamsco/Workbench/releases/tag/v0.2.0), come from tags.
 
-Workbench picks a model and an effort level for each ticket, and moves to a stronger model only when there is evidence the job needs one. Details: [How it works](docs/HOW-IT-WORKS.md).
+### Getting around
+
+- **Sidebar.** The top row has notifications, search and the sidebar toggle. Under it are Streams, Agents and Library, then **New stream** (Ctrl+N), then your streams: running ones first, then Done and Archived. Each row shows its folder, its branch and the CLI it runs on. Usage and settings sit at the bottom.
+- **Header.** In a stream, **Chat | Board** sits at the top left and the stream's tabs (the stream and its side streams) sit under it. At the top right are the folder, split view and terminal buttons.
+- **Right edge.** The stream map shows the whole stream to scale; click or drag it to jump. The icons beside it open the panels: Highlights, Changes, Git, Trace, Browser, Files, Simulator and the terminal.
+- **Settings** has six pages: Agents and subscriptions, Flow, General, Appearance, Machines and Shortcuts. Appearance switches between the plain background (the one in these screenshots) and the painted one.
 
 ### Good to know
 
-- **There is no sandbox.** Agents run shell commands as you, inside the project folder. Use a container or VM for anything you don't trust.
-- **Builds are unsigned and early (0.1).** Expect breaking changes, and there is no stable config format yet.
-- **Closing the app stops agents that are running.** Workbench's own workers can pick up where they left off with **Carry on**.
-- **Each agent keeps its own copy of the repo,** dependencies included, so disk use grows.
-- **The phone app isn't here yet.** Only its pairing API exists.
+- **Agents run commands as you,** in the stream's folder, unless you keep them on Ask first. Pipeline workers run each command in a sandbox (bubblewrap on Linux, Seatbelt on macOS, low integrity on Windows); its limits are in [M6-NOTES](docs/cauldron/M6-NOTES.md).
+- **Builds are unsigned and early (0.2).** Expect breaking changes, and there is no stable config format yet.
+- **Closing the window hides Cauldron** on macOS and Windows; the menu bar or tray icon opens it again or quits. Automations keep running. Turn it off in Settings > General. On Linux, closing quits.
+- **Each worker keeps its own copy of the repo,** dependencies included, so disk use grows.
 
 The full list of limits is at the end of [How it works](docs/HOW-IT-WORKS.md#what-it-doesnt-do).
 
@@ -87,54 +91,55 @@ The full list of limits is at the end of [How it works](docs/HOW-IT-WORKS.md#wha
 
 ## For agents
 
-Read this section if you are an AI agent working in this repository. It covers where things are, how to build and check your work, and the rules the codebase follows.
+Read this section if you are an AI agent working in this repository, then read [AGENTS.md](AGENTS.md): it holds the testing rule and the house rules.
 
 ### Names
 
-The product is **Workbench**, and that is the only name users should see. In the code it is still **backspace**: the crates are `backspace-*`, the binary is `Backspace` and the config lives in `~/.config/backspace`. **Brainwave** is the name of the redesign project (see [`docs/brainwave/`](docs/brainwave/PLAN.md)). **Brainpowr** is the local model engine and the coding TUI.
+The product is **Cauldron**, and that is the name users see. The repository is **Workbench**. In the code it is still **backspace**: the crates are `backspace-*`, the app crate is `backspace` and the config lives in `~/.config/backspace`. **Brainpowr** is the local model engine.
 
 ### Repo map
 
 | Path | What lives there |
 |---|---|
-| `legacy/tauri-app/ui/` | Retired. The old desktop shell, in vanilla JS, kept as the reference for screens not yet rebuilt in GPUI: `app.js` (runtime), `shell.js` (frame), `work.js` (the ADE work area), `dash.js` (Home), `shell.css`, `index.html`, plus `extensions/code` and `extensions/chat` |
-| `legacy/tauri-app/web/` | The chat face, in React. It builds to `ui/chat-web/whirl.js` |
-| `legacy/tauri-app/src/` | The Tauri commands the UI calls |
-| `crates/core` | The harness: planner, tickets, worktrees, router, tools, memory, traces, and hands (browser and desktop use) |
+| `crates/app` | The native GPUI app, Cauldron, for macOS and Windows. The shell is `src/shell.rs` and `src/shell/` |
+| `crates/chrome` | Window chrome contract: design tokens and the shell layout solver |
+| `crates/core` | The harness: chats and streams, flow, board, planner, tickets, worktrees, router, tools, memory, sandbox, traces, updates |
 | `crates/runner` | One turn on any CLI, model API or A2A agent. MIT, and reusable on its own |
+| `crates/platform` | Shared services: the typed event bus and the notification inbox |
+| `crates/decision` | Typed decisions and the cost ladder |
+| `crates/colony` | Durable, chat-addressable workspaces for agents |
+| `crates/engine` | Brainpowr Engine: runs GGUF models through a pinned llama.cpp |
 | `crates/cli` | The headless shell: `backspace-cli`, plus `backspace mcp` for agents |
-| `crates/app` | The native GPUI shell, the target app on macOS and Windows ([`docs/cauldron/UI-PLAN.md`](docs/cauldron/UI-PLAN.md)). Today it has only the coding workbench |
-| `crates/chrome` | Window chrome contract for the GPUI shell: design tokens and the shell layout solver, tested against the wireframe |
-| `tools/wireframe-golden` | Regenerates the chrome golden file from `design/cauldron-master-layout.html` |
-| `tools/uiharness` | Headless Chromium harness for the UI, with mocked commands |
-| `docs/` | Design and architecture notes; [`docs/brainwave/`](docs/brainwave/PLAN.md) is the current plan |
+| `crates/core/skills` | Skills shipped with the app, sharp-testing among them |
+| `legacy/tauri-app` | Retired. The old Tauri shell, kept as a reference |
+| `docs/` | Design and architecture notes; [`docs/cauldron/`](docs/cauldron/UI-PLAN.md) is the current app |
 
 ### Build and test
 
 ```sh
 cargo test                                   # core + end-to-end against a mock model; no network, no keys
-cargo test -p backspace-runner
-cargo run --release -p backspace   # the Cauldron shell; CAULDRON_LEGACY=1 opens the older coding workbench
+cargo test -p backspace --no-fail-fast       # the app's tests (needs the GPUI system libraries on Linux)
+cargo run --release -p backspace             # Cauldron
 ```
 
-You need Rust 1.98 or newer. On Linux, `cargo check -p backspace` builds the GPUI app without a display.
+On Linux, `cargo check -p backspace` builds the app without a display. CI runs both test suites on every pull request, plus the sandbox tests on macOS and Windows (`.github/workflows/test.yml`).
 
-To check UI changes without a desktop, use the harness. It serves `ui/`, stubs every Tauri command and takes screenshots:
+To screenshot the app without a desktop, run it under Xvfb with the Vulkan software driver, and point `BACKSPACE_DATA` and `BACKSPACE_PREFS` at a fixture folder so your own streams stay out of the picture:
 
 ```sh
-node tools/uiharness/run.mjs --shot-mode viewport --eval-file tools/uiharness/evals/ade-work.js --shot out.png
+Xvfb :77 -screen 0 1440x900x24 &
+DISPLAY=:77 VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json \
+  BACKSPACE_DATA=/tmp/fixture BACKSPACE_PREFS=/tmp/fixture/prefs.json \
+  target/debug/backspace
 ```
-
-Inside an eval, mock commands with `__H.mock(cmd, fn)`, then call `__H.fire("state")`. The evals in `tools/uiharness/evals/` are the interaction ledger in [`docs/SHELL-AUDIT.md`](docs/SHELL-AUDIT.md).
 
 ### Rules of this repo
 
+- **Follow [AGENTS.md](AGENTS.md).** Tests follow sharp-testing; stage files by explicit path.
 - **Don't run `cargo fmt` on whole crates.** The repo isn't rustfmt-clean, so format only the lines you touch.
-- **A Tauri command that touches disk, processes or the network must be `async`.** A synchronous command runs on the UI thread and freezes the window.
-- **Every UI change gets before and after screenshots** in its PR. Take them with the harness.
+- **Every UI change gets before and after screenshots** in its PR.
 - **Add a dated entry at the top of [`HANDOFF.md`](HANDOFF.md)** for each session's change.
 - **Only append to `PRESETS` in `crates/core/src/layout.rs`.** GPUI looks presets up by position, so inserting or reordering breaks it.
-- **If you change the chat face, rebuild it** and commit `ui/chat-web/whirl.js` and `whirl.css`.
 - **macOS-only and Windows-only code is compiled only in CI** (`.github/workflows/macos.yml` and `windows.yml`), so keep it small and well guarded.
 - **Don't delete working features when you move them.** Move them and keep them working.
 
@@ -149,10 +154,12 @@ Inside an eval, mock commands with `__H.mock(cmd, fn)`, then call `__H.fire("sta
 | Add or override a skill | `crates/core/skills/`, or `~/.config/backspace/skills/` |
 | Change the canvas layout model | `crates/core/src/layout.rs` |
 | Change the window, sidebar or panes | `crates/app/src/shell.rs`; sizes and colours come from `crates/chrome` |
+| Change the default flow (Ask … Learn) | `crates/core/src/flow.rs`; the editor is `crates/app/src/shell/flowview.rs` |
+| Change the board | `crates/app/src/shell/boardview.rs` and `crates/core/src/board.rs` |
 
-### Inside a running Workbench
+### Inside a running Cauldron
 
-If Workbench runs you as one of its agents:
+If Cauldron runs you as one of its agents:
 
 - `AGENTS.md` in the workspace is appended to your system prompt.
 - `backspace mcp`, or the `backspace msg` shell command, reaches the project's message board and the other agents.
@@ -165,6 +172,8 @@ Your files on disk:
 ~/.config/backspace/prefs.json     tabs, theme, machines      (BACKSPACE_PREFS overrides)
 <data>/memory/                     the memory git repo
 <data>/traces/                     one trace per reply
+<data>/flow.json                   your flow (Settings > Flow)
+<workspace>/.backspace/flow.json   a project's own flow, used first
 <workspace>/.backspace/tickets/    tickets as Markdown
 <workspace>/.backspace/worktrees/  one worktree per agent
 ```
@@ -173,16 +182,17 @@ Your files on disk:
 
 ## Credits
 
-Workbench is built on other people's work:
+Cauldron is built on other people's work:
 
 - [Whirl](https://github.com/whirlchat/whirl): the chat face.
+- [paleo/paleo-skills](https://github.com/paleo/paleo-skills): the sharp-testing rule (CC0).
 - [mattpocock/skills](https://github.com/mattpocock/skills) and [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail): agent skills.
 - [Pi](https://github.com/badlogic/pi-mono): the four-tool principle.
 - [Agent Memory Repo](https://github.com/AgentMemoryRepo/agentmemoryrepo): the memory format.
 - [Pele](https://pele.run): diagrams.
 - [Jev](https://typesafe.ai): routing.
 
-Third-party notices are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Workbench is MIT licensed.
+Third-party notices are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Cauldron is MIT licensed.
 
 <p align="center"><sub>
 <a href="docs/HOW-IT-WORKS.md">How it works</a> ·
@@ -192,5 +202,5 @@ Third-party notices are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Wor
 <a href="docs/LOCAL-MODELS.md">Local models</a> ·
 <a href="docs/SKILLS.md">Skills</a> ·
 <a href="docs/apps.md">Apps</a> ·
-<a href="tools/doc-assets/README.md">How these images are made</a>
+<a href="AGENTS.md">Rules for agents</a>
 </sub></p>

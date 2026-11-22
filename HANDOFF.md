@@ -1,5 +1,12 @@
 # Handoff: Backspace (ohMyHarness → Workbench), v0
 
+**Session, 22 Nov 2026: README for the current app.** Charles: update the README to the app as it
+is now, with screenshots on the plain (ASCII dither) background. The README now describes Cauldron
+0.2 (streams, Board, crews and automations, Flow, terminal, updates), points the downloads at
+`mac-latest` and `windows-latest`, and refreshes the agent section (repo map with every crate,
+AGENTS.md, Xvfb screenshots). New shots are in `docs/assets/cauldron/`, taken at 1440x900 with
+`backdrop: "plain"` and fixture data; the old `docs/assets/app-*.png` stay for the docs that use them.
+
 **Session, 21 Nov 2026 (round 2): meter bar, lifted frame, four pages.** Charles: "go with after", the content frame gets the same effect as buttons and chat boxes, Usage/Folders/Agents/Library match the destinations board. Done: `Lift::Frame` (long shadow, close lip, stronger edge and top light) on the main, support and split cards; the usage foot is now a meter bar (one slim bar per connected account, no percentage, since several subscriptions have no honest single number), opened by clicking it or by "Open Usage" in the hover card; `shell/pages.rs` holds the Folders (glass tiles, ghost Librarian proposal, New folder), Agents (roster, crew, composer, context panel), Library (Proposals with Accept/Undo, Notes, Graph, Librarian) and the Usage page's hour-by-hour activity tracker (core `usage::activity`, real prompts and tool calls from the CLIs' logs). Mockup parts are tagged: Librarian proposals/notes/graph, agent context/traces/routines, the Agents roster when no familiar exists. Debug env: `CAULDRON_FIXTURE_ACTIVITY=1` fills the heatmap. Not done: notify-at-80% toggle, rotated sheets in the folder art (GPUI has no transforms), real limit percentages (none in local logs). Screenshots: docs/screenshots/pages-r2/.
 
 **Session, 21 Nov 2026: usage beside your name, the frame border back, room above the apps.**
