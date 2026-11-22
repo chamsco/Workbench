@@ -952,22 +952,47 @@ impl Cauldron {
                                 .child(st.label())
                                 .test_support()
                         });
+                        // The moving mark stays at the left (Charles, 22 Nov 20:04: "I still want the
+                        // icons ... and the pills"): squares while it works, ? when it asks, X when it failed.
+                        let (mk, mk_col, mk_label) = match status {
+                            Some(threads::Status::Working) => (Mark::Working, c(pal.accent), "Working"),
+                            Some(threads::Status::Failed) => (Mark::Error, c(pal.bad), "Failed"),
+                            Some(threads::Status::Input) => (Mark::Asking, c(pal.warn), "Needs you"),
+                            Some(threads::Status::Done) => (Mark::Idle, c(pal.ok), "Done"),
+                            None => (Mark::Idle, c(pal.fg4), "Done"),
+                        };
+                        let slot = div()
+                            .id(("thread-av", i))
+                            .w(px(mark::SIZE))
+                            .h(px(22.))
+                            .flex_none()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .aria_label(mk_label)
+                            .child(mark::mark(("thread-dot", i), mk, mark::SIZE, mk_col).test_support());
                         let snooze_note = (g == Group::Snoozed).then(|| {
                             div().id(("thread-snoozed", i)).flex_none().text_size(px(10.5)).text_color(fg3).child(streammenu::snooze_until(t.snoozed_until)).test_support()
                         });
-                        // Under the title (Charles, 22 Nov): the branch its folder is on, and who
-                        // wrote its replies; both from core's list.
+                        // Under the title (Charles, 22 Nov 20:04): the folder, then the branch beside it,
+                        // then who wrote its replies; all from core's list.
+                        let folder = threads::meta(t);
                         let under = div()
                             .id(("thread-under", i))
                             .flex()
                             .items_center()
                             .gap(px(4.))
                             .h(px(15.))
+                            .pl(px(mark::SIZE + 8.))
                             .text_size(px(11.))
                             .text_color(fg3)
-                            .aria_label(format!("{}, {}", t.branch.as_deref().unwrap_or("no branch"), t.models))
-                            .child(glyph("git-branch", 10., c(pal.fg4)))
-                            .child(div().min_w_0().truncate().when_live(t.branch.is_none(), |d| d.text_color(c(pal.fg4))).child(t.branch.clone().unwrap_or_else(|| "no branch".into())))
+                            .aria_label(format!("{folder}, {}, {}", t.branch.as_deref().unwrap_or("no branch"), t.models))
+                            .child(glyph("folder", 10., c(pal.fg4)))
+                            .child(div().id(("thread-meta", i)).min_w_0().max_w(px(96.)).truncate().when_live(t.project.is_none(), |d| d.text_color(c(pal.fg4))).aria_label(folder.clone()).child(folder).test_support())
+                            .when_live(t.branch.is_some(), |d| {
+                                d.child(div().flex_none().pl(px(4.)).child(glyph("git-branch", 10., c(pal.fg4))))
+                                    .child(div().min_w_0().truncate().child(t.branch.clone().unwrap_or_default()))
+                            })
                             .child(div().ml_auto().flex_none().pl(px(6.)).child(logos::maker_badges(&t.models, pal)))
                             .test_support();
                         list = list.child(
@@ -994,6 +1019,7 @@ impl Cauldron {
                                 .when_live(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
                                 .cursor_pointer()
                                 .aria_label(t.title.clone())
+                                .child(slot.test_support())
                                 .child(div().flex_1().min_w_0().truncate().font_weight(if t.unread { FontWeight::SEMIBOLD } else { FontWeight::NORMAL }).child(t.title.clone()))
                                 .when_live(t.pinned, |d| d.child(glyph("pin", 11., fg3)))
                                 .when_live(side_n(&t.id) > 0, |d| {
@@ -1028,27 +1054,6 @@ impl Cauldron {
                                             .test_support(),
                                     )
                                 })
-                                // The repo as a tag (the board's `.r`).
-                                .child({
-                                    let m = threads::meta(t);
-                                    div()
-                                        .id(("thread-meta", i))
-                                        .flex_none()
-                                        .max_w(px(64.))
-                                        .truncate()
-                                        .h(px(17.))
-                                        .px(px(4.))
-                                        .flex()
-                                        .items_center()
-                                        .rounded(px(radius::TAG))
-                                        .border_1()
-                                        .border_color(c(pal.line))
-                                        .text_size(px(10.5))
-                                        .text_color(c(pal.fg4))
-                                        .aria_label(m.clone())
-                                        .child(m)
-                                        .test_support()
-                                })
                                 .children(snooze_note)
                                 .children(word)
                                 .on_mouse_down(MouseButton::Right, cx.listener({
@@ -1081,7 +1086,7 @@ impl Cauldron {
                                 // The tree (Charles, 22 Nov): the bar sits under the first letter of the stream's
                                 // title, curves into each side stream and ends in an arrow. Greyed until hovered
                                 // or open; the highlight starts a little left of the first letter.
-                                let bar_x = 10.;
+                                let bar_x = 8. + mark::SIZE + 8.;
                                 let line = c(pal.line_strong);
                                 list = list.child(
                                     div()
@@ -4288,20 +4293,22 @@ mod tests {
             for g in 0..3usize {
                 assert_eq!(rect(window, ("group", g)).h, 34.0, "group {g}");
             }
-            // The state in words where the dot was (Charles, 22 Nov, after T3 Code); a read,
-            // finished stream says nothing.
-            for (i, state) in [(0usize, Some("\u{2713} Done")), (1, Some("\u{2715} Failed")), (2, Some("Working")), (3, None), (4, None)] {
+            // The moving mark at the left and the state in words at the right (Charles, 22 Nov,
+            // after T3 Code, then 20:04 "I still want the icons"); a read, finished stream has no word.
+            for (i, state, mk) in [(0usize, Some("\u{2713} Done"), "Done"), (1, Some("\u{2715} Failed"), "Failed"), (2, Some("Working"), "Working"), (3, None, "Done"), (4, None, "Done")] {
                 let r = rect(window, ("thread", i));
                 assert_eq!(r.h, 30.0, "row {i}");
-                assert!(window.try_find(("thread-dot", i)).is_none(), "row {i}: no dot");
+                assert_eq!(window.find(("thread-av", i)).label(), Some(mk), "row {i}'s mark");
+                assert_eq!(rect(window, ("thread-av", i)).x - r.x, 8.0, "row {i}'s mark is 8px in");
                 assert_eq!(window.try_find(("thread-status", i)).and_then(|e| e.label().map(str::to_string)).as_deref(), state, "row {i}");
                 if state.is_some() {
                     let st = rect(window, ("thread-status", i));
                     assert!(r.right() - st.right() <= 10.0, "row {i}: the word sits at the row's right");
                 }
                 assert_eq!(window.find(("thread-meta", i)).label(), Some("no repo"), "row {i}");
-                // Under the title: the branch (none in these samples) and who answered, from core.
-                assert_eq!(window.find(("thread-under", i)).label(), Some("no branch, Claude"), "row {i}");
+                // Under the title: the folder, the branch (none in these samples) and who answered.
+                assert_eq!(window.find(("thread-under", i)).label(), Some("no repo, no branch, Claude"), "row {i}");
+                assert!({ let m = rect(window, ("thread-meta", i)); m.y + m.h / 2.0 > r.bottom() }, "row {i}: the folder is under the name");
                 assert!(rect(window, ("thread-under", i)).y >= r.bottom(), "row {i}: under the title line");
             }
         })
