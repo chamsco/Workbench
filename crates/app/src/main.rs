@@ -2953,6 +2953,11 @@ fn main() -> anyhow::Result<()> {
 /// Opens the Cauldron shell: transparent title bar so the frame reaches the window edge,
 /// native lights on macOS at the wireframe's position, drawn caption buttons elsewhere.
 fn run_shell() -> anyhow::Result<()> {
+    // WebView2 child windows cannot share GPUI's DirectComposition surface on
+    // Windows.  Use the compatible swap-chain path before GPUI initializes.
+    #[cfg(target_os = "windows")]
+    std::env::set_var("GPUI_DISABLE_DIRECT_COMPOSITION", "1");
+
     gpui_kit::application()
         .with_assets(icons::Assets)
         .run(move |cx: &mut App| {
