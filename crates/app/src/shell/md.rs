@@ -65,6 +65,24 @@ pub(super) fn parse(text: &str) -> Vec<Block> {
 }
 
 /// A line's text without its markers, and where the bold (false) and the code (true) sit in it.
+/// Which hover block each Markdown block belongs to: a heading joins the block after it, and
+/// list items in a row are one block.
+fn groups(blocks: &[Block]) -> Vec<usize> {
+    let mut out = Vec::with_capacity(blocks.len());
+    let mut g = 0usize;
+    for (i, b) in blocks.iter().enumerate() {
+        if i > 0 {
+            let prev = &blocks[i - 1];
+            let join = matches!(prev, Block::Head(_)) || (matches!(prev, Block::Item(..)) && matches!(b, Block::Item(..)));
+            if !join {
+                g += 1;
+            }
+        }
+        out.push(g);
+    }
+    out
+}
+
 fn inline(s: &str) -> (String, Vec<(Range<usize>, bool)>) {
     let (mut out, mut spans) = (String::new(), Vec::new());
     let mut rest = s;
@@ -206,7 +224,17 @@ impl Cauldron {
         };
         let blocks = parse(text);
         let last = blocks.len().saturating_sub(1);
-        let mut col = div().flex().flex_col().gap(px((size * 0.55).round())).text_size(px(size)).line_height(px(line)).text_color(fg);
+        let gap = px((size * 0.55).round());
+        let mut col = div().flex().flex_col().gap(gap).text_size(px(size)).line_height(px(line)).text_color(fg);
+        // The hover bar works per paragraph (Charles, 22 Nov: "by block, not line by line"): a
+        // heading goes with what follows it and a list is one block.
+        let groups = groups(&blocks);
+        let mut group: Option<(usize, Vec<AnyElement>, Vec<String>)> = None;
+        let bar = bar_at.filter(|_| tail.is_none());
+        // Each block as wide as its text, so its bar lands right after the text.
+        if bar.is_some() {
+            col = col.items_start();
+        }
         for (i, b) in blocks.into_iter().enumerate() {
             let t = tail.filter(|_| i == last);
             let raw = match &b {
@@ -257,14 +285,29 @@ impl Cauldron {
                         .into_any_element()
                 }
             };
-            col = col.child(match bar_at.filter(|_| tail.is_none()) {
-                Some(at) => self.block_with_bar(el, &format!("{key}#{i}"), raw, at, pal, cx),
-                None => el,
-            });
+            let Some(at) = bar else {
+                col = col.child(el);
+                continue;
+            };
+            let g = groups[i];
+            if group.as_ref().is_some_and(|(k, _, _)| *k != g) {
+                let (k, els, raws) = group.take().unwrap();
+                col = col.child(self.block_with_bar(div().flex().flex_col().gap(gap).children(els).into_any_element(), &format!("{key}#{k}"), raws.join("\n\n"), at, pal, cx));
+            }
+            let entry = group.get_or_insert_with(|| (g, Vec::new(), Vec::new()));
+            entry.1.push(el);
+            entry.2.push(raw);
+        }
+        if let (Some((k, els, raws)), Some(at)) = (group, bar) {
+            col = col.child(self.block_with_bar(div().flex().flex_col().gap(gap).children(els).into_any_element(), &format!("{key}#{k}"), raws.join("\n\n"), at, pal, cx));
         }
         col.into_any_element()
     }
 }
+
+/// Room kept at the right of each reply block for its hover bar, so the bar sits on the block's
+/// first line, right after the text, without covering it.
+const BAR_W: f32 = 132.;
 
 impl Cauldron {
     /// A reply block that, under the pointer, lights up and shows its bar (Capy's, Charles 22 Nov):
@@ -279,10 +322,7 @@ impl Cauldron {
         let mut wrap = div()
             .id(SharedString::from(format!("blk-{bk}")))
             .relative()
-            .mx(px(-6.))
-            .px(px(6.))
-            .rounded(px(6.))
-            .when(on, |d| d.bg(ca(pal.accent, 0.08)))
+            .pr(px(BAR_W))
             .on_hover(cx.listener(move |this, h: &bool, _, cx| {
                 if *h {
                     this.block_hover = Some(k1.clone());
@@ -303,8 +343,8 @@ impl Cauldron {
         let bar = div()
             .id(SharedString::from(format!("blk-bar-{bk}")))
             .absolute()
-            .top(px(-2.))
-            .right(px(4.))
+            .top(px(-3.))
+            .right_0()
             .h(px(28.))
             .px(px(4.))
             .flex()
@@ -465,7 +505,7 @@ impl Cauldron {
 
 #[cfg(test)]
 mod tests {
-    use super::{inline, parse, settle, Block};
+    use super::{groups, inline, parse, settle, Block};
 
     #[test]
     fn replies_split_into_blocks() {
@@ -477,6 +517,12 @@ mod tests {
         assert_eq!(b[5], Block::Item(Some(1), "first".into()));
         // Half-arrived: the fence is still open.
         assert_eq!(parse("```sh\nls"), vec![Block::Code("sh".into(), "ls".into())]);
+    }
+
+    #[test]
+    fn a_heading_joins_its_paragraph_and_a_list_is_one_block() {
+        let b = parse("Intro.\n\n## Steps\nDo this.\n\n- one\n- two\n\nAfter.");
+        assert_eq!(groups(&b), vec![0, 1, 1, 2, 2, 3]);
     }
 
     #[test]

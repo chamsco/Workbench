@@ -89,7 +89,7 @@ pub(super) const REPLY_PLAN_PLACEHOLDER: &str = "Ask for a plan. Nothing is edit
 /// The box's width (the board's `.box`).
 const BOX_W: f32 = 600.0;
 
-fn mime(name: &str) -> &'static str {
+pub(super) fn mime(name: &str) -> &'static str {
     match name.rsplit('.').next().map(str::to_ascii_lowercase).as_deref() {
         Some("png") => "image/png",
         Some("jpg" | "jpeg") => "image/jpeg",
@@ -255,7 +255,7 @@ impl Cauldron {
         let sent = (|| {
             use base64::Engine;
             let atts = files.iter().map(|(name, b)| chats.attach(&t.id, name, mime(name), &base64::engine::general_purpose::STANDARD.encode(b))).collect::<anyhow::Result<Vec<_>>>()?;
-            chats.send(&t.id, &text, atts, None, ctx_now(self.plan))
+            chats.send(&t.id, &text, atts, None, self.mode_ctx())
         })();
         if let Err(e) = sent {
             let _ = chats.delete(&t.id);
@@ -365,10 +365,10 @@ impl Cauldron {
         };
         let effort = Prefs::load().cli_effort;
         let effort_label = match effort.as_deref() {
-            None => "Auto".to_string(),
+            None => "Effort: Auto".to_string(),
             Some(e) => {
                 let mut ch = e.chars();
-                ch.next().map_or_else(|| "Auto".into(), |f| format!("Auto · {}{}", f.to_uppercase(), ch.as_str()))
+                ch.next().map_or_else(|| "Effort: Auto".into(), |f| format!("Effort: {}{}", f.to_uppercase(), ch.as_str()))
             }
         };
         let ready = blocked.is_none() && !input.read(cx).value().trim().is_empty();
@@ -677,33 +677,44 @@ impl Cauldron {
             .into_any_element()
     }
 
-    /// The Plan toggle beside the trust chip: the accent when on, and both boxes say nothing is
-    /// edited until the plan is approved.
+    /// Ask · Plan · Act (Charles, 22 Nov, after Tuff UI): one segmented control for what a send
+    /// may do. Ask answers only, Plan proposes first and edits nothing, Act edits and runs.
+    /// Plan keeps the id `id` so its old tests and shortcuts still find it.
     pub(super) fn plan_chip(&self, id: &'static str, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
-        let on = self.plan;
-        let label = if on { "Plan · on" } else { "Plan" };
-        div()
-            .id(id)
-            .h(px(24.))
-            .flex()
-            .items_center()
-            .gap(px(5.))
-            .px(px(8.))
-            .rounded(px(radius::CONTROL))
-            .border_1()
-            .border_color(if on { c(pal.accent) } else { c(pal.line) })
-            .when(on, |d| d.bg(ca(pal.accent, 0.12)))
-            .text_size(px(12.))
-            .text_color(if on { c(pal.fg) } else { c(pal.fg2) })
-            .cursor_pointer()
-            .aria_label(label)
-            .aria_selected(on)
-            .aria_description("Plan mode: the agent proposes first and edits nothing")
-            .child(glyph("clipboard-list", 13., if on { c(pal.accent) } else { c(pal.fg3) }))
-            .child(label)
-            .on_click(cx.listener(|this, _, window, cx| this.set_plan(!this.plan, window, cx)))
-            .test_support()
-            .into_any_element()
+        let now = if self.plan { 1 } else if self.ask { 0 } else { 2 };
+        let modes: [(&str, &str, &str); 3] = [
+            ("Ask", "Answers only: no edits, no commands", "message-circle-question"),
+            ("Plan", "Proposes a plan first and edits nothing", "clipboard-list"),
+            ("Act", "Can edit files and run commands", "zap"),
+        ];
+        let mut seg = div().id(SharedString::from(format!("{id}-modes"))).h(px(24.)).p(px(2.)).flex().items_center().gap(px(2.)).rounded(px(radius::CONTROL)).bg(ca(pal.fg, 0.05)).aria_label(modes[now].1);
+        for (k, (label, what, _)) in modes.iter().enumerate() {
+            let on = k == now;
+            let seg_id: SharedString = if k == 1 { id.into() } else { format!("{id}-{}", label.to_lowercase()).into() };
+            seg = seg.child(
+                div()
+                    .id(seg_id)
+                    .h(px(20.))
+                    .px(px(8.))
+                    .flex()
+                    .items_center()
+                    .rounded(px(radius::TAG))
+                    .text_size(px(12.))
+                    .text_color(if on { c(pal.fg) } else { c(pal.fg3) })
+                    .when(on, |d| d.bg(c(pal.raised)).shadow(super::lift(super::Lift::Button, pal)))
+                    .when(!on, |d| d.cursor_pointer().hover(|d| d.text_color(c(pal.fg))))
+                    .aria_label(*label)
+                    .aria_selected(on)
+                    .aria_description(*what)
+                    .child(*label)
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.ask = k == 0;
+                        this.set_plan(k == 1, window, cx);
+                    }))
+                    .test_support(),
+            );
+        }
+        div().flex().items_center().gap(px(8.)).child(seg).child(div().text_size(px(11.5)).text_color(c(pal.fg3)).child(modes[now].1)).into_any_element()
     }
 
     /// Plan mode on or off, with both editors' placeholders saying what it means.
@@ -874,6 +885,7 @@ impl Cauldron {
             .child(item("plus-plan", "clipboard-list", "Plan", self.plan, true).on_click(cx.listener(|this, _, window, cx| {
                 cx.stop_propagation();
                 this.start.plus_menu = false;
+                this.ask = false;
                 this.set_plan(!this.plan, window, cx);
             })));
         menu.test_support().into_any_element()
@@ -1159,7 +1171,7 @@ mod tests {
             assert!(tx + tw <= bx + bw && rx + rw <= bx + bw, "inside the box's width");
             let (hx, hy, hw, hh) = rect(window, "nt-heading");
             assert!(hy + hh <= by && ((hx + hw / 2.0) - (bx + bw / 2.0)).abs() <= 1.0, "the heading centred above the box");
-            for (id, label) in [("add-file", "Add"), ("nt-trust", "Ask first"), ("nt-effort", "Auto"), ("nt-folder", "Cauldron workspace"), ("machine", "This machine"), ("nt-voice", "Voice")] {
+            for (id, label) in [("add-file", "Add"), ("nt-trust", "Ask first"), ("nt-effort", "Effort: Auto"), ("nt-folder", "Cauldron workspace"), ("machine", "This machine"), ("nt-voice", "Voice")] {
                 assert_eq!(window.find(id).label(), Some(label), "{id}");
             }
             for gone in ["nt-plan", "nt-familiar", "nt-worktree", "nt-github", "start"] {

@@ -237,7 +237,81 @@ fn status_line(i: usize, label: String, writing: bool, since: Option<u64>, now: 
 
 /// The settings a send carries: the saved prefs, and Plan mode when it is on.
 pub(super) fn ctx(plan: bool) -> Ctx {
-    Ctx { prefs: Prefs::load(), memory: None, agents: Some(agents()), plan }
+    Ctx { prefs: Prefs::load(), memory: None, agents: Some(agents()), plan, ask: false }
+}
+
+impl Cauldron {
+    /// + in the reply box: pick files to send with the next message.
+    fn pick_reply_files(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let paths = cx.prompt_for_paths(gpui::PathPromptOptions { files: true, directories: false, multiple: true, prompt: Some("Attach".into()) });
+        cx.spawn_in(window, async move |this: WeakEntity<Self>, cx: &mut AsyncWindowContext| {
+            if let Ok(Ok(Some(ps))) = paths.await {
+                let _ = this.update(cx, |c, cx| {
+                    c.reply_files.extend(ps);
+                    cx.notify();
+                });
+            }
+        })
+        .detach();
+    }
+
+    /// The files waiting to go with the next reply, each with an x.
+    fn reply_files_el(&self, pal: &'static Palette, cx: &mut Context<Self>) -> Option<AnyElement> {
+        if self.reply_files.is_empty() {
+            return None;
+        }
+        let mut row = div().id("reply-files").flex().flex_wrap().gap(px(6.));
+        for (i, p) in self.reply_files.iter().enumerate() {
+            let name = p.file_name().map_or_else(|| "file".into(), |n| n.to_string_lossy().to_string());
+            row = row.child(
+                div()
+                    .id(("reply-file", i))
+                    .h(px(26.))
+                    .pl(px(8.))
+                    .pr(px(4.))
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
+                    .rounded(px(radius::CONTROL))
+                    .border_1()
+                    .border_color(c(pal.line))
+                    .bg(c(pal.inset))
+                    .text_size(px(12.))
+                    .text_color(c(pal.fg2))
+                    .aria_label(name.clone())
+                    .child(glyph("paperclip", 12., c(pal.fg3)))
+                    .child(name)
+                    .child(
+                        div()
+                            .id(("reply-file-x", i))
+                            .size(px(18.))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .rounded(px(radius::TAG))
+                            .cursor_pointer()
+                            .hover(|d| d.bg(c(pal.hover)))
+                            .aria_label("Remove")
+                            .child(glyph("x", 11., c(pal.fg3)))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                if i < this.reply_files.len() {
+                                    this.reply_files.remove(i);
+                                }
+                                cx.notify();
+                            })),
+                    )
+                    .test_support(),
+            );
+        }
+        Some(row.test_support().into_any_element())
+    }
+
+    /// What a send carries from the composer's mode (Ask · Plan · Act).
+    pub(super) fn mode_ctx(&self) -> Ctx {
+        let mut c = ctx(self.plan);
+        c.ask = self.ask && !self.plan;
+        c
+    }
 }
 
 /// The user's agents (familiars and their crews), opened once.
@@ -390,15 +464,42 @@ impl Cauldron {
     }
 
     /// Sends the composer's text to the open thread; a refusal shows under the composer.
-    fn send_composer(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let (Some(id), Some((_, chats)), Some((st, _))) = (self.open.clone(), self.core.as_ref(), self.composer.as_ref()) else { return };
-        let text = st.read(cx).value().trim().to_string();
-        if text.is_empty() {
+    pub(super) fn send_composer(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let (Some(id), Some((st, _))) = (self.open.clone(), self.composer.as_ref()) else { return };
+        let st = st.clone();
+        let mut text = st.read(cx).value().trim().to_string();
+        if text.is_empty() && self.reply_files.is_empty() {
             return;
         }
-        match chats.send(&id, &text, Vec::new(), None, ctx(self.plan)) {
+        // A slash command runs here; some send a prompt in its place.
+        if let Some(out) = self.run_slash(&text.clone(), window, cx) {
+            match out {
+                Some(t) => text = t,
+                None => {
+                    st.update(cx, |s, cx| s.set_value("", window, cx));
+                    self.refresh();
+                    cx.notify();
+                    return;
+                }
+            }
+        }
+        let Some((_, chats)) = self.core.as_ref() else { return };
+        let chats = chats.clone();
+        // The files added with + go along (read first, so a bad one sends nothing).
+        let sent = (|| {
+            use base64::Engine;
+            let mut atts = Vec::new();
+            for p in &self.reply_files {
+                let name = p.file_name().map_or_else(|| "file".into(), |n| n.to_string_lossy().to_string());
+                let b = std::fs::read(p).map_err(|e| anyhow::anyhow!("Couldn't read {name}: {e}"))?;
+                atts.push(chats.attach(&id, &name, super::newthread::mime(&name), &base64::engine::general_purpose::STANDARD.encode(b))?);
+            }
+            chats.send(&id, &text, atts, None, self.mode_ctx())
+        })();
+        match sent {
             Ok(()) => {
                 self.send_error = None;
+                self.reply_files.clear();
                 st.update(cx, |s, cx| s.set_value("", window, cx));
             }
             Err(e) => self.send_error = Some(e.to_string()),
@@ -413,10 +514,18 @@ impl Cauldron {
             return;
         }
         let st = cx.new(|cx| TextareaState::new(window, cx).auto_grow(1, 8).submit_on_enter(true).placeholder(super::newthread::REPLY_PLACEHOLDER));
-        let sub = cx.subscribe_in(&st, window, |this, _, ev: &InputEvent, window, cx| {
-            if let InputEvent::PressEnter { shift: false, .. } = ev {
-                this.send_composer(window, cx);
+        let sub = cx.subscribe_in(&st, window, |this, _, ev: &InputEvent, window, cx| match ev {
+            InputEvent::PressEnter { shift: false, .. } => {
+                if !this.slash_enter(window, cx) {
+                    this.send_composer(window, cx);
+                }
             }
+            InputEvent::Change => {
+                this.slash_closed = false;
+                this.slash_sel = 0;
+                cx.notify();
+            }
+            _ => {}
         });
         self.composer = Some((st, sub));
     }
@@ -775,8 +884,46 @@ impl Cauldron {
             if let Some(e) = &l.error {
                 say = say.child(self.failure_card(i, &l.id, e, i == last, &t.id, pal, cx));
             }
-            if let Some(m) = &l.meta {
-                say = say.child(div().flex().items_center().gap(px(6.)).text_size(px(12.)).text_color(fg3).font_features(tnum()).child(glyph("terminal", 13., fg3)).child(m.clone()));
+            // The reply's foot: Copy (its whole Markdown, Charles 22 Nov), then who wrote it and the cost.
+            let whole = l.text.clone();
+            let done = live(l.status).is_none() && !whole.trim().is_empty();
+            if done || l.meta.is_some() {
+                let copied = self.copied.as_deref() == Some(l.id.as_str());
+                let lid = l.id.clone();
+                say = say.child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(10.))
+                        .text_size(px(12.))
+                        .text_color(fg3)
+                        .font_features(tnum())
+                        .when(done, |d| {
+                            d.child(
+                                div()
+                                    .id(("reply-copy", i))
+                                    .h(px(24.))
+                                    .px(px(6.))
+                                    .ml(px(-6.))
+                                    .flex()
+                                    .items_center()
+                                    .gap(px(5.))
+                                    .rounded(px(radius::TAG))
+                                    .cursor_pointer()
+                                    .hover(|d| d.bg(c(pal.hover)).text_color(fg))
+                                    .aria_label("Copy the reply as Markdown")
+                                    .child(glyph(if copied { "check" } else { "copy" }, 13., if copied { c(pal.ok) } else { fg3 }))
+                                    .child(if copied { "Copied" } else { "Copy" })
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        cx.write_to_clipboard(gpui::ClipboardItem::new_string(whole.clone()));
+                                        this.copied = Some(lid.clone());
+                                        cx.notify();
+                                    }))
+                                    .test_support(),
+                            )
+                        })
+                        .when_some(l.meta.clone(), |d, m| d.child(div().flex().items_center().gap(px(6.)).child(glyph("terminal", 13., fg3)).child(m))),
+                );
             }
             for (k, (_, sid, title)) in sides.iter().enumerate().filter(|(_, (at, _, _))| *at >= l.at && *at < next_at[i]) {
                 let sid = sid.clone();
@@ -809,11 +956,12 @@ impl Cauldron {
         // ponytail: reads the prefs file on each render so a change in Settings shows; cache it in
         // the shell if renders get frequent.
         let effort = Prefs::load().cli_effort;
+        // The reasoning effort (Charles asked what "Auto" was): say so on the chip.
         let effort_label = effort.clone().map_or_else(
-            || "Auto".to_string(),
+            || "Effort: Auto".to_string(),
             |e| {
                 let mut c = e.chars();
-                c.next().map_or_else(|| "Auto".into(), |f| format!("Auto · {}{}", f.to_uppercase(), c.as_str()))
+                c.next().map_or_else(|| "Effort: Auto".into(), |f| format!("Effort: {}{}", f.to_uppercase(), c.as_str()))
             },
         );
         // The Send and Stop glyphs cross-fade when a reply starts or stops. Only the current one
@@ -876,7 +1024,8 @@ impl Cauldron {
                 .aria_label(label.clone())
                 .child(label)
         };
-        let effort_chip = chip_btn("effort", effort_label).cursor_pointer().hover(|d| d.text_color(fg)).on_click(cx.listener(|_, _, _, cx| {
+        let effort_chip = chip_btn("effort", effort_label)
+            .aria_description("Reasoning effort: Auto lets the CLI choose; a click steps through low, medium, high and max").cursor_pointer().hover(|d| d.text_color(fg)).on_click(cx.listener(|_, _, _, cx| {
             // Cycles Auto, low, medium, high, max and saves it, as Settings would.
             let mut p = Prefs::load();
             let at = EFFORTS.iter().position(|e| *e == p.cli_effort.as_deref()).unwrap_or(0);
@@ -911,12 +1060,28 @@ impl Cauldron {
             // A very short pane: one row, the editor and Send, no chips.
             composer.items_center().gap(px(6.)).pl(px(12.)).pr(px(6.)).py(px(6.)).child(editor).child(action)
         } else {
-            composer.flex_col().gap(px(8.)).px(px(12.)).py(px(10.)).child(editor).child(
+            composer.flex_col().gap(px(8.)).px(px(12.)).py(px(10.)).when_some(self.reply_files_el(pal, cx), |d, f| d.child(f)).child(editor).child(
                 div()
                     .flex()
                     .items_center()
                     .gap(px(6.))
                     // In a narrow pane the trust and Plan chips give way first, so Send stays in view.
+                    .child(
+                        div()
+                            .id("reply-add")
+                            .size(px(24.))
+                            .flex_none()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .rounded(px(radius::TAG))
+                            .cursor_pointer()
+                            .hover(|d| d.bg(c(pal.hover)))
+                            .aria_label("Add files")
+                            .child(glyph("plus", 15., fg2))
+                            .on_click(cx.listener(|this, _, window, cx| this.pick_reply_files(window, cx)))
+                            .test_support(),
+                    )
                     .when_live(!narrow, |d| d.child(self.trust_chip("trust", pal, cx)).child(self.plan_chip("plan", pal, cx)))
                     .child(div().flex_1())
                     // In a narrow pane the route chip gives way first, so Send stays in view.
@@ -944,6 +1109,25 @@ impl Cauldron {
                 )
                 .with_priority(3),
             );
+        }
+        // The slash list rises over the box like the model picker (slash.rs).
+        if let Some(list) = self.slash_el(pal, cx) {
+            composer = composer.relative().child(deferred(div().id("slash-tray").absolute().left_0().right_0().bottom(relative(1.)).pb(px(6.)).child(list).test_support()).with_priority(3));
+        }
+        // The editor binds these keys to its own actions, so the list takes the actions first.
+        {
+            use gpui_kit::base::input::{Escape, IndentInline, MoveDown, MoveUp};
+            let key = |k: &'static str| move |this: &mut Self, window: &mut Window, cx: &mut Context<Self>| {
+                if this.slash_key(k, window, cx) {
+                    cx.stop_propagation();
+                }
+            };
+            let (up, down, tab, esc) = (key("up"), key("down"), key("tab"), key("escape"));
+            composer = composer
+                .capture_action(cx.listener(move |this, _: &MoveUp, window, cx| up(this, window, cx)))
+                .capture_action(cx.listener(move |this, _: &MoveDown, window, cx| down(this, window, cx)))
+                .capture_action(cx.listener(move |this, _: &IndentInline, window, cx| tab(this, window, cx)))
+                .capture_action(cx.listener(move |this, _: &Escape, window, cx| esc(this, window, cx)));
         }
         if let Some(e) = &self.send_error {
             composer = composer.child(div().id("send-error").text_size(px(12.)).text_color(c(pal.bad)).aria_label(e.clone()).child(e.clone()).test_support());
@@ -996,7 +1180,7 @@ impl Cauldron {
                         .child("Send back to the stream")
                         .on_click(cx.listener(move |this, _, _, cx| {
                             if let Some((_, chats)) = this.core.as_ref() {
-                                if let Err(e) = chats.send_back(&sid, ctx(this.plan)) {
+                                if let Err(e) = chats.send_back(&sid, this.mode_ctx()) {
                                     this.send_error = Some(e.to_string());
                                 }
                             }
@@ -1181,8 +1365,8 @@ pub(super) mod tests {
             assert_eq!(window.find("plan").label(), Some("Plan"));
             window.click("plan", cx);
             window.render_frame(cx);
-            assert_eq!(window.find("plan").label(), Some("Plan · on"));
-            assert_eq!(window.find("plan").selected(), Some(true));
+            assert_eq!(window.find("plan").selected(), Some(true), "Ask · Plan · Act: Plan picked");
+            assert_eq!(window.find("plan-act").selected(), Some(false));
             window.click(("thread", 1usize), cx);
             window.click("composer-input", cx);
             window.input("What would you change?", cx);
@@ -1457,10 +1641,10 @@ it"));
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
             window.click(("thread", 0usize), cx);
-            assert_eq!(window.find("effort").label(), Some("Auto"));
+            assert_eq!(window.find("effort").label(), Some("Effort: Auto"));
             window.click("effort", cx);
             window.render_frame(cx);
-            assert_eq!(window.find("effort").label(), Some("Auto · Low"));
+            assert_eq!(window.find("effort").label(), Some("Effort: Low"));
         })
         .unwrap();
         assert_eq!(Prefs::load().cli_effort.as_deref(), Some("low"));

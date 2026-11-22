@@ -404,6 +404,9 @@ pub struct Thread {
     pub members: Vec<String>,
     #[serde(default)]
     pub goal: Option<String>,
+    /// `/goal pause`: the goal stays but the stream stops carrying on by itself.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub goal_paused: bool,
     /// Never listed or written to disk: a one-off ask (`dreaming`), or a ghost
     /// chat. `Life::Ghost` turns this on for the whole session.
     #[serde(skip)]
@@ -662,6 +665,15 @@ struct Inbound {
 // ponytail: one global for the one chat face; per-window if there are ever two.
 pub static GENUI_PROMPT: std::sync::RwLock<Option<String>> = std::sync::RwLock::new(None);
 
+/// What a reply says when its stream's goal is met (`/goal`).
+pub const GOAL_MET: &str = "GOAL MET";
+/// How a stream with a goal is told to carry on; these turns count toward [`GOAL_TURNS`].
+pub const GOAL_NUDGE: &str = "↻ Keep going toward the goal:";
+/// Turns a goal may take on its own, in a row, before it pauses for the user.
+pub const GOAL_TURNS: usize = 8;
+
+const ASK_MODE: &str = "# Ask mode\n\nThe user is asking a question, not asking for changes. Read whatever you need and answer it. Don't edit, create or delete any file, and don't run commands.";
+
 const PLAN_MODE: &str = "# Plan mode\n\nThe user wants a plan, not changes. Read whatever you need, run read-only commands, then reply with a short plan: the files to change, what changes in each, and how to check it. Don't edit, create or delete any file.";
 
 /// What a send needs from prefs, copied so a reply never holds the lock.
@@ -672,6 +684,9 @@ pub struct Ctx {
     pub agents: Option<Arc<crate::agents::Agents>>,
     /// Code chat's Plan mode: read the project and propose; change nothing.
     pub plan: bool,
+    /// Ask mode (Ask · Plan · Act, Charles 22 Nov): answer from what it reads; no edits, no
+    /// commands.
+    pub ask: bool,
 }
 
 /// One reply's circumstances: which agent writes it, and for a group the
@@ -1000,6 +1015,7 @@ impl Chats {
             agent: scope.agent,
             members: scope.members,
             goal: scope.goal.filter(|g| !g.trim().is_empty()),
+            goal_paused: false,
             life: scope.life,
             expires_at: None,
             ttl_minutes: if scope.life == Life::Temporal {
@@ -1219,6 +1235,7 @@ impl Chats {
             agent: src.agent.clone(),
             members: src.members.clone(),
             goal: src.goal.clone(),
+            goal_paused: false,
             life: Life::Keep,
             expires_at: None,
             ttl_minutes: None,
@@ -1424,6 +1441,66 @@ impl Chats {
                 let _ = self.start_letter(&id, n, ctx.clone());
             }
         }
+        self.pursue_goals(ctx);
+    }
+
+    /// `/goal` (Charles, 22 Nov): a stream with a goal keeps working until its reply says the
+    /// goal is met, up to [`GOAL_TURNS`] turns in a row without the user, then pauses.
+    fn pursue_goals(self: &Arc<Self>, ctx: Ctx) {
+        let due: Vec<(String, String, bool)> = {
+            let all = self.threads.lock().unwrap();
+            all.values()
+                .filter(|t| !t.goal_paused && t.members.is_empty() && !t.archived)
+                .filter_map(|t| {
+                    let g = t.goal.clone()?;
+                    let last = t.messages.last()?;
+                    if last.role != Role::Assistant || last.status != Status::Done {
+                        return None;
+                    }
+                    let met = last.text.contains(GOAL_MET);
+                    let run = t.messages.iter().rev().filter(|m| m.role == Role::User).take_while(|m| m.text.starts_with(GOAL_NUDGE)).count();
+                    Some((t.id.clone(), g, met || run >= GOAL_TURNS)).filter(|_| met || !self.is_busy(&t.id))
+                })
+                .collect()
+        };
+        for (id, goal, stop) in due {
+            if self.is_busy(&id) || self.inbox.lock().unwrap().get(&id).is_some_and(|q| !q.is_empty()) {
+                continue;
+            }
+            if stop {
+                let met = self.thread(&id).and_then(|t| t.messages.last().map(|m| m.text.contains(GOAL_MET))).unwrap_or(false);
+                let _ = self.edit_thread(&id, |t| {
+                    if met {
+                        t.goal = None;
+                    } else {
+                        t.goal_paused = true;
+                    }
+                });
+                let note = if met { format!("(Goal met: {goal})") } else { format!("(Goal paused after {GOAL_TURNS} turns on its own: {goal}. `/goal resume` carries on.)") };
+                self.note(&id, &id, &note);
+                continue;
+            }
+            let _ = self.send(&id, &format!("{GOAL_NUDGE} {goal}"), Vec::new(), None, ctx.clone());
+        }
+    }
+
+    /// `/goal clear`.
+    pub fn clear_goal(&self, id: &str) -> Result<()> {
+        self.edit_thread(id, |t| {
+            t.goal = None;
+            t.goal_paused = false;
+        })
+    }
+
+    /// Set (Some), pause or resume a stream's goal.
+    pub fn set_goal(&self, id: &str, goal: Option<&str>, paused: bool) -> Result<()> {
+        self.edit_thread(id, |t| {
+            if let Some(g) = goal {
+                t.goal = Some(g.trim().to_string()).filter(|g| !g.is_empty());
+            }
+            t.goal_paused = paused;
+        })?;
+        Ok(())
     }
 
     /// A sub-agent a stream asked for (`delegate`): a new stream on that
@@ -1684,6 +1761,7 @@ impl Chats {
             agent: None,
             members: vec![],
             goal: None,
+            goal_paused: false,
             // Dreaming: a one-off ask, so it is gone the same way a ghost is.
             life: Life::Ghost,
             expires_at: None,
@@ -2391,6 +2469,12 @@ Ask the reader for input with the real form parts: `f = FormControl(\"Name\", In
         }
         let plan = ctx.plan || self.plan_of(id);
         req.edit = project.is_some() && !plan;
+        if let Some(g) = self.peek(id).filter(|t| t.members.is_empty()).and_then(|t| t.goal) {
+            req.system = Some(format!(
+                "{}# Goal\n\nThis stream's goal: {g}\nKeep working toward it, one step per reply. When it is fully met and checked, end your reply with the line `{GOAL_MET}`. Don't write that line before.",
+                req.system.take().map(|s| s + "\n\n").unwrap_or_default()
+            ));
+        }
         if plan {
             req.permission = Some("plan".into());
             // In a project, Plan mode specifies: it grills, then writes SPEC.md.
@@ -2453,7 +2537,16 @@ Ask the reader for input with the real form parts: `f = FormControl(\"Name\", In
         }
         // A bot's rules, however it is called (its thread or a group): the
         // CLI's own tools it may not use, and what `backspace mcp` leaves out.
-        let deny = call.agent.as_ref().map(|a| a.deny()).unwrap_or_default();
+        let mut deny = call.agent.as_ref().map(|a| a.deny()).unwrap_or_default();
+        if ctx.ask && !plan {
+            req.edit = false;
+            for r in ["edit", "run"] {
+                if !deny.iter().any(|d| d == r) {
+                    deny.push(r.into());
+                }
+            }
+            req.system = Some(format!("{}{ASK_MODE}", req.system.take().map(|s| s + "\n\n").unwrap_or_default()));
+        }
         req.deny = crate::agents::denied_tools(&deny);
         req.own_mcp_only = !deny.is_empty();
         if !deny.is_empty() {
@@ -2841,7 +2934,7 @@ mod tests {
             t.messages.push(Msg::new(Role::Assistant, String::new(), Status::Streaming));
         })
         .unwrap();
-        let ctx = Ctx { prefs: Prefs::default(), memory: None, agents: None, plan: false };
+        let ctx = Ctx { prefs: Prefs::default(), memory: None, agents: None, plan: false, ask: false };
         let m = c.context_map(&t.id, &ctx).unwrap();
         let got: Vec<(&str, u64)> = m.parts.iter().map(|p| (p.group.as_str(), p.tokens)).collect();
         assert_eq!(got, vec![("Instructions", 100), ("Conversation", 10), ("Conversation", 20)]);
@@ -3175,7 +3268,7 @@ mod tests {
     fn dead_ctx() -> Ctx {
         let mut prefs = Prefs::default();
         prefs.ollama_url = "http://127.0.0.1:9".into();
-        Ctx { prefs, memory: None, agents: None, plan: false }
+        Ctx { prefs, memory: None, agents: None, plan: false, ask: false }
     }
 
     fn settle(c: &Chats, ids: &[&str]) {
@@ -3325,6 +3418,30 @@ mod tests {
         assert!(ct.messages.iter().any(|m| m.text == "Test the login") && ct.messages.iter().any(|m| m.text == "Test the logout"));
         let bad = crate::relay::Spawn { crew: Some("Nobody".into()), ..job("x") };
         assert!(c.spawn_sub(&bad, ctx).is_err(), "only its own crew");
+    }
+
+    #[test]
+    fn a_goal_keeps_the_stream_going_until_its_reply_says_it_is_met() {
+        let dir = tmp("goal");
+        let (c, _rt) = chats(&dir);
+        let id = c.create_in(route(), Scope::default()).id;
+        c.set_goal(&id, Some("Ship the landing page"), false).unwrap();
+        c.edit_thread(&id, |t| t.messages.push(Msg::new(Role::Assistant, "Step one done.".into(), Status::Done))).unwrap();
+        c.pump(dead_ctx());
+        settle(&c, &[&id]);
+        let t = c.thread(&id).unwrap();
+        assert!(t.messages.iter().any(|m| m.role == Role::User && m.text == format!("{GOAL_NUDGE} Ship the landing page")), "it carries on by itself");
+        c.edit_thread(&id, |t| t.messages.push(Msg::new(Role::Assistant, format!("All checked.\n{GOAL_MET}"), Status::Done))).unwrap();
+        c.pump(dead_ctx());
+        let t = c.thread(&id).unwrap();
+        assert!(t.goal.is_none(), "met: the goal goes");
+        assert!(t.messages.last().unwrap().text.starts_with("(Goal met"));
+        // Paused: nothing more happens.
+        c.set_goal(&id, Some("Another"), true).unwrap();
+        c.edit_thread(&id, |t| t.messages.push(Msg::new(Role::Assistant, "Waiting.".into(), Status::Done))).unwrap();
+        let n = c.thread(&id).unwrap().messages.len();
+        c.pump(dead_ctx());
+        assert_eq!(c.thread(&id).unwrap().messages.len(), n);
     }
 
     #[test]
