@@ -562,7 +562,7 @@ impl Cauldron {
                 .rounded(px(radius::CONTROL))
                 .cursor_pointer()
                 // The lifted button, the same in every app (board round 5, Charles 21 Nov 04:21Z).
-                .button_face(pal)
+                .button_face(pal).pressed()
                 .shadow(lift(Lift::Button, pal))
                 .hover(|d| d.bg(c(pal.hover)))
                 .text_size(px(13.))
@@ -1738,6 +1738,24 @@ pub(crate) trait ButtonFace: Styled + Sized {
 }
 impl<T: Styled + Sized> ButtonFace for T {}
 
+/// Tuff's primary action button: the silver gradient (brighter at the bottom), dark ink on top.
+pub(crate) trait PrimaryFace: Styled + Sized {
+    fn primary_face(self, pal: &Palette) -> Self {
+        let dark = pal.panel.0 < 0x80;
+        let (top, bottom) = if dark { (Rgb::hex(0xababab), Rgb::hex(0xffffff)) } else { (Rgb::hex(0xdcdcdc), Rgb::hex(0xffffff)) };
+        self.bg(linear_gradient(180., linear_color_stop(c(top), 0.), linear_color_stop(c(bottom), 1.)))
+    }
+}
+impl<T: Styled + Sized> PrimaryFace for T {}
+
+/// A little give when pressed (Tuff scales to 0.97; GPUI has no scale, so the button dims).
+pub(crate) trait Pressed: StatefulInteractiveElement + Sized {
+    fn pressed(self) -> Self {
+        self.active(|d| d.opacity(0.85))
+    }
+}
+impl<T: StatefulInteractiveElement + Sized> Pressed for T {}
+
 /// S2, "lifted": a hairline edge, a long soft shadow, and a light along the top edge.
 #[inline(never)]
 pub(crate) fn lift(l: Lift, pal: &Palette) -> Vec<BoxShadow> {
@@ -2051,8 +2069,9 @@ impl Render for Cauldron {
                     .aria_label(*label)
                     .aria_selected(on)
                     .border_color(if on { c(pal.line_strong) } else { c(pal.line) })
-                    .bg(ca(pal.fg, if on { if dark { 0.16 } else { 0.12 } } else if dark { 0.04 } else { 0.03 }))
-                    .when_live(!on, |d| d.hover(|d| d.bg(ca(pal.fg, if dark { 0.08 } else { 0.06 }))))
+                    .when_live(on, |d| d.bg(ca(pal.fg, if dark { 0.16 } else { 0.12 })))
+                    .when_live(!on, |d| d.button_face(pal).hover(|d| d.bg(ca(pal.fg, if dark { 0.08 } else { 0.06 }))))
+                    .pressed()
                     .child(glyph(name, 15., if on { fg } else { fg3 }))
                     .on_click(cx.listener(move |this, _, _, cx| this.select_section(i, cx)));
                 fnrow = fnrow.child(self.tipped(("fn", i), b, *label, Side::Right, pal, cx).test_support());
@@ -2201,7 +2220,7 @@ impl Render for Cauldron {
                     .h(px(tabshape::PILL_H))
                     .top(px(tabshape::PILL_DY))
                     .rounded(px(tabshape::PILL_R))
-                    .when_live(on, |d| d.button_face(pal).shadow(lift(Lift::Button, pal)))
+                    .when_live(on, |d| d.button_face(pal).pressed().shadow(lift(Lift::Button, pal)))
                     .when_live(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
                     .occlude()
                     .cursor_pointer()
@@ -2355,7 +2374,7 @@ impl Render for Cauldron {
                 .items_center()
                 .justify_center()
                 .rounded(px(tabshape::PILL_R))
-                .button_face(pal)
+                .button_face(pal).pressed()
                 .shadow(lift(Lift::Button, pal))
                 .occlude()
                 .cursor_pointer()

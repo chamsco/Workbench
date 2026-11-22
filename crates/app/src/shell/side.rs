@@ -112,7 +112,7 @@ impl Cauldron {
                 .rounded(px(super::tabshape::PILL_R))
                 // The open one is the raised tab like the stream's own; the rest are a darker, slightly
                 // see-through badge (Charles, 22 Nov).
-                .when(on, |d| d.button_face(pal).shadow(lift(Lift::Button, pal)))
+                .when(on, |d| d.button_face(pal).pressed().shadow(lift(Lift::Button, pal)))
                 .when(!on, |d| off_badge(d, pal).hover(|d| d.bg(gpui_kit::black().opacity(if pal.panel.0 < 0x80 { 0.18 } else { 0.06 }))))
                 .occlude()
                 .cursor_pointer()

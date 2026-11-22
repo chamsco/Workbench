@@ -341,7 +341,7 @@ impl Cauldron {
             .child("The Librarian proposes filing 3 streams under Onboarding.")
             .child(Self::mock_tag(pal))
             .child(
-                div().id("stripe-review").ml_auto().px(px(10.)).h(px(24.)).flex().items_center().rounded(px(radius::CONTROL)).button_face(pal).shadow(lift(Lift::Button, pal)).cursor_pointer().text_size(px(12.)).aria_label("Review").child("Review").on_click(cx.listener(|this, _, _, cx| {
+                div().id("stripe-review").ml_auto().px(px(10.)).h(px(24.)).flex().items_center().rounded(px(radius::CONTROL)).button_face(pal).pressed().shadow(lift(Lift::Button, pal)).cursor_pointer().text_size(px(12.)).aria_label("Review").child("Review").on_click(cx.listener(|this, _, _, cx| {
                     this.pages.lib_tab = 1;
                     if let Some(i) = FUNCTIONS.iter().position(|f| f.1 == "Library") {
                         this.select_section(i, cx);
@@ -376,7 +376,7 @@ impl Cauldron {
         mid = mid.child(div().flex().items_center().gap(px(8.)).child(div().text_size(px(16.)).font_weight(FontWeight::SEMIBOLD).text_color(fg).child(name.clone())).child(div().size(px(7.)).rounded_full().bg(state_col(state))).child(div().text_size(px(12.)).text_color(fg3).child(state_txt(state))).children((!real).then(|| Self::mock_tag(pal))));
         mid = mid.child(div().text_size(px(13.)).line_height(px(19.)).text_color(fg2).child(goal));
         if real {
-            mid = mid.child(div().id("agent-open").self_start().px(px(10.)).h(px(24.)).flex().items_center().rounded(px(radius::CONTROL)).button_face(pal).shadow(lift(Lift::Button, pal)).cursor_pointer().text_size(px(12.)).aria_label("Open familiar").child("Open familiar").on_click(cx.listener(move |this, _, _, cx| {
+            mid = mid.child(div().id("agent-open").self_start().px(px(10.)).h(px(24.)).flex().items_center().rounded(px(radius::CONTROL)).button_face(pal).pressed().shadow(lift(Lift::Button, pal)).cursor_pointer().text_size(px(12.)).aria_label("Open familiar").child("Open familiar").on_click(cx.listener(move |this, _, _, cx| {
                 this.select_section(0, cx);
                 this.open_familiar(sel);
                 cx.notify();
@@ -448,7 +448,7 @@ impl Cauldron {
         let mut bar = div().flex().items_center().gap(px(2.)).p(px(2.)).rounded(px(radius::CONTROL)).bg(c(pal.inset)).self_start();
         for (i, t) in tabs.iter().enumerate() {
             let on = i == self.pages.lib_tab;
-            bar = bar.child(div().id(("lib-tab", i)).px(px(12.)).h(px(24.)).flex().items_center().rounded(px(4.)).text_size(px(12.5)).cursor_pointer().text_color(if on { fg } else { fg3 }).when_live(on, |d| d.button_face(pal).shadow(lift(Lift::Button, pal))).aria_label(*t).child(*t).on_click(cx.listener(move |this, _, _, cx| {
+            bar = bar.child(div().id(("lib-tab", i)).px(px(12.)).h(px(24.)).flex().items_center().rounded(px(4.)).text_size(px(12.5)).cursor_pointer().text_color(if on { fg } else { fg3 }).when_live(on, |d| d.button_face(pal).pressed().shadow(lift(Lift::Button, pal))).aria_label(*t).child(*t).on_click(cx.listener(move |this, _, _, cx| {
                 this.pages.lib_tab = i;
                 cx.notify();
             })).test_support());
@@ -464,7 +464,7 @@ impl Cauldron {
                     col = col.child(
                         div().id("receipt").px(px(12.)).py(px(9.)).flex().items_center().gap(px(8.)).rounded(px(radius::PANEL)).bg(ca(pal.ok, 0.10)).border_1().border_color(ca(pal.ok, 0.30)).text_size(px(12.5)).text_color(fg).aria_label(format!("Filed {done}"))
                             .child(format!("Filed {done} {}.", if done == 1 { "proposal" } else { "proposals" }))
-                            .child(div().id("receipt-undo").ml_auto().px(px(10.)).h(px(24.)).flex().items_center().rounded(px(radius::CONTROL)).button_face(pal).shadow(lift(Lift::Button, pal)).cursor_pointer().text_size(px(12.)).aria_label("Undo").child("Undo").on_click(cx.listener(|this, _, _, cx| {
+                            .child(div().id("receipt-undo").ml_auto().px(px(10.)).h(px(24.)).flex().items_center().rounded(px(radius::CONTROL)).button_face(pal).pressed().shadow(lift(Lift::Button, pal)).cursor_pointer().text_size(px(12.)).aria_label("Undo").child("Undo").on_click(cx.listener(|this, _, _, cx| {
                                 this.pages.proposals = [None; 3];
                                 cx.notify();
                             })).test_support())
@@ -474,7 +474,7 @@ impl Cauldron {
                 for (i, (kind, t, why)) in PROPOSALS.iter().enumerate() {
                     let st = self.pages.proposals[i];
                     let btn = |id: &'static str, label: &'static str, primary: bool| {
-                        div().id((id, i)).px(px(12.)).h(px(26.)).flex().items_center().rounded(px(radius::CONTROL)).cursor_pointer().text_size(px(12.)).aria_label(label).child(label).when_live(primary, |d| d.bg(c(pal.accent)).text_color(c(pal.on_accent))).when_live(!primary, |d| d.button_face(pal).text_color(fg2).shadow(lift(Lift::Button, pal)))
+                        div().id((id, i)).px(px(12.)).h(px(26.)).flex().items_center().rounded(px(radius::CONTROL)).cursor_pointer().text_size(px(12.)).aria_label(label).child(label).when_live(primary, |d| d.bg(c(pal.accent)).text_color(c(pal.on_accent))).when_live(!primary, |d| d.button_face(pal).pressed().text_color(fg2).shadow(lift(Lift::Button, pal)))
                     };
                     col = col.child(
                         div().id(("proposal", i)).p(px(14.)).flex().items_center().gap(px(12.)).rounded(px(radius::PANEL)).bg(c(pal.panel)).border_1().border_color(c(pal.line)).shadow(lift(Lift::Button, pal)).opacity(if st == Some(false) { 0.5 } else { 1. }).aria_label(*t)

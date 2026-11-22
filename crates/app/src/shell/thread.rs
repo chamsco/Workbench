@@ -785,7 +785,7 @@ impl Cauldron {
         // The Send and Stop glyphs cross-fade when a reply starts or stops. Only the current one
         // takes a click, so the one fading out cannot send or stop anything.
         let k = self.action_since.map_or(1.0, |t0| crate::motion::run(std::time::Instant::now(), t0, cauldron_chrome::motion::time::SWAP));
-        let ink = c(pal.panel);
+        let ink = c(Rgb::hex(0x111111));
         let layer = |name: &'static str, size: f32, a: f32| {
             div().absolute().inset_0().flex().items_center().justify_center().opacity(a).child(glyph(name, size, ink))
         };
@@ -818,7 +818,8 @@ impl Cauldron {
             .items_center()
             .justify_center()
             .rounded(px(radius::CONTROL))
-            .bg(fg)
+            .primary_face(pal)
+            .pressed()
             .cursor_pointer()
             .test_support();
         let input = self.composer.as_ref().expect("made in render").0.clone();
