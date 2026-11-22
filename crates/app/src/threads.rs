@@ -81,6 +81,8 @@ pub(crate) fn sample(id: &str, title: &str) -> ThreadInfo {
         ghost: false,
         expires_at: None,
         side_of: None,
+        branch: None,
+        models: "Claude".into(),
     }
 }
 

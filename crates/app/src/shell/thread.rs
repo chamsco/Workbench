@@ -18,8 +18,10 @@ pub(super) struct Line {
     pub text: String,
     pub status: Status,
     pub error: Option<String>,
-    /// Who answered, with which model and at what cost, under a reply.
+    /// Who answered and at what cost, under a reply.
     pub meta: Option<String>,
+    /// The model that wrote a reply, drawn above it: as the backend reported it, else the route's.
+    pub model: Option<String>,
     /// The reply as text and steps, when it recorded any steps (board A); else empty.
     pub parts: Vec<super::ledger::Part>,
     /// When it was sent (ms), for the wait timer.
@@ -73,7 +75,15 @@ pub(super) fn failure(e: &str) -> Failure {
 }
 
 pub(super) fn lines(t: &Thread) -> Vec<Line> {
-    t.messages.iter().map(|m| Line { id: m.id.clone(), mine: m.role == Role::User, text: m.text.clone(), status: m.status, error: m.error.clone(), meta: meta(m), parts: reply_parts(m), at: m.at }).collect()
+    t.messages.iter().map(|m| Line { id: m.id.clone(), mine: m.role == Role::User, text: m.text.clone(), status: m.status, error: m.error.clone(), meta: meta(m), model: model(m, t), parts: reply_parts(m), at: m.at }).collect()
+}
+
+fn model(m: &Msg, t: &Thread) -> Option<String> {
+    if m.role == Role::User {
+        return None;
+    }
+    let r = m.via.as_ref().unwrap_or(&t.route);
+    m.model.clone().or_else(|| r.model.clone()).or_else(|| Some(r.provider.clone())).filter(|s| !s.is_empty())
 }
 
 /// A reply's text and steps, when it recorded steps. In flight is `Sending` or `Streaming`, unless
@@ -92,9 +102,6 @@ fn meta(m: &Msg) -> Option<String> {
     let mut p = Vec::new();
     if let Some(n) = &m.author_name {
         p.push(n.clone());
-    }
-    if let Some(md) = &m.model {
-        p.push(md.clone());
     }
     if let Some(c) = m.cost_usd {
         p.push(format!("${c:.2}"));
@@ -597,6 +604,16 @@ impl Cauldron {
             );
         }
         let last = ls.len().saturating_sub(1);
+        // This stream's side streams, each linked under the reply it branched off (Charles, 22 Nov).
+        let sides: Vec<(u64, String, String)> = match (&self.threads, t.side_of.is_none()) {
+            (Threads::Ready(v), true) => {
+                let mut x: Vec<_> = v.iter().filter(|s| s.side_of.as_deref() == Some(t.id.as_str())).map(|s| (s.created, s.id.clone(), s.title.clone())).collect();
+                x.sort();
+                x
+            }
+            _ => Vec::new(),
+        };
+        let next_at: Vec<u64> = ls.iter().skip(1).map(|l| l.at).chain(std::iter::once(u64::MAX)).collect();
         // The scroll ticks' targets: one per response, by its row in the transcript.
         let replies: Vec<usize> = ls.iter().enumerate().filter(|(_, l)| !l.mine).map(|(i, _)| i).collect();
         // Only the messages near the view are built: one further is drawn as an empty box of the
@@ -673,11 +690,28 @@ impl Cauldron {
             }
             // ponytail: replies draw as plain text; markdown rendering is a later pass.
             // The full column, the composer's width (Charles, 21 Nov: "using the entire space").
+            // The model above the reply (Tuff UI), with its maker's mark.
+            let model_el = l.model.clone().map(|md| {
+                let mark = super::logos::maker_mark(&md).or_else(|| super::logos::house_maker(&t.route.provider)).and_then(|n| super::logos::image(n, &pal.fg3.to_hex()));
+                div()
+                    .id(("reply-model", i))
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
+                    .h(px(18.))
+                    .text_size(px(11.5))
+                    .text_color(fg3)
+                    .aria_label(format!("Model: {md}"))
+                    .when_some(mark, |d, m| d.child(img(m).size(px(12.)).flex_none()))
+                    .child(md)
+                    .test_support()
+            });
             let mut say = div()
                 .id(("msg", i))
                 .flex()
                 .flex_col()
                 .gap(px(6.))
+                .when_some(model_el, |d, m| d.child(m))
                 .aria_label(if l.text.is_empty() { shown.clone() } else { l.text.clone() })
                 .when_some(self.steps.get(&l.id).filter(|s| !s.is_empty() && l.parts.is_empty()), |d, st| {
                     let mut col = div().id(("steps", i)).flex().flex_col().gap(px(2.)).aria_label(st.join(", "));
@@ -709,6 +743,30 @@ impl Cauldron {
             }
             if let Some(m) = &l.meta {
                 say = say.child(div().flex().items_center().gap(px(6.)).text_size(px(12.)).text_color(fg3).font_features(tnum()).child(glyph("terminal", 13., fg3)).child(m.clone()));
+            }
+            for (k, (_, sid, title)) in sides.iter().enumerate().filter(|(_, (at, _, _))| *at >= l.at && *at < next_at[i]) {
+                let sid = sid.clone();
+                say = say.child(
+                    div()
+                        .id(("side-link", k))
+                        .flex()
+                        .items_center()
+                        .gap(px(6.))
+                        .h(px(22.))
+                        .text_size(px(12.5))
+                        .text_color(fg3)
+                        .cursor_pointer()
+                        .aria_label(format!("Side stream: {title}"))
+                        .child(glyph("corner-down-right", 12., fg3))
+                        .child("Side stream")
+                        .child(div().min_w_0().truncate().text_color(c(pal.accent)).child(title.clone()))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.selected = Some(sid.clone());
+                            this.open_thread(sid.clone());
+                            cx.notify();
+                        }))
+                        .test_support(),
+                );
             }
             msgs = msgs.child(say.test_support());
         }
@@ -1153,7 +1211,8 @@ pub(super) mod tests {
         let l = lines(&t);
         assert!(l[0].mine && l[0].meta.is_none());
         assert_eq!(l[1].status, Status::Error);
-        assert_eq!(l[1].meta.as_deref(), Some("Builder · opus · $0.40"));
+        assert_eq!(l[1].meta.as_deref(), Some("Builder · $0.40"));
+        assert_eq!((l[0].model.as_deref(), l[1].model.as_deref()), (None, Some("opus")));
         assert_eq!(super::cost(&t), 0.4);
         let empty = backspace_core::chat::Thread { messages: Vec::new(), ..t };
         assert_eq!(format!("{:.2}", super::cost(&empty)), "0.00", "no minus zero");

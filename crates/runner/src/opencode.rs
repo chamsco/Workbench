@@ -157,7 +157,7 @@ impl Turn {
                         if !self.tools.contains(&id) && matches!(status, "running" | "completed" | "error") {
                             self.tools.insert(id.clone());
                             on(Event::Break);
-                            on(Event::ToolStart { id: id.clone(), name: part["tool"].as_str().unwrap_or("tool").into(), input: truncate(&st["input"].to_string(), 2000).into() });
+                            on(Event::ToolStart { id: id.clone(), name: part["tool"].as_str().unwrap_or("tool").into(), input: crate::tool_input(&st["input"], 2000) });
                         }
                         match status {
                             "completed" => on(Event::ToolEnd { id, output: truncate(st["output"].as_str().unwrap_or_default(), 4000).into(), error: false }),

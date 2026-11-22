@@ -240,6 +240,22 @@ pub fn plain(s: &str) -> String {
     out
 }
 
+/// A tool call's input as JSON text, cut to `max` bytes, with the short fields that name what it
+/// works on (the file, the command) first. serde_json sorts keys, so a write's `content` came
+/// before its `file_path` and a long file lost its path to the cut.
+pub fn tool_input(v: &Value, max: usize) -> String {
+    const FIRST: [&str; 6] = ["file_path", "filePath", "path", "notebook_path", "command", "url"];
+    let Some(o) = v.as_object() else { return truncate(&v.to_string(), max).to_string() };
+    let mut parts: Vec<String> = Vec::with_capacity(o.len());
+    for k in FIRST.iter().filter(|k| o.contains_key(**k)) {
+        parts.push(format!("{}:{}", Value::from(*k), o[*k]));
+    }
+    for (k, x) in o.iter().filter(|(k, _)| !FIRST.contains(&k.as_str())) {
+        parts.push(format!("{}:{}", Value::from(k.as_str()), x));
+    }
+    truncate(&format!("{{{}}}", parts.join(",")), max).to_string()
+}
+
 pub fn truncate(s: &str, max: usize) -> &str {
     if s.len() <= max {
         return s;
@@ -717,7 +733,7 @@ fn claude_line(line: &str, got_partial: &mut bool, fail: &mut Option<String>, on
                     Some("tool_use") => on(Event::ToolStart {
                         id: b["id"].as_str().unwrap_or("").into(),
                         name: b["name"].as_str().unwrap_or("tool").into(),
-                        input: truncate(&b["input"].to_string(), 2000).into(),
+                        input: tool_input(&b["input"], 2000),
                     }),
                     _ => {}
                 }
@@ -965,6 +981,15 @@ mod tests {
             f(l, &mut out);
         }
         out
+    }
+
+    #[test]
+    fn a_long_write_keeps_its_path_through_the_cut() {
+        let v = json!({ "content": "x".repeat(5000), "file_path": "/w/index.html" });
+        let s = tool_input(&v, 2000);
+        assert!(s.starts_with(r#"{"file_path":"/w/index.html","content":"xx"#), "{}", &s[..60]);
+        assert_eq!(s.len(), 2000);
+        assert_eq!(tool_input(&json!({ "command": "ls" }), 2000), r#"{"command":"ls"}"#);
     }
 
     #[test]

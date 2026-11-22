@@ -96,7 +96,11 @@ pub mod metric {
     /// The frame's band round the cards at the window's edges, wide enough to read as a border
     /// (Charles, 21 Nov 16:00Z: "bring the border back"); the sidebar stays flat on it.
     pub const FRAME: f32 = 6.0;
+    /// The sidebar's default width; it can be dragged between the two below (Charles, 22 Nov).
     pub const SIDEBAR_W: f32 = 236.0;
+    /// Six 32px app buttons, their 4px gaps and the sidebar's 18px of padding.
+    pub const SIDEBAR_MIN_W: f32 = 230.0;
+    pub const SIDEBAR_MAX_W: f32 = 420.0;
     /// The support card's default width; it stays within [`SUPPORT_MIN_W`] and half the window.
     pub const SUPPORT_W: f32 = 470.0;
     pub const SUPPORT_MIN_W: f32 = 360.0;
@@ -149,6 +153,28 @@ pub fn layout(w: f32, h: f32, state: ShellState, platform: Platform) -> Shell {
 /// [`layout`] with the frame's band at the window edges `frame` wide. The Tight tiles board drew
 /// it 4px ([`metric::GAP`]); the golden test measures against that.
 pub fn layout_framed(w: f32, h: f32, state: ShellState, platform: Platform, frame: f32) -> Shell {
+    layout_at(w, h, state, platform, frame, Sidebar::default())
+}
+
+/// The sidebar's width, and with it folded, how far the hover band pushes the stream card over.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Sidebar {
+    pub w: f32,
+    pub push: f32,
+}
+
+impl Default for Sidebar {
+    fn default() -> Self {
+        Sidebar { w: metric::SIDEBAR_W, push: 0.0 }
+    }
+}
+
+/// A dragged width, held to the room the apps row needs and the most the sidebar takes.
+pub fn sidebar_width(w: f32) -> f32 {
+    w.clamp(metric::SIDEBAR_MIN_W, metric::SIDEBAR_MAX_W)
+}
+
+fn layout_at(w: f32, h: f32, state: ShellState, platform: Platform, frame: f32, side: Sidebar) -> Shell {
     use metric::*;
     // Charles, 21 Nov 04:25Z (board round 5, H1-H3): no strip. The card runs the full window height
     // beside the sidebar, and every frame element sits in its top row, the window buttons included.
@@ -157,8 +183,8 @@ pub fn layout_framed(w: f32, h: f32, state: ShellState, platform: Platform, fram
     let (top, bottom, right) = (frame, h - frame, w - frame);
     let full_h = bottom - top;
 
-    let sidebar = state.sidebar_open.then(|| Rect::new(0.0, top, SIDEBAR_W, full_h));
-    let left = sidebar.map_or(frame, |s| s.right() + GAP);
+    let sidebar = state.sidebar_open.then(|| Rect::new(0.0, top, sidebar_width(side.w), full_h));
+    let left = sidebar.map_or(frame + side.push, |s| s.right() + GAP);
     let support = state.support_open.then(|| {
         let sw = support_width(w);
         Rect::new(right - sw, top, sw, full_h)
@@ -202,7 +228,7 @@ pub fn layout_framed(w: f32, h: f32, state: ShellState, platform: Platform, fram
         (Some(sb), _) => {
             let lights = (!windows).then(|| Rect::new(sb.x + 12.0, sb.y + 17.0, LIGHTS_W, LIGHTS_H));
             let title = windows.then(|| Rect::new(sb.x + 16.0, sb.y + 9.0, 96.0, SBTN));
-            (lights, Rect::new(sb.x + 196.0, sb.y + 9.0, SBTN, SBTN), None, title, main.x + HEAD_IN)
+            (lights, Rect::new(sb.right() - 40.0, sb.y + 9.0, SBTN, SBTN), None, title, main.x + HEAD_IN)
         }
         // macOS folded: lights, sidebar button, New stream, tabs.
         (None, Platform::Mac) => {
@@ -239,13 +265,22 @@ pub fn layout_framed(w: f32, h: f32, state: ShellState, platform: Platform, fram
 
 /// The state that actually fits: the stream column keeps [`metric::MAIN_MIN_W`], so the support
 /// card closes. The sidebar is the user's choice and stays; the dock takes no width.
-pub fn resolve(w: f32, h: f32, mut state: ShellState, platform: Platform) -> ShellState {
-    if state.support_open && layout(w, h, state, platform).main.w < metric::MAIN_MIN_W {
+pub fn resolve(w: f32, h: f32, state: ShellState, platform: Platform) -> ShellState {
+    resolve_at(w, h, state, platform, Sidebar::default())
+}
+
+fn resolve_at(w: f32, h: f32, mut state: ShellState, platform: Platform, side: Sidebar) -> ShellState {
+    if state.support_open && layout_at(w, h, state, platform, metric::FRAME, side).main.w < metric::MAIN_MIN_W {
         state.support_open = false;
     }
     state
 }
 
 pub fn solve(w: f32, h: f32, state: ShellState, platform: Platform) -> Shell {
-    layout(w, h, resolve(w, h, state, platform), platform)
+    solve_at(w, h, state, platform, Sidebar::default())
+}
+
+/// [`solve`] with the sidebar at a dragged width, or the folded sidebar's band pushing the card.
+pub fn solve_at(w: f32, h: f32, state: ShellState, platform: Platform, side: Sidebar) -> Shell {
+    layout_at(w, h, resolve_at(w, h, state, platform, side), platform, metric::FRAME, side)
 }

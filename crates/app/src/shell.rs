@@ -30,7 +30,9 @@ mod motion;
 mod newthread;
 mod panes;
 mod dither;
+mod browser;
 mod ledger;
+mod links;
 mod md;
 mod logos;
 mod mark;
@@ -250,6 +252,21 @@ pub(crate) struct Cauldron {
     /// indent is showing.
     search_open: bool,
     indent: bool,
+    /// How far the folded sidebar's band pushes the card when the run toward `indent` began, and
+    /// when (the push eases over `INDENT_MS`).
+    indent_run: (f32, Option<std::time::Instant>),
+    indent_to: f32,
+    /// The sidebar's width (prefs `sidebar_w`), and the drag in progress: where it started, at
+    /// what width.
+    sidebar_w: f32,
+    sidebar_drag: Option<(f32, f32)>,
+    /// A link opened in the support card, the right-click menu on one, the link under the
+    /// pointer in a reply (for that menu), the browser view and the box it sits over.
+    link: Option<links::Link>,
+    link_menu: Option<(links::Link, Point<Pixels>)>,
+    link_hover: std::rc::Rc<std::cell::RefCell<Option<links::Link>>>,
+    browser: browser::Browser,
+    browser_slot: std::rc::Rc<std::cell::Cell<Option<Bounds<Pixels>>>>,
     /// The subscriptions' usage left, read from accounts.json at most every `USAGE_EVERY`.
     usage: std::cell::RefCell<Option<(std::time::Instant, Vec<(String, u64)>)>>,
     /// The Usage page is in the card, and the pointer is on the foot's ring or on its hover card.
@@ -423,6 +440,7 @@ impl Cauldron {
             Self::warm_picture(path, cx);
         }
         c.theme_mode = prefs.theme.clone();
+        c.sidebar_w = prefs.sidebar_w.map_or(metric::SIDEBAR_W, layout::sidebar_width);
         c.frost = backdrop::FrostLevel::from_pref(&prefs);
         set_notch(prefs.window_style.as_deref() == Some("notch"));
         if c.painting {
@@ -631,7 +649,7 @@ impl Cauldron {
     }
 
     pub(crate) fn new() -> Self {
-        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, support_data: Default::default(), files_open: Default::default(), painting: false, glass: Default::default(), plane: Default::default(), mark_ticker: None, ask_hover: false, ask_open: None, ask_answered: Default::default(), fam_questions: Default::default(), frost: backdrop::FrostLevel::Heavy, stream_bg: None, bg_wipe: None, stream_menu: None, closed_sides: Default::default(), sides_listed: Default::default(), color_target: theme::Target::Sidebar, hex_input: None, theme_mode: String::new(), root_focus: None, plan: false, open_in_menu: false, open_in: thread::OpenIn::Folder, search_open: false, indent: false, usage: Default::default(), usage_page: false, section_page: false, pages: Default::default(), usage_hover: false, usage_card_hover: false, settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_cache: Default::default(), act_open: Default::default(), act_tick: None, term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), transcript_fit: Default::default(), paced: Default::default(), pace_behind: Default::default(), coordinator: None, familiar: None, fam_views: Vec::new(), fam_live: Vec::new(), fam_watch: Vec::new(), fam_driving: Default::default(), fam_error: None, fam_composer: None, fam_fixture: false, inbox: Vec::new(), inbox_open: false, update: Default::default(), update_open: false, cli_rows: Vec::new(), inbox_toast: None, fam_from: (0.0, 0.0), fam_to: None, fam_since: None, fam_hl: 0, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default(), err_open: Default::default(), side_root: None, sides: Vec::new(), side_win: false, side_input: None, side_ctx: Default::default() }
+        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, support_data: Default::default(), files_open: Default::default(), painting: false, glass: Default::default(), plane: Default::default(), mark_ticker: None, ask_hover: false, ask_open: None, ask_answered: Default::default(), fam_questions: Default::default(), frost: backdrop::FrostLevel::Heavy, stream_bg: None, bg_wipe: None, stream_menu: None, closed_sides: Default::default(), sides_listed: Default::default(), color_target: theme::Target::Sidebar, hex_input: None, theme_mode: String::new(), root_focus: None, plan: false, open_in_menu: false, open_in: thread::OpenIn::Folder, search_open: false, indent: false, indent_run: (0.0, None), indent_to: 0.0, sidebar_w: metric::SIDEBAR_W, sidebar_drag: None, link: None, link_menu: None, link_hover: Default::default(), browser: Default::default(), browser_slot: Default::default(), usage: Default::default(), usage_page: false, section_page: false, pages: Default::default(), usage_hover: false, usage_card_hover: false, settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_cache: Default::default(), act_open: Default::default(), act_tick: None, term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), transcript_fit: Default::default(), paced: Default::default(), pace_behind: Default::default(), coordinator: None, familiar: None, fam_views: Vec::new(), fam_live: Vec::new(), fam_watch: Vec::new(), fam_driving: Default::default(), fam_error: None, fam_composer: None, fam_fixture: false, inbox: Vec::new(), inbox_open: false, update: Default::default(), update_open: false, cli_rows: Vec::new(), inbox_toast: None, fam_from: (0.0, 0.0), fam_to: None, fam_since: None, fam_hl: 0, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default(), err_open: Default::default(), side_root: None, sides: Vec::new(), side_win: false, side_input: None, side_ctx: Default::default() }
     }
 
     /// Opens core off the main thread (the sidebar shows Loading meanwhile), then keeps the thread
@@ -836,7 +854,32 @@ impl Cauldron {
                             .justify_center()
                             .aria_label(state)
                             .child(dot.test_support());
+                        // Under the title (Charles, 22 Nov): the branch its folder is on, and who
+                        // wrote its replies; both from core's list.
+                        let under = div()
+                            .id(("thread-under", i))
+                            .flex()
+                            .items_center()
+                            .gap(px(4.))
+                            .h(px(15.))
+                            .pl(px(mark::SIZE + 8.))
+                            .text_size(px(11.))
+                            .text_color(fg3)
+                            .aria_label(format!("{}, {}", t.branch.as_deref().unwrap_or("no branch"), t.models))
+                            .child(glyph("git-branch", 10., c(pal.fg4)))
+                            .child(div().min_w_0().truncate().when_live(t.branch.is_none(), |d| d.text_color(c(pal.fg4))).child(t.branch.clone().unwrap_or_else(|| "no branch".into())))
+                            .child(div().ml_auto().flex_none().pl(px(6.)).child(t.models.clone()))
+                            .test_support();
                         list = list.child(
+                            div()
+                                .id(("thread-row", i))
+                                .flex_none()
+                                .flex()
+                                .flex_col()
+                                .pb(px(6.))
+                                .rounded(px(radius::CONTROL))
+                                .when_live(on, |d| d.bg(c(pal.hover)))
+                                .child(
                             div()
                                 .id(("thread", i))
                                 .h(px(30.))
@@ -848,7 +891,6 @@ impl Cauldron {
                                 .rounded(px(radius::CONTROL))
                                 .text_size(px(13.))
                                 .text_color(if on || t.unread { fg } else { fg2 })
-                                .when_live(on, |d| d.bg(c(pal.hover)))
                                 .when_live(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
                                 .cursor_pointer()
                                 .aria_label(t.title.clone())
@@ -921,6 +963,9 @@ impl Cauldron {
                                     }
                                     cx.notify();
                                 }))
+                                .test_support(),
+                                )
+                                .child(div().px(px(8.)).child(under))
                                 .test_support(),
                         );
                         if self.sides_listed.contains(&t.id) {
@@ -1283,6 +1328,15 @@ impl Cauldron {
     }
 
     /// The rail's fold button: folds the support card, or opens it on its last tab.
+    /// Ends a drag of the sidebar's edge and keeps the width for the next start.
+    fn end_sidebar_drag(&mut self) {
+        if self.sidebar_drag.take().is_some() {
+            let mut p = Prefs::load();
+            p.sidebar_w = Some(self.sidebar_w.round());
+            p.save();
+        }
+    }
+
     fn fold_support(&mut self) {
         if let Some(p) = self.drawer.take() {
             self.drawer_last = Some(p);
@@ -1547,6 +1601,10 @@ const SIDE_PR: f32 = 8.0;
 
 /// How long the usage badges trust accounts.json before reading it again.
 const USAGE_EVERY: std::time::Duration = std::time::Duration::from_secs(30);
+/// The card's push when the folded sidebar's band shows: slower than a layout move, so the card
+/// reads as sliding under the band (Charles, 22 Nov: "about 320ms").
+const INDENT_MS: u64 = 320;
+
 /// The folded sidebar's hover indent: wide enough for the lights on macOS, one button on Windows.
 fn indent_w(plat: Platform) -> f32 {
     if plat == Platform::Mac { 72.0 } else { 48.0 }
@@ -1719,7 +1777,25 @@ impl Render for Cauldron {
         let now = std::time::Instant::now();
         let reduce = cx.reduce_motion();
         self.mark_clock(reduce, cx);
-        let (s, mut moving) = self.motion.frame(want, Frame::at_rest(&layout::solve(w, h, want, plat)), now, reduce);
+        // The folded sidebar's band pushes the card over instead of covering it; the push eases.
+        let push_to = if self.indent && !self.sidebar_open && self.settings.is_none() { indent_w(plat) + metric::GAP } else { 0.0 };
+        let push = {
+            let (from, t0) = self.indent_run;
+            let shown = crate::motion::ease_between(from, self.indent_to, t0, now, if reduce { 0 } else { INDENT_MS });
+            if push_to != self.indent_to {
+                self.indent_run = (shown, Some(now));
+                self.indent_to = push_to;
+            }
+            let (from, t0) = self.indent_run;
+            let p = crate::motion::ease_between(from, push_to, t0, now, if reduce { 0 } else { INDENT_MS });
+            if t0.is_some_and(|t0| crate::motion::run(now, t0, INDENT_MS) >= 1.0) || reduce {
+                self.indent_run = (push_to, None);
+            }
+            p
+        };
+        let side = layout::Sidebar { w: self.sidebar_w, push };
+        let (s, mut moving) = self.motion.frame(want, Frame::at_rest(&layout::solve_at(w, h, want, plat, side)), now, reduce);
+        moving |= self.indent_run.1.is_some();
         // The drawer body's crossfade, the + menu's open and close, and the Send/Stop glyphs.
         let busy_now = self.busy();
         if busy_now != self.busy_shown {
@@ -1837,8 +1913,24 @@ impl Render for Cauldron {
             .font_family(SANS).font_features(sans_features())
             .text_size(px(13.))
             .text_color(fg)
-            .on_mouse_move(cx.listener(|this, ev: &MouseMoveEvent, _, cx| this.drag_line(ev, cx)))
+            .on_mouse_move(cx.listener(|this, ev: &MouseMoveEvent, _, cx| {
+                if let Some((x0, w0)) = this.sidebar_drag {
+                    // The release can land on a card that takes the mouse; a move with the button up ends it too.
+                    if ev.pressed_button != Some(MouseButton::Left) {
+                        this.end_sidebar_drag();
+                    } else {
+                        this.sidebar_w = layout::sidebar_width(w0 + f32::from(ev.position.x) - x0);
+                    }
+                    cx.notify();
+                    return;
+                }
+                this.drag_line(ev, cx)
+            }))
             .on_mouse_up(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                if this.sidebar_drag.is_some() {
+                    this.end_sidebar_drag();
+                    cx.notify();
+                }
                 if this.pane_drag.take().is_some() {
                     cx.notify();
                 }
@@ -1861,6 +1953,27 @@ impl Render for Cauldron {
 
         // ---- sidebar, flat on the frame (the board's `.sb`): the top row (lights or logo, and the
         // sidebar button, drawn on the window), a line, the apps row, New stream, Search, the list
+        if let Some(sp) = s.sidebar.filter(|sp| sp.alpha >= 1.0) {
+            // The sidebar's right edge drags its width (Charles, 22 Nov), in the gap before the card.
+            root = root.child(
+                div()
+                    .id("sidebar-edge")
+                    .absolute()
+                    .left(px(sp.rect.right() - 2.0))
+                    .top(px(sp.rect.y))
+                    .w(px(metric::GAP + 4.0))
+                    .h(px(sp.rect.h))
+                    .cursor_col_resize()
+                    .occlude()
+                    .aria_label("Resize the sidebar")
+                    .on_mouse_down(MouseButton::Left, cx.listener(|this, ev: &MouseDownEvent, _, cx| {
+                        this.sidebar_drag = Some((f32::from(ev.position.x), this.sidebar_w));
+                        cx.stop_propagation();
+                        cx.notify();
+                    }))
+                    .test_support(),
+            );
+        }
         if let Some(sp) = s.sidebar {
             // The apps row (20 Nov): above New stream, each app its own button with its own fill and
             // border (the stream rows' look, but separate); the open one is darker. Each app swaps the list.
@@ -2328,6 +2441,9 @@ impl Render for Cauldron {
                     .rounded(px(radius::PANEL))
                     // The tabbed card takes the tab's corners all round (Charles, 21 Nov).
                     .when_live(cut, |d| d.rounded(px(tabshape::TAB_R)))
+                    // Pushed by the folded sidebar's band: rounder corners on the left, so the
+                    // card reads as tucked under the band.
+                    .when_live(push > 0.5 && !cut, |d| d.rounded_tl(px(radius::INSET)).rounded_bl(px(radius::INSET)))
                     .when_live(!glass && !split, |d| d.bg(backdrop::card_bg(self.painting, pal)))
                     .when_live(!split, |d| d.shadow(lift(Lift::Frame, pal)))
                     .children(under.unwrap_or_default())
@@ -2968,29 +3084,22 @@ impl Render for Cauldron {
                         .child(initial),
                 );
                 root = root.child(band.test_support());
-                // The card's edge beside the band: a hairline with rounded ends, no shadow.
-                root = root.child(
-                    div()
-                        .id("indent-edge")
-                        .absolute()
-                        .left(px(bw))
-                        .top(px(s.main.y))
-                        .w(px(9.))
-                        .h(px(s.main.h))
-                        .border_l_1()
-                        .border_t_1()
-                        .border_b_1()
-                        .border_color(c(pal.line))
-                        .rounded_l(px(radius::PANEL))
-                        .test_support(),
-                );
             }
         } else if self.indent {
             self.indent = false;
         }
 
         // ---- window ring, drawn last so it sits on top of every pane edge
-        root.children(self.stream_menu_el(pal, window, cx)).child(
+        // The in-app browser sits over the Browser panel's page box (last frame's), hidden under menus.
+        let page = match (&self.link, self.drawer, self.browser_slot.get()) {
+            (Some(links::Link::Url(u)), Some(Panel::Browser), Some(b)) if self.link_menu.is_none() && self.stream_menu.is_none() => Some((u.clone(), b)),
+            _ => None,
+        };
+        self.browser.sync(page.as_ref().map(|(u, b)| (u.as_str(), *b)), window);
+        if page.is_none() {
+            self.browser_slot.set(None);
+        }
+        root.children(self.stream_menu_el(pal, window, cx)).children(self.link_menu_el(pal, window, cx)).child(
             div()
                 .absolute()
                 .size_full()
@@ -3044,6 +3153,12 @@ mod tests {
             cx.simulate_window_resize(handle.into(), size(px(W), px(H)));
             cx.update_window(handle.into(), |_, window, cx| {
                 window.render_frame(cx);
+                // The test pointer starts in the folded sidebar's edge zone, whose band pushes the
+                // card: move it onto the card first.
+                if !state.sidebar_open {
+                    window.hover("card", cx);
+                    window.render_frame(cx);
+                }
                 let s = Frame::at_rest(&layout::solve(W, H, state, platform()));
                 assert_rect(window, "main", s.main, state);
                 assert_rect(window, "sbtn-slot", s.sidebar_button, state);
@@ -3649,16 +3764,19 @@ mod tests {
         let handle = open(cx, Cauldron { sidebar_open: false, ..with_threads() });
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
-            let main = rect(window, "main");
             // The test pointer starts at the window's corner, inside the edge zone: move it away first.
             window.hover("card", cx);
             window.render_frame(cx);
             assert!(window.try_find("indent").is_none(), "hidden until the pointer comes");
+            let main = rect(window, "main");
             window.hover("indent-zone", cx);
             window.render_frame(cx);
             let band = rect(window, "indent");
             assert_eq!((band.x, band.w), (0.0, if platform() == layout::Platform::Mac { 72.0 } else { 48.0 }), "72 on macOS, 48 on Windows");
-            assert_eq!(rect(window, "main"), main, "no reflow: the card stays where it was");
+            // The band stays put and pushes the card over (Charles, 22 Nov); reduced motion, no ease.
+            window.render_frame(cx);
+            let pushed = rect(window, "main");
+            assert_eq!((pushed.x, pushed.right()), (main.x + band.w + layout::metric::GAP, main.right()), "the card moves over by the band");
             for i in 0..super::FUNCTIONS.len() {
                 assert!(window.try_find(("indent-fn", i)).is_some(), "app {i} in the band");
             }
@@ -3666,7 +3784,6 @@ mod tests {
                 let r = rect(window, id);
                 assert!(r.x >= band.x && r.right() <= band.right(), "{id} inside the band");
             }
-            assert_eq!(rect(window, "indent-edge").x, band.right(), "the card's edge beside it");
             window.hover("card", cx);
             window.render_frame(cx);
             assert!(window.try_find("indent").is_none(), "leaving the band hides it");
@@ -3929,6 +4046,9 @@ mod tests {
                 assert_eq!(rect(window, ("thread-dot", i)).w, 15.0, "row {i}: the mark is 15px");
                 assert!(window.try_find(("thread-dot", i)).is_some(), "row {i}: a state dot");
                 assert_eq!(window.find(("thread-meta", i)).label(), Some("no repo"), "row {i}");
+                // Under the title: the branch (none in these samples) and who answered, from core.
+                assert_eq!(window.find(("thread-under", i)).label(), Some("no branch, Claude"), "row {i}");
+                assert!(rect(window, ("thread-under", i)).y >= r.bottom(), "row {i}: under the title line");
             }
             let (row, ping) = (rect(window, ("thread", 0usize)), rect(window, ("ping", 0usize)));
             assert_eq!((ping.w, ping.h), (6.0, 6.0));

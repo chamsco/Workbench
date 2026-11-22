@@ -106,10 +106,14 @@ fn settle(s: &str) -> String {
     s
 }
 
-fn styled(s: &str, tail: Option<(u64, Hsla)>, pal: &'static Palette) -> StyledText {
+/// A line drawn, with its links: URLs, and code spans naming a file in `dir`.
+fn styled(s: &str, tail: Option<(u64, Hsla)>, dir: Option<&std::path::Path>, pal: &'static Palette) -> (StyledText, Vec<(Range<usize>, super::links::Link)>) {
     let (mut text, spans) = inline(&if tail.is_some() { settle(s) } else { s.to_string() });
+    let code: Vec<Range<usize>> = spans.iter().filter(|(_, c)| *c).map(|(r, _)| r.clone()).collect();
+    let links = super::links::find(&text, &code, dir);
     let mut hl: Vec<(Range<usize>, HighlightStyle)> = spans
         .into_iter()
+        .filter(|(r, _)| !links.iter().any(|(l, _)| l.start < r.end && r.start < l.end))
         .map(|(r, code)| {
             let style = if code {
                 HighlightStyle { color: Some(c(pal.accent)), background_color: Some(c(pal.inset)), ..Default::default() }
@@ -119,32 +123,79 @@ fn styled(s: &str, tail: Option<(u64, Hsla)>, pal: &'static Palette) -> StyledTe
             (r, style)
         })
         .collect();
+    // A link: the accent, underlined; in mono when it was a code span (a file).
+    for (r, l) in &links {
+        let file = matches!(l, super::links::Link::File(_));
+        hl.push((r.clone(), HighlightStyle { color: Some(c(pal.accent)), background_color: file.then(|| c(pal.inset)), underline: Some(gpui::UnderlineStyle { thickness: px(1.), color: Some(ca(pal.accent, 0.4)), wavy: false }), ..Default::default() }));
+    }
+    hl.sort_by_key(|(r, _)| r.start);
     // The live edge: a caret in the accent that blinks.
     if let Some((now, accent)) = tail {
         let at = text.len();
         text.push('\u{258d}');
         hl.push((at..text.len(), HighlightStyle { color: Some(accent.opacity(if (now / 530) % 2 == 0 { 1.0 } else { 0.0 })), ..Default::default() }));
     }
-    StyledText::new(text).with_highlights(hl)
+    (StyledText::new(text).with_highlights(hl), links)
 }
 
 impl Cauldron {
     /// `text` as blocks. `key` names it for ids; `tail` puts the live caret after the last block.
     pub(super) fn md_el(&self, text: &str, key: &str, tail: Option<(u64, Hsla)>, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
+        self.md_sized(text, key, tail, (14., 22.), pal, cx)
+    }
+
+    /// `md_el` at another text size and line height, for the smaller panes (a familiar's plan,
+    /// a subagent's ticket and notes).
+    pub(super) fn md_sized(&self, text: &str, key: &str, tail: Option<(u64, Hsla)>, (size, line): (f32, f32), pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
         let (fg, fg3) = (c(pal.fg), c(pal.fg3));
+        let dir = self.thread.as_ref().and_then(|t| t.project.clone()).map(std::path::PathBuf::from);
+        // A line with links: a click opens one in the card, a right click offers where.
+        let link_line = |s: &str, t: Option<(u64, Hsla)>, n: usize, cx: &mut Context<Self>| -> AnyElement {
+            let (st, links) = styled(s, t, dir.as_deref(), pal);
+            if links.is_empty() {
+                return div().child(st).into_any_element();
+            }
+            let id = format!("md-{key}-{n}");
+            let (ranges, targets): (Vec<_>, Vec<_>) = links.into_iter().unzip();
+            let (on_click, on_hover) = (cx.entity().downgrade(), self.link_hover.clone());
+            let hov = targets.clone();
+            let hover_ranges = ranges.clone();
+            let menu = self.link_hover.clone();
+            div()
+                .id(format!("{id}-wrap"))
+                .cursor_pointer()
+                .on_mouse_down(MouseButton::Right, cx.listener(move |this, ev: &MouseDownEvent, _, cx| {
+                    if let Some(l) = menu.borrow().clone() {
+                        cx.stop_propagation();
+                        this.open_link_menu(l, ev.position, cx);
+                    }
+                }))
+                .child(
+                    gpui::InteractiveText::new(gpui::ElementId::Name(id.into()), st)
+                        .on_click(ranges, move |i, _, cx| {
+                            if let Some(l) = targets.get(i).cloned() {
+                                let _ = on_click.update(cx, |this, cx| this.open_link(l, true, cx));
+                            }
+                        })
+                        .on_hover(move |at, _, _, _| {
+                            *on_hover.borrow_mut() = at.and_then(|at| hover_ranges.iter().position(|r| r.contains(&at))).map(|k| hov[k].clone());
+                        }),
+                )
+                .into_any_element()
+        };
         let blocks = parse(text);
         let last = blocks.len().saturating_sub(1);
-        let mut col = div().flex().flex_col().gap(px(8.)).text_size(px(14.)).line_height(px(22.)).text_color(fg);
+        let mut col = div().flex().flex_col().gap(px((size * 0.55).round())).text_size(px(size)).line_height(px(line)).text_color(fg);
         for (i, b) in blocks.into_iter().enumerate() {
             let t = tail.filter(|_| i == last);
             col = col.child(match b {
-                Block::Para(s) => div().child(styled(&s, t, pal)).into_any_element(),
-                Block::Head(s) => div().mt(px(4.)).font_weight(FontWeight::SEMIBOLD).child(styled(&s, t, pal)).into_any_element(),
+                Block::Para(s) => link_line(&s, t, i, cx),
+                Block::Head(s) => div().mt(px(4.)).font_weight(FontWeight::SEMIBOLD).child(link_line(&s, t, i, cx)).into_any_element(),
                 Block::Item(n, s) => div()
                     .flex()
                     .gap(px(8.))
                     .child(div().w(px(18.)).flex_none().text_color(fg3).child(n.map_or("\u{2022}".to_string(), |n| format!("{n}."))))
-                    .child(div().min_w_0().flex_1().child(styled(&s, t, pal)))
+                    .child(div().min_w_0().flex_1().child(link_line(&s, t, i, cx)))
                     .into_any_element(),
                 Block::Code(lang, body) => {
                     let copy = body.clone();

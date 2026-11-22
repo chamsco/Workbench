@@ -293,6 +293,9 @@ impl Cauldron {
                 )
                 .into_any_element()
         };
+        if let Some(b) = self.link_body(p, pal, cx) {
+            return b;
+        }
         if let Some(why) = p.placeholder() {
             return state("support-placeholder", p.title().into(), why.into(), Some("Placeholder"));
         }

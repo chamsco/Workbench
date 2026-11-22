@@ -144,6 +144,118 @@ fn end_thinking(m: &mut Msg) {
     }
 }
 
+/// The branch checked out at `dir` or the repo above it, read from git's HEAD file (no process:
+/// `list` runs on every change). A detached HEAD reads as its short commit; a worktree's `.git`
+/// file points at its HEAD.
+fn git_branch(dir: &str) -> Option<String> {
+    let mut at = Some(Path::new(dir));
+    while let Some(d) = at {
+        let git = d.join(".git");
+        let head = if git.is_file() {
+            let to = std::fs::read_to_string(&git).ok()?;
+            let gd = Path::new(to.trim().strip_prefix("gitdir:")?.trim());
+            std::fs::read_to_string(if gd.is_absolute() { gd.to_path_buf() } else { d.join(gd) }.join("HEAD")).ok()
+        } else {
+            std::fs::read_to_string(git.join("HEAD")).ok()
+        };
+        if let Some(h) = head {
+            let h = h.trim();
+            return Some(h.strip_prefix("ref: refs/heads/").map_or_else(|| h.chars().take(7).collect(), str::to_string)).filter(|b| !b.is_empty());
+        }
+        at = d.parent();
+    }
+    None
+}
+
+/// The maker of a model, from its id or the CLI that ran it ("opus" in Claude Code is Claude's).
+pub fn vendor(model: Option<&str>, provider: &str) -> String {
+    let m = model.unwrap_or("").to_lowercase();
+    let has = |k: &[&str]| k.iter().any(|k| m.contains(k));
+    let named = if has(&["claude", "anthropic", "opus", "sonnet", "haiku", "fable"]) {
+        "Claude"
+    } else if has(&["gpt", "openai", "codex"]) || m.starts_with("o3") || m.starts_with("o4") {
+        "GPT"
+    } else if has(&["gemini", "gemma"]) {
+        "Gemini"
+    } else if has(&["grok", "x-ai", "xai"]) {
+        "Grok"
+    } else if has(&["deepseek"]) {
+        "DeepSeek"
+    } else if has(&["qwen"]) {
+        "Qwen"
+    } else if has(&["kimi", "moonshot"]) {
+        "Kimi"
+    } else if has(&["glm", "zhipu", "z-ai"]) {
+        "GLM"
+    } else if has(&["mistral", "devstral", "codestral"]) {
+        "Mistral"
+    } else if has(&["llama"]) {
+        "Llama"
+    } else {
+        ""
+    };
+    if !named.is_empty() {
+        return named.into();
+    }
+    match provider {
+        "claude" => "Claude".into(),
+        "codex" => "GPT".into(),
+        "gemini" => "Gemini".into(),
+        "grok" => "Grok".into(),
+        // A model we do not know by name: its own name, else the CLI's.
+        _ if !m.is_empty() => model.unwrap_or("").rsplit('/').next().unwrap_or("").to_string(),
+        "opencode" => "OpenCode".into(),
+        p => p.to_string(),
+    }
+}
+
+/// The makers behind a stream's replies, the stream's own first: "Claude", "Claude + GPT",
+/// "Claude + more". A stream with no replies yet names who will answer.
+fn models_label(t: &Thread) -> String {
+    let mut seen: Vec<String> = Vec::new();
+    for m in t.messages.iter().filter(|m| m.role == Role::Assistant) {
+        let r = m.via.as_ref().unwrap_or(&t.route);
+        let v = vendor(m.model.as_deref().or(r.model.as_deref()), &r.provider);
+        if !v.is_empty() && !seen.contains(&v) {
+            seen.push(v);
+        }
+    }
+    if seen.is_empty() {
+        seen.push(vendor(t.route.model.as_deref(), &t.route.provider));
+    }
+    match seen.len() {
+        1 => seen.remove(0),
+        2 => format!("{} + {}", seen[0], seen[1]),
+        _ => format!("{} + more", seen[0]),
+    }
+}
+
+/// The file a tool call names in its input (JSON text). The runner may have cut the text, so it
+/// is read as a string after the key when the whole does not parse.
+fn act_path(input: &str) -> Option<String> {
+    const KEYS: [&str; 4] = ["file_path", "filePath", "notebook_path", "path"];
+    if let Ok(v) = serde_json::from_str::<serde_json::Value>(input) {
+        return KEYS.iter().find_map(|k| v.get(*k)?.as_str()).filter(|p| !p.is_empty()).map(str::to_string);
+    }
+    KEYS.iter().find_map(|k| {
+        let rest = &input[input.find(&format!("\"{k}\":\""))? + k.len() + 4..];
+        let mut out = String::new();
+        let mut esc = false;
+        for ch in rest.chars() {
+            match (esc, ch) {
+                (true, c) => {
+                    out.push(if c == 'n' { '\n' } else { c });
+                    esc = false;
+                }
+                (false, '\\') => esc = true,
+                (false, '"') => return Some(out).filter(|p| !p.is_empty()),
+                (false, c) => out.push(c),
+            }
+        }
+        None
+    })
+}
+
 /// One step of a reply: the reasoning ("Thinking") or a tool call.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
 pub struct Act {
@@ -155,6 +267,10 @@ pub struct Act {
     /// The tool's input as the runner reported it (JSON text, short), for a one-line label.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub input: String,
+    /// The file the call works on, taken from the whole input before `input` is cut: a write's
+    /// path came after its content and was lost to the cut ("Edited a file").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
     /// What the call printed, trimmed to the tail, once it ended; for "Thinking", its reasoning.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub output: String,
@@ -352,6 +468,10 @@ pub struct ThreadInfo {
     pub expires_at: Option<u64>,
     /// A side stream's main stream (`Thread::side_of`).
     pub side_of: Option<String>,
+    /// The branch checked out in the stream's folder; None when it has no folder or no repo.
+    pub branch: Option<String>,
+    /// Who wrote its replies, by maker: "Claude", "Claude + GPT", "Claude + more".
+    pub models: String,
 }
 
 /// See `Chats::activity`.
@@ -788,6 +908,8 @@ impl Chats {
                 ghost: t.life.is_ghost(),
                 side_of: t.side_of.clone(),
                 expires_at: if t.life == Life::Temporal { t.expires_at } else { None },
+                branch: t.project.as_deref().and_then(git_branch),
+                models: models_label(t),
             })
             .collect();
         v.sort_by(|a, b| b.pinned.cmp(&a.pinned).then(b.updated.cmp(&a.updated)));
@@ -2296,9 +2418,10 @@ Ask the reader for input with the real form parts: `f = FormControl(\"Name\", In
             }),
             RunEvent::ToolStart { id: tid, name, input } => self.with_msg(id, mid, |m| {
                 end_thinking(m);
+                let path = act_path(&input);
                 let input: String = input.chars().take(400).collect();
                 let at = m.text.len();
-                m.acts.push(Act { id: tid, name, input, start: now_ms(), at, ..Default::default() });
+                m.acts.push(Act { id: tid, name, input, path, start: now_ms(), at, ..Default::default() });
             }),
             RunEvent::ToolEnd { id: tid, output, error } => self.with_msg(id, mid, |m| {
                 if let Some(a) = m.acts.iter_mut().rev().find(|a| a.id == tid && a.end.is_none()) {
@@ -2528,6 +2651,51 @@ pub async fn link_preview(http: &reqwest::Client, url: &str) -> Result<LinkPrevi
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn models_name_their_makers() {
+        assert_eq!(vendor(Some("claude-sonnet-4-5"), "opencode"), "Claude");
+        assert_eq!(vendor(Some("opus"), "claude"), "Claude");
+        assert_eq!(vendor(None, "claude"), "Claude");
+        assert_eq!(vendor(None, "codex"), "GPT");
+        assert_eq!(vendor(Some("gpt-5.1-codex"), "codex"), "GPT");
+        assert_eq!(vendor(Some("o3"), "router"), "GPT");
+        assert_eq!(vendor(Some("opencode/deepseek-v4-flash-free"), "opencode"), "DeepSeek");
+        assert_eq!(vendor(Some("opencode/big-pickle"), "opencode"), "big-pickle");
+        assert_eq!(vendor(None, "opencode"), "OpenCode");
+        let mut t: Thread = serde_json::from_value(serde_json::json!({ "id": "x", "title": "x", "created": 1, "updated": 1, "route": { "kind": "cli", "provider": "claude", "model": null }, "messages": [] })).unwrap();
+        assert_eq!(models_label(&t), "Claude");
+        let reply = |model: &str| {
+            let mut m = Msg::new(Role::Assistant, "ok".into(), Status::Done);
+            m.model = Some(model.into());
+            m
+        };
+        t.messages = vec![reply("claude-opus-4-1"), reply("gpt-5"), reply("claude-sonnet-4-5")];
+        assert_eq!(models_label(&t), "Claude + GPT");
+        t.messages.push(reply("gemini-2.5-pro"));
+        assert_eq!(models_label(&t), "Claude + more");
+    }
+
+    #[test]
+    fn a_streams_branch_comes_from_git_head() {
+        let d = std::env::temp_dir().join(format!("bs-branch-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(d.join(".git")).unwrap();
+        std::fs::create_dir_all(d.join("src")).unwrap();
+        std::fs::write(d.join(".git/HEAD"), "ref: refs/heads/feature/x\n").unwrap();
+        assert_eq!(git_branch(d.to_str().unwrap()).as_deref(), Some("feature/x"));
+        assert_eq!(git_branch(d.join("src").to_str().unwrap()).as_deref(), Some("feature/x"), "a folder inside the repo");
+        std::fs::write(d.join(".git/HEAD"), "3c465fed43ee025767f612cd143e50c3484351d5\n").unwrap();
+        assert_eq!(git_branch(d.to_str().unwrap()).as_deref(), Some("3c465fe"), "detached");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn a_steps_file_is_read_before_its_input_is_cut() {
+        assert_eq!(act_path(r#"{"content":"hi","file_path":"/w/a.rs"}"#).as_deref(), Some("/w/a.rs"));
+        assert_eq!(act_path(r#"{"filePath":"C:\\x\\index.html","content":"<html"#).as_deref(), Some("C:\\x\\index.html"));
+        assert_eq!(act_path(r#"{"command":"ls"}"#), None);
+    }
 
     fn chats(dir: &Path) -> (Arc<Chats>, tokio::runtime::Runtime) {
         let rt = tokio::runtime::Builder::new_multi_thread()
