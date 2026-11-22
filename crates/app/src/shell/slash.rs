@@ -204,6 +204,7 @@ impl Cauldron {
     }
 
     /// The list over the reply box.
+    #[inline(never)]
     pub(super) fn slash_el(&self, pal: &'static Palette, cx: &mut Context<Self>) -> Option<AnyElement> {
         let list = self.slash_list(cx);
         if list.is_empty() {

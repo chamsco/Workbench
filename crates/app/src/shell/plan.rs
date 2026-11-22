@@ -111,12 +111,13 @@ impl Cauldron {
     }
 
     /// The plan panel, when the open thread has a plan.
+    #[inline(never)]
     pub(super) fn plan_el(&self, t: &Thread, pal: &'static Palette, cx: &mut Context<Self>) -> Option<AnyElement> {
         let steps = current(t)?;
         let (fg, fg2, fg3) = (c(pal.fg), c(pal.fg2), c(pal.fg3));
         let done = steps.iter().filter(|s| s.state == "done").count();
         let doing = steps.iter().find(|s| s.state == "doing").map(|s| s.text.clone());
-        let open = !self.plan_folded;
+        let open = self.plan_open;
         let head = div()
             .id("plan-head")
             .h(px(32.))
@@ -134,7 +135,8 @@ impl Cauldron {
             .when(!open, |d| d.when_some(doing.clone(), |d, s| d.child(div().min_w_0().flex_1().truncate().text_color(fg2).child(format!("· {s}")))))
             .child(div().ml_auto().child(glyph(if open { "chevron-up" } else { "chevron-down" }, 14., fg3)))
             .on_click(cx.listener(|this, _, _, cx| {
-                this.plan_folded = !this.plan_folded;
+                this.plan_open = !this.plan_open;
+                this.plan_flips += 1;
                 cx.notify();
             }))
             .test_support();
@@ -146,7 +148,9 @@ impl Cauldron {
             .rounded(px(radius::PANEL))
             .border_1()
             .border_color(c(pal.line))
+            // Frosted like the box under it, lifted the same way.
             .bg(super::backdrop::surface(self.painting, pal.raised, super::backdrop::GLASS_COMPOSER))
+            .shadow(super::lift(super::Lift::Button, pal))
             .child(head);
         if !open {
             return Some(panel.test_support().into_any_element());
@@ -229,7 +233,10 @@ impl Cauldron {
                 .test_support()
                 .into_any_element(),
         });
-        panel = panel.child(list.test_support());
+        // It drops down from its head when opened.
+        let flips = self.plan_flips;
+        let list = list.test_support().with_animation(SharedString::from(format!("plan-drop-{flips}")), super::motion::anim(200.), |d, t| d.max_h(px(220. * t)).opacity(t));
+        panel = panel.child(list);
         let note = if self.busy() { "A change to the step in progress goes now; any other waits for this turn to end." } else { "Edits go to the agent as your next message." };
         panel = panel.child(div().px(px(12.)).pb(px(8.)).text_size(px(11.)).text_color(fg3).child(note));
         Some(panel.test_support().into_any_element())

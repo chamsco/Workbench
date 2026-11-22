@@ -241,6 +241,37 @@ pub(super) fn ctx(plan: bool) -> Ctx {
 }
 
 impl Cauldron {
+    /// The reply box's Effort chip opens its menu (chipmenu.rs). Out of `thread_view` so its
+    /// frame stays small.
+    #[inline(never)]
+    fn effort_chip(&self, d: Stateful<Div>, pal: &'static Palette, cx: &mut Context<Self>) -> Stateful<Div> {
+        d.relative()
+            .aria_description("Reasoning effort: how hard the model thinks before it acts")
+            .aria_expanded(self.chip_menu == Some("effort"))
+            .cursor_pointer()
+            .hover(|d| d.text_color(c(pal.fg)))
+            .on_click(cx.listener(|this, _, _, cx| this.toggle_chip_menu("effort", cx)))
+            .children(self.chip_menu_el("effort", pal, cx))
+    }
+
+    /// The editor binds Up, Down, Tab and Escape to its own actions, so the slash list takes
+    /// those actions first.
+    #[inline(never)]
+    fn slash_keys(&self, composer: Stateful<Div>, cx: &mut Context<Self>) -> Stateful<Div> {
+        use gpui_kit::base::input::{Escape, IndentInline, MoveDown, MoveUp};
+        let key = |k: &'static str| move |this: &mut Self, window: &mut Window, cx: &mut Context<Self>| {
+            if this.slash_key(k, window, cx) {
+                cx.stop_propagation();
+            }
+        };
+        let (up, down, tab, esc) = (key("up"), key("down"), key("tab"), key("escape"));
+        composer
+            .capture_action(cx.listener(move |this, _: &MoveUp, window, cx| up(this, window, cx)))
+            .capture_action(cx.listener(move |this, _: &MoveDown, window, cx| down(this, window, cx)))
+            .capture_action(cx.listener(move |this, _: &IndentInline, window, cx| tab(this, window, cx)))
+            .capture_action(cx.listener(move |this, _: &Escape, window, cx| esc(this, window, cx)))
+    }
+
     /// + in the reply box: pick files to send with the next message.
     fn pick_reply_files(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let paths = cx.prompt_for_paths(gpui::PathPromptOptions { files: true, directories: false, multiple: true, prompt: Some("Attach".into()) });
@@ -256,6 +287,7 @@ impl Cauldron {
     }
 
     /// The files waiting to go with the next reply, each with an x.
+    #[inline(never)]
     fn reply_files_el(&self, pal: &'static Palette, cx: &mut Context<Self>) -> Option<AnyElement> {
         if self.reply_files.is_empty() {
             return None;
@@ -1024,15 +1056,7 @@ impl Cauldron {
                 .aria_label(label.clone())
                 .child(label)
         };
-        let effort_chip = chip_btn("effort", effort_label)
-            .aria_description("Reasoning effort: Auto lets the CLI choose; a click steps through low, medium, high and max").cursor_pointer().hover(|d| d.text_color(fg)).on_click(cx.listener(|_, _, _, cx| {
-            // Cycles Auto, low, medium, high, max and saves it, as Settings would.
-            let mut p = Prefs::load();
-            let at = EFFORTS.iter().position(|e| *e == p.cli_effort.as_deref()).unwrap_or(0);
-            p.cli_effort = EFFORTS[(at + 1) % EFFORTS.len()].map(str::to_string);
-            p.save();
-            cx.notify();
-        }));
+        let effort_chip = self.effort_chip(chip_btn("effort", effort_label), pal, cx);
         let editor = div()
             .id("composer-input")
             // The multi-line editor pads itself by Size::Medium's 10/8px and ignores style
@@ -1114,21 +1138,7 @@ impl Cauldron {
         if let Some(list) = self.slash_el(pal, cx) {
             composer = composer.relative().child(deferred(div().id("slash-tray").absolute().left_0().right_0().bottom(relative(1.)).pb(px(6.)).child(list).test_support()).with_priority(3));
         }
-        // The editor binds these keys to its own actions, so the list takes the actions first.
-        {
-            use gpui_kit::base::input::{Escape, IndentInline, MoveDown, MoveUp};
-            let key = |k: &'static str| move |this: &mut Self, window: &mut Window, cx: &mut Context<Self>| {
-                if this.slash_key(k, window, cx) {
-                    cx.stop_propagation();
-                }
-            };
-            let (up, down, tab, esc) = (key("up"), key("down"), key("tab"), key("escape"));
-            composer = composer
-                .capture_action(cx.listener(move |this, _: &MoveUp, window, cx| up(this, window, cx)))
-                .capture_action(cx.listener(move |this, _: &MoveDown, window, cx| down(this, window, cx)))
-                .capture_action(cx.listener(move |this, _: &IndentInline, window, cx| tab(this, window, cx)))
-                .capture_action(cx.listener(move |this, _: &Escape, window, cx| esc(this, window, cx)));
-        }
+        composer = self.slash_keys(composer, cx);
         if let Some(e) = &self.send_error {
             composer = composer.child(div().id("send-error").text_size(px(12.)).text_color(c(pal.bad)).aria_label(e.clone()).child(e.clone()).test_support());
         }
@@ -1233,7 +1243,6 @@ impl Cauldron {
             .gap(px(if short { 6. } else { 10. }))
             .px(px(if narrow { 10. } else { 18. }))
             .py(px(if short { 8. } else { 14. }))
-            .children(self.plan_el(t, pal, cx))
             .child(msgs.test_support())
             .children(ticks)
             .child(
@@ -1248,6 +1257,8 @@ impl Cauldron {
                         let bg = super::backdrop::card_bg(false, pal);
                         d.child(div().id("composer-fade").absolute().left_0().right_0().top(px(-40.)).h(px(40.)).bg(linear_gradient(180., linear_color_stop(bg.opacity(0.), 0.), linear_color_stop(bg, 1.))).test_support())
                     })
+                    // The plan sits on the box, over where it runs (Charles, 22 Nov).
+                    .children(self.plan_el(t, pal, cx))
                     .children(ctx_bar)
                     .child(composer.test_support()),
             )
@@ -1635,15 +1646,18 @@ it"));
         assert_eq!(chats.peek("t2").unwrap().messages.len(), 2);
     }
 
-    /// The effort chip cycles Auto, low, ... and saves it to prefs (the temp file in tests).
+    /// The effort chip opens its menu; picking Low saves it to prefs (the temp file in tests).
     #[gpui_kit::test]
-    fn the_effort_chip_cycles_and_saves(cx: &mut TestAppContext) {
+    fn the_effort_menu_picks_and_saves(cx: &mut TestAppContext) {
         let (handle, _chats) = open(cx);
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
             window.click(("thread", 0usize), cx);
             assert_eq!(window.find("effort").label(), Some("Effort: Auto"));
             window.click("effort", cx);
+            window.render_frame(cx);
+            assert_eq!(window.find(("effort-opt", 0usize)).selected(), Some(true), "the menu shows each option, Auto checked");
+            window.click(("effort-opt", 1usize), cx);
             window.render_frame(cx);
             assert_eq!(window.find("effort").label(), Some("Effort: Low"));
         })

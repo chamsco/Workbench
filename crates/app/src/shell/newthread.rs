@@ -5,7 +5,7 @@
 //!
 //! Sizes are measured from design/legacy-ui/cauldron-new-look.html (2096c8f) at 1200x720.
 
-use super::thread::{mix, EFFORTS};
+use super::thread::mix;
 use super::*;
 use backspace_core::chat::{Route, RouteKind, Scope};
 use backspace_core::prefs::MachineCfg;
@@ -496,18 +496,15 @@ impl Cauldron {
             .test_support();
         let open = self.start.tray_hover || focused || has_text || self.start.menu || self.start.folder_menu || self.start.plus_menu || self.start.route_menu.is_some() || self.start.folder.is_some() || !self.start.files.is_empty();
         let effort_dd = dd("nt-effort")
+            .relative()
             .h(px(24.))
             .text_color(fg)
             .aria_label(effort_label.clone())
+            .aria_expanded(self.chip_menu == Some("nt-effort"))
             .child(effort_label)
             .child(glyph("chevron-down", 13., fg3))
-            .on_click(cx.listener(|_, _, _, cx| {
-                let mut p = Prefs::load();
-                let at = EFFORTS.iter().position(|e| *e == p.cli_effort.as_deref()).unwrap_or(0);
-                p.cli_effort = EFFORTS[(at + 1) % EFFORTS.len()].map(str::to_string);
-                p.save();
-                cx.notify();
-            }))
+            .on_click(cx.listener(|this, _, _, cx| this.toggle_chip_menu("nt-effort", cx)))
+            .children(self.chip_menu_el("nt-effort", pal, cx))
             .test_support();
         let bar = div()
             .id("nt-bar")
@@ -648,10 +645,12 @@ impl Cauldron {
 
     /// The trust chip (the board's "Ask first"): what the coding CLIs may do without asking.
     /// A click steps to the next of the three and saves it.
+    #[inline(never)]
     pub(super) fn trust_chip(&self, id: &'static str, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
         let label = super::thread::trust_label(&Prefs::load());
         div()
             .id(id)
+            .relative()
             .h(px(24.))
             .flex()
             .items_center()
@@ -666,13 +665,9 @@ impl Cauldron {
             .child(glyph("shield", 13., c(pal.fg3)))
             .child(label)
             .child(glyph("chevron-down", 12., c(pal.fg3)))
-            .on_click(cx.listener(|_, _, _, cx| {
-                let mut p = Prefs::load();
-                let at = super::thread::TRUST.iter().position(|(k, _)| *k == p.cli_permission).unwrap_or(0);
-                p.cli_permission = super::thread::TRUST[(at + 1) % super::thread::TRUST.len()].0.to_string();
-                p.save();
-                cx.notify();
-            }))
+            .aria_expanded(self.chip_menu == Some(id))
+            .on_click(cx.listener(move |this, _, _, cx| this.toggle_chip_menu(id, cx)))
+            .children(self.chip_menu_el(id, pal, cx))
             .test_support()
             .into_any_element()
     }
@@ -680,6 +675,7 @@ impl Cauldron {
     /// Ask · Plan · Act (Charles, 22 Nov, after Tuff UI): one segmented control for what a send
     /// may do. Ask answers only, Plan proposes first and edits nothing, Act edits and runs.
     /// Plan keeps the id `id` so its old tests and shortcuts still find it.
+    #[inline(never)]
     pub(super) fn plan_chip(&self, id: &'static str, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
         let now = if self.plan { 1 } else if self.ask { 0 } else { 2 };
         let modes: [(&str, &str, &str); 3] = [
@@ -701,7 +697,12 @@ impl Cauldron {
                     .rounded(px(radius::TAG))
                     .text_size(px(12.))
                     .text_color(if on { c(pal.fg) } else { c(pal.fg3) })
-                    .when(on, |d| d.bg(c(pal.raised)).shadow(super::lift(super::Lift::Button, pal)))
+                    // Ask in blue, Plan in yellow, Act on white (Charles, 22 Nov).
+                    .when(on && k == 2, |d| d.bg(c(pal.raised)).shadow(super::lift(super::Lift::Button, pal)))
+                    .when(on && k < 2, |d| {
+                        let hue = if k == 0 { Rgb::hex(0x4f8df5) } else { Rgb::hex(0xe8b227) };
+                        d.bg(ca(hue, 0.26)).border_1().border_color(ca(hue, 0.75)).text_color(c(pal.fg))
+                    })
                     .when(!on, |d| d.cursor_pointer().hover(|d| d.text_color(c(pal.fg))))
                     .aria_label(*label)
                     .aria_selected(on)
@@ -1228,12 +1229,16 @@ mod tests {
             assert_eq!(window.find("nt-trust").label(), Some("Ask first"));
             window.click("nt-trust", cx);
             window.render_frame(cx);
+            assert_eq!(window.find(("trust-opt", 0usize)).selected(), Some(true), "the menu lists the three, Ask first checked");
+            window.click(("trust-opt", 1usize), cx);
+            window.render_frame(cx);
             assert_eq!(window.find("nt-trust").label(), Some("Approve routine"));
             assert_eq!(Prefs::load().cli_permission, "auto", "saved");
             window.click("nt-trust", cx);
-            window.click("nt-trust", cx);
             window.render_frame(cx);
-            assert_eq!(window.find("nt-trust").label(), Some("Ask first"), "and round again");
+            window.click(("trust-opt", 0usize), cx);
+            window.render_frame(cx);
+            assert_eq!(window.find("nt-trust").label(), Some("Ask first"), "and back");
             window.click("add-file", cx);
             window.render_frame(cx);
             window.click("plus-plan", cx);
